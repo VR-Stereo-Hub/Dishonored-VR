@@ -409,7 +409,13 @@ def prototype(head):
 def main():
     check = "--check" in sys.argv
     import subprocess
-    text = io.open(SRC, encoding="utf-8", newline="").read().replace("\r\n", "\n")
+    if os.path.exists(SRC):
+        text = io.open(SRC, encoding="utf-8", newline="").read().replace("\r\n", "\n")
+    else:
+        # the single file is gone from the tree after Phase 1; the MSVC-ported
+        # version it was split from is the last commit that still had it
+        text = subprocess.run(["git", "show", "e361a449:src/dllmain.cpp"], cwd=ROOT,
+                              capture_output=True, check=True).stdout.decode("utf-8").replace("\r\n", "\n")
     orig = subprocess.run(["git", "show", "48766c07:src/dllmain.cpp"], cwd=ROOT,
                           capture_output=True, check=True).stdout.decode("utf-8").replace("\r\n", "\n")
     items, lines = parse_items(text)
@@ -539,7 +545,11 @@ def verify(items, lines, modules):
             while ls[s].strip() == "" or ls[s].startswith("//"):
                 s += 1
             t = "\n".join(ls[s:it[2]])
-            out[it[3]] = t.replace(it[5], strip_defaults(it[5]), 1)
+            t = t.replace(it[5], strip_defaults(it[5]), 1)
+            # the em-dash sweep (repo rule: hyphens only) is not a body change
+            t = re.sub(r"\s*—\s*", " - ", t)
+            t = re.sub(r"\s*-\s*", " - ", t)
+            out[it[3]] = t
         return out
     ob = bodies(oitems, olines)
     nb = {}

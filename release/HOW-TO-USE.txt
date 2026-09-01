@@ -1,0 +1,22 @@
+Dishonored VR - quick start
+===========================
+
+1. Copy d3d9.dll, dxvk_d3d9.dll and openvr_api.dll into the game folder:
+   <Steam>\steamapps\common\Dishonored\Binaries\Win32\
+2. Run setup_resolution.bat once (sets ResX=4032 ResY=2268 Fullscreen=False
+   in Documents\My Games\Dishonored\DishonoredGame\Config\DishonoredEngine.ini,
+   after a backup).
+3. Launch the game from Steam.
+   - SteamVR headsets (Vive, Index, WMR through SteamVR): start SteamVR first.
+   - Quest via Virtual Desktop: start VD streaming with VDXR as the runtime and
+     do NOT run SteamVR; the mod picks the OpenXR path. 72 Hz, SSW off.
+4. F5 recenters, F10 opens the settings overlay. Turn Motion Blur off in the
+   game's options.
+
+Files the mod writes next to the game exe: dishonored_vr.ini (settings),
+dishonored_vr.log (send this with any bug report), dishonored_vr.prev.log,
+dishonored_vr_crash.txt (only after a crash). Delete dishonored_vr.ini to
+reset every setting. Create disable_vr.txt to disable the mod without
+uninstalling.
+
+Known issues and troubleshooting: KNOWN_ISSUES.txt and TROUBLESHOOTING.txt.

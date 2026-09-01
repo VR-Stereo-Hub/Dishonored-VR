@@ -1,0 +1,11 @@
+# The nine names Dishonored.exe imports from d3d9.dll, undecorated.
+# tools\exports-check.ps1 requires an exact match.
+Direct3DCreate9
+Direct3DCreate9Ex
+D3DPERF_BeginEvent
+D3DPERF_EndEvent
+D3DPERF_SetOptions
+D3DPERF_GetStatus
+D3DPERF_SetMarker
+D3DPERF_SetRegion
+D3DPERF_QueryRepeatFrame
