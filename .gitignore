@@ -1,5 +1,40 @@
-*.dll
-*.log
-*.bmp
-*.dxbc
+# Build output
+build/
+build-dxvk/
+dist/
 out/
+.vs/
+.vscode/
+CMakeUserPresets.json
+
+# Logs and runtime artifacts
+*.log
+*.pdb
+imgui.ini
+
+# Binaries: only the vendored OpenVR loader is tracked
+*.dll
+!third_party/openvr_headers/bin/win32/openvr_api.dll
+
+# Frame dumps, captures and crash dumps are game-derived content
+*.bmp
+*.png
+*.dxbc
+*.dmp
+*.rdc
+captures/
+dumps/
+dxvk_framemap.txt
+dxvk_stereo.txt
+
+# Decompiled UnrealScript / extracted assets - Bethesda/Arkane copyright, never commit
+tools/uscript/*
+!tools/uscript/README.md
+*.u
+*.upk
+*.tfc
+*.bik
+
+# OS noise
+Thumbs.db
+desktop.ini
