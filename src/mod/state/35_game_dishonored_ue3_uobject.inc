@@ -10,7 +10,7 @@ static bool      g_peLogging = true;
 
 // ---------------------------------------------------------------------------
 // ProcessViewRotation is UE3's official "adjust where the player is looking"
-// hook — the engine calls it every frame with the view rotation as an OUT
+// hook - the engine calls it every frame with the view rotation as an OUT
 // parameter, precisely so that things like camera shake can modify it. That is
 // the sanctioned way in, on the game thread, at the right moment in the frame.
 // We add our head DELTA to it, so stick turning still composes normally and

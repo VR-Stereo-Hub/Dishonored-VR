@@ -25,6 +25,8 @@
 #include "core/hooks/vtable.h"
 #include "core/hooks/iat.h"
 #include "core/hooks/detour.h"
+#include "core/framework/command.h"
+#include "core/framework/status.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
@@ -239,4 +241,10 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::proxy
 #include "proxy/dllmain.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::capture
+#include "core/gfx/frame_dump.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::cmd
+#include "game/dishonored/commands.cpp"
 #undef DVR_CAT

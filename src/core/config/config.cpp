@@ -8,7 +8,7 @@ static void WriteDefaultIni(const char* ini)
     FILE* f = fopen(ini, "w");
     if (!f) return;
     fprintf(f,
-        "; Dishonored VR config — edit while game is closed\n"
+        "; Dishonored VR config - edit while game is closed\n"
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
         "Version=%d\n"
@@ -23,7 +23,7 @@ static void WriteDefaultIni(const char* ini)
         "[Screen]\n"
         "; FillView=1 shows the game at TRUE 1:1 scale: the image spans exactly\n"
         "; the FOV the game rendered (GameFOVDeg). To shrink the black border,\n"
-        "; raise the game's FOV (in-game slider, max 85 — or set m_fDefaultFOV in\n"
+        "; raise the game's FOV (in-game slider, max 85 - or set m_fDefaultFOV in\n"
         "; Documents\\My Games\\Dishonored\\DishonoredGame\\Config\\DishonoredCamera.ini\n"
         "; to 95-100) and set GameFOVDeg to the SAME number. A squarer game\n"
         "; resolution (e.g. 1600x1200 windowed) also fills more vertical view.\n"
@@ -80,7 +80,7 @@ static void WriteDefaultIni(const char* ini)
         "Deadzone=0.12\n"
         "Haptics=1\n"
         "[PosTrack]\n"
-        "; Stage 5: positional head tracking — lean/peek/crouch with your real\n"
+        "; Stage 5: positional head tracking - lean/peek/crouch with your real\n"
         "; head. F4 = toggle, F5 = re-center to your current head position.\n"
         "; Scale = game units per meter (UE3 ~50). Too weak? raise it. Too\n"
         "; strong/swimmy? lower it. MaxMeters clamps how far it will follow.\n"
@@ -96,7 +96,7 @@ static void WriteDefaultIni(const char* ini)
         "; Hand: which controller aims (left = Corvo's gun hand). PitchOffsetDeg\n"
         "; tilts the ray down from the controller's raw pose toward a natural\n"
         "; point (tune live: PageUp = shots land higher, PageDown = lower,\n"
-        "; 5 deg steps; the log prints the value — copy your favorite here).\n"
+        "; 5 deg steps; the log prints the value - copy your favorite here).\n"
         "; FlipRight/FlipUp=1 mirror the ray if left/right or up/down aim is\n"
         "; reversed. End key = toggle on/off live.\n"
         "Enabled=1\n"

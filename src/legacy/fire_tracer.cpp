@@ -115,7 +115,7 @@ static void FireTraceTick(bool triggerEdge)
             } else {
                 g_fireRounds++;
                 int novel = 0;
-                Log("firetrace: SHOT %d — %ld readers, background=%d, NOVEL:",
+                Log("firetrace: SHOT %d - %ld readers, background=%d, NOVEL:",
                     g_fireRounds, (long)n, g_bgN);
                 for (LONG i = 0; i < n; i++)
                     if (!BgHas(g_capEips[i])) {
@@ -124,10 +124,10 @@ static void FireTraceTick(bool triggerEdge)
                             g_capEips[i], g_capCount[i]);
                     }
                 if (!novel)
-                    Log("firetrace:   (none novel — fire reads same code as camera; widening next)");
+                    Log("firetrace:   (none novel - fire reads same code as camera; widening next)");
                 if (g_fireRounds >= 20) {
                     g_fireTraceEnabled = false;
-                    Log("firetrace: 20 shots captured — tracer off until next launch");
+                    Log("firetrace: 20 shots captured - tracer off until next launch");
                 }
             }
         }
@@ -255,7 +255,7 @@ static void SpawnTraceTick(bool triggerEdge)
         g_spawnRounds++;
         if (g_spawnRounds >= 30) {
             g_fireTraceEnabled = false;
-            Log("spawn: 30 shots scanned — tracer off until next launch");
+            Log("spawn: 30 shots scanned - tracer off until next launch");
         }
     }
 }

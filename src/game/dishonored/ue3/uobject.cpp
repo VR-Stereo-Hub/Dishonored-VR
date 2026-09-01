@@ -123,7 +123,7 @@ static bool LooksLikeObject(uint8_t* o)
 
 // Runs on the game thread for every script event. Must be cheap: this fires
 // thousands of times a second.
-// A UFunction is itself a UObject whose CLASS is named "Function" — that is an
+// A UFunction is itself a UObject whose CLASS is named "Function" - that is an
 // exact test, so instead of assuming which argument holds it, check all three.
 static uint8_t* AsUFunction(void* p)
 {

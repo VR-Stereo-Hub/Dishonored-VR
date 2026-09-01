@@ -65,7 +65,7 @@ static void RecenterHead()
 
 // Build g_viewA = rotate the world about the camera by your head's ABSOLUTE yaw
 // (relative to the last recenter). Mouse head-tracking is off while this runs,
-// so there's no second rotation to fight — the view turns exactly with your
+// so there's no second rotation to fight - the view turns exactly with your
 // head (1:1). Applied to c0, which the render actually uses.
 static void UpdateHeadInject()
 {
@@ -125,7 +125,7 @@ static void FindPovRotators()
 static void VpFindObjects()
 {
     g_vpN = 0;
-    // the live camera is already known — always watch it
+    // the live camera is already known - always watch it
     if (CamStillValid() && RangeReadable(g_camObj, VP_BYTES)) {
         g_vpObj[g_vpN] = g_camObj;
         g_vpName[g_vpN] = ObjClassName(g_camObj);
@@ -137,7 +137,7 @@ static void VpFindObjects()
     uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
     if (((uintptr_t)objs & 3) || num < 2000 || num > 4000000) return;
 
-    // The camera's POV is a CACHE — the last build proved writing it does
+    // The camera's POV is a CACHE - the last build proved writing it does
     // nothing, because the engine recomputes it every tick from the
     // PlayerController. So find the controller: walk the camera's pointer
     // fields until one resolves to an object whose class is a Controller.
@@ -168,12 +168,12 @@ static void VpFindObjects()
         if (!cn) continue;
         const char* nm = RealName(*(uint32_t*)(o + kNameOff));
         if (nm && !strncmp(nm, "Default__", 9)) continue;
-        // 'Tweaks' classes are config archetypes, not live actors — last run
+        // 'Tweaks' classes are config archetypes, not live actors - last run
         // filled up on those, which is why nothing moved.
         if (strstr(cn, "Tweaks") || strstr(cn, "Notify") || strstr(cn, "AnimNode"))
             continue;
         // NB: plain "Controller" also matches DisDarkVisionPpController and
-        // friends — post-process controllers that flooded the watch list and
+        // friends - post-process controllers that flooded the watch list and
         // pushed out everything that mattered.
         bool live = strstr(cn, "PlayerController") || strstr(cn, "PlayerCamera") ||
                     strstr(cn, "PlayerInput") || strstr(cn, "PlayerPawn") ||
@@ -194,7 +194,7 @@ static void VpFindObjects()
         Log("viewprobe: watching obj[%u] '%s' class '%s' @ %p",
             i, nm ? nm : "?", cn, (void*)o);
     }
-    if (!g_vpN) Log("viewprobe: no live player objects found — are you in gameplay?");
+    if (!g_vpN) Log("viewprobe: no live player objects found - are you in gameplay?");
 }
 
 
@@ -237,7 +237,7 @@ static void HeadInjectTick()
                 g_vpNoise[k][off/4] = d;
                 if (d) noisy++;
             }
-        Log("viewprobe: %d field(s) drift on their own — measuring against that", noisy);
+        Log("viewprobe: %d field(s) drift on their own - measuring against that", noisy);
         VpSnap(g_vpSnapA);
         VpNudgeMouse(1200);                   // a stimulus far above the drift
         g_vpPhase = 2; g_vpTimer = 10;
@@ -256,7 +256,7 @@ static void HeadInjectTick()
             int32_t b = *(int32_t*)(g_vpSnapB[k]+off);
             if (a == b) continue;
             int32_t d = b - a;
-            // must move much more than this field's own drift — a moving view
+            // must move much more than this field's own drift - a moving view
             // used to mark the rotation itself as "noise" and filter it out
             uint32_t mag = (uint32_t)(d < 0 ? -d : d);
             if (mag < g_vpNoise[k][off/4] * 3 + 60) continue;
@@ -269,7 +269,7 @@ static void HeadInjectTick()
                 g_vpName[k] ? g_vpName[k] : "?", (unsigned)off, a, b, d, fa, fb,
                 rotRange ? "   <== ROTATOR-SHAPED (likely the view yaw)"
                          : (fltRange ? "   <== float angle?" : ""));
-            // a rotator is pitch,yaw,roll — if this field and the next both
+            // a rotator is pitch,yaw,roll - if this field and the next both
             // moved and both sit in rotator range, this is the base
             if (rotRange && off + 8 <= VP_BYTES && g_rotN < 16) {
                 int32_t a2 = *(int32_t*)(g_vpSnapA[k]+off+4);
@@ -289,7 +289,7 @@ static void HeadInjectTick()
     if (!hits) Log("viewprobe: nothing moved beyond its own drift");
     VpNudgeMouse(-1200);                      // put the view back
     g_vpProbing = false;
-    Log("viewprobe: done — %d changed field(s), %d writable rotator(s) found",
+    Log("viewprobe: done - %d changed field(s), %d writable rotator(s) found",
         hits, g_rotN);
     for (int k = 0; k < g_rotN; k++)
         Log("viewprobe:   rotator[%d] = %s +0x%03x", k,
@@ -386,7 +386,7 @@ static void RotInjectTick()
         Log("viewinject: script camera writes went stale (save-load?) - the "
             "direct fallback is taking the camera back");
     }
-    // Menus drive their own camera work — stay clear. But "menu" here is only a
+    // Menus drive their own camera work - stay clear. But "menu" here is only a
     // guess from cursor visibility, and after a load the cursor reads visible
     // until real mouse movement arrives. That is exactly the "doesn't work till
     // I wiggle the mouse" problem, so require the camera to be settled too.
@@ -407,7 +407,7 @@ static void RotInjectTick()
         while (d < -32768.0f) d += 65536.0f;
         // A single frame can't legitimately turn you 180 degrees; if it looks
         // like it did, the engine re-based the rotation (load, cutscene,
-        // teleport) — resync instead of folding a bogus delta in forever.
+        // teleport) - resync instead of folding a bogus delta in forever.
         if (d > 32000.0f || d < -32000.0f) {
             g_rotBodyYaw = (float)r0[1];
             g_rotHaveRef = false;
@@ -454,7 +454,7 @@ static void RotInjectTick()
     g_injSnapOk = true;
 
     // Watchdog: last time this "worked then froze". If our writes stop moving
-    // the view — the head turns but the engine's yaw sits still — hand control
+    // the view - the head turns but the engine's yaw sits still - hand control
     // back to the mouse instead of leaving you stuck.
     static int   stuck = 0;
     static int32_t prevSeen = 0;
@@ -496,8 +496,8 @@ static void ApplyHeadToViewRotation(void* parms)
     // Two different classes declare this event with different signatures:
     //   PlayerController: (float DeltaTime, out Rotator View, out Rotator Delta)
     //   CameraModifier:   (Actor ViewTarget, float DeltaTime, out Rotator View, ...)
-    // so the rotator sits at +4 in one and +8 in the other. Find DeltaTime —
-    // a small positive float, ~0.016 — and the rotator follows it. Guessing +4
+    // so the rotator sits at +4 in one and +8 in the other. Find DeltaTime - 
+    // a small positive float, ~0.016 - and the rotator follows it. Guessing +4
     // is why turning your head moved the view up and down: that write was
     // landing on the pitch field of the other layout.
     // DeltaTime must look like a REAL frame time. "> 0 and < 0.5" was not
@@ -511,7 +511,7 @@ static void ApplyHeadToViewRotation(void* parms)
     uint32_t rotOff;
     if (f0 > kMinDT && f0 < kMaxDT)      rotOff = 4;
     else if (f4 > kMinDT && f4 < kMaxDT) rotOff = 8;
-    else return;                                     // unknown shape — hands off
+    else return;                                     // unknown shape - hands off
     int32_t* rot = (int32_t*)((uint8_t*)parms + rotOff);
 
     // second gate: it must actually look like a rotator before we touch it
@@ -586,8 +586,8 @@ static void ApplyHeadToViewRotation(void* parms)
     // moves this value.
     rot[1] += (int32_t)(dy * kUEPerRad * (float)g_flipYaw);
 
-    // PITCH is ABSOLUTE. Your head's pitch simply IS the view pitch — there is
-    // no body pitch to compose with — so accumulating deltas was wrong: any
+    // PITCH is ABSOLUTE. Your head's pitch simply IS the view pitch - there is
+    // no body pitch to compose with - so accumulating deltas was wrong: any
     // per-frame rounding just piles up, which is the slow climb into the sky.
     int32_t wantPitch = (int32_t)(g_hmdPitch * kUEPerRad * (float)g_flipPitch);
     if (wantPitch >  16000) wantPitch =  16000;
@@ -840,7 +840,7 @@ static void TrackHead(const TrackedDevicePose_t* hmd)
             // forward axis, so no counter-rotation needed below.
             g_leanFwdUU   = (dx*syw - dz*cyw) * g_posScaleUU;
             // The lean offset is measured in a roll-free head frame, but it is
-            // applied in the engine's view space — and native tracking can put
+            // applied in the engine's view space - and native tracking can put
             // ROLL in that view space. Counter-rotate, or leaning while your
             // head is tilted slides the world diagonally.
             if (g_rotInject && g_rotRoll) {
@@ -868,10 +868,10 @@ static void TrackHead(const TrackedDevicePose_t* hmd)
         // for the entire session - the desktop cursor exists over a windowed
         // app whether or not a menu is up. That made `menu` permanently true,
         // and one stuck flag took out three things at once:
-        //   - the eye quads used MenuFillScale (0.72) forever -> black border
-        //   - the SkelControl probe is gated on !menu -> hands never found,
+        //  - the eye quads used MenuFillScale (0.72) forever -> black border
+        //  - the SkelControl probe is gated on !menu -> hands never found,
         //     so the controllers drove nothing
-        //   - the head-mouse stayed parked
+        //  - the head-mouse stayed parked
         // The script events are authoritative and work in both modes; the
         // cursor only ever covered the cases they miss (the boot main menu).
         // Losing that in windowed mode is a far smaller price than this.
@@ -977,8 +977,8 @@ static void TrackHead(const TrackedDevicePose_t* hmd)
         if (menu != g_inMenu) {
             g_inMenu = menu;
             Log("pad: %s (cursor %s, script menu %s)",
-                menu ? "MENU mode — head-mouse paused"
-                     : "game mode — head-mouse active",
+                menu ? "MENU mode - head-mouse paused"
+                     : "game mode - head-mouse active",
                 cursorVis ? "visible" : "hidden",
                 g_menuOpen ? "open" : "closed");
         }
@@ -986,12 +986,12 @@ static void TrackHead(const TrackedDevicePose_t* hmd)
     }
 
     // While the power wheel is held open the game freezes look input, so any
-    // head-mouse deltas we send are EATEN — head and game camera would come
+    // head-mouse deltas we send are EATEN - head and game camera would come
     // back misaligned. Pause emulation and re-sync from the current pose when
     // the wheel closes (no snap, no accumulated offset).
     if (g_wheelHeld) { g_haveLastPose = false; return; }
 
-    // While injecting head-look into c0, DON'T also emulate mouse — one clean
+    // While injecting head-look into c0, DON'T also emulate mouse - one clean
     // absolute rotation, nothing to fight. (Turn your body with the controller.)
     if (g_injectHead) { g_haveLastPose = false; return; }
     if (g_rotInject)   { g_haveLastPose = false; return; }

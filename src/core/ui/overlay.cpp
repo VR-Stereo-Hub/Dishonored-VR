@@ -586,6 +586,51 @@ static void OverlayFrame()
 
     ImGui::EndTabItem(); }
 
+    if (ImGui::BeginTabItem("Log")) {
+        // The log ring (core/util/log.h): what the mod is doing right now,
+        // readable in the headset. Filter by category and level; the same
+        // lines are in dishonored_vr.log.
+        static int  filterCat = -1;          // -1 = all
+        static int  minLevel = 2;            // info
+        static bool autoScroll = true;
+        static dvr::log::RingLine lines[512];
+        static const char* kLevels[] = { "error", "warn", "info", "debug", "trace" };
+        ImGui::SetNextItemWidth(120);
+        if (ImGui::BeginCombo("category", filterCat < 0 ? "all" : dvr::log::cat_name((dvr::log::Cat)filterCat))) {
+            if (ImGui::Selectable("all", filterCat < 0)) filterCat = -1;
+            for (int c = 0; c < (int)dvr::log::Cat::COUNT; c++)
+                if (ImGui::Selectable(dvr::log::cat_name((dvr::log::Cat)c), filterCat == c)) filterCat = c;
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine(); ImGui::SetNextItemWidth(90);
+        ImGui::Combo("show", &minLevel, kLevels, 5);
+        ImGui::SameLine(); ImGui::Checkbox("follow", &autoScroll);
+        ImGui::SameLine();
+        if (ImGui::Button("copy tail")) {
+            size_t n = dvr::log::ring_copy(lines, 512);
+            static char clip[512 * 240];
+            size_t k = 0;
+            for (size_t i = (n > 60 ? n - 60 : 0); i < n && k + 240 < sizeof(clip); i++)
+                k += (size_t)snprintf(clip + k, sizeof(clip) - k, "[%lu] [%s] %s\n",
+                                      (unsigned long)lines[i].tick, dvr::log::cat_name((dvr::log::Cat)lines[i].cat), lines[i].text);
+            ImGui::SetClipboardText(clip);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("status.json")) dvr::status::write_now();
+        ImGui::BeginChild("logring", ImVec2(0, 0), true);
+        size_t n = dvr::log::ring_copy(lines, 512);
+        for (size_t i = 0; i < n; i++) {
+            const dvr::log::RingLine& l = lines[i];
+            if (filterCat >= 0 && l.cat != filterCat) continue;
+            if (l.level > minLevel) continue;
+            ImVec4 col = l.level == 0 ? ImVec4(1, 0.4f, 0.4f, 1) : l.level == 1 ? ImVec4(1, 0.85f, 0.4f, 1)
+                       : l.level >= 3 ? ImVec4(0.6f, 0.6f, 0.6f, 1) : ImVec4(0.9f, 0.9f, 0.9f, 1);
+            ImGui::TextColored(col, "[%s] %s", dvr::log::cat_name((dvr::log::Cat)l.cat), l.text);
+        }
+        if (autoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 40) ImGui::SetScrollHereY(1.0f);
+        ImGui::EndChild();
+    ImGui::EndTabItem(); }
+
     if (ImGui::BeginTabItem("Advanced")) {
         // 38.60: the frame-dump button is a diagnostic too - dev only.
         if (g_ovlDev && g_dxvkDumpReq &&

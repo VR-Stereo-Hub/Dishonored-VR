@@ -2,6 +2,14 @@
 // tools/split-source.py so function bodies can live in any file.
 #pragma once
 
+// debugging surface (game/dishonored/commands.cpp, core/gfx/frame_dump.cpp)
+static void DvrDebugInit();
+static bool DvrGameCommand(const char* cmd, const char* args);
+static void DvrConsoleApply();
+static void GameStateTick();
+static void FrameDumpRequest(const char* what);
+static void FrameDumpTick();
+
 static inline bool SkcAlive(int slot);
 static inline bool GraftDonorAlive(int u);
 static inline void GraftEmergencyRestore(void);

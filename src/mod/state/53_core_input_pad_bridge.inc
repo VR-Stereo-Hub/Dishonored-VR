@@ -13,7 +13,7 @@ static CRITICAL_SECTION g_padLock;         // guards g_padState
 static XINPUT_STATE g_padState;            // the synthesized pad (slot 0)
 static DWORD    g_padPacket = 0;
 static volatile LONG g_padPolls = 0;       // game polls this window (heartbeat)
-// (g_ctrlIdx moved up with the pose globals — Stage 7.3 needs it earlier)
+// (g_ctrlIdx moved up with the pose globals - Stage 7.3 needs it earlier)
 static uint64_t g_padBtnLast[2] = {0, 0};  // for raw-mask change logging
 
 #define IDXBTN(id) (1ull << (id))

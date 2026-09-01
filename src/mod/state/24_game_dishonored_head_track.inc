@@ -16,7 +16,7 @@ static uint32_t g_camObjIdx = 0;
 // Sets a CPU hardware breakpoint (debug register DR0, break-on-write) on the
 // live camera's world-matrix, then a vectored exception handler catches the
 // exact instruction that writes it each frame. That instruction lives inside
-// the engine's camera-calc function — the BioShock hook target. We record the
+// the engine's camera-calc function - the BioShock hook target. We record the
 // writing instruction pointers (+ a few caller return addresses) so we can
 // locate the function offline and hook it. READ-ONLY: we observe, never modify.
 // ============================================================================

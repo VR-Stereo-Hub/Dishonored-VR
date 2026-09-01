@@ -44,7 +44,7 @@ static float g_viewPitchRad = 0.0f;        // the view we just wrote, radians
 static float g_viewYawRad   = 0.0f;
 
 // Stage 7.3: raw device poses (3x4 device-to-tracking matrices) captured at
-// WaitGetPoses time — [0] is the HMD; controllers found via g_ctrlIdx.
+// WaitGetPoses time - [0] is the HMD; controllers found via g_ctrlIdx.
 static float g_devPose[16][3][4];
 static bool  g_devPoseOk[16] = {false};
 static int   g_ctrlIdx[2] = {-1, -1};   // tracked-device index: 0=left 1=right
@@ -61,7 +61,7 @@ static bool  g_haveRef = false;
 static int   g_flipYaw = 1, g_flipPitch = 1, g_flipRoll = 1; // ini sign flips (+/-1)
 
 // ----------------------------------------------------------------------------
-// Globals: STEREO (experimental — writes the game camera)
+// Globals: STEREO (experimental - writes the game camera)
 // Confirmed UE3 layout from probe v3 (DishonoredPlayerCamera live instance):
 //   +0x50 FMatrix (rows 0x50/0x60/0x70 = basis X/Y/Z, row3 0x80 = world pos)
 //   +0x80, +0x90, +0xc4 = cached camera world location (FVector, 3 floats)

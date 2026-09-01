@@ -276,7 +276,7 @@ static BOOL WINAPI hkSetWindowPlacement(HWND h, const WINDOWPLACEMENT* wp)
 {
     WINDOWPLACEMENT local;
     if (wp && g_holdWindow && h == g_gameWnd) {
-        int cx = wp->rcNormalPosition.right  - wp->rcNormalPosition.left;
+        int cx = wp->rcNormalPosition.right - wp->rcNormalPosition.left;
         int cy = wp->rcNormalPosition.bottom - wp->rcNormalPosition.top;
         VetoShrink(h, &cx, &cy, "SetWindowPlacement",
                    _ReturnAddress());
@@ -427,15 +427,15 @@ static void RenderSizeTick()
 
 
 // The game syncs Present to the monitor, which pins it to the display's
-// refresh. In VR the desktop refresh is irrelevant — the headset is fed from
-// our own 90 Hz clock — and since each game frame renders ONE eye, that cap
+// refresh. In VR the desktop refresh is irrelevant - the headset is fed from
+// our own 90 Hz clock - and since each game frame renders ONE eye, that cap
 // halves straight into the per-eye rate. Presenting immediately lets the GPU
 // run as fast as it can, and every extra frame is a fresher eye.
 static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where)
 {
     if (!g_forceNoVSync || !pp) return;
     if (pp->PresentationInterval == D3DPRESENT_INTERVAL_IMMEDIATE) return;
-    Log("perf: %s — present interval 0x%08x -> IMMEDIATE (vsync off, uncapped)",
+    Log("perf: %s - present interval 0x%08x -> IMMEDIATE (vsync off, uncapped)",
         where, (unsigned)pp->PresentationInterval);
     pp->PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
     pp->FullScreen_RefreshRateInHz = pp->Windowed ? 0 : pp->FullScreen_RefreshRateInHz;

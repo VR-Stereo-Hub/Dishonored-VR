@@ -248,7 +248,7 @@ static bool      g_haveSubmitted = false;
 // Your head's real position offset (vs a re-centerable reference) is folded
 // into the SAME c0 view-projection we already shear for stereo, as a pure
 // view-space translation. No rotation math (that's what went wild in the old
-// F3 experiments), no camera-object writes — just the proven machinery fed
+// F3 experiments), no camera-object writes - just the proven machinery fed
 // with live head position. F4 toggles, F5 re-centers.
 static bool  g_posTrack   = true;     // ini [PosTrack] Enabled, F4 toggle
 static float g_posScaleUU = 50.0f;    // game units per meter (UE3 ~1uu=2cm)

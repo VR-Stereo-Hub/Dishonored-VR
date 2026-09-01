@@ -43,7 +43,7 @@ static PFN_SetVSConstF     g_origSetVSConstF  = NULL;
 static PFN_SetRenderTarget g_origSetRT        = NULL;
 static HWND                g_gameWnd          = NULL;
 
-// current render-target dims (from SetRenderTarget) — used to shear ONLY the
+// current render-target dims (from SetRenderTarget) - used to shear ONLY the
 // main scene pass (wide aspect, full size), not square shadow maps or small
 // reflection/UI targets.
 static UINT g_curRTw = 0, g_curRTh = 0;

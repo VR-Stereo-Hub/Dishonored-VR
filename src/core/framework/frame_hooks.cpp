@@ -337,6 +337,14 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
     if (InterlockedCompareExchange(&g_gameExiting, 0, 0))
         return g_origPresent(self, src, dst, wnd, dirty);
     RenderSizeTick();
+    {   // the debugging surface: command.txt (1 Hz), status.json (1 Hz), the
+        // "[game] state:" transition line, and the crash filter re-arm
+        double nowMs = MaimNowMs();
+        dvr::command::poll(nowMs);
+        dvr::status::tick(nowMs);
+        GameStateTick();
+        if ((g_frame & 255) == 0) dvr::crash::rearm();
+    }
 
     // 38.17: the crash fingerprinter now guards BOTH backends. Tonight's
     // Vive load crash produced only the game's bare dialog because the VEH
@@ -469,7 +477,7 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
                 sbb->Release();
             }
         }
-        // (head-injection / camera tracer removed — stereo + mouse-look + AER only)
+        // (head-injection / camera tracer removed - stereo + mouse-look + AER only)
         // UE3 probe: automatic at ~frame 900 and ~frame 14400, or F9 on demand
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         bool f9Edge = f9 && !g_f9WasDown;
@@ -554,7 +562,7 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
         SteerTick();
 
         // ---------------------------------------------------------------
-        // Key map after the 30.9 diet — one job each:
+        // Key map after the 30.9 diet - one job each:
         //   F1/F2  image size        F3  bone probe (dump to log)
         //   F4     lean toggle       F5  recentre         F6 hook fallback
         //   F7     stereo            HOME weapon tracking END recalibrate
@@ -570,12 +578,12 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
                 g_wwPhaseEnd = MaimNowMs() + 15000.0;
                 g_wwHistLen = 0;             // histogram covers the window only
                 MaimHaptic(g_maimHand, 0.9f, 0.25f);
-                Log("weapon: === FIRE NOW === (15 s) — %ld baseline event(s) learned",
+                Log("weapon: === FIRE NOW === (15 s) - %ld baseline event(s) learned",
                     (long)g_wwBaseN);
             } else {
                 g_wwPhase = 0;
                 MaimHaptic(g_maimHand, 0.5f, 0.15f);
-                Log("weapon: done — %ld new event(s) appeared while firing",
+                Log("weapon: done - %ld new event(s) appeared while firing",
                     (long)g_wwLines);
                 LONG hl = g_wwHistLen; if (hl > 256) hl = 256;
                 for (int pass = 0; pass < 30; pass++) {
@@ -607,7 +615,7 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
                     g_wwLines = 0; g_wwBaseN = 0;
                     g_wwPhase = 1;
                     g_wwPhaseEnd = MaimNowMs() + 6000.0;
-                    Log("weapon: BASELINE for 6 s — walk around, do NOT fire");
+                    Log("weapon: BASELINE for 6 s - walk around, do NOT fire");
                 }
             }
             f6Was = f6;

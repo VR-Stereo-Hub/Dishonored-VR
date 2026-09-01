@@ -3,7 +3,7 @@
 
 
 // ----------------------------------------------------------------------------
-// UE3 introspection probe (Stage 3 groundwork — READ ONLY, no gameplay writes)
+// UE3 introspection probe (Stage 3 groundwork - READ ONLY, no gameplay writes)
 //
 // Static analysis of Dishonored.exe (no ASLR, base 0x400000) found:
 //   GNames.Data @ 0x1435674, GNames.Num @ 0x1435678 (TArray<FNameEntry*>)

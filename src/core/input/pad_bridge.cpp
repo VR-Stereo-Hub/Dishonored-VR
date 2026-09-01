@@ -329,7 +329,7 @@ static void UpdateVirtualPad()
             xs.Gamepad.sThumbLX      = PadStick(mx);
             xs.Gamepad.sThumbLY      = PadStick(my);
             xs.Gamepad.sThumbRX      = PadStick(tx);
-            // pitch belongs to the head — EXCEPT in menus (stick navigates)
+            // pitch belongs to the head - EXCEPT in menus (stick navigates)
             // and while the power wheel is held open (stick points at wedges)
             xs.Gamepad.sThumbRY      = (g_inMenu || wheelHeld) ? PadStick(ty) : 0;
             xs.Gamepad.bRightTrigger = (BYTE)(hr * 255.0f);
@@ -338,7 +338,7 @@ static void UpdateVirtualPad()
             static WORD lastB = 0xffff;
             if (b != lastB) { lastB = b; Log("pad: xbtn=0x%04x", b); }
 
-            // Stage 7.2: projectile-spawn tracer — on a shot, find the bolt/
+            // Stage 7.2: projectile-spawn tracer - on a shot, find the bolt/
             // projectile the game just spawned and read the aim it was given.
             if (g_fireTraceEnabled) {
                 static bool fireWas = false;
@@ -348,7 +348,7 @@ static void UpdateVirtualPad()
                 SpawnTraceTick(edge);
             }
 
-            // Stage 7.3: hand-aimed projectiles — steer the freshly spawned
+            // Stage 7.3: hand-aimed projectiles - steer the freshly spawned
             // bolt/bullet/grenade along the controller's ray.
             MotionAimTick(hl, hr);
         }
@@ -374,7 +374,7 @@ static void UpdateVirtualPad()
             static int quiet = 0;
             if (!active && ++quiet > 300) {
                 quiet = 0;
-                Log("pad: legacy input also silent (L=%d R=%d, states %d/%d) — "
+                Log("pad: legacy input also silent (L=%d R=%d, states %d/%d) - "
                     "restart SteamVR and re-pick the Dishonored binding",
                     g_ctrlIdx[0], g_ctrlIdx[1], (int)have[0], (int)have[1]);
             } else if (active) quiet = 0;
@@ -400,14 +400,14 @@ static void UpdateVirtualPad()
         }
     }
 
-    // SteamVR can report every action "inactive" — bindings unset, a crash that
+    // SteamVR can report every action "inactive" - bindings unset, a crash that
     // left the action set stale, the dashboard holding focus. When that happens
     // the pad reads dead even though the controllers are tracking fine (the log
     // shows pad=0 while the game keeps polling). Rather than leave you with no
     // input, drop to the legacy controller reads, which need no bindings.
     // Input keeps dying between sessions. Rather than give up on the action set
     // (which is what loses your custom bindings), re-register the manifest and
-    // re-acquire the handles — SteamVR drops them across app restarts, headset
+    // re-acquire the handles - SteamVR drops them across app restarts, headset
     // sleep and crashes. Only if that fails twice do we fall back to legacy.
     if (g_useActions) {
         static int  inactiveFrames = 0;
@@ -418,12 +418,12 @@ static void UpdateVirtualPad()
             inactiveFrames = 0;
             if (reinits < 3) {
                 reinits++;
-                Log("pad: actions inactive %s— re-registering the SteamVR action set "
+                Log("pad: actions inactive %s - re-registering the SteamVR action set "
                     "(attempt %d)", everActive ? "" : "since launch ", reinits);
                 InitActionInput();                    // re-register + re-resolve
             } else {
                 g_useActions = false;
-                Log("pad: action set would not come back after %d attempts — "
+                Log("pad: action set would not come back after %d attempts - "
                     "falling back to legacy input. In SteamVR: Settings > "
                     "Controllers > Manage Controller Bindings > Dishonored.", reinits);
             }
@@ -501,7 +501,7 @@ static void UpdateVirtualPad()
     if (active) {
         xs.dwPacketNumber = ++g_padPacket; g_padState = xs;
     } else if (g_padActive) {
-        // controllers just dropped — neutralize so no button/stick sticks
+        // controllers just dropped - neutralize so no button/stick sticks
         memset(&g_padState, 0, sizeof(g_padState));
         g_padState.dwPacketNumber = ++g_padPacket;
     }
@@ -550,7 +550,7 @@ static void UpdateVirtualPad()
             in[1].mi.dx = -1; in[1].mi.dwFlags = MOUSEEVENTF_MOVE;
             SendInput(2, in, sizeof(INPUT));
         }
-        // (auto-focus grab removed at user request — it was annoying and did
+        // (auto-focus grab removed at user request - it was annoying and did
         // not fix the load-in stuck-tracking issue anyway.)
     }
 }
@@ -607,14 +607,14 @@ static void InstallPadHook()
 {
     if (g_padHooked || !g_padEnabled) return;
     HMODULE xm = GetModuleHandleA("XINPUT1_3.dll");
-    if (!xm) { Log("pad: xinput1_3.dll not loaded — no pad hook"); return; }
+    if (!xm) { Log("pad: xinput1_3.dll not loaded - no pad hook"); return; }
     g_realXIGetState = (XInputGetState_t)GetProcAddress(xm, (LPCSTR)2);
     g_realXISetState = (XInputSetState_t)GetProcAddress(xm, (LPCSTR)3);
     void** slotGet = (void**)kXIGetSlot;
     void** slotSet = (void**)kXISetSlot;
     // sanity: the IAT slots must currently point at the real functions
     if (*slotGet != (void*)g_realXIGetState || *slotSet != (void*)g_realXISetState) {
-        Log("pad: IAT mismatch (get %p vs %p, set %p vs %p) — NOT hooking, tell Claude",
+        Log("pad: IAT mismatch (get %p vs %p, set %p vs %p) - NOT hooking, tell Claude",
             *slotGet, (void*)g_realXIGetState, *slotSet, (void*)g_realXISetState);
         return;
     }
@@ -627,5 +627,5 @@ static void InstallPadHook()
     *slotSet = (void*)hkXInputSetState;
     VirtualProtect((void*)kXISetSlot, sizeof(void*) * 2, op, &op);
     g_padHooked = true;
-    Log("pad: IAT hooked — Index controllers will appear as a 360 pad");
+    Log("pad: IAT hooked - Index controllers will appear as a 360 pad");
 }

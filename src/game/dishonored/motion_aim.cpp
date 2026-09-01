@@ -4,7 +4,7 @@
 
 
 // Game-world direction from a shot's original view basis (yaw/pitch, from the
-// projectile's own spawn forward — the ground truth of "where the game aims")
+// projectile's own spawn forward - the ground truth of "where the game aims")
 // plus the head-relative hand components. No camera object involved.
 static void MaimDirFromView(float viewYaw, float viewPitch, const float* rel,
                             float* out)
@@ -108,8 +108,8 @@ static void SteerTick()
             }
         }
 
-        // ONE address. The probe found the arrow's velocity at +0x1b4 —
-        // (-8817, 38926, -2644), magnitude exactly 40000, a speed constant —
+        // ONE address. The probe found the arrow's velocity at +0x1b4 - 
+        // (-8817, 38926, -2644), magnitude exactly 40000, a speed constant - 
         // and that is the same slot the pistol bullet used. So we rotate that
         // vector onto the hand ray, preserving its speed, and touch nothing
         // else. We keep doing it for a few frames because the engine fills
@@ -215,7 +215,7 @@ static void MaimWatchAdd(uint8_t* o)
 
 
 // One full string-name scan: collect projectile-class instances (the pool)
-// and PlayerCamera instances. Expensive-ish (like one 7.2 tracer scan) —
+// and PlayerCamera instances. Expensive-ish (like one 7.2 tracer scan) - 
 // runs at most once per 5 s and only when armed.
 static void MaimDiscover(void** objs, uint32_t num)
 {
@@ -234,7 +234,7 @@ static void MaimDiscover(void** objs, uint32_t num)
             g_maimCamN++;
         }
     }
-    Log("aim: discover — %d projectile pool object(s), %d camera(s), watching %d",
+    Log("aim: discover - %d projectile pool object(s), %d camera(s), watching %d",
         nw, g_maimCamN, g_maimWatchN);
 }
 
@@ -279,9 +279,9 @@ static void MotionAimTick(float hl, float hr)
     // (live keys moved to the mesh-control cluster; PitchOffsetDeg is ini-only)
     if (!g_maimEnabled) return;
 
-    // watchpoint flood guard: freed/reused memory can storm the VEH — the VEH
+    // watchpoint flood guard: freed/reused memory can storm the VEH - the VEH
     // itself must not suspend threads, so disarm from here (safe context)
-    if (g_awAddr && g_awTotal > 2000) AimWatchReport("flood — object likely freed");
+    if (g_awAddr && g_awTotal > 2000) AimWatchReport("flood - object likely freed");
 
     double now = MaimNowMs();
 
@@ -298,7 +298,7 @@ static void MotionAimTick(float hl, float hr)
             g_maimWindowLogged = false;
             float rel[3];
             bool haveHand = MaimHandRel(rel);
-            Log("aim: trigger pulled (L=%.2f R=%.2f, watching '%s' hand) — hand ray %s",
+            Log("aim: trigger pulled (L=%.2f R=%.2f, watching '%s' hand) - hand ray %s",
                 hl, hr, g_maimHand ? "right" : "left",
                 haveHand ? "OK" : "UNAVAILABLE (no controller pose!)");
         }
@@ -309,7 +309,7 @@ static void MotionAimTick(float hl, float hr)
             float t2 = g_maimHand ? hr : hl;
             if (t2 > 0.05f && t2 <= 0.55f && ++loud > 120) {
                 loud = 0;
-                Log("aim: aim-hand trigger reads %.2f — below the 0.55 fire threshold", t2);
+                Log("aim: aim-hand trigger reads %.2f - below the 0.55 fire threshold", t2);
             }
         }
     }
@@ -317,7 +317,7 @@ static void MotionAimTick(float hl, float hr)
         if (!g_maimWindowLogged) {
             g_maimWindowLogged = true;
             if (!g_maimWindowCaught)
-                Log("aim: shot window closed — nothing caught (power/hitscan, or a miss: check discover counts)");
+                Log("aim: shot window closed - nothing caught (power/hitscan, or a miss: check discover counts)");
             // arm the fire-writer watch on the freshest caught pooled object,
             // so the NEXT shot reveals who writes its rotation
             if (!g_awAddr) {

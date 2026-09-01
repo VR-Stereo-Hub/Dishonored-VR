@@ -1,0 +1,143 @@
+#define DVR_CAT ::dvr::log::Cat::cmd
+#include "core/framework/command.h"
+#include "core/framework/status.h"
+#include "core/util/log.h"
+#include "core/util/paths.h"
+#include "core/util/diag.h"
+
+#include <windows.h>
+#include <stdio.h>
+#include <string.h>
+
+namespace dvr::command {
+namespace {
+
+GameHandler g_game = nullptr;
+double      g_lastPollMs = 0.0;
+uint32_t    g_seq = 0;
+uint32_t    g_lines = 0;
+uint32_t    g_unknown = 0;
+FILETIME    g_startTime = {};
+FILETIME    g_lastWrite = {};
+bool        g_haveStart = false;
+
+bool read_and_truncate(char* buf, size_t cap)
+{
+    char path[MAX_PATH];
+    dvr::paths::in_data_dir(path, "command.txt");
+    HANDLE h = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD got = 0;
+    BOOL ok = ReadFile(h, buf, (DWORD)cap - 1, &got, nullptr);
+    buf[ok ? got : 0] = 0;
+    // consume: a command must never re-apply on the next poll or the next boot
+    SetFilePointer(h, 0, nullptr, FILE_BEGIN);
+    SetEndOfFile(h);
+    CloseHandle(h);
+    return ok && got > 0;
+}
+
+void write_ack(const char* text)
+{
+    char path[MAX_PATH];
+    dvr::paths::in_data_dir(path, "ack.txt");
+    FILE* f = fopen(path, "w");
+    if (!f) return;
+    fprintf(f, "seq %lu\n%s", (unsigned long)g_seq, text);
+    fclose(f);
+}
+
+} // namespace
+
+void set_game_handler(GameHandler h) { g_game = h; }
+uint32_t sequence() { return g_seq; }
+
+bool core_command(const char* cmd, const char* args)
+{
+    if (!strcmp(cmd, "status")) {
+        dvr::status::write_now();
+        DVR_INFO("status written to %s", dvr::status::path());
+        return true;
+    }
+    if (!strcmp(cmd, "log")) {
+        char a[32] = "", b[32] = "", c[32] = "";
+        sscanf(args, "%31s %31s %31s", a, b, c);
+        dvr::log::Level lvl; dvr::log::Cat cat;
+        if (!strcmp(a, "flush")) { dvr::log::flush(); return true; }
+        if (!strcmp(a, "level") && dvr::log::parse_level(b, &lvl)) {
+            dvr::log::set_all(lvl);
+            DVR_INFO("log level -> %s (all categories)", dvr::log::level_name(lvl));
+            return true;
+        }
+        if (!strcmp(a, "cat") && dvr::log::parse_cat(b, &cat) && dvr::log::parse_level(c, &lvl)) {
+            dvr::log::set_level(cat, lvl);
+            DVR_INFO("log category %s -> %s", dvr::log::cat_name(cat), dvr::log::level_name(lvl));
+            return true;
+        }
+        DVR_WARN("log: usage - log level <lvl> | log cat <cat> <lvl> | log flush");
+        return true;
+    }
+    if (!strcmp(cmd, "cmd")) {
+        DVR_INFO("cmd: seq=%lu lines=%lu unknown=%lu data=%s log=%s",
+                 (unsigned long)g_seq, (unsigned long)g_lines, (unsigned long)g_unknown,
+                 dvr::paths::data_dir(), dvr::log::path());
+        return true;
+    }
+    if (!strcmp(cmd, "skip")) {
+        DVR_INFO("skip: DVR_SKIP says %s is %s", args, dvr::diag::skip(args) ? "SKIPPED" : "installed");
+        return true;
+    }
+    return false;
+}
+
+void dispatch_line(const char* line)
+{
+    char buf[512];
+    strncpy(buf, line, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0;
+    char* p = buf;
+    while (*p == ' ' || *p == '\t') p++;
+    char* end = p + strlen(p);
+    while (end > p && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) *--end = 0;
+    if (!*p || *p == '#') return;
+    char* args = p;
+    while (*args && *args != ' ' && *args != '\t') args++;
+    if (*args) { *args++ = 0; while (*args == ' ' || *args == '\t') args++; }
+    for (char* q = p; *q; q++) if (*q >= 'A' && *q <= 'Z') *q += 32;
+    g_lines++;
+    DVR_INFO("> %s %s", p, args);
+    if (g_game && g_game(p, args)) return;
+    if (core_command(p, args)) return;
+    g_unknown++;
+    DVR_WARN("cmd: unknown command '%s' (see core/framework/command.h and game/dishonored/commands.cpp)", p);
+}
+
+void poll(double nowMs)
+{
+    if (nowMs - g_lastPollMs < 1000.0) return;
+    g_lastPollMs = nowMs;
+    if (!g_haveStart) { GetSystemTimeAsFileTime(&g_startTime); g_haveStart = true; }
+
+    char path[MAX_PATH];
+    dvr::paths::in_data_dir(path, "command.txt");
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fa)) return;
+    if (fa.nFileSizeLow == 0 && fa.nFileSizeHigh == 0) return;
+    if (CompareFileTime(&fa.ftLastWriteTime, &g_lastWrite) == 0) return;
+    g_lastWrite = fa.ftLastWriteTime;
+    if (CompareFileTime(&fa.ftLastWriteTime, &g_startTime) < 0) {
+        DVR_WARN("cmd: command.txt is older than this process - ignoring a stale file (cleared)");
+        char dummy[8];
+        read_and_truncate(dummy, sizeof(dummy));
+        return;
+    }
+    static char text[8192];
+    if (!read_and_truncate(text, sizeof(text))) return;
+    g_seq++;
+    char* ctx = nullptr;
+    for (char* line = strtok_s(text, "\n", &ctx); line; line = strtok_s(nullptr, "\n", &ctx))
+        dispatch_line(line);
+    write_ack(text);
+}
+
+} // namespace dvr::command

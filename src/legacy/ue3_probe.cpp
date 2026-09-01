@@ -212,15 +212,15 @@ static bool GraphInteresting(const char* c)
 
 
 // Walk outward from the PAWN, not the controller: the first-person arms and
-// weapon hang off the pawn as components. Everything is logged this time — no
-// "interesting name" filter — because guessing at names is what wasted the
+// weapon hang off the pawn as components. Everything is logged this time - no
+// "interesting name" filter - because guessing at names is what wasted the
 // earlier attempts. Read-only.
 static void PawnWalk()
 {
     // No cursor-visibility guard here: that heuristic reads "menu" for a while
     // after a load and just blocked the scan. Validating every pointer against
     // the live object table is what actually makes this safe.
-    if (!BuildLiveSet()) { Log("pawnwalk: object table busy — try again"); return; }
+    if (!BuildLiveSet()) { Log("pawnwalk: object table busy - try again"); return; }
     if (!CamStillValid()) { g_camObj = NULL; FindLiveCamera(); }
     if (!FindPlayerController() || !IsLiveObject(g_pcObj)) {
         Log("pawnwalk: no player controller"); return;
@@ -259,7 +259,7 @@ static void PawnWalk()
         // cached LocalToWorld matrix, and those are what we write to put it
         // in your hand.
         if ((nm && !strcmp(nm, "pMesh")) || strstr(cc, "SkeletalComponent")) {
-            Log("pawnwalk:   >>> first-person mesh component @ %p — fields:", (void*)c);
+            Log("pawnwalk:   >>> first-person mesh component @ %p - fields:", (void*)c);
             for (uint32_t o2 = 0x0c; o2 + 12 <= 0x400; o2 += 4) {
                 if (!RangeReadable(c + o2, 12)) break;
                 float* f = (float*)(c + o2);
@@ -308,11 +308,11 @@ static void PawnWalk()
 
 static void GraphWalk()
 {
-    if (g_inMenu) { Log("graph: skipped — not in gameplay"); return; }
-    if (!BuildLiveSet()) { Log("graph: object table not stable right now — try again"); return; }
+    if (g_inMenu) { Log("graph: skipped - not in gameplay"); return; }
+    if (!BuildLiveSet()) { Log("graph: object table not stable right now - try again"); return; }
     if (!CamStillValid()) { g_camObj = NULL; FindLiveCamera(); }
-    if (!FindPlayerController()) { Log("graph: no player controller yet — load a save first"); return; }
-    if (!IsLiveObject(g_pcObj)) { Log("graph: controller is not live — aborting"); return; }
+    if (!FindPlayerController()) { Log("graph: no player controller yet - load a save first"); return; }
+    if (!IsLiveObject(g_pcObj)) { Log("graph: controller is not live - aborting"); return; }
 
     uint8_t* q[64]; int qd[64];
     uint8_t* seen[192]; int seenN = 0;

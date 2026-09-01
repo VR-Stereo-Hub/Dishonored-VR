@@ -21,7 +21,7 @@ static float    g_wpnPosScale= 55.0f;   // game units per metre of hand travel
 static float    g_wpnPosMax  = 140.0f;  // clamp, game units
 static float    g_wpnFpTol   = 0.35f;   // how far a skeleton may differ
 // Master switch for the whole first-person-mesh experiment. It is OFF now.
-// The premise was that any constant upload of 9+ registers is a bone palette —
+// The premise was that any constant upload of 9+ registers is a bone palette - 
 // but that is simply not true: material arrays, light data and other per-draw
 // tables land in the same stream. Writing rotations into those corrupts world
 // geometry, which is why walls started warping and why hiding a "bone" broke

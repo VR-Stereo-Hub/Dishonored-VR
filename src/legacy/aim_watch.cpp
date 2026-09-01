@@ -97,10 +97,10 @@ static void AimWatchReport(const char* why)
     AimWatchApply(false);
     g_awAddr = 0;
     LONG n = g_awRecN; if (n > 8) n = 8;
-    Log("aimtrace: write-watch report (%s) — %ld writer(s):", why, (long)n);
+    Log("aimtrace: write-watch report (%s) - %ld writer(s):", why, (long)n);
     for (LONG i = 0; i < n; i++)
         Log("aimtrace:   eip=0x%08x hits=%u  ret=0x%08x 0x%08x 0x%08x",
             g_awRecs[i].eip, g_awRecs[i].n,
             g_awRecs[i].ret[0], g_awRecs[i].ret[1], g_awRecs[i].ret[2]);
-    if (!n) Log("aimtrace:   (no non-self writers — rotation NOT rewritten at fire?)");
+    if (!n) Log("aimtrace:   (no non-self writers - rotation NOT rewritten at fire?)");
 }

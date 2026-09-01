@@ -173,7 +173,7 @@ static void RenderEyesAndSubmit()
                 float span = fr - fl;
                 if (span > 0.1f) {
                     float ndcX = (2.0f * (-g_eyeOffs[eye][0]) / g_screenDist
-                                  - (fr + fl)) / span;
+                                 - (fr + fl)) / span;
                     pcx = (0.5f + 0.5f * ndcX) * (float)g_eyeW;
                 }
             }
@@ -228,6 +228,7 @@ xOvlSubmitOnly:
         }
     }
     g_ctx11->Flush();
+    FrameDumpTick();                         // `dump eyes|capture|hud` from the seam
     if (g_xrOn) {
         if (g_xrQuad) XrRtPublish();         // 38.3: hand off to the pace thread
         else          XrRtFrameEnd();        // 37.3: the frame goes out here
@@ -263,7 +264,7 @@ static void VRFrame(IDirect3DDevice9* dev)
     if (desc.Format != D3DFMT_X8R8G8B8 && desc.Format != D3DFMT_A8R8G8B8) {
         if (!g_warnedFormat) {
             g_warnedFormat = true;
-            Log("backbuffer format %d not handled — tell Claude!", (int)desc.Format);
+            Log("backbuffer format %d not handled - tell Claude!", (int)desc.Format);
         }
         bb->Release();
         return;
@@ -285,7 +286,7 @@ static void VRFrame(IDirect3DDevice9* dev)
     if (FAILED(hr)) {
         if (!g_warnedRTD) {
             g_warnedRTD = true;
-            Log("GetRenderTargetData failed (0x%08lx) — tell Claude! (AA on?)", (unsigned long)hr);
+            Log("GetRenderTargetData failed (0x%08lx) - tell Claude! (AA on?)", (unsigned long)hr);
         }
         return;
     }

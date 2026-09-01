@@ -21,7 +21,7 @@ static bool EnsureRealD3D9()
         _snprintf(dpath, MAX_PATH, "%s\\dxvk_d3d9.dll", g_dir);
         g_realD3D9 = LoadLibraryA(dpath);
         if (g_realD3D9)
-            Log("backend: DXVK loaded from dxvk_d3d9.dll — DX9 -> Vulkan");
+            Log("backend: DXVK loaded from dxvk_d3d9.dll - DX9 -> Vulkan");
     }
     if (!g_realD3D9) {
         char path[MAX_PATH];
@@ -54,6 +54,8 @@ static bool EnsureRealD3D9()
 extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
 {
     EnsureConfig(); // safe here (post loader-lock); not in DllMain
+    dvr::crash::install();   // fingerprint VEH + minidump filter, before any hook
+    DvrDebugInit();          // command seam + status provider
     {   // 37.0: XR-1 bench, armed only by the env var (xr_bench.bat)
         char xb[8] = "";
         if (GetEnvironmentVariableA("DISHONORED_VR_XR_BENCH", xb, sizeof(xb))

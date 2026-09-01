@@ -51,7 +51,7 @@ static void InitActionInput()
 {
     if (!g_padEnabled) return;
     if (!GetFnTable(IVRInput_Version, (void**)&g_input) || !g_input) {
-        Log("pad: IVRInput unavailable — staying on legacy input");
+        Log("pad: IVRInput unavailable - staying on legacy input");
         g_input = NULL; return;
     }
     char mpath[MAX_PATH], bpath[MAX_PATH];
@@ -95,7 +95,7 @@ static void InitActionInput()
     }
     if (!WriteTextFile(mpath, manifestBuf) ||
         !WriteTextFile(bpath, kBindingsKnuckles)) {
-        Log("pad: can't write action manifest — staying on legacy input");
+        Log("pad: can't write action manifest - staying on legacy input");
         g_input = NULL; return;
     }
     {   // 37.6: Quest Touch defaults beside the Index ones
@@ -145,7 +145,7 @@ static void InitActionInput()
         g_useActions = false; return;      // retryable
     }
     g_useActions = true;
-    Log("pad: ACTION input live — A buttons, trackpads, real stick clicks");
+    Log("pad: ACTION input live - A buttons, trackpads, real stick clicks");
 }
 
 
@@ -208,7 +208,7 @@ static bool TryInitVR()
         _snprintf(path, MAX_PATH, "%s\\openvr_api.dll", g_dir);
         g_openvr = LoadLibraryA(path);
         if (!g_openvr) {
-            Log("openvr_api.dll not found (err %lu) — VR disabled", GetLastError());
+            Log("openvr_api.dll not found (err %lu) - VR disabled", GetLastError());
             g_vrFailed = true;
             return false;
         }
@@ -218,7 +218,7 @@ static bool TryInitVR()
         g_VR_ErrDesc = (PFN_VR_GetVRInitErrorAsEnglishDescription)
                        GetProcAddress(g_openvr, "VR_GetVRInitErrorAsEnglishDescription");
         if (!g_VR_InitInternal || !g_VR_GetGenericInterface) {
-            Log("openvr_api.dll missing exports — VR disabled");
+            Log("openvr_api.dll missing exports - VR disabled");
             g_vrFailed = true;
             return false;
         }
@@ -231,7 +231,7 @@ static bool TryInitVR()
     EVRInitError err = EVRInitError_VRInitError_None;
     g_VR_InitInternal(&err, wantType);
     if (err != EVRInitError_VRInitError_None) {
-        Log("VR_InitInternal(%s) failed: %d (%s) — will retry",
+        Log("VR_InitInternal(%s) failed: %d (%s) - will retry",
             g_forceTheater ? "overlay" : "scene", (int)err,
             g_VR_ErrDesc ? g_VR_ErrDesc(err) : "?");
         g_vrFailed = true;
@@ -244,7 +244,7 @@ static bool TryInitVR()
             EnsureD3D11() && EnsurePipeline()) {
             g_mode = MODE_SCENE;
             g_vrReady = true; g_vrFailed = false;
-            Log("SCENE MODE ready — game view fills the headset, head drives camera");
+            Log("SCENE MODE ready - game view fills the headset, head drives camera");
             {   // 37.6: name the HMD; Quest-family gets the rigid screen
                 char hmdMk[128] = "", hmdMd[128] = "";
                 g_sys->GetStringTrackedDeviceProperty(0,
@@ -283,7 +283,7 @@ static bool TryInitVR()
             // (InitActionInput uses GetFnTableFwd = GetFnTable, defined below)
             return true;
         }
-        Log("scene mode setup failed — falling back to theater overlay");
+        Log("scene mode setup failed - falling back to theater overlay");
     }
 
     // theater fallback (stage-1 style)

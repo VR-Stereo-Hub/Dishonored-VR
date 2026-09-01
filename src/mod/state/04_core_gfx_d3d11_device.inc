@@ -9,7 +9,7 @@ static ID3D11Device*        g_dev11       = NULL;
 static ID3D11DeviceContext* g_ctx11       = NULL;
 static bool                 g_d3d11Failed = false;
 
-// Two game-frame textures — one per eye — for alternate-eye stereo. Each frame
+// Two game-frame textures - one per eye - for alternate-eye stereo. Each frame
 // the game renders one eye's view; we update only that eye's texture and keep
 // the other eye showing its last frame (the compositor reprojects the gap).
 static ID3D11Texture2D*          g_texGame[2] = {NULL, NULL};

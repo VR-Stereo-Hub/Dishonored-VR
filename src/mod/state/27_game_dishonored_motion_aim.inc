@@ -22,7 +22,7 @@ static MaimHit  g_maimHits[16];
 static int      g_maimHitN = 0;
 
 // Pooled-projectile watch list: Dishonored REUSES projectile objects (same
-// pointer, same GObjects slot — proven by 7.2/7.3 logs where repeat shots
+// pointer, same GObjects slot - proven by 7.2/7.3 logs where repeat shots
 // never re-appeared), so a pointer-diff alone misses every shot after the
 // first. Watched objects are caught by POSITION TELEPORT instead (pool reuse
 // snaps the object to the muzzle).
@@ -30,7 +30,7 @@ struct MaimWatch { uint8_t* ptr; void* cls; uint32_t nameIdx; float pos[3]; };
 static MaimWatch g_maimWatch[64];
 static int       g_maimWatchN = 0;
 
-// PlayerCamera instances (plural — stale ones exist; DishonoredPlayerCamera_1
+// PlayerCamera instances (plural - stale ones exist; DishonoredPlayerCamera_1
 // latched by FindLiveCamera had a FROZEN basis in the 7.3 test, which is why
 // every "hand" direction came out ~world +X). Cameras are now used ONLY for
 // the distance filter (min over instances); the aim basis comes from the
@@ -43,7 +43,7 @@ static void MaimHaptic(int hand, float amp, float durSec); // defined w/ pad cod
 
 // ---------------------------------------------------------------------------
 // Fire-function finder (7.3.2): the flight logs say the engine flies the bolt
-// along its ORIGINAL aim even after we rewrite every actor-side field — the
+// along its ORIGINAL aim even after we rewrite every actor-side field - the
 // trajectory almost certainly lives in a physics body (PhysX). So the real
 // redirect point is the CODE that initializes the shot. We arm a WRITE-ONLY
 // hardware watchpoint (DR0) on the pooled projectile's rotation yaw (+0xa0)

@@ -22,7 +22,7 @@ static inline float V3Norm(float* v)
 
 
 // Controller ray AND offset relative to the (roll-free) head, in tracking
-// space. rel/relPos = {right, up, forward}. Pure pose math — no game reads.
+// space. rel/relPos = {right, up, forward}. Pure pose math - no game reads.
 static bool HandRelFull(int hand, float* rel, float* relPos)
 {
     int devHand = (hand >= 0 && hand <= 1) ? g_ctrlIdx[hand] : -1;

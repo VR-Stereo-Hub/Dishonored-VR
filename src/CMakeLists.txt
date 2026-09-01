@@ -41,6 +41,8 @@ set(DVR_REAL_SOURCES
     core/hooks/vtable.cpp    core/hooks/vtable.h
     core/hooks/iat.cpp       core/hooks/iat.h
     core/hooks/detour.cpp    core/hooks/detour.h
+    core/framework/command.cpp core/framework/command.h
+    core/framework/status.cpp  core/framework/status.h
 )
 foreach(_f ${DVR_REAL_SOURCES})
     list(REMOVE_ITEM DVR_MODULE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${_f}")
@@ -67,4 +69,41 @@ target_link_libraries(dvr_proxy PRIVATE
 target_compile_options(dvr_proxy PRIVATE /W3 /permissive-)
 if(DVR_WITH_LEGACY)
     target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_LEGACY=1)
+endif()
+
+# --- xr_hello32 - standalone OpenXR smoke client -------------------------------
+# A 32-bit console app with NO mod code in it. tools\xrsim-selftest.ps1 runs it
+# against the simulated runtime: if it fails, the simulator is broken, not the
+# mod. Not shipped.
+if(DVR_WITH_OPENXR_LOADER)
+    add_executable(xr_hello32 tools/xr_hello32/main.cpp)
+    target_link_libraries(xr_hello32 PRIVATE openxr_loader d3d11 dxgi)
+endif()
+
+# --- dvr_xrsim32 - the simulated OpenXR runtime --------------------------------
+# A Quest-3-shaped 32-bit OpenXR runtime so an agent can drive head, hands and
+# controllers and capture per-eye compositor output with no headset. Selected
+# per process with XR_RUNTIME_JSON (tools\xrsim-launch.ps1). NOT part of the
+# mod and NOT in the release zip. It links NOTHING from the mod and must not
+# link openxr_loader either - it IS the runtime the loader loads.
+if(DVR_WITH_XRSIM)
+    add_library(dvr_xrsim32 SHARED
+        tools/xrsim/xrsim_common.h
+        tools/xrsim/xrsim_internal.h
+        tools/xrsim/xrsim_math.h
+        tools/xrsim/xrsim_log.cpp
+        tools/xrsim/xrsim_instance.cpp
+        tools/xrsim/xrsim_session.cpp
+        tools/xrsim/xrsim_frame.cpp
+        tools/xrsim/xrsim_actions.cpp
+        tools/xrsim/xrsim_control.cpp
+        tools/xrsim/xrsim_compositor.cpp
+        tools/xrsim/xrsim.def
+    )
+    set_target_properties(dvr_xrsim32 PROPERTIES PREFIX "" OUTPUT_NAME "dvr_xrsim32")
+    target_include_directories(dvr_xrsim32 PRIVATE tools/xrsim)
+    target_link_libraries(dvr_xrsim32 PRIVATE openxr_headers d3d11 dxgi d3dcompiler windowscodecs)
+    # SEH shims around every entry point need unwind semantics off; the shims
+    # deliberately hold no unwindable objects.
+    target_compile_options(dvr_xrsim32 PRIVATE /EHa)
 endif()

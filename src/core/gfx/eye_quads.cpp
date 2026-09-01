@@ -99,7 +99,7 @@ static bool BuildEyeQuads(float aspect)
         // frustum's vertical center is (t+b)/2 * D, horizontal center (l+r)/2*D.
         // 1:1 ANGULAR SCALE: the surface subtends exactly the game's rendered
         // horizontal FOV, so world geometry through the lens matches what the
-        // game drew — no zoom, no shrink. (Stretching wider than the rendered
+        // game drew - no zoom, no shrink. (Stretching wider than the rendered
         // FOV = the "super zoomed" bug.) To shrink the border, raise the FOV
         // the GAME renders (in-game slider / ini) and set GameFOVDeg to match.
         float H, W;

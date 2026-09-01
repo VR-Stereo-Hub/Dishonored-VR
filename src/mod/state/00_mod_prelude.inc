@@ -28,7 +28,7 @@
 //       screen-UV fix on/off, Scroll Lock frame dump.
 // Blink aims by redirecting the engine's own aim vector at its source
 // (0xbf55a3), so the engine traces, validates and draws along your controller.
-// Diagnostics: dishonored_vr.log — send it back after every test.
+// Diagnostics: dishonored_vr.log - send it back after every test.
 // ============================================================================
 
 #ifndef WIN32_LEAN_AND_MEAN

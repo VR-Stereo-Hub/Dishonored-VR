@@ -72,6 +72,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     }
     SetResApply();     // 32.83: ask the engine for the resolution, once
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
+    DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
     BlinkTestApply();  // 32.14: same lane, same reason
     SkcRotApply();     // 32.1: same trick for the hand rotators
@@ -121,7 +122,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // The differential watch showed two things: the fire input arrives as a
     // script event on the controller, and the arrow itself raises script events
     // the instant it exists. So we no longer scan GObjects hoping to catch a
-    // projectile — the engine hands us the object, on the game thread, at the
+    // projectile - the engine hands us the object, on the game thread, at the
     // moment it spawns. The redirect maths is the one that measured
     // dot(hand)=+1.00 back in 7.3; only the catching was ever unreliable.
     if (g_maimEnabled && obj) {
@@ -578,7 +579,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
         const char* nm0 = RealName(idx0);
         if (nm0 && !strcmp(nm0, "ProcessViewRotation")) {
             g_idxViewRot = idx0;
-            Log("script: ProcessViewRotation found — head tracking now goes "
+            Log("script: ProcessViewRotation found - head tracking now goes "
                 "through the engine's own view hook");
         }
     }
@@ -593,7 +594,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     const char* name = RealName(idx);
     if (name && !strcmp(name, "ProcessViewRotation") && g_idxViewRot == 0xffffffffu) {
         g_idxViewRot = idx;
-        Log("script: ProcessViewRotation found — head tracking now goes through "
+        Log("script: ProcessViewRotation found - head tracking now goes through "
             "the engine's own view hook");
     }
     const char* on = NULL;
@@ -610,7 +611,7 @@ static bool InstallProcessEventHook()
     if (!RangeReadable(at, 8)) { Log("script: ProcessEvent address unreadable"); return false; }
     // expected prologue: push ebp; mov ebp,esp; push -1   (exactly 5 bytes)
     if (!(at[0] == 0x55 && at[1] == 0x8B && at[2] == 0xEC && at[3] == 0x6A && at[4] == 0xFF)) {
-        Log("script: ProcessEvent prologue mismatch (%02x %02x %02x %02x %02x) — not hooking",
+        Log("script: ProcessEvent prologue mismatch (%02x %02x %02x %02x %02x) - not hooking",
             at[0], at[1], at[2], at[3], at[4]);
         return false;
     }
@@ -651,7 +652,7 @@ static bool InstallProcessEventHook()
     FlushInstructionCache(GetCurrentProcess(), at, 5);
 
     g_peInstalled = true;
-    Log("script: ProcessEvent hooked at 0x%08x (stub %p) — listening for named events",
+    Log("script: ProcessEvent hooked at 0x%08x (stub %p) - listening for named events",
         (unsigned)kProcessEvent, (void*)g_peStub);
     return true;
 }

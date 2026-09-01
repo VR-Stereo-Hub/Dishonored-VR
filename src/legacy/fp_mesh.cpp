@@ -4,16 +4,16 @@
 
 
 // ============================================================================
-// Stage 9.0 — WEAPON OBJECT FINDER (the BioShock-mod approach, properly)
+// Stage 9.0 - WEAPON OBJECT FINDER (the BioShock-mod approach, properly)
 //
 // What the BioShock Remastered VR dev actually did (per their repo): they did
-// NOT fingerprint shader constants. They hooked the ENGINE — PlayerCalcView
-// for the camera — and moved the weapon at the ACTOR/skeleton level, with
+// NOT fingerprint shader constants. They hooked the ENGINE - PlayerCalcView
+// for the camera - and moved the weapon at the ACTOR/skeleton level, with
 // per-weapon grip offsets and the forearms hidden. Our 8.x shader-constant
 // hunt was the wrong tree: Dishonored doesn't separate the FP weapon into its
 // own view-projection, so there is nothing to fingerprint there.
 //
-// The good news: writing UE3 object fields DOES work in this game — the
+// The good news: writing UE3 object fields DOES work in this game - the
 // projectile velocity rewrite provably steers shots. So the weapon mesh
 // should move the same way: find the first-person weapon's mesh COMPONENT in
 // GObjects and write its relative rotation each frame.
@@ -21,7 +21,7 @@
 // This is the discovery step: press INSERT while a weapon is drawn and we log
 // every weapon-ish object plus every object holding a vector near the camera
 // (= attached to the player), dumping their FRotator/FVector fields with
-// offsets. Press it with the sword out, then again with the crossbow out —
+// offsets. Press it with the sword out, then again with the crossbow out - 
 // what changes between the two dumps is the active weapon. READ-ONLY.
 // ============================================================================
 static bool ObjNearCamVec(uint8_t* o, const float* camPos, uint32_t maxOff,
@@ -49,7 +49,7 @@ static bool ObjNearCamVec(uint8_t* o, const float* camPos, uint32_t maxOff,
 static void WeaponObjScan()
 {
     if (!CamStillValid()) { g_camObj = NULL; FindLiveCamera(); }
-    if (!CamStillValid()) { Log("wpnscan: no live camera — retry in gameplay"); return; }
+    if (!CamStillValid()) { Log("wpnscan: no live camera - retry in gameplay"); return; }
     if (!RangeReadable(g_camObj + 0x80, 12)) { Log("wpnscan: camera unreadable"); return; }
     float* cp = (float*)(g_camObj + 0x80);
     float camPos[3] = { cp[0], cp[1], cp[2] };
@@ -65,7 +65,7 @@ static void WeaponObjScan()
     Log("wpnscan: ==== BEGIN  cam=(%.0f,%.0f,%.0f) fwd=(%.2f,%.2f,%.2f) objs=%u ====",
         camPos[0], camPos[1], camPos[2], cf[0], cf[1], cf[2], num);
 
-    // Histogram every INSTANCE that carries a vector near the camera — those
+    // Histogram every INSTANCE that carries a vector near the camera - those
     // are the things attached to the player (arms, weapon, held items). Keyed
     // by class pointer so the walk stays cheap.
     struct Bucket { void* cls; const char* name; uint32_t n; float minD;
@@ -128,9 +128,9 @@ static void WeaponObjScan()
 
 
 // ============================================================================
-// Stage 8.3 — FIRST-PERSON WEAPON MESH FINDER (BioShock-style engine approach)
+// Stage 8.3 - FIRST-PERSON WEAPON MESH FINDER (BioShock-style engine approach)
 //
-// The shader-matrix trick (8.0-8.2) can't isolate the weapon — Dishonored
+// The shader-matrix trick (8.0-8.2) can't isolate the weapon - Dishonored
 // doesn't draw it with a separable projection. BioShock's mod worked at the
 // ENGINE level: it moved the actual first-person arm/weapon skeletal mesh.
 // Unlike the camera matrix (renderer ignores writes to it), a mesh's transform
@@ -154,7 +154,7 @@ static void WeaponMeshFind()
     }
     Log("wpnfind: ==== camera pos=(%.1f,%.1f,%.1f) haveCam=%d ====",
         cam[0], cam[1], cam[2], (int)haveCam);
-    if (!haveCam) { Log("wpnfind: no camera — aborting"); return; }
+    if (!haveCam) { Log("wpnfind: no camera - aborting"); return; }
 
     void**   objs = *(void***)kGObjHdr;
     uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
@@ -243,15 +243,15 @@ static void WeaponDiagDump()
 }
 
 
-// Stage 8.1 — the weapon-VP fingerprint discovered by the 8.0 diagnostic:
+// Stage 8.1 - the weapon-VP fingerprint discovered by the 8.0 diagnostic:
 // first-person weapon/arms draws use a camera-locked VP whose z-translation
 // is CONSTANT (-5.0) and whose z-scale is tiny (depth-compressed slab),
 // while the world VP's z-terms track the camera through the level.
 static inline bool WeaponVpMatch(const float* m)
 {
     // 8.1 lesson (user test): the m14==-5 / tiny-m10 family is the WORLD
-    // (rotating it made the world follow the hand). The OTHER family —
-    // m10 ~1.8 with large scene-varying negative m14 — is the weapon pass.
+    // (rotating it made the world follow the hand). The OTHER family - 
+    // m10 ~1.8 with large scene-varying negative m14 - is the weapon pass.
     return m[10] > 0.8f && m[10] < 3.0f && m[14] < -50.0f;
 }
 
@@ -303,7 +303,7 @@ static bool BlockFpMatches(int ci, float fp)
 {
     if (ci < 0 || ci >= 32) return false;
     float want = g_blk[ci].fp;
-    if (want <= 0.0f) return true;              // never captured — allow
+    if (want <= 0.0f) return true;              // never captured - allow
     float tol = g_wpnFpTol * (want > 1.0f ? want : 1.0f);
     float d = fp - want; if (d < 0) d = -d;
     return d <= tol;
@@ -396,7 +396,7 @@ static void WeaponAttachPrepare()
 
     // MESH-LOCAL hand rotation. The bone dumps show translations of only
     // 3-150uu, so Dishonored uploads bone matrices in mesh-local space, not
-    // world space — which is exactly why a camera-distance filter could never
+    // world space - which is exactly why a camera-distance filter could never
     // match them. In local space we don't need the camera at all: rotate the
     // skeleton about its own origin (which for the FP mesh IS the viewpoint).
     for (int h = 0; h < 2; h++) {
@@ -452,7 +452,7 @@ static void WeaponAttachPrepare()
     if (!MaimHandRel(rel)) return;                 // no controller pose yet
 
     // hand ray in world space, built on the camera basis (same math the
-    // projectile redirect uses — that one is confirmed working)
+    // projectile redirect uses - that one is confirmed working)
     float Fp[3] = { F[0]*rel[2] + R[0]*rel[0] + U[0]*rel[1],
                     F[1]*rel[2] + R[1]*rel[0] + U[1]*rel[1],
                     F[2]*rel[2] + R[2]*rel[0] + U[2]*rel[1] };
@@ -544,7 +544,7 @@ static void ShapeDump()
 
 // Rotate a bone palette: each bone is 3 registers, transposed 3x4, so its
 // world position is the 4th column. Bones within the radius get rotated about
-// the camera onto the hand ray — this is the skinned-mesh equivalent of the
+// the camera onto the hand ray - this is the skinned-mesh equivalent of the
 // rigid path, and the one that should actually catch the arms/weapon.
 // Collapse every bone to a point: the mesh becomes degenerate triangles and
 // stops being visible. This is how we remove the forearms without touching
@@ -689,7 +689,7 @@ static void FpRawDump()
         for (int k = 0; k < 4; k++) {
             float v = f[k];
             char one[32];
-            if (v != v || v > 1.0e9f || v < -1.0e9f) strcpy(one, "    -   ");
+            if (v != v || v > 1.0e9f || v < -1.0e9f) strcpy(one, "  - ");
             else snprintf(one, sizeof(one), "%8.3f", v);
             if (k == 0) strcpy(fb, one); else { strcat(fb, " "); strcat(fb, one); }
         }

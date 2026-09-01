@@ -29,7 +29,7 @@ static uint32_t g_traceArmFrame = 0;
 static uint32_t g_hwNibble = 0xD;
 
 // ============================================================================
-// Stage 7.0 — FIRE-AIM TRACER (motion-controls expedition, step 1)
+// Stage 7.0 - FIRE-AIM TRACER (motion-controls expedition, step 1)
 //
 // Goal: find the native code that computes a shot's start/direction, so we can
 // substitute the hand ray (BioShock-style). Method: when the player pulls a
@@ -42,7 +42,7 @@ static uint32_t g_hwNibble = 0xD;
 // DIFFERENTIAL design (Stage 7.1): a per-shot fire read is a needle in the
 // haystack of per-frame camera/aim ticks. So we continuously learn the
 // BACKGROUND set of readers during normal play (short samples between shots),
-// then on a trigger pull report only readers NOT already in the background —
+// then on a trigger pull report only readers NOT already in the background - 
 // the discrete fire event. Four watchpoints: camera ORIENTATION (basis X row
 // +0x50, right row +0x60 = the fire DIRECTION source) and POSITION (POV caches
 // +0x90, +0xC4 = the fire ORIGIN). READ-ONLY: observes, never modifies.

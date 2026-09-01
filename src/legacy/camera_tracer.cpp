@@ -104,7 +104,7 @@ static void ArmCameraTrace()
 {
     if (g_traceState != 0) return;
     if (!CamStillValid()) { g_camObj = NULL; FindLiveCamera(); }
-    if (!g_camObj) { Log("trace: no camera yet — load a level, then press F4"); return; }
+    if (!g_camObj) { Log("trace: no camera yet - load a level, then press F4"); return; }
 
     // watch the camera world-position X float (written every frame by the
     // camera update). +0x80 = matrix translation row / POV location.

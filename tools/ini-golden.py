@@ -46,7 +46,7 @@ def main():
     if len(sys.argv) >= 3 and sys.argv[1] == "--check":
         got = io.open(sys.argv[2], encoding="utf-8").read().replace("\r\n", "\n")
         want = io.open(GOLDEN, encoding="utf-8").read().replace("\r\n", "\n")
-        norm = lambda t: t.replace("—", "-")
+        norm = lambda t: t.replace(chr(0x2014), "-")
         if norm(got) == norm(want):
             print("ini golden: MATCH")
             return 0

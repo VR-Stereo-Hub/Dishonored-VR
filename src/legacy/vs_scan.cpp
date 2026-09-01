@@ -48,7 +48,7 @@ static inline bool IsMirrored(const float* m)
 
 
 // Are we currently drawing the MAIN scene pass? Shadow maps are square, small
-// reflection/UI targets are small — the main view is a wide (16:9-ish) target
+// reflection/UI targets are small - the main view is a wide (16:9-ish) target
 // near the game resolution. Only shear that one; shearing shadow/reflection
 // passes produces artifacts and was the source of the hotkey crash.
 static inline bool IsMainScenePass()
@@ -72,7 +72,7 @@ static inline void ShearVP(float* m, float eyeSign)
         m[0]  += s * m[3];    // r0: x += s*w
         m[4]  += s * m[7];    // r1
         m[8]  += s * m[11];   // r2
-        m[12] += s * (m[15] - g_converge); // r3 (pos.w=1): +s*w  - s*convergence
+        m[12] += s * (m[15] - g_converge); // r3 (pos.w=1): +s*w - s*convergence
     } else {
         // column-major fallback
         m[0]  += s * m[12];
@@ -86,7 +86,7 @@ static inline void ShearVP(float* m, float eyeSign)
 // Stage 5.0: fold the positional head offset (lean/peek/crouch) into the VP as
 // a pure view-space translation. A camera moved right by t game-units changes
 // clip.x by -t*P00 for every world vertex (w=1); after the perspective divide
-// that's ndc -t*P00/w — near objects shift more than far ones = true positional
+// that's ndc -t*P00/w - near objects shift more than far ones = true positional
 // parallax. P00/P11 (the projection scales) are recovered from the matrix's own
 // column norms, so no FOV assumption is needed. Unlike the stereo shear there
 // is NO uniform screen-shift term: at infinity the world stays put, which is

@@ -82,7 +82,7 @@ static void CameraHookTick()
 
     if (f3edge) {
         if (!CamStillValid()) { g_camObj = NULL; FindLiveCamera(); }
-        if (!g_camObj) { Log("headinject: no camera yet — load a level first"); return; }
+        if (!g_camObj) { Log("headinject: no camera yet - load a level first"); return; }
         g_injectHead = !g_injectHead;
         if (g_injectHead) RecenterHead();
         Log("headinject: %s (F3)", g_injectHead ? "ON" : "off");

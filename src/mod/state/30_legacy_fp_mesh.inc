@@ -10,7 +10,7 @@
 // the rotation rows (+0x50/+0x60/+0x70) and position (+0x80) into the camera
 // object, with ecx = camera 'this'. We splice a 5-byte detour at its clean
 // epilogue (0x56dd36 = pop esi;mov esp,ebp;pop ebp;ret) so that AFTER the game
-// builds the matrix we can overwrite the rotation — making the ENGINE render
+// builds the matrix we can overwrite the rotation - making the ENGINE render
 // from our chosen orientation. Milestone: a fixed 20 deg test yaw (F3) to
 // confirm the render actually follows this matrix. Default OFF / not installed.
 // ============================================================================
