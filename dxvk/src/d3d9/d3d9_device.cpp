@@ -2087,17 +2087,12 @@ namespace dxvk {
     if (unlikely(ds && !(ds->GetCommonTexture()->Desc()->Usage & D3DUSAGE_DEPTHSTENCIL)))
       return D3DERR_INVALIDCALL;
 
-    // M4.1: depth has to be twinned per eye too, and a shared depth buffer
-    // between the two eyes is one of the ways a naive rewrite breaks.
-    if (fmActive) {
-      const D3D9CommonTexture* dt = ds != nullptr ? ds->GetCommonTexture() : nullptr;
-      if (dt != nullptr)
-        Logger::info(str::format("FM ds #", FmRtId(dt), " ",
-          dt->Desc()->Width, "x", dt->Desc()->Height,
-          " fmt=", (int32_t)dt->Desc()->Format, " @d", fmDraw));
-      else
-        Logger::info(str::format("FM ds null @d", fmDraw));
-    }
+    // M4.2: the depth-binding log is REMOVED. M4.1 added two things at once -
+    // render-target IDs in an existing log line, and a brand new log site
+    // inside SetDepthStencilSurface - and the game crashed on launch. Two
+    // changes, one symptom, no way to tell which. The new call site is the
+    // riskier of the two by construction, so it goes first and the safe half
+    // ships alone. Depth topology can be recovered later from the RT graph.
 
     if (m_state.depthStencil == ds)
       return D3D_OK;
