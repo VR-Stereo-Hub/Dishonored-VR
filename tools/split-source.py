@@ -547,19 +547,32 @@ def verify(items, lines, modules):
             t = "\n".join(ls[s:it[2]])
             t = t.replace(it[5], strip_defaults(it[5]), 1)
             # the em-dash sweep (repo rule: hyphens only) is not a body change
-            t = re.sub(r"\s*—\s*", " - ", t)
+            t = re.sub("\\s*\u2014\\s*", " - ", t)
             t = re.sub(r"\s*-\s*", " - ", t)
             out[it[3]] = t
         return out
     ob = bodies(oitems, olines)
+    # functions replaced by a real module with its own API (Phase 2+): their
+    # original bodies are gone on purpose
+    CONVERTED = {"Log", "LogFlush", "XrVeh", "MaimNowMs", "RangeReadable", "SafeRead32",
+                 "IniFloat", "WriteTextFile", "PatchVtable", "FindIatSlotIn", "FindIatSlot"}
     nb = {}
-    for mod in modules:
-        path = os.path.join(OUT, mod + ".cpp")
+    import glob as _glob
+    files = set(os.path.join(OUT, mod + ".cpp") for mod in modules)
+    files |= set(_glob.glob(os.path.join(OUT, "core", "**", "*.cpp"), recursive=True))
+    files |= set(_glob.glob(os.path.join(OUT, "game", "**", "*.cpp"), recursive=True))
+    files |= set(_glob.glob(os.path.join(OUT, "legacy", "*.cpp")))
+    for path in sorted(files):
+        if not os.path.exists(path):
+            continue
         t = io.open(path, encoding="utf-8", newline="").read().replace("\r\n", "\n")
-        its, ls = parse_items(t)
+        try:
+            its, ls = parse_items(t)
+        except SystemExit:
+            continue   # a real module (namespaces): not unity-style, nothing to compare
         nb.update(bodies(its, ls))
     changed = [n for n in ob if n in nb and ob[n] != nb[n]]
-    missing = [n for n in ob if n not in nb]
+    missing = [n for n in ob if n not in nb and n not in CONVERTED]
     extra = [n for n in nb if n not in ob]
     print(f"check-move: {len(ob)} original functions, {len(nb)} in tree; "
           f"changed {len(changed)}, missing {len(missing)}, extra {len(extra)}")

@@ -35,6 +35,10 @@ tools/uscript/*
 *.tfc
 *.bik
 
+# Python bytecode from the tools
+__pycache__/
+*.pyc
+
 # OS noise
 Thumbs.db
 desktop.ini
