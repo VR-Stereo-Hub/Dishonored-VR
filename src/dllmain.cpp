@@ -3742,7 +3742,7 @@ static bool HmLoadObj(int h, const char* name)
     static Mtl mtl[64]; int nmtl = 0;
     {
         char mp[MAX_PATH];
-        _snprintf(mp, MAX_PATH, "%s\vrhands\%s.mtl", g_dir, name);
+        _snprintf(mp, MAX_PATH, "%s\\vrhands\\%s.mtl", g_dir, name);
         FILE* mf = fopen(mp, "r");
         if (mf) {
             char ml[512];
