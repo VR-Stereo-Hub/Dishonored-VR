@@ -6709,25 +6709,6 @@ namespace dxvk {
     // M3.1: publish the finished frame's spliced-draw count for the proxy.
     dxvk_vr_splices = stSpliceAccum;
     stSpliceAccum = 0;
-    // M8.4: STALE WRIST PIXELS. The HUD RT clear was lazy - it ran inside
-    // VrHudRedirect on the first redirected draw of a frame. Dishonored's
-    // HUD is minimalist (bars hide when full), so after dropping a carried
-    // body there can be ZERO UI draws for minutes: no draw, no clear, and
-    // the carry icon's last pixels sit on the wrist panel indefinitely
-    // ("they're not going away even after dropping items"). Same at load -
-    // stale junk until a conversation forces the HUD to redraw. If the
-    // frame that just ended had the redirect on but no redirected draw
-    // arrived, clear the RT here so the proxy's next readback sees black.
-    if (dxvk_vr_hudwrist && vrHudSurf != nullptr &&
-        vrHudCleared != vrHudFrameNo) {
-      vrHudCleared = vrHudFrameNo;
-      IDirect3DSurface9* savedRt = nullptr;
-      GetRenderTarget(0, &savedRt);
-      SetRenderTarget(0, vrHudSurf);
-      Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(0, 0, 0, 0), 0.f, 0);
-      SetRenderTarget(0, savedRt);
-      if (savedRt) savedRt->Release();
-    }
     vrHudFrameNo += 1;   // M6.0: lets the HUD RT clear once per frame
 
     // M3.8: an on-demand request arms the dump machinery even when the
