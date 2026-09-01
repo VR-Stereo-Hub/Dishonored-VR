@@ -99,6 +99,10 @@ namespace dxvk {
     // a chance to ship two changes at once.
     if (const char* t = std::strstr(buf, "twin="))
       dxvk_vr_twin = (uint32_t)std::strtol(t + 5, nullptr, 10);
+    // M4.4: report the switch. A flag that is silently off looks exactly like
+    // a feature that is silently broken, and telling those apart cost a launch.
+    Logger::info(str::format("VR stereo marker: sep=", dxvk_vr_sep,
+      " conv=", dxvk_vr_conv, " twin=", dxvk_vr_twin));
     return true;
   }();
   // M3.14: WHICH DRAW IS THE MARKER?
@@ -151,7 +155,8 @@ namespace dxvk {
   // This step only ALLOCATES them and reports the cost. Nothing renders into a
   // twin yet, so behaviour is unchanged and the flag defaults off - after M4.1
   // crashed on launch, each step of this rewrite gets to be one change.
-  struct VrTwin { IDirect3DSurface9* left; IDirect3DSurface9* right;
+  struct VrTwin { IDirect3DSurface9* left;    IDirect3DSurface9* right;
+                  IDirect3DTexture9* leftTex; IDirect3DTexture9* rightTex;
                   uint32_t w, h; D3DFORMAT fmt; };
   static VrTwin   vrTwins[32] = {};
   static uint32_t vrTwinN     = 0;
@@ -966,6 +971,40 @@ namespace dxvk {
 
       if (desc.Pool == D3DPOOL_DEFAULT)
         m_losableResourceCounter++;
+
+      // M4.4: the twin allocation belongs HERE, not in CreateRenderTarget.
+      // M4.3 hooked CreateRenderTarget and allocated nothing at all, because
+      // UE3 does not make its scene targets as bare surfaces - it makes render
+      // target TEXTURES, so that post-processing can sample them. Every target
+      // in the M4.2 pass graph comes through this function. The clue was in the
+      // graph the whole time: a bloom chain has to read what it just wrote.
+      static bool vrTwinning = false;
+      if (dxvk_vr_twin && !vrTwinning && vrTwinN < 32
+          && (Usage & D3DUSAGE_RENDERTARGET)
+          && Width >= 256 && Height >= 128) {
+        vrTwinning = true;
+        IDirect3DTexture9* twin = nullptr;
+        HRESULT thr = CreateTexture(Width, Height, Levels, Usage, Format,
+                                    Pool, &twin, nullptr);
+        vrTwinning = false;
+        if (SUCCEEDED(thr) && twin != nullptr) {
+          uint32_t bpp = (Format == D3DFMT_A16B16G16R16F) ? 8u : 4u;
+          uint64_t bytes = (uint64_t)Width * Height * bpp;
+          vrTwins[vrTwinN].leftTex  = *ppTexture;
+          vrTwins[vrTwinN].rightTex = twin;
+          vrTwins[vrTwinN].w = Width; vrTwins[vrTwinN].h = Height;
+          vrTwins[vrTwinN].fmt = Format;
+          vrTwinN++;
+          vrTwinBytes += bytes;
+          Logger::info(str::format("VR twin ", vrTwinN, ": ", Width, "x", Height,
+            " fmt=", (int32_t)Format, " usage=", Usage, " (+",
+            bytes / (1024 * 1024), " MB, total ",
+            vrTwinBytes / (1024 * 1024), " MB)"));
+        } else {
+          Logger::warn(str::format("VR twin FAILED ", Width, "x", Height,
+            " fmt=", (int32_t)Format, " hr=", thr));
+        }
+      }
 
       return D3D_OK;
     }
