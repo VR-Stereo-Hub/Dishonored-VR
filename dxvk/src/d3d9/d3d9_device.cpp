@@ -130,6 +130,33 @@ namespace dxvk {
   // the decisive test, and a shippable "reflections off in VR" option.
   extern "C" __declspec(dllexport) volatile uint32_t dxvk_vr_reflect = 1;
 
+  // M6.7: LIVE DRAW-CLASS KILL MASK - the artifact bisector. The proxy
+  // overlay flips bits while the user stares at a broken light; the switch
+  // that makes the artifact vanish names its draw class. Bits:
+  //   1  = samples-rt class (UP draws sampling an RT, drawn mono)
+  //   2  = DUP class (UI-like duplicated draws)
+  //   4  = ANY draw with srcblend=DESTCOLOR (sb=9, modulate darken)
+  //   8  = ANY alpha-blended draw with destblend=ONE (additive light)
+  //   16 = mirrored-vp class (reflection pass)
+  //   32 = SPLICE class (all world FX - drastic, last resort)
+  extern "C" __declspec(dllexport) volatile uint32_t dxvk_vr_killmask = 0;
+
+  static bool VrKillByBlend(uint32_t sb, uint32_t db, uint32_t ab) {
+    const uint32_t m = dxvk_vr_killmask;
+    if ((m & 4u) && sb == 9u) return true;            // modulate
+    if ((m & 8u) && ab != 0u && db == 2u) return true; // additive
+    return false;
+  }
+  static bool VrKillByClass(const char* why) {
+    const uint32_t m = dxvk_vr_killmask;
+    if (m == 0) return false;
+    if ((m & 1u)  && !std::strcmp(why, "samples-rt"))  return true;
+    if ((m & 2u)  && !std::strcmp(why, "DUP"))         return true;
+    if ((m & 16u) && !std::strcmp(why, "mirrored-vp")) return true;
+    if ((m & 32u) && !std::strcmp(why, "SPLICE"))      return true;
+    return false;
+  }
+
   struct VrPsId { IDirect3DPixelShader9* ps; uint32_t fnv; };
   static VrPsId  vrPsIds[2048];
   static uint32_t vrPsIdN = 0;
@@ -4002,6 +4029,16 @@ namespace dxvk {
         Logger::info(str::format("FM d", fmDraw++, " DP REFLECT-SKIPPED"));
       return D3D_OK;
     }
+    // M6.7: artifact bisector
+    if (!stInDup &&
+        (VrKillByClass(dpWhy) ||
+         VrKillByBlend(m_state.renderStates[D3DRS_SRCBLEND],
+                       m_state.renderStates[D3DRS_DESTBLEND],
+                       m_state.renderStates[D3DRS_ALPHABLENDENABLE]))) {
+      if (fmActive)
+        Logger::info(str::format("FM d", fmDraw++, " DP KILLED (", dpWhy, ")"));
+      return D3D_OK;
+    }
 
     if (fmActive)
       Logger::info(str::format("FM d", fmDraw++, " DP prim=",
@@ -4166,6 +4203,16 @@ namespace dxvk {
     if (dxvk_vr_reflect == 0 && !std::strcmp(stWhy, "mirrored-vp")) {
       if (fmActive)
         Logger::info(str::format("FM d", fmDraw++, " DIP REFLECT-SKIPPED"));
+      return D3D_OK;
+    }
+    // M6.7: artifact bisector
+    if (!stInDup &&
+        (VrKillByClass(stWhy) ||
+         VrKillByBlend(m_state.renderStates[D3DRS_SRCBLEND],
+                       m_state.renderStates[D3DRS_DESTBLEND],
+                       m_state.renderStates[D3DRS_ALPHABLENDENABLE]))) {
+      if (fmActive)
+        Logger::info(str::format("FM d", fmDraw++, " DIP KILLED (", stWhy, ")"));
       return D3D_OK;
     }
 
@@ -4499,6 +4546,17 @@ namespace dxvk {
     else if (!(upSaved.Width > upSaved.Height)) upWhy = "rt-portrait";
     else if (upWorldFx)        upWhy = kUpSplice;
     else if (upSamplesRt)      upWhy = "samples-rt";
+
+    // M6.7: artifact bisector (see the killmask bit map at its export)
+    if (!stInDup && dxvk_vr_killmask != 0 &&
+        (VrKillByClass(upWhy) ||
+         VrKillByBlend(m_state.renderStates[D3DRS_SRCBLEND],
+                       m_state.renderStates[D3DRS_DESTBLEND],
+                       m_state.renderStates[D3DRS_ALPHABLENDENABLE]))) {
+      if (fmActive)
+        Logger::info(str::format("FM d", fmDraw++, " UP KILLED (", upWhy, ")"));
+      return D3D_OK;
+    }
 
     if (fmActive && pVertexStreamZeroData != nullptr) {
       fmUpLogged += 1;
@@ -4913,6 +4971,17 @@ namespace dxvk {
     else if (!(upSaved.Width > upSaved.Height)) upWhy = "rt-portrait";
     else if (upWorldFx)        upWhy = kUpSplice;
     else if (upSamplesRt)      upWhy = "samples-rt";
+
+    // M6.7: artifact bisector (see the killmask bit map at its export)
+    if (!stInDup && dxvk_vr_killmask != 0 &&
+        (VrKillByClass(upWhy) ||
+         VrKillByBlend(m_state.renderStates[D3DRS_SRCBLEND],
+                       m_state.renderStates[D3DRS_DESTBLEND],
+                       m_state.renderStates[D3DRS_ALPHABLENDENABLE]))) {
+      if (fmActive)
+        Logger::info(str::format("FM d", fmDraw++, " UP KILLED (", upWhy, ")"));
+      return D3D_OK;
+    }
 
     if (fmActive && pVertexStreamZeroData != nullptr) {
       fmUpLogged += 1;
