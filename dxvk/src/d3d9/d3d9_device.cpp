@@ -80,6 +80,17 @@ namespace dxvk {
   // so stereo depth and positional parallax share one coherent scale.
   extern "C" __declspec(dllexport) volatile float dxvk_vr_sep  = 0.015f;
   extern "C" __declspec(dllexport) volatile uint32_t dxvk_vr_twin = 0;
+  // M4.9: render the second eye into the twins instead of into half a frame.
+  // Separate from dxvk_vr_twin on purpose - allocation is proven and harmless,
+  // rendering changes what you see and must be opt-in while it is unfinished.
+  extern "C" __declspec(dllexport) volatile uint32_t dxvk_vr_twinrender = 0;
+  // Preview: blit the right-eye twin to the backbuffer at Present, so the
+  // second eye can be judged on the DESKTOP before the proxy is rewired to
+  // consume it. Verifying it in the headset would mean changing two binaries
+  // at once, which is the mistake that has cost the most time here.
+  extern "C" __declspec(dllexport) volatile uint32_t dxvk_vr_showtwin = 0;
+  static IDirect3DSurface9* vrMainTwin = nullptr;   // biggest colour twin
+  static uint64_t           vrMainTwinArea = 0;
   extern "C" __declspec(dllexport) volatile float dxvk_vr_conv = 60.0f;
   static bool  stArmed = [] {
     std::FILE* f = std::fopen("dxvk_stereo.txt", "r");
@@ -99,6 +110,10 @@ namespace dxvk {
     // a chance to ship two changes at once.
     if (const char* t = std::strstr(buf, "twin="))
       dxvk_vr_twin = (uint32_t)std::strtol(t + 5, nullptr, 10);
+    if (const char* t = std::strstr(buf, "twinrender="))
+      dxvk_vr_twinrender = (uint32_t)std::strtol(t + 11, nullptr, 10);
+    if (const char* t = std::strstr(buf, "showtwin="))
+      dxvk_vr_showtwin = (uint32_t)std::strtol(t + 9, nullptr, 10);
     // M4.5: the marker is NOT logged here. M4.4 put a Logger::info in this
     // lambda and the game stopped loading the DLL entirely - no DXVK log at
     // all, not even the header, and the proxy could not resolve a single
@@ -1060,6 +1075,17 @@ namespace dxvk {
           // and a release on every single draw of every frame.
           (*ppTexture)->GetSurfaceLevel(0, &vrTwins[vrTwinN].left);
           twin->GetSurfaceLevel(0, &vrTwins[vrTwinN].right);
+          // The preview wants the biggest one - that is the scene target.
+          // Largest area wins; no hardcoded resolution, because the render
+          // size is a user setting and a literal here would silently stop
+          // matching the moment they change it.
+          {
+            const uint64_t area = (uint64_t)Width * Height;
+            if (area > vrMainTwinArea) {
+              vrMainTwinArea = area;
+              vrMainTwin     = vrTwins[vrTwinN].right;
+            }
+          }
           vrTwins[vrTwinN].w = Width; vrTwins[vrTwinN].h = Height;
           vrTwins[vrTwinN].fmt = Format;
           vrTwinN++;
@@ -3780,6 +3806,54 @@ namespace dxvk {
       }
     }
 
+    // M4.9: two FULL-SIZE targets instead of two halves of one.
+    // The eye offset is applied exactly as the side-by-side path does it - the
+    // only change is where each eye lands and that the viewport is no longer
+    // halved. That is the whole point: each eye gets the full width of a
+    // target rather than 50% of one frame.
+    if (stWhy == kSplice && dxvk_vr_twinrender && vrTwinN) {
+      IDirect3DSurface9* curRt = m_state.renderTargets[0].ptr();
+      IDirect3DSurface9* curDs = m_state.depthStencil.ptr();
+      IDirect3DSurface9* twRt  = VrTwinOfColour(curRt);
+      IDirect3DSurface9* twDs  = VrTwinOfDepth(curDs);
+      if (twRt != nullptr) {
+        const D3DVIEWPORT9 savedVp = stVpS;
+        Com<IDirect3DSurface9> saveRt = curRt;
+        Com<IDirect3DSurface9> saveDs = curDs;
+        stInDup = true;
+        float eye[16];
+        const float sepNow  = dxvk_vr_sep;
+        const float convNow = dxvk_vr_conv;
+        for (uint32_t e = 0; e < 2; e++) {
+          if (e == 1) {
+            SetRenderTargetInternal(0, twRt);
+            if (twDs != nullptr) SetDepthStencilSurface(twDs);
+          }
+          float sh = e == 0 ? -sepNow : sepNow;
+          std::memcpy(eye, stVP, sizeof(eye));
+          eye[0]  += sh * eye[3];
+          eye[4]  += sh * eye[7];
+          eye[8]  += sh * eye[11];
+          eye[12] += sh * eye[15] - sh * convNow;
+          SetViewport(&savedVp);                 // FULL width, not half
+          SetVertexShaderConstantF(0, eye, 4);
+          DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex,
+            MinVertexIndex, NumVertices, StartIndex, PrimitiveCount);
+        }
+        SetRenderTargetInternal(0, saveRt.ptr());
+        if (twDs != nullptr) SetDepthStencilSurface(saveDs.ptr());
+        SetVertexShaderConstantF(0, stVP, 4);
+        SetViewport(&savedVp);
+        stSpliceAccum += 1;
+        stInDup = false;
+        static uint32_t vrToldRender = 0;
+        if (vrToldRender < 2) { vrToldRender++;
+          Logger::info(str::format("VR per-eye render live: full ",
+            savedVp.Width, "x", savedVp.Height, " per eye (was half)")); }
+        return D3D_OK;
+      }
+    }
+
     if (stWhy == kSplice) {
       {
         const D3DVIEWPORT9 savedVp = stVpS;
@@ -5331,6 +5405,23 @@ namespace dxvk {
         pSoftwareCursor->XHotSpot    = 0;
         pSoftwareCursor->YHotSpot    = 0;
         pSoftwareCursor->ClearCursor = false;
+      }
+    }
+
+    // M4.9 preview: copy the right-eye twin onto the backbuffer so the second
+    // eye can be judged on the DESKTOP. The headset still gets whatever the
+    // proxy builds; nothing about the proxy changes until this is confirmed
+    // good, because changing two binaries at once is the mistake that has cost
+    // the most time on this mod.
+    if (dxvk_vr_showtwin && vrMainTwin != nullptr) {
+      Com<IDirect3DSurface9> bb;
+      HRESULT bhr = m_implicitSwapchain->GetBackBuffer(
+        0, D3DBACKBUFFER_TYPE_MONO, &bb);
+      if (SUCCEEDED(bhr) && bb != nullptr) {
+        bhr = StretchRect(vrMainTwin, nullptr, bb.ptr(), nullptr, D3DTEXF_LINEAR);
+        static uint32_t vrToldShow = 0;
+        if (vrToldShow < 2) { vrToldShow++;
+          Logger::info(str::format("VR showtwin: right-eye twin -> backbuffer hr=", bhr)); }
       }
     }
 
