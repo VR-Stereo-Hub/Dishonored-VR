@@ -231,6 +231,16 @@ namespace dxvk {
             uint32_t             BytecodeLength)
       : D3D9Shader<IDirect3DPixelShader9>( pDevice, pAllocator, CommonShader, pShaderBytecode, BytecodeLength ) { }
 
+    // VR fork M7.3: per-shader stereo metadata lives ON the shader object.
+    // Every bounded ptr->info map before this overflowed silently (2048,
+    // then 8192 - Dishonored creates more), and shaders past the cap were
+    // invisible to the stereo fixes. Fields are set once at CreatePixelShader.
+    uint32_t vrFnv      = 0;        // SM3 bytecode FNV (0 = not computed)
+    int16_t  vrSpsbReg  = -1;       // ScreenPositionScaleBias register
+    int16_t  vrVpmReg   = -1;       // PS ViewProjectionMatrix register
+    uint16_t vrShadowS2w = 0xffff;  // ScreenToWorld reg (0xffff = none)
+    uint16_t vrShadowS2s = 0xffff;  // ScreenToShadowMatrix reg (0xffff = none)
+
   };
 
   /**
