@@ -158,7 +158,13 @@ namespace dxvk {
   }
 
   struct VrPsId { IDirect3DPixelShader9* ps; uint32_t fnv; };
-  static VrPsId  vrPsIds[2048];
+  // M7.2: 2048 was NOT ENOUGH. The game creates shaders continuously
+  // (menus, streaming, levels); by mid-session the cap was long blown and
+  // every capture said so in plain sight: ps=00000000 on DIP lines. Worse,
+  // the M5.8/M6.8/M7.0 register captures lived INSIDE the same guard, so
+  // the light-pass fixes never engaged for shaders created past the cap -
+  // which is why three correct-looking fixes changed nothing on screen.
+  static VrPsId  vrPsIds[8192];
   static uint32_t vrPsIdN = 0;
 
   static uint32_t VrSm3Fnv(const DWORD* code) {
@@ -6153,7 +6159,13 @@ namespace dxvk {
     // frame map now stamps each draw with its ps hash and saves every unique
     // bytecode, so one Scroll-Lock at the artifact produces a full census to
     // CTAB-decode offline - the exact method that named the shaft trio.
-    if (vrPsIdN < 2048) {
+    static bool vrPsIdsFullTold = false;
+    if (vrPsIdN >= 8192 && !vrPsIdsFullTold) {
+      vrPsIdsFullTold = true;
+      Logger::info("VR: shader id map FULL (8192) - late shaders will not be "
+                   "stereo-corrected; tell Claude");
+    }
+    if (vrPsIdN < 8192) {
       const uint32_t h = VrSm3Fnv(pFunction);
       vrPsIds[vrPsIdN].ps  = *ppShader;
       vrPsIds[vrPsIdN].fnv = h;
