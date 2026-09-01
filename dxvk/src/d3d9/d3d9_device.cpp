@@ -3641,6 +3641,38 @@ namespace dxvk {
     else if (upWorldFx)        upWhy = kUpSplice;
     else if (upSamplesRt)      upWhy = "samples-rt";
 
+    // M3.12: CONSTANT DUMP for the one draw we care about. UE3 feeds
+    // screen-space effects a scale/bias float4 (ScreenPositionScaleBias-style)
+    // that assumes the draw covers the WHOLE frame: uv = clip.xy*scale + bias.
+    // Splice it into a half viewport and that constant is still the full-frame
+    // one, so the decal samples the wrong region, its depth compare fails and
+    // it discards itself - which is why the Blink marker is invisible dead
+    // centre whether we splice it or not. Find the register, then patch it per
+    // eye inside the splice the same way c0-c3 are already shifted.
+    // Signature of the marker: depth-tested unblended 2-triangle quad that
+    // samples a full-size render target.
+    if (fmActive && !stInDup && upRt2 != nullptr && upSamplesRt
+     && PrimitiveCount == 2 && NumVertices == 4
+     && m_state.renderStates[D3DRS_ZENABLE] != D3DZB_FALSE
+     && m_state.renderStates[D3DRS_ALPHABLENDENABLE] == FALSE) {
+      Logger::info("FM ===== MARKER-SHAPED DRAW: constant dump =====");
+      const auto& vs = m_state.vsConsts->fConsts;
+      for (uint32_t r = 0; r < 128; r++) {
+        const float* c = vs[r].data;
+        if (c[0] == 0.0f && c[1] == 0.0f && c[2] == 0.0f && c[3] == 0.0f) continue;
+        Logger::info(str::format("FM   vs c", r, " = [", c[0], " ", c[1], " ",
+                                 c[2], " ", c[3], "]"));
+      }
+      const auto& ps = m_state.psConsts->fConsts;
+      for (uint32_t r = 0; r < 32; r++) {
+        const float* c = ps[r].data;
+        if (c[0] == 0.0f && c[1] == 0.0f && c[2] == 0.0f && c[3] == 0.0f) continue;
+        Logger::info(str::format("FM   ps c", r, " = [", c[0], " ", c[1], " ",
+                                 c[2], " ", c[3], "]"));
+      }
+      Logger::info("FM ===== end constant dump =====");
+    }
+
     if (fmActive && pVertexStreamZeroData != nullptr) {
       fmUpLogged += 1;
       const float* v0 = static_cast<const float*>(pVertexStreamZeroData);
