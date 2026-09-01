@@ -79,6 +79,7 @@ namespace dxvk {
   // dxvk_vr_sep each frame from real IPD x world scale x live projection,
   // so stereo depth and positional parallax share one coherent scale.
   extern "C" __declspec(dllexport) volatile float dxvk_vr_sep  = 0.015f;
+  extern "C" __declspec(dllexport) volatile uint32_t dxvk_vr_twin = 0;
   extern "C" __declspec(dllexport) volatile float dxvk_vr_conv = 60.0f;
   static bool  stArmed = [] {
     std::FILE* f = std::fopen("dxvk_stereo.txt", "r");
@@ -91,6 +92,13 @@ namespace dxvk {
       dxvk_vr_sep = std::strtof(s + 4, nullptr);
     if (const char* c = std::strstr(buf, "conv="))
       dxvk_vr_conv = std::strtof(c + 5, nullptr);
+    // M4.3b: the twin allocation is switched on from the same marker file the
+    // stereo settings already come from - add "twin=1" to dxvk_stereo.txt.
+    // Wiring it through the proxy instead would mean a second binary has to
+    // change in lockstep with every step of this rewrite, and each of those is
+    // a chance to ship two changes at once.
+    if (const char* t = std::strstr(buf, "twin="))
+      dxvk_vr_twin = (uint32_t)std::strtol(t + 5, nullptr, 10);
     return true;
   }();
   // M3.14: WHICH DRAW IS THE MARKER?
@@ -143,7 +151,6 @@ namespace dxvk {
   // This step only ALLOCATES them and reports the cost. Nothing renders into a
   // twin yet, so behaviour is unchanged and the flag defaults off - after M4.1
   // crashed on launch, each step of this rewrite gets to be one change.
-  extern "C" __declspec(dllexport) volatile uint32_t dxvk_vr_twin = 0;
   struct VrTwin { IDirect3DSurface9* left; IDirect3DSurface9* right;
                   uint32_t w, h; D3DFORMAT fmt; };
   static VrTwin   vrTwins[32] = {};
