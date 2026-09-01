@@ -99,10 +99,15 @@ namespace dxvk {
     // a chance to ship two changes at once.
     if (const char* t = std::strstr(buf, "twin="))
       dxvk_vr_twin = (uint32_t)std::strtol(t + 5, nullptr, 10);
-    // M4.4: report the switch. A flag that is silently off looks exactly like
-    // a feature that is silently broken, and telling those apart cost a launch.
-    Logger::info(str::format("VR stereo marker: sep=", dxvk_vr_sep,
-      " conv=", dxvk_vr_conv, " twin=", dxvk_vr_twin));
+    // M4.5: the marker is NOT logged here. M4.4 put a Logger::info in this
+    // lambda and the game stopped loading the DLL entirely - no DXVK log at
+    // all, not even the header, and the proxy could not resolve a single
+    // export. This lambda initialises a static, so it runs during DllMain,
+    // before the logger exists. Logging from static init is a crash inside
+    // LoadLibrary, which looks from the outside exactly like a corrupt build.
+    // The bisect cost two launches; the lesson is cheaper: nothing in this
+    // file may log from a static initialiser. The report moved to the first
+    // twin allocation, which happens once the device is up.
     return true;
   }();
   // M3.14: WHICH DRAW IS THE MARKER?
@@ -979,6 +984,12 @@ namespace dxvk {
       // in the M4.2 pass graph comes through this function. The clue was in the
       // graph the whole time: a bloom chain has to read what it just wrote.
       static bool vrTwinning = false;
+      static bool vrToldMarker = false;
+      if (dxvk_vr_twin && !vrToldMarker) {
+        vrToldMarker = true;
+        Logger::info(str::format("VR stereo marker: sep=", dxvk_vr_sep,
+          " conv=", dxvk_vr_conv, " twin=", dxvk_vr_twin));
+      }
       if (dxvk_vr_twin && !vrTwinning && vrTwinN < 32
           && (Usage & D3DUSAGE_RENDERTARGET)
           && Width >= 256 && Height >= 128) {
