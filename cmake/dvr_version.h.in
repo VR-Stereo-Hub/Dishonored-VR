@@ -1,0 +1,7 @@
+#pragma once
+// GENERATED at build time by cmake/GenerateVersion.cmake - do not edit.
+// The original proxy carried a hand-bumped kBuildTag ("38.92"); this header
+// replaces it so the version in dishonored_vr.log always matches the tree.
+
+#define DVR_VERSION  "@DVR_VERSION@"   // from project(... VERSION) in CMakeLists.txt
+#define DVR_BUILD_ID "@DVR_BUILD_ID@"  // git describe --tags --always --dirty

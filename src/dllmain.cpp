@@ -28,9 +28,13 @@
 // Diagnostics: dishonored_vr.log — send it back after every test.
 // ============================================================================
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
+#include <intrin.h>
 #include <d3d9.h>
+#include <d3d10_1.h>
 #include <d3d11.h>
 #include <wincodec.h>
 #include <objbase.h>
@@ -63,12 +67,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 #include <openxr/openxr_platform.h>
 #include <openxr/openxr_loader_negotiation.h>
 
-// openvr_capi.h does `typedef char bool` when __WIN32 is defined (a MinGW-only
-// macro; MSVC defines only _WIN32) — illegal in C++. Undef it; the header uses
-// _WIN32 for everything that matters.
-#ifdef __WIN32
-#undef __WIN32
-#endif
+// openvr_capi.h (C API). MSVC defines only _WIN32, so no MinGW __WIN32 fixup is needed.
 #include "openvr_capi.h"
 
 // ----------------------------------------------------------------------------
@@ -13194,39 +13193,42 @@ extern "C" void __cdecl BlinkAimHook(void* self, uint8_t* framePtr)
     memcpy(dirLocal, d, 12);
 }
 
-__asm__(
-".text\n"
-".globl _BlinkAimStub\n"
-"_BlinkAimStub:\n"
-"    pushfl\n"
-"    pushal\n"
-"    subl  $0x80, %esp\n"
-"    movups %xmm0, 0x00(%esp)\n"
-"    movups %xmm1, 0x10(%esp)\n"
-"    movups %xmm2, 0x20(%esp)\n"
-"    movups %xmm3, 0x30(%esp)\n"
-"    movups %xmm4, 0x40(%esp)\n"
-"    movups %xmm5, 0x50(%esp)\n"
-"    movups %xmm6, 0x60(%esp)\n"
-"    movups %xmm7, 0x70(%esp)\n"
-"    pushl %ebp\n"
-"    pushl %esi\n"
-"    call  _BlinkAimHook\n"
-"    addl  $8, %esp\n"
-"    movups 0x00(%esp), %xmm0\n"
-"    movups 0x10(%esp), %xmm1\n"
-"    movups 0x20(%esp), %xmm2\n"
-"    movups 0x30(%esp), %xmm3\n"
-"    movups 0x40(%esp), %xmm4\n"
-"    movups 0x50(%esp), %xmm5\n"
-"    movups 0x60(%esp), %xmm6\n"
-"    movups 0x70(%esp), %xmm7\n"
-"    addl  $0x80, %esp\n"
-"    popal\n"
-"    popfl\n"
-"    movss -0xc(%ebp), %xmm0\n"          // the stolen instruction
-"    jmp   *_g_blkRet\n"
-);
+// MSVC naked stub (ported from the MinGW AT&T listing): save flags, GPRs and
+// xmm0-7, call the C handler with the engine's frame (ebp) and object (esi),
+// restore, execute the stolen instruction(s), jump back.
+extern "C" __declspec(naked) void BlinkAimStub(void)
+{
+    __asm {
+        pushfd
+        pushad
+        sub    esp, 80h
+        movups [esp+00h], xmm0
+        movups [esp+10h], xmm1
+        movups [esp+20h], xmm2
+        movups [esp+30h], xmm3
+        movups [esp+40h], xmm4
+        movups [esp+50h], xmm5
+        movups [esp+60h], xmm6
+        movups [esp+70h], xmm7
+        push   ebp                        ; framePtr
+        push   esi                        ; self (the power component)
+        call   BlinkAimHook
+        add    esp, 8
+        movups xmm0, [esp+00h]
+        movups xmm1, [esp+10h]
+        movups xmm2, [esp+20h]
+        movups xmm3, [esp+30h]
+        movups xmm4, [esp+40h]
+        movups xmm5, [esp+50h]
+        movups xmm6, [esp+60h]
+        movups xmm7, [esp+70h]
+        add    esp, 80h
+        popad
+        popfd
+        movss  xmm0, dword ptr [ebp-0Ch]  ; the stolen instruction (f3 0f 10 45 f4)
+        jmp    dword ptr [g_blkRet]
+    }
+}
 
 // ============================================================================
 // 32.26 - THE DESTINATION DETOUR, on the instruction we know executes
@@ -13366,43 +13368,46 @@ extern "C" void __cdecl BlinkDirHook(void* self, uint8_t* framePtr, float* eng)
     g_blkDirLastMine = MaimNowMs();
 }
 
-__asm__(
-".text\n"
-".globl _BlinkDirStub\n"
-"_BlinkDirStub:\n"
-"    pushfl\n"
-"    pushal\n"
-"    subl  $0x80, %esp\n"
-"    movups %xmm0, 0x00(%esp)\n"
-"    movups %xmm1, 0x10(%esp)\n"
-"    movups %xmm2, 0x20(%esp)\n"
-"    movups %xmm3, 0x30(%esp)\n"
-"    movups %xmm4, 0x40(%esp)\n"
-"    movups %xmm5, 0x50(%esp)\n"
-"    movups %xmm6, 0x60(%esp)\n"
-"    movups %xmm7, 0x70(%esp)\n"
-"    movl  0x9c(%esp), %eax\n"          // the EAX pushal saved = engine's vector
-"    pushl %eax\n"
-"    pushl %ebp\n"
-"    pushl %esi\n"
-"    call  _BlinkDirHook\n"
-"    addl  $0xc, %esp\n"
-"    movups 0x00(%esp), %xmm0\n"
-"    movups 0x10(%esp), %xmm1\n"
-"    movups 0x20(%esp), %xmm2\n"
-"    movups 0x30(%esp), %xmm3\n"
-"    movups 0x40(%esp), %xmm4\n"
-"    movups 0x50(%esp), %xmm5\n"
-"    movups 0x60(%esp), %xmm6\n"
-"    movups 0x70(%esp), %xmm7\n"
-"    addl  $0x80, %esp\n"
-"    popal\n"
-"    popfl\n"
-"    movl  _g_blkDirUse, %eax\n"        // engine's pointer, or ours
-"    movl  (%eax), %ecx\n"              // stolen: mov ecx,[eax]
-"    movl  %ecx, -0x4c(%ebp)\n"         // stolen: mov [ebp-0x4c],ecx
-"    jmp   *_g_blkDirRet\n"
-);
+// MSVC naked stub (ported from the MinGW AT&T listing): save flags, GPRs and
+// xmm0-7, call the C handler with the engine's frame (ebp) and object (esi),
+// restore, execute the stolen instruction(s), jump back.
+extern "C" __declspec(naked) void BlinkDirStub(void)
+{
+    __asm {
+        pushfd
+        pushad
+        sub    esp, 80h
+        movups [esp+00h], xmm0
+        movups [esp+10h], xmm1
+        movups [esp+20h], xmm2
+        movups [esp+30h], xmm3
+        movups [esp+40h], xmm4
+        movups [esp+50h], xmm5
+        movups [esp+60h], xmm6
+        movups [esp+70h], xmm7
+        mov    eax, [esp+9Ch]             ; the EAX pushad saved = engine's vector
+        push   eax
+        push   ebp
+        push   esi
+        call   BlinkDirHook
+        add    esp, 0Ch
+        movups xmm0, [esp+00h]
+        movups xmm1, [esp+10h]
+        movups xmm2, [esp+20h]
+        movups xmm3, [esp+30h]
+        movups xmm4, [esp+40h]
+        movups xmm5, [esp+50h]
+        movups xmm6, [esp+60h]
+        movups xmm7, [esp+70h]
+        add    esp, 80h
+        popad
+        popfd
+        mov    eax, dword ptr [g_blkDirUse] ; engine's pointer, or ours
+        mov    ecx, [eax]                 ; stolen: mov ecx,[eax]
+        mov    [ebp-4Ch], ecx             ; stolen: mov [ebp-0x4c],ecx
+        jmp    dword ptr [g_blkDirRet]
+    }
+}
 
 static void BlinkDirInstall()
 {
@@ -13508,39 +13513,42 @@ extern "C" void __cdecl BlinkDestHook(void* self, uint8_t* framePtr)
     }
 }
 
-__asm__(
-".text\n"
-".globl _BlinkDestStub\n"
-"_BlinkDestStub:\n"
-"    pushfl\n"
-"    pushal\n"
-"    subl  $0x80, %esp\n"
-"    movups %xmm0, 0x00(%esp)\n"
-"    movups %xmm1, 0x10(%esp)\n"
-"    movups %xmm2, 0x20(%esp)\n"
-"    movups %xmm3, 0x30(%esp)\n"
-"    movups %xmm4, 0x40(%esp)\n"
-"    movups %xmm5, 0x50(%esp)\n"
-"    movups %xmm6, 0x60(%esp)\n"
-"    movups %xmm7, 0x70(%esp)\n"
-"    pushl %ebp\n"
-"    pushl %esi\n"
-"    call  _BlinkDestHook\n"
-"    addl  $8, %esp\n"
-"    movups 0x00(%esp), %xmm0\n"
-"    movups 0x10(%esp), %xmm1\n"
-"    movups 0x20(%esp), %xmm2\n"
-"    movups 0x30(%esp), %xmm3\n"
-"    movups 0x40(%esp), %xmm4\n"
-"    movups 0x50(%esp), %xmm5\n"
-"    movups 0x60(%esp), %xmm6\n"
-"    movups 0x70(%esp), %xmm7\n"
-"    addl  $0x80, %esp\n"
-"    popal\n"
-"    popfl\n"
-"    leal  -0xd0(%ebp), %eax\n"        // the stolen instruction
-"    jmp   *_g_blkDstRet\n"
-);
+// MSVC naked stub (ported from the MinGW AT&T listing): save flags, GPRs and
+// xmm0-7, call the C handler with the engine's frame (ebp) and object (esi),
+// restore, execute the stolen instruction(s), jump back.
+extern "C" __declspec(naked) void BlinkDestStub(void)
+{
+    __asm {
+        pushfd
+        pushad
+        sub    esp, 80h
+        movups [esp+00h], xmm0
+        movups [esp+10h], xmm1
+        movups [esp+20h], xmm2
+        movups [esp+30h], xmm3
+        movups [esp+40h], xmm4
+        movups [esp+50h], xmm5
+        movups [esp+60h], xmm6
+        movups [esp+70h], xmm7
+        push   ebp
+        push   esi
+        call   BlinkDestHook
+        add    esp, 8
+        movups xmm0, [esp+00h]
+        movups xmm1, [esp+10h]
+        movups xmm2, [esp+20h]
+        movups xmm3, [esp+30h]
+        movups xmm4, [esp+40h]
+        movups xmm5, [esp+50h]
+        movups xmm6, [esp+60h]
+        movups xmm7, [esp+70h]
+        add    esp, 80h
+        popad
+        popfd
+        lea    eax, [ebp-0D0h]            ; the stolen instruction
+        jmp    dword ptr [g_blkDstRet]
+    }
+}
 
 // ============================================================================
 // 32.31 - REDIRECT THE TRACE ITSELF, which is what should have been done
@@ -13601,39 +13609,42 @@ extern "C" void __cdecl BlinkTraceHook(void* self, uint8_t* framePtr)
     InterlockedIncrement(&g_blkTrcMine);
 }
 
-__asm__(
-".text\n"
-".globl _BlinkTraceStub\n"
-"_BlinkTraceStub:\n"
-"    movss %xmm2, -0x28(%ebp)\n"        // the stolen store, FIRST
-"    pushfl\n"
-"    pushal\n"
-"    subl  $0x80, %esp\n"
-"    movups %xmm0, 0x00(%esp)\n"
-"    movups %xmm1, 0x10(%esp)\n"
-"    movups %xmm2, 0x20(%esp)\n"
-"    movups %xmm3, 0x30(%esp)\n"
-"    movups %xmm4, 0x40(%esp)\n"
-"    movups %xmm5, 0x50(%esp)\n"
-"    movups %xmm6, 0x60(%esp)\n"
-"    movups %xmm7, 0x70(%esp)\n"
-"    pushl %ebp\n"
-"    pushl %esi\n"
-"    call  _BlinkTraceHook\n"
-"    addl  $8, %esp\n"
-"    movups 0x00(%esp), %xmm0\n"
-"    movups 0x10(%esp), %xmm1\n"
-"    movups 0x20(%esp), %xmm2\n"
-"    movups 0x30(%esp), %xmm3\n"
-"    movups 0x40(%esp), %xmm4\n"
-"    movups 0x50(%esp), %xmm5\n"
-"    movups 0x60(%esp), %xmm6\n"
-"    movups 0x70(%esp), %xmm7\n"
-"    addl  $0x80, %esp\n"
-"    popal\n"
-"    popfl\n"
-"    jmp   *_g_blkTrcRet\n"
-);
+// MSVC naked stub (ported from the MinGW AT&T listing): save flags, GPRs and
+// xmm0-7, call the C handler with the engine's frame (ebp) and object (esi),
+// restore, execute the stolen instruction(s), jump back.
+extern "C" __declspec(naked) void BlinkTraceStub(void)
+{
+    __asm {
+        movss  dword ptr [ebp-28h], xmm2  ; the stolen store, FIRST
+        pushfd
+        pushad
+        sub    esp, 80h
+        movups [esp+00h], xmm0
+        movups [esp+10h], xmm1
+        movups [esp+20h], xmm2
+        movups [esp+30h], xmm3
+        movups [esp+40h], xmm4
+        movups [esp+50h], xmm5
+        movups [esp+60h], xmm6
+        movups [esp+70h], xmm7
+        push   ebp
+        push   esi
+        call   BlinkTraceHook
+        add    esp, 8
+        movups xmm0, [esp+00h]
+        movups xmm1, [esp+10h]
+        movups xmm2, [esp+20h]
+        movups xmm3, [esp+30h]
+        movups xmm4, [esp+40h]
+        movups xmm5, [esp+50h]
+        movups xmm6, [esp+60h]
+        movups xmm7, [esp+70h]
+        add    esp, 80h
+        popad
+        popfd
+        jmp    dword ptr [g_blkTrcRet]
+    }
+}
 
 static void BlinkTraceInstall()
 {
@@ -19393,7 +19404,7 @@ static BOOL WINAPI hkSetWindowPos(HWND h, HWND after, int x, int y,
                                   int cx, int cy, UINT flags)
 {
     if (!(flags & SWP_NOSIZE)) {
-        VetoShrink(h, &cx, &cy, "SetWindowPos", __builtin_return_address(0));
+        VetoShrink(h, &cx, &cy, "SetWindowPos", _ReturnAddress());
         // 36.3: the game's window is born small and ONE call site in
         // Dishonored.exe grows it (32.78's discovery). With the desktop-
         // window feature on, cap that growth at the desk size - the window
@@ -19430,7 +19441,7 @@ static BOOL WINAPI hkSetWindowPos(HWND h, HWND after, int x, int y,
 
 static BOOL WINAPI hkMoveWindow(HWND h, int x, int y, int w, int ht, BOOL rp)
 {
-    VetoShrink(h, &w, &ht, "MoveWindow", __builtin_return_address(0));
+    VetoShrink(h, &w, &ht, "MoveWindow", _ReturnAddress());
     if (g_holdWindow && h == g_gameWnd) {      // same rule, other entry point
         RECT cur = {};
         if (GetWindowRect(h, &cur)) {
@@ -19448,7 +19459,7 @@ static BOOL WINAPI hkSetWindowPlacement(HWND h, const WINDOWPLACEMENT* wp)
         int cx = wp->rcNormalPosition.right  - wp->rcNormalPosition.left;
         int cy = wp->rcNormalPosition.bottom - wp->rcNormalPosition.top;
         VetoShrink(h, &cx, &cy, "SetWindowPlacement",
-                   __builtin_return_address(0));
+                   _ReturnAddress());
         RECT cur = {};
         if (GetWindowRect(h, &cur)) {       // keep the window where it is
             local = *wp;
@@ -19712,7 +19723,7 @@ static bool GetFnTable(const char* version, void** out)
         if (InterlockedIncrement(&told) <= 8)
             Log("GetFnTable(%s) with NO OpenVR loaded (XR mode) - caller "
                 "0x%p tid=%lu - refused safely", version,
-                __builtin_return_address(0),
+                _ReturnAddress(),
                 (unsigned long)GetCurrentThreadId());
         return false;
     }
@@ -21194,7 +21205,7 @@ static UINT __stdcall hkGetAdapterModeCount(IDirect3D9* self, UINT adapter,
         // straight onto the exe on disk.
         Log("res: mode list for fmt %d has %u modes -> %u (ours: %ux%u) - "
             "asked from %p", (int)fmt, n, n + 1, g_forceResW, g_forceResH,
-            __builtin_return_address(0)); }
+            _ReturnAddress()); }
     return n + 1;
 }
 
@@ -21216,7 +21227,7 @@ static HRESULT __stdcall hkEnumAdapterModes(IDirect3D9* self, UINT adapter,
             if (told < 4) { told++;
                 Log("res: handed the game our %ux%u@%u mode (slot %u), "
                     "read from %p", g_forceResW, g_forceResH,
-                    out->RefreshRate, mode, __builtin_return_address(0)); }
+                    out->RefreshRate, mode, _ReturnAddress()); }
             return D3D_OK;
         }
     }
@@ -21512,15 +21523,8 @@ static float            g_xrpQuadW = 0, g_xrpQuadH = 0,
 // minimal ID3D10Multithread (works on a D3D11 immediate context) so the pace
 // thread's CopyResource may share the context with the render thread; the
 // MinGW headers don't ship d3d11_4.
-struct XrMtItf : public IUnknown {
-    virtual void STDMETHODCALLTYPE Enter() = 0;
-    virtual void STDMETHODCALLTYPE Leave() = 0;
-    virtual BOOL STDMETHODCALLTYPE SetMultithreadProtected(BOOL) = 0;
-    virtual BOOL STDMETHODCALLTYPE GetMultithreadProtected() = 0;
-};
-static const GUID kIID_D3D10Mt =
-    { 0x9B7E4E00, 0x342C, 0x4106,
-      { 0xA1, 0x9F, 0x4F, 0x27, 0x04, 0xF6, 0x89, 0xF0 } };
+typedef ID3D10Multithread XrMtItf;   // works on a D3D11 immediate context
+#define kIID_D3D10Mt __uuidof(ID3D10Multithread)
 
 // ======================== 38.9: OpenXR INPUT =================================
 // Ported from bioshock-vr's shipped openxr_input (staged /root/xr): one
@@ -22828,7 +22832,7 @@ static DWORD WINAPI XrBenchThread(LPVOID)
 // ----------------------------------------------------------------------------
 // Exports
 // ----------------------------------------------------------------------------
-extern "C" __declspec(dllexport) IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
+extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
 {
     EnsureConfig(); // safe here (post loader-lock); not in DllMain
     {   // 37.0: XR-1 bench, armed only by the env var (xr_bench.bat)
@@ -22872,31 +22876,31 @@ extern "C" __declspec(dllexport) IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVers
     return d3d;
 }
 
-extern "C" __declspec(dllexport) HRESULT WINAPI Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex** out)
+extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex** out)
 {
     if (!EnsureRealD3D9() || !g_realCreate9Ex) return E_FAIL;
     return g_realCreate9Ex(sdkVersion, out);
 }
 
-extern "C" __declspec(dllexport) int WINAPI D3DPERF_BeginEvent(D3DCOLOR col, LPCWSTR name)
+extern "C" int WINAPI D3DPERF_BeginEvent(D3DCOLOR col, LPCWSTR name)
 { return (EnsureRealD3D9() && g_realBeginEvent) ? g_realBeginEvent(col, name) : 0; }
 
-extern "C" __declspec(dllexport) int WINAPI D3DPERF_EndEvent(void)
+extern "C" int WINAPI D3DPERF_EndEvent(void)
 { return (EnsureRealD3D9() && g_realEndEvent) ? g_realEndEvent() : 0; }
 
-extern "C" __declspec(dllexport) void WINAPI D3DPERF_SetOptions(DWORD options)
+extern "C" void WINAPI D3DPERF_SetOptions(DWORD options)
 { if (EnsureRealD3D9() && g_realSetOptions) g_realSetOptions(options); }
 
-extern "C" __declspec(dllexport) DWORD WINAPI D3DPERF_GetStatus(void)
+extern "C" DWORD WINAPI D3DPERF_GetStatus(void)
 { return (EnsureRealD3D9() && g_realGetStatus) ? g_realGetStatus() : 0; }
 
-extern "C" __declspec(dllexport) void WINAPI D3DPERF_SetMarker(D3DCOLOR col, LPCWSTR name)
+extern "C" void WINAPI D3DPERF_SetMarker(D3DCOLOR col, LPCWSTR name)
 { if (EnsureRealD3D9() && g_realSetMarker) g_realSetMarker(col, name); }
 
-extern "C" __declspec(dllexport) void WINAPI D3DPERF_SetRegion(D3DCOLOR col, LPCWSTR name)
+extern "C" void WINAPI D3DPERF_SetRegion(D3DCOLOR col, LPCWSTR name)
 { if (EnsureRealD3D9() && g_realSetRegion) g_realSetRegion(col, name); }
 
-extern "C" __declspec(dllexport) BOOL WINAPI D3DPERF_QueryRepeatFrame(void)
+extern "C" BOOL WINAPI D3DPERF_QueryRepeatFrame(void)
 { return (EnsureRealD3D9() && g_realQueryRepeatFrame) ? g_realQueryRepeatFrame() : FALSE; }
 
 // ----------------------------------------------------------------------------
