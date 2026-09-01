@@ -810,33 +810,13 @@ static void LoadConfig()
         // broke a Vive session - never again): Virtual Desktop streaming
         // with SteamVR absent = the Quest path -> OPENXR; anything else ->
         // OpenVR/SteamVR, the path the Vive rig has always used.
-        char be[16] = "";
-        if (!GetEnvironmentVariableA("DISHONORED_VR_BACKEND", be, sizeof(be)))
-            GetPrivateProfileStringA("VR", "Backend", "auto", be, sizeof(be), ini);
-        if (be[0] == 'a') {                                // "auto"
-            bool vdUp = false, svrUp = false;
-            HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if (snap != INVALID_HANDLE_VALUE) {
-                PROCESSENTRY32 pe; memset(&pe, 0, sizeof(pe));
-                pe.dwSize = sizeof(pe);
-                if (Process32First(snap, &pe)) do {
-                    if (!_stricmp(pe.szExeFile, "VirtualDesktop.Streamer.exe"))
-                        vdUp = true;
-                    if (!_stricmp(pe.szExeFile, "vrserver.exe"))
-                        svrUp = true;
-                } while (Process32Next(snap, &pe));
-                CloseHandle(snap);
-            }
-            g_xrBackend = vdUp && !svrUp;
-            Log("config: VR backend AUTO -> %s (VD streamer %s, SteamVR %s)",
-                g_xrBackend ? "OPENXR" : "OPENVR",
-                vdUp ? "running" : "absent", svrUp ? "running" : "absent");
-        } else {
-            g_xrBackend = (be[0] == 'o' && be[1] == 'p') ||   // "openxr"
-                          (be[0] == 'x');                      // "xr"
-        }
-        if (g_xrBackend)
-            Log("config: VR backend = OPENXR (OpenVR/SteamVR will not start)");
+        // 39.0: the process snapshot (VD streamer running and SteamVR not)
+        // is replaced by asking the runtimes - core/vr/backend_probe.cpp.
+        // [VR] XrRuntimeJson is read first because the probe negotiates the
+        // runtime exactly the way the backend will.
+        GetPrivateProfileStringA("VR", "XrRuntimeJson", "", g_xrJsonIni,
+                                 sizeof(g_xrJsonIni), ini);
+        BackendSelect(ini);
         // 38.3 XR-3: [VR] XrQuads=1 (default) - detached pace thread + head-
         // locked QUAD layers in VIEW space (the architecture that fixed the
         // user's Stardew mod: the compositor itself holds the screen, so no

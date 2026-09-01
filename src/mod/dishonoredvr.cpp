@@ -27,6 +27,7 @@
 #include "core/hooks/detour.h"
 #include "core/framework/command.h"
 #include "core/framework/status.h"
+#include "game/dishonored/patterns.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
@@ -95,11 +96,17 @@
 #include "mod/fwd.h"
 
 // ---- function bodies by subsystem -------------------------------------------
+#if !DVR_WITH_LEGACY
+#include "legacy/legacy_stubs.inc"
+#endif
 #define DVR_CAT ::dvr::log::Cat::cfg
 #include "core/config/config.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/frame_hooks.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::present
+#include "core/framework/vs_const.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/d3d11_device.cpp"
@@ -136,6 +143,9 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::openxr
 #include "core/vr/openxr_loader.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::vr
+#include "core/vr/backend_probe.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::pace
 #include "core/vr/openxr_pace.cpp"
@@ -200,42 +210,66 @@
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/uobject.cpp"
 #undef DVR_CAT
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/aim_watch.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/cam_seam.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/camera_hook.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/camera_tracer.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/fire_tracer.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/fp_mesh.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/ovl_scene.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/rtd_drive.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/spacebases.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/ue3_probe.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/vs_scan.cpp"
 #undef DVR_CAT
+#endif
+#if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/xr_bench.cpp"
 #undef DVR_CAT
+#endif
 #define DVR_CAT ::dvr::log::Cat::proxy
 #include "proxy/d3d9_exports.cpp"
 #undef DVR_CAT

@@ -15,7 +15,6 @@
 // Armed by [CamSeam] Wiggle (default ON this build); requires weapon-tracking
 // auto-start (proves gameplay, not menu).
 // ============================================================================
-static const uint32_t kPovOffs[3] = {0x330, 0x350, 0x374};
 static int    g_wigPhase = -1;      // -1 idle, 0..5 = block0,rest,block1,rest,block2,done
 static double g_wigNext  = 0.0;
 
@@ -41,7 +40,6 @@ static float  g_fwigSaved = 0.0f;
 // One 3-second window per candidate, forcing 70 (a clear zoom-in) with the
 // engine's own value saved/restored. The window that visibly zooms = the
 // live input.
-static const uint32_t kFovCands[4] = {0x53c, 0x540, 0x564, 0x254};
 
 // ============================================================================
 // 30.48 - LIVE FOV FIELD HUNT. +0x138 was a config echo (writes: no effect).

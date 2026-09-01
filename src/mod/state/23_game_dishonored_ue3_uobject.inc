@@ -1,11 +1,6 @@
 // State chunk 23 for game/dishonored/ue3/uobject - included by src/mod/dishonoredvr.cpp.
 // Original order is preserved across chunks; do not reorder.
 
-static const uintptr_t kGNamesNum  = 0x1435678;
-static const uintptr_t kModBase    = 0x400000;
-static const uintptr_t kModEnd     = 0x400000 + 0x1206A0C; // end of .reloc
-static const uintptr_t kDataStart  = 0x400000 + 0xE69000;  // .data VA
-static const uintptr_t kDataEnd    = kDataStart + 0x21B3BC;
 static int  g_probeRuns = 0;
 static bool g_f9WasDown = false;
 

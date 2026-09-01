@@ -772,3 +772,24 @@ static void FpArrayDump()
     }
     Log("arrays: ==== %d candidate array(s) ====", found);
 }
+
+// where the component actually sits in the world, read back from the engine
+static bool FpWorldPos(uint8_t* o, float* p)
+{
+    if (!LooksLikeObj(o) || !RangeReadable(o + 0x90, 12)) return false;
+    const float* w = (const float*)(o + 0x90);
+    p[0] = w[0]; p[1] = w[1]; p[2] = w[2];
+    return true;
+}
+
+// UE3's FRotationMatrix, row-vector, exactly the convention FpDrive's Euler
+// extraction assumes - so a zero error here means that extraction is valid too
+static void GtUE3Rot(float pitchDeg, float yawDeg, float rollDeg, float* M)
+{
+    float P = pitchDeg / 57.2958f, Y = yawDeg / 57.2958f, R = rollDeg / 57.2958f;
+    float SP = sinf(P), CP = cosf(P), SY = sinf(Y);
+    float CY = cosf(Y), SR = sinf(R), CR = cosf(R);
+    M[0] = CP*CY;               M[1] = CP*SY;               M[2] = SP;
+    M[3] = SR*SP*CY - CR*SY;    M[4] = SR*SP*SY + CR*CY;    M[5] = -SR*CP;
+    M[6] = -(CR*SP*CY + SR*SY); M[7] = CY*SR - CR*SP*SY;    M[8] = CR*CP;
+}

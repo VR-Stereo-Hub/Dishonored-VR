@@ -56,6 +56,7 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
     EnsureConfig(); // safe here (post loader-lock); not in DllMain
     dvr::crash::install();   // fingerprint VEH + minidump filter, before any hook
     DvrDebugInit();          // command seam + status provider
+#if DVR_WITH_LEGACY
     {   // 37.0: XR-1 bench, armed only by the env var (xr_bench.bat)
         char xb[8] = "";
         if (GetEnvironmentVariableA("DISHONORED_VR_XR_BENCH", xb, sizeof(xb))
@@ -75,6 +76,7 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
             }
         }
     }
+#endif
     if (!EnsureRealD3D9() || !g_realCreate9) return NULL;
     IDirect3D9* d3d = g_realCreate9(sdkVersion);
     Log("Direct3DCreate9(sdk=%u) -> %p", sdkVersion, (void*)d3d);

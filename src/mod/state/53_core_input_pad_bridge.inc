@@ -1,7 +1,6 @@
 // State chunk 53 for core/input/pad_bridge - included by src/mod/dishonoredvr.cpp.
 // Original order is preserved across chunks; do not reorder.
 
-static const uintptr_t kXISetSlot = 0x00f946c0; // IAT slot: xinput1_3 ord 3
 typedef DWORD (WINAPI *XInputGetState_t)(DWORD, XINPUT_STATE*);
 typedef DWORD (WINAPI *XInputSetState_t)(DWORD, XINPUT_VIBRATION*);
 static XInputGetState_t g_realXIGetState = NULL;

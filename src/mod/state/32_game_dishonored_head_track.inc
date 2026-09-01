@@ -92,8 +92,6 @@ static uint8_t* g_pcObj = NULL;
 // "is the view". Those are almost certainly other actors' rotations parked on
 // the camera (weapon, pawn, view target), which is exactly why world objects
 // began turning with your head, and likely why it hitches.
-static const uint32_t kPcRotBase[]  = { 0x9c, 0xd0 };   // controller: the source
-static const uint32_t kCamRotBase[] = { 0x9c, 0xd0 };   // camera POV + its cache
 
 // Last build swung too far the other way: re-scanning every frame meant
 // dereferencing ~240 arbitrary pointers per frame through ObjClassName, and

@@ -14,4 +14,3 @@
 // from our chosen orientation. Milestone: a fixed 20 deg test yaw (F3) to
 // confirm the render actually follows this matrix. Default OFF / not installed.
 // ============================================================================
-static const uintptr_t kCamHookAt = 0x56dd36; // epilogue (5 bytes: 5E 8B E5 5D C3)

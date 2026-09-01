@@ -136,3 +136,16 @@ static void FpDeltaAxis(const float* b1, const float* b0, float* axis)
     axis[1] = R[0][2] - R[2][0];
     axis[2] = R[1][0] - R[0][1];
 }
+
+// Gram-Schmidt on rows. The parent matrices here are right-handed (checked
+// against both weapons' rest bases), so rebuilding row2 by cross product is
+// safe and keeps a blended rotation a rotation.
+static void M3OrthoRows(float* m)
+{
+    float* r0 = m; float* r1 = m + 3; float* r2 = m + 6;
+    V3Norm(r0);
+    float d = V3Dot(r1, r0);
+    r1[0] -= d*r0[0]; r1[1] -= d*r0[1]; r1[2] -= d*r0[2];
+    V3Norm(r1);
+    V3Cross(r0, r1, r2);
+}

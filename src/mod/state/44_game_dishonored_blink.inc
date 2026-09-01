@@ -56,9 +56,6 @@ static int       g_bpEvtN = 0;
 // this point in the function. A mid-function detour that also changes
 // behaviour on its first run gives you two suspects when it goes wrong.
 // Substitution is a separate switch.
-static const uintptr_t kBlkAimHook = 0x00bf595f;   // the first movss, 5 bytes
-static const uintptr_t kBlkAimBack = 0x00bf5964;   // resume at the second
-static const uint8_t   kBlkAimOrig[5] = { 0xf3, 0x0f, 0x10, 0x45, 0xf4 };
 static bool     g_blkHookOn   = false;   // detour installed
 static bool     g_blkAimDrive = false;   // and actually substituting
 extern volatile LONG g_blkHookReq;
@@ -99,9 +96,6 @@ static void MaimDirFromView(float viewYaw, float viewPitch, const float* rel,
 //
 // We keep the engine's own traced DISTANCE and only swap the direction, so
 // range checks and collision pull-back stay meaningful.
-static const uintptr_t kBlkDstHook = 0x00bf5e4f;
-static const uintptr_t kBlkDstBack = 0x00bf5e55;
-static const uint8_t   kBlkDstOrig[6] = { 0x8d, 0x85, 0x30, 0xff, 0xff, 0xff };
 static bool     g_blkDstOn = false;
 extern volatile LONG g_blkDstReqUI;
 #define g_blkDstReq g_blkDstReqUI
@@ -159,9 +153,6 @@ extern "C" void BlinkDestStub(void);
 // Which is why the substituted vector keeps the engine's MAGNITUDE exactly and
 // changes only its direction - that length is the power's reach, and handing
 // back a unit vector would collapse the blink to one world unit.
-static const uintptr_t kBlkDirHook = 0x00bf55a3;
-static const uintptr_t kBlkDirBack = 0x00bf55a8;
-static const uint8_t   kBlkDirOrig[5] = { 0x8b, 0x08, 0x89, 0x4d, 0xb4 };
 static volatile LONG g_blkDirHits = 0;
 static volatile LONG g_blkDirMine = 0;
 static double   g_blkDirTell = 0.0;
@@ -200,9 +191,6 @@ extern "C" void BlinkDirStub(void);
 // swapping only the direction - and the trace runs down the controller ray.
 // Hit point, pull-back, decal, destination and marker then all agree by
 // construction, because they are all derived from one trace.
-static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
-static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
-static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };
 static bool     g_blkTrcOn = false;
 static volatile LONG g_blkTrcHits = 0;
 static volatile LONG g_blkTrcMine = 0;

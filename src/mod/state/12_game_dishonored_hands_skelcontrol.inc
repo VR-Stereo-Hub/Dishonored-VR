@@ -1,11 +1,6 @@
 // State chunk 12 for game/dishonored/hands/skelcontrol - included by src/mod/dishonoredvr.cpp.
 // Original order is preserved across chunks; do not reorder.
 
-static const uint32_t kSkcStr     = 0x64;   // float ControlStrength
-static const uint32_t kSkcBools   = 0xb8;   // bApply/bAdd/bRemove bitfield
-static const uint32_t kSkcTrans   = 0xbc;   // FVector BoneTranslation
-static const uint32_t kSkcTSpace  = 0xc8;   // BYTE  BoneTranslationSpace
-static const uint32_t kSkcRSpace  = 0xc9;   // BYTE  BoneRotationSpace
 // The three live controls that hang off pMesh (the player's own component).
 static uint8_t* g_skcPlayer[8];
 static int      g_skcPlayerN = 0;
@@ -61,10 +56,6 @@ static float    g_skcStrength = 1.0f;
 // so 0x0a = bApplyRotation | bAddRotation: Arkane uses them as ROTATION-only
 // look-at controls. Position needs bApplyTranslation turned on, which is why
 // the translation sliders did nothing until the mask went in.
-static const uint32_t kSkcApplyTrans = 0x01;
-static const uint32_t kSkcApplyRot   = 0x02;
-static const uint32_t kSkcAddTrans   = 0x04;
-static const uint32_t kSkcAddRot     = 0x08;
 // 31.4: map by NAME, never by index. GObjects iteration order is not stable -
 // two probes in one session returned the controls as
 //   #0 RightHand #1 LeftHand #2 Camera   and   #0 Camera #1 LeftHand #2 RightHand
@@ -294,7 +285,6 @@ static bool     g_skcPinHave = false;
 // kept whatever orientation the animation gave it on a camera-locked component.
 // So drive BoneRotation too, in world space, from the controller's own
 // orientation. FRotator is three INTs (Pitch, Yaw, Roll) at 65536 per turn.
-static const uint32_t kSkcRot = 0xd4;      // FRotator BoneRotation
 // 32.2: rotation drive OFF by default. Measured: 9,000 writes/second into
 // BoneRotation, comfortably outrunning the per-tick recompute (that was the
 // FOV lever's whole trick), and the hands STILL rotate with the head. So the
@@ -321,7 +311,6 @@ static float    g_skcYaw0[2] = { 0, 0 };
 // dump. Scales the controlled bone and everything under it, so shrinking the
 // hand takes the held weapon with it. Animation is unaffected: this is a
 // property the anim pass consumes, not a transform fighting it.
-static const uint32_t kSkcScaleProp = 0xa0;
 static float    g_skcHandSize = 1.0f;
 // ---- 32.0 -------------------------------------------------------------------
 // The user is getting motion sick, and the cause is a CONFLICT, not a bug in

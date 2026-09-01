@@ -121,4 +121,3 @@ static int      g_shapeN = 0;
 // 0x0048a0e0 was the wrong pick - it has the same shape but no UFunction in
 // any argument. The real one reads UFunction::FunctionFlags at +0x80 from its
 // first argument, which is the fingerprint that settles it.
-static const uintptr_t kProcessEvent = 0x00470640;

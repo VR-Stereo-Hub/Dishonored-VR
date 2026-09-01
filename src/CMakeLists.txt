@@ -69,6 +69,8 @@ target_link_libraries(dvr_proxy PRIVATE
 target_compile_options(dvr_proxy PRIVATE /W3 /permissive-)
 if(DVR_WITH_LEGACY)
     target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_LEGACY=1)
+else()
+    target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_LEGACY=0)
 endif()
 
 # --- xr_hello32 - standalone OpenXR smoke client -------------------------------

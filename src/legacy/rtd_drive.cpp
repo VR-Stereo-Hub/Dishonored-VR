@@ -3,18 +3,7 @@
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
 
 
-// Gram-Schmidt on rows. The parent matrices here are right-handed (checked
-// against both weapons' rest bases), so rebuilding row2 by cross product is
-// safe and keeps a blended rotation a rotation.
-static void M3OrthoRows(float* m)
-{
-    float* r0 = m; float* r1 = m + 3; float* r2 = m + 6;
-    V3Norm(r0);
-    float d = V3Dot(r1, r0);
-    r1[0] -= d*r0[0]; r1[1] -= d*r0[1]; r1[2] -= d*r0[2];
-    V3Norm(r1);
-    V3Cross(r0, r1, r2);
-}
+
 
 
 // ============================================================================
@@ -311,27 +300,10 @@ static void GtCommandVM(float pitchDeg, float yawDeg, float rollDeg,
 }
 
 
-// where the component actually sits in the world, read back from the engine
-static bool FpWorldPos(uint8_t* o, float* p)
-{
-    if (!LooksLikeObj(o) || !RangeReadable(o + 0x90, 12)) return false;
-    const float* w = (const float*)(o + 0x90);
-    p[0] = w[0]; p[1] = w[1]; p[2] = w[2];
-    return true;
-}
 
 
-// UE3's FRotationMatrix, row-vector, exactly the convention FpDrive's Euler
-// extraction assumes - so a zero error here means that extraction is valid too
-static void GtUE3Rot(float pitchDeg, float yawDeg, float rollDeg, float* M)
-{
-    float P = pitchDeg / 57.2958f, Y = yawDeg / 57.2958f, R = rollDeg / 57.2958f;
-    float SP = sinf(P), CP = cosf(P), SY = sinf(Y);
-    float CY = cosf(Y), SR = sinf(R), CR = cosf(R);
-    M[0] = CP*CY;               M[1] = CP*SY;               M[2] = SP;
-    M[3] = SR*SP*CY - CR*SY;    M[4] = SR*SP*SY + CR*CY;    M[5] = -SR*CP;
-    M[6] = -(CR*SP*CY + SR*SY); M[7] = CY*SR - CR*SP*SY;    M[8] = CR*CP;
-}
+
+
 
 
 static float GtAngleOf(const float* R)          // rotation angle, degrees

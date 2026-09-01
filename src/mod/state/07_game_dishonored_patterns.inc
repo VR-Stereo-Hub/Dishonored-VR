@@ -1,15 +1,8 @@
 // State chunk 07 for game/dishonored/patterns - included by src/mod/dishonoredvr.cpp.
 // Original order is preserved across chunks; do not reorder.
 
-static const uint32_t  kNameOff  = 0x28;
-static const uint32_t  kClassOff = 0x30;
 // UE3 UObject: ... Outer, FName Name (0x28), UClass* Class (0x30). Outer sits
 // one pointer before the name. Used to answer "who OWNS this SkelControl".
-static const uint32_t  kOuterOff = 0x24;
-static const uint32_t  kCamRight = 0x60;   // basis Y (right) row
-static const uint32_t  kCamLoc0  = 0x80;   // matrix translation row
-static const uint32_t  kCamLoc1  = 0x90;   // cached POV loc
-static const uint32_t  kCamLoc2  = 0xC4;   // cached POV loc 2
 
 static bool     g_stereoEnabled = false;   // ini [Stereo] Enabled + F7 toggle
 static bool     g_povProbe      = true;    // 30.43: [CamSeam] PovProbe - scan

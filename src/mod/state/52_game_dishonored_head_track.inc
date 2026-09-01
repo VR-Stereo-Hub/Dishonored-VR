@@ -13,4 +13,3 @@
 // each frame. Real analog movement, and the game's rumble comes back out as
 // controller haptics. A real 360 pad still works whenever the VR controllers
 // are off (we pass through unless both sides are live).
-static const uintptr_t kXIGetSlot = 0x00f946c4; // IAT slot: xinput1_3 ord 2

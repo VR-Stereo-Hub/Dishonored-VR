@@ -2,6 +2,11 @@
 // tools/split-source.py so function bodies can live in any file.
 #pragma once
 
+// backend probe (core/vr/backend_probe.cpp)
+static bool BackendProbeOpenXr();
+static bool BackendProbeOpenVr();
+static void BackendSelect(const char* ini);
+
 // debugging surface (game/dishonored/commands.cpp, core/gfx/frame_dump.cpp)
 static void DvrDebugInit();
 static bool DvrGameCommand(const char* cmd, const char* args);

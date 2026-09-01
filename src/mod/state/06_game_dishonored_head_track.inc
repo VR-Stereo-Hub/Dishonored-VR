@@ -67,4 +67,3 @@ static int   g_flipYaw = 1, g_flipPitch = 1, g_flipRoll = 1; // ini sign flips (
 //   +0x80, +0x90, +0xc4 = cached camera world location (FVector, 3 floats)
 //   right-vector = basis-Y row @ +0x60
 // ----------------------------------------------------------------------------
-static const uintptr_t kGObjHdr = 0x1423630; // TArray<UObject*> {Data,Num,Max}

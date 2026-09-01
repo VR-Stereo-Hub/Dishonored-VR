@@ -15,4 +15,3 @@
 // camera-related objects so the next build can drive the camera (stereo/6DoF).
 // Runs automatically twice, or on demand with F9 (press it while IN a level).
 // ----------------------------------------------------------------------------
-static const uintptr_t kGNamesData = 0x1435674;

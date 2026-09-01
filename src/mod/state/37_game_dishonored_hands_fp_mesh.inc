@@ -1,9 +1,6 @@
 // State chunk 37 for game/dishonored/hands/fp_mesh - included by src/mod/dishonoredvr.cpp.
 // Original order is preserved across chunks; do not reorder.
 
-static const uint32_t kMeshRot   = 0x19c;
-static const uint32_t kMeshScale = 0x1a8;
-static const uint32_t kMeshScl3D = 0x1ac;
 
 // Writing pMesh's relative Rotation WORKED - d-cmd and d-world tracked each
 // other all the way down the log. But pMesh is what the camera rides on, so

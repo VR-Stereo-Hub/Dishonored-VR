@@ -262,4 +262,3 @@ static inline bool BlkAlive();
 // the next offset (FName 8 -> float at +8, FVector 12 -> byte at +12) and the
 // bools share bitfield offsets, which is what UE3 does. Nothing here is
 // inferred from a byte pattern - that is the 30.41 mistake.
-static const uint32_t kSkcName    = 0x5c;   // FName ControlName

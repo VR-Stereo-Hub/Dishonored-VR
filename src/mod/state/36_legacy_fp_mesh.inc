@@ -20,4 +20,3 @@
 // Note both dumped world matrices are yaw-only (row1 is (0,0,-1) flat): the
 // arms' pitch comes from animation, not from this transform. So a relative
 // pitch here is ours to use for hand aiming.
-static const uint32_t kMeshTrans = 0x190;

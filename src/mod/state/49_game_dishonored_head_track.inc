@@ -14,8 +14,6 @@
 // changed it, so that new value becomes the base and gets scaled in turn. A
 // 32 deg spyglass zoom stays a zoom (32 x R), cutscenes keep their framing,
 // and the steady-state view is exactly the FOV the user asked for.
-static const uint32_t kLevCtrl[3] = {0x3ac, 0x3b0, 0x3b4};   // FOVAngle/Desired/Default
-static const uint32_t kLevCam[7]  = {0x254, 0x348, 0x368, 0x38c, 0x53c, 0x540, 0x564};
 static float g_levLast[10] = {0};
 static float g_levBase[10] = {0};
 static float g_fovNatural  = 0.0f;   // the game's own base FOV, captured once
