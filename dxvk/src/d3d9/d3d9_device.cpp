@@ -402,6 +402,24 @@ namespace dxvk {
   // 2-tri, samples an RT) and matched nothing in two captures while the user
   // could plainly see the marker on screen. So dump constants for every
   // CANDIDATE instead: anything that escaped the splice, plus anything
+  // ==== M5.2: name and save the shaders of the MONO POST CHAIN ==========
+  // The 4032 water frame decoded the light-shaft pipeline: downsample the
+  // (side-by-side!) scene to half res, radial-blur ping-pong at quarter res,
+  // composite - all once, in mono, with one screen-space blur origin that
+  // lands near the SEAM of the pair. To fix it per eye we need to know WHICH
+  // ps constant is the blur origin, and guessing registers costs a launch per
+  // guess. So: for every draw the frame map classifies samples-rt or
+  // rt-small, write the bound pixel shader's DXBC to disk (D3D9 keeps the
+  // bytecode; GetFunction hands it back) - once per distinct shader, FNV-1a
+  // named, next to the exe. Decompiling those offline names the register.
+  static uint32_t FmFnv(const uint8_t* p, uint32_t n) {
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < n; i++) { h ^= p[i]; h *= 16777619u; }
+    return h;
+  }
+  static uint32_t fmShaderDumped[64];
+  static uint32_t fmShaderDumpedN = 0;
+
   // depth-tested that samples a full-size render target (the spliced-but-
   // wrong-UV case). Capped per frame so the log stays readable.
   static uint32_t fmDumps = 0;
@@ -4120,6 +4138,36 @@ namespace dxvk {
         FmDumpConsts(upWhy, fmDraw - 1, vsf, psf);
       else if (depthTested && upSamplesRt)
         FmDumpConsts("UP spliced+samplesRT", fmDraw - 1, vsf, psf);
+      // M5.2: the mono post chain - save the shader, log its identity
+      if ((!std::strcmp(upWhy, "samples-rt") || !std::strcmp(upWhy, "rt-small"))
+          && m_state.pixelShader != nullptr) {
+        UINT psSize = 0;
+        if (SUCCEEDED(m_state.pixelShader->GetFunction(nullptr, &psSize))
+            && psSize > 0 && psSize < 1u << 20) {
+          std::vector<uint8_t> code(psSize);
+          if (SUCCEEDED(m_state.pixelShader->GetFunction(code.data(), &psSize))) {
+            const uint32_t h = FmFnv(code.data(), psSize);
+            char hx[16];
+            std::snprintf(hx, sizeof(hx), "%08x", h);
+            Logger::info(str::format("FM d", fmDraw - 1, " PS fnv=", hx,
+              " bytes=", psSize, " (", upWhy, ")"));
+            bool dumped = false;
+            for (uint32_t i2 = 0; i2 < fmShaderDumpedN; i2++)
+              if (fmShaderDumped[i2] == h) { dumped = true; break; }
+            if (!dumped && fmShaderDumpedN < 64) {
+              fmShaderDumped[fmShaderDumpedN++] = h;
+              char nm[64];
+              std::snprintf(nm, sizeof(nm), "ps_%08x.dxbc", h);
+              std::FILE* f2 = std::fopen(nm, "wb");
+              if (f2) {
+                std::fwrite(code.data(), 1, psSize, f2);
+                std::fclose(f2);
+                Logger::info(str::format("FM shader saved: ", nm));
+              }
+            }
+          }
+        }
+      }
     }
     }
     if (dxvk_vr_markkill != 0 && !stInDup) {
@@ -4327,6 +4375,36 @@ namespace dxvk {
         FmDumpConsts(upWhy, fmDraw - 1, vsf, psf);
       else if (depthTested && upSamplesRt)
         FmDumpConsts("UP spliced+samplesRT", fmDraw - 1, vsf, psf);
+      // M5.2: same shader dump as the DrawPrimitiveUP site
+      if ((!std::strcmp(upWhy, "samples-rt") || !std::strcmp(upWhy, "rt-small"))
+          && m_state.pixelShader != nullptr) {
+        UINT psSize = 0;
+        if (SUCCEEDED(m_state.pixelShader->GetFunction(nullptr, &psSize))
+            && psSize > 0 && psSize < 1u << 20) {
+          std::vector<uint8_t> code(psSize);
+          if (SUCCEEDED(m_state.pixelShader->GetFunction(code.data(), &psSize))) {
+            const uint32_t h = FmFnv(code.data(), psSize);
+            char hx[16];
+            std::snprintf(hx, sizeof(hx), "%08x", h);
+            Logger::info(str::format("FM d", fmDraw - 1, " PS fnv=", hx,
+              " bytes=", psSize, " (", upWhy, ")"));
+            bool dumped = false;
+            for (uint32_t i2 = 0; i2 < fmShaderDumpedN; i2++)
+              if (fmShaderDumped[i2] == h) { dumped = true; break; }
+            if (!dumped && fmShaderDumpedN < 64) {
+              fmShaderDumped[fmShaderDumpedN++] = h;
+              char nm[64];
+              std::snprintf(nm, sizeof(nm), "ps_%08x.dxbc", h);
+              std::FILE* f2 = std::fopen(nm, "wb");
+              if (f2) {
+                std::fwrite(code.data(), 1, psSize, f2);
+                std::fclose(f2);
+                Logger::info(str::format("FM shader saved: ", nm));
+              }
+            }
+          }
+        }
+      }
     }
     }
     if (dxvk_vr_markkill != 0 && !stInDup) {
