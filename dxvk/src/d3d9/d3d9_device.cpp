@@ -4157,7 +4157,16 @@ namespace dxvk {
       const bool uvDo = StUvGrab(
         reinterpret_cast<const float*>(m_state.psConsts->fConsts) + uvReg * 4,
         uvSave);
-      const int32_t vpReg = VrPsVpmReg(m_state.pixelShader.ptr());   // M7.0
+      // M8.0: the VPM shear applies ONLY to the measured artifact class -
+      // ADDITIVE draws (killmask bisection: ab=1, dst=ONE). M7.3 sheared
+      // every VPM-carrying shader once the caps fell, including main-view
+      // shaders that SAMPLE the mono reflection texture - their reflection
+      // uvs went wrong in both eyes. Additive-only restores that scope.
+      const bool dpAdditive =
+        m_state.renderStates[D3DRS_ALPHABLENDENABLE] != 0 &&
+        m_state.renderStates[D3DRS_DESTBLEND] == D3DBLEND_ONE;
+      const int32_t vpReg = dpAdditive
+        ? VrPsVpmReg(m_state.pixelShader.ptr()) : -1;                // M7.0
       float vpmSave[16];
       if (vpReg >= 0)
         std::memcpy(vpmSave, reinterpret_cast<const float*>(
@@ -4444,7 +4453,12 @@ namespace dxvk {
           m_state.renderStates[D3DRS_SRCBLEND],
           m_state.renderStates[D3DRS_DESTBLEND],
           uvReg, uvDo, PrimitiveCount);
-        const int32_t vpReg = VrPsVpmReg(m_state.pixelShader.ptr()); // M7.0
+        // M8.0: additive-only, same reasoning as the DP site.
+        const bool dipAdditive =
+          m_state.renderStates[D3DRS_ALPHABLENDENABLE] != 0 &&
+          m_state.renderStates[D3DRS_DESTBLEND] == D3DBLEND_ONE;
+        const int32_t vpReg = dipAdditive
+          ? VrPsVpmReg(m_state.pixelShader.ptr()) : -1;              // M7.0
         float vpmSave[16];
         if (vpReg >= 0)
           std::memcpy(vpmSave, reinterpret_cast<const float*>(
@@ -4497,6 +4511,11 @@ namespace dxvk {
             float vpmEye[16];
             VrVpmShear(vpmSave, s, stConvNow, vpmEye);
             SetPixelShaderConstantF(vpReg, vpmEye, 4);
+            static uint32_t vrM80Told = 0;
+            if (vrM80Told < 1 && e == 0) { vrM80Told++;
+              Logger::info(str::format("VR M8.0: additive-only VPM shear "
+                "LIVE (c", vpReg, ") - light passes per-eye, reflection "
+                "samplers untouched")); }
           }
           if (shDo) {
             const bool dHasW = dipS2w != 0xffffu;
@@ -6173,7 +6192,10 @@ namespace dxvk {
       // M7.0: PS ViewProjectionMatrix register, on the object
       {
         const int32_t rvp = VrCtabFindFloat(pFunction, "ViewProjectionMatrix");
-        if (rvp >= 0) vrPs->vrVpmReg = (int16_t)rvp;
+        // M8.0: bounds guard - a 4-row matrix at reg > 220 walks off the
+        // 224-float4 constant array (save memcpy + Set both). The M7.3
+        // combat crash is exactly the class this closes.
+        if (rvp >= 0 && rvp <= 220) vrPs->vrVpmReg = (int16_t)rvp;
       }
       // M6.8: ScreenPositionScaleBias register, on the object
       {
