@@ -163,7 +163,7 @@ namespace dxvk {
   struct VrTwin { IDirect3DSurface9* left;    IDirect3DSurface9* right;
                   IDirect3DTexture9* leftTex; IDirect3DTexture9* rightTex;
                   uint32_t w, h; D3DFORMAT fmt; };
-  static VrTwin   vrTwins[32] = {};
+  static VrTwin   vrTwins[48] = {};
   static uint32_t vrTwinN     = 0;
   static uint64_t vrTwinBytes = 0;
   static uint32_t fmMarkHits = 0;
@@ -990,9 +990,38 @@ namespace dxvk {
         Logger::info(str::format("VR stereo marker: sep=", dxvk_vr_sep,
           " conv=", dxvk_vr_conv, " twin=", dxvk_vr_twin));
       }
-      if (dxvk_vr_twin && !vrTwinning && vrTwinN < 32
-          && (Usage & D3DUSAGE_RENDERTARGET)
-          && Width >= 256 && Height >= 128) {
+
+      // M4.6: twin only the targets that are DERIVED FROM THE VIEWPORT.
+      // The M4.5 run twinned 32 targets for 112 MB, and the list showed the
+      // filter was too broad: 1024x1024, 1344x1344 and 800x800 are shadow and
+      // cubemap targets. Those depend on the LIGHT, not on the eye - both eyes
+      // can share them, and duplicating them would mean duplicating the shadow
+      // passes that fill them for no benefit at all.
+      // The eye-dependent ones are the backbuffer size and its halvings:
+      // 1783x1003, 891x501, 445x250. Match on that chain, with a tolerance,
+      // because integer division rounds (1783/2 = 891, 891/2 = 445).
+      bool vrEyeDependent = false;
+      if (dxvk_vr_twin && (Usage & D3DUSAGE_RENDERTARGET)) {
+        D3DPRESENT_PARAMETERS pp = {};
+        if (m_implicitSwapchain != nullptr)
+          m_implicitSwapchain->GetPresentParameters(&pp);
+        uint32_t bw = pp.BackBufferWidth, bh = pp.BackBufferHeight;
+        for (uint32_t div = 1; div <= 8 && bw >= 64 && !vrEyeDependent; div *= 2) {
+          uint32_t w = bw / div, h = bh / div;
+          uint32_t dw = Width  > w ? Width  - w : w - Width;
+          uint32_t dh = Height > h ? Height - h : h - Height;
+          if (dw <= 2 && dh <= 2) vrEyeDependent = true;
+        }
+        if (!vrEyeDependent && Width >= 256 && Height >= 128) {
+          static uint32_t vrSkipped = 0;
+          if (vrSkipped < 8) { vrSkipped++;
+            Logger::info(str::format("VR twin SKIP ", Width, "x", Height,
+              " fmt=", (int32_t)Format,
+              " - not viewport-derived (shadow/cube), shared between eyes")); }
+        }
+      }
+
+      if (dxvk_vr_twin && !vrTwinning && vrTwinN < 48 && vrEyeDependent) {
         vrTwinning = true;
         IDirect3DTexture9* twin = nullptr;
         HRESULT thr = CreateTexture(Width, Height, Levels, Usage, Format,
