@@ -4095,8 +4095,15 @@ namespace dxvk {
     else if (dpVp.Width < 1024)          dpWhy = "rt-small";
     else if (!(dpVp.Width > dpVp.Height)) dpWhy = "rt-portrait";
 
-    // M6.6: reflections off - drop the mirrored-camera pass entirely
+    // M6.6: reflections off - drop the mirrored-camera pass entirely.
+    // M7.1: black the region once per frame (see the DIP site).
     if (dxvk_vr_reflect == 0 && !std::strcmp(dpWhy, "mirrored-vp")) {
+      static uint32_t vrReflClearFrameDp = 0xffffffffu;
+      if (vrReflClearFrameDp != vrHudFrameNo) {
+        vrReflClearFrameDp = vrHudFrameNo;
+        Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(255, 0, 0, 0),
+              1.0f, 0);
+      }
       if (fmActive)
         Logger::info(str::format("FM d", fmDraw++, " DP REFLECT-SKIPPED"));
       return D3D_OK;
@@ -4284,8 +4291,19 @@ namespace dxvk {
     else if (stVpS.Width < 1024)        stWhy = "rt-small";
     else if (!(stVpS.Width > stVpS.Height)) stWhy = "rt-portrait";
 
-    // M6.6: reflections off - drop the mirrored-camera pass entirely
+    // M6.6: reflections off - drop the mirrored-camera pass entirely.
+    // M7.1: AND black the reflection region once per frame - just skipping
+    // left the RT holding its last-rendered reflection, so the toggle
+    // looked like a no-op while standing still (the confound that sank the
+    // first reflect-off test). Clear honors the current viewport, which is
+    // exactly the reflection region.
     if (dxvk_vr_reflect == 0 && !std::strcmp(stWhy, "mirrored-vp")) {
+      static uint32_t vrReflClearFrame = 0xffffffffu;
+      if (vrReflClearFrame != vrHudFrameNo) {
+        vrReflClearFrame = vrHudFrameNo;
+        Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(255, 0, 0, 0),
+              1.0f, 0);
+      }
       if (fmActive)
         Logger::info(str::format("FM d", fmDraw++, " DIP REFLECT-SKIPPED"));
       return D3D_OK;
