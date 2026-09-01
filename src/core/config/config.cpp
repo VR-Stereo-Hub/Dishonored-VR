@@ -1,0 +1,1264 @@
+// core/config/config.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
+// module gets its own header and translation unit. Bodies are verbatim from
+// the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
+
+
+static void WriteDefaultIni(const char* ini)
+{
+    FILE* f = fopen(ini, "w");
+    if (!f) return;
+    fprintf(f,
+        "; Dishonored VR config — edit while game is closed\n"
+        "; (auto-refreshed when the mod's defaults change)\n"
+        "[Meta]\n"
+        "Version=%d\n"
+        "[Tracking]\n"
+        "; head tracking drives the game camera via mouse emulation.\n"
+        "; Calibrate: pick a landmark, turn your head 90 degrees; if the\n"
+        "; world turns less than you did, RAISE CountsPerDegree; if more, lower.\n"
+        "Enabled=1\n"
+        "YawCountsPerDegree=11.5\n"
+        "PitchCountsPerDegree=11.5\n"
+        "InvertPitch=0\n"
+        "[Screen]\n"
+        "; FillView=1 shows the game at TRUE 1:1 scale: the image spans exactly\n"
+        "; the FOV the game rendered (GameFOVDeg). To shrink the black border,\n"
+        "; raise the game's FOV (in-game slider, max 85 — or set m_fDefaultFOV in\n"
+        "; Documents\\My Games\\Dishonored\\DishonoredGame\\Config\\DishonoredCamera.ini\n"
+        "; to 95-100) and set GameFOVDeg to the SAME number. A squarer game\n"
+        "; resolution (e.g. 1600x1200 windowed) also fills more vertical view.\n"
+        "; FillScale >1 grows the image to fill the border (mild zoom); live keys\n"
+        "; F1 (smaller/crisper) and F2 (bigger/fills more). FillView=0 = fixed\n"
+        "; floating screen of WidthMeters instead.\n"
+        "FillView=1\n"
+        "GameFOVDeg=75\n"
+        "FillScale=1.70\n"
+        "DistanceMeters=1.6\n"
+        "WidthMeters=4.8\n"
+        "; RenderWidth/Height: THE resolution setting. It sizes the game\n"
+        "; window's client area, and the game derives its whole renderer from\n"
+        "; that - so this is the one knob that actually raises the image the\n"
+        "; headset gets. The window will hang off your monitor; that is fine.\n"
+        "; Match it to your headset's per-eye size (SteamVR shows this), e.g.\n"
+        "; 2016x2214. Bigger = sharper and slower. 0 = leave the game alone.\n"
+        "RenderWidth=0\n"
+        "RenderHeight=0\n"
+        "; Build 30.22 supersampling: SpoofDesktop makes the game believe the\n"
+        "; desktop is this big, so the ResX/ResY you set in\n"
+        "; Documents\\...\\DishonoredEngine.ini stops being clamped to your\n"
+        "; monitor. Set both to 2560x1440 (and ResX/ResY to match) for a\n"
+        "; sharp headset image; 0 = off. The game window will extend past\n"
+        "; your monitor - that is normal; the headset is the real screen.\n"
+        "SpoofDesktopW=0\n"
+        "SpoofDesktopH=0\n"
+        "[Mode]\n"
+        "; 1 = old stage-1 theater screen (no head-driven camera)\n"
+        "ForceTheater=0\n"
+        "[Stereo]\n"
+        "; Render-time stereo: shears the view-projection matrix per eye.\n"
+        "; Toggle live: F7.  Separation -/+ : F10/F11.  Convergence cycle: F12.\n"
+        "; If depth looks inside-out, negate Separation. If the world warps,\n"
+        "; set Transpose=1. TIP: turn OFF in-game Motion Blur (Options>Video)\n"
+        "; to remove the blur when moving.\n"
+        "Enabled=1\n"
+        "Register=0\n"
+        "Separation=0.014\n"
+        "Convergence=140.0\n"
+        "Transpose=0\n"
+        "[Controllers]\n"
+        "; Stage 6.4: Index controllers = virtual Xbox-360 pad via SteamVR's\n"
+        "; ACTION input system (rebindable in SteamVR > Controller Bindings).\n"
+        "; Left stick = move. Right stick X = turn (Y = head only in gameplay).\n"
+        "; R trigger = right hand (sword)  L trigger = left hand (power/gun)\n"
+        "; R A = JUMP + menu confirm       R B = stealth + menu back\n"
+        "; L A = interact/use              L B = pause menu\n"
+        "; L trackpad press = power wheel  R trackpad press = zoom\n"
+        "; R grip = choke/attack           L grip = adrenaline (Y)\n"
+        "; L stick click = sneak (LS)      R stick click = RECENTER lean\n"
+        "; Head-mouse auto-pauses while a menu (visible cursor) is open.\n"
+        "Enabled=1\n"
+        "Deadzone=0.12\n"
+        "Haptics=1\n"
+        "[PosTrack]\n"
+        "; Stage 5: positional head tracking — lean/peek/crouch with your real\n"
+        "; head. F4 = toggle, F5 = re-center to your current head position.\n"
+        "; Scale = game units per meter (UE3 ~50). Too weak? raise it. Too\n"
+        "; strong/swimmy? lower it. MaxMeters clamps how far it will follow.\n"
+        "; If leaning LEFT moves the world the wrong way set FlipX=1.\n"
+        "Enabled=1\n"
+        "Scale=50\n"
+        "MaxMeters=0.80\n"
+        "FlipX=0\n"
+        "[MotionAim]\n"
+        "; Stage 7.3: hand-aimed projectile weapons (crossbow bolts, pistol\n"
+        "; bullets, grenades). After you pull the fire trigger, the freshly\n"
+        "; spawned projectile is redirected along your controller's ray.\n"
+        "; Hand: which controller aims (left = Corvo's gun hand). PitchOffsetDeg\n"
+        "; tilts the ray down from the controller's raw pose toward a natural\n"
+        "; point (tune live: PageUp = shots land higher, PageDown = lower,\n"
+        "; 5 deg steps; the log prints the value — copy your favorite here).\n"
+        "; FlipRight/FlipUp=1 mirror the ray if left/right or up/down aim is\n"
+        "; reversed. End key = toggle on/off live.\n"
+        "Enabled=1\n"
+        "Hand=left\n"
+        "PitchOffsetDeg=40\n"
+        "WindowMs=1200\n"
+        "MaxDistUU=900\n"
+        "FlipRight=0\n"
+        "FlipUp=0\n"
+        "[HandTracking]\n"
+        "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
+        "; you are in-game with both controllers tracked - no F6+HOME needed\n"
+        "; (F6/HOME still work manually). If the neutral pose captured badly,\n"
+        "; hold the controllers naturally and press END to recalibrate\n"
+        "; everything; HOME still toggles tracking off/on.\n"
+        "AutoStart=1\n"
+        "DelaySec=4\n"
+        "; Depth = hands push/pull the weapon. WristRoll = weapon rolls with\n"
+        "; your wrist (off by default).\n"
+        "Depth=1\n"
+        "WristRoll=0\n"
+        "[Melee]\n"
+        "; Build 30.19: swing the RIGHT controller to attack with the sword.\n"
+        "; A real swing above SwingSpeed (m/s) presses the attack input for\n"
+        "; HoldMs; CooldownMs paces combos (one swing = one strike). Your\n"
+        "; trigger still attacks as before. Too sensitive? raise SwingSpeed.\n"
+        "; Swings not registering? lower it.\n"
+        "Enabled=1\n"
+        "SwingSpeed=1.8\n"
+        "HoldMs=220\n"
+        "CooldownMs=300\n"
+        "[Debug]\n"
+        "; One-shot diagnostic, runs ~2 s after weapon tracking comes up and\n"
+        "; writes to the log. Values: bones census graph ue3 view. Leave empty\n"
+        "; for none. (Claude sets this remotely when a measurement is needed.)\n"
+        "Probe=\n"
+        "[Reticle]\n"
+        "; Build 30.5: floating aim dot for the MotionAim hand (default left -\n"
+        "; crossbow/pistol/powers). Drawn in VR space along the controller ray\n"
+        "; at DistanceMeters, so it shows where shots will actually fly. It\n"
+        "; draws over the world (no wall occlusion), like a laser sight dot.\n"
+        "; Appears while weapon tracking (HOME) is on. TIP: turn the game's own\n"
+        "; center crosshair off in the game's interface options if it offers it.\n"
+        "Enabled=1\n"
+        "DistanceMeters=2.5\n"
+        "SizeMeters=0.030\n"
+        "[HandRender]\n"
+        "; Build 30.70 - THE render-time hand/weapon drive.\n"
+        "; The drawn pose reaches the GPU as vertex constants at c6, three\n"
+        "; registers per bone. We apply one shared rigid transform there, built\n"
+        "; from your controller RELATIVE TO YOUR HEAD, so head motion cancels\n"
+        "; analytically and the weapon stops drifting with your view.\n"
+        "; Enabled=0 falls back to the old component drive.\n"
+        "Enabled=1\n"
+        "DriveArms=1\n"
+        "DriveWeapon=1\n"
+        "; Upload sizes that identify each rig. Both are driven by the SAME\n"
+        "; transform, so which label lands on which size does not change how it\n"
+        "; behaves - it only decides which one the WpnYaw/Pitch/Roll correction\n"
+        "; applies to. The 30.69 sweep saw exactly three sizes on screen (36,\n"
+        "; 144, 204); 204 is an NPC and is never touched. WHICH of 36 and 144 is\n"
+        "; the sword is still open - settle it with the identifier in the F10\n"
+        "; overlay, which wiggles one size at a time while you watch, then press\n"
+        "; the assign button. 0 = drive nothing here.\n"
+        "WeaponRegs=36\n"
+        "ArmsRegs=144\n"
+        "; Which controller drives the pair. Both rigs share it, so the hand\n"
+        "; stays welded to the weapon.\n"
+        "Hand=right\n"
+        "; 0 = the rig pivots about the viewpoint, 1 = about your hand (spins in\n"
+        "; place, like something actually held).\n"
+        "PivotMix=1.0\n"
+        "; Unreal units per metre of hand travel. 0 = follow [PosTrack] Scale so\n"
+        "; hands and world stay the same size.\n"
+        "ScaleUU=0\n"
+        "MaxOffsetUU=120\n"
+        "; 0 = raw pose. Raise toward 0.9 only if the hands look jittery.\n"
+        "SmoothAlpha=0.0\n"
+        "; Resting trim in rig space, unreal units: X forward, Y right, Z up.\n"
+        "; THIS IS THE ONE THAT MATTERS. The drive assumes the game's rest hand\n"
+        "; sits where your controller was when you pressed END; whatever is left\n"
+        "; over stays glued to your head. Trim by minus the visible error and\n"
+        "; the drift goes to zero (measured: 10 uu of error = 28 cm of swim per\n"
+        "; 90 degrees of head turn).\n"
+        "TrimX=0\n"
+        "TrimY=0\n"
+        "TrimZ=0\n"
+        "; RotInvert=1 is the one fix if the weapon turns the WRONG WAY.\n"
+        "; RotScale=0 removes rotation and leaves pure translation - use it to\n"
+        "; tell which half of the drive is misbehaving before tuning anything.\n"
+        "RotInvert=0\n"
+        "RotScale=1.0\n"
+        "; The pivot assumes the rig's origin is at your eye. If rotation swings\n"
+        "; the arms from somewhere below you, slide it back (unreal units).\n"
+        "PivotUp=0\n"
+        "; If the weapon and the hand pull APART, the weapon's component axes\n"
+        "; differ from the arms'. These degrees rotate the weapon's copy of the\n"
+        "; transform to match. Tune them live in the F10 overlay.\n"
+        "WpnYaw=0\n"
+        "WpnPitch=0\n"
+        "WpnRoll=0\n"
+        "[HeadInject]\n"
+        "; (legacy, unused)\n"
+        "FlipYaw=1\n"
+        "FlipPitch=1\n"
+        "FlipRoll=1\n", kConfigVersion);
+    fclose(f);
+}
+
+
+static void LoadConfig()
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    Log("config: LoadConfig begin");
+
+    // create if missing, OR refresh if it predates this build's tuned defaults
+    bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;
+    int ver = (int)IniFloat(ini, "Meta", "Version", 0);
+    if (missing || ver < kConfigVersion) {
+        WriteDefaultIni(ini);
+        Log("config: wrote fresh ini (was %s, now v%d)",
+            missing ? "missing" : "outdated", kConfigVersion);
+    }
+    g_trackingEnabled = IniFloat(ini, "Tracking", "Enabled", 1) != 0.0f;
+    g_yawCounts    = IniFloat(ini, "Tracking", "YawCountsPerDegree", 11.5f);
+    g_pitchCounts  = IniFloat(ini, "Tracking", "PitchCountsPerDegree", 11.5f);
+    g_invertPitch  = IniFloat(ini, "Tracking", "InvertPitch", 0) != 0.0f;
+    g_fillView     = IniFloat(ini, "Screen", "FillView", 1) != 0.0f;
+    g_gameFovDeg   = IniFloat(ini, "Screen", "GameFOVDeg", 75.0f);
+    if (g_gameFovDeg < 40.0f)  g_gameFovDeg = 40.0f;
+    if (g_gameFovDeg > 140.0f) g_gameFovDeg = 140.0f;
+    g_fillScale    = IniFloat(ini, "Screen", "FillScale", 1.70f);
+    if (g_fillScale < 0.6f) g_fillScale = 0.6f;
+    if (g_fillScale > 3.2f) g_fillScale = 3.2f;
+    g_screenDist   = IniFloat(ini, "Screen", "DistanceMeters", 1.6f);
+    g_screenWidth  = IniFloat(ini, "Screen", "WidthMeters", 4.8f);
+    g_forceTheater = IniFloat(ini, "Mode", "ForceTheater", 0) != 0.0f;
+    g_stereoEnabled  = IniFloat(ini, "Stereo", "Enabled", 1) != 0.0f;
+    // 30.29: one switch for both layers. If the DXVK stereo marker exists,
+    // the fork below us is already producing a true side-by-side stereo
+    // frame - the proxy must not add its own AER shear on top.
+    g_sbsMode = GetFileAttributesA("dxvk_stereo.txt") != INVALID_FILE_ATTRIBUTES;
+    // 32.71: the same marker file chooses WHICH fork mode. "seq=1" means the
+    // fork renders one whole eye per frame instead of splicing halves, so the
+    // proxy must take the full frame as that eye's image (the AER path) rather
+    // than sampling half of it - and must still not add a shear of its own.
+    if (g_sbsMode) {
+        char mk[256] = {};
+        FILE* mf = fopen("dxvk_stereo.txt", "r");
+        if (mf) { size_t got = fread(mk, 1, sizeof(mk) - 1, mf); mk[got] = 0; fclose(mf); }
+        const char* sq = strstr(mk, "seq=");
+        if (sq && atoi(sq + 4) != 0) { g_seqMode = true; g_sbsMode = false; }
+    }
+    if (g_seqMode)
+        Log("config: SEQ mode ON (dxvk_stereo.txt has seq=1) - one WHOLE eye "
+            "per frame at full resolution, eyes alternate, no split");
+    else if (g_sbsMode)
+        Log("config: SBS mode ON (dxvk_stereo.txt found) - AER shear off, "
+            "per-eye half-frame sampling");
+    g_stereoReg      = (int)IniFloat(ini, "Stereo", "Register", 0);
+    g_sepClip        = IniFloat(ini, "Stereo", "Separation", 0.014f);
+    g_converge       = IniFloat(ini, "Stereo", "Convergence", 140.0f);
+    g_stereoTranspose= IniFloat(ini, "Stereo", "Transpose", 0) != 0.0f;
+    g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
+    g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
+    g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
+    g_posTrack   = IniFloat(ini, "PosTrack", "Enabled", 1) != 0.0f;
+    g_crouchEyeCfg   = IniFloat(ini, "PosTrack", "CrouchEyeDrop", 1) != 0.0f; // 38.15
+    g_crouchEyeScale = IniFloat(ini, "PosTrack", "CrouchEyeScale", 1.0f);
+    if (g_crouchEyeScale < 0.0f) g_crouchEyeScale = 0.0f;
+    if (g_crouchEyeScale > 2.0f) g_crouchEyeScale = 2.0f;
+    g_deepCrouchCfg = IniFloat(ini, "PosTrack", "DeepCrouch", 1) != 0.0f;    // 38.16
+    g_deepCrouchUU  = IniFloat(ini, "PosTrack", "DeepCrouchUU", 45.0f);
+    if (g_deepCrouchUU < 33.0f) g_deepCrouchUU = 33.0f;   // never below vents
+    if (g_deepCrouchUU > 64.0f) g_deepCrouchUU = 64.0f;
+    // 30.43: vtable recon OFF by default now (it found nothing camera-shaped);
+    // the POV block scan replaces it.
+    g_csRecon    = IniFloat(ini, "CamSeam", "Recon", 0) != 0.0f;
+    g_povProbe   = IniFloat(ini, "CamSeam", "PovProbe", 1) != 0.0f;
+    g_povWiggle  = IniFloat(ini, "CamSeam", "Wiggle", 0) != 0.0f;
+    // 30.51: the FOV lever survives launches (0 = off)
+    {
+        float lv = IniFloat(ini, "Screen", "FovLever", 0.0f);
+        g_fovLever = (lv >= 40.0f && lv <= 160.0f) ? lv : 0.0f;
+        if (g_fovLever > 0.0f) Log("config: FOV lever armed at %.0f deg", lv);
+    }
+    g_autoFocus = IniFloat(ini, "Input", "AutoFocus", 1) != 0.0f;
+    g_zoomFillFloor = IniFloat(ini, "Screen", "ZoomFillFloor", 1.0f);
+    if (g_zoomFillFloor < 0.0f) g_zoomFillFloor = 0.0f;
+    if (g_zoomFillFloor > 1.0f) g_zoomFillFloor = 1.0f;
+    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 50.0f);
+    if (g_posScaleUU < 1.0f)    g_posScaleUU = 1.0f;
+    if (g_posScaleUU > 400.0f)  g_posScaleUU = 400.0f;
+    g_roomScaleCfg = IniFloat(ini, "PosTrack", "RoomScale", 1) != 0.0f;  // 38.46
+    g_roomDeadM    = IniFloat(ini, "PosTrack", "RoomDeadM", 0.14f);
+    if (g_roomDeadM < 0.03f) g_roomDeadM = 0.03f;
+    if (g_roomDeadM > 0.60f) g_roomDeadM = 0.60f;
+    g_roomGain     = IniFloat(ini, "PosTrack", "RoomGain", 2.4f);
+    if (g_roomGain < 0.2f)  g_roomGain = 0.2f;
+    if (g_roomGain > 12.0f) g_roomGain = 12.0f;
+    g_roomMaxStick = IniFloat(ini, "PosTrack", "RoomMaxStick", 0.90f);
+    if (g_roomMaxStick < 0.1f) g_roomMaxStick = 0.1f;
+    if (g_roomMaxStick > 1.0f) g_roomMaxStick = 1.0f;
+    g_roomBleedMS  = IniFloat(ini, "PosTrack", "RoomBleedMS", 0.90f);
+    if (g_roomBleedMS < 0.05f) g_roomBleedMS = 0.05f;
+    if (g_roomBleedMS > 6.0f)  g_roomBleedMS = 6.0f;
+    g_posMaxM    = IniFloat(ini, "PosTrack", "MaxMeters", 0.80f);
+    if (g_posMaxM < 0.05f) g_posMaxM = 0.05f;
+    if (g_posMaxM > 2.0f)  g_posMaxM = 2.0f;
+    g_posFlipX   = IniFloat(ini, "PosTrack", "FlipX", 0) != 0.0f;
+    g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
+    g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
+    g_padDeadzone = IniFloat(ini, "Controllers", "Deadzone", 0.12f);
+    if (g_padDeadzone < 0.0f)  g_padDeadzone = 0.0f;
+    if (g_padDeadzone > 0.6f)  g_padDeadzone = 0.6f;
+    g_fireTraceEnabled = IniFloat(ini, "Debug", "FireTrace", 1) != 0.0f;
+    g_maimEnabled  = IniFloat(ini, "MotionAim", "Enabled", 1) != 0.0f;
+    {
+        char hb[32];
+        GetPrivateProfileStringA("MotionAim", "Hand", "left", hb, sizeof(hb), ini);
+        g_maimHand = (hb[0] == 'r' || hb[0] == 'R') ? 1 : 0;
+    }
+    g_maimPitchOff = IniFloat(ini, "MotionAim", "PitchOffsetDeg", 40.0f);
+    if (g_maimPitchOff < -90.0f) g_maimPitchOff = -90.0f;
+    if (g_maimPitchOff >  90.0f) g_maimPitchOff =  90.0f;
+    g_maimWindowMs = IniFloat(ini, "MotionAim", "WindowMs", 1200.0f);
+    if (g_maimWindowMs < 100.0f)  g_maimWindowMs = 100.0f;
+    if (g_maimWindowMs > 5000.0f) g_maimWindowMs = 5000.0f;
+    g_maimMaxDist  = IniFloat(ini, "MotionAim", "MaxDistUU", 900.0f);
+    if (g_maimMaxDist < 100.0f)  g_maimMaxDist = 100.0f;
+    if (g_maimMaxDist > 2000.0f) g_maimMaxDist = 2000.0f;
+    g_maimFlipR = IniFloat(ini, "MotionAim", "FlipRight", 0) != 0.0f ? 1 : 0;
+    g_maimFlipU = IniFloat(ini, "MotionAim", "FlipUp", 0) != 0.0f ? 1 : 0;
+    g_wpnDiag    = IniFloat(ini, "Weapon", "Diag", 0) != 0.0f;
+    g_wpnEnabled = IniFloat(ini, "Weapon", "Enabled", 0) != 0.0f;
+    g_wpnFindMesh = false;   // forced off: it auto-ran during loads and crashed
+    g_wpnMaster  = IniFloat(ini, "Weapon", "Enabled", 0) != 0.0f;
+    g_wpnAttach  = IniFloat(ini, "Weapon", "Attach", 0) != 0.0f;
+    g_wpnRadius  = IniFloat(ini, "Weapon", "AttachRadius", 60.0f);
+    if (g_wpnRadius < 5.0f)   g_wpnRadius = 5.0f;
+    if (g_wpnRadius > 4000.0f) g_wpnRadius = 4000.0f;
+    g_wpnShowNear= IniFloat(ini, "Weapon", "ShowNear", 0) != 0.0f;
+    g_scanEnabled = IniFloat(ini, "Debug", "VsScan", 0) != 0.0f;
+    g_forceNoVSync = IniFloat(ini, "Perf", "ForceNoVSync", 1) != 0.0f;
+    Log("config: per-frame diagnostics vsscan=%d shownear=%d (both off = more fps)",
+        (int)g_scanEnabled, (int)g_wpnShowNear);
+    g_wpnPosScale= IniFloat(ini, "Weapon", "PosScale", 55.0f);
+    if (g_wpnPosScale < 0.0f)   g_wpnPosScale = 0.0f;
+    if (g_wpnPosScale > 400.0f) g_wpnPosScale = 400.0f;
+    g_wpnPosMax  = IniFloat(ini, "Weapon", "PosMax", 140.0f);
+    if (g_wpnPosMax < 0.0f)    g_wpnPosMax = 0.0f;
+    if (g_wpnPosMax > 1000.0f) g_wpnPosMax = 1000.0f;
+    g_rotInject = IniFloat(ini, "HeadTrack", "Native", 1) != 0.0f;
+    g_rotRoll   = IniFloat(ini, "HeadTrack", "Roll", 0) != 0.0f;
+    Log("config: native head tracking %s (F3 toggles, F5 recentres)",
+        g_rotInject ? "ON" : "off");
+    g_wpnAutoSmall= IniFloat(ini, "Weapon", "AutoSmall", 0) != 0.0f;
+    g_wpnMaxBones= (int)IniFloat(ini, "Weapon", "MaxBones", 20);
+    g_wpnFpTol   = IniFloat(ini, "Weapon", "MeshTolerance", 0.35f);
+    if (g_wpnFpTol < 0.02f) g_wpnFpTol = 0.02f;
+    if (g_wpnFpTol > 2.0f)  g_wpnFpTol = 2.0f;
+    if (g_wpnMaxBones < 1)  g_wpnMaxBones = 1;
+    if (g_wpnMaxBones > 80) g_wpnMaxBones = 80;
+    BlockCfgLoad();
+
+    // 30.77: our own VR hands
+    {
+        g_hmEnable   = IniFloat(ini, "VRHands", "Enabled", 0) != 0.0f;
+        g_hmHideGame = IniFloat(ini, "VRHands", "HideGameArms", 1) != 0.0f;
+        g_hmScale    = IniFloat(ini, "VRHands", "Scale", 1.0f);
+        if (g_hmScale < 0.2f) g_hmScale = 0.2f;
+        if (g_hmScale > 4.0f) g_hmScale = 4.0f;
+        g_hmModel[0] = (int)IniFloat(ini, "VRHands", "LeftModel", 2);
+        g_hmModel[1] = (int)IniFloat(ini, "VRHands", "RightModel", 1);
+        g_hmAuto = IniFloat(ini, "VRHands", "FollowEquipped", 1) != 0.0f;
+        g_hmObjScale = IniFloat(ini, "VRHands", "ObjScale", 0.01f);
+        g_hmHotReload = IniFloat(ini, "VRHands", "HotReload", 1) != 0.0f;
+        if (g_hmObjScale < 0.0001f) g_hmObjScale = 0.0001f;
+        if (g_hmObjScale > 1.0f)    g_hmObjScale = 1.0f;
+        g_hmHideStatic   = IniFloat(ini, "VRHands", "HideStaticParts", 1) != 0.0f;
+        g_hmHideStaticUU = IniFloat(ini, "VRHands", "HideStaticRadiusUU", 70.0f);
+        if (g_hmHideStaticUU < 10.0f)  g_hmHideStaticUU = 10.0f;
+        if (g_hmHideStaticUU > 400.0f) g_hmHideStaticUU = 400.0f;
+        g_hmStaticDraws = (int)IniFloat(ini, "VRHands", "HideStaticDraws", 6);
+        if (g_hmStaticDraws < 1)  g_hmStaticDraws = 1;
+        if (g_hmStaticDraws > 32) g_hmStaticDraws = 32;
+        { char hb2[128];
+          GetPrivateProfileStringA("VRHands", "HideSizes", "3,6,30,36,144",
+                                   hb2, sizeof(hb2), ini);
+          int n3 = 0; const char* c = hb2;
+          for (int q = 0; q < 12; q++) g_hmHideSize[q] = 0;
+          while (*c && n3 < 12) {
+              while (*c == ' ' || *c == ',') c++;
+              if (!*c) break;
+              int v4 = atoi(c);
+              if (v4 >= 1 && v4 <= 250) g_hmHideSize[n3++] = (UINT)v4;
+              while (*c && *c != ',') c++;
+          } }
+        { static const char* mr[3] = { "Yaw", "Pitch", "Roll" };
+          static const char* mp[3] = { "X", "Y", "Z" };
+          for (int mi = 1; mi < HM_COUNT; mi++)
+            for (int q = 0; q < 3; q++) {
+                char k[32];
+                _snprintf(k, sizeof(k), "M%d%s", mi, mr[q]);
+                g_hmMRot[mi][q] = IniFloat(ini, "VRHands", k, 0.0f);
+                _snprintf(k, sizeof(k), "M%dPos%s", mi, mp[q]);
+                g_hmMPos[mi][q] = IniFloat(ini, "VRHands", k, 0.0f);
+            } }
+        static const char* pk[3] = { "PosX", "PosY", "PosZ" };
+        static const char* rk[3] = { "Yaw", "Pitch", "Roll" };
+        for (int hh = 0; hh < 2; hh++)
+            for (int q = 0; q < 3; q++) {
+                char k[32];
+                _snprintf(k, sizeof(k), "%s%s", hh ? "R" : "L", pk[q]);
+                g_hmPos[hh][q] = IniFloat(ini, "VRHands", k, 0.0f);
+                _snprintf(k, sizeof(k), "%s%s", hh ? "R" : "L", rk[q]);
+                g_hmRot[hh][q] = IniFloat(ini, "VRHands", k, 0.0f);
+            }
+        Log("config: VR hands %s (hide game arms=%d, models L=%d R=%d, scale %.2f)",
+            g_hmEnable ? "ON" : "off", (int)g_hmHideGame,
+            g_hmModel[0], g_hmModel[1], g_hmScale);
+    }
+
+    // 30.70: the render-time hand/weapon drive
+    {
+        g_rtdEnable = IniFloat(ini, "HandRender", "Enabled",   0) != 0.0f;
+        g_rtdDoArms = IniFloat(ini, "HandRender", "DriveArms", 1) != 0.0f;
+        g_rtdDoWpn  = IniFloat(ini, "HandRender", "DriveWeapon", 1) != 0.0f;
+        int wr = (int)IniFloat(ini, "HandRender", "WeaponRegs", 36);
+        int ar = (int)IniFloat(ini, "HandRender", "ArmsRegs",  144);
+        // 0 is legal and means "drive nothing here" (the identifier's release
+        // button), so it must survive the clamp.
+        g_rtdSizeWpn  = (wr == 0 || (wr >= 3 && wr <= 250)) ? (UINT)wr : 36;
+        g_rtdSizeArms = (ar == 0 || (ar >= 3 && ar <= 250)) ? (UINT)ar : 144;
+        char hb[32];
+        GetPrivateProfileStringA("HandRender", "Hand", "right", hb, sizeof(hb), ini);
+        g_rtdArmsHand = (hb[0] == 'l' || hb[0] == 'L') ? 0 : 1;
+        int w2 = (int)IniFloat(ini, "HandRender", "Weapon2Regs", 0);
+        g_rtdSizeWpn2 = (w2 == 0 || (w2 >= 3 && w2 <= 250)) ? (UINT)w2 : 0;
+        g_rtdWpnHand  = IniFloat(ini, "HandRender", "WeaponHand",  1) != 0.0f ? 1 : 0;
+        g_rtdWpn2Hand = IniFloat(ini, "HandRender", "Weapon2Hand", 0) != 0.0f ? 1 : 0;
+        g_rtdSplitLo  = (int)IniFloat(ini, "HandRender", "RightArmFirstBone", 0);
+        g_rtdSplitHi  = (int)IniFloat(ini, "HandRender", "RightArmLastBone",  0);
+        if (g_rtdSplitLo < 0)  g_rtdSplitLo = 0;
+        if (g_rtdSplitHi < 0)  g_rtdSplitHi = 0;
+        if (g_rtdSplitLo > 90) g_rtdSplitLo = 90;
+        if (g_rtdSplitHi > 90) g_rtdSplitHi = 90;
+        g_rtdMarkers  = IniFloat(ini, "HandRender", "ShowRings", 0) != 0.0f;
+        g_rtdMarkSize = IniFloat(ini, "HandRender", "RingSizeMeters", 0.045f);
+        if (g_rtdMarkSize < 0.01f) g_rtdMarkSize = 0.01f;
+        if (g_rtdMarkSize > 0.15f) g_rtdMarkSize = 0.15f;
+        g_rtdFollowYaw   = IniFloat(ini, "HandRender", "FollowHeadYaw",   1.0f);
+        g_rtdFollowPitch = IniFloat(ini, "HandRender", "FollowHeadPitch", 0.0f);
+        for (int q = 0; q < 3; q++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "Axis%dSource", q);
+            int v3 = (int)IniFloat(ini, "HandRender", k, (float)g_rtdMapSrc[q]);
+            g_rtdMapSrc[q] = (v3 >= 0 && v3 <= 2) ? v3 : g_rtdMapSrc[q];
+            _snprintf(k, sizeof(k), "Axis%dFlip", q);
+            g_rtdMapSgn[q] = IniFloat(ini, "HandRender", k, 0.0f) != 0.0f ? -1.0f : 1.0f;
+        }
+        if (g_rtdFollowYaw   < 0.0f) g_rtdFollowYaw   = 0.0f;
+        if (g_rtdFollowYaw   > 1.0f) g_rtdFollowYaw   = 1.0f;
+        if (g_rtdFollowPitch < 0.0f) g_rtdFollowPitch = 0.0f;
+        if (g_rtdFollowPitch > 1.0f) g_rtdFollowPitch = 1.0f;
+        g_rtdUseOrdinals = IniFloat(ini, "HandRender", "RouteByDrawOrder", 0) != 0.0f;
+        { char ob[64];
+          GetPrivateProfileStringA("HandRender", "DrawOrderHands", "", ob, sizeof(ob), ini);
+          // "-1,0,1,-1" style: one entry per draw, -1 none / 0 left / 1 right
+          int q = 0; const char* c = ob;
+          while (*c && q < 8) {
+              while (*c == ' ' || *c == ',') c++;
+              if (!*c) break;
+              int v2 = atoi(c);
+              g_rtdOrdHand[q++] = (v2 == 0) ? 0 : (v2 == 1 ? 1 : -1);
+              while (*c && *c != ',') c++;
+          } }
+        g_rtdPivotMix = IniFloat(ini, "HandRender", "PivotMix", 1.0f);
+        if (g_rtdPivotMix < 0.0f) g_rtdPivotMix = 0.0f;
+        if (g_rtdPivotMix > 1.0f) g_rtdPivotMix = 1.0f;
+        g_rtdScaleUU = IniFloat(ini, "HandRender", "ScaleUU", 0.0f);
+        if (g_rtdScaleUU < 0.0f)   g_rtdScaleUU = 0.0f;
+        if (g_rtdScaleUU > 400.0f) g_rtdScaleUU = 400.0f;
+        g_rtdPosMax = IniFloat(ini, "HandRender", "MaxOffsetUU", 120.0f);
+        if (g_rtdPosMax < 0.0f)    g_rtdPosMax = 0.0f;
+        if (g_rtdPosMax > 1000.0f) g_rtdPosMax = 1000.0f;
+        g_rtdSmooth = IniFloat(ini, "HandRender", "SmoothAlpha", 0.0f);
+        if (g_rtdSmooth < 0.0f)  g_rtdSmooth = 0.0f;
+        if (g_rtdSmooth > 0.95f) g_rtdSmooth = 0.95f;
+        g_rtdTrim[0][0] = IniFloat(ini, "HandRender", "LTrimX", 0.0f);
+        g_rtdTrim[0][1] = IniFloat(ini, "HandRender", "LTrimY", 0.0f);
+        g_rtdTrim[0][2] = IniFloat(ini, "HandRender", "LTrimZ", 0.0f);
+        g_rtdTrim[1][0] = IniFloat(ini, "HandRender", "RTrimX", 0.0f);
+        g_rtdTrim[1][1] = IniFloat(ini, "HandRender", "RTrimY", 0.0f);
+        g_rtdTrim[1][2] = IniFloat(ini, "HandRender", "RTrimZ", 0.0f);
+        g_rtdWpnYPR[0] = IniFloat(ini, "HandRender", "WpnYaw",   0.0f);
+        g_rtdWpnYPR[1] = IniFloat(ini, "HandRender", "WpnPitch", 0.0f);
+        g_rtdWpnYPR[2] = IniFloat(ini, "HandRender", "WpnRoll",  0.0f);
+        g_rtdRotInvert = IniFloat(ini, "HandRender", "RotInvert", 0) != 0.0f;
+        g_rtdRotScale  = IniFloat(ini, "HandRender", "RotScale", 1.0f);
+        if (g_rtdRotScale < 0.0f) g_rtdRotScale = 0.0f;
+        if (g_rtdRotScale > 1.0f) g_rtdRotScale = 1.0f;
+        g_rtdPivotUp = IniFloat(ini, "HandRender", "PivotUp", 0.0f);
+        if (g_rtdPivotUp < -300.0f) g_rtdPivotUp = -300.0f;
+        if (g_rtdPivotUp >  300.0f) g_rtdPivotUp =  300.0f;
+        Log("config: hand render drive %s (arms=%d c6 x%u, weapon=%d c6 x%u, "
+            "split %d-%d, pivot %.2f, scale %s, max %.0fuu)",
+            g_rtdEnable ? "ON" : "off", (int)g_rtdDoArms, g_rtdSizeArms,
+            (int)g_rtdDoWpn, g_rtdSizeWpn, g_rtdSplitLo, g_rtdSplitHi,
+            g_rtdPivotMix, g_rtdScaleUU > 1.0f ? "fixed" : "world", g_rtdPosMax);
+    }
+
+    Log("config: weapon attach=%d radius=%.0fuu shownear=%d",
+        (int)g_wpnAttach, g_wpnRadius, (int)g_wpnShowNear);
+    g_wpnTestYaw = IniFloat(ini, "Weapon", "TestYawDeg", 0.0f);
+    g_wpnFlipX   = IniFloat(ini, "Weapon", "FlipX", 0) != 0.0f ? 1 : 0;
+    g_wpnFlipY   = IniFloat(ini, "Weapon", "FlipY", 0) != 0.0f ? 1 : 0;
+    Log("config: weapon diag=%d enabled=%d testyaw=%.0f flipx=%d flipy=%d",
+        (int)g_wpnDiag, (int)g_wpnEnabled, g_wpnTestYaw, g_wpnFlipX, g_wpnFlipY);
+    Log("config: motionaim=%d hand=%s pitchoff=%.0f window=%.0fms maxdist=%.0fuu flipR=%d flipU=%d",
+        (int)g_maimEnabled, g_maimHand ? "right" : "left", g_maimPitchOff,
+        g_maimWindowMs, g_maimMaxDist, g_maimFlipR, g_maimFlipU);
+    // 30.97: the hands drive that actually works - Arkane's own per-hand
+    // SkelControls, driven from the controllers.
+    g_skcDrive   = IniFloat(ini, "Hands", "Enabled", 1) != 0.0f;
+    g_skcLive    = IniFloat(ini, "Hands", "FromControllers", 1) != 0.0f;
+    g_skcWorld   = IniFloat(ini, "Hands", "WorldSpace", 0) != 0.0f;
+    g_skcDoTrans = IniFloat(ini, "Hands", "Position", 1) != 0.0f;
+    g_skcDoRot   = IniFloat(ini, "Hands", "Rotation", 0) != 0.0f;
+    g_skcWorldRot= IniFloat(ini, "Hands", "WorldRotation", 0) != 0.0f;
+    g_skcRollGain= IniFloat(ini, "Hands", "RollGain", 1.0f);
+    g_skcAddMode = IniFloat(ini, "Hands", "AddToAnim", 1) != 0.0f;
+    g_skcScaleUU = IniFloat(ini, "Hands", "ScaleUU", 50.0f);
+    g_skcMax     = IniFloat(ini, "Hands", "ClampUU", 120.0f);
+    g_skcSpace   = (int)IniFloat(ini, "Hands", "Space", 3);
+    g_skcCounterYaw = IniFloat(ini, "Hands", "CounterHeadYaw", 0.0f);
+    g_skcHandSize   = IniFloat(ini, "Hands", "HandSize", 1.0f);
+    g_skcRemoveMeshRot = IniFloat(ini, "Hands", "RemoveMeshRotation", 0) != 0.0f;
+    g_skcCamStrength   = IniFloat(ini, "Hands", "CameraLookAtStrength", 1.0f);
+    g_skcHandCtlStr[0] = IniFloat(ini, "Hands", "LeftControlStrength", 1.0f);
+    g_skcHandCtlStr[1] = IniFloat(ini, "Hands", "RightControlStrength", 1.0f);
+    g_skcWorldScale = IniFloat(ini, "Hands", "WorldScaleUU", 100.0f);
+    // 32.12: a saved neutral means the hands land in the same place every
+    // launch, so the trim is calibrated once and then left alone.
+    // 32.27: MEASURED WORKING - Blink lands where the controller points.
+    g_blkAimOnCfg = IniFloat(ini, "Blink", "ControllerAim", 1) != 0.0f;
+    // 32.32: back ON by default. The user's key fact - the centre-blindness
+    // predates controller aiming and started when stereo went in - rules out
+    // "the point has no surface under it" as the cause. It is the draw's
+    // screen-space sampling versus the splice, which is a shader-constant
+    // problem, not a gate problem. Our own marker sidesteps the engine's decal
+    // entirely, and with 32.31 tracing down the controller ray it now sits on
+    // the real landing spot rather than an approximation.
+    g_blkMarker   = IniFloat(ini, "Blink", "Marker", 1) != 0.0f;
+    // 32.33: DEFAULT OFF. 32.31 shipped the trace redirect as the default AND
+    // disabled the working destination patch in the same build - so if the new
+    // path did not take, aiming fell back to head aim with nothing driving it.
+    // That is exactly what happened. Never replace a working path with an
+    // unverified one in a single build; make the new one opt-in until it is
+    // measured.
+    // 32.36: back ON - it is the correct architecture and it can no longer
+    // cost us aiming. The head-coupled DISTANCE is why the marker slides
+    // forward and back when you tilt your head: the direction is the
+    // controller's but the length still comes from the engine's trace along
+    // the VIEW, so looking at the floor shortens it and looking at the sky
+    // stretches it. Redirecting the trace fixes the length, the surface the
+    // decal needs, and the duplicate marker, all at once.
+    g_blkTraceAim = IniFloat(ini, "Blink", "RedirectTrace", 0) != 0.0f;
+    g_blkReachMode  = (int)IniFloat(ini, "Blink", "ReachMode", 2);
+    if (g_blkReachMode < 0 || g_blkReachMode > 2) g_blkReachMode = 2;
+    g_blkReachUU    = IniFloat(ini, "Blink", "ReachUU", 0.0f);
+    g_blkNearUU     = IniFloat(ini, "Blink", "NearUU", 150.0f);
+    g_blkPitchNear  = IniFloat(ini, "Blink", "PitchNearDeg", -55.0f);
+    g_blkPitchFar   = IniFloat(ini, "Blink", "PitchFarDeg",   -5.0f);
+    g_blkMarkerBackUU = IniFloat(ini, "Blink", "MarkerPullbackUU", 60.0f);
+    g_blkDirAim       = IniFloat(ini, "Blink", "AimAtSource", 1) != 0.0f;
+    g_blkDriveUI  = g_blkAimOnCfg;
+    g_aimAllPowers = IniFloat(ini, "Blink", "AimAllPowers", 1) != 0.0f;  // 38.52
+    Log("config: Blink controller aim %s (native detour at 0xbf5e4f)",
+        g_blkAimOnCfg ? "ON" : "off");
+    g_skcCrouchTrimOn = IniFloat(ini, "Hands", "PerStanceTrim", 1) != 0.0f;
+    g_crouchSrc       = (int)IniFloat(ini, "Hands", "CrouchSource", 3);
+    if (g_crouchSrc < 0 || g_crouchSrc > 3) g_crouchSrc = 3;
+    // 32.41: eye height is measurably dead (camZ-pawnZ was flat at 76-78 uu
+    // across 1858 of 1995 samples), so an ini left on source 1 by an earlier
+    // build is migrated rather than silently kept on a signal we have proven
+    // carries no stance information.
+    if (g_crouchSrc == 1) {
+        g_crouchSrc = 3;
+        Log("config: crouch source migrated from eye height to the crouch button");
+    }
+    g_eyeDropUU       = IniFloat(ini, "Hands", "CrouchDropUU", 20.0f);
+    g_crouchHoldMs    = IniFloat(ini, "Hands", "CrouchHoldMs", 250.0f);
+    // 32.93: default OFF. It answered its question weeks ago (which crouch
+    // signal is real) and has been printing five lines a second ever since.
+    g_crouchDiag      = IniFloat(ini, "Hands", "CrouchDiag", 0) != 0.0f;
+    g_skcRotSignY = IniFloat(ini, "Hands", "RotSignYaw", 1) < 0 ? -1 : 1;
+    g_skcRotSignP = IniFloat(ini, "Hands", "RotSignPitch", 1) < 0 ? -1 : 1;
+    // 35.8: the donor-graft rotation drive. GraftRotation=1 arms the WISH -
+    // the graft engages once the rig probe finds controls and donors.
+    g_graftWant     = IniFloat(ini, "Hands", "GraftRotation", 0) != 0.0f;
+    g_graftRotSpace = (int)IniFloat(ini, "Hands", "GraftRotSpace", 0);
+    if (g_graftRotSpace < 0 || g_graftRotSpace > 4) g_graftRotSpace = 0;
+    g_graftHeadComp = IniFloat(ini, "Hands", "GraftHeadComp", 1) != 0.0f;  // 35.9
+    g_graftAimAbs   = IniFloat(ini, "Hands", "GraftAimAbs", 1) != 0.0f;    // 36.4
+    g_graftHCY = IniFloat(ini, "Hands", "GraftHeadFollowYaw", 1.5f);       // 36.5
+    g_graftHCP = IniFloat(ini, "Hands", "GraftHeadFollowPitch", 1.5f);
+    if (g_graftHCY < -2.0f || g_graftHCY > 2.0f) g_graftHCY = 1.5f;
+    if (g_graftHCP < -2.0f || g_graftHCP > 2.0f) g_graftHCP = 1.5f;
+    g_blkProbeForce   = IniFloat(ini, "Blink", "BlinkProbe", 0) != 0.0f;
+    g_crouchToggle    = IniFloat(ini, "Hands", "CrouchToggle", 1) != 0.0f;
+    g_elixirOn     = IniFloat(ini, "Input", "HealthElixirLongPress", 1) != 0.0f;  // 36.6
+    g_elixirHoldMs = IniFloat(ini, "Input", "HealthElixirHoldMs", 400.0f);  // 36.7:
+    if (g_elixirHoldMs < 150.0f)  g_elixirHoldMs = 150.0f;  // dedicated input now -
+                                                            // shorter hold suffices
+    if (g_elixirHoldMs > 3000.0f) g_elixirHoldMs = 3000.0f;
+    {
+        char kb[8] = "";
+        GetPrivateProfileStringA("Input", "HealthElixirKey", "R", kb, 8, ini);
+        char c = kb[0];
+        if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) g_elixirVk = c;
+    }
+    Log("config: health elixir long-press %s (hold %.0f ms, key %c)",
+        g_elixirOn ? "ON" : "off", g_elixirHoldMs, (char)g_elixirVk);
+    g_crouchBtnMask   = (uint32_t)IniFloat(ini, "Hands", "CrouchButtonMask", 0x2000);
+    if (!g_crouchBtnMask) g_crouchBtnMask = 0x2000;
+    // 32.44: one-shot reset. Builds up to 32.43 could adopt a button that
+    // merely happened to be pressed near a blink, and that adoption is saved
+    // to the ini - so it survives the fix unless it is explicitly cleared.
+    if (IniFloat(ini, "Hands", "CrouchMaskVer", 0) < 2.0f) {
+        if (g_crouchBtnMask != 0x2000) {
+            Log("config: crouch button mask reset to 0x2000 (was 0x%04x) -"
+                " earlier builds could learn the wrong button",
+                (unsigned)g_crouchBtnMask);
+            g_crouchBtnMask = 0x2000;
+        }
+    }
+    for (int hh = 0; hh < 2; hh++) {
+        static const char* kAx2[3] = { "Fwd", "Right", "Up" };
+        for (int q = 0; q < 3; q++) {
+            char k[64];
+            // 32.39: NEW key. The old Crouch?Trim? keys held absolute values
+            // under the replace model; reading them as offsets would double
+            // the trim, so they are deliberately left behind.
+            _snprintf(k, 64, "CrouchOff%c%s", hh ? 'R' : 'L', kAx2[q]);
+            g_skcTrimCrouch[hh][q] = IniFloat(ini, "Hands", k, 0.0f);
+            // 34.9: standing-BLOCK offset, same shape (defaults 0 = no
+            // change until tuned). Applies only while blocking un-crouched.
+            _snprintf(k, 64, "BlockOff%c%s", hh ? 'R' : 'L', kAx2[q]);
+            g_skcTrimBlock[hh][q] = IniFloat(ini, "Hands", k, 0.0f);
+        }
+    }
+    g_skcBlockTrimOn = IniFloat(ini, "Hands", "BlockTrim", 1) != 0.0f;
+    g_crawlTuckCfg   = IniFloat(ini, "Hands", "CrawlTuck", 1) != 0.0f;  // 38.19
+    g_slideAssist    = IniFloat(ini, "Input", "SlideAssist", 1) != 0.0f; // 38.22
+    g_eyeClampCfg    = IniFloat(ini, "PosTrack", "EyeClamp", 1) != 0.0f; // 38.24
+    g_eyeClampMargin = IniFloat(ini, "PosTrack", "EyeClampMargin", 8.0f);
+    if (g_eyeClampMargin < 2.0f)  g_eyeClampMargin = 2.0f;
+    if (g_eyeClampMargin > 30.0f) g_eyeClampMargin = 30.0f;
+    g_eyeClampRate   = IniFloat(ini, "PosTrack", "EyeClampRate", 300.0f); // 38.26
+    if (g_eyeClampRate < 0.0f)     g_eyeClampRate = 0.0f;   // 0 = instant (38.24)
+    if (g_eyeClampRate > 4000.0f)  g_eyeClampRate = 4000.0f;
+    if (g_eyeClampRate > 0.0f && g_eyeClampRate < 40.0f) g_eyeClampRate = 40.0f;
+    g_sprintHoldCfg   = IniFloat(ini, "Input", "SprintHold", 0) != 0.0f;    // 38.28, off by default from 38.29
+    g_sprintPulseMs   = IniFloat(ini, "Input", "SprintPulseMs", 130.0f);
+    if (g_sprintPulseMs < 60.0f)  g_sprintPulseMs = 60.0f;
+    if (g_sprintPulseMs > 400.0f) g_sprintPulseMs = 400.0f;
+    g_crouchHideCfg   = IniFloat(ini, "Hands", "CrouchHideArms", 1) != 0.0f; // 38.29
+    g_crouchHideCyl   = IniFloat(ini, "Hands", "CrouchHideCyl", 76.0f);
+    if (g_crouchHideCyl < 20.0f) g_crouchHideCyl = 20.0f;
+    if (g_crouchHideCyl > 87.0f) g_crouchHideCyl = 87.0f;
+    g_crouchHideScale = IniFloat(ini, "Hands", "CrouchHideScale", 0.02f);
+    if (g_crouchHideScale < 0.002f) g_crouchHideScale = 0.002f;
+    if (g_crouchHideScale > 1.0f)   g_crouchHideScale = 1.0f;
+    g_handFloorCfg    = IniFloat(ini, "Hands", "HandFloor", 1) != 0.0f;      // 38.27
+    g_handFloorMargin = IniFloat(ini, "Hands", "HandFloorMargin", 4.0f);
+    if (g_handFloorMargin < 0.0f)  g_handFloorMargin = 0.0f;
+    if (g_handFloorMargin > 40.0f) g_handFloorMargin = 40.0f;
+    g_skcNeutralSaved = IniFloat(ini, "Hands", "NeutralSaved", 0) != 0.0f;
+    if (g_skcNeutralSaved) {
+        static const char* kAx[3] = { "Right", "Up", "Fwd" };
+        for (int hh = 0; hh < 2; hh++) {
+            for (int q = 0; q < 3; q++) {
+                char k[64];
+                _snprintf(k, 64, "Neutral%c%s", hh ? 'R' : 'L', kAx[q]);
+                g_skcNeutral[hh][q] = IniFloat(ini, "Hands", k, 0.0f);
+            }
+            g_skcHaveNeutral[hh] = true;
+        }
+        Log("config: hand neutrals LOADED  L=(%.3f,%.3f,%.3f) R=(%.3f,%.3f,%.3f) m"
+            " - no per-launch calibration needed",
+            g_skcNeutral[0][0], g_skcNeutral[0][1], g_skcNeutral[0][2],
+            g_skcNeutral[1][0], g_skcNeutral[1][1], g_skcNeutral[1][2]);
+    } else {
+        Log("config: no saved hand neutral - the first good pose this session "
+            "will be captured AND saved, so this is the last time");
+    }
+    if (g_skcHandSize < 0.3f) g_skcHandSize = 0.3f;
+    if (g_skcHandSize > 2.0f) g_skcHandSize = 2.0f;
+    g_skcStrength= IniFloat(ini, "Hands", "Strength", 1.0f);
+    { static const char* tk[3] = { "TrimFwd", "TrimRight", "TrimUp" };
+      for (int hh = 0; hh < 2; hh++)
+        for (int q = 0; q < 3; q++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "%s%s", hh ? "R" : "L", tk[q]);
+            g_skcTrim[hh][q] = IniFloat(ini, "Hands", k, 0.0f);
+        } }
+    Log("config: hands drive %s (controllers=%d world=%d pos=%d rot=%d add=%d "
+        "scale %.0f uu/m)", g_skcDrive ? "ON" : "off", (int)g_skcLive,
+        (int)g_skcWorld, (int)g_skcDoTrans, (int)g_skcDoRot, (int)g_skcAddMode,
+        g_skcScaleUU);
+    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", 0.0f);
+    if (g_heightOffsetM < -1.5f) g_heightOffsetM = -1.5f;
+    if (g_heightOffsetM >  1.5f) g_heightOffsetM =  1.5f;
+    g_crouchOn     = IniFloat(ini, "Tracking", "PhysicalCrouch", 1) != 0.0f;
+    g_crouchDropM  = IniFloat(ini, "Tracking", "CrouchDropM", 0.22f);
+    g_crouchReleaseM = IniFloat(ini, "Tracking", "CrouchStandM", 0.14f);
+    if (g_crouchDropM < 0.05f) g_crouchDropM = 0.05f;
+    if (g_crouchDropM > 0.80f) g_crouchDropM = 0.80f;
+    if (g_crouchReleaseM > g_crouchDropM - 0.02f) g_crouchReleaseM = g_crouchDropM - 0.02f;
+    Log("config: physical crouch %s (down at %.2f m, up at %.2f m) - this "
+        "line reports the SETTING; watch for 'crouch: DOWN' to know it fires",
+        g_crouchOn ? "armed" : "off", g_crouchDropM, g_crouchReleaseM);
+    g_menuFill = IniFloat(ini, "Screen", "MenuFillScale", 0.72f);
+    if (g_menuFill < 0.2f) g_menuFill = 0.2f;
+    if (g_menuFill > 2.0f) g_menuFill = 2.0f;
+    g_wristHud = IniFloat(ini, "Hud", "WristHud", 1) != 0.0f;
+    g_dlgHudOff = IniFloat(ini, "Hud", "DialogHudOff", 1) != 0.0f;   // 38.47
+    g_dlgHoldMs = IniFloat(ini, "Hud", "DialogHoldMs", 12000.0f);
+    if (g_dlgHoldMs <  1000.0f) g_dlgHoldMs =  1000.0f;
+    if (g_dlgHoldMs > 120000.0f) g_dlgHoldMs = 120000.0f;
+    g_hudPanelHand = IniFloat(ini, "Hud", "PanelHand", 0) != 0.0f ? 1 : 0;
+    g_hudPanelSize = IniFloat(ini, "Hud", "PanelSize", 0.16f);
+    if (g_hudPanelSize < 0.05f) g_hudPanelSize = 0.05f;
+    if (g_hudPanelSize > 0.60f) g_hudPanelSize = 0.60f;
+    g_hudPanelUp   = IniFloat(ini, "Hud", "PanelUp", 0.06f);
+    g_ovlDev = IniFloat(ini, "Overlay", "DevTools", 0) != 0.0f;
+    g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 0) != 0.0f;
+    g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
+    g_ovlPtrGain = IniFloat(ini, "Overlay", "PointerSpeed", 2.2f);
+    g_retEnabled = IniFloat(ini, "Reticle", "Enabled", 1) != 0.0f;
+    g_retDist    = IniFloat(ini, "Reticle", "DistanceMeters", 2.5f);
+    if (g_retDist < 0.5f)  g_retDist = 0.5f;
+    if (g_retDist > 20.0f) g_retDist = 20.0f;
+    g_retSize    = IniFloat(ini, "Reticle", "SizeMeters", 0.030f);
+    if (g_retSize < 0.005f) g_retSize = 0.005f;
+    if (g_retSize > 0.20f)  g_retSize = 0.20f;
+    Log("config: reticle=%d dist=%.1fm size=%.3fm (follows MotionAim hand)",
+        (int)g_retEnabled, g_retDist, g_retSize);
+    g_autoHand      = IniFloat(ini, "HandTracking", "AutoStart", 1) != 0.0f;
+    // 32.96: was 4 s on top of discovery time - the user asked why motion
+    // controls take so long after a load. 1.5 s is enough for the rig to be
+    // real; everything the auto-start needs is already gated on the pawn and
+    // both controllers being live.
+    g_autoHandDelay = IniFloat(ini, "HandTracking", "DelaySec", 1.5f);
+    if (g_autoHandDelay < 0.5f)  g_autoHandDelay = 0.5f;
+    if (g_autoHandDelay > 60.0f) g_autoHandDelay = 60.0f;
+    g_fpPosOn  = IniFloat(ini, "HandTracking", "Depth", 1) != 0.0f;
+    g_fpRollOn = IniFloat(ini, "HandTracking", "WristRoll", 0) != 0.0f;
+    g_anchorTau = IniFloat(ini, "HandTracking", "AnchorTauSec", 2.5f);
+    if (g_anchorTau < 0.5f)  g_anchorTau = 0.5f;
+    if (g_anchorTau > 30.0f) g_anchorTau = 30.0f;
+    {
+        int hv = (int)IniFloat(ini, "HandTracking", "ArmHideValue", 2);
+        if (hv < 0) hv = 0; if (hv > 255) hv = 255;
+        g_armVal = (uint8_t)hv;      // experiment dial, in case 0x02 is wrong
+    }
+    GetPrivateProfileStringA("Debug", "Probe", "", g_dbgProbe,
+                             sizeof(g_dbgProbe), ini);
+    g_swarmAim = IniFloat(ini, "MotionAim", "SwarmAim", 1) != 0.0f;   // 38.55
+    g_mirrorMode = (int)IniFloat(ini, "Screen", "MirrorMode", 0);      // 38.62
+    if (g_mirrorMode < 0 || g_mirrorMode > 2) g_mirrorMode = 0;
+    g_mirrorAspect = IniFloat(ini, "Screen", "MirrorAspect", 0.0f);    // 38.64
+    if (g_mirrorAspect != 0.0f && g_mirrorAspect < 0.5f)  g_mirrorAspect = 0.5f;
+    if (g_mirrorAspect > 2.5f) g_mirrorAspect = 2.5f;
+    g_mirrorHud = IniFloat(ini, "Screen", "MirrorHud", 0) != 0.0f;
+    g_killMaskIni = (int)IniFloat(ini, "Debug", "KillMask", 0);   // 38.49
+    if (g_killMaskIni < 0)  g_killMaskIni = 0;
+    if (g_killMaskIni > 63) g_killMaskIni = 63;
+    g_introSkip = (int)IniFloat(ini, "Debug", "IntroSkip", 0);    // 38.69
+    if (g_introSkip < 0 || g_introSkip > 2) g_introSkip = 0;
+    g_introSkipDelayMs = (int)IniFloat(ini, "Debug", "IntroSkipDelayMs", 8000);
+    if (g_introSkipDelayMs < 1000)  g_introSkipDelayMs = 1000;
+    if (g_introSkipDelayMs > 60000) g_introSkipDelayMs = 60000;
+    g_meleeOn     = IniFloat(ini, "Melee", "Enabled", 1) != 0.0f;
+    g_meleeSpeed  = IniFloat(ini, "Melee", "SwingSpeed", 1.8f);
+    if (g_meleeSpeed < 0.5f) g_meleeSpeed = 0.5f;
+    if (g_meleeSpeed > 6.0f) g_meleeSpeed = 6.0f;
+    g_meleeHoldMs = IniFloat(ini, "Melee", "HoldMs", 220.0f);
+    if (g_meleeHoldMs < 50.0f)  g_meleeHoldMs = 50.0f;
+    if (g_meleeHoldMs > 800.0f) g_meleeHoldMs = 800.0f;
+    g_meleeCoolMs = IniFloat(ini, "Melee", "CooldownMs", 300.0f);
+    if (g_meleeCoolMs < g_meleeHoldMs) g_meleeCoolMs = g_meleeHoldMs;
+    if (g_meleeCoolMs > 2000.0f) g_meleeCoolMs = 2000.0f;
+    g_meleeSwingMs = IniFloat(ini, "Melee", "SwingMs", 120.0f);
+    if (g_meleeSwingMs < 0.0f)   g_meleeSwingMs = 0.0f;
+    if (g_meleeSwingMs > 500.0f) g_meleeSwingMs = 500.0f;
+    g_meleeSwingDist = IniFloat(ini, "Melee", "SwingDistM", 0.25f);
+    if (g_meleeSwingDist < 0.0f)  g_meleeSwingDist = 0.0f;
+    if (g_meleeSwingDist > 1.5f)  g_meleeSwingDist = 1.5f;
+    g_meleeHaptic = IniFloat(ini, "Melee", "Haptic", 1) != 0.0f;
+    Log("config: melee=%d swing=%.1fm/s sustain=%.0fms dist=%.2fm hold=%.0fms "
+        "cooldown=%.0fms", (int)g_meleeOn, g_meleeSpeed, g_meleeSwingMs,
+        g_meleeSwingDist, g_meleeHoldMs, g_meleeCoolMs);
+    {   // 37.3: backend selection. Env wins (the launcher bats set it, so a
+        // normal Steam launch never changes), ini as the persistent choice.
+        // 38.5: "auto" now actually DECIDES, so one install serves both
+        // headsets with zero ini edits (setting Backend=openxr globally
+        // broke a Vive session - never again): Virtual Desktop streaming
+        // with SteamVR absent = the Quest path -> OPENXR; anything else ->
+        // OpenVR/SteamVR, the path the Vive rig has always used.
+        char be[16] = "";
+        if (!GetEnvironmentVariableA("DISHONORED_VR_BACKEND", be, sizeof(be)))
+            GetPrivateProfileStringA("VR", "Backend", "auto", be, sizeof(be), ini);
+        if (be[0] == 'a') {                                // "auto"
+            bool vdUp = false, svrUp = false;
+            HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if (snap != INVALID_HANDLE_VALUE) {
+                PROCESSENTRY32 pe; memset(&pe, 0, sizeof(pe));
+                pe.dwSize = sizeof(pe);
+                if (Process32First(snap, &pe)) do {
+                    if (!_stricmp(pe.szExeFile, "VirtualDesktop.Streamer.exe"))
+                        vdUp = true;
+                    if (!_stricmp(pe.szExeFile, "vrserver.exe"))
+                        svrUp = true;
+                } while (Process32Next(snap, &pe));
+                CloseHandle(snap);
+            }
+            g_xrBackend = vdUp && !svrUp;
+            Log("config: VR backend AUTO -> %s (VD streamer %s, SteamVR %s)",
+                g_xrBackend ? "OPENXR" : "OPENVR",
+                vdUp ? "running" : "absent", svrUp ? "running" : "absent");
+        } else {
+            g_xrBackend = (be[0] == 'o' && be[1] == 'p') ||   // "openxr"
+                          (be[0] == 'x');                      // "xr"
+        }
+        if (g_xrBackend)
+            Log("config: VR backend = OPENXR (OpenVR/SteamVR will not start)");
+        // 38.3 XR-3: [VR] XrQuads=1 (default) - detached pace thread + head-
+        // locked QUAD layers in VIEW space (the architecture that fixed the
+        // user's Stardew mod: the compositor itself holds the screen, so no
+        // reprojection ever touches it). 0 = the XR-2 synchronous projection
+        // path, kept verbatim for A/B.
+        g_xrQuad = GetPrivateProfileIntA("VR", "XrQuads", 1, ini) != 0;
+        if (g_xrBackend)
+            Log("config: XR presentation = %s",
+                g_xrQuad ? "QUAD layers, detached pacing (XR-3)"
+                         : "projection layers, synchronous (XR-2)");
+        // 38.4: [VR] XrRuntimeJson - the runtime manifest for Steam launches
+        GetPrivateProfileStringA("VR", "XrRuntimeJson", "", g_xrJsonIni,
+                                 sizeof(g_xrJsonIni), ini);
+        if (g_xrBackend && g_xrJsonIni[0])
+            Log("config: XR runtime manifest (ini): %s", g_xrJsonIni);
+        g_xrScreenY = IniFloat(ini, "Screen", "XrScreenY", 0.0f);   // 38.6
+        if (g_xrScreenY < -1.5f) g_xrScreenY = -1.5f;
+        if (g_xrScreenY >  1.5f) g_xrScreenY =  1.5f;
+        g_xrCylCfg = (int)IniFloat(ini, "Screen", "XrCylinder", -1); // 38.7
+        if (g_xrCylCfg < -1 || g_xrCylCfg > 1) g_xrCylCfg = -1;
+        {   // 38.8: layer mode; XrCylinder=1 (explicit force) maps to cyl
+            char lm[16] = "";
+            GetPrivateProfileStringA("VR", "XrLayer", "proj", lm, sizeof(lm), ini);
+            g_xrLayerMode = (lm[0] == 'c') ? 1 : (lm[0] == 'q') ? 2 : 0;
+            if (g_xrLayerMode == 0 && g_xrCylCfg == 1) g_xrLayerMode = 1;
+            if (g_xrBackend)
+                Log("config: XR layer mode = %s",
+                    g_xrLayerMode == 0 ? "PROJECTION (Vive-parity)" :
+                    g_xrLayerMode == 1 ? "cylinder" : "flat quad");
+        }
+        g_xrPoseDelay = GetPrivateProfileIntA("VR", "XrPoseDelay", 1, ini); // 38.9
+        if (g_xrPoseDelay < 0) g_xrPoseDelay = 0;
+        if (g_xrPoseDelay > 3) g_xrPoseDelay = 3;
+        g_xrHaptics = GetPrivateProfileIntA("VR", "XrHaptics", 1, ini) != 0; // 38.10
+        g_xrFrustumFill = GetPrivateProfileIntA("Screen", "XrFrustumFill", 1, ini) != 0; // 38.13
+        g_vrKeepAlive = GetPrivateProfileIntA("Screen", "KeepAliveUnfocused", 1, ini) != 0; // 38.78
+        g_stampFix = GetPrivateProfileIntA("VR", "StampFix", 0, ini);    // 38.84
+        if (g_stampFix < 0 || g_stampFix > 2) g_stampFix = 0;
+        g_chainStamp = GetPrivateProfileIntA("HeadTrack", "ChainStamp", 1, ini) != 0; // 38.88
+        g_stampLive  = GetPrivateProfileIntA("VR", "StampLive", 1, ini) != 0;         // 38.89
+        g_fpsCap = IniFloat(ini, "VR", "FpsCap", 0.0f);                  // 38.14
+        if (g_fpsCap < 0.0f) g_fpsCap = 0.0f;
+        if (g_fpsCap > 0.0f && g_fpsCap < 20.0f)  g_fpsCap = 20.0f;
+        if (g_fpsCap > 144.0f) g_fpsCap = 144.0f;
+        if (g_fpsCap > 0.0f)
+            Log("config: FPS cap %.1f (even-cadence limiter)", g_fpsCap);
+        // 37.5: SAFE mode - rendering + head tracking only, every game-memory
+        // writer held back. The crash bisector: if XR-safe holds stable, one
+        // of the writers is the killer; if it still dies, they are innocent.
+        char sf[8] = "";
+        if (g_xrBackend &&
+            GetEnvironmentVariableA("DISHONORED_VR_XR_SAFE", sf, sizeof(sf))
+            && sf[0] == '1') {
+            g_rotInject = false;       // no head->camera rotation writes
+            g_fovLever  = 0.0f;        // no FOV enforcement writes
+            g_skcDrive  = false;       // no SkelControl hand writes
+            g_handMesh  = false;       // no hand collect/drive
+            g_autoHandDone = true;     // and no auto re-arm of it
+            g_blkAimOnCfg = false;     // no blink native detour writes
+            g_blkDriveUI  = false;
+            g_meleeOn   = false;
+            Log("config: XR SAFE MODE - look around only, all game-memory "
+                "writers OFF (crash bisector)");
+        }
+    }
+    g_forceResW = (UINT)IniFloat(ini, "Screen", "RenderWidth", 0);
+    g_forceResH = (UINT)IniFloat(ini, "Screen", "RenderHeight", 0);
+    g_spoofW = (UINT)IniFloat(ini, "Screen", "SpoofDesktopW", 0);
+    g_spoofH = (UINT)IniFloat(ini, "Screen", "SpoofDesktopH", 0);
+    if (g_spoofW && (g_spoofW < 1280 || g_spoofW > 8192)) g_spoofW = 0;
+    if (g_spoofH && (g_spoofH < 720  || g_spoofH > 8192)) g_spoofH = 0;
+    if (!g_spoofW || !g_spoofH) { g_spoofW = 0; g_spoofH = 0; }
+    g_rigidScreenCfg = (int)IniFloat(ini, "Screen", "RigidScreen", -1);  // 37.6
+    if (g_rigidScreenCfg < -1 || g_rigidScreenCfg > 1) g_rigidScreenCfg = -1;
+    g_ovlSceneCfg = (int)IniFloat(ini, "Screen", "OverlayScene", 0);     // 38.1: default OFF
+    if (g_ovlSceneCfg != 1) g_ovlSceneCfg = 0;
+    g_eyeCantCfg  = (int)IniFloat(ini, "Screen", "EyeCant", 1);          // 38.1
+    if (g_eyeCantCfg != 0) g_eyeCantCfg = 1;
+    g_worldScreenCfg = (int)IniFloat(ini, "Screen", "WorldScreen", -1);  // 38.2
+    if (g_worldScreenCfg < -1 || g_worldScreenCfg > 1) g_worldScreenCfg = -1;
+    g_clickFallback = (int)IniFloat(ini, "Input", "ClickFallback", 1) != 0; // 38.2
+    g_ovlFollowTau = IniFloat(ini, "Screen", "OverlayFollowTau", 0.35f); // 38.0
+    if (g_ovlFollowTau < 0.0f) g_ovlFollowTau = 0.0f;
+    if (g_ovlFollowTau > 3.0f) g_ovlFollowTau = 3.0f;
+    g_ovlColor = (int)IniFloat(ini, "Screen", "OverlayColor", 1);
+    if (g_ovlColor < 0 || g_ovlColor > 2) g_ovlColor = 1;
+    g_deskWinW = (UINT)IniFloat(ini, "Screen", "DesktopWindowW", 1600);  // 36.1
+    g_deskWinH = (UINT)IniFloat(ini, "Screen", "DesktopWindowH", 900);
+    if (g_deskWinW && (g_deskWinW < 320 || g_deskWinW > 8192)) g_deskWinW = 1600;
+    if (g_deskWinH && (g_deskWinH < 180 || g_deskWinH > 8192)) g_deskWinH = 900;
+    if (!g_deskWinW || !g_deskWinH) { g_deskWinW = 0; g_deskWinH = 0; }
+    if (g_spoofW)
+        Log("config: desktop spoof %ux%u (game may now honor a bigger ResX/ResY)",
+            g_spoofW, g_spoofH);
+    if (g_forceResW && (g_forceResW < 640 || g_forceResW > 8192)) g_forceResW = 2560;
+    if (g_forceResH && (g_forceResH < 480 || g_forceResH > 8192)) g_forceResH = 1440;
+    if (!g_forceResW || !g_forceResH) { g_forceResW = 0; g_forceResH = 0; }
+    // The spoofed desktop has to be at least as big as the render, or the
+    // game's own "does this fit" checks claw the size back down and we are
+    // right back at 1071 lines. Two settings that must move together have
+    // caused most of the confusion here, so tie them together instead.
+    if (g_forceResW) {
+        if (g_spoofW < g_forceResW || g_spoofH < g_forceResH) {
+            UINT nw = g_forceResW > g_spoofW ? g_forceResW : g_spoofW;
+            UINT nh = g_forceResH > g_spoofH ? g_forceResH : g_spoofH;
+            Log("config: desktop spoof %ux%u was smaller than the render "
+                "%ux%u - raised to %ux%u so the game's fit checks cannot "
+                "shrink it back", g_spoofW, g_spoofH, g_forceResW, g_forceResH,
+                nw, nh);
+            g_spoofW = nw; g_spoofH = nh;
+        }
+    }
+    Log("config: render override %ux%u (0x0 = game default)",
+        g_forceResW, g_forceResH);
+    Log("config: handtracking autostart=%d delay=%.0fs depth=%d roll=%d probe='%s'",
+        (int)g_autoHand, g_autoHandDelay, (int)g_fpPosOn, (int)g_fpRollOn,
+        g_dbgProbe);
+    Log("config: tracking=%d yaw=%.1f pitch=%.1f dist=%.2f width=%.2f theater=%d | stereo=%d reg=c%d sep=%.4f conv=%.1f transpose=%d | pos=%d scale=%.0f max=%.2f flipx=%d",
+        (int)g_trackingEnabled, g_yawCounts, g_pitchCounts,
+        g_screenDist, g_screenWidth, (int)g_forceTheater,
+        (int)g_stereoEnabled, g_stereoReg, g_sepClip, g_converge, (int)g_stereoTranspose,
+        (int)g_posTrack, g_posScaleUU, g_posMaxM, (int)g_posFlipX);
+}
+
+static void EnsureConfig()
+{
+    if (g_configLoaded || g_disabled) return;
+    g_configLoaded = true;
+    LoadConfig();
+}
+
+
+static void OverlaySaveDefaults()
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    char v[64];
+    _snprintf(v, 64, "%.1f", g_posScaleUU);
+    WritePrivateProfileStringA("PosTrack", "Scale", v, ini);
+    _snprintf(v, 64, "%.2f", g_fillScale);
+    WritePrivateProfileStringA("Screen", "FillScale", v, ini);
+    _snprintf(v, 64, "%.2f", g_screenDist);
+    WritePrivateProfileStringA("Screen", "DistanceMeters", v, ini);
+    _snprintf(v, 64, "%.3f", g_heightOffsetM);
+    WritePrivateProfileStringA("Tracking", "HeightOffsetM", v, ini);
+    _snprintf(v, 64, "%.2f", g_menuFill);
+    WritePrivateProfileStringA("Screen", "MenuFillScale", v, ini);
+    WritePrivateProfileStringA("Hud", "WristHud", g_wristHud ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", g_hudPanelSize);
+    WritePrivateProfileStringA("Hud", "PanelSize", v, ini);
+    _snprintf(v, 64, "%.0f", (float)g_fovLever);      // 30.51: persist the lever
+    WritePrivateProfileStringA("Screen", "FovLever", v, ini);
+    // 38.80: persist the headset display mode chosen on the overlay
+    WritePrivateProfileStringA("VR", "XrLayer",
+        g_xrLayerMode == 1 ? "cyl" : g_xrLayerMode == 2 ? "quad" : "proj", ini);
+    _snprintf(v, 64, "%d", g_stampFix);              // 38.84
+    WritePrivateProfileStringA("VR", "StampFix", v, ini);
+    _snprintf(v, 64, "%.2f", g_zoomFillFloor);        // 30.53
+    WritePrivateProfileStringA("Screen", "ZoomFillFloor", v, ini);
+    // 30.70: the hand drive's live-tuned values, so a good calibration sticks
+    WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);
+    WritePrivateProfileStringA("HandRender", "DriveArms", g_rtdDoArms ? "1" : "0", ini);
+    WritePrivateProfileStringA("HandRender", "DriveWeapon", g_rtdDoWpn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", g_rtdPivotMix);
+    WritePrivateProfileStringA("HandRender", "PivotMix", v, ini);
+    _snprintf(v, 64, "%.0f", g_rtdScaleUU);
+    WritePrivateProfileStringA("HandRender", "ScaleUU", v, ini);
+    _snprintf(v, 64, "%.0f", g_rtdPosMax);
+    WritePrivateProfileStringA("HandRender", "MaxOffsetUU", v, ini);
+    _snprintf(v, 64, "%.2f", g_rtdSmooth);
+    WritePrivateProfileStringA("HandRender", "SmoothAlpha", v, ini);
+    WritePrivateProfileStringA("HandRender", "RotInvert", g_rtdRotInvert ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", g_rtdRotScale);
+    WritePrivateProfileStringA("HandRender", "RotScale", v, ini);
+    _snprintf(v, 64, "%.0f", g_rtdPivotUp);
+    WritePrivateProfileStringA("HandRender", "PivotUp", v, ini);
+    _snprintf(v, 64, "%u", g_rtdSizeArms);          // whatever the identifier proved
+    WritePrivateProfileStringA("HandRender", "ArmsRegs", v, ini);
+    _snprintf(v, 64, "%u", g_rtdSizeWpn);
+    WritePrivateProfileStringA("HandRender", "WeaponRegs", v, ini);
+    { static const char* kLKey[3] = { "LTrimX", "LTrimY", "LTrimZ" };
+      static const char* kRKey[3] = { "RTrimX", "RTrimY", "RTrimZ" };
+      static const char* kWpnKey[3] = { "WpnYaw", "WpnPitch", "WpnRoll" };
+      for (int k = 0; k < 3; k++) {
+          _snprintf(v, 64, "%.1f", g_rtdTrim[0][k]);
+          WritePrivateProfileStringA("HandRender", kLKey[k], v, ini);
+          _snprintf(v, 64, "%.1f", g_rtdTrim[1][k]);
+          WritePrivateProfileStringA("HandRender", kRKey[k], v, ini);
+          _snprintf(v, 64, "%.1f", g_rtdWpnYPR[k]);
+          WritePrivateProfileStringA("HandRender", kWpnKey[k], v, ini);
+      } }
+    _snprintf(v, 64, "%u", g_rtdSizeWpn2);
+    WritePrivateProfileStringA("HandRender", "Weapon2Regs", v, ini);
+    WritePrivateProfileStringA("HandRender", "WeaponHand",  g_rtdWpnHand  ? "1" : "0", ini);
+    WritePrivateProfileStringA("HandRender", "Weapon2Hand", g_rtdWpn2Hand ? "1" : "0", ini);
+    WritePrivateProfileStringA("HandRender", "Hand", g_rtdArmsHand ? "right" : "left", ini);
+    _snprintf(v, 64, "%d", g_rtdSplitLo);
+    WritePrivateProfileStringA("HandRender", "RightArmFirstBone", v, ini);
+    _snprintf(v, 64, "%d", g_rtdSplitHi);
+    WritePrivateProfileStringA("HandRender", "RightArmLastBone", v, ini);
+    WritePrivateProfileStringA("HandRender", "ShowRings", g_rtdMarkers ? "1" : "0", ini);
+    _snprintf(v, 64, "%.3f", g_rtdMarkSize);
+    WritePrivateProfileStringA("HandRender", "RingSizeMeters", v, ini);
+    _snprintf(v, 64, "%.2f", g_rtdFollowYaw);
+    WritePrivateProfileStringA("HandRender", "FollowHeadYaw", v, ini);
+    _snprintf(v, 64, "%.2f", g_rtdFollowPitch);
+    WritePrivateProfileStringA("HandRender", "FollowHeadPitch", v, ini);
+    for (int q = 0; q < 3; q++) {
+        char k[32];
+        _snprintf(k, sizeof(k), "Axis%dSource", q);
+        _snprintf(v, 64, "%d", g_rtdMapSrc[q]);
+        WritePrivateProfileStringA("HandRender", k, v, ini);
+        _snprintf(k, sizeof(k), "Axis%dFlip", q);
+        WritePrivateProfileStringA("HandRender", k, g_rtdMapSgn[q] < 0.0f ? "1" : "0", ini);
+    }
+    WritePrivateProfileStringA("HandRender", "RouteByDrawOrder",
+                               g_rtdUseOrdinals ? "1" : "0", ini);
+    { char ob[64]; int n2 = 0;
+      for (int q = 0; q < 8; q++)
+          n2 += _snprintf(ob + n2, (int)sizeof(ob) - n2, q ? ",%d" : "%d", g_rtdOrdHand[q]);
+      WritePrivateProfileStringA("HandRender", "DrawOrderHands", ob, ini); }
+
+    // 31.9: the [Hands] section was LOADED but never SAVED - I wrote the config
+    // reader and forgot the writer, so every trim and toggle tuned in the
+    // headset was silently discarded on exit. Everything the panel can change
+    // is written here now.
+    WritePrivateProfileStringA("Hands", "Enabled", g_skcDrive ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "Position", g_skcDoTrans ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "Rotation", g_skcDoRot ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "RemoveMeshRotation",
+                               g_skcRemoveMeshRot ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", g_skcCamStrength);
+    WritePrivateProfileStringA("Hands", "CameraLookAtStrength", v, ini);
+    _snprintf(v, 64, "%.2f", g_skcHandCtlStr[0]);
+    WritePrivateProfileStringA("Hands", "LeftControlStrength", v, ini);
+    _snprintf(v, 64, "%.2f", g_skcHandCtlStr[1]);
+    WritePrivateProfileStringA("Hands", "RightControlStrength", v, ini);
+    {   // 32.25: the crouch trim set
+        static const char* kAx3[3] = { "Fwd", "Right", "Up" };
+        for (int hh = 0; hh < 2; hh++)
+            for (int q = 0; q < 3; q++) {
+                char k[64], vv[64];
+                _snprintf(k, 64, "CrouchOff%c%s", hh ? 'R' : 'L', kAx3[q]);
+                _snprintf(vv, 64, "%.1f", g_skcTrimCrouch[hh][q]);
+                WritePrivateProfileStringA("Hands", k, vv, ini);
+            }
+        WritePrivateProfileStringA("Hands", "PerStanceTrim",
+                                   g_skcCrouchTrimOn ? "1" : "0", ini);
+        for (int hh = 0; hh < 2; hh++)      // 34.9: the block trim set
+            for (int q = 0; q < 3; q++) {
+                char k[64], vv[64];
+                _snprintf(k, 64, "BlockOff%c%s", hh ? 'R' : 'L', kAx3[q]);
+                _snprintf(vv, 64, "%.1f", g_skcTrimBlock[hh][q]);
+                WritePrivateProfileStringA("Hands", k, vv, ini);
+            }
+        WritePrivateProfileStringA("Hands", "BlockTrim",
+                                   g_skcBlockTrimOn ? "1" : "0", ini);
+        _snprintf(v, 64, "%d", g_crouchSrc);
+        WritePrivateProfileStringA("Hands", "CrouchSource", v, ini);
+        _snprintf(v, 64, "%.0f", g_eyeDropUU);
+        WritePrivateProfileStringA("Hands", "CrouchDropUU", v, ini);
+        _snprintf(v, 64, "%.0f", g_crouchHoldMs);
+        WritePrivateProfileStringA("Hands", "CrouchHoldMs", v, ini);
+        WritePrivateProfileStringA("Hands", "CrouchDiag",
+                                   g_crouchDiag ? "1" : "0", ini);
+        WritePrivateProfileStringA("Hands", "CrouchToggle",
+                                   g_crouchToggle ? "1" : "0", ini);
+        _snprintf(v, 64, "%u", (unsigned)g_crouchBtnMask);
+        WritePrivateProfileStringA("Hands", "CrouchButtonMask", v, ini);
+        WritePrivateProfileStringA("Hands", "CrouchMaskVer", "2", ini);
+        // 35.8: the donor-graft rotation drive's knobs
+        WritePrivateProfileStringA("Hands", "GraftRotation",
+                                   g_graftWant ? "1" : "0", ini);
+        _snprintf(v, 64, "%d", g_graftRotSpace);
+        WritePrivateProfileStringA("Hands", "GraftRotSpace", v, ini);
+        WritePrivateProfileStringA("Hands", "GraftHeadComp",
+                                   g_graftHeadComp ? "1" : "0", ini);
+        WritePrivateProfileStringA("Hands", "GraftAimAbs",
+                                   g_graftAimAbs ? "1" : "0", ini);
+        _snprintf(v, 64, "%.2f", g_graftHCY);
+        WritePrivateProfileStringA("Hands", "GraftHeadFollowYaw", v, ini);
+        _snprintf(v, 64, "%.2f", g_graftHCP);
+        WritePrivateProfileStringA("Hands", "GraftHeadFollowPitch", v, ini);
+        WritePrivateProfileStringA("Hands", "RotSignYaw",
+                                   g_skcRotSignY < 0 ? "-1" : "1", ini);
+        WritePrivateProfileStringA("Hands", "RotSignPitch",
+                                   g_skcRotSignP < 0 ? "-1" : "1", ini);
+    }
+    WritePrivateProfileStringA("Blink", "ControllerAim",
+                               g_blkDriveUI ? "1" : "0", ini);
+    WritePrivateProfileStringA("Blink", "Marker", g_blkMarker ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_blkReachMode);
+    WritePrivateProfileStringA("Blink", "ReachMode", v, ini);
+    _snprintf(v, 64, "%.0f", g_blkReachUU);
+    WritePrivateProfileStringA("Blink", "ReachUU", v, ini);
+    _snprintf(v, 64, "%.0f", g_blkNearUU);
+    WritePrivateProfileStringA("Blink", "NearUU", v, ini);
+    _snprintf(v, 64, "%.1f", g_blkPitchNear);
+    WritePrivateProfileStringA("Blink", "PitchNearDeg", v, ini);
+    _snprintf(v, 64, "%.1f", g_blkPitchFar);
+    WritePrivateProfileStringA("Blink", "PitchFarDeg", v, ini);
+    _snprintf(v, 64, "%.0f", g_blkMarkerBackUU);
+    WritePrivateProfileStringA("Blink", "MarkerPullbackUU", v, ini);
+    WritePrivateProfileStringA("Blink", "AimAtSource",
+                               g_blkDirAim ? "1" : "0", ini);
+    WritePrivateProfileStringA("Blink", "OptVer", "3", ini);
+    _snprintf(v, 64, "%.3f", g_retSize);
+    WritePrivateProfileStringA("Reticle", "SizeMeters", v, ini);
+    WritePrivateProfileStringA("Hands", "AddToAnim", g_skcAddMode ? "1" : "0", ini);
+    _snprintf(v, 64, "%.1f", g_skcScaleUU);
+    WritePrivateProfileStringA("Hands", "ScaleUU", v, ini);
+    _snprintf(v, 64, "%.1f", g_skcMax);
+    WritePrivateProfileStringA("Hands", "ClampUU", v, ini);
+    _snprintf(v, 64, "%d", g_skcSpace);
+    WritePrivateProfileStringA("Hands", "Space", v, ini);
+    _snprintf(v, 64, "%.2f", g_skcStrength);
+    WritePrivateProfileStringA("Hands", "Strength", v, ini);
+    _snprintf(v, 64, "%.2f", g_skcCounterYaw);
+    WritePrivateProfileStringA("Hands", "CounterHeadYaw", v, ini);
+    _snprintf(v, 64, "%.2f", g_skcHandSize);
+    WritePrivateProfileStringA("Hands", "HandSize", v, ini);
+    _snprintf(v, 64, "%.0f", g_skcWorldScale);
+    WritePrivateProfileStringA("Hands", "WorldScaleUU", v, ini);
+    _snprintf(v, 64, "%.2f", g_skcRollGain);
+    WritePrivateProfileStringA("Hands", "RollGain", v, ini);
+    { static const char* hk[3] = { "TrimFwd", "TrimRight", "TrimUp" };
+      for (int hh = 0; hh < 2; hh++)
+        for (int q = 0; q < 3; q++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "%s%s", hh ? "R" : "L", hk[q]);
+            _snprintf(v, 64, "%.1f", g_skcTrim[hh][q]);
+            WritePrivateProfileStringA("Hands", k, v, ini);
+        } }
+    WritePrivateProfileStringA("Overlay", "DevTools", g_ovlDev ? "1" : "0", ini);
+    WritePrivateProfileStringA("VRHands", "Enabled", g_hmEnable ? "1" : "0", ini);
+    WritePrivateProfileStringA("VRHands", "HideGameArms", g_hmHideGame ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", g_hmScale);
+    WritePrivateProfileStringA("VRHands", "Scale", v, ini);
+    _snprintf(v, 64, "%d", g_hmModel[0]);
+    WritePrivateProfileStringA("VRHands", "LeftModel", v, ini);
+    _snprintf(v, 64, "%d", g_hmModel[1]);
+    WritePrivateProfileStringA("VRHands", "RightModel", v, ini);
+    WritePrivateProfileStringA("VRHands", "FollowEquipped", g_hmAuto ? "1" : "0", ini);
+    WritePrivateProfileStringA("VRHands", "HideStaticParts", g_hmHideStatic ? "1" : "0", ini);
+    _snprintf(v, 64, "%.0f", g_hmHideStaticUU);
+    WritePrivateProfileStringA("VRHands", "HideStaticRadiusUU", v, ini);
+    { static const char* mr2[3] = { "Yaw", "Pitch", "Roll" };
+      static const char* mp2[3] = { "X", "Y", "Z" };
+      for (int mi = 1; mi < HM_COUNT; mi++)
+        for (int q = 0; q < 3; q++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "M%d%s", mi, mr2[q]);
+            _snprintf(v, 64, "%.1f", g_hmMRot[mi][q]);
+            WritePrivateProfileStringA("VRHands", k, v, ini);
+            _snprintf(k, sizeof(k), "M%dPos%s", mi, mp2[q]);
+            _snprintf(v, 64, "%.4f", g_hmMPos[mi][q]);
+            WritePrivateProfileStringA("VRHands", k, v, ini);
+        } }
+    { static const char* pk2[3] = { "PosX", "PosY", "PosZ" };
+      static const char* rk2[3] = { "Yaw", "Pitch", "Roll" };
+      for (int hh = 0; hh < 2; hh++)
+        for (int q = 0; q < 3; q++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "%s%s", hh ? "R" : "L", pk2[q]);
+            _snprintf(v, 64, "%.4f", g_hmPos[hh][q]);
+            WritePrivateProfileStringA("VRHands", k, v, ini);
+            _snprintf(k, sizeof(k), "%s%s", hh ? "R" : "L", rk2[q]);
+            _snprintf(v, 64, "%.1f", g_hmRot[hh][q]);
+            WritePrivateProfileStringA("VRHands", k, v, ini);
+        } }
+
+    float conv = g_dxvkConv ? *g_dxvkConv : 140.0f;
+    char mk[MAX_PATH];
+    _snprintf(mk, MAX_PATH, "%s\\dxvk_stereo.txt", g_dir);
+    // 35.1: SAVE clobbered the fork's hudskip= list (the wrist-HUD world-
+    // shader exclusion) because this writer only knew sep/conv - one SAVE
+    // press and the disappearing-geometry bug came back on the next launch.
+    // The rule for shared files: preserve every token you don't own.
+    char hudskip[160] = "", sfTok[32] = "";
+    {
+        FILE* rf = fopen(mk, "r");
+        if (rf) {
+            char rb[256] = {0};
+            fread(rb, 1, sizeof(rb) - 1, rf);
+            fclose(rf);
+            const char* h = strstr(rb, "hudskip=");
+            if (h) {
+                int i = 0;
+                while (h[i] && h[i] != ' ' && h[i] != '\n' && h[i] != '\r' &&
+                       h[i] != '\t' && i < 159) { hudskip[i] = h[i]; i++; }
+                hudskip[i] = 0;
+            }
+            const char* s2 = strstr(rb, "shadowfix=");
+            if (s2) {
+                int i = 0;
+                while (s2[i] && s2[i] != ' ' && s2[i] != '\n' &&
+                       s2[i] != '\r' && s2[i] != '\t' && i < 31)
+                    { sfTok[i] = s2[i]; i++; }
+                sfTok[i] = 0;
+            }
+        }
+    }
+    // 35.2: the live overlay dial wins over whatever the file had - SAVE
+    // persists the mode the user actually chose.
+    if (g_dxvkShadowFix)
+        _snprintf(sfTok, sizeof(sfTok), "shadowfix=%u",
+                  (unsigned int)*g_dxvkShadowFix);
+    char rfTok[24] = "";
+    if (g_dxvkReflect)
+        _snprintf(rfTok, sizeof(rfTok), "reflect=%u",
+                  (unsigned int)*g_dxvkReflect);
+    FILE* f = fopen(mk, "w");
+    if (f) {
+        fprintf(f, "sep=0.014 conv=%.0f%s%s%s%s%s%s\n", conv,
+                hudskip[0] ? " " : "", hudskip,
+                sfTok[0] ? " " : "", sfTok,
+                rfTok[0] ? " " : "", rfTok);
+        fclose(f);
+    }
+    Log("overlay: saved defaults (scale %.1f fill %.2f dist %.2f conv %.0f)",
+        g_posScaleUU, g_fillScale, g_screenDist, conv);
+}
