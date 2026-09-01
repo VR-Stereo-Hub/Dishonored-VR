@@ -10,6 +10,7 @@
 static DWORD WINAPI XrPaceThread(LPVOID)
 {
     g_xrPaceTid = GetCurrentThreadId();     // 38.11
+    dvr::crash::register_thread("xr-pace", g_xrPaceTid);
     Log("xr: pace thread up (detached frame loop; the game thread never "
         "waits on the runtime) tid=%lu", (unsigned long)g_xrPaceTid);
     while (g_xrRun) {

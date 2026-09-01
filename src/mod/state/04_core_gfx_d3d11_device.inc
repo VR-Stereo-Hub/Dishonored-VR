@@ -102,6 +102,7 @@ static volatile LONG g_xrHapPend[2] = { 0, 0 };
 static int           g_xrHaptics = 1;   // [VR] XrHaptics=0 kills them entirely
 static DWORD         g_xrPaceTid = 0;   // 38.11: crash-report thread identity
 static DWORD         g_presentTid = 0;
+static bool          g_presentNamed = false;
 // 38.13: [Screen] XrFrustumFill=1 (default) - XR proj mode fills the whole
 // frustum at 1:1 angular scale (no draggable screen border = the residual
 // warp's anchor removed; exact tan-linear content mapping).
@@ -224,8 +225,6 @@ static void XrRtSubmitEye(int eye);
 static void XrRtFrameEnd(void);
 static void XrRtPublish(void);               // 38.3 XR-3
 static DWORD WINAPI XrPaceThread(LPVOID);    // 38.3 XR-3
-static LONG WINAPI XrVeh(EXCEPTION_POINTERS*);  // 38.17: both backends
-static bool g_vehOn = false;
 static ID3D11VertexShader*     g_vs = NULL;
 static ID3D11PixelShader*      g_ps = NULL;
 static ID3D11InputLayout*      g_layout = NULL;

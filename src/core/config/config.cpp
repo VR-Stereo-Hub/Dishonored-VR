@@ -966,6 +966,14 @@ static void EnsureConfig()
     if (g_configLoaded || g_disabled) return;
     g_configLoaded = true;
     LoadConfig();
+        {   // [Log] Level=info  Cats=blink:debug,openxr:trace - env DVR_LOG / DVR_LOG_CATS win
+            char ini[MAX_PATH], lv[32] = "", cats[512] = "";
+            _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+            GetPrivateProfileStringA("Log", "Level", "", lv, sizeof(lv), ini);
+            GetPrivateProfileStringA("Log", "Cats", "", cats, sizeof(cats), ini);
+            if (!GetEnvironmentVariableA("DVR_LOG", NULL, 0)) dvr::log::configure(lv, "");
+            if (!GetEnvironmentVariableA("DVR_LOG_CATS", NULL, 0)) dvr::log::configure("", cats);
+        }
 }
 
 

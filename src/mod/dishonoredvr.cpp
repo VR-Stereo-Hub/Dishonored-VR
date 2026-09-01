@@ -12,6 +12,20 @@
 
 // ---- state: includes, types, globals, macros (original order) ----------
 #include "mod/state/00_mod_prelude.inc"
+
+// ---- modules with their own translation unit: headers only ------------------
+#include "dvr_version.h"
+#include "core/util/log.h"
+#include "core/util/clock.h"
+#include "core/util/mem.h"
+#include "core/util/ini.h"
+#include "core/util/paths.h"
+#include "core/util/diag.h"
+#include "core/util/crash.h"
+#include "core/hooks/vtable.h"
+#include "core/hooks/iat.h"
+#include "core/hooks/detour.h"
+
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
 #include "mod/state/03_core_vr_openvr_backend.inc"
@@ -79,59 +93,150 @@
 #include "mod/fwd.h"
 
 // ---- function bodies by subsystem -------------------------------------------
+#define DVR_CAT ::dvr::log::Cat::cfg
 #include "core/config/config.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/frame_hooks.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/d3d11_device.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/eye_quads.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::hands
 #include "core/gfx/hand_mesh.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_panel.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/present.cpp"
-#include "core/hooks/iat.cpp"
-#include "core/hooks/vtable.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::pad
 #include "core/input/hotkeys.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::pad
 #include "core/input/pad_bridge.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::overlay
 #include "core/ui/overlay.cpp"
-#include "core/util/clock.cpp"
-#include "core/util/crash.cpp"
-#include "core/util/ini.cpp"
-#include "core/util/log.cpp"
-#include "core/util/mem.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::openvr
 #include "core/vr/openvr_backend.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::openxr
 #include "core/vr/openxr_backend.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::xrinput
 #include "core/vr/openxr_input.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::openxr
 #include "core/vr/openxr_loader.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::pace
 #include "core/vr/openxr_pace.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::res
 #include "core/window/game_window.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::res
 #include "core/window/res_spoof.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::blink
 #include "game/dishonored/blink.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::blink
 #include "game/dishonored/blink_stubs.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/block_state.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::console
 #include "game/dishonored/console.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::crouch
 #include "game/dishonored/crouch.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::fov
 #include "game/dishonored/fov_lever.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::menu
 #include "game/dishonored/game_state.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/arms_hide.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/fp_mesh.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::graft
 #include "game/dishonored/hands/graft.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/hand_pose.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/skelcontrol.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::head
 #include "game/dishonored/head_track.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::melee
 #include "game/dishonored/melee.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::aim
 #include "game/dishonored/motion_aim.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::core
 #include "game/dishonored/shared/ue_math.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/process_event.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/uobject.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/aim_watch.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/cam_seam.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/camera_hook.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/camera_tracer.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/fire_tracer.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/fp_mesh.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/ovl_scene.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/rtd_drive.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/spacebases.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/ue3_probe.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/vs_scan.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/xr_bench.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::proxy
 #include "proxy/d3d9_exports.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::proxy
 #include "proxy/dllmain.cpp"
+#undef DVR_CAT

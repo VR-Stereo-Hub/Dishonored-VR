@@ -5,7 +5,6 @@
 // at 50 uu/m a 0.6 m arm reach becomes 30 uu, which in a game built at roughly
 // 1 uu per cm is 30 cm - right at your eyes. World placement wants ~100.
 static float    g_skcWorldScale = 100.0f;
-static double MaimNowMs();               // defined with the pose helpers
 static void CameraTraceTick();           // 32.20: defined much later
 static void BoneWigBuildMask();          // defined after FindRefSkel
 static volatile bool g_boneWigGo = false;
@@ -119,7 +118,6 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // 8 minutes in case an off-toggle is ever missed.
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
-static void Log(const char* fmt, ...);   // fwd (defined below)
 static bool CylTruthLive();              // fwd
 static float  g_dlgHoldMs  = 12000.0f; // [Hud] DialogHoldMs
 static double g_dlgUntilMs = 0.0;      // armed until (re-armed per event)
@@ -354,7 +352,6 @@ static bool  g_ecCeilOn     = false;
 // already produces a slide, so there are no false positives by definition.
 // [Input] SlideAssist=0 disables.
 static int    g_slideAssist = 1;
-static void Log(const char* fmt, ...);   // defined just below
 
 // 38.28 -------------------------------------------------------------------
 // THE CROUCH SAGA'S ACTUAL ROOT CAUSE, measured in dishonored_vr_3825crawl:
@@ -420,4 +417,3 @@ static bool g_fireTraceEnabled = true;     // ini [Debug] FireTrace
 // random microstutter. Now the stream is buffered and flushed at most 5x a
 // second; LogFlush() forces one where losing the tail would matter (crash
 // handler, shutdown). Worst case on a hard kill: the last <200 ms of log.
-static DWORD g_logFlushTick = 0;

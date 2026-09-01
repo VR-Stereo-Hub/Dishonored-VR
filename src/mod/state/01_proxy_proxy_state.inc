@@ -1,10 +1,8 @@
 // State chunk 01 for proxy/proxy_state - included by src/mod/dishonoredvr.cpp.
 // Original order is preserved across chunks; do not reorder.
 
-static FILE*   g_log      = NULL;
 static bool    g_disabled = false;
 static char    g_dir[MAX_PATH] = {0};
-static CRITICAL_SECTION g_logLock;
 
 typedef IDirect3D9* (WINAPI *PFN_Direct3DCreate9)(UINT);
 typedef HRESULT     (WINAPI *PFN_Direct3DCreate9Ex)(UINT, IDirect3D9Ex**);

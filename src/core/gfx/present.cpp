@@ -6,6 +6,7 @@
 static void RenderEyesAndSubmit()
 {
     if (!g_presentTid) g_presentTid = GetCurrentThreadId();   // 38.11
+    if (!g_presentNamed) { g_presentNamed = true; dvr::crash::register_thread("present", g_presentTid); dvr::crash::rearm(); }
     OverlayFrame();
     if (g_ovlScene) OvlSceneFrame();         // 37.9: the SBS overlay carries
                                              // the game picture on Quest

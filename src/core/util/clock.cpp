@@ -1,10 +1,22 @@
-// core/util/clock.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
-// module gets its own header and translation unit. Bodies are verbatim from
-// the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
+#include "core/util/clock.h"
+#include <windows.h>
 
+namespace dvr::clock {
+namespace { long long g_freq = 0; }
 
-static double MaimNowMs()
+void init()
 {
-    LARGE_INTEGER q; QueryPerformanceCounter(&q);
-    return g_qpcFreq ? (double)q.QuadPart * 1000.0 / (double)g_qpcFreq : 0.0;
+    if (g_freq) return;
+    LARGE_INTEGER f;
+    if (QueryPerformanceFrequency(&f)) g_freq = f.QuadPart;
 }
+
+long long qpc_freq() { return g_freq; }
+
+double now_ms()
+{
+    if (!g_freq) return 0.0;
+    LARGE_INTEGER q; QueryPerformanceCounter(&q);
+    return (double)q.QuadPart * 1000.0 / (double)g_freq;
+}
+} // namespace dvr::clock

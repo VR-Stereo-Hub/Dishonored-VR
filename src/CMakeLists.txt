@@ -28,13 +28,30 @@ add_custom_target(dvr_version ALL
 # file with every function body verbatim. Modules leave the unity list as they
 # get their own headers.
 file(GLOB_RECURSE DVR_MODULE_SOURCES CONFIGURE_DEPENDS
-    proxy/*.cpp core/*.cpp game/*.cpp legacy/*.cpp mod/state/*.inc mod/fwd.h)
+    proxy/*.cpp core/*.cpp game/*.cpp legacy/*.cpp mod/state/*.inc mod/fwd.h core/*.h game/*.h)
+# Modules that already have their own header and translation unit.
+set(DVR_REAL_SOURCES
+    core/util/log.cpp        core/util/log.h
+    core/util/crash.cpp      core/util/crash.h
+    core/util/clock.cpp      core/util/clock.h
+    core/util/mem.cpp        core/util/mem.h
+    core/util/ini.cpp        core/util/ini.h
+    core/util/paths.cpp      core/util/paths.h
+    core/util/diag.h
+    core/hooks/vtable.cpp    core/hooks/vtable.h
+    core/hooks/iat.cpp       core/hooks/iat.h
+    core/hooks/detour.cpp    core/hooks/detour.h
+)
+foreach(_f ${DVR_REAL_SOURCES})
+    list(REMOVE_ITEM DVR_MODULE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${_f}")
+endforeach()
 add_library(dvr_proxy SHARED
     mod/dishonoredvr.cpp
     proxy/d3d9.def
+    ${DVR_REAL_SOURCES}
     ${DVR_MODULE_SOURCES}
 )
-# The module files are included by the unity TU, not compiled on their own.
+# The unity-included module files are not compiled on their own.
 set_source_files_properties(${DVR_MODULE_SOURCES} PROPERTIES HEADER_FILE_ONLY ON)
 set_target_properties(dvr_proxy PROPERTIES OUTPUT_NAME "d3d9" PREFIX "")
 add_dependencies(dvr_proxy dvr_version)

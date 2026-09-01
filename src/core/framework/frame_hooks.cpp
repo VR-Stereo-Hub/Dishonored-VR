@@ -341,7 +341,7 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
     // 38.17: the crash fingerprinter now guards BOTH backends. Tonight's
     // Vive load crash produced only the game's bare dialog because the VEH
     // was XR-only; every future fault logs module+offset+thread either way.
-    if (!g_vehOn) { g_vehOn = true; AddVectoredExceptionHandler(1, XrVeh); }
+    dvr::crash::install();   // fingerprint VEH + minidump filter, idempotent
 
     // 38.14: [VR] FpsCap - hold the game at a ROCK-STEADY rate. The measured
     // stutter cause on Quest: game fps wandering 66-80 against a fixed

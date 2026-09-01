@@ -13,7 +13,7 @@ static void XrRtTryInit(void)
     nextTry = now + 5000;
     tries++;
     Log("xr: backend bring-up attempt %d", tries);
-    if (!g_vehOn) { g_vehOn = true; AddVectoredExceptionHandler(1, XrVeh); }
+    dvr::crash::install();   // fingerprint VEH + minidump filter, idempotent
 
     if (!g_xrGipa && !XrLoadRuntime()) return;
     if (g_xriInst == XR_NULL_HANDLE) {
