@@ -213,6 +213,49 @@ is written). `core/util/paths.h` is the one place that knows this.
 
 ## Decision log
 
+### 2026-09-03 - session 6 (branch `aer-rendering`, developer A)
+
+- **The virtual gamepad is a real module, and the motion controls are out of the input
+  path.** `core/input/pad_bridge.{h,cpp}` composes ONE thing - the runtime layer's raw
+  controller snapshot into the XINPUT_STATE the game reads - and knows no engine address
+  and no game global; the XInput IAT slots arrive from `patterns.h` through
+  `install_hook`. Everything that knows what Corvo can do with a hand reaches it through
+  `Callbacks` (the menu and cinematic gates, the sprint bit, the health hold, the menu
+  step, the button and trigger bits the game contributes, the room-scale offset, rumble
+  out), registered from `game/dishonored/present_tick.cpp` - the same shape
+  `core/framework/frame_hooks` already uses.
+
+  The reason is diagnostic, not tidiness. Motion melee forced the right trigger, motion aim
+  ran off the trigger values, an eighty-line physical-crouch state machine pulsed B, the
+  room-scale offset pushed the movement stick and the overlay's pointer ray was computed
+  from a hand pose - all inside the function that composes the pad. "The gamepad is dead"
+  and "a hand feature misfired" were the same code, so they produced the same log. Each
+  moved to the module that owns it (`crouch.cpp` gained `CrouchPulseTick`, `present_tick`
+  gained `PadLocomotion` and `DvrHandFeaturesTick`) and the compose path kept the ORDER the
+  single-file build had, so the refactor changes no behaviour.
+
+- **The pad's packet number moves on change, not on every present.** Games poll
+  `dwPacketNumber` to decide whether the pad changed; bumping it ninety times a second says
+  the sticks are jittering while the player holds still. `memcmp` the composed gamepad and
+  bump only on a real difference. From the BioShock Remastered VR pad layer, which measured
+  the effect there. The `pad: beat` line names its populations so a bumped count lower than
+  the composed count reads as "holding still" and not as "dead".
+
+- **The movement stick's deadzone is radial.** A per-axis threshold is crossed at a
+  different stick magnitude depending on angle - it notches diagonals and rotates the
+  delivered direction near the edge of the dead band. Same source, same reason. The turn
+  axis keeps the per-axis form (no partner to be radial with) and `[Controllers] Deadzone`
+  keeps its key and its 0.12 default.
+
+- **Not ported from BRVR, on purpose.** The `XInputGetCapabilities` / `XInputGetStateEx`
+  hooks (BRVR needs them because its game may never poll otherwise; Dishonored demonstrably
+  polls, and a caps hook would need a third IAT address MEASURED first - if a tester's log
+  ever shows `padPolls 0`, this is the first suspect). BRVR's import-directory walk to pick
+  the right XInput DLL (we patch two known slots and byte-verify them, which is stronger on
+  a no-ASLR exe). Left-handed mode, snap turn, the d-pad modifier and stick
+  pre-compensation are features, not cleanup.
+
+
 ### 2026-09-02 - session 5 (native stereo foundation)
 
 - **The DXVK fork is removed, DXVK included.** Four headset sessions showed the wide

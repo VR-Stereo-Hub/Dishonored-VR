@@ -1,5 +1,65 @@
 # Status
 
+## Current state (2026-09-03, session 6: branch `aer-rendering`, developer A)
+
+**The two stereo methods are being built in parallel on separate branches.** Session 5's
+native-stereo foundation (`24b22390`, PR #1) is merged into `VR-Main` and imported here;
+this branch takes **ROADMAP S2a, AlternateEye** (`core/gfx/aer.cpp`), and developer B takes
+S2b, SequentialReentry, on their own. S3 compares them and picks. `VR-Main` stays the
+integration branch.
+
+**The game still boots into MONO and that is correct.** `[Stereo] Method=mono` is the
+shipped default; `stereo aer` refuses with its note and the mono screen keeps running.
+Nothing on this branch has touched the stereo seam yet.
+
+**What this session did: the virtual gamepad became a real module.** The controllers were
+already a plain gamepad by default (`[Mode] GamepadOnly=1`, verified in a headset on
+run 13), but the COMPOSITION still lived in the unity build with motion melee, motion aim,
+the projectile tracer, an eighty-line physical-crouch pulse machine, the room-scale stick
+push and the overlay pointer ray wired straight through it - so "the gamepad is dead" and
+"a hand feature misfired" were the same code and produced the same log.
+
+`core/input/pad_bridge.{h,cpp}` is now its own translation unit with its own state. It
+composes one thing (the runtime layer's raw snapshot -> `XINPUT_STATE`), knows no engine
+address and no game global, and takes Dishonored through a `Callbacks` seam registered from
+`game/dishonored/present_tick.cpp`. Each lifted feature went to the module that owns it
+(`CrouchPulseTick` in `crouch.cpp`, `PadLocomotion` and `DvrHandFeaturesTick` in
+`present_tick.cpp`), and the compose path kept the ORDER the single-file build had.
+ROADMAP S1's `pad_bridge` box is ticked; `head_track` is still to do.
+
+Three commits, one behavioural change each:
+
+1. `c2e4aca7` the module extraction - **no behaviour change**.
+2. `d5b488f4` the pad packet number moves on CHANGE, not every present. It was bumping
+   ninety times a second, which tells the game the sticks are jittering while the player
+   holds still. From the BioShock Remastered VR pad layer, which measured it.
+3. `31a31f1f` the movement stick's deadzone is radial instead of per-axis - a per-axis
+   threshold notches diagonals and rotates the delivered direction. Same source.
+
+**Verified on the dev PC (build gates only, no run):** Debug and `-Legacy` both build,
+`exports-check` 9 undecorated names, `lint: clean`, the generated default ini byte-identical
+to `tests/golden/dishonored_vr.ini`, `xrsim-selftest` PASS (60 frames, FOCUSED, 0 errors).
+The same gates passed on the imported snapshot BEFORE any edit, so a later regression is
+attributable.
+
+**Not verified, and it needs you:**
+
+- The simulator lane (`xrsim-launch.ps1 -ViaSteam` + `xrsim-cmd.ps1` through every button
+  and both sticks, `soak.ps1 -Minutes 3`). Commands and what to read are in the handoff
+  below.
+- The headset. Commit 1 must play IDENTICALLY to run 13; commits 2 and 3 are the two
+  judgement calls, and either reverts on its own.
+
+**Two things found while working, neither fixed here:**
+
+- `tools/ini-golden.py` has **no `--check` flag** - it always regenerates the golden and
+  exits 0. `docs/VERIFICATION.md` says to run it with `--check`. Compare with `git diff`
+  instead (the content was unchanged this session; only line endings churned).
+- `tools/split-source.py --check` is **no longer a meaningful gate**. It compares against
+  the original single file at `48766c07`, and session 5's removals already left it at 31
+  EXTRA and a list of MISSING functions on the pristine import. This session took it to 42
+  EXTRA (the new pad helpers). VERIFICATION's "changed 16" reading is stale.
+
 ## Current state (2026-09-02, session 5: the native-stereo foundation, 41.0)
 
 **The render is restarted on a native D3D9 game.** The DXVK fork, the side-by-side present
@@ -135,6 +195,70 @@ lingers.
 - The headset run needs the user.
 
 ## Session log
+
+### 2026-09-03 - session 6: the branch split, and the pad becomes a module
+
+Session 5's foundation was merged to `VR-Main` (`24b22390`, PR #1) and imported here; this
+branch is `aer-rendering` and takes ROADMAP **S2a, AlternateEye**. Developer B takes S2b on
+their own branch. The stereo seam is untouched this session - the game boots into mono, and
+that is the shipped default.
+
+**The gate BEFORE any edit.** `build.ps1`, `build.ps1 -Legacy`, `exports-check`, `lint` and
+`xrsim-selftest` were all run on the imported snapshot first, so any later breakage is
+provably this session's and not the import's. All five passed.
+
+**The pad.** `[Mode] GamepadOnly=1` already made the controllers a plain gamepad and headset
+run 13 confirmed it works, so the job was not to make it work - it was that the composition
+still lived in the unity build with `MeleeTick`, `MotionAimTick`, `SpawnTraceTick`, the
+overlay pointer ray, an eighty-line physical-crouch pulse machine and the room-scale stick
+push wired straight through it. That is a diagnostic problem: those failures and a dead
+gamepad were the same code and produced the same log.
+
+`core/input/pad_bridge.{h,cpp}` is now a real translation unit with its own state, no engine
+address and no game global; Dishonored reaches it through a `Callbacks` seam registered from
+`present_tick.cpp`, the shape `core/framework/frame_hooks` already uses. `MeleeTick` still
+runs immediately before the compose (its trigger arrives via `shape_triggers`), the crouch
+pulse moved to `crouch.cpp` as `CrouchPulseTick`, the room-scale offset to `PadLocomotion`,
+and the aim/tracer/pointer work to `DvrHandFeaturesTick` on the same snapshot in the same
+order. State chunk 53 is deleted; `g_padBtnsPub`, `g_sneakBtn`, `g_dbgRawMx/My` and
+`g_dbgOutLx/Ly` are the module's and their readers go through the accessors.
+
+**Two defects found by comparing against BioShock Remastered VR's pad layer**, each shipped
+as its own commit because each changes behaviour:
+
+1. `dwPacketNumber` was bumped on EVERY present. Games read it to decide whether the pad
+   changed, so ninety bumps a second claims the sticks are jittering while the player holds
+   perfectly still. Now `memcmp` and bump on a real change only.
+2. `[Controllers] Deadzone` was applied per-axis. A straight push clears 0.12 while a
+   diagonal needs 0.17 on each axis, and inside that band one component is zeroed and the
+   other survives - notched diagonals, and a direction rotated toward the nearest axis. The
+   movement stick is radial now; the turn axis keeps the per-axis form.
+
+**Deliberately not ported from BRVR**, so it is not re-litigated: the
+`XInputGetCapabilities` / `XInputGetStateEx` hooks (Dishonored demonstrably polls; a caps
+hook needs a third IAT address measured first - if a log ever shows `padPolls 0`, start
+there), BRVR's import-directory walk to pick the right XInput DLL (we patch two known slots
+and byte-verify them, stronger on a no-ASLR exe), and left-handed mode / snap turn / the
+d-pad modifier / stick pre-compensation, which are features rather than cleanup.
+
+**Also worth stealing later, not taken yet:** BRVR logs a BINDING CENSUS after its first
+`xrSyncActions` - the current interaction profile per hand, then which actions actually
+resolved (`bindings resolved 13 of 15`). It exists because an unbound action is not an error
+anywhere in the OpenXR stack: every health line reads green while the controller does
+nothing. Our adopted layer only logs how many profiles it suggested. It would be a marked
+`41.0 (Dishonored)` addition to `core/vr/openxr_input.cpp`, which CLAUDE.md says to keep as
+close to the BioShock copy as possible - worth agreeing with developer B first.
+
+**Two instruments are stale and neither was fixed here:** `tools/ini-golden.py` has no
+`--check` flag and always regenerates (compare with `git diff` instead), and
+`tools/split-source.py --check` is no longer a gate - session 5's removals already left it
+at 31 EXTRA and a list of MISSING on the pristine import, so VERIFICATION's "changed 16"
+reading is dead.
+
+**Verified:** build gates only (both configurations, exports, lint, golden ini unchanged,
+xrsim-selftest). **Not verified:** the simulator lane and the headset. Nothing was run
+inside the game this session.
+
 
 ### 2026-09-02 - session 5: the native-stereo foundation (41.0)
 

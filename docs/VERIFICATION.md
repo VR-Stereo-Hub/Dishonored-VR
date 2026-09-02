@@ -11,8 +11,8 @@ question the simulator could answer is a wasted session.
 |---|---|---|---|
 | Does the tree build? | CMake | `tools\build.ps1` (and `-Legacy`) | exit 0 both ways |
 | Are the exports right? | dumpbin | `tools\exports-check.ps1 build\src\Debug\d3d9.dll` | "exports OK: 9 names, all undecorated" |
-| Did the split change a body? | parser | `python tools\split-source.py --check` | "changed 16" = the Phase 0 MSVC edits only (9 exports, 6 `_ReturnAddress` sites, the `.mtl` fix); anything else is a regression |
-| Is the default ini unchanged? | golden | `python tools\ini-golden.py --check` | MATCH (the golden is generated from the working tree's WriteDefaultIni) |
+| Did the split change a body? | parser | `python tools\split-source.py --check` | **STALE, not a gate.** It compares against the original single file at `48766c07`; the 41.0 removals already leave it at 31 EXTRA and a list of MISSING on a clean tree. Read it as history, not as pass/fail |
+| Is the default ini unchanged? | golden | `python tools\ini-golden.py` then `git diff tests/golden/` | **There is no `--check` flag** - the script always REGENERATES the golden and exits 0. An empty `git diff --ignore-all-space` is the pass |
 | Style rules | lint | `tools\lint.ps1` | "lint: clean" |
 | Is the SIMULATOR healthy? | xr_hello32 | `tools\xrsim-selftest.ps1` | "SELFTEST PASS: dvr-xrsim ran 60 frames"; a failure here is the sim, not the mod |
 | Did the mod load and which runtime answered? | log | `tools\log-parse.ps1`, `tail-log.ps1 -Grep "xr:"` | `proxy loaded`, the runtime layer's instance line, `xr: runtime "<name>" - session live` |

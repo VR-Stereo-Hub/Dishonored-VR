@@ -51,8 +51,9 @@ results.
       others DISCARDED (ENGINE_NOTES)
 - [ ] Positional (lean/crouch/roomscale) tracking moved from the c0 `LeanVP` patch to the
       camera seam's position write once the write point is known, and measured equal
-- [ ] `head_track` and `pad_bridge` converted to real modules (the D1-era refactor step
-      that S0 deferred)
+- [x] `pad_bridge` converted to a real module (`core/input/pad_bridge.{h,cpp}`, its own
+      translation unit and state, Dishonored behind a Callbacks seam); the motion controls
+      are out of the input path. `head_track` still to do
 - [ ] SteamVR rig confirmed through the shim (`xr: runtime "DishonoredVR SteamVR shim (OpenVR)"`)
 
 Done when a tester plays a level on the mono screen and calls it comfortable.
