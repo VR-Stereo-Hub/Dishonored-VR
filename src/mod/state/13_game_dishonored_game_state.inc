@@ -84,7 +84,6 @@ static uint32_t g_camNameIdx   = 0;        // its Name index (for revalidation)
 static int      g_camRefindIn  = 0;        // frames until we re-find the camera
 
 static uint32_t g_gameFrames = 0;          // game frames rendered this window
-static uint32_t g_submits    = 0;          // compositor submits this window
 static long long g_qpcFreq   = 0;          // QueryPerformanceCounter frequency
 // 38.14: [VR] FpsCap - even-cadence frame limiter (0 = off). Set 72 with
 // VD at 72 Hz, or 45 with VD at 90 Hz. Works on any backend but exists for

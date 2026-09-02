@@ -530,7 +530,7 @@ static void OverlayFrame()
         ImGui::SameLine();
         ImGui::TextDisabled("probes, rig tests, the SpaceBases oracle");
         ImGui::Separator();
-        ImGui::TextDisabled("game window %ux%u", g_capW, g_capH);
+        ImGui::TextDisabled("game window %ux%u", dvr::capture::width(), dvr::capture::height());
     ImGui::EndTabItem(); }
 
     ImGui::EndTabBar();

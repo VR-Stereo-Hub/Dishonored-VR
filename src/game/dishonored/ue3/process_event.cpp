@@ -234,6 +234,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 if (!strcmp(nm, "PreExit") &&
                     !InterlockedCompareExchange(&g_gameExiting, 0, 0)) {
                     InterlockedExchange(&g_gameExiting, 1);
+                    dvr::frame::set_exiting();
                     Log("shutdown: game PreExit - VR paths standing down");
                     LogFlush();          // 38.90: buffered log - land it now
                     // 41.0: the runtime layer's session teardown hooks in

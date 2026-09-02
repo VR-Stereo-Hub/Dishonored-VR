@@ -29,25 +29,10 @@ static LUID  g_gotAdapterLuid    = { 0, 0 };
 static bool  g_gotAdapterLuidOk  = false;
 static char  g_gotAdapterName[128] = "";
 
-// Two game-frame textures - one per eye - for alternate-eye stereo. Each frame
-// the game renders one eye's view; we update only that eye's texture and keep
-// the other eye showing its last frame (the compositor reprojects the gap).
-static ID3D11Texture2D*          g_texGame[2] = {NULL, NULL};
-static ID3D11ShaderResourceView* g_srvGame[2] = {NULL, NULL};
-static UINT                      g_texW = 0, g_texH = 0;
-
-static ID3D11Texture2D*        g_eyeTex[2] = {NULL, NULL};
-static ID3D11RenderTargetView* g_eyeRTV[2] = {NULL, NULL};
-// 30.81: a real depth buffer for the hand pass. The first version sorted
-// triangles back-to-front on the CPU, which is fine for a few boxes but falls
-// apart on a modelled mesh (and made texture batching awkward). Depth testing
-// is both more correct and simpler: draw order stops mattering, so triangles
-// can be grouped by texture instead of by distance.
-static ID3D11Texture2D*        g_eyeDS[2] = {NULL, NULL};
-static ID3D11DepthStencilView* g_eyeDSV[2] = {NULL, NULL};
-static ID3D11DepthStencilState* g_dsOff = NULL;   // the game quad: no test, no write
+// 41.0: the eye textures belong to the stereo methods (core/gfx/stereo); the
+// hand pass keeps the depth states and sampler it shares (EnsureCommonStates).
+static ID3D11DepthStencilState* g_dsOff = NULL;   // no test, no write
 static ID3D11DepthStencilState* g_dsOn  = NULL;   // the hands: test and write
-static UINT                    g_eyeW = 0, g_eyeH = 0;
 // ---- the runtime-facing state that outlives the old backends (41.0) ------
 // The runtime layer (core/vr/openxr_runtime, next commits) replaces the mod's
 // own loader negotiation, pace thread and action layer. These are the
@@ -69,18 +54,8 @@ static int      g_chainStamp = 1;
 // 38.79: set when the game announces shutdown (PreExit on a real exit);
 // every VR path stands down so teardown can't crash under us.
 static volatile LONG g_gameExiting = 0;
-static uint32_t g_xrEyeW = 0, g_xrEyeH = 0;   // runtime-recommended per eye
 static bool     g_vrReady = false;        // a headset is being served
 // [Screen] EyeCant: the hand mesh applies the eye-to-head rotation when 1.
 // Measured identity on every runtime so far; kept as the hand pass's lever.
 static int      g_eyeCantCfg = 1;
-static ID3D11VertexShader*     g_vs = NULL;
-static ID3D11PixelShader*      g_ps = NULL;
-static ID3D11InputLayout*      g_layout = NULL;
 static ID3D11SamplerState*     g_sampler = NULL;
-static bool                    g_pipelineReady = false;
-
-// ----------------------------------------------------------------------------
-// Globals: capture
-// ----------------------------------------------------------------------------
-static IDirect3DSurface9* g_sysmem = NULL;

@@ -347,6 +347,7 @@ static bool HmEnsurePipeline()
 {
     if (g_hmReady) return true;
     if (!g_dev11) return false;
+    EnsureCommonStates();   // 41.0: the shared sampler and depth states
     HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
     if (!compiler) return false;
     PFN_D3DCompile compile = (PFN_D3DCompile)GetProcAddress(compiler, "D3DCompile");

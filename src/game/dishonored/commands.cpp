@@ -7,6 +7,7 @@
 //   blink on|off|probe           hand-aimed Blink; probe = one-shot survey
 //   fov <deg|0>                  the FOV lever (0 disarms)
 //   overlay on|off               the F10 settings panel
+//   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
@@ -47,6 +48,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "stereo")) {
+        if (!args[0] || !strcmp(args, "status")) { dvr::stereo::log_status(); return true; }
+        dvr::stereo::select(args);   // logs the refusal itself
+        return true;
+    }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
     if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
     if (!strcmp(cmd, "vrinput")) {
@@ -116,8 +122,9 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("xrOn", (bool)g_xrOn);
     w.kv("state", g_dvrGameState);
     w.kv("frame", (unsigned long)g_frame);
-    w.kv("capW", (int)g_capW); w.kv("capH", (int)g_capH);
-    w.kv("eyeW", (int)g_eyeW); w.kv("eyeH", (int)g_eyeH);
+    w.kv("capW", (int)dvr::capture::width()); w.kv("capH", (int)dvr::capture::height());
+    { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
+    w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("head");
     w.kv("yaw", (double)g_hmdYaw); w.kv("pitch", (double)g_hmdPitch); w.kv("roll", (double)g_hmdRoll);
     w.kv("tracked", (bool)g_devPoseOk[0]);
@@ -147,7 +154,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("cine", (bool)g_cineNow);
     w.kv("exiting", InterlockedCompareExchange(&g_gameExiting, 0, 0) != 0);
     w.obj("counters");
-    w.kv("submits", (unsigned long)g_submits); w.kv("gameFrames", (unsigned long)g_gameFrames);
+    w.kv("submits", (unsigned long)dvr::frame::submit_count()); w.kv("gameFrames", (unsigned long)g_gameFrames);
     w.kv("padPolls", (unsigned long)g_padPolls); w.kv("headHits", (unsigned long)g_pvrHits);
     w.kv("headWrites", (unsigned long)g_pvrWrites); w.kv("handWrites", (unsigned long)g_fpWrites);
     w.kv("commands", (unsigned long)dvr::command::sequence());

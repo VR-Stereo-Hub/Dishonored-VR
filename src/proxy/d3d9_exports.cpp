@@ -41,6 +41,7 @@ static bool EnsureRealD3D9()
 // ----------------------------------------------------------------------------
 extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
 {
+    dvr::stereo::register_all();   // 41.0: before the config selects [Stereo] Method
     EnsureConfig(); // safe here (post loader-lock); not in DllMain
     dvr::crash::install();   // fingerprint VEH + minidump filter, before any hook
     DvrDebugInit();          // command seam + status provider
@@ -51,9 +52,10 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
     if (!EnsureRealD3D9() || !g_realCreate9) return NULL;
     IDirect3D9* d3d = g_realCreate9(sdkVersion);
     Log("Direct3DCreate9(sdk=%u) -> %p", sdkVersion, (void*)d3d);
+    dvr::frame::set_disabled(g_disabled);
     if (d3d && !g_disabled) {
-        void* old = PatchVtable(d3d, 16, (void*)hkCreateDevice);
-        if (old && !g_origCreateDevice) g_origCreateDevice = (PFN_CreateDevice)old;
+        DvrInstallFrameHooks();        // the game side of the frame path
+        dvr::frame::hook_d3d9(d3d);    // CreateDevice -> Present/Reset/... hooks
     }
     return d3d;
 }

@@ -24,23 +24,7 @@ static PFN_D3DPERF_SetMarker  g_realSetMarker  = NULL;
 static PFN_D3DPERF_SetRegion  g_realSetRegion  = NULL;
 static PFN_D3DPERF_QueryRepeatFrame g_realQueryRepeatFrame = NULL;
 
-typedef HRESULT (__stdcall *PFN_CreateDevice)(IDirect3D9*, UINT, D3DDEVTYPE, HWND,
-                                              DWORD, D3DPRESENT_PARAMETERS*,
-                                              IDirect3DDevice9**);
-typedef HRESULT (__stdcall *PFN_Present)(IDirect3DDevice9*, const RECT*,
-                                         const RECT*, HWND, const RGNDATA*);
-typedef HRESULT (__stdcall *PFN_Reset)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
-typedef HRESULT (__stdcall *PFN_SetVSConstF)(IDirect3DDevice9*, UINT,
-                                             const float*, UINT);
-
-typedef HRESULT (__stdcall *PFN_SetRenderTarget)(IDirect3DDevice9*, DWORD,
-                                                 IDirect3DSurface9*);
-
-static PFN_CreateDevice    g_origCreateDevice = NULL;
-static PFN_Present         g_origPresent      = NULL;
-static PFN_Reset           g_origReset        = NULL;
-static PFN_SetVSConstF     g_origSetVSConstF  = NULL;
-static PFN_SetRenderTarget g_origSetRT        = NULL;
+// 41.0: the device hooks and their originals live in core/framework/frame_hooks.
 static HWND                g_gameWnd          = NULL;
 
 // current render-target dims (from SetRenderTarget) - used to shear ONLY the

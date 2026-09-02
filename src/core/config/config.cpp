@@ -20,6 +20,11 @@ static void WriteDefaultIni(const char* ini)
         "YawCountsPerDegree=11.5\n"
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
+        "[Stereo]\n"
+        "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
+        "; mono shows the game on a head-locked screen in both eyes; aer and reentry\n"
+        "; are design stubs in 41.0 and refuse with a note (`stereo <name>` switches live).\n"
+        "Method=mono\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -211,6 +216,12 @@ static void LoadConfig()
     if (g_screenWidth < 0.5f) g_screenWidth = 0.5f;
     if (g_screenWidth > 10.0f) g_screenWidth = 10.0f;
     dvr::vr::set_screen(g_screenDist, g_screenWidth);
+    {   // [Stereo] Method: the rung of the ladder (docs/ARCHITECTURE.md); a
+        // stub or an unknown name logs why and leaves the mono screen running
+        char sm[16] = "";
+        GetPrivateProfileStringA("Stereo", "Method", "mono", sm, sizeof(sm), ini);
+        if (!dvr::stereo::select(sm)) dvr::stereo::select("mono");
+    }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
     g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
@@ -757,6 +768,7 @@ static void LoadConfig()
         if (g_fpsCap < 0.0f) g_fpsCap = 0.0f;
         if (g_fpsCap > 0.0f && g_fpsCap < 20.0f)  g_fpsCap = 20.0f;
         if (g_fpsCap > 144.0f) g_fpsCap = 144.0f;
+        dvr::frame::set_fps_cap(g_fpsCap);
         if (g_fpsCap > 0.0f)
             Log("config: FPS cap %.1f (even-cadence limiter)", g_fpsCap);
         // 37.5: SAFE mode - rendering + head tracking only, every game-memory

@@ -43,6 +43,11 @@ set(DVR_REAL_SOURCES
     core/hooks/detour.cpp    core/hooks/detour.h
     core/framework/command.cpp core/framework/command.h
     core/framework/status.cpp  core/framework/status.h
+    core/framework/frame_hooks.cpp core/framework/frame_hooks.h
+    core/gfx/stereo.cpp        core/gfx/stereo.h
+    core/gfx/capture.cpp       core/gfx/capture.h
+    core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
+    core/gfx/mono_screen.cpp
     core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h
     core/vr/openxr_input.cpp   core/vr/openxr_input.h
     core/vr/hud_stub.cpp       core/vr/hud_stub.h

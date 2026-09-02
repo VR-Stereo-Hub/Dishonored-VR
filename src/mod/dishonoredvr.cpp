@@ -30,6 +30,9 @@
 #include "game/dishonored/patterns.h"
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
+#include "core/framework/frame_hooks.h"
+#include "core/gfx/stereo.h"
+#include "core/gfx/capture.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
@@ -45,7 +48,6 @@
 #include "mod/state/13_game_dishonored_game_state.inc"
 #include "mod/state/14_core_util_log.inc"
 #include "mod/state/15_core_config_config.inc"
-#include "mod/state/16_core_gfx_d3d11_device.inc"
 #include "mod/state/18_core_gfx_hand_mesh.inc"
 #include "mod/state/20_core_window_game_window.inc"
 #include "mod/state/23_game_dishonored_ue3_uobject.inc"
@@ -90,7 +92,8 @@
 #include "core/config/config.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
-#include "core/framework/frame_hooks.cpp"
+#include "core/framework/vs_const_hook.cpp"
+#include "game/dishonored/present_tick.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/vs_const.cpp"
