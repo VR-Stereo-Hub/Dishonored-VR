@@ -135,6 +135,31 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // projectile - the engine hands us the object, on the game thread, at the
     // moment it spawns. The redirect maths is the one that measured
     // dot(hand)=+1.00 back in 7.3; only the catching was ever unreliable.
+    // 41.0: the exit handler stands on its own. Since 38.79 it lived inside the
+    // motion-aim block below, so under [Mode] GamepadOnly=1 (motion aim off) it
+    // never ran: the first two Quest quits (2026-09-03) died with the OpenXR
+    // session still open (EIP DEDEDEDE on Virtual Desktop's thread), and the
+    // log carried no `shutdown:` line. One FName index compare per event; the
+    // index lookup walks the name table, so a miss is retried sparsely.
+    if (obj && !InterlockedCompareExchange(&g_gameExiting, 0, 0)) {
+        uint8_t* f = (uint8_t*)a1;
+        static uint32_t preExitIdx = 0xffffffffu;
+        static int retryIn = 0;
+        if (preExitIdx == 0xffffffffu && --retryIn <= 0) {
+            preExitIdx = FindNameIdx("PreExit");
+            retryIn = 3000;
+        }
+        if (preExitIdx != 0xffffffffu && f && !((uintptr_t)f & 3) &&
+            RangeReadable(f, kNameOff + 8) && *(uint32_t*)(f + kNameOff) == preExitIdx) {
+            InterlockedExchange(&g_gameExiting, 1);
+            Log("shutdown: game PreExit - VR paths standing down, closing the OpenXR session");
+            LogFlush();
+            dvr::frame::set_exiting();   // parks the present hook before any runtime call
+            Sleep(150);                  // an in-flight present finishes
+            dvr::vr::shutdown("PreExit");
+            LogFlush();
+        }
+    }
     if (g_maimEnabled && obj) {
         uint8_t* f = (uint8_t*)a1;
         if (f && !((uintptr_t)f & 3) && RangeReadable(f, kNameOff + 8)) {
