@@ -61,6 +61,45 @@ polls on its own thread (a frame-path poller could never receive the `step` that
 Not modelled: lens distortion, timewarp/ASW, real display cadence, Wi-Fi encode, guardian. A
 pacing bug that reproduces in the sim is real; one that does not may still exist on VDXR.
 
+### KNOWN SIMULATOR DEFECTS - do not trust these captures (2026-09-02)
+
+Found while using the sim to chase a reported "eyes misaligned" bug. Both were caught only
+because the tester contradicted the capture, so they are recorded here before they mislead
+someone else the same way.
+
+1. **The left eye composites BLACK even when the application's left eye is correct.**
+   Measured: `stats.meanLumaL = 0.00`, `nonBlackPctL = 0.00`, `_left.png` 6,462 bytes
+   (byte-identical size across separate captures - a uniform image), while `nonBlackPctR`
+   read 71.1 on the same frame. The layer JSON says the left view is placed and sized
+   correctly - `pixelsCoveredL == pixelsCoveredR == 1139328`, `claimRatioH = 1.00000` - so
+   the compositor believed it drew it. The mod's own `dump eyes` on the same session shows
+   `g_eyeTex[0]` holding the full world image (3.59 MB PNG, indistinguishable in size from
+   the right eye), and the tester reported no black eye in a real headset on the same build.
+   **The fault is in the simulator's per-eye composite or its capture path, not in the mod.**
+   Until it is fixed, `stats.meanLumaL` / `nonBlackPctL` and `_left.png` prove nothing, and
+   **no stereo, per-eye or eye-parity check in this catalog can be run on the simulator.**
+   Use `dump eyes` and `dump capture` through the command seam instead - those come from the
+   mod's own textures and were correct throughout.
+
+2. **`dump eyes` writes the eye textures with the channels unswizzled** (blue-tinted). The
+   eye render targets are `DXGI_FORMAT_R8G8B8A8_UNORM` while the captured game frame is
+   `B8G8R8A8`, and the dump writer does not account for the difference. `dump capture` is
+   unaffected and comes out correct. Cosmetic and diagnostic-only - it cannot reach the
+   headset - but it is exactly the kind of instrument artifact that has already cost this
+   project a session (see ENGINE_NOTES, the "writing DEDEDEDE" decode bug), so read colour
+   from `dump capture`, never from `dump eyes`.
+
+Two confounds worth knowing when driving the sim, neither a defect:
+
+- **An unfocused game window stops rendering the world.** A capture taken while the game is
+  in the background shows HUD elements on black and no geometry. Foreground the window
+  before capturing (`nonBlackPctR` went 20.1 -> 71.1 on nothing but a focus change).
+- **`xrsim-launch.ps1` throws "the simulator is loaded but produced no frames in 1 s"** while
+  the game is in fact alive and running fine. The frame-liveness check fires before the game
+  has reached a rendering state. Check for the process and read the mod log before believing
+  the launcher; the handoff's trap 6 (a direct exe launch crashes at the menu) did NOT
+  reproduce here - the game reached a level and stayed there.
+
 ## 3. The end-to-end agent workflow
 
 ```powershell
@@ -87,6 +126,11 @@ Standing-still noise ~0.4 mean-abs-diff; a real FOV change 4-7; `nonBlackPct > 5
 gameplay; frames/s near `refreshHz` (a collapse to ~10/s is a pacing bug); `eyeSeparationM ==`
 IPD; `errors` and `endsOutOfOrder` must be 0.
 
+**The `...L` half of every per-eye statistic is currently WORTHLESS** - see "Known simulator
+defects" in section 2. `meanLumaL` and `nonBlackPctL` read 0 on a frame whose left eye is
+fully rendered. Judge coverage from `nonBlackPctR` alone, and get per-eye truth from the
+mod's `dump eyes` instead.
+
 ## 5. Failure modes and gotchas
 
 1. An elevated shell: the Khronos loader ignores `XR_RUNTIME_JSON` there; the mod's own
@@ -104,6 +148,15 @@ IPD; `errors` and `endsOutOfOrder` must be 0.
 7. A `command.txt` older than the process is discarded at the first poll (the log says so).
 8. The wrist HUD and the hand models are not drawn in the XR quad/cylinder modes; captures
    of those are expected to lack them (KNOWN_ISSUES).
+9. `xrsim-launch.ps1` can throw "the simulator is loaded but produced no frames in 1 s"
+   while the game is alive and running normally - the frame-liveness check fires before the
+   game reaches a rendering state. Check for the process and read the mod log before
+   believing it. (Measured 2026-09-02; the game had reached a level and stayed there.)
+10. Foreground the game window before any capture. Unfocused, the world stops rendering and
+   the shot shows HUD on black - `nonBlackPctR` went 20.1 -> 71.1 on nothing but a focus
+   change. See also gotcha 6.
+11. **Never judge stereo, eye parity or per-eye coverage from a simulator capture** until
+   the black-left-eye defect in section 2 is fixed.
 9. The fork's mono fallback: menus, videos and loading screens submit the whole frame to both
    eyes (`counters.splices == 0`); a stereo assertion on a menu is a false alarm.
 10. `game-shot.ps1` uses `PrintWindow` on the D3D9-through-Vulkan window; whether it captures

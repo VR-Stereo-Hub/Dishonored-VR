@@ -176,6 +176,13 @@ went to 2750x2850 with `FovLever = 100`.
 | **130** | 3.43 m | outside | **no clamp** - the quad fills the eye and samples the middle ~60% of a wider render. Edge to edge, nothing for reprojection to drag. |
 | 100 | 1.91 m | inside horizontally, outside vertically | the clamp fires on one axis only: an **asymmetric border** returns, and with it the residual warping 38.13 exists to remove |
 
+**Confirmed in an image, 2026-09-02.** `dump eyes` at `FovLever=100` shows the world inset in
+the eye render target with a black border on all four sides - roughly 9% left, 10% top, 10%
+bottom. Against the simulated Quest 3 frustum (l -54, r +44, u/d +/-55 deg) the clamp limit
+at lever 100 is 1.91 m while the frustum reaches 2.20 m horizontally and 2.29 m vertically,
+so it fires on every side. That border is the artifact, and it is what the tester described
+as "the render square is at the top left of my vision and I can only see part of it".
+
 So the design is: **render WIDER than the headset shows and let the fill crop**. Session 2
 lowered the lever using the *authored quad* subtense formula (`W = 2 D tan(fov/2) * fill`,
 `H = W / aspect`), which the frustum-fill branch overrides entirely - correct arithmetic
