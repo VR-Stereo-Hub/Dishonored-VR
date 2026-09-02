@@ -3,53 +3,51 @@
 First: find your log. It is `dishonored_vr.log` in the game folder (next to `Dishonored.exe`,
 `...\steamapps\common\Dishonored\Binaries\Win32\`). The previous run is
 `dishonored_vr.prev.log`; a crash also writes `dishonored_vr_crash.txt`. Send the log with any
-report; the first lines say which build you run, which backend it picked and why.
+report; the first lines say which build you run and which OpenXR runtime answered.
 
 **The game does not start / "d3d9.dll" error dialog.** The proxy is the 32-bit build for the
-Steam version. Check `dxvk_d3d9.dll` and `openvr_api.dll` sit next to it. Delete
-`d3d9.dll` to get the stock game back (or rename it and keep the rest).
+Steam version. Delete `d3d9.dll` to get the stock game back (or rename it and keep the rest).
+An older release's `dxvk_d3d9.dll` next to it is ignored; delete it too.
 
-**Flat game, no VR.** The log's `config: VR backend ...` line says what the mod chose:
-- `AUTO -> OPENVR` on a Quest: Virtual Desktop was not streaming when the game started, or
-  VDXR is not the active OpenXR runtime. Start VD streaming first, or set `[VR] Backend=openxr`
-  in `dishonored_vr.ini`.
-- `probe: no 32-bit OpenXR runtime could be negotiated`: SteamVR registers no 32-bit OpenXR
-  runtime, that is expected on a SteamVR rig (the OpenVR path is used). On a Quest the
-  32-bit VDXR runtime must be installed (Virtual Desktop Streamer does that).
-- `xr: no HMD yet (headset off / VD not streaming?)`: the headset is not streaming; the mod
-  keeps retrying.
+**Flat game, no VR.** Read the `xr:` lines near the top of the log:
+- `xr: instance ... runtime '<name>'` says which OpenXR runtime answered. A Quest through
+  Virtual Desktop should say VDXR; a SteamVR rig should say `DishonoredVR SteamVR shim`.
+- No runtime at all: on a Quest, start Virtual Desktop streaming FIRST and make sure VDXR is
+  the active OpenXR runtime (the VD Streamer sets it). On a SteamVR rig, `dvr_steamvr32.dll`
+  and `openvr_api.dll` must sit next to `d3d9.dll` (the installer puts them there) and
+  SteamVR must be running; the shim writes its own log to
+  `%LOCALAPPDATA%\DishonoredVR\ovrshim.log`.
+- `xr: session created ... waiting for READY` and nothing after: the headset is not streaming
+  or not worn; the mod keeps retrying.
+- `xr: pipeline READY` then `stereo: beat method=mono ... none/s=60`: the runtime is fine but
+  no frame reaches it. Look for `capture:` and `mono:` lines: `backbuffer format ... not
+  handled` or `GetRenderTargetData failed` (multisampled backbuffer: turn the game's AA off)
+  name the cause.
 - `disable_vr.txt` exists next to the exe: the kill switch is on.
 
-**Wrong window size / zoomed view.** `ResX=4032 ResY=2268 Fullscreen=False` must be in
-`Documents\My Games\Dishonored\DishonoredGame\Config\DishonoredEngine.ini`
-(`setup_resolution.bat` does it). The log's `res:` lines show what the game asked for and
-what it got; a `Reset to 3854x1071`-style line means the window manager clamped the window
-to the monitor before the mod's hooks were in place.
+**The screen is too close, too big, or off-centre.** F10 > `screen distance (m)` and `screen
+width (m)` (`[Screen] DistanceMeters`, `WidthMeters` in the ini). F5 recenters.
 
-**Quest: image warps when I turn my head, or the view locks after a load.** Known issue of the
-OpenXR path (docs/KNOWN_ISSUES.md). Things to try, one at a time, and report which helped:
-`[VR] StampLive=1` (default), `[VR] XrPoseDelay=0..3`, `[VR] XrLayer=proj|cyl|quad`,
-`[VR] FpsCap=72` (or 45 at 90 Hz), SSW off in Virtual Desktop, 72 Hz.
+**The world looks cropped or stretched.** The log's `capture: WxH content bbox ... (FULL)`
+line says whether the game draws its whole window; `CROPPED` with a box smaller than the
+window means the game rendered into a corner or a band (a resolution the game's video options
+do not really support). Pick a standard size in the game's video options.
 
 **Head tracking stops after a save load.** F9 forces gameplay mode (re-arms the script hook);
 F5 recenters. The `[HeadTrack]` section has the fallbacks.
 
-**Hands are wrong / in my face.** END recalibrates the hands (hold your hands where the game's
-are). HOME toggles the hand drive. `[Hands] GraftHeadFollowYaw/Pitch` tune the residual
-head coupling.
+**Stutter.** Motion Blur off. `[VR] FpsCap` pins the game to the display rate (72) or half of
+it (45 at 90 Hz) for an even cadence. The `heartbeat:` lines show game fps vs headset
+submits; the per-frame capture costs more at a bigger window, so try 1920x1080.
 
-**Stutter.** Motion Blur off. On Quest, `[VR] FpsCap` pins the game to the display rate (72)
-or half of it (45 at 90 Hz) for an even cadence. The `heartbeat:` log lines show game fps vs
-submits.
+**A crash when quitting.** Send `dishonored_vr.log` and `dishonored_vr_crash.txt`; the
+session teardown at exit is best-effort (docs/KNOWN_ISSUES.md).
 
 **Reset everything.** Delete `dishonored_vr.ini`; the mod writes a fresh one.
 
-**Quest: "zoomed in", cannot look up or down.** On a PC with two GPUs (a laptop, or a CPU
-with integrated graphics next to the card) the mod may build its D3D11 device on the wrong
-one; a fix is being ported. Until then, in Windows Graphics settings set Dishonored.exe to
-the high-performance GPU, and disable the integrated GPU in Device Manager as a test.
-
 **Reporting.** Attach `dishonored_vr.log` (and `dishonored_vr_crash.txt` if present), say
-headset, runtime (SteamVR / Virtual Desktop / Link), **GPU vendor, model and driver version,
-and whether the PC has a second GPU** (integrated graphics counts), and what you did. Developers:
-`tools\log-parse.ps1` summarises a log; `tools\status-dump.ps1` reads the live state.
+headset, runtime (Virtual Desktop / SteamVR / Link), **GPU vendor, model and driver version,
+and whether the PC has a second GPU** (integrated graphics counts; the log's `adapter:` lines
+say which one the mod used), and what you did. Developers: `tools\log-parse.ps1` summarises
+a log; `tools\status-dump.ps1` reads the live state; `tools\game-cmd.ps1 "stereo status"`
+and `"camera status"` print the two seams.

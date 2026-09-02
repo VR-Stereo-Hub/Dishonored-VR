@@ -1,111 +1,101 @@
 # Roadmap
 
-The mod starts SHIPPED (alpha 38.92 works on SteamVR headsets). Every milestone below is
-"done when" a measured effect holds, not when code lands. Milestones after D1 run against the
-simulator first (`docs/VERIFICATION.md`) and the headset last.
+41.0 restarts the render on a native D3D9 game: the DXVK fork and the side-by-side pipeline
+are gone, one OpenXR runtime layer serves every headset, and stereo is rebuilt as a LADDER of
+methods on one seam (docs/ARCHITECTURE.md, "The stereo ladder"). Every milestone below is
+"done when" a MEASURED effect holds, not when code lands; the simulator runs first
+(docs/VERIFICATION.md), the headset last. Two developers take the two stereo methods (S2a,
+S2b) on the same foundation; S3 compares them and picks.
 
-## D0 - Refactor and harness (session 1, 2026-09-02)
+## S0 - Foundation for native stereo (session 5, 2026-09-02) - delivered
 
-- [x] CMake + MSVC build, win32 preset, static CRT; `d3d9.dll` exports == the nine golden names
-- [x] DXVK fork restored under `dxvk/` as commits; `dxvk-shipped` tag == the M8.2 the proxy targets
-- [x] Module tree with verbatim bodies (`tools/split-source.py --check`)
-- [x] Core utilities as real modules: log (levels, tags, ring, rotation), crash (fingerprint,
-      minidump), clock, mem, ini, paths, vtable/IAT/detour hooks
-- [x] Debug surface: command seam + ack, status.json, frame dumps, overlay Log tab,
-      `[game] state:` line
-- [x] `patterns.h` holds every address; `src/legacy` gated by `DVR_WITH_LEGACY`
-- [x] Backend probe (runtime capability) replaces the process snapshot
-- [x] Simulator + smoke client build; `xrsim-selftest.ps1` PASS
-- [x] Harness scripts adapted (no `-Game`, Steam path resolution, x86 guards)
-- [x] Docs set + CLAUDE.md
-- [ ] Table-driven config (`core/config`): every key in one table, `write_missing` adds new
-      keys to users' inis without touching values; golden ini diff = old + new keys only
-- [ ] `IVrBackend`: OpenVR and OpenXR behind one interface; no `g_xrOn`/`g_sys` switches
-      outside `core/vr`
-- [ ] Dissolve `src/mod/state` into module-owned state; cross-thread members atomic
-- [ ] DXVK fork built on the dev PC (`tools\build-dxvk.ps1`), export check 15/15
+- [x] Removed, one commit each so `git revert` restores one piece: the DXVK fork tree and
+      tooling; the fork bridge in the proxy; the side-by-side present pipeline and the quad
+      geometry; the wide-window machinery (4032x2268 spoof, user32 hooks, mode injection,
+      setres); the OpenVR backend; the mod's own OpenXR loader/pace thread/input; the state
+      chunks and ini keys that only served them (RELEASE_NOTES "Upgrading")
+- [x] The static OpenXR loader linked into `d3d9.dll`; the BioShock runtime layer
+      (`core/vr/openxr_runtime`, `openxr_input`) as the single backend behind two D3D9-host
+      seams (device provider, frame texture); `dvr_steamvr32.dll` (the SteamVR shim) built and
+      shipped with `openvr_api.dll`
+- [x] The stereo seam (`core/gfx/stereo`: `[Stereo] Method`, `stereo <name>|status`) with the
+      mono screen working (capture -> D3D11 -> head-locked quad, both eyes) and `aer` /
+      `reentry` registered as design stubs that refuse with their note
+- [x] The per-eye camera seam (`game/dishonored/camera`) with the eye-offset write-point
+      instrument `camera eyetest` and ENGINE_NOTES "The per-eye camera seam: write points"
+- [x] `core/framework/frame_hooks` a real module owning the D3D9 hooks and the frame path's
+      order; `core/gfx` born as real modules (stereo, capture, blit, mono, stubs)
+- [x] Instruments: the capture's non-black bbox line; the simulator's per-eye SOURCE stats,
+      the black-eye discriminator, pose/fov validation at `xrEndFrame`, `stats.bboxL/R`,
+      `mono.xrs`; eye-check leg 0 on the `stereo: beat` line; `xrsim-launch.ps1 -ViaSteam`
+- [ ] Verified on the dev PC: `xrsim-selftest` PASS, `xrsim-launch` reaches `xr: pipeline
+      READY`, `mono.xrs` passes (both eyes non-black, equal bboxes), `camera eyetest` run in
+      gameplay with its verdicts in ENGINE_NOTES, `stereo aer|reentry` refuse and mono keeps
+      running, crash file and status.json intact, `soak.ps1 -Minutes 3` exit 0
+- [ ] Verified in a headset (user, Quest 3 via VDXR): the game on a head-locked screen in
+      both eyes, head rotation turns the view, the gamepad works, the log sent back
 
-Done when: both configurations build, exports 9/9, fork exports 15/15 (+`dxvk_vr_view`
-optional), ini golden diff empty modulo the em-dash fix, selftest PASS, lint clean.
+Done when both verification lines are ticked; the PR carries the removal list and the
+results.
 
-## D1a - Port the author's 39.x fixes (docs/dishonored/HANDOFF-GINGASVR.md)
+## S1 - The mono screen accepted in the headset
 
-One behavioral change per commit; each verified against the handoff's log signatures.
+- [ ] The headset run above signed off: readable screen at `[Screen] DistanceMeters` /
+      `WidthMeters`, no judder at the game's frame rate, `[VR] FpsCap` cadence chosen
+- [ ] The capture cost measured and cut: a D3D9Ex shared surface opened on the D3D11 side
+      replaces `GetRenderTargetData` (the per-frame CPU round trip in `core/gfx/capture`)
+- [ ] `camera eyetest` verdicts recorded (HONOURED field, or DISCARDED everywhere and the
+      fallback write point chosen: the position-only matrix patch or the c0 translation)
+- [ ] Positional (lean/crouch/roomscale) tracking moved from the c0 `LeanVP` patch to the
+      camera seam's position write once the write point is known, and measured equal
+- [ ] `head_track` and `pad_bridge` converted to real modules (the D1-era refactor step
+      that S0 deferred)
+- [ ] SteamVR rig confirmed through the shim (`xr: runtime "DishonoredVR SteamVR shim (OpenVR)"`)
 
-- [ ] Obtain `dllmain_38.72.cpp`, `dllmain_39.4.cpp` and the fork's p53 commit from the author's
-      archive; diff 38.72 vs 38.92 and 38.92 vs 39.4
-- [ ] 39.3: create the D3D11 device on the adapter LUID the OpenXR runtime returns
-      (`D3D_DRIVER_TYPE_UNKNOWN` with an explicit adapter; `dxgi.dll` via LoadLibrary); log
-      `xr: the runtime requires D3D11 on adapter luid ...` and `*** WRONG GPU ***`
-- [ ] 39.4: the menu-ghost quadrant (`menuOpen && cursorVis` covered by neither rescue)
-- [ ] 39.2: the pitch kept/discarded closed loop (120-frame windows; stop claiming the camera
-      when the engine discards, so the fallback engages)
-- [ ] 39.0: calibration records banked by asset name (`FpBankFind/FpBankStore`), not by
-      component pointer
-- [ ] Keep the 38.78 focus keep-alive (present in our base, missing in the author's 39.x)
+Done when a tester plays a level on the mono screen and calls it comfortable.
 
-## D1 - Baseline parity in the headset (needs the game; user, SteamVR lane)
+## S2a - AlternateEye (rung 2; developer A)
 
-- [ ] `tools\install.ps1` with the shipped fork; boot to gameplay; `dishonored_vr.log` shows the
-      same hook installs (ProcessEvent, Blink x3, pad, res spoof) and splice counts as a
-      38.72/39.4 log from the author's rig (38.73-38.92 stacked unverified changes)
-- [ ] Hands calibrate; Blink hand-aims; wrist HUD shows; F5/F10 work; no new WARN/ERROR lines
-- [ ] `tools\boot.ps1` reaches `[game] state: GAMEPLAY` unattended (fix the key sequence on the
-      first attended run)
+`core/gfx/aer.cpp` carries the design. Acceptance, in order:
 
-Done when the user signs off in the headset and `tools\log-parse.ps1` shows no regressions.
+- [ ] `stereo aer` accepted (needs `[Camera] EyeField` from the eyetest); the beat line reads
+      `L/s == R/s == out/s / 2`
+- [ ] `stereo.xrs` on the simulator: two projection views, `EyeSeparationM` == IPD, left vs
+      right `img-diff` well above the noise floor with parallax on near geometry
+- [ ] eye-check.ps1 legs 0-5 PASS; the runtime's pair probe reports no untagged presents
+      (the stale-left class)
+- [ ] Headset: fusion at the measured IPD, no swim on head turns; half-rate per eye judged
+      acceptable or not (write the verdict)
 
-## D2 - Diagnostics proven live
+## S2b - SequentialReentry (rung 3; developer B)
 
-- [ ] `game-cmd.ps1 "status"` -> `status.json` with a live pawn; `dump eyes` writes two PNGs
-- [ ] `xrsim-launch.ps1` -> `xr: runtime "dvr-xrsim"`, `xr: pipeline READY`; `smoke.xrs`,
-      `stereo.xrs`, `headlook.xrs` pass
-- [ ] `soak.ps1 -Minutes 10` exit 0 on the simulator
+`core/gfx/reentry.cpp` carries the design. Acceptance, in order:
 
-## D3 - OpenXR/Quest convergence (`docs/dishonored/XR_HANDOFF.md`)
+- [ ] The scene-draw root found and byte-verified (caller census, live stack scrape, the
+      eyetest as the mover); its address in `patterns.h` with the derivation in ENGINE_NOTES
+- [ ] The second draw gated deny-by-default and SEH-guarded; a fault poisons the method for
+      the session and the game runs on mono
+- [ ] `stereo reentry` accepted; presents = 2x ticks; the beat line reads `L/s == R/s`;
+      second-draw cost logged
+- [ ] `stereo.xrs`, eye-check legs 0-5 on the simulator; headset: fusion, per-eye
+      reflections and effects, no flicker on fast motion
 
-- [ ] An affected Quest user runs a build with the 39.3 adapter fix; read the adapter lines in
-      their log; collect GPU vendor / model / driver (never collected once)
-- [ ] Verify 39.4 in a real pause menu (head-look must stay parked) and 39.2 on an affected
-      machine (does the fallback drive correctly once it engages?)
-- [ ] One layer mode and one stamping policy chosen by measurement in the simulator
-      (`world-6dof.xrs`: ClaimRatioH ~1.0 at every yaw/pitch); the other 5 switches retired
-- [ ] Hands + wrist HUD + overlay drawn in every XR presentation mode
-- [ ] `dxvk_vr_view` re-derived in the fork or StampFix removed
-- [ ] A Quest/VD user confirms no warp and no head-lock after load
+## S3 - Compare and choose; the features come back on the winner
 
-## D4 - GPU frame sharing
+- [ ] The comparison written in ARCHITECTURE (cost per present, per-eye correctness,
+      failure modes, the headset verdicts) and the method chosen
+- [ ] Hands (SkelControl drive, hand meshes), the wrist HUD (through the runtime layer's HUD
+      quad and texture-provider seam), Blink and motion aim brought back on the winner;
+      `[Mode] GamepadOnly=0` default again when they hold
+- [ ] The losing method kept registered as the A/B (every render lever ships with a live
+      toggle)
 
-- [ ] The fork exports a shared-handle surface; the proxy opens it in D3D11
-      (`OpenSharedResource`) and the 36 MB/frame CPU readback goes away
-- [ ] `@fps` in the simulator shows the present-thread cost drop; `img-diff` of the eye
-      images vs the readback path at the noise floor
+## After S3 - carried from the D-milestones
 
-## D5 - Hands decoupled from the head
-
-- [ ] The `LookAtControl_Camera` / donor-graft lane (ENGINE_NOTES "head coupling") measured:
-      head orbit with hands static -> hand screen bbox stable (`coupling-hand.xrs` style)
-- [ ] `GraftHeadFollowYaw/Pitch` converged by measurement, not the 1.5 guess
-
-## D6 - Prologue and cinematics
-
-- [ ] The prologue block fixed at the source; `IntroSkipApply` retired
-- [ ] Head-look in cutscene cameras
-
-## D7 - Hand-aimed powers
-
-- [ ] Possession, Devouring Swarm, Windblast on the Blink aim lane
-
-## D8 - Presentation polish
-
-- [ ] Per-eye light consistency, thin-object shimmer, menu-on-wrist sizing, vent/crouch glitches
-
-## D9 - Release
-
-- [ ] `tools\package.ps1` zip; RELEASE_NOTES; GitHub release; `Version=9` inis still load
-
-## Post-release backlog
-
-- Proxy-level stereo (Mirror's Edge VR style draw duplication) evaluated against the fork
-- OpenXR-only architecture with the SteamVR shim (`bvr_steamvr32`) if the native OpenVR path
-  becomes a maintenance burden
+- The author's 39.x fixes (docs/dishonored/HANDOFF-GINGASVR.md): 39.4 menu-ghost quadrant,
+  39.2 pitch kept/discarded loop, 39.0 calibration bank by asset name (39.3, the adapter
+  LUID, is in: the runtime layer asks for the device on the adapter it names)
+- The prologue block fixed at the source; head-look in cutscene cameras
+- Hand-aimed Possession, Devouring Swarm, Windblast
+- Presentation polish; `tools\package.ps1` release; the config table (`core/config`) and the
+  dissolution of `src/mod/state`

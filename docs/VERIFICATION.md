@@ -145,44 +145,42 @@ defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault
 
 ## 5. Failure modes and gotchas
 
-1. An elevated shell: the Khronos loader ignores `XR_RUNTIME_JSON` there; the mod's own
-   negotiation does not, but keep the rule. `xrsim-launch.ps1` refuses.
+1. An elevated shell: the Khronos loader ignores `XR_RUNTIME_JSON` there. `xrsim-launch.ps1`
+   refuses.
 2. A 64-bit `dvr_xrsim32.dll` is silently skipped by a 32-bit process and the real runtime is
    used; `xrsim-install.ps1` checks the PE machine.
-3. The sim launcher must start `Dishonored.exe` directly (`XR_RUNTIME_JSON` is per process);
-   Steam does not know about it, so `boot.ps1 -Attach` is mandatory or Steam starts a second
-   game.
-4. `DISHONORED_VR_BACKEND=openxr` is set by the sim launcher: with no VD/SteamVR running, auto
-   would pick OpenVR.
-5. `command.txt` written with a BOM corrupts the first token; the scripts use `WriteAllText`.
-6. The seam polls from Present: if the game pauses its render loop unfocused
+3. `XR_RUNTIME_JSON` is per process: the sim launcher starts `Dishonored.exe` directly, so
+   `boot.ps1 -Attach` is mandatory or Steam starts a second game. Where a direct launch dies
+   at the menu (the author's trap 6; it did NOT reproduce in session 4), `xrsim-launch.ps1
+   -ViaSteam` puts the manifest in `[VR] XrRuntimeJson` and launches through Steam; the ini
+   is restored once the runtime-name assertion has passed.
+4. `command.txt` written with a BOM corrupts the first token; the scripts use `WriteAllText`.
+5. The seam polls from Present: if the game pauses its render loop unfocused
    (`[Screen] KeepAliveUnfocused=0`), commands wait until the window is foregrounded.
-7. A `command.txt` older than the process is discarded at the first poll (the log says so).
-8. The wrist HUD and the hand models are not drawn in the XR quad/cylinder modes; captures
-   of those are expected to lack them (KNOWN_ISSUES).
-9. `xrsim-launch.ps1` can throw "the simulator is loaded but produced no frames in 1 s"
+6. A `command.txt` older than the process is discarded at the first poll (the log says so).
+7. The hand models, the wrist HUD and the aim reticle are not drawn on the mono screen
+   (41.0: the hands are compiled but uncalled, the HUD is not captured); captures are
+   expected to lack them until S3.
+8. `xrsim-launch.ps1` can throw "the simulator is loaded but produced no frames in 1 s"
    while the game is alive and running normally - the frame-liveness check fires before the
    game reaches a rendering state. Check for the process and read the mod log before
    believing it. (Measured 2026-09-02; the game had reached a level and stayed there.)
-10. Foreground the game window before any capture. Unfocused, the world stops rendering and
+9. Foreground the game window before any capture. Unfocused, the world stops rendering and
    the shot shows HUD on black - `nonBlackPctR` went 20.1 -> 71.1 on nothing but a focus
-   change. See also gotcha 6.
-11. **Never judge stereo, eye parity or per-eye coverage from a simulator capture** until
-   the black-left-eye defect in section 2 is fixed.
-9. The fork's mono fallback: menus, videos and loading screens submit the whole frame to both
-   eyes (`counters.splices == 0`); a stereo assertion on a menu is a false alarm.
-10. `game-shot.ps1` uses `PrintWindow` on the D3D9-through-Vulkan window; whether it captures
-    non-black is unverified until D1.
-11. The game is not installed on the dev PC as of 2026-09-02: rows 8-20 of the table are
-    written from the BioShock harness's shape and need their first attended run.
-12. The author's handoff says **a direct exe launch crashes at the menu; launch through
-    Steam**. `xrsim-launch.ps1` starts the exe directly (the BioShock shape). If that crashes,
-    the fallback is: write `[VR] XrRuntimeJson=<manifest>` and `[VR] Backend=openxr` into
-    `dishonored_vr.ini`, launch through `launch-game.ps1`, and restore the ini afterwards
-    (the mod reads the ini manifest before the registry). Decide on the first attended run.
+   change. See also gotcha 5.
+10. Judge stereo, eye parity or per-eye coverage from a simulator capture only after
+    `mono.xrs` has passed on the build (section 2, defect 1); a black eye is then attributed
+    by the `COMPOSITOR fault` / `APP fault` line.
+11. Menus, videos and loading screens are on the mono screen like everything else in 41.0;
+    a stereo method (S2) decides what it does with them, and a stereo assertion on a menu
+    is a false alarm until that decision is written down.
+12. `game-shot.ps1` uses `PrintWindow` on the game's own D3D9 window; whether it captures
+    non-black is unverified until the first attended run on 41.0.
+13. The game was not installed on the dev PC when 41.0 was built: the rows of the table
+    that need the game are written from the code and the BioShock harness's shape and need
+    their first attended run (STATUS records what has run).
 
-## 6. What still needs a human in a headset
 
-Comfort, judder, warp, world scale, hand placement feel, the wrist HUD's readability, and
-anything about Virtual Desktop's own reprojection. Write the verdict in STATUS with the
-build id from the log's first line.
+Comfort, judder, warp, world scale, the mono screen's size and distance, fusion once a
+stereo method runs, hand placement feel, and anything about Virtual Desktop's own
+reprojection. Write the verdict in STATUS with the build id from the log's first line.

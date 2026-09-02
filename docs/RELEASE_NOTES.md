@@ -10,6 +10,19 @@
   backend and the mod's own OpenXR loader/pace thread. The mod is OpenXR-only; SteamVR
   rigs use the `dvr_steamvr32.dll` shim runtime. Stereo is being rebuilt on a per-eye
   camera seam (docs/ROADMAP.md); this build shows the game on a head-locked mono screen.
+- New: the mod is OpenXR-only through the runtime layer adopted from the BioShock trilogy VR
+  mod; SteamVR rigs use the bundled `dvr_steamvr32.dll` shim (`[VR] Runtime=auto|native|
+  steamvr`). `[VR] XrRuntimeJson` selects a runtime manifest for the launch.
+- New: the stereo seam - `[Stereo] Method=mono|aer|reentry` and the `stereo <name>|status`
+  seam word; 41.0 ships the mono screen (the game on a head-locked quad in both eyes, size
+  from `[Screen] DistanceMeters`/`WidthMeters`); `aer` and `reentry` are design stubs that
+  refuse with a note. The F10 overlay draws on that screen.
+- New: the per-eye camera seam and its instrument: `camera status`, `camera eyetest <uu>
+  [field]`, `camera eyefield <name>`, `[Camera] EyeField`.
+- New (developers): `capture: WxH content bbox ... (FULL|CROPPED)` in the log; `status.json`
+  `stereo{}` and `camera{}`; the `stereo: beat` line; seam words `vrpace`, `vrmirror`,
+  `vrinput`; the simulator's per-eye source stats and black-eye discriminator; `mono.xrs`;
+  `xrsim-launch.ps1 -ViaSteam`.
 - Changed: `[Meta] Version` is 10, so an older `dishonored_vr.ini` is rewritten with the
   new defaults on the first launch (the old file is not backed up: copy it first if you
   tuned it). `[Screen] DistanceMeters` defaults to 1.75 and `WidthMeters` to 2.4 (the
