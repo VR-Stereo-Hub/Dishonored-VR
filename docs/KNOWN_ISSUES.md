@@ -28,11 +28,11 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 - **Quest via Virtual Desktop: VDXR must be the active OpenXR runtime** (Virtual Desktop
   Streamer sets it). With SteamVR's runtime active instead, the mod lands on the shim through
   SteamVR, which works but adds a hop.
-- **Quitting can leave the process lingering** [S1]. Measured on the dev PC with the
-  simulator: closing the window (WM_CLOSE) logged the viewport closing and then the process
-  stayed alive with one thread and could not be killed until a reboot; the mod's own teardown
-  never ran (no `PreExit`). Quit through the game's menu, and if `Dishonored.exe` stays in
-  Task Manager afterwards, say so in the report - it blocks the next Steam launch.
+- **Quit through the game's menu, not by closing the window** [S1]. A menu quit closes the
+  OpenXR session cleanly (verified on a Quest 3, 2026-09-03). Closing the window (WM_CLOSE)
+  was measured on the dev PC to leave the process alive with one thread for about an hour,
+  with the mod's teardown never running; if `Dishonored.exe` stays in Task Manager after a
+  quit, say so in the report - it blocks the next Steam launch.
 - **A direct `Dishonored.exe` launch crashes at the main menu** (the original author's trap
   6, confirmed 2026-09-02). Launch through Steam; the harness does (`xrsim-launch.ps1
   -ViaSteam`).
