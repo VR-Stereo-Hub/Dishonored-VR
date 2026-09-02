@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.21)
 # it at build time, stamped with `git describe`. 40.x continues the original
 # author's build-tag line (their private builds went to 39.4, see
 # docs/dishonored/HANDOFF-GINGASVR.md) so user reports stay orderable.
-project(DishonoredVR VERSION 40.0.0 LANGUAGES C CXX)
+project(DishonoredVR VERSION 41.0.0 LANGUAGES C CXX)
 
 # Dishonored.exe is 32-bit x86. Everything we load into it must be too.
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
