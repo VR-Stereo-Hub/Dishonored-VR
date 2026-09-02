@@ -392,10 +392,8 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
             }
             lastPresentMs = nowMs;
         }
-        if (!g_vrReady && (g_frame == 1 || (g_vrFailed && g_frame % 600 == 0)))
-            TryInitVR();
-        // 37.3: the OpenXR backend boots itself (5 s backoff inside) - no
-        // OpenVR in the process, so readiness comes from the XR bring-up.
+        // 37.3: the OpenXR backend boots itself (5 s backoff inside);
+        // readiness comes from the XR bring-up.
         if (g_xrBackend && !g_xrOn && (g_frame == 1 || g_frame % 60 == 0))
             XrRtTryInit();
         if (g_xrOn && !g_vrReady) {

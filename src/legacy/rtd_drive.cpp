@@ -591,8 +591,10 @@ static void GtTick()
 // ============================================================================
 static void RtdMarkerTick()
 {
-    bool want = g_rtdMarkers && g_mode == MODE_SCENE;
-    if (want && !g_ov && !GetFnTable(IVROverlay_Version, (void**)&g_ov)) {
+    // 41.0: the controller rings were OpenVR overlays; the OpenVR backend is gone.
+    return;
+    bool want = false;
+    if (want) {
         g_rtdMarkers = false;
         Log("handrt: no overlay interface - markers disabled");
         return;

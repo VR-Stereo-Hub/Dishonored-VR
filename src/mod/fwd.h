@@ -276,10 +276,8 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, co
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);
 static void DumpVSConstScan();
 static SHORT MenuStep(SHORT v, int axis);
-static void TrackHead(const TrackedDevicePose_t* hmd);
+static void TrackHead(const float (*m)[4]);   // 3x4 device-to-tracking
 static inline SHORT PadStick(float v);
-static bool ActDig(VRActionHandle_t a, bool* activeOut);
-static void ActAna(VRActionHandle_t a, float* x, float* y, bool* activeOut);
 static void MaimHaptic(int hand, float amp, float durSec);
 static void HealthElixirTick(bool held);
 static void MeleeTick();
@@ -288,10 +286,6 @@ static void UpdateVirtualPad();
 static DWORD WINAPI hkXInputGetState(DWORD user, XINPUT_STATE* st);
 static DWORD WINAPI hkXInputSetState(DWORD user, XINPUT_VIBRATION* vib);
 static void InstallPadHook();
-static void InitActionInput();
-static bool GetFnTable(const char* version, void** out);
-static bool TryInitVR();
-static void ReticleTick();
 static void RtdMarkerTick();
 static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT* dst, HWND wnd, const RGNDATA* dirty);
 static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where);

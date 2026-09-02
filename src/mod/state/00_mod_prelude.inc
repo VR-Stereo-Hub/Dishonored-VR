@@ -60,7 +60,6 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 #include <openxr/openxr_loader_negotiation.h>
 
 // openvr_capi.h (C API). MSVC defines only _WIN32, so no MinGW __WIN32 fixup is needed.
-#include "openvr_capi.h"
 
 // ----------------------------------------------------------------------------
 // Globals: proxy plumbing

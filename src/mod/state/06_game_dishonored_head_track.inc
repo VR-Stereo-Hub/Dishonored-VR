@@ -7,7 +7,6 @@ static float g_pitchCounts = 11.5f;
 static bool  g_invertPitch = false;
 static float g_screenDist  = 1.8f;       // meters (ini)
 static float g_screenWidth = 3.6f;       // meters (ini, legacy fixed-size mode)
-static bool  g_forceTheater = false;
 // 40.3: [Mode] GamepadOnly - motion controls off, plain gamepad only,
 // while the render is being fitted. Head tracking and the FOV lever stay on.
 static bool  g_gamepadOnly  = true;

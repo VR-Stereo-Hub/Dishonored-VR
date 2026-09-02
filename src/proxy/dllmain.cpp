@@ -52,7 +52,6 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
         // connected" (neutral state until the VR controllers come online).
         if (!g_disabled) InstallPadHook();
     } else if (reason == DLL_PROCESS_DETACH) {
-        if (g_vrReady && g_VR_ShutdownInternal) g_VR_ShutdownInternal();
         DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Info, "=== proxy unloading ===");
         dvr::log::shutdown();
     }

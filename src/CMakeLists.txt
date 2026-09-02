@@ -62,7 +62,6 @@ target_include_directories(dvr_proxy PRIVATE . "${CMAKE_BINARY_DIR}/generated")
 # proxy must add no static import that changes the game's DLL load order.
 target_link_libraries(dvr_proxy PRIVATE
     imgui
-    openvr_headers
     openxr_headers
     user32 gdi32 advapi32 ole32 uuid windowscodecs dwmapi imm32
 )

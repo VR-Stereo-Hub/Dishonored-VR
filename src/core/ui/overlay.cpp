@@ -210,8 +210,6 @@ static void OverlayFrame()
             ImGui::SliderFloat("marker pull-back (uu)", &g_blkMarkerBackUU,
                                0.0f, 250.0f, "%.0f");
             ImGui::TextDisabled("raise this if the dot vanishes against a wall");
-            ImGui::SliderFloat("marker size (m at 2.5m)", &g_retSize,
-                               0.010f, 0.150f, "%.3f");
         }
     }
 

@@ -278,7 +278,6 @@ static void XrRtTryInit(void)
         }
     }
     g_xrOn = true;
-    g_mode = MODE_SCENE;
     g_quadAspect = 0.0f;                 // rebuild quads with XR frustums
     Log("xr: BACKEND LIVE on \"%s\" - %ux%u/eye, fmt 0x%x, %u+%u images%s",
         g_xriRuntimeName, g_xrEyeW, g_xrEyeH, (unsigned)pick,
@@ -349,20 +348,17 @@ static bool XrRtFrameBeginSync(void)   // XR-2 path, verbatim ([VR] XrQuads)
                            g_xriViews[1].pose.position.y);
         float pz = 0.5f * (g_xriViews[0].pose.position.z +
                            g_xriViews[1].pose.position.z);
-        TrackedDevicePose_t hp; memset(&hp, 0, sizeof(hp));
+        float m[3][4];
         float xx = q.x*q.x, yy = q.y*q.y, zz = q.z*q.z;
         float xy = q.x*q.y, xz = q.x*q.z, yz = q.y*q.z;
         float wx = q.w*q.x, wy = q.w*q.y, wz = q.w*q.z;
-        float (*m)[4] = hp.mDeviceToAbsoluteTracking.m;
         m[0][0] = 1 - 2*(yy + zz); m[0][1] = 2*(xy - wz); m[0][2] = 2*(xz + wy);
         m[1][0] = 2*(xy + wz); m[1][1] = 1 - 2*(xx + zz); m[1][2] = 2*(yz - wx);
         m[2][0] = 2*(xz - wy); m[2][1] = 2*(yz + wx); m[2][2] = 1 - 2*(xx + yy);
         m[0][3] = px; m[1][3] = py; m[2][3] = pz;
-        hp.bPoseIsValid = 1; hp.bDeviceIsConnected = 1;
-        hp.eTrackingResult = ETrackingResult_TrackingResult_Running_OK;
         memcpy(g_devPose[0], m, sizeof(g_devPose[0]));
         g_devPoseOk[0] = true;
-        TrackHead(&hp);
+        TrackHead(m);
     }
     // ---- frustum adapter: XrFovf angles -> GetProjectionRaw tangents -------
     // (derived from BuildEyeQuads' own math: t = -tan(up), b = -tan(down),
@@ -489,13 +485,9 @@ static bool XrRtFrameBegin(void)
         g_ctrlIdx[0] = 3; g_ctrlIdx[1] = 4;
     }
     if (!valid) return false;
-    TrackedDevicePose_t hp; memset(&hp, 0, sizeof(hp));
-    memcpy(hp.mDeviceToAbsoluteTracking.m, m, sizeof(m));
-    hp.bPoseIsValid = 1; hp.bDeviceIsConnected = 1;
-    hp.eTrackingResult = ETrackingResult_TrackingResult_Running_OK;
     memcpy(g_devPose[0], m, sizeof(g_devPose[0]));
     g_devPoseOk[0] = true;
-    TrackHead(&hp);
+    TrackHead(m);
     memcpy(g_eyeFr, fr, sizeof(g_eyeFr));
     if (ipd > 0.04f && ipd < 0.08f) g_ipdM = ipd;
     for (int eye = 0; eye < 2; eye++) {

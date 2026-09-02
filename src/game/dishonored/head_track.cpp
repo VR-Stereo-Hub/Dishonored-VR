@@ -618,44 +618,41 @@ static void ApplyHeadToViewRotation(void* parms)
 }
 
 
-static void TrackHead(const TrackedDevicePose_t* hmd)
+static void TrackHead(const float (*m)[4])
 {
     // (30.8 key diet: F8 mouse-look toggle retired - F3 owns head tracking,
     // menus auto-pause the head-mouse, [Tracking] Enabled covers the rest)
 
-    if (!hmd->bPoseIsValid) { g_haveLastPose = false; return; }
 
     // 30.23: slow body anchor for the hand-position neutral (~90 Hz cadence)
     {
-        const HmdMatrix34_t* hm = &hmd->mDeviceToAbsoluteTracking;
         if (!g_bodyAnchorOk) {
-            g_bodyAnchor[0] = hm->m[0][3];
-            g_bodyAnchor[1] = hm->m[1][3];
-            g_bodyAnchor[2] = hm->m[2][3];
+            g_bodyAnchor[0] = m[0][3];
+            g_bodyAnchor[1] = m[1][3];
+            g_bodyAnchor[2] = m[2][3];
             g_bodyAnchorOk = true;
         } else {
             float al = 0.011f / (g_anchorTau > 0.1f ? g_anchorTau : 0.1f);
-            g_bodyAnchor[0] += al * (hm->m[0][3] - g_bodyAnchor[0]);
-            g_bodyAnchor[1] += al * (hm->m[1][3] - g_bodyAnchor[1]);
-            g_bodyAnchor[2] += al * (hm->m[2][3] - g_bodyAnchor[2]);
+            g_bodyAnchor[0] += al * (m[0][3] - g_bodyAnchor[0]);
+            g_bodyAnchor[1] += al * (m[1][3] - g_bodyAnchor[1]);
+            g_bodyAnchor[2] += al * (m[2][3] - g_bodyAnchor[2]);
         }
     }
 
     // Always capture absolute HMD yaw/pitch/roll for the camera-matrix injection.
-    const HmdMatrix34_t* m = &hmd->mDeviceToAbsoluteTracking;
-    float fx = -m->m[0][2], fy = -m->m[1][2], fz = -m->m[2][2]; // forward
+    float fx = -m[0][2], fy = -m[1][2], fz = -m[2][2]; // forward
     float yaw   = atan2f(fx, -fz);
     float fyc   = fy < -1.f ? -1.f : (fy > 1.f ? 1.f : fy);
     float pitch = asinf(fyc);
     g_hmdYaw = yaw; g_hmdPitch = pitch;
-    g_hmdRoll = atan2f(m->m[1][0], m->m[1][1]); // right.up vs up.up
+    g_hmdRoll = atan2f(m[1][0], m[1][1]); // right.up vs up.up
 
     // 31.8: physical crouch moved OUT of the positional-tracking block. It only
     // needs your head height against the standing reference, and burying it
     // inside "if (g_posTrack)" meant turning lean off silently disabled
     // crouching too - a dependency nothing in the UI hinted at.
     if (g_crouchOn) {
-        float py2 = m->m[1][3];
+        float py2 = m[1][3];
         // 32.15: CONFIRMED working once the reference was right - the log shows
         // "crouch: DOWN (head 0.23 m below standing)" after an F5. The only bug
         // was that the standing reference was captured on the very first frame,
@@ -736,7 +733,7 @@ static void TrackHead(const TrackedDevicePose_t* hmd)
         g_f5Was = f5;
 
         if (g_posTrack) {
-            float px = m->m[0][3], py = m->m[1][3], pz = m->m[2][3]; // meters
+            float px = m[0][3], py = m[1][3], pz = m[2][3]; // meters
             if (!g_posHaveRef) {
                 g_posRefX = px; g_posRefY = py; g_posRefZ = pz;
                 g_posHaveRef = true;

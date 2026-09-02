@@ -31,7 +31,6 @@
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
-#include "mod/state/03_core_vr_openvr_backend.inc"
 #include "mod/state/04_core_gfx_d3d11_device.inc"
 #include "mod/state/05_core_gfx_d3d9_capture.inc"
 #include "mod/state/06_game_dishonored_head_track.inc"
@@ -79,7 +78,6 @@
 #include "mod/state/51_legacy_spacebases.inc"
 #include "mod/state/52_game_dishonored_head_track.inc"
 #include "mod/state/53_core_input_pad_bridge.inc"
-#include "mod/state/55_core_input_pad_bridge.inc"
 #include "mod/state/58_core_framework_frame_hooks.inc"
 #include "mod/state/59_core_vr_openxr_loader.inc"
 #include "mod/state/60_core_vr_openxr_backend.inc"
@@ -116,9 +114,6 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::overlay
 #include "core/ui/overlay.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::openvr
-#include "core/vr/openvr_backend.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::openxr
 #include "core/vr/openxr_backend.cpp"

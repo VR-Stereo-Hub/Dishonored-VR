@@ -121,7 +121,6 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("runtime", g_xrBackend ? g_xriRuntimeName : "SteamVR");
     w.kv("vrReady", (bool)g_vrReady);
     w.kv("xrOn", (bool)g_xrOn);
-    w.kv("mode", g_mode == MODE_SCENE ? "scene" : g_mode == MODE_THEATER ? "theater" : "none");
     w.kv("state", g_dvrGameState);
     w.kv("frame", (unsigned long)g_frame);
     w.kv("capW", (int)g_capW); w.kv("capH", (int)g_capH);

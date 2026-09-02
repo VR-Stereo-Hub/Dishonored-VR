@@ -3,6 +3,9 @@
 
 typedef HRESULT (WINAPI *PFN_D3DCompile)(LPCVOID, SIZE_T, LPCSTR, const void*,
     void*, LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**, ID3DBlob**);
+typedef HRESULT (WINAPI *PFN_D3D11CreateDevice)(IDXGIAdapter*, D3D_DRIVER_TYPE,
+    HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT,
+    ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
 
 static HMODULE              g_d3d11mod    = NULL;
 static ID3D11Device*        g_dev11       = NULL;
@@ -165,76 +168,10 @@ static volatile LONG g_gameExiting = 0;
 // (moved up from the XR block so the PreExit handler can stop the pace thread)
 static volatile LONG g_xrRun = 0;
 static uint32_t g_xrEyeW = 0, g_xrEyeH = 0;   // runtime-recommended per eye
-// 37.6: rigid single-screen construction on the OPENVR path too, keyed to
-// the HMD model - Quest-family lenses are strongly canted and per-eye
-// frustum centering hands each eye a differently placed screen (the Steam
-// Link "two different images"). Vive/Index never take this branch, so
-// their tuned feel is untouched. [Screen] RigidScreen: -1 auto (detect
-// Quest), 0 never, 1 always.
-static bool     g_rigidScreen = false;
-static int      g_rigidScreenCfg = -1;
-// 37.9: OVERLAY-SCENE for Quest. The remaining "warp" is the compositor
-// REPROJECTING a head-locked screen as if it were world geometry - correct
-// for 3D scenes, exactly wrong for a screen that rides the head, and worst
-// over Steam Link (double reprojection: SteamVR + on-device). The native
-// cure is the same one OpenXR offers as head-locked layers (the fix from
-// the user's Stardew mod): a compositor OVERLAY - composited directly,
-// reprojection-EXEMPT, SideBySide-stereo capable, dashboard-stable on
-// Quest. Scene submits continue as BLACK frames so the compositor stays
-// fed and WaitGetPoses timing is untouched. Wrist HUD + settings panel
-// are not drawn in this mode yet (ported once the warp is confirmed dead).
-// [Screen] OverlayScene: 0 never (default; architecture rejected 38.0),
-// 1 force-on for experiments only.
-static int      g_ovlSceneCfg = 0;
-// [Screen] EyeCant: 1 apply the eye-to-head ROTATION in the quad projection
-// (exact math; identity on Vive/Index so those are bit-unchanged), 0 discard
-// it (the 37.8-and-earlier behavior, kept as the rollback lever).
-// 38.1 MEASURED both eyes identity on Quest/Steam Link - cant is NOT the warp.
+static bool     g_vrReady = false;        // a headset is being served
+// [Screen] EyeCant: the hand mesh applies the eye-to-head rotation when 1.
+// Measured identity on every runtime so far; kept as the hand pass's lever.
 static int      g_eyeCantCfg = 1;
-// [Screen] WorldScreen: -1 auto (Quest-family/rigid only), 0 never, 1 always.
-// 38.2: THE WARP FIX, per the bioshock-vr research + the Stardew data point.
-// A HEAD-LOCKED screen is the one thing pose-predictive reprojection cannot
-// render correctly: SteamVR reprojects our frame from render pose to display
-// pose (treating content as world-locked), and on Quest the streaming
-// client's OWN timewarp does it a second time with poses our TextureWithPose
-// stamp can never reach. Every hop warps a head-locked quad; none warps
-// world-locked geometry - that is literally what reprojection is FOR. So on
-// Quest the screen anchors in ROOM space (level, yaw-only, at your head
-// position when anchored - recenter re-anchors it), the quads are rebuilt
-// each frame from the CURRENT WaitGetPoses pose (the pose the compositor
-// assumes), and the submit is a plain Submit like every normal VR game.
-// OpenXR "fixed" Stardew for exactly this reason: XR quad layers live in
-// LOCAL (world) space. Vive/Index keep the tuned head-locked rig untouched.
-// 38.3: WorldScreen shipped auto-on for Quest (38.2) and the headset verdict
-// was immediate: geometrically correct, experientially WRONG - a fixed cinema
-// screen instead of the Vive's head-locked window-into-the-world. Auto is
-// dead; 1 keeps it available as an explicit experiment.
-static int      g_worldScreenCfg = -1;
-static bool     g_worldScreen    = false;
-static volatile LONG g_wsReanchor = 1;    // anchor on first tracked frame
-// [Input] ClickFallback: 1 (default) also read the legacy stick-click bit and
-// OR it into sprint - insurance for controller profiles (Quest reported
-// "omnione" via VD) whose thumbstick click doesn't reach our action binding.
-static int      g_clickFallback = 1;
-static bool     g_ovlScene = false;
-static VROverlayHandle_t g_ovlSceneH = 0;
-static float    g_ovlSceneW = 0.0f;
-// 38.0: WORLD-ANCHORED with lazy follow, not head-locked. Head-locked +
-// reprojection-exempt was stable but cannot be motion-smoothed (45 fps
-// head-look shown raw - "doesn't feel smooth"). A world-anchored overlay
-// is re-rendered by the compositor against the TRUE head pose every
-// display frame: exact geometry (no warp) AND native-rate head motion.
-// The anchor eases toward the head with time constant OverlayFollowTau
-// ([Screen], seconds; 0 = hard head-lock = the 37.9 behavior).
-// OverlayColor ([Screen]): 1 gamma (default), 2 linear, 0 auto - the
-// "lighting looks bad" knob (overlay-path gamma handling differs from the
-// scene path on some stacks).
-static float    g_ovlFollowTau = 0.35f;
-static int      g_ovlColor = 1;
-static float    g_ovlYawS = 0.0f, g_ovlPitchS = 0.0f;
-static float    g_ovlPosS[3] = { 0, 0, 0 };
-static bool     g_ovlFollowInit = false;
-static bool GetFnTable(const char* version, void** out);
 static void XrRtTryInit(void);
 static bool XrRtFrameBegin(void);
 static void XrRtSubmitEye(int eye);

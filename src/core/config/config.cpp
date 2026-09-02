@@ -111,16 +111,6 @@ static void WriteDefaultIni(const char* ini)
         "; writes to the log. Values: bones census graph ue3 view. Leave empty\n"
         "; for none. (Claude sets this remotely when a measurement is needed.)\n"
         "Probe=\n"
-        "[Reticle]\n"
-        "; Build 30.5: floating aim dot for the MotionAim hand (default left -\n"
-        "; crossbow/pistol/powers). Drawn in VR space along the controller ray\n"
-        "; at DistanceMeters, so it shows where shots will actually fly. It\n"
-        "; draws over the world (no wall occlusion), like a laser sight dot.\n"
-        "; Appears while weapon tracking (HOME) is on. TIP: turn the game's own\n"
-        "; center crosshair off in the game's interface options if it offers it.\n"
-        "Enabled=1\n"
-        "DistanceMeters=2.5\n"
-        "SizeMeters=0.030\n"
         "[HandRender]\n"
         "; Build 30.70 - THE render-time hand/weapon drive.\n"
         "; The drawn pose reaches the GPU as vertex constants at c6, three\n"
@@ -689,15 +679,6 @@ static void LoadConfig()
     g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 0) != 0.0f;
     g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
     g_ovlPtrGain = IniFloat(ini, "Overlay", "PointerSpeed", 2.2f);
-    g_retEnabled = IniFloat(ini, "Reticle", "Enabled", 1) != 0.0f;
-    g_retDist    = IniFloat(ini, "Reticle", "DistanceMeters", 2.5f);
-    if (g_retDist < 0.5f)  g_retDist = 0.5f;
-    if (g_retDist > 20.0f) g_retDist = 20.0f;
-    g_retSize    = IniFloat(ini, "Reticle", "SizeMeters", 0.030f);
-    if (g_retSize < 0.005f) g_retSize = 0.005f;
-    if (g_retSize > 0.20f)  g_retSize = 0.20f;
-    Log("config: reticle=%d dist=%.1fm size=%.3fm (follows MotionAim hand)",
-        (int)g_retEnabled, g_retDist, g_retSize);
     g_autoHand      = IniFloat(ini, "HandTracking", "AutoStart", 1) != 0.0f;
     // 32.96: was 4 s on top of discovery time - the user asked why motion
     // controls take so long after a load. 1.5 s is enough for the rig to be
@@ -1050,8 +1031,6 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Blink", "AimAtSource",
                                g_blkDirAim ? "1" : "0", ini);
     WritePrivateProfileStringA("Blink", "OptVer", "3", ini);
-    _snprintf(v, 64, "%.3f", g_retSize);
-    WritePrivateProfileStringA("Reticle", "SizeMeters", v, ini);
     WritePrivateProfileStringA("Hands", "AddToAnim", g_skcAddMode ? "1" : "0", ini);
     _snprintf(v, 64, "%.1f", g_skcScaleUU);
     WritePrivateProfileStringA("Hands", "ScaleUU", v, ini);
