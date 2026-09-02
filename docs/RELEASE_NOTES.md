@@ -19,6 +19,9 @@
   refuse with a note. The F10 overlay draws on that screen.
 - New: the per-eye camera seam and its instrument: `camera status`, `camera eyetest <uu>
   [field]`, `camera eyefield <name>`, `[Camera] EyeField`.
+- New: `[Screen] HeadLocked=1` (the mono screen follows the head; 0 leaves it standing in the
+  room) and `[Paths] DataDir=` (where `command.txt`, `status.json`, dumps and the shim manifest
+  go; empty = `%LOCALAPPDATA%\DishonoredVR`).
 - New (developers): `capture: WxH content bbox ... (FULL|CROPPED)` in the log; `status.json`
   `stereo{}` and `camera{}`; the `stereo: beat` line; seam words `vrpace`, `vrmirror`,
   `vrinput`; the simulator's per-eye source stats and black-eye discriminator; `mono.xrs`;

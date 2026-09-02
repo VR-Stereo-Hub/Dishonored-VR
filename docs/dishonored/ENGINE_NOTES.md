@@ -150,9 +150,18 @@ point - a position-only patch at the camera-matrix builder epilogue (`kCamHookAt
 disproved for ROTATION; position was never tried) or the c0 view-projection translation
 (`LeanVP`, which positional tracking already uses and which AER can drive per eye).
 
-Verdicts: NOT YET MEASURED. Neither developer has run the instrument (the game was not
-installed on the dev PC when 41.0 was built). Whoever runs it first records the six
-verdicts here with the build tag and the level.
+Measured so far (2026-09-02, dev PC, simulator lane, the auto-continued save, build
+`g4fb67333`+): the first version of the instrument compared c5 against the FIELD's value and
+found a constant offset along the camera's right row, the same for each group - +6620 uu for
+0x80 / 0x90 / 0xc4 and +14140 uu for 0x330 / 0x350 / 0x374 - on every one of 120 presents per
+candidate, with c5 itself steady. So the six fields hold two vectors, neither of them the
+draw's camera position in c5's frame (a view-space or negated translation is the likely
+shape; the raw values are logged per candidate from commit `cf9ec6f2` on, `camera/eyetest:
+<field> reads (...) c5 (...) right (...)`). The instrument now judges each candidate against
+a c5 BASELINE taken before its writes, which is what "does the renderer follow the write"
+means. Verdicts under that measure: NOT YET RUN (the session ended on a stuck process; STATUS).
+Whoever runs it first records the six verdicts and the raw-value lines here with the build
+tag and the level.
 
 ## Head coupling of the arms (the open problem; roadmap D5)
 

@@ -28,10 +28,14 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 - **Quest via Virtual Desktop: VDXR must be the active OpenXR runtime** (Virtual Desktop
   Streamer sets it). With SteamVR's runtime active instead, the mod lands on the shim through
   SteamVR, which works but adds a hop.
-- **Exit teardown is best-effort.** The OpenXR session comes down on the next Present after
-  the game announces shutdown; a quit that presents nothing more leaves it to the process
-  exit. If a crash dialog appears only when quitting, send `dishonored_vr.log` and
-  `dishonored_vr_crash.txt`.
+- **Quitting can leave the process lingering** [S1]. Measured on the dev PC with the
+  simulator: closing the window (WM_CLOSE) logged the viewport closing and then the process
+  stayed alive with one thread and could not be killed until a reboot; the mod's own teardown
+  never ran (no `PreExit`). Quit through the game's menu, and if `Dishonored.exe` stays in
+  Task Manager afterwards, say so in the report - it blocks the next Steam launch.
+- **A direct `Dishonored.exe` launch crashes at the main menu** (the original author's trap
+  6, confirmed 2026-09-02). Launch through Steam; the harness does (`xrsim-launch.ps1
+  -ViaSteam`).
 - **Head-look parks after a missed menu close event** ("F9 fixes it") [after S3]. The
   author's 39.4 fix is still to be ported. Plain F9 clears it.
 - **The prologue cutscene is broken** [after S3]: the boat arrival blocks with a Block prompt.

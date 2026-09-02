@@ -1,156 +1,152 @@
 # Status
 
-## Current state (2026-09-02, session 4: gamepad-only while the render is fitted)
+## Current state (2026-09-02, session 5: the native-stereo foundation, 41.0)
 
-**The mod runs on Quest 3 + VirtualDesktopXR and is being tuned in a headset.** The blocker
-list below is stale in one important way: the game IS installed on this PC and headset runs
-are happening, so measurements now come from real runs rather than the simulator.
+**The render is restarted on a native D3D9 game.** The DXVK fork, the side-by-side present
+pipeline, the 4032x2268 window machinery, the OpenVR backend and the mod's own OpenXR
+loader/pace thread/input are removed (one commit each, so `git revert` restores one piece;
+history keeps the fork under the `dxvk-*` tags). The BioShock trilogy mod's OpenXR runtime
+layer is the single backend (`core/vr/openxr_runtime`, verbatim behind two D3D9 seams: the
+device provider and the frame texture), the static Khronos loader is linked into `d3d9.dll`,
+and SteamVR rigs go through the bundled `dvr_steamvr32.dll` shim. Stereo is a SEAM with named
+methods (`core/gfx/stereo.h`: `[Stereo] Method=mono|aer|reentry`, `stereo <name>` live):
+the mono screen (rung 1) works, `aer` and `reentry` are registered design stubs with their
+notes. The per-eye camera seam (`game/dishonored/camera`) carries rotation (measured), FOV
+(measured) and the lateral eye offset (unmeasured, with the `camera eyetest` instrument).
+Version 41.0.0, `[Meta] Version=10`. ARCHITECTURE and ROADMAP (S0-S3) describe it.
 
-**The current plan, set by the tester**: strip motion controls back to a plain gamepad and
-converge the RENDER first (world scale, frame aspect, FOV lever, sharpness), then bring
-motion controls back. Hands, hand mesh, motion aim, motion melee, motion crouch and
-controller Blink aim are OFF by default via the new `[Mode] GamepadOnly=1`; head tracking,
-positional tracking, the FOV lever and the virtual gamepad are unaffected. No hand or weapon
-model is scaled while world scale is being judged.
+**Verified on the dev PC (the game IS installed here, `D:\SteamLibrary`), simulator lane**,
+build `g4fb67333` and later, 2026-09-02 evening, eight runs:
 
-**Defaults are now the tester's confirmed values** (session 4d/4e), not GingasVR's 38.92
-ones: `4032x2268`, `SpoofDesktop 4096x2304`, `PinBackbuffer=0`, `FovLever=130`,
-`FillScale=0.84`, `DistanceMeters=1.79`, `GameFOVDeg=100`, `MenuFillScale=1.00`,
-`[PosTrack] Scale=98`, `HeightOffsetM=-0.09`. Snapshot:
-`tests/golden/default-2026-09-02-gamepad-only.ini`.
+- `xrsim-selftest.ps1` PASS; `xrsim-launch.ps1 -ViaSteam` reaches `xr: instance created on
+  runtime 'dvr-xrsim'`, `xr: runtime "dvr-xrsim"`, `xr: pipeline READY`, session FOCUSED,
+  `xr: first frame submitted to the headset (1600x900 quad)`, frames advancing at the sim's
+  90 Hz (`stereo: beat method=mono out/s=90`).
+- `status.json`: `state GAMEPLAY` (the game auto-continues into the last save), `stereo.method
+  mono`, `framesOut` advancing, capture bbox `100% x 100%`, 97% non-black, `camera.c5ok true`.
+- `stereo aer` / `stereo reentry` refuse with their note and mono keeps running; `stereo mono`
+  is a no-op; `camera status` prints.
+- `xrsim-shot`: a quad layer whose SOURCE reads 97.2% non-black in BOTH views with a full bbox;
+  the composite reads L 37.95% / R 37.98% (world-locked quad, run 7) then L 16.4% / R 16.3%
+  (head-locked quad, run 8), no `COMPOSITOR fault` / `APP fault` line. The session-4 black
+  left eye did not reproduce; the simulator now attributes it if it does.
+- `dump frame` writes `capture_*.bmp` (5.7 MB) and `eye_*_mono.png`; `soak.ps1 -Minutes 3`
+  exit 0 (PASS, no wedge, no dumps); the crash file carries the run headers.
+- `camera eyetest 100` in gameplay: run 7 wrote nothing (the lever off = no camera revalidation;
+  fixed), run 8 wrote all six candidates and measured a CONSTANT offset between the draw's c5
+  and each field (+6620 uu for 0x80/0x90/0xc4, +14140 uu for 0x330/0x350/0x374 along right):
+  the fields are not c5's quantity in c5's frame, so the measure was redesigned around a
+  per-candidate c5 baseline (commit `cf9ec6f2`). **The redesigned eyetest has not run yet.**
 
-**What is fixed since the refactor**: the MenuFillScale size-pumping (4b), the
-PinBackbuffer top-left crop that broke stereo fusion (4c), and the FovLever/frame-aspect
-pairing (4d). **What is open**: the world is at half the menu's sampling density (inherent to
-SBS - needs a wider frame), the 130 deg render FOV fisheyes the edges, and at 16:9 no lever
-value both fills vertically and avoids that fisheye. See ENGINE_NOTES, "The three rendering
-symptoms, and the one geometry that ties them". The next single change is `3840x2880`.
+**Found on the way** (each fixed in its own commit, all measured, none guessed):
 
-## Current state (2026-09-02, session 1 of the continuation)
+1. The game calls `Direct3DCreate9` twice; the second `init_instance` failed with
+   `XR_ERROR_LIMIT_REACHED` and the fallback chain declared VR off (guarded).
+2. The handoff's trap 6 is real: a DIRECT exe launch crashes at the main menu
+   (`Dishonored.exe+0x60907e` reading NULL, thread "other", right after
+   `DisGFxMoviePlayerMainMenu Start`); a Steam launch survives it. `xrsim-launch.ps1 -ViaSteam`
+   exists for this and is the only way to run the simulator with the game here.
+3. The agent's shell on this PC VIRTUALIZES writes under the user profile: files the harness
+   wrote to `%LOCALAPPDATA%\DishonoredVR` (the sim manifest, `command.txt`) existed for the
+   shell and a game it launched directly, and not for a game launched through Steam (its
+   listing held only game-written entries; a WMI-created `dir` agreed). `[Paths] DataDir=` in the
+   ini and `DVR_DATA_DIR` for the scripts point both at `D:\dvr-data`; the simulator takes its
+   state dir from the manifest's directory (VERIFICATION gotcha 14).
+4. The loader's property store beats the environment: `init_instance` hands `[VR]
+   XrRuntimeJson` to `xrInitializeLoaderKHR` (XR_EXT_loader_init_properties) as well, and logs
+   whether the manifest is readable and its library loads.
+5. The config's version rewrite dropped `[VR] XrRuntimeJson`; it now carries `XrRuntimeJson`,
+   `Runtime` and `DataDir` over.
+6. The fresh ini armed `FovLever=130` (the side-by-side value) and wrote it 600 times per 3 s
+   into a 90-deg camera; the lever ships off on the mono screen.
+7. The mono quad sat in BioShock's world-locked LOCAL space; it is head-locked now
+   (`[Screen] HeadLocked=1`).
+8. The SIMULATOR composited quads in the wrong place (60 px outward per eye at yaw 0, 460 px
+   of swing at yaw 30): the cbuffer matrix was read column-major and the view matrix's rotation
+   block was transposed. Fixed (`d43eea11`), selftest PASS; **the head-lock re-measure on the
+   fixed simulator has not run yet.** BioShock's eye legs never saw it (projection layers rotate
+   rays in the shader).
+9. Quitting: `console exit|quit` returns -1 (the console seam does not reach a quit); WM_CLOSE
+   logs `ViewportClosed` and then the process LINGERS with one thread, unkillable (no `PreExit`,
+   no `proxy unloading`), which then holds `d3d9.dll` and the simulator DLL open and makes Steam
+   refuse a relaunch. This ended the session's runs; a reboot clears it. Run 6 also logged an
+   access violation inside `d3d9.dll+0x87c95` (VR disabled, right after a device Reset following
+   a `GetRenderTargetData` failure on a multisampled backbuffer), thread "other", three times at
+   page ends 5.3 MB apart; the process survived it. Unsymbolized (that build is gone); the Reset
+   + AA path is the first suspect.
 
-The original mod (GingasVR, public release = proxy build 38.92 + DXVK fork M8.2) is
-**shipped and unchanged in behavior**; this session turned its one 23k-line file into a
-development framework:
+**Not verified**: the headset (Quest 3 via VDXR) - the user's run; the SteamVR shim with
+Dishonored; the eyetest verdicts; `mono.xrs` end to end on the fixed simulator (run 8's
+`capNonBlackL` read 16 against the then-25 threshold; the threshold is now 10 with the measured
+numbers, and the run is pending); `head_track`/`pad_bridge` as real modules (deferred, S1).
 
-- **Builds with VS2022 / CMake** (win32 preset, static CRT, C++20) instead of a MinGW
-  cross-compile from Linux. `d3d9.dll` exports exactly the nine undecorated names
-  (`tools\exports-check.ps1`); Debug and Release both build; `DVR_WITH_LEGACY` ON and OFF both
-  build. Version 40.0.0 (the author's private line already reached 39.4).
-- **Module tree** under `src/proxy`, `src/core`, `src/game/dishonored`, `src/legacy`, produced by
-  `tools/split-source.py` with every function body verbatim (`--check` proves it against commit
-  48766c07). Still ONE translation unit (`src/mod/dishonoredvr.cpp`) with the original globals
-  in `src/mod/state/`; the utilities (log, crash, clock, mem, ini, paths, hooks, command seam,
-  status) are real modules with headers. See ARCHITECTURE "The unity build".
-- **DXVK fork restored in-repo** under `dxvk/` from this repo's own history: DXVK 3.0.2 +
-  the 52 patches as commits (tags `dxvk-base`, `dxvk-m8.2-shipped`, `dxvk-m8.4`,
-  `dxvk-shipped` = M8.2 + M8.4 reverted, matching what proxy 38.92 targets). Not built yet on
-  this PC (needs meson, ninja, glslangValidator; `tools\build-dxvk.ps1` is written but unrun).
-- **Logging/debugging**: leveled, tagged log with ring buffer and `.prev.log` rotation; crash
-  fingerprint + minidumps; `command.txt` seam with ack; `status.json`; frame/eye/HUD dumps; F10
-  overlay Log tab; `[game] state:` transition line.
-- **Backend probe** replaces the process-snapshot auto-detect (Quest over Link/Air Link/Steam
-  Link fell through to OpenVR before).
-- **Simulator** (`dvr_xrsim32.dll`, Quest-3-shaped 32-bit OpenXR runtime) builds and passes
-  `tools\xrsim-selftest.ps1` on this PC (60 frames, FOCUSED, 0 errors).
-- **Harness** copied and adapted from the BioShock trilogy mod: build/install/uninstall/package,
-  launch/boot/game-cmd/key/click/shot/batch, xrsim-*, img-diff, soak, eye-check, exports and
-  lint checks, log-parse, status-dump, setup-game-ini.
-- **Docs** written: this file, ROADMAP, ARCHITECTURE, RESEARCH, VERIFICATION, CODE_REVIEW,
-  KNOWN_ISSUES, TROUBLESHOOTING, RELEASE_NOTES, dishonored/ENGINE_NOTES, TESTING, XR_HANDOFF,
-  CLAUDE.md, and the author's own handoff (`docs/dishonored/HANDOFF-GINGASVR.md`).
+## Next steps (one paragraph per developer)
 
-**What "ported" means today.** Every function of the original file is in the new tree,
-grouped by subsystem, bodies unchanged, and it builds as one program. The internals are only
-partly converted to real modules: the ~1,500 original globals still sit in `src/mod/state`
-and most modules cannot compile alone. Nothing was dropped.
+**Both, first, after a reboot of the dev PC** (the stuck `Dishonored.exe` pid 13452 blocks Steam
+launches and holds the build's `dvr_xrsim32.dll`): `tools\build.ps1; tools\install.ps1;
+$env:DVR_DATA_DIR='D:\dvr-data'; tools\xrsim-launch.ps1 -ViaSteam` (the game ini already
+carries `[Paths] DataDir=D:\dvr-data`); `tools\xrsim-run.ps1 -Path tools\xrsim\mono.xrs
+-Dir D:\dvr-data\xrsim` (expect PASS, ~16% per eye, equal bboxes); the yaw pair
+(`xrsim-cmd "head rot 30 0 0"` + `xrsim-shot`): the composite bbox must now be IDENTICAL at
+yaw 0 and 30 (head-locked) while `dump capture` content changes (the game camera turned); then
+`game-cmd "camera eyetest 100"` standing still in gameplay and copy the six verdicts and the
+`<field> reads (...) c5 (...)` lines into ENGINE_NOTES "The per-eye camera seam". Copy
+`dishonored_vr.log` out before every relaunch.
 
-**The author's handoff changes the picture in three ways** (HANDOFF-GINGASVR.md):
+**Developer A (AlternateEye, S2a)**: read `core/gfx/aer.cpp`. The method needs an honoured
+eye field from the eyetest; if every candidate reads DISCARDED, the c0 view-projection
+translation (`LeanVP`) is the fallback write for the eye offset (it already moves the render
+for lean) and AER can drive it per tick from `camera::eye_offset_uu()`. Acceptance: `stereo aer`
+accepted, the beat line `L/s == R/s == out/s / 2`, `stereo.xrs`, `eye-check.ps1` legs 0-5, the
+runtime's pair probe clean.
 
-1. Their private builds 39.0-39.4 (rebased onto 38.72, the last owner-confirmed-good
-   build) carry fixes our 38.92 base lacks: calibration records banked by asset name
-   (39.0, "wiggling weapons"), a closed loop on the pitch write that lets the fallback
-   engage when the engine discards it (39.2), **the D3D11 device created on the adapter the
-   OpenXR runtime asks for** (39.3; our tree still passes `NULL` and
-   `D3D11_RESOURCE_MISC_SHARED`, `src/core/gfx/d3d11_device.cpp`), and the uncovered
-   menu-ghost quadrant (39.4). Their 39.x line LACKS the 38.78 focus keep-alive fix, which
-   our 38.92 base has.
-2. 38.73-38.92 stacked unverified changes (the chain-stamp / StampLive / StampFix
-   series); the author considers 38.72 the good base. D1 parity must therefore compare our
-   build against 38.72-era behavior plus the 39.x fixes, not against 38.92 alone.
-3. The best current explanation for "works only on his PC" (the Quest zoom / no-pitch bug) is
-   the dual-GPU adapter mismatch, never confirmed by an affected user; GPU vendor/model/driver
-   was never collected from one.
+**Developer B (SequentialReentry, S2b)**: read `core/gfx/reentry.cpp`. Task one is the
+scene-draw root (caller census at `ApplyHeadToViewRotation`, live stack scrape, identify the
+pass by making it MOVE with the eyetest as the mover); every address to `patterns.h` with its
+derivation in ENGINE_NOTES; the second call deny-by-default and SEH-guarded.
 
-**The game is NOT installed on the dev PC.** Nothing here has run inside Dishonored. The
-refactored DLL is build-verified, export-verified and body-verified only.
-
-## Next steps (the plan)
-
-> **Session 2 changed the priority.** The freeze-then-rescale in gameplay is now the top
-> item, ahead of the port list below. The resolution, FOV, adapter and mono/stereo-UV
-> causes have all been eliminated by measurement.
->
-> **Session 3 corrected session 2's suspect.** The exit crash is an EXECUTE fault (a call
-> through a freed code pointer), not a freed-memory write, and the faulting thread is NOT
-> the pace thread - both errors were instrument bugs, not engine facts (ENGINE_NOTES,
-> "reading the fingerprint correctly"). The next lead is the `CopyResource` size mismatch
-> in the publish path, item 0 below. Uncommitted work from sessions 2 and 3 is in the
-> working tree (22 files); nothing was pushed.
-
-
-The port finishes opportunistically; the headset work comes first.
-
-0. **The freeze, next three moves** (session 3; none of them need a headset to write):
-   a. **`CopyResource` size mismatch in the publish path.** `g_eyeTex` is sized by
-      `EnsurePipeline`, which latches on `g_pipelineReady`; `g_xrpTex` and the swapchains
-      are sized from `g_xrEyeW/H`, re-read on **every** bring-up attempt
-      (`XrRtTryInit` retries 10 times, 5 s apart). If an attempt gets past
-      `EnsurePipeline` and then fails at `xrCreateSession`, the next attempt can come back
-      at a different recommended size, and `XrRtPublish`'s
-      `CopyResource(g_xrpTex, g_eyeTex)` becomes a **permanent silent no-op** - a frozen
-      headset image with every call returning success. Log both sizes at publish and
-      refuse the mismatch loudly; recreate `g_xrpTex` when `g_xrEyeW/H` move.
-   b. ~~**`xrWaitSwapchainImage` timeout is treated as success.**~~ DONE (session 3).
-   c. ~~**Nothing joins the pace thread.**~~ DONE (session 3). `xrRequestExitSession` /
-      `xrEndSession` / `xrDestroySession` are still never called - deliberately left for a
-      separate change, since it needs the pace loop's cooperation and rule 1 of the
-      handoff's process rules is one behavioural change per build.
-
-1. **Sources from the author.** Ask GingasVR for `dllmain_38.72.cpp`, `dllmain_39.4.cpp` and
-   the fork's p53 commit (`45116f2f`, `dxvk_vr_view`) from `G:\back\Dishonored vr\out\`. Diff
-   38.72 vs 38.92 (what the rebase dropped) and 38.92 vs 39.4 (what to port). Without them,
-   port from the handoff's descriptions.
-2. **Port the 39.x fixes onto our tree**, one behavioral change per commit, in this order:
-   39.3 adapter LUID (also fixes CODE_REVIEW 28), 39.4 menu quadrant, 39.2 pitch closed loop,
-   39.0 calibration bank. Keep the 38.78 keep-alive.
-3. **D1 parity with the game installed** (SteamVR lane): `setup-game-ini.ps1 -Resolution`,
-   `install.ps1 -SkipDxvk` with the shipped fork, boot, compare the log against a 38.72/39.4
-   log from the author's rig. Then the simulator lane: `xrsim-launch.ps1`, `boot.ps1
-   -Attach`, `smoke.xrs`, `stereo.xrs`. Note the handoff's trap: a direct exe launch crashes
-   at the menu, so the sim launcher must go through Steam with `[VR] XrRuntimeJson` and
-   `[VR] Backend=openxr` written to the ini instead of env vars (VERIFICATION gotcha 12).
-4. **Get an affected Quest user on a 39.3+-equivalent build** and read the adapter lines in
-   their log; collect GPU vendor/model/driver. This is the highest-value single test.
-5. **`IVrBackend`** (the Quest work depends on it), then the config table, then the
-   remaining modules as they are touched (ARCHITECTURE "how a module leaves the unity build").
-6. Port the process rules into practice: one behavioral change per build; diff against the
-   last good build first; the packaged ini is a byte copy of the tested machine's ini.
+**The user**: the headset run on Quest 3 via VDXR: `tools\install.ps1`, launch through Steam
+with VD streaming and VDXR active (SteamVR not running), expect the game on a head-locked
+screen in both eyes, head rotation turning the view, the gamepad working; F10 for the screen
+size; send `dishonored_vr.log`. Quit through the game's own menu and report whether the process
+lingers.
 
 ## Blockers
 
-- The 38.72 / 39.4 sources and the p53 fork commit live only in the author's archive.
-- **The freeze-then-rescale in gameplay is NOT fixed** (session 2). It survives the
-  resolution fix, the FOV fix and the mono/stereo UV rebuild fix. This is the one to
-  chase next; see the session 2 log for what has been ruled out, and the session 3 log
-  for which of session 2's leads turned out to be instrument bugs.
-- **No headset-run log survives.** Rotation is one deep and two simulator runs overwrote
-  both. The next headset run must have its `dishonored_vr.log` copied out before anything
-  else launches, or the same evidence is lost again.
-- Both blockers below were cleared on William's PC in session 2 and remain true only for
-  the other dev PC: the game IS installed, and the DXVK toolchain IS present, so the fork
-  and the proxy both build there.
+- **A stuck `Dishonored.exe` (pid 13452) on the dev PC** since the WM_CLOSE quit test: one
+  thread, unkillable, holds `d3d9.dll` and `build\src\Debug\dvr_xrsim32.dll` (both renamed
+  aside), and Steam refuses to launch the game while it exists. A reboot clears it.
+- **The quit path**: `console exit` returns -1; WM_CLOSE leaves the process lingering with no
+  `PreExit`; the runtime layer's teardown therefore never runs on a graceful close. Which
+  thread is stuck (the simulator's, the runtime's, a driver's) is unknown; a debugger on the
+  next occurrence, or a minidump taken by hand before killing it.
+- The eyetest verdicts and the head-lock re-measure are pending the reboot (above).
+- The headset run needs the user.
 
 ## Session log
+
+### 2026-09-02 - session 5: the native-stereo foundation (41.0)
+
+The decision (docs/ARCHITECTURE.md decision log, session 5): four headset sessions showed the
+DXVK side-by-side design cannot be tuned; the game renders natively again and stereo is rebuilt
+as a ladder of methods on one seam, two developers taking rungs 2 and 3. One PR
+(`claude/native-stereo-foundation-77e2b6` -> `VR-Main`), 27 commits: seven removals, the
+static loader, the runtime layer, the shim, the stereo seam + mono screen, the camera seam +
+eyetest, the stubs, the simulator instruments, the harness, the docs, then the fixes the
+first runs demanded (above, "Found on the way").
+
+Runs on the dev PC (simulator lane; logs in `D:\dvr-data\logs\41-run*.log`):
+
+| Run | Launch | Result |
+|---|---|---|
+| 1 | direct exe | instance on dvr-xrsim, then init_instance twice -> VR off; the game CRASHED at the main menu (`Dishonored.exe+0x60907e`, trap 6) |
+| 2 | Steam | the ini rewrite dropped XrRuntimeJson -> VDXR (no headset), flat |
+| 3 | Steam | env var set but the loader answered RUNTIME_UNAVAILABLE |
+| 4 | Steam | loader property override set; manifest "path not found" (err 3) - the sandbox finding |
+| 5 | Steam | the path probe: the game sees 5 entries where the shell sees 7 |
+| 6 | Steam (no VR) | an AV in `d3d9.dll+0x87c95` after a Reset + RTD failure, three times, survived |
+| 7 | Steam, `D:\dvr-data` | **dvr-xrsim, FOCUSED, first frame submitted, GAMEPLAY, both eyes 38% non-black, soak PASS 3 min**; eyetest NOT WRITTEN (null camera) |
+| 8 | Steam | head-locked quad 16% per eye but swinging with yaw (the sim's quad math); eyetest wrote, measured the field/c5 offsets; WM_CLOSE -> the stuck process |
 
 ### 2026-09-02 - session 4e: gamepad-only, and the three rendering symptoms
 
