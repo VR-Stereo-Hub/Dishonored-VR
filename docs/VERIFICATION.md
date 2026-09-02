@@ -12,24 +12,26 @@ question the simulator could answer is a wasted session.
 | Does the tree build? | CMake | `tools\build.ps1` (and `-Legacy`) | exit 0 both ways |
 | Are the exports right? | dumpbin | `tools\exports-check.ps1 build\src\Debug\d3d9.dll` | "exports OK: 9 names, all undecorated" |
 | Did the split change a body? | parser | `python tools\split-source.py --check` | "changed 16" = the Phase 0 MSVC edits only (9 exports, 6 `_ReturnAddress` sites, the `.mtl` fix); anything else is a regression |
-| Does the fork export what the proxy reads? | dumpbin | `tools\dxvk-exports-check.ps1 build\dxvk\dxvk_d3d9.dll` | "all 15 required names present"; `dxvk_vr_view` reported optional |
-| Is the default ini unchanged? | golden | `python tools\ini-golden.py --check <generated.ini>` | MATCH (after the config-table step, "old + new keys only") |
+| Is the default ini unchanged? | golden | `python tools\ini-golden.py --check` | MATCH (the golden is generated from the working tree's WriteDefaultIni) |
 | Style rules | lint | `tools\lint.ps1` | "lint: clean" |
 | Is the SIMULATOR healthy? | xr_hello32 | `tools\xrsim-selftest.ps1` | "SELFTEST PASS: dvr-xrsim ran 60 frames"; a failure here is the sim, not the mod |
-| Did the mod load and pick a backend? | log | `tools\log-parse.ps1` | `proxy loaded`, `config: VR backend ...`, `probe:` lines |
-| Is the fork loaded? | log | `tail-log.ps1 -Grep "backend:|sbs: fork"` | `backend: DXVK loaded`, `sbs: fork splice counter resolved` |
+| Did the mod load and which runtime answered? | log | `tools\log-parse.ps1`, `tail-log.ps1 -Grep "xr:"` | `proxy loaded`, the runtime layer's instance line, `xr: runtime "<name>" - session live` |
+| Which stereo method runs? | log / status | `game-cmd.ps1 "stereo status"`, `status.json` -> `stereo{}` | `stereo: method=mono framesOut=N`, the `stereo: beat` line every 3 s |
+| Is the capture the whole game window? | log | `tail-log.ps1 -Grep "capture:"` | `capture: WxH content bbox [..]-[..] = 100% x 100% (FULL)`; CROPPED names the corner-image class |
 | Which hooks installed? | log / status | `status-dump.ps1` -> `hooks{}` | `processEvent`, `blinkDir/Dst/Trc`, `pad` true |
 | Is the game in gameplay? | log | `[game] state: GAMEPLAY` | the line `boot.ps1` waits for |
 | Is the session live on the sim? | log + state.json | `xrsim-launch.ps1` | `xr: runtime "dvr-xrsim"`, `xr: pipeline READY`, `frame` advancing |
-| Are two eyes submitted? | capture | `xrsim-shot.ps1` -> `ProjViews`, `EyeSeparationM` | 2, ~0.063 |
+| Is the mono screen in BOTH eyes? | capture | `xrsim-run.ps1 -Path tools\xrsim\mono.xrs` | `quadLayers >= 1`, `capNonBlackL/R >= 50`, `stats.bboxL == bboxR`; a black eye is attributed in `xrsim.log` (COMPOSITOR vs APP fault) |
+| Are two eyes submitted? (stereo methods, S2) | capture | `xrsim-shot.ps1` -> `ProjViews`, `EyeSeparationM` | 2, ~0.063 |
+| Which camera field does the renderer honour? | log | `game-cmd.ps1 "camera eyetest 100"` in gameplay, standing still | `camera/eyetest: <field> ... HONOURED|DISCARDED|INCONCLUSIVE`, then `DONE` with the field for `[Camera] EyeField` (ENGINE_NOTES, the per-eye camera seam) |
+| Are the two eyes paired? (S2) | log | `tools\eye-check.ps1` leg 0 | `stereo: beat ... L/s=N R/s=N`, both flowing and within 80% |
 | Does head rotation move the camera? | capture | `headlook.xrs` | `img-diff` of left eye at yaw 0 vs 35 rises well above the ~0.4 noise floor |
 | Stereo depth present? | capture | `stereo.xrs` | left vs right `img-diff` >> 0.4 |
 | World rigidity under 6DoF | capture | `world-6dof.xrs` | `ClaimRatioH` ~1.0 at every yaw/pitch, `EyeSeparationM` constant |
 | Is the weapon glued to the controller? | capture | `coupling-hand.xrs` | hand-quad bbox moves with the hand, not the head |
-| Splices per frame | status | `status.json` -> `counters.splices` | > 0 in a 3D scene, 0 on menus/videos (mono fallback) |
 | Frame pacing collapse | capture | `unfocused-pacing.xrs` | `@fps 60` across FOCUSED -> VISIBLE -> FOCUSED |
 | Wedge / hang | soak | `tools\soak.ps1 -Minutes 10` | exit 0; 2 = log stalled, 4 = died |
-| What was the headset fed? | dump | `game-cmd.ps1 "dump frame"` | `dumps\capture_*.bmp` (SBS), `eye_*_left/right.png` |
+| What was the headset fed? | dump | `game-cmd.ps1 "dump frame"` | `dumps\capture_*.bmp` (the game window), `eye_*_mono|left|right.png` (the method's output) |
 | Comfort, judder, world scale, warp | headset | F10 overlay + the user | the verdict; write it in STATUS |
 
 ## 2. The simulated runtime (`dvr_xrsim32.dll`)
@@ -37,8 +39,10 @@ question the simulator could answer is a wasted session.
 A purpose-built 32-bit OpenXR runtime (`src/tools/xrsim`, from the BioShock trilogy mod) that
 presents as a Meta Quest 3 (2064x2208 per eye, measured VDXR FOVs, IPD 63 mm). It links
 nothing from the mod and ships in no release. Selected per process with `XR_RUNTIME_JSON`
-(`tools\xrsim-install.ps1` writes the manifest; the registry is never touched). The mod's own
-loader negotiation reads that variable first, so no loader is involved.
+(`tools\xrsim-install.ps1` writes the manifest; the registry is never touched). The static
+OpenXR loader inside `d3d9.dll` reads that variable first; for a launch through Steam, which
+cannot carry it, `xrsim-launch.ps1 -ViaSteam` puts the manifest in `[VR] XrRuntimeJson` and
+the mod sets the variable for its own process.
 
 What the agent drives (`tools\xrsim-cmd.ps1`, one atomic batch per write, acknowledged by
 `cmdSeq`): `head pos|rot|pose|move|movelocal|turn|to|orbit|height|valid`, `recenter`,
@@ -52,7 +56,9 @@ swapchainfail|attachfail|clear`, `instanceloss`, `ipd`, `fov`, `worldscale`, `sh
 What it writes: `state.json` (frame counters, session state, pace mode, layers last frame,
 head/hand poses, controls, errors) and per shot `capture\<name>_left.png`, `_right.png`,
 `_sbs.png`, `<name>.json` (layers with type/space/size/pose, `derived.eyeSeparationM`,
-`derived.claimRatioH`, `derived.aimRayMaxDevDeg`, `stats.meanLuma`, `stats.nonBlackPct`).
+`derived.claimRatioH`, `derived.aimRayMaxDevDeg`, `stats.meanLuma`, `stats.nonBlackPct`,
+`stats.bboxL/R` (41.0), and per layer `src[]` (the source image's `nonBlackPct`, `bbox`,
+`image`, `releasedOnFrame`)). `state.json` also carries `quadLayers`, `capNonBlackL/R`.
 
 Hard invariants: no wait in the sim is unbounded (30 s starve grant); the control channel
 polls on its own thread (a frame-path poller could never receive the `step` that unblocks it);
@@ -61,33 +67,40 @@ polls on its own thread (a frame-path poller could never receive the `step` that
 Not modelled: lens distortion, timewarp/ASW, real display cadence, Wi-Fi encode, guardian. A
 pacing bug that reproduces in the sim is real; one that does not may still exist on VDXR.
 
-### KNOWN SIMULATOR DEFECTS - do not trust these captures (2026-09-02)
+### KNOWN SIMULATOR DEFECTS - and the instruments that now name the side (2026-09-02, 41.0)
 
-Found while using the sim to chase a reported "eyes misaligned" bug. Both were caught only
-because the tester contradicted the capture, so they are recorded here before they mislead
-someone else the same way.
+Found in session 4 while chasing a reported "eyes misaligned" bug; both were caught only
+because the tester contradicted the capture. 41.0 adds the instruments that make the next
+occurrence self-diagnosing; neither defect has been re-run since (the game was not installed
+on the dev PC when 41.0 was built), so the status of each is "instrumented, unverified".
 
-1. **The left eye composites BLACK even when the application's left eye is correct.**
-   Measured: `stats.meanLumaL = 0.00`, `nonBlackPctL = 0.00`, `_left.png` 6,462 bytes
-   (byte-identical size across separate captures - a uniform image), while `nonBlackPctR`
-   read 71.1 on the same frame. The layer JSON says the left view is placed and sized
-   correctly - `pixelsCoveredL == pixelsCoveredR == 1139328`, `claimRatioH = 1.00000` - so
-   the compositor believed it drew it. The mod's own `dump eyes` on the same session shows
-   `g_eyeTex[0]` holding the full world image (3.59 MB PNG, indistinguishable in size from
-   the right eye), and the tester reported no black eye in a real headset on the same build.
-   **The fault is in the simulator's per-eye composite or its capture path, not in the mod.**
-   Until it is fixed, `stats.meanLumaL` / `nonBlackPctL` and `_left.png` prove nothing, and
-   **no stereo, per-eye or eye-parity check in this catalog can be run on the simulator.**
-   Use `dump eyes` and `dump capture` through the command seam instead - those come from the
-   mod's own textures and were correct throughout.
+1. **The left eye composited BLACK while the application's left eye was correct.** Measured
+   then: `stats.meanLumaL = 0.00`, `nonBlackPctL = 0.00`, `_left.png` a uniform image, while
+   `nonBlackPctR` read 71.1 on the same frame and the mod's own `dump eyes` held a full left
+   image. The compositor's projection shader answers a NaN or non-unit pose, or a fov whose
+   edges cross, with a silent black eye; the likeliest cause was the old pace loop tagging the
+   left view with a pose from an uninitialised ring slot. That loop is gone (the runtime layer
+   tags every view from `xrLocateViews`), and the simulator now says which side is at fault:
+   - every capture reads back each layer's SOURCE image and writes `layers[i].src[]` into the
+     JSON (`nonBlackPct`, `bbox`, `image`, `releasedOnFrame`);
+   - a composited eye that is black while its source is not logs
+     `xrsim: eye L composited BLACK from a source that is N% non-black (layer i ..., pose norm,
+     fov) - COMPOSITOR fault`; a black source logs `... - APP fault`;
+   - `xrEndFrame` validates every projection view's pose (unit quaternion) and fov (ordered
+     edges, under 178 deg) and logs `xrsim: xrEndFrame layer i view v carries a BAD POSE|FOV
+     (...)` with the value;
+   - `stats.bboxL/R` (the composited eye's non-black box) in the JSON, and `quadLayers`,
+     `capNonBlackL`, `capNonBlackR` in `state.json`, so `tools\xrsim\mono.xrs` asserts on
+     both eyes without a human reading a PNG.
+   The gate for trusting per-eye captures again: `mono.xrs` passes on the build (both eyes at
+   least 50% non-black, `bboxL == bboxR`) with no COMPOSITOR-fault line in `xrsim.log`. Until
+   that run, the `...L` statistics are unproven, not worthless.
 
-2. **`dump eyes` writes the eye textures with the channels unswizzled** (blue-tinted). The
-   eye render targets are `DXGI_FORMAT_R8G8B8A8_UNORM` while the captured game frame is
-   `B8G8R8A8`, and the dump writer does not account for the difference. `dump capture` is
-   unaffected and comes out correct. Cosmetic and diagnostic-only - it cannot reach the
-   headset - but it is exactly the kind of instrument artifact that has already cost this
-   project a session (see ENGINE_NOTES, the "writing DEDEDEDE" decode bug), so read colour
-   from `dump capture`, never from `dump eyes`.
+2. **`dump eyes` wrote the eye textures blue-tinted.** The writer picks the WIC pixel format
+   from the texture's DXGI format (R8G8B8A8 -> RGBA, B8G8R8A8 -> BGRA); the stereo output
+   texture is R8G8B8A8 (`eye_<frame>_mono.png` on the mono screen). Unverified since the change:
+   compare the colours of `dump capture` and `dump eyes` on the first run, and read colour from
+   `dump capture` until they agree.
 
 Two confounds worth knowing when driving the sim, neither a defect:
 
@@ -104,8 +117,8 @@ Two confounds worth knowing when driving the sim, neither a defect:
 
 ```powershell
 .\tools\xrsim-selftest.ps1                       # 0. the SIM is healthy
-.\tools\build.ps1 -Install                       # 1. build + install (needs the game; -SkipDxvk to keep the installed fork)
-$g = .\tools\xrsim-launch.ps1                    # 2. launch on the sim; throws unless runtime == dvr-xrsim
+.\tools\build.ps1; .\tools\install.ps1           # 1. build + install (needs the game)
+$g = .\tools\xrsim-launch.ps1                    # 2. launch on the sim; throws unless runtime == dvr-xrsim (-ViaSteam if a direct launch dies)
 .\tools\boot.ps1 -Attach                         # 3. reach gameplay (-Attach is mandatory in sim mode)
 .\tools\game-cmd.ps1 "status"                    # 4. the seam works; read status.json
 .\tools\xrsim-cmd.ps1 "reset" "head rot 0 0 0"   # 5. drive the rig and capture
@@ -126,10 +139,9 @@ Standing-still noise ~0.4 mean-abs-diff; a real FOV change 4-7; `nonBlackPct > 5
 gameplay; frames/s near `refreshHz` (a collapse to ~10/s is a pacing bug); `eyeSeparationM ==`
 IPD; `errors` and `endsOutOfOrder` must be 0.
 
-**The `...L` half of every per-eye statistic is currently WORTHLESS** - see "Known simulator
-defects" in section 2. `meanLumaL` and `nonBlackPctL` read 0 on a frame whose left eye is
-fully rendered. Judge coverage from `nonBlackPctR` alone, and get per-eye truth from the
-mod's `dump eyes` instead.
+**Per-eye `...L` statistics are trusted only after `mono.xrs` passes on the build** (section 2,
+defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault` line in
+`xrsim.log`; the mod's `dump eyes` and `dump capture` remain the independent second opinion.
 
 ## 5. Failure modes and gotchas
 

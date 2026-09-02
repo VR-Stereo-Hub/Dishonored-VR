@@ -346,6 +346,27 @@ static XrResult impl_EndFrame(XrSession session, const XrFrameEndInfo* info) noe
             const auto* p = reinterpret_cast<const XrCompositionLayerProjection*>(base);
             dst.viewCount = (p->viewCount > 2) ? 2 : p->viewCount;
             for (uint32_t v = 0; v < dst.viewCount; ++v) dst.views[v] = p->views[v];
+            // The projection shader answers a NaN or non-unit pose, or a fov
+            // whose edges cross, with a silent black eye. Say so here, with
+            // the value, so a black capture has a cause on the same page.
+            for (uint32_t v = 0; v < dst.viewCount; ++v) {
+                const XrQuaternionf& q = dst.views[v].pose.orientation;
+                const XrFovf& fv = dst.views[v].fov;
+                const double qn = sqrt(static_cast<double>(q.x) * q.x + static_cast<double>(q.y) * q.y +
+                                       static_cast<double>(q.z) * q.z + static_cast<double>(q.w) * q.w);
+                const bool poseBad = !(qn > 0.98 && qn < 1.02);   // also catches NaN
+                const bool fovBad = !(fv.angleLeft < fv.angleRight && fv.angleDown < fv.angleUp &&
+                                      fv.angleRight - fv.angleLeft < 3.1 && fv.angleUp - fv.angleDown < 3.1);
+                if (poseBad || fovBad) {
+                    static uint32_t s_badViews = 0;
+                    if (++s_badViews <= 5 || (s_badViews % 300) == 0)
+                        XRSIM_LOG("xrsim: xrEndFrame layer %u view %u carries a %s (pose norm %.4f, "
+                                  "quat %.4f %.4f %.4f %.4f, fov l/r/u/d %.3f/%.3f/%.3f/%.3f rad) - "
+                                  "that eye composites BLACK (occurrence %u)",
+                                  i, v, poseBad ? "BAD POSE" : "BAD FOV", qn, q.x, q.y, q.z, q.w,
+                                  fv.angleLeft, fv.angleRight, fv.angleUp, fv.angleDown, s_badViews);
+                }
+            }
         } else if (base->type == XR_TYPE_COMPOSITION_LAYER_QUAD) {
             const auto* q = reinterpret_cast<const XrCompositionLayerQuad*>(base);
             dst.eyeVisibility = q->eyeVisibility;
