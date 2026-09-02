@@ -42,3 +42,6 @@ __pycache__/
 # OS noise
 Thumbs.db
 desktop.ini
+
+# Local-only reference mirror of the BioShock VR mods (never commit)
+docs/bsvr-reference/

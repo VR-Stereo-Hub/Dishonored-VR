@@ -44,11 +44,20 @@ if ($MinGW) {
         }
     }
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    $vs = & $vswhere -latest -products * -property installationPath | Select-Object -First 1
-    if (-not $vs) { throw "Visual Studio 2022 not found" }
+    # Prefer VS 2022 (v17), the toolset CMakePresets.json pins for the proxy, so the fork
+    # and the proxy come out of one compiler. -latest alone silently switches to a newer
+    # VS (2026 ships as v18) the moment one is installed alongside.
+    $vs = & $vswhere -products * -version "[17.0,18.0)" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+    if (-not $vs) {
+        $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+    }
+    if (-not $vs) { throw "No Visual Studio with the x86/x64 C++ toolset was found." }
     $vsdevcmd = Join-Path $vs "Common7\Tools\VsDevCmd.bat"
-    # Import the x86 developer environment into this process.
-    $envDump = cmd /s /c "`"$vsdevcmd`" -arch=x86 -host_arch=x64 -no_logo && set"
+    # Import the x86 developer environment into this process. VsDevCmd.bat can write a
+    # harmless "'vswhere.exe' is not recognized" line to stderr while still setting the
+    # environment correctly; merge it into stdout INSIDE cmd so PowerShell 5.1 does not
+    # turn that warning into a terminating NativeCommandError under -ErrorAction Stop.
+    $envDump = cmd /s /c "`"$vsdevcmd`" -arch=x86 -host_arch=x64 -no_logo 2>&1 && set"
     foreach ($line in $envDump) {
         if ($line -match '^([^=]+)=(.*)$') { Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2] }
     }

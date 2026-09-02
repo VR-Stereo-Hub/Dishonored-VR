@@ -37,7 +37,11 @@ if (Get-Process $proc -ErrorAction SilentlyContinue) {
 # --- guard 2: stale command file ---------------------------------------------
 $cmd = Get-DvrCmdPath
 if (Test-Path $cmd) {
-    $stale = (Get-Content $cmd -Raw).Trim()
+    # Get-Content -Raw returns $null for a ZERO-BYTE file, and .Trim() on null
+    # throws. An empty command.txt is the normal resting state once the mod has
+    # consumed a command, so this guard must treat it as "nothing stale".
+    $raw = Get-Content $cmd -Raw
+    $stale = if ($null -eq $raw) { "" } else { $raw.Trim() }
     Remove-Item $cmd -Force
     if ($stale) { Write-Output "cleared a stale command.txt (would have re-applied at boot): $stale" }
 }
