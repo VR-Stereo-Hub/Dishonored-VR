@@ -9,6 +9,23 @@ static ID3D11Device*        g_dev11       = NULL;
 static ID3D11DeviceContext* g_ctx11       = NULL;
 static bool                 g_d3d11Failed = false;
 
+// 40.1 (the author's 39.3 fix): the adapter the OpenXR runtime REQUIRES.
+// xrGetD3D11GraphicsRequirementsKHR hands back a LUID; creating our D3D11
+// device on any other adapter means the shared eye textures cannot be read by
+// the runtime, every call still returns S_OK, and nothing logs an error. That
+// is the leading explanation for "works only on his PC" on Quest + VD. The
+// backend publishes the LUID here BEFORE it asks for a device; EnsureD3D11
+// then selects that adapter instead of passing NULL (= "whatever DXGI
+// enumerates first"). Fail soft: an unmatched LUID logs loudly and falls back
+// to the default adapter, because a flat game beats no game.
+static LUID  g_wantAdapterLuid   = { 0, 0 };
+static bool  g_wantAdapterLuidOk = false;
+// What we actually landed on, read back FROM THE DEVICE (not from what we
+// asked for) so the instrument can fail its own hypothesis.
+static LUID  g_gotAdapterLuid    = { 0, 0 };
+static bool  g_gotAdapterLuidOk  = false;
+static char  g_gotAdapterName[128] = "";
+
 // Two game-frame textures - one per eye - for alternate-eye stereo. Each frame
 // the game renders one eye's view; we update only that eye's texture and keep
 // the other eye showing its last frame (the compositor reprojects the gap).
