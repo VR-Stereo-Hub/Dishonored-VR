@@ -1,6 +1,9 @@
 # world-6dof.xrs - does the world hold still and stay square under 6DOF head
 # movement, or does it warp/swim?
 #
+# Needs a stereo method (`stereo aer`|`reentry`, ROADMAP S2); on the mono screen
+# the claimRatioH/eyeSeparation checks have no projection layer to read.
+#
 # Warping is normally a headset-only complaint because a human cannot repeat a
 # head motion precisely. Here the motion is exact and repeatable, so two runs are
 # comparable and a regression is visible as a number.
@@ -23,7 +26,7 @@
 # Visual check, per capture: img-diff left vs right. Parallax must concentrate on
 # NEAR geometry - that is what correct stereo looks like.
 reset
-@mod vrstereo on
+@mod stereo aer
 @frames 60
 head rot 0 0 0
 @frames 15

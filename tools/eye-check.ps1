@@ -14,8 +14,11 @@
 # interocular mean 46.5-46.8 / pct 73-75%, moved means 28.9/29.7, sep 0.0630 -
 # the s54f note recorded 53-56/77% at a different spot; the band is scene-
 # dependent inside [40, 70], which is why the band is that wide):
-#   0. PAIRING (added s56): a FRESH `[reentry] beat` line from the game log
-#      must show camReplays/s >= 80% of draws/s. This is the leg that actually
+#   0. PAIRING: a FRESH `stereo: beat` line from the game log (core/gfx/stereo.cpp,
+#      every 3 s) must show L/s and R/s both flowing and within 80% of each
+#      other. On the mono screen both read 0 BY DESIGN and this leg fails,
+#      which is the correct answer: eye-check is the S2 acceptance for a
+#      stereo method (aer|reentry). This is the leg that actually
 #      catches the s54e break class: an s56 A/B proved that when the pass-2
 #      camera replay dies (both eyes render the same world, or split worlds),
 #      legs 1-5 STILL PASS - the compositor presents the two identical images
@@ -50,7 +53,8 @@
 #
 # Preconditions are ASSERTED, not flipped: the sim session must be running and
 # FOCUSED (an unfocused capture reads QuadLayers 0 and swallows input - the
-# foreground trap), and vrstereo must already be ON (this script never toggles
+# foreground trap), and a stereo method must already be active (`stereo aer` or
+# `stereo reentry` through game-cmd.ps1; this script never toggles
 # game levers; a lever flip mid-trial is itself a trial contamination).
 #
 # Usage:
@@ -69,9 +73,10 @@ param(
     [double]$OcularMeanLo = 30, [double]$OcularMeanHi = 70,
     [double]$OcularPctLo = 60,  [double]$OcularPctHi = 90,
     [double]$MovedMeanMin = 12,
-    # Leg 0 (pairing): the game log carrying the `[reentry] beat` lines, and
-    # the minimum camReplays/s as a fraction of draws/s. 0.8 leaves room for a
-    # beat straddling a load hitch; healthy is 1.0 (90/90).
+    # Leg 0 (pairing): the game log carrying the `stereo: beat` lines, and the
+    # minimum of L/s and R/s as a fraction of the larger one. 0.8 leaves room
+    # for a beat straddling a load hitch; healthy is 1.0 (45/45 under AER at
+    # 90 presents/s, 90/90 under re-entry).
     [string]$GameLog = (Get-DvrLogPath),
     [double]$PairMinFrac = 0.8,
     [int]$BeatWaitSec = 14,
@@ -131,10 +136,12 @@ function Add-Leg([string]$name, [bool]$pass, [string]$measured, [string]$band) {
 }
 
 try {
-    # Leg 0: the stereo PAIRING gate (s56). Wait for a beat line written AFTER
-    # this moment - a stale pre-trial beat could carry a healthy rate from
-    # before the lever flip - then require camReplays/s >= PairMinFrac*draws/s.
-    # This is the only leg that sees the s54e break class (see header).
+    # Leg 0: the stereo PAIRING gate. Wait for a beat line written AFTER this
+    # moment - a stale pre-trial beat could carry a healthy rate from before
+    # the method switch - then require both eyes flowing and
+    # min(L/s, R/s) >= PairMinFrac * max(L/s, R/s). A stale-left tag (the
+    # untagged-present class, core/gfx/aer.cpp) shows here as R/s >> L/s while
+    # every image leg still passes on the compositor's held image.
     $pairPass = $false; $pairMeasured = "no game log"
     if (Test-Path $GameLog) {
         $startLen = (Get-Item $GameLog).Length
@@ -148,22 +155,26 @@ try {
                     $fs.Seek($startLen, 'Begin') | Out-Null
                     $sr = New-Object System.IO.StreamReader($fs)
                     $fresh = $sr.ReadToEnd()
-                    $m = [regex]::Matches($fresh, '\[reentry\] beat: draws/s=(\d+).*?camReplays/s=(\d+)')
+                    $m = [regex]::Matches($fresh, 'stereo: beat method=(\w+) out/s=(\d+) L/s=(\d+) R/s=(\d+)')
                     if ($m.Count -gt 0) { $beatLine = $m[$m.Count - 1]; break }
                 }
             } finally { $fs.Close() }
         }
         if ($beatLine) {
-            $draws = [int]$beatLine.Groups[1].Value
-            $replays = [int]$beatLine.Groups[2].Value
-            $pairPass = ($draws -gt 0) -and ($replays -ge $PairMinFrac * $draws)
-            $pairMeasured = "draws/s=$draws camReplays/s=$replays"
+            $method = $beatLine.Groups[1].Value
+            $outPs = [int]$beatLine.Groups[2].Value
+            $lPs = [int]$beatLine.Groups[3].Value
+            $rPs = [int]$beatLine.Groups[4].Value
+            $hi = [Math]::Max($lPs, $rPs); $lo = [Math]::Min($lPs, $rPs)
+            $pairPass = ($lo -gt 0) -and ($lo -ge $PairMinFrac * $hi)
+            $pairMeasured = "method=$method out/s=$outPs L/s=$lPs R/s=$rPs"
+            if ($method -eq 'mono') { $pairMeasured += ' (mono: L/R read 0 by design)' }
         } else {
             $pairMeasured = "no fresh beat line within ${BeatWaitSec}s"
         }
     }
-    Add-Leg "0 pairing (camReplay)" $pairPass $pairMeasured `
-        ("camReplays/s >= {0:P0} of draws/s, fresh beat" -f $PairMinFrac)
+    Add-Leg "0 pairing (L/R beat)" $pairPass $pairMeasured `
+        ("both eyes flowing, min >= {0:P0} of max, fresh beat" -f $PairMinFrac)
 
     # Leg 1: shot A - projection layer + eye separation.
     $A = & $shotScript -Dir $Dir -Out (Join-Path $outDir "A") -Quiet

@@ -18,8 +18,8 @@
 #
 #    Ground truth, independent of lighting: sweep the controller and watch the
 #    mod's own write location follow it at ~100 UU per metre -
-#      .\tools\game-cmd.ps1 "vrhands status"     -> last write loc=(x y z)
-#    Verified 2026-08-02: a 1.1 m sweep moved it 110 UU in X.
+#      .\tools\game-cmd.ps1 "status"     -> status.json hands[] and the hand log lines
+#    (BioShock verified 2026-08-02: a 1.1 m sweep moved its write 110 UU in X.)
 #
 # 2. IS THE AIM IN SYNC WITH THE MODEL?
 #    Numeric, no eyeballing: $s.AimRayMaxDev is the worst angular deviation of the
@@ -30,17 +30,18 @@
 #      $shots | ForEach-Object { $_.AimRayMaxDev }
 #
 # BOTH subsystems must be armed or the test answers the wrong question:
-#   vrhands drives the MODEL   -> question 1
-#   vraim   drives the RAY     -> question 2
-# Arming only vraim was the first version of this file, and it "passed" with the
+#   hands drives the MODEL    -> question 1  (hands on; [Mode] GamepadOnly=0)
+#   blink drives the RAY      -> question 2  (blink on)
+# Arming only the aim was the first version of this file, and it "passed" with the
 # image barely changing - because nothing was moving the model at all.
 #
 # Stereo is armed HERE rather than left to the caller. Testing mono has misled
-# this project before (sessions 12-13), and `vrstereo on` is sticky, so a
-# sequence that assumes someone else armed it will silently run flat one day.
+# the BioShock project before (its sessions 12-13), and the method is sticky, so
+# a sequence that assumes someone else armed it will silently run mono one day.
+# (41.0: aer is a design stub, so this whole sequence waits for ROADMAP S2/S3.)
 reset
-@mod vrstereo on
-@mod vrhands on; vraim on; vraim laser on
+@mod stereo aer
+@mod hands on; blink on
 @frames 60
 @assert projectionViews eq 2
 # Detach the hand from the head and place it centred in front of the face, then

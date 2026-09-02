@@ -1,11 +1,15 @@
 # stereo.xrs - stereo must produce two DIFFERENT eye images.
 #
+# Needs a stereo METHOD (ROADMAP S2): `stereo aer` here, or edit the @mod line
+# for `reentry`. On 41.0 both are design stubs, the mod stays on the mono
+# screen (a quad layer) and `projectionViews eq 2` FAILS - by design.
+#
 # Read the result with:
 #   .\tools\img-diff.ps1 -A <Left> -B <Right>
 # Standing-still noise is ~0.4 mean (docs/bioshock1/TESTING.md). Both eyes
 # identical reads at the noise floor; real stereo reads well above it.
 reset
-@mod vrstereo on
+@mod stereo aer
 @frames 60
 @assert projectionViews eq 2
 @shot stereo_on
