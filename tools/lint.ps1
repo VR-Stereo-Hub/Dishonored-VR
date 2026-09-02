@@ -1,5 +1,5 @@
 # lint.ps1 - the repo's static checks. Exit 0 = clean.
-#   - no em dash (U+2014) anywhere outside LICENSE, dxvk\ and third_party\
+#   - no em dash (U+2014) anywhere outside LICENSE, tests\golden and third_party\
 #     (PowerShell 5.1 parse errors and log/UI mojibake)
 #   - every .ps1/.bat is pure ASCII, has no BOM and uses CRLF
 #   - every PowerShell script parses
@@ -18,7 +18,7 @@ try {
     $emdash = [char]0x2014
     foreach ($f in $tracked) {
         # tests/golden holds the ORIGINAL 38.92 ini text, em dash included
-        if ($f -like 'dxvk/*' -or $f -like 'third_party/*' -or $f -like 'tests/golden/*' -or $f -eq 'LICENSE') { continue }
+        if ($f -like 'third_party/*' -or $f -like 'tests/golden/*' -or $f -eq 'LICENSE') { continue }
         if ($f -match '\.(png|bmp|dll|dmp|dxbc|upk|u)$') { continue }
         $text = [System.IO.File]::ReadAllText((Join-Path $repo $f))
         if ($text.Contains($emdash)) { Bad "em dash in $f" }

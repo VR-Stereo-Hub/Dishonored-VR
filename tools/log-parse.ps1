@@ -19,7 +19,6 @@ function Section($title, $pattern, $max = 12) {
 }
 Section "build"        "proxy loaded" 2
 Section "backend"      "config: VR backend|backend:|probe" 6
-Section "fork"         "sbs: fork|hud: wrist exports|dxvk" 6
 Section "config"       "\[cfg\]" 40
 Section "openxr"       "xr: " 25
 Section "openvr"       "openvr|SteamVR|VR_Init" 10

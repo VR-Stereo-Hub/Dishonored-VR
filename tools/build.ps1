@@ -1,7 +1,6 @@
 # Builds the mod (32-bit): d3d9.dll (the proxy + VR core), the simulated OpenXR
 # runtime and the xr_hello32 smoke client. CMake is not on PATH on this machine;
 # we use the one bundled with VS 2022 Build Tools, located via vswhere.
-# The DXVK fork (dxvk_d3d9.dll) is a separate meson build: tools\build-dxvk.ps1.
 # NOTE: keep this file pure ASCII (PowerShell 5.1 misreads BOM-less UTF-8).
 param(
     [switch]$Release,

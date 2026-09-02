@@ -1,7 +1,8 @@
 Dishonored VR - quick start
 ===========================
 
-1. Copy d3d9.dll, dxvk_d3d9.dll and openvr_api.dll into the game folder:
+1. Copy d3d9.dll and openvr_api.dll into the game folder (delete any
+   dxvk_d3d9.dll left there by a release before 41.0):
    <Steam>\steamapps\common\Dishonored\Binaries\Win32\
 2. Run setup_resolution.bat once (sets ResX=4032 ResY=2268 Fullscreen=False
    in Documents\My Games\Dishonored\DishonoredGame\Config\DishonoredEngine.ini,

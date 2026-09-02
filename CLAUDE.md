@@ -22,12 +22,11 @@ repo continues it with the author's permission. Single game, one branch: `VR-Mai
 - **No em dashes anywhere** (code, strings, ini text, docs, scripts, commits): use `-`.
   PowerShell 5.1 parse errors and log/UI mojibake. `tools\lint.ps1` enforces it.
 - **Commit messages**: plain conventional commits (`feat:`/`fix:`/`docs:`/`build:`/`tools:`/
-  `chore:`/`refactor:`/`dxvk:`), imperative, subject <= 72 chars, no trailers, no AI
+  `chore:`/`refactor:`), imperative, subject <= 72 chars, no trailers, no AI
   attribution.
 - **32-bit only.** The CMake guard stops a 64-bit configure; don't fight it.
-- **The DXVK fork is patched only in `dxvk/` as ordinary commits**, and `dxvk/DISHONORED-FORK.md`
-  (export table, patch map) is updated in the same commit. The 15+1 `dxvk_vr_*` exports are a
-  contract with `src/`; change both sides together.
+- **The DXVK fork is gone** (removed in 41.0; git history keeps it under the `dxvk-*` tags).
+  Do not bring back a Vulkan translation layer: the game renders natively through D3D9.
 - **Retired experiments go to `src/legacy/`** (compiled only with `-DDVR_WITH_LEGACY=ON`), never
   deleted silently. The refactor milestone is behavior-preserving until D1 (headset parity).
 - **No code from UEVR** (all rights reserved; concepts only). REFramework (MIT) may be adapted
@@ -120,8 +119,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 
 ```powershell
 .\tools\build.ps1 [-Release] [-Legacy]     # d3d9.dll + dvr_xrsim32.dll + xr_hello32.exe (VS-bundled CMake via vswhere)
-.\tools\build-dxvk.ps1                     # the fork -> build\dxvk\dxvk_d3d9.dll (meson + MSVC x86; needs meson, ninja, glslangValidator)
-.\tools\install.ps1 [-Release]             # d3d9.dll + dxvk_d3d9.dll + openvr_api.dll -> <game>\Binaries\Win32
+.\tools\install.ps1 [-Release]             # d3d9.dll + openvr_api.dll -> <game>\Binaries\Win32
 .\tools\setup-game-ini.ps1 -Resolution     # ResX=4032 ResY=2268 Fullscreen=False in DishonoredEngine.ini (backs it up)
 .\tools\tail-log.ps1 [-Grep "xr:|crash"]   # follow <game>\Binaries\Win32\dishonored_vr.log
 .\tools\xrsim-selftest.ps1                 # is the SIMULATOR healthy? (xr_hello32, no mod)
@@ -144,7 +142,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
   `dumps\`, `xrsim\`. Override with `DVR_DATA_DIR`.
 - Env knobs: `DISHONORED_VR_BACKEND=openvr|openxr|auto`, `DVR_LOG=trace`,
   `DVR_LOG_CATS=blink:debug,openxr:trace`, `DVR_SKIP=hands,overlay`, `XR_RUNTIME_JSON`.
-- Clean clone needs `git clone --recursive` (submodules under `third_party/` and `dxvk/`).
+- Clean clone needs `git clone --recursive` (submodules under `third_party/`).
 
 ## Repo map
 
@@ -163,7 +161,6 @@ Extensive does not mean noisy. The rules that buy volume without cost:
   `fwd.h` (every prototype), `dishonoredvr.cpp` (includes the modules). See ARCHITECTURE for
   why this exists and how a module leaves it.
 - `src/tools/` - `xrsim/` (the simulated OpenXR runtime), `xr_hello32/` (smoke client)
-- `dxvk/` - DXVK 3.0.2 + the stereo fork as commits (`DISHONORED-FORK.md`)
 - `third_party/` - imgui, OpenXR-SDK (submodules), vendored OpenVR headers + `openvr_api.dll`
 - `tools/` - the PowerShell harness (`lib/` shared helpers, `xrsim/*.xrs` sequences) and the
   one-shot refactor scripts kept as the record of what changed

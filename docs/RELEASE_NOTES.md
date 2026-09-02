@@ -1,5 +1,14 @@
 # Release notes
 
+## 41.0.0 (unreleased) - native stereo foundation
+
+- Removed: the DXVK fork (`dxvk_d3d9.dll`) and the whole `dxvk/` tree. The game renders
+  natively through D3D9 again. Git history keeps the fork and its tags (`dxvk-base`,
+  `dxvk-m8.2-shipped`, `dxvk-m8.4`, `dxvk-shipped`).
+
+Upgrading: delete `dxvk_d3d9.dll` and `dxvk_stereo.txt` from the game folder (the
+installer does).
+
 ## 40.0.0 (unreleased)
 
 Numbered 40 because the original author's private line reached 39.4 (see

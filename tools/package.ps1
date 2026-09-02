@@ -1,12 +1,11 @@
 # Build a release zip from the CURRENT tree, reproducibly.
 # Reads the version from CMakeLists.txt so the zip name, the DLL banner and the
 # tag cannot disagree. Stages an explicit file list: d3d9.dll (proxy),
-# dxvk_d3d9.dll (fork), openvr_api.dll (Valve, hash-checked), the user docs and
-# the resolution setup script. The simulator never ships.
+# openvr_api.dll (Valve, hash-checked), the user docs and the game-ini setup
+# script. The simulator never ships.
 # NOTE: keep this file pure ASCII (PowerShell 5.1 misreads BOM-less UTF-8).
 param(
     [string]$OutDir = "$PSScriptRoot\..\dist",
-    [string]$DxvkDll = "",
     [switch]$SkipBuild
 )
 $ErrorActionPreference = "Stop"
@@ -24,10 +23,7 @@ if (-not $SkipBuild) { & "$repo\tools\build.ps1" -Release }
 
 $bin = "$repo\build\src\RelWithDebInfo"
 if (-not (Test-Path "$bin\d3d9.dll")) { throw "missing build output: $bin\d3d9.dll" }
-if (-not $DxvkDll) { $DxvkDll = "$repo\build\dxvk\dxvk_d3d9.dll" }
-if (-not (Test-Path $DxvkDll)) { throw "missing DXVK fork: $DxvkDll (tools\build-dxvk.ps1 or -DxvkDll)" }
 Assert-DvrX86Dll "$bin\d3d9.dll"
-Assert-DvrX86Dll $DxvkDll
 
 $ovrDll = "$repo\third_party\openvr_headers\bin\win32\openvr_api.dll"
 $prov = Get-Content "$repo\third_party\openvr_headers\PROVENANCE.txt" -Raw
@@ -43,14 +39,12 @@ if ($Matches[1] -ne $version) {
 }
 
 & "$repo\tools\exports-check.ps1" "$bin\d3d9.dll"
-& "$repo\tools\dxvk-exports-check.ps1" $DxvkDll
 
 $stage = "$OutDir\dishonored-vr-v$version"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 Copy-Item "$bin\d3d9.dll" $stage
-Copy-Item $DxvkDll "$stage\dxvk_d3d9.dll"
 Copy-Item $ovrDll $stage
 Copy-Item "$repo\README.md" "$stage\README.txt"
 Copy-Item "$repo\docs\TROUBLESHOOTING.md" "$stage\TROUBLESHOOTING.txt"

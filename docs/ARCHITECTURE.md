@@ -153,6 +153,15 @@ Next to the exe (user-facing, users depend on the locations): `dishonored_vr.ini
 
 ## Decision log
 
+### 2026-09-02 - session 5 (native stereo foundation)
+
+- **The DXVK fork is removed, DXVK included.** Four headset sessions showed the wide
+  side-by-side design cannot be tuned: render size, FOV lever and frame aspect are one
+  coupled setting, injected display modes crop, the world sits at half the menu's sampling
+  density. The game renders natively through D3D9; stereo is rebuilt on a per-eye camera
+  seam. Git history keeps the fork and its tags (`dxvk-base`, `dxvk-m8.2-shipped`,
+  `dxvk-m8.4`, `dxvk-shipped`); nothing moved to `src/legacy` this time (user's call).
+
 ### 2026-09-02 - session 1
 
 - **Keep the DXVK fork as the stereo path; restore its source in-repo.** A proxy-level stereo
