@@ -61,6 +61,12 @@ struct Cost {
 };
 Cost cost();
 
+// The shared-surface probe's verdict (one-shot at the first grab; the log
+// carries every HRESULT): can the game's D3D9 device hand D3D11 a surface
+// without a CPU round trip? False on a plain IDirect3D9 device by design.
+bool probed();
+bool shared_available();
+
 // The D3D9 device is about to Reset: the system-memory surface goes (every
 // default-pool object this proxy creates must be released here - 38.63).
 void on_reset();
