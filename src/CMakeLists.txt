@@ -66,6 +66,14 @@ target_link_libraries(dvr_proxy PRIVATE
     user32 gdi32 advapi32 ole32 uuid windowscodecs dwmapi imm32
 )
 target_compile_options(dvr_proxy PRIVATE /W3 /permissive-)
+if(DVR_WITH_OPENXR)
+    # Static loader linked straight into the proxy: no extra DLL ships and the
+    # game's import table is untouched (the loader is not a DLL import).
+    target_link_libraries(dvr_proxy PRIVATE openxr_loader)
+    target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_OPENXR=1)
+else()
+    target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_OPENXR=0)
+endif()
 if(DVR_WITH_LEGACY)
     target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_LEGACY=1)
 else()
@@ -76,7 +84,7 @@ endif()
 # A 32-bit console app with NO mod code in it. tools\xrsim-selftest.ps1 runs it
 # against the simulated runtime: if it fails, the simulator is broken, not the
 # mod. Not shipped.
-if(DVR_WITH_OPENXR_LOADER)
+if(DVR_WITH_OPENXR)
     add_executable(xr_hello32 tools/xr_hello32/main.cpp)
     target_link_libraries(xr_hello32 PRIVATE openxr_loader d3d11 dxgi)
 endif()
