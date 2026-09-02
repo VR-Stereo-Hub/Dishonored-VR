@@ -45,12 +45,18 @@ results.
 
 - [ ] The headset run above signed off: readable screen at `[Screen] DistanceMeters` /
       `WidthMeters`, no judder at the game's frame rate, `[VR] FpsCap` cadence chosen
-- [ ] The capture cost measured and cut: a D3D9Ex shared surface opened on the D3D11 side
-      replaces `GetRenderTargetData` (the per-frame CPU round trip in `core/gfx/capture`)
+- [x] The capture cost measured and cut (2026-09-03, runs 16-19): the shipped path costs
+      ~5 ms per present at 1080p, all of it `LockRect` waiting on the queued readback; the
+      D3D9Ex shared surface is REFUSED by this game's device (not 9Ex, and UE3 needs
+      D3DPOOL_MANAGED), so `[Capture] Mode=deferred` (queue the readback, lock it one present
+      later) is the cut: 2.3 ms, `mono.xrs` passing. Ships default sync; the headset run
+      picks the default (ENGINE_NOTES "The capture cost, measured")
 - [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (holds -position), the five
       others DISCARDED (ENGINE_NOTES)
-- [ ] Positional (lean/crouch/roomscale) tracking moved from the c0 `LeanVP` patch to the
-      camera seam's position write once the write point is known, and measured equal
+- [x] Positional (lean/crouch/roomscale) tracking on the camera seam's position write behind
+      `[PosTrack] Lane=vp|camera` (default vp): `camera postest` HONOURED on all three axes
+      within 1-2 % on the camera lane (run 20; ENGINE_NOTES "Positional tracking on the
+      camera seam"); the vp lane's matrix effect is not c5-measurable, its APPLIED count is
 - [ ] `head_track` and `pad_bridge` converted to real modules (the D1-era refactor step
       that S0 deferred)
 - [ ] SteamVR rig confirmed through the shim (`xr: runtime "DishonoredVR SteamVR shim (OpenVR)"`)

@@ -10,6 +10,8 @@
 //   camera status                the per-eye camera seam (eye, ipd, field, fov, c5)
 //   camera eyetest <uu> [field]  the write-point instrument (field 0x80|..|all; `camera eyetest stop`)
 //   camera eyefield <name|none>  the field the eye offset writes to ([Camera] EyeField)
+//   camera postest <R> [U] [F]   the positional instrument (uu along right/up/forward; `camera postest stop`)
+//   postrack on|off|lane <l>     positional tracking and its lane (vp = the c0 patch, camera = the seam's write)
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   capture mode <m>|status      the capture path (sync|deferred|shared): live switch, fails soft
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
@@ -53,6 +55,23 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "postrack")) {
+        char sub[16] = "", lane[16] = "";
+        if (sscanf(args, "%15s %15s", sub, lane) == 2 && !strcmp(sub, "lane")) {
+            dvr::camera::set_pos_lane(lane);   // logs the refusal itself
+            return true;
+        }
+        if (DvrOnOff(args, &b)) {
+            g_posTrack = b;
+            if (!b) { g_leanRightUU = 0; g_leanUpUU = 0; g_leanFwdUU = 0; }
+            Log("postrack: %s (seam)", b ? "ON" : "off");
+            return true;
+        }
+        float pos[3]; dvr::camera::position_offset_uu(pos);
+        Log("postrack: %s lane=%s offset R%+.1f U%+.1f F%+.1f uu scale=%.0f uu/m (postrack on|off|lane vp|camera)",
+            g_posTrack ? "ON" : "off", dvr::camera::pos_lane_name(), pos[0], pos[1], pos[2], g_posScaleUU);
+        return true;
+    }
     if (!strcmp(cmd, "camera")) {
         char sub[32] = "", fld[16] = "all";
         float uu = 0.0f;
@@ -60,6 +79,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             if (strstr(args, "stop")) { dvr::camera::eyetest_stop("seam"); return true; }
             sscanf(args, "%*s %f %15s", &uu, fld);
             dvr::camera::eyetest_start(uu > 0.0f ? uu : 100.0f, fld);
+            return true;
+        }
+        if (!strcmp(sub, "postest")) {
+            if (strstr(args, "stop")) { dvr::camera::postest_stop("seam"); return true; }
+            float r = 0.0f, u = 0.0f, f = 0.0f;
+            const int n = sscanf(args, "%*s %f %f %f", &r, &u, &f);
+            if (n < 1) { Log("camera: postest <R> [U] [F] in uu (e.g. `camera postest 30 0 0` = lean 30 cm right at 100 uu/m)"); return true; }
+            dvr::camera::postest_start(r, u, f);
             return true;
         }
         if (!strcmp(sub, "eyefield")) {

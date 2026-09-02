@@ -30,7 +30,12 @@ static const uint32_t  kClassOff = 0x30;
 static const uint32_t  kOuterOff = 0x24;
 
 // ---- Camera object ----
+// A row-major basis at +0x50..+0x7F: forward, right, up (the original
+// author's FindPovRotators matched +0x50 against the POV rotator's forward;
+// 41.1 validates the three rows orthonormal before writing along them).
+static const uint32_t  kCamFwd   = 0x50;   // basis X (forward) row
 static const uint32_t  kCamRight = 0x60;   // basis Y (right) row
+static const uint32_t  kCamUp    = 0x70;   // basis Z (up) row
 static const uint32_t  kCamLoc0  = 0x80;   // matrix translation row
 static const uint32_t  kCamLoc1  = 0x90;   // cached POV loc
 static const uint32_t  kCamLoc2  = 0xC4;   // cached POV loc 2

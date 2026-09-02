@@ -125,6 +125,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::set_ipd_m(g_ipdM);
         dvr::camera::set_world_scale(g_posScaleUU);
         dvr::camera::eyetest_present_tick();
+        dvr::camera::postest_present_tick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
         FrameDumpTick(self);
@@ -152,9 +153,12 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 double gfps = g_gameFrames / el;
                 double sfps = (double)(dvr::frame::submit_count() - sbPrev) / el;
                 sbPrev = dvr::frame::submit_count();
-                Log("heartbeat: GAME=%.0ffps  headset(submits)=%.0ffps  pos=%d lean=(%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
+                // 41.1: the positional OWNER is named (vp = the c0 patch, camera = the
+                // seam's write), and the forward component joins the pair.
+                Log("heartbeat: GAME=%.0ffps  headset(submits)=%.0ffps  pos=%d postrack OWNER=%s lean=(%+.1f,%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
                     gfps, sfps,
-                    (int)g_posTrack, (float)g_leanRightUU, (float)g_leanUpUU,
+                    (int)g_posTrack, dvr::camera::pos_lane_name(),
+                    (float)g_leanRightUU, (float)g_leanUpUU, (float)g_leanFwdUU,
                     (int)g_padActive, (long)g_padPolls,
                     (long)g_pvrHits, (int)g_rotInject,
                     g_idxViewRot != 0xffffffffu ? "found" : "hunting",

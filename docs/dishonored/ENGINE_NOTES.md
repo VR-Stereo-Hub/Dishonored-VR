@@ -174,6 +174,47 @@ location" was wrong - retire it). Whether 0x330 persists between dispatches (the
 re-base logic) was not separated out; the eyetest's own 120-present window shows the value
 must be rewritten every dispatch, which the seam does.
 
+## Positional tracking on the camera seam (2026-09-03, S1)
+
+The camera object carries a row-major basis at +0x50 (forward), +0x60 (right, `kCamRight`),
++0x70 (up); the original author's `FindPovRotators` matched +0x50 against the POV
+rotator's forward, and 41.1 reads all three (`kCamFwd`/`kCamRight`/`kCamUp` in patterns.h),
+validating them orthonormal before the first write. Measured at yaw 0 in the auto-continued
+save (run 20): `fwd=(1.000 0.000 -0.002) right=(-0.000 1.000 -0.000) up=(0.002 0.000 1.000)`,
+pairwise dots 0.000 (UE3: X forward, Y right, Z up).
+
+Lean/crouch/roomscale used to ride the c0 view-projection patch (`LeanVP`), a matrix patch
+the renderer's attachments do not follow. `[PosTrack] Lane=vp|camera` (default vp, the
+shipped path; `postrack lane <l>` live) moves the offset onto the camera seam's write: ONE
+write per dispatch of `base - (eye + position)` into camera+0x330, the position offset
+resolved along the basis rows. The seam is the single owner of the offset (TrackHead
+publishes it there; both lanes read it there), and the `camera postest <R> [U] [F]`
+instrument overrides it with a commanded triple, takes 45 presents of c5 baseline at zero,
+then judges 120 presents:
+
+| lane | asked (R, U, F uu) | measured (c5 travel on the basis rows) | verdict |
+|---|---|---|---|
+| camera | +30, 0, 0 | +29.7, +0.2, +0.0 (mean of 120; 2284 seam writes) | HONOURED |
+| camera | 0, -25, 0 (a crouch drop) | +0.0, -24.4, -0.0 | HONOURED |
+| camera | 0, 0, +40 | +0.0, +0.4, +39.7 | HONOURED |
+| camera | +30, +25, -40 | +29.7, +25.2, -39.7 | HONOURED |
+| vp | +30, 0, 0 | the c0 patch ran on 120/120 presents (2760 uploads) | APPLIED (c5 cannot see a matrix patch) |
+
+So the renderer draws from the offset position on the camera lane within 1-2 %, on all
+three axes, the same write point the eye offset uses. What the instrument does NOT say:
+the vp lane's effect is a matrix change c5 never sees, so "the same travel on both lanes"
+is only half measurable; and a shot diff on the mono screen (a simulated 40 cm head step)
+reads 1.5-2.1 mean-abs-diff on both lanes against a 1.3-1.7 return-to-zero control, i.e.
+the scene's own animation swamps a 14 uu lean at the quad's 16 % coverage. The picture
+verdict belongs to a stereo method's projection layer (`world-6dof.xrs` `w_trans_x`).
+
+Two facts found on the way. (1) The 38.24 eye clamp lives inside `FovLeverApply` AFTER
+its early return, so it is dead whenever the lever is off - which is the mono screen's
+default (`[Screen] FovLever=0`). The camera lane's writer caps its Z at the same ceiling
+while the clamp is live (`camera::set_eye_ceiling`), so the two never fight; with the lever
+off neither runs. (2) The seam writes ~19 times per present (every ProcessEvent dispatch
+of the camera pass), which is the cadence the 38.24 clamp and the FOV lever already used.
+
 ## Head coupling of the arms (the open problem; roadmap D5)
 
 Root cause as established: Arkane draws the first-person view model in camera space; there

@@ -77,13 +77,14 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // lever only revalidates the camera object while it is armed, so the seam
     // keeps its own liveness check while it has something to write (the first
     // eyetest ran with a null camera for all six candidates - lever off).
-    if (dvr::camera::eyetest_active() || dvr::camera::eye() != 0) {
+    if (dvr::camera::eyetest_active() || dvr::camera::postest_active() || dvr::camera::eye() != 0 ||
+        dvr::camera::pos_lane() == dvr::camera::PosLane::Camera) {
         static LONG camReval = 0;
         if (g_camObj && !CamAlive()) g_camObj = NULL;
         if (!g_camObj && (InterlockedIncrement(&camReval) & 31) == 0) FindLiveCamera();
     }
     dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
-    dvr::camera::apply_eye_offset(g_camObj);      // the eye offset (aer/reentry)
+    dvr::camera::apply_offsets(g_camObj);         // the eye offset (aer/reentry) + the lean on the camera lane
     BlinkTestApply();  // 32.14: same lane, same reason
     SkcRotApply();     // 32.1: same trick for the hand rotators
     BoneWigApply();    // 30.62: which bone bank does the renderer read

@@ -49,13 +49,71 @@ struct Writer {
 };
 Writer g_eyeWriter;
 
-// Read the camera's right row (kCamRight: basis Y) as a unit vector.
-bool read_right(uint8_t* cam, float r[3]) {
-    if (!cam || !RangeReadable(cam + kCamRight, 12)) return false;
-    const float* p = (const float*)(cam + kCamRight);
+// ---- positional tracking on the seam ----------------------------------------
+volatile float g_pos[3] = {0, 0, 0};   // right, up, forward (uu); present thread writes
+PosLane  g_posLane = PosLane::Vp;
+float    g_ceilZ = 0.0f;
+bool     g_ceilOn = false;
+bool     g_basisSaid = false;
+uint32_t g_basisBad = 0;
+
+// Read one basis row as a unit vector (a row of the camera's matrix at
+// +0x50/+0x60/+0x70). False when the norm is not near 1: not a basis row.
+bool read_row(uint8_t* cam, uint32_t off, float r[3]) {
+    if (!cam || !RangeReadable(cam + off, 12)) return false;
+    const float* p = (const float*)(cam + off);
     const float n = sqrtf(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
     if (!(n > 0.5f && n < 2.0f)) return false;   // not a basis row
     r[0] = p[0] / n; r[1] = p[1] / n; r[2] = p[2] / n;
+    return true;
+}
+
+// Read the camera's right row (kCamRight: basis Y) as a unit vector.
+bool read_right(uint8_t* cam, float r[3]) { return read_row(cam, kCamRight, r); }
+
+// The three rows, validated orthogonal (|dot| < 0.05 pairwise) and logged
+// once either way: a position offset is written along a measured basis or
+// not at all - never along a guessed axis.
+bool read_basis(uint8_t* cam, float f[3], float r[3], float u[3]) {
+    const bool ok = read_row(cam, kCamFwd, f) && read_row(cam, kCamRight, r) && read_row(cam, kCamUp, u);
+    float dfr = 0, dfu = 0, dru = 0;
+    if (ok) {
+        dfr = f[0] * r[0] + f[1] * r[1] + f[2] * r[2];
+        dfu = f[0] * u[0] + f[1] * u[1] + f[2] * u[2];
+        dru = r[0] * u[0] + r[1] * u[1] + r[2] * u[2];
+    }
+    const bool ortho = ok && fabsf(dfr) < 0.05f && fabsf(dfu) < 0.05f && fabsf(dru) < 0.05f;
+    if (!ortho) {
+        ++g_basisBad;
+        if (!g_basisSaid) {
+            g_basisSaid = true;
+            DVR_WARN("camera: basis rows at +0x%x/+0x%x/+0x%x are not an orthonormal basis (%s; dots "
+                     "%.3f %.3f %.3f) - the position offset is NOT written (the eye offset still is, "
+                     "along the right row alone)",
+                     kCamFwd, kCamRight, kCamUp, ok ? "rows read" : "a row is not unit length", dfr, dfu, dru);
+        }
+        return false;
+    }
+    if (!g_basisSaid) {
+        g_basisSaid = true;
+        DVR_INFO("camera: basis rows fwd=(%.3f %.3f %.3f) right=(%.3f %.3f %.3f) up=(%.3f %.3f %.3f) "
+                 "orthonormal (|dots| %.3f %.3f %.3f) - the position offset writes along them",
+                 f[0], f[1], f[2], r[0], r[1], r[2], u[0], u[1], u[2], fabsf(dfr), fabsf(dfu), fabsf(dru));
+    }
+    return true;
+}
+
+// The field's base: its current value unless that is still OUR last write (a
+// persistent field), in which case the base is what we wrote minus our offset.
+bool current_base(uint8_t* cam, uint32_t fieldOff, const Writer& w, float base[3]) {
+    if (!cam || !RangeReadable(cam + fieldOff, 12)) return false;
+    const float* v = (const float*)(cam + fieldOff);
+    const bool persisted = w.lastOk && fabsf(v[0] - w.last[0]) < 0.01f &&
+                           fabsf(v[1] - w.last[1]) < 0.01f && fabsf(v[2] - w.last[2]) < 0.01f;
+    for (int i = 0; i < 3; ++i) {
+        base[i] = persisted ? (w.last[i] - w.lastOff[i]) : v[i];
+        if (!(fabsf(base[i]) < 1.0e6f)) return false;   // not a location
+    }
     return true;
 }
 
@@ -63,14 +121,10 @@ bool read_right(uint8_t* cam, float r[3]) {
 // unless the current value is still OUR last write (a persistent field).
 bool write_offset(uint8_t* cam, uint32_t fieldOff, const float off[3], Writer& w,
                   float outBase[3]) {
-    if (!cam || !RangeReadable(cam + fieldOff, 12)) return false;
-    float* v = (float*)(cam + fieldOff);
     float base[3];
-    const bool persisted = w.lastOk && fabsf(v[0] - w.last[0]) < 0.01f &&
-                           fabsf(v[1] - w.last[1]) < 0.01f && fabsf(v[2] - w.last[2]) < 0.01f;
-    for (int i = 0; i < 3; ++i) base[i] = persisted ? (w.last[i] - w.lastOff[i]) : v[i];
+    if (!current_base(cam, fieldOff, w, base)) return false;
+    float* v = (float*)(cam + fieldOff);
     for (int i = 0; i < 3; ++i) {
-        if (!(fabsf(base[i]) < 1.0e6f)) return false;   // not a location
         w.last[i] = base[i] + off[i];
         w.lastOff[i] = off[i];
         v[i] = w.last[i];
@@ -80,6 +134,27 @@ bool write_offset(uint8_t* cam, uint32_t fieldOff, const float off[3], Writer& w
     if (outBase) memcpy(outBase, base, sizeof(base));
     return true;
 }
+
+// ---- the postest (positional instrument) -------------------------------------
+constexpr int kPostestFrames = 120;
+constexpr int kPostestBaselineFrames = 45;
+struct Postest {
+    bool    active = false;
+    PosLane lane = PosLane::Vp;
+    float   cmd[3] = {0, 0, 0};       // the commanded right/up/forward (uu)
+    bool    writing = false;          // baseline over
+    int     baseFrames = 0, baseWait = 0, frames = 0;
+    double  baseSum[3] = {0, 0, 0};
+    float   baseline[3] = {0, 0, 0};
+    double  measSum[3] = {0, 0, 0};   // c5 travel projected on the basis (camera lane)
+    int     measN = 0, noC5 = 0;
+    float   f[3] = {1, 0, 0}, r[3] = {0, 1, 0}, u[3] = {0, 0, 1};   // the basis at the last write
+    bool    basisOk = false;
+    uint32_t writes = 0;              // camera lane: seam writes carrying the offset
+    uint32_t vpUploads = 0;           // vp lane: c0 uploads patched this present
+    uint32_t vpPresents = 0;          // vp lane: presents with at least one patched upload
+    uint32_t vpUploadsTotal = 0;
+} g_pt;
 
 // Put a persistent field back to its base (no-op for a recomputed one).
 void restore(uint8_t* cam, uint32_t fieldOff, Writer& w) {
@@ -242,33 +317,197 @@ bool render_pos(float out[3]) {
     return true;
 }
 
+// ---- positional tracking: the offset, the lane, the ceiling ------------------------------
+void set_position_offset_uu(float right, float up, float fwd) {
+    g_pos[0] = right; g_pos[1] = up; g_pos[2] = fwd;
+}
+
+// The offset both lanes read. While the postest runs it is the commanded
+// triple (zero during its baseline), whatever the head is doing.
+void position_offset_uu(float out[3]) {
+    if (g_pt.active) {
+        for (int i = 0; i < 3; ++i) out[i] = g_pt.writing ? g_pt.cmd[i] : 0.0f;
+        return;
+    }
+    out[0] = g_pos[0]; out[1] = g_pos[1]; out[2] = g_pos[2];
+}
+
+bool set_pos_lane(const char* name) {
+    if (!name) return false;
+    PosLane l;
+    if (!_stricmp(name, "vp")) l = PosLane::Vp;
+    else if (!_stricmp(name, "camera")) l = PosLane::Camera;
+    else {
+        DVR_WARN("camera: unknown positional lane '%s' (vp|camera) - staying on %s", name, pos_lane_name());
+        return false;
+    }
+    if (l != g_posLane) {
+        g_posLane = l;
+        DVR_INFO("camera: positional tracking lane -> %s (%s)", pos_lane_name(),
+                 l == PosLane::Camera ? "the lean/crouch/roomscale offset is written into the camera field "
+                                        "with the eye offset; the c0 patch is off"
+                                      : "the c0 view-projection patch (LeanVP); the camera write carries "
+                                        "the eye offset only");
+    }
+    return true;
+}
+PosLane pos_lane() { return g_posLane; }
+const char* pos_lane_name() { return g_posLane == PosLane::Camera ? "camera" : "vp"; }
+
+void set_eye_ceiling(float zMax, bool on) { g_ceilZ = zMax; g_ceilOn = on; }
+
 // ---- the writer (script lane) -----------------------------------------------------------
-bool apply_eye_offset(uint8_t* camObj) {
+bool apply_offsets(uint8_t* camObj) {
     if (g_et.active) return false;   // the instrument owns the fields while it runs
-    if (g_eye == 0) {
+    float pos[3];
+    position_offset_uu(pos);
+    const bool posWanted = g_posLane == PosLane::Camera || (g_pt.active && g_pt.lane == PosLane::Camera);
+    const bool posLive = posWanted && (pos[0] != 0.0f || pos[1] != 0.0f || pos[2] != 0.0f);
+    if (g_eye == 0 && !posLive) {
         if (g_eyeWriter.lastOk && g_field >= 0) restore(camObj, kFields[g_field].off, g_eyeWriter);
         return false;
     }
     if (g_field < 0) {
         DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn,
-                     "camera: a stereo method asked for eye %+d but no eye field is measured - "
+                     "camera: an offset is wanted (eye %+d, position %s) but no eye field is measured - "
                      "run `camera eyetest 100` in gameplay and set [Camera] EyeField= (the "
-                     "render stays mono-positioned)", g_eye);
+                     "render stays mono-positioned)", g_eye, posLive ? "live" : "off");
         return false;
     }
     if (!camObj) return false;
-    float r[3];
-    if (!read_right(camObj, r)) return false;
-    const float uu = eye_offset_uu() * kFields[g_field].sign;
-    const float off[3] = {r[0] * uu, r[1] * uu, r[2] * uu};
-    const bool ok = write_offset(camObj, kFields[g_field].off, off, g_eyeWriter, nullptr);
-    if (ok)
+    float f[3] = {0, 0, 0}, r[3], u[3] = {0, 0, 0};
+    bool haveBasis = false;
+    if (posLive) haveBasis = read_basis(camObj, f, r, u);
+    if (!haveBasis && !read_right(camObj, r)) return false;
+    const float sign = kFields[g_field].sign;
+    const float eyeUu = eye_offset_uu();
+    // The displacement in POSITION form (world uu): the eye along right, the
+    // lean along the basis when the lane is ours and the basis is measured.
+    float off[3];
+    for (int i = 0; i < 3; ++i) {
+        off[i] = r[i] * eyeUu;
+        if (posLive && haveBasis) off[i] += r[i] * pos[0] + u[i] * pos[1] + f[i] * pos[2];
+    }
+    // The 38.24 ceiling: the camera may not rise above the capsule top. Cap
+    // the position Z the field will hold (the field is base + off in its own
+    // sign; the position is sign * that).
+    if (g_ceilOn) {
+        float base[3];
+        if (current_base(camObj, kFields[g_field].off, g_eyeWriter, base)) {
+            const float posZ = sign * base[2] + off[2];
+            if (posZ > g_ceilZ) off[2] -= (posZ - g_ceilZ);
+        }
+    }
+    const float fieldOff[3] = {off[0] * sign, off[1] * sign, off[2] * sign};
+    const bool ok = write_offset(camObj, kFields[g_field].off, fieldOff, g_eyeWriter, nullptr);
+    if (ok) {
+        if (g_pt.active && g_pt.lane == PosLane::Camera && g_pt.writing && haveBasis) {
+            memcpy(g_pt.f, f, sizeof(f)); memcpy(g_pt.r, r, sizeof(r)); memcpy(g_pt.u, u, sizeof(u));
+            g_pt.basisOk = true;
+            ++g_pt.writes;
+        }
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3,
-                        "camera: eye %+d offset %+.2f uu along right (%.3f %.3f %.3f) -> camera+%s "
-                        "(ipd %.4f m, %.0f uu/m)",
-                        g_eye, uu, r[0], r[1], r[2], kFields[g_field].name, g_ipdM, g_scale);
+                        "camera: eye %+d (%+.2f uu along right) + position (R%+.1f U%+.1f F%+.1f uu, lane %s%s) "
+                        "-> camera+%s as (%.1f %.1f %.1f) (ipd %.4f m, %.0f uu/m)",
+                        g_eye, eyeUu, posLive ? pos[0] : 0.0f, posLive ? pos[1] : 0.0f, posLive ? pos[2] : 0.0f,
+                        pos_lane_name(), posLive && !haveBasis ? ", basis NOT measured: position dropped" : "",
+                        kFields[g_field].name, off[0], off[1], off[2], g_ipdM, g_scale);
+    }
     return ok;
 }
+
+// ---- the postest ------------------------------------------------------------------------
+bool postest_start(float rr, float uu, float ff) {
+    if (g_pt.active) { DVR_WARN("camera/postest: already running"); return false; }
+    if (g_et.active) { DVR_WARN("camera/postest: the eyetest owns the field - wait for it"); return false; }
+    if (!(fabsf(rr) <= 500.0f && fabsf(uu) <= 500.0f && fabsf(ff) <= 500.0f) || (rr == 0.0f && uu == 0.0f && ff == 0.0f)) {
+        DVR_WARN("camera/postest: <R> <U> <F> in uu, each within +/-500 and not all zero (100 = 1 m)");
+        return false;
+    }
+    g_pt = Postest();
+    g_pt.active = true;
+    g_pt.lane = g_posLane;
+    g_pt.cmd[0] = rr; g_pt.cmd[1] = uu; g_pt.cmd[2] = ff;
+    DVR_INFO("camera/postest: START lane=%s asked R%+.1f U%+.1f F%+.1f uu: %d presents of c5 baseline at "
+             "zero offset, then %d presents with the offset (the tracked head offset is overridden "
+             "meanwhile). %s Stand still in gameplay.",
+             pos_lane_name(), rr, uu, ff, kPostestBaselineFrames, kPostestFrames,
+             g_pt.lane == PosLane::Camera
+                 ? "HONOURED = c5 (the draw's camera position) travels by the asked amount along the basis rows."
+                 : "On the vp lane c5 cannot see the matrix patch; the verdict counts the presents the patch "
+                   "ran on, and the picture (world-6dof.xrs) carries the effect.");
+    return true;
+}
+
+void postest_stop(const char* why) {
+    if (!g_pt.active) return;
+    g_pt.active = false;
+    DVR_INFO("camera/postest: stopped (%s)", why ? why : "?");
+}
+
+void note_vp_applied() { if (g_pt.active && g_pt.writing) ++g_pt.vpUploads; }
+
+void postest_present_tick() {
+    if (!g_pt.active) return;
+    if (!g_pt.writing) {
+        if (g_c5Ok) {
+            for (int i = 0; i < 3; ++i) g_pt.baseSum[i] += g_c5[i];
+            ++g_pt.baseFrames;
+        }
+        if (g_pt.baseFrames >= kPostestBaselineFrames) {
+            for (int i = 0; i < 3; ++i) g_pt.baseline[i] = (float)(g_pt.baseSum[i] / g_pt.baseFrames);
+            g_pt.writing = true;
+        } else if (++g_pt.baseWait >= kPostestFrames * 3) {
+            DVR_WARN("camera/postest: no c5 readback in %d presents (no scene draw is passing the constant "
+                     "hook); stopping", g_pt.baseWait);
+            postest_stop("no c5");
+        }
+        return;
+    }
+    ++g_pt.frames;
+    if (g_pt.lane == PosLane::Camera) {
+        if (!g_c5Ok || !g_pt.basisOk) {
+            ++g_pt.noC5;
+        } else {
+            const float d[3] = {g_c5[0] - g_pt.baseline[0], g_c5[1] - g_pt.baseline[1], g_c5[2] - g_pt.baseline[2]};
+            g_pt.measSum[0] += d[0] * g_pt.r[0] + d[1] * g_pt.r[1] + d[2] * g_pt.r[2];
+            g_pt.measSum[1] += d[0] * g_pt.u[0] + d[1] * g_pt.u[1] + d[2] * g_pt.u[2];
+            g_pt.measSum[2] += d[0] * g_pt.f[0] + d[1] * g_pt.f[1] + d[2] * g_pt.f[2];
+            ++g_pt.measN;
+        }
+    } else {
+        if (g_pt.vpUploads) { ++g_pt.vpPresents; g_pt.vpUploadsTotal += g_pt.vpUploads; }
+        g_pt.vpUploads = 0;
+    }
+    if (g_pt.frames < kPostestFrames) return;
+    g_pt.active = false;
+    if (g_pt.lane == PosLane::Camera) {
+        float m[3] = {0, 0, 0};
+        if (g_pt.measN) for (int i = 0; i < 3; ++i) m[i] = (float)(g_pt.measSum[i] / g_pt.measN);
+        bool honoured = g_pt.measN > 0;
+        for (int i = 0; i < 3; ++i) {
+            const float band = 0.25f * fabsf(g_pt.cmd[i]) + 2.0f;   // +/-25 %, and 2 uu of noise
+            if (fabsf(m[i] - g_pt.cmd[i]) > band) honoured = false;
+        }
+        DVR_INFO("camera/postest: lane=camera asked R%+.1f U%+.1f F%+.1f -> measured R%+.1f U%+.1f F%+.1f uu "
+                 "(mean of %d presents, %u seam writes, %d without c5/basis): %s%s",
+                 g_pt.cmd[0], g_pt.cmd[1], g_pt.cmd[2], m[0], m[1], m[2], g_pt.measN, g_pt.writes, g_pt.noC5,
+                 !g_pt.writes ? "NOT WRITTEN" : honoured ? "HONOURED" : "NOT HONOURED",
+                 !g_pt.writes ? " - no seam write carried the offset (no live camera, basis not orthonormal, "
+                                "or no eye field)"
+                 : honoured ? " - the renderer drew from the offset position: positional tracking can ride "
+                              "the camera lane"
+                            : " - c5 did not travel by the asked amount (the field is recomputed, or the "
+                              "player moved)");
+    } else {
+        DVR_INFO("camera/postest: lane=vp asked R%+.1f U%+.1f F%+.1f -> the c0 patch ran on %u/%d presents "
+                 "(%u uploads): %s - the matrix effect is not in c5; judge it in the picture (world-6dof.xrs)",
+                 g_pt.cmd[0], g_pt.cmd[1], g_pt.cmd[2], g_pt.vpPresents, g_pt.frames, g_pt.vpUploadsTotal,
+                 g_pt.vpPresents >= (uint32_t)(g_pt.frames * 4 / 5) ? "APPLIED" : "NOT APPLIED");
+    }
+}
+
+bool postest_active() { return g_pt.active; }
 
 // ---- the eyetest ------------------------------------------------------------------------
 bool eyetest_start(float uu, const char* field) {
@@ -393,6 +632,11 @@ void status(dvr::status::Writer& w) {
     w.kv("fovDeg", (double)g_fovDeg);
     w.kv("renderedFovDeg", (double)g_renderedFov);
     w.kv("c5ok", g_c5Ok);
+    w.kv("posLane", pos_lane_name());
+    w.kv("posRightUu", (double)g_pos[0]); w.kv("posUpUu", (double)g_pos[1]); w.kv("posFwdUu", (double)g_pos[2]);
+    w.kv("ceilingOn", g_ceilOn);
+    w.kv("basisBad", (unsigned long)g_basisBad);
+    w.kv("postest", g_pt.active);
     w.obj("eyetest");
     w.kv("active", g_et.active);
     w.kv("candidate", g_et.active ? kFields[g_et.idx].name : "-");
@@ -404,10 +648,12 @@ void status(dvr::status::Writer& w) {
 
 void log_status() {
     DVR_INFO("camera: eye=%+d ipd=%.4f m scale=%.0f uu/m offset=%+.2f uu field=%s writes=%lu | "
-             "fov lever=%.0f rendered=%.1f | c5=%s(%.1f %.1f %.1f) | eyetest=%s",
+             "postrack lane=%s (R%+.1f U%+.1f F%+.1f uu) ceiling=%s basisBad=%lu | "
+             "fov lever=%.0f rendered=%.1f | c5=%s(%.1f %.1f %.1f) | eyetest=%s postest=%s",
              g_eye, g_ipdM, g_scale, eye_offset_uu(), eye_field(), (unsigned long)g_eyeWriter.writes,
+             pos_lane_name(), g_pos[0], g_pos[1], g_pos[2], g_ceilOn ? "on" : "off", (unsigned long)g_basisBad,
              g_fovDeg, g_renderedFov, g_c5Ok ? "" : "none ", g_c5[0], g_c5[1], g_c5[2],
-             g_et.active ? kFields[g_et.idx].name : "idle");
+             g_et.active ? kFields[g_et.idx].name : "idle", g_pt.active ? "running" : "idle");
 }
 
 } // namespace dvr::camera

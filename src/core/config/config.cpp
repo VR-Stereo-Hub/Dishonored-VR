@@ -93,6 +93,11 @@ static void WriteDefaultIni(const char* ini)
         "[PosTrack]\n"
         "; Stage 5: positional head tracking - lean/peek/crouch with your real\n"
         "; head. F4 = toggle, F5 = re-center to your current head position.\n"
+        "; Lane=vp|camera: where the offset is applied. vp patches the view-projection\n"
+        "; matrix at c0 (the shipped path; attachments do not follow); camera writes it into\n"
+        "; the camera field with the per-eye offset (game/dishonored/camera). `postrack lane\n"
+        "; <l>` switches live; `camera postest <R> [U] [F]` measures the travel in uu.\n"
+        "Lane=vp\n"
         "; Scale = game units per meter. 50 is GingasVR's shipped value and is\n"
         "; the baseline her release was tuned around, so it is what ships.\n"
         "; NOTE: 100 is the MEASURED value (1 uu = 1 cm), derived from the\n"
@@ -294,6 +299,11 @@ static void LoadConfig()
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
     g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
     g_posTrack   = IniFloat(ini, "PosTrack", "Enabled", 1) != 0.0f;
+    {   // [PosTrack] Lane: vp (the c0 patch, shipped) or camera (the seam's write)
+        char pl[16] = "";
+        GetPrivateProfileStringA("PosTrack", "Lane", "vp", pl, sizeof(pl), ini);
+        if (!dvr::camera::set_pos_lane(pl)) dvr::camera::set_pos_lane("vp");
+    }
     g_crouchEyeCfg   = IniFloat(ini, "PosTrack", "CrouchEyeDrop", 1) != 0.0f; // 38.15
     g_crouchEyeScale = IniFloat(ini, "PosTrack", "CrouchEyeScale", 1.0f);
     if (g_crouchEyeScale < 0.0f) g_crouchEyeScale = 0.0f;

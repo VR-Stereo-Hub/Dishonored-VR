@@ -847,6 +847,12 @@ static void TrackHead(const float (*m)[4])
                 g_leanUpUU    = -R*sr + U*cr;
             }
         }
+        // 41.1: the camera seam owns the offset from here; both lanes (the c0
+        // patch, the camera write) read it there. Off = zero, so a disabled
+        // tracker never leaves a stale lean behind on either lane.
+        dvr::camera::set_position_offset_uu(g_posTrack ? (float)g_leanRightUU : 0.0f,
+                                            g_posTrack ? (float)g_leanUpUU : 0.0f,
+                                            g_posTrack ? (float)g_leanFwdUU : 0.0f);
     }
 
     // Menus show the Windows cursor; gameplay hides it. Track that state
