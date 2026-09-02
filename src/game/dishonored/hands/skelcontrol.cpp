@@ -404,6 +404,32 @@ static void SkcSaveNeutral(const char* why)
 
 static void ApplyHandToMeshInner()
 {
+    // 40.1 GATE STATE. When the hands are wrong the first question is always
+    // "is the drive even reaching the rig", and until now the log could not
+    // answer it: the two heartbeat counters both read 0 by design (see
+    // frame_hooks.cpp), so a healthy run and a dead one looked identical.
+    // These two lines make the gate itself observable.
+    //   Debug: the whole gate every 3 s, for anyone reading a full trace.
+    //   Info : ONLY the broken combination - drive on, zero controls found -
+    //          because a line that only prints when something is wrong is the
+    //          one people actually notice.
+    // Cost: both sit behind the per-category level gate and a GetTickCount
+    //       comparison, so a default (info) build evaluates one byte compare
+    //       per call in the common case and formats nothing.
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 3000,
+        "skc/gate: drive=%d slots=%d stale=%d probeFails=%d camIdx=%d "
+        "handMesh=%d armsHidden=%d menu=%d/%d splices=%lu handSize=%.2f",
+        (int)g_skcDrive, (int)g_skcPlayerN, (int)g_skcStale, (int)g_skcProbeFails,
+        (int)g_skcCamIdx, (int)g_handMesh, (int)g_armsHidden,
+        (int)g_menuOpen, (int)g_inMenu,
+        g_dxvkSplices ? (unsigned long)*g_dxvkSplices : 0UL, g_skcHandSize);
+    if (g_skcDrive && !g_skcPlayerN)
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+            "skc: drive is ON but NO SkelControl slots are latched (probeFails=%d, "
+            "stale=%d) - nothing is writing the rig, so hand size, pose and trims "
+            "all do nothing. The arms you see are the game's own, unscaled.",
+            (int)g_skcProbeFails, (int)g_skcStale);
+
     // 30.95: the SkelControl probe and drive run FIRST, above every early
     // return. They have nothing to do with the old hand system - they walk
     // GObjects and write AnimTree properties - and burying them below
