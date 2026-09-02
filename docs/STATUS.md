@@ -60,7 +60,35 @@ refactored DLL is build-verified, export-verified and body-verified only.
 
 ## Next steps (the plan)
 
+> **Session 2 changed the priority.** The freeze-then-rescale in gameplay is now the top
+> item, ahead of the port list below. The resolution, FOV, adapter and mono/stereo-UV
+> causes have all been eliminated by measurement.
+>
+> **Session 3 corrected session 2's suspect.** The exit crash is an EXECUTE fault (a call
+> through a freed code pointer), not a freed-memory write, and the faulting thread is NOT
+> the pace thread - both errors were instrument bugs, not engine facts (ENGINE_NOTES,
+> "reading the fingerprint correctly"). The next lead is the `CopyResource` size mismatch
+> in the publish path, item 0 below. Uncommitted work from sessions 2 and 3 is in the
+> working tree (22 files); nothing was pushed.
+
+
 The port finishes opportunistically; the headset work comes first.
+
+0. **The freeze, next three moves** (session 3; none of them need a headset to write):
+   a. **`CopyResource` size mismatch in the publish path.** `g_eyeTex` is sized by
+      `EnsurePipeline`, which latches on `g_pipelineReady`; `g_xrpTex` and the swapchains
+      are sized from `g_xrEyeW/H`, re-read on **every** bring-up attempt
+      (`XrRtTryInit` retries 10 times, 5 s apart). If an attempt gets past
+      `EnsurePipeline` and then fails at `xrCreateSession`, the next attempt can come back
+      at a different recommended size, and `XrRtPublish`'s
+      `CopyResource(g_xrpTex, g_eyeTex)` becomes a **permanent silent no-op** - a frozen
+      headset image with every call returning success. Log both sizes at publish and
+      refuse the mismatch loudly; recreate `g_xrpTex` when `g_xrEyeW/H` move.
+   b. ~~**`xrWaitSwapchainImage` timeout is treated as success.**~~ DONE (session 3).
+   c. ~~**Nothing joins the pace thread.**~~ DONE (session 3). `xrRequestExitSession` /
+      `xrEndSession` / `xrDestroySession` are still never called - deliberately left for a
+      separate change, since it needs the pace loop's cooperation and rule 1 of the
+      handoff's process rules is one behavioural change per build.
 
 1. **Sources from the author.** Ask GingasVR for `dllmain_38.72.cpp`, `dllmain_39.4.cpp` and
    the fork's p53 commit (`45116f2f`, `dxvk_vr_view`) from `G:\back\Dishonored vr\out\`. Diff
@@ -84,11 +112,204 @@ The port finishes opportunistically; the headset work comes first.
 
 ## Blockers
 
-- No game on the dev PC (2026-09-02).
-- DXVK build toolchain (meson, ninja, glslangValidator) not installed on the dev PC.
 - The 38.72 / 39.4 sources and the p53 fork commit live only in the author's archive.
+- **The freeze-then-rescale in gameplay is NOT fixed** (session 2). It survives the
+  resolution fix, the FOV fix and the mono/stereo UV rebuild fix. This is the one to
+  chase next; see the session 2 log for what has been ruled out, and the session 3 log
+  for which of session 2's leads turned out to be instrument bugs.
+- **No headset-run log survives.** Rotation is one deep and two simulator runs overwrote
+  both. The next headset run must have its `dishonored_vr.log` copied out before anything
+  else launches, or the same evidence is lost again.
+- Both blockers below were cleared on William's PC in session 2 and remain true only for
+  the other dev PC: the game IS installed, and the DXVK toolchain IS present, so the fork
+  and the proxy both build there.
 
 ## Session log
+
+### 2026-09-01 - session 3b: the render was PORTRAIT, so there was no stereo
+
+A headset run mid-session reported "the eyes are suuuuper far off and they both appear to
+be zoomed in", worse than before. Its log is the **first surviving headset log** and is
+archived outside the game folder. Cause found, fix applied, not yet tested.
+
+**Session 2's resolution fix set the render to 2750x2850, which is portrait, and the DXVK
+fork refuses to splice the main scene on a portrait viewport.** `d3d9_device.cpp:4381`
+sets the refusal reason `"rt-portrait"`; the per-eye splice at `:4578` runs only when that
+reason is `SPLICE`. So the world was drawn **mono** across the full frame while the proxy
+handed each eye a different **half** of it - unrelated views that cannot fuse, each
+magnified 2x by the stretch onto the quad. Exactly the report.
+
+**The splice counter lies about it.** Light shafts, shadows and the M8.1 quarter light pass
+splice under different conditions and kept working, so `splices=85` while the main scene
+never spliced once - which kept `g_sbsMonoNow` false and the half-frame UVs on. The fork's
+own log shows only effects splices.
+
+**The same gate kills the FOV measurement.** `dxvk_vr_proj`'s publish (`:5996`) is also
+gated on `Width > Height`, so `g_liveFovX` was 0 all session, the frustum-fill path fell
+back silently to the ini constant `GameFOVDeg=100`, and an assumed number set world scale.
+
+**This falsifies session 2's "the eyes ARE a stereo pair".** 32.7 mean-abs-diff static /
+11.5 after a head turn is exactly what two different halves of one mono frame produce. That
+test could not distinguish a stereo pair from two unrelated crops, so it could never have
+failed its own hypothesis.
+
+**Applied**: `2850x2750` - the same two numbers swapped. Same pixel cost, landscape by
+100 px, full-frame aspect 1.036 so the quad subtends 100 x 98 deg at `FovLever=100`.
+Changed in `tools/setup-game-ini.ps1` (defaults + a header section on why landscape is
+mandatory), applied to `DishonoredEngine.ini` and `DishonoredCompat.ini` via the tool (both
+backed up), and to the game folder's `dishonored_vr.ini` (backup `.pre-landscape`).
+
+**Instruments added so this cannot hide again**: a portrait capture logs an Error naming
+the fork's own refusal string and the fix (`present.cpp`); the frustum-fill path now says
+every 10 s whether world scale comes from the MEASURED render FOV or from the assumed ini
+constant (`eye_quads.cpp`).
+
+**Installed**: RelWithDebInfo proxy only (`install.ps1 -Release -SkipDxvk`) - the fork and
+`dxvk_stereo.txt` are untouched, so the resolution is the only render-path variable. The
+proxy's other changes (session 3 below) are the shutdown/pace lane and logging, which
+cannot confound the zoom result.
+
+**Not yet tested.** If the fix worked the portrait Error is absent and the eyes fuse; if
+the Error appears, the resolution did not take and AppCompat is overwriting it again.
+
+### 2026-09-01 - session 3: the crash fingerprint was misread, and why
+
+No launches: everything here comes from artifacts already on disk plus the source. The
+game is installed on this PC, but nothing was run.
+
+**Two of session 2's conclusions are instrument bugs, not engine facts.**
+
+1. **The exit crash is an EXECUTE fault, not a freed-memory write.**
+   `ExceptionInformation[0]` is three-valued (0 read, 1 write, 8 execute/DEP) and the
+   fingerprinter tested it for truth, so every execute fault has printed as "writing". The
+   records prove it: `ExceptionAddress == ExceptionInformation[1] == 0xDEDEDEDE` with the
+   module resolving to `?`. A data write would have left `ExceptionAddress` inside
+   `d3d11.dll`. **EIP landed in freed memory: a call through a poisoned code pointer.**
+2. **The faulting thread is not the pace thread.** All three records say `(other)`, which
+   `thread_name()` returns only for a tid in no registered slot; `present` and `xr-pace`
+   both register at entry. The faulter is a third-party worker (d3d11, driver, runtime).
+   The pace thread can be the cause, but instrumenting it as the victim will find nothing.
+
+**Two evidence channels were dead and are now fixed.**
+
+- **`dumps\` was empty by construction.** 3 `EXCEPTION` lines, 0 `minidump` lines: proof
+  that `unhandled()` never ran, because UE3's own filter/SEH frame consumes the fault
+  before `SetUnhandledExceptionFilter` fires. The dump is now taken from the **vectored**
+  handler (which always runs), gated on the instruction pointer resolving to no loaded
+  module - fatal-only by construction, and falsifiable: an ordinary in-module fault
+  produces no dump and disproves the wild-EIP reading. `dbghelp.dll` is resolved at
+  `install()` time so the VEH never touches the loader lock.
+- **The crash file had no run identity.** `FILE_APPEND_DATA` / `OPEN_ALWAYS` with nothing
+  separating runs, and `dvr-xrsim` and VDXR produce byte-identical fingerprint text, so
+  the three records cannot be attributed to a backend at all. Now one header per run
+  (clock, version, build id, pid, backend + runtime name).
+- **Log rotation is one deep**, so two simulator runs erased both headset logs; the
+  survivors contain no `EXCEPTION` and no `PreExit`. Copy the log out before each launch.
+
+**The author read this fault correctly and session 2 inverted it.** The 38.79 comments say
+"EIP dededede" and "a call through freed memory". 38.79 acted on that by standing the
+**game** thread down at `PreExit`, which was right but not the whole path - it left the
+pace thread running with nobody waiting for it. Closed below.
+
+**Two pace-lane defects fixed** (steps 0b and 0c):
+
+- **`XR_TIMEOUT_EXPIRED` is a success code.** `XrResult` is negative for failure only, so
+  `XR_FAILED()` is false for it and `!XR_FAILED(xrWaitSwapchainImage(...))` ran
+  `CopyResource` into an image the compositor had not finished reading - a race with the
+  runtime on the one resource the headset displays, invisible because every call returns
+  success. Now `== XR_SUCCESS`. In the same block `g_xrpShown` advanced **before** the
+  copies, so a frame lost to a timeout was dropped permanently instead of retried; it now
+  advances only once both eyes actually received the content.
+- **`XrPaceStop()` joins the pace thread**, bounded at 750 ms, replacing the bare
+  `g_xrRun = 0`. On expiry the thread is left running on purpose - `TerminateThread` would
+  orphan `g_xrCs` and abandon an acquired swapchain image, which is worse than the race -
+  and the error line is the instrument: a fault after it means the pace lane is still the
+  suspect, a fault without it means the thread was already gone and it is not. The event
+  pump's inner `while` now tests `g_xrRun` so an event backlog cannot hold the loop past a
+  stop request.
+
+**Changed** (8 files, uncommitted): `src/core/util/crash.cpp` and `crash.h` (three-valued
+AV decode; run header; `set_context`; shared `write_dump` with the wild-EIP gate),
+`src/core/vr/openxr_backend.cpp` (names the runtime in the crash context),
+`src/core/vr/openxr_pace.cpp` (the wait fix, the retry fix, `XrPaceStop`),
+`src/game/dishonored/ue3/process_event.cpp` (`PreExit` joins), `src/mod/fwd.h`,
+`docs/dishonored/ENGINE_NOTES.md`, `docs/STATUS.md`. Verified: Debug, RelWithDebInfo and
+`-Legacy` all build, and both DLLs carry the new strings; `lint.ps1` clean; exports 9/9
+undecorated. **Not run in the game, in the simulator, or in a headset.**
+
+**Next**: step 0a - the `CopyResource` size mismatch, which is still only a code-reading
+hypothesis. Then the full `xrRequestExitSession` / `xrDestroySession` shutdown.
+
+### 2026-09-02 - session 2: instrumentation, resolution, and a real headset
+
+**First session with the game actually installed and a real Quest + Virtual Desktop
+headset on the other end.** Environment: proxy and fork both built from source with
+MSVC (meson + ninja + glslang 16.5.0 standalone, no Vulkan SDK); `tools\build-dxvk.ps1`
+needed two fixes to run at all on a PC with VS 2026 installed next to VS 2022.
+
+**Fixed and verified**
+
+- **Resolution.** `ResX` in `DishonoredEngine.ini` never held: UE3 AppCompat picks an
+  `[AppCompatBucketN]` at startup and writes that bucket's ResX/ResY over
+  `[SystemSettings]`. Buckets 3 and 4 ship 1600x900, and any GPU newer than the 2012
+  table lands in one, so every modern machine started at 1600x900 forever. Fix: set all
+  four buckets; `tools\setup-game-ini.ps1 -Resolution` now does this and defaults to
+  2750x2850. Measured before/after: `CreateDevice (1600x900)` -> `CreateDevice
+  (2750x2850)`, `capture: 2750x2850` on the FIRST device creation, no setres needed.
+- **`setres` is a dead end.** Measured `setres 2750x2850w -> "(empty reply)"` with NO
+  device Reset following. New `[Screen] PinBackbuffer=1` (default OFF) sets the size in
+  the present parameters at CreateDevice instead. The 32.57 "image in the corner"
+  objection is answered by the GetClientRect hook that landed later.
+- **World scale.** `W` is pinned to the rendered FOV and `H = W / frameAspect`, so a
+  squarer render makes a taller virtual screen than the lenses can show and the player
+  sees a magnified middle. 2750x2850 at FovLever=130 subtends 100x132 deg; at 100 it is
+  100x102, which matches the headset. FovLever set to 100.
+- **The mono/stereo UV race.** `BuildEyeQuads` BAKES the sampling UVs, but the rebuild
+  only fired on an aspect change or a menu toggle. `g_sbsMonoNow` flips during gameplay
+  whenever the fork's splice count dips, so a mono frame could be sampled with stereo
+  UVs and each eye got a different half of one mono image. Now a change in frame kind
+  forces a rebuild, exactly like the menu flag.
+
+**Instrumentation added** (see the new "Logging" section in `CLAUDE.md`)
+
+- Full DXGI adapter enumeration, the LUID the runtime asks for, and the adapter read
+  back OUT of the finished device with an Error-level mismatch line.
+- `RESOLUTION CHANGED MID-SESSION` at Warn, `quad: ... subtends AxB deg` per rebuild
+  with a Warn past 110 deg vertical, `res: the game asked for WxH`, and a `skc/gate:`
+  line for the hand drive.
+- The hands heartbeat now names the OWNER and reports that owner's counter.
+
+**Corrected beliefs** (all three were believed and are wrong)
+
+1. "The hand graft never attaches." It attaches fine: `OWNER=SkelControl writes=~406/3s`
+   in gameplay. The old heartbeat tracked two counters that read 0 BY DESIGN - one a
+   retired subsystem, one the legacy drive that is deliberately stood down. Three
+   readers including the original author concluded "the hands are dead" from a healthy
+   run.
+2. "The 39.3 adapter bug needs two GPUs." DXGI enumerates the SAME RTX 4070 Ti SUPER
+   twice on this PC (virtual display drivers), so the default adapter is not stable on
+   single-GPU machines either. **But on the real VDXR run the runtime asked for
+   adapter[0], which IS the default, so the LUID mismatch is NOT the cause of the
+   symptoms on this rig.** 40.1 still fixes the class of bug and makes it visible.
+3. "The eyes are not a stereo pair." Measured 32.7 mean-abs-diff when static, but 11.5
+   after a head turn, which is normal parallax. Stereo works; the divergence is a
+   symptom of the freeze, not the disease.
+
+**Still broken: the freeze-then-rescale.** Reported again after all of the above. What
+is ruled out: the resolution (it now stays 2750x2850), the adapter (matched), the FOV
+(100), the mono/stereo UV race (fixed), and the hand drive (working). What is NOT ruled
+out and is where to look next:
+
+- The **shutdown crash is a teardown race** and may share a root with the freeze: three
+  runs ended with `EXCEPTION 0xc0000005 writing 0xDEDEDEDE` inside `d3d11.dll`, two
+  threads at once, immediately after `PreExit` stops the pace thread. 0xDEDEDEDE is
+  freed-memory poison. The detached pace thread is touching released D3D11 objects.
+- The pace thread owns every runtime call while the game thread owns capture and
+  UpdateSubresource on the SAME `g_ctx11`; ID3D11DeviceContext is NOT thread-safe.
+  `ID3D10Multithread` is enabled but that protects the device, not a stale pointer.
+- Instrument the frame path next: log around the Reset/teardown boundary and around
+  every `g_ctx11` use from the pace lane, and get a minidump analysed from
+  `%LOCALAPPDATA%\DishonoredVR\dumps`.
 
 ### 2026-09-02 - session 1: development framework
 

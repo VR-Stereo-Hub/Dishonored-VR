@@ -157,6 +157,159 @@ display rate because fps wandering 66-80 against 72/90 Hz was the measured stutt
 XR-3 architecture: a detached pace thread owns every runtime call (VDXR raced a haptic call
 from the render thread and trashed the heap); the game thread only publishes eye textures.
 
+## THE RENDER MUST BE LANDSCAPE (2026-09-01) - the portrait splice refusal
+
+The cause of "the eyes are super far off and both are zoomed in", and a self-inflicted
+regression: session 2's resolution fix set the render to **2750x2850, which is portrait**.
+
+`dxvk/src/d3d9/d3d9_device.cpp`:
+
+- **Line 4381** - the main scene's splice gate ends with
+  `else if (!(stVpS.Width > stVpS.Height)) stWhy = "rt-portrait";`
+- **Line 4578** - the per-eye splice runs only `if (stWhy == kSplice)`.
+
+So on a portrait viewport the fork **does not splice the main scene at all**. The world is
+drawn **mono** across the full frame. The proxy, which has no idea, still hands eye 0 the
+left half and eye 1 the right half (`eye_quads.cpp`, `u0 = eye ? 0.5 : 0.0`). Two unrelated
+views that cannot fuse, each stretched across the whole quad and therefore magnified 2x.
+That is precisely the reported symptom, and it is worse than a black screen because
+everything downstream keeps reporting success.
+
+**The splice counter lies about this.** Light shafts, shadows and the M8.1 quarter light
+pass splice under *different* conditions (lines 4526-4527, `"mirrored-vp"` or
+`"vp!=rt" && stQuarter`), so they keep working. The measured run showed `splices=85` with
+the main scene never spliced, which kept `g_sbsMonoNow` false and the half-frame UVs on.
+The fork's own log confirms it: only `shaftfix`, `shadowfix` and `M8.1 quarter light pass`
+lines, no main-scene splice.
+
+**Line 5996 carries the same landscape gate** on `dxvk_vr_proj`, the projection export:
+`pjVp.Width >= 1024 && pjVp.Width > pjVp.Height`. So a portrait render also kills the one
+MEASURED source of the rendered FOV. `g_liveFovX` stayed 0 for the entire session, the
+frustum-fill path fell back to the ini constant `GameFOVDeg=100` with no log line, and an
+assumed number set world scale from start to finish.
+
+**Fix: 2850x2750** - the same two numbers swapped. Identical pixel cost, landscape by
+100 px so the gate passes, full-frame aspect 1.036 so the eye quad subtends 100 x 98 deg at
+`FovLever=100`, which is right for a Quest 3. `tools/setup-game-ini.ps1` now defaults to it
+and its header explains why; keep `Width > Height` for any other value.
+
+**This falsifies session 2's third "corrected belief".** "The eyes are not a stereo pair" was
+recorded as disproved on a measurement of 32.7 mean-abs-diff static, 11.5 after a head turn,
+read as ordinary parallax. Two different halves of one mono frame produce exactly that, and
+the head-turn change is the image scrolling, not parallax. The eyes were genuinely not a
+stereo pair. **A large diff between two crops is not evidence of stereo** - the test cannot
+tell a stereo pair from two unrelated crops, so it never could have failed its hypothesis.
+
+40.2 adds a proxy-side detector: a portrait capture now logs an Error naming the fork's
+refusal reason and the fix, so this cannot be silent on both sides of the boundary again.
+
+## The exit crash: reading the fingerprint correctly (2026-09-01)
+
+Three records in `dishonored_vr_crash.txt`, register-identical, all after `PreExit`. The
+session-2 reading of them ("0xDEDEDEDE freed-memory *writes* in d3d11.dll; the detached
+pace thread is touching released D3D11 objects") is **wrong in both halves**, and both
+errors came from the instrument rather than the engine.
+
+**It is an EXECUTE fault, not a write.** `ExceptionInformation[0]` for an access violation
+is three-valued: 0 read, 1 write, **8 execute (DEP)**. The fingerprinter tested it for
+truth, and 8 is truthy, so every execute fault in this project's history printed as
+"writing". The proof it is 8 is in the record itself: `ExceptionAddress ==
+ExceptionInformation[1] == 0xDEDEDEDE`, and the module resolved to `?`. A data write would
+have left `ExceptionAddress` at the faulting instruction *inside* `d3d11.dll` and printed
+`[d3d11.dll+0x...]`. So EIP itself landed in freed memory - a **call through a poisoned
+code pointer** (a freed vtable or callback), which is the opposite failure from a stray
+store, and points at a destroyed COM object rather than at unsynchronised context use.
+
+**The faulting thread is not the pace thread.** All three say `tid=... (other)`, and
+`thread_name()` returns `"other"` only when the tid matches nothing in the registered
+table. Both `present` (registered at `RenderEyesAndSubmit` entry) and `xr-pace` (registered
+as the pace thread's first statement) are in that table before any crash can happen. The
+direct faulter is a third-party worker - d3d11, the display driver, or the VR runtime. The
+pace thread may still be the *cause* (it can outlive an object another thread then calls
+through); it is not the victim, and instrumenting it as the victim will find nothing.
+
+**Corollary for the register dump.** `ecx = esi = 0xDEDEDEDE` with `ebx = 0x24` and
+`edi = eax - 0x20` is then not "a poisoned `this` being written through" but the poisoned
+values still in the argument registers at the moment control was transferred - consistent
+with a `thiscall` through a freed object's function pointer, made from
+`d3d11.dll+0x4dfcd`'s call site (the return address in `esp[0]`).
+
+Fixed in 40.2: `crash.cpp` decodes all three operations and names the
+address-equals-EIP case explicitly.
+
+## Why `dumps\` was always empty (2026-09-01)
+
+Not a permissions or path problem. The crash file holds 3 `EXCEPTION` lines and **0
+`minidump` lines**, which is direct proof that `unhandled()` never executed: UE3 wraps
+`WinMain` in its own `__try` and installs its own filter, so the fault is consumed before
+`SetUnhandledExceptionFilter`'s handler can run. The dump path was unreachable by
+construction for the entire life of the project.
+
+40.2 takes the dump from the **vectored** handler instead, which always runs, gated on the
+instruction pointer resolving to **no loaded module** (`module_of` returns base 0). That
+gate is fatal-only by construction - no `__except` frame can resume a thread whose EIP is
+in unmapped or freed memory - so it cannot fire on the first-chance exceptions UE3 raises
+and handles deliberately. It is also falsifiable: if the crash ever turns out to be an
+ordinary in-module fault, no dump appears, and the wild-EIP reading is disproved by the
+silence. `dbghelp.dll` is resolved once at `install()` time, never inside the handler, so
+the VEH does not touch the loader lock.
+
+**The original author read this fault correctly and session 2 inverted it.** The 38.79
+comments say "EIP dededede after PreExit" and "a call through freed memory"
+(`process_event.cpp`, `frame_hooks.cpp`). That is the execute-fault reading, arrived at
+without the decode bug getting in the way. 38.79 acted on it by standing the **game**
+thread down at `PreExit` - which is correct and necessary, and was never the whole path.
+
+## The pace lane at shutdown (40.2)
+
+38.79 set `g_xrRun = 0` and returned. Nothing waited. The pace thread can be up to 100 ms
+inside `xrWaitFrame`, another 100 ms inside `xrWaitSwapchainImage`, or mid `CopyResource`
+into `g_xriImg[eye][idx]` - swapchain textures **owned by the runtime**, never AddRef'd by
+us, which stop existing when it tears its session down. So the exact fault 38.79 set out to
+prevent still had an open path through the lane 38.79 did not close.
+
+`XrPaceStop(why)` now joins with a 750 ms bound. On expiry the thread is **left running on
+purpose**: `TerminateThread` would abandon `g_xrCs` held (deadlocking any later publish)
+and abandon an acquired swapchain image the runtime is still tracking, which is worse than
+the race. The error line is the instrument - a fault *after* it means the pace lane is
+still the one to chase; a fault *without* it means the thread was already gone and the pace
+lane is not the cause. The event pump's inner `while` also tests `g_xrRun` now, so a
+runtime with an event backlog cannot hold the loop past a stop request.
+
+Still not done, and deliberately not bundled in: `xrRequestExitSession` /
+`xrEndSession` / `xrDestroySession` are never called. Doing that properly needs the pace
+loop's cooperation and is a second behavioural change (rule 1 in the handoff's process
+rules). Note also that `PreExit` is a UE3 script event: a kill or a hard crash never fires
+it, and the join must NOT be moved into `DllMain(DLL_PROCESS_DETACH)`, where waiting on a
+thread under the loader lock is a textbook deadlock.
+
+## `XR_TIMEOUT_EXPIRED` is a success code (40.2)
+
+`XrResult` is negative for failure only, so `XR_TIMEOUT_EXPIRED` (+1) makes `XR_FAILED()`
+**false**. The pace loop's `if (!XR_FAILED(g_xrf.wait(...)))` therefore ran `CopyResource`
+into an image the compositor had not finished reading - a data race with the runtime on the
+one resource the headset displays, invisible because every call returns a success code. Now
+tested as `== XR_SUCCESS`.
+
+Same block: `g_xrpShown = seq` used to advance **before** the copies, so any frame lost to
+a timeout was dropped permanently rather than retried. It now advances only once both eyes
+have actually received the content. The image is still released after a timeout to keep
+acquire/release paired - an unreleased image starves the swapchain within a few frames,
+which is a hard stall rather than one stale frame.
+
+## Evidence handling (both cost a session)
+
+- **Log rotation is one deep.** `dishonored_vr.log` + `.prev.log` only. Two simulator runs
+  after a headset session destroyed both headset logs; only the crash text survived, and
+  the surviving pair contained no `EXCEPTION` and no `PreExit` at all. Copy the log out
+  before the next launch, always.
+- **The crash file had no run identity.** It is opened `FILE_APPEND_DATA` / `OPEN_ALWAYS`
+  and accumulates forever with nothing separating runs. `dvr-xrsim` and VDXR fault into the
+  same `d3d11.dll` and produce byte-identical fingerprint text, so three records could not
+  be attributed to a backend, a runtime or a build. 40.2 writes one header per run (wall
+  clock, `DVR_VERSION`, `DVR_BUILD_ID`, pid, backend + runtime name via
+  `dvr::crash::set_context`, called from the OpenXR backend once the runtime names itself).
+
 ## Other seams (verified)
 
 - Blink: the source-vector detour (above) plus `BlinkControllerDir` and `BlinkReach`

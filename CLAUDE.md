@@ -58,6 +58,47 @@ repo continues it with the author's permission. Single game, one branch: `VR-Mai
   crouching and hands must never stop working; do not attribute logs to machines by drive
   letter, check the build tag. Read the handoff's Traps and Dead ends before writing code.
 
+## Logging
+
+**Log generously. The log is the only instrument a remote tester can send back.**
+Most of this project's open bugs live on machines we cannot attach a debugger to, so a run
+that reproduces a fault and explains nothing is a wasted run and a wasted tester. Every
+session writes `dishonored_vr.log` next to the exe (previous run rotated to
+`dishonored_vr.prev.log`); `dvr::log::init` runs from `DllMain` before anything else can
+fail, and **must never be gated** on VR bring-up, a config read, or a headset being present.
+A run always produces a log, even one that dies in the first second.
+
+Extensive does not mean noisy. The rules that buy volume without cost:
+
+- **Use the levels.** `Error`/`Warn` are for things a player or a maintainer must act on;
+  `Info` is the readable narrative of a run and is what a bug report contains; `Debug`/
+  `Trace` belong to a lane under investigation and stay off until asked for
+  (`DVR_LOG=trace`, `DVR_LOG_CATS=hands:debug,openxr:trace`).
+- **Never pay for a line you do not print.** `DVR_LOG` and friends evaluate their arguments
+  only after the per-category threshold passes, so put the work INSIDE the call. Computing
+  into a local first, or reading engine memory to build an argument, spends the cost
+  unconditionally and defeats the gate.
+- **Nothing unbounded in a per-frame or per-draw path.** Use `DVR_LOG_EVERY_MS`,
+  `DVR_LOG_ONCE` or `DVR_LOG_FIRST_N`. An ungated per-frame `Info` line is both a
+  performance bug and a way to bury the three lines that mattered.
+- **Log state CHANGES, not state.** `capture: 4032x2268 -> 2560x1440` earns a `Warn`; the
+  same size every frame earns nothing.
+- **An instrument that cannot fail its own hypothesis is not evidence.** A counter line must
+  also say what would make the counter move, and it must be able to print the unwelcome
+  answer. Two heartbeat counters read 0 **by design** for a whole architecture and were read
+  as "the hands are dead" by three separate readers, including the original author (40.1).
+  If a zero is expected, the line must say so on the line.
+- **Name the owner before the result.** Where several subsystems can drive one thing
+  (hands, camera, resolution), log WHICH one owns it, then what it did. Otherwise a healthy
+  run and a dead one produce identical text.
+- **Every refused guard says why, with the values.** A hook that declines, a probe that
+  finds nothing, a resolution that is not honoured: log the reason and the numbers that
+  produced it. "setres -> (empty reply)" is a dead end; the mode list, the request and the
+  result together are a diagnosis.
+- **Log the derived number, not just the inputs.** Where geometry decides what the player
+  sees (subtended angles, aspect, world scale), log the computed result so a complaint like
+  "everything is too big" is arithmetic instead of opinion.
+
 ## Session protocol
 
 - **START**: read `docs/STATUS.md`, the current milestone in `docs/ROADMAP.md`, then
