@@ -209,9 +209,24 @@ static void LoadConfig()
     bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;
     int ver = (int)IniFloat(ini, "Meta", "Version", 0);
     if (missing || ver < kConfigVersion) {
+        // 41.0: a launcher may have put the runtime selection into an ini that
+        // has never been through this build ([VR] XrRuntimeJson from
+        // xrsim-launch.ps1 -ViaSteam, or [VR] Runtime=steamvr by hand). The
+        // wholesale rewrite must carry those two over, or a Steam launch on
+        // the simulator lands on the registry runtime and the launcher's
+        // assertion is the only thing that notices (measured 2026-09-02).
+        char keepJson[2 * MAX_PATH] = "", keepRt[16] = "";
+        if (!missing) {
+            GetPrivateProfileStringA("VR", "XrRuntimeJson", "", keepJson, sizeof(keepJson), ini);
+            GetPrivateProfileStringA("VR", "Runtime", "", keepRt, sizeof(keepRt), ini);
+        }
         WriteDefaultIni(ini);
-        Log("config: wrote fresh ini (was %s, now v%d)",
-            missing ? "missing" : "outdated", kConfigVersion);
+        if (keepJson[0]) WritePrivateProfileStringA("VR", "XrRuntimeJson", keepJson, ini);
+        if (keepRt[0])   WritePrivateProfileStringA("VR", "Runtime", keepRt, ini);
+        Log("config: wrote fresh ini (was %s, now v%d)%s%s",
+            missing ? "missing" : "outdated", kConfigVersion,
+            keepJson[0] ? " - kept [VR] XrRuntimeJson" : "",
+            keepRt[0] ? " - kept [VR] Runtime" : "");
     }
     g_trackingEnabled = IniFloat(ini, "Tracking", "Enabled", 1) != 0.0f;
     g_yawCounts    = IniFloat(ini, "Tracking", "YawCountsPerDegree", 11.5f);

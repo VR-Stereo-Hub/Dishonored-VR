@@ -136,7 +136,7 @@ try {
         if (Test-Path $iniPath) { $iniBackup = "$iniPath.xrsim-bak"; Copy-Item $iniPath $iniBackup -Force }
         Set-IniKey $iniPath "VR" "XrRuntimeJson" $manifest
         Write-Host "launching through Steam with [VR] XrRuntimeJson -> the simulator (ini backed up)"
-        & (Join-Path $PSScriptRoot "launch-game.ps1") -GamePath $GamePath | Out-Null
+        & (Join-Path $PSScriptRoot "launch-game.ps1") -GamePath $GamePath -WaitSeconds 150 | Out-Null
     } else {
         Write-Host "launching Dishonored.exe directly with XR_RUNTIME_JSON -> the simulator"
         $p = if ($ExtraArgs -and $ExtraArgs.Count -gt 0) {
