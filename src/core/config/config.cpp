@@ -343,6 +343,8 @@ static void LoadConfig()
     g_padDeadzone = IniFloat(ini, "Controllers", "Deadzone", 0.12f);
     if (g_padDeadzone < 0.0f)  g_padDeadzone = 0.0f;
     if (g_padDeadzone > 0.6f)  g_padDeadzone = 0.6f;
+    dvr::pad::set_enabled(g_padEnabled);
+    dvr::pad::set_deadzone(g_padDeadzone);
     g_fireTraceEnabled = IniFloat(ini, "Debug", "FireTrace", 1) != 0.0f;
     g_maimEnabled  = IniFloat(ini, "MotionAim", "Enabled", 1) != 0.0f;
     {
@@ -666,6 +668,7 @@ static void LoadConfig()
             g_crouchBtnMask = 0x2000;
         }
     }
+    dvr::pad::set_crouch_mask(g_crouchBtnMask);   // after the 32.44 reset
     for (int hh = 0; hh < 2; hh++) {
         static const char* kAx2[3] = { "Fwd", "Right", "Up" };
         for (int q = 0; q < 3; q++) {

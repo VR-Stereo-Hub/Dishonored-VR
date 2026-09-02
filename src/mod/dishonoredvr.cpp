@@ -33,6 +33,7 @@
 #include "core/framework/frame_hooks.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/capture.h"
+#include "core/input/pad_bridge.h"
 #include "game/dishonored/camera.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
@@ -80,7 +81,6 @@
 #include "mod/state/50_game_dishonored_fov_lever.inc"
 #include "mod/state/51_legacy_spacebases.inc"
 #include "mod/state/52_game_dishonored_head_track.inc"
-#include "mod/state/53_core_input_pad_bridge.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
@@ -107,9 +107,6 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::pad
 #include "core/input/hotkeys.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::pad
-#include "core/input/pad_bridge.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::overlay
 #include "core/ui/overlay.cpp"

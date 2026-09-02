@@ -272,15 +272,13 @@ static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, ID
 static void DumpVSConstScan();
 static SHORT MenuStep(SHORT v, int axis);
 static void TrackHead(const float (*m)[4]);   // 3x4 device-to-tracking
-static inline SHORT PadStick(float v);
 static void MaimHaptic(int hand, float amp, float durSec);
 static void HealthElixirTick(bool held);
+static bool CrouchPulseTick(bool userStealth);
 static void MeleeTick();
 static bool MeleeActive();
-static void UpdateVirtualPad();
 static DWORD WINAPI hkXInputGetState(DWORD user, XINPUT_STATE* st);
 static DWORD WINAPI hkXInputSetState(DWORD user, XINPUT_VIBRATION* vib);
-static void InstallPadHook();
 static void RtdMarkerTick();
 static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where);
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved);

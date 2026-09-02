@@ -78,9 +78,10 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
     if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
     if (!strcmp(cmd, "vrinput")) {
-        if (DvrOnOff(args, &b)) { g_padEnabled = b; Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }
+        if (DvrOnOff(args, &b)) { g_padEnabled = b; dvr::pad::set_enabled(b);
+            Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }
         Log("input: pad %s active=%d polls=%ld actions=%s haptics=%d (vrinput on|off|status)",
-            g_padEnabled ? "enabled" : "disabled", (int)g_padActive, (long)g_padPolls,
+            g_padEnabled ? "enabled" : "disabled", (int)dvr::pad::active(), dvr::pad::polls(),
             dvr::vr::input_attached() ? "attached" : "not attached", (int)(g_padHaptics && g_xrHaptics));
         return true;
     }
@@ -163,7 +164,8 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("hooks");
     w.kv("processEvent", (bool)g_peInstalled);
     w.kv("blinkDir", (bool)g_blkDirOn); w.kv("blinkDst", (bool)g_blkDstOn); w.kv("blinkTrc", (bool)g_blkTrcOn);
-    w.kv("pad", (bool)g_padActive);
+    w.kv("pad", (bool)dvr::pad::hooked());        // the IAT patch is in
+    w.kv("padActive", (bool)dvr::pad::active());  // ...and controllers are feeding it
     w.kv("xrInput", dvr::vr::input_attached());
     w.end_obj();
     w.obj("features");
@@ -178,7 +180,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("exiting", InterlockedCompareExchange(&g_gameExiting, 0, 0) != 0);
     w.obj("counters");
     w.kv("submits", (unsigned long)dvr::frame::submit_count()); w.kv("gameFrames", (unsigned long)g_gameFrames);
-    w.kv("padPolls", (unsigned long)g_padPolls); w.kv("headHits", (unsigned long)g_pvrHits);
+    w.kv("padPolls", (unsigned long)dvr::pad::polls()); w.kv("headHits", (unsigned long)g_pvrHits);
     w.kv("headWrites", (unsigned long)g_pvrWrites); w.kv("handWrites", (unsigned long)g_fpWrites);
     w.kv("commands", (unsigned long)dvr::command::sequence());
     w.end_obj();

@@ -308,11 +308,11 @@ static void OverlayFrame()
             ImGui::TextDisabled("%s  -  button %s, stance %s",
                 g_crouchTogLock ? "measured from your own crouches" : "assumed;"
                 " crouch twice and it measures itself",
-                (InterlockedCompareExchange(&g_sneakBtn, 0, 0) != 0) ? "DOWN" : "up",
+                dvr::pad::crouch_down() ? "DOWN" : "up",
                 g_crouchBtnSt ? "CROUCHED" : "standing");
             ImGui::TextDisabled("crouch button mask 0x%04x   pad now 0x%04x",
                 (unsigned)g_crouchBtnMask,
-                (unsigned)InterlockedCompareExchange(&g_padBtnsPub, 0, 0));
+                (unsigned)dvr::pad::buttons());
             if (ImGui::Button(g_crouchBindArm
                     ? "...now press your crouch button"
                     : "bind my crouch button", ImVec2(-1, 0))) {

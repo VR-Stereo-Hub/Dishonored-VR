@@ -12,7 +12,7 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hinst);
-        InitializeCriticalSection(&g_padLock);
+        dvr::pad::init();
         dvr::clock::init();
         { LARGE_INTEGER f; if (QueryPerformanceFrequency(&f)) g_qpcFreq = f.QuadPart; }
         dvr::paths::init(hinst);
@@ -50,7 +50,7 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
         // snapped by the loader at this point, and VirtualProtect/GetProcAddress
         // are loader-lock-safe. From the game's first poll we answer "pad
         // connected" (neutral state until the VR controllers come online).
-        if (!g_disabled) InstallPadHook();
+        if (!g_disabled) dvr::pad::install_hook(kXIGetSlot, kXISetSlot);
     } else if (reason == DLL_PROCESS_DETACH) {
         DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Info, "=== proxy unloading ===");
         dvr::log::shutdown();

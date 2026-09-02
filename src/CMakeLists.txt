@@ -49,6 +49,7 @@ set(DVR_REAL_SOURCES
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
     core/gfx/mono_screen.cpp
     core/gfx/aer.cpp
+    core/input/pad_bridge.cpp  core/input/pad_bridge.h
     core/gfx/reentry.cpp
     game/dishonored/camera.cpp game/dishonored/camera.h
     core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h

@@ -155,16 +155,9 @@ static bool     g_bWantsCrFound = false;
 static bool     g_crouchDiag    = true;   // [Hands] CrouchDiag
 static uint8_t* g_crouchPawnWas = NULL;
 static double   g_crouchDiagNext = 0.0;
-// 38.25 crawlbox: raw movement stick as the CONTROLLER sent it, captured in
-// both pad compose paths BEFORE any menu/shaping logic, so the crouch/raw
-// line can print raw-vs-delivered side by side.
-static float    g_dbgRawMx = 0.0f;
-static float    g_dbgRawMy = 0.0f;
-// ...and the DELIVERED movement stick, mirrored from the final synthesized
-// pad AFTER menu shaping (g_padState lives further down the file and its
-// lock with it, so the diag block reads these lock-free mirrors instead).
-static SHORT    g_dbgOutLx = 0;
-static SHORT    g_dbgOutLy = 0;
+// 38.25 crawlbox: the raw and delivered movement stick moved into
+// core/input/pad_bridge with the rest of the pad state in 41.1; the diag
+// block reads them through dvr::pad::raw_move / delivered_stick.
 static bool     g_crouchForce   = false;  // overlay: pretend we are crouched
 static bool     g_crouchPend    = false;  // debounce: candidate state
 static double   g_crouchPendMs  = 0.0;
@@ -191,7 +184,6 @@ static float    g_crouchHoldMs  = 250.0f; // [Hands] CrouchHoldMs
 // constant standing in for a measurement. So the mask is now configurable, it
 // defaults to B|LEFT_THUMB, AND it learns: any button whose press is followed
 // by the camera dropping is a crouch button, whatever it happens to be bound to.
-static volatile LONG g_padBtnsPub = 0;    // the whole synthesized button mask
 // 32.44: the default is B ALONE. 32.42 also seeded LEFT_THUMB because the
 // physical-crouch detector synthesizes it - but physical crouch is off, the
 // user's bindings put something else on that bit, and seeding it gave the
@@ -225,7 +217,6 @@ static float    g_camZLast      = 0.0f;
 static double   g_camMoveMs     = 0.0;
 static uint32_t g_crouchBtnPrev = 0;
 static bool     g_crouchBindArm = false;  // overlay: adopt the next button
-static volatile LONG g_sneakBtn = 0;      // the crouch bit we send the game
 static bool     g_crouchToggle  = true;   // [Hands] CrouchToggle
 static bool     g_crouchTogLock = false;  // true once measured
 static int      g_crouchTogVote = 0;      // +1 toggle-ish, -1 hold-ish

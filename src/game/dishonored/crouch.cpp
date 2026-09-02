@@ -311,7 +311,8 @@ static void CrouchStateTick()
                           (float)((nw2 - lts) * 0.001);
                 lpx = px2; lpy = py2; lts = nw2;
             }
-            SHORT dlx = g_dbgOutLx, dly = g_dbgOutLy;
+            SHORT dlx = 0, dly = 0; dvr::pad::delivered_stick(&dlx, &dly);
+            float rawMx = 0.0f, rawMy = 0.0f; dvr::pad::raw_move(&rawMx, &rawMy);
             Log("crouch/raw: camZ=%.1f pawnZ=%.1f eye=%.1f  bIsCrouched=%d"
                 " bWants=%d eyeSays=%d  pad=0x%04x mask=0x%04x"
                 " btn=%d btnSays=%d (%s%s)"
@@ -320,12 +321,12 @@ static void CrouchStateTick()
                 " menu=%d/%d wheel=%d",
                 cz, pz, cz - pz, (int)flagSays, (int)wantsSays,
                 (int)g_eyeCrouched,
-                (unsigned)InterlockedCompareExchange(&g_padBtnsPub, 0, 0),
+                (unsigned)dvr::pad::buttons(),
                 (unsigned)g_crouchBtnMask,
-                (int)(InterlockedCompareExchange(&g_sneakBtn, 0, 0) != 0),
+                (int)dvr::pad::crouch_down(),
                 (int)g_crouchBtnSt, g_crouchToggle ? "toggle" : "hold",
                 g_crouchTogLock ? ", measured" : ", assumed",
-                g_dbgRawMx, g_dbgRawMy,
+                rawMx, rawMy,
                 dlx / 32767.0f, dly / 32767.0f, spd,
                 px2, py2,
                 (int)g_menuOpen, (int)g_inMenu, (int)g_wheelHeld);
@@ -334,7 +335,7 @@ static void CrouchStateTick()
 
     // --- signal C: the crouch button we send the game ----------------------
     {
-        uint32_t btns = (uint32_t)InterlockedCompareExchange(&g_padBtnsPub, 0, 0);
+        uint32_t btns = (uint32_t)dvr::pad::buttons();
         bool held = (btns & g_crouchBtnMask) != 0;
         bool camOk = CamStillValid() && RangeReadable(g_camObj + 0x80, 12);
         const float* cpv = camOk ? (const float*)(g_camObj + 0x80) : NULL;
@@ -573,4 +574,87 @@ static void CrouchStateTick()
             now ? "stand + crouch offset" : "stand",
             g_crouchForce ? " (FORCED by the overlay)" : "", cylH);
     }
+}
+
+
+// ----------------------------------------------------------------------------
+// The physical-crouch pulse (moved out of the pad path, 41.1)
+// ----------------------------------------------------------------------------
+// This used to live inside UpdateVirtualPad, which made "the gamepad is dead"
+// and "physical crouch misfired" the same eighty lines. It is motion crouch,
+// so it belongs here; the pad calls it through Callbacks::shape_buttons and
+// ORs XINPUT_GAMEPAD_B while it says true.
+//
+// Under [Mode] GamepadOnly=1 motion crouch is OFF, g_crouchHeld never moves,
+// and this returns false for the whole run. That zero is BY DESIGN.
+//
+// 32.87: physical crouch presses THE CROUCH BUTTON. It used to hold
+// LEFT_THUMB, which 32.42-32.44 measured is NOT crouch - the game's crouch is
+// B (0x2000), and it is a TOGGLE, so holding anything is wrong twice over.
+// Pulse B for ~120 ms on each stance transition.
+// 32.95: THE REFEREE IS WITHDRAWN. Making the player's real-world stance the
+// authority over the toggle is exactly backwards for a SEATED player; every
+// button crouch was cancelled within a second by "physical up". Back to
+// EDGE-triggered: a sustained real-world stance CHANGE sends one press, and
+// otherwise the button owns the toggle completely.
+// 33.5: WHO owns the current crouch. A seated player's ordinary chair posture
+// crosses the duck/rise thresholds all day, and a "rise" while button-crouched
+// was a legal un-crouch pulse: Corvo stood up under the boat the moment the
+// user sat back. The rule: PHYSICAL CROUCH MAY ONLY UNDO ITS OWN CROUCHES.
+static bool CrouchPulseTick(bool userStealth)
+{
+    static bool   crPulsed      = false;  // stance we last SENT
+    static bool   crSeen        = false;  // stance we last saw
+    static double crStableSince = 0.0;
+    static double crLastPulse   = 0.0;
+    static double crUntil       = 0.0;
+    static bool   crPhysOwned   = false;
+    double crNow = MaimNowMs();
+    if (g_crouchHeld != crSeen) {
+        crSeen = g_crouchHeld;
+        crStableSince = crNow;
+    }
+    {   // any button press claims the stance for the button
+        static bool stealthWas2 = false;
+        if (userStealth && !stealthWas2) crPhysOwned = false;
+        stealthWas2 = userStealth;
+    }
+    bool inGameplay = !g_inMenu;
+    bool aiming = dvr::pad::wheel_held() || (crNow - g_blkAimSeen) < 800.0;
+    if (crSeen != crPulsed &&
+        (crNow - crStableSince) > 300.0 &&
+        (crNow - crLastPulse)  > 1200.0 &&
+        !aiming && inGameplay && !userStealth) {
+        // 32.98: THE PULSE ASKS THE CYLINDER FIRST. Ducking your real head
+        // while already game-crouched - what every human does going under a
+        // boat hull - used to fire a pulse at a toggle and STAND CORVO UP
+        // under the boat. A duck-pulse only fires if the cylinder says
+        // standing, a rise-pulse only if it says crouched.
+        // 33.0: THREE stances, not two. 87.5 standing, 65 crouched - and 33
+        // inside vents, a forced crawl the game controls. Below normal crouch
+        // height the stance is not ours to change.
+        float chP = PawnCollisionHeight();
+        bool sendIt = true;
+        if (chP > 1.0f) {
+            bool gameCrouched = chP < 76.0f;
+            bool forcedLow    = chP < 50.0f;     // vents/crawls
+            sendIt = !forcedLow &&
+                   ( (crSeen && !gameCrouched)   // duck: need standing
+                  || (!crSeen && gameCrouched    // rise: need crouch
+                      && crPhysOwned));          //   ...that WE made
+        }
+        crPulsed = crSeen;             // stance acknowledged either way
+        if (sendIt) {
+            crPhysOwned = crSeen;      // our crouch now / undone
+            crLastPulse = crNow;
+            crUntil     = crNow + 120.0;
+            Log("crouch: physical %s (sustained) -> pulsing B (cylinder %.1f)%s",
+                crSeen ? "DOWN" : "up", chP,
+                crSeen ? " [physical owns this crouch]" : "");
+        } else {
+            Log("crouch: physical %s but the game is already there "
+                "(cylinder %.1f) - no pulse", crSeen ? "DOWN" : "up", chP);
+        }
+    }
+    return crNow < crUntil;
 }

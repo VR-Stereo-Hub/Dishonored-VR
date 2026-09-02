@@ -84,6 +84,137 @@ static void DvrConsumePoses()
     }
 }
 
+// ----------------------------------------------------------------------------
+// The virtual gamepad: Dishonored's half of core/input/pad_bridge.
+// ----------------------------------------------------------------------------
+// The core module composes a gamepad out of the runtime layer's raw snapshot
+// and knows nothing about this game. Everything below is what Dishonored adds
+// to that: which flags gate the sticks, what a stick click means, which bits
+// the game contributes to the mask, and where the room-scale offset comes
+// from. Registered once, from DvrInstallPad.
+
+// Stage 7.3: haptic feedback for MotionAim (catch confirmations, key acks)
+// and the game's own rumble. Queued; the runtime lane applies it.
+static void MaimHaptic(int hand, float amp, float durSec)
+{
+    if (!g_padHaptics || !g_xrHaptics) return;
+    dvr::vr::haptic(hand, amp, durSec);
+}
+
+static bool  PadMenuOpen()   { return g_menuOpen != 0; }
+static bool  PadCursorMenu() { return g_inMenu != 0; }
+static bool  PadCinematic()  { return CineActive(); }
+static bool  PadSprintBit(bool clickNow) { return SprintBit(clickNow); }
+static void  PadHealthHold(bool held)    { HealthElixirTick(held); }
+static SHORT PadMenuStep(SHORT v, int axis) { return MenuStep(v, axis); }
+
+// The bits the GAME contributes to the composed mask, in the order the
+// single-file build applied them: slide assist first, then the physical
+// crouch pulse. Both read 0 under [Mode] GamepadOnly - slide assist because
+// its own ini key can turn it off, the crouch pulse because motion crouch is
+// off and g_crouchHeld therefore never changes. That is BY DESIGN on this
+// branch, not a failure.
+static WORD PadShapeButtons(WORD b, float mx, float my, bool stealthHeld)
+{
+    b = SlideAssist(b, stealthHeld, mx, my);
+    if (CrouchPulseTick(stealthHeld)) b |= XINPUT_GAMEPAD_B;
+    return b;
+}
+
+// Motion melee OR-ed onto the physical trigger: a real swing presses attack
+// for HoldMs and the trigger still attacks as before. MeleeTick() runs just
+// before the pad composes (below), so MeleeActive() is this present's answer.
+static void PadShapeTriggers(BYTE* lt, BYTE* rt)
+{
+    (void)lt;
+    if (MeleeActive()) *rt = 255;   // sword swing
+}
+
+// 38.46: walking in the room pushes the movement stick, so the pawn goes
+// where you went - through the game's own collision, no wall clipping. The
+// offset is positional tracking's; the shaping (deadband, gain, clamp) is
+// this game's tuning, so it stays here and the pad only adds the result.
+static bool PadLocomotion(float* rightOut, float* fwdOut)
+{
+    if (!g_roomScaleCfg) return false;
+    float f = g_roomFwdM, rr = g_roomRightM;
+    float len = sqrtf(f * f + rr * rr);
+    if (len <= g_roomDeadM || len <= 0.0001f) return false;
+    float m = (len - g_roomDeadM) * g_roomGain;
+    if (m > g_roomMaxStick) m = g_roomMaxStick;
+    *rightOut = (rr / len) * m;
+    *fwdOut   = (f  / len) * m;
+    static double rlog = 0.0; double rn = MaimNowMs();
+    if (rn - rlog > 2000.0) { rlog = rn;
+        Log("roomscale: offset %.2f m (fwd %.2f, right %.2f) -> stick %.2f",
+            len, f, rr, m); }
+    return true;
+}
+
+static void DvrInstallPad()
+{
+    dvr::pad::Callbacks cb;
+    cb.menu_open     = PadMenuOpen;
+    cb.cursor_menu   = PadCursorMenu;
+    cb.cinematic     = PadCinematic;
+    cb.sprint_bit    = PadSprintBit;
+    cb.health_hold   = PadHealthHold;
+    cb.menu_step     = PadMenuStep;
+    cb.shape_buttons = PadShapeButtons;
+    cb.shape_triggers= PadShapeTriggers;
+    cb.locomotion    = PadLocomotion;
+    cb.haptic        = MaimHaptic;
+    dvr::pad::set_callbacks(cb);
+    dvr::pad::install_hook(kXIGetSlot, kXISetSlot);
+}
+
+// Runs right after dvr::pad::tick(), on the same snapshot, so the order the
+// single-file build had is preserved exactly. These are hand features and
+// diagnostics that used to be composed INSIDE the pad; they read the
+// controllers, they do not produce gamepad state.
+static void DvrHandFeaturesTick()
+{
+    if (dvr::vr::take_recenter_chord()) {
+        g_posHaveRef = false;
+        g_crouchRefOk = false;
+        Log("postrack: re-centered (both stick clicks)");
+    }
+    dvr::vr::InputSnapshot in;
+    dvr::vr::input_snapshot(&in);
+    if (!in.active) return;
+    const float hl = in.trigL, hr = in.trigR;
+
+    // 31.1: only the RAY is computed here. Calling ImGui from this thread is
+    // both a race and a null dereference waiting to happen.
+    {
+        float rel[3];
+        int ph = (g_ovlPtrHand >= 0 && g_ovlPtrHand <= 1) ? g_ovlPtrHand : 1;
+        if (g_ovlPtrEnable && g_ovlVisible &&
+            HandRelFull(ph, rel, NULL) && rel[2] > 0.25f) {
+            g_ovlRayX = rel[0] / rel[2];
+            g_ovlRayY = rel[1] / rel[2];
+            g_ovlPtrValid = true;
+            g_ovlPtrDown = ((ph ? hr : hl) > 0.4f);
+        } else {
+            g_ovlPtrValid = false;
+            g_ovlPtrDown = false;
+        }
+    }
+    // Stage 7.2: projectile-spawn tracer - on a shot, find the bolt the game
+    // just spawned and read the aim it was given. (legacy stub by default)
+    if (g_fireTraceEnabled) {
+        static bool fireWas = false;
+        bool fireNow = (hr > 0.55f) || (hl > 0.55f);
+        bool edge = fireNow && !fireWas;
+        fireWas = fireNow;
+        SpawnTraceTick(edge);
+    }
+    // Stage 7.3: hand-aimed projectiles - steer the freshly spawned bolt,
+    // bullet or grenade along the controller's ray. Off under GamepadOnly.
+    MotionAimTick(hl, hr);
+}
+
+
 // Every enabled present, after the runtime located the head for this frame
 // and before the stereo method captures the game's frame.
 static void DvrGameTick(IDirect3DDevice9* self)
@@ -125,8 +256,17 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::set_ipd_m(g_ipdM);
         dvr::camera::set_world_scale(g_posScaleUU);
         dvr::camera::eyetest_present_tick();
-        if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
-        UpdateVirtualPad();
+        // The hook itself is installed from DllMain; this is the retry for a
+        // game that had not mapped xinput1_3.dll that early, and the point
+        // where the game-side callbacks are registered.
+        static bool padWired = false;
+        if (!padWired) { padWired = true; DvrInstallPad(); }
+        // MeleeTick before the compose, exactly where it sat at the top of the
+        // old UpdateVirtualPad: it decides MeleeActive() for THIS present.
+        if (dvr::pad::enabled() && g_xrOn) MeleeTick();
+        dvr::pad::tick();
+        g_wheelHeld = dvr::pad::wheel_held();   // the gate several subsystems read
+        DvrHandFeaturesTick();
         FrameDumpTick();
         // UE3 probe: automatic at ~frame 900 and ~frame 14400, or F9 on demand
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
@@ -155,7 +295,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 Log("heartbeat: GAME=%.0ffps  headset(submits)=%.0ffps  pos=%d lean=(%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
                     gfps, sfps,
                     (int)g_posTrack, (float)g_leanRightUU, (float)g_leanUpUU,
-                    (int)g_padActive, (long)g_padPolls,
+                    (int)dvr::pad::active(), dvr::pad::polls(),
                     (long)g_pvrHits, (int)g_rotInject,
                     g_idxViewRot != 0xffffffffu ? "found" : "hunting",
                     (float)g_fovLever, (long)g_fovLeverWrites);
@@ -218,7 +358,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 memcpy(g_rtdCensusSnap, g_rtdCensus, sizeof(g_rtdCensusSnap));
                 memset(g_rtdCensus, 0, sizeof(g_rtdCensus));
                 g_pvrHits = 0; g_pvrWrites = 0; g_fovLeverWrites = 0;
-                g_gameFrames = 0; g_padPolls = 0;
+                g_gameFrames = 0; dvr::pad::reset_polls();
                 hbQpc = now.QuadPart;
             } else if (!hbQpc) {
                 hbQpc = now.QuadPart;
