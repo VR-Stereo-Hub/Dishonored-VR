@@ -176,6 +176,29 @@ So the first headset attempt at Dishonored's scale should sweep **50 -> 150**, n
 narrow 50 -> 74 that inverting GingasVR's static `dxvk_stereo.txt` marker (`sep=0.014
 conv=140`) suggests. That inversion assumes the FOV he tuned at, which is unrecorded.
 
+**Measured 2026-09-01: the separation write is honoured.** `depth:` logged
+`sep asked 0.01397, fork reads back 0.01397` across a live sweep of 50 -> 73.9 UU/m
+(eyes 3.16 -> 4.66 uu apart, sep +48%), and the tester reported no change in apparent world
+size at all. So the proxy -> fork chain is healthy and **separation is not what makes the
+world feel huge**. The likely reason it changes nothing perceptually: at convergence 140 UU
+(~2.8 m at 50 UU/m) nearly everything in a room is past the distance where disparity still
+carries size information, so angular size dominates - and angular size is pinned to 1:1.
+
+**How to DERIVE UU/m instead of tuning it by feel.** The Mirror's Edge VR mod (also UE3,
+MIT) derives it from the game's own movement constants against known human speeds, and gets
+three independent constants agreeing on **100 UU/m, 1 UU = 1 cm** - walk 200 UU/s = 2.0 m/s,
+run 380 = 3.8 m/s, sprint 700 = 7.0 m/s (source: its `ENGINE_NOTES.md`, "World scale").
+That is a falsifiable method rather than a preference, and it transfers directly: the crouch
+diagnostic already prints `spd=NNuu/s`, so one run walking and sprinting in a straight line
+gives Dishonored's own number. **UE3 is not uniformly 50 UU/m** - Mirror's Edge measured
+100, BS1/BS2 calibrated 100, Infinite tuned to 150. 50 is only the engine's canonical
+default, and a scale that is too SMALL makes the world feel too BIG.
+
+Eye height is a weaker second estimate and is currently ambiguous: the crouch log gives
+`camZ - pawnZ = 78.1 UU`, which is ~1.56 m at 50 UU/m if that origin is at the feet, but
+~2.4 m at 50 (and ~1.6 m at 74) if it is the collision-cylinder centre. Resolve the origin
+before trusting it.
+
 **Separation changes DEPTH, not angular size.** With the frustum-fill path presenting the
 measured render FOV at 1:1, apparent angular size is already correct by construction and
 will not move with this knob. What moves is how far away things read, which is what makes a

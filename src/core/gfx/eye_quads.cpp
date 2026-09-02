@@ -249,6 +249,39 @@ static bool BuildEyeQuads(float aspect)
                     u[i] = u0 + un * us;
                     v[i] = vn;
                 }
+                // 40.2 FILLSCALE WAS INERT IN THIS BRANCH, so there was no
+                // working lever for apparent size anywhere. The frustum-fill
+                // path is 1:1 BY CONSTRUCTION - it presents exactly the angle
+                // the content subtends - and it discards the authored W/H that
+                // [Screen] FillScale multiplies. So the "screen fill" slider
+                // did nothing whenever XrFrustumFill was on, which is the
+                // default, and the world-scale knob only moves stereo depth.
+                // A tester with a correctly 1:1 view that still feels enormous
+                // had nothing to turn.
+                //
+                // The UVs above are already computed from the UNSCALED corners,
+                // so scaling the corners here presents the SAME sampled content
+                // across a smaller or larger angle - which is exactly what
+                // apparent size means. Guarded so 1.0 stays byte-identical to
+                // the previous behaviour.
+                //
+                // Cost, stated because it is the reason this branch existed:
+                // below 1.0 the screen border comes back, and the border is
+                // what reprojection drags during head motion. Comfort lever,
+                // not a correctness fix - 1:1 is the geometrically right answer
+                // and this deliberately leaves it.
+                if (g_fillScale > 0.01f && fabsf(g_fillScale - 1.0f) > 0.001f) {
+                    for (int i = 0; i < 4; i++) {
+                        cx[i] *= g_fillScale;
+                        cy[i] *= g_fillScale;
+                    }
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+                        "quad/fill: FillScale %.2f - presenting the frame across "
+                        "%.0f%% of the angle it actually subtends, so the world "
+                        "looks %s than life size. This is deliberately NOT 1:1.",
+                        g_fillScale, g_fillScale * 100.0f,
+                        g_fillScale < 1.0f ? "SMALLER" : "BIGGER");
+                }
             }
         }
 
