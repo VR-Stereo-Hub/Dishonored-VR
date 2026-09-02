@@ -45,7 +45,6 @@
 #include "mod/state/15_core_config_config.inc"
 #include "mod/state/16_core_gfx_d3d11_device.inc"
 #include "mod/state/18_core_gfx_hand_mesh.inc"
-#include "mod/state/19_core_gfx_d3d11_device.inc"
 #include "mod/state/20_core_window_game_window.inc"
 #include "mod/state/23_game_dishonored_ue3_uobject.inc"
 #include "mod/state/24_game_dishonored_head_track.inc"
@@ -71,14 +70,12 @@
 #include "mod/state/44_game_dishonored_blink.inc"
 #include "mod/state/45_game_dishonored_hands_skelcontrol.inc"
 #include "mod/state/46_legacy_cam_seam.inc"
-#include "mod/state/47_core_window_res_spoof.inc"
 #include "mod/state/48_legacy_cam_seam.inc"
 #include "mod/state/49_game_dishonored_head_track.inc"
 #include "mod/state/50_game_dishonored_fov_lever.inc"
 #include "mod/state/51_legacy_spacebases.inc"
 #include "mod/state/52_game_dishonored_head_track.inc"
 #include "mod/state/53_core_input_pad_bridge.inc"
-#include "mod/state/62_proxy_dllmain.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"

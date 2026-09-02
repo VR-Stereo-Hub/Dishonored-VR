@@ -1,6 +1,8 @@
 // State chunk 48 for legacy/cam_seam - included by src/mod/dishonoredvr.cpp.
 // Original order is preserved across chunks; do not reorder.
 
+static int   g_povRuns  = 0;   // (was chunk 47)
+
 
 // ============================================================================
 // 30.45 - POV WIGGLE TEST. The census confirmed three POV blocks on the live

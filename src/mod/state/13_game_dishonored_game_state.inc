@@ -77,7 +77,6 @@ static float g_eyeOffs[2][3];         // ex, ey, ez
 // reports canted per-eye transforms, that is a static per-eye skew in every
 // scene frame: the prime suspect for the Quest/Steam Link warp.
 static float g_eyeRot[2][9] = {{1,0,0, 0,1,0, 0,0,1},{1,0,0, 0,1,0, 0,0,1}};
-static bool  g_eyeCanted    = false;  // any eye measured non-identity
 static bool  g_eyeFrOk = false;
 static float    g_ipdM = 0.064f;           // real IPD from OpenVR (meters)
 static uint8_t* g_camObj       = NULL;     // cached live camera pointer

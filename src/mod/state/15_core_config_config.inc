@@ -60,14 +60,13 @@ static float  g_anchorTau = 2.5f;        // [HandTracking] AnchorTauSec
 
 static void BlockCfgLoad();          // defined with the mesh-block machinery
 
-// DELIBERATELY still 9 for 30.70. Bumping this makes LoadConfig rewrite the
-// whole ini from WriteDefaultIni, which would have silently thrown away the
-// user's tuned FovLever=130, the 2560x1440 desktop spoof, convergence, fill -
-// everything calibrated over the last few builds - to ship a documentation
-// comment. The [HandRender] section is appended to the live ini instead, and
-// every key falls back to the same defaults through IniFloat if it is absent.
-static const char* kBuildTag = "38.92";  // ALWAYS bump with the deploy
-static const int kConfigVersion = 9; // bump to refresh users' ini with new defaults
+// Bumping this makes LoadConfig rewrite the whole ini from WriteDefaultIni, so
+// it costs the user every tuned value: bump it only when the keys themselves
+// change. 10 = 41.0, the native-stereo foundation: the wide-window, side-by-
+// side, OpenVR and [Stereo] shear keys are gone and the mono screen's
+// DistanceMeters/WidthMeters defaults changed (docs/RELEASE_NOTES.md).
+static const char* kBuildTag = "41.0";
+static const int kConfigVersion = 10; // bump to refresh users' ini with new defaults
 
 // Load config exactly once, lazily, from OUTSIDE the loader lock (first export
 // call). Safe to call repeatedly; only the first does work.
