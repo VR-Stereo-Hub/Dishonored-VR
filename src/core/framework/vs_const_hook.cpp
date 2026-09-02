@@ -21,11 +21,19 @@
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
                                        const float* data, UINT count)
 {
-    // c5 = camera world position (frame-map ABI)
-    if (startReg == 5 && count >= 1 && data) {
-        g_camPosC5[0] = data[0]; g_camPosC5[1] = data[1]; g_camPosC5[2] = data[2];
+    // c5 = camera world position (frame-map ABI). 41.0: caught inside ANY upload
+    // that covers register 5, not only one starting there - after the device
+    // Resets a level load brings (the game's AA setting), the engine batched it
+    // into a wider block and the seam saw no c5 for a whole run (2026-09-02).
+    if (data && startReg <= 5 && startReg + count > 5) {
+        const float* c5 = data + (5 - startReg) * 4;
+        g_camPosC5[0] = c5[0]; g_camPosC5[1] = c5[1]; g_camPosC5[2] = c5[2];
         g_haveC5 = true;
-        dvr::camera::note_render_pos(data);   // 41.0: the seam's render-side truth
+        dvr::camera::note_render_pos(c5);   // the seam's render-side truth
+        if (startReg != 5)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 2,
+                            "vsconst: c5 arrives inside a c%u x%u block (%.1f %.1f %.1f)",
+                            startReg, count, c5[0], c5[1], c5[2]);
     }
 
     // ---- 30.70: live rig census + the stepped identifier -------------------
