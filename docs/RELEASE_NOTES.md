@@ -26,7 +26,8 @@
 - Changed: `[Meta] Version` is 10, so an older `dishonored_vr.ini` is rewritten with the
   new defaults on the first launch (the old file is not backed up: copy it first if you
   tuned it). `[Screen] DistanceMeters` defaults to 1.75 and `WidthMeters` to 2.4 (the
-  mono screen).
+  mono screen). `[Screen] FovLever` defaults to 0 (off): 130 filled the old side-by-side
+  render; the mono screen shows the game's own FOV.
 
 Upgrading:
 

@@ -36,7 +36,10 @@ static void WriteDefaultIni(const char* ini)
         "DistanceMeters=1.75\n"
         "WidthMeters=2.4\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
-        "FovLever=130\n"
+        "; FovLever writes the game's camera FOV every tick (40..160; 0 = off, the game's\n"
+        "; own FOV). 130 filled the old side-by-side render vertically; the mono screen\n"
+        "; shows the frame as the game draws it, so it ships off.\n"
+        "FovLever=0\n"
         "[Mode]\n"
         "; GamepadOnly=1 makes the VR controllers behave as a plain gamepad:\n"
         "; hands, hand mesh, motion aim, motion melee, motion crouch and\n"
@@ -252,7 +255,7 @@ static void LoadConfig()
     g_povWiggle  = IniFloat(ini, "CamSeam", "Wiggle", 0) != 0.0f;
     // 30.51: the FOV lever survives launches (0 = off)
     {
-        float lv = IniFloat(ini, "Screen", "FovLever", 130.0f);
+        float lv = IniFloat(ini, "Screen", "FovLever", 0.0f);   // 41.0: off on the mono screen
         g_fovLever = (lv >= 40.0f && lv <= 160.0f) ? lv : 0.0f;
         dvr::camera::set_fov_deg(g_fovLever);
         if (g_fovLever > 0.0f) Log("config: FOV lever armed at %.0f deg", lv);

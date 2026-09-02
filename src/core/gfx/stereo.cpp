@@ -70,7 +70,7 @@ bool select(const char* name) {
         return false;
     }
     if (found == g_active) {
-        DVR_INFO("stereo: '%s' is already the active method", found->name());
+        DVR_DEBUG("stereo: '%s' is already the active method", found->name());
         return true;
     }
     IStereo* prev = g_active;
