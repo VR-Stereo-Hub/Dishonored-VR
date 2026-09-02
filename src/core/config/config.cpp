@@ -82,11 +82,16 @@ static void WriteDefaultIni(const char* ini)
         "[PosTrack]\n"
         "; Stage 5: positional head tracking - lean/peek/crouch with your real\n"
         "; head. F4 = toggle, F5 = re-center to your current head position.\n"
-        "; Scale = game units per meter (UE3 ~50). Too weak? raise it. Too\n"
-        "; strong/swimmy? lower it. MaxMeters clamps how far it will follow.\n"
+        "; Scale = game units per meter, MEASURED at 100 for Dishonored (1 uu\n"
+        "; = 1 cm), not the UE3 canonical 50. Derived from the game's own\n"
+        "; movement constants: 360 uu/s default and 540 uu/s sprint. At 50\n"
+        "; those are 7.2 and 10.8 m/s - a world-record sprint pace for walking\n"
+        "; around - while at 100 they are a 3.6 m/s jog and a 5.4 m/s run.\n"
+        "; Too weak? raise it. Too strong/swimmy? lower it. MaxMeters clamps\n"
+        "; how far it will follow.\n"
         "; If leaning LEFT moves the world the wrong way set FlipX=1.\n"
         "Enabled=1\n"
-        "Scale=50\n"
+        "Scale=100\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
         "[MotionAim]\n"
@@ -288,7 +293,18 @@ static void LoadConfig()
     g_zoomFillFloor = IniFloat(ini, "Screen", "ZoomFillFloor", 1.0f);
     if (g_zoomFillFloor < 0.0f) g_zoomFillFloor = 0.0f;
     if (g_zoomFillFloor > 1.0f) g_zoomFillFloor = 1.0f;
-    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 50.0f);
+    // 40.2: MEASURED, not the engine's canonical default. Dishonored's own
+    // movement constants are 360 uu/s (default) and 540 uu/s (sprint), read
+    // off the crouch diagnostic's spd= plateaus over a walk-then-sprint run:
+    // 14 samples at 355-363 and 21 at 537-545, ratio exactly 1.5. At the UE3
+    // canonical 50 uu/m those are 7.2 and 10.8 m/s - Corvo would sprint at
+    // world-record pace and stroll faster than most people can run. At 100
+    // they are 3.6 m/s and 5.4 m/s, a jog and a run, which is how he moves.
+    // 1 uu = 1 cm, the same convention the Mirror's Edge VR mod derived for
+    // its own UE3 build from three agreeing movement constants.
+    // Corroborated by eye height: 78.1 uu above the pawn origin plus a typical
+    // ~88 uu human collision half-height puts the eye at 1.66 m.
+    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 100.0f);
     if (g_posScaleUU < 1.0f)    g_posScaleUU = 1.0f;
     if (g_posScaleUU > 400.0f)  g_posScaleUU = 400.0f;
     g_roomScaleCfg = IniFloat(ini, "PosTrack", "RoomScale", 1) != 0.0f;  // 38.46

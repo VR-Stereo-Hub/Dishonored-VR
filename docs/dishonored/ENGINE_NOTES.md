@@ -184,6 +184,31 @@ world feel huge**. The likely reason it changes nothing perceptually: at converg
 (~2.8 m at 50 UU/m) nearly everything in a room is past the distance where disparity still
 carries size information, so angular size dominates - and angular size is pinned to 1:1.
 
+### MEASURED: Dishonored is 100 UU/m, 1 uu = 1 cm (2026-09-01)
+
+Derived by the movement-constant method below, from a walk-then-sprint run read off the
+crouch diagnostic's `spd=` plateaus. Four clusters, all uncrouched: 124, 246-250,
+**355-363 (14 samples)** and **537-545 (21 samples)**. The two strong plateaus are the
+engine constants - **360 uu/s default, 540 uu/s sprint, ratio exactly 1.5** - and the
+246-250 cluster is partial analog-stick deflection.
+
+| scale | default | sprint | verdict |
+|---|---|---|---|
+| 50 (UE3 canonical) | 7.2 m/s | 10.8 m/s | **untenable** - Corvo would sprint at world-record pace and stroll faster than most people can run |
+| 78 | 4.6 m/s | 6.9 m/s | fast |
+| **100** | **3.6 m/s** | **5.4 m/s** | **a jog and a run - how Corvo actually moves** |
+| 150 | 2.4 m/s | 3.6 m/s | a sprint slower than a jog |
+
+Corroborated independently by eye height: 78.1 uu above the pawn origin plus a typical
+~88 uu human collision half-height (1 uu = 1 cm) puts the eye at 1.66 m. `[PosTrack] Scale`
+default changed 50 -> 100 in `config.cpp`, with the derivation in the comment and in the
+generated ini's own help text.
+
+**What this does and does not fix.** It corrects positional parallax amplitude, stereo
+depth and hand reach - everything that maps a real metre onto game units. It does **not**
+change apparent angular size, which is pinned at 1:1 by the frustum-fill path and is a
+different lever entirely (`FillScale`). Do not expect it to make a too-big world smaller.
+
 **How to DERIVE UU/m instead of tuning it by feel.** The Mirror's Edge VR mod (also UE3,
 MIT) derives it from the game's own movement constants against known human speeds, and gets
 three independent constants agreeing on **100 UU/m, 1 UU = 1 cm** - walk 200 UU/s = 2.0 m/s,
