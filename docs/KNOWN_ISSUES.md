@@ -3,6 +3,24 @@
 Alpha software. The list from the original 38.92 release plus what the continuation knows.
 The milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 
+- **Motion controls are OFF by default right now** [D3]. `[Mode] GamepadOnly=1` in
+  `dishonored_vr.ini` makes the VR controllers behave as a plain gamepad: no hand models, no
+  hand mesh, no motion aim, no motion melee, no motion crouch, and Blink aims down your view
+  instead of your hand. Head tracking, positional (lean/peek) tracking and the FOV lever all
+  still work. This is deliberate and temporary: the render is still being fitted (world
+  scale, frame aspect and the FOV lever are coupled, see below) and hand models that follow a
+  mis-scaled world give the eye a second, wrong size reference. **Set `GamepadOnly=0` to get
+  the motion controls back** - none of that code was removed.
+- **The world looks softer than the menus** [D3]. Expected, not a fault: the frame is a
+  side-by-side stereo pair, so each eye gets half the frame's width for the world, while
+  menus are drawn mono and get all of it - exactly twice the sampling density. Raise
+  `[Screen] RenderWidth/Height` for a sharper world; it needs to be about twice your
+  headset's per-eye width to be 1:1.
+- **A wide FOV lever fisheyes the edges** [D3]. `[Screen] FovLever` writes the game's camera
+  FOV, so a high value makes the game render very wide and the edges stretch. It is also what
+  fills the headset vertically, and the two pull against each other: at a 16:9 render nothing
+  satisfies both. A taller render (4:3) lets a lower lever fill the view. The pairing is
+  documented in `docs/dishonored/ENGINE_NOTES.md`.
 - **Quest / OpenXR path is not converged** [D1a, D3]. "Zoomed in / can't look up-down /
   hands wrong" on some Quest + Virtual Desktop machines, never reproduced on the author's
   PC. Best current explanation: on a PC with two GPUs (a laptop, or a CPU with integrated

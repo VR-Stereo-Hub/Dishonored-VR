@@ -196,6 +196,80 @@ own hand-calibration neutrals are kept. `[PosTrack] Scale` is back to her 50 - t
 100 below stands as a derivation and should be re-applied as a SINGLE change once the
 baseline is confirmed, not bundled with the restore.
 
+## The three rendering symptoms, and the one geometry that ties them (2026-09-02)
+
+Measured from the 03:03 headset run at 4032x2268 requested / `capture: 3840x2160` actual,
+`eye render targets: 2496x2688`, and the tester's report at those settings.
+
+### 1. "Super pixelated, but the pause menu is huge like it's at full resolution"
+
+**Both halves of that sentence are the same fact.** The frame is a side-by-side pair, so the
+WORLD gets half the frame width per eye - `capture: 3840x2160 (per eye 1920x2160)` - while a
+menu frame is MONO and each eye samples the **whole** 3840 across the same quad. The menu is
+therefore drawn at exactly **twice** the horizontal sampling density of the world. The
+tester's A/B is the cleanest possible confirmation of the SBS packing, and it is not a bug.
+
+**What it costs**: 1920 per-eye columns are stretched across an eye render target 2496 wide,
+a 1.30x upscale before the compositor's own resampling. To reach 1:1 the FRAME must be at
+least twice the eye width: **2 x 2496 = 4992 columns**. At 3840 the world is at 77% of the
+panel, which is what "really low resolution" is.
+
+### 2. The fisheye is `FovLever`, and the code says so
+
+`FovLever` does not only size the quad - **it writes the game camera's FOV**
+(`fov_lever.cpp`, `LevWrite` into the camera's FOV field). At `FovLever=130` the game renders
+a **130 degree horizontal** rectilinear frame, and the log confirms it:
+`quad/fill: world scale is set by the MEASURED render FOV (fork dxvk_vr_proj) = 130.0 deg`
+(129/130/137 across the run).
+
+A 130 degree rectilinear render shown across a ~94 degree headset frustum stretches the edges
+hard. That is the fisheye. The original author anticipated exactly this - `frame_hooks.cpp`
+carries a safety net that disarms the lever if the rendered FOV overshoots the target, whose
+comment is *"disarm rather than leave the user in a fisheye"*.
+
+### 3. Why the black bottom border cannot be tuned away at 16:9
+
+The quad's vertical subtense is `2*atan(tan(fovDeg/2)/frameAspect)`, so filling this rig's
+99 degree vertical frustum requires:
+
+| frame aspect | lever needed to fill 99 deg | horizontal render FOV | edge distortion |
+|---|---|---|---|
+| 1.778 (16:9) | **128.6** | 128.6 deg | severe - the current fisheye |
+| 1.333 (4:3) | 114.6 | 114.6 deg | moderate |
+| 1.25 (5:4) | 111.3 | 111.3 deg | moderate |
+| 1.036 (near-square) | **100.5** | 100.5 deg | mild - the right answer |
+
+**So the fisheye and the black border are the same setting pulling in opposite directions,
+and at 16:9 there is no value that satisfies both.** The tester found this empirically:
+"I couldn't find a balance where the scaling felt right where I couldn't see the bottom black
+border". A taller frame is not a preference, it is the only way out.
+
+**But taller costs sharpness**, because per-eye width is `frameWidth/2` (symptom 1). The two
+constraints together want a frame that is both wide and tall:
+
+| candidate | aspect | lever | per-eye | vs the 4992 needed for 1:1 | MP |
+|---|---|---|---|---|---|
+| 3840x2160 (now) | 1.778 | 129 | 1920x2160 | 77% | 8.3 |
+| **3840x2880** | 1.333 | 115 | 1920x2880 | 77% | 11.1 |
+| **4096x3072** | 1.333 | 115 | 2048x3072 | 82% | 12.6 |
+| 4992x4800 (ideal) | 1.040 | 100 | 2496x4800 | 100% | 24.0 |
+
+`3840x2880` is the cheapest step that buys the taller ratio at no sharpness cost - same
+per-eye width, +33% pixels, and it drops the lever from 129 to 115, which is where the
+fisheye should visibly ease. That is the next single change.
+
+### Two corrections to session 4c
+
+- **The mode-list claim was too strong.** 3840x2160 WAS honoured (`capture: 3840x2160`), so
+  "must be a real display mode" is not the rule. The rule is narrower: **`PinBackbuffer=1`
+  causes the crop**, because it forces the device to a size the game is not rendering at. A
+  size the game will not accept merely falls back to one it will, which is harmless as long
+  as the pin is off. Both effects were present at once at 2850x2750, which is what made them
+  look like one.
+- **There is no 2560x1440 cap.** That was read from the previous run's log, before the pin
+  was turned off. 4032x2268 is still not honoured (its `setres` replies come back empty), so
+  the requested number and the achieved number are different things: **trust `capture:`.**
+
 ## FovLever IS the vertical fill lever for a 16:9 render (2026-09-02)
 
 Correcting session 4's own mistake, and completing "FovLever and the render size are ONE

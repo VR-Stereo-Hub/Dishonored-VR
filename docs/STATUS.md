@@ -1,5 +1,31 @@
 # Status
 
+## Current state (2026-09-02, session 4: gamepad-only while the render is fitted)
+
+**The mod runs on Quest 3 + VirtualDesktopXR and is being tuned in a headset.** The blocker
+list below is stale in one important way: the game IS installed on this PC and headset runs
+are happening, so measurements now come from real runs rather than the simulator.
+
+**The current plan, set by the tester**: strip motion controls back to a plain gamepad and
+converge the RENDER first (world scale, frame aspect, FOV lever, sharpness), then bring
+motion controls back. Hands, hand mesh, motion aim, motion melee, motion crouch and
+controller Blink aim are OFF by default via the new `[Mode] GamepadOnly=1`; head tracking,
+positional tracking, the FOV lever and the virtual gamepad are unaffected. No hand or weapon
+model is scaled while world scale is being judged.
+
+**Defaults are now the tester's confirmed values** (session 4d/4e), not GingasVR's 38.92
+ones: `4032x2268`, `SpoofDesktop 4096x2304`, `PinBackbuffer=0`, `FovLever=130`,
+`FillScale=0.84`, `DistanceMeters=1.79`, `GameFOVDeg=100`, `MenuFillScale=1.00`,
+`[PosTrack] Scale=98`, `HeightOffsetM=-0.09`. Snapshot:
+`tests/golden/default-2026-09-02-gamepad-only.ini`.
+
+**What is fixed since the refactor**: the MenuFillScale size-pumping (4b), the
+PinBackbuffer top-left crop that broke stereo fusion (4c), and the FovLever/frame-aspect
+pairing (4d). **What is open**: the world is at half the menu's sampling density (inherent to
+SBS - needs a wider frame), the 130 deg render FOV fisheyes the edges, and at 16:9 no lever
+value both fills vertically and avoids that fisheye. See ENGINE_NOTES, "The three rendering
+symptoms, and the one geometry that ties them". The next single change is `3840x2880`.
+
 ## Current state (2026-09-02, session 1 of the continuation)
 
 The original mod (GingasVR, public release = proxy build 38.92 + DXVK fork M8.2) is
@@ -125,6 +151,60 @@ The port finishes opportunistically; the headset work comes first.
   and the proxy both build there.
 
 ## Session log
+
+### 2026-09-02 - session 4e: gamepad-only, and the three rendering symptoms
+
+Headset run at 4032x2268 requested / `capture: 3840x2160` actual. The tester reported three
+things and they turn out to be one geometry. Full derivation in ENGINE_NOTES, "The three
+rendering symptoms, and the one geometry that ties them".
+
+1. **"Super pixelated, but the pause menu is huge like it's at full resolution."** Both
+   halves are the same fact: SBS gives the WORLD half the frame width per eye
+   (`per eye 1920x2160`) while a MONO menu frame samples the whole 3840 across the same quad.
+   The menu is drawn at exactly twice the world's horizontal sampling density. That is the
+   cleanest confirmation of the SBS packing anyone has produced, and it is not a bug - but it
+   means the frame must be at least `2 x eyeWidth = 4992` columns for a 1:1 world. At 3840 the
+   world sits at 77% of the panel.
+2. **The fisheye is `FovLever`.** It does not only size the quad, it WRITES the game camera's
+   FOV (`fov_lever.cpp`), so `FovLever=130` makes the game render 130 deg horizontal - the log
+   agrees (`MEASURED render FOV ... = 130.0 deg`). A 130 deg rectilinear frame shown across a
+   94 deg frustum stretches the edges. The author already knew: `frame_hooks.cpp` disarms the
+   lever on overshoot, commented *"rather than leave the user in a fisheye"*.
+3. **The black bottom border cannot be tuned away at 16:9.** Filling a 99 deg vertical
+   frustum needs `lever = 2*atan(tan(v/2)*aspect)`: 128.6 at 16:9, 114.6 at 4:3, 100.5 near
+   square. So the fisheye and the border are the SAME setting pulled in opposite directions,
+   and at 16:9 nothing satisfies both. The tester found that empirically. A taller frame is
+   not a preference, it is the only way out - which is exactly what they asked for.
+
+**Next single change: `3840x2880` (4:3) with `FovLever` ~115.** Same per-eye width as now, so
+no sharpness regression, +33% pixels, and it should visibly ease the fisheye.
+
+**Two corrections to 4c, both mine.** (a) "Must be a real display mode" was too strong -
+3840x2160 WAS honoured. The real rule is narrower: **`PinBackbuffer=1` causes the crop**; a
+size the game rejects merely falls back, harmlessly, as long as the pin is off. Both effects
+were present at 2850x2750, which made them look like one. (b) There is no 2560x1440 cap -
+that was read from the run before the pin was turned off. 4032x2268 is still not honoured
+(empty `setres` replies), so **trust `capture:`, never the requested number**.
+
+**Applied this session:**
+
+- **`[Mode] GamepadOnly=1`, new and default ON** (`config.cpp`). Turns off SkelControl hand
+  writes, hand mesh, motion aim, motion melee, motion crouch and controller Blink aim, and
+  scales no hand or weapon model. Head tracking, positional tracking, the FOV lever and the
+  virtual gamepad keep running - this is NOT the `XR_SAFE` bisector, which also stops the
+  head. It logs loudly and `status.json` gains `gamepadOnly` so the zeroes below it read as
+  BY DESIGN rather than as failures. The author's rule that motion crouch and hands "must
+  never stop working" is respected: nothing is retired, it is one key, set `GamepadOnly=0`.
+- **The tester's tuned values are now the repo defaults**, in both the generated ini text and
+  the `IniFloat` fallbacks, so a fresh install comes up where the headset testing left off.
+- **`[PosTrack] Scale` default 50 -> 98.** This closes 40.2b: the tester tuned world scale by
+  feel and landed on 98, within 2% of the 100 derived from the movement constants, arrived at
+  independently and without seeing the number. That is the cross-check 40.2b was waiting for.
+- Hand trims and `HandSize` reset to neutral, per the tester's "no scaling or changing the
+  default hand/weapon models".
+
+Build clean, exports 9/9 undecorated, lint clean, RelWithDebInfo installed. The fork and
+`dxvk_stereo.txt` are untouched.
 
 ### 2026-09-02 - session 4d: the lever is half of the resolution setting
 

@@ -31,9 +31,19 @@ static void WriteDefaultIni(const char* ini)
         "; F1 (smaller/crisper) and F2 (bigger/fills more). FillView=0 = fixed\n"
         "; floating screen of WidthMeters instead.\n"
         "FillView=1\n"
-        "GameFOVDeg=75\n"
-        "FillScale=1.70\n"
-        "DistanceMeters=1.6\n"
+        "GameFOVDeg=100\n"
+        "FillScale=0.84\n"
+        "DistanceMeters=1.79\n"
+        "; FovLever WRITES the game camera FOV and is HALF of the resolution\n"
+        "; setting - the quad fills the headset vertically only when\n"
+        "; tan(FovLever/2)/frameAspect reaches the frustum. 16:9 needs ~130,\n"
+        "; 4:3 ~114, a near-square frame ~100. Too high and the game renders\n"
+        "; so wide that the edges fisheye. Change it WITH the resolution.\n"
+        "FovLever=130\n"
+        "; MenuFillScale below 1.0 shrinks menu/mono frames - and the same flag\n"
+        "; skips the frustum-fill path, so a flag that flaps in gameplay pumps\n"
+        "; the world size. 1.00 keeps one size (menu edges crop instead).\n"
+        "MenuFillScale=1.00\n"
         "WidthMeters=4.8\n"
         "; RenderWidth/Height: THE resolution setting. It sizes the game\n"
         "; window's client area, and the game derives its whole renderer from\n"
@@ -41,17 +51,29 @@ static void WriteDefaultIni(const char* ini)
         "; headset gets. The window will hang off your monitor; that is fine.\n"
         "; Match it to your headset's per-eye size (SteamVR shows this), e.g.\n"
         "; 2016x2214. Bigger = sharper and slower. 0 = leave the game alone.\n"
-        "RenderWidth=0\n"
-        "RenderHeight=0\n"
+        "RenderWidth=4032\n"
+        "RenderHeight=2268\n"
+        "; PinBackbuffer=1 forces the DEVICE to RenderWidth/Height while the game\n"
+        "; keeps rendering at the size IT asked for, which leaves the picture in\n"
+        "; the top-left corner of a mostly black frame and puts the SBS seam in\n"
+        "; the wrong place, so the eyes cannot fuse. Leave it 0.\n"
+        "PinBackbuffer=0\n"
         "; Build 30.22 supersampling: SpoofDesktop makes the game believe the\n"
         "; desktop is this big, so the ResX/ResY you set in\n"
         "; Documents\\...\\DishonoredEngine.ini stops being clamped to your\n"
         "; monitor. Set both to 2560x1440 (and ResX/ResY to match) for a\n"
         "; sharp headset image; 0 = off. The game window will extend past\n"
         "; your monitor - that is normal; the headset is the real screen.\n"
-        "SpoofDesktopW=0\n"
-        "SpoofDesktopH=0\n"
+        "SpoofDesktopW=4096\n"
+        "SpoofDesktopH=2304\n"
         "[Mode]\n"
+        "; GamepadOnly=1 makes the VR controllers behave as a plain gamepad:\n"
+        "; hands, hand mesh, motion aim, motion melee, motion crouch and\n"
+        "; controller Blink aim are all off, and no hand or weapon model is\n"
+        "; scaled. Head tracking, positional tracking and the FOV lever keep\n"
+        "; working. Default 1 while the render is being fitted - set 0 to\n"
+        "; get the motion controls back.\n"
+        "GamepadOnly=1\n"
         "; 1 = old stage-1 theater screen (no head-driven camera)\n"
         "ForceTheater=0\n"
         "[Stereo]\n"
@@ -94,7 +116,7 @@ static void WriteDefaultIni(const char* ini)
         "; how far it will follow.\n"
         "; If leaning LEFT moves the world the wrong way set FlipX=1.\n"
         "Enabled=1\n"
-        "Scale=50\n"
+        "Scale=98\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
         "[MotionAim]\n"
@@ -234,13 +256,13 @@ static void LoadConfig()
     g_pitchCounts  = IniFloat(ini, "Tracking", "PitchCountsPerDegree", 11.5f);
     g_invertPitch  = IniFloat(ini, "Tracking", "InvertPitch", 0) != 0.0f;
     g_fillView     = IniFloat(ini, "Screen", "FillView", 1) != 0.0f;
-    g_gameFovDeg   = IniFloat(ini, "Screen", "GameFOVDeg", 75.0f);
+    g_gameFovDeg   = IniFloat(ini, "Screen", "GameFOVDeg", 100.0f);
     if (g_gameFovDeg < 40.0f)  g_gameFovDeg = 40.0f;
     if (g_gameFovDeg > 140.0f) g_gameFovDeg = 140.0f;
-    g_fillScale    = IniFloat(ini, "Screen", "FillScale", 1.70f);
+    g_fillScale    = IniFloat(ini, "Screen", "FillScale", 0.84f);
     if (g_fillScale < 0.6f) g_fillScale = 0.6f;
     if (g_fillScale > 3.2f) g_fillScale = 3.2f;
-    g_screenDist   = IniFloat(ini, "Screen", "DistanceMeters", 1.6f);
+    g_screenDist   = IniFloat(ini, "Screen", "DistanceMeters", 1.79f);
     g_screenWidth  = IniFloat(ini, "Screen", "WidthMeters", 4.8f);
     g_forceTheater = IniFloat(ini, "Mode", "ForceTheater", 0) != 0.0f;
     g_stereoEnabled  = IniFloat(ini, "Stereo", "Enabled", 1) != 0.0f;
@@ -288,7 +310,7 @@ static void LoadConfig()
     g_povWiggle  = IniFloat(ini, "CamSeam", "Wiggle", 0) != 0.0f;
     // 30.51: the FOV lever survives launches (0 = off)
     {
-        float lv = IniFloat(ini, "Screen", "FovLever", 0.0f);
+        float lv = IniFloat(ini, "Screen", "FovLever", 130.0f);
         g_fovLever = (lv >= 40.0f && lv <= 160.0f) ? lv : 0.0f;
         if (g_fovLever > 0.0f) Log("config: FOV lever armed at %.0f deg", lv);
     }
@@ -296,12 +318,12 @@ static void LoadConfig()
     g_zoomFillFloor = IniFloat(ini, "Screen", "ZoomFillFloor", 1.0f);
     if (g_zoomFillFloor < 0.0f) g_zoomFillFloor = 0.0f;
     if (g_zoomFillFloor > 1.0f) g_zoomFillFloor = 1.0f;
-    // 40.2b: BACK TO 50, GingasVR's own tuned value, because her release is
-    // the last configuration confirmed good in a headset and the baseline has
-    // to be re-established before anything is changed on top of it (her
-    // process rule 2). The 100 below is MEASURED and the derivation stands -
-    // re-apply it as a single change once 4032x2268 + FovLever=130 is
-    // confirmed, not bundled with the restore.
+    // 40.3: NOW 98, and the measurement below is what it converged on. The
+    // restore that 40.2b was waiting for happened (4032x2268 + FovLever=130),
+    // and the tester then tuned world scale by feel in the F10 overlay and
+    // landed on 98 - within 2% of the 100 derived from the movement constants,
+    // arrived at independently and without seeing the number. That is the
+    // cross-check 40.2b asked for, so the measured value is now the default.
     //
     // 40.2: MEASURED, not the engine's canonical default. Dishonored's own
     // movement constants are 360 uu/s (default) and 540 uu/s (sprint), read
@@ -314,7 +336,7 @@ static void LoadConfig()
     // its own UE3 build from three agreeing movement constants.
     // Corroborated by eye height: 78.1 uu above the pawn origin plus a typical
     // ~88 uu human collision half-height puts the eye at 1.66 m.
-    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 50.0f);
+    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 98.0f);
     if (g_posScaleUU < 1.0f)    g_posScaleUU = 1.0f;
     if (g_posScaleUU > 400.0f)  g_posScaleUU = 400.0f;
     g_roomScaleCfg = IniFloat(ini, "PosTrack", "RoomScale", 1) != 0.0f;  // 38.46
@@ -736,7 +758,7 @@ static void LoadConfig()
         "scale %.0f uu/m)", g_skcDrive ? "ON" : "off", (int)g_skcLive,
         (int)g_skcWorld, (int)g_skcDoTrans, (int)g_skcDoRot, (int)g_skcAddMode,
         g_skcScaleUU);
-    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", 0.0f);
+    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", -0.09f);
     if (g_heightOffsetM < -1.5f) g_heightOffsetM = -1.5f;
     if (g_heightOffsetM >  1.5f) g_heightOffsetM =  1.5f;
     g_crouchOn     = IniFloat(ini, "Tracking", "PhysicalCrouch", 1) != 0.0f;
@@ -748,7 +770,7 @@ static void LoadConfig()
     Log("config: physical crouch %s (down at %.2f m, up at %.2f m) - this "
         "line reports the SETTING; watch for 'crouch: DOWN' to know it fires",
         g_crouchOn ? "armed" : "off", g_crouchDropM, g_crouchReleaseM);
-    g_menuFill = IniFloat(ini, "Screen", "MenuFillScale", 0.72f);
+    g_menuFill = IniFloat(ini, "Screen", "MenuFillScale", 1.00f);
     if (g_menuFill < 0.2f) g_menuFill = 0.2f;
     if (g_menuFill > 2.0f) g_menuFill = 2.0f;
     g_wristHud = IniFloat(ini, "Hud", "WristHud", 1) != 0.0f;
@@ -907,6 +929,40 @@ static void LoadConfig()
             Log("config: XR SAFE MODE - look around only, all game-memory "
                 "writers OFF (crash bisector)");
         }
+    }
+    // 40.3 GAMEPAD-ONLY. The rendering is not converged (world scale, the
+    // frame aspect and the FOV lever are still being fitted against each
+    // other), and motion controls make that harder to judge: hand meshes and
+    // a weapon that follow a mis-scaled world give the eye a second, wrong
+    // reference for how big things are, and every hand calibration is one
+    // more variable in a run that is supposed to be measuring one. So the
+    // controllers stay a plain gamepad until the render is settled.
+    //
+    // What stays ON deliberately: head tracking and its rotation writes,
+    // positional head tracking, the FOV lever, and the virtual gamepad. This
+    // is NOT the XR SAFE bisector above - that one also stops the head.
+    //
+    // The author's process rules say motion crouch and hands "must never stop
+    // working". This does not retire them: it is one key, it logs loudly, and
+    // the code is untouched. Set GamepadOnly=0 to get them all back.
+    g_gamepadOnly = IniFloat(ini, "Mode", "GamepadOnly", 1) != 0.0f;
+    if (g_gamepadOnly) {
+        g_skcDrive     = false;    // no SkelControl hand writes
+        g_handMesh     = false;    // no hand mesh collect/drive
+        g_autoHandDone = true;     // and no auto re-arm of it
+        g_blkAimOnCfg  = false;    // Blink aims down the view, not the hand
+        g_blkDriveUI   = false;
+        g_meleeOn      = false;    // no motion melee
+        g_maimEnabled  = false;    // no motion aim
+        g_crouchOn     = false;    // fixed eye height - a moving one is a
+                                   // second variable while judging scale
+        Log("config: [Mode] GamepadOnly=1 - the controllers are a plain "
+            "gamepad. Hands, hand mesh, motion aim, motion melee, motion "
+            "crouch and controller Blink aim are all OFF, and no hand or "
+            "weapon model is scaled. Head tracking, positional tracking and "
+            "the FOV lever are UNAFFECTED and still running. This is a "
+            "deliberate default while the render is being fitted - set "
+            "GamepadOnly=0 in dishonored_vr.ini to restore motion controls.");
     }
     g_forceResW = (UINT)IniFloat(ini, "Screen", "RenderWidth", 0);
     g_forceResH = (UINT)IniFloat(ini, "Screen", "RenderHeight", 0);

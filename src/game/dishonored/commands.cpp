@@ -84,7 +84,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "cfg") && !strcmp(args, "dump")) {
-        Log("cfg: hands=%d handMesh=%d blink=%d fov=%.0f wristHud=%d mirror=%d layer=%d poseDelay=%d stampLive=%d stampFix=%d fpsCap=%.1f posTrack=%d melee=%d",
+        Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f wristHud=%d mirror=%d layer=%d poseDelay=%d stampLive=%d stampFix=%d fpsCap=%.1f posTrack=%d melee=%d",
+            (int)g_gamepadOnly,
+            g_gamepadOnly ? " (hands/blink/melee READ 0 BY DESIGN, not because they failed)" : "",
             (int)g_skcDrive, (int)g_handMesh, (int)g_blkAimOnCfg, g_fovLever, (int)g_wristHud, g_mirrorMode,
             g_xrLayerMode, g_xrPoseDelay, (int)g_stampLive, g_stampFix, g_fpsCap, (int)g_posTrack, (int)g_meleeOn);
         return true;
@@ -155,6 +157,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("xrInput", (bool)g_xrInpAttached);
     w.end_obj();
     w.obj("features");
+    w.kv("gamepadOnly", (bool)g_gamepadOnly);   // 40.3: names the OWNER of the zeroes below
     w.kv("hands", (bool)g_skcDrive); w.kv("handMesh", (bool)g_handMesh); w.kv("handModels", (bool)g_hmEnable);
     w.kv("blink", (bool)g_blkAimOnCfg); w.kv("melee", (bool)g_meleeOn);
     w.kv("fovLever", (double)g_fovLever); w.kv("wristHud", (bool)g_wristHud);
