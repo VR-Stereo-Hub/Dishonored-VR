@@ -45,6 +45,8 @@ void register_all() {
     if (g_registered) return;
     g_registered = true;
     register_method(create_mono_screen());
+    register_method(create_aer());
+    register_method(create_reentry());
 }
 
 bool select(const char* name) {

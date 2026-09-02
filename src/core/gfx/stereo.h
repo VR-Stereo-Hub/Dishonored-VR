@@ -109,7 +109,10 @@ using OverlayDrawFn = void (*)(ID3D11DeviceContext* ctx, ID3D11RenderTargetView*
 void set_overlay_draw(OverlayDrawFn fn);
 OverlayDrawFn overlay_draw();
 
-// The methods (one translation unit each under core/gfx/).
+// The methods (one translation unit each under core/gfx/). aer and reentry
+// are design stubs in 41.0: registered, named, refusing with their note.
 IStereo* create_mono_screen();
+IStereo* create_aer();
+IStereo* create_reentry();
 
 } // namespace dvr::stereo
