@@ -144,6 +144,12 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::stereo::FrameOutput out;
     dvr::stereo::end_frame(devs, out);
     if (out.tex) ++g_submits;
+    // The eye tag has to reach the runtime BEFORE it consumes the frame: the
+    // layer pops exactly one tag per present at the head of on_present_end and
+    // captures into the swapchain that tag selects. A method that produced no
+    // eye (mono, or a per-eye method skipping a present) pushes nothing, the
+    // pop returns 0, and the present takes the quad path unchanged.
+    if (out.eyeSign != 0) dvr::vr::sr_push_eye(out.eyeSign);
     dvr::vr::on_present_end(out.tex);
     return g_origPresent(self, src, dst, wnd, dirty);
 }

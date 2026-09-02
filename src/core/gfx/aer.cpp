@@ -1,59 +1,60 @@
 // core/gfx/aer.cpp - rung 2 of the stereo ladder: AlternateEye rendering.
-// DESIGN STUB (41.0): registered so `stereo aer` names it and refuses with
-// the note below; nothing here renders. The design is written down so the
-// developer taking this rung starts from the same page as the re-entry one.
 //
 // THE IDEA. The game renders one frame per tick. Alternate which EYE that
-// frame is rendered for: on even ticks the camera sits at the left eye, on
-// odd ticks at the right, and each present carries one fresh eye while the
-// compositor keeps showing the other eye's previous image (reprojected by
-// the runtime for the head motion since). Cheap - the game's cost is
-// unchanged - and geometrically real stereo, at half the temporal rate per
-// eye. BioShock's rung 2 (docs/ARCHITECTURE.md, the ladder) shipped this
-// before re-entry replaced it; the runtime layer still carries its machinery.
+// frame is rendered for: the camera seam offsets the camera by +/- IPD/2 along
+// view-right on the script lane, and each present carries one eye's image.
 //
-// WHAT THIS METHOD DOES PER PRESENT:
-//   begin_frame   pick the eye the NEXT game frame renders: alternate the
-//                 sign (-1, +1, -1, ...) and publish it through
-//                 eye_for_next_frame(). The camera seam reads it on the
-//                 script lane (dvr::camera::set_eye is called from the game
-//                 tick each present) and writes +/- IPD/2 along the camera's
-//                 right row into [Camera] EyeField - so this rung is gated on
-//                 the eyetest having found an honoured field (camera.h). With
-//                 no field, refuse: an AER without an eye offset is a mono
-//                 screen with extra latency.
-//   end_frame     capture the game's frame (dvr::capture) into THIS eye's
-//                 texture (two RGBA targets, one per eye) and hand it out with
-//                 eyeSign = the eye that was requested at the PREVIOUS
-//                 begin_frame - the frame the game just presented was rendered
-//                 during the tick that followed that request (one present of
-//                 lag; the BioShock pipeline's lockstep note). The other eye's
-//                 texture keeps its last content; the runtime layer holds the
-//                 other eye's released swapchain image (its AER mode:
-//                 dvr::vr::current_eye_sign / the g_aerEnabled path in
-//                 openxr_runtime.cpp) and submits a projection layer with both.
+// WHICH AER. There are two shapes and they are not equally good:
 //
-// THE TAG AUDIT (why an eye tag can lie). The runtime's pair probe
-// (openxr_runtime.cpp, `[pair]`, BioShock s43) exists because an UNTAGGED
-// present - one the game side did not attribute - is captured into the LEFT
-// swapchain by default, which is the "stale left eye" mechanism: the left
-// image stops updating while the right keeps flowing, and every viewer reads
-// it as a black or frozen left eye. The simulator's per-view source stats
-// (tools/xrsim-shot.ps1, VERIFICATION) are the instrument: both eyes'
-// nonBlackPct must move, and eye-check.ps1 leg 0 (the pairing leg) must see
-// L/s and R/s equal on the stereo beat line (`stereo: beat method=aer ...`).
+//   (a) HELD EYE - submit every present, the compositor keeps showing the
+//       other eye's previous image and reprojects it. Half the temporal rate
+//       per eye and it leans on reprojection to hide a genuine mismatch.
+//       The runtime layer has this (g_aerEnabled / current_eye_sign) and this
+//       method deliberately does NOT use it.
 //
-// ACCEPTANCE (ROADMAP S2a): eyetest HONOURED on some field; `stereo aer`
-// accepted; beat line L/s == R/s == presents/2; xrsim-shot both eyes non-black
-// with DIFFERENT content (the bbox and the mean luma differ by the parallax);
-// eye-check.ps1 legs 0-5 on the simulator; then the headset: fusion at the
-// measured IPD, no swim when turning (the tag lag is the first suspect if
-// there is).
+//   (b) PAIRED - the left present is HELD OPEN, the right present closes the
+//       pair, and ONE projection layer carrying BOTH eyes is submitted per
+//       pair. No stale eye, no reprojected sibling, both images in the same
+//       xrEndFrame. This is what BioShock Remastered VR does (XR_SubmitPair:
+//       "eye 0 stashes, eye 1 submits the pair - one XR cycle per two
+//       Presents") and it is why that mod fuses cleanly.
+//
+// We take (b), and it costs no new runtime code: the layer's SequentialReentry
+// tag ring is exactly the mechanism. sr_push_eye() tags a present with an eye,
+// the render thread pops one tag per present and captures into that eye's
+// swapchain, and the pair pacing holds the left frame open until the right
+// arrives. The ring does not care whether the two frames came from one game
+// tick (rung 3) or two (this rung) - only that they arrive tagged, in order.
+//
+// THE ONE PRESENT OF LAG. begin_frame publishes the eye for the frame the game
+// is ABOUT to render; that frame reaches us at the NEXT present. So the tag
+// attached at end_frame is the sign published at the PREVIOUS begin_frame, not
+// this one. Getting this wrong swaps the eyes and inverts depth - which reads
+// as "stereo works but everything is inside out", not as a crash.
+//
+// FRESH FRAMES ONLY. dvr::capture reports whether the backbuffer actually
+// moved. A present that re-shows the previous image must NOT be tagged: the
+// pair would then carry the same picture in both eyes (zero disparity, which
+// the eye reads as infinitely far away) or, worse, one eye's picture tagged as
+// the other's. A stale present emits nothing, the ring pops 0, and the last
+// good pair stays up.
+//
+// ACCEPTANCE (ROADMAP S2a): `stereo aer` accepted; the beat line reads
+// L/s == R/s == out/s / 2; xrsim-shot shows two projection views with
+// DIFFERENT content and EyeSeparationM ~= the IPD; the [pair] probe reports no
+// untagged presents and no staleL; then the headset - fusion at the measured
+// IPD, and no swim on head turns.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/stereo.h"
 
 #include "core/framework/status.h"
+#include "core/gfx/blit_quad.h"
+#include "core/gfx/capture.h"
 #include "core/util/log.h"
+#include "core/vr/openxr_runtime.h"
+
+#include <windows.h>
+#include <d3d11.h>
 
 namespace dvr::stereo {
 namespace {
@@ -61,21 +62,143 @@ namespace {
 class AlternateEye : public IStereo {
 public:
     const char* name() const override { return "aer"; }
-    bool implemented() const override { return false; }
+    bool implemented() const override { return true; }
     const char* note() const override {
-        return "aer is a design stub (core/gfx/aer.cpp): alternate the eye the camera seam "
-               "renders each tick and tag each present; needs `camera eyetest` to have found "
-               "an honoured eye field first (ROADMAP S2a).";
+        return "aer renders one eye per game frame (the camera seam offsets +/- IPD/2) and "
+               "submits both eyes as one paired projection layer; it needs `camera eyetest` "
+               "to have found an honoured eye field first ([Camera] EyeField=).";
     }
-    void begin_frame(const FrameInput&) override {}
-    int  eye_for_next_frame() const override { return 0; }
-    bool end_frame(const FrameDevices&, FrameOutput&) override {
-        DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn, "stereo: aer end_frame reached - %s", note());
-        return false;
+
+    void begin_frame(const FrameInput& in) override {
+        // Projection mode is what makes the runtime submit a projection layer
+        // instead of the mono quad. Idempotent; cleared again in shutdown().
+        dvr::vr::set_camera_mode(true);
+
+        frame_ = in.frame;
+        ipdM_  = in.ipdM;
+
+        // The frame we are about to capture at THIS present was rendered by the
+        // tick that followed the PREVIOUS begin_frame, so it carries that sign.
+        inFlight_ = published_;
+        published_ = (published_ >= 0) ? -1 : +1;   // -1 left, +1 right
+        if (!armedLogged_) {
+            armedLogged_ = true;
+            DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
+                    "aer: armed - one eye per game frame, paired submit. ipd %.4f m, "
+                    "recommended eye %ux%u. The headset rate is half the game's present "
+                    "rate BY DESIGN (one XR frame per L/R pair).",
+                    in.ipdM, in.eyeW, in.eyeH);
+        }
     }
-    void on_reset() override {}
-    void shutdown() override {}
-    void status(dvr::status::Writer& w) override { w.kv("aer", "design stub"); }
+
+    int eye_for_next_frame() const override { return published_; }
+
+    bool end_frame(const FrameDevices& d, FrameOutput& out) override {
+        if (!d.dev9 || !d.dev11 || !d.ctx11) {
+            DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn,
+                         "aer: no D3D11 device - the game runs flat, nothing reaches the headset");
+            return false;
+        }
+        if (!blit_.init(d.dev11)) return false;
+
+        const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
+        if (!fresh) {
+            // A repeat of the previous image. Tagging it would put one eye's
+            // picture into the other eye. Skip the present entirely; the pair
+            // on screen stays up and the ring pops 0.
+            ++skippedStale_;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 5000,
+                             "aer: %lu stale presents skipped (the game re-showed a frame; "
+                             "tagging it would cross the eyes)", skippedStale_);
+            return false;
+        }
+        // The pipeline needs one present to fill: the very first frame after
+        // arming was rendered before any eye was asked for.
+        if (inFlight_ == 0) { ++primed_; return false; }
+
+        ID3D11ShaderResourceView* src = dvr::capture::srv();
+        if (!src) return false;
+        const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
+        if (!ensure_target(d.dev11, w, h)) return false;
+
+        blit_.draw(d.ctx11, src, rtv_, w, h);
+        if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
+
+        if (inFlight_ < 0) ++left_; else ++right_;
+        out.tex = tex_;
+        out.eyeSign = inFlight_;
+        out.w = w; out.h = h;
+        return true;
+    }
+
+    void on_reset() override { dvr::capture::on_reset(); }
+
+    void shutdown() override {
+        dvr::vr::set_camera_mode(false);
+        release_target();
+        blit_.shutdown();
+        published_ = 0;
+        inFlight_ = 0;
+        armedLogged_ = false;
+        DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
+                "aer: stood down - camera mode off, the quad screen takes over");
+    }
+
+    void status(dvr::status::Writer& w) override {
+        w.kv("aerLeft", (unsigned long)left_);
+        w.kv("aerRight", (unsigned long)right_);
+        w.kv("aerStaleSkipped", (unsigned long)skippedStale_);
+        w.kv("aerPriming", (unsigned long)primed_);
+        w.kv("aerIpdM", (double)ipdM_);
+        // Left and right must track each other. A gap means presents are being
+        // dropped on one side, which is the eye-crossing failure mode.
+        const long gap = (long)left_ - (long)right_;
+        w.kv("aerLRGap", (int)gap);
+        const dvr::capture::Bbox b = dvr::capture::bbox();
+        w.obj("bbox");
+        w.kv("valid", b.valid);
+        w.kv("pctW", (double)b.pctW); w.kv("pctH", (double)b.pctH);
+        w.kv("nonBlackPct", (double)b.nonBlackPct);
+        w.end_obj();
+    }
+
+private:
+    bool ensure_target(ID3D11Device* dev, uint32_t w, uint32_t h) {
+        if (tex_ && w_ == w && h_ == h) return true;
+        release_target();
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = w; td.Height = h;
+        td.MipLevels = 1; td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;   // the runtime swapchain's family
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_DEFAULT;
+        td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        if (FAILED(dev->CreateTexture2D(&td, nullptr, &tex_)) ||
+            FAILED(dev->CreateRenderTargetView(tex_, nullptr, &rtv_))) {
+            DVR_ERROR("aer: output texture %ux%u failed", w, h);
+            release_target();
+            return false;
+        }
+        w_ = w; h_ = h;
+        DVR_INFO("aer: output texture %ux%u (RGBA) - one eye per present goes through this", w, h);
+        return true;
+    }
+    void release_target() {
+        if (rtv_) { rtv_->Release(); rtv_ = nullptr; }
+        if (tex_) { tex_->Release(); tex_ = nullptr; }
+        w_ = h_ = 0;
+    }
+
+    dvr::gfx::BlitQuad      blit_;
+    ID3D11Texture2D*        tex_ = nullptr;
+    ID3D11RenderTargetView* rtv_ = nullptr;
+    uint32_t w_ = 0, h_ = 0;
+    uint32_t frame_ = 0;
+    float    ipdM_ = 0.0f;
+    int      published_ = 0;   // the eye the NEXT game frame renders
+    int      inFlight_  = 0;   // the eye baked into the frame we capture now
+    unsigned long left_ = 0, right_ = 0, skippedStale_ = 0, primed_ = 0;
+    bool     armedLogged_ = false;
 };
 
 AlternateEye g_aer;

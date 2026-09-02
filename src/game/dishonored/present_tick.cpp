@@ -252,10 +252,59 @@ static void DvrGameTick(IDirect3DDevice9* self)
         DvrConsumePoses();
         // 41.0: the camera seam learns the eye the active method wants next,
         // the IPD and the world scale; the eyetest reads c5 back here.
-        dvr::camera::set_eye(dvr::stereo::active() ? dvr::stereo::active()->eye_for_next_frame() : 0);
+        const int eyeNext = dvr::stereo::active()
+                          ? dvr::stereo::active()->eye_for_next_frame() : 0;
+        dvr::camera::set_eye(eyeNext);
         dvr::camera::set_ipd_m(g_ipdM);
         dvr::camera::set_world_scale(g_posScaleUU);
         dvr::camera::eyetest_present_tick();
+        // 41.1 (AER): a per-eye method submits a real PROJECTION layer, so the
+        // FOV the game renders with and the FOV the runtime claims for that
+        // layer must be the same number - if they disagree the world comes out
+        // the wrong size, which is the whole class of bug the side-by-side era
+        // died of. Closed loop, both ends measured:
+        //   want = the runtime's suggested hfov (circumscribes the headset eye
+        //          at this frame's aspect) -> the lever writes it every dispatch
+        //   got  = the 0x53c sensor's readback -> what we actually CLAIM
+        // So a refused write makes the claim follow the truth, not our
+        // intention. [Screen] FovLever non-zero pins it by hand instead.
+        {
+            static bool levDriven = false;
+            if (eyeNext != 0) {
+                if (g_fovLever <= 0.0f) {
+                    const float want = dvr::vr::suggested_hfov_deg();
+                    if (want >= 40.0f && want <= 160.0f) {
+                        static float toldWant = 0.0f;
+                        dvr::camera::set_fov_deg(want);
+                        levDriven = true;
+                        if (fabsf(want - toldWant) > 0.5f) {
+                            toldWant = want;
+                            Log("aer/fov: runtime wants %.1f deg hfov at this aspect - the lever "
+                                "is driving the engine camera there ([Screen] FovLever=0 means "
+                                "auto; set it 40..160 to pin a value by hand)", want);
+                        }
+                    }
+                }
+                const float got = dvr::camera::rendered_fov_deg();
+                if (got >= 40.0f && got <= 160.0f) {
+                    dvr::vr::set_rendered_hfov(got);
+                    static float toldGot = 0.0f;
+                    if (fabsf(got - toldGot) > 0.5f) {
+                        toldGot = got;
+                        Log("aer/fov: engine RENDERED %.1f deg - claiming that for the "
+                            "projection layer (asked %.1f)", got, dvr::camera::fov_deg());
+                    }
+                }
+            } else if (levDriven) {
+                // Back on the quad screen: hand the lever back, or it keeps
+                // writing a per-eye FOV into a mono camera every dispatch.
+                levDriven = false;
+                dvr::camera::set_fov_deg(g_fovLever);
+                dvr::vr::set_rendered_hfov(0.0f);
+                Log("aer/fov: per-eye method stood down - lever back to [Screen] FovLever=%.0f",
+                    g_fovLever);
+            }
+        }
         // The hook itself is installed from DllMain; this is the retry for a
         // game that had not mapped xinput1_3.dll that early, and the point
         // where the game-side callbacks are registered.
