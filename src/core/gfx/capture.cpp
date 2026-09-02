@@ -25,6 +25,7 @@ Bbox                      g_bbox;
 bool                      g_warnedFormat = false;
 bool                      g_warnedRtd = false;
 bool                      g_bboxSaidForSize = false;
+int                       g_bboxClass = -1;   // 0 all black, 1 cropped, 2 full
 
 // Strided sample of the CPU pixels: every 8th row and column, a pixel counts
 // as content when any channel clears 8/255. Cheap (1/64 of the frame) and
@@ -59,8 +60,10 @@ void sample_bbox() {
     b.nonBlackPct = total ? 100.0f * (float)hits / (float)total : 0.0f;
     g_bbox = b;
     const bool full = b.valid && b.pctW >= 97.0f && b.pctH >= 97.0f;
-    if (!g_bboxSaidForSize) {
+    const int cls = !b.valid ? 0 : full ? 2 : 1;
+    if (!g_bboxSaidForSize || cls != g_bboxClass) {
         g_bboxSaidForSize = true;
+        g_bboxClass = cls;
         DVR_INFO("capture: %ux%u content bbox [%u,%u]-[%u,%u] = %.0f%% x %.0f%% (%s), "
                  "%.0f%% of samples non-black",
                  g_w, g_h, b.x0, b.y0, b.x1, b.y1, b.pctW, b.pctH,
