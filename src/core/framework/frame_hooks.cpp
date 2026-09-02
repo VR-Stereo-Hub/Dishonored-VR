@@ -280,12 +280,12 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
         }
     }
 
-    // --- c0 view-projection: stereo shear + positional lean ---
-    bool wantStereo = g_stereoEnabled;
+    // --- c0 view-projection: positional lean (the head matrix branch is the
+    // retired camera-inject experiment; it stays until the camera seam lands)
     bool wantHead   = g_injectHead && g_haveA;
     bool wantPos    = g_posTrack && (g_leanRightUU != 0.0f || g_leanUpUU != 0.0f || g_leanFwdUU != 0.0f);
-    if ((wantStereo || wantHead || wantPos) && data && count >= 4 && count <= 240 &&
-        (int)startReg == g_stereoReg) {
+    if ((wantHead || wantPos) && data && count >= 4 && count <= 240 &&
+        startReg == 0) {
         const float* m = data;
         bool affine = IsAffineRowMajor(m) || IsAffineColMajor(m);
         if (!affine && !IsMirrored(m) && IsMainScenePass() && Finite16(m)) {
@@ -302,10 +302,8 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
                     }
                 memcpy(buf, M, sizeof(float) * 16);
             }
-            if (wantStereo) ShearVP(buf, (g_drawEye == 0) ? -1.0f : +1.0f);
             if (wantPos)    LeanVP(buf);
             if (Finite16(buf)) {              // never forward a poisoned matrix
-                g_shearHits++;
                 return g_origSetVSConstF(self, startReg, buf, count);
             }
         }
@@ -405,65 +403,26 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
             g_vrReady = true;
             Log("xr: pipeline READY - frames flow to the headset from here");
         }
-        if (g_vrReady)
-            VRFrame(self);
-        // 38.62: spectator mirror - AFTER the VR path has read the SBS
-        // backbuffer, rewrite it to a single 16:9-cropped eye for the
-        // desktop window / OBS. The headset never sees this: everything VR
-        // consumes was captured above.
-        if (g_mirrorMode != 0 && g_vrReady) {
-            IDirect3DSurface9* sbb = NULL;
-            if (SUCCEEDED(self->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO,
-                                              &sbb)) && sbb) {
-                D3DSURFACE_DESC sd; sbb->GetDesc(&sd);
-                if (g_specTmp && (g_specW != sd.Width || g_specH != sd.Height)) {
-                    g_specTmp->Release(); g_specTmp = NULL;
-                }
-                if (!g_specTmp &&
-                    SUCCEEDED(self->CreateRenderTarget(sd.Width, sd.Height,
-                        sd.Format, D3DMULTISAMPLE_NONE, 0, FALSE,
-                        &g_specTmp, NULL))) {
-                    g_specW = sd.Width; g_specH = sd.Height;
-                    Log("mirror: spectator mode %d ready (%s eye, 16:9 crop)",
-                        g_mirrorMode, g_mirrorMode == 1 ? "left" : "right");
-                }
-                if (g_specTmp &&
-                    SUCCEEDED(self->StretchRect(sbb, NULL, g_specTmp, NULL,
-                                                D3DTEXF_NONE))) {
-                    const LONG eyeW = (LONG)(sd.Width / 2);
-                    const LONG eyeH = (LONG)sd.Height;
-                    LONG cropH = eyeH;                       // full eye
-                    if (g_mirrorAspect > 0.0f) {             // optional crop
-                        cropH = (LONG)(eyeW / g_mirrorAspect);
-                        if (cropH > eyeH) cropH = eyeH;
-                    }
-                    RECT src;
-                    src.left   = g_mirrorMode == 2 ? eyeW : 0;
-                    src.right  = src.left + eyeW;
-                    src.top    = (eyeH - cropH) / 2;
-                    src.bottom = src.top + cropH;
-                    // dest: preserve the source aspect inside the frame -
-                    // pillarbox on black instead of stretching to fit.
-                    self->ColorFill(sbb, NULL, D3DCOLOR_XRGB(0, 0, 0));
-                    const double sa = (double)eyeW / (double)cropH;
-                    const double fa = (double)sd.Width / (double)sd.Height;
-                    RECT dst;
-                    if (sa < fa) {           // narrower than frame: pillarbox
-                        LONG w = (LONG)(sd.Height * sa);
-                        dst.left = ((LONG)sd.Width - w) / 2; dst.right = dst.left + w;
-                        dst.top = 0; dst.bottom = (LONG)sd.Height;
-                    } else {                 // wider: letterbox
-                        LONG h = (LONG)(sd.Width / sa);
-                        dst.top = ((LONG)sd.Height - h) / 2; dst.bottom = dst.top + h;
-                        dst.left = 0; dst.right = (LONG)sd.Width;
-                    }
-                    self->StretchRect(g_specTmp, &src, sbb, &dst,
-                                      D3DTEXF_LINEAR);
-                }
-                sbb->Release();
-            }
+        // 41.0: the side-by-side present pipeline is gone. The present path is
+        // rebuilt on the stereo seam (docs/ARCHITECTURE.md); until it lands,
+        // only the pose and gamepad lanes run here and nothing reaches a
+        // headset. Fail soft: the game runs flat.
+        if (!g_presentTid) {
+            g_presentTid = GetCurrentThreadId();
+            dvr::crash::register_thread("present", g_presentTid);
         }
-        // (head-injection / camera tracer removed - stereo + mouse-look + AER only)
+        g_gameFrames++;
+        SbTick();   // 30.83: SpaceBases oracle (legacy stub unless -Legacy)
+        {   // 34.7: one-shot block-property hunt, ~30 s in so a level is loaded
+            static int bhDone = 0;
+            if (!bhDone && MaimNowMs() > 30000.0) { bhDone = 1; BlockPropHunt(); }
+        }
+        StereoUpdate();   // the live-tuning hotkeys
+        if (g_vrReady) {
+            if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
+            UpdateVirtualPad();
+        }
+        FrameDumpTick();
         // UE3 probe: automatic at ~frame 900 and ~frame 14400, or F9 on demand
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         bool f9Edge = f9 && !g_f9WasDown;
@@ -485,21 +444,13 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
             double el = (g_qpcFreq && hbQpc) ? (double)(now.QuadPart - hbQpc) / (double)g_qpcFreq : 0.0;
             if (el >= 3.0) {
                 double gfps = g_gameFrames / el, sfps = g_submits / el;
-                Log("heartbeat: GAME=%.0ffps  headset(submits)=%.0ffps  per-eye~%.0ffps  stereo=%d  pos=%d lean=(%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld rendered=%.1f",
-                    gfps, sfps, gfps / 2.0, (int)g_stereoEnabled,
+                Log("heartbeat: GAME=%.0ffps  headset(submits)=%.0ffps  pos=%d lean=(%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
+                    gfps, sfps,
                     (int)g_posTrack, (float)g_leanRightUU, (float)g_leanUpUU,
                     (int)g_padActive, (long)g_padPolls,
                     (long)g_pvrHits, (int)g_rotInject,
                     g_idxViewRot != 0xffffffffu ? "found" : "hunting",
-                    (float)g_fovLever, (long)g_fovLeverWrites, g_liveFovX);
-                // 30.52 safety net: if the RENDERED fov ever runs far past the
-                // lever target, something is feeding back - disarm rather than
-                // leave the user in a fisheye.
-                if (g_fovLever >= 40.0f && g_liveFovX > g_fovLever + 25.0f) {
-                    Log("fovlever: DISARMED - rendered %.1f overshot target %.0f",
-                        g_liveFovX, (float)g_fovLever);
-                    g_fovLever = 0.0f;
-                }
+                    (float)g_fovLever, (long)g_fovLeverWrites);
                 Log("heartbeat: head hits=%ld writes=%ld | menu=%d (script=%d) wheel=%d",
                     (long)g_pvrHits, (long)g_pvrWrites, (int)g_inMenu,
                     (int)g_menuOpen, (int)g_wheelHeld);
@@ -559,7 +510,7 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
                 memcpy(g_rtdCensusSnap, g_rtdCensus, sizeof(g_rtdCensusSnap));
                 memset(g_rtdCensus, 0, sizeof(g_rtdCensus));
                 g_pvrHits = 0; g_pvrWrites = 0; g_fovLeverWrites = 0;
-                g_shearHits = 0; g_gameFrames = 0; g_submits = 0; g_padPolls = 0;
+                g_gameFrames = 0; g_submits = 0; g_padPolls = 0;
                 hbQpc = now.QuadPart;
             } else if (!hbQpc) {
                 hbQpc = now.QuadPart;
@@ -767,13 +718,8 @@ static HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* 
     if (pp) { g_liveBbW = pp->BackBufferWidth; g_liveBbH = pp->BackBufferHeight; }
     if (g_sysmem) { g_sysmem->Release(); g_sysmem = NULL; }
     g_capW = g_capH = 0; g_capFmt = D3DFMT_UNKNOWN;
-    // 38.63: THE MIRROR BLACK SCREEN. 38.62's spectator temp is a
-    // POOL_DEFAULT render target and was never released here - so the
-    // game's Reset failed forever (one retry per second, both black-screen
-    // logs end in that loop) the moment ANYTHING triggered a Reset. Every
-    // default-pool resource this proxy creates must appear on this list.
-    if (g_specTmp) { g_specTmp->Release(); g_specTmp = NULL; }
-    g_specW = g_specH = 0;
+    // Every default-pool resource this proxy creates must appear on this list
+    // (38.63: a forgotten one made the game's Reset fail forever).
     HRESULT rhr = g_origReset(self, pp);
     // 32.74: DO NOT RESIZE THE WINDOW HERE.
     // 32.73 did, as a safety net, and the net was the whole problem. The log

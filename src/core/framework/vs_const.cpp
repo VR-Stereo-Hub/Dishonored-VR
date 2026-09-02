@@ -65,28 +65,6 @@ static inline bool IsMainScenePass()
     return aspect > 1.4f && aspect < 2.4f;                 // wide -> scene, not square shadow
 }
 
-// Apply the 3D-Vision separation+convergence shear to a row-major MVP/VP so
-// that clip.x += eyeSign*sep*(clip.w - convergence). After the perspective
-// divide this yields ndc.x += eyeSign*sep*(1 - convergence/w): a horizontal
-// disparity that grows/shrinks with depth = real stereo parallax.
-static inline void ShearVP(float* m, float eyeSign)
-{
-    float s = eyeSign * g_sepClip;
-    if (!g_stereoTranspose) {
-        // row-major (translation in row 3): clip.x = pos . col0, clip.w = pos . col3
-        m[0]  += s * m[3];    // r0: x += s*w
-        m[4]  += s * m[7];    // r1
-        m[8]  += s * m[11];   // r2
-        m[12] += s * (m[15] - g_converge); // r3 (pos.w=1): +s*w - s*convergence
-    } else {
-        // column-major fallback
-        m[0]  += s * m[12];
-        m[1]  += s * m[13];
-        m[2]  += s * m[14];
-        m[3]  += s * (m[15] - g_converge);
-    }
-}
-
 // Stage 5.0: fold the positional head offset (lean/peek/crouch) into the VP as
 // a pure view-space translation. A camera moved right by t game-units changes
 // clip.x by -t*P00 for every world vertex (w=1); after the perspective divide
@@ -100,7 +78,7 @@ static inline void LeanVP(float* m)
     float rx = g_leanRightUU * (g_posFlipX ? -1.0f : 1.0f);
     float uy = g_leanUpUU;
     float fz = g_leanFwdUU;
-    if (!g_stereoTranspose) {
+    {
         // row-major: col0 = (m0,m4,m8 | m12), col1 = (m1,m5,m9 | m13)
         float p00 = sqrtf(m[0]*m[0] + m[4]*m[4] + m[8]*m[8]);
         float p11 = sqrtf(m[1]*m[1] + m[5]*m[5] + m[9]*m[9]);
@@ -112,15 +90,6 @@ static inline void LeanVP(float* m)
         // subtract fz times each column's own scale from the constant row.
         float p22 = sqrtf(m[2]*m[2] + m[6]*m[6] + m[10]*m[10]);
         m[14] -= fz * p22;
-        m[15] -= fz;
-    } else {
-        // column-major: col0 = (m0,m1,m2 | m3), col1 = (m4,m5,m6 | m7)
-        float p00 = sqrtf(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
-        float p11 = sqrtf(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
-        m[3] -= rx * p00;
-        m[7] -= uy * p11;
-        float p22 = sqrtf(m[8]*m[8] + m[9]*m[9] + m[10]*m[10]);
-        m[11] -= fz * p22;
         m[15] -= fz;
     }
 }

@@ -7,8 +7,6 @@ static uint8_t*  g_pixels = NULL;
 static uint32_t  g_frame = 0;
 static bool      g_warnedFormat = false;
 static bool      g_warnedRTD    = false;
-static int       g_lastSubmitErr = -12345;
-static int       g_lastWaitErr   = -12345;
 
 // ----------------------------------------------------------------------------
 // Globals: head tracking -> mouse

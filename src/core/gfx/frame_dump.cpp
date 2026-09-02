@@ -5,21 +5,18 @@
 //   dump capture   the game's SBS backbuffer as we captured it (BMP, before the
 //                  eye split - "this is exactly what the headset is fed")
 //   dump eyes      the two D3D11 eye render targets (PNG)
-//   dump hud       the wrist HUD readback (PNG)
 // Files land in <data_dir>\dumps\ with a frame-number suffix.
 
 static int      g_dumpReqCapture = 0;
 static int      g_dumpReqEyes = 0;
-static int      g_dumpReqHud = 0;
 
 static void FrameDumpRequest(const char* what)
 {
     bool all = !strcmp(what, "frame");
     if (all || !strcmp(what, "capture")) g_dumpReqCapture = 1;
     if (all || !strcmp(what, "eyes"))    g_dumpReqEyes = 1;
-    if (!strcmp(what, "hud"))            g_dumpReqHud = 1;
-    if (!(all || !strcmp(what, "capture") || !strcmp(what, "eyes") || !strcmp(what, "hud")))
-        Log("dump: unknown target '%s' (frame|capture|eyes|hud)", what);
+    if (!(all || !strcmp(what, "capture") || !strcmp(what, "eyes")))
+        Log("dump: unknown target '%s' (frame|capture|eyes)", what);
     else
         Log("dump: %s requested -> %s", what, dvr::paths::dumps_dir());
 }
@@ -94,7 +91,7 @@ static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex)
 // Present thread, after the eyes are rendered and before they are submitted.
 static void FrameDumpTick()
 {
-    if (!g_dumpReqCapture && !g_dumpReqEyes && !g_dumpReqHud) return;
+    if (!g_dumpReqCapture && !g_dumpReqEyes) return;
     char path[MAX_PATH];
     if (g_dumpReqCapture) {
         g_dumpReqCapture = 0;
@@ -109,10 +106,5 @@ static void FrameDumpTick()
             snprintf(path, MAX_PATH, "%s\\eye_%lu_%s.png", dvr::paths::dumps_dir(), (unsigned long)g_frame, e ? "right" : "left");
             Log("dump: eye %d %s", e, DumpTexturePng(path, g_eyeTex[e]) ? path : "FAILED (no eye texture?)");
         }
-    }
-    if (g_dumpReqHud) {
-        g_dumpReqHud = 0;
-        snprintf(path, MAX_PATH, "%s\\hud_%lu.png", dvr::paths::dumps_dir(), (unsigned long)g_frame);
-        Log("dump: hud %s", DumpTexturePng(path, g_hudTex11) ? path : "FAILED (no HUD texture - wrist HUD off?)");
     }
 }

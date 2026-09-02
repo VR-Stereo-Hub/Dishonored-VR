@@ -8,11 +8,9 @@
 //   fov <deg|0>                  the FOV lever (0 disarms)
 //   pace delay <0-3> | stamp live|render | fix <0-2> | cap <hz>
 //   layer proj|cyl|quad          OpenXR presentation layer mode
-//   hud on|off                   wrist HUD
-//   mirror 0|1|2                 desktop spectator view
 //   overlay on|off               the F10 settings panel
 //   console <text>               run a game console command on the script lane
-//   dump frame|capture|eyes|hud
+//   dump frame|capture|eyes
 //   cfg dump                     print the live values the seam can change
 // Line numbers in comments refer to the original single file (commit 48766c07).
 
@@ -65,8 +63,6 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("layer: %s (seam)", g_xrLayerMode == 0 ? "projection" : g_xrLayerMode == 1 ? "cylinder" : "quad");
         return true;
     }
-    if (!strcmp(cmd, "hud") && DvrOnOff(args, &b)) { g_wristHud = b; Log("hud: wrist %s (seam)", b ? "ON" : "off"); return true; }
-    if (!strcmp(cmd, "mirror")) { g_mirrorMode = atoi(args); Log("mirror: mode %d (seam)", g_mirrorMode); return true; }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
     if (!strcmp(cmd, "console")) {
         strncpy(g_dvrConsoleReq, args, sizeof(g_dvrConsoleReq) - 1);
@@ -79,10 +75,10 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "cfg") && !strcmp(args, "dump")) {
-        Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f wristHud=%d mirror=%d layer=%d poseDelay=%d stampLive=%d stampFix=%d fpsCap=%.1f posTrack=%d melee=%d",
+        Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f layer=%d poseDelay=%d stampLive=%d stampFix=%d fpsCap=%.1f posTrack=%d melee=%d",
             (int)g_gamepadOnly,
             g_gamepadOnly ? " (hands/blink/melee READ 0 BY DESIGN, not because they failed)" : "",
-            (int)g_skcDrive, (int)g_handMesh, (int)g_blkAimOnCfg, g_fovLever, (int)g_wristHud, g_mirrorMode,
+            (int)g_skcDrive, (int)g_handMesh, (int)g_blkAimOnCfg, g_fovLever,
             g_xrLayerMode, g_xrPoseDelay, (int)g_stampLive, g_stampFix, g_fpsCap, (int)g_posTrack, (int)g_meleeOn);
         return true;
     }
@@ -130,9 +126,6 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("frame", (unsigned long)g_frame);
     w.kv("capW", (int)g_capW); w.kv("capH", (int)g_capH);
     w.kv("eyeW", (int)g_eyeW); w.kv("eyeH", (int)g_eyeH);
-    w.kv("liveFovX", (double)g_liveFovX);
-    w.kv("stereo", (bool)g_stereoEnabled);
-    w.kv("mono", (bool)g_sbsMonoNow);
     w.obj("head");
     w.kv("yaw", (double)g_hmdYaw); w.kv("pitch", (double)g_hmdPitch); w.kv("roll", (double)g_hmdRoll);
     w.kv("tracked", (bool)g_devPoseOk[0]);
@@ -155,10 +148,9 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("gamepadOnly", (bool)g_gamepadOnly);   // 40.3: names the OWNER of the zeroes below
     w.kv("hands", (bool)g_skcDrive); w.kv("handMesh", (bool)g_handMesh); w.kv("handModels", (bool)g_hmEnable);
     w.kv("blink", (bool)g_blkAimOnCfg); w.kv("melee", (bool)g_meleeOn);
-    w.kv("fovLever", (double)g_fovLever); w.kv("wristHud", (bool)g_wristHud);
+    w.kv("fovLever", (double)g_fovLever);
     w.kv("layer", g_xrLayerMode); w.kv("poseDelay", g_xrPoseDelay);
     w.kv("stampLive", (bool)g_stampLive); w.kv("stampFix", g_stampFix); w.kv("fpsCap", (double)g_fpsCap);
-    w.kv("mirror", g_mirrorMode);
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu);
     w.kv("cine", (bool)g_cineNow);

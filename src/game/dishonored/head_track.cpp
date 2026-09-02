@@ -58,7 +58,6 @@ static bool FindLiveCamera()
 static void RecenterHead()
 {
     g_refHmdYaw = g_hmdYaw;
-    InterlockedExchange(&g_wsReanchor, 1);   // 38.2: world screen follows F5
     Log("headinject: recentered  hmdYaw=%.1f", g_refHmdYaw * 57.2958f);
 }
 

@@ -45,12 +45,9 @@
 #include "mod/state/14_core_util_log.inc"
 #include "mod/state/15_core_config_config.inc"
 #include "mod/state/16_core_gfx_d3d11_device.inc"
-#include "mod/state/17_core_gfx_eye_quads.inc"
 #include "mod/state/18_core_gfx_hand_mesh.inc"
 #include "mod/state/19_core_gfx_d3d11_device.inc"
 #include "mod/state/20_core_window_game_window.inc"
-#include "mod/state/21_core_gfx_hud_panel.inc"
-#include "mod/state/22_core_gfx_present.inc"
 #include "mod/state/23_game_dishonored_ue3_uobject.inc"
 #include "mod/state/24_game_dishonored_head_track.inc"
 #include "mod/state/25_legacy_camera_tracer.inc"
@@ -111,17 +108,8 @@
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/d3d11_device.cpp"
 #undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::present
-#include "core/gfx/eye_quads.cpp"
-#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "core/gfx/hand_mesh.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::hud
-#include "core/gfx/hud_panel.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::present
-#include "core/gfx/present.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::pad
 #include "core/input/hotkeys.cpp"
@@ -238,11 +226,6 @@
 #if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/fp_mesh.cpp"
-#undef DVR_CAT
-#endif
-#if DVR_WITH_LEGACY
-#define DVR_CAT ::dvr::log::Cat::legacy
-#include "legacy/ovl_scene.cpp"
 #undef DVR_CAT
 #endif
 #if DVR_WITH_LEGACY

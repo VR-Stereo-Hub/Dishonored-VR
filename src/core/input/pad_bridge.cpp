@@ -320,7 +320,6 @@ static void UpdateVirtualPad()
             if (rec && !recWas) {
                 g_posHaveRef = false;
                 g_crouchRefOk = false;
-                InterlockedExchange(&g_wsReanchor, 1);   // 38.2: screen too
                 Log("postrack: re-centered (right stick click)");
             }
             recWas = rec;
@@ -484,7 +483,7 @@ static void UpdateVirtualPad()
     // the same signal the skc gates trust), so menu shaping now requires
     // the renderer to AGREE a menu is showing. A real menu is unchanged; a
     // ghost flag during stereo gameplay can no longer eat the sticks.
-    if (g_menuOpen && g_sbsMonoNow && active) {
+    if (g_menuOpen && active) {
         xs.Gamepad.sThumbLX = MenuStep(xs.Gamepad.sThumbLX, 0);
         xs.Gamepad.sThumbLY = MenuStep(xs.Gamepad.sThumbLY, 1);
         xs.Gamepad.sThumbRX = 0;   // one navigation axis only - a second one

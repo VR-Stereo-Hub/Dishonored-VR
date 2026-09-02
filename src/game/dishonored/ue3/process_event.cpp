@@ -219,69 +219,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // in evt-vocab). Log every occurrence, rate-limited, to learn
                 // its press/release rhythm - then a standing-block trim can
                 // key off it.
-                // 38.47: arm the "a conversation is up" window. Matched by
-                // SUBSTRING over the whole family rather than a guessed list
-                // of exact names - guessing event names has failed every time
-                // on this game (the 34.4 lesson), and every member re-arms the
-                // hold, so the window survives the quiet gaps while the player
-                // is reading. Measured members: Dis_PlayerChoice_RequestSkip
-                // and _Released (DishonoredPlayerInput), OnPlayerChoiceConfirm
-                // (DisGFxMoviePlayerHUD). Every armed name is logged once, so
-                // if a conversation ever fails to trigger this the log names
-                // what DID fire instead of leaving us guessing again.
-                // 38.48: 38.47 held a fixed 6 s and the user watched it snap
-                // back mid-conversation ("worked for a second then got tiny").
-                // The log says why: these events are MOMENTARY ACTIONS, not a
-                // conversation-open state. The whole exchange fired exactly
-                // two - Dis_PlayerChoice_RequestSkip at 99383968 when he
-                // skipped a line, then OnPlayerChoiceConfirm SEVENTEEN SECONDS
-                // later when he picked. There is no open/close event anywhere
-                // in the vocabulary, so the window has to be inferred from the
-                // pair: a skip means dialogue is RUNNING (hold long), a
-                // confirm means the choice was taken and the UI is closing
-                // (release after a short grace). That reconstructs the real
-                // window - off at 99383968, back at ~99402100 - instead of
-                // guessing a duration.
-                if (g_dlgHudOff && strstr(nm, "PlayerChoice")) {
-                    // 38.51: THE WRIST FLIP-FLOP, measured (3850wrist log):
-                    // Dis_PlayerChoice_RequestSkip fired in the SAME
-                    // MILLISECOND as Dis_VersusAlt - it is an INPUT ALIAS.
-                    // Pressing block in combat fires the skip name too, and
-                    // 38.47 read that as "conversation started": every block
-                    // press killed the wrist HUD for 30 s ("checking it off
-                    // and on breaks it" was this window re-arming). A real
-                    // dialogue skip cannot coincide with a block event, so a
-                    // RequestSkip within 150 ms of any Versus event is the
-                    // combat alias and is ignored.
-                    // 38.53: _Released NEVER arms. Measured (3852magic
-                    // log): all three false drops that session were armed by
-                    // Dis_PlayerChoice_RequestSkip_Released - the RELEASE
-                    // edge of the block key, which fires alone hundreds of
-                    // ms after the press, outside the Versus guard window.
-                    // It is input-tail noise; the press (Versus-guarded)
-                    // remains the arming edge for real dialogue.
-                    if (strstr(nm, "Released"))
-                        goto dlgSkip;
-                    if (strstr(nm, "RequestSkip") &&
-                        (MaimNowMs() - g_lastVersusMs) < 150.0)
-                        goto dlgSkip;
-                    {
-                    bool wasOff = (MaimNowMs() < g_dlgUntilMs);
-                    if (strstr(nm, "Confirm")) {
-                        // choice taken - let it close, then hand the wrist back
-                        double until = MaimNowMs() + 1500.0;
-                        if (until < g_dlgUntilMs) g_dlgUntilMs = until;
-                        Log("dialog: choice confirmed - wrist HUD back shortly");
-                    } else {
-                        g_dlgUntilMs = MaimNowMs() + (double)g_dlgHoldMs;
-                        if (!wasOff)
-                            Log("dialog: '%s' - wrist HUD off, UI in view "
-                                "(up to %.0fs, or until you choose)",
-                                nm, g_dlgHoldMs * 0.001f);
-                    }
-                    }
-                    dlgSkip:;
-                }
+                // (38.47-38.53: the conversation window that parked the wrist
+                // HUD lived here; the wrist HUD went with the fork in 41.0)
                 if (!strcmp(nm, "OnToggleCinematicMode")) {   // 38.65
                     g_cineNow = !g_cineNow;
                     if (g_cineNow) g_cineOnMs = MaimNowMs();

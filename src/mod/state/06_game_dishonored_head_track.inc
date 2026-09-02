@@ -11,11 +11,6 @@ static bool  g_forceTheater = false;
 // 40.3: [Mode] GamepadOnly - motion controls off, plain gamepad only,
 // while the render is being fitted. Head tracking and the FOV lever stay on.
 static bool  g_gamepadOnly  = true;
-static bool  g_fillView     = true;      // 1 = size image 1:1 to the game's FOV
-static float g_gameFovDeg   = 75.0f;     // horizontal FOV the game renders (ini)
-static float g_menuFill = 0.72f;   // [Screen] MenuFillScale
-static float g_fillScale    = 1.0f;      // >1 fills more of the view (mild zoom); F1/F2
-static bool  g_f1Was = false, g_f2Was = false;
 
 static bool  g_haveLastPose = false;
 static float g_lastYaw = 0, g_lastPitch = 0;

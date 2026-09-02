@@ -341,23 +341,9 @@ static void ReticleTick()
         if (wantSize < g_retSize) wantSize = g_retSize;
     }
 
-    // 38.13: under the XR backend there are no OpenVR overlays (lazily
-    // asking for one here was THE ARMING CRASH) - publish the aim point
-    // instead; the eye loop draws the ring as scene geometry.
-    if (g_xrOn) {
-        g_retXrOn = want;
-        if (want) {
-            float a2 = g_maimPitchOff * 0.01745329f;
-            float sa2 = sinf(a2), ca2 = cosf(a2);
-            float lp[3] = { 0.0f, -sa2 * wantDist, -ca2 * wantDist };
-            float (*C)[4] = g_devPose[dev];
-            for (int k = 0; k < 3; k++)
-                g_retXrPos[k] = C[k][0]*lp[0] + C[k][1]*lp[1] +
-                                C[k][2]*lp[2] + C[k][3];
-            g_retXrSize = wantSize;
-        }
-        return;
-    }
+    // 41.0: the in-scene XR reticle went with the eye loop; no overlay
+    // interface exists under the XR backend, so there is nothing to draw.
+    if (g_xrOn) return;
 
     if (want && !g_retOverlay) {
         if (!g_ov && !GetFnTable(IVROverlay_Version, (void**)&g_ov)) {

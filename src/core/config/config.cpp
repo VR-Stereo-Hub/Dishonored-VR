@@ -21,30 +21,12 @@ static void WriteDefaultIni(const char* ini)
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
         "[Screen]\n"
-        "; FillView=1 shows the game at TRUE 1:1 scale: the image spans exactly\n"
-        "; the FOV the game rendered (GameFOVDeg). To shrink the black border,\n"
-        "; raise the game's FOV (in-game slider, max 85 - or set m_fDefaultFOV in\n"
-        "; Documents\\My Games\\Dishonored\\DishonoredGame\\Config\\DishonoredCamera.ini\n"
-        "; to 95-100) and set GameFOVDeg to the SAME number. A squarer game\n"
-        "; resolution (e.g. 1600x1200 windowed) also fills more vertical view.\n"
-        "; FillScale >1 grows the image to fill the border (mild zoom); live keys\n"
-        "; F1 (smaller/crisper) and F2 (bigger/fills more). FillView=0 = fixed\n"
-        "; floating screen of WidthMeters instead.\n"
-        "FillView=1\n"
-        "GameFOVDeg=100\n"
-        "FillScale=0.84\n"
-        "DistanceMeters=1.79\n"
-        "; FovLever WRITES the game camera FOV and is HALF of the resolution\n"
-        "; setting - the quad fills the headset vertically only when\n"
-        "; tan(FovLever/2)/frameAspect reaches the frustum. 16:9 needs ~130,\n"
-        "; 4:3 ~114, a near-square frame ~100. Too high and the game renders\n"
-        "; so wide that the edges fisheye. Change it WITH the resolution.\n"
+        "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
+        "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
+        "DistanceMeters=1.75\n"
+        "WidthMeters=2.4\n"
+        "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
         "FovLever=130\n"
-        "; MenuFillScale below 1.0 shrinks menu/mono frames - and the same flag\n"
-        "; skips the frustum-fill path, so a flag that flaps in gameplay pumps\n"
-        "; the world size. 1.00 keeps one size (menu edges crop instead).\n"
-        "MenuFillScale=1.00\n"
-        "WidthMeters=4.8\n"
         "; RenderWidth/Height: THE resolution setting. It sizes the game\n"
         "; window's client area, and the game derives its whole renderer from\n"
         "; that - so this is the one knob that actually raises the image the\n"
@@ -74,19 +56,6 @@ static void WriteDefaultIni(const char* ini)
         "; working. Default 1 while the render is being fitted - set 0 to\n"
         "; get the motion controls back.\n"
         "GamepadOnly=1\n"
-        "; 1 = old stage-1 theater screen (no head-driven camera)\n"
-        "ForceTheater=0\n"
-        "[Stereo]\n"
-        "; Render-time stereo: shears the view-projection matrix per eye.\n"
-        "; Toggle live: F7.  Separation -/+ : F10/F11.  Convergence cycle: F12.\n"
-        "; If depth looks inside-out, negate Separation. If the world warps,\n"
-        "; set Transpose=1. TIP: turn OFF in-game Motion Blur (Options>Video)\n"
-        "; to remove the blur when moving.\n"
-        "Enabled=1\n"
-        "Register=0\n"
-        "Separation=0.014\n"
-        "Convergence=140.0\n"
-        "Transpose=0\n"
         "[Controllers]\n"
         "; Stage 6.4: Index controllers = virtual Xbox-360 pad via SteamVR's\n"
         "; ACTION input system (rebindable in SteamVR > Controller Bindings).\n"
@@ -255,21 +224,12 @@ static void LoadConfig()
     g_yawCounts    = IniFloat(ini, "Tracking", "YawCountsPerDegree", 11.5f);
     g_pitchCounts  = IniFloat(ini, "Tracking", "PitchCountsPerDegree", 11.5f);
     g_invertPitch  = IniFloat(ini, "Tracking", "InvertPitch", 0) != 0.0f;
-    g_fillView     = IniFloat(ini, "Screen", "FillView", 1) != 0.0f;
-    g_gameFovDeg   = IniFloat(ini, "Screen", "GameFOVDeg", 100.0f);
-    if (g_gameFovDeg < 40.0f)  g_gameFovDeg = 40.0f;
-    if (g_gameFovDeg > 140.0f) g_gameFovDeg = 140.0f;
-    g_fillScale    = IniFloat(ini, "Screen", "FillScale", 0.84f);
-    if (g_fillScale < 0.6f) g_fillScale = 0.6f;
-    if (g_fillScale > 3.2f) g_fillScale = 3.2f;
-    g_screenDist   = IniFloat(ini, "Screen", "DistanceMeters", 1.79f);
-    g_screenWidth  = IniFloat(ini, "Screen", "WidthMeters", 4.8f);
-    g_forceTheater = IniFloat(ini, "Mode", "ForceTheater", 0) != 0.0f;
-    g_stereoEnabled  = IniFloat(ini, "Stereo", "Enabled", 1) != 0.0f;
-    g_stereoReg      = (int)IniFloat(ini, "Stereo", "Register", 0);
-    g_sepClip        = IniFloat(ini, "Stereo", "Separation", 0.014f);
-    g_converge       = IniFloat(ini, "Stereo", "Convergence", 140.0f);
-    g_stereoTranspose= IniFloat(ini, "Stereo", "Transpose", 0) != 0.0f;
+    g_screenDist   = IniFloat(ini, "Screen", "DistanceMeters", 1.75f);
+    if (g_screenDist < 0.5f) g_screenDist = 0.5f;
+    if (g_screenDist > 6.0f) g_screenDist = 6.0f;
+    g_screenWidth  = IniFloat(ini, "Screen", "WidthMeters", 2.4f);
+    if (g_screenWidth < 0.5f) g_screenWidth = 0.5f;
+    if (g_screenWidth > 10.0f) g_screenWidth = 10.0f;
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
     g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
@@ -294,9 +254,6 @@ static void LoadConfig()
         if (g_fovLever > 0.0f) Log("config: FOV lever armed at %.0f deg", lv);
     }
     g_autoFocus = IniFloat(ini, "Input", "AutoFocus", 1) != 0.0f;
-    g_zoomFillFloor = IniFloat(ini, "Screen", "ZoomFillFloor", 1.0f);
-    if (g_zoomFillFloor < 0.0f) g_zoomFillFloor = 0.0f;
-    if (g_zoomFillFloor > 1.0f) g_zoomFillFloor = 1.0f;
     // 40.3: NOW 98, and the measurement below is what it converged on. The
     // restore that 40.2b was waiting for happened (4032x2268 + FovLever=130),
     // and the tester then tuned world scale by feel in the F10 overlay and
@@ -749,19 +706,6 @@ static void LoadConfig()
     Log("config: physical crouch %s (down at %.2f m, up at %.2f m) - this "
         "line reports the SETTING; watch for 'crouch: DOWN' to know it fires",
         g_crouchOn ? "armed" : "off", g_crouchDropM, g_crouchReleaseM);
-    g_menuFill = IniFloat(ini, "Screen", "MenuFillScale", 1.00f);
-    if (g_menuFill < 0.2f) g_menuFill = 0.2f;
-    if (g_menuFill > 2.0f) g_menuFill = 2.0f;
-    g_wristHud = IniFloat(ini, "Hud", "WristHud", 1) != 0.0f;
-    g_dlgHudOff = IniFloat(ini, "Hud", "DialogHudOff", 1) != 0.0f;   // 38.47
-    g_dlgHoldMs = IniFloat(ini, "Hud", "DialogHoldMs", 12000.0f);
-    if (g_dlgHoldMs <  1000.0f) g_dlgHoldMs =  1000.0f;
-    if (g_dlgHoldMs > 120000.0f) g_dlgHoldMs = 120000.0f;
-    g_hudPanelHand = IniFloat(ini, "Hud", "PanelHand", 0) != 0.0f ? 1 : 0;
-    g_hudPanelSize = IniFloat(ini, "Hud", "PanelSize", 0.16f);
-    if (g_hudPanelSize < 0.05f) g_hudPanelSize = 0.05f;
-    if (g_hudPanelSize > 0.60f) g_hudPanelSize = 0.60f;
-    g_hudPanelUp   = IniFloat(ini, "Hud", "PanelUp", 0.06f);
     g_ovlDev = IniFloat(ini, "Overlay", "DevTools", 0) != 0.0f;
     g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 0) != 0.0f;
     g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
@@ -796,12 +740,6 @@ static void LoadConfig()
     GetPrivateProfileStringA("Debug", "Probe", "", g_dbgProbe,
                              sizeof(g_dbgProbe), ini);
     g_swarmAim = IniFloat(ini, "MotionAim", "SwarmAim", 1) != 0.0f;   // 38.55
-    g_mirrorMode = (int)IniFloat(ini, "Screen", "MirrorMode", 0);      // 38.62
-    if (g_mirrorMode < 0 || g_mirrorMode > 2) g_mirrorMode = 0;
-    g_mirrorAspect = IniFloat(ini, "Screen", "MirrorAspect", 0.0f);    // 38.64
-    if (g_mirrorAspect != 0.0f && g_mirrorAspect < 0.5f)  g_mirrorAspect = 0.5f;
-    if (g_mirrorAspect > 2.5f) g_mirrorAspect = 2.5f;
-    g_mirrorHud = IniFloat(ini, "Screen", "MirrorHud", 0) != 0.0f;
     g_introSkip = (int)IniFloat(ini, "Debug", "IntroSkip", 0);    // 38.69
     if (g_introSkip < 0 || g_introSkip > 2) g_introSkip = 0;
     g_introSkipDelayMs = (int)IniFloat(ini, "Debug", "IntroSkipDelayMs", 8000);
@@ -952,20 +890,7 @@ static void LoadConfig()
     if (g_spoofW && (g_spoofW < 1280 || g_spoofW > 8192)) g_spoofW = 0;
     if (g_spoofH && (g_spoofH < 720  || g_spoofH > 8192)) g_spoofH = 0;
     if (!g_spoofW || !g_spoofH) { g_spoofW = 0; g_spoofH = 0; }
-    g_rigidScreenCfg = (int)IniFloat(ini, "Screen", "RigidScreen", -1);  // 37.6
-    if (g_rigidScreenCfg < -1 || g_rigidScreenCfg > 1) g_rigidScreenCfg = -1;
-    g_ovlSceneCfg = (int)IniFloat(ini, "Screen", "OverlayScene", 0);     // 38.1: default OFF
-    if (g_ovlSceneCfg != 1) g_ovlSceneCfg = 0;
-    g_eyeCantCfg  = (int)IniFloat(ini, "Screen", "EyeCant", 1);          // 38.1
-    if (g_eyeCantCfg != 0) g_eyeCantCfg = 1;
-    g_worldScreenCfg = (int)IniFloat(ini, "Screen", "WorldScreen", -1);  // 38.2
-    if (g_worldScreenCfg < -1 || g_worldScreenCfg > 1) g_worldScreenCfg = -1;
     g_clickFallback = (int)IniFloat(ini, "Input", "ClickFallback", 1) != 0; // 38.2
-    g_ovlFollowTau = IniFloat(ini, "Screen", "OverlayFollowTau", 0.35f); // 38.0
-    if (g_ovlFollowTau < 0.0f) g_ovlFollowTau = 0.0f;
-    if (g_ovlFollowTau > 3.0f) g_ovlFollowTau = 3.0f;
-    g_ovlColor = (int)IniFloat(ini, "Screen", "OverlayColor", 1);
-    if (g_ovlColor < 0 || g_ovlColor > 2) g_ovlColor = 1;
     g_deskWinW = (UINT)IniFloat(ini, "Screen", "DesktopWindowW", 1600);  // 36.1
     g_deskWinH = (UINT)IniFloat(ini, "Screen", "DesktopWindowH", 900);
     if (g_deskWinW && (g_deskWinW < 320 || g_deskWinW > 8192)) g_deskWinW = 1600;
@@ -997,10 +922,9 @@ static void LoadConfig()
     Log("config: handtracking autostart=%d delay=%.0fs depth=%d roll=%d probe='%s'",
         (int)g_autoHand, g_autoHandDelay, (int)g_fpPosOn, (int)g_fpRollOn,
         g_dbgProbe);
-    Log("config: tracking=%d yaw=%.1f pitch=%.1f dist=%.2f width=%.2f theater=%d | stereo=%d reg=c%d sep=%.4f conv=%.1f transpose=%d | pos=%d scale=%.0f max=%.2f flipx=%d",
+    Log("config: tracking=%d yaw=%.1f pitch=%.1f screen dist=%.2f width=%.2f | pos=%d scale=%.0f max=%.2f flipx=%d",
         (int)g_trackingEnabled, g_yawCounts, g_pitchCounts,
-        g_screenDist, g_screenWidth, (int)g_forceTheater,
-        (int)g_stereoEnabled, g_stereoReg, g_sepClip, g_converge, (int)g_stereoTranspose,
+        g_screenDist, g_screenWidth,
         (int)g_posTrack, g_posScaleUU, g_posMaxM, (int)g_posFlipX);
 }
 
@@ -1027,17 +951,10 @@ static void OverlaySaveDefaults()
     char v[64];
     _snprintf(v, 64, "%.1f", g_posScaleUU);
     WritePrivateProfileStringA("PosTrack", "Scale", v, ini);
-    _snprintf(v, 64, "%.2f", g_fillScale);
-    WritePrivateProfileStringA("Screen", "FillScale", v, ini);
     _snprintf(v, 64, "%.2f", g_screenDist);
     WritePrivateProfileStringA("Screen", "DistanceMeters", v, ini);
     _snprintf(v, 64, "%.3f", g_heightOffsetM);
     WritePrivateProfileStringA("Tracking", "HeightOffsetM", v, ini);
-    _snprintf(v, 64, "%.2f", g_menuFill);
-    WritePrivateProfileStringA("Screen", "MenuFillScale", v, ini);
-    WritePrivateProfileStringA("Hud", "WristHud", g_wristHud ? "1" : "0", ini);
-    _snprintf(v, 64, "%.2f", g_hudPanelSize);
-    WritePrivateProfileStringA("Hud", "PanelSize", v, ini);
     _snprintf(v, 64, "%.0f", (float)g_fovLever);      // 30.51: persist the lever
     WritePrivateProfileStringA("Screen", "FovLever", v, ini);
     // 38.80: persist the headset display mode chosen on the overlay
@@ -1045,8 +962,6 @@ static void OverlaySaveDefaults()
         g_xrLayerMode == 1 ? "cyl" : g_xrLayerMode == 2 ? "quad" : "proj", ini);
     _snprintf(v, 64, "%d", g_stampFix);              // 38.84
     WritePrivateProfileStringA("VR", "StampFix", v, ini);
-    _snprintf(v, 64, "%.2f", g_zoomFillFloor);        // 30.53
-    WritePrivateProfileStringA("Screen", "ZoomFillFloor", v, ini);
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
     WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);
     WritePrivateProfileStringA("HandRender", "DriveArms", g_rtdDoArms ? "1" : "0", ini);
@@ -1262,6 +1177,5 @@ static void OverlaySaveDefaults()
             WritePrivateProfileStringA("VRHands", k, v, ini);
         } }
 
-    Log("overlay: saved defaults (scale %.1f fill %.2f dist %.2f)",
-        g_posScaleUU, g_fillScale, g_screenDist);
+    Log("overlay: saved defaults (scale %.1f dist %.2f)", g_posScaleUU, g_screenDist);
 }

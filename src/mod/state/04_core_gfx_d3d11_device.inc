@@ -119,7 +119,6 @@ static volatile LONG g_xrHapPend[2] = { 0, 0 };
 static int           g_xrHaptics = 1;   // [VR] XrHaptics=0 kills them entirely
 static DWORD         g_xrPaceTid = 0;   // 38.11: crash-report thread identity
 static DWORD         g_presentTid = 0;
-static bool          g_presentNamed = false;
 // 38.13: [Screen] XrFrustumFill=1 (default) - XR proj mode fills the whole
 // frustum at 1:1 angular scale (no draggable screen border = the residual
 // warp's anchor removed; exact tan-linear content mapping).

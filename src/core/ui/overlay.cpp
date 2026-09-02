@@ -60,19 +60,6 @@ static void OverlayFrame()
         Log("overlay: recentred (position reference)");
     }
     ImGui::SliderFloat("height offset (m)", &g_heightOffsetM, -1.0f, 1.0f, "%+.2f");
-    if (ImGui::SliderFloat("menu size", &g_menuFill, 0.35f, 1.4f, "%.2f"))
-        g_quadAspect = 0.0f;       // force a rebuild so it applies live
-    ImGui::TextDisabled("lower = pause menu pulled in so its edges fit");
-    {   // 34.8: wrist HUD master switch, live. Off = the HUD draws back in
-        // view (the redirect stops next frame); the panel disappears with it.
-        bool wh = g_wristHud;
-        if (ImGui::Checkbox("wrist HUD", &wh)) {
-            g_wristHud = wh;
-            Log("hud: wrist HUD %s (overlay)", wh ? "ON" : "off");
-        }
-        ImGui::SameLine();
-        ImGui::SliderFloat("size##hudpanel", &g_hudPanelSize, 0.06f, 0.40f, "%.2fm");
-    }
     // 38.60 SHIP CLEANUP: every diagnostic lives behind the "developer
     // tools" checkbox (bottom of the panel, [Overlay] DevTools). A player
     // sees settings; a debugger flips one box and gets the instruments.
@@ -115,7 +102,7 @@ static void OverlayFrame()
         OverlaySaveDefaults();
     ImGui::Separator();
 
-    ImGui::Text("live FOV %.1f deg   IPD %.0f mm", g_liveFovX, g_ipdM * 1000.0f);
+    ImGui::Text("IPD %.0f mm", g_ipdM * 1000.0f);
 
     if (!ImGui::BeginTabBar("vrtabs")) { ImGui::End(); return; }
 
@@ -124,10 +111,7 @@ static void OverlayFrame()
         { /* sep recomputed each frame from this */ }
     ImGui::TextDisabled("smaller = world feels bigger; life-size door test");
 
-    if (ImGui::SliderFloat("screen fill", &g_fillScale, 0.6f, 3.2f, "%.2f"))
-        g_quadAspect = 0.0f;
-    if (ImGui::SliderFloat("screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f"))
-        g_quadAspect = 0.0f;
+    ImGui::SliderFloat("screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f");
 
     ImGui::EndTabItem(); }
 
@@ -511,16 +495,11 @@ static void OverlayFrame()
         float lever = g_fovLever;
         bool on = lever >= 40.0f;
         if (ImGui::Checkbox("FOV lever (force the game's rendered FOV)", &on))
-            g_fovLever = on ? (g_liveFovX > 40.0f ? g_liveFovX : 95.0f) : 0.0f;
+            g_fovLever = on ? 95.0f : 0.0f;
         if (on) {
             if (ImGui::SliderFloat("  target FOV (deg)", &lever, 60.0f, 140.0f, "%.0f"))
                 g_fovLever = lever;
-            ImGui::TextDisabled("  rendered now: %.1f deg  (should follow the slider)",
-                                g_liveFovX);
-            ImGui::TextDisabled("  match this to your headset, then set fill to 1.0");
-            if (ImGui::SliderFloat("  zoom fills view", &g_zoomFillFloor, 0.0f, 1.0f, "%.2f"))
-                g_quadAspect = 0.0f;
-            ImGui::TextDisabled("  1.0 = spyglass magnifies; 0 = true scale (small window)");
+            ImGui::TextDisabled("  the lever writes the game camera's FOV every dispatch");
         }
     }
 
