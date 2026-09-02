@@ -791,3 +791,56 @@ Blink detours, 33-36 graft and calibration, 37.x OpenXR bring-up (XR-1 bench, XR
 XR-3 pace thread), 38.x the Quest convergence attempts, 38.92 shipped. The fork: M2 frame
 map, M3 splice, M4 twins, M5 sequential + shafts, M6 wrist HUD + shadows, M7 pixel-shader
 shear, M8 quarter-res light passes (M8.2 shipped).
+
+## The projection layer is gated on a gameplay verdict (2026-09-03, first AER run)
+
+**Measured, headset, build `alpha-175-g13642778`.** AER tagged both eyes perfectly and the
+player saw mono flickering side to side. The two log lines that name it:
+
+```
+xr: first projection-layer frame (claimed hfov 137.0 deg)
+xr: cinematic quad ON (strict=0 stale=1 fovMismatch=0 screenOnly=0)
+stereo: beat method=aer out/s=46 L/s=23 R/s=23 mono/s=0 none/s=0 3840x2160
+```
+
+`core/vr/openxr_runtime.cpp`'s cinematic fallback drops the projection layer to the M2 quad
+while the published gameplay verdict is false **or stale** (`kCineStaleMs`). An adapter that
+never calls `publish_gameplay_view` reads `stampMs == 0` -> permanently stale -> the quad
+wins forever. Every per-eye frame was still rendered with the right camera offset and
+captured into the right eye swapchain; it was thrown away one step later.
+
+**The percept is diagnostic.** One image in both eyes whose camera alternates +/- IPD/2 IS a
+picture flickering side to side. If a per-eye method ever looks like that again, the eye tags
+are not the suspect - the layer is. `status.json` -> `aerProjection` / `aerCineQuad` answers
+it without a headset, and `vrcine off` is the live A/B.
+
+**The general rule this is an instance of.** "The eyes are tagged correctly" and "the eyes
+reach the headset" are different claims. The beat line only ever measured the first, and it
+read green through the whole failure.
+
+## The game renders FULLSCREEN regardless of `[SystemSettings] Fullscreen=False`
+
+Same run. `[SystemSettings] Fullscreen=False` and `ResX/ResY=2750x2850` were set, in the
+engine ini AND all four `[AppCompatBucket]` sections, and nothing anywhere in
+`My Games\Dishonored\...\Config\*.ini` contains 3840 or 2160. The device came up:
+
+```
+CreateDevice -> 0x00000000 (3840x2160 windowed=0)
+capture: 3840x2160 fmt=21
+```
+
+**`windowed=0`.** In fullscreen, D3D9 can only take a real display mode, and 2750x2850 is not
+one - so a near-square render is unreachable by ini alone on this rig. This is why the
+pre-41.0 builds carried the desktop-size spoof (`SpoofDesktopW/H`): it existed to make an
+oversized/odd render acceptable, and 41.0 removed it deliberately.
+
+The route that does not bring that machinery back is UE3's own command line, which beats
+every ini: `-windowed -ResX=2750 -ResY=2850` (Steam launch options). A windowed D3D9
+backbuffer is not required to be a display mode. Unverified as of this writing; `capture:` is
+the ground truth, never the requested number.
+
+**Why the aspect is worth the trouble under AER.** Each game frame IS one whole eye, so the
+render should carry the EYE's aspect. At 3840x2160 (1.778) with a 100 deg hfov claim,
+tanV = tan(50)/1.778 = 0.670 against the Quest 3 eye's 1.428 - the render fills about 47% of
+the eye vertically and the rest is black band. At 2750x2850 (0.965 vs the eye's 0.928) it
+very nearly fits.
