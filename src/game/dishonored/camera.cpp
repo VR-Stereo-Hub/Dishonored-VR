@@ -15,12 +15,16 @@
 namespace dvr::camera {
 namespace {
 
-struct Field { const char* name; uint32_t off; };
+// sign: +1 the field holds the camera position, -1 it holds the NEGATED position
+// (a view-matrix translation). Measured 2026-09-02 (ENGINE_NOTES, the per-eye
+// camera seam): 0x330/0x350/0x374 read exactly -c5; 0x80/0x90/0xc4 hold a fixed
+// offset vector, not the position, and keep +1 as a plain write.
+struct Field { const char* name; uint32_t off; float sign; };
 // The candidates: the matrix translation row, the two cached POV locations
 // and the three POV rotator/location blocks the 38.24 eye clamp writes Z into.
 const Field kFields[] = {
-    {"0x80", kCamLoc0}, {"0x90", kCamLoc1}, {"0xc4", kCamLoc2},
-    {"0x330", kPovOffs[0]}, {"0x350", kPovOffs[1]}, {"0x374", kPovOffs[2]},
+    {"0x80", kCamLoc0, 1.0f}, {"0x90", kCamLoc1, 1.0f}, {"0xc4", kCamLoc2, 1.0f},
+    {"0x330", kPovOffs[0], -1.0f}, {"0x350", kPovOffs[1], -1.0f}, {"0x374", kPovOffs[2], -1.0f},
 };
 constexpr int kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 constexpr int kEyetestFrames = 120;
@@ -108,6 +112,7 @@ struct Eyetest {
     bool  wrote = false;    // the script lane wrote this candidate at least once
     bool  writing = false;  // baseline phase over: the script lane writes
     int   baseFrames = 0;   // presents that fed the baseline
+    int   baseWait = 0;     // presents spent waiting for a c5 in the baseline phase
     double baseSum[3] = {0, 0, 0};
     float baseline[3] = {0, 0, 0};
     bool  fieldSaid = false;
@@ -124,6 +129,7 @@ void eyetest_next_candidate() {
     g_et.ticks = g_et.noCam = g_et.noRight = g_et.noField = 0;
     g_et.writing = false;
     g_et.baseFrames = 0;
+    g_et.baseWait = 0;
     g_et.baseSum[0] = g_et.baseSum[1] = g_et.baseSum[2] = 0.0;
     g_et.fieldSaid = false;
     g_et.movedSum = 0.0; g_et.movedN = 0;
@@ -134,6 +140,7 @@ void eyetest_next_candidate() {
 void eyetest_verdict() {
     const Field& f = kFields[g_et.idx];
     const float mean = g_et.movedN ? (float)(g_et.movedSum / g_et.movedN) : 0.0f;
+    const float want = g_et.uu * f.sign;   // what an honoured write moves c5 by
     const int judged = g_et.honoured + g_et.discarded + g_et.other;
     const char* verdict = "INCONCLUSIVE";
     if (!g_et.wrote) verdict = "NOT WRITTEN";
@@ -152,9 +159,14 @@ void eyetest_verdict() {
                  f.name, g_et.uu, mean, g_et.movedN, verdict,
                  !strcmp(verdict, "HONOURED") ? g_et.honoured : g_et.discarded, judged,
                  g_et.discarded, g_et.other, g_et.noWrite,
-                 !strcmp(verdict, "HONOURED") ? " - the renderer drew from the offset position: "
-                                                "this is the write point ([Camera] EyeField=)"
+                 !strcmp(verdict, "HONOURED")
+                     ? (f.sign < 0.0f ? " - the renderer drew from the offset position (the field "
+                                        "holds -position, so the write is negated): this is the "
+                                        "write point ([Camera] EyeField=)"
+                                      : " - the renderer drew from the offset position: this is "
+                                        "the write point ([Camera] EyeField=)")
                  : !strcmp(verdict, "DISCARDED") ? " - recomputed before the draw" : "");
+    (void)want;
 }
 
 void eyetest_finish() {
@@ -247,7 +259,7 @@ bool apply_eye_offset(uint8_t* camObj) {
     if (!camObj) return false;
     float r[3];
     if (!read_right(camObj, r)) return false;
-    const float uu = eye_offset_uu();
+    const float uu = eye_offset_uu() * kFields[g_field].sign;
     const float off[3] = {r[0] * uu, r[1] * uu, r[2] * uu};
     const bool ok = write_offset(camObj, kFields[g_field].off, off, g_eyeWriter, nullptr);
     if (ok)
@@ -316,7 +328,8 @@ void eyetest_script_tick(uint8_t* camObj) {
                  kFields[g_et.idx].name, v[0], v[1], v[2], g_c5[0], g_c5[1], g_c5[2], r[0], r[1], r[2]);
     }
     if (!g_et.writing) return;   // baseline phase: look, do not touch
-    const float off[3] = {r[0] * g_et.uu, r[1] * g_et.uu, r[2] * g_et.uu};
+    const float su = g_et.uu * kFields[g_et.idx].sign;   // the field's own form
+    const float off[3] = {r[0] * su, r[1] * su, r[2] * su};
     float base[3];
     if (!write_offset(camObj, fo, off, g_et.w, base)) { ++g_et.noField; return; }
     memcpy(g_et.base, base, sizeof(base));
@@ -335,11 +348,11 @@ void eyetest_present_tick() {
         if (g_et.baseFrames >= kEyetestBaselineFrames) {
             for (int i = 0; i < 3; ++i) g_et.baseline[i] = (float)(g_et.baseSum[i] / g_et.baseFrames);
             g_et.writing = true;
-        } else if (++g_et.frames >= kEyetestFrames * 3) {
+        } else if (++g_et.baseWait >= kEyetestFrames * 3) {
             // c5 never arrived: no draw is passing through the constant hook.
             DVR_WARN("camera/eyetest: %s - no c5 readback in %d presents (the game is not "
                      "drawing a scene, or the constant hook is not seeing c5); stopping",
-                     kFields[g_et.idx].name, g_et.frames);
+                     kFields[g_et.idx].name, g_et.baseWait);
             eyetest_stop("no c5");
         }
         return;
