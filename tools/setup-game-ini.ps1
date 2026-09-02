@@ -1,7 +1,7 @@
 # setup-game-ini.ps1 - the one-time game config the mod needs. Replaces the
 # setup_resolution.bat of the original release.
 #
-#   .\setup-game-ini.ps1 -Resolution            ResX=2850 ResY=2750 Fullscreen=False
+#   .\setup-game-ini.ps1 -Resolution            ResX=4032 ResY=2268 Fullscreen=False
 #   .\setup-game-ini.ps1 -Resolution -Width 3200 -Height 1800
 #   .\setup-game-ini.ps1 -Console               enable the console (F1 in game, then ~)
 #   .\setup-game-ini.ps1 -Restore               put the newest backup back
@@ -36,16 +36,28 @@
 # is stretched across the whole quad, so it is also magnified 2x. That is the
 # "the eyes are super far off and both are zoomed in" report, exactly.
 #
-# 2850x2750 is 2750x2850 with the two numbers swapped: identical pixel cost,
-# landscape by 100 px so the gate passes, full-frame aspect 1.036 so the eye
-# quad subtends 100 x 98 deg at FovLever=100 - right for a Quest 3. If you
-# change these, keep Width > Height.
+# 4032x2268 IS GINGASVR'S OWN TUNED VALUE, restored 2026-09-01 after a detour
+# through 2750x2850 (portrait - no stereo at all) and 2850x2750. It is 16:9, so
+# each eye's half is 2016x2268 (aspect 0.889), close to a Quest 3 eye's 0.928.
+#
+# It also pairs with [Screen] FovLever=130, and the pairing is the point. With
+# XrFrustumFill=1 (the default since 38.13) the eye quad's corners are CLAMPED
+# to +/-tan(FovLever/2)*ScreenDist. At 130 that limit is 3.43 m, well outside a
+# Quest 3's ~2.05 m frustum edge, so no clamp fires: the quad fills the whole
+# eye and samples the middle ~60% of a deliberately wider render. Edge to edge,
+# nothing for reprojection to drag. Drop the lever to 100 and the limit becomes
+# 1.91 m, INSIDE the frustum - the clamp fires horizontally but not vertically,
+# an asymmetric border returns, and reprojection has an edge to drag again.
+# That is the artifact 38.13 exists to remove, and it reads as "uncanny".
+#
+# So render WIDER than the headset shows and let the fill crop. Keep
+# Width > Height, and change the lever and the render size together.
 #
 # Ships in the release zip; PowerShell 5.1, pure ASCII, CRLF.
 param(
     [switch]$Resolution,
-    [int]$Width = 2850,
-    [int]$Height = 2750,
+    [int]$Width = 4032,
+    [int]$Height = 2268,
     [switch]$Console,
     [switch]$Restore,
     [string]$ConfigDir = ""

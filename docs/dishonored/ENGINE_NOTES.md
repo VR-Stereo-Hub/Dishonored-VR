@@ -157,6 +157,38 @@ display rate because fps wandering 66-80 against 72/90 Hz was the measured stutt
 XR-3 architecture: a detached pace thread owns every runtime call (VDXR raced a haptic call
 from the render thread and trashed the heap); the game thread only publishes eye textures.
 
+## FovLever and the render size are ONE setting (2026-09-01)
+
+Restoring GingasVR's tuned values after a detour explained the "uncanny" report, and the
+refactor is not implicated: the frustum-fill block in `eye_quads.cpp` is byte-identical to
+the original single file at `48766c07` - same clamp, same tan-linear UV mapping, same guard.
+Everything that regressed was a **config value changed in session 2**.
+
+Her tuned values, from the pre-session-2 ini backup: `RenderWidth/Height = 4032x2268`
+(16:9), `SpoofDesktopW/H = 4096x2304`, `FovLever = 130`, `[PosTrack] Scale = 50`. Session 2
+went to 2750x2850 with `FovLever = 100`.
+
+**The lever and the render size are a pair.** With `XrFrustumFill = 1` (default since
+38.13) the quad corners are clamped to `+/- tan(FovLever/2) * ScreenDist`:
+
+| lever | clamp limit at D=1.6 | vs a Quest 3 frustum edge (~2.05 m) | result |
+|---|---|---|---|
+| **130** | 3.43 m | outside | **no clamp** - the quad fills the eye and samples the middle ~60% of a wider render. Edge to edge, nothing for reprojection to drag. |
+| 100 | 1.91 m | inside horizontally, outside vertically | the clamp fires on one axis only: an **asymmetric border** returns, and with it the residual warping 38.13 exists to remove |
+
+So the design is: **render WIDER than the headset shows and let the fill crop**. Session 2
+lowered the lever using the *authored quad* subtense formula (`W = 2 D tan(fov/2) * fill`,
+`H = W / aspect`), which the frustum-fill branch overrides entirely - correct arithmetic
+applied to the code path that was not running. Her 16:9 render also gives a per-eye half of
+2016x2268 (aspect 0.889), close to a Quest 3 eye's 0.928; the square renders gave 0.518.
+
+**Baseline restored** (her process rule 2: build on a snapshot confirmed good). The game
+ini and all four AppCompat buckets are set to 4032x2268 to match, `PinBackbuffer=1` is kept
+because it is the mechanism that makes that size hold on modern hardware, and the tester's
+own hand-calibration neutrals are kept. `[PosTrack] Scale` is back to her 50 - the measured
+100 below stands as a derivation and should be re-applied as a SINGLE change once the
+baseline is confirmed, not bundled with the restore.
+
 ## World scale: 50 UU/m is a default, not a measurement (2026-09-01)
 
 `[PosTrack] Scale` is 50, UE3's canonical 1 uu = 2 cm. One knob drives both the fork's
