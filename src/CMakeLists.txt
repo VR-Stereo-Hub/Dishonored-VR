@@ -48,6 +48,7 @@ set(DVR_REAL_SOURCES
     core/gfx/capture.cpp       core/gfx/capture.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
     core/gfx/mono_screen.cpp
+    game/dishonored/camera.cpp game/dishonored/camera.h
     core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h
     core/vr/openxr_input.cpp   core/vr/openxr_input.h
     core/vr/hud_stub.cpp       core/vr/hud_stub.h

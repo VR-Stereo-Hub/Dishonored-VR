@@ -7,6 +7,9 @@
 //   blink on|off|probe           hand-aimed Blink; probe = one-shot survey
 //   fov <deg|0>                  the FOV lever (0 disarms)
 //   overlay on|off               the F10 settings panel
+//   camera status                the per-eye camera seam (eye, ipd, field, fov, c5)
+//   camera eyetest <uu> [field]  the write-point instrument (field 0x80|..|all; `camera eyetest stop`)
+//   camera eyefield <name|none>  the field the eye offset writes to ([Camera] EyeField)
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
@@ -44,10 +47,29 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         float f = (float)atof(args);
         if (f != 0.0f && (f < 40.0f || f > 150.0f)) { Log("fov: %g out of range (40..150, or 0 to disarm)", f); return true; }
         g_fovLever = f;
+        dvr::camera::set_fov_deg(g_fovLever);
         Log("fov: lever -> %.0f (seam)", f);
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "camera")) {
+        char sub[32] = "", fld[16] = "all";
+        float uu = 0.0f;
+        if (sscanf(args, "%31s", sub) == 1 && !strcmp(sub, "eyetest")) {
+            if (strstr(args, "stop")) { dvr::camera::eyetest_stop("seam"); return true; }
+            sscanf(args, "%*s %f %15s", &uu, fld);
+            dvr::camera::eyetest_start(uu > 0.0f ? uu : 100.0f, fld);
+            return true;
+        }
+        if (!strcmp(sub, "eyefield")) {
+            fld[0] = 0;
+            sscanf(args, "%*s %15s", fld);
+            dvr::camera::set_eye_field(fld);
+            return true;
+        }
+        dvr::camera::log_status();
+        return true;
+    }
     if (!strcmp(cmd, "stereo")) {
         if (!args[0] || !strcmp(args, "status")) { dvr::stereo::log_status(); return true; }
         dvr::stereo::select(args);   // logs the refusal itself
@@ -125,6 +147,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("capW", (int)dvr::capture::width()); w.kv("capH", (int)dvr::capture::height());
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
+    w.obj("camera"); dvr::camera::status(w); w.end_obj();
     w.obj("head");
     w.kv("yaw", (double)g_hmdYaw); w.kv("pitch", (double)g_hmdPitch); w.kv("roll", (double)g_hmdRoll);
     w.kv("tracked", (bool)g_devPoseOk[0]);

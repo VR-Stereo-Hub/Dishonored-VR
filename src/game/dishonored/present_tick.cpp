@@ -119,6 +119,12 @@ static void DvrGameTick(IDirect3DDevice9* self)
         }
         StereoUpdate();   // the live-tuning hotkeys
         DvrConsumePoses();
+        // 41.0: the camera seam learns the eye the active method wants next,
+        // the IPD and the world scale; the eyetest reads c5 back here.
+        dvr::camera::set_eye(dvr::stereo::active() ? dvr::stereo::active()->eye_for_next_frame() : 0);
+        dvr::camera::set_ipd_m(g_ipdM);
+        dvr::camera::set_world_scale(g_posScaleUU);
+        dvr::camera::eyetest_present_tick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
         FrameDumpTick();

@@ -25,6 +25,11 @@ static void WriteDefaultIni(const char* ini)
         "; mono shows the game on a head-locked screen in both eyes; aer and reentry\n"
         "; are design stubs in 41.0 and refuse with a note (`stereo <name>` switches live).\n"
         "Method=mono\n"
+        "[Camera]\n"
+        "; EyeField= the camera field the per-eye offset is written to (0x80, 0x90, 0xc4,\n"
+        "; 0x330, 0x350 or 0x374). Empty until `camera eyetest` has measured which one the\n"
+        "; renderer honours (docs/dishonored/ENGINE_NOTES.md, the per-eye camera seam).\n"
+        "EyeField=\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -222,6 +227,12 @@ static void LoadConfig()
         GetPrivateProfileStringA("Stereo", "Method", "mono", sm, sizeof(sm), ini);
         if (!dvr::stereo::select(sm)) dvr::stereo::select("mono");
     }
+    {   // [Camera] EyeField: where the per-eye offset is written (measured by
+        // `camera eyetest`; empty until then - the seam says so once)
+        char ef[16] = "";
+        GetPrivateProfileStringA("Camera", "EyeField", "", ef, sizeof(ef), ini);
+        dvr::camera::set_eye_field(ef);
+    }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
     g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
@@ -243,6 +254,7 @@ static void LoadConfig()
     {
         float lv = IniFloat(ini, "Screen", "FovLever", 130.0f);
         g_fovLever = (lv >= 40.0f && lv <= 160.0f) ? lv : 0.0f;
+        dvr::camera::set_fov_deg(g_fovLever);
         if (g_fovLever > 0.0f) Log("config: FOV lever armed at %.0f deg", lv);
     }
     g_autoFocus = IniFloat(ini, "Input", "AutoFocus", 1) != 0.0f;
@@ -779,6 +791,7 @@ static void LoadConfig()
             && sf[0] == '1') {
             g_rotInject = false;       // no head->camera rotation writes
             g_fovLever  = 0.0f;        // no FOV enforcement writes
+            dvr::camera::set_fov_deg(g_fovLever);
             g_skcDrive  = false;       // no SkelControl hand writes
             g_handMesh  = false;       // no hand collect/drive
             g_autoHandDone = true;     // and no auto re-arm of it

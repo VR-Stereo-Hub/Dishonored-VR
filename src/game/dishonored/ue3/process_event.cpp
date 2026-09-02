@@ -73,6 +73,9 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
+    // 41.0: the per-eye camera seam, same lane and cadence as the lever
+    dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
+    dvr::camera::apply_eye_offset(g_camObj);      // the eye offset (aer/reentry)
     BlinkTestApply();  // 32.14: same lane, same reason
     SkcRotApply();     // 32.1: same trick for the hand rotators
     BoneWigApply();    // 30.62: which bone bank does the renderer read

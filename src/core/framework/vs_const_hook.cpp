@@ -25,6 +25,7 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
     if (startReg == 5 && count >= 1 && data) {
         g_camPosC5[0] = data[0]; g_camPosC5[1] = data[1]; g_camPosC5[2] = data[2];
         g_haveC5 = true;
+        dvr::camera::note_render_pos(data);   // 41.0: the seam's render-side truth
     }
 
     // ---- 30.70: live rig census + the stepped identifier -------------------

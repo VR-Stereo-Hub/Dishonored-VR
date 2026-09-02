@@ -33,6 +33,7 @@
 #include "core/framework/frame_hooks.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/capture.h"
+#include "game/dishonored/camera.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
