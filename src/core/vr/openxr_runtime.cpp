@@ -2473,6 +2473,13 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
 } // namespace
 
 void init_instance() {
+    // 41.0 (Dishonored): the game calls Direct3DCreate9 more than once, and a
+    // second xrCreateInstance over a live instance fails with LIMIT_REACHED,
+    // which then read as "no native runtime" and walked down to the shim.
+    if (g_instance != XR_NULL_HANDLE) {
+        XRLOG("xr: init_instance called again - instance already up on '%s', ignored", g_runtimeName);
+        return;
+    }
     char mode[16];
     xr_mode_read(mode, sizeof(mode));
 

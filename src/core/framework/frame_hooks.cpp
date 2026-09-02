@@ -75,6 +75,12 @@ void fps_cap_wait() {
 // The session's coming and going, named once per transition so a log can say
 // which runtime served the run (and the crash file can carry it).
 void track_session() {
+    static bool namedRuntime = false;
+    if (!namedRuntime && strcmp(dvr::vr::runtime_name(), "none") != 0) {
+        namedRuntime = true;
+        DVR_INFO("xr: runtime \"%s\" (instance up; session %s)", dvr::vr::runtime_name(),
+                 dvr::vr::session_state_name());
+    }
     const bool live = dvr::vr::session_live();
     if (live != g_xrLive) {
         g_xrLive = live;
