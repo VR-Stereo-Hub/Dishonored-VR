@@ -30,12 +30,13 @@ static void UpdateVirtualPad()
     // backend; everything gameplay-side that only the OpenVR path used to run
     // (physical crouch pulses, the overlay pointer, the fire tracer, motion
     // aim) now runs for every controller.
-    XrInpState in;
-    if (g_xrCsInit) {
-        EnterCriticalSection(&g_xrCs);
-        in = g_xrInp;
-        LeaveCriticalSection(&g_xrCs);
-    } else memset(&in, 0, sizeof(in));
+    dvr::vr::InputSnapshot in;
+    dvr::vr::input_snapshot(&in);
+    if (dvr::vr::take_recenter_chord()) {
+        g_posHaveRef = false;
+        g_crouchRefOk = false;
+        Log("postrack: re-centered (both stick clicks)");
+    }
     if (in.active) {
         active = true;
         g_dbgRawMx = in.mv[0]; g_dbgRawMy = in.mv[1];  // 38.25 pre-shaping
@@ -355,8 +356,8 @@ static void UpdateVirtualPad()
 // and the game's own rumble. Queued; the runtime lane applies it.
 static void MaimHaptic(int hand, float amp, float durSec)
 {
-    if (!g_padHaptics || !g_xrOn) return;
-    (void)hand; (void)amp; (void)durSec;   // 41.0: the runtime layer takes this next
+    if (!g_padHaptics || !g_xrHaptics) return;
+    dvr::vr::haptic(hand, amp, durSec);
 }
 
 

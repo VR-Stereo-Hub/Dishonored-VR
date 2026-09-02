@@ -21,6 +21,7 @@ static void LoadConfig();
 static void EnsureConfig();
 static bool EnsureRealD3D9();
 static bool EnsureD3D11();
+static ID3D11Device* DvrProvideD3D11Device(const LUID* want);
 static bool EnsureGameTex(UINT w, UINT h);
 static void HmTriAdd(int h, const float* a, const float* b, const float* c, const float* col, float shade);
 static void HmBox(int h, float cx, float cy, float cz, float hx, float hy, float hz, float tipScale, const float* col);

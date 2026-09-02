@@ -43,6 +43,10 @@ set(DVR_REAL_SOURCES
     core/hooks/detour.cpp    core/hooks/detour.h
     core/framework/command.cpp core/framework/command.h
     core/framework/status.cpp  core/framework/status.h
+    core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h
+    core/vr/openxr_input.cpp   core/vr/openxr_input.h
+    core/vr/hud_stub.cpp       core/vr/hud_stub.h
+    core/util/xr_math.h
 )
 foreach(_f ${DVR_REAL_SOURCES})
     list(REMOVE_ITEM DVR_MODULE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${_f}")

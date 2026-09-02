@@ -44,6 +44,10 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
     EnsureConfig(); // safe here (post loader-lock); not in DllMain
     dvr::crash::install();   // fingerprint VEH + minidump filter, before any hook
     DvrDebugInit();          // command seam + status provider
+    // 41.0: the runtime layer. The device provider builds the D3D11 device on
+    // the adapter the runtime names; the instance comes up here (fail-soft).
+    dvr::vr::set_device_provider(DvrProvideD3D11Device);
+    dvr::vr::init_instance();
     if (!EnsureRealD3D9() || !g_realCreate9) return NULL;
     IDirect3D9* d3d = g_realCreate9(sdkVersion);
     Log("Direct3DCreate9(sdk=%u) -> %p", sdkVersion, (void*)d3d);

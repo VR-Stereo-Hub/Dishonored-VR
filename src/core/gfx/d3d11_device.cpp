@@ -272,3 +272,14 @@ static bool EnsurePipeline()
     g_pipelineReady = true;
     return true;
 }
+
+
+// 41.0: the runtime layer asks for the D3D11 device once per bring-up, naming
+// the adapter it requires (the 39.3 fix: a device on the wrong GPU succeeds at
+// every call and shows nothing). Created here, on that adapter.
+static ID3D11Device* DvrProvideD3D11Device(const LUID* want)
+{
+    if (want) { g_wantAdapterLuid = *want; g_wantAdapterLuidOk = true; }
+    if (!EnsureD3D11()) return NULL;
+    return g_dev11;
+}

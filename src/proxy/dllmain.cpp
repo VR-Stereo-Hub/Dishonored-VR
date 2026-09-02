@@ -13,7 +13,6 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hinst);
         InitializeCriticalSection(&g_padLock);
-        InitializeCriticalSection(&g_xrCs); g_xrCsInit = true;
         dvr::clock::init();
         { LARGE_INTEGER f; if (QueryPerformanceFrequency(&f)) g_qpcFreq = f.QuadPart; }
         dvr::paths::init(hinst);

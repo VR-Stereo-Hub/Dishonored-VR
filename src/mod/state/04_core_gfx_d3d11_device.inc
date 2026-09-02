@@ -53,20 +53,6 @@ static UINT                    g_eyeW = 0, g_eyeH = 0;
 // own loader negotiation, pace thread and action layer. These are the
 // handles the rest of the mod keeps reading meanwhile.
 static char     g_xrJsonIni[2 * MAX_PATH] = "";   // [VR] XrRuntimeJson
-// The controller snapshot the pad bridge composes from, published under
-// g_xrCs by whoever owns the runtime (nobody until the layer lands).
-struct XrInpState {
-    float mv[2], lk[2];
-    float trigL, trigR, gripL, gripR;
-    bool  a, b, x, y, clkL, clkR, menu;
-    bool  handOk[2];
-    float hand[2][3][4];
-    bool  active;
-};
-static XrInpState g_xrInp;
-static bool g_xrInpAttached = false;
-static CRITICAL_SECTION g_xrCs;
-static bool g_xrCsInit = false;
 static int      g_xrHaptics = 1;          // [VR] XrHaptics=0 kills them entirely
 static DWORD    g_presentTid = 0;
 static bool     g_xrOn = false;           // session live and frames flowing

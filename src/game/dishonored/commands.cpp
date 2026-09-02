@@ -7,6 +7,9 @@
 //   blink on|off|probe           hand-aimed Blink; probe = one-shot survey
 //   fov <deg|0>                  the FOV lever (0 disarms)
 //   overlay on|off               the F10 settings panel
+//   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
+//   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
+//   vrinput on|off|status        the virtual gamepad
 //   console <text>               run a game console command on the script lane
 //   dump frame|capture|eyes
 //   cfg dump                     print the live values the seam can change
@@ -44,6 +47,15 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
+    if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
+    if (!strcmp(cmd, "vrinput")) {
+        if (DvrOnOff(args, &b)) { g_padEnabled = b; Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }
+        Log("input: pad %s active=%d polls=%ld actions=%s haptics=%d (vrinput on|off|status)",
+            g_padEnabled ? "enabled" : "disabled", (int)g_padActive, (long)g_padPolls,
+            dvr::vr::input_attached() ? "attached" : "not attached", (int)(g_padHaptics && g_xrHaptics));
+        return true;
+    }
     if (!strcmp(cmd, "console")) {
         strncpy(g_dvrConsoleReq, args, sizeof(g_dvrConsoleReq) - 1);
         g_dvrConsoleReq[sizeof(g_dvrConsoleReq) - 1] = 0;
@@ -98,6 +110,8 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("version", DVR_VERSION);
     w.kv("build", DVR_BUILD_ID);
     w.kv("backend", "openxr");
+    w.kv("runtime", dvr::vr::runtime_name());
+    w.kv("session", dvr::vr::session_state_name());
     w.kv("vrReady", (bool)g_vrReady);
     w.kv("xrOn", (bool)g_xrOn);
     w.kv("state", g_dvrGameState);
@@ -120,7 +134,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("processEvent", (bool)g_peInstalled);
     w.kv("blinkDir", (bool)g_blkDirOn); w.kv("blinkDst", (bool)g_blkDstOn); w.kv("blinkTrc", (bool)g_blkTrcOn);
     w.kv("pad", (bool)g_padActive);
-    w.kv("xrInput", (bool)g_xrInpAttached);
+    w.kv("xrInput", dvr::vr::input_attached());
     w.end_obj();
     w.obj("features");
     w.kv("gamepadOnly", (bool)g_gamepadOnly);   // 40.3: names the OWNER of the zeroes below

@@ -28,6 +28,8 @@
 #include "core/framework/command.h"
 #include "core/framework/status.h"
 #include "game/dishonored/patterns.h"
+#include "core/vr/openxr_runtime.h"
+#include "core/vr/openxr_input.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"

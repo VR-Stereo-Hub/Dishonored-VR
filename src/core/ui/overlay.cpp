@@ -80,7 +80,10 @@ static void OverlayFrame()
         { /* sep recomputed each frame from this */ }
     ImGui::TextDisabled("smaller = world feels bigger; life-size door test");
 
-    ImGui::SliderFloat("screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f");
+    if (ImGui::SliderFloat("screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f"))
+        dvr::vr::set_screen(g_screenDist, g_screenWidth);
+    if (ImGui::SliderFloat("screen width (m)", &g_screenWidth, 0.5f, 6.0f, "%.2f"))
+        dvr::vr::set_screen(g_screenDist, g_screenWidth);
 
     ImGui::EndTabItem(); }
 
@@ -470,6 +473,10 @@ static void OverlayFrame()
         }
     }
 
+    ImGui::EndTabItem(); }
+
+    if (ImGui::BeginTabItem("Runtime")) {
+        dvr::vr::draw_debug_ui();   // the runtime layer's own panel
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Log")) {

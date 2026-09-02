@@ -35,6 +35,17 @@ static void WriteDefaultIni(const char* ini)
         "; working. Default 1 while the render is being fitted - set 0 to\n"
         "; get the motion controls back.\n"
         "GamepadOnly=1\n"
+        "[VR]\n"
+        "; Runtime=auto tries the 32-bit OpenXR runtime the system registers (Virtual\n"
+        "; Desktop's VDXR, Oculus) and falls back to the bundled SteamVR shim\n"
+        "; (dvr_steamvr32.dll) when there is none; native|steamvr force one.\n"
+        "Runtime=auto\n"
+        "; XrRuntimeJson= a runtime manifest for this launch (the simulator, or a\n"
+        "; Steam launch that cannot carry XR_RUNTIME_JSON). Empty = the loader's choice.\n"
+        "XrRuntimeJson=\n"
+        "XrHaptics=1\n"
+        "; FpsCap pins the game to a rate (0 = off): 72 with VD at 72 Hz, 45 at 90.\n"
+        "FpsCap=0\n"
         "[Controllers]\n"
         "; Stage 6.4: Index controllers = virtual Xbox-360 pad via SteamVR's\n"
         "; ACTION input system (rebindable in SteamVR > Controller Bindings).\n"
@@ -199,6 +210,7 @@ static void LoadConfig()
     g_screenWidth  = IniFloat(ini, "Screen", "WidthMeters", 2.4f);
     if (g_screenWidth < 0.5f) g_screenWidth = 0.5f;
     if (g_screenWidth > 10.0f) g_screenWidth = 10.0f;
+    dvr::vr::set_screen(g_screenDist, g_screenWidth);
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
     g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
@@ -732,6 +744,12 @@ static void LoadConfig()
                                  sizeof(g_xrJsonIni), ini);
         if (g_xrJsonIni[0])
             Log("config: XR runtime manifest (ini): %s", g_xrJsonIni);
+        dvr::vr::set_runtime_json(g_xrJsonIni);
+        {
+            char rm[16] = "";
+            GetPrivateProfileStringA("VR", "Runtime", "auto", rm, sizeof(rm), ini);
+            dvr::vr::set_runtime_mode(rm);
+        }
         g_xrHaptics = GetPrivateProfileIntA("VR", "XrHaptics", 1, ini) != 0; // 38.10
         g_vrKeepAlive = GetPrivateProfileIntA("Screen", "KeepAliveUnfocused", 1, ini) != 0; // 38.78
         g_chainStamp = GetPrivateProfileIntA("HeadTrack", "ChainStamp", 1, ini) != 0; // 38.88

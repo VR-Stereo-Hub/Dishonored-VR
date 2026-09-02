@@ -323,6 +323,66 @@ static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx,
 }
 
 
+// 41.0: XR pose (meters, quaternion, XR LOCAL space: right +X, up +Y, fwd -Z)
+// -> the 3x4 device-to-tracking matrix every consumer of g_devPose reads.
+// XR LOCAL space matches the OpenVR standing space these consumers were
+// written for (same handedness, same axes), so no axis surgery.
+static void DvrPoseTo3x4(const dvr::vr::HeadPose& p, float m[3][4])
+{
+    float xx = p.qx*p.qx, yy = p.qy*p.qy, zz = p.qz*p.qz;
+    float xy = p.qx*p.qy, xz = p.qx*p.qz, yz = p.qy*p.qz;
+    float wx = p.qw*p.qx, wy = p.qw*p.qy, wz = p.qw*p.qz;
+    m[0][0] = 1 - 2*(yy + zz); m[0][1] = 2*(xy - wz); m[0][2] = 2*(xz + wy);
+    m[1][0] = 2*(xy + wz); m[1][1] = 1 - 2*(xx + zz); m[1][2] = 2*(yz - wx);
+    m[2][0] = 2*(xz - wy); m[2][1] = 2*(yz + wx); m[2][2] = 1 - 2*(xx + yy);
+    m[0][3] = p.px; m[1][3] = p.py; m[2][3] = p.pz;
+}
+
+// The runtime layer's poses -> the mod's pose slots, once per present. Head
+// -> TrackHead (rotation write, positional, crouch); hands -> slots 3 and 4,
+// which is where the XR path always put them (g_ctrlIdx = 3/4).
+static void DvrConsumePoses()
+{
+    dvr::vr::HeadPose hp;
+    if (dvr::vr::get_head_pose(hp)) {
+        float m[3][4];
+        DvrPoseTo3x4(hp, m);
+        memcpy(g_devPose[0], m, sizeof(g_devPose[0]));
+        g_devPoseOk[0] = true;
+        TrackHead(m);
+    } else {
+        g_devPoseOk[0] = false;
+        g_haveLastPose = false;
+    }
+    for (int h = 0; h < 2; h++) {
+        float pos[3], q[4];
+        if (dvr::vr::input_get_hand_pose(h, false, pos, q)) {
+            dvr::vr::HeadPose hpp = { pos[0], pos[1], pos[2], q[0], q[1], q[2], q[3] };
+            float m[3][4];
+            DvrPoseTo3x4(hpp, m);
+            memcpy(g_devPose[3 + h], m, sizeof(g_devPose[0]));
+            g_devPoseOk[3 + h] = true;
+        } else g_devPoseOk[3 + h] = false;
+    }
+    g_ctrlIdx[0] = 3; g_ctrlIdx[1] = 4;
+    // per-eye frustum + IPD for the hand pass (symmetric half-angles; the
+    // runtime layer claims symmetric fovs too)
+    float hh = 0, hv = 0;
+    if (dvr::vr::headset_half_fov_deg(&hh, &hv) && hh > 0.0f) {
+        float th = tanf(hh * 0.0174533f), tv = tanf(hv * 0.0174533f);
+        float sep = 0.0f;
+        if (dvr::vr::eye_separation_m(&sep) && sep > 0.04f && sep < 0.08f) g_ipdM = sep;
+        for (int eye = 0; eye < 2; eye++) {
+            g_eyeFr[eye][0] = -th; g_eyeFr[eye][1] = th;
+            g_eyeFr[eye][2] = -tv; g_eyeFr[eye][3] = tv;
+            g_eyeOffs[eye][0] = (eye == 0 ? -0.5f : 0.5f) * g_ipdM;
+            g_eyeOffs[eye][1] = 0.0f; g_eyeOffs[eye][2] = 0.0f;
+        }
+        g_eyeFrOk = true;
+    }
+}
+
+
 static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
                                    const RECT* dst, HWND wnd, const RGNDATA* dirty)
 {
@@ -331,8 +391,13 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
     // at dededede" (a call through freed memory) AFTER GameSessionEnded/
     // PreExit, i.e. a crash dialog on every quit. Nothing of ours may touch
     // the dying device or the XR session past that point.
-    if (InterlockedCompareExchange(&g_gameExiting, 0, 0))
+    if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) {
+        // 41.0: the session comes down on the present thread, once; the old
+        // pace thread was joined from PreExit for the same reason (40.2).
+        static bool torn = false;
+        if (!torn) { torn = true; dvr::vr::shutdown("PreExit"); }
         return g_origPresent(self, src, dst, wnd, dirty);
+    }
     {   // the debugging surface: command.txt (1 Hz), status.json (1 Hz), the
         // "[game] state:" transition line, and the crash filter re-arm
         double nowMs = MaimNowMs();
@@ -392,11 +457,27 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
             }
             lastPresentMs = nowMs;
         }
-        // 41.0: the runtime layer (core/vr/openxr_runtime) owns the session
-        // bring-up from the next commits; g_xrOn flips when it is live.
-        if (g_xrOn && !g_vrReady) {
-            g_vrReady = true;
-            Log("xr: pipeline READY - frames flow to the headset from here");
+        // 41.0: the runtime layer owns the session. Present-head: bring-up,
+        // events, xrWaitFrame (paces the game to the headset while a session
+        // runs), xrBeginFrame, the head/view locate and the action sync.
+        dvr::vr::on_present_begin();
+        {
+            bool live = dvr::vr::session_live();
+            if (live != g_xrOn) {
+                g_xrOn = live; g_vrReady = live;
+                if (live) {
+                    char ctx[160];
+                    _snprintf(ctx, sizeof(ctx), "backend=openxr runtime=\"%s\"", dvr::vr::runtime_name());
+                    ctx[sizeof(ctx) - 1] = 0;
+                    dvr::crash::set_context(ctx);
+                    Log("xr: runtime \"%s\" - session live", dvr::vr::runtime_name());
+                } else Log("xr: session gone (%s)", dvr::vr::session_state_name());
+            }
+            static bool readySaid = false;
+            if (live && !readySaid && dvr::vr::ever_focused()) {
+                readySaid = true;
+                Log("xr: pipeline READY - frames flow to the headset from here");
+            }
         }
         // 41.0: the side-by-side present pipeline is gone. The present path is
         // rebuilt on the stereo seam (docs/ARCHITECTURE.md); until it lands,
@@ -413,11 +494,13 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
             if (!bhDone && MaimNowMs() > 30000.0) { bhDone = 1; BlockPropHunt(); }
         }
         StereoUpdate();   // the live-tuning hotkeys
-        if (g_vrReady) {
-            if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
-            UpdateVirtualPad();
-        }
+        DvrConsumePoses();
+        if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
+        UpdateVirtualPad();
         FrameDumpTick();
+        // Present-tail: hand the frame to the runtime layer. No texture until
+        // the stereo seam lands (next commit); the session stays paced.
+        dvr::vr::on_present_end(NULL);
         // UE3 probe: automatic at ~frame 900 and ~frame 14400, or F9 on demand
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         bool f9Edge = f9 && !g_f9WasDown;
