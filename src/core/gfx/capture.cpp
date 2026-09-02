@@ -4,13 +4,22 @@
 //   sync      GetRenderTargetData(backbuffer) every present: the CPU waits for
 //             the GPU to finish the frame in flight, then copies it up. The
 //             path every build since 30.x shipped; the A/B baseline.
-//   deferred  StretchRect(backbuffer -> a default-pool render target) this
-//             present (a GPU copy, and the MSAA resolve the 41.0 run 6 failure
-//             asked for), and GetRenderTargetData of the PREVIOUS present's
-//             copy - long finished, so the readback no longer stalls on the
-//             frame in flight. The frame reaches the headset one present late;
-//             the eye tag a stereo method attached travels with the copy so
-//             tags and pixels stay paired (delivered_tag()).
+//   deferred  StretchRect(backbuffer -> a default-pool copy) and queue its
+//             GetRenderTargetData this present, LOCK the previous present's
+//             readback. MEASURED (runs 16-18): GetRenderTargetData itself
+//             returns in ~3 us; it is LockRect that waits (2.4-3.1 ms of the
+//             5 ms) because the readback is queued behind the frame in
+//             flight, and reading back the previous copy while locking it in
+//             the same present still waits (run 18). Locking one present
+//             after the readback was queued is what removes the wait; the
+//             StretchRect also resolves a multisampled backbuffer (the run 6
+//             failure). The frame reaches the headset one present late; the
+//             eye tag a stereo method attached travels with the slot so tags
+//             and pixels stay paired (delivered_tag()).
+// (A fourth path, a SYSTEMMEM surface over the mod's own buffer so the row
+// copy disappears, was tried in run 17: CreateOffscreenPlainSurface refuses
+// the user-memory pointer with D3DERR_INVALIDCALL on this runtime. Recorded in
+// ENGINE_NOTES, not kept as a mode.)
 //   shared    the D3D9 surface opened on the D3D11 side (only when the probe
 //             said AVAILABLE): StretchRect into it and sample it directly, no
 //             CPU round trip; a D3D9 event query is the fence, checked (never
@@ -59,8 +68,10 @@ int      g_deliveredTag = 0;
 uint32_t g_serial = 0;            // grab serial (the present the content came from)
 uint32_t g_deliveredSerial = 0;
 
-// deferred: two default-pool copies, alternating
+// deferred: two default-pool copies and two readback surfaces, alternating:
+// slot i is blitted + read back (queued) at present N, locked at present N+1
 IDirect3DSurface9* g_rt[2] = {nullptr, nullptr};
+IDirect3DSurface9* g_sys[2] = {nullptr, nullptr};
 bool     g_rtValid[2] = {false, false};
 int      g_rtTag[2] = {0, 0};
 uint32_t g_rtSerial[2] = {0, 0};
@@ -79,7 +90,7 @@ uint64_t                  g_sharedBboxMs = 0;
 // Sums of the phases over the grabs since the last 3 s line, and the averages
 // that line published (what cost() returns).
 long long g_qpcFreq = 0;
-uint64_t  g_sumRtd = 0, g_sumCopy = 0, g_sumUpload = 0, g_sumBlit = 0;
+uint64_t  g_sumRtd = 0, g_sumLock = 0, g_sumCopy = 0, g_sumUpload = 0, g_sumBlit = 0;
 uint32_t  g_windowGrabs = 0;
 uint64_t  g_windowMs = 0;
 Cost      g_cost;
@@ -107,14 +118,15 @@ void cost_tick() {
     if (now - g_windowMs < 3000) return;
     if (g_windowGrabs) {
         g_cost.rtdUs = (uint32_t)(g_sumRtd / g_windowGrabs);
+        g_cost.lockUs = (uint32_t)(g_sumLock / g_windowGrabs);
         g_cost.copyUs = (uint32_t)(g_sumCopy / g_windowGrabs);
         g_cost.uploadUs = (uint32_t)(g_sumUpload / g_windowGrabs);
         g_cost.blitUs = (uint32_t)(g_sumBlit / g_windowGrabs);
-        g_cost.totalUs = g_cost.rtdUs + g_cost.copyUs + g_cost.uploadUs + g_cost.blitUs;
+        g_cost.totalUs = g_cost.rtdUs + g_cost.lockUs + g_cost.copyUs + g_cost.uploadUs + g_cost.blitUs;
         g_cost.grabsInWindow = g_windowGrabs;
-        DVR_INFO("capture: cost/present rtd=%u copy=%u upload=%u blit=%u total=%u us (%u grabs in "
+        DVR_INFO("capture: cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us (%u grabs in "
                  "%.1f s, mode=%s, %ux%u, %.1f MB each way%s)",
-                 g_cost.rtdUs, g_cost.copyUs, g_cost.uploadUs, g_cost.blitUs, g_cost.totalUs,
+                 g_cost.rtdUs, g_cost.lockUs, g_cost.copyUs, g_cost.uploadUs, g_cost.blitUs, g_cost.totalUs,
                  g_windowGrabs, (double)(now - g_windowMs) / 1000.0, kModeNames[(int)g_mode], g_w, g_h,
                  (double)g_w * (double)g_h * 4.0 / (1024.0 * 1024.0),
                  g_mode == Mode::Shared ? "; shared: no CPU copy, rtd is the 3 s bbox sample" : "");
@@ -123,7 +135,7 @@ void cost_tick() {
                      "finished when the next present began; counted, never waited on)", g_fenceLate);
         g_fenceLate = 0;
     }
-    g_sumRtd = g_sumCopy = g_sumUpload = g_sumBlit = 0;
+    g_sumRtd = g_sumLock = g_sumCopy = g_sumUpload = g_sumBlit = 0;
     g_windowGrabs = 0;
     g_windowMs = now;
 }
@@ -256,6 +268,7 @@ bool ensure_texture(ID3D11Device* dev) {
 void release_deferred() {
     for (int i = 0; i < 2; ++i) {
         if (g_rt[i]) { g_rt[i]->Release(); g_rt[i] = nullptr; }
+        if (g_sys[i]) { g_sys[i]->Release(); g_sys[i] = nullptr; }
         g_rtValid[i] = false;
     }
     g_rtCur = 0;
@@ -271,10 +284,12 @@ void release_shared() {
 
 bool ensure_deferred(IDirect3DDevice9* dev) {
     for (int i = 0; i < 2; ++i) {
-        if (g_rt[i]) continue;
+        if (g_rt[i] && g_sys[i]) continue;
         if (FAILED(dev->CreateRenderTarget(g_w, g_h, g_fmt, D3DMULTISAMPLE_NONE, 0, FALSE, &g_rt[i], nullptr)) ||
-            !g_rt[i]) {
-            DVR_ERROR("capture: deferred copy target %ux%u failed - back to sync", g_w, g_h);
+            !g_rt[i] ||
+            FAILED(dev->CreateOffscreenPlainSurface(g_w, g_h, g_fmt, D3DPOOL_SYSTEMMEM, &g_sys[i], nullptr)) ||
+            !g_sys[i]) {
+            DVR_ERROR("capture: deferred copy target / readback surface %ux%u failed - back to sync", g_w, g_h);
             release_deferred();
             return false;
         }
@@ -312,12 +327,12 @@ bool ensure_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
     return true;
 }
 
-// GetRenderTargetData(src -> sysmem), lock, row copy into g_pixels. The rtd
-// and copy phases of the cost line.
-bool read_back(IDirect3DDevice9* dev, IDirect3DSurface9* src, uint64_t* rtdUs, uint64_t* copyUs) {
+// GetRenderTargetData(src -> dst): the rtd phase. The call returns at once;
+// the copy is queued on the GPU behind everything submitted before it.
+bool read_back_queue(IDirect3DDevice9* dev, IDirect3DSurface9* src, IDirect3DSurface9* dst, uint64_t* rtdUs) {
     const long long t0 = qpc_now();
-    const HRESULT hr = dev->GetRenderTargetData(src, g_sysmem);
-    const long long t1 = qpc_now();
+    const HRESULT hr = dev->GetRenderTargetData(src, dst);
+    if (rtdUs) *rtdUs = qpc_us(t0, qpc_now());
     if (FAILED(hr)) {
         if (!g_warnedRtd) {
             g_warnedRtd = true;
@@ -327,18 +342,31 @@ bool read_back(IDirect3DDevice9* dev, IDirect3DSurface9* src, uint64_t* rtdUs, u
         }
         return false;
     }
+    return true;
+}
+
+// Lock a readback surface (this is where the CPU waits for the queued copy)
+// and row-copy it into g_pixels: the lock and copy phases.
+bool lock_copy(IDirect3DSurface9* sys, uint64_t* lockUs, uint64_t* copyUs) {
+    const long long t1 = qpc_now();
     D3DLOCKED_RECT lr;
-    if (FAILED(g_sysmem->LockRect(&lr, nullptr, D3DLOCK_READONLY))) return false;
-    // Straight per-row copy into cached memory: the write-combined system
-    // surface is very slow to read more than once.
+    if (FAILED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) return false;
+    const long long tl = qpc_now();
+    // Straight per-row copy into cached memory: the system surface is slow to
+    // read more than once (measured 0.7 ms per 8 MB here).
     const size_t rowBytes = (size_t)g_w * 4;
     for (uint32_t y = 0; y < g_h; ++y)
         memcpy(g_pixels + y * rowBytes, (const uint8_t*)lr.pBits + (size_t)y * lr.Pitch, rowBytes);
-    g_sysmem->UnlockRect();
+    sys->UnlockRect();
     const long long t2 = qpc_now();
-    if (rtdUs) *rtdUs = qpc_us(t0, t1);
-    if (copyUs) *copyUs = qpc_us(t1, t2);
+    if (lockUs) *lockUs = qpc_us(t1, tl);
+    if (copyUs) *copyUs = qpc_us(tl, t2);
     return true;
+}
+
+// The synchronous readback: queue and lock in the same present.
+bool read_back(IDirect3DDevice9* dev, IDirect3DSurface9* src, uint64_t* rtdUs, uint64_t* lockUs, uint64_t* copyUs) {
+    return read_back_queue(dev, src, g_sysmem, rtdUs) && lock_copy(g_sysmem, lockUs, copyUs);
 }
 
 // Apply a queued mode change at the top of a grab (present thread).
@@ -357,7 +385,8 @@ void apply_mode_want(IDirect3DDevice9* dev, ID3D11Device* dev11) {
              g_modeWant == Mode::Deferred
                  ? " (the frame reaches the headset one present late; the readback waits on the "
                    "previous present's copy, not the frame in flight)"
-                 : g_modeWant == Mode::Shared ? " (no CPU round trip)" : " (the CPU waits for the frame in flight)");
+                 : g_modeWant == Mode::Shared ? " (no CPU round trip)"
+                                              : " (the readback is queued and locked in the same present)");
     g_mode = g_modeWant;
 }
 
@@ -415,11 +444,11 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     const uint32_t thisSerial = g_serial;
     const int thisTag = g_pendingTag;
     g_pendingTag = 0;
-    uint64_t rtdUs = 0, copyUs = 0, uploadUs = 0, blitUs = 0;
+    uint64_t rtdUs = 0, lockUs = 0, copyUs = 0, uploadUs = 0, blitUs = 0;
     bool delivered = false;
 
     if (g_mode == Mode::Sync) {
-        const bool ok = read_back(dev, bb, &rtdUs, &copyUs);
+        const bool ok = read_back(dev, bb, &rtdUs, &lockUs, &copyUs);
         bb->Release();
         if (!ok) return false;
         if (!ensure_texture(dev11)) return false;
@@ -442,6 +471,9 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
                          "gets nothing in deferred mode; `capture mode sync`", (unsigned long)hr);
             return false;
         }
+        // Queue this present's readback now; it completes while the game
+        // builds the next frame, and the lock below never meets it.
+        if (!read_back_queue(dev, g_rt[cur], g_sys[cur], &rtdUs)) return false;
         g_rtValid[cur] = true; g_rtTag[cur] = thisTag; g_rtSerial[cur] = thisSerial;
         g_rtCur = prev;
         if (!g_rtValid[prev]) {
@@ -449,7 +481,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
             cost_tick();
             return false;
         }
-        if (!read_back(dev, g_rt[prev], &rtdUs, &copyUs)) return false;
+        if (!lock_copy(g_sys[prev], &lockUs, &copyUs)) return false;
         if (!ensure_texture(dev11)) return false;
         const long long t1 = qpc_now();
         ctx->UpdateSubresource(g_tex, 0, nullptr, g_pixels, (UINT)g_w * 4, 0);
@@ -477,11 +509,11 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         const uint64_t now = GetTickCount64();
         if (g_sharedBboxMs == 0 || now - g_sharedBboxMs >= 3000 || !g_bboxSaidForSize) {
             g_sharedBboxMs = now;
-            if (read_back(dev, g_sharedRt, &rtdUs, &copyUs)) sample_bbox();
+            if (read_back(dev, g_sharedRt, &rtdUs, &lockUs, &copyUs)) sample_bbox();
         }
     }
     if (delivered) ++g_grabs;
-    g_sumRtd += rtdUs; g_sumCopy += copyUs; g_sumUpload += uploadUs; g_sumBlit += blitUs;
+    g_sumRtd += rtdUs; g_sumLock += lockUs; g_sumCopy += copyUs; g_sumUpload += uploadUs; g_sumBlit += blitUs;
     ++g_windowGrabs;
     cost_tick();
     return delivered;
@@ -500,7 +532,7 @@ bool probed() { return g_probed; }
 
 bool snapshot_pixels(IDirect3DDevice9* dev) {
     if (g_mode != Mode::Shared || !g_sharedRt || !dev) return g_pixels != nullptr;
-    return read_back(dev, g_sharedRt, nullptr, nullptr);
+    return read_back(dev, g_sharedRt, nullptr, nullptr, nullptr);
 }
 
 bool set_mode(const char* name) {

@@ -17,11 +17,13 @@
 // to guessing between five explanations. Logged once per size change and on a
 // 10 s Debug cadence; `dump capture` writes the pixels.
 //
-// The cost instrument (S1): every grab is timed in its three phases (the
-// GetRenderTargetData wait, the lock + row copy, the D3D11 upload) and the
-// per-present averages print every 3 s as `capture: cost/present ...`. That
-// line is the number a cheaper capture path is judged by - the headset run's
-// presents/s alone cannot separate the capture from the game's own frame time.
+// The cost instrument (S1): every grab is timed per phase (the
+// GetRenderTargetData call, the lock, the row copy, the D3D11 upload, the
+// blit) and the per-present averages print every 3 s as `capture: cost/present
+// ...`. That line is the number a cheaper capture path is judged by - the
+// headset run's presents/s alone cannot separate the capture from the game's
+// own frame time. Measured 2026-09-03 at 1920x1080 (ENGINE_NOTES, "The capture
+// cost, measured"): sync ~5 ms (the lock waits 2.4-3.1 ms), deferred ~2.3 ms.
 #pragma once
 #include <stdint.h>
 
@@ -54,10 +56,12 @@ Bbox bbox();
 uint32_t grabs();                      // lifetime count
 
 // The cost of the last 3 s window, microseconds per present (0 before the
-// first window closes): the readback wait, the lock + copy, the upload, and
-// their sum. `grabsInWindow` is the population the averages come from.
+// first window closes): the GetRenderTargetData call, the LockRect (where the
+// CPU waits for the queued readback), the row copy, the D3D11 upload, the
+// StretchRect (deferred/shared) and their sum. `grabsInWindow` is the
+// population the averages come from.
 struct Cost {
-    uint32_t rtdUs = 0, copyUs = 0, uploadUs = 0, blitUs = 0, totalUs = 0;
+    uint32_t rtdUs = 0, lockUs = 0, copyUs = 0, uploadUs = 0, blitUs = 0, totalUs = 0;
     uint32_t grabsInWindow = 0;
 };
 Cost cost();

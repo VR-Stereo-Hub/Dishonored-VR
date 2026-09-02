@@ -740,6 +740,35 @@ have actually received the content. The image is still released after a timeout 
 acquire/release paired - an unreleased image starves the swapchain within a few frames,
 which is a hard stall rather than one stale frame.
 
+## The capture cost, measured (2026-09-03, S1)
+
+The mono screen's per-present capture (`core/gfx/capture`) was the known structural cost
+and nothing had measured it. Runs 16-19 on the dev PC (simulator lane, 1920x1080 windowed,
+the auto-continued save in gameplay, ~85 presents/s), with the `capture: cost/present` line
+(one 3 s window each, microseconds per present):
+
+| mode | rtd | lock | copy | upload | blit | total | what it says |
+|---|---|---|---|---|---|---|---|
+| sync (shipped) | 2 | 2400-3150 | 700 | 1500-1700 | 0 | 4700-5500 | `GetRenderTargetData` returns at once; **`LockRect` is the wait** (the readback is queued behind the frame in flight); the row copy of 8 MB is 0.7 ms (cached), `UpdateSubresource` 1.5 ms |
+| deferred, first form (read back the previous copy AND lock it in the same present) | 2 | 2900-3100 | 700 | 1500 | 1 | 5100-5400 | **no gain**: the readback queued this present sits behind this present's rendering too, so the lock waits just the same (run 18) |
+| deferred, pipelined (queue the readback this present, lock the PREVIOUS present's) | 2 | **0** | 730 | 1500-1650 | 1 | **2250-2400** | the wait is gone; the picture is one present late (head-locked screen: tolerable; a stereo method's tag travels with the slot) |
+| shared (a D3D9 surface opened on D3D11) | - | - | - | - | - | - | **REFUSED** by the device: `QueryInterface(IDirect3DDevice9Ex)` fails (the game calls `Direct3DCreate9`), `CreateRenderTarget` with a shared handle returns `D3DERR_INVALIDCALL`. D3D9 shares only under 9Ex, and a 9Ex device refuses `D3DPOOL_MANAGED`, which UE3's D3D9 RHI depends on, so upgrading the device is not an option either |
+| user-memory readback surface (`CreateOffscreenPlainSurface` with the buffer pointer in `pSharedHandle`, to lose the row copy) | - | - | - | - | - | - | **REFUSED**: `D3DERR_INVALIDCALL` (run 17); the runtime does not take a caller's buffer here. Not kept as a mode |
+
+So the cheapest capture this game's device allows is the pipelined `deferred` mode: half
+the cost of the shipped path, at the price of one present of latency. It also resolves a
+multisampled backbuffer through its `StretchRect`, which is what the run 6
+`GetRenderTargetData` failure under the game's AA setting needed. `[Capture] Mode=` ships
+`sync` (every new lever default OFF); `capture mode deferred` is the live A/B, and the
+headset run decides whether it becomes the default (ROADMAP S1). The remaining 2.2 ms is
+the row copy plus the D3D11 upload of 8 MB; a staging-texture map would fold the two into
+one and is the next step only if the headset number asks for it.
+
+The instrument that settled it: the phase split. The first cost line lumped lock and copy
+together as "copy = 3.5 ms" and read as a slow write-combined memcpy; splitting the lock
+out (run 18) showed the memcpy at 0.7 ms and the wait inside `LockRect`, which is what made
+the pipelined form the obvious move instead of the user-memory trick.
+
 ## Evidence handling (both cost a session)
 
 - **Log rotation is one deep.** `dishonored_vr.log` + `.prev.log` only. Two simulator runs

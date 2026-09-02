@@ -83,11 +83,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             return true;
         }
         const dvr::capture::Cost c = dvr::capture::cost();
-        Log("capture: mode=%s probe=%s cost/present rtd=%u copy=%u upload=%u blit=%u total=%u us "
+        Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
             "(%u grabs) delivered serial %lu of %lu tag=%d fenceLate=%u (capture mode sync|deferred|shared)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
-            c.rtdUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
+            c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
             (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
             dvr::capture::delivered_tag(), dvr::capture::fence_late());
         return true;
