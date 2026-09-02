@@ -676,6 +676,9 @@ void write_state_json() {
 
     fprintf(f, "  \"layersLastFrame\": %u,\n", compositor_last_layer_count());
     fprintf(f, "  \"projectionViews\": %u,\n", compositor_last_projection_views());
+    fprintf(f, "  \"quadLayers\": %u,\n", compositor_last_quad_layers());
+    fprintf(f, "  \"capNonBlackL\": %d,\n", compositor_last_capture_nonblack(0));
+    fprintf(f, "  \"capNonBlackR\": %d,\n", compositor_last_capture_nonblack(1));
     char esc[1024];
     fprintf(f, "  \"captureSeq\": %u,\n", g.captureSeq.load());
     fprintf(f, "  \"lastCapture\": \"%s\",\n", json_escape(g.lastCapturePath, esc, sizeof(esc)));

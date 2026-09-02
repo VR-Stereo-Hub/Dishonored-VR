@@ -1,0 +1,22 @@
+# mono.xrs - the mono screen (stereo rung 1) reaches BOTH eyes.
+#
+# The gate that makes per-eye captures trustworthy again (docs/VERIFICATION.md,
+# section 2, defect 1): the game frame on the head-locked quad must composite
+# non-black in the left eye AND the right eye, with the same bounding box in
+# both (equal within the eye parallax). The default quad (2.4 m wide at 1.75 m,
+# head-locked) covers ~16% of a Quest 3 eye, measured 2026-09-02 (16.4 / 16.3);
+# the layer's own SOURCE reads ~97%. A black left
+# eye here is attributed by the sim's own log line (`xrsim: eye L composited
+# BLACK ... COMPOSITOR fault` or `... APP fault`).
+#
+# Foreground the game window first: an unfocused window stops rendering the
+# world and a capture then shows HUD on black.
+reset
+@mod stereo mono
+@frames 60
+@assert sessionState eq FOCUSED
+@assert layersLastFrame ge 1
+@assert quadLayers ge 1
+@shot mono
+@assert capNonBlackL ge 10
+@assert capNonBlackR ge 10

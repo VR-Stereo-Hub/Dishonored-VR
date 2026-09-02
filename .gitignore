@@ -1,6 +1,5 @@
 # Build output
 build/
-build-dxvk/
 dist/
 out/
 .vs/
@@ -24,8 +23,6 @@ imgui.ini
 *.rdc
 captures/
 dumps/
-dxvk_framemap.txt
-dxvk_stereo.txt
 
 # Decompiled UnrealScript / extracted assets - Bethesda/Arkane copyright, never commit
 tools/uscript/*

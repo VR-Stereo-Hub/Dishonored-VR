@@ -1,17 +1,24 @@
-Dishonored VR - quick start
-===========================
+Dishonored VR - quick start (41.0, the foundation build of the new render)
+==========================================================================
 
-1. Copy d3d9.dll, dxvk_d3d9.dll and openvr_api.dll into the game folder:
+1. Copy d3d9.dll, dvr_steamvr32.dll and openvr_api.dll into the game folder
+   (delete any dxvk_d3d9.dll left there by a release before 41.0):
    <Steam>\steamapps\common\Dishonored\Binaries\Win32\
-2. Run setup_resolution.bat once (sets ResX=4032 ResY=2268 Fullscreen=False
-   in Documents\My Games\Dishonored\DishonoredGame\Config\DishonoredEngine.ini,
-   after a backup).
+2. Set a normal resolution in the game's video options (1920x1080 windowed is
+   a fine start; the headset shows the game window's frame). A release before
+   41.0 set ResX=4032 ResY=2268 in DishonoredEngine.ini and DishonoredCompat.ini;
+   put a normal size back.
 3. Launch the game from Steam.
-   - SteamVR headsets (Vive, Index, WMR through SteamVR): start SteamVR first.
-   - Quest via Virtual Desktop: start VD streaming with VDXR as the runtime and
-     do NOT run SteamVR; the mod picks the OpenXR path. 72 Hz, SSW off.
-4. F5 recenters, F10 opens the settings overlay. Turn Motion Blur off in the
-   game's options.
+   - Quest via Virtual Desktop: start VD streaming with VDXR as the OpenXR
+     runtime. 72 Hz, SSW off.
+   - SteamVR headsets (Vive, Index, WMR through SteamVR): start SteamVR first;
+     the mod uses the bundled shim (dvr_steamvr32.dll).
+4. F5 recenters, F10 opens the settings overlay (screen distance and width).
+   Turn Motion Blur off in the game's options.
+
+What you get in 41.0: the game on a head-locked screen in both eyes, head
+tracking, lean/crouch, the controllers as a gamepad. Stereo and the motion
+controls are being rebuilt on this foundation (KNOWN_ISSUES.txt).
 
 Files the mod writes next to the game exe: dishonored_vr.ini (settings),
 dishonored_vr.log (send this with any bug report), dishonored_vr.prev.log,

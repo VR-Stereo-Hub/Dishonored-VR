@@ -317,7 +317,7 @@ static void CrouchStateTick()
                 " btn=%d btnSays=%d (%s%s)"
                 " | stickRaw=(%.2f,%.2f) stickOut=(%.2f,%.2f) spd=%.0fuu/s"
                 " pos=(%.0f,%.0f)"          // 38.67: pawn XY - the boat trace
-                " menu=%d/%d wheel=%d mono=%d",
+                " menu=%d/%d wheel=%d",
                 cz, pz, cz - pz, (int)flagSays, (int)wantsSays,
                 (int)g_eyeCrouched,
                 (unsigned)InterlockedCompareExchange(&g_padBtnsPub, 0, 0),
@@ -328,8 +328,7 @@ static void CrouchStateTick()
                 g_dbgRawMx, g_dbgRawMy,
                 dlx / 32767.0f, dly / 32767.0f, spd,
                 px2, py2,
-                (int)g_menuOpen, (int)g_inMenu, (int)g_wheelHeld,
-                (int)g_sbsMonoNow);
+                (int)g_menuOpen, (int)g_inMenu, (int)g_wheelHeld);
         }
     }
 

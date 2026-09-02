@@ -2,24 +2,13 @@
 // Original order is preserved across chunks; do not reorder.
 
 // ============================================================================
-// Dishonored VR
-// d3d9.dll proxy, plus a forked dxvk_d3d9.dll that does the stereo work.
+// Dishonored VR - the d3d9.dll proxy.
 //
-//   SCENE MODE (default): we are a real SteamVR app. Each frame is captured
-//   from the game's D3D9 backbuffer, uploaded to D3D11, drawn onto a virtual
-//   surface with correct per-eye asymmetric projection, and submitted to the
-//   VR compositor. HMD yaw/pitch drives the game camera 1:1.
-//
-//   STEREO IS REAL, NOT MONO. The old header here still said "depth is still
-//   mono - true stereo is Stage 3", which has been false since the DXVK fork
-//   landed. Qualifying draws are replayed once per eye into half-width
-//   viewports with a per-eye shifted view-projection (dxvk_d3d9.dll, gated on
-//   dxvk_stereo.txt), so the scene has genuine binocular depth. Comments that
-//   describe a stage we left behind are worse than no comment - this one was
-//   read as current, which is exactly the harm.
-//
-//   THEATER MODE (fallback / ForceTheater=1 in ini): flat overlay screen, no
-//   head-driven camera.
+//   The game renders natively through the system D3D9. The proxy hooks the
+//   device, captures the frame, drives the camera from the headset and
+//   presents to the VR runtime. Stereo is being rebuilt on a per-eye camera
+//   seam (docs/ARCHITECTURE.md, the stereo ladder); the forked-DXVK
+//   side-by-side render that used to live here was removed in 41.0.
 //
 // Config: dishonored_vr.ini next to the DLL (auto-created with defaults).
 // Kill switch: create disable_vr.txt.
@@ -71,7 +60,6 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 #include <openxr/openxr_loader_negotiation.h>
 
 // openvr_capi.h (C API). MSVC defines only _WIN32, so no MinGW __WIN32 fixup is needed.
-#include "openvr_capi.h"
 
 // ----------------------------------------------------------------------------
 // Globals: proxy plumbing

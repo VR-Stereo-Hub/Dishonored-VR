@@ -28,10 +28,15 @@
 #include "core/framework/command.h"
 #include "core/framework/status.h"
 #include "game/dishonored/patterns.h"
+#include "core/vr/openxr_runtime.h"
+#include "core/vr/openxr_input.h"
+#include "core/framework/frame_hooks.h"
+#include "core/gfx/stereo.h"
+#include "core/gfx/capture.h"
+#include "game/dishonored/camera.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
-#include "mod/state/03_core_vr_openvr_backend.inc"
 #include "mod/state/04_core_gfx_d3d11_device.inc"
 #include "mod/state/05_core_gfx_d3d9_capture.inc"
 #include "mod/state/06_game_dishonored_head_track.inc"
@@ -44,13 +49,8 @@
 #include "mod/state/13_game_dishonored_game_state.inc"
 #include "mod/state/14_core_util_log.inc"
 #include "mod/state/15_core_config_config.inc"
-#include "mod/state/16_core_gfx_d3d11_device.inc"
-#include "mod/state/17_core_gfx_eye_quads.inc"
 #include "mod/state/18_core_gfx_hand_mesh.inc"
-#include "mod/state/19_core_gfx_d3d11_device.inc"
 #include "mod/state/20_core_window_game_window.inc"
-#include "mod/state/21_core_gfx_hud_panel.inc"
-#include "mod/state/22_core_gfx_present.inc"
 #include "mod/state/23_game_dishonored_ue3_uobject.inc"
 #include "mod/state/24_game_dishonored_head_track.inc"
 #include "mod/state/25_legacy_camera_tracer.inc"
@@ -75,22 +75,12 @@
 #include "mod/state/44_game_dishonored_blink.inc"
 #include "mod/state/45_game_dishonored_hands_skelcontrol.inc"
 #include "mod/state/46_legacy_cam_seam.inc"
-#include "mod/state/47_core_window_res_spoof.inc"
 #include "mod/state/48_legacy_cam_seam.inc"
 #include "mod/state/49_game_dishonored_head_track.inc"
 #include "mod/state/50_game_dishonored_fov_lever.inc"
 #include "mod/state/51_legacy_spacebases.inc"
 #include "mod/state/52_game_dishonored_head_track.inc"
 #include "mod/state/53_core_input_pad_bridge.inc"
-#include "mod/state/54_core_window_res_spoof.inc"
-#include "mod/state/55_core_input_pad_bridge.inc"
-#include "mod/state/56_core_framework_frame_hooks.inc"
-#include "mod/state/57_core_window_res_spoof.inc"
-#include "mod/state/58_core_framework_frame_hooks.inc"
-#include "mod/state/59_core_vr_openxr_loader.inc"
-#include "mod/state/60_core_vr_openxr_backend.inc"
-#include "mod/state/61_core_vr_openxr_input.inc"
-#include "mod/state/62_proxy_dllmain.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
@@ -103,7 +93,8 @@
 #include "core/config/config.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
-#include "core/framework/frame_hooks.cpp"
+#include "core/framework/vs_const_hook.cpp"
+#include "game/dishonored/present_tick.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/vs_const.cpp"
@@ -111,17 +102,8 @@
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/d3d11_device.cpp"
 #undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::present
-#include "core/gfx/eye_quads.cpp"
-#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "core/gfx/hand_mesh.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::hud
-#include "core/gfx/hud_panel.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::present
-#include "core/gfx/present.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::pad
 #include "core/input/hotkeys.cpp"
@@ -132,29 +114,8 @@
 #define DVR_CAT ::dvr::log::Cat::overlay
 #include "core/ui/overlay.cpp"
 #undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::openvr
-#include "core/vr/openvr_backend.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::openxr
-#include "core/vr/openxr_backend.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::xrinput
-#include "core/vr/openxr_input.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::openxr
-#include "core/vr/openxr_loader.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::vr
-#include "core/vr/backend_probe.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::pace
-#include "core/vr/openxr_pace.cpp"
-#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::res
 #include "core/window/game_window.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::res
-#include "core/window/res_spoof.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::blink
 #include "game/dishonored/blink.cpp"
@@ -242,11 +203,6 @@
 #endif
 #if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
-#include "legacy/ovl_scene.cpp"
-#undef DVR_CAT
-#endif
-#if DVR_WITH_LEGACY
-#define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/rtd_drive.cpp"
 #undef DVR_CAT
 #endif
@@ -263,11 +219,6 @@
 #if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/vs_scan.cpp"
-#undef DVR_CAT
-#endif
-#if DVR_WITH_LEGACY
-#define DVR_CAT ::dvr::log::Cat::legacy
-#include "legacy/xr_bench.cpp"
 #undef DVR_CAT
 #endif
 #define DVR_CAT ::dvr::log::Cat::proxy

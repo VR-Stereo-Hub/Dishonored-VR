@@ -114,7 +114,6 @@ static volatile LONG  g_rtdReq = 0;            // bit0 = recapture left, bit1 = 
 // controller and billboarded at the HMD, so the controller becomes visible as
 // a bright ring. Park the ring on the in-game hand, press END, done.
 static bool           g_rtdMarkers = false;   // the blue/orange rings - retired with the VR-hands calibration
-static VROverlayHandle_t g_rtdMarkOv[2] = { 0, 0 };
 static bool           g_rtdMarkVis[2] = { false, false };
 static float          g_rtdMarkSize = 0.045f;
 static volatile LONG  g_rtdHitsWpn = 0, g_rtdHitsArms = 0;

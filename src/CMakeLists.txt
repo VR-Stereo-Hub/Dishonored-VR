@@ -21,7 +21,7 @@ add_custom_target(dvr_version ALL
 
 # --- d3d9.dll - the mod (proxy + VR core + Dishonored integration) ------------
 # Dropped next to Dishonored.exe; the game's d3d9 import loads it. It chains to
-# the DXVK fork (dxvk_d3d9.dll) or System32 d3d9 and does all the VR work.
+# System32 d3d9 and does all the VR work.
 # Phase 1 of the refactor: one UNITY translation unit (mod/dishonoredvr.cpp)
 # that includes the module files in src/proxy, src/core, src/game and
 # src/legacy. tools/split-source.py produced the tree from the original single
@@ -43,6 +43,18 @@ set(DVR_REAL_SOURCES
     core/hooks/detour.cpp    core/hooks/detour.h
     core/framework/command.cpp core/framework/command.h
     core/framework/status.cpp  core/framework/status.h
+    core/framework/frame_hooks.cpp core/framework/frame_hooks.h
+    core/gfx/stereo.cpp        core/gfx/stereo.h
+    core/gfx/capture.cpp       core/gfx/capture.h
+    core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
+    core/gfx/mono_screen.cpp
+    core/gfx/aer.cpp
+    core/gfx/reentry.cpp
+    game/dishonored/camera.cpp game/dishonored/camera.h
+    core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h
+    core/vr/openxr_input.cpp   core/vr/openxr_input.h
+    core/vr/hud_stub.cpp       core/vr/hud_stub.h
+    core/util/xr_math.h
 )
 foreach(_f ${DVR_REAL_SOURCES})
     list(REMOVE_ITEM DVR_MODULE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${_f}")
@@ -62,11 +74,18 @@ target_include_directories(dvr_proxy PRIVATE . "${CMAKE_BINARY_DIR}/generated")
 # proxy must add no static import that changes the game's DLL load order.
 target_link_libraries(dvr_proxy PRIVATE
     imgui
-    openvr_headers
     openxr_headers
     user32 gdi32 advapi32 ole32 uuid windowscodecs dwmapi imm32
 )
 target_compile_options(dvr_proxy PRIVATE /W3 /permissive-)
+if(DVR_WITH_OPENXR)
+    # Static loader linked straight into the proxy: no extra DLL ships and the
+    # game's import table is untouched (the loader is not a DLL import).
+    target_link_libraries(dvr_proxy PRIVATE openxr_loader)
+    target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_OPENXR=1)
+else()
+    target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_OPENXR=0)
+endif()
 if(DVR_WITH_LEGACY)
     target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_LEGACY=1)
 else()
@@ -77,7 +96,30 @@ endif()
 # A 32-bit console app with NO mod code in it. tools\xrsim-selftest.ps1 runs it
 # against the simulated runtime: if it fails, the simulator is broken, not the
 # mod. Not shipped.
-if(DVR_WITH_OPENXR_LOADER)
+# --- dvr_steamvr32: the SteamVR OpenXR shim (BioShock's ovrshim, adopted 41.0) ---
+# SteamVR ships no 32-bit OpenXR runtime, so a 32-bit game reaches it through
+# this shim: an OpenXR runtime DLL that talks OpenVR to SteamVR. The proxy's
+# init_instance falls back to it (a manifest written under %LOCALAPPDATA%)
+# when no native 32-bit runtime exists or [VR] Runtime=steamvr. Ships beside
+# d3d9.dll with Valve's openvr_api.dll (hash-gated by install/package).
+option(DVR_WITH_OVRSHIM "Build the SteamVR OpenXR shim runtime (shipped)" ON)
+if(DVR_WITH_OPENXR AND DVR_WITH_OVRSHIM)
+    add_library(dvr_ovr_shim SHARED
+        tools/ovrshim/ovrshim.h
+        tools/ovrshim/ovrshim_negotiate.cpp
+        tools/ovrshim/ovrshim_main.cpp
+        tools/ovrshim/ovrshim_render.cpp
+        tools/ovrshim/ovrshim_input.cpp
+        tools/ovrshim/ovrshim.def
+    )
+    set_target_properties(dvr_ovr_shim PROPERTIES PREFIX "" OUTPUT_NAME "dvr_steamvr32")
+    target_include_directories(dvr_ovr_shim PRIVATE tools/ovrshim)
+    target_link_libraries(dvr_ovr_shim PRIVATE openxr_headers openvr_headers d3d11)
+    # openvr_api.dll and d3dcompiler are LoadLibrary'd at runtime - only the
+    # D3D11 the compositing pipeline needs is linked.
+endif()
+
+if(DVR_WITH_OPENXR)
     add_executable(xr_hello32 tools/xr_hello32/main.cpp)
     target_link_libraries(xr_hello32 PRIVATE openxr_loader d3d11 dxgi)
 endif()

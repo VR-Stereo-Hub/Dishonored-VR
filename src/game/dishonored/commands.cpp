@@ -6,13 +6,16 @@
 //   hands on|off                 the SkelControl hand drive
 //   blink on|off|probe           hand-aimed Blink; probe = one-shot survey
 //   fov <deg|0>                  the FOV lever (0 disarms)
-//   pace delay <0-3> | stamp live|render | fix <0-2> | cap <hz>
-//   layer proj|cyl|quad          OpenXR presentation layer mode
-//   hud on|off                   wrist HUD
-//   mirror 0|1|2                 desktop spectator view
 //   overlay on|off               the F10 settings panel
+//   camera status                the per-eye camera seam (eye, ipd, field, fov, c5)
+//   camera eyetest <uu> [field]  the write-point instrument (field 0x80|..|all; `camera eyetest stop`)
+//   camera eyefield <name|none>  the field the eye offset writes to ([Camera] EyeField)
+//   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
+//   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
+//   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
+//   vrinput on|off|status        the virtual gamepad
 //   console <text>               run a game console command on the script lane
-//   dump frame|capture|eyes|hud|fork
+//   dump frame|capture|eyes
 //   cfg dump                     print the live values the seam can change
 // Line numbers in comments refer to the original single file (commit 48766c07).
 
@@ -44,30 +47,43 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         float f = (float)atof(args);
         if (f != 0.0f && (f < 40.0f || f > 150.0f)) { Log("fov: %g out of range (40..150, or 0 to disarm)", f); return true; }
         g_fovLever = f;
+        dvr::camera::set_fov_deg(g_fovLever);
         Log("fov: lever -> %.0f (seam)", f);
         return true;
     }
-    if (!strcmp(cmd, "pace")) {
-        char a[16] = "", v[16] = "";
-        sscanf(args, "%15s %15s", a, v);
-        if (!strcmp(a, "delay")) { g_xrPoseDelay = atoi(v); if (g_xrPoseDelay < 0) g_xrPoseDelay = 0; if (g_xrPoseDelay > 3) g_xrPoseDelay = 3; }
-        else if (!strcmp(a, "stamp")) { g_stampLive = !strcmp(v, "live"); }
-        else if (!strcmp(a, "fix")) { g_stampFix = atoi(v); if (g_stampFix < 0 || g_stampFix > 2) g_stampFix = 0; }
-        else if (!strcmp(a, "cap")) { g_fpsCap = (float)atof(v); if (g_fpsCap < 0) g_fpsCap = 0; if (g_fpsCap > 0 && g_fpsCap < 20) g_fpsCap = 20; }
-        else if (strcmp(a, "status")) { Log("pace: usage - pace delay <0-3> | stamp live|render | fix <0-2> | cap <hz> | status"); return true; }
-        Log("pace: delay=%d stampLive=%d stampFix=%d cap=%.1f layer=%d xrOn=%d", g_xrPoseDelay, (int)g_stampLive,
-            g_stampFix, g_fpsCap, g_xrLayerMode, (int)g_xrOn);
-        return true;
-    }
-    if (!strcmp(cmd, "layer")) {
-        g_xrLayerMode = (args[0] == 'c') ? 1 : (args[0] == 'q') ? 2 : 0;
-        g_quadAspect = 0.0f;   // rebuild the eye quads for the new mode
-        Log("layer: %s (seam)", g_xrLayerMode == 0 ? "projection" : g_xrLayerMode == 1 ? "cylinder" : "quad");
-        return true;
-    }
-    if (!strcmp(cmd, "hud") && DvrOnOff(args, &b)) { g_wristHud = b; Log("hud: wrist %s (seam)", b ? "ON" : "off"); return true; }
-    if (!strcmp(cmd, "mirror")) { g_mirrorMode = atoi(args); Log("mirror: mode %d (seam)", g_mirrorMode); return true; }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "camera")) {
+        char sub[32] = "", fld[16] = "all";
+        float uu = 0.0f;
+        if (sscanf(args, "%31s", sub) == 1 && !strcmp(sub, "eyetest")) {
+            if (strstr(args, "stop")) { dvr::camera::eyetest_stop("seam"); return true; }
+            sscanf(args, "%*s %f %15s", &uu, fld);
+            dvr::camera::eyetest_start(uu > 0.0f ? uu : 100.0f, fld);
+            return true;
+        }
+        if (!strcmp(sub, "eyefield")) {
+            fld[0] = 0;
+            sscanf(args, "%*s %15s", fld);
+            dvr::camera::set_eye_field(fld);
+            return true;
+        }
+        dvr::camera::log_status();
+        return true;
+    }
+    if (!strcmp(cmd, "stereo")) {
+        if (!args[0] || !strcmp(args, "status")) { dvr::stereo::log_status(); return true; }
+        dvr::stereo::select(args);   // logs the refusal itself
+        return true;
+    }
+    if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
+    if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
+    if (!strcmp(cmd, "vrinput")) {
+        if (DvrOnOff(args, &b)) { g_padEnabled = b; Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }
+        Log("input: pad %s active=%d polls=%ld actions=%s haptics=%d (vrinput on|off|status)",
+            g_padEnabled ? "enabled" : "disabled", (int)g_padActive, (long)g_padPolls,
+            dvr::vr::input_attached() ? "attached" : "not attached", (int)(g_padHaptics && g_xrHaptics));
+        return true;
+    }
     if (!strcmp(cmd, "console")) {
         strncpy(g_dvrConsoleReq, args, sizeof(g_dvrConsoleReq) - 1);
         g_dvrConsoleReq[sizeof(g_dvrConsoleReq) - 1] = 0;
@@ -75,20 +91,15 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "dump")) {
-        if (!strcmp(args, "fork")) {
-            if (g_dxvkDumpReq) { *g_dxvkDumpReq = 1; Log("framedump: fork dump requested (seam)"); }
-            else Log("framedump: fork export not resolved yet");
-            return true;
-        }
         FrameDumpRequest(args[0] ? args : "frame");
         return true;
     }
     if (!strcmp(cmd, "cfg") && !strcmp(args, "dump")) {
-        Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f wristHud=%d mirror=%d layer=%d poseDelay=%d stampLive=%d stampFix=%d fpsCap=%.1f posTrack=%d melee=%d",
+        Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f fpsCap=%.1f posTrack=%d melee=%d",
             (int)g_gamepadOnly,
             g_gamepadOnly ? " (hands/blink/melee READ 0 BY DESIGN, not because they failed)" : "",
-            (int)g_skcDrive, (int)g_handMesh, (int)g_blkAimOnCfg, g_fovLever, (int)g_wristHud, g_mirrorMode,
-            g_xrLayerMode, g_xrPoseDelay, (int)g_stampLive, g_stampFix, g_fpsCap, (int)g_posTrack, (int)g_meleeOn);
+            (int)g_skcDrive, (int)g_handMesh, (int)g_blkAimOnCfg, g_fovLever,
+            g_fpsCap, (int)g_posTrack, (int)g_meleeOn);
         return true;
     }
     return false;
@@ -126,18 +137,17 @@ static void DvrStatusProvider(dvr::status::Writer& w)
 {
     w.kv("version", DVR_VERSION);
     w.kv("build", DVR_BUILD_ID);
-    w.kv("backend", g_xrBackend ? "openxr" : "openvr");
-    w.kv("runtime", g_xrBackend ? g_xriRuntimeName : "SteamVR");
+    w.kv("backend", "openxr");
+    w.kv("runtime", dvr::vr::runtime_name());
+    w.kv("session", dvr::vr::session_state_name());
     w.kv("vrReady", (bool)g_vrReady);
     w.kv("xrOn", (bool)g_xrOn);
-    w.kv("mode", g_mode == MODE_SCENE ? "scene" : g_mode == MODE_THEATER ? "theater" : "none");
     w.kv("state", g_dvrGameState);
     w.kv("frame", (unsigned long)g_frame);
-    w.kv("capW", (int)g_capW); w.kv("capH", (int)g_capH);
-    w.kv("eyeW", (int)g_eyeW); w.kv("eyeH", (int)g_eyeH);
-    w.kv("liveFovX", (double)g_liveFovX);
-    w.kv("stereo", (bool)g_stereoEnabled);
-    w.kv("sbs", (bool)g_sbsMode); w.kv("seq", (bool)g_seqMode); w.kv("mono", (bool)g_sbsMonoNow);
+    w.kv("capW", (int)dvr::capture::width()); w.kv("capH", (int)dvr::capture::height());
+    { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
+    w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
+    w.obj("camera"); dvr::camera::status(w); w.end_obj();
     w.obj("head");
     w.kv("yaw", (double)g_hmdYaw); w.kv("pitch", (double)g_hmdPitch); w.kv("roll", (double)g_hmdRoll);
     w.kv("tracked", (bool)g_devPoseOk[0]);
@@ -154,26 +164,22 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("processEvent", (bool)g_peInstalled);
     w.kv("blinkDir", (bool)g_blkDirOn); w.kv("blinkDst", (bool)g_blkDstOn); w.kv("blinkTrc", (bool)g_blkTrcOn);
     w.kv("pad", (bool)g_padActive);
-    w.kv("xrInput", (bool)g_xrInpAttached);
+    w.kv("xrInput", dvr::vr::input_attached());
     w.end_obj();
     w.obj("features");
     w.kv("gamepadOnly", (bool)g_gamepadOnly);   // 40.3: names the OWNER of the zeroes below
     w.kv("hands", (bool)g_skcDrive); w.kv("handMesh", (bool)g_handMesh); w.kv("handModels", (bool)g_hmEnable);
     w.kv("blink", (bool)g_blkAimOnCfg); w.kv("melee", (bool)g_meleeOn);
-    w.kv("fovLever", (double)g_fovLever); w.kv("wristHud", (bool)g_wristHud);
-    w.kv("hudRedirect", InterlockedCompareExchange(&g_hudRedirLive, 0, 0) != 0);
-    w.kv("layer", g_xrLayerMode); w.kv("poseDelay", g_xrPoseDelay);
-    w.kv("stampLive", (bool)g_stampLive); w.kv("stampFix", g_stampFix); w.kv("fpsCap", (double)g_fpsCap);
-    w.kv("mirror", g_mirrorMode);
+    w.kv("fovLever", (double)g_fovLever);
+    w.kv("fpsCap", (double)g_fpsCap);
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu);
     w.kv("cine", (bool)g_cineNow);
     w.kv("exiting", InterlockedCompareExchange(&g_gameExiting, 0, 0) != 0);
     w.obj("counters");
-    w.kv("submits", (unsigned long)g_submits); w.kv("gameFrames", (unsigned long)g_gameFrames);
+    w.kv("submits", (unsigned long)dvr::frame::submit_count()); w.kv("gameFrames", (unsigned long)g_gameFrames);
     w.kv("padPolls", (unsigned long)g_padPolls); w.kv("headHits", (unsigned long)g_pvrHits);
     w.kv("headWrites", (unsigned long)g_pvrWrites); w.kv("handWrites", (unsigned long)g_fpWrites);
-    w.kv("splices", (unsigned long)(g_dxvkSplices ? *g_dxvkSplices : 0));
     w.kv("commands", (unsigned long)dvr::command::sequence());
     w.end_obj();
     w.kv("log", dvr::log::path());

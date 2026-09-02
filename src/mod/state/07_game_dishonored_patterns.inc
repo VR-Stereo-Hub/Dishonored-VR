@@ -4,7 +4,6 @@
 // UE3 UObject: ... Outer, FName Name (0x28), UClass* Class (0x30). Outer sits
 // one pointer before the name. Used to answer "who OWNS this SkelControl".
 
-static bool     g_stereoEnabled = false;   // ini [Stereo] Enabled + F7 toggle
 static bool     g_povProbe      = true;    // 30.43: [CamSeam] PovProbe - scan
                                            // the live camera for its POV block
 static bool     g_povWiggle     = true;    // 30.45: [CamSeam] Wiggle - which

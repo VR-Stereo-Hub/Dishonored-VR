@@ -591,80 +591,8 @@ static void GtTick()
 // ============================================================================
 static void RtdMarkerTick()
 {
-    bool want = g_rtdMarkers && g_mode == MODE_SCENE;
-    if (want && !g_ov && !GetFnTable(IVROverlay_Version, (void**)&g_ov)) {
-        g_rtdMarkers = false;
-        Log("handrt: no overlay interface - markers disabled");
-        return;
-    }
-    for (int h = 0; h < 2; h++) {
-        int dev = g_ctrlIdx[h];
-        bool w = want && dev >= 0 && dev < 16 && g_devPoseOk[dev] && g_devPoseOk[0];
-
-        if (w && !g_rtdMarkOv[h]) {
-            char key[64], nm[64];
-            _snprintf(key, sizeof(key), "gingasvr.dishonoredvr.align%d", h);
-            _snprintf(nm,  sizeof(nm),  "DVR Align %s", h ? "R" : "L");
-            if (g_ov->CreateOverlay(key, nm, &g_rtdMarkOv[h])
-                != EVROverlayError_VROverlayError_None) {
-                g_rtdMarkOv[h] = 0; g_rtdMarkers = false;
-                Log("handrt: CreateOverlay failed - markers disabled");
-                return;
-            }
-            // open ring + centre dot + crosshair ticks, so the exact centre is
-            // readable against a busy scene instead of a fuzzy blob
-            static uint32_t px[64 * 64];
-            for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++) {
-                float dx = x - 31.5f, dy = y - 31.5f;
-                float r = sqrtf(dx*dx + dy*dy);
-                float dot  = 3.0f - r;
-                float ring = 1.8f - fabsf(r - 24.0f);
-                float tick = 0.0f;
-                if (r > 8.0f && r < 20.0f) {
-                    float ax = fabsf(dx), ay = fabsf(dy);
-                    tick = 1.6f - (ax < ay ? ax : ay);
-                }
-                float a = dot; if (ring > a) a = ring; if (tick > a) a = tick;
-                if (a < 0) a = 0; if (a > 1) a = 1;
-                unsigned al = (unsigned)(255.0f * a);
-                unsigned R = h ? 255u : 60u, G = h ? 150u : 230u, B = h ? 40u : 255u;
-                px[y*64 + x] = (al << 24) | (B << 16) | (G << 8) | R;
-            }
-            g_ov->SetOverlayRaw(g_rtdMarkOv[h], px, 64, 64, 4);
-            Log("handrt: alignment marker created (%s hand, device %d)",
-                h ? "right" : "left", dev);
-        }
-        if (!g_rtdMarkOv[h]) continue;
-
-        if (w) {
-            g_ov->SetOverlayWidthInMeters(g_rtdMarkOv[h], g_rtdMarkSize);
-            // Billboard: build a world basis whose +Z (overlay front) points at
-            // the HMD, then express it in controller-local axes so the overlay
-            // can stay device-relative and inherit the controller's position
-            // with no tracking-universe assumptions.
-            float (*hc)[4] = g_devPose[dev];
-            float (*hd)[4] = g_devPose[0];
-            float z[3] = { hd[0][3]-hc[0][3], hd[1][3]-hc[1][3], hd[2][3]-hc[2][3] };
-            if (V3Norm(z) > 0.05f) {
-                float up[3] = { 0, 1, 0 };
-                float xw[3]; V3Cross(up, z, xw);
-                if (V3Norm(xw) > 0.05f) {
-                    float yw[3]; V3Cross(z, xw, yw); V3Norm(yw);
-                    HmdMatrix34_t m; memset(&m, 0, sizeof(m));
-                    const float* cols[3] = { xw, yw, z };
-                    for (int i = 0; i < 3; i++)          // C' * basis
-                        for (int j = 0; j < 3; j++)
-                            m.m[i][j] = hc[0][i]*cols[j][0] + hc[1][i]*cols[j][1]
-                                      + hc[2][i]*cols[j][2];
-                    g_ov->SetOverlayTransformTrackedDeviceRelative(
-                        g_rtdMarkOv[h], (TrackedDeviceIndex_t)dev, &m);
-                }
-            }
-        }
-        if (w != g_rtdMarkVis[h]) {
-            g_rtdMarkVis[h] = w;
-            if (w) g_ov->ShowOverlay(g_rtdMarkOv[h]);
-            else   g_ov->HideOverlay(g_rtdMarkOv[h]);
-        }
-    }
+    // 41.0: the rings were SteamVR overlays pinned to the controllers; the
+    // OpenVR backend is gone. The runtime layer's laser/aim-dot quads are the
+    // replacement when the hands come back (ROADMAP S3).
+    (void)g_rtdMarkers; (void)g_rtdMarkVis; (void)g_rtdMarkSize;
 }

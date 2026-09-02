@@ -1,6 +1,8 @@
 // State chunk 18 for core/gfx/hand_mesh - included by src/mod/dishonoredvr.cpp.
 // Original order is preserved across chunks; do not reorder.
 
+static int g_hmTexSlot = 0;   // (was chunk 17) the skin slot the hand pass binds
+
 
 // Load an extracted mesh if one is present. Meshes go in a "vrhands" folder
 // beside the exe, named for the model: sword.obj, crossbow.obj, pistol.obj,

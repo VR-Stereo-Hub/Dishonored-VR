@@ -13,7 +13,7 @@ static inline void LevWrite(uint8_t* p, float t)
 
 static inline void FovLeverApply()
 {
-    float deg = g_fovLever;
+    float deg = dvr::camera::fov_deg();   // 41.0: the seam's target (= [Screen] FovLever unless a method moved it)
     if (!(deg >= 40.0f && deg <= 160.0f)) {
         if (g_fovNatural != 0.0f) {          // lever just turned off - re-arm
             g_fovNatural = 0.0f;
@@ -52,7 +52,7 @@ static inline void FovLeverApply()
     float sensor = g_fovNatural;
     if (g_camObj && RangeReadable(g_camObj + 0x53c, 4)) {
         float s = *(float*)(g_camObj + 0x53c);
-        if (s > 10.0f && s < 175.0f) sensor = s;
+        if (s > 10.0f && s < 175.0f) { sensor = s; dvr::camera::note_rendered_fov(s); }
     }
     if (sensor > g_fovNatural) sensor = g_fovNatural;      // the loop breaker
     float R = deg / g_fovNatural;
@@ -115,7 +115,7 @@ static inline void FovLeverApply()
             }
             zmax = g_ecCeil;
         }
-        static const uint32_t kCamLoc[4] = { 0x80, 0x330, 0x350, 0x374 };
+        static const uint32_t kCamLoc[4] = { kCamLoc0, kPovOffs[0], kPovOffs[1], kPovOffs[2] };
         bool did = false; float was = 0.0f;
         for (int ci = 0; ci < 4; ci++) {
             if (!g_camObj || !RangeReadable(g_camObj + kCamLoc[ci], 12))

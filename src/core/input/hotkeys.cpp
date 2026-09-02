@@ -3,18 +3,10 @@
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
 
 
-// Called once per game frame from VRFrame. Handles the live-tuning hotkeys and
-// reports the current eye. The actual stereo shear happens in hkSetVSConstF
-// (render time); this only sets which eye the current frame's draws target.
+// Called once per game frame from the Present hook. The live-tuning hotkeys.
 // No game memory is written (the retired camera-write path is gone).
 static void StereoUpdate()
 {
-    bool f1  = (GetAsyncKeyState(VK_F1)  & 0x8000) != 0;
-    bool f2  = (GetAsyncKeyState(VK_F2)  & 0x8000) != 0;
-    bool f7  = (GetAsyncKeyState(VK_F7)  & 0x8000) != 0;
-    // (30.8 key diet: F10/F11/F12 separation & convergence retired - those
-    // are set-once values that live in [Stereo] in the ini now)
-
     {
         static bool f9Was = false;
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
@@ -60,45 +52,6 @@ static void StereoUpdate()
         f8Was = f8;
     }
 
-    if (f7 && !g_f7WasDown) {
-        g_stereoEnabled = !g_stereoEnabled;
-        Log("stereo: %s (F7)", g_stereoEnabled ? "ENABLED" : "disabled");
-    }
-    if (f1 && !g_f1Was) {   // shrink image (less fill, crisper 1:1, more border)
-        g_fillScale -= 0.05f; if (g_fillScale < 0.6f) g_fillScale = 0.6f;
-        g_quadAspect = 0.0f;  // force quad rebuild
-        Log("screen: fill = %.2f (F1)", g_fillScale);
-    }
-    if (f2 && !g_f2Was) {   // grow image (fills the border; mild zoom)
-        g_fillScale += 0.05f; if (g_fillScale > 3.2f) g_fillScale = 3.2f;
-        g_quadAspect = 0.0f;  // force quad rebuild
-        Log("screen: fill = %.2f (F2)", g_fillScale);
-    }
-    g_f7WasDown = f7;
-    g_f1Was = f1; g_f2Was = f2;
-
-    // 32.7: frame dump on SCROLL LOCK, not F11. F11 was NOT free: UE3's
-    // BaseInput.ini binds it to TOGGLEFULLSCREEN, and the log showed the
-    // proof - "device Reset (1783x1003 windowed=1)" 47 ms after the press,
-    // which rebuilt the capture and the eye quads and looked to the user like
-    // the FOV and screen fill had broken. Scroll Lock is bound by nothing:
-    // not by UE3, not by Steam (F12 is its screenshot key), not by Windows.
-    {
-        static bool f11Was = false;
-        bool f11 = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0;
-        if (f11 && !f11Was) {
-            if (g_dxvkDumpReq) {
-                *g_dxvkDumpReq = 1;
-                Log("framedump: requested (Scroll Lock) - next frame goes to "
-                    "Dishonored_d3d9.log with a splice verdict per draw");
-            } else {
-                Log("framedump: Scroll Lock pressed but the fork has no dxvk_vr_dumpreq "
-                    "export - dxvk_d3d9.dll is older than M3.8");
-            }
-        }
-        f11Was = f11;
-    }
-
     // 30.38: F10 toggles the in-game settings overlay.
     {
         static bool f10Was = false;
@@ -128,10 +81,7 @@ static void StereoUpdate()
         puWas = pu; pdWas = pd;
     }
 
-    g_curEye = g_drawEye; // this frame's rendered image belongs to g_drawEye
-
-    (void)g_sepUU; (void)g_writtenEye; (void)g_prevWriteLoc; (void)g_havePrevWrite;
-    (void)g_stereoDiagDone; (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
+    (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
     (void)kCamRight; (void)kCamLoc0; (void)kCamLoc1; (void)kCamLoc2;
     (void)&FindLiveCamera; (void)&CamStillValid;
 }

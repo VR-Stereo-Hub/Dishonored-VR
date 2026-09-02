@@ -273,8 +273,7 @@ static void CamFovHunt()
     g_fhNext = now + 2000.0;
     if (g_fhRuns >= 6) { g_fovHuntGo = false; g_fhRuns = 0; Log("fovhunt: done"); return; }
     g_fhRuns++;
-    float rendered = (g_dxvkProj && g_dxvkProj[0] > 0.05f)
-                   ? 2.0f * atanf(1.0f / g_dxvkProj[0]) * 57.29578f : 0.0f;
+    float rendered = 0.0f;   // 41.0: no measured render FOV source yet
     Log("fovhunt: ---- scan %d (rendered FOV %.2f) ----", g_fhRuns, rendered);
     if (g_peCtrl) CamFovHuntScan(g_peCtrl, "ctrl", 0xA00);
     if (g_peCtrl && RangeReadable(g_peCtrl + 0x248, 4)) {

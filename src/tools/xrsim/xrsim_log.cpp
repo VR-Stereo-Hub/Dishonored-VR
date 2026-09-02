@@ -32,11 +32,23 @@ void init() {
     // own. Absent, everything lands in the usual data dir.
     DWORD n = GetEnvironmentVariableW(L"DVR_XRSIM_DIR", g_dir, MAX_PATH);
     if (n == 0 || n >= MAX_PATH) {
-        wchar_t local[MAX_PATH];
-        if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, local))) return;
-        swprintf_s(g_dir, L"%s\\DishonoredVR", local);
-        CreateDirectoryW(g_dir, nullptr);
-        wcscat_s(g_dir, L"\\xrsim");
+        // 41.0: a game launched through Steam carries no env of ours, but the
+        // manifest that loaded this runtime is in XR_RUNTIME_JSON (the mod sets
+        // it from [VR] XrRuntimeJson). Its directory is where xrsim-install.ps1
+        // put the manifest, which is the state dir the harness looks in.
+        wchar_t manifest[MAX_PATH];
+        const DWORD m = GetEnvironmentVariableW(L"XR_RUNTIME_JSON", manifest, MAX_PATH);
+        wchar_t* slash = (m > 0 && m < MAX_PATH) ? wcsrchr(manifest, L'\\') : nullptr;
+        if (slash) {
+            *slash = 0;
+            wcscpy_s(g_dir, manifest);
+        } else {
+            wchar_t local[MAX_PATH];
+            if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, local))) return;
+            swprintf_s(g_dir, L"%s\\DishonoredVR", local);
+            CreateDirectoryW(g_dir, nullptr);
+            wcscat_s(g_dir, L"\\xrsim");
+        }
     }
     CreateDirectoryW(g_dir, nullptr);
 

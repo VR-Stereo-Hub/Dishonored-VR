@@ -1,62 +1,47 @@
 # Known issues
 
-Alpha software. The list from the original 38.92 release plus what the continuation knows.
-The milestone in brackets is where the fix is planned (docs/ROADMAP.md).
+41.0 is the FOUNDATION build for the new native-stereo render: it is not a release. The
+milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 
-- **Motion controls are OFF by default right now** [D3]. `[Mode] GamepadOnly=1` in
-  `dishonored_vr.ini` makes the VR controllers behave as a plain gamepad: no hand models, no
-  hand mesh, no motion aim, no motion melee, no motion crouch, and Blink aims down your view
-  instead of your hand. Head tracking, positional (lean/peek) tracking and the FOV lever all
-  still work. This is deliberate and temporary: the render is still being fitted (world
-  scale, frame aspect and the FOV lever are coupled, see below) and hand models that follow a
-  mis-scaled world give the eye a second, wrong size reference. **Set `GamepadOnly=0` to get
-  the motion controls back** - none of that code was removed.
-- **The world looks softer than the menus** [D3]. Expected, not a fault: the frame is a
-  side-by-side stereo pair, so each eye gets half the frame's width for the world, while
-  menus are drawn mono and get all of it - exactly twice the sampling density. Raise
-  `[Screen] RenderWidth/Height` for a sharper world; it needs to be about twice your
-  headset's per-eye width to be 1:1.
-- **A wide FOV lever fisheyes the edges** [D3]. `[Screen] FovLever` writes the game's camera
-  FOV, so a high value makes the game render very wide and the edges stretch. It is also what
-  fills the headset vertically, and the two pull against each other: at a 16:9 render nothing
-  satisfies both. A taller render (4:3) lets a lower lever fill the view. The pairing is
-  documented in `docs/dishonored/ENGINE_NOTES.md`.
-- **Quest / OpenXR path is not converged** [D1a, D3]. "Zoomed in / can't look up-down /
-  hands wrong" on some Quest + Virtual Desktop machines, never reproduced on the author's
-  PC. Best current explanation: on a PC with two GPUs (a laptop, or a CPU with integrated
-  graphics next to the card) the mod creates its D3D11 device on the default adapter instead
-  of the one the OpenXR runtime asks for, and the shared eye textures cannot cross adapters;
-  every call succeeds and nothing logs an error. The author's build 39.3 fixed it and it is
-  being ported (D1a); it has not been confirmed by an affected user. Also on this path: hands
-  and the wrist HUD are not drawn in the quad and cylinder presentation modes, and the
-  settings overlay is mis-scaled. SteamVR-native headsets (Vive, Index) are the tuned path.
-  Details: docs/dishonored/XR_HANDOFF.md.
-- **Head-look parks after a missed menu close event** ("F9 fixes it") [D1a]. Windowed mode
-  keeps the desktop cursor visible, so a ghost menu flag was cleared by neither automatic
-  rescue. The author's 39.4 fix is being ported. Plain F9 clears it meanwhile.
-- **Weapons "wiggle" after a weapon swap** [D1a]. Calibration records were keyed by component
-  pointer, so a swap re-probed mid-combat with inverted signs. The author's 39.0 fix (bank by
-  asset name) is being ported.
-- **Hands rotate with your head** [D5]. The first-person arms are placed by a camera-space
-  LookAt control in Arkane's animation tree; the mod draws its own hand models for the
-  weapons and drives the engine's hand bones, but the coupling is not fully removed. The
-  `[Hands] GraftHeadFollowYaw/Pitch` sliders (default 1.5) compensate.
-- **The prologue cutscene is broken** [D6]: the boat arrival blocks with a Block prompt. The
-  mod jumps straight to the prison (IntroSkip). Start a new game, then continue from the
+- **No stereo yet: the game is on a head-locked screen, the same image in both eyes** [S1,
+  S2]. The DXVK side-by-side render of releases up to 40.x is gone; 41.0 shows the game's own
+  frame on a flat screen in front of you (`[Screen] DistanceMeters`, `WidthMeters`; F10 has the
+  sliders). Turning your head turns the GAME camera as before (head tracking is unchanged), the
+  screen itself stays in front of your eyes. Two stereo methods are being built on this
+  foundation and compared; `stereo aer` / `stereo reentry` exist as names and refuse.
+- **Motion controls are OFF by default** [S3]. `[Mode] GamepadOnly=1` makes the VR controllers
+  a plain gamepad: no hand models, no motion aim, no motion melee, no motion crouch; Blink aims
+  down your view. Head tracking, positional (lean/peek/crouch) tracking and the FOV lever work.
+  The hands come back on the winning stereo method; setting `GamepadOnly=0` re-enables the old
+  hand code, which is compiled but untested on this render.
+- **The wrist HUD and the aim reticle are gone** [S3]. The game's own HUD is on the screen with
+  the rest of the frame; the floating panel returns through the runtime layer's HUD quad.
+- **The headset image is the game window's resolution, captured once per frame on the CPU**
+  [S1]. Set the game's video options to what your PC renders comfortably (1920x1080 is a fine
+  start); a bigger window costs a bigger per-frame readback. A D3D9Ex shared surface replaces
+  the readback in S1.
+- **SteamVR headsets need the shim** (Vive, Index, WMR through SteamVR). 41.0 is OpenXR-only
+  and SteamVR ships no 32-bit OpenXR runtime, so `dvr_steamvr32.dll` and `openvr_api.dll` sit
+  next to `d3d9.dll` and the mod falls back to them (`[VR] Runtime=steamvr` forces it). Vive
+  wands have no face buttons; bind through SteamVR's controller settings. The shim is
+  adapted from the BioShock trilogy VR mod and has NOT been run with Dishonored yet.
+- **Quest via Virtual Desktop: VDXR must be the active OpenXR runtime** (Virtual Desktop
+  Streamer sets it). With SteamVR's runtime active instead, the mod lands on the shim through
+  SteamVR, which works but adds a hop.
+- **Quit through the game's menu, not by closing the window** [S1]. A menu quit closes the
+  OpenXR session cleanly (verified on a Quest 3, 2026-09-03). Closing the window (WM_CLOSE)
+  was measured on the dev PC to leave the process alive with one thread for about an hour,
+  with the mod's teardown never running; if `Dishonored.exe` stays in Task Manager after a
+  quit, say so in the report - it blocks the next Steam launch.
+- **A direct `Dishonored.exe` launch crashes at the main menu** (the original author's trap
+  6, confirmed 2026-09-02). Launch through Steam; the harness does (`xrsim-launch.ps1
+  -ViaSteam`).
+- **Head-look parks after a missed menu close event** ("F9 fixes it") [after S3]. The
+  author's 39.4 fix is still to be ported. Plain F9 clears it.
+- **The prologue cutscene is broken** [after S3]: the boat arrival blocks with a Block prompt.
+  The mod jumps straight to the prison (IntroSkip). Start a new game, then continue from the
   prison save.
-- **Cutscene cameras are fixed** (no head-look) [D6].
-- **Possession, Devouring Swarm and Windblast are still head-aimed** [D7]. Blink, the
-  crossbow, the pistol and grenades are hand-aimed.
-- **Some dynamic lights render inconsistently per eye; thin fast-swinging objects shimmer
-  between the eyes** [D8]. The fork's per-eye light and shadow fixes cover most passes, not all.
-- **Menus sometimes shrink onto your wrist** (the wrist HUD redirect catches a menu draw) [D8].
-- **Vents, crouch and Blink can glitch** (collision cylinder writes) [D8].
-- **`[VR] StampFix` does nothing** on builds made from this repository: the fork export it
-  reads (`dxvk_vr_view`) was never in the published patch series [D3].
-- **The default `dishonored_vr.ini` does not list every key** the mod reads (`[VR]`, `[Hands]`,
-  `[Blink]`, `[Hud]`, `[Overlay]`...); the keys work when added by hand [D0, config table].
-- **The desktop window must be 4032x2268 windowed** (run `setup_resolution.bat` or
-  `setup-game-ini.ps1 -Resolution`); the mod holds that size against the window manager.
-  A monitor smaller than the window is fine.
+- **Cutscene cameras are fixed** (no head-look) [after S3].
+- **Possession, Devouring Swarm and Windblast are head-aimed** [after S3].
 - **GOG version unsupported** (different exe; every hook address is for the Steam build).
 - **Motion Blur must be off** in the game's options.

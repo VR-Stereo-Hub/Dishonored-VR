@@ -20,52 +20,29 @@ static void WriteDefaultIni(const char* ini)
         "YawCountsPerDegree=11.5\n"
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
+        "[Stereo]\n"
+        "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
+        "; mono shows the game on a head-locked screen in both eyes; aer and reentry\n"
+        "; are design stubs in 41.0 and refuse with a note (`stereo <name>` switches live).\n"
+        "Method=mono\n"
+        "[Camera]\n"
+        "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
+        "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
+        "; the per-eye camera seam); none disables the write.\n"
+        "EyeField=0x330\n"
         "[Screen]\n"
-        "; FillView=1 shows the game at TRUE 1:1 scale: the image spans exactly\n"
-        "; the FOV the game rendered (GameFOVDeg). To shrink the black border,\n"
-        "; raise the game's FOV (in-game slider, max 85 - or set m_fDefaultFOV in\n"
-        "; Documents\\My Games\\Dishonored\\DishonoredGame\\Config\\DishonoredCamera.ini\n"
-        "; to 95-100) and set GameFOVDeg to the SAME number. A squarer game\n"
-        "; resolution (e.g. 1600x1200 windowed) also fills more vertical view.\n"
-        "; FillScale >1 grows the image to fill the border (mild zoom); live keys\n"
-        "; F1 (smaller/crisper) and F2 (bigger/fills more). FillView=0 = fixed\n"
-        "; floating screen of WidthMeters instead.\n"
-        "FillView=1\n"
-        "GameFOVDeg=100\n"
-        "FillScale=0.84\n"
-        "DistanceMeters=1.79\n"
-        "; FovLever WRITES the game camera FOV and is HALF of the resolution\n"
-        "; setting - the quad fills the headset vertically only when\n"
-        "; tan(FovLever/2)/frameAspect reaches the frustum. 16:9 needs ~130,\n"
-        "; 4:3 ~114, a near-square frame ~100. Too high and the game renders\n"
-        "; so wide that the edges fisheye. Change it WITH the resolution.\n"
-        "FovLever=130\n"
-        "; MenuFillScale below 1.0 shrinks menu/mono frames - and the same flag\n"
-        "; skips the frustum-fill path, so a flag that flaps in gameplay pumps\n"
-        "; the world size. 1.00 keeps one size (menu edges crop instead).\n"
-        "MenuFillScale=1.00\n"
-        "WidthMeters=4.8\n"
-        "; RenderWidth/Height: THE resolution setting. It sizes the game\n"
-        "; window's client area, and the game derives its whole renderer from\n"
-        "; that - so this is the one knob that actually raises the image the\n"
-        "; headset gets. The window will hang off your monitor; that is fine.\n"
-        "; Match it to your headset's per-eye size (SteamVR shows this), e.g.\n"
-        "; 2016x2214. Bigger = sharper and slower. 0 = leave the game alone.\n"
-        "RenderWidth=4032\n"
-        "RenderHeight=2268\n"
-        "; PinBackbuffer=1 forces the DEVICE to RenderWidth/Height while the game\n"
-        "; keeps rendering at the size IT asked for, which leaves the picture in\n"
-        "; the top-left corner of a mostly black frame and puts the SBS seam in\n"
-        "; the wrong place, so the eyes cannot fuse. Leave it 0.\n"
-        "PinBackbuffer=0\n"
-        "; Build 30.22 supersampling: SpoofDesktop makes the game believe the\n"
-        "; desktop is this big, so the ResX/ResY you set in\n"
-        "; Documents\\...\\DishonoredEngine.ini stops being clamped to your\n"
-        "; monitor. Set both to 2560x1440 (and ResX/ResY to match) for a\n"
-        "; sharp headset image; 0 = off. The game window will extend past\n"
-        "; your monitor - that is normal; the headset is the real screen.\n"
-        "SpoofDesktopW=4096\n"
-        "SpoofDesktopH=2304\n"
+        "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
+        "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
+        "DistanceMeters=1.75\n"
+        "; HeadLocked=1 keeps the screen in front of your eyes (turning your head turns the\n"
+        "; game camera); 0 leaves it standing in the room where you recentered.\n"
+        "HeadLocked=1\n"
+        "WidthMeters=2.4\n"
+        "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
+        "; FovLever writes the game's camera FOV every tick (40..160; 0 = off, the game's\n"
+        "; own FOV). 130 filled the old side-by-side render vertically; the mono screen\n"
+        "; shows the frame as the game draws it, so it ships off.\n"
+        "FovLever=0\n"
         "[Mode]\n"
         "; GamepadOnly=1 makes the VR controllers behave as a plain gamepad:\n"
         "; hands, hand mesh, motion aim, motion melee, motion crouch and\n"
@@ -74,19 +51,22 @@ static void WriteDefaultIni(const char* ini)
         "; working. Default 1 while the render is being fitted - set 0 to\n"
         "; get the motion controls back.\n"
         "GamepadOnly=1\n"
-        "; 1 = old stage-1 theater screen (no head-driven camera)\n"
-        "ForceTheater=0\n"
-        "[Stereo]\n"
-        "; Render-time stereo: shears the view-projection matrix per eye.\n"
-        "; Toggle live: F7.  Separation -/+ : F10/F11.  Convergence cycle: F12.\n"
-        "; If depth looks inside-out, negate Separation. If the world warps,\n"
-        "; set Transpose=1. TIP: turn OFF in-game Motion Blur (Options>Video)\n"
-        "; to remove the blur when moving.\n"
-        "Enabled=1\n"
-        "Register=0\n"
-        "Separation=0.014\n"
-        "Convergence=140.0\n"
-        "Transpose=0\n"
+        "[VR]\n"
+        "; Runtime=auto tries the 32-bit OpenXR runtime the system registers (Virtual\n"
+        "; Desktop's VDXR, Oculus) and falls back to the bundled SteamVR shim\n"
+        "; (dvr_steamvr32.dll) when there is none; native|steamvr force one.\n"
+        "Runtime=auto\n"
+        "; XrRuntimeJson= a runtime manifest for this launch (the simulator, or a\n"
+        "; Steam launch that cannot carry XR_RUNTIME_JSON). Empty = the loader's choice.\n"
+        "XrRuntimeJson=\n"
+        "XrHaptics=1\n"
+        "; FpsCap pins the game to a rate (0 = off): 72 with VD at 72 Hz, 45 at 90.\n"
+        "FpsCap=0\n"
+        "[Paths]\n"
+        "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
+        "; shim manifest). Empty = %%LOCALAPPDATA%%\\DishonoredVR. Set it to a folder the\n"
+        "; game and the tools both see for real (docs/VERIFICATION.md gotcha 14).\n"
+        "DataDir=\n"
         "[Controllers]\n"
         "; Stage 6.4: Index controllers = virtual Xbox-360 pad via SteamVR's\n"
         "; ACTION input system (rebindable in SteamVR > Controller Bindings).\n"
@@ -163,16 +143,6 @@ static void WriteDefaultIni(const char* ini)
         "; writes to the log. Values: bones census graph ue3 view. Leave empty\n"
         "; for none. (Claude sets this remotely when a measurement is needed.)\n"
         "Probe=\n"
-        "[Reticle]\n"
-        "; Build 30.5: floating aim dot for the MotionAim hand (default left -\n"
-        "; crossbow/pistol/powers). Drawn in VR space along the controller ray\n"
-        "; at DistanceMeters, so it shows where shots will actually fly. It\n"
-        "; draws over the world (no wall occlusion), like a laser sight dot.\n"
-        "; Appears while weapon tracking (HOME) is on. TIP: turn the game's own\n"
-        "; center crosshair off in the game's interface options if it offers it.\n"
-        "Enabled=1\n"
-        "DistanceMeters=2.5\n"
-        "SizeMeters=0.030\n"
         "[HandRender]\n"
         "; Build 30.70 - THE render-time hand/weapon drive.\n"
         "; The drawn pose reaches the GPU as vertex constants at c6, three\n"
@@ -247,50 +217,64 @@ static void LoadConfig()
     bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;
     int ver = (int)IniFloat(ini, "Meta", "Version", 0);
     if (missing || ver < kConfigVersion) {
+        // 41.0: a launcher may have put the runtime selection into an ini that
+        // has never been through this build ([VR] XrRuntimeJson from
+        // xrsim-launch.ps1 -ViaSteam, or [VR] Runtime=steamvr by hand). The
+        // wholesale rewrite must carry those two over, or a Steam launch on
+        // the simulator lands on the registry runtime and the launcher's
+        // assertion is the only thing that notices (measured 2026-09-02).
+        char keepJson[2 * MAX_PATH] = "", keepRt[16] = "", keepDd[MAX_PATH] = "";
+        if (!missing) {
+            GetPrivateProfileStringA("VR", "XrRuntimeJson", "", keepJson, sizeof(keepJson), ini);
+            GetPrivateProfileStringA("VR", "Runtime", "", keepRt, sizeof(keepRt), ini);
+            GetPrivateProfileStringA("Paths", "DataDir", "", keepDd, sizeof(keepDd), ini);
+        }
         WriteDefaultIni(ini);
-        Log("config: wrote fresh ini (was %s, now v%d)",
-            missing ? "missing" : "outdated", kConfigVersion);
+        if (keepJson[0]) WritePrivateProfileStringA("VR", "XrRuntimeJson", keepJson, ini);
+        if (keepRt[0])   WritePrivateProfileStringA("VR", "Runtime", keepRt, ini);
+        if (keepDd[0])   WritePrivateProfileStringA("Paths", "DataDir", keepDd, ini);
+        Log("config: wrote fresh ini (was %s, now v%d)%s%s",
+            missing ? "missing" : "outdated", kConfigVersion,
+            keepJson[0] ? " - kept [VR] XrRuntimeJson" : "",
+            keepRt[0] ? " - kept [VR] Runtime" : "");
+    }
+    {   // [Paths] DataDir: where the harness files go. Applied before any of
+        // them is written (the command seam and status.json start after the
+        // config); the dev PC's tool sandbox virtualizes writes under the user
+        // profile, so a real location (D:\dvr-data) is what a Steam launch and
+        // the harness can both see (docs/VERIFICATION.md gotcha 14).
+        char dd[MAX_PATH] = "";
+        GetPrivateProfileStringA("Paths", "DataDir", "", dd, sizeof(dd), ini);
+        if (dd[0]) {
+            dvr::paths::set_data_dir(dd);
+            Log("config: [Paths] DataDir -> %s (command.txt, status.json, dumps, the shim manifest)",
+                dvr::paths::data_dir());
+        }
     }
     g_trackingEnabled = IniFloat(ini, "Tracking", "Enabled", 1) != 0.0f;
     g_yawCounts    = IniFloat(ini, "Tracking", "YawCountsPerDegree", 11.5f);
     g_pitchCounts  = IniFloat(ini, "Tracking", "PitchCountsPerDegree", 11.5f);
     g_invertPitch  = IniFloat(ini, "Tracking", "InvertPitch", 0) != 0.0f;
-    g_fillView     = IniFloat(ini, "Screen", "FillView", 1) != 0.0f;
-    g_gameFovDeg   = IniFloat(ini, "Screen", "GameFOVDeg", 100.0f);
-    if (g_gameFovDeg < 40.0f)  g_gameFovDeg = 40.0f;
-    if (g_gameFovDeg > 140.0f) g_gameFovDeg = 140.0f;
-    g_fillScale    = IniFloat(ini, "Screen", "FillScale", 0.84f);
-    if (g_fillScale < 0.6f) g_fillScale = 0.6f;
-    if (g_fillScale > 3.2f) g_fillScale = 3.2f;
-    g_screenDist   = IniFloat(ini, "Screen", "DistanceMeters", 1.79f);
-    g_screenWidth  = IniFloat(ini, "Screen", "WidthMeters", 4.8f);
-    g_forceTheater = IniFloat(ini, "Mode", "ForceTheater", 0) != 0.0f;
-    g_stereoEnabled  = IniFloat(ini, "Stereo", "Enabled", 1) != 0.0f;
-    // 30.29: one switch for both layers. If the DXVK stereo marker exists,
-    // the fork below us is already producing a true side-by-side stereo
-    // frame - the proxy must not add its own AER shear on top.
-    g_sbsMode = GetFileAttributesA("dxvk_stereo.txt") != INVALID_FILE_ATTRIBUTES;
-    // 32.71: the same marker file chooses WHICH fork mode. "seq=1" means the
-    // fork renders one whole eye per frame instead of splicing halves, so the
-    // proxy must take the full frame as that eye's image (the AER path) rather
-    // than sampling half of it - and must still not add a shear of its own.
-    if (g_sbsMode) {
-        char mk[256] = {};
-        FILE* mf = fopen("dxvk_stereo.txt", "r");
-        if (mf) { size_t got = fread(mk, 1, sizeof(mk) - 1, mf); mk[got] = 0; fclose(mf); }
-        const char* sq = strstr(mk, "seq=");
-        if (sq && atoi(sq + 4) != 0) { g_seqMode = true; g_sbsMode = false; }
+    g_screenDist   = IniFloat(ini, "Screen", "DistanceMeters", 1.75f);
+    if (g_screenDist < 0.5f) g_screenDist = 0.5f;
+    if (g_screenDist > 6.0f) g_screenDist = 6.0f;
+    g_screenWidth  = IniFloat(ini, "Screen", "WidthMeters", 2.4f);
+    if (g_screenWidth < 0.5f) g_screenWidth = 0.5f;
+    if (g_screenWidth > 10.0f) g_screenWidth = 10.0f;
+    dvr::vr::set_screen(g_screenDist, g_screenWidth);
+    dvr::vr::set_screen_head_locked(IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f);
+    {   // [Stereo] Method: the rung of the ladder (docs/ARCHITECTURE.md); a
+        // stub or an unknown name logs why and leaves the mono screen running
+        char sm[16] = "";
+        GetPrivateProfileStringA("Stereo", "Method", "mono", sm, sizeof(sm), ini);
+        if (!dvr::stereo::select(sm)) dvr::stereo::select("mono");
     }
-    if (g_seqMode)
-        Log("config: SEQ mode ON (dxvk_stereo.txt has seq=1) - one WHOLE eye "
-            "per frame at full resolution, eyes alternate, no split");
-    else if (g_sbsMode)
-        Log("config: SBS mode ON (dxvk_stereo.txt found) - AER shear off, "
-            "per-eye half-frame sampling");
-    g_stereoReg      = (int)IniFloat(ini, "Stereo", "Register", 0);
-    g_sepClip        = IniFloat(ini, "Stereo", "Separation", 0.014f);
-    g_converge       = IniFloat(ini, "Stereo", "Convergence", 140.0f);
-    g_stereoTranspose= IniFloat(ini, "Stereo", "Transpose", 0) != 0.0f;
+    {   // [Camera] EyeField: where the per-eye offset is written (measured by
+        // `camera eyetest`; empty until then - the seam says so once)
+        char ef[16] = "";
+        GetPrivateProfileStringA("Camera", "EyeField", "0x330", ef, sizeof(ef), ini);
+        dvr::camera::set_eye_field(ef);
+    }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
     g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
@@ -310,14 +294,12 @@ static void LoadConfig()
     g_povWiggle  = IniFloat(ini, "CamSeam", "Wiggle", 0) != 0.0f;
     // 30.51: the FOV lever survives launches (0 = off)
     {
-        float lv = IniFloat(ini, "Screen", "FovLever", 130.0f);
+        float lv = IniFloat(ini, "Screen", "FovLever", 0.0f);   // 41.0: off on the mono screen
         g_fovLever = (lv >= 40.0f && lv <= 160.0f) ? lv : 0.0f;
+        dvr::camera::set_fov_deg(g_fovLever);
         if (g_fovLever > 0.0f) Log("config: FOV lever armed at %.0f deg", lv);
     }
     g_autoFocus = IniFloat(ini, "Input", "AutoFocus", 1) != 0.0f;
-    g_zoomFillFloor = IniFloat(ini, "Screen", "ZoomFillFloor", 1.0f);
-    if (g_zoomFillFloor < 0.0f) g_zoomFillFloor = 0.0f;
-    if (g_zoomFillFloor > 1.0f) g_zoomFillFloor = 1.0f;
     // 40.3: NOW 98, and the measurement below is what it converged on. The
     // restore that 40.2b was waiting for happened (4032x2268 + FovLever=130),
     // and the tester then tuned world scale by feel in the F10 overlay and
@@ -770,32 +752,10 @@ static void LoadConfig()
     Log("config: physical crouch %s (down at %.2f m, up at %.2f m) - this "
         "line reports the SETTING; watch for 'crouch: DOWN' to know it fires",
         g_crouchOn ? "armed" : "off", g_crouchDropM, g_crouchReleaseM);
-    g_menuFill = IniFloat(ini, "Screen", "MenuFillScale", 1.00f);
-    if (g_menuFill < 0.2f) g_menuFill = 0.2f;
-    if (g_menuFill > 2.0f) g_menuFill = 2.0f;
-    g_wristHud = IniFloat(ini, "Hud", "WristHud", 1) != 0.0f;
-    g_dlgHudOff = IniFloat(ini, "Hud", "DialogHudOff", 1) != 0.0f;   // 38.47
-    g_dlgHoldMs = IniFloat(ini, "Hud", "DialogHoldMs", 12000.0f);
-    if (g_dlgHoldMs <  1000.0f) g_dlgHoldMs =  1000.0f;
-    if (g_dlgHoldMs > 120000.0f) g_dlgHoldMs = 120000.0f;
-    g_hudPanelHand = IniFloat(ini, "Hud", "PanelHand", 0) != 0.0f ? 1 : 0;
-    g_hudPanelSize = IniFloat(ini, "Hud", "PanelSize", 0.16f);
-    if (g_hudPanelSize < 0.05f) g_hudPanelSize = 0.05f;
-    if (g_hudPanelSize > 0.60f) g_hudPanelSize = 0.60f;
-    g_hudPanelUp   = IniFloat(ini, "Hud", "PanelUp", 0.06f);
     g_ovlDev = IniFloat(ini, "Overlay", "DevTools", 0) != 0.0f;
     g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 0) != 0.0f;
     g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
     g_ovlPtrGain = IniFloat(ini, "Overlay", "PointerSpeed", 2.2f);
-    g_retEnabled = IniFloat(ini, "Reticle", "Enabled", 1) != 0.0f;
-    g_retDist    = IniFloat(ini, "Reticle", "DistanceMeters", 2.5f);
-    if (g_retDist < 0.5f)  g_retDist = 0.5f;
-    if (g_retDist > 20.0f) g_retDist = 20.0f;
-    g_retSize    = IniFloat(ini, "Reticle", "SizeMeters", 0.030f);
-    if (g_retSize < 0.005f) g_retSize = 0.005f;
-    if (g_retSize > 0.20f)  g_retSize = 0.20f;
-    Log("config: reticle=%d dist=%.1fm size=%.3fm (follows MotionAim hand)",
-        (int)g_retEnabled, g_retDist, g_retSize);
     g_autoHand      = IniFloat(ini, "HandTracking", "AutoStart", 1) != 0.0f;
     // 32.96: was 4 s on top of discovery time - the user asked why motion
     // controls take so long after a load. 1.5 s is enough for the rig to be
@@ -817,15 +777,6 @@ static void LoadConfig()
     GetPrivateProfileStringA("Debug", "Probe", "", g_dbgProbe,
                              sizeof(g_dbgProbe), ini);
     g_swarmAim = IniFloat(ini, "MotionAim", "SwarmAim", 1) != 0.0f;   // 38.55
-    g_mirrorMode = (int)IniFloat(ini, "Screen", "MirrorMode", 0);      // 38.62
-    if (g_mirrorMode < 0 || g_mirrorMode > 2) g_mirrorMode = 0;
-    g_mirrorAspect = IniFloat(ini, "Screen", "MirrorAspect", 0.0f);    // 38.64
-    if (g_mirrorAspect != 0.0f && g_mirrorAspect < 0.5f)  g_mirrorAspect = 0.5f;
-    if (g_mirrorAspect > 2.5f) g_mirrorAspect = 2.5f;
-    g_mirrorHud = IniFloat(ini, "Screen", "MirrorHud", 0) != 0.0f;
-    g_killMaskIni = (int)IniFloat(ini, "Debug", "KillMask", 0);   // 38.49
-    if (g_killMaskIni < 0)  g_killMaskIni = 0;
-    if (g_killMaskIni > 63) g_killMaskIni = 63;
     g_introSkip = (int)IniFloat(ini, "Debug", "IntroSkip", 0);    // 38.69
     if (g_introSkip < 0 || g_introSkip > 2) g_introSkip = 0;
     g_introSkipDelayMs = (int)IniFloat(ini, "Debug", "IntroSkipDelayMs", 8000);
@@ -851,75 +802,38 @@ static void LoadConfig()
     Log("config: melee=%d swing=%.1fm/s sustain=%.0fms dist=%.2fm hold=%.0fms "
         "cooldown=%.0fms", (int)g_meleeOn, g_meleeSpeed, g_meleeSwingMs,
         g_meleeSwingDist, g_meleeHoldMs, g_meleeCoolMs);
-    {   // 37.3: backend selection. Env wins (the launcher bats set it, so a
-        // normal Steam launch never changes), ini as the persistent choice.
-        // 38.5: "auto" now actually DECIDES, so one install serves both
-        // headsets with zero ini edits (setting Backend=openxr globally
-        // broke a Vive session - never again): Virtual Desktop streaming
-        // with SteamVR absent = the Quest path -> OPENXR; anything else ->
-        // OpenVR/SteamVR, the path the Vive rig has always used.
-        // 39.0: the process snapshot (VD streamer running and SteamVR not)
-        // is replaced by asking the runtimes - core/vr/backend_probe.cpp.
-        // [VR] XrRuntimeJson is read first because the probe negotiates the
-        // runtime exactly the way the backend will.
+    {   // [VR]: the runtime layer's keys. XrRuntimeJson names a manifest for a
+        // Steam launch that must not depend on an env var (the simulator, or
+        // a shim); XrHaptics=0 kills haptics; FpsCap is the even-cadence limiter.
         GetPrivateProfileStringA("VR", "XrRuntimeJson", "", g_xrJsonIni,
                                  sizeof(g_xrJsonIni), ini);
-        BackendSelect(ini);
-        // 38.3 XR-3: [VR] XrQuads=1 (default) - detached pace thread + head-
-        // locked QUAD layers in VIEW space (the architecture that fixed the
-        // user's Stardew mod: the compositor itself holds the screen, so no
-        // reprojection ever touches it). 0 = the XR-2 synchronous projection
-        // path, kept verbatim for A/B.
-        g_xrQuad = GetPrivateProfileIntA("VR", "XrQuads", 1, ini) != 0;
-        if (g_xrBackend)
-            Log("config: XR presentation = %s",
-                g_xrQuad ? "QUAD layers, detached pacing (XR-3)"
-                         : "projection layers, synchronous (XR-2)");
-        // 38.4: [VR] XrRuntimeJson - the runtime manifest for Steam launches
-        GetPrivateProfileStringA("VR", "XrRuntimeJson", "", g_xrJsonIni,
-                                 sizeof(g_xrJsonIni), ini);
-        if (g_xrBackend && g_xrJsonIni[0])
+        if (g_xrJsonIni[0])
             Log("config: XR runtime manifest (ini): %s", g_xrJsonIni);
-        g_xrScreenY = IniFloat(ini, "Screen", "XrScreenY", 0.0f);   // 38.6
-        if (g_xrScreenY < -1.5f) g_xrScreenY = -1.5f;
-        if (g_xrScreenY >  1.5f) g_xrScreenY =  1.5f;
-        g_xrCylCfg = (int)IniFloat(ini, "Screen", "XrCylinder", -1); // 38.7
-        if (g_xrCylCfg < -1 || g_xrCylCfg > 1) g_xrCylCfg = -1;
-        {   // 38.8: layer mode; XrCylinder=1 (explicit force) maps to cyl
-            char lm[16] = "";
-            GetPrivateProfileStringA("VR", "XrLayer", "proj", lm, sizeof(lm), ini);
-            g_xrLayerMode = (lm[0] == 'c') ? 1 : (lm[0] == 'q') ? 2 : 0;
-            if (g_xrLayerMode == 0 && g_xrCylCfg == 1) g_xrLayerMode = 1;
-            if (g_xrBackend)
-                Log("config: XR layer mode = %s",
-                    g_xrLayerMode == 0 ? "PROJECTION (Vive-parity)" :
-                    g_xrLayerMode == 1 ? "cylinder" : "flat quad");
+        dvr::vr::set_runtime_json(g_xrJsonIni);
+        {
+            char rm[16] = "";
+            GetPrivateProfileStringA("VR", "Runtime", "auto", rm, sizeof(rm), ini);
+            dvr::vr::set_runtime_mode(rm);
         }
-        g_xrPoseDelay = GetPrivateProfileIntA("VR", "XrPoseDelay", 1, ini); // 38.9
-        if (g_xrPoseDelay < 0) g_xrPoseDelay = 0;
-        if (g_xrPoseDelay > 3) g_xrPoseDelay = 3;
         g_xrHaptics = GetPrivateProfileIntA("VR", "XrHaptics", 1, ini) != 0; // 38.10
-        g_xrFrustumFill = GetPrivateProfileIntA("Screen", "XrFrustumFill", 1, ini) != 0; // 38.13
         g_vrKeepAlive = GetPrivateProfileIntA("Screen", "KeepAliveUnfocused", 1, ini) != 0; // 38.78
-        g_stampFix = GetPrivateProfileIntA("VR", "StampFix", 0, ini);    // 38.84
-        if (g_stampFix < 0 || g_stampFix > 2) g_stampFix = 0;
         g_chainStamp = GetPrivateProfileIntA("HeadTrack", "ChainStamp", 1, ini) != 0; // 38.88
-        g_stampLive  = GetPrivateProfileIntA("VR", "StampLive", 1, ini) != 0;         // 38.89
         g_fpsCap = IniFloat(ini, "VR", "FpsCap", 0.0f);                  // 38.14
         if (g_fpsCap < 0.0f) g_fpsCap = 0.0f;
         if (g_fpsCap > 0.0f && g_fpsCap < 20.0f)  g_fpsCap = 20.0f;
         if (g_fpsCap > 144.0f) g_fpsCap = 144.0f;
+        dvr::frame::set_fps_cap(g_fpsCap);
         if (g_fpsCap > 0.0f)
             Log("config: FPS cap %.1f (even-cadence limiter)", g_fpsCap);
         // 37.5: SAFE mode - rendering + head tracking only, every game-memory
         // writer held back. The crash bisector: if XR-safe holds stable, one
         // of the writers is the killer; if it still dies, they are innocent.
         char sf[8] = "";
-        if (g_xrBackend &&
-            GetEnvironmentVariableA("DISHONORED_VR_XR_SAFE", sf, sizeof(sf))
+        if (GetEnvironmentVariableA("DISHONORED_VR_XR_SAFE", sf, sizeof(sf))
             && sf[0] == '1') {
             g_rotInject = false;       // no head->camera rotation writes
             g_fovLever  = 0.0f;        // no FOV enforcement writes
+            dvr::camera::set_fov_deg(g_fovLever);
             g_skcDrive  = false;       // no SkelControl hand writes
             g_handMesh  = false;       // no hand collect/drive
             g_autoHandDone = true;     // and no auto re-arm of it
@@ -964,67 +878,12 @@ static void LoadConfig()
             "deliberate default while the render is being fitted - set "
             "GamepadOnly=0 in dishonored_vr.ini to restore motion controls.");
     }
-    g_forceResW = (UINT)IniFloat(ini, "Screen", "RenderWidth", 0);
-    g_forceResH = (UINT)IniFloat(ini, "Screen", "RenderHeight", 0);
-    g_pinBackbuffer = (int)IniFloat(ini, "Screen", "PinBackbuffer", 0);
-    if (g_pinBackbuffer)
-        Log("config: PinBackbuffer=1 - the device will be CREATED at %ux%u instead of "
-            "asking the engine for a setres later (no mid-session Reset, no freeze)",
-            g_forceResW, g_forceResH);
-    g_spoofW = (UINT)IniFloat(ini, "Screen", "SpoofDesktopW", 0);
-    g_spoofH = (UINT)IniFloat(ini, "Screen", "SpoofDesktopH", 0);
-    if (g_spoofW && (g_spoofW < 1280 || g_spoofW > 8192)) g_spoofW = 0;
-    if (g_spoofH && (g_spoofH < 720  || g_spoofH > 8192)) g_spoofH = 0;
-    if (!g_spoofW || !g_spoofH) { g_spoofW = 0; g_spoofH = 0; }
-    g_rigidScreenCfg = (int)IniFloat(ini, "Screen", "RigidScreen", -1);  // 37.6
-    if (g_rigidScreenCfg < -1 || g_rigidScreenCfg > 1) g_rigidScreenCfg = -1;
-    g_ovlSceneCfg = (int)IniFloat(ini, "Screen", "OverlayScene", 0);     // 38.1: default OFF
-    if (g_ovlSceneCfg != 1) g_ovlSceneCfg = 0;
-    g_eyeCantCfg  = (int)IniFloat(ini, "Screen", "EyeCant", 1);          // 38.1
-    if (g_eyeCantCfg != 0) g_eyeCantCfg = 1;
-    g_worldScreenCfg = (int)IniFloat(ini, "Screen", "WorldScreen", -1);  // 38.2
-    if (g_worldScreenCfg < -1 || g_worldScreenCfg > 1) g_worldScreenCfg = -1;
-    g_clickFallback = (int)IniFloat(ini, "Input", "ClickFallback", 1) != 0; // 38.2
-    g_ovlFollowTau = IniFloat(ini, "Screen", "OverlayFollowTau", 0.35f); // 38.0
-    if (g_ovlFollowTau < 0.0f) g_ovlFollowTau = 0.0f;
-    if (g_ovlFollowTau > 3.0f) g_ovlFollowTau = 3.0f;
-    g_ovlColor = (int)IniFloat(ini, "Screen", "OverlayColor", 1);
-    if (g_ovlColor < 0 || g_ovlColor > 2) g_ovlColor = 1;
-    g_deskWinW = (UINT)IniFloat(ini, "Screen", "DesktopWindowW", 1600);  // 36.1
-    g_deskWinH = (UINT)IniFloat(ini, "Screen", "DesktopWindowH", 900);
-    if (g_deskWinW && (g_deskWinW < 320 || g_deskWinW > 8192)) g_deskWinW = 1600;
-    if (g_deskWinH && (g_deskWinH < 180 || g_deskWinH > 8192)) g_deskWinH = 900;
-    if (!g_deskWinW || !g_deskWinH) { g_deskWinW = 0; g_deskWinH = 0; }
-    if (g_spoofW)
-        Log("config: desktop spoof %ux%u (game may now honor a bigger ResX/ResY)",
-            g_spoofW, g_spoofH);
-    if (g_forceResW && (g_forceResW < 640 || g_forceResW > 8192)) g_forceResW = 2560;
-    if (g_forceResH && (g_forceResH < 480 || g_forceResH > 8192)) g_forceResH = 1440;
-    if (!g_forceResW || !g_forceResH) { g_forceResW = 0; g_forceResH = 0; }
-    // The spoofed desktop has to be at least as big as the render, or the
-    // game's own "does this fit" checks claw the size back down and we are
-    // right back at 1071 lines. Two settings that must move together have
-    // caused most of the confusion here, so tie them together instead.
-    if (g_forceResW) {
-        if (g_spoofW < g_forceResW || g_spoofH < g_forceResH) {
-            UINT nw = g_forceResW > g_spoofW ? g_forceResW : g_spoofW;
-            UINT nh = g_forceResH > g_spoofH ? g_forceResH : g_spoofH;
-            Log("config: desktop spoof %ux%u was smaller than the render "
-                "%ux%u - raised to %ux%u so the game's fit checks cannot "
-                "shrink it back", g_spoofW, g_spoofH, g_forceResW, g_forceResH,
-                nw, nh);
-            g_spoofW = nw; g_spoofH = nh;
-        }
-    }
-    Log("config: render override %ux%u (0x0 = game default)",
-        g_forceResW, g_forceResH);
     Log("config: handtracking autostart=%d delay=%.0fs depth=%d roll=%d probe='%s'",
         (int)g_autoHand, g_autoHandDelay, (int)g_fpPosOn, (int)g_fpRollOn,
         g_dbgProbe);
-    Log("config: tracking=%d yaw=%.1f pitch=%.1f dist=%.2f width=%.2f theater=%d | stereo=%d reg=c%d sep=%.4f conv=%.1f transpose=%d | pos=%d scale=%.0f max=%.2f flipx=%d",
+    Log("config: tracking=%d yaw=%.1f pitch=%.1f screen dist=%.2f width=%.2f | pos=%d scale=%.0f max=%.2f flipx=%d",
         (int)g_trackingEnabled, g_yawCounts, g_pitchCounts,
-        g_screenDist, g_screenWidth, (int)g_forceTheater,
-        (int)g_stereoEnabled, g_stereoReg, g_sepClip, g_converge, (int)g_stereoTranspose,
+        g_screenDist, g_screenWidth,
         (int)g_posTrack, g_posScaleUU, g_posMaxM, (int)g_posFlipX);
 }
 
@@ -1051,26 +910,12 @@ static void OverlaySaveDefaults()
     char v[64];
     _snprintf(v, 64, "%.1f", g_posScaleUU);
     WritePrivateProfileStringA("PosTrack", "Scale", v, ini);
-    _snprintf(v, 64, "%.2f", g_fillScale);
-    WritePrivateProfileStringA("Screen", "FillScale", v, ini);
     _snprintf(v, 64, "%.2f", g_screenDist);
     WritePrivateProfileStringA("Screen", "DistanceMeters", v, ini);
     _snprintf(v, 64, "%.3f", g_heightOffsetM);
     WritePrivateProfileStringA("Tracking", "HeightOffsetM", v, ini);
-    _snprintf(v, 64, "%.2f", g_menuFill);
-    WritePrivateProfileStringA("Screen", "MenuFillScale", v, ini);
-    WritePrivateProfileStringA("Hud", "WristHud", g_wristHud ? "1" : "0", ini);
-    _snprintf(v, 64, "%.2f", g_hudPanelSize);
-    WritePrivateProfileStringA("Hud", "PanelSize", v, ini);
     _snprintf(v, 64, "%.0f", (float)g_fovLever);      // 30.51: persist the lever
     WritePrivateProfileStringA("Screen", "FovLever", v, ini);
-    // 38.80: persist the headset display mode chosen on the overlay
-    WritePrivateProfileStringA("VR", "XrLayer",
-        g_xrLayerMode == 1 ? "cyl" : g_xrLayerMode == 2 ? "quad" : "proj", ini);
-    _snprintf(v, 64, "%d", g_stampFix);              // 38.84
-    WritePrivateProfileStringA("VR", "StampFix", v, ini);
-    _snprintf(v, 64, "%.2f", g_zoomFillFloor);        // 30.53
-    WritePrivateProfileStringA("Screen", "ZoomFillFloor", v, ini);
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
     WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);
     WritePrivateProfileStringA("HandRender", "DriveArms", g_rtdDoArms ? "1" : "0", ini);
@@ -1221,8 +1066,6 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Blink", "AimAtSource",
                                g_blkDirAim ? "1" : "0", ini);
     WritePrivateProfileStringA("Blink", "OptVer", "3", ini);
-    _snprintf(v, 64, "%.3f", g_retSize);
-    WritePrivateProfileStringA("Reticle", "SizeMeters", v, ini);
     WritePrivateProfileStringA("Hands", "AddToAnim", g_skcAddMode ? "1" : "0", ini);
     _snprintf(v, 64, "%.1f", g_skcScaleUU);
     WritePrivateProfileStringA("Hands", "ScaleUU", v, ini);
@@ -1286,54 +1129,5 @@ static void OverlaySaveDefaults()
             WritePrivateProfileStringA("VRHands", k, v, ini);
         } }
 
-    float conv = g_dxvkConv ? *g_dxvkConv : 140.0f;
-    char mk[MAX_PATH];
-    _snprintf(mk, MAX_PATH, "%s\\dxvk_stereo.txt", g_dir);
-    // 35.1: SAVE clobbered the fork's hudskip= list (the wrist-HUD world-
-    // shader exclusion) because this writer only knew sep/conv - one SAVE
-    // press and the disappearing-geometry bug came back on the next launch.
-    // The rule for shared files: preserve every token you don't own.
-    char hudskip[160] = "", sfTok[32] = "";
-    {
-        FILE* rf = fopen(mk, "r");
-        if (rf) {
-            char rb[256] = {0};
-            fread(rb, 1, sizeof(rb) - 1, rf);
-            fclose(rf);
-            const char* h = strstr(rb, "hudskip=");
-            if (h) {
-                int i = 0;
-                while (h[i] && h[i] != ' ' && h[i] != '\n' && h[i] != '\r' &&
-                       h[i] != '\t' && i < 159) { hudskip[i] = h[i]; i++; }
-                hudskip[i] = 0;
-            }
-            const char* s2 = strstr(rb, "shadowfix=");
-            if (s2) {
-                int i = 0;
-                while (s2[i] && s2[i] != ' ' && s2[i] != '\n' &&
-                       s2[i] != '\r' && s2[i] != '\t' && i < 31)
-                    { sfTok[i] = s2[i]; i++; }
-                sfTok[i] = 0;
-            }
-        }
-    }
-    // 35.2: the live overlay dial wins over whatever the file had - SAVE
-    // persists the mode the user actually chose.
-    if (g_dxvkShadowFix)
-        _snprintf(sfTok, sizeof(sfTok), "shadowfix=%u",
-                  (unsigned int)*g_dxvkShadowFix);
-    char rfTok[24] = "";
-    if (g_dxvkReflect)
-        _snprintf(rfTok, sizeof(rfTok), "reflect=%u",
-                  (unsigned int)*g_dxvkReflect);
-    FILE* f = fopen(mk, "w");
-    if (f) {
-        fprintf(f, "sep=0.014 conv=%.0f%s%s%s%s%s%s\n", conv,
-                hudskip[0] ? " " : "", hudskip,
-                sfTok[0] ? " " : "", sfTok,
-                rfTok[0] ? " " : "", rfTok);
-        fclose(f);
-    }
-    Log("overlay: saved defaults (scale %.1f fill %.2f dist %.2f conv %.0f)",
-        g_posScaleUU, g_fillScale, g_screenDist, conv);
+    Log("overlay: saved defaults (scale %.1f dist %.2f)", g_posScaleUU, g_screenDist);
 }

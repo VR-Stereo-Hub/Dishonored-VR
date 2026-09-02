@@ -53,7 +53,3 @@ static double        g_fbBackoffMs = 0.0; // 38.75: watchdog back-off (fallback 
 static float    g_wpnTestYaw = 0.0f;    // debug: fixed yaw instead of hand
 static int      g_wpnFlipX = 0, g_wpnFlipY = 0;
 
-// ----------------------------------------------------------------------------
-// Globals: OpenVR
-// ----------------------------------------------------------------------------
-typedef intptr_t    (*PFN_VR_InitInternal)(EVRInitError*, EVRApplicationType);

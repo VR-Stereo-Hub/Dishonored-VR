@@ -50,26 +50,8 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
         // snapped by the loader at this point, and VirtualProtect/GetProcAddress
         // are loader-lock-safe. From the game's first poll we answer "pad
         // connected" (neutral state until the VR controllers come online).
-        // 30.28: arm the desktop spoof EARLY. LoadConfig runs at the first
-        // Direct3DCreate9 call, but the game sizes its window from desktop
-        // metrics BEFORE that - which is why the spoof never bit in any
-        // earlier run. Reading two ints here is kernel32-only (none of the
-        // loader-lock DLL pulls the full config path risks).
-        if (!g_disabled) {
-            char ini2[MAX_PATH];
-            _snprintf(ini2, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
-            UINT w = GetPrivateProfileIntA("Screen", "SpoofDesktopW", 0, ini2);
-            UINT h = GetPrivateProfileIntA("Screen", "SpoofDesktopH", 0, ini2);
-            if (w >= 1280 && w <= 4096 && h >= 720 && h <= 2304) {
-                g_spoofW = w; g_spoofH = h;
-                DVR_LOG(dvr::log::Cat::res, dvr::log::Level::Info,
-                        "res: desktop spoof %ux%u armed at load time", w, h);
-            }
-        }
         if (!g_disabled) InstallPadHook();
-        if (!g_disabled) InstallResSpoofHooks();
     } else if (reason == DLL_PROCESS_DETACH) {
-        if (g_vrReady && g_VR_ShutdownInternal) g_VR_ShutdownInternal();
         DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Info, "=== proxy unloading ===");
         dvr::log::shutdown();
     }

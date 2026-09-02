@@ -38,8 +38,8 @@ another game; findings go here in the same commit as the code that uses them.
 
 ## UE3 layouts used
 
-- Camera object: `kCamRight` 0x60 (basis Y row), `kCamLoc0/1/2` 0x80/0x90/0xa0 (matrix
-  translation row, cached POV location, ...); POV rotator candidates `kPovOffs` {0x330,
+- Camera object: `kCamRight` 0x60 (basis Y row), `kCamLoc0/1/2` 0x80/0x90/0xC4 (matrix
+  translation row, cached POV location, cached POV location 2); POV rotator candidates `kPovOffs` {0x330,
   0x350, 0x374}; FOV candidates `kFovCands` {0x53c, 0x540, 0x564, 0x254}; controller/camera
   rotator bases `kPcRotBase`/`kCamRotBase` {0x9c, 0xd0}. The FOV lever writes
   `kLevCtrl` {0x3ac FOVAngle, 0x3b0 Desired, 0x3b4 Default} on the controller and `kLevCam`
@@ -107,6 +107,72 @@ camera-object matrix detour (renderer ignores it), the view-projection shear at 
 Positional tracking (`TrackHead`): body anchor EMA, physical crouch with a self-healing
 standing reference, lean/peek with a safety clamp, roomscale with deadzone bleed and
 auto-recenter, deep-crouch collision-cylinder shrink (`PawnCollisionHeight`, 87.5/65/33).
+
+## The per-eye camera seam: write points (2026-09-02, 41.0)
+
+The stereo methods drive the camera through `game/dishonored/camera` (a real module) on
+the script lane, inside the ProcessEvent hook's camera pass right after `FovLeverApply`.
+A per-eye render needs three writes; two are measured, one is not:
+
+| Need | Write | Status |
+|---|---|---|
+| Rotation | `ApplyHeadToViewRotation`: HMD pitch/yaw(/roll) into the `ProcessViewRotation` parms, every dispatch of the modifier chain (`[HeadTrack] ChainStamp`) | MEASURED, shipped since 30.57 |
+| FOV | the lever: `kLevCtrl` {0x3ac, 0x3b0, 0x3b4} on the controller and `kLevCam` {0x254, 0x348, 0x368, 0x38c, 0x540, 0x564} on the camera every dispatch; 0x53c is the read-only sensor (what the engine rendered) | MEASURED, shipped since 30.50; `camera::set_fov_deg` is the lever's target, `rendered_fov_deg` the sensor |
+| Eye Z (the crouch clamp) | Z of {0x80, 0x330, 0x350, 0x374} on the camera, dispatch cadence | MEASURED (38.24): the clamp sticks, so at least one of those four reaches the renderer after the script pass |
+| Lateral eye offset (+/- IPD/2 along `kCamRight` 0x60) | `camera::apply_eye_offset` into `[Camera] EyeField` (camera+0x330, which holds -position) | MEASURED 2026-09-02: 0x330 HONOURED 119/120, the five others DISCARDED (below) |
+
+Why the lateral write is unproven: `head_track.cpp` records that the POV location the matrix
+carries is a cache the engine recomputes each tick, yet the 38.24 eye clamp writes Z into
+0x80/0x330/0x350/0x374 on the same cadence and is honoured. Either the clamp lands because
+the same write repeats every dispatch (the last write before the draw wins), or because one
+of the four fields is the renderer's actual source. For Z both explanations give the same
+picture; for a lateral offset they do not (a field recomputed between the last dispatch and
+the draw discards the offset, and a persistent field accumulates it).
+
+The instrument: `camera eyetest <uu> [0x80|0x90|0xc4|0x330|0x350|0x374|all]` (seam word;
+`camera eyetest stop` cancels). Stand still in gameplay. For 120 presents per candidate the
+script lane adds `<uu>` along the camera's right row into the candidate (re-based every
+tick, so a persistent field does not accumulate; restored afterwards), and the present
+thread reads the render-side camera position back from vertex constant c5 (the frame-map
+ABI: c5 = camera world position, captured in `core/framework/vs_const_hook.cpp`) and
+projects `c5 - base` on the right vector. One line per candidate, then a summary:
+
+    camera/eyetest: 0x80 asked +100.0 uu along right -> c5 moved +99.8 uu (mean of 118): HONOURED 118/120 frames ...
+    camera/eyetest: 0x330 asked +100.0 uu along right -> c5 moved +0.3 uu (mean of 120): DISCARDED 120/120 frames - recomputed before the draw
+    camera/eyetest: DONE (+100.0 uu): 0x80=HONOURED 0x90=DISCARDED 0xc4=DISCARDED 0x330=... 
+
+HONOURED means the renderer drew from the offset position: that field is the seam's write
+point (`[Camera] EyeField=`, or `camera eyefield <name>` live). DISCARDED means the engine
+recomputed the field before the draw. INCONCLUSIVE means c5 moved by neither amount (the
+player moved, or the draw sampled c5 from a different tick than the write). A DISCARDED-
+everywhere result is a finding, not a failure: the lateral offset then needs a later write
+point - a position-only patch at the camera-matrix builder epilogue (`kCamHookAt` was
+disproved for ROTATION; position was never tried) or the c0 view-projection translation
+(`LeanVP`, which positional tracking already uses and which AER can drive per eye).
+
+**MEASURED (2026-09-02, dev PC, simulator lane, the auto-continued save, builds `dd10da09`
+and `a3ede882`; runs 10 and 11; +100 uu, 45 presents of c5 baseline then 120 writing per
+candidate):**
+
+| Field | Reads (with c5 = (-53.6, 4835.0, -3036.1)) | Verdict |
+|---|---|---|
+| 0x80 `kCamLoc0` | (5.2, 500.0, -130.6) - a fixed offset vector, not the position | DISCARDED 120/120 (c5 moved 0.0) |
+| 0x90 `kCamLoc1` | the same (5.2, 500.0, -130.6) | DISCARDED 120/120 |
+| 0xC4 `kCamLoc2` | the same (5.2, 500.0, -130.6) | DISCARDED 120/120 |
+| 0x330 `kPovOffs[0]` | (53.6, -4835.0, 3036.1) = exactly **-c5** (a view-matrix translation) | **HONOURED 119/120**: writing +100 uu into the negated field moved c5 by +99.2 uu along right (run 10, before the sign was known: -98.7 uu on 75/76 frames) |
+| 0x350 `kPovOffs[1]` | (53.6, -4735.0, 3036.1), also -c5 in form | DISCARDED 120/120 (c5 moved -2.2 uu, mean) |
+| 0x374 `kPovOffs[2]` | (53.6, -4835.0, 3036.1), also -c5 in form | DISCARDED 120/120 (0.0) |
+
+So: c5 IS the camera world position (it equals minus 0x330 to the decimal), and **camera+0x330
+is the eye-offset write point**: a value written there on the script lane at dispatch cadence
+is what the renderer draws from, in NEGATED form. The seam's field table carries the sign
+(`kFields[].sign`), `[Camera] EyeField=0x330` is the default, and `apply_eye_offset` writes
+base - offset there. The camera's right row at +0x60 read (0, 1, 0) at yaw 0 (UE3: X forward,
+Y right). 0x350 and 0x374 are copies the engine recomputes before the draw; 0x80/0x90/0xC4 are
+not positions at all (the earlier reading of them as "matrix translation row" and "cached POV
+location" was wrong - retire it). Whether 0x330 persists between dispatches (the writer's
+re-base logic) was not separated out; the eyetest's own 120-present window shows the value
+must be rewritten every dispatch, which the seam does.
 
 ## Head coupling of the arms (the open problem; roadmap D5)
 

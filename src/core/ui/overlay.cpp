@@ -60,106 +60,9 @@ static void OverlayFrame()
         Log("overlay: recentred (position reference)");
     }
     ImGui::SliderFloat("height offset (m)", &g_heightOffsetM, -1.0f, 1.0f, "%+.2f");
-    if (ImGui::SliderFloat("menu size", &g_menuFill, 0.35f, 1.4f, "%.2f"))
-        g_quadAspect = 0.0f;       // force a rebuild so it applies live
-    ImGui::TextDisabled("lower = pause menu pulled in so its edges fit");
-    {   // 34.8: wrist HUD master switch, live. Off = the HUD draws back in
-        // view (the redirect stops next frame); the panel disappears with it.
-        bool wh = g_wristHud;
-        if (ImGui::Checkbox("wrist HUD", &wh)) {
-            g_wristHud = wh;
-            Log("hud: wrist HUD %s (overlay)", wh ? "ON" : "off");
-        }
-        ImGui::SameLine();
-        ImGui::SliderFloat("size##hudpanel", &g_hudPanelSize, 0.06f, 0.40f, "%.2fm");
-    }
     // 38.60 SHIP CLEANUP: every diagnostic lives behind the "developer
     // tools" checkbox (bottom of the panel, [Overlay] DevTools). A player
     // sees settings; a debugger flips one box and gets the instruments.
-    if (g_ovlDev)
-    if (g_dxvkShadowFix) {   // 35.2: LIVE shadow-fix bisection dial (M6.5)
-        static const char* sfName[5] = {
-            "0 OFF (old mono look)", "1 FULL (shear+uv+matrix)",
-            "2 no matrix fold", "3 no uv remap", "4 shear only" };
-        int sf = (int)*g_dxvkShadowFix;
-        if (sf < 0) sf = 0; if (sf > 4) sf = 4;
-        if (ImGui::SliderInt("shadow fix mode", &sf, 0, 4, sfName[sf])) {
-            *g_dxvkShadowFix = (unsigned int)sf;
-            Log("shadowfix: mode %d (%s) - set LIVE from overlay",
-                sf, sfName[sf]);
-        }
-        ImGui::TextDisabled("stand at a broken light, flip modes, pick the best");
-    }
-    if (g_ovlDev)
-    if (g_dxvkReflect) {   // 35.3: the mirrored-camera reflection pass, live
-        bool rf = *g_dxvkReflect != 0;
-        if (ImGui::Checkbox("planar reflections (mono - can't match per eye)", &rf)) {
-            *g_dxvkReflect = rf ? 1u : 0u;
-            Log("reflect: planar reflections %s (live)", rf ? "ON" : "OFF");
-        }
-        ImGui::TextDisabled("glossy-floor light pools are these; try OFF at one");
-    }
-    if (g_ovlDev)
-    if (g_dxvkKillMask) {   // 35.4: ARTIFACT HUNT - live draw-class kills
-        ImGui::SeparatorText("ARTIFACT HUNT (diagnostic - kills draw types)");
-        ImGui::TextDisabled("stare at the broken light; the box that removes it names it");
-        unsigned int km = *g_dxvkKillMask;
-        struct { unsigned int bit; const char* name; } kb[6] = {
-            { 1u,  "screen-space RT readers (samples-rt)" },
-            { 2u,  "UI-class duplicates (DUP)" },
-            { 4u,  "modulate-darken draws (sb=9)" },
-            { 8u,  "additive light draws (dest ONE)" },
-            { 16u, "reflection pass (mirrored cam)" },
-            { 32u, "ALL world FX splices (drastic)" },
-        };
-        bool changed = false;
-        for (int kbi = 0; kbi < 6; kbi++) {
-            bool on = (km & kb[kbi].bit) != 0;
-            if (ImGui::Checkbox(kb[kbi].name, &on)) {
-                if (on) km |= kb[kbi].bit; else km &= ~kb[kbi].bit;
-                changed = true;
-            }
-        }
-        if (changed) {
-            *g_dxvkKillMask = km;
-            Log("killmask: 0x%02x (live)", km);
-        }
-        if (km && ImGui::Button("clear all kills", ImVec2(-1, 0))) {
-            *g_dxvkKillMask = 0;
-            Log("killmask: cleared");
-        }
-    }
-    // 38.80: HEADSET DISPLAY MODE - player-visible, LIVE, Quest/OpenXR only.
-    // Several Quest+VD machines show the projection layer head-locked in
-    // pitch ("image fixed and moves with me", "zoomed") while byte-identical
-    // sessions elsewhere are fine - the difference lives in the headset-side
-    // compositor, which no PC-side fix can reach. The cylinder layer gets
-    // its head-look from the compositor BY CONSTRUCTION, so it works on
-    // every machine; it is one press away instead of an ini edit, switches
-    // live (the layer type is chosen per-submit), and SAVE AS DEFAULTS
-    // persists it. Default stays projection (the tuned, user-validated mode).
-    if (g_xrOn) {
-        bool cylNow = (g_xrLayerMode == 1);
-        if (ImGui::Button(cylNow
-                ? "DISPLAY: CURVED SCREEN  (press if view is warped)"
-                : "DISPLAY: FULL VIEW  (press if view is stuck/zoomed)",
-                ImVec2(-1, 0))) {
-            g_xrLayerMode = cylNow ? 0 : 1;
-            g_quadAspect = 0.0f;           // rebuild the eye quads for the mode
-            Log("xr: display mode switched LIVE to %s (overlay)",
-                g_xrLayerMode == 1 ? "CYLINDER" : "PROJECTION");
-        }
-        ImGui::TextDisabled("image frozen in place or zoomed? press the bar above");
-        // 38.84: the pitch-fix test cycle - live, no relaunch. OFF -> A -> B.
-        const char* sfLabel = g_stampFix == 0
-            ? "PITCH FIX: OFF  (can't look up/down? try A)"
-            : g_stampFix == 1 ? "PITCH FIX: MODE A  (worse/reversed? try B)"
-                              : "PITCH FIX: MODE B  (press to turn off)";
-        if (ImGui::Button(sfLabel, ImVec2(-1, 0))) {
-            g_stampFix = (g_stampFix + 1) % 3;
-            Log("xr: stampfix mode -> %d (overlay)", g_stampFix);
-        }
-    }
     // 32.68: SAVE directly under RECENTER, and everything below it tabbed.
     // Re-applied onto the stable 32.52 base after the resolution work was
     // rolled back - the tabs were a good change that got reverted along with
@@ -168,9 +71,7 @@ static void OverlayFrame()
         OverlaySaveDefaults();
     ImGui::Separator();
 
-    ImGui::Text("live FOV %.1f deg   IPD %.0f mm   stereo draws %u",
-                g_liveFovX, g_ipdM * 1000.0f,
-                g_dxvkSplices ? *g_dxvkSplices : 0u);
+    ImGui::Text("IPD %.0f mm", g_ipdM * 1000.0f);
 
     if (!ImGui::BeginTabBar("vrtabs")) { ImGui::End(); return; }
 
@@ -179,15 +80,10 @@ static void OverlayFrame()
         { /* sep recomputed each frame from this */ }
     ImGui::TextDisabled("smaller = world feels bigger; life-size door test");
 
-    float conv = g_dxvkConv ? *g_dxvkConv : 140.0f;
-    if (ImGui::SliderFloat("convergence (uu)", &conv, 20.0f, 500.0f, "%.0f") && g_dxvkConv)
-        *g_dxvkConv = conv;
-    ImGui::TextDisabled("distance where left/right images line up");
-
-    if (ImGui::SliderFloat("screen fill", &g_fillScale, 0.6f, 3.2f, "%.2f"))
-        g_quadAspect = 0.0f;
     if (ImGui::SliderFloat("screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f"))
-        g_quadAspect = 0.0f;
+        dvr::vr::set_screen(g_screenDist, g_screenWidth);
+    if (ImGui::SliderFloat("screen width (m)", &g_screenWidth, 0.5f, 6.0f, "%.2f"))
+        dvr::vr::set_screen(g_screenDist, g_screenWidth);
 
     ImGui::EndTabItem(); }
 
@@ -286,8 +182,6 @@ static void OverlayFrame()
             ImGui::SliderFloat("marker pull-back (uu)", &g_blkMarkerBackUU,
                                0.0f, 250.0f, "%.0f");
             ImGui::TextDisabled("raise this if the dot vanishes against a wall");
-            ImGui::SliderFloat("marker size (m at 2.5m)", &g_retSize,
-                               0.010f, 0.150f, "%.3f");
         }
     }
 
@@ -571,19 +465,20 @@ static void OverlayFrame()
         float lever = g_fovLever;
         bool on = lever >= 40.0f;
         if (ImGui::Checkbox("FOV lever (force the game's rendered FOV)", &on))
-            g_fovLever = on ? (g_liveFovX > 40.0f ? g_liveFovX : 95.0f) : 0.0f;
+            g_fovLever = on ? 95.0f : 0.0f;
+            dvr::camera::set_fov_deg(g_fovLever);
         if (on) {
             if (ImGui::SliderFloat("  target FOV (deg)", &lever, 60.0f, 140.0f, "%.0f"))
                 g_fovLever = lever;
-            ImGui::TextDisabled("  rendered now: %.1f deg  (should follow the slider)",
-                                g_liveFovX);
-            ImGui::TextDisabled("  match this to your headset, then set fill to 1.0");
-            if (ImGui::SliderFloat("  zoom fills view", &g_zoomFillFloor, 0.0f, 1.0f, "%.2f"))
-                g_quadAspect = 0.0f;
-            ImGui::TextDisabled("  1.0 = spyglass magnifies; 0 = true scale (small window)");
+                dvr::camera::set_fov_deg(g_fovLever);
+            ImGui::TextDisabled("  the lever writes the game camera's FOV every dispatch");
         }
     }
 
+    ImGui::EndTabItem(); }
+
+    if (ImGui::BeginTabItem("Runtime")) {
+        dvr::vr::draw_debug_ui();   // the runtime layer's own panel
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Log")) {
@@ -632,21 +527,12 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Advanced")) {
-        // 38.60: the frame-dump button is a diagnostic too - dev only.
-        if (g_ovlDev && g_dxvkDumpReq &&
-            ImGui::Button("dump one frame (renderer diagnostic)", ImVec2(-1, 0))) {
-            *g_dxvkDumpReq = 1;
-            Log("framedump: requested (overlay button)");
-        }
         bool dv = g_ovlDev;
         if (ImGui::Checkbox("developer tools", &dv)) g_ovlDev = dv;
         ImGui::SameLine();
         ImGui::TextDisabled("probes, rig tests, the SpaceBases oracle");
         ImGui::Separator();
-        ImGui::TextDisabled("render %ux%u   (per eye %ux%u)", g_capW, g_capH,
-                            g_capW / 2, g_capH);
-        ImGui::TextDisabled("[Screen] SpoofDesktopW/H in dishonored_vr.ini and");
-        ImGui::TextDisabled("ResX/ResY in DishonoredEngine.ini must MATCH.");
+        ImGui::TextDisabled("game window %ux%u", dvr::capture::width(), dvr::capture::height());
     ImGui::EndTabItem(); }
 
     ImGui::EndTabBar();

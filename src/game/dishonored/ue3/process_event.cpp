@@ -70,10 +70,20 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             break;
         }
     }
-    SetResApply();     // 32.83: ask the engine for the resolution, once
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
+    // 41.0: the per-eye camera seam, same lane and cadence as the lever. The
+    // lever only revalidates the camera object while it is armed, so the seam
+    // keeps its own liveness check while it has something to write (the first
+    // eyetest ran with a null camera for all six candidates - lever off).
+    if (dvr::camera::eyetest_active() || dvr::camera::eye() != 0) {
+        static LONG camReval = 0;
+        if (g_camObj && !CamAlive()) g_camObj = NULL;
+        if (!g_camObj && (InterlockedIncrement(&camReval) & 31) == 0) FindLiveCamera();
+    }
+    dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
+    dvr::camera::apply_eye_offset(g_camObj);      // the eye offset (aer/reentry)
     BlinkTestApply();  // 32.14: same lane, same reason
     SkcRotApply();     // 32.1: same trick for the hand rotators
     BoneWigApply();    // 30.62: which bone bank does the renderer read
@@ -125,6 +135,31 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // projectile - the engine hands us the object, on the game thread, at the
     // moment it spawns. The redirect maths is the one that measured
     // dot(hand)=+1.00 back in 7.3; only the catching was ever unreliable.
+    // 41.0: the exit handler stands on its own. Since 38.79 it lived inside the
+    // motion-aim block below, so under [Mode] GamepadOnly=1 (motion aim off) it
+    // never ran: the first two Quest quits (2026-09-03) died with the OpenXR
+    // session still open (EIP DEDEDEDE on Virtual Desktop's thread), and the
+    // log carried no `shutdown:` line. One FName index compare per event; the
+    // index lookup walks the name table, so a miss is retried sparsely.
+    if (obj && !InterlockedCompareExchange(&g_gameExiting, 0, 0)) {
+        uint8_t* f = (uint8_t*)a1;
+        static uint32_t preExitIdx = 0xffffffffu;
+        static int retryIn = 0;
+        if (preExitIdx == 0xffffffffu && --retryIn <= 0) {
+            preExitIdx = FindNameIdx("PreExit");
+            retryIn = 3000;
+        }
+        if (preExitIdx != 0xffffffffu && f && !((uintptr_t)f & 3) &&
+            RangeReadable(f, kNameOff + 8) && *(uint32_t*)(f + kNameOff) == preExitIdx) {
+            InterlockedExchange(&g_gameExiting, 1);
+            Log("shutdown: game PreExit - VR paths standing down, closing the OpenXR session");
+            LogFlush();
+            dvr::frame::set_exiting();   // parks the present hook before any runtime call
+            Sleep(150);                  // an in-flight present finishes
+            dvr::vr::shutdown("PreExit");
+            LogFlush();
+        }
+    }
     if (g_maimEnabled && obj) {
         uint8_t* f = (uint8_t*)a1;
         if (f && !((uintptr_t)f & 3) && RangeReadable(f, kNameOff + 8)) {
@@ -219,69 +254,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // in evt-vocab). Log every occurrence, rate-limited, to learn
                 // its press/release rhythm - then a standing-block trim can
                 // key off it.
-                // 38.47: arm the "a conversation is up" window. Matched by
-                // SUBSTRING over the whole family rather than a guessed list
-                // of exact names - guessing event names has failed every time
-                // on this game (the 34.4 lesson), and every member re-arms the
-                // hold, so the window survives the quiet gaps while the player
-                // is reading. Measured members: Dis_PlayerChoice_RequestSkip
-                // and _Released (DishonoredPlayerInput), OnPlayerChoiceConfirm
-                // (DisGFxMoviePlayerHUD). Every armed name is logged once, so
-                // if a conversation ever fails to trigger this the log names
-                // what DID fire instead of leaving us guessing again.
-                // 38.48: 38.47 held a fixed 6 s and the user watched it snap
-                // back mid-conversation ("worked for a second then got tiny").
-                // The log says why: these events are MOMENTARY ACTIONS, not a
-                // conversation-open state. The whole exchange fired exactly
-                // two - Dis_PlayerChoice_RequestSkip at 99383968 when he
-                // skipped a line, then OnPlayerChoiceConfirm SEVENTEEN SECONDS
-                // later when he picked. There is no open/close event anywhere
-                // in the vocabulary, so the window has to be inferred from the
-                // pair: a skip means dialogue is RUNNING (hold long), a
-                // confirm means the choice was taken and the UI is closing
-                // (release after a short grace). That reconstructs the real
-                // window - off at 99383968, back at ~99402100 - instead of
-                // guessing a duration.
-                if (g_dlgHudOff && strstr(nm, "PlayerChoice")) {
-                    // 38.51: THE WRIST FLIP-FLOP, measured (3850wrist log):
-                    // Dis_PlayerChoice_RequestSkip fired in the SAME
-                    // MILLISECOND as Dis_VersusAlt - it is an INPUT ALIAS.
-                    // Pressing block in combat fires the skip name too, and
-                    // 38.47 read that as "conversation started": every block
-                    // press killed the wrist HUD for 30 s ("checking it off
-                    // and on breaks it" was this window re-arming). A real
-                    // dialogue skip cannot coincide with a block event, so a
-                    // RequestSkip within 150 ms of any Versus event is the
-                    // combat alias and is ignored.
-                    // 38.53: _Released NEVER arms. Measured (3852magic
-                    // log): all three false drops that session were armed by
-                    // Dis_PlayerChoice_RequestSkip_Released - the RELEASE
-                    // edge of the block key, which fires alone hundreds of
-                    // ms after the press, outside the Versus guard window.
-                    // It is input-tail noise; the press (Versus-guarded)
-                    // remains the arming edge for real dialogue.
-                    if (strstr(nm, "Released"))
-                        goto dlgSkip;
-                    if (strstr(nm, "RequestSkip") &&
-                        (MaimNowMs() - g_lastVersusMs) < 150.0)
-                        goto dlgSkip;
-                    {
-                    bool wasOff = (MaimNowMs() < g_dlgUntilMs);
-                    if (strstr(nm, "Confirm")) {
-                        // choice taken - let it close, then hand the wrist back
-                        double until = MaimNowMs() + 1500.0;
-                        if (until < g_dlgUntilMs) g_dlgUntilMs = until;
-                        Log("dialog: choice confirmed - wrist HUD back shortly");
-                    } else {
-                        g_dlgUntilMs = MaimNowMs() + (double)g_dlgHoldMs;
-                        if (!wasOff)
-                            Log("dialog: '%s' - wrist HUD off, UI in view "
-                                "(up to %.0fs, or until you choose)",
-                                nm, g_dlgHoldMs * 0.001f);
-                    }
-                    }
-                    dlgSkip:;
-                }
+                // (38.47-38.53: the conversation window that parked the wrist
+                // HUD lived here; the wrist HUD went with the fork in 41.0)
                 if (!strcmp(nm, "OnToggleCinematicMode")) {   // 38.65
                     g_cineNow = !g_cineNow;
                     if (g_cineNow) g_cineOnMs = MaimNowMs();
@@ -296,14 +270,23 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 if (!strcmp(nm, "PreExit") &&
                     !InterlockedCompareExchange(&g_gameExiting, 0, 0)) {
                     InterlockedExchange(&g_gameExiting, 1);
-                    Log("shutdown: game PreExit - VR paths standing down "
-                        "(no more submits, joining the pace thread)");
+                    dvr::frame::set_exiting();
+                    // 41.0: tear the OpenXR session down HERE. The first Quest
+                    // run (2026-09-03) quit through the menu: presents had already
+                    // stopped when PreExit fired, so the present hook's teardown
+                    // never ran, and 2.3 s later Virtual Desktop's thread jumped
+                    // through a freed d3d11 pointer (EIP DEDEDEDE, the 38.79
+                    // class) with the session still open. set_exiting() above
+                    // parks the present hook before any runtime call; the short
+                    // wait lets an in-flight present finish; then this thread
+                    // closes the session and the instance (bounded waits inside).
+                    Sleep(150);
+                    dvr::vr::shutdown("PreExit");
+                    LogFlush();
+                    Log("shutdown: game PreExit - VR paths standing down");
                     LogFlush();          // 38.90: buffered log - land it now
-                    // 40.2: was InterlockedExchange(&g_xrRun, 0) on its own,
-                    // which only ASKED. Blocking here is correct: the process
-                    // is quitting, and the alternative is teardown racing a
-                    // thread that is still inside the runtime.
-                    XrPaceStop("PreExit");
+                    // 41.0: the runtime layer's session teardown hooks in
+                    // here (40.2's XrPaceStop joined the old pace thread).
                 }
                 // 38.67 BOAT-DEATH FORENSICS - log only, no behavior change.
                 // Three runs died identically with three theories eliminated

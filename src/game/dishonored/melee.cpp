@@ -14,7 +14,7 @@ static void HealthElixirTick(bool held)
     static bool   fired = false;
     if (!g_elixirOn) return;
     if (!held) { t0 = 0.0; fired = false; return; }
-    if (g_menuOpen || g_inMenu || g_sbsMonoNow || g_wheelHeld || !g_handMesh) {
+    if (g_menuOpen || g_inMenu || g_wheelHeld || !g_handMesh) {
         t0 = 0.0; fired = true;          // poison this press
         return;
     }

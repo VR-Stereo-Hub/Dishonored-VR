@@ -347,6 +347,7 @@ static bool HmEnsurePipeline()
 {
     if (g_hmReady) return true;
     if (!g_dev11) return false;
+    EnsureCommonStates();   // 41.0: the shared sampler and depth states
     HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
     if (!compiler) return false;
     PFN_D3DCompile compile = (PFN_D3DCompile)GetProcAddress(compiler, "D3DCompile");
@@ -398,7 +399,7 @@ static int HmSortCmp(const void* a, const void* b)
 
 static void HmRenderEye(int eye)
 {
-    if (!g_hmEnable || !g_hmReady || !g_sys) return;
+    if (!g_hmEnable || !g_hmReady) return;
     if (!g_devPoseOk[0]) return;
     if (g_hmHotReload && eye == 0) {
         static double next = 0.0;
@@ -434,12 +435,7 @@ static void HmRenderEye(int eye)
 
     float l, r, t, b;
     float ex = (eye == 0) ? -0.032f : 0.032f, ey = 0, ez = 0;
-    if (g_sys) {
-        g_sys->GetProjectionRaw((EVREye)eye, &l, &r, &t, &b);
-        HmdMatrix34_t e2h = g_sys->GetEyeToHeadTransform((EVREye)eye);
-        if (fabsf(e2h.m[0][0] - 1.0f) < 0.2f && fabsf(e2h.m[0][3]) < 0.2f)
-            { ex = e2h.m[0][3]; ey = e2h.m[1][3]; ez = e2h.m[2][3]; }
-    } else if (g_eyeFrOk) {                       // 37.3: XR-maintained cache
+    if (g_eyeFrOk) {                              // the runtime's per-eye frustum
         l = g_eyeFr[eye][0]; r = g_eyeFr[eye][1];
         t = g_eyeFr[eye][2]; b = g_eyeFr[eye][3];
         ex = g_eyeOffs[eye][0]; ey = g_eyeOffs[eye][1]; ez = g_eyeOffs[eye][2];

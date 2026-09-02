@@ -9,21 +9,9 @@
 static bool EnsureRealD3D9()
 {
     if (g_realD3D9) return true;
-    // Phase 1 of VR 2.0 (build 30.27): chain into DXVK when it is present.
-    // DXVK implements the same IDirect3D9 COM surface, so every hook below
-    // works unchanged - but the game then renders through Vulkan on hardware
-    // that flat-tested at 250 fps. Drop dxvk_d3d9.dll next to the game exe
-    // to enable; delete or rename it to fall back to system DX9. (Config
-    // cannot be read this early on all paths, so presence-of-file IS the
-    // switch - visible, and revertable without a rebuild.)
+    // 41.0: the DXVK fork is gone. The game renders through the system D3D9;
+    // the proxy only hooks it.
     {
-        char dpath[MAX_PATH];
-        _snprintf(dpath, MAX_PATH, "%s\\dxvk_d3d9.dll", g_dir);
-        g_realD3D9 = LoadLibraryA(dpath);
-        if (g_realD3D9)
-            Log("backend: DXVK loaded from dxvk_d3d9.dll - DX9 -> Vulkan");
-    }
-    if (!g_realD3D9) {
         char path[MAX_PATH];
         GetSystemDirectoryA(path, MAX_PATH);
         strcat(path, "\\d3d9.dll");
@@ -51,50 +39,83 @@ static bool EnsureRealD3D9()
 // ----------------------------------------------------------------------------
 // Exports
 // ----------------------------------------------------------------------------
+// 41.0: launched through Steam, the mod could not open files under its own
+// data dir (%LOCALAPPDATA%\DishonoredVR: ERROR_PATH_NOT_FOUND on the runtime
+// manifest, ERROR_FILE_NOT_FOUND on command.txt, status.json never written)
+// while a direct launch could, and the shell saw every file. This probe
+// prints what THIS process sees, once, so the difference is on the same
+// page as the failure instead of inferred from it.
+static void DvrPathProbe()
+{
+    static bool done = false;
+    if (done) return;
+    done = true;
+    const char* dd = dvr::paths::data_dir();
+    char cwd[MAX_PATH] = "", la[MAX_PATH] = "", up[MAX_PATH] = "", user[64] = "";
+    GetCurrentDirectoryA(MAX_PATH, cwd);
+    GetEnvironmentVariableA("LOCALAPPDATA", la, MAX_PATH);
+    GetEnvironmentVariableA("USERPROFILE", up, MAX_PATH);
+    DWORD un = sizeof(user);
+    GetUserNameA(user, &un);
+    const DWORD attrA = GetFileAttributesA(dd);
+    const DWORD errA = attrA == INVALID_FILE_ATTRIBUTES ? GetLastError() : 0;
+    wchar_t wdd[MAX_PATH];
+    MultiByteToWideChar(CP_ACP, 0, dd, -1, wdd, MAX_PATH);
+    const DWORD attrW = GetFileAttributesW(wdd);
+    const DWORD errW = attrW == INVALID_FILE_ATTRIBUTES ? GetLastError() : 0;
+    char probe[MAX_PATH];
+    _snprintf(probe, MAX_PATH, "%s\\probe.txt", dd);
+    probe[MAX_PATH - 1] = 0;
+    HANDLE h = CreateFileA(probe, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    const DWORD errC = h == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+    if (h != INVALID_HANDLE_VALUE) { CloseHandle(h); DeleteFileA(probe); }
+    Log("paths: probe user=%s cwd=%s LOCALAPPDATA=%s USERPROFILE=%s session=%lu", user, cwd, la, up,
+        (unsigned long)[]{ DWORD s = 0; ProcessIdToSessionId(GetCurrentProcessId(), &s); return s; }());
+    Log("paths: probe data_dir=%s attrA=0x%lx(err %lu) attrW=0x%lx(err %lu) create=%s(err %lu)",
+        dd, (unsigned long)attrA, (unsigned long)errA, (unsigned long)attrW, (unsigned long)errW,
+        errC ? "FAILED" : "ok", (unsigned long)errC);
+    // What the process actually SEES in that directory.
+    char pat[MAX_PATH];
+    _snprintf(pat, MAX_PATH, "%s\\*", dd);
+    pat[MAX_PATH - 1] = 0;
+    WIN32_FIND_DATAA fd;
+    HANDLE f = FindFirstFileA(pat, &fd);
+    if (f == INVALID_HANDLE_VALUE) {
+        Log("paths: probe listing FAILED (err %lu)", (unsigned long)GetLastError());
+    } else {
+        char names[512] = "";
+        int n = 0;
+        do {
+            if (fd.cFileName[0] == '.') continue;
+            ++n;
+            if (strlen(names) + strlen(fd.cFileName) + 2 < sizeof(names)) {
+                strcat(names, fd.cFileName);
+                strcat(names, " ");
+            }
+        } while (FindNextFileA(f, &fd));
+        FindClose(f);
+        Log("paths: probe listing: %d entries: %s", n, names);
+    }
+}
+
 extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
 {
+    DvrPathProbe();
+    dvr::stereo::register_all();   // 41.0: before the config selects [Stereo] Method
     EnsureConfig(); // safe here (post loader-lock); not in DllMain
     dvr::crash::install();   // fingerprint VEH + minidump filter, before any hook
     DvrDebugInit();          // command seam + status provider
-#if DVR_WITH_LEGACY
-    {   // 37.0: XR-1 bench, armed only by the env var (xr_bench.bat)
-        char xb[8] = "";
-        if (GetEnvironmentVariableA("DISHONORED_VR_XR_BENCH", xb, sizeof(xb))
-            && xb[0] == '1') {
-            static bool xrOnce = false;
-            if (!xrOnce) {
-                xrOnce = true;
-                // 37.2: the game cannot run flat with the stereo pipeline
-                // armed and no headset (0 fps then death - both bench runs).
-                // The bench does not need our rendering at all: master
-                // disable, bone-stock game, bench thread beside it.
-                g_disabled = true;
-                Log("xrb: bench mode - proxy DISABLED for this run (the "
-                    "game runs stock; only the bench thread is ours)");
-                HANDLE h = CreateThread(NULL, 0, XrBenchThread, NULL, 0, NULL);
-                if (h) CloseHandle(h);
-            }
-        }
-    }
-#endif
+    // 41.0: the runtime layer. The device provider builds the D3D11 device on
+    // the adapter the runtime names; the instance comes up here (fail-soft).
+    dvr::vr::set_device_provider(DvrProvideD3D11Device);
+    dvr::vr::init_instance();
     if (!EnsureRealD3D9() || !g_realCreate9) return NULL;
     IDirect3D9* d3d = g_realCreate9(sdkVersion);
     Log("Direct3DCreate9(sdk=%u) -> %p", sdkVersion, (void*)d3d);
+    dvr::frame::set_disabled(g_disabled);
     if (d3d && !g_disabled) {
-        void* old = PatchVtable(d3d, 16, (void*)hkCreateDevice);
-        if (old && !g_origCreateDevice) g_origCreateDevice = (PFN_CreateDevice)old;
-        // 30.23: the game sizes its windowed mode from D3D's idea of the
-        // desktop (GetAdapterDisplayMode, vtable 8) - not from user32. We ARE
-        // its D3D, so answer with the spoofed size when armed.
-        void* old8 = PatchVtable(d3d, 8, (void*)hkGetAdapterDisplayMode);
-        if (old8 && !g_origGADM) g_origGADM = (PFN_GetAdapterDisplayMode)old8;
-        // 6 = GetAdapterModeCount, 7 = EnumAdapterModes: the list the game
-        // validates its saved resolution against before it will ask for it.
-        void* old6 = PatchVtable(d3d, 6, (void*)hkGetAdapterModeCount);
-        if (old6 && !g_origGAMC) g_origGAMC = (PFN_GetAdapterModeCount)old6;
-        void* old7 = PatchVtable(d3d, 7, (void*)hkEnumAdapterModes);
-        if (old7 && !g_origEAM) g_origEAM = (PFN_EnumAdapterModes)old7;
-        Log("res: adapter mode list hooked (count=%p enum=%p)", old6, old7);
+        DvrInstallFrameHooks();        // the game side of the frame path
+        dvr::frame::hook_d3d9(d3d);    // CreateDevice -> Present/Reset/... hooks
     }
     return d3d;
 }

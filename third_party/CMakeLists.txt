@@ -19,15 +19,15 @@ target_include_directories(imgui PUBLIC imgui imgui/backends)
 target_compile_definitions(imgui PUBLIC IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 
 # --- OpenXR SDK (Apache-2.0) --------------------------------------------------
-# The mod uses the HEADERS only: it loads the runtime itself through the
-# loader-negotiation interface (src/core/vr/openxr_loader.cpp), so no loader is
-# linked into d3d9.dll and none ships. The static loader is built only for the
-# xr_hello32 smoke client that tools/xrsim-selftest.ps1 runs.
+# The static loader is linked straight into d3d9.dll (41.0, the BioShock
+# runtime layer): no openxr_loader.dll ships, and the loader's own discovery
+# (XR_RUNTIME_JSON first, then the 32-bit ActiveRuntime key) selects the
+# simulator, the SteamVR shim or VDXR. The same lib serves xr_hello32.
 add_library(openxr_headers INTERFACE)
 target_include_directories(openxr_headers INTERFACE OpenXR-SDK/include)
 
-option(DVR_WITH_OPENXR_LOADER "Build the static OpenXR loader (xr_hello32 only)" ON)
-if(DVR_WITH_OPENXR_LOADER)
+option(DVR_WITH_OPENXR "Build and link the static OpenXR loader" ON)
+if(DVR_WITH_OPENXR)
     set(DYNAMIC_LOADER OFF CACHE BOOL "" FORCE)
     set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)

@@ -161,6 +161,8 @@ uint64_t session_layered_frames();  // layer-carrying submissions (VdxrLayers po
 void swapchains_begin_frame_census();
 void swapchains_for_each(void (*fn)(uint32_t, const SimSwapchain&, void*), void* user);
 ID3D11Texture2D* swapchain_last_image(XrSwapchain handle, uint32_t* outW, uint32_t* outH);
+bool swapchain_last_info(XrSwapchain handle, uint32_t* outIndex, uint32_t* outReleasedOnFrame);
+void swapchain_note_black(XrSwapchain handle, bool black);
 
 // Resolve a space to a world pose at a given time, using the published snapshot.
 bool space_pose(const SimSpace& space, const FrameSnapshot& snap, Pose& out, bool& tracked);
@@ -233,6 +235,8 @@ void compositor_on_end_frame(const SimSubmission& sub, bool capture);
 void compositor_note_layers(const SimSubmission& sub);
 uint32_t compositor_last_layer_count();
 uint32_t compositor_last_projection_views();
+uint32_t compositor_last_quad_layers();
+int compositor_last_capture_nonblack(int eye);   // percent, last capture frame
 
 // ---------------------------------------------------------------------------
 // Entry points implemented outside xrsim_instance.cpp

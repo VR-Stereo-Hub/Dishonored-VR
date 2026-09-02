@@ -59,6 +59,5 @@ static UINT  g_sbSeen[86];
 // TCHAR is wchar_t - UE3 is Unicode - and Num/Max COUNT THE NULL.
 typedef void (__thiscall *PFN_ProcessEventCall)(void*, void*, void*, void*);
 
-static bool     g_setResDone = false;
 static uint8_t* g_fnConsoleCmd = NULL;
 static bool     g_peReentry = false;

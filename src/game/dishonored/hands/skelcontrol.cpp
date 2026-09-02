@@ -418,11 +418,10 @@ static void ApplyHandToMeshInner()
     //       per call in the common case and formats nothing.
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 3000,
         "skc/gate: drive=%d slots=%d stale=%d probeFails=%d camIdx=%d "
-        "handMesh=%d armsHidden=%d menu=%d/%d splices=%lu handSize=%.2f",
+        "handMesh=%d armsHidden=%d menu=%d/%d handSize=%.2f",
         (int)g_skcDrive, (int)g_skcPlayerN, (int)g_skcStale, (int)g_skcProbeFails,
         (int)g_skcCamIdx, (int)g_handMesh, (int)g_armsHidden,
-        (int)g_menuOpen, (int)g_inMenu,
-        g_dxvkSplices ? (unsigned long)*g_dxvkSplices : 0UL, g_skcHandSize);
+        (int)g_menuOpen, (int)g_inMenu, g_skcHandSize);
     if (g_skcDrive && !g_skcPlayerN)
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
             "skc: drive is ON but NO SkelControl slots are latched (probeFails=%d, "
@@ -472,8 +471,7 @@ static void ApplyHandToMeshInner()
     //   - the retry budget REFILLS whenever gameplay resumes: 12 was a cap
     //     for one level-load, never a lifetime allowance.
     {
-        bool skcInGameplay = g_dxvkSplices ? (*g_dxvkSplices >= 8)
-                                           : (!g_menuOpen && !g_inMenu);
+        bool skcInGameplay = (!g_menuOpen && !g_inMenu);   // 41.0: no splice counter
         static bool skcWasGameplay = false;
         if (skcInGameplay && !skcWasGameplay) {
             if (g_skcProbeFails >= 12)
@@ -517,30 +515,6 @@ static void ApplyHandToMeshInner()
     BlinkLatch();          // 32.14
     BlinkHookTick();       // 32.21
     CrouchStateTick();     // 32.25
-    // 32.45: retire the marker locator's points as soon as the aim ends, so a
-    // stale position cannot claim an unrelated draw in the next capture.
-    if (g_dxvkMark && g_dxvkMark[6] != 0.0f &&
-        (MaimNowMs() - g_blkAimSeen) > 300.0)
-        g_dxvkMark[6] = 0.0f;
-    {
-        // 32.52: F8 withheld marker draws so we could work out which draw was
-        // which. Source aim removed the reason to withhold anything, and a
-        // debug key that can delete world geometry is not something to leave
-        // bound. The classifier stays in the fork for diagnostics; it is just
-        // never armed.
-        if (g_dxvkMarkKill && *g_dxvkMarkKill != 0) *g_dxvkMarkKill = 0;
-        // 32.48: A/B the per-eye screen-UV fix without a rebuild. It is on by
-        // default; F10 turns it off so "is this actually better" is a keypress
-        // rather than a round trip.
-        // F10 was already taken; Pause/Break is free.
-        bool uvk = (GetAsyncKeyState(VK_PAUSE) & 0x8000) != 0;
-        if (uvk && !g_uvKeyWas && g_dxvkUvFix) {
-            *g_dxvkUvFix = *g_dxvkUvFix ? 0u : 1u;
-            Log("stereo/uvfix: %s (Pause key) - per-eye screen-space sampling",
-                *g_dxvkUvFix ? "ON" : "off");
-        }
-        g_uvKeyWas = uvk;
-    }
     BlinkDestTick();       // 32.26
     BlinkTraceTick();      // 32.31
     if (InterlockedExchange(&g_skcCalReq, 0)) {                  // 32.12

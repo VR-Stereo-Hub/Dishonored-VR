@@ -1,25 +1,22 @@
 // core/gfx/frame_dump.cpp - on-demand dumps of what the headset is being fed.
 // Included by the unity build (it reads the renderer's globals).
 //
-//   dump frame     capture BMP + both eye textures as PNG
-//   dump capture   the game's SBS backbuffer as we captured it (BMP, before the
-//                  eye split - "this is exactly what the headset is fed")
-//   dump eyes      the two D3D11 eye render targets (PNG)
-//   dump hud       the wrist HUD readback (PNG)
+//   dump frame     capture BMP + the stereo method's output texture as PNG
+//   dump capture   the game's backbuffer as we captured it (BMP)
+//   dump eyes      the stereo method's output texture for the last present
+//                  (PNG, named by its eye tag: left|right|mono)
 // Files land in <data_dir>\dumps\ with a frame-number suffix.
 
 static int      g_dumpReqCapture = 0;
 static int      g_dumpReqEyes = 0;
-static int      g_dumpReqHud = 0;
 
 static void FrameDumpRequest(const char* what)
 {
     bool all = !strcmp(what, "frame");
     if (all || !strcmp(what, "capture")) g_dumpReqCapture = 1;
     if (all || !strcmp(what, "eyes"))    g_dumpReqEyes = 1;
-    if (!strcmp(what, "hud"))            g_dumpReqHud = 1;
-    if (!(all || !strcmp(what, "capture") || !strcmp(what, "eyes") || !strcmp(what, "hud")))
-        Log("dump: unknown target '%s' (frame|capture|eyes|hud|fork)", what);
+    if (!(all || !strcmp(what, "capture") || !strcmp(what, "eyes")))
+        Log("dump: unknown target '%s' (frame|capture|eyes)", what);
     else
         Log("dump: %s requested -> %s", what, dvr::paths::dumps_dir());
 }
@@ -94,25 +91,22 @@ static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex)
 // Present thread, after the eyes are rendered and before they are submitted.
 static void FrameDumpTick()
 {
-    if (!g_dumpReqCapture && !g_dumpReqEyes && !g_dumpReqHud) return;
+    if (!g_dumpReqCapture && !g_dumpReqEyes) return;
     char path[MAX_PATH];
     if (g_dumpReqCapture) {
         g_dumpReqCapture = 0;
-        if (g_pixels && g_capW && g_capH) {
-            snprintf(path, MAX_PATH, "%s\\capture_%lu_%ux%u.bmp", dvr::paths::dumps_dir(), (unsigned long)g_frame, g_capW, g_capH);
-            Log("dump: capture %s", DumpWriteBmp(path, g_pixels, g_capW, g_capH, g_capW * 4) ? path : "FAILED");
+        const uint8_t* px = dvr::capture::pixels();
+        const uint32_t cw = dvr::capture::width(), ch = dvr::capture::height();
+        if (px && cw && ch) {
+            snprintf(path, MAX_PATH, "%s\\capture_%lu_%ux%u.bmp", dvr::paths::dumps_dir(), (unsigned long)g_frame, cw, ch);
+            Log("dump: capture %s", DumpWriteBmp(path, px, cw, ch, cw * 4) ? path : "FAILED");
         } else Log("dump: no capture yet");
     }
     if (g_dumpReqEyes) {
         g_dumpReqEyes = 0;
-        for (int e = 0; e < 2; e++) {
-            snprintf(path, MAX_PATH, "%s\\eye_%lu_%s.png", dvr::paths::dumps_dir(), (unsigned long)g_frame, e ? "right" : "left");
-            Log("dump: eye %d %s", e, DumpTexturePng(path, g_eyeTex[e]) ? path : "FAILED (no eye texture?)");
-        }
-    }
-    if (g_dumpReqHud) {
-        g_dumpReqHud = 0;
-        snprintf(path, MAX_PATH, "%s\\hud_%lu.png", dvr::paths::dumps_dir(), (unsigned long)g_frame);
-        Log("dump: hud %s", DumpTexturePng(path, g_hudTex11) ? path : "FAILED (no HUD texture - wrist HUD off?)");
+        const dvr::stereo::FrameOutput& o = dvr::stereo::last_output();
+        snprintf(path, MAX_PATH, "%s\\eye_%lu_%s.png", dvr::paths::dumps_dir(), (unsigned long)g_frame,
+                 o.eyeSign < 0 ? "left" : o.eyeSign > 0 ? "right" : "mono");
+        Log("dump: eye %s", DumpTexturePng(path, o.tex) ? path : "FAILED (no output texture this present?)");
     }
 }

@@ -12,7 +12,6 @@ static void CamFovHunt() {}
 static void CamSeamTick() {}
 static void CameraTraceTick() {}
 static void SpawnTraceTick(bool triggerEdge) {}
-static void OvlSceneFrame() {}
 static void RtDriveUpdate() {}
 static bool RtdSnapshot(float* R, float* T, int hand, bool weapon) { return false; }
 static void GtCommandVM(float pitchDeg, float yawDeg, float rollDeg, float tx, float ty, float tz) {}
@@ -26,5 +25,4 @@ static void SbTick() {}
 static inline void BoneWigApply() {}
 static void DbgProbeTick() {}
 static LONG CALLBACK WalkVEH(EXCEPTION_POINTERS* xp) { return 0; }
-static DWORD WINAPI XrBenchThread(LPVOID) { return 0; }
 static void RtdBuildYPR(const float* ypr, float* out) {}
