@@ -126,6 +126,51 @@ The port finishes opportunistically; the headset work comes first.
 
 ## Session log
 
+### 2026-09-02 - session 4b: the world size PUMPS, and MenuFillScale is why
+
+A headset run on the restored known-good ini (02:23, VirtualDesktopXR + Quest 3) reported
+"still rendering tiny and in the top left corner". Its log names the cause outright, so this
+did not need a new instrument. Full derivation in ENGINE_NOTES, "MenuFillScale pumps the
+world size during GAMEPLAY".
+
+**The number.** The quad subtends **71.1 x 69.2 deg** inside a frustum of **94.0 x 99.0 deg**
+- about half its solid angle. That is "tiny", fully explained, and nothing to do with
+resolution, adapter, world scale or convergence. 40 of the run's 46 quad rebuilds were at
+`fill=0.60`; the run ended there.
+
+**The mechanism.** `MenuFillScale=0.60` and the `XrFrustumFill` gate are driven by the SAME
+condition (`g_menuOpen || g_inMenu || g_sbsMonoNow`), and a change in it forces a rebuild.
+The menu flag flaps during gameplay (the `Req_SaveSlotInfos` save-slot polls, already
+documented at `present.cpp:613-616`), so the world size pumped 100 -> 71 -> 100 -> 71 -> 100
+-> 71 deg across the six seconds before the crash, all after gameplay had started. The
+`sbs:` line proves it is the MENU flag and not the splice counter: its last transition is
+well before the pumping began.
+
+**Why the Index never saw it.** OpenVR has one geometry path, so `MenuFillScale` only ever
+dimmed a menu. `XrFrustumFill` (38.13) added a second path for the OpenXR port without making
+the transition continuous, so on Quest the same flap swaps the whole quad construction
+mid-gameplay. The tester's own read - Index/SteamVR was the tuned target, OpenXR/Quest a
+later port - is exactly right here.
+
+**Applied, config only, one variable, no rebuild**: `[Screen] MenuFillScale 0.60 -> 1.00`
+(backup `.pre-menufill`). The menu branch now builds the same 100.0 x 98.0 deg quad as
+gameplay, so a flap cannot change the world size. Cost: menu edges crop, which is what 32.4
+added the key to avoid. NOT YET TESTED.
+
+**A falsifiable prediction, and it contradicts session 3c.** Worked from the logged frustum,
+the authored quad's vertical border must be SYMMETRIC, ~21% black top and ~21% bottom, with
+the world in the middle 57.6%; horizontally the left eye gets 29.8% black on the temple side
+and 5.6% on the nasal side (mirrored in the right eye - the rigid-screen design). Session 3c
+recorded "top ~54%, bottom half black". The next `dump eyes` settles it: symmetric borders
+retire that contradiction as a misread dump; a real black bottom half falsifies this model.
+
+**The run also CRASHED** at 02:23:49, wild instruction pointer, minidump at
+`%LOCALAPPDATA%\DishonoredVR\dumps\dvr_20260902_022349.dmp`. Untriaged, separate lane.
+
+**Good news in the same log**: the fork's projection export resolved this time -
+`quad/fill: world scale is set by the MEASURED render FOV (fork dxvk_vr_proj) = 100.0 deg`.
+The landscape fix (session 3b) worked; world scale is no longer an assumed constant.
+
 ### 2026-09-02 - session 4: reverted to the known-good point
 
 No launches, no code changes. Session 3c left the rig one key away from its own

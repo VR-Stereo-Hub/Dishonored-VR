@@ -196,6 +196,82 @@ own hand-calibration neutrals are kept. `[PosTrack] Scale` is back to her 50 - t
 100 below stands as a derivation and should be re-applied as a SINGLE change once the
 baseline is confirmed, not bundled with the restore.
 
+## MenuFillScale pumps the world size during GAMEPLAY (2026-09-02)
+
+**Measured, not theorised**: the headset log of 2026-09-02 02:23 (VirtualDesktopXR, Quest 3,
+the restored known-good ini). The tester reported "still rendering tiny and in the top left
+corner". The log says exactly why, on one line, twice over:
+
+```
+quad: fov=100.0 fill=0.60 frameAspect=1.036 W=2.288 H=2.208 D=1.60 -> subtends 71.1 x 69.2 deg
+quad: fov=100.0 fill=1.00 frameAspect=1.036 W=3.814 H=3.680 D=1.60 -> subtends 100.0 x 98.0 deg
+```
+
+40 rebuilds at `fill=0.60`, 6 at `fill=1.00`. The run ENDED at 0.60.
+
+**The frustum it has to fill** is `L[-1.376 0.839 -1.428 0.966]` (tangents), i.e.
+**94.0 deg horizontal x 99.0 deg vertical** (left 54.0, right 40.0, down 55.0, up 44.0). A
+71.1 x 69.2 deg quad inside a 94 x 99 deg frustum covers about **half its solid angle**.
+That is the whole of "tiny" - it is not a resolution, adapter, scale or convergence fault.
+
+**The mechanism.** `eye_quads.cpp:134` applies `[Screen] MenuFillScale` (0.60 in the shipped
+and known-good ini) whenever `g_menuOpen || g_inMenu || g_sbsMonoNow`, and `:204` skips the
+`XrFrustumFill` branch on exactly the same condition. So one flag decides BOTH the size and
+which geometry path runs. `present.cpp:19-41` then forces a quad rebuild whenever either
+flag changes. The result is that the world size **pumps** as the flag flaps:
+
+| t (ms) | fill | subtends |
+|---|---|---|
+| 52270750 | 1.00 | 100.0 x 98.0 |
+| 52279406 | 0.60 | 71.1 x 69.2 |
+| 52280593 | 1.00 | 100.0 x 98.0 |
+| 52281328 | 0.60 | 71.1 x 69.2 |
+| 52283375 | 1.00 | 100.0 x 98.0 |
+| 52285125 | 0.60 | 71.1 x 69.2 |
+
+Those are all AFTER the game reached gameplay (`crouch/raw` from 52273875 reports
+`menu=0/0 ... mono=0`, the pawn moving, `pos=(6402,5110)`).
+
+**It is the MENU flag doing it, not the splice counter.** `sbs:` logs on every change of
+`g_sbsMonoNow` and its last transition is at 52263406 - before any of the pumping above. So
+`g_sbsMonoNow` was steady while the fill alternated, which leaves `g_menuOpen || g_inMenu`
+as the only remaining term. `present.cpp:613-616` already records why that flag is
+untrustworthy in gameplay: the game's `Req_SaveSlotInfos` save-slot polls re-open it. The
+38.x fix taught the MONO decision to prefer the splice counter over the menu flag for that
+exact reason - but the **fill** decision and the **frustum-fill gate** were never given the
+same treatment, so both still trust the flag the fork's counter was brought in to replace.
+
+**Why it never showed on the Index.** Under OpenVR there is only ONE geometry path: the
+authored quad. `MenuFillScale` shrinks a menu, which is what it is for, and there is no
+second path to jump to. `XrFrustumFill` (38.13) added a second path for the OpenXR port
+without making the transition between the two continuous, so on Quest the same flag flap
+that merely dimmed a menu on the Index now swaps the entire quad construction mid-gameplay.
+This is a good example of the class the mod's author flagged: SteamVR/Index was the tuned
+target and OpenXR/Quest was a later port.
+
+**The placement, worked from the logged frustum.** At `fill=0.60`, `D=1.60`:
+`ccy = D*0.25*sum(vertical tangents) = -0.3696 m`, `ccx = 0`, `W=2.288`, `H=2.208`. Against
+the left eye's frustum cross-section at D (x -2.2016..+1.3424, y -2.2848..+1.5456):
+
+- **vertically: 21.2% black top, 57.6% world, 21.2% black bottom - symmetric.**
+- horizontally, LEFT eye: 29.8% black on the temple side, 64.6% world, 5.6% on the nasal
+  side; the right eye is the mirror. That per-eye asymmetry is the rigid-screen design
+  (`:167-176`), not a fault, but it is why a small image reads as displaced sideways.
+
+**This is a falsifiable prediction, and it contradicts the standing session 3c reading.**
+Session 3c recorded a `dump eyes` showing the world in the "top ~54%, bottom half black".
+The geometry above says the vertical border must be SYMMETRIC and about 21% on each side.
+The next `dump eyes` decides it: symmetric borders confirm this model and retire the "sits
+high" contradiction as a misread dump; a genuinely black bottom half falsifies it and means
+something flips or crops vertically between the quad and the eye texture.
+
+**Fix applied for testing (config only, no build)**: `[Screen] MenuFillScale=0.60 -> 1.00`,
+which makes the menu-flag branch produce the same 100.0 x 98.0 deg quad as gameplay, so a
+flap can no longer change the world size. Cost: menu edges crop, which is what 32.4 added
+MenuFillScale to avoid. The proper fix is to stop letting the menu flag gate world geometry
+at all - give the fill and the frustum-fill gate the same splice-counter-first rule the mono
+decision already has - and that needs a build.
+
 ## World scale: 50 UU/m is a default, not a measurement (2026-09-01)
 
 `[PosTrack] Scale` is 50, UE3's canonical 1 uu = 2 cm. One knob drives both the fork's
