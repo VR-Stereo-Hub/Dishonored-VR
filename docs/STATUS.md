@@ -111,7 +111,9 @@ seam writes the offset on the script lane. Acceptance: `stereo aer`
 accepted, the beat line `L/s == R/s == out/s / 2`, `stereo.xrs`, `eye-check.ps1` legs 0-5, the
 runtime's pair probe clean.
 
-**Developer B (SequentialReentry, S2b)**: read `core/gfx/reentry.cpp`. Task one is the
+**The user (native stereo by scene-draw re-entry, S2b, which now carries the former S1
+items it needs: the D3D9Ex shared surface for the capture, positional tracking onto the
+camera+0x330 write)**: read `core/gfx/reentry.cpp`. Task one is the
 scene-draw root (caller census at `ApplyHeadToViewRotation`, live stack scrape, identify the
 pass by making it MOVE with the eyetest as the mover); every address to `patterns.h` with its
 derivation in ENGINE_NOTES; the second call deny-by-default and SEH-guarded.
