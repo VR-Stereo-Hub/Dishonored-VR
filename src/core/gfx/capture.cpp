@@ -27,6 +27,52 @@ bool                      g_warnedRtd = false;
 bool                      g_bboxSaidForSize = false;
 int                       g_bboxClass = -1;   // 0 all black, 1 cropped, 2 full
 
+// The cost window: sums of the three phases over the grabs since the last
+// 3 s line, and the averages that line published (what cost() returns).
+long long g_qpcFreq = 0;
+uint64_t  g_sumRtd = 0, g_sumCopy = 0, g_sumUpload = 0;
+uint32_t  g_windowGrabs = 0;
+uint64_t  g_windowMs = 0;
+Cost      g_cost;
+
+inline long long qpc_now() {
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return t.QuadPart;
+}
+inline uint64_t qpc_us(long long from, long long to) {
+    if (!g_qpcFreq) {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        g_qpcFreq = f.QuadPart ? f.QuadPart : 1;
+    }
+    return (uint64_t)((to - from) * 1000000 / g_qpcFreq);
+}
+
+// Close the window every 3 s: publish the averages and print them. The line
+// carries the frame size and the bytes moved so the number can be read as a
+// bandwidth as well as a stall.
+void cost_tick() {
+    const uint64_t now = GetTickCount64();
+    if (g_windowMs == 0) { g_windowMs = now; return; }
+    if (now - g_windowMs < 3000) return;
+    if (g_windowGrabs) {
+        g_cost.rtdUs = (uint32_t)(g_sumRtd / g_windowGrabs);
+        g_cost.copyUs = (uint32_t)(g_sumCopy / g_windowGrabs);
+        g_cost.uploadUs = (uint32_t)(g_sumUpload / g_windowGrabs);
+        g_cost.totalUs = g_cost.rtdUs + g_cost.copyUs + g_cost.uploadUs;
+        g_cost.grabsInWindow = g_windowGrabs;
+        DVR_INFO("capture: cost/present rtd=%u copy=%u upload=%u total=%u us (%u grabs in %.1f s, "
+                 "%ux%u, %.1f MB each way)",
+                 g_cost.rtdUs, g_cost.copyUs, g_cost.uploadUs, g_cost.totalUs, g_windowGrabs,
+                 (double)(now - g_windowMs) / 1000.0, g_w, g_h,
+                 (double)g_w * (double)g_h * 4.0 / (1024.0 * 1024.0));
+    }
+    g_sumRtd = g_sumCopy = g_sumUpload = 0;
+    g_windowGrabs = 0;
+    g_windowMs = now;
+}
+
 // Strided sample of the CPU pixels: every 8th row and column, a pixel counts
 // as content when any channel clears 8/255. Cheap (1/64 of the frame) and
 // enough to place the box within 8 px, which is what the diagnosis needs.
@@ -140,7 +186,9 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
             DVR_INFO("capture: %ux%u fmt=%d", g_w, g_h, (int)desc.Format);
     }
     if (!g_pixels) { bb->Release(); return false; }
+    const long long t0 = qpc_now();
     HRESULT hr = dev->GetRenderTargetData(bb, g_sysmem);
+    const long long t1 = qpc_now();
     bb->Release();
     if (FAILED(hr)) {
         if (!g_warnedRtd) {
@@ -158,10 +206,17 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     for (uint32_t y = 0; y < g_h; ++y)
         memcpy(g_pixels + y * rowBytes, (const uint8_t*)lr.pBits + (size_t)y * lr.Pitch, rowBytes);
     g_sysmem->UnlockRect();
+    const long long t2 = qpc_now();
 
     if (!ensure_texture(dev11)) return false;
     ctx->UpdateSubresource(g_tex, 0, nullptr, g_pixels, (UINT)rowBytes, 0);
+    const long long t3 = qpc_now();
     ++g_grabs;
+    g_sumRtd += qpc_us(t0, t1);
+    g_sumCopy += qpc_us(t1, t2);
+    g_sumUpload += qpc_us(t2, t3);
+    ++g_windowGrabs;
+    cost_tick();
     sample_bbox();
     return true;
 }
@@ -173,6 +228,7 @@ uint32_t height() { return g_h; }
 const uint8_t* pixels() { return g_pixels; }
 Bbox bbox() { return g_bbox; }
 uint32_t grabs() { return g_grabs; }
+Cost cost() { return g_cost; }
 
 void on_reset() {
     if (g_sysmem) { g_sysmem->Release(); g_sysmem = nullptr; }

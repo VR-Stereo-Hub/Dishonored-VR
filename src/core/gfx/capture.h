@@ -15,6 +15,12 @@
 // box - the 32.57 signature ("right eye black, pair off-centre") that was lost
 // to guessing between five explanations. Logged once per size change and on a
 // 10 s Debug cadence; `dump capture` writes the pixels.
+//
+// The cost instrument (S1): every grab is timed in its three phases (the
+// GetRenderTargetData wait, the lock + row copy, the D3D11 upload) and the
+// per-present averages print every 3 s as `capture: cost/present ...`. That
+// line is the number a cheaper capture path is judged by - the headset run's
+// presents/s alone cannot separate the capture from the game's own frame time.
 #pragma once
 #include <stdint.h>
 
@@ -45,6 +51,15 @@ uint32_t height();
 const uint8_t* pixels();               // BGRA, pitch = width*4; the last grab's CPU copy
 Bbox bbox();
 uint32_t grabs();                      // lifetime count
+
+// The cost of the last 3 s window, microseconds per present (0 before the
+// first window closes): the readback wait, the lock + copy, the upload, and
+// their sum. `grabsInWindow` is the population the averages come from.
+struct Cost {
+    uint32_t rtdUs = 0, copyUs = 0, uploadUs = 0, totalUs = 0;
+    uint32_t grabsInWindow = 0;
+};
+Cost cost();
 
 // The D3D9 device is about to Reset: the system-memory surface goes (every
 // default-pool object this proxy creates must be released here - 38.63).
