@@ -17,8 +17,9 @@ Status and next steps: `docs/STATUS.md`. Known issues: `docs/KNOWN_ISSUES.md`.
 1. Copy `d3d9.dll` and `openvr_api.dll` from the release zip into
    `<Steam>\steamapps\common\Dishonored\Binaries\Win32\` (delete any `dxvk_d3d9.dll` an
    older release left there).
-2. Run `setup_resolution.bat` once (sets ResX=4032 ResY=2268 Fullscreen=False in
-   `Documents\My Games\Dishonored\DishonoredGame\Config\DishonoredEngine.ini`, with a backup).
+2. No resolution setup: the game renders at whatever size its own video options say. (A
+   release before 41.0 forced 4032x2268 into `DishonoredEngine.ini` and `DishonoredCompat.ini`;
+   put a normal size back.)
 3. Launch from Steam. SteamVR headsets: start SteamVR first. Quest: Virtual Desktop streaming
    with VDXR as the runtime, SteamVR not running, 72 Hz, SSW off.
 4. F5 recenter, F10 settings, END hand calibration, HOME hand drive on/off. Motion Blur off.

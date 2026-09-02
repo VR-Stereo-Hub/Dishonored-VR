@@ -79,10 +79,7 @@
 #include "mod/state/51_legacy_spacebases.inc"
 #include "mod/state/52_game_dishonored_head_track.inc"
 #include "mod/state/53_core_input_pad_bridge.inc"
-#include "mod/state/54_core_window_res_spoof.inc"
 #include "mod/state/55_core_input_pad_bridge.inc"
-#include "mod/state/56_core_framework_frame_hooks.inc"
-#include "mod/state/57_core_window_res_spoof.inc"
 #include "mod/state/58_core_framework_frame_hooks.inc"
 #include "mod/state/59_core_vr_openxr_loader.inc"
 #include "mod/state/60_core_vr_openxr_backend.inc"
@@ -140,9 +137,6 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::res
 #include "core/window/game_window.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::res
-#include "core/window/res_spoof.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::blink
 #include "game/dishonored/blink.cpp"

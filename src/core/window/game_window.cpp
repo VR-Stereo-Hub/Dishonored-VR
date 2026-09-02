@@ -1,6 +1,8 @@
-// core/window/game_window.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
-// module gets its own header and translation unit. Bodies are verbatim from
-// the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
+// core/window/game_window.cpp - the game window: the WndProc subclass (the
+// 38.78 focus keep-alive and the overlay's input), the focus guard and the
+// vsync uncap. The window is an ordinary window at whatever size the player
+// picked; the 4032x2268 spoof that used to live next to this went in 41.0.
+// Included by src/mod/dishonoredvr.cpp (unity build).
 
 static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -25,30 +27,6 @@ static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
         else if (msg == WM_KILLFOCUS)
             return 0;                     // the game never hears it
     }
-    // Windows asks the window how big it may get, and the default answer is
-    // "no bigger than the monitor". We render past the edge of the screen on
-    // purpose, so raise the ceiling. The game's own handler runs first and we
-    // widen whatever it decided.
-    // 36.1: while the hold is armed the game must never see a REAL resize -
-    // we shrink the desktop window for cosmetics and the render must not
-    // follow it down. Rewrite the size the game's handler receives to the
-    // size it already believes. (Minimize passes through untouched.)
-    // (36.3: gate widened from g_holdWindow alone - with the desktop-window
-    // feature on, the cap in hkSetWindowPos resizes the real window BEFORE
-    // the hold arms, and the game must not see those sizes either.)
-    if (msg == WM_SIZE && g_wantClientW && (g_holdWindow || g_deskWinW) &&
-        wp != SIZE_MINIMIZED)
-        lp = (LPARAM)MAKELPARAM(g_wantClientW, g_wantClientH);
-    if (msg == WM_GETMINMAXINFO && g_wantClientW && lp) {
-        LRESULT r = CallWindowProcA(g_ovlOldWndProc, hwnd, msg, wp, lp);
-        MINMAXINFO* mmi = (MINMAXINFO*)lp;
-        LONG needX = (LONG)g_wantClientW + 128, needY = (LONG)g_wantClientH + 128;
-        if (mmi->ptMaxTrackSize.x < needX) mmi->ptMaxTrackSize.x = needX;
-        if (mmi->ptMaxTrackSize.y < needY) mmi->ptMaxTrackSize.y = needY;
-        if (mmi->ptMaxSize.x < needX) mmi->ptMaxSize.x = needX;
-        if (mmi->ptMaxSize.y < needY) mmi->ptMaxSize.y = needY;
-        return r;
-    }
     if (g_ovlVisible && g_ovlInit) {
         ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp);
         ImGuiIO& io = ImGui::GetIO();
@@ -70,6 +48,56 @@ static void InstallWindowSubclass(const char* who)
     g_ovlOldWndProc = (WNDPROC)SetWindowLongPtrA(g_gameWnd, GWLP_WNDPROC,
                                                  (LONG_PTR)OverlayWndProc);
     if (g_ovlOldWndProc)
-        Log("res: window hook armed at %s - the render size no longer depends "
-            "on how big this monitor is", who);
+        Log("window: subclass armed at %s (focus keep-alive + overlay input)", who);
+}
+
+
+// 30.54: see the note at g_autoFocus. SetForegroundWindow is refused for a
+// background process, so borrow the foreground thread's input queue for the
+// call - the standard AttachThreadInput dance.
+static void FocusGuardTick()
+{
+    static double focusNext = 0.0;
+    bool manual = g_focusNow;
+    if (!manual && !g_autoFocus) return;
+    if (!g_gameWnd) return;
+    double now = MaimNowMs();
+    if (!manual && now < focusNext) return;
+    focusNext = now + 2000.0;
+    HWND fg = GetForegroundWindow();
+    if (!manual) {
+        if (!fg || fg == g_gameWnd) return;
+        char title[160] = {0};
+        GetWindowTextA(fg, title, sizeof(title) - 1);
+        if (!strstr(title, "SteamVR") && !strstr(title, "Steam VR") &&
+            !strstr(title, "vrmonitor") && !strstr(title, "VR Settings"))
+            return;                       // not SteamVR - leave the user alone
+        Log("focus: SteamVR window '%s' had focus - returning it to the game", title);
+    }
+    g_focusNow = false;
+    DWORD fgTid = fg ? GetWindowThreadProcessId(fg, NULL) : 0;
+    DWORD myTid = GetCurrentThreadId();
+    bool attached = (fgTid && fgTid != myTid && AttachThreadInput(myTid, fgTid, TRUE));
+    if (IsIconic(g_gameWnd)) ShowWindow(g_gameWnd, SW_RESTORE);
+    BringWindowToTop(g_gameWnd);
+    SetForegroundWindow(g_gameWnd);
+    SetFocus(g_gameWnd);
+    if (attached) AttachThreadInput(myTid, fgTid, FALSE);
+}
+
+
+// The game syncs Present to the monitor, which pins it to the display's
+// refresh. In VR the desktop refresh is irrelevant - the headset is fed from
+// our own 90 Hz clock - and since each game frame renders ONE eye, that cap
+// halves straight into the per-eye rate. Presenting immediately lets the GPU
+// run as fast as it can, and every extra frame is a fresher eye.
+static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where)
+{
+    if (!g_forceNoVSync || !pp) return;
+    if (pp->PresentationInterval == D3DPRESENT_INTERVAL_IMMEDIATE) return;
+    Log("perf: %s - present interval 0x%08x -> IMMEDIATE (vsync off, uncapped)",
+        where, (unsigned)pp->PresentationInterval);
+    pp->PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+    pp->FullScreen_RefreshRateInHz = pp->Windowed ? 0 : pp->FullScreen_RefreshRateInHz;
+    if (pp->SwapEffect == D3DSWAPEFFECT_COPY) pp->SwapEffect = D3DSWAPEFFECT_DISCARD;
 }

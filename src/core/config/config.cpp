@@ -27,27 +27,6 @@ static void WriteDefaultIni(const char* ini)
         "WidthMeters=2.4\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
         "FovLever=130\n"
-        "; RenderWidth/Height: THE resolution setting. It sizes the game\n"
-        "; window's client area, and the game derives its whole renderer from\n"
-        "; that - so this is the one knob that actually raises the image the\n"
-        "; headset gets. The window will hang off your monitor; that is fine.\n"
-        "; Match it to your headset's per-eye size (SteamVR shows this), e.g.\n"
-        "; 2016x2214. Bigger = sharper and slower. 0 = leave the game alone.\n"
-        "RenderWidth=4032\n"
-        "RenderHeight=2268\n"
-        "; PinBackbuffer=1 forces the DEVICE to RenderWidth/Height while the game\n"
-        "; keeps rendering at the size IT asked for, which leaves the picture in\n"
-        "; the top-left corner of a mostly black frame and puts the SBS seam in\n"
-        "; the wrong place, so the eyes cannot fuse. Leave it 0.\n"
-        "PinBackbuffer=0\n"
-        "; Build 30.22 supersampling: SpoofDesktop makes the game believe the\n"
-        "; desktop is this big, so the ResX/ResY you set in\n"
-        "; Documents\\...\\DishonoredEngine.ini stops being clamped to your\n"
-        "; monitor. Set both to 2560x1440 (and ResX/ResY to match) for a\n"
-        "; sharp headset image; 0 = off. The game window will extend past\n"
-        "; your monitor - that is normal; the headset is the real screen.\n"
-        "SpoofDesktopW=4096\n"
-        "SpoofDesktopH=2304\n"
         "[Mode]\n"
         "; GamepadOnly=1 makes the VR controllers behave as a plain gamepad:\n"
         "; hands, hand mesh, motion aim, motion melee, motion crouch and\n"
@@ -878,47 +857,6 @@ static void LoadConfig()
             "deliberate default while the render is being fitted - set "
             "GamepadOnly=0 in dishonored_vr.ini to restore motion controls.");
     }
-    g_forceResW = (UINT)IniFloat(ini, "Screen", "RenderWidth", 0);
-    g_forceResH = (UINT)IniFloat(ini, "Screen", "RenderHeight", 0);
-    g_pinBackbuffer = (int)IniFloat(ini, "Screen", "PinBackbuffer", 0);
-    if (g_pinBackbuffer)
-        Log("config: PinBackbuffer=1 - the device will be CREATED at %ux%u instead of "
-            "asking the engine for a setres later (no mid-session Reset, no freeze)",
-            g_forceResW, g_forceResH);
-    g_spoofW = (UINT)IniFloat(ini, "Screen", "SpoofDesktopW", 0);
-    g_spoofH = (UINT)IniFloat(ini, "Screen", "SpoofDesktopH", 0);
-    if (g_spoofW && (g_spoofW < 1280 || g_spoofW > 8192)) g_spoofW = 0;
-    if (g_spoofH && (g_spoofH < 720  || g_spoofH > 8192)) g_spoofH = 0;
-    if (!g_spoofW || !g_spoofH) { g_spoofW = 0; g_spoofH = 0; }
-    g_clickFallback = (int)IniFloat(ini, "Input", "ClickFallback", 1) != 0; // 38.2
-    g_deskWinW = (UINT)IniFloat(ini, "Screen", "DesktopWindowW", 1600);  // 36.1
-    g_deskWinH = (UINT)IniFloat(ini, "Screen", "DesktopWindowH", 900);
-    if (g_deskWinW && (g_deskWinW < 320 || g_deskWinW > 8192)) g_deskWinW = 1600;
-    if (g_deskWinH && (g_deskWinH < 180 || g_deskWinH > 8192)) g_deskWinH = 900;
-    if (!g_deskWinW || !g_deskWinH) { g_deskWinW = 0; g_deskWinH = 0; }
-    if (g_spoofW)
-        Log("config: desktop spoof %ux%u (game may now honor a bigger ResX/ResY)",
-            g_spoofW, g_spoofH);
-    if (g_forceResW && (g_forceResW < 640 || g_forceResW > 8192)) g_forceResW = 2560;
-    if (g_forceResH && (g_forceResH < 480 || g_forceResH > 8192)) g_forceResH = 1440;
-    if (!g_forceResW || !g_forceResH) { g_forceResW = 0; g_forceResH = 0; }
-    // The spoofed desktop has to be at least as big as the render, or the
-    // game's own "does this fit" checks claw the size back down and we are
-    // right back at 1071 lines. Two settings that must move together have
-    // caused most of the confusion here, so tie them together instead.
-    if (g_forceResW) {
-        if (g_spoofW < g_forceResW || g_spoofH < g_forceResH) {
-            UINT nw = g_forceResW > g_spoofW ? g_forceResW : g_spoofW;
-            UINT nh = g_forceResH > g_spoofH ? g_forceResH : g_spoofH;
-            Log("config: desktop spoof %ux%u was smaller than the render "
-                "%ux%u - raised to %ux%u so the game's fit checks cannot "
-                "shrink it back", g_spoofW, g_spoofH, g_forceResW, g_forceResH,
-                nw, nh);
-            g_spoofW = nw; g_spoofH = nh;
-        }
-    }
-    Log("config: render override %ux%u (0x0 = game default)",
-        g_forceResW, g_forceResH);
     Log("config: handtracking autostart=%d delay=%.0fs depth=%d roll=%d probe='%s'",
         (int)g_autoHand, g_autoHandDelay, (int)g_fpPosOn, (int)g_fpRollOn,
         g_dbgProbe);

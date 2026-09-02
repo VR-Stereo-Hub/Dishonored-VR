@@ -333,7 +333,6 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
     // the dying device or the XR session past that point.
     if (InterlockedCompareExchange(&g_gameExiting, 0, 0))
         return g_origPresent(self, src, dst, wnd, dirty);
-    RenderSizeTick();
     {   // the debugging surface: command.txt (1 Hz), status.json (1 Hz), the
         // "[game] state:" transition line, and the crash filter re-arm
         double nowMs = MaimNowMs();
@@ -710,47 +709,15 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
 static HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp)
 {
     UncapPresent(pp, "Reset");
-    ForceRes(pp, "Reset");
     if (pp) g_gameWindowed = pp->Windowed != FALSE;      // 32.9
     Log("device Reset (%ux%u windowed=%d)",
         pp ? pp->BackBufferWidth : 0, pp ? pp->BackBufferHeight : 0,
         pp ? (int)pp->Windowed : -1);
-    if (pp) { g_liveBbW = pp->BackBufferWidth; g_liveBbH = pp->BackBufferHeight; }
     if (g_sysmem) { g_sysmem->Release(); g_sysmem = NULL; }
     g_capW = g_capH = 0; g_capFmt = D3DFMT_UNKNOWN;
     // Every default-pool resource this proxy creates must appear on this list
     // (38.63: a forgotten one made the game's Reset fail forever).
     HRESULT rhr = g_origReset(self, pp);
-    // 32.74: DO NOT RESIZE THE WINDOW HERE.
-    // 32.73 did, as a safety net, and the net was the whole problem. The log
-    // is unambiguous: the window went to 3200x1800, the game accepted it -
-    // "device Reset (3200x1800)", "capture: 3200x1800", a real frame at the
-    // real size - and then this re-assert fired from inside that very Reset,
-    // poked the window a second time mid-reset, and the game came back at
-    // 3200x1071. Every following Reset did it again: nine frames a second and
-    // it never reached the menu. The resize was never the thing that failed.
-    // One resize, once, and then hands off. If the game moves its own window
-    // afterwards that is data worth having, and we will only ever see it in a
-    // log we are not writing to ourselves.
-    if (g_wantClientW && pp) {
-        const bool onTarget = pp->BackBufferWidth  == g_wantClientW
-                           && pp->BackBufferHeight == g_wantClientH;
-        Log("res: after Reset the game is at %ux%u (target %ux%u)%s",
-            pp->BackBufferWidth, pp->BackBufferHeight,
-            g_wantClientW, g_wantClientH, onTarget ? " - on target" : "");
-        // Not at the target: ask UE3 to resize again. POSTED, not sent - a
-        // WM_SIZE handled inside this Reset would re-enter Reset. Bounded, so
-        // a game that refuses cannot turn this into the 9-fps loop of 32.73.
-        if (!onTarget && g_holdWindow) {
-            static int nudges = 0;
-            if (nudges < 20) { nudges++;
-                Log("res: nudging the game back to %ux%u (%d)",
-                    g_wantClientW, g_wantClientH, nudges);
-                PostMessageA(g_gameWnd, WM_SIZE, SIZE_RESTORED,
-                             (LPARAM)MAKELPARAM(g_wantClientW, g_wantClientH));
-            }
-        }
-    }
     return rhr;
 }
 
@@ -761,10 +728,6 @@ static HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter,
                                         IDirect3DDevice9** outDev)
 {
     UncapPresent(pp, "CreateDevice");
-    if (g_forceResW && g_forceResH && !g_wantClientW) {
-        g_wantClientW = g_forceResW; g_wantClientH = g_forceResH;
-    }
-    ForceRes(pp, "CreateDevice");   // windowed only - see the note above
     HRESULT hr = g_origCreateDevice(self, adapter, type, wnd, flags, pp, outDev);
     if (pp) {                                            // 32.9
         g_gameWindowed = pp->Windowed != FALSE;
@@ -778,17 +741,8 @@ static HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter,
         (unsigned long)hr,
         pp ? pp->BackBufferWidth : 0, pp ? pp->BackBufferHeight : 0,
         pp ? (int)pp->Windowed : -1);
-    if (pp) { g_liveBbW = pp->BackBufferWidth; g_liveBbH = pp->BackBufferHeight; }
-    // 38.92 MONITOR SIZE MUST NOT MATTER. The window hook that tells Windows
-    // "this window may exceed the monitor" (WM_GETMINMAXINFO) and that holds
-    // the client size steady (WM_SIZE) lives in OverlayWndProc - which was
-    // only installed when the ImGui overlay came up, TWENTY-THREE SECONDS
-    // later on a user's machine. Until then the clamp is unopposed, and it is
-    // measurably the monitor's height: a 1080p rig Reset to 3854x1071 and a
-    // 1440p rig to 4032x1431 - both the monitor height minus window chrome,
-    // both a wrong aspect, therefore a wrong vertical FOV, on the exact
-    // machines that report the view "loading in right then going zoomed".
-    // The subclass now goes on the moment the device exists.
+    // The subclass goes on the moment the device exists (38.92): it carries
+    // the focus keep-alive, and the overlay needs it before ImGui is up.
     InstallWindowSubclass("CreateDevice");
     if (SUCCEEDED(hr) && outDev && *outDev) {
         g_gameWnd = wnd ? wnd : (pp ? pp->hDeviceWindow : NULL);
@@ -801,42 +755,6 @@ static HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter,
         void* oldSRT = PatchVtable(*outDev, 37, (void*)hkSetRenderTarget); // SetRenderTarget
         if (oldSRT && !g_origSetRT) g_origSetRT = (PFN_SetRenderTarget)oldSRT;
         Log("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget)");
-        // 32.85: give the fullscreen-fallback window a real face. The game
-        // thinks it is fullscreen, so it will not fight this - unlike every
-        // windowed-mode resize war above. 1600x900, centered, framed, shown.
-        if (g_fsRescue && g_gameWnd) {
-            LONG st = GetWindowLongA(g_gameWnd, GWL_STYLE);
-            SetWindowLongA(g_gameWnd, GWL_STYLE,
-                           (st & ~(LONG)WS_POPUP) | WS_OVERLAPPEDWINDOW);
-            RECT r = { 0, 0, 1600, 900 };
-            AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);
-            int w = r.right - r.left, h = r.bottom - r.top;
-            int sx = g_realGSM ? g_realGSM(SM_CXSCREEN) : 1920;
-            int sy = g_realGSM ? g_realGSM(SM_CYSCREEN) : 1080;
-            SetWindowPos(g_gameWnd, HWND_NOTOPMOST,
-                         (sx - w) / 2, (sy - h) / 2, w, h,
-                         SWP_FRAMECHANGED | SWP_SHOWWINDOW);
-            ShowWindow(g_gameWnd, SW_SHOWNORMAL);
-            Log("res: window rescued - 1600x900, centered, visible. The "
-                "overlay (F10) is reachable again; the desktop view is a "
-                "scaled copy and says nothing about the render size.");
-        }
-        // 32.73: do NOT resize here. The first attempt did, and the game
-        // never picked it up - its viewport is not live yet during device
-        // creation, so the WM_SIZE goes nowhere and the renderer keeps the
-        // old dimensions. The resize is driven from Present instead, once
-        // the message loop is actually running.
-        // 32.83: the window route is retired. Six builds of it - work area,
-        // max tracking size, the self-resize at 009c3399, the fullscreen
-        // escape, the client-rect spoof, the mode list - each one real, each
-        // one fixed, and the game still chooses its own resolution. It also
-        // kept costing the desktop window, which is what the overlay lives in.
-        // g_wantClientW stays 0, so every window hook above is inert and the
-        // window behaves normally again. The resolution is now changed from
-        // INSIDE the engine instead. See SetResApply.
-        if (g_forceResW && g_forceResH)
-            Log("res: target %ux%u - will be requested through the engine's "
-                "own setres, not by moving the window", g_forceResW, g_forceResH);
     }
     return hr;
 }

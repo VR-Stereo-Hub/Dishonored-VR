@@ -70,7 +70,6 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             break;
         }
     }
-    SetResApply();     // 32.83: ask the engine for the resolution, once
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute

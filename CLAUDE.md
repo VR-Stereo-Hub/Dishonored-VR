@@ -120,7 +120,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 ```powershell
 .\tools\build.ps1 [-Release] [-Legacy]     # d3d9.dll + dvr_xrsim32.dll + xr_hello32.exe (VS-bundled CMake via vswhere)
 .\tools\install.ps1 [-Release]             # d3d9.dll + openvr_api.dll -> <game>\Binaries\Win32
-.\tools\setup-game-ini.ps1 -Resolution     # ResX=4032 ResY=2268 Fullscreen=False in DishonoredEngine.ini (backs it up)
+.\tools\setup-game-ini.ps1 -Console        # the F1 console bind in DishonoredInput.ini (backs it up)
 .\tools\tail-log.ps1 [-Grep "xr:|crash"]   # follow <game>\Binaries\Win32\dishonored_vr.log
 .\tools\xrsim-selftest.ps1                 # is the SIMULATOR healthy? (xr_hello32, no mod)
 .\tools\xrsim-launch.ps1                   # launch the game on the simulator (forces the OpenXR backend)

@@ -71,18 +71,6 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
     if (d3d && !g_disabled) {
         void* old = PatchVtable(d3d, 16, (void*)hkCreateDevice);
         if (old && !g_origCreateDevice) g_origCreateDevice = (PFN_CreateDevice)old;
-        // 30.23: the game sizes its windowed mode from D3D's idea of the
-        // desktop (GetAdapterDisplayMode, vtable 8) - not from user32. We ARE
-        // its D3D, so answer with the spoofed size when armed.
-        void* old8 = PatchVtable(d3d, 8, (void*)hkGetAdapterDisplayMode);
-        if (old8 && !g_origGADM) g_origGADM = (PFN_GetAdapterDisplayMode)old8;
-        // 6 = GetAdapterModeCount, 7 = EnumAdapterModes: the list the game
-        // validates its saved resolution against before it will ask for it.
-        void* old6 = PatchVtable(d3d, 6, (void*)hkGetAdapterModeCount);
-        if (old6 && !g_origGAMC) g_origGAMC = (PFN_GetAdapterModeCount)old6;
-        void* old7 = PatchVtable(d3d, 7, (void*)hkEnumAdapterModes);
-        if (old7 && !g_origEAM) g_origEAM = (PFN_EnumAdapterModes)old7;
-        Log("res: adapter mode list hooked (count=%p enum=%p)", old6, old7);
     }
     return d3d;
 }

@@ -556,10 +556,7 @@ static void OverlayFrame()
         ImGui::SameLine();
         ImGui::TextDisabled("probes, rig tests, the SpaceBases oracle");
         ImGui::Separator();
-        ImGui::TextDisabled("render %ux%u   (per eye %ux%u)", g_capW, g_capH,
-                            g_capW / 2, g_capH);
-        ImGui::TextDisabled("[Screen] SpoofDesktopW/H in dishonored_vr.ini and");
-        ImGui::TextDisabled("ResX/ResY in DishonoredEngine.ini must MATCH.");
+        ImGui::TextDisabled("game window %ux%u", g_capW, g_capH);
     ImGui::EndTabItem(); }
 
     ImGui::EndTabBar();
