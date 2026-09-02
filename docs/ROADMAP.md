@@ -41,28 +41,19 @@ S2b) on the same foundation; S3 compares them and picks.
 Done when both verification lines are ticked; the PR carries the removal list and the
 results.
 
-## S1 - The mono screen accepted in the headset
+## After S0: two lanes on one foundation
 
-- [ ] The headset run above signed off: readable screen at `[Screen] DistanceMeters` /
-      `WidthMeters`, no judder at the game's frame rate, `[VR] FpsCap` cadence chosen
-- [ ] The capture cost measured and cut: a D3D9Ex shared surface opened on the D3D11 side
-      replaces `GetRenderTargetData` (the per-frame CPU round trip in `core/gfx/capture`)
-- [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (holds -position), the five
-      others DISCARDED (ENGINE_NOTES)
-- [ ] Positional (lean/crouch/roomscale) tracking moved from the c0 `LeanVP` patch to the
-      camera seam's position write once the write point is known, and measured equal
-- [ ] `head_track` and `pad_bridge` converted to real modules (the D1-era refactor step
-      that S0 deferred)
-- [ ] SteamVR rig confirmed through the shim (`xr: runtime "DishonoredVR SteamVR shim (OpenVR)"`)
-
-Done when a tester plays a level on the mono screen and calls it comfortable.
+S1 was folded into the two method lanes (2026-09-03, the user's call): every S1 item is either
+something the native-stereo lane needs anyway or housekeeping either lane can absorb. The two
+lanes run in parallel on the same foundation; S3 compares them.
 
 ## S2a - AlternateEye (rung 2; developer A)
 
-`core/gfx/aer.cpp` carries the design. Acceptance, in order:
+`core/gfx/aer.cpp` carries the design. The eye field is measured (camera+0x330, negated
+position; `[Camera] EyeField=0x330`), so the method alternates `eye_for_next_frame()` and tags
+each present; the seam writes the offset on the script lane. Acceptance, in order:
 
-- [ ] `stereo aer` accepted (needs `[Camera] EyeField` from the eyetest); the beat line reads
-      `L/s == R/s == out/s / 2`
+- [ ] `stereo aer` accepted; the beat line reads `L/s == R/s == out/s / 2`
 - [ ] `stereo.xrs` on the simulator: two projection views, `EyeSeparationM` == IPD, left vs
       right `img-diff` well above the noise floor with parallax on near geometry
 - [ ] eye-check.ps1 legs 0-5 PASS; the runtime's pair probe reports no untagged presents
@@ -70,18 +61,35 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [ ] Headset: fusion at the measured IPD, no swim on head turns; half-rate per eye judged
       acceptable or not (write the verdict)
 
-## S2b - SequentialReentry (rung 3; developer B)
+## S2b - Native stereo by scene-draw re-entry (rung 3; the user)
 
-`core/gfx/reentry.cpp` carries the design. Acceptance, in order:
+`core/gfx/reentry.cpp` carries the design. The former S1 items this lane needs come first,
+because re-entry doubles the presents and the eye offset rides the same write:
 
-- [ ] The scene-draw root found and byte-verified (caller census, live stack scrape, the
-      eyetest as the mover); its address in `patterns.h` with the derivation in ENGINE_NOTES
+- [ ] The capture cost cut: a D3D9Ex shared surface opened on the D3D11 side replaces
+      `GetRenderTargetData` (the per-frame CPU round trip in `core/gfx/capture`); measured as
+      presents/s at the headset's refresh on the mono screen (68/s at 1920x1080 on the Quest 3
+      run of 2026-09-03 is the baseline)
+- [ ] Positional (lean/crouch/roomscale) tracking moved from the c0 `LeanVP` patch to the
+      camera seam's position write into camera+0x330, and measured equal (the eye offset uses
+      the same write, so one mechanism drives both)
+- [ ] The scene-draw root found and byte-verified (caller census at `ApplyHeadToViewRotation`,
+      live stack scrape, identify the pass by making it MOVE with the eyetest as the mover); its
+      address in `patterns.h` with the derivation in ENGINE_NOTES
 - [ ] The second draw gated deny-by-default and SEH-guarded; a fault poisons the method for
       the session and the game runs on mono
 - [ ] `stereo reentry` accepted; presents = 2x ticks; the beat line reads `L/s == R/s`;
       second-draw cost logged
 - [ ] `stereo.xrs`, eye-check legs 0-5 on the simulator; headset: fusion, per-eye
       reflections and effects, no flicker on fast motion
+
+## Housekeeping, either lane, whoever touches it first
+
+- [ ] `head_track` and `pad_bridge` converted to real modules (the D1-era refactor step S0
+      deferred)
+- [ ] A SteamVR rig confirmed through the shim (`xr: runtime "DishonoredVR SteamVR shim
+      (OpenVR)"`)
+- [ ] `[VR] FpsCap` cadence chosen for VDXR (72 or 45 at 90 Hz) once the capture cost is cut
 
 ## S3 - Compare and choose; the features come back on the winner
 
