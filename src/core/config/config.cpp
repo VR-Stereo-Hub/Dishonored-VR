@@ -884,6 +884,11 @@ static void LoadConfig()
     }
     g_forceResW = (UINT)IniFloat(ini, "Screen", "RenderWidth", 0);
     g_forceResH = (UINT)IniFloat(ini, "Screen", "RenderHeight", 0);
+    g_pinBackbuffer = (int)IniFloat(ini, "Screen", "PinBackbuffer", 0);
+    if (g_pinBackbuffer)
+        Log("config: PinBackbuffer=1 - the device will be CREATED at %ux%u instead of "
+            "asking the engine for a setres later (no mid-session Reset, no freeze)",
+            g_forceResW, g_forceResH);
     g_spoofW = (UINT)IniFloat(ini, "Screen", "SpoofDesktopW", 0);
     g_spoofH = (UINT)IniFloat(ini, "Screen", "SpoofDesktopH", 0);
     if (g_spoofW && (g_spoofW < 1280 || g_spoofW > 8192)) g_spoofW = 0;

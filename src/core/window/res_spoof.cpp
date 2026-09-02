@@ -483,6 +483,32 @@ static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where)
 static void ForceRes(D3DPRESENT_PARAMETERS* pp, const char* where)
 {
     if (!pp || !g_wantClientW || !g_wantClientH) return;
+    // 40.1: log what the game ASKED for, every time, before we touch anything.
+    // "the game asked for 3840x2160" is the fact that explains a whole class of
+    // reports, and it used to be printed only when we happened to force windowed.
+    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 12,
+        "res: %s the game asked for %ux%u windowed=%d fmt=%d refresh=%u "
+        "(our target is %ux%u, PinBackbuffer=%d)",
+        where, pp->BackBufferWidth, pp->BackBufferHeight, (int)pp->Windowed,
+        (int)pp->BackBufferFormat, pp->FullScreen_RefreshRateInHz,
+        g_wantClientW, g_wantClientH, g_pinBackbuffer);
+
+    // 40.1: pin the size at creation when asked. See the note on
+    // g_pinBackbuffer: setres was measured returning "(empty reply)" with no
+    // Reset, so the backbuffer never reached the target on its own and the
+    // engine's client size (GetClientRect, already hooked) disagreed with it
+    // for the whole session.
+    if (g_pinBackbuffer && (pp->BackBufferWidth != g_wantClientW ||
+                            pp->BackBufferHeight != g_wantClientH)) {
+        DVR_WARN("res: %s PINNING the backbuffer %ux%u -> %ux%u. GetClientRect already "
+                 "reports the target, so this makes the buffer AGREE with the size the "
+                 "game thinks it has, instead of rendering into a differently shaped "
+                 "one for the whole session.",
+                 where, pp->BackBufferWidth, pp->BackBufferHeight,
+                 g_wantClientW, g_wantClientH);
+        pp->BackBufferWidth  = g_wantClientW;
+        pp->BackBufferHeight = g_wantClientH;
+    }
     if (pp->Windowed) return;
     static int told = 0;
     if (told < 10) { told++;

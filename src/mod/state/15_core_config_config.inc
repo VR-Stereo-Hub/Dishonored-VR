@@ -54,6 +54,25 @@ static volatile bool g_menuOpen = true;
 // resolution) - off-centre view, broken menus. The honest route to
 // sharpness is driver-side DSR/VSR: fake high-res desktop, game and cursor
 // and window all agree, and this override stays retired.
+// 40.1 [Screen] PinBackbuffer - create the D3D9 device AT the target size
+// instead of hoping the engine's own `setres` gets there later.
+//
+// Measured 2026-09-01 on a real VDXR run: the game asked CreateDevice for
+// 3840x2160, the mod left the size alone (32.81) and asked the engine for
+// `setres 2750x2850w`, which answered "(empty reply)" and produced NO Reset at
+// all. The backbuffer stayed 4K 16:9 for the whole session while GetClientRect
+// told the game it was 2750x2850 - the two disagreed, and every eye-quad number
+// downstream came from the wrong one. When setres does land, it lands as a
+// device Reset mid-session, which is the freeze-then-rescale players report.
+//
+// Pinning at birth removes both failure modes: nothing to resize, nothing to
+// Reset. The 32.57 objection ("image in the corner, because the backbuffer grew
+// while the game's SizeX/SizeY stayed small") is answered by the GetClientRect
+// hook that landed afterwards - the game already reads the target as its client
+// size, so pinning makes the two AGREE rather than disagree.
+//
+// Ships default OFF with a live A/B, per the project rule for render levers.
+static int    g_pinBackbuffer = 0;        // [Screen] PinBackbuffer (0 = off)
 static UINT   g_forceResW = 0;           // [Screen] RenderWidth  (0 = off)
 static UINT   g_forceResH = 0;           // [Screen] RenderHeight
 static UINT   g_wantClientW = 0, g_wantClientH = 0;   // the client size we drive

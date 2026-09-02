@@ -135,6 +135,29 @@ static bool BuildEyeQuads(float aspect)
                 fillNow = g_menuFill;
             W = 2.0f * D * tanf(fovDeg * 0.5f * 3.14159265f / 180.0f) * fillNow;
             H = W / aspect;
+            // 40.1 WORLD SCALE, the number behind "everything looks too big".
+            // W is pinned to the rendered horizontal FOV, so the only free
+            // variable is H, and H comes from the FULL-FRAME aspect. Push the
+            // render toward square (a tall ResY next to a modest ResX) and the
+            // virtual screen grows taller than the lenses can show; the player
+            // then sees the MIDDLE of a tall image, which reads as zoom, not as
+            // crop. Log the subtended angles so that is arithmetic, not a
+            // matter of opinion. Rebuild-only, so this costs nothing per frame.
+            {
+                const float kR2D = 57.29578f;
+                float subH = 2.0f * atanf((W * 0.5f) / D) * kR2D;
+                float subV = 2.0f * atanf((H * 0.5f) / D) * kR2D;
+                Log("quad: fov=%.1f deg fill=%.2f frameAspect=%.3f perEyeAspect=%.3f "
+                    "W=%.3f H=%.3f D=%.2f m -> subtends %.1f x %.1f deg",
+                    fovDeg, fillNow, aspect, aspect * 0.5f, W, H, D, subH, subV);
+                if (subV > 110.0f)
+                    DVR_WARN("quad: the virtual screen subtends %.0f deg VERTICALLY, which is "
+                             "far more than any headset shows (~90-110). You will see only "
+                             "the middle of the image and everything will look magnified. "
+                             "This follows from the render aspect %ux%u: a taller frame "
+                             "makes a taller screen. A 16:9-ish frame keeps it near 70 deg.",
+                             subV, g_capW, g_capH);
+            }
         } else {
             W = g_screenWidth; H = W / aspect;  // legacy fixed-size screen
         }
@@ -181,6 +204,28 @@ static bool BuildEyeQuads(float aspect)
             g_fillView && !(g_menuOpen || g_inMenu || g_sbsMonoNow)) {
             float fovDeg = (g_liveFovX > 30.0f && g_liveFovX < 150.0f)
                          ? g_liveFovX : g_gameFovDeg;
+            // 40.2 SAY WHICH NUMBER IS SETTING THE SCALE. This is the single
+            // value that decides how big the world looks: the UV window is
+            // built as if the texture spans exactly fovDeg, so if the game is
+            // rendering something else, everything magnifies by the ratio of
+            // the half-angle tangents. g_liveFovX is the MEASURED render FOV
+            // from the fork's dxvk_vr_proj export; g_gameFovDeg is an ini
+            // constant nobody verified. The fallback between them was silent,
+            // and in the 2026-09-01 headset run the export produced nothing at
+            // all - its publish is gated on a landscape viewport too - so an
+            // assumed 100 deg set world scale for a whole session in silence.
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+                "quad/fill: world scale is set by %s = %.1f deg%s",
+                (g_liveFovX > 30.0f && g_liveFovX < 150.0f)
+                    ? "the MEASURED render FOV (fork dxvk_vr_proj)"
+                    : "the ini constant [Screen] GameFOVDeg",
+                fovDeg,
+                (g_liveFovX > 30.0f && g_liveFovX < 150.0f) ? ""
+                    : " - the fork's projection export has produced NOTHING this "
+                      "session, so this number is ASSUMED, not measured. If the "
+                      "world looks magnified, the game is rendering a different "
+                      "FOV and the ratio of the half-angle tangents is exactly "
+                      "how much too big it looks.");
             if (g_fovLever >= 40.0f) {
                 float floorFov = (float)g_fovLever * g_zoomFillFloor;
                 if (fovDeg < floorFov) fovDeg = floorFov;

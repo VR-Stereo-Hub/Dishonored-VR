@@ -1,20 +1,51 @@
 # setup-game-ini.ps1 - the one-time game config the mod needs. Replaces the
 # setup_resolution.bat of the original release.
 #
-#   .\setup-game-ini.ps1 -Resolution            ResX=4032 ResY=2268 Fullscreen=False
+#   .\setup-game-ini.ps1 -Resolution            ResX=2850 ResY=2750 Fullscreen=False
 #   .\setup-game-ini.ps1 -Resolution -Width 3200 -Height 1800
 #   .\setup-game-ini.ps1 -Console               enable the console (F1 in game, then ~)
 #   .\setup-game-ini.ps1 -Restore               put the newest backup back
 #
 # Edits %USERPROFILE%\Documents\My Games\Dishonored\DishonoredGame\Config\
-# DishonoredEngine.ini and DishonoredInput.ini, after a timestamped backup.
-# The mod renders both eyes side by side into one 4032x2268 window (2016x2268
-# per eye), so the game must run windowed at that size. Ships in the release
-# zip; PowerShell 5.1, pure ASCII, CRLF.
+# DishonoredEngine.ini, DishonoredCompat.ini and DishonoredInput.ini, after a
+# timestamped backup. The mod renders both eyes side by side into one window,
+# so the game must run windowed at that size.
+#
+# WHY DishonoredCompat.ini IS EDITED TOO (measured 2026-09-01): setting ResX in
+# DishonoredEngine.ini alone DOES NOT HOLD. Dishonored runs UE3's AppCompat
+# hardware detection at startup, picks an [AppCompatBucketN], and writes that
+# bucket's ResX/ResY straight over [SystemSettings]. Buckets 3 and 4 ship
+# 1600x900, and any GPU newer than the 2012 lookup table falls into one of them,
+# so a modern card silently lands on 1600x900 on EVERY launch no matter what the
+# engine ini says. Setting the buckets makes AppCompat write the right number
+# itself. The original setup_resolution.bat only touched the engine ini, which
+# is why "the resolution keeps reverting" was never fixed by re-running it.
+#
+# THE RENDER MUST BE LANDSCAPE (measured 2026-09-01, and this is not cosmetic).
+# The DXVK fork refuses to splice the MAIN SCENE unless the viewport is wider
+# than it is tall - d3d9_device.cpp gives the refusal the reason "rt-portrait",
+# and the per-eye splice at the bottom of DrawIndexedPrimitive runs only when
+# that reason is "SPLICE". Effects passes (light shafts, shadows, the M8.1
+# quarter light pass) splice under DIFFERENT conditions and keep working, so
+# the fork's splice counter stays high and everything downstream still believes
+# the frame is stereo.
+#
+# The result of a portrait render is the worst possible failure: the world is
+# drawn MONO across the full frame while the proxy hands each eye a different
+# HALF of it. The two eyes get unrelated views that cannot fuse, and each half
+# is stretched across the whole quad, so it is also magnified 2x. That is the
+# "the eyes are super far off and both are zoomed in" report, exactly.
+#
+# 2850x2750 is 2750x2850 with the two numbers swapped: identical pixel cost,
+# landscape by 100 px so the gate passes, full-frame aspect 1.036 so the eye
+# quad subtends 100 x 98 deg at FovLever=100 - right for a Quest 3. If you
+# change these, keep Width > Height.
+#
+# Ships in the release zip; PowerShell 5.1, pure ASCII, CRLF.
 param(
     [switch]$Resolution,
-    [int]$Width = 4032,
-    [int]$Height = 2268,
+    [int]$Width = 2850,
+    [int]$Height = 2750,
     [switch]$Console,
     [switch]$Restore,
     [string]$ConfigDir = ""
@@ -60,6 +91,29 @@ if ($Resolution) {
     Set-IniKey $engine "ResX" $Width
     Set-IniKey $engine "ResY" $Height
     Set-IniKey $engine "Fullscreen" "False"
+
+    # The AppCompat buckets decide the STARTUP resolution and overwrite the
+    # engine ini every launch (see the header). Set all four, because which one
+    # a machine lands in depends on a 2012 GPU table we cannot predict.
+    $compat = Join-Path $ConfigDir "DishonoredCompat.ini"
+    if (Test-Path $compat) {
+        Backup $compat
+        $lines = Get-Content $compat
+        $sec = ""; $n = 0
+        $out = foreach ($l in $lines) {
+            if ($l -match '^\s*\[(.+)\]\s*$') { $sec = $Matches[1]; $l }
+            elseif ($sec -like 'AppCompatBucket*' -and $l -match '^\s*ResX\s*=') { $n++; "ResX=$Width" }
+            elseif ($sec -like 'AppCompatBucket*' -and $l -match '^\s*ResY\s*=') { $n++; "ResY=$Height" }
+            else { $l }
+        }
+        [System.IO.File]::WriteAllLines($compat, [string[]]$out)
+        Write-Host "DishonoredCompat.ini: AppCompat buckets set to ${Width}x${Height} ($n line(s))"
+        if ($n -eq 0) {
+            Write-Warning "no AppCompatBucket ResX/ResY lines found - if the game keeps starting at 1600x900, this is why."
+        }
+    } else {
+        Write-Warning "DishonoredCompat.ini not found. The game may overwrite ResX/ResY at startup from its AppCompat bucket; run the game once, then re-run this."
+    }
     Write-Host "Launch the game normally; the mod's window hooks keep the size. Alt+Enter toggles fullscreen back off if needed."
 }
 

@@ -19,6 +19,28 @@ static void RenderEyesAndSubmit()
         bool menuNow = (g_menuOpen || g_inMenu);
         if (menuNow != lastMenu) { lastMenu = menuNow; g_quadAspect = 0.0f; }
     }
+    // 40.1 THE MONO/STEREO UV RACE. BuildEyeQuads BAKES the sampling UVs into
+    // the vertex buffers: stereo takes half the texture per eye, mono takes the
+    // whole thing. But the rebuild above only fires on an aspect change or a
+    // menu toggle, and g_sbsMonoNow flips DURING GAMEPLAY every time the fork's
+    // splice count dips below the gameplay threshold. When it flips without a
+    // rebuild the quads keep the previous mapping, so a mono frame is sampled
+    // with stereo UVs and each eye is handed a DIFFERENT HALF of one mono
+    // image - two unrelated views that cannot fuse, which reads as "it froze
+    // and went weird" rather than as a stereo fault. Treat it exactly like the
+    // menu flag: a change in what the frame IS must rebuild how it is sampled.
+    {
+        static bool lastMono = false;
+        static bool monoInit = false;
+        bool monoNow = g_sbsMonoNow;
+        if (!monoInit || monoNow != lastMono) {
+            if (monoInit)
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 1000,
+                    "quad: frame kind changed %s -> %s, rebuilding the eye UVs",
+                    lastMono ? "MONO" : "stereo", monoNow ? "MONO" : "stereo");
+            monoInit = true; lastMono = monoNow; g_quadAspect = 0.0f;
+        }
+    }
     if (g_quadAspect == 0.0f || fabsf(aspect - g_quadAspect) > 0.01f)
         if (!BuildEyeQuads(aspect)) return;
     if (g_worldScreen && !g_xrOn) WsUpdateQuads();   // 38.2: room-locked screen
@@ -277,9 +299,60 @@ static void VRFrame(IDirect3DDevice9* dev)
             bb->Release();
             return;
         }
-        g_capW = desc.Width; g_capH = desc.Height; g_capFmt = desc.Format;
-        g_pixels = (uint8_t*)malloc((size_t)g_capW * g_capH * 4);
-        Log("capture: %ux%u fmt=%d", g_capW, g_capH, (int)desc.Format);
+        // 40.1: a capture-size change AFTER the first one is the single most
+        // consequential event in a session and used to log as an ordinary
+        // repeat of the same line. Every downstream size is derived from this
+        // one: the SBS half-width, the eye quads, the projection fill. When it
+        // moves mid-session the player sees the image freeze for the Reset and
+        // then come back at a different scale ("it froze then became big").
+        // Name it as the resolution change it is, at Warn, with the before and
+        // after, so it can never again be mistaken for routine chatter.
+        {
+            UINT oldW = g_capW, oldH = g_capH;
+            g_capW = desc.Width; g_capH = desc.Height; g_capFmt = desc.Format;
+            g_pixels = (uint8_t*)malloc((size_t)g_capW * g_capH * 4);
+            if (oldW && oldH && (oldW != g_capW || oldH != g_capH)) {
+                DVR_WARN("capture: RESOLUTION CHANGED MID-SESSION %ux%u -> %ux%u "
+                         "(per eye %ux%u -> %ux%u). The frame the game hands us just "
+                         "changed size, so the eye quads and the projection fill are "
+                         "rebuilt against a new aspect: expect a stall and a visible "
+                         "scale jump. Target is [Screen] RenderWidth/Height = %ux%u.",
+                         oldW, oldH, g_capW, g_capH,
+                         oldW / 2, oldH, g_capW / 2, g_capH,
+                         g_forceResW, g_forceResH);
+            } else {
+                Log("capture: %ux%u fmt=%d (per eye %ux%u)", g_capW, g_capH,
+                    (int)desc.Format, g_capW / 2, g_capH);
+            }
+            // 40.2 THE RENDER MUST BE LANDSCAPE OR THERE IS NO STEREO.
+            // The fork will not splice the MAIN SCENE unless the viewport is
+            // wider than it is tall: d3d9_device.cpp names the refusal
+            // "rt-portrait" and the per-eye splice runs only for "SPLICE".
+            // Effects passes (light shafts, shadows, the M8.1 quarter light
+            // pass) splice on DIFFERENT conditions and keep working, so the
+            // splice counter stays high and every gate downstream still reads
+            // "stereo". Nothing anywhere said otherwise.
+            //
+            // What the player gets is the worst case, not a blank screen: the
+            // world is drawn MONO across the full frame and we hand each eye a
+            // different HALF of it. Two unrelated views that cannot fuse, each
+            // magnified 2x by the stretch onto the quad. That is the measured
+            // "eyes super far off and both zoomed in" report. It cost a session
+            // because the failure was silent on both sides of the boundary.
+            if (g_sbsMode && g_capW && g_capH && g_capW <= g_capH) {
+                DVR_ERROR("capture: THE RENDER IS PORTRAIT (%ux%u, aspect %.3f). The DXVK "
+                          "fork refuses to splice the main scene on a viewport that is not "
+                          "wider than it is tall (its own reason string: \"rt-portrait\"), "
+                          "so the WORLD IS MONO while each eye is handed a different half "
+                          "of it - the eyes cannot fuse and everything is magnified 2x. "
+                          "Effects still splice, so the splice counter LIES about this. "
+                          "Fix: make [Screen] RenderWidth > RenderHeight (currently %ux%u) "
+                          "and re-run tools\\setup-game-ini.ps1 -Resolution. Swapping the "
+                          "two numbers costs nothing and is usually the right answer.",
+                          g_capW, g_capH, (float)g_capW / (float)g_capH,
+                          g_forceResW, g_forceResH);
+            }
+        }
     }
     HRESULT hr = dev->GetRenderTargetData(bb, g_sysmem);
     bb->Release();

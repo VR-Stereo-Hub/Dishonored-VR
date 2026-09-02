@@ -530,24 +530,46 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
                         g_rtdSizeWpn, (long)g_rtdHitsWpn,
                         g_rtdT[1][0], g_rtdT[1][1], g_rtdT[1][2]);
                 g_rtdHitsArms = 0; g_rtdHitsWpn = 0;
-                if (g_skcDrive)
-                    Log("heartbeat: hands rot writes=%ld/3s (thousands = we are "
-                        "outrunning the engine's recompute)", (long)g_skcRotWrites);
-                g_skcRotWrites = 0;
-                // 33.1: the line above tracks a RETIRED subsystem and reads 0
-                // forever - which is why the arms-died-after-reload log said
-                // nothing useful. This one tracks the drive that actually
-                // moves the hands. fpW frozen while handMesh=1 IS the bug.
+                // 40.1: WHICH DRIVE OWNS THE HANDS. Both older counters below
+                // read 0 forever under the current architecture, and a reader
+                // who does not know that concludes "the hands are dead" from a
+                // healthy run - which is exactly what happened. Name the owner
+                // first, and report the counter that belongs to it.
+                //
+                //   g_skcRotWrites - retired subsystem, always 0.
+                //   g_fpWrites     - the LEGACY component drive, which
+                //                    skelcontrol.cpp deliberately stands down
+                //                    (returns early) whenever g_skcDrive or
+                //                    g_rtdEnable owns the rigs. 0 is CORRECT
+                //                    there, not a fault.
+                //   g_skcHits      - the SkelControl drive: the one that is
+                //                    actually writing bones today.
                 {
-                    static long fpPrev = 0;
-                    long fpNow = g_fpWrites;
-                    Log("heartbeat: hands DRIVE writes=%ld/3s handMesh=%d "
-                        "sel=%d cand=%d target=%s",
-                        fpNow - fpPrev, (int)g_handMesh, g_fpSel, g_fpCandN,
-                        (g_fpWritten && LooksLikeObj(g_fpWritten))
-                          ? "live" : "STALE/none");
-                    fpPrev = fpNow;
+                    static long skcPrev = 0, fpPrev = 0;
+                    long skcNow = (long)g_skcHits, fpNow = g_fpWrites;
+                    const char* owner = g_skcDrive  ? "SkelControl (g_skcHits)"
+                                      : g_rtdEnable ? "render-time drive"
+                                      : g_handMesh  ? "legacy component (g_fpWrites)"
+                                                    : "NOBODY - hands are not driven";
+                    Log("heartbeat: hands OWNER=%s writes=%ld/3s  handMesh=%d "
+                        "armsHidden=%d handSize=%.2f",
+                        owner, (g_skcDrive ? skcNow - skcPrev : fpNow - fpPrev),
+                        (int)g_handMesh, (int)g_armsHidden, g_skcHandSize);
+                    if (g_skcDrive && skcNow == skcPrev)
+                        DVR_WARN("hands: SkelControl owns the hands but wrote NOTHING in 3s "
+                                 "- the graft is not reaching the rig, so HandSize/pose are "
+                                 "not being applied and you will see the game's own arms.");
+                    // The legacy counters, kept for continuity, tagged so nobody
+                    // reads a designed-in zero as a failure again.
+                    DVR_DEBUG("heartbeat: (legacy) rotWrites=%ld fpWrites=%ld/3s sel=%d "
+                              "cand=%d fpTarget=%s%s",
+                              (long)g_skcRotWrites, fpNow - fpPrev, g_fpSel, g_fpCandN,
+                              (g_fpWritten && LooksLikeObj(g_fpWritten)) ? "live" : "STALE/none",
+                              (g_skcDrive || g_rtdEnable)
+                                ? "  (legacy drive stood down on purpose - 0 is expected)" : "");
+                    skcPrev = skcNow; fpPrev = fpNow;
                 }
+                g_skcRotWrites = 0;
                 memcpy(g_rtdCensusSnap, g_rtdCensus, sizeof(g_rtdCensusSnap));
                 memset(g_rtdCensus, 0, sizeof(g_rtdCensus));
                 g_pvrHits = 0; g_pvrWrites = 0; g_fovLeverWrites = 0;
