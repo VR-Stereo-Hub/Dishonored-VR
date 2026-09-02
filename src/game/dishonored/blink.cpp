@@ -461,8 +461,7 @@ static void BlinkDirInstall()
 extern "C" void __cdecl BlinkDestHook(void* self, uint8_t* framePtr)
 {
     InterlockedIncrement(&g_blkDstHits);
-    if (InterlockedExchange(&g_blkAutoDump, 0) && g_dxvkDumpReq)
-        *g_dxvkDumpReq = 1;                // 32.34: this frame HAS the marker
+    InterlockedExchange(&g_blkAutoDump, 0);   // 41.0: the fork's marker dump is gone
     uint8_t* o = (uint8_t*)self;
     if (!o || ((uintptr_t)o & 3)) return;
     if (o != g_blkObj) return;                    // only the player's Blink
@@ -480,17 +479,6 @@ extern "C" void __cdecl BlinkDestHook(void* self, uint8_t* framePtr)
     if (!BlinkControllerDir(d)) return;
     dist = BlinkReach(d, dist);                    // 32.38: hand, not head
     g_blkAimDistUU = dist;                         // 32.28
-    // 32.45: tell the renderer where both markers are. Camera-relative,
-    // because that is the space the vertex constants are in - the engine
-    // renders camera-relative so absolute world coordinates would never match.
-    if (g_dxvkMark) {
-        g_dxvkMark[0] = d[0]*dist; g_dxvkMark[1] = d[1]*dist;
-        g_dxvkMark[2] = d[2]*dist;
-        g_dxvkMark[3] = g_blkDstWas[0]-cp[0]; g_dxvkMark[4] = g_blkDstWas[1]-cp[1];
-        g_dxvkMark[5] = g_blkDstWas[2]-cp[2];
-        g_dxvkMark[7] = g_blkMarkRadUU;
-        g_dxvkMark[6] = 1.0f;
-    }
     // 32.36: stand down ONLY if the trace redirect is demonstrably working.
     // 32.31 handed the aim over unconditionally, so when the trace hook did not
     // fire there was nothing driving anything and aiming silently reverted to

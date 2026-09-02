@@ -76,59 +76,6 @@ static void OverlayFrame()
     // 38.60 SHIP CLEANUP: every diagnostic lives behind the "developer
     // tools" checkbox (bottom of the panel, [Overlay] DevTools). A player
     // sees settings; a debugger flips one box and gets the instruments.
-    if (g_ovlDev)
-    if (g_dxvkShadowFix) {   // 35.2: LIVE shadow-fix bisection dial (M6.5)
-        static const char* sfName[5] = {
-            "0 OFF (old mono look)", "1 FULL (shear+uv+matrix)",
-            "2 no matrix fold", "3 no uv remap", "4 shear only" };
-        int sf = (int)*g_dxvkShadowFix;
-        if (sf < 0) sf = 0; if (sf > 4) sf = 4;
-        if (ImGui::SliderInt("shadow fix mode", &sf, 0, 4, sfName[sf])) {
-            *g_dxvkShadowFix = (unsigned int)sf;
-            Log("shadowfix: mode %d (%s) - set LIVE from overlay",
-                sf, sfName[sf]);
-        }
-        ImGui::TextDisabled("stand at a broken light, flip modes, pick the best");
-    }
-    if (g_ovlDev)
-    if (g_dxvkReflect) {   // 35.3: the mirrored-camera reflection pass, live
-        bool rf = *g_dxvkReflect != 0;
-        if (ImGui::Checkbox("planar reflections (mono - can't match per eye)", &rf)) {
-            *g_dxvkReflect = rf ? 1u : 0u;
-            Log("reflect: planar reflections %s (live)", rf ? "ON" : "OFF");
-        }
-        ImGui::TextDisabled("glossy-floor light pools are these; try OFF at one");
-    }
-    if (g_ovlDev)
-    if (g_dxvkKillMask) {   // 35.4: ARTIFACT HUNT - live draw-class kills
-        ImGui::SeparatorText("ARTIFACT HUNT (diagnostic - kills draw types)");
-        ImGui::TextDisabled("stare at the broken light; the box that removes it names it");
-        unsigned int km = *g_dxvkKillMask;
-        struct { unsigned int bit; const char* name; } kb[6] = {
-            { 1u,  "screen-space RT readers (samples-rt)" },
-            { 2u,  "UI-class duplicates (DUP)" },
-            { 4u,  "modulate-darken draws (sb=9)" },
-            { 8u,  "additive light draws (dest ONE)" },
-            { 16u, "reflection pass (mirrored cam)" },
-            { 32u, "ALL world FX splices (drastic)" },
-        };
-        bool changed = false;
-        for (int kbi = 0; kbi < 6; kbi++) {
-            bool on = (km & kb[kbi].bit) != 0;
-            if (ImGui::Checkbox(kb[kbi].name, &on)) {
-                if (on) km |= kb[kbi].bit; else km &= ~kb[kbi].bit;
-                changed = true;
-            }
-        }
-        if (changed) {
-            *g_dxvkKillMask = km;
-            Log("killmask: 0x%02x (live)", km);
-        }
-        if (km && ImGui::Button("clear all kills", ImVec2(-1, 0))) {
-            *g_dxvkKillMask = 0;
-            Log("killmask: cleared");
-        }
-    }
     // 38.80: HEADSET DISPLAY MODE - player-visible, LIVE, Quest/OpenXR only.
     // Several Quest+VD machines show the projection layer head-locked in
     // pitch ("image fixed and moves with me", "zoomed") while byte-identical
@@ -168,9 +115,7 @@ static void OverlayFrame()
         OverlaySaveDefaults();
     ImGui::Separator();
 
-    ImGui::Text("live FOV %.1f deg   IPD %.0f mm   stereo draws %u",
-                g_liveFovX, g_ipdM * 1000.0f,
-                g_dxvkSplices ? *g_dxvkSplices : 0u);
+    ImGui::Text("live FOV %.1f deg   IPD %.0f mm", g_liveFovX, g_ipdM * 1000.0f);
 
     if (!ImGui::BeginTabBar("vrtabs")) { ImGui::End(); return; }
 
@@ -178,11 +123,6 @@ static void OverlayFrame()
     if (ImGui::SliderFloat("world scale (uu/m)", &g_posScaleUU, 10.0f, 200.0f, "%.0f"))
         { /* sep recomputed each frame from this */ }
     ImGui::TextDisabled("smaller = world feels bigger; life-size door test");
-
-    float conv = g_dxvkConv ? *g_dxvkConv : 140.0f;
-    if (ImGui::SliderFloat("convergence (uu)", &conv, 20.0f, 500.0f, "%.0f") && g_dxvkConv)
-        *g_dxvkConv = conv;
-    ImGui::TextDisabled("distance where left/right images line up");
 
     if (ImGui::SliderFloat("screen fill", &g_fillScale, 0.6f, 3.2f, "%.2f"))
         g_quadAspect = 0.0f;
@@ -632,12 +572,6 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Advanced")) {
-        // 38.60: the frame-dump button is a diagnostic too - dev only.
-        if (g_ovlDev && g_dxvkDumpReq &&
-            ImGui::Button("dump one frame (renderer diagnostic)", ImVec2(-1, 0))) {
-            *g_dxvkDumpReq = 1;
-            Log("framedump: requested (overlay button)");
-        }
         bool dv = g_ovlDev;
         if (ImGui::Checkbox("developer tools", &dv)) g_ovlDev = dv;
         ImGui::SameLine();

@@ -242,8 +242,7 @@ static void UpdateVirtualPad()
                     if (userStealth && !stealthWas2) crPhysOwned = false;
                     stealthWas2 = userStealth;
                 }
-                bool inGameplay = g_dxvkSplices ? (*g_dxvkSplices >= 8)
-                                                : !g_inMenu;
+                bool inGameplay = !g_inMenu;
                 bool aiming = g_wheelHeld ||
                               (crNow - g_blkAimSeen) < 800.0;
                 if (crSeen != crPulsed &&

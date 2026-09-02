@@ -68,17 +68,8 @@ static void RenderEyesAndSubmit()
     // gate (no CylTruthLive, no dialogue window) - so whenever the redirect
     // was off but the panel conditions held, the wrist showed the fork RT's
     // FROZEN last frame. Now the panel simply requires the redirect verdict.
-    if (g_wristHud && g_hudPixEver && g_handMesh &&        // 35.6: see policy
-        InterlockedCompareExchange(&g_hudRedirLive, 0, 0) != 0 &&
-        !(g_menuOpen || g_inMenu || g_sbsMonoNow || g_wheelHeld) &&
-        EnsureHudPanel11() && HudPanelCorners(hudC)) {
-        if (g_hudPixNew) {
-            g_hudPixNew = false;
-            g_ctx11->UpdateSubresource(g_hudTex11, 0, NULL, g_hudPix,
-                                       HUDRB_W * 4, 0);
-        }
-        hudPanelOn = true;
-    }
+    // 41.0: the panel's source was the fork's HUD texture; gone with it.
+    (void)hudC;
 
     // 38.13: XR reticle billboard corners (proj mode; drawn per eye below)
     bool  retOn = false;
@@ -98,7 +89,7 @@ static void RenderEyesAndSubmit()
                                                // carries the picture
         g_ctx11->OMSetDepthStencilState(g_dsOff, 0);   // the flat game image
         // SBS: both eyes sample tex[0] (the stereo pair); AER: per-eye image
-        g_ctx11->PSSetShaderResources(0, 1, &g_srvGame[g_sbsMode ? 0 : eye]);
+        g_ctx11->PSSetShaderResources(0, 1, &g_srvGame[eye]);
         if (g_xrOn && g_xrQuad && g_xrLayerMode != 0) {
             // 38.3 XR-3: the compositor's QUAD does the screen geometry, so
             // the texture must be the FLAT image (a pre-projected quad here
@@ -117,9 +108,6 @@ static void RenderEyesAndSubmit()
             }
             if (fsVb[eye]) {
                 float u0 = 0.0f, u1 = 1.0f;
-                if (g_sbsMode && !g_sbsMonoNow) {
-                    u0 = eye ? 0.5f : 0.0f; u1 = u0 + 0.5f;
-                }
                 QuadVert fv[4] = {
                     {{-1,  1, 0.5f, 1}, {u0, 0}},   // TL
                     {{ 1,  1, 0.5f, 1}, {u1, 0}},   // TR
@@ -324,34 +312,6 @@ static void VRFrame(IDirect3DDevice9* dev)
                 Log("capture: %ux%u fmt=%d (per eye %ux%u)", g_capW, g_capH,
                     (int)desc.Format, g_capW / 2, g_capH);
             }
-            // 40.2 THE RENDER MUST BE LANDSCAPE OR THERE IS NO STEREO.
-            // The fork will not splice the MAIN SCENE unless the viewport is
-            // wider than it is tall: d3d9_device.cpp names the refusal
-            // "rt-portrait" and the per-eye splice runs only for "SPLICE".
-            // Effects passes (light shafts, shadows, the M8.1 quarter light
-            // pass) splice on DIFFERENT conditions and keep working, so the
-            // splice counter stays high and every gate downstream still reads
-            // "stereo". Nothing anywhere said otherwise.
-            //
-            // What the player gets is the worst case, not a blank screen: the
-            // world is drawn MONO across the full frame and we hand each eye a
-            // different HALF of it. Two unrelated views that cannot fuse, each
-            // magnified 2x by the stretch onto the quad. That is the measured
-            // "eyes super far off and both zoomed in" report. It cost a session
-            // because the failure was silent on both sides of the boundary.
-            if (g_sbsMode && g_capW && g_capH && g_capW <= g_capH) {
-                DVR_ERROR("capture: THE RENDER IS PORTRAIT (%ux%u, aspect %.3f). The DXVK "
-                          "fork refuses to splice the main scene on a viewport that is not "
-                          "wider than it is tall (its own reason string: \"rt-portrait\"), "
-                          "so the WORLD IS MONO while each eye is handed a different half "
-                          "of it - the eyes cannot fuse and everything is magnified 2x. "
-                          "Effects still splice, so the splice counter LIES about this. "
-                          "Fix: make [Screen] RenderWidth > RenderHeight (currently %ux%u) "
-                          "and re-run tools\\setup-game-ini.ps1 -Resolution. Swapping the "
-                          "two numbers costs nothing and is usually the right answer.",
-                          g_capW, g_capH, (float)g_capW / (float)g_capH,
-                          g_forceResW, g_forceResH);
-            }
         }
     }
     HRESULT hr = dev->GetRenderTargetData(bb, g_sysmem);
@@ -374,61 +334,6 @@ static void VRFrame(IDirect3DDevice9* dev)
         memcpy(g_pixels + y * rowBytes,
                (const uint8_t*)lr.pBits + (size_t)y * lr.Pitch, rowBytes);
     g_sysmem->UnlockRect();
-
-    // 34.7: wrist HUD source. GPU-downscale the fork's HUD texture to a small
-    // RT and read that back (2.3 MB vs the 36 MB main capture - noise).
-    if (g_wristHud && g_dxvkHudTex && !g_hudRbFail) {
-        IDirect3DTexture9* ht = *g_dxvkHudTex;
-        if (ht) {
-            if (!g_hudSmall || !g_hudSys) {
-                if (FAILED(dev->CreateRenderTarget(HUDRB_W, HUDRB_H,
-                        D3DFMT_X8R8G8B8, D3DMULTISAMPLE_NONE, 0, FALSE,
-                        &g_hudSmall, NULL)) ||
-                    FAILED(dev->CreateOffscreenPlainSurface(HUDRB_W, HUDRB_H,
-                        D3DFMT_X8R8G8B8, D3DPOOL_SYSTEMMEM, &g_hudSys, NULL))) {
-                    g_hudRbFail = true;
-                    Log("hud: readback surfaces FAILED - no wrist panel "
-                        "(redirect still active; set WristHud=0 to get the "
-                        "HUD back in view)");
-                }
-                else {
-                    if (!g_hudPix)
-                        g_hudPix = (uint8_t*)malloc((size_t)HUDRB_W * HUDRB_H * 4);
-                    Log("hud: readback path ready (%dx%d)", HUDRB_W, HUDRB_H);
-                }
-            }
-            if (g_hudSmall && g_hudSys && g_hudPix) {
-                IDirect3DSurface9* hs = NULL;
-                if (SUCCEEDED(ht->GetSurfaceLevel(0, &hs)) && hs) {
-                    // 38.55: clear the fork's HUD RT right AFTER reading it,
-                    // from OUR thread, with a plain ColorFill. This replaces
-                    // fork M8.4's PresentEx-time clear (fork back to exact
-                    // M8.2): same staleness cure - an element that stops
-                    // being drawn is black by the next readback - without
-                    // any state churn inside the fork's present path, which
-                    // is a suspect for the chain artifact. Fill AFTER the
-                    // StretchRect below so this frame's content still shows.
-                    if (SUCCEEDED(dev->StretchRect(hs, NULL, g_hudSmall, NULL,
-                                                   D3DTEXF_LINEAR)) &&
-                        SUCCEEDED(dev->GetRenderTargetData(g_hudSmall, g_hudSys))) {
-                        D3DLOCKED_RECT hl;
-                        if (SUCCEEDED(g_hudSys->LockRect(&hl, NULL,
-                                                         D3DLOCK_READONLY))) {
-                            for (UINT y = 0; y < HUDRB_H; y++)
-                                memcpy(g_hudPix + (size_t)y * HUDRB_W * 4,
-                                       (const uint8_t*)hl.pBits + (size_t)y * hl.Pitch,
-                                       (size_t)HUDRB_W * 4);
-                            g_hudSys->UnlockRect();
-                            g_hudPixNew = true;
-                            g_hudPixEver = true;
-                            dev->ColorFill(hs, NULL, D3DCOLOR_ARGB(0,0,0,0));
-                        }
-                    }
-                    hs->Release();
-                }
-            }
-        }
-    }
 
     // 32.80: SEE the captured frame instead of inferring it.
     // Right eye black + the pair sitting off-centre is the exact signature of
@@ -475,227 +380,15 @@ static void VRFrame(IDirect3DDevice9* dev)
         StereoUpdate(); // hotkeys
         g_gameFrames++;
 
-        // 30.30: SBS mono fallback. While a menu is open, the powers wheel is
-        // held, or the DXVK fork reports a frame with (nearly) no stereo
-        // splices - loading screens, videos, flat scenes - both eyes get the
-        // full frame instead of a half each, so 2D UI stays readable.
-        if (g_sbsMode || g_seqMode) {
-            if (!g_dxvkSplicesTried) {
-                g_dxvkSplicesTried = true;
-                HMODULE hFork = GetModuleHandleA("dxvk_d3d9.dll");
-                if (hFork) {
-                    g_dxvkSeq = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_seq");
-                    g_dxvkEyeSign = (volatile float*)
-                        GetProcAddress(hFork, "dxvk_vr_eyesign");
-                    if (g_seqMode && !g_dxvkEyeSign)
-                        Log("seq: FORK IS TOO OLD - dxvk_vr_eyesign missing. "
-                            "Both eyes will get the same image (mono). Update "
-                            "dxvk_d3d9.dll or remove seq=1 from dxvk_stereo.txt.");
-                    g_dxvkSplices = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_splices");
-                    g_dxvkProj = (volatile float*)
-                        GetProcAddress(hFork, "dxvk_vr_proj");
-                    g_dxvkView = (volatile float*)
-                        GetProcAddress(hFork, "dxvk_vr_view");   // p53
-                    g_dxvkSep = (volatile float*)
-                        GetProcAddress(hFork, "dxvk_vr_sep");
-                    g_dxvkConv = (volatile float*)
-                        GetProcAddress(hFork, "dxvk_vr_conv");
-                    g_dxvkDumpReq = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_dumpreq");
-                    g_dxvkMark = (volatile float*)
-                        GetProcAddress(hFork, "dxvk_vr_mark");
-                    g_dxvkMarkKill = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_markkill");
-                    g_dxvkUvFix = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_uvfix");
-                    g_dxvkHudWrist = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_hudwrist");
-                    g_dxvkHudTex = (IDirect3DTexture9* volatile*)
-                        GetProcAddress(hFork, "dxvk_vr_hudtex");
-                    g_dxvkShadowFix = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_shadowfix");
-                    g_dxvkReflect = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_reflect");
-                    g_dxvkKillMask = (volatile unsigned int*)
-                        GetProcAddress(hFork, "dxvk_vr_killmask");
-                    Log("hud: wrist exports %s",
-                        (g_dxvkHudWrist && g_dxvkHudTex)
-                        ? "resolved" : "NOT FOUND (fork older than M6.0)");
-                }
-                Log("sbs: fork splice counter %s, proj export %s, frame dump %s,"
-                    " marker locator %s",
-                    g_dxvkSplices ? "resolved" : "NOT FOUND (mono only on menus)",
-                    g_dxvkProj ? "resolved" : "NOT FOUND (using GameFOVDeg)",
-                    g_dxvkDumpReq ? "on Scroll Lock" : "NOT FOUND (old fork build)",
-                    g_dxvkMark ? "resolved" : "NOT FOUND (old fork build)");
-                // 40.2: the two exports that own WORLD DEPTH were missing from
-                // this line entirely, so a dead sep/conv resolve looked exactly
-                // like a live one.
-                Log("sbs: stereo separation export %s, convergence export %s "
-                    "(these two decide whether the world-scale knob reaches the "
-                    "world at all; the hands do not go through them)",
-                    g_dxvkSep ? "resolved" : "NOT FOUND",
-                    g_dxvkConv ? "resolved" : "NOT FOUND");
-            }
-            // 30.36: live FOV from the fork's projection export. The screen
-            // quad is sized from the FOV the game renders THIS frame - a
-            // cutscene's zoomed-in FOV presents at true 1:1 angles instead
-            // of stretching, and GameFOVDeg misconfig can no longer warp.
-            if (g_dxvkProj) {
-                float xs = g_dxvkProj[0];
-                if (xs > 0.05f && xs < 20.0f) {
-                    float fov = 2.0f * atanf(1.0f / xs) * 57.29578f;
-                    if (fov > 30.0f && fov < 150.0f &&
-                        fabsf(fov - g_liveFovX) > 0.5f) {
-                        g_liveFovX = fov;
-                        g_quadAspect = 0.0f;   // rebuild quads at new scale
-                        Log("screen: live FOV %.1f deg (from render matrix)", fov);
-                    }
-                    // 30.37: drive the fork's stereo separation from real
-                    // IPD x world scale x live projection, so stereo depth
-                    // and positional parallax agree on how big a meter is:
-                    //   eyeOffsetUU = IPD_m * uuPerMeter
-                    //   sep = xs * eyeOffsetUU / (2 * conv)
-                    // (sep*conv is the true translation term; sep alone is
-                    // the frustum shear; zero parallax stays at w = conv.)
-                    // 40.2 THE WHOLE DEPTH CHAIN, INCLUDING THE READ-BACK.
-                    // Every input to world scale was invisible: the IPD was
-                    // never logged at all, the resolve of the sep/conv exports
-                    // was never reported, and the write was never checked. So
-                    // "the world still feels huge" had no arithmetic behind it
-                    // and the world-scale slider could move the hands (drawn by
-                    // us) while doing nothing to the world (drawn by the fork)
-                    // with nothing to say which half was dead.
-                    //
-                    // A verified write is not an honoured one, so the value is
-                    // read BACK out of the fork's export and printed next to
-                    // what we asked for. If they differ, something else owns
-                    // the variable. eyeOffsetUU is the number that actually
-                    // matters - how many game units apart the two eyes are -
-                    // and it is what a person can sanity-check against a known
-                    // in-game dimension.
-                    if (g_dxvkSep && g_dxvkConv && *g_dxvkConv > 1.0f) {
-                        const float convNow = *g_dxvkConv;
-                        const float eyeOffUU = g_ipdM * g_posScaleUU;
-                        const float want = xs * eyeOffUU * 0.5f / convNow;
-                        *g_dxvkSep = want;
-                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-                            "depth: ipd=%.1fmm worldScale=%.1f uu/m -> eyes %.2f uu "
-                            "apart | xs=%.4f (fov %.1f deg) conv=%.1f uu -> sep "
-                            "asked %.5f, fork reads back %.5f%s",
-                            g_ipdM * 1000.0f, g_posScaleUU, eyeOffUU, xs,
-                            g_liveFovX, convNow, want, *g_dxvkSep,
-                            (fabsf(*g_dxvkSep - want) > 1e-6f)
-                                ? "  <== MISMATCH: the fork is not keeping our "
-                                  "separation, so the world's depth does NOT follow "
-                                  "the world-scale knob (the hands still will)"
-                                : "");
-                    } else {
-                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 10000,
-                            "depth: NOT driving the fork's stereo separation - sep "
-                            "export %s, conv export %s, conv value %.1f (needs > 1). "
-                            "The world keeps whatever separation dxvk_stereo.txt set "
-                            "at load, and the world-scale knob will move the hands "
-                            "but NOT the world.",
-                            g_dxvkSep ? "resolved" : "NOT FOUND",
-                            g_dxvkConv ? "resolved" : "NOT FOUND",
-                            g_dxvkConv ? *g_dxvkConv : 0.0f);
-                    }
-                }
-            }
-            // 30.34: the fork (M3.5) duplicates HUD/menu/wheel UI into both
-            // halves, so those frames are stereo-CORRECT - forcing mono on
-            // them shows the squeezed pair (unreadable). Trust the fork's
-            // per-frame stereo-content counter; menu events are only the
-            // fallback for an old fork without the counter. This also kills
-            // the mono-stuck-at-level-start bug: the game's save-slot polls
-            // (Req_SaveSlotInfos) re-open the menu flag right after
-            // auto-start, but with the counter rule a high splice count wins.
-            bool wantMono = g_dxvkSplices
-                          ? (*g_dxvkSplices < 8)
-                          : (g_menuOpen || g_wheelHeld);
-            if (g_seqMode) {
-                // Nothing to sample differently in seq - "mono" here just
-                // means stop shifting and give both eyes the same frame, so
-                // a menu or loading screen cannot land in one eye only.
-                if (wantMono != g_seqMonoNow) {
-                    g_seqMonoNow = wantMono;
-                    Log("seq: %s (splices=%u)", wantMono ? "MONO" : "stereo",
-                        g_dxvkSplices ? *g_dxvkSplices : 0u);
-                }
-                wantMono = false;   // fall through; SBS bookkeeping below is
-                                    // about half-frame UVs and does not apply
-            }
+        // 41.0: the fork and its splice counter are gone. Menu and wheel are the
+        // only mono signal now; the flag survives until the SBS pipeline goes.
+        {
+            bool wantMono = g_menuOpen || g_wheelHeld;
             if (wantMono != g_sbsMonoNow) {
                 g_sbsMonoNow = wantMono;
                 g_quadAspect = 0.0f;   // force per-eye quad UV rebuild
-                Log("sbs: %s (menu=%d wheel=%d splices=%u)",
-                    wantMono ? "MONO" : "stereo", (int)g_menuOpen,
-                    (int)g_wheelHeld,
-                    g_dxvkSplices ? *g_dxvkSplices : 0u);
-            }
-            // 34.6: wrist-HUD policy. Redirect UI draws to the fork's HUD
-            // texture only during stereo gameplay; any menu/mono frame draws
-            // its UI in view as before.
-            // 38.49: push the ini bisector value once it can be seen to stick
-            if (g_dxvkKillMask && g_killMaskIni != 0) {
-                if (*g_dxvkKillMask != (unsigned int)g_killMaskIni) {
-                    *g_dxvkKillMask = (unsigned int)g_killMaskIni;
-                    Log("killmask: [Debug] KillMask=%d applied - if the "
-                        "artifact vanishes, that class draws it",
-                        g_killMaskIni);
-                }
-            }
-            // 38.49: push the ini bisector value (the overlay checkboxes
-            // still win - this only sets a non-zero starting mask).
-            if (g_dxvkKillMask && g_killMaskIni != 0) {
-                static bool kmTold = false;
-                if (!kmTold) { kmTold = true;
-                    *g_dxvkKillMask = (unsigned int)g_killMaskIni;
-                    Log("killmask: [Debug] KillMask=%d applied - if the "
-                        "artifact VANISHES, that class draws it",
-                        g_killMaskIni);
-                }
-            }
-            if (g_dxvkHudWrist) {
-                // 34.7: the power WHEEL is also a kUpDup UI draw, and it was
-                // redirected right off the screen. While the wheel is held
-                // the redirect pauses so the wheel draws in view.
-                // 35.6: AND the hands must actually be driving (g_handMesh).
-                // Idling at the MAIN menu, the attract scene's camera kept
-                // gameplay dispatches flowing, the stale-flag ghost test
-                // cleared the menu flag, splices were high (live 3D
-                // background) - and the redirect swept the MAIN MENU onto
-                // the wrist panel. "The sword follows your hand = you are
-                // playing" (the 30.23 lesson) is the discriminator that
-                // cannot false-positive at a menu.
-                // 38.46 MAIN-MENU FIX (the only HUD change kept from the
-                // split experiment). Measured by the user: "if I was in the
-                // main menu after my arms armed (e.g. I feel haptics) the
-                // main menu would get tiny on my hand". g_handMesh latches
-                // true once the hands arm and STAYS true at the menu, and the
-                // menu flags miss the main menu in windowed mode - script
-                // events are the only signal there. A possessed pawn cannot
-                // exist at the main menu, so requiring one closes the hole
-                // without touching anything the wrist HUD does in gameplay.
-                bool dlgNow = (g_dlgHudOff && MaimNowMs() < g_dlgUntilMs);
-                unsigned int want = (g_wristHud && g_handMesh &&
-                                     CylTruthLive() && !dlgNow &&
-                                     !g_menuOpen && !g_inMenu &&
-                                     !g_sbsMonoNow && !g_wheelHeld) ? 1u : 0u;
-                InterlockedExchange(&g_hudRedirLive, want ? 1 : 0);
-                {   // say when the conversation window closes, so the log
-                    // shows both edges and not just the entry
-                    static bool dlgWas = false;
-                    if (dlgWas && !dlgNow) Log("dialog: over - wrist HUD back");
-                    dlgWas = dlgNow;
-                }
-                if (*g_dxvkHudWrist != want) {
-                    *g_dxvkHudWrist = want;
-                    Log("hud: wrist redirect %s", want ? "ON" : "off");
-                }
+                Log("sbs: %s (menu=%d wheel=%d)", wantMono ? "MONO" : "stereo",
+                    (int)g_menuOpen, (int)g_wheelHeld);
             }
         }
 
@@ -707,31 +400,7 @@ static void VRFrame(IDirect3DDevice9* dev)
         // frame apart -> the AER blur shrinks toward nothing, while the headset
         // still always gets a solid 90 Hz (no judder even if fps dips).
         if (EnsureGameTex(g_capW, g_capH)) {
-            if (g_seqMode) {
-                // The frame we just captured is ONE eye, whole and full-size.
-                // g_drawEye names the eye the fork was told to draw, so it is
-                // the eye this frame belongs to; store it, flip, and tell the
-                // fork which eye to draw next. The write happens here, in
-                // Present, before any draw of the next frame can read it.
-                if (g_seqMonoNow) {
-                    g_ctx11->UpdateSubresource(g_texGame[0], 0, NULL, g_pixels, g_capW * 4, 0);
-                    g_ctx11->UpdateSubresource(g_texGame[1], 0, NULL, g_pixels, g_capW * 4, 0);
-                    if (g_dxvkEyeSign) *g_dxvkEyeSign = 0.0f;
-                } else {
-                    g_ctx11->UpdateSubresource(g_texGame[g_drawEye], 0, NULL, g_pixels, g_capW * 4, 0);
-                    static bool seqPrimed = false;
-                    if (!seqPrimed) {   // don't show a black eye on frame one
-                        seqPrimed = true;
-                        g_ctx11->UpdateSubresource(g_texGame[!g_drawEye], 0, NULL, g_pixels, g_capW * 4, 0);
-                    }
-                    g_drawEye ^= 1;
-                    if (g_dxvkEyeSign) *g_dxvkEyeSign = g_drawEye ? 1.0f : -1.0f;
-                }
-            } else if (g_sbsMode) {
-                // 30.29: the frame is already a stereo pair (left|right).
-                // One upload; both eye quads sample their half of tex[0].
-                g_ctx11->UpdateSubresource(g_texGame[0], 0, NULL, g_pixels, g_capW * 4, 0);
-            } else if (g_stereoEnabled) {
+            if (g_stereoEnabled) {
                 g_ctx11->UpdateSubresource(g_texGame[g_drawEye], 0, NULL, g_pixels, g_capW * 4, 0);
                 static bool primed = false;
                 if (!primed) {

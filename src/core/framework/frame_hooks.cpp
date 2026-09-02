@@ -281,8 +281,7 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
     }
 
     // --- c0 view-projection: stereo shear + positional lean ---
-    // (SBS mode: the DXVK fork splices per-eye VPs itself - no AER shear here)
-    bool wantStereo = g_stereoEnabled && !g_sbsMode && !g_seqMode;
+    bool wantStereo = g_stereoEnabled;
     bool wantHead   = g_injectHead && g_haveA;
     bool wantPos    = g_posTrack && (g_leanRightUU != 0.0f || g_leanUpUU != 0.0f || g_leanFwdUU != 0.0f);
     if ((wantStereo || wantHead || wantPos) && data && count >= 4 && count <= 240 &&
@@ -460,19 +459,6 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
                     }
                     self->StretchRect(g_specTmp, &src, sbb, &dst,
                                       D3DTEXF_LINEAR);
-                    // 38.64: HUD inset - health/mana for the stream. The
-                    // wrist panel's downscale RT already holds the HUD frame
-                    // whenever the redirect is on; park it bottom-left.
-                    if (g_mirrorHud && g_hudSmall) {
-                        LONG ih = (LONG)(sd.Height / 5);
-                        LONG iw = ih * (LONG)HUDRB_W / (LONG)HUDRB_H;
-                        RECT hd;
-                        hd.left = dst.left + (LONG)(sd.Height / 45);
-                        hd.bottom = dst.bottom - (LONG)(sd.Height / 45);
-                        hd.right = hd.left + iw; hd.top = hd.bottom - ih;
-                        self->StretchRect(g_hudSmall, NULL, sbb, &hd,
-                                          D3DTEXF_LINEAR);
-                    }
                 }
                 sbb->Release();
             }
@@ -781,9 +767,6 @@ static HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* 
     if (pp) { g_liveBbW = pp->BackBufferWidth; g_liveBbH = pp->BackBufferHeight; }
     if (g_sysmem) { g_sysmem->Release(); g_sysmem = NULL; }
     g_capW = g_capH = 0; g_capFmt = D3DFMT_UNKNOWN;
-    // 34.7: the panel's POOL_DEFAULT downscale RT must not survive a Reset
-    if (g_hudSmall) { g_hudSmall->Release(); g_hudSmall = NULL; }
-    if (g_hudSys)   { g_hudSys->Release();   g_hudSys   = NULL; }
     // 38.63: THE MIRROR BLACK SCREEN. 38.62's spectator temp is a
     // POOL_DEFAULT render target and was never released here - so the
     // game's Reset failed forever (one retry per second, both black-screen
@@ -872,7 +855,6 @@ static HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter,
         void* oldSRT = PatchVtable(*outDev, 37, (void*)hkSetRenderTarget); // SetRenderTarget
         if (oldSRT && !g_origSetRT) g_origSetRT = (PFN_SetRenderTarget)oldSRT;
         Log("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget)");
-        InstallForkWindowHooks();
         // 32.85: give the fullscreen-fallback window a real face. The game
         // thinks it is fullscreen, so it will not fight this - unlike every
         // windowed-mode resize war above. 1600x900, centered, framed, shown.

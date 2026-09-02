@@ -266,27 +266,6 @@ static void LoadConfig()
     g_screenWidth  = IniFloat(ini, "Screen", "WidthMeters", 4.8f);
     g_forceTheater = IniFloat(ini, "Mode", "ForceTheater", 0) != 0.0f;
     g_stereoEnabled  = IniFloat(ini, "Stereo", "Enabled", 1) != 0.0f;
-    // 30.29: one switch for both layers. If the DXVK stereo marker exists,
-    // the fork below us is already producing a true side-by-side stereo
-    // frame - the proxy must not add its own AER shear on top.
-    g_sbsMode = GetFileAttributesA("dxvk_stereo.txt") != INVALID_FILE_ATTRIBUTES;
-    // 32.71: the same marker file chooses WHICH fork mode. "seq=1" means the
-    // fork renders one whole eye per frame instead of splicing halves, so the
-    // proxy must take the full frame as that eye's image (the AER path) rather
-    // than sampling half of it - and must still not add a shear of its own.
-    if (g_sbsMode) {
-        char mk[256] = {};
-        FILE* mf = fopen("dxvk_stereo.txt", "r");
-        if (mf) { size_t got = fread(mk, 1, sizeof(mk) - 1, mf); mk[got] = 0; fclose(mf); }
-        const char* sq = strstr(mk, "seq=");
-        if (sq && atoi(sq + 4) != 0) { g_seqMode = true; g_sbsMode = false; }
-    }
-    if (g_seqMode)
-        Log("config: SEQ mode ON (dxvk_stereo.txt has seq=1) - one WHOLE eye "
-            "per frame at full resolution, eyes alternate, no split");
-    else if (g_sbsMode)
-        Log("config: SBS mode ON (dxvk_stereo.txt found) - AER shear off, "
-            "per-eye half-frame sampling");
     g_stereoReg      = (int)IniFloat(ini, "Stereo", "Register", 0);
     g_sepClip        = IniFloat(ini, "Stereo", "Separation", 0.014f);
     g_converge       = IniFloat(ini, "Stereo", "Convergence", 140.0f);
@@ -823,9 +802,6 @@ static void LoadConfig()
     if (g_mirrorAspect != 0.0f && g_mirrorAspect < 0.5f)  g_mirrorAspect = 0.5f;
     if (g_mirrorAspect > 2.5f) g_mirrorAspect = 2.5f;
     g_mirrorHud = IniFloat(ini, "Screen", "MirrorHud", 0) != 0.0f;
-    g_killMaskIni = (int)IniFloat(ini, "Debug", "KillMask", 0);   // 38.49
-    if (g_killMaskIni < 0)  g_killMaskIni = 0;
-    if (g_killMaskIni > 63) g_killMaskIni = 63;
     g_introSkip = (int)IniFloat(ini, "Debug", "IntroSkip", 0);    // 38.69
     if (g_introSkip < 0 || g_introSkip > 2) g_introSkip = 0;
     g_introSkipDelayMs = (int)IniFloat(ini, "Debug", "IntroSkipDelayMs", 8000);
@@ -1286,54 +1262,6 @@ static void OverlaySaveDefaults()
             WritePrivateProfileStringA("VRHands", k, v, ini);
         } }
 
-    float conv = g_dxvkConv ? *g_dxvkConv : 140.0f;
-    char mk[MAX_PATH];
-    _snprintf(mk, MAX_PATH, "%s\\dxvk_stereo.txt", g_dir);
-    // 35.1: SAVE clobbered the fork's hudskip= list (the wrist-HUD world-
-    // shader exclusion) because this writer only knew sep/conv - one SAVE
-    // press and the disappearing-geometry bug came back on the next launch.
-    // The rule for shared files: preserve every token you don't own.
-    char hudskip[160] = "", sfTok[32] = "";
-    {
-        FILE* rf = fopen(mk, "r");
-        if (rf) {
-            char rb[256] = {0};
-            fread(rb, 1, sizeof(rb) - 1, rf);
-            fclose(rf);
-            const char* h = strstr(rb, "hudskip=");
-            if (h) {
-                int i = 0;
-                while (h[i] && h[i] != ' ' && h[i] != '\n' && h[i] != '\r' &&
-                       h[i] != '\t' && i < 159) { hudskip[i] = h[i]; i++; }
-                hudskip[i] = 0;
-            }
-            const char* s2 = strstr(rb, "shadowfix=");
-            if (s2) {
-                int i = 0;
-                while (s2[i] && s2[i] != ' ' && s2[i] != '\n' &&
-                       s2[i] != '\r' && s2[i] != '\t' && i < 31)
-                    { sfTok[i] = s2[i]; i++; }
-                sfTok[i] = 0;
-            }
-        }
-    }
-    // 35.2: the live overlay dial wins over whatever the file had - SAVE
-    // persists the mode the user actually chose.
-    if (g_dxvkShadowFix)
-        _snprintf(sfTok, sizeof(sfTok), "shadowfix=%u",
-                  (unsigned int)*g_dxvkShadowFix);
-    char rfTok[24] = "";
-    if (g_dxvkReflect)
-        _snprintf(rfTok, sizeof(rfTok), "reflect=%u",
-                  (unsigned int)*g_dxvkReflect);
-    FILE* f = fopen(mk, "w");
-    if (f) {
-        fprintf(f, "sep=0.014 conv=%.0f%s%s%s%s%s%s\n", conv,
-                hudskip[0] ? " " : "", hudskip,
-                sfTok[0] ? " " : "", sfTok,
-                rfTok[0] ? " " : "", rfTok);
-        fclose(f);
-    }
-    Log("overlay: saved defaults (scale %.1f fill %.2f dist %.2f conv %.0f)",
-        g_posScaleUU, g_fillScale, g_screenDist, conv);
+    Log("overlay: saved defaults (scale %.1f fill %.2f dist %.2f)",
+        g_posScaleUU, g_fillScale, g_screenDist);
 }

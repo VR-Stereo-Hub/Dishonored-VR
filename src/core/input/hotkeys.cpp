@@ -77,28 +77,6 @@ static void StereoUpdate()
     g_f7WasDown = f7;
     g_f1Was = f1; g_f2Was = f2;
 
-    // 32.7: frame dump on SCROLL LOCK, not F11. F11 was NOT free: UE3's
-    // BaseInput.ini binds it to TOGGLEFULLSCREEN, and the log showed the
-    // proof - "device Reset (1783x1003 windowed=1)" 47 ms after the press,
-    // which rebuilt the capture and the eye quads and looked to the user like
-    // the FOV and screen fill had broken. Scroll Lock is bound by nothing:
-    // not by UE3, not by Steam (F12 is its screenshot key), not by Windows.
-    {
-        static bool f11Was = false;
-        bool f11 = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0;
-        if (f11 && !f11Was) {
-            if (g_dxvkDumpReq) {
-                *g_dxvkDumpReq = 1;
-                Log("framedump: requested (Scroll Lock) - next frame goes to "
-                    "Dishonored_d3d9.log with a splice verdict per draw");
-            } else {
-                Log("framedump: Scroll Lock pressed but the fork has no dxvk_vr_dumpreq "
-                    "export - dxvk_d3d9.dll is older than M3.8");
-            }
-        }
-        f11Was = f11;
-    }
-
     // 30.38: F10 toggles the in-game settings overlay.
     {
         static bool f10Was = false;

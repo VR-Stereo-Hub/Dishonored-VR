@@ -189,7 +189,6 @@ static bool BuildEyeQuads(float aspect)
         // samples its own half (the 2:1 horizontal squeeze undoes itself when
         // half the texels stretch across the full-aspect quad).
         float u0 = 0.0f, u1 = 1.0f;
-        if (g_sbsMode && !g_sbsMonoNow) { u0 = (eye == 0) ? 0.0f : 0.5f; u1 = u0 + 0.5f; }
         float u [4] = {  u0,   u1,   u0,   u1  };
         float v [4] = {  0,    0,    1,    1  };
 

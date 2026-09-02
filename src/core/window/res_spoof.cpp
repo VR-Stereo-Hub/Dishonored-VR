@@ -337,43 +337,6 @@ static void InstallResSpoofHooks()
     }
     Log("res: metrics/window hooks installed (%d/9; inert until SpoofDesktopW/H and RenderWidth/Height are set)", n);
 
-    InstallForkWindowHooks();
-}
-
-
-// Retried from CreateDevice: at load time the fork may not be mapped yet, and
-// a hook that silently never installed is exactly how a cause stays hidden.
-static void InstallForkWindowHooks()
-{
-    static bool done = false;
-    if (done) return;
-    HMODULE fork = GetModuleHandleA("dxvk_d3d9.dll");
-    if (!fork) {
-        Log("res: dxvk_d3d9.dll not loaded yet - fork window hooks deferred");
-    } else {
-        struct { const char* fn; void* hook; } f[3] = {
-            { "SetWindowPos",       (void*)hkSetWindowPos },
-            { "MoveWindow",         (void*)hkMoveWindow },
-            { "SetWindowPlacement", (void*)hkSetWindowPlacement },
-        };
-        int fn2 = 0;
-        for (int i = 0; i < 3; i++) {
-            void** slot = FindIatSlotIn(fork, "USER32.dll", f[i].fn);
-            if (!slot) { Log("res: fork does not import %s", f[i].fn); continue; }
-            DWORD op;
-            if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &op)) continue;
-            // the real pointers were already captured from the exe's table;
-            // if the exe did not import it, take the fork's original
-            if (i == 0 && !g_realSWP)  g_realSWP  = (SetWindowPos_t)*slot;
-            if (i == 1 && !g_realMW)   g_realMW   = (MoveWindow_t)*slot;
-            if (i == 2 && !g_realSWPl) g_realSWPl = (SetWindowPlacement_t)*slot;
-            *slot = f[i].hook;
-            VirtualProtect(slot, sizeof(void*), op, &op);
-            fn2++;
-        }
-        Log("res: fork window hooks installed (%d/3)", fn2);
-        done = true;
-    }
 }
 
 

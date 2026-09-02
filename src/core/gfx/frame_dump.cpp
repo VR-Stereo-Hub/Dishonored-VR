@@ -19,7 +19,7 @@ static void FrameDumpRequest(const char* what)
     if (all || !strcmp(what, "eyes"))    g_dumpReqEyes = 1;
     if (!strcmp(what, "hud"))            g_dumpReqHud = 1;
     if (!(all || !strcmp(what, "capture") || !strcmp(what, "eyes") || !strcmp(what, "hud")))
-        Log("dump: unknown target '%s' (frame|capture|eyes|hud|fork)", what);
+        Log("dump: unknown target '%s' (frame|capture|eyes|hud)", what);
     else
         Log("dump: %s requested -> %s", what, dvr::paths::dumps_dir());
 }

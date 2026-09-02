@@ -315,7 +315,6 @@ static BOOL WINAPI hkMoveWindow(HWND h, int x, int y, int w, int ht, BOOL rp);
 static BOOL WINAPI hkSetWindowPlacement(HWND h, const WINDOWPLACEMENT* wp);
 static BOOL WINAPI hkGetClientRect(HWND h, LPRECT r);
 static void InstallResSpoofHooks();
-static void InstallForkWindowHooks();
 static void InstallPadHook();
 static void InitActionInput();
 static bool GetFnTable(const char* version, void** out);

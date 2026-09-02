@@ -9,21 +9,9 @@
 static bool EnsureRealD3D9()
 {
     if (g_realD3D9) return true;
-    // Phase 1 of VR 2.0 (build 30.27): chain into DXVK when it is present.
-    // DXVK implements the same IDirect3D9 COM surface, so every hook below
-    // works unchanged - but the game then renders through Vulkan on hardware
-    // that flat-tested at 250 fps. Drop dxvk_d3d9.dll next to the game exe
-    // to enable; delete or rename it to fall back to system DX9. (Config
-    // cannot be read this early on all paths, so presence-of-file IS the
-    // switch - visible, and revertable without a rebuild.)
+    // 41.0: the DXVK fork is gone. The game renders through the system D3D9;
+    // the proxy only hooks it.
     {
-        char dpath[MAX_PATH];
-        _snprintf(dpath, MAX_PATH, "%s\\dxvk_d3d9.dll", g_dir);
-        g_realD3D9 = LoadLibraryA(dpath);
-        if (g_realD3D9)
-            Log("backend: DXVK loaded from dxvk_d3d9.dll - DX9 -> Vulkan");
-    }
-    if (!g_realD3D9) {
         char path[MAX_PATH];
         GetSystemDirectoryA(path, MAX_PATH);
         strcat(path, "\\d3d9.dll");

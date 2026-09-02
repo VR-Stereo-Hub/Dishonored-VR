@@ -1,10 +1,9 @@
 // core/util/paths.h - where the mod keeps its files.
 //
 //   game_dir()  the folder holding d3d9.dll and Dishonored.exe. User-facing
-//               files live here because users, the README and the DXVK fork's
-//               relative-path markers depend on it: dishonored_vr.ini,
-//               dishonored_vr.log, dishonored_vr_crash.txt, disable_vr.txt,
-//               dxvk_stereo.txt, dxvk_framemap.txt.
+//               files live here because users and the README depend on it:
+//               dishonored_vr.ini, dishonored_vr.log, dishonored_vr_crash.txt,
+//               disable_vr.txt.
 //   data_dir()  %LOCALAPPDATA%\DishonoredVR (override: DVR_DATA_DIR). Harness
 //               and bulk files: command.txt, ack.txt, status.json, dumps\,
 //               xrsim\. Never inside the game folder, which may be read-only

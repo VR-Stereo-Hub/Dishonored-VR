@@ -36,35 +36,6 @@ static bool     g_csRecon       = true;    // 30.40: [CamSeam] Recon - camera
 static bool     g_sbsMonoNow    = false;   // 30.30: SBS presenting mono (menu/
                                            // wheel/2D frame) - full frame to
                                            // both eyes so flat UI is readable
-// 34.6: wrist HUD wiring. The fork (M6.0) redirects UI draws into an
-// offscreen HUD texture whenever dxvk_vr_hudwrist is nonzero; the proxy owns
-// the policy: on in gameplay, off in menus (so menu screens stay in view).
-// dxvk_vr_hudtex is the fork's exported texture pointer - the panel renderer
-// reads it in the build after this one.
-static volatile unsigned int* g_dxvkHudWrist = NULL;
-static IDirect3DTexture9* volatile* g_dxvkHudTex = NULL;
-// 35.2: live shadow-fix mode dial (fork M6.5 isolation modes, 0-4). The
-// export is read per draw fork-side, so overlay changes apply INSTANTLY -
-// the user stands at a broken light and flips modes while looking at it.
-static volatile unsigned int* g_dxvkShadowFix = NULL;
-// 35.3: planar reflections kill-switch (fork M6.6). The marker capture
-// identified the per-eye "light pool" artifacts as the game's mirrored-
-// camera reflection pass, rendered once from the mono eye - impossible to
-// composite correctly into two eyes. Off = the pass is skipped.
-static volatile unsigned int* g_dxvkReflect = NULL;
-// 35.4: the artifact bisector (fork M6.7). Diagnostic only, never saved.
-static volatile unsigned int* g_dxvkKillMask = NULL;
-// 38.49: the artifact bisector, from the INI instead of the F10 overlay.
-// The overlay checkboxes have existed since 35.4, but wrestling an ImGui
-// panel inside a Quest headset to run an A/B is miserable, and this test is
-// two launches. [Debug] KillMask kills whole draw classes live in the fork:
-//   1 = samples-rt (the mono full-screen composites - THE lighting suspect)
-//   2 = DUP (UI-like duplicated draws)     4 = modulate/darken (sb=DESTCOLOR)
-//   8 = additive light draws              16 = mirrored-vp (reflection pass)
-//  32 = SPLICE (all world FX - drastic)
-// Whichever value makes the artifact VANISH names the draw class that draws
-// it. That is the same bisection that found the additive light class before.
-static int g_killMaskIni = 0;         // [Debug] KillMask
 // 38.69 INTRO BOAT SKIP. The intro's boat->dock handoff never runs in VR
 // (measured across five runs: the player is never seated in the ride
 // keyhole, PVR fires free-look from second one, and the arrival script
@@ -105,7 +76,6 @@ static bool g_wristHud = true;                      // [Hud] WristHud
 // already handles menus, mono frames and the power wheel - the same gate the
 // main-menu fix hangs off.
 static int    g_dlgHudOff  = 1;        // [Hud] DialogHudOff
-static volatile LONG g_hudRedirLive = 0;  // 38.50: the redirect gate's verdict
 static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // 38.65 THE BOAT DEATH. The intro cutscene killed a fresh new game: the
 // player settling into their chair fired a physical-crouch B pulse, and 16ms
@@ -129,12 +99,6 @@ static double g_dlgUntilMs = 0.0;      // armed until (re-armed per event)
 // elements float like a hologram. No alpha correctness needed.
 #define HUDRB_W 1008
 #define HUDRB_H 568
-static IDirect3DSurface9* g_hudSmall = NULL;   // POOL_DEFAULT downscale RT
-static IDirect3DSurface9* g_hudSys   = NULL;   // SYSTEMMEM readback surface
-static uint8_t*           g_hudPix   = NULL;   // CPU copy, HUDRB_W*HUDRB_H*4
-static volatile bool      g_hudPixNew  = false;
-static volatile bool      g_hudPixEver = false;
-static bool               g_hudRbFail  = false;
 static int   g_hudPanelHand = 0;      // [Hud] PanelHand   0=left 1=right
 static float g_hudPanelSize = 0.16f;  // [Hud] PanelSize   metres wide
 static float g_hudPanelUp   = 0.06f;  // [Hud] PanelUp     metres above ctrl
@@ -165,53 +129,11 @@ static float g_wsPos[3] = {0,0,0};                 // anchor position (room)
 // the quad-layer submit (metres, head space): size W x H centered (cx, cy)
 // at -screenDist.
 static float g_bqW = 0, g_bqH = 0, g_bqCx = 0, g_bqCy = 0;
-static volatile unsigned int* g_dxvkSplices = NULL; // fork's per-frame stereo
-                                           // draw count (dxvk_vr_splices)
-static volatile float* g_dxvkProj = NULL;  // 30.36: fork's live projection
-                                           // scales [xs, ys] of the main VP
-static volatile float* g_dxvkView = NULL;  // p53: main camera world FORWARD
-                                           // [0..2] + freshness counter [3]
-static volatile float* g_dxvkSep  = NULL;  // 30.37: fork's live stereo
-static volatile float* g_dxvkConv = NULL;  //        separation / convergence
-// 32.6/M3.8: write 1 and the fork dumps the NEXT frame's draws with a splice
-// VERDICT per draw ("-> SPLICE" or the condition that failed). The old dump
-// armed at frame 1200/6000/12000, which cannot catch "stand in front of the
-// fire and look at it".
-static volatile unsigned int* g_dxvkDumpReq = NULL;
-// 32.45: hand the fork BOTH blink points, camera-relative, so it can name the
-// draw that renders each one instead of trying to recognise it by render
-// state. [0..2] hand-aimed, [3..5] head-aimed, [6] aim live, [7] match radius.
-static volatile float* g_dxvkMark = NULL;
-// 32.46: F8 cycles which matched draws the fork withholds. 0 = draw everything,
-// 1 = drop the draws sitting on the HEAD-aimed point, 2 = drop the ones on the
-// HAND-aimed point. Whatever disappears is what those draws render.
-static volatile unsigned int* g_dxvkMarkKill = NULL;
-static volatile unsigned int* g_dxvkUvFix = NULL;   // 32.48: Pause key A/B
-static bool     g_uvKeyWas = false;
 static float    g_ipdM = 0.064f;           // real IPD from OpenVR (meters)
 static float    g_liveFovX = 0.0f;         // horizontal FOV derived from xs;
                                            // sizes the screen from what the
                                            // game ACTUALLY renders (kills
                                            // cutscene zoom + FOV-config warp)
-static bool     g_dxvkSplicesTried = false;
-// 32.71: SEQ - frame-sequential per-eye, the answer to "full res in each eye,
-// not split". The side-by-side frame gives each eye half the width, and the
-// game's frame is only ~1000 lines tall against a ~2240-line eye texture, so
-// BOTH axes were being upscaled about 2.2x. Splitting one frame between two
-// eyes cannot fix that; not splitting it can. In SEQ the fork shifts the whole
-// frame for one eye, we store that whole frame as that eye's image, and the
-// eyes alternate - which is exactly what the decoupled-AER path below was
-// already built to do. Per-eye source resolution goes from (W/2 x H) to
-// (W x H) at no GPU cost, because the fork now draws once where it drew twice.
-static bool     g_seqMode       = false;   // dxvk_stereo.txt contains seq=1
-static bool     g_seqMonoNow    = false;   // menus/loading: same frame both eyes
-static volatile unsigned int* g_dxvkSeq     = NULL;
-static volatile float*        g_dxvkEyeSign = NULL;
-static bool     g_sbsMode       = false;   // 30.29: dxvk_stereo.txt present ->
-                                           // the DXVK fork renders true SBS
-                                           // stereo per frame; proxy stops AER
-                                           // shear/alternation and feeds each
-                                           // eye its half of the backbuffer
 static float    g_sepUU        = 4.0f;     // half-separation in Unreal units
 static bool     g_f7WasDown    = false;
 static uint8_t* g_camObj       = NULL;     // cached live camera pointer

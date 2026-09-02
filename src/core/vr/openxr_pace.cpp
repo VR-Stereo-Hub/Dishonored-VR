@@ -212,57 +212,7 @@ static DWORD WINAPI XrPaceThread(LPVOID)
                     "with live views instead (frozen-image guard)", pubAgeMs);
             }
         }
-        // 38.84 STAMP WHAT YOU RENDERED (see the g_stampFix note). The
-        // render's true pitch comes from the fork; the stamp's pitch from
-        // its own quaternion (XR: Y up, -Z forward). If they diverge, the
-        // stamp is rotated about its LOCAL X by the delta so the compositor
-        // places the image where the game actually drew it - head pitch
-        // then works at compositor level even when the engine ignored the
-        // rotator. Gated: mode on, fork export FRESH (menus stop updating
-        // it), delta between 2 and 60 degrees.
-        if (proj && g_stampFix && g_dxvkView) {
-            static float  sfSeq = -1.0f;
-            static double sfSeqMs = 0.0;
-            float seqNow = g_dxvkView[3];
-            double sfNow = MaimNowMs();
-            if (seqNow != sfSeq) { sfSeq = seqNow; sfSeqMs = sfNow; }
-            if (sfNow - sfSeqMs < 500.0) {           // export is live
-                float fz = g_dxvkView[2];
-                if (fz >  1.0f) fz =  1.0f;
-                if (fz < -1.0f) fz = -1.0f;
-                float renderPitch = asinf(fz);       // UE3 world: Z is up
-                XrQuaternionf hq = pv2[0].pose.orientation;
-                float fy = 2.0f * (hq.w * hq.x - hq.y * hq.z);
-                if (fy >  1.0f) fy =  1.0f;
-                if (fy < -1.0f) fy = -1.0f;
-                float headPitch = asinf(fy);         // XR: fwd=-Z, up=+Y
-                float delta = renderPitch - headPitch;
-                if (g_stampFix == 2) delta = -delta;
-                float ad = delta < 0 ? -delta : delta;
-                if (ad > 0.035f && ad < 1.05f) {     // 2..60 deg
-                    float ha = 0.5f * delta;
-                    XrQuaternionf r; r.x = sinf(ha); r.y = 0; r.z = 0;
-                    r.w = cosf(ha);
-                    for (int se = 0; se < 2; se++) {
-                        XrQuaternionf a = pv2[se].pose.orientation;
-                        XrQuaternionf o;
-                        o.x = a.w*r.x + a.x*r.w + a.y*r.z - a.z*r.y;
-                        o.y = a.w*r.y - a.x*r.z + a.y*r.w + a.z*r.x;
-                        o.z = a.w*r.z + a.x*r.y - a.y*r.x + a.z*r.w;
-                        o.w = a.w*r.w - a.x*r.x - a.y*r.y - a.z*r.z;
-                        pv2[se].pose.orientation = o;
-                    }
-                    static double sfSaidMs = 0.0;
-                    if (sfNow - sfSaidMs > 10000.0) {
-                        sfSaidMs = sfNow;
-                        Log("xr: stampfix %d ACTIVE render=%.1f deg head=%.1f "
-                            "deg delta=%.1f deg", g_stampFix,
-                            renderPitch * 57.2958f, headPitch * 57.2958f,
-                            delta * 57.2958f);
-                    }
-                }
-            }
-        }
+        // 41.0: [VR] StampFix needed the fork's dxvk_vr_view export - inert.
         if (proj && g_xrShownOnce[0] && g_xrShownOnce[1]) {
             for (int eye = 0; eye < 2; eye++) {
                 ppv[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;

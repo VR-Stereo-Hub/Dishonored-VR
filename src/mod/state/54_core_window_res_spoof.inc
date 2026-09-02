@@ -61,9 +61,6 @@ static MoveWindow_t         g_realMW  = NULL;
 static SetWindowPlacement_t g_realSWPl = NULL;
 
 // The one hook that matters now. UE3 sizes its viewport from the client rect;
-// give it the size we want rendered. Hooked ONLY in the exe - the fork has to
-// keep seeing the real window so its swapchain matches what it presents into.
+// give it the size we want rendered. Hooked ONLY in the exe.
 typedef BOOL (WINAPI *GetClientRect_t)(HWND, LPRECT);
 static GetClientRect_t g_realGCR = NULL;
-
-static void InstallForkWindowHooks();

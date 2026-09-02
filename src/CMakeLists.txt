@@ -21,7 +21,7 @@ add_custom_target(dvr_version ALL
 
 # --- d3d9.dll - the mod (proxy + VR core + Dishonored integration) ------------
 # Dropped next to Dishonored.exe; the game's d3d9 import loads it. It chains to
-# the DXVK fork (dxvk_d3d9.dll) or System32 d3d9 and does all the VR work.
+# System32 d3d9 and does all the VR work.
 # Phase 1 of the refactor: one UNITY translation unit (mod/dishonoredvr.cpp)
 # that includes the module files in src/proxy, src/core, src/game and
 # src/legacy. tools/split-source.py produced the tree from the original single

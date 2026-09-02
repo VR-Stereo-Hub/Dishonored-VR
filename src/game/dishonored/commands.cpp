@@ -12,7 +12,7 @@
 //   mirror 0|1|2                 desktop spectator view
 //   overlay on|off               the F10 settings panel
 //   console <text>               run a game console command on the script lane
-//   dump frame|capture|eyes|hud|fork
+//   dump frame|capture|eyes|hud
 //   cfg dump                     print the live values the seam can change
 // Line numbers in comments refer to the original single file (commit 48766c07).
 
@@ -75,11 +75,6 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "dump")) {
-        if (!strcmp(args, "fork")) {
-            if (g_dxvkDumpReq) { *g_dxvkDumpReq = 1; Log("framedump: fork dump requested (seam)"); }
-            else Log("framedump: fork export not resolved yet");
-            return true;
-        }
         FrameDumpRequest(args[0] ? args : "frame");
         return true;
     }
@@ -137,7 +132,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("eyeW", (int)g_eyeW); w.kv("eyeH", (int)g_eyeH);
     w.kv("liveFovX", (double)g_liveFovX);
     w.kv("stereo", (bool)g_stereoEnabled);
-    w.kv("sbs", (bool)g_sbsMode); w.kv("seq", (bool)g_seqMode); w.kv("mono", (bool)g_sbsMonoNow);
+    w.kv("mono", (bool)g_sbsMonoNow);
     w.obj("head");
     w.kv("yaw", (double)g_hmdYaw); w.kv("pitch", (double)g_hmdPitch); w.kv("roll", (double)g_hmdRoll);
     w.kv("tracked", (bool)g_devPoseOk[0]);
@@ -161,7 +156,6 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("hands", (bool)g_skcDrive); w.kv("handMesh", (bool)g_handMesh); w.kv("handModels", (bool)g_hmEnable);
     w.kv("blink", (bool)g_blkAimOnCfg); w.kv("melee", (bool)g_meleeOn);
     w.kv("fovLever", (double)g_fovLever); w.kv("wristHud", (bool)g_wristHud);
-    w.kv("hudRedirect", InterlockedCompareExchange(&g_hudRedirLive, 0, 0) != 0);
     w.kv("layer", g_xrLayerMode); w.kv("poseDelay", g_xrPoseDelay);
     w.kv("stampLive", (bool)g_stampLive); w.kv("stampFix", g_stampFix); w.kv("fpsCap", (double)g_fpsCap);
     w.kv("mirror", g_mirrorMode);
@@ -173,7 +167,6 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("submits", (unsigned long)g_submits); w.kv("gameFrames", (unsigned long)g_gameFrames);
     w.kv("padPolls", (unsigned long)g_padPolls); w.kv("headHits", (unsigned long)g_pvrHits);
     w.kv("headWrites", (unsigned long)g_pvrWrites); w.kv("handWrites", (unsigned long)g_fpWrites);
-    w.kv("splices", (unsigned long)(g_dxvkSplices ? *g_dxvkSplices : 0));
     w.kv("commands", (unsigned long)dvr::command::sequence());
     w.end_obj();
     w.kv("log", dvr::log::path());
