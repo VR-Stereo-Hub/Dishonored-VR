@@ -126,6 +126,57 @@ The port finishes opportunistically; the headset work comes first.
 
 ## Session log
 
+### 2026-09-02 - session 4: reverted to the known-good point
+
+No launches, no code changes. Session 3c left the rig one key away from its own
+confirmed-good configuration and that key was an open, unevaluated experiment; this
+restores the documented point so the next run starts from a known baseline.
+
+**What was actually different.** Exactly one line: `FovLever=130` vs `100`. Everything
+else already matched - `RenderWidth/Height=2850x2750`, `SpoofDesktopW/H=2816x2880`,
+`PinBackbuffer=1`, `GameFOVDeg=100`, `FillScale=1.00`, `[PosTrack] Scale=50.0`, the game
+ini at 2850x2750 on both `[SystemSettings]` and `[SystemSettingsEditor]`, and all four
+`[AppCompatBucket1..4]` at 2850x2750. `setup-game-ini.ps1` did not need re-running.
+
+**The snapshot checks out.** `tests\golden\known-good-2850x2750-lever100.ini`, the game
+folder's `dishonored_vr.ini.KNOWN-GOOD` and `dishonored_vr.ini.pre-lever130` (the ini as it
+actually ran when the tester reported "the eyes seem to overlap correctly and provide
+depth") are all identical. The snapshot is a truthful record of the run, not a
+reconstruction - worth stating, because it was written at 00:54 while the live file was
+already at `FovLever=130`.
+
+**Restored** by byte copy, verified with `cmp` against both snapshots. Prior state saved as
+`dishonored_vr.ini.pre-restore-known-good`.
+
+**`FovLever=130` is untried, not disproved - and it was the well-motivated direction.**
+ENGINE_NOTES "FovLever and the render size are ONE setting" has it the other way round from
+how session 3c's ordering reads: at lever **100** the clamp limit is 1.91 m against a
+frustum reaching 2.20 m horizontally and 2.29 m vertically, so it fires on **all four
+sides**, and `dump eyes` at lever 100 confirmed the world inset with a ~9-10% border on
+every side. At lever **130** the limit is 3.43 m, outside the frustum edge, so nothing
+clamps and the quad fills the eye. 130 is also GingasVR's own tuned value.
+
+**So the restore knowingly reinstates the bordered configuration.** That is the right call -
+lever 100 at 2850x2750 is the only point a tester has ever confirmed fuses with depth, and
+an unevaluated experiment is not a baseline - but the border is a KNOWN artifact of this
+baseline, not a new symptom, and "the render window is halfway up my vision" must be judged
+against that. Lever 130 stays queued as the next one-variable change once the gameplay dump
+is in hand.
+
+**Caveat that still stands**: no F10 tuning has ever been persisted (SAVE AS DEFAULTS was
+never pressed), so this ini is the only reproducible configuration that exists.
+
+**Untouched deliberately**: the proxy, the fork, `dxvk_stereo.txt`, and the stale
+`command.txt` in `%LOCALAPPDATA%\DishonoredVR\` (`command.cpp:153` discards and clears a
+command file older than the process, so the next run's log should show that branch firing -
+a free check of the new seam diagnostics).
+
+**Next**: unchanged from session 3c. Launch, reach GAMEPLAY with the window focused, then
+`tools\game-cmd.ps1 "dump eyes"` and read the two PNGs. The unexplained contradiction is
+still the lead: the world occupied only the top ~54% of the eye render target while the
+measured frustum (55 deg down against 44 deg up) says the quad should overflow vertically.
+That dump was a MENU frame and needs confirming in gameplay before anything is changed.
+
 ### 2026-09-02 - session 3c: the seam went deaf, and the eye texture is half black
 
 **START HERE.** The bug is not fixed and the last measurement is incomplete.
@@ -200,16 +251,25 @@ calibration, which `skelcontrol.cpp` writes on its own. **Procedure from now on:
 F10, press SAVE AS DEFAULTS, then re-snapshot the ini.** Otherwise a good configuration
 cannot be reproduced, which is exactly what happened here.
 
-**Config as left, LIVE right now**: identical to the known-good snapshot above except
-`FovLever=130` instead of 100. That single change was applied but never evaluated - the
-seam went deaf before a dump could be taken, so it is an OPEN experiment, not a result.
-Either judge it on the next run or restore the snapshot first; do not stack anything on it.
-Game ini + all 4 AppCompat buckets at 2850x2750.
+**Config as left, LIVE right now**: ~~`FovLever=130`~~ **RESTORED to the known-good
+snapshot (session 4)**. The live `dishonored_vr.ini` is now byte-identical to both
+`tests\golden\known-good-2850x2750-lever100.ini` and the game folder's
+`dishonored_vr.ini.KNOWN-GOOD` (`cmp` clean against both), i.e. `FovLever=100`. The
+`FovLever=130` experiment was applied but never evaluated - the seam went deaf before a
+dump could be taken - so it was discarded rather than judged; it remains untried, not
+disproved. The pre-restore state is saved as `dishonored_vr.ini.pre-restore-known-good`.
+Game ini + all 4 AppCompat buckets verified still at 2850x2750 (`DishonoredEngine.ini`
+lines 1081/1141, `DishonoredCompat.ini` buckets 1-4), so no `setup-game-ini.ps1` re-run
+was needed.
 Backups in the game folder: `.pre-2750` (GingasVR's own tuned ini), `.pre-landscape`,
-`.pre-scale100`, `.pre-gingas-restore`, `.pre-rollback`, `.pre-lever130`.
+`.pre-scale100`, `.pre-gingas-restore`, `.pre-rollback`, `.pre-lever130`,
+`.pre-restore-known-good`.
 
 **Installed**: RelWithDebInfo proxy only, 00:50, carrying the seam diagnostics. The fork
 (20:24) and `dxvk_stereo.txt` (13:52) are untouched and must stay that way - one variable.
+Re-verified session 4: the installed `d3d9.dll` is md5-identical to
+`build\src\RelWithDebInfo\d3d9.dll`, and the tree is clean at `112105b7`, so source,
+build and install all agree. The fork and `dxvk_stereo.txt` timestamps are unchanged.
 
 **Do not repeat these mistakes.** Restoring GingasVR's baseline I changed render size, FOV
 lever and world scale in ONE step, so "misaligned" was unattributable; her values also come
