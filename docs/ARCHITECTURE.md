@@ -198,7 +198,8 @@ Next to the exe (user-facing): `dishonored_vr.ini`, `dishonored_vr.log`, `dishon
 `dishonored_vr_crash.txt`; read there: `disable_vr.txt`, `vrhands\*.obj`. In
 `%LOCALAPPDATA%\DishonoredVR\`: `command.txt`, `ack.txt`, `status.json`, `dumps\`, `xrsim\`,
 `steamvr\dvr_steamvr32.json` (the shim manifest), `ovrshim.log`, `pacetrace.log` (`vrpace
-trace`). `core/util/paths.h` is the one place that knows this.
+trace`). `[Paths] DataDir=` moves that whole set (applied at config load, before any of them
+is written). `core/util/paths.h` is the one place that knows this.
 
 ## Known costs
 

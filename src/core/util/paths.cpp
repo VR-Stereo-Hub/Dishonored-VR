@@ -33,6 +33,17 @@ const char* data_dir()
     return g_data;
 }
 
+void set_data_dir(const char* dir)
+{
+    if (!dir || !dir[0]) return;
+    strncpy(g_data, dir, MAX_PATH - 1);
+    g_data[MAX_PATH - 1] = 0;
+    size_t n = strlen(g_data);
+    while (n > 0 && (g_data[n - 1] == '\\' || g_data[n - 1] == '/')) g_data[--n] = 0;
+    CreateDirectoryA(g_data, nullptr);
+    g_dumps[0] = 0;   // re-derived under the new root on the next call
+}
+
 const char* dumps_dir()
 {
     if (!g_dumps[0]) {

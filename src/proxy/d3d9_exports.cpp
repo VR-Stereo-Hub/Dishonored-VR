@@ -39,8 +39,68 @@ static bool EnsureRealD3D9()
 // ----------------------------------------------------------------------------
 // Exports
 // ----------------------------------------------------------------------------
+// 41.0: launched through Steam, the mod could not open files under its own
+// data dir (%LOCALAPPDATA%\DishonoredVR: ERROR_PATH_NOT_FOUND on the runtime
+// manifest, ERROR_FILE_NOT_FOUND on command.txt, status.json never written)
+// while a direct launch could, and the shell saw every file. This probe
+// prints what THIS process sees, once, so the difference is on the same
+// page as the failure instead of inferred from it.
+static void DvrPathProbe()
+{
+    static bool done = false;
+    if (done) return;
+    done = true;
+    const char* dd = dvr::paths::data_dir();
+    char cwd[MAX_PATH] = "", la[MAX_PATH] = "", up[MAX_PATH] = "", user[64] = "";
+    GetCurrentDirectoryA(MAX_PATH, cwd);
+    GetEnvironmentVariableA("LOCALAPPDATA", la, MAX_PATH);
+    GetEnvironmentVariableA("USERPROFILE", up, MAX_PATH);
+    DWORD un = sizeof(user);
+    GetUserNameA(user, &un);
+    const DWORD attrA = GetFileAttributesA(dd);
+    const DWORD errA = attrA == INVALID_FILE_ATTRIBUTES ? GetLastError() : 0;
+    wchar_t wdd[MAX_PATH];
+    MultiByteToWideChar(CP_ACP, 0, dd, -1, wdd, MAX_PATH);
+    const DWORD attrW = GetFileAttributesW(wdd);
+    const DWORD errW = attrW == INVALID_FILE_ATTRIBUTES ? GetLastError() : 0;
+    char probe[MAX_PATH];
+    _snprintf(probe, MAX_PATH, "%s\\probe.txt", dd);
+    probe[MAX_PATH - 1] = 0;
+    HANDLE h = CreateFileA(probe, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    const DWORD errC = h == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+    if (h != INVALID_HANDLE_VALUE) { CloseHandle(h); DeleteFileA(probe); }
+    Log("paths: probe user=%s cwd=%s LOCALAPPDATA=%s USERPROFILE=%s session=%lu", user, cwd, la, up,
+        (unsigned long)[]{ DWORD s = 0; ProcessIdToSessionId(GetCurrentProcessId(), &s); return s; }());
+    Log("paths: probe data_dir=%s attrA=0x%lx(err %lu) attrW=0x%lx(err %lu) create=%s(err %lu)",
+        dd, (unsigned long)attrA, (unsigned long)errA, (unsigned long)attrW, (unsigned long)errW,
+        errC ? "FAILED" : "ok", (unsigned long)errC);
+    // What the process actually SEES in that directory.
+    char pat[MAX_PATH];
+    _snprintf(pat, MAX_PATH, "%s\\*", dd);
+    pat[MAX_PATH - 1] = 0;
+    WIN32_FIND_DATAA fd;
+    HANDLE f = FindFirstFileA(pat, &fd);
+    if (f == INVALID_HANDLE_VALUE) {
+        Log("paths: probe listing FAILED (err %lu)", (unsigned long)GetLastError());
+    } else {
+        char names[512] = "";
+        int n = 0;
+        do {
+            if (fd.cFileName[0] == '.') continue;
+            ++n;
+            if (strlen(names) + strlen(fd.cFileName) + 2 < sizeof(names)) {
+                strcat(names, fd.cFileName);
+                strcat(names, " ");
+            }
+        } while (FindNextFileA(f, &fd));
+        FindClose(f);
+        Log("paths: probe listing: %d entries: %s", n, names);
+    }
+}
+
 extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
 {
+    DvrPathProbe();
     dvr::stereo::register_all();   // 41.0: before the config selects [Stereo] Method
     EnsureConfig(); // safe here (post loader-lock); not in DllMain
     dvr::crash::install();   // fingerprint VEH + minidump filter, before any hook

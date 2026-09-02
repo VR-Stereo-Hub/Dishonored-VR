@@ -18,7 +18,10 @@
 # [VR] XrRuntimeJson (the mod sets XR_RUNTIME_JSON for its own process from it
 # when the environment carries none), launches through launch-game.ps1, and
 # restores the ini once the runtime-name assertion has passed (or on failure).
-# DVR_XRSIM_DIR cannot reach the game either, so -Dir must stay the default.
+# DVR_XRSIM_DIR cannot reach the game either; the simulator then takes its state
+# dir from the manifest's directory, so -Dir works either way. The mod's own
+# data dir follows [Paths] DataDir in the ini (set it to the same root as
+# DVR_DATA_DIR when the default location is not shared for real - gotcha 14).
 #
 # The single most valuable check here is the runtime-name assertion. If
 # XR_RUNTIME_JSON silently fails to take (an elevated shell, a bad manifest
@@ -130,9 +133,6 @@ try {
     $env:XR_RUNTIME_JSON = $manifest
     $env:DVR_XRSIM_DIR   = $Dir
     if ($ViaSteam) {
-        if ($Dir -ne (Join-Path (Get-DvrDataDir) "xrsim")) {
-            throw "-ViaSteam cannot pass -Dir to the game (Steam starts the exe); use the default xrsim dir."
-        }
         if (Test-Path $iniPath) { $iniBackup = "$iniPath.xrsim-bak"; Copy-Item $iniPath $iniBackup -Force }
         Set-IniKey $iniPath "VR" "XrRuntimeJson" $manifest
         Write-Host "launching through Steam with [VR] XrRuntimeJson -> the simulator (ini backed up)"

@@ -157,7 +157,8 @@ Extensive does not mean noisy. The rules that buy volume without cost:
   `steamvr\` (the shim's manifest), `ovrshim.log`. Override with `DVR_DATA_DIR`.
 - Env knobs: `DVR_LOG=trace`, `DVR_LOG_CATS=blink:debug,openxr:trace`, `DVR_SKIP=hands,overlay`,
   `XR_RUNTIME_JSON` (read first by the loader; `[VR] XrRuntimeJson` sets it when absent),
-  `DVR_XRSIM_DIR`.
+  `DVR_XRSIM_DIR`. `[Paths] DataDir=` in the ini moves the mod's data dir (the harness reads
+  `DVR_DATA_DIR`); on this dev PC both point at `D:\dvr-data` (VERIFICATION gotcha 14).
 - Clean clone needs `git clone --recursive` (submodules under `third_party/`).
 
 ## Repo map

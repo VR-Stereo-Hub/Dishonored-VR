@@ -179,6 +179,14 @@ defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault
 13. The game was not installed on the dev PC when 41.0 was built: the rows of the table
     that need the game are written from the code and the BioShock harness's shape and need
     their first attended run (STATUS records what has run).
+14. **The agent's shell on the dev PC virtualizes writes under the user profile.** Files the
+    harness wrote to `%LOCALAPPDATA%\DishonoredVR` (the sim manifest, `command.txt`) were
+    visible to the shell and to a game it launched directly, and absent for a game launched
+    through Steam (its listing of the directory held only the entries game runs had written;
+    a WMI-created `dir` agreed). Measured 2026-09-02 on the first 41.0 runs. Point both sides
+    at a real location: `DVR_DATA_DIR=D:\dvr-data` for the scripts and `[Paths]
+    DataDir=D:\dvr-data` in `dishonored_vr.ini` for the mod; the simulator follows the
+    manifest's directory when `DVR_XRSIM_DIR` cannot reach it.
 
 
 Comfort, judder, warp, world scale, the mono screen's size and distance, fusion once a

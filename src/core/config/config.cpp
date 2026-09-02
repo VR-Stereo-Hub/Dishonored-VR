@@ -59,6 +59,11 @@ static void WriteDefaultIni(const char* ini)
         "XrHaptics=1\n"
         "; FpsCap pins the game to a rate (0 = off): 72 with VD at 72 Hz, 45 at 90.\n"
         "FpsCap=0\n"
+        "[Paths]\n"
+        "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
+        "; shim manifest). Empty = %%LOCALAPPDATA%%\\DishonoredVR. Set it to a folder the\n"
+        "; game and the tools both see for real (docs/VERIFICATION.md gotcha 14).\n"
+        "DataDir=\n"
         "[Controllers]\n"
         "; Stage 6.4: Index controllers = virtual Xbox-360 pad via SteamVR's\n"
         "; ACTION input system (rebindable in SteamVR > Controller Bindings).\n"
@@ -215,18 +220,33 @@ static void LoadConfig()
         // wholesale rewrite must carry those two over, or a Steam launch on
         // the simulator lands on the registry runtime and the launcher's
         // assertion is the only thing that notices (measured 2026-09-02).
-        char keepJson[2 * MAX_PATH] = "", keepRt[16] = "";
+        char keepJson[2 * MAX_PATH] = "", keepRt[16] = "", keepDd[MAX_PATH] = "";
         if (!missing) {
             GetPrivateProfileStringA("VR", "XrRuntimeJson", "", keepJson, sizeof(keepJson), ini);
             GetPrivateProfileStringA("VR", "Runtime", "", keepRt, sizeof(keepRt), ini);
+            GetPrivateProfileStringA("Paths", "DataDir", "", keepDd, sizeof(keepDd), ini);
         }
         WriteDefaultIni(ini);
         if (keepJson[0]) WritePrivateProfileStringA("VR", "XrRuntimeJson", keepJson, ini);
         if (keepRt[0])   WritePrivateProfileStringA("VR", "Runtime", keepRt, ini);
+        if (keepDd[0])   WritePrivateProfileStringA("Paths", "DataDir", keepDd, ini);
         Log("config: wrote fresh ini (was %s, now v%d)%s%s",
             missing ? "missing" : "outdated", kConfigVersion,
             keepJson[0] ? " - kept [VR] XrRuntimeJson" : "",
             keepRt[0] ? " - kept [VR] Runtime" : "");
+    }
+    {   // [Paths] DataDir: where the harness files go. Applied before any of
+        // them is written (the command seam and status.json start after the
+        // config); the dev PC's tool sandbox virtualizes writes under the user
+        // profile, so a real location (D:\dvr-data) is what a Steam launch and
+        // the harness can both see (docs/VERIFICATION.md gotcha 14).
+        char dd[MAX_PATH] = "";
+        GetPrivateProfileStringA("Paths", "DataDir", "", dd, sizeof(dd), ini);
+        if (dd[0]) {
+            dvr::paths::set_data_dir(dd);
+            Log("config: [Paths] DataDir -> %s (command.txt, status.json, dumps, the shim manifest)",
+                dvr::paths::data_dir());
+        }
     }
     g_trackingEnabled = IniFloat(ini, "Tracking", "Enabled", 1) != 0.0f;
     g_yawCounts    = IniFloat(ini, "Tracking", "YawCountsPerDegree", 11.5f);
