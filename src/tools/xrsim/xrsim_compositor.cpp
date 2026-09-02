@@ -383,7 +383,10 @@ void compositor_init(ID3D11Device* device, ID3D11DeviceContext* context) {
     ID3DBlob* psb1 = nullptr;
     ID3DBlob* psb2 = nullptr;
     ID3DBlob* err = nullptr;
-    const UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL1;
+    // Row-major packing: the C side builds row-vector matrices (translation in
+    // row 3, v * M) and uploads them as-is; without this flag HLSL reads the
+    // same bytes as a column-major matrix, i.e. transposed.
+    const UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL1 | D3DCOMPILE_PACK_MATRIX_ROW_MAJOR;
 
     auto fail = [&](const char* what) {
         XRSIM_LOG("xrsim: compositor DISABLED - %s%s%s", what, err ? ": " : "",
