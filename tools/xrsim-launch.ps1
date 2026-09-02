@@ -164,7 +164,10 @@ if ($ViaSteam) {
 }
 
 if ($NoWaitSession) {
-    if ($ViaSteam) { Write-Host "NOTE: -NoWaitSession with -ViaSteam leaves [VR] XrRuntimeJson in the ini (backup: $iniBackup)" }
+    # The mod reads the ini once, at its first Direct3DCreate9, a few seconds after
+    # the process appears: wait that out, then put the ini back so a later launch
+    # from Steam does not carry the simulator's manifest into a real headset run.
+    if ($ViaSteam) { Start-Sleep -Seconds 20; Restore-Ini }
     return [pscustomobject]@{ Pid = $p.Id; Exe = $exe; Log = $modLog; Dir = $Dir }
 }
 

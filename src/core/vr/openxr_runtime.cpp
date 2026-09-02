@@ -2492,6 +2492,12 @@ void init_instance() {
     // simulator, or a Steam launch that cannot carry an env var). The loader
     // reads XR_RUNTIME_JSON first, so setting it here is the whole mechanism;
     // an env var already present (tools\xrsim-launch.ps1) wins.
+    if (g_runtimeJson[0] && GetFileAttributesA(g_runtimeJson) == INVALID_FILE_ATTRIBUTES) {
+        XRLOG("xr: WARNING [VR] XrRuntimeJson names a manifest this process cannot read (%s, err %lu) - "
+              "IGNORED; the registered runtime is used instead. Clear the key in dishonored_vr.ini.",
+              g_runtimeJson, GetLastError());
+        g_runtimeJson[0] = 0;
+    }
     if (g_runtimeJson[0]) {
         char cur[8] = "";
         if (GetEnvironmentVariableA("XR_RUNTIME_JSON", cur, sizeof(cur)) == 0) {
