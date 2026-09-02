@@ -119,7 +119,7 @@ A per-eye render needs three writes; two are measured, one is not:
 | Rotation | `ApplyHeadToViewRotation`: HMD pitch/yaw(/roll) into the `ProcessViewRotation` parms, every dispatch of the modifier chain (`[HeadTrack] ChainStamp`) | MEASURED, shipped since 30.57 |
 | FOV | the lever: `kLevCtrl` {0x3ac, 0x3b0, 0x3b4} on the controller and `kLevCam` {0x254, 0x348, 0x368, 0x38c, 0x540, 0x564} on the camera every dispatch; 0x53c is the read-only sensor (what the engine rendered) | MEASURED, shipped since 30.50; `camera::set_fov_deg` is the lever's target, `rendered_fov_deg` the sensor |
 | Eye Z (the crouch clamp) | Z of {0x80, 0x330, 0x350, 0x374} on the camera, dispatch cadence | MEASURED (38.24): the clamp sticks, so at least one of those four reaches the renderer after the script pass |
-| Lateral eye offset (+/- IPD/2 along `kCamRight` 0x60) | `camera::apply_eye_offset` into `[Camera] EyeField` | UNMEASURED - `camera eyetest` decides (below) |
+| Lateral eye offset (+/- IPD/2 along `kCamRight` 0x60) | `camera::apply_eye_offset` into `[Camera] EyeField` (camera+0x330, which holds -position) | MEASURED 2026-09-02: 0x330 HONOURED 119/120, the five others DISCARDED (below) |
 
 Why the lateral write is unproven: `head_track.cpp` records that the POV location the matrix
 carries is a cache the engine recomputes each tick, yet the 38.24 eye clamp writes Z into
@@ -150,18 +150,29 @@ point - a position-only patch at the camera-matrix builder epilogue (`kCamHookAt
 disproved for ROTATION; position was never tried) or the c0 view-projection translation
 (`LeanVP`, which positional tracking already uses and which AER can drive per eye).
 
-Measured so far (2026-09-02, dev PC, simulator lane, the auto-continued save, build
-`g4fb67333`+): the first version of the instrument compared c5 against the FIELD's value and
-found a constant offset along the camera's right row, the same for each group - +6620 uu for
-0x80 / 0x90 / 0xc4 and +14140 uu for 0x330 / 0x350 / 0x374 - on every one of 120 presents per
-candidate, with c5 itself steady. So the six fields hold two vectors, neither of them the
-draw's camera position in c5's frame (a view-space or negated translation is the likely
-shape; the raw values are logged per candidate from commit `cf9ec6f2` on, `camera/eyetest:
-<field> reads (...) c5 (...) right (...)`). The instrument now judges each candidate against
-a c5 BASELINE taken before its writes, which is what "does the renderer follow the write"
-means. Verdicts under that measure: NOT YET RUN (the session ended on a stuck process; STATUS).
-Whoever runs it first records the six verdicts and the raw-value lines here with the build
-tag and the level.
+**MEASURED (2026-09-02, dev PC, simulator lane, the auto-continued save, builds `dd10da09`
+and `a3ede882`; runs 10 and 11; +100 uu, 45 presents of c5 baseline then 120 writing per
+candidate):**
+
+| Field | Reads (with c5 = (-53.6, 4835.0, -3036.1)) | Verdict |
+|---|---|---|
+| 0x80 `kCamLoc0` | (5.2, 500.0, -130.6) - a fixed offset vector, not the position | DISCARDED 120/120 (c5 moved 0.0) |
+| 0x90 `kCamLoc1` | the same (5.2, 500.0, -130.6) | DISCARDED 120/120 |
+| 0xC4 `kCamLoc2` | the same (5.2, 500.0, -130.6) | DISCARDED 120/120 |
+| 0x330 `kPovOffs[0]` | (53.6, -4835.0, 3036.1) = exactly **-c5** (a view-matrix translation) | **HONOURED 119/120**: writing +100 uu into the negated field moved c5 by +99.2 uu along right (run 10, before the sign was known: -98.7 uu on 75/76 frames) |
+| 0x350 `kPovOffs[1]` | (53.6, -4735.0, 3036.1), also -c5 in form | DISCARDED 120/120 (c5 moved -2.2 uu, mean) |
+| 0x374 `kPovOffs[2]` | (53.6, -4835.0, 3036.1), also -c5 in form | DISCARDED 120/120 (0.0) |
+
+So: c5 IS the camera world position (it equals minus 0x330 to the decimal), and **camera+0x330
+is the eye-offset write point**: a value written there on the script lane at dispatch cadence
+is what the renderer draws from, in NEGATED form. The seam's field table carries the sign
+(`kFields[].sign`), `[Camera] EyeField=0x330` is the default, and `apply_eye_offset` writes
+base - offset there. The camera's right row at +0x60 read (0, 1, 0) at yaw 0 (UE3: X forward,
+Y right). 0x350 and 0x374 are copies the engine recomputes before the draw; 0x80/0x90/0xC4 are
+not positions at all (the earlier reading of them as "matrix translation row" and "cached POV
+location" was wrong - retire it). Whether 0x330 persists between dispatches (the writer's
+re-base logic) was not separated out; the eyetest's own 120-present window shows the value
+must be rewritten every dispatch, which the seam does.
 
 ## Head coupling of the arms (the open problem; roadmap D5)
 

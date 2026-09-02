@@ -95,8 +95,9 @@ on the dev PC when 41.0 was built), so the status of each is "instrumented, unve
    The gate for trusting per-eye captures again: `mono.xrs` passes on the build (both eyes at
    least 10% non-black - the default head-locked quad is ~16% of the eye - with `bboxL ==
    bboxR` within the eye parallax) and no COMPOSITOR-fault line in `xrsim.log`. **Passed
-   2026-09-02 on 41.0** (session 5): L 16.4% / R 16.3% (37.95 / 37.98 before the quad went
-   head-locked), source 97.22% in both views, no fault line.
+   2026-09-02 on 41.0** (session 5, run 9, the fixed simulator): L 12.9% / R 12.9%, identical
+   bboxes at yaw 0 and yaw 30, source 97% in both views, no fault line (16.4 / 16.3 and
+   37.95 / 37.98 on the runs before the simulator's quad math was fixed).
 
 2. **`dump eyes` wrote the eye textures blue-tinted.** The writer picks the WIC pixel format
    from the texture's DXGI format (R8G8B8A8 -> RGBA, B8G8R8A8 -> BGRA); the stereo output

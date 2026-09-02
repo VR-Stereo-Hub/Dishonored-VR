@@ -28,10 +28,11 @@ S2b) on the same foundation; S3 compares them and picks.
 - [x] Instruments: the capture's non-black bbox line; the simulator's per-eye SOURCE stats,
       the black-eye discriminator, pose/fov validation at `xrEndFrame`, `stats.bboxL/R`,
       `mono.xrs`; eye-check leg 0 on the `stereo: beat` line; `xrsim-launch.ps1 -ViaSteam`
-- [ ] Verified on the dev PC: `xrsim-selftest` PASS, `xrsim-launch` reaches `xr: pipeline
-      READY`, `mono.xrs` passes (both eyes non-black, equal bboxes), `camera eyetest` run in
-      gameplay with its verdicts in ENGINE_NOTES, `stereo aer|reentry` refuse and mono keeps
-      running, crash file and status.json intact, `soak.ps1 -Minutes 3` exit 0
+- [x] Verified on the dev PC (2026-09-02, runs 7-11): `xrsim-selftest` PASS, `xrsim-launch
+      -ViaSteam` reaches `xr: pipeline READY`, `mono.xrs` passes (both eyes non-black, equal
+      bboxes, head-locked under yaw), `camera eyetest` run in gameplay with its verdicts in
+      ENGINE_NOTES (0x330 HONOURED), `stereo aer|reentry` refuse and mono keeps running,
+      crash file and status.json intact, `soak.ps1 -Minutes 3` exit 0
 - [ ] Verified in a headset (user, Quest 3 via VDXR): the game on a head-locked screen in
       both eyes, head rotation turns the view, the gamepad works, the log sent back
 
@@ -44,8 +45,8 @@ results.
       `WidthMeters`, no judder at the game's frame rate, `[VR] FpsCap` cadence chosen
 - [ ] The capture cost measured and cut: a D3D9Ex shared surface opened on the D3D11 side
       replaces `GetRenderTargetData` (the per-frame CPU round trip in `core/gfx/capture`)
-- [ ] `camera eyetest` verdicts recorded (HONOURED field, or DISCARDED everywhere and the
-      fallback write point chosen: the position-only matrix patch or the c0 translation)
+- [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (holds -position), the five
+      others DISCARDED (ENGINE_NOTES)
 - [ ] Positional (lean/crouch/roomscale) tracking moved from the c0 `LeanVP` patch to the
       camera seam's position write once the write point is known, and measured equal
 - [ ] `head_track` and `pad_bridge` converted to real modules (the D1-era refactor step

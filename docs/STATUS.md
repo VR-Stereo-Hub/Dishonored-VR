@@ -36,7 +36,12 @@ build `g4fb67333` and later, 2026-09-02 evening, eight runs:
   fixed), run 8 wrote all six candidates and measured a CONSTANT offset between the draw's c5
   and each field (+6620 uu for 0x80/0x90/0xc4, +14140 uu for 0x330/0x350/0x374 along right):
   the fields are not c5's quantity in c5's frame, so the measure was redesigned around a
-  per-candidate c5 baseline (commit `cf9ec6f2`). **The redesigned eyetest has not run yet.**
+  per-candidate c5 baseline (commit `cf9ec6f2`). Runs 10-11 (after the stuck process cleared
+  on its own, no reboot): **camera+0x330 HONOURED 119/120** (+99.2 uu of the asked +100; it
+  holds -c5 exactly, so the write is negated), the other five DISCARDED. The eye-offset write
+  point is measured; `[Camera] EyeField=0x330` is the default (ENGINE_NOTES has the table).
+- `mono.xrs` PASS (both eyes 12.9%, equal bboxes, no fault line) and the head-lock pair on the
+  fixed simulator: the composite bbox is IDENTICAL at yaw 0 and yaw 30 (run 9).
 
 **Found on the way** (each fixed in its own commit, all measured, none guessed):
 
@@ -63,9 +68,12 @@ build `g4fb67333` and later, 2026-09-02 evening, eight runs:
    (`[Screen] HeadLocked=1`).
 8. The SIMULATOR composited quads in the wrong place (60 px outward per eye at yaw 0, 460 px
    of swing at yaw 30): the cbuffer matrix was read column-major and the view matrix's rotation
-   block was transposed. Fixed (`d43eea11`), selftest PASS; **the head-lock re-measure on the
-   fixed simulator has not run yet.** BioShock's eye legs never saw it (projection layers rotate
-   rays in the shader).
+   block was transposed. Fixed (`d43eea11`), selftest PASS, and the re-measure passed (run 9:
+   identical bboxes at yaw 0 and 30). BioShock's eye legs never saw it (projection layers
+   rotate rays in the shader).
+10. The c5 capture only caught an upload STARTING at register 5; after the two device Resets
+   a level load brings, the engine batches it into a c0 x128 block and the seam saw no c5 for
+   a run (run 9). Any block covering c5 feeds it now (`dd10da09`).
 9. Quitting: `console exit|quit` returns -1 (the console seam does not reach a quit); WM_CLOSE
    logs `ViewportClosed` and then the process LINGERS with one thread, unkillable (no `PreExit`,
    no `proxy unloading`), which then holds `d3d9.dll` and the simulator DLL open and makes Steam
@@ -76,27 +84,22 @@ build `g4fb67333` and later, 2026-09-02 evening, eight runs:
    + AA path is the first suspect.
 
 **Not verified**: the headset (Quest 3 via VDXR) - the user's run; the SteamVR shim with
-Dishonored; the eyetest verdicts; `mono.xrs` end to end on the fixed simulator (run 8's
-`capNonBlackL` read 16 against the then-25 threshold; the threshold is now 10 with the measured
-numbers, and the run is pending); `head_track`/`pad_bridge` as real modules (deferred, S1).
+Dishonored; `apply_eye_offset` driving a real per-eye render (no method asks for an eye yet);
+`head_track`/`pad_bridge` as real modules (deferred, S1).
 
 ## Next steps (one paragraph per developer)
 
-**Both, first, after a reboot of the dev PC** (the stuck `Dishonored.exe` pid 13452 blocks Steam
-launches and holds the build's `dvr_xrsim32.dll`): `tools\build.ps1; tools\install.ps1;
-$env:DVR_DATA_DIR='D:\dvr-data'; tools\xrsim-launch.ps1 -ViaSteam` (the game ini already
-carries `[Paths] DataDir=D:\dvr-data`); `tools\xrsim-run.ps1 -Path tools\xrsim\mono.xrs
--Dir D:\dvr-data\xrsim` (expect PASS, ~16% per eye, equal bboxes); the yaw pair
-(`xrsim-cmd "head rot 30 0 0"` + `xrsim-shot`): the composite bbox must now be IDENTICAL at
-yaw 0 and 30 (head-locked) while `dump capture` content changes (the game camera turned); then
-`game-cmd "camera eyetest 100"` standing still in gameplay and copy the six verdicts and the
-`<field> reads (...) c5 (...)` lines into ENGINE_NOTES "The per-eye camera seam". Copy
-`dishonored_vr.log` out before every relaunch.
+**Both**: the recipe on this PC is `tools\build.ps1; tools\install.ps1;
+$env:DVR_DATA_DIR='D:\dvr-data'; tools\xrsim-launch.ps1 -ViaSteam` (the game ini carries
+`[Paths] DataDir=D:\dvr-data`), foreground the window, `tools\xrsim-run.ps1 -Path
+tools\xrsim\mono.xrs -Dir D:\dvr-data\xrsim`. Close the game with Stop-Process while it is
+healthy, never with WM_CLOSE (blocker below). Copy `dishonored_vr.log` out before every
+relaunch. The eyetest is done: the eye offset writes into camera+0x330 in negated form
+(`camera::apply_eye_offset`); `camera eyetest 100` re-measures it on any build.
 
-**Developer A (AlternateEye, S2a)**: read `core/gfx/aer.cpp`. The method needs an honoured
-eye field from the eyetest; if every candidate reads DISCARDED, the c0 view-projection
-translation (`LeanVP`) is the fallback write for the eye offset (it already moves the render
-for lean) and AER can drive it per tick from `camera::eye_offset_uu()`. Acceptance: `stereo aer`
+**Developer A (AlternateEye, S2a)**: read `core/gfx/aer.cpp`. The eye field is measured
+(0x330), so the method only has to alternate `eye_for_next_frame()` and tag each present; the
+seam writes the offset on the script lane. Acceptance: `stereo aer`
 accepted, the beat line `L/s == R/s == out/s / 2`, `stereo.xrs`, `eye-check.ps1` legs 0-5, the
 runtime's pair probe clean.
 
@@ -113,14 +116,14 @@ lingers.
 
 ## Blockers
 
-- **A stuck `Dishonored.exe` (pid 13452) on the dev PC** since the WM_CLOSE quit test: one
-  thread, unkillable, holds `d3d9.dll` and `build\src\Debug\dvr_xrsim32.dll` (both renamed
-  aside), and Steam refuses to launch the game while it exists. A reboot clears it.
+- **WM_CLOSE leaves a stuck `Dishonored.exe`** (one thread, unkillable, holds `d3d9.dll` and
+  the build's `dvr_xrsim32.dll`, Steam refuses a relaunch). Pid 13452 cleared on its own after
+  about an hour, no reboot. Until the quit path is understood, close a healthy game with
+  `Stop-Process`, which works.
 - **The quit path**: `console exit` returns -1; WM_CLOSE leaves the process lingering with no
   `PreExit`; the runtime layer's teardown therefore never runs on a graceful close. Which
   thread is stuck (the simulator's, the runtime's, a driver's) is unknown; a debugger on the
   next occurrence, or a minidump taken by hand before killing it.
-- The eyetest verdicts and the head-lock re-measure are pending the reboot (above).
 - The headset run needs the user.
 
 ## Session log
@@ -147,6 +150,9 @@ Runs on the dev PC (simulator lane; logs in `D:\dvr-data\logs\41-run*.log`):
 | 6 | Steam (no VR) | an AV in `d3d9.dll+0x87c95` after a Reset + RTD failure, three times, survived |
 | 7 | Steam, `D:\dvr-data` | **dvr-xrsim, FOCUSED, first frame submitted, GAMEPLAY, both eyes 38% non-black, soak PASS 3 min**; eyetest NOT WRITTEN (null camera) |
 | 8 | Steam | head-locked quad 16% per eye but swinging with yaw (the sim's quad math); eyetest wrote, measured the field/c5 offsets; WM_CLOSE -> the stuck process |
+| 9 | Steam (after the process cleared) | `mono.xrs` PASS; head-lock pair IDENTICAL bboxes on the fixed sim; no c5 (the c0 x128 block) |
+| 10 | Steam | c5 back; eyetest: 0x330 reads -c5 and moves c5 by -98.7 uu (75/76), the rest discarded |
+| 11 | Steam | sign-aware seam: **0x330 HONOURED 119/120 (+99.2 uu)**, five DISCARDED; `camera eyefield 0x330` |
 
 ### 2026-09-02 - session 4e: gamepad-only, and the three rendering symptoms
 

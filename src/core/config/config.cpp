@@ -26,10 +26,10 @@ static void WriteDefaultIni(const char* ini)
         "; are design stubs in 41.0 and refuse with a note (`stereo <name>` switches live).\n"
         "Method=mono\n"
         "[Camera]\n"
-        "; EyeField= the camera field the per-eye offset is written to (0x80, 0x90, 0xc4,\n"
-        "; 0x330, 0x350 or 0x374). Empty until `camera eyetest` has measured which one the\n"
-        "; renderer honours (docs/dishonored/ENGINE_NOTES.md, the per-eye camera seam).\n"
-        "EyeField=\n"
+        "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
+        "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
+        "; the per-eye camera seam); none disables the write.\n"
+        "EyeField=0x330\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -272,7 +272,7 @@ static void LoadConfig()
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)
         char ef[16] = "";
-        GetPrivateProfileStringA("Camera", "EyeField", "", ef, sizeof(ef), ini);
+        GetPrivateProfileStringA("Camera", "EyeField", "0x330", ef, sizeof(ef), ini);
         dvr::camera::set_eye_field(ef);
     }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
