@@ -196,6 +196,68 @@ own hand-calibration neutrals are kept. `[PosTrack] Scale` is back to her 50 - t
 100 below stands as a derivation and should be re-applied as a SINGLE change once the
 baseline is confirmed, not bundled with the restore.
 
+## THE RENDER MUST BE A REAL DISPLAY MODE (2026-09-02) - the injected-mode crop
+
+**This is the root cause of "tiny and in the top left corner", and probably of the project's
+central open bug.** Six capture dumps on this rig, measured by non-black bounding box:
+
+| requested buffer | actual content | is it a real display mode? | verdict |
+|---|---|---|---|
+| 1600x900 | 1600x900 | yes | **FULL** |
+| 2560x1440 | 2560x1440 | yes | **FULL** |
+| 3840x2160 | 3840x2160 | yes | **FULL** |
+| 4032x2268 (GingasVR's own) | 3024x1440 | no - injected | CROPPED |
+| 2750x2850 | 2750x2200 | no - injected | CROPPED |
+| 2850x2750 (this rig's "known good") | **2560x1440** | no - injected | CROPPED |
+
+**The game renders into the TOP-LEFT of the buffer and leaves the rest black.** At
+2850x2750 the content is exactly 2560x1440 - 89.8% of the width, **52.3% of the height**.
+Everything downstream then works on a frame that is half empty:
+
+- **"tiny"**: the eye quad maps the WHOLE 2850x2750 frame onto itself, so the 2560x1440 of
+  real content covers only ~90% x 52% of it.
+- **"top left"**: the content is literally in the top-left of the frame.
+- **"the eyes will not fuse"**: the SBS split assumes the halves meet at x=1425. The game
+  drew its stereo pair inside 0..2560, so the halves actually meet at **x=1280**. The left
+  eye is handed 0..1425 (its own view plus 145 px of the right eye's) and the right eye
+  1425..2850 (the tail of the right view plus 290 px of black). Those cannot fuse, and no
+  amount of separation, convergence or FovLever tuning can make them.
+
+**Why the mod does not notice.** `PinBackbuffer=1` forces the DEVICE to 2850x2750 at
+CreateDevice while the game keeps rendering at the size it asked for (the log records the
+request: `CreateDevice the game asked for 2560x1440 windowed=0`). The mod then spoofs
+`GetClientRect` to report 2850x2750, and the setres path READS THAT BACK and concludes
+`setres: the game is already at 2850x2750 - skipping the resolution script entirely`. That
+check cannot fail its own hypothesis: it is reading our own spoof. So the engine-side setres
+that would genuinely resize the render never runs, and `capture: 2850x2750` is logged for a
+frame that only holds 2560x1440 of picture.
+
+**`PinBackbuffer` is not GingasVR's.** Her own tuned ini (`dishonored_vr.ini.pre-2750`) has
+no `PinBackbuffer` line at all - it defaults to 0. The key was added by this project. Every
+ini since carries `PinBackbuffer=1`, which is when the crop appears.
+
+**Why this is probably "works only on her PC".** 4032x2268 is not a standard display mode
+either, and it cropped to 3024x1440 here. Whether an injected mode is honoured depends on the
+machine's GPU, driver and desktop mode - this rig's desktop is 5120x1440, and two of the
+three cropped captures came back exactly 1440 tall. A user whose display happens to accept
+the injected mode sees a correct image; everyone else gets a frame with content in one
+corner and eyes that will not fuse. That is the reported shape of the central bug, and it
+predicts that the affected users' desktop height is smaller than the requested render height.
+
+**The fix is to request a resolution the display actually offers.** Applied for testing:
+`RenderWidth/Height = 3840x2160`, `SpoofDesktopW/H = 3840x2160`, `PinBackbuffer=0`, with
+`DishonoredEngine.ini` and all four `[AppCompatBucket1..4]` moved to 3840x2160 as well.
+3840x2160 is 16:9 landscape (so the fork splices), measured FULL on this rig, and gives a
+per-eye half of 1920x2160 = **aspect 0.889** - the same per-eye aspect as GingasVR's
+4032x2268, which ENGINE_NOTES "FovLever and the render size are ONE setting" identifies as
+the number that matters. 2560x1440 is the guaranteed-safe fallback: identical per-eye aspect,
+a quarter fewer pixels, and the game asked for it itself.
+
+**Instrument that should exist and does not.** Nothing compares the captured frame's real
+content extent against the buffer size. A cheap non-black bounding-box check on the capture,
+logged once per resolution change, would have caught this on the first run instead of the
+fourth session. The setres check must also stop reading the mod's own `GetClientRect` spoof.
+
 ## MenuFillScale pumps the world size during GAMEPLAY (2026-09-02)
 
 **Measured, not theorised**: the headset log of 2026-09-02 02:23 (VirtualDesktopXR, Quest 3,

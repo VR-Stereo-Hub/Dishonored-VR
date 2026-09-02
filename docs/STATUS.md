@@ -126,6 +126,66 @@ The port finishes opportunistically; the headset work comes first.
 
 ## Session log
 
+### 2026-09-02 - session 4c: THE RENDER WAS NEVER 2850x2750
+
+**This is the root cause.** The tester sent a desktop-mirror screenshot of the main menu with
+the picture in the top-left of the window. The mirror blits the backbuffer's LEFT HALF
+pillarboxed (`frame_hooks.cpp:415-460`), so its horizontal placement is expected - but the
+picture filled only the top ~52% of the window, and that is not.
+
+**Measured, six capture dumps, non-black bounding box:**
+
+| requested buffer | actual content | real display mode? | verdict |
+|---|---|---|---|
+| 1600x900 | 1600x900 | yes | FULL |
+| 2560x1440 | 2560x1440 | yes | FULL |
+| 3840x2160 | 3840x2160 | yes | FULL |
+| 4032x2268 (GingasVR's) | 3024x1440 | no | CROPPED |
+| 2750x2850 | 2750x2200 | no | CROPPED |
+| **2850x2750 (our "known good")** | **2560x1440** | no | **CROPPED** |
+
+At 2850x2750 the game draws exactly **2560x1440 into the top-left** and leaves the rest
+black. So the whole session's geometry was applied to a frame that is half empty. It
+explains all three symptoms at once: tiny (content covers ~90% x 52% of the quad), top-left
+(it is literally there), and the eyes not fusing (the SBS halves meet at x=1280, not the
+x=1425 the split assumes, so each eye gets part of the other's view plus black).
+
+**Why nothing caught it.** `PinBackbuffer=1` forces the DEVICE to 2850x2750 while the game
+renders at the size it asked for (`CreateDevice the game asked for 2560x1440`). The mod then
+spoofs `GetClientRect` to 2850x2750 and the setres path reads that spoof back, concluding
+`setres: the game is already at 2850x2750 - skipping the resolution script entirely`. A
+check reading our own spoof cannot fail its own hypothesis, so the engine-side resize never
+ran and `capture: 2850x2750` was logged for a half-empty frame.
+
+**`PinBackbuffer` is ours, not GingasVR's.** Her tuned ini (`.pre-2750`) has no such line.
+Every ini since session 2 sets it to 1.
+
+**This is probably the central open bug.** 4032x2268 is not a standard mode either and
+cropped here too. Whether an injected mode is honoured depends on the machine's GPU, driver
+and desktop mode - this rig's desktop is 5120x1440, and two of the three cropped captures
+came back exactly 1440 tall. It predicts affected users have a desktop shorter than the
+requested render height, and it is falsifiable by asking one for their desktop resolution.
+
+**The Documents folder was ruled out**, on the tester's suggestion: `DishonoredEngine.ini` is
+vanilla plus the intended VR lines, all four AppCompat buckets were already correct, and no
+file in the Config directory contains 2560 or 1440.
+
+**Applied for testing** (one coherent change: use a resolution the display actually offers):
+`RenderWidth/Height 2850x2750 -> 3840x2160`, `SpoofDesktopW/H -> 3840x2160`,
+`PinBackbuffer 1 -> 0`, plus `DishonoredEngine.ini` and all four `[AppCompatBucket1..4]` to
+3840x2160. Per-eye half 1920x2160 = aspect 0.889, the same per-eye aspect as GingasVR's
+4032x2268. Backups: `.pre-realmode` next to each of the three files. NOT YET TESTED.
+Fallback if 3840x2160 is not honoured: 2560x1440, identical per-eye aspect, and the game
+asked for it itself.
+
+**Also confirmed this session**: the 4b MenuFillScale fix works. The 02:35 run logged 28 quad
+rebuilds, all at `fill=1.00` / 100.0 x 98.0 deg, none at 0.60. The size pumping is gone.
+
+**Next instrument to build**: nothing compares the captured frame's real content extent to
+the buffer size. A non-black bounding-box check on the capture, logged once per resolution
+change, turns this class of bug into one line. The setres check must also stop reading the
+mod's own `GetClientRect` spoof.
+
 ### 2026-09-02 - session 4b: the world size PUMPS, and MenuFillScale is why
 
 A headset run on the restored known-good ini (02:23, VirtualDesktopXR + Quest 3) reported
