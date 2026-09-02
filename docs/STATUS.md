@@ -126,6 +126,98 @@ The port finishes opportunistically; the headset work comes first.
 
 ## Session log
 
+### 2026-09-02 - session 3c: the seam went deaf, and the eye texture is half black
+
+**START HERE.** The bug is not fixed and the last measurement is incomplete.
+
+**The one thing to do first**: launch, get into GAMEPLAY (not a menu, window focused),
+then `tools\game-cmd.ps1 "dump eyes"` and look at the two PNGs in
+`%LOCALAPPDATA%\DishonoredVR\dumps\`. Everything below is waiting on that image.
+
+**The live symptom** (tester, Quest 3 + VirtualDesktopXR): eyes will not fuse, and the
+image sits high - "the render window is halfway up my vision so I only see the bottom
+half of it". Earlier in the session, "everything looked tiny".
+
+**The measurement that matters.** A `dump eyes` caught mid-session shows the world
+occupying only the **top ~54% of the eye render target, bottom half pure black**, in both
+eyes. That is our own D3D11 pass, before the compositor. It was a MENU frame (the dump
+caught a paused game), so it needs confirming in gameplay - but the vertical placement is
+the lead. The measured frustum is
+`eye frustums: L[-1.376 0.839 -1.428 0.966] ex=-0.0316 | R[-0.839 1.376 -1.428 0.966]`,
+slots `[left, right, down, up]`: **down-biased, 55 deg down against 44 deg up**. Worked by
+hand at these settings the quad should span y -2.36..+1.62 against a frustum of
+-2.29..+1.55, i.e. it should OVERFLOW the eye vertically, not sit in the top half. That
+contradiction is unexplained and is the next thing to chase.
+
+Same dump showed the two eyes holding **different content** (different horizontal extents,
+different fragments of the same menu text). That is the mono/stereo UV race on menu frames
+- the fork stops splicing, the frame goes mono, each eye still takes its own half. Probably
+menu-only: in gameplay the splice count is 5000+ and the halves are a real stereo pair.
+
+**The command seam went deaf and blocked the session.** `status.json` stale for 18 minutes
+and `command.txt` unread, while the Present hook ran at 62 fps with 251 `[present]` lines.
+Two `dump eyes` commands did nothing and left no trace. `poll()` had FIVE silent returns,
+so the failure was indistinguishable from the command never being written. **Fixed and
+installed**: each guard now names itself with the path, the size and GetLastError. If the
+seam is still deaf next session the log will say which branch refuses.
+
+**Theories killed this session (do not re-run them):**
+
+- The `CopyResource` size mismatch (step 0a) - eye RTs and XR eye size matched exactly.
+- The pace thread as the crash victim - the faulting thread is `(other)`, not `xr-pace`.
+- The black left eye - a SIMULATOR defect, not the mod; `dump eyes` shows the left eye
+  texture full. See VERIFICATION "Known simulator defects".
+- Eye cant - `g_eyeRot` is declared identity and the XR path correctly leaves it alone.
+- The clock/rate gate - `MaimNowMs` is fine (the 5 s `depth:` line printed 50 times against
+  the 3 s heartbeat's 81). Note the log uses `GetTickCount` while the gates use QPC via
+  `dvr::clock`, so an advancing log proves NOTHING about the gate clock.
+- A game restart clearing the seam - it did not.
+
+**THE KNOWN-GOOD STATE, AND HOW TO GET BACK TO IT.** This rig's best result so far -
+tester: *"the eyes seem to overlap correctly and provide depth, there is no freeze"* - came
+from `2850x2750` + `FovLever=100` + `Scale=50`, with the main scene splicing (5202). It is
+worth more than GingasVR's own values, which come from a different machine and are the
+subject of the project's central open bug ("works only on her PC").
+
+Snapshotted byte-for-byte in two places, so it survives a wiped game folder:
+
+- `tests\golden\known-good-2850x2750-lever100.ini` (in the repo)
+- `<game>\Binaries\Win32\dishonored_vr.ini.KNOWN-GOOD`
+
+Restore = copy either over `<game>\Binaries\Win32\dishonored_vr.ini`, then
+`tools\setup-game-ini.ps1 -Resolution -Width 2850 -Height 2750` for the game ini and the
+four AppCompat buckets. The keys, if you ever need to rebuild it by hand:
+`[Screen] RenderWidth=2850 RenderHeight=2750 SpoofDesktopW=2816 SpoofDesktopH=2880`
+`PinBackbuffer=1 GameFOVDeg=100 FovLever=100 FillScale=1.00`, `[PosTrack] Scale=50.0`.
+
+**WARNING - the snapshot does NOT contain any F10 tuning, and neither did any run.** The
+overlay's sliders are live-only until someone presses **"SAVE AS DEFAULTS"**
+(`overlay.cpp`, top of the panel), which calls `OverlaySaveDefaults` and writes ~90 keys -
+world scale, fill, screen distance, height offset, menu fill, wrist HUD, and the whole hand
+/ graft / blink block. It was never pressed, so every F10 adjustment the tester made across
+this session was lost at process exit; the only thing that persisted was the hand
+calibration, which `skelcontrol.cpp` writes on its own. **Procedure from now on: tune in
+F10, press SAVE AS DEFAULTS, then re-snapshot the ini.** Otherwise a good configuration
+cannot be reproduced, which is exactly what happened here.
+
+**Config as left, LIVE right now**: identical to the known-good snapshot above except
+`FovLever=130` instead of 100. That single change was applied but never evaluated - the
+seam went deaf before a dump could be taken, so it is an OPEN experiment, not a result.
+Either judge it on the next run or restore the snapshot first; do not stack anything on it.
+Game ini + all 4 AppCompat buckets at 2850x2750.
+Backups in the game folder: `.pre-2750` (GingasVR's own tuned ini), `.pre-landscape`,
+`.pre-scale100`, `.pre-gingas-restore`, `.pre-rollback`, `.pre-lever130`.
+
+**Installed**: RelWithDebInfo proxy only, 00:50, carrying the seam diagnostics. The fork
+(20:24) and `dxvk_stereo.txt` (13:52) are untouched and must stay that way - one variable.
+
+**Do not repeat these mistakes.** Restoring GingasVR's baseline I changed render size, FOV
+lever and world scale in ONE step, so "misaligned" was unattributable; her values also come
+from a different machine, and the project's central open bug is that her build works only
+on her PC. This rig now has its own confirmed-good point (2850x2750, splices 5202, tester:
+"eyes overlap correctly and provide depth") which is worth more than her numbers. Change
+one thing per run, and get the gameplay dump before changing anything at all.
+
 ### 2026-09-01 - session 3b: the render was PORTRAIT, so there was no stereo
 
 A headset run mid-session reported "the eyes are suuuuper far off and they both appear to
