@@ -71,8 +71,24 @@ inline SHORT to_axis(float v)
     return (SHORT)(v * 32767.0f);
 }
 
-// The stick shaping, verbatim from the single-file build's PadStick: a
-// per-axis deadzone with rescale.
+// The MOVEMENT stick's deadzone: radial, applied to the magnitude and
+// rescaled, not to each axis on its own. A per-axis threshold is crossed at
+// a different stick magnitude depending on the angle, so it notches the
+// diagonals and - worse - rotates the direction the game is handed near the
+// edge of the dead region. Ported from the BioShock Remastered VR pad layer,
+// which measured it. The turn axis keeps axis1: it has no partner to be
+// radial with.
+void deadzone2(float* x, float* y, float dz)
+{
+    float m = sqrtf((*x) * (*x) + (*y) * (*y));
+    if (m <= dz || m <= 1e-6f) { *x = 0.0f; *y = 0.0f; return; }
+    float scaled = (m - dz) / (1.0f - dz);
+    if (scaled > 1.0f) scaled = 1.0f;
+    float k = scaled / m;
+    *x *= k; *y *= k;
+}
+
+// A single axis: the per-axis deadzone with rescale, as PadStick always did.
 inline SHORT axis1(float v, float dz)
 {
     float a = fabsf(v);
@@ -267,9 +283,10 @@ void tick()
         // OFF under [Mode] GamepadOnly and contributes nothing there.
         if (g_cb.shape_buttons) b = g_cb.shape_buttons(b, mx, my, userStealth);
 
+        deadzone2(&mx, &my, g_deadzone);
         xs.Gamepad.wButtons      = b;
-        xs.Gamepad.sThumbLX      = axis1(mx, g_deadzone);
-        xs.Gamepad.sThumbLY      = axis1(my, g_deadzone);
+        xs.Gamepad.sThumbLX      = to_axis(mx);
+        xs.Gamepad.sThumbLY      = to_axis(my);
         xs.Gamepad.sThumbRX      = axis1(tx, g_deadzone);
         // pitch belongs to the head - EXCEPT in menus (stick navigates)
         // and while the power wheel is held open (stick points at wedges)
