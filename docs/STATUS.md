@@ -126,6 +126,55 @@ The port finishes opportunistically; the headset work comes first.
 
 ## Session log
 
+### 2026-09-02 - session 4d: the lever is half of the resolution setting
+
+**The 3840x2160 run was full-frame but letterboxed** - tester: "almost sort of right again,
+only problem was that the resolution was rectangular so it didn't fill my view". Both halves
+of that are now explained, and one of them was my error.
+
+**My error.** Session 4's restore set `FovLever=100`, correct for the near-square 2850x2750
+it was paired with. Session 4c then changed the render to 16:9 and left the lever at 100.
+The frustum-fill branch takes its vertical extent as `tan(fovDeg/2)/aspect`, so at 16:9 with
+lever 100 the quad clamps to **67.7 deg inside a 99 deg frustum** - letterboxed by
+construction. At lever 130 the same 16:9 render fills edge to edge with ~9% black at the
+bottom. Changing the render aspect without changing the lever is NOT a one-variable change:
+the pair is the variable. Table in ENGINE_NOTES, "FovLever IS the vertical fill lever".
+
+**The requested resolution is not being honoured at all.** The mod asked for 3840x2160; the
+log says `capture: 2560x1440`. With `PinBackbuffer=0` that is harmless - buffer and content
+agree, no crop, which is why 4c's fix worked - but **this rig cannot render above 2560x1440**
+(desktop 5120x1440 caps it). Every "4032x2268" run here is really 2560x1440. Trust the
+logged `capture:` number, never the requested one.
+
+**F10 SAVE AS DEFAULTS was finally pressed** (the thing session 3c said had never happened).
+The tester's tuning is now persisted and snapshotted to
+`tests/golden/f10-tuned-2026-09-02.ini` and `<game>\...\dishonored_vr.ini.f10-saved-0247`:
+
+| key | default | tuned |
+|---|---|---|
+| `[Tracking] HeightOffsetM` | 0.000 | 0.040 |
+| `[Screen] FillScale` | 1.00 | **0.74** |
+| `[Screen] DistanceMeters` | 1.60 | 1.67 |
+| `[PosTrack] Scale` | 50.0 | **100.0** |
+| `CrouchToggle` | 1 | 0 |
+| `XrLayer` | (absent) | proj |
+| `StampFix` | (absent) | 0 |
+
+`[PosTrack] Scale=100.0` matches the measured 100 uu/m from commit 60235b86 - the tester
+converged on the measured value by feel, which is a good cross-check on that measurement.
+
+**Applied on request: GingasVR's resolution default**, as the coherent pair -
+`RenderWidth/Height=4032x2268`, `SpoofDesktopW/H=4096x2304`, **`FovLever=130`** - plus
+`DishonoredEngine.ini` and all four AppCompat buckets at 4032x2268. `PinBackbuffer` stays 0
+(her ini has no such key) and `MenuFillScale` stays 1.00 (the 4b fix). Every F10 value above
+is preserved. Backups `.pre-gingasres` / `.f10-saved-0247`. NOT YET TESTED.
+
+**Expect this**: the render will probably clamp to 2560x1440 again (fine, still 16:9), and at
+lever 130 the quad should fill horizontally and to the top with ~9% black at the bottom -
+**but `FillScale=0.74` will still present it at 74% of that**. F2 raises FillScale live in
+the headset; that single knob is the difference between 74% and full. Judge the lever first,
+then the fill.
+
 ### 2026-09-02 - session 4c: THE RENDER WAS NEVER 2850x2750
 
 **This is the root cause.** The tester sent a desktop-mirror screenshot of the main menu with

@@ -196,6 +196,45 @@ own hand-calibration neutrals are kept. `[PosTrack] Scale` is back to her 50 - t
 100 below stands as a derivation and should be re-applied as a SINGLE change once the
 baseline is confirmed, not bundled with the restore.
 
+## FovLever IS the vertical fill lever for a 16:9 render (2026-09-02)
+
+Correcting session 4's own mistake, and completing "FovLever and the render size are ONE
+setting" with the arithmetic that section was missing.
+
+**The frustum-fill branch derives its VERTICAL extent from the frame aspect**
+(`eye_quads.cpp:233-242`): `tanC = tan(fovDeg/2)`, `tanCv = tanC / aspect`, and the quad's
+top/bottom are clamped to `+/- tanCv * D`. `fovDeg` is the measured render FOV, but the
+lever raises it through the zoom floor: `if (fovLever >= 40) fovDeg = max(fovDeg, fovLever *
+ZoomFillFloor)`. With `ZoomFillFloor=1.00`, **FovLever sets `fovDeg` outright** whenever it
+exceeds the render FOV.
+
+At `D=1.6` against this rig's frustum (x -2.202..+1.342, y -2.285..+1.546):
+
+| render | aspect | lever | tanCv | vertical clamp | result |
+|---|---|---|---|---|---|
+| 2850x2750 | 1.036 | 100 | 1.150 | +/-1.84 | fills; the near-square frame carries the height |
+| 3840x2160 | 1.778 | 100 | 0.670 | +/-1.07 | **67.7 deg of a 99 deg frustum - letterboxed** |
+| 4032x2268 | 1.778 | **130** | 1.206 | +/-1.93 | edge to edge top and sides, ~9% black at the bottom |
+
+**So a 16:9 render needs lever 130 and a near-square render needs lever 100.** They are not
+independent, which is what the section title always said - this table is the missing half.
+GingasVR ships 4032x2268 WITH FovLever=130 for exactly this reason.
+
+**Session 4's error, recorded so it is not repeated.** The known-good restore set
+`FovLever=100` (correct: it was paired with the near-square 2850x2750), and session 4c then
+moved the render to 16:9 **without moving the lever**. That is the worst pairing available
+and it produced the tester's "rectangular again so it didn't fill my view". Changing the
+render aspect without changing the lever is not a one-variable change; the pair is the
+variable.
+
+**Second finding from the same run: the requested resolution was not honoured.** The mod
+asked for 3840x2160 and the log records `capture: 2560x1440`. With `PinBackbuffer=0` this is
+harmless - the device is created at what the game actually asked for, so buffer and content
+agree and there is no crop - but it means **this rig will not render above 2560x1440**
+(desktop 5120x1440, i.e. the monitor height caps it). Every "4032x2268" or "3840x2160" run on
+this machine is really a 2560x1440 run. Anything derived from the requested number rather
+than the logged `capture:` number is wrong.
+
 ## THE RENDER MUST BE A REAL DISPLAY MODE (2026-09-02) - the injected-mode crop
 
 **This is the root cause of "tiny and in the top left corner", and probably of the project's
