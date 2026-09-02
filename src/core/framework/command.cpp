@@ -118,12 +118,36 @@ void poll(double nowMs)
     g_lastPollMs = nowMs;
     if (!g_haveStart) { GetSystemTimeAsFileTime(&g_startTime); g_haveStart = true; }
 
+    // 40.2 EVERY REFUSED GUARD SAYS WHY. This function had five silent
+    // returns, and when the seam went deaf mid-session it reported nothing at
+    // all: two `dump eyes` commands did nothing and left no trace, while the
+    // present path logged happily at 62 fps. Six hypotheses were spent
+    // narrowing it by inference (the clock, the 1 Hz gate, the data dir, the
+    // start-time compare, a stale mtime) because the code refused to name the
+    // branch it took. It names it now. Rate-limited, and NEVER on the path
+    // that succeeds, so a healthy seam still costs nothing.
     char path[MAX_PATH];
     dvr::paths::in_data_dir(path, "command.txt");
     WIN32_FILE_ATTRIBUTE_DATA fa;
-    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fa)) return;
-    if (fa.nFileSizeLow == 0 && fa.nFileSizeHigh == 0) return;
-    if (CompareFileTime(&fa.ftLastWriteTime, &g_lastWrite) == 0) return;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fa)) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 10000,
+            "cmd: GetFileAttributesEx failed on %s (err %lu) - the seam is DEAF; "
+            "no command can arrive", path, (unsigned long)GetLastError());
+        return;
+    }
+    if (fa.nFileSizeLow == 0 && fa.nFileSizeHigh == 0) return;   // idle: normal
+    if (CompareFileTime(&fa.ftLastWriteTime, &g_lastWrite) == 0) {
+        // The file has bytes in it but its write time has not moved since we
+        // last looked. A command sitting here unread means the writer changed
+        // the contents without the timestamp advancing, or we recorded a time
+        // we never actually consumed.
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 10000,
+            "cmd: %s holds %lu byte(s) but its write time has not changed since "
+            "the last poll - REFUSING to re-read it, so this command will never "
+            "run. Rewrite the file to bump its timestamp.",
+            path, (unsigned long)fa.nFileSizeLow);
+        return;
+    }
     g_lastWrite = fa.ftLastWriteTime;
     if (CompareFileTime(&fa.ftLastWriteTime, &g_startTime) < 0) {
         DVR_WARN("cmd: command.txt is older than this process - ignoring a stale file (cleared)");
@@ -132,7 +156,18 @@ void poll(double nowMs)
         return;
     }
     static char text[8192];
-    if (!read_and_truncate(text, sizeof(text))) return;
+    if (!read_and_truncate(text, sizeof(text))) {
+        // The last silent return, and the leading suspect for the seam going
+        // deaf: the attributes said there were bytes, but the open-read-
+        // truncate did not complete. A sharing violation from the writer, or
+        // a file that vanished between the two calls, both land here.
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 10000,
+            "cmd: %s reported %lu byte(s) but could not be read and cleared "
+            "(err %lu) - the command is LOST and the seam will keep refusing "
+            "until the file is rewritten",
+            path, (unsigned long)fa.nFileSizeLow, (unsigned long)GetLastError());
+        return;
+    }
     g_seq++;
     char* ctx = nullptr;
     for (char* line = strtok_s(text, "\n", &ctx); line; line = strtok_s(nullptr, "\n", &ctx))
