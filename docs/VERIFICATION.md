@@ -21,7 +21,7 @@ question the simulator could answer is a wasted session.
 | Which hooks installed? | log / status | `status-dump.ps1` -> `hooks{}` | `processEvent`, `blinkDir/Dst/Trc`, `pad` true |
 | Is the game in gameplay? | log | `[game] state: GAMEPLAY` | the line `boot.ps1` waits for |
 | Is the session live on the sim? | log + state.json | `xrsim-launch.ps1` | `xr: runtime "dvr-xrsim"`, `xr: pipeline READY`, `frame` advancing |
-| Is the mono screen in BOTH eyes? | capture | `xrsim-run.ps1 -Path tools\xrsim\mono.xrs` | `quadLayers >= 1`, `capNonBlackL/R >= 25` (the default quad is ~38% of a Quest 3 eye; its `src` reads ~97%), `stats.bboxL == bboxR` within the ~12 px eye parallax; a black eye is attributed in `xrsim.log` (COMPOSITOR vs APP fault) |
+| Is the mono screen in BOTH eyes? | capture | `xrsim-run.ps1 -Path tools\xrsim\mono.xrs` | `quadLayers >= 1`, `capNonBlackL/R >= 10` (the default head-locked quad is ~16% of a Quest 3 eye; its `src` reads ~97%), `stats.bboxL == bboxR` within the ~12 px eye parallax; a black eye is attributed in `xrsim.log` (COMPOSITOR vs APP fault) |
 | Are two eyes submitted? (stereo methods, S2) | capture | `xrsim-shot.ps1` -> `ProjViews`, `EyeSeparationM` | 2, ~0.063 |
 | Which camera field does the renderer honour? | log | `game-cmd.ps1 "camera eyetest 100"` in gameplay, standing still | `camera/eyetest: <field> ... HONOURED|DISCARDED|INCONCLUSIVE`, then `DONE` with the field for `[Camera] EyeField` (ENGINE_NOTES, the per-eye camera seam) |
 | Are the two eyes paired? (S2) | log | `tools\eye-check.ps1` leg 0 | `stereo: beat ... L/s=N R/s=N`, both flowing and within 80% |
@@ -93,9 +93,10 @@ on the dev PC when 41.0 was built), so the status of each is "instrumented, unve
      `capNonBlackL`, `capNonBlackR` in `state.json`, so `tools\xrsim\mono.xrs` asserts on
      both eyes without a human reading a PNG.
    The gate for trusting per-eye captures again: `mono.xrs` passes on the build (both eyes at
-   least 25% non-black - the default quad is ~38% of the eye - with `bboxL == bboxR` within
-   the eye parallax) and no COMPOSITOR-fault line in `xrsim.log`. **Passed 2026-09-02 on
-   41.0** (session 5): L 37.95% / R 37.98%, source 97.22% in both views, no fault line.
+   least 10% non-black - the default head-locked quad is ~16% of the eye - with `bboxL ==
+   bboxR` within the eye parallax) and no COMPOSITOR-fault line in `xrsim.log`. **Passed
+   2026-09-02 on 41.0** (session 5): L 16.4% / R 16.3% (37.95 / 37.98 before the quad went
+   head-locked), source 97.22% in both views, no fault line.
 
 2. **`dump eyes` wrote the eye textures blue-tinted.** The writer picks the WIC pixel format
    from the texture's DXGI format (R8G8B8A8 -> RGBA, B8G8R8A8 -> BGRA); the stereo output

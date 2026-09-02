@@ -24,6 +24,7 @@ const Field kFields[] = {
 };
 constexpr int kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 constexpr int kEyetestFrames = 120;
+constexpr int kEyetestBaselineFrames = 45;   // presents of c5 with NO write, per candidate
 
 int   g_eye = 0;
 float g_ipdM = 0.0f;
@@ -105,6 +106,12 @@ struct Eyetest {
     double movedSum = 0.0;
     int   movedN = 0;
     bool  wrote = false;    // the script lane wrote this candidate at least once
+    bool  writing = false;  // baseline phase over: the script lane writes
+    int   baseFrames = 0;   // presents that fed the baseline
+    double baseSum[3] = {0, 0, 0};
+    float baseline[3] = {0, 0, 0};
+    bool  fieldSaid = false;
+    float fieldVal[3] = {0, 0, 0};
     uint32_t ticks = 0, noCam = 0, noRight = 0, noField = 0;   // why a tick did not write
     float base[3] = {0, 0, 0}, right[3] = {0, 0, 0};
     bool  restorePending = false;
@@ -115,6 +122,10 @@ struct Eyetest {
 void eyetest_next_candidate() {
     g_et.frames = g_et.honoured = g_et.discarded = g_et.other = g_et.noWrite = 0;
     g_et.ticks = g_et.noCam = g_et.noRight = g_et.noField = 0;
+    g_et.writing = false;
+    g_et.baseFrames = 0;
+    g_et.baseSum[0] = g_et.baseSum[1] = g_et.baseSum[2] = 0.0;
+    g_et.fieldSaid = false;
     g_et.movedSum = 0.0; g_et.movedN = 0;
     g_et.wrote = false;
     g_et.w = Writer();
@@ -268,11 +279,11 @@ bool eyetest_start(float uu, const char* field) {
     g_et.only = only;
     g_et.idx = only >= 0 ? only : 0;
     eyetest_next_candidate();
-    DVR_INFO("camera/eyetest: START %+.1f uu along the camera's right row, %d presents per "
-             "candidate (%s). HONOURED = c5 (the draw's camera position) moves by the asked "
-             "amount; DISCARDED = c5 stays put (the engine recomputed the field before the "
-             "draw). Stand still in gameplay.",
-             uu, kEyetestFrames, only >= 0 ? kFields[only].name : "all six candidates");
+    DVR_INFO("camera/eyetest: START %+.1f uu along the camera's right row: per candidate %d "
+             "presents of c5 baseline, then %d presents writing (%s). HONOURED = c5 (the draw's "
+             "camera position) moves off its baseline by the asked amount; DISCARDED = it stays "
+             "(the engine recomputed the field before the draw). Stand still in gameplay.",
+             uu, kEyetestBaselineFrames, kEyetestFrames, only >= 0 ? kFields[only].name : "all six candidates");
     return true;
 }
 
@@ -293,23 +304,54 @@ void eyetest_script_tick(uint8_t* camObj) {
     if (!camObj) { ++g_et.noCam; return; }
     float r[3];
     if (!read_right(camObj, r)) { ++g_et.noRight; return; }
+    memcpy(g_et.right, r, sizeof(r));
+    const uint32_t fo = kFields[g_et.idx].off;
+    if (!g_et.fieldSaid && RangeReadable(camObj + fo, 12)) {
+        // The raw field next to the draw's c5, once per candidate: the frame
+        // each lives in is a finding for ENGINE_NOTES whatever the verdict.
+        const float* v = (const float*)(camObj + fo);
+        memcpy(g_et.fieldVal, v, sizeof(g_et.fieldVal));
+        g_et.fieldSaid = true;
+        DVR_INFO("camera/eyetest: %s reads (%.1f %.1f %.1f); c5 (%.1f %.1f %.1f); right (%.3f %.3f %.3f)",
+                 kFields[g_et.idx].name, v[0], v[1], v[2], g_c5[0], g_c5[1], g_c5[2], r[0], r[1], r[2]);
+    }
+    if (!g_et.writing) return;   // baseline phase: look, do not touch
     const float off[3] = {r[0] * g_et.uu, r[1] * g_et.uu, r[2] * g_et.uu};
     float base[3];
-    if (!write_offset(camObj, kFields[g_et.idx].off, off, g_et.w, base)) { ++g_et.noField; return; }
+    if (!write_offset(camObj, fo, off, g_et.w, base)) { ++g_et.noField; return; }
     memcpy(g_et.base, base, sizeof(base));
-    memcpy(g_et.right, r, sizeof(r));
     g_et.wrote = true;
 }
 
 void eyetest_present_tick() {
     if (!g_et.active) return;
+    if (!g_et.writing) {
+        // Baseline: c5 while nothing is written. The player stands still, so
+        // this is the position the honoured case must move away from.
+        if (g_c5Ok) {
+            for (int i = 0; i < 3; ++i) g_et.baseSum[i] += g_c5[i];
+            ++g_et.baseFrames;
+        }
+        if (g_et.baseFrames >= kEyetestBaselineFrames) {
+            for (int i = 0; i < 3; ++i) g_et.baseline[i] = (float)(g_et.baseSum[i] / g_et.baseFrames);
+            g_et.writing = true;
+        } else if (++g_et.frames >= kEyetestFrames * 3) {
+            // c5 never arrived: no draw is passing through the constant hook.
+            DVR_WARN("camera/eyetest: %s - no c5 readback in %d presents (the game is not "
+                     "drawing a scene, or the constant hook is not seeing c5); stopping",
+                     kFields[g_et.idx].name, g_et.frames);
+            eyetest_stop("no c5");
+        }
+        return;
+    }
     ++g_et.frames;
     if (!g_et.wrote) {
         ++g_et.noWrite;
     } else if (!g_c5Ok) {
         ++g_et.noWrite;
     } else {
-        const float d[3] = {g_c5[0] - g_et.base[0], g_c5[1] - g_et.base[1], g_c5[2] - g_et.base[2]};
+        const float d[3] = {g_c5[0] - g_et.baseline[0], g_c5[1] - g_et.baseline[1],
+                            g_c5[2] - g_et.baseline[2]};
         const float moved = d[0] * g_et.right[0] + d[1] * g_et.right[1] + d[2] * g_et.right[2];
         g_et.movedSum += moved; ++g_et.movedN;
         const float band = 0.25f * g_et.uu;

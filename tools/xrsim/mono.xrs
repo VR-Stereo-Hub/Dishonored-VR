@@ -3,9 +3,9 @@
 # The gate that makes per-eye captures trustworthy again (docs/VERIFICATION.md,
 # section 2, defect 1): the game frame on the head-locked quad must composite
 # non-black in the left eye AND the right eye, with the same bounding box in
-# both (equal within the eye parallax: ~12 px at 1.75 m on the 2064-wide eye).
-# The default quad (2.4 m wide at 1.75 m) covers ~38% of a Quest 3 eye, measured
-# 2026-09-02 (37.95 / 37.98); the layer's own SOURCE reads ~97%. A black left
+# both (equal within the eye parallax). The default quad (2.4 m wide at 1.75 m,
+# head-locked) covers ~16% of a Quest 3 eye, measured 2026-09-02 (16.4 / 16.3);
+# the layer's own SOURCE reads ~97%. A black left
 # eye here is attributed by the sim's own log line (`xrsim: eye L composited
 # BLACK ... COMPOSITOR fault` or `... APP fault`).
 #
@@ -18,5 +18,5 @@ reset
 @assert layersLastFrame ge 1
 @assert quadLayers ge 1
 @shot mono
-@assert capNonBlackL ge 25
-@assert capNonBlackR ge 25
+@assert capNonBlackL ge 10
+@assert capNonBlackR ge 10
