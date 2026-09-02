@@ -296,10 +296,14 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 if (!strcmp(nm, "PreExit") &&
                     !InterlockedCompareExchange(&g_gameExiting, 0, 0)) {
                     InterlockedExchange(&g_gameExiting, 1);
-                    InterlockedExchange(&g_xrRun, 0);   // pace thread exits
                     Log("shutdown: game PreExit - VR paths standing down "
-                        "(no more submits, pace thread stopping)");
+                        "(no more submits, joining the pace thread)");
                     LogFlush();          // 38.90: buffered log - land it now
+                    // 40.2: was InterlockedExchange(&g_xrRun, 0) on its own,
+                    // which only ASKED. Blocking here is correct: the process
+                    // is quitting, and the alternative is teardown racing a
+                    // thread that is still inside the runtime.
+                    XrPaceStop("PreExit");
                 }
                 // 38.67 BOAT-DEATH FORENSICS - log only, no behavior change.
                 // Three runs died identically with three theories eliminated

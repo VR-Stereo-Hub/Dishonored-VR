@@ -352,5 +352,6 @@ static void XrRtFrameEnd(void);
 static bool XrRtFrameBegin(void);
 static void XrRtPublish(void);
 static DWORD WINAPI XrPaceThread(LPVOID);
+static void XrPaceStop(const char* why);
 static DWORD WINAPI XrBenchThread(LPVOID);
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved);
