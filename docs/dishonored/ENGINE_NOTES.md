@@ -157,6 +157,45 @@ display rate because fps wandering 66-80 against 72/90 Hz was the measured stutt
 XR-3 architecture: a detached pace thread owns every runtime call (VDXR raced a haptic call
 from the render thread and trashed the heap); the game thread only publishes eye textures.
 
+## World scale: 50 UU/m is a default, not a measurement (2026-09-01)
+
+`[PosTrack] Scale` is 50, UE3's canonical 1 uu = 2 cm. One knob drives both the fork's
+stereo separation and positional parallax, live on the F10 View tab ("world scale (uu/m)")
+and on PgUp/PgDn (**PgDn = world smaller**, 5% a press).
+
+**Prior art from another UE3 game.** BioShock Infinite's VR mod ships the same canonical 50
+as its code default and its own notes say plainly that this is *not* the answer - "the true
+value is the user's headset calibration". The value that came out GREEN in the headset there
+was **150 UU/m**, three times canonical (source: the bioshock-trilogy-vr tree,
+`docs/bioshockinfinite/ENGINE_NOTES.md` and `ROADMAP.md`, session s41 "world scale tuned to
+150"). Its notes also carry the warning that applies here: BS1/BS2's calibrated 100 must
+never be copied across, because it is a different engine. The same caution applies to
+Infinite's 150 - it is a starting bracket for Dishonored, not a value to adopt.
+
+So the first headset attempt at Dishonored's scale should sweep **50 -> 150**, not the
+narrow 50 -> 74 that inverting GingasVR's static `dxvk_stereo.txt` marker (`sep=0.014
+conv=140`) suggests. That inversion assumes the FOV he tuned at, which is unrecorded.
+
+**Separation changes DEPTH, not angular size.** With the frustum-fill path presenting the
+measured render FOV at 1:1, apparent angular size is already correct by construction and
+will not move with this knob. What moves is how far away things read, which is what makes a
+correctly-scaled view still feel enormous. Note also that `[Screen] FillScale` (the "screen
+fill" slider) is **inert while `XrFrustumFill=1`**, because the frustum-fill branch
+recomputes the quad corners and discards the authored W/H.
+
+40.2 logs the whole chain every 5 s - IPD, world scale, the resulting eye separation in game
+units, xs, convergence, the separation asked for AND the value read back out of the fork -
+so a knob that moves the hands but not the world names which half is dead.
+
+## The "freeze then rescale" was VR injection, not a fault (2026-09-01)
+
+Reported by the tester after the landscape fix: the square flat render appears, the image
+freezes for about a second, and then the game is running in VR. That is the bring-up
+sequence - the capture, the eye quads and the projection layer all coming up - and it was
+only ever read as a glitch because what came out the other side was scaled so wrongly that
+it did not look like a successful injection. The freeze itself has no fault behind it. What
+remains open is world scale, above.
+
 ## THE RENDER MUST BE LANDSCAPE (2026-09-01) - the portrait splice refusal
 
 The cause of "the eyes are super far off and both are zoomed in", and a self-inflicted

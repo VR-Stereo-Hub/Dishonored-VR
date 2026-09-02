@@ -530,6 +530,14 @@ static void VRFrame(IDirect3DDevice9* dev)
                     g_dxvkProj ? "resolved" : "NOT FOUND (using GameFOVDeg)",
                     g_dxvkDumpReq ? "on Scroll Lock" : "NOT FOUND (old fork build)",
                     g_dxvkMark ? "resolved" : "NOT FOUND (old fork build)");
+                // 40.2: the two exports that own WORLD DEPTH were missing from
+                // this line entirely, so a dead sep/conv resolve looked exactly
+                // like a live one.
+                Log("sbs: stereo separation export %s, convergence export %s "
+                    "(these two decide whether the world-scale knob reaches the "
+                    "world at all; the hands do not go through them)",
+                    g_dxvkSep ? "resolved" : "NOT FOUND",
+                    g_dxvkConv ? "resolved" : "NOT FOUND");
             }
             // 30.36: live FOV from the fork's projection export. The screen
             // quad is sized from the FOV the game renders THIS frame - a
@@ -552,9 +560,48 @@ static void VRFrame(IDirect3DDevice9* dev)
                     //   sep = xs * eyeOffsetUU / (2 * conv)
                     // (sep*conv is the true translation term; sep alone is
                     // the frustum shear; zero parallax stays at w = conv.)
+                    // 40.2 THE WHOLE DEPTH CHAIN, INCLUDING THE READ-BACK.
+                    // Every input to world scale was invisible: the IPD was
+                    // never logged at all, the resolve of the sep/conv exports
+                    // was never reported, and the write was never checked. So
+                    // "the world still feels huge" had no arithmetic behind it
+                    // and the world-scale slider could move the hands (drawn by
+                    // us) while doing nothing to the world (drawn by the fork)
+                    // with nothing to say which half was dead.
+                    //
+                    // A verified write is not an honoured one, so the value is
+                    // read BACK out of the fork's export and printed next to
+                    // what we asked for. If they differ, something else owns
+                    // the variable. eyeOffsetUU is the number that actually
+                    // matters - how many game units apart the two eyes are -
+                    // and it is what a person can sanity-check against a known
+                    // in-game dimension.
                     if (g_dxvkSep && g_dxvkConv && *g_dxvkConv > 1.0f) {
-                        *g_dxvkSep = xs * (g_ipdM * g_posScaleUU) * 0.5f
-                                   / (*g_dxvkConv);
+                        const float convNow = *g_dxvkConv;
+                        const float eyeOffUU = g_ipdM * g_posScaleUU;
+                        const float want = xs * eyeOffUU * 0.5f / convNow;
+                        *g_dxvkSep = want;
+                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                            "depth: ipd=%.1fmm worldScale=%.1f uu/m -> eyes %.2f uu "
+                            "apart | xs=%.4f (fov %.1f deg) conv=%.1f uu -> sep "
+                            "asked %.5f, fork reads back %.5f%s",
+                            g_ipdM * 1000.0f, g_posScaleUU, eyeOffUU, xs,
+                            g_liveFovX, convNow, want, *g_dxvkSep,
+                            (fabsf(*g_dxvkSep - want) > 1e-6f)
+                                ? "  <== MISMATCH: the fork is not keeping our "
+                                  "separation, so the world's depth does NOT follow "
+                                  "the world-scale knob (the hands still will)"
+                                : "");
+                    } else {
+                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 10000,
+                            "depth: NOT driving the fork's stereo separation - sep "
+                            "export %s, conv export %s, conv value %.1f (needs > 1). "
+                            "The world keeps whatever separation dxvk_stereo.txt set "
+                            "at load, and the world-scale knob will move the hands "
+                            "but NOT the world.",
+                            g_dxvkSep ? "resolved" : "NOT FOUND",
+                            g_dxvkConv ? "resolved" : "NOT FOUND",
+                            g_dxvkConv ? *g_dxvkConv : 0.0f);
                     }
                 }
             }
