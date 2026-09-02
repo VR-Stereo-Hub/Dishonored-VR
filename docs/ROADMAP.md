@@ -33,8 +33,10 @@ S2b) on the same foundation; S3 compares them and picks.
       bboxes, head-locked under yaw), `camera eyetest` run in gameplay with its verdicts in
       ENGINE_NOTES (0x330 HONOURED), `stereo aer|reentry` refuse and mono keeps running,
       crash file and status.json intact, `soak.ps1 -Minutes 3` exit 0
-- [ ] Verified in a headset (user, Quest 3 via VDXR): the game on a head-locked screen in
-      both eyes, head rotation turns the view, the gamepad works, the log sent back
+- [x] Verified in a headset (user, Quest 3 via VDXR, 2026-09-03, build `g4cae928b`): the game
+      on a head-locked screen in both eyes, head rotation turns the view, the gamepad works;
+      `xr: instance created on runtime 'VirtualDesktopXR'`, 2496x2688 per eye recommended,
+      `xr: pipeline READY`, 68 presents/s at 1920x1080. The quit crashed (below, fixed).
 
 Done when both verification lines are ticked; the PR carries the removal list and the
 results.

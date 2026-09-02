@@ -83,7 +83,13 @@ build `g4fb67333` and later, 2026-09-02 evening, eight runs:
    page ends 5.3 MB apart; the process survived it. Unsymbolized (that build is gone); the Reset
    + AA path is the first suspect.
 
-**Not verified**: the headset (Quest 3 via VDXR) - the user's run; the SteamVR shim with
+**Headset: verified** (run 13, 2026-09-03): Quest 3 through VirtualDesktopXR, the game on the
+head-locked screen in both eyes, head tracking and the gamepad working. The quit crashed on
+that run (the 38.79 class: VD's thread through a freed d3d11 pointer after PreExit with the
+session still open); the teardown now runs from the PreExit handler and needs one more quit
+to confirm.
+
+**Not verified**: the SteamVR shim with
 Dishonored; `apply_eye_offset` driving a real per-eye render (no method asks for an eye yet);
 `head_track`/`pad_bridge` as real modules (deferred, S1).
 
@@ -153,6 +159,8 @@ Runs on the dev PC (simulator lane; logs in `D:\dvr-data\logs\41-run*.log`):
 | 9 | Steam (after the process cleared) | `mono.xrs` PASS; head-lock pair IDENTICAL bboxes on the fixed sim; no c5 (the c0 x128 block) |
 | 10 | Steam | c5 back; eyetest: 0x330 reads -c5 and moves c5 by -98.7 uu (75/76), the rest discarded |
 | 11 | Steam | sign-aware seam: **0x330 HONOURED 119/120 (+99.2 uu)**, five DISCARDED; `camera eyefield 0x330` |
+| 12 | Steam + Quest 3 (VDXR) | flat: a stale `[VR] XrRuntimeJson` (the sim manifest) made the loader fail; fixed to warn and ignore (`21e1cb64`) |
+| 13 | Steam + Quest 3 (VDXR) | **THE HEADSET RUN: VirtualDesktopXR, Meta Quest 3, FOCUSED, READY, the screen in both eyes following the head, the gamepad working (user's report)**; quitting through the menu crashed 2.3 s after PreExit (EIP DEDEDEDE in d3d11.dll on VD's thread, the session still open) - teardown moved to the PreExit handler |
 
 ### 2026-09-02 - session 4e: gamepad-only, and the three rendering symptoms
 

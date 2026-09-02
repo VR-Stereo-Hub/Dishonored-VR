@@ -246,6 +246,18 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                     !InterlockedCompareExchange(&g_gameExiting, 0, 0)) {
                     InterlockedExchange(&g_gameExiting, 1);
                     dvr::frame::set_exiting();
+                    // 41.0: tear the OpenXR session down HERE. The first Quest
+                    // run (2026-09-03) quit through the menu: presents had already
+                    // stopped when PreExit fired, so the present hook's teardown
+                    // never ran, and 2.3 s later Virtual Desktop's thread jumped
+                    // through a freed d3d11 pointer (EIP DEDEDEDE, the 38.79
+                    // class) with the session still open. set_exiting() above
+                    // parks the present hook before any runtime call; the short
+                    // wait lets an in-flight present finish; then this thread
+                    // closes the session and the instance (bounded waits inside).
+                    Sleep(150);
+                    dvr::vr::shutdown("PreExit");
+                    LogFlush();
                     Log("shutdown: game PreExit - VR paths standing down");
                     LogFlush();          // 38.90: buffered log - land it now
                     // 41.0: the runtime layer's session teardown hooks in
