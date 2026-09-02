@@ -1,5 +1,72 @@
 # Status
 
+## Current state (2026-09-03, session 6: AlternateEye implemented and installed)
+
+**`aer` is implemented and INSTALLED on this PC.** ROADMAP S2a's code is done; its
+acceptance numbers are still owed from a run. `stereo mono` is the live A/B and the repo
+default stays `mono` (every render lever ships off).
+
+**A correction that reframes session 6's first half.** The build in the game folder was
+never the 41.0 tree - it was proxy **40.0.0** (`alpha-135-g60a3a6dc-dirty`) with
+`dxvk_d3d9.dll` loaded and `SBS mode ON`, i.e. the DXVK side-by-side stereo. So the
+tester's "it definitely feels like 3D, not mono" was correct and the mono screen was never
+being judged; "the motion controls are gone" was `[Mode] GamepadOnly=1` from commit
+`09e49ad2`, which predates the 41.0 merge. **Read the installed build's version stamp
+before believing a report is about your tree.** The working DXVK stack is archived at
+`C:\dev\_dishonored-vanilla-backup\working-sbs-40.0.0-2026-09-03\` (proxy, fork, the
+tuned `dxvk_stereo.txt`) because `install.ps1` now deletes the fork on sight and the fork
+tree only exists under the `dxvk-*` tags.
+
+**Also corrected: the game is at `C:\Program Files (x86)\Steam\...`, not
+`D:\SteamLibrary`** as this file previously said. That path does not exist on this machine.
+
+### What is installed now (2026-09-03)
+
+| | |
+|---|---|
+| `d3d9.dll` | 41.0.0 RelWithDebInfo, this branch (`aer-rendering`) |
+| `dvr_steamvr32.dll` + `openvr_api.dll` | the SteamVR shim, sha256 verified |
+| `dxvk_d3d9.dll`, `dxvk_stereo.txt` | **removed** |
+| `dishonored_vr.ini` | fresh Version=10 defaults, `[Stereo] Method=aer`, `[Screen] FovLever=100`. The side-by-side era ini is archived beside it as `.sbs-era` |
+| render size | **2750x2850** in `DishonoredEngine.ini` AND all four `[AppCompatBucket]` sections of `DishonoredCompat.ini` (the bucket is what actually decides it), `Fullscreen=False` |
+
+2750x2850 is 0.965:1, near-square, which is a far better match for the Quest 3 eye
+(2496x2688 = 0.928) than 16:9 - under AER each game frame IS one whole eye, so the render
+aspect should be the EYE's aspect, not a monitor's. `FovLever=100` pins the FOV, so the
+auto path stays out of the way and the claim equals the readback by construction.
+
+### How AER works here
+
+One eye per game frame (the camera seam offsets +/- IPD/2 into `camera+0x330`, measured
+HONOURED), and the **paired** submit: the left present is held open and BOTH eyes go out in
+one projection layer when the right closes the pair. That is BioShock Remastered VR's
+`XR_SubmitPair` shape, not the held-eye shape the stub described - see ARCHITECTURE's
+decision log for why. It reuses the runtime's SequentialReentry tag ring and pair pacing, so
+rungs 2 and 3 share the pairing layer and the `[pair]` probe measures both.
+
+**The headset rate is half the game's present rate. That is by design**, and it is exactly
+what rung 3 buys back.
+
+### Verified / not verified
+
+**Verified:** Debug, Release and `-Legacy` all build; exports 9 undecorated; `lint: clean`;
+the generated default ini unchanged; `xrsim-selftest` PASS. The game config was rewritten
+line-based and came back byte-identical in size, no BOM, all CRLF, pure ASCII.
+
+**NOT verified - nothing has run in the game or the simulator since the AER commit.** The
+first run decides three things, in this order:
+
+1. **Did 2750x2850 survive?** The desktop here is 4096x1152, so 2850 is taller than the
+   screen. Read `capture: WxH` in the log - it is the ground truth, never the requested
+   number. If it clamped, that is the AppCompat trap and not AER.
+2. **Are both eyes flowing?** `stereo: beat method=aer` must read `L/s == R/s == out/s / 2`,
+   and `status.json` -> `aerLRGap` must sit near 0. A drifting gap is presents being dropped
+   on one side, which crosses the eyes.
+3. **Is depth the right way round?** If the world looks inside-out, the eye tag's one
+   present of lag is inverted - that is the first suspect, not the IPD.
+
+The `[pair]` probe (`staleL`, `aborts`, `pmUntaggedProj`) names a pair break if one happens.
+
 ## Current state (2026-09-03, session 6: branch `aer-rendering`, developer A)
 
 **The two stereo methods are being built in parallel on separate branches.** Session 5's

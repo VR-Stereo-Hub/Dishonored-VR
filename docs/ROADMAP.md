@@ -60,10 +60,14 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 ## S2a - AlternateEye (rung 2; developer A)
 
-`core/gfx/aer.cpp` carries the design. Acceptance, in order:
+`core/gfx/aer.cpp` is IMPLEMENTED (session 6), in the PAIRED shape rather than the held-eye
+one the stub described: the left present is held open and both eyes go out in one projection
+layer when the right closes the pair, through the runtime's SequentialReentry tag ring and
+its pair pacing. BioShock Remastered VR's `XR_SubmitPair` settled that choice.
+Acceptance, in order:
 
-- [ ] `stereo aer` accepted (needs `[Camera] EyeField` from the eyetest); the beat line reads
-      `L/s == R/s == out/s / 2`
+- [x] `stereo aer` accepted (needs `[Camera] EyeField` from the eyetest); the beat line reads
+      `L/s == R/s == out/s / 2` - CODE DONE, the beat reading is still owed from a run
 - [ ] `stereo.xrs` on the simulator: two projection views, `EyeSeparationM` == IPD, left vs
       right `img-diff` well above the noise floor with parallax on near geometry
 - [ ] eye-check.ps1 legs 0-5 PASS; the runtime's pair probe reports no untagged presents

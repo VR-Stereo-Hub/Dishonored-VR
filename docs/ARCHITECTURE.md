@@ -65,7 +65,7 @@ prove something the next one builds on:
 | Rung | Method | What it proves | Cost | Where |
 |---|---|---|---|---|
 | 1 | `mono` - the game frame on a head-locked quad, both eyes | the whole path headset-to-eye: capture, D3D11, swapchain, compositor, pacing, head tracking, the gamepad | one readback per present | `core/gfx/mono_screen.cpp`, shipped |
-| 2 | `aer` - AlternateEye: each tick renders ONE eye (the camera seam offsets +/- IPD/2), the compositor holds the other eye's last frame | geometric stereo and the eye-offset write point, cheaply; half temporal rate per eye | none on the game | `core/gfx/aer.cpp`, design stub |
+| 2 | `aer` - AlternateEye: each tick renders ONE eye (the camera seam offsets +/- IPD/2); the LEFT present is held open and both eyes go out together when the RIGHT closes the pair | geometric stereo and the eye-offset write point, cheaply; half the headset rate, both eyes always fresh | none on the game | `core/gfx/aer.cpp`, **implemented** (session 6) |
 | 3 | `reentry` - SequentialReentry: the engine's scene draw is called a second time per tick with the other eye's camera | per-eye native effects at full rate; the big bet (needs the draw root, a gated and guarded second call) | one extra scene draw per tick | `core/gfx/reentry.cpp`, design stub |
 
 `IStereo` (stereo.h): `begin_frame(FrameInput)`, `eye_for_next_frame()`, `end_frame(FrameDevices,
@@ -212,6 +212,45 @@ is written). `core/util/paths.h` is the one place that knows this.
   and the (uncalled) hand drives live there.
 
 ## Decision log
+
+### 2026-09-03 - session 6b (AlternateEye)
+
+- **AER is PAIRED, not held-eye.** Two shapes exist. (a) submit every present and let the
+  compositor keep reprojecting the other eye's previous image - the runtime layer has this
+  (`g_aerEnabled` / `current_eye_sign`) and we do not use it. (b) hold the LEFT present open
+  and submit BOTH eyes in one projection layer when the RIGHT closes the pair. (b) fuses
+  cleanly and (a) swims, which is what BioShock Remastered VR's `XR_SubmitPair` settled -
+  "eye 0 stashes, eye 1 submits the pair - one XR cycle per two Presents". We take (b).
+
+  It needed no new runtime code: the layer's **SequentialReentry tag ring** is the mechanism.
+  `sr_push_eye` tags a present, the render thread pops one tag per present and captures into
+  that eye's swapchain, and the pair pacing (`g_srPairPacing`, default on) holds the left
+  frame. The ring does not care whether the two frames came from one game tick (rung 3) or
+  two (rung 2) - only that they arrive tagged and in order. Rungs 2 and 3 therefore share the
+  pairing layer and the `[pair]` probe measures both.
+
+  The consequence to state plainly: **the headset rate is half the game's present rate, by
+  design.** That is the cost of rung 2 and the thing rung 3 buys back.
+
+- **`FrameOutput::eyeSign` was computed and discarded.** `frame_hooks` never handed it to the
+  runtime, so any per-eye method would have had every present captured into the LEFT
+  swapchain by default - the stale-left class the `[pair]` probe exists to catch. It is
+  pushed now, before `on_present_end` consumes the frame.
+
+- **The projection FOV is a closed loop.** A projection layer's claimed FOV and the FOV the
+  game rendered with must be the same number, or the world is the wrong size - the coupled
+  setting the side-by-side era died on. Under a per-eye method the lever drives the engine
+  camera to `vr::suggested_hfov_deg()` and the 0x53c sensor's readback is what gets claimed,
+  so a refused write makes the claim follow the truth rather than our intention.
+  `[Screen] FovLever` non-zero pins it by hand instead; standing down hands the lever back,
+  or it would keep writing a per-eye FOV into a mono camera every dispatch.
+
+- **Two traps that read as "stereo works but looks wrong", not as a failure.** The eye tag
+  carries ONE PRESENT OF LAG (the frame captured now was rendered by the tick that followed
+  the previous `begin_frame`); tagging this present's sign instead swaps the eyes and inverts
+  depth. And a STALE present must not be tagged - `capture` reports whether the backbuffer
+  moved, and a re-shown frame tagged as the other eye puts one eye's picture in the other.
+
 
 ### 2026-09-03 - session 6 (branch `aer-rendering`, developer A)
 
