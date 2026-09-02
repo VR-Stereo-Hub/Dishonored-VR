@@ -127,7 +127,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::eyetest_present_tick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
-        FrameDumpTick();
+        FrameDumpTick(self);
         // UE3 probe: automatic at ~frame 900 and ~frame 14400, or F9 on demand
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         bool f9Edge = f9 && !g_f9WasDown;

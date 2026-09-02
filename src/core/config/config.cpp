@@ -30,6 +30,13 @@ static void WriteDefaultIni(const char* ini)
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
         "; the per-eye camera seam); none disables the write.\n"
         "EyeField=0x330\n"
+        "[Capture]\n"
+        "; Mode=sync|deferred|shared: how the game's frame reaches the headset (core/gfx/capture).\n"
+        "; sync reads the frame back to the CPU every present and waits for the GPU (the\n"
+        "; baseline); deferred copies on the GPU and reads back the PREVIOUS present's copy\n"
+        "; (no wait on the frame in flight; the picture is one present late); shared needs\n"
+        "; a device that can share (the log's capture/probe lines say). `capture mode <m>` live.\n"
+        "Mode=sync\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -274,6 +281,12 @@ static void LoadConfig()
         char ef[16] = "";
         GetPrivateProfileStringA("Camera", "EyeField", "0x330", ef, sizeof(ef), ini);
         dvr::camera::set_eye_field(ef);
+    }
+    {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
+        // mode is refused with the reason and sync keeps running)
+        char cm[16] = "";
+        GetPrivateProfileStringA("Capture", "Mode", "sync", cm, sizeof(cm), ini);
+        if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
     }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;

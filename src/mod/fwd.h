@@ -8,7 +8,7 @@ static bool DvrGameCommand(const char* cmd, const char* args);
 static void DvrConsoleApply();
 static void GameStateTick();
 static void FrameDumpRequest(const char* what);
-static void FrameDumpTick();
+static void FrameDumpTick(IDirect3DDevice9* dev);
 
 static inline bool SkcAlive(int slot);
 static inline bool GraftDonorAlive(int u);

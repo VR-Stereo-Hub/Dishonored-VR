@@ -11,6 +11,7 @@
 //   camera eyetest <uu> [field]  the write-point instrument (field 0x80|..|all; `camera eyetest stop`)
 //   camera eyefield <name|none>  the field the eye offset writes to ([Camera] EyeField)
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
+//   capture mode <m>|status      the capture path (sync|deferred|shared): live switch, fails soft
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
@@ -73,6 +74,22 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "stereo")) {
         if (!args[0] || !strcmp(args, "status")) { dvr::stereo::log_status(); return true; }
         dvr::stereo::select(args);   // logs the refusal itself
+        return true;
+    }
+    if (!strcmp(cmd, "capture")) {
+        char sub[16] = "", m[16] = "";
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "mode")) {
+            dvr::capture::set_mode(m);   // logs the refusal itself
+            return true;
+        }
+        const dvr::capture::Cost c = dvr::capture::cost();
+        Log("capture: mode=%s probe=%s cost/present rtd=%u copy=%u upload=%u blit=%u total=%u us "
+            "(%u grabs) delivered serial %lu of %lu tag=%d fenceLate=%u (capture mode sync|deferred|shared)",
+            dvr::capture::mode_name(),
+            !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
+            c.rtdUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
+            (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
+            dvr::capture::delivered_tag(), dvr::capture::fence_late());
         return true;
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
@@ -145,6 +162,8 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("state", g_dvrGameState);
     w.kv("frame", (unsigned long)g_frame);
     w.kv("capW", (int)dvr::capture::width()); w.kv("capH", (int)dvr::capture::height());
+    w.kv("capMode", dvr::capture::mode_name());
+    w.kv("capShared", dvr::capture::probed() && dvr::capture::shared_available());
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
