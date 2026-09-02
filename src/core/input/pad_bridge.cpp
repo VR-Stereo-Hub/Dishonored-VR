@@ -48,7 +48,7 @@ uint32_t         g_crouchMask = 0x2000;  // [Hands] CrouchButtonMask (B)
 CRITICAL_SECTION g_lock;                 // guards g_state
 bool             g_lockReady = false;
 XINPUT_STATE     g_state;                // the synthesized pad (slot 0)
-DWORD            g_packet   = 0;         // the pad's change counter
+DWORD            g_packet   = 1;         // starts at 1, bumped on CHANGE
 volatile bool    g_active   = false;     // controllers currently feeding it
 volatile LONG    g_polls    = 0;         // game GetState calls this window
 
@@ -133,7 +133,7 @@ void init()
     if (g_lockReady) return;
     InitializeCriticalSection(&g_lock);
     memset(&g_state, 0, sizeof(g_state));
-    g_state.dwPacketNumber = g_packet;
+    g_state.dwPacketNumber = g_packet;   // present but neutral, and holding
     g_lockReady = true;
 }
 
@@ -345,10 +345,19 @@ void tick()
 
     EnterCriticalSection(&g_lock);
     if (active_) {
+        // THE PACKET RULE (ported from the BioShock Remastered VR pad layer,
+        // which measured it there). Games poll dwPacketNumber to decide
+        // whether the pad changed; some ignore a state whose number never
+        // moves, and a number that moves EVERY poll is just as much a lie -
+        // it says the pad is jittering ninety times a second when the player
+        // is holding perfectly still. Bump it only when the gamepad actually
+        // changed, and let a held stick keep its number.
         g_composed++;
-        g_state.Gamepad = xs.Gamepad;
-        g_state.dwPacketNumber = ++g_packet;
-        g_bumped++;
+        if (memcmp(&xs.Gamepad, &g_state.Gamepad, sizeof(XINPUT_GAMEPAD)) != 0) {
+            g_state.Gamepad = xs.Gamepad;
+            g_state.dwPacketNumber = ++g_packet;
+            g_bumped++;
+        }
     } else if (g_active) {
         // controllers just dropped - neutralize so no button/stick sticks
         memset(&g_state.Gamepad, 0, sizeof(XINPUT_GAMEPAD));
@@ -364,7 +373,8 @@ void tick()
     // three ways here: polls=0 the game never asked, composed=0 the runtime
     // published no snapshot, btn=0 with both moving means we composed nothing.
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 3000,
-        "pad: beat active=%d composed=%lu bumped=%lu polls=%ld btn=0x%04x",
+        "pad: beat active=%d composed=%lu bumped=%lu polls=%ld btn=0x%04x "
+        "(bumped < composed is CORRECT - the pad was holding still)",
         (int)g_active, g_composed, g_bumped,
         InterlockedCompareExchange(&g_polls, 0, 0), (unsigned)buttons());
 
