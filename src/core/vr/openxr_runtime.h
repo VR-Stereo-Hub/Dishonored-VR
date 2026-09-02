@@ -58,6 +58,8 @@ void set_runtime_json(const char* manifestPath);
 // The mono screen quad: distance and width in meters ([Screen] DistanceMeters,
 // WidthMeters); height follows the frame aspect.
 void set_screen(float distM, float widthM);
+// The mono screen follows the head (default) or sits in the world ([Screen] HeadLocked).
+void set_screen_head_locked(bool on);
 // The DXGI format the eye swapchains were created with (0 before the first
 // frame); the stereo methods render into the same typeless family.
 int64_t swapchain_format();

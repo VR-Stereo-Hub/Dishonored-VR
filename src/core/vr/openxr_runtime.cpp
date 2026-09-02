@@ -160,6 +160,11 @@ EdgeViewSnapshot g_edgeSnap;
 // Controls (overlay writes, render thread reads).
 std::atomic<bool> g_enabled{true};        // kill switch: tears the session down
 std::atomic<float> g_screenDistM{1.75f};  // quad distance in meters
+// 41.0 (Dishonored): the mono screen follows the head (VIEW space) by default -
+// the head write turns the GAME camera, the screen stays in front of the eyes.
+// BioShock's quad sat in the world-locked LOCAL space; [Screen] HeadLocked=0
+// restores that (a screen you turn away from).
+std::atomic<bool> g_screenHeadLocked{true};
 std::atomic<float> g_screenWidthM{2.4f};  // quad width in meters
 std::atomic<bool> g_cameraMode{false};    // M3: drive the game camera from the HMD
 
@@ -2538,8 +2543,8 @@ void init_instance() {
                     }
                     HMODULE h = LoadLibraryA(lib);
                     const DWORD err = h ? 0 : GetLastError();
-                    XRLOG("xr: manifest library %s -> %s%s%lu%s", lib, h ? "loads" : "DOES NOT LOAD",
-                          h ? "" : " (err ", h ? 0ul : err, h ? "" : ")");
+                    if (h) XRLOG("xr: manifest library %s -> loads", lib);
+                    else   XRLOG("xr: manifest library %s -> DOES NOT LOAD (err %lu)", lib, (unsigned long)err);
                     if (h) FreeLibrary(h);
                 } else {
                     XRLOG("xr: runtime manifest has no library_path: %s", g_runtimeJson);
@@ -3920,8 +3925,9 @@ void on_present_end(ID3D11Texture2D* frame) {
                     // player is looking instead of the recenter-origin facing.
                     // Cinematic scenes (fov-mismatch/strict legs) and the plain
                     // camera-off screen keep the world-locked space unchanged.
-                    bool headLock = g_cineActive.load(std::memory_order_relaxed) &&
-                                    dvr::hud::screen_only() &&
+                    bool headLock = (g_screenHeadLocked.load(std::memory_order_relaxed) ||
+                                     (g_cineActive.load(std::memory_order_relaxed) &&
+                                      dvr::hud::screen_only())) &&
                                     g_viewSpace != XR_NULL_HANDLE;
                     quad.space = headLock ? g_viewSpace : g_space;
                     quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -5173,6 +5179,8 @@ void set_runtime_json(const char* manifestPath) {
     else g_runtimeJson[0] = 0;
 }
 
+void set_screen_head_locked(bool on) { g_screenHeadLocked.store(on, std::memory_order_relaxed); }
+
 void set_screen(float distM, float widthM) {
     if (distM > 0.2f) g_screenDistM.store(distM, std::memory_order_relaxed);
     if (widthM > 0.2f) g_screenWidthM.store(widthM, std::memory_order_relaxed);
@@ -5222,6 +5230,7 @@ void set_device_provider(DeviceProviderFn) {}
 void set_runtime_mode(const char*) {}
 void set_runtime_json(const char*) {}
 void set_screen(float, float) {}
+void set_screen_head_locked(bool) {}
 int64_t swapchain_format() { return 0; }
 const char* runtime_name() { return "none"; }
 bool eye_separation_m(float*) { return false; }

@@ -34,6 +34,9 @@ static void WriteDefaultIni(const char* ini)
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
         "DistanceMeters=1.75\n"
+        "; HeadLocked=1 keeps the screen in front of your eyes (turning your head turns the\n"
+        "; game camera); 0 leaves it standing in the room where you recentered.\n"
+        "HeadLocked=1\n"
         "WidthMeters=2.4\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
         "; FovLever writes the game's camera FOV every tick (40..160; 0 = off, the game's\n"
@@ -259,6 +262,7 @@ static void LoadConfig()
     if (g_screenWidth < 0.5f) g_screenWidth = 0.5f;
     if (g_screenWidth > 10.0f) g_screenWidth = 10.0f;
     dvr::vr::set_screen(g_screenDist, g_screenWidth);
+    dvr::vr::set_screen_head_locked(IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f);
     {   // [Stereo] Method: the rung of the ladder (docs/ARCHITECTURE.md); a
         // stub or an unknown name logs why and leaves the mono screen running
         char sm[16] = "";

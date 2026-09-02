@@ -105,6 +105,7 @@ struct Eyetest {
     double movedSum = 0.0;
     int   movedN = 0;
     bool  wrote = false;    // the script lane wrote this candidate at least once
+    uint32_t ticks = 0, noCam = 0, noRight = 0, noField = 0;   // why a tick did not write
     float base[3] = {0, 0, 0}, right[3] = {0, 0, 0};
     bool  restorePending = false;
     Writer w;
@@ -113,6 +114,7 @@ struct Eyetest {
 
 void eyetest_next_candidate() {
     g_et.frames = g_et.honoured = g_et.discarded = g_et.other = g_et.noWrite = 0;
+    g_et.ticks = g_et.noCam = g_et.noRight = g_et.noField = 0;
     g_et.movedSum = 0.0; g_et.movedN = 0;
     g_et.wrote = false;
     g_et.w = Writer();
@@ -128,10 +130,11 @@ void eyetest_verdict() {
     else if (judged > 0 && g_et.discarded >= (judged * 4) / 5) verdict = "DISCARDED";
     strncpy(g_et.verdict[g_et.idx], verdict, sizeof(g_et.verdict[0]) - 1);
     if (!g_et.wrote)
-        DVR_WARN("camera/eyetest: %s asked %+.1f uu along right -> NOT WRITTEN in %d presents "
-                 "(no live camera object on the script lane, or the field is not readable) - "
-                 "run it in gameplay with the ProcessEvent hook installed",
-                 f.name, g_et.uu, g_et.frames);
+        DVR_WARN("camera/eyetest: %s asked %+.1f uu along right -> NOT WRITTEN in %d presents: "
+                 "%u script ticks, %u with no live camera object, %u with no unit right row at "
+                 "+0x60, %u with the field unreadable or not a location%s",
+                 f.name, g_et.uu, g_et.frames, g_et.ticks, g_et.noCam, g_et.noRight, g_et.noField,
+                 g_et.ticks == 0 ? " - the ProcessEvent hook is not running (gameplay?)" : "");
     else
         DVR_INFO("camera/eyetest: %s asked %+.1f uu along right -> c5 moved %+.1f uu (mean of %d): "
                  "%s %d/%d frames (discarded %d, other %d, no c5 %d)%s",
@@ -285,12 +288,14 @@ void eyetest_script_tick(uint8_t* camObj) {
         restore(camObj, kFields[g_et.idx].off, g_et.w);
         g_et.restorePending = false;
     }
-    if (!g_et.active || !camObj) return;
+    if (!g_et.active) return;
+    ++g_et.ticks;
+    if (!camObj) { ++g_et.noCam; return; }
     float r[3];
-    if (!read_right(camObj, r)) return;
+    if (!read_right(camObj, r)) { ++g_et.noRight; return; }
     const float off[3] = {r[0] * g_et.uu, r[1] * g_et.uu, r[2] * g_et.uu};
     float base[3];
-    if (!write_offset(camObj, kFields[g_et.idx].off, off, g_et.w, base)) return;
+    if (!write_offset(camObj, kFields[g_et.idx].off, off, g_et.w, base)) { ++g_et.noField; return; }
     memcpy(g_et.base, base, sizeof(base));
     memcpy(g_et.right, r, sizeof(r));
     g_et.wrote = true;

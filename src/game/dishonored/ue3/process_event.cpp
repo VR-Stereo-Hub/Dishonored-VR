@@ -73,7 +73,15 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
-    // 41.0: the per-eye camera seam, same lane and cadence as the lever
+    // 41.0: the per-eye camera seam, same lane and cadence as the lever. The
+    // lever only revalidates the camera object while it is armed, so the seam
+    // keeps its own liveness check while it has something to write (the first
+    // eyetest ran with a null camera for all six candidates - lever off).
+    if (dvr::camera::eyetest_active() || dvr::camera::eye() != 0) {
+        static LONG camReval = 0;
+        if (g_camObj && !CamAlive()) g_camObj = NULL;
+        if (!g_camObj && (InterlockedIncrement(&camReval) & 31) == 0) FindLiveCamera();
+    }
     dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
     dvr::camera::apply_eye_offset(g_camObj);      // the eye offset (aer/reentry)
     BlinkTestApply();  // 32.14: same lane, same reason
