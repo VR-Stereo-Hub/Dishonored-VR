@@ -2495,6 +2495,57 @@ void init_instance() {
         } else {
             XRLOG("xr: XR_RUNTIME_JSON already in the environment - [VR] XrRuntimeJson ignored");
         }
+        // The loader's OWN property store beats the environment, and is the
+        // only route that works from a process the loader treats as elevated
+        // (its comment in loader_properties.cpp says so). Measured 2026-09-02:
+        // launched through Steam, the variable set above was not honoured
+        // (xrEnumerateInstanceExtensionProperties -> RUNTIME_UNAVAILABLE), while
+        // the same manifest inherited from a shell worked. XR_EXT_loader_init_
+        // properties through xrInitializeLoaderKHR is the spec'd way to say it.
+        PFN_xrInitializeLoaderKHR initLoader = nullptr;
+        xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
+                              reinterpret_cast<PFN_xrVoidFunction*>(&initLoader));
+        if (initLoader) {
+            XrLoaderInitPropertyValueEXT pv{"XR_RUNTIME_JSON", g_runtimeJson};
+            XrLoaderInitInfoPropertiesEXT props{XR_TYPE_LOADER_INIT_INFO_PROPERTIES_EXT};
+            props.propertyValueCount = 1;
+            props.propertyValues = &pv;
+            const XrResult ir = initLoader(reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&props));
+            XRLOG("xr: loader property override XR_RUNTIME_JSON -> %s", XR_SUCCEEDED(ir) ? "set" : res_str(ir));
+        } else {
+            XRLOG("xr: this loader has no xrInitializeLoaderKHR - the environment is the only route");
+        }
+        // And the two facts a manifest failure hides: is the file readable, and
+        // does its library load from THIS process (a DLL search-path or CRT
+        // dependency problem shows up here, with the Win32 error).
+        {
+            FILE* mf = fopen(g_runtimeJson, "rb");
+            if (!mf) {
+                XRLOG("xr: runtime manifest NOT readable: %s (err %lu)", g_runtimeJson, GetLastError());
+            } else {
+                char buf[4096] = {};
+                const size_t n = fread(buf, 1, sizeof(buf) - 1, mf);
+                fclose(mf);
+                buf[n] = 0;
+                const char* lp = strstr(buf, "\"library_path\"");
+                const char* q = lp ? strchr(lp + 14, '\"') : nullptr;
+                if (q) {
+                    char lib[MAX_PATH * 2] = {};
+                    size_t k = 0;
+                    for (const char* p = q + 1; *p && *p != '\"' && k + 1 < sizeof(lib); ++p) {
+                        if (*p == '\\' && p[1]) ++p;   // JSON escapes: \\ and \/ 
+                        lib[k++] = *p;
+                    }
+                    HMODULE h = LoadLibraryA(lib);
+                    const DWORD err = h ? 0 : GetLastError();
+                    XRLOG("xr: manifest library %s -> %s%s%lu%s", lib, h ? "loads" : "DOES NOT LOAD",
+                          h ? "" : " (err ", h ? 0ul : err, h ? "" : ")");
+                    if (h) FreeLibrary(h);
+                } else {
+                    XRLOG("xr: runtime manifest has no library_path: %s", g_runtimeJson);
+                }
+            }
+        }
     }
 
     wchar_t shimDll[MAX_PATH];
