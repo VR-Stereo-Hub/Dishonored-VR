@@ -128,6 +128,16 @@ static void GameStateTick()
     else if (g_menuOpen || g_inMenu)   s = "MENU";
     else if (g_cineNow)                s = "CINEMATIC";
     else                               s = "GAMEPLAY";
+    // 41.1: the runtime's cinematic fallback drops the PROJECTION layer to the
+    // quad screen unless a game adapter keeps publishing a gameplay verdict -
+    // and an adapter that never publishes reads STALE, which is indistinguish-
+    // able from "a cutscene is running". Dishonored never published, so every
+    // per-eye method rendered its eyes correctly and then had them thrown away
+    // for the mono quad: the alternating camera showed up as the picture
+    // flickering side to side instead of as stereo. This is the publish, on
+    // the present thread, every present - staleness is measured in wall time,
+    // so it has to be unconditional and not only on a transition.
+    dvr::vr::publish_gameplay_view(s[0] == 'G');
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
         DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info, "[game] state: %s", s);

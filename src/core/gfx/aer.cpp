@@ -125,6 +125,36 @@ public:
         if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
 
         if (inFlight_ < 0) ++left_; else ++right_;
+
+        // THE INSTRUMENT THAT WAS MISSING (41.1). Tagging both eyes correctly
+        // is not the same as both eyes REACHING the headset, and the first
+        // headset run proved it: the beat line read a perfect L/s == R/s while
+        // the runtime was quietly showing the mono quad, because the cinematic
+        // fallback had no gameplay verdict to read and a never-published
+        // verdict is indistinguishable from a cutscene. What the player saw
+        // was the alternating camera as a side-to-side FLICKER. So say, here,
+        // whether the eyes we are tagging are actually being used - and say
+        // what to do about it, because the answer is never "AER is broken".
+        if (!dvr::vr::vr_camera_mode()) {
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+                "aer: tagging eyes but the runtime is NOT in projection mode - the quad "
+                "screen is what reaches the headset, so this looks like MONO THAT FLICKERS "
+                "side to side, not like stereo. The eye tags are fine; the layer is the "
+                "problem (session/projection not ready yet, or no hfov claim).");
+        } else if (dvr::vr::cinematic_active()) {
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+                "aer: tagging eyes but the CINEMATIC QUAD is up - the projection layer is "
+                "being dropped for the flat screen. In gameplay that means the game-state "
+                "verdict reads MENU/CINEMATIC/NO_PAWN or has gone stale; `vrcine off` is "
+                "the live A/B that proves it.");
+        }
+        if (ipdM_ <= 0.0f) {
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+                "aer: the runtime has published no eye separation yet (ipd 0) - the camera "
+                "offset is eye * ipd/2 * scale, so the eyes are being tagged with ZERO "
+                "disparity. That is mono with extra latency until the first xrLocateViews.");
+        }
+
         out.tex = tex_;
         out.eyeSign = inFlight_;
         out.w = w; out.h = h;
@@ -150,6 +180,9 @@ public:
         w.kv("aerStaleSkipped", (unsigned long)skippedStale_);
         w.kv("aerPriming", (unsigned long)primed_);
         w.kv("aerIpdM", (double)ipdM_);
+        // The downstream truth: are the tagged eyes actually being submitted?
+        w.kv("aerProjection", dvr::vr::vr_camera_mode());
+        w.kv("aerCineQuad", dvr::vr::cinematic_active());
         // Left and right must track each other. A gap means presents are being
         // dropped on one side, which is the eye-crossing failure mode.
         const long gap = (long)left_ - (long)right_;
