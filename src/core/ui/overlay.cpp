@@ -63,37 +63,6 @@ static void OverlayFrame()
     // 38.60 SHIP CLEANUP: every diagnostic lives behind the "developer
     // tools" checkbox (bottom of the panel, [Overlay] DevTools). A player
     // sees settings; a debugger flips one box and gets the instruments.
-    // 38.80: HEADSET DISPLAY MODE - player-visible, LIVE, Quest/OpenXR only.
-    // Several Quest+VD machines show the projection layer head-locked in
-    // pitch ("image fixed and moves with me", "zoomed") while byte-identical
-    // sessions elsewhere are fine - the difference lives in the headset-side
-    // compositor, which no PC-side fix can reach. The cylinder layer gets
-    // its head-look from the compositor BY CONSTRUCTION, so it works on
-    // every machine; it is one press away instead of an ini edit, switches
-    // live (the layer type is chosen per-submit), and SAVE AS DEFAULTS
-    // persists it. Default stays projection (the tuned, user-validated mode).
-    if (g_xrOn) {
-        bool cylNow = (g_xrLayerMode == 1);
-        if (ImGui::Button(cylNow
-                ? "DISPLAY: CURVED SCREEN  (press if view is warped)"
-                : "DISPLAY: FULL VIEW  (press if view is stuck/zoomed)",
-                ImVec2(-1, 0))) {
-            g_xrLayerMode = cylNow ? 0 : 1;
-            g_quadAspect = 0.0f;           // rebuild the eye quads for the mode
-            Log("xr: display mode switched LIVE to %s (overlay)",
-                g_xrLayerMode == 1 ? "CYLINDER" : "PROJECTION");
-        }
-        ImGui::TextDisabled("image frozen in place or zoomed? press the bar above");
-        // 38.84: the pitch-fix test cycle - live, no relaunch. OFF -> A -> B.
-        const char* sfLabel = g_stampFix == 0
-            ? "PITCH FIX: OFF  (can't look up/down? try A)"
-            : g_stampFix == 1 ? "PITCH FIX: MODE A  (worse/reversed? try B)"
-                              : "PITCH FIX: MODE B  (press to turn off)";
-        if (ImGui::Button(sfLabel, ImVec2(-1, 0))) {
-            g_stampFix = (g_stampFix + 1) % 3;
-            Log("xr: stampfix mode -> %d (overlay)", g_stampFix);
-        }
-    }
     // 32.68: SAVE directly under RECENTER, and everything below it tabbed.
     // Re-applied onto the stable 32.52 base after the resolution work was
     // rolled back - the tabs were a good change that got reverted along with

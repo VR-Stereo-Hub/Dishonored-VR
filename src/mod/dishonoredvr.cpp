@@ -78,10 +78,6 @@
 #include "mod/state/51_legacy_spacebases.inc"
 #include "mod/state/52_game_dishonored_head_track.inc"
 #include "mod/state/53_core_input_pad_bridge.inc"
-#include "mod/state/58_core_framework_frame_hooks.inc"
-#include "mod/state/59_core_vr_openxr_loader.inc"
-#include "mod/state/60_core_vr_openxr_backend.inc"
-#include "mod/state/61_core_vr_openxr_input.inc"
 #include "mod/state/62_proxy_dllmain.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
@@ -114,21 +110,6 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::overlay
 #include "core/ui/overlay.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::openxr
-#include "core/vr/openxr_backend.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::xrinput
-#include "core/vr/openxr_input.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::openxr
-#include "core/vr/openxr_loader.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::vr
-#include "core/vr/backend_probe.cpp"
-#undef DVR_CAT
-#define DVR_CAT ::dvr::log::Cat::pace
-#include "core/vr/openxr_pace.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::res
 #include "core/window/game_window.cpp"
@@ -235,11 +216,6 @@
 #if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy
 #include "legacy/vs_scan.cpp"
-#undef DVR_CAT
-#endif
-#if DVR_WITH_LEGACY
-#define DVR_CAT ::dvr::log::Cat::legacy
-#include "legacy/xr_bench.cpp"
 #undef DVR_CAT
 #endif
 #define DVR_CAT ::dvr::log::Cat::proxy

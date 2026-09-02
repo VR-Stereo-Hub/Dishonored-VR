@@ -725,60 +725,16 @@ static void LoadConfig()
     Log("config: melee=%d swing=%.1fm/s sustain=%.0fms dist=%.2fm hold=%.0fms "
         "cooldown=%.0fms", (int)g_meleeOn, g_meleeSpeed, g_meleeSwingMs,
         g_meleeSwingDist, g_meleeHoldMs, g_meleeCoolMs);
-    {   // 37.3: backend selection. Env wins (the launcher bats set it, so a
-        // normal Steam launch never changes), ini as the persistent choice.
-        // 38.5: "auto" now actually DECIDES, so one install serves both
-        // headsets with zero ini edits (setting Backend=openxr globally
-        // broke a Vive session - never again): Virtual Desktop streaming
-        // with SteamVR absent = the Quest path -> OPENXR; anything else ->
-        // OpenVR/SteamVR, the path the Vive rig has always used.
-        // 39.0: the process snapshot (VD streamer running and SteamVR not)
-        // is replaced by asking the runtimes - core/vr/backend_probe.cpp.
-        // [VR] XrRuntimeJson is read first because the probe negotiates the
-        // runtime exactly the way the backend will.
+    {   // [VR]: the runtime layer's keys. XrRuntimeJson names a manifest for a
+        // Steam launch that must not depend on an env var (the simulator, or
+        // a shim); XrHaptics=0 kills haptics; FpsCap is the even-cadence limiter.
         GetPrivateProfileStringA("VR", "XrRuntimeJson", "", g_xrJsonIni,
                                  sizeof(g_xrJsonIni), ini);
-        BackendSelect(ini);
-        // 38.3 XR-3: [VR] XrQuads=1 (default) - detached pace thread + head-
-        // locked QUAD layers in VIEW space (the architecture that fixed the
-        // user's Stardew mod: the compositor itself holds the screen, so no
-        // reprojection ever touches it). 0 = the XR-2 synchronous projection
-        // path, kept verbatim for A/B.
-        g_xrQuad = GetPrivateProfileIntA("VR", "XrQuads", 1, ini) != 0;
-        if (g_xrBackend)
-            Log("config: XR presentation = %s",
-                g_xrQuad ? "QUAD layers, detached pacing (XR-3)"
-                         : "projection layers, synchronous (XR-2)");
-        // 38.4: [VR] XrRuntimeJson - the runtime manifest for Steam launches
-        GetPrivateProfileStringA("VR", "XrRuntimeJson", "", g_xrJsonIni,
-                                 sizeof(g_xrJsonIni), ini);
-        if (g_xrBackend && g_xrJsonIni[0])
+        if (g_xrJsonIni[0])
             Log("config: XR runtime manifest (ini): %s", g_xrJsonIni);
-        g_xrScreenY = IniFloat(ini, "Screen", "XrScreenY", 0.0f);   // 38.6
-        if (g_xrScreenY < -1.5f) g_xrScreenY = -1.5f;
-        if (g_xrScreenY >  1.5f) g_xrScreenY =  1.5f;
-        g_xrCylCfg = (int)IniFloat(ini, "Screen", "XrCylinder", -1); // 38.7
-        if (g_xrCylCfg < -1 || g_xrCylCfg > 1) g_xrCylCfg = -1;
-        {   // 38.8: layer mode; XrCylinder=1 (explicit force) maps to cyl
-            char lm[16] = "";
-            GetPrivateProfileStringA("VR", "XrLayer", "proj", lm, sizeof(lm), ini);
-            g_xrLayerMode = (lm[0] == 'c') ? 1 : (lm[0] == 'q') ? 2 : 0;
-            if (g_xrLayerMode == 0 && g_xrCylCfg == 1) g_xrLayerMode = 1;
-            if (g_xrBackend)
-                Log("config: XR layer mode = %s",
-                    g_xrLayerMode == 0 ? "PROJECTION (Vive-parity)" :
-                    g_xrLayerMode == 1 ? "cylinder" : "flat quad");
-        }
-        g_xrPoseDelay = GetPrivateProfileIntA("VR", "XrPoseDelay", 1, ini); // 38.9
-        if (g_xrPoseDelay < 0) g_xrPoseDelay = 0;
-        if (g_xrPoseDelay > 3) g_xrPoseDelay = 3;
         g_xrHaptics = GetPrivateProfileIntA("VR", "XrHaptics", 1, ini) != 0; // 38.10
-        g_xrFrustumFill = GetPrivateProfileIntA("Screen", "XrFrustumFill", 1, ini) != 0; // 38.13
         g_vrKeepAlive = GetPrivateProfileIntA("Screen", "KeepAliveUnfocused", 1, ini) != 0; // 38.78
-        g_stampFix = GetPrivateProfileIntA("VR", "StampFix", 0, ini);    // 38.84
-        if (g_stampFix < 0 || g_stampFix > 2) g_stampFix = 0;
         g_chainStamp = GetPrivateProfileIntA("HeadTrack", "ChainStamp", 1, ini) != 0; // 38.88
-        g_stampLive  = GetPrivateProfileIntA("VR", "StampLive", 1, ini) != 0;         // 38.89
         g_fpsCap = IniFloat(ini, "VR", "FpsCap", 0.0f);                  // 38.14
         if (g_fpsCap < 0.0f) g_fpsCap = 0.0f;
         if (g_fpsCap > 0.0f && g_fpsCap < 20.0f)  g_fpsCap = 20.0f;
@@ -789,8 +745,7 @@ static void LoadConfig()
         // writer held back. The crash bisector: if XR-safe holds stable, one
         // of the writers is the killer; if it still dies, they are innocent.
         char sf[8] = "";
-        if (g_xrBackend &&
-            GetEnvironmentVariableA("DISHONORED_VR_XR_SAFE", sf, sizeof(sf))
+        if (GetEnvironmentVariableA("DISHONORED_VR_XR_SAFE", sf, sizeof(sf))
             && sf[0] == '1') {
             g_rotInject = false;       // no head->camera rotation writes
             g_fovLever  = 0.0f;        // no FOV enforcement writes
@@ -876,11 +831,6 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Tracking", "HeightOffsetM", v, ini);
     _snprintf(v, 64, "%.0f", (float)g_fovLever);      // 30.51: persist the lever
     WritePrivateProfileStringA("Screen", "FovLever", v, ini);
-    // 38.80: persist the headset display mode chosen on the overlay
-    WritePrivateProfileStringA("VR", "XrLayer",
-        g_xrLayerMode == 1 ? "cyl" : g_xrLayerMode == 2 ? "quad" : "proj", ini);
-    _snprintf(v, 64, "%d", g_stampFix);              // 38.84
-    WritePrivateProfileStringA("VR", "StampFix", v, ini);
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
     WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);
     WritePrivateProfileStringA("HandRender", "DriveArms", g_rtdDoArms ? "1" : "0", ini);

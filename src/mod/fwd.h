@@ -2,11 +2,6 @@
 // tools/split-source.py so function bodies can live in any file.
 #pragma once
 
-// backend probe (core/vr/backend_probe.cpp)
-static bool BackendProbeOpenXr();
-static bool BackendProbeOpenVr();
-static void BackendSelect(const char* ini);
-
 // debugging surface (game/dishonored/commands.cpp, core/gfx/frame_dump.cpp)
 static void DvrDebugInit();
 static bool DvrGameCommand(const char* cmd, const char* args);
@@ -291,24 +286,4 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, cons
 static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where);
 static HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp);
 static HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND wnd, DWORD flags, D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** outDev);
-static bool XrLoadRuntime(void);
-static XrPath XiPath(const char* s);
-static bool XiAct(const char* name, const char* loc, XrActionType t, XrAction* out);
-static void XrInpInit(void);
-static void XrInpAttach(void);
-static float XiF(XrAction a);
-static bool XiBl(XrAction a);
-static void XiV2(XrAction a, float* x, float* y);
-static void XrInpSync(XrTime when);
-static void XrInpHaptic(int hand, float amp, float durSec);
-static void XrInpHapticFlush(void);
-static void XrRtTryInit(void);
-static bool XrRtFrameBeginSync(void);
-static void XrRtSubmitEye(int eye);
-static void XrRtFrameEnd(void);
-static bool XrRtFrameBegin(void);
-static void XrRtPublish(void);
-static DWORD WINAPI XrPaceThread(LPVOID);
-static void XrPaceStop(const char* why);
-static DWORD WINAPI XrBenchThread(LPVOID);
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved);

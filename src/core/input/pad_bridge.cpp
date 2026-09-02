@@ -356,7 +356,7 @@ static void UpdateVirtualPad()
 static void MaimHaptic(int hand, float amp, float durSec)
 {
     if (!g_padHaptics || !g_xrOn) return;
-    XrInpHaptic(hand, amp, durSec);
+    (void)hand; (void)amp; (void)durSec;   // 41.0: the runtime layer takes this next
 }
 
 

@@ -25,5 +25,4 @@ static void SbTick() {}
 static inline void BoneWigApply() {}
 static void DbgProbeTick() {}
 static LONG CALLBACK WalkVEH(EXCEPTION_POINTERS* xp) { return 0; }
-static DWORD WINAPI XrBenchThread(LPVOID) { return 0; }
 static void RtdBuildYPR(const float* ypr, float* out) {}

@@ -44,27 +44,6 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
     EnsureConfig(); // safe here (post loader-lock); not in DllMain
     dvr::crash::install();   // fingerprint VEH + minidump filter, before any hook
     DvrDebugInit();          // command seam + status provider
-#if DVR_WITH_LEGACY
-    {   // 37.0: XR-1 bench, armed only by the env var (xr_bench.bat)
-        char xb[8] = "";
-        if (GetEnvironmentVariableA("DISHONORED_VR_XR_BENCH", xb, sizeof(xb))
-            && xb[0] == '1') {
-            static bool xrOnce = false;
-            if (!xrOnce) {
-                xrOnce = true;
-                // 37.2: the game cannot run flat with the stereo pipeline
-                // armed and no headset (0 fps then death - both bench runs).
-                // The bench does not need our rendering at all: master
-                // disable, bone-stock game, bench thread beside it.
-                g_disabled = true;
-                Log("xrb: bench mode - proxy DISABLED for this run (the "
-                    "game runs stock; only the bench thread is ours)");
-                HANDLE h = CreateThread(NULL, 0, XrBenchThread, NULL, 0, NULL);
-                if (h) CloseHandle(h);
-            }
-        }
-    }
-#endif
     if (!EnsureRealD3D9() || !g_realCreate9) return NULL;
     IDirect3D9* d3d = g_realCreate9(sdkVersion);
     Log("Direct3DCreate9(sdk=%u) -> %p", sdkVersion, (void*)d3d);

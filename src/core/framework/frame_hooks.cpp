@@ -392,10 +392,8 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src,
             }
             lastPresentMs = nowMs;
         }
-        // 37.3: the OpenXR backend boots itself (5 s backoff inside);
-        // readiness comes from the XR bring-up.
-        if (g_xrBackend && !g_xrOn && (g_frame == 1 || g_frame % 60 == 0))
-            XrRtTryInit();
+        // 41.0: the runtime layer (core/vr/openxr_runtime) owns the session
+        // bring-up from the next commits; g_xrOn flips when it is live.
         if (g_xrOn && !g_vrReady) {
             g_vrReady = true;
             Log("xr: pipeline READY - frames flow to the headset from here");

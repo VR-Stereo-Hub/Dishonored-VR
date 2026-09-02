@@ -6,8 +6,6 @@
 //   hands on|off                 the SkelControl hand drive
 //   blink on|off|probe           hand-aimed Blink; probe = one-shot survey
 //   fov <deg|0>                  the FOV lever (0 disarms)
-//   pace delay <0-3> | stamp live|render | fix <0-2> | cap <hz>
-//   layer proj|cyl|quad          OpenXR presentation layer mode
 //   overlay on|off               the F10 settings panel
 //   console <text>               run a game console command on the script lane
 //   dump frame|capture|eyes
@@ -45,24 +43,6 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("fov: lever -> %.0f (seam)", f);
         return true;
     }
-    if (!strcmp(cmd, "pace")) {
-        char a[16] = "", v[16] = "";
-        sscanf(args, "%15s %15s", a, v);
-        if (!strcmp(a, "delay")) { g_xrPoseDelay = atoi(v); if (g_xrPoseDelay < 0) g_xrPoseDelay = 0; if (g_xrPoseDelay > 3) g_xrPoseDelay = 3; }
-        else if (!strcmp(a, "stamp")) { g_stampLive = !strcmp(v, "live"); }
-        else if (!strcmp(a, "fix")) { g_stampFix = atoi(v); if (g_stampFix < 0 || g_stampFix > 2) g_stampFix = 0; }
-        else if (!strcmp(a, "cap")) { g_fpsCap = (float)atof(v); if (g_fpsCap < 0) g_fpsCap = 0; if (g_fpsCap > 0 && g_fpsCap < 20) g_fpsCap = 20; }
-        else if (strcmp(a, "status")) { Log("pace: usage - pace delay <0-3> | stamp live|render | fix <0-2> | cap <hz> | status"); return true; }
-        Log("pace: delay=%d stampLive=%d stampFix=%d cap=%.1f layer=%d xrOn=%d", g_xrPoseDelay, (int)g_stampLive,
-            g_stampFix, g_fpsCap, g_xrLayerMode, (int)g_xrOn);
-        return true;
-    }
-    if (!strcmp(cmd, "layer")) {
-        g_xrLayerMode = (args[0] == 'c') ? 1 : (args[0] == 'q') ? 2 : 0;
-        g_quadAspect = 0.0f;   // rebuild the eye quads for the new mode
-        Log("layer: %s (seam)", g_xrLayerMode == 0 ? "projection" : g_xrLayerMode == 1 ? "cylinder" : "quad");
-        return true;
-    }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
     if (!strcmp(cmd, "console")) {
         strncpy(g_dvrConsoleReq, args, sizeof(g_dvrConsoleReq) - 1);
@@ -75,11 +55,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "cfg") && !strcmp(args, "dump")) {
-        Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f layer=%d poseDelay=%d stampLive=%d stampFix=%d fpsCap=%.1f posTrack=%d melee=%d",
+        Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f fpsCap=%.1f posTrack=%d melee=%d",
             (int)g_gamepadOnly,
             g_gamepadOnly ? " (hands/blink/melee READ 0 BY DESIGN, not because they failed)" : "",
             (int)g_skcDrive, (int)g_handMesh, (int)g_blkAimOnCfg, g_fovLever,
-            g_xrLayerMode, g_xrPoseDelay, (int)g_stampLive, g_stampFix, g_fpsCap, (int)g_posTrack, (int)g_meleeOn);
+            g_fpsCap, (int)g_posTrack, (int)g_meleeOn);
         return true;
     }
     return false;
@@ -117,8 +97,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
 {
     w.kv("version", DVR_VERSION);
     w.kv("build", DVR_BUILD_ID);
-    w.kv("backend", g_xrBackend ? "openxr" : "openvr");
-    w.kv("runtime", g_xrBackend ? g_xriRuntimeName : "SteamVR");
+    w.kv("backend", "openxr");
     w.kv("vrReady", (bool)g_vrReady);
     w.kv("xrOn", (bool)g_xrOn);
     w.kv("state", g_dvrGameState);
@@ -148,8 +127,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("hands", (bool)g_skcDrive); w.kv("handMesh", (bool)g_handMesh); w.kv("handModels", (bool)g_hmEnable);
     w.kv("blink", (bool)g_blkAimOnCfg); w.kv("melee", (bool)g_meleeOn);
     w.kv("fovLever", (double)g_fovLever);
-    w.kv("layer", g_xrLayerMode); w.kv("poseDelay", g_xrPoseDelay);
-    w.kv("stampLive", (bool)g_stampLive); w.kv("stampFix", g_stampFix); w.kv("fpsCap", (double)g_fpsCap);
+    w.kv("fpsCap", (double)g_fpsCap);
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu);
     w.kv("cine", (bool)g_cineNow);

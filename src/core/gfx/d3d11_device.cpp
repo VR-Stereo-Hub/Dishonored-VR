@@ -235,7 +235,7 @@ static bool EnsurePipeline()
 
     // per-eye render targets at the compositor's recommended size
     uint32_t w = 0, h = 0;
-    if (g_xrBackend && g_xrEyeW) { w = g_xrEyeW; h = g_xrEyeH; }   // 37.3
+    if (g_xrEyeW) { w = g_xrEyeW; h = g_xrEyeH; }   // 37.3
     if (!w || !h) { w = 1852; h = 2056; } // sane Index default
     for (int eye = 0; eye < 2; eye++) {
         D3D11_TEXTURE2D_DESC td;

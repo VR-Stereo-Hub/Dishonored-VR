@@ -79,10 +79,6 @@ static float g_eyeOffs[2][3];         // ex, ey, ez
 static float g_eyeRot[2][9] = {{1,0,0, 0,1,0, 0,0,1},{1,0,0, 0,1,0, 0,0,1}};
 static bool  g_eyeCanted    = false;  // any eye measured non-identity
 static bool  g_eyeFrOk = false;
-// 38.3 XR-3: the screen geometry BuildEyeQuads last authored, exported for
-// the quad-layer submit (metres, head space): size W x H centered (cx, cy)
-// at -screenDist.
-static float g_bqW = 0, g_bqH = 0, g_bqCx = 0, g_bqCy = 0;
 static float    g_ipdM = 0.064f;           // real IPD from OpenVR (meters)
 static uint8_t* g_camObj       = NULL;     // cached live camera pointer
 static uint32_t g_camNameIdx   = 0;        // its Name index (for revalidation)
