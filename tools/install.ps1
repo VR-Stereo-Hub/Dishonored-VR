@@ -1,5 +1,6 @@
 # Copies the built mod into the game folder (Binaries\Win32 next to
-# Dishonored.exe): d3d9.dll (the proxy).
+# Dishonored.exe): d3d9.dll (the proxy), dvr_steamvr32.dll (the SteamVR shim
+# runtime) and openvr_api.dll (Valve's 32-bit loader, vendored, hash-checked).
 # Backs up a pre-existing d3d9.dll that is not ours as d3d9.dll.dvr-backup once.
 # Deliberately NOT guarded against a running game or headset: copying files
 # touches the disk only (the copy fails if the DLL is loaded, which is fine).
@@ -32,6 +33,22 @@ if ((Test-Path $existing) -and -not (Test-Path $backup)) {
 }
 
 Copy-Item $proxy $existing -Force
+
+# The SteamVR shim runtime and Valve's 32-bit loader (hash-checked against
+# third_party\openvr_headers\PROVENANCE.txt). SteamVR rigs need both; VDXR and
+# other native 32-bit runtimes never load them.
+$shim = Join-Path $outDir "dvr_steamvr32.dll"
+if (Test-Path $shim) {
+    Assert-DvrX86Dll $shim
+    $ovr = Join-Path $repo "third_party\openvr_headers\bin\win32\openvr_api.dll"
+    $prov = Get-Content (Join-Path $repo "third_party\openvr_headers\PROVENANCE.txt") -Raw
+    $hash = (Get-FileHash $ovr -Algorithm SHA256).Hash.ToLower()
+    if ($prov -notmatch [regex]::Escape($hash)) { throw "openvr_api.dll sha256 $hash is not in PROVENANCE.txt - refusing to install" }
+    Copy-Item $shim (Join-Path $GamePath "dvr_steamvr32.dll") -Force
+    Copy-Item $ovr (Join-Path $GamePath "openvr_api.dll") -Force
+} else {
+    Write-Host "dvr_steamvr32.dll not built (DVR_WITH_OVRSHIM=OFF?) - SteamVR rigs need it"
+}
 # The DXVK fork is gone (41.0). An older install's dxvk_d3d9.dll is loaded by
 # nothing any more, but leaving it beside the exe invites confusion.
 $oldFork = Join-Path $GamePath "dxvk_d3d9.dll"
@@ -39,4 +56,5 @@ if (Test-Path $oldFork) { Remove-Item $oldFork -Force; Write-Host "Removed the r
 
 Write-Host "Installed $config build to $GamePath"
 Write-Host "  d3d9.dll        $(Get-Item $proxy | Select-Object -ExpandProperty LastWriteTime)"
+if (Test-Path $shim) { Write-Host "  dvr_steamvr32.dll + openvr_api.dll (SteamVR shim, sha256 verified)" }
 Write-Host "Log: $(Join-Path $GamePath 'dishonored_vr.log')   harness files: $(Get-DvrDataDir)"

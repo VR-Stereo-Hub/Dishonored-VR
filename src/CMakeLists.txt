@@ -88,6 +88,29 @@ endif()
 # A 32-bit console app with NO mod code in it. tools\xrsim-selftest.ps1 runs it
 # against the simulated runtime: if it fails, the simulator is broken, not the
 # mod. Not shipped.
+# --- dvr_steamvr32: the SteamVR OpenXR shim (BioShock's ovrshim, adopted 41.0) ---
+# SteamVR ships no 32-bit OpenXR runtime, so a 32-bit game reaches it through
+# this shim: an OpenXR runtime DLL that talks OpenVR to SteamVR. The proxy's
+# init_instance falls back to it (a manifest written under %LOCALAPPDATA%)
+# when no native 32-bit runtime exists or [VR] Runtime=steamvr. Ships beside
+# d3d9.dll with Valve's openvr_api.dll (hash-gated by install/package).
+option(DVR_WITH_OVRSHIM "Build the SteamVR OpenXR shim runtime (shipped)" ON)
+if(DVR_WITH_OPENXR AND DVR_WITH_OVRSHIM)
+    add_library(dvr_ovr_shim SHARED
+        tools/ovrshim/ovrshim.h
+        tools/ovrshim/ovrshim_negotiate.cpp
+        tools/ovrshim/ovrshim_main.cpp
+        tools/ovrshim/ovrshim_render.cpp
+        tools/ovrshim/ovrshim_input.cpp
+        tools/ovrshim/ovrshim.def
+    )
+    set_target_properties(dvr_ovr_shim PROPERTIES PREFIX "" OUTPUT_NAME "dvr_steamvr32")
+    target_include_directories(dvr_ovr_shim PRIVATE tools/ovrshim)
+    target_link_libraries(dvr_ovr_shim PRIVATE openxr_headers openvr_headers d3d11)
+    # openvr_api.dll and d3dcompiler are LoadLibrary'd at runtime - only the
+    # D3D11 the compositing pipeline needs is linked.
+endif()
+
 if(DVR_WITH_OPENXR)
     add_executable(xr_hello32 tools/xr_hello32/main.cpp)
     target_link_libraries(xr_hello32 PRIVATE openxr_loader d3d11 dxgi)

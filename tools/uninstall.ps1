@@ -19,8 +19,9 @@ if (Test-Path $proxy) {
         Write-Host "d3d9.dll present but no trace of the mod beside it - refusing to delete a proxy that may not be ours."
     }
 }
-# dxvk_d3d9.dll: the retired DXVK fork from releases before 41.0.
-foreach ($n in @("dxvk_d3d9.dll", "openvr_api.dll")) {
+# dxvk_d3d9.dll: the retired DXVK fork from releases before 41.0. The shim and
+# Valve's loader are ours to remove (installed by install.ps1).
+foreach ($n in @("dxvk_d3d9.dll", "dvr_steamvr32.dll", "openvr_api.dll")) {
     $p = Join-Path $GamePath $n
     if (Test-Path $p) { Remove-Item $p -Force; Write-Host "Removed $n" }
 }
