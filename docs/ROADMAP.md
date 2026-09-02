@@ -28,10 +28,27 @@ simulator first (`docs/VERIFICATION.md`) and the headset last.
 Done when: both configurations build, exports 9/9, fork exports 15/15 (+`dxvk_vr_view`
 optional), ini golden diff empty modulo the em-dash fix, selftest PASS, lint clean.
 
+## D1a - Port the author's 39.x fixes (docs/dishonored/HANDOFF-GINGASVR.md)
+
+One behavioral change per commit; each verified against the handoff's log signatures.
+
+- [ ] Obtain `dllmain_38.72.cpp`, `dllmain_39.4.cpp` and the fork's p53 commit from the author's
+      archive; diff 38.72 vs 38.92 and 38.92 vs 39.4
+- [ ] 39.3: create the D3D11 device on the adapter LUID the OpenXR runtime returns
+      (`D3D_DRIVER_TYPE_UNKNOWN` with an explicit adapter; `dxgi.dll` via LoadLibrary); log
+      `xr: the runtime requires D3D11 on adapter luid ...` and `*** WRONG GPU ***`
+- [ ] 39.4: the menu-ghost quadrant (`menuOpen && cursorVis` covered by neither rescue)
+- [ ] 39.2: the pitch kept/discarded closed loop (120-frame windows; stop claiming the camera
+      when the engine discards, so the fallback engages)
+- [ ] 39.0: calibration records banked by asset name (`FpBankFind/FpBankStore`), not by
+      component pointer
+- [ ] Keep the 38.78 focus keep-alive (present in our base, missing in the author's 39.x)
+
 ## D1 - Baseline parity in the headset (needs the game; user, SteamVR lane)
 
 - [ ] `tools\install.ps1` with the shipped fork; boot to gameplay; `dishonored_vr.log` shows the
-      same hook installs (ProcessEvent, Blink x3, pad, res spoof) and splice counts as a 38.92 log
+      same hook installs (ProcessEvent, Blink x3, pad, res spoof) and splice counts as a
+      38.72/39.4 log from the author's rig (38.73-38.92 stacked unverified changes)
 - [ ] Hands calibrate; Blink hand-aims; wrist HUD shows; F5/F10 work; no new WARN/ERROR lines
 - [ ] `tools\boot.ps1` reaches `[game] state: GAMEPLAY` unattended (fix the key sequence on the
       first attended run)
@@ -47,6 +64,10 @@ Done when the user signs off in the headset and `tools\log-parse.ps1` shows no r
 
 ## D3 - OpenXR/Quest convergence (`docs/dishonored/XR_HANDOFF.md`)
 
+- [ ] An affected Quest user runs a build with the 39.3 adapter fix; read the adapter lines in
+      their log; collect GPU vendor / model / driver (never collected once)
+- [ ] Verify 39.4 in a real pause menu (head-look must stay parked) and 39.2 on an affected
+      machine (does the fallback drive correctly once it engages?)
 - [ ] One layer mode and one stamping policy chosen by measurement in the simulator
       (`world-6dof.xrs`: ClaimRatioH ~1.0 at every yaw/pitch); the other 5 switches retired
 - [ ] Hands + wrist HUD + overlay drawn in every XR presentation mode

@@ -8,6 +8,25 @@ pipeline is fine. The original author could not reproduce it on their rig and sh
 several mutually exclusive switches for users to A/B (`[VR] StampLive`, `StampFix`,
 `XrPoseDelay`, `XrLayer`, `[Screen] RigidScreen`, `WorldScreen`, `EyeCant`, `XrCylinder`).
 
+## The author's own ranking (HANDOFF-GINGASVR.md, section 8.1, written at their 39.4)
+
+1. **The adapter bug.** The D3D11 device was created on DXGI's default adapter while the
+   OpenXR runtime's required `adapterLuid` was thrown away; with `D3D11_RESOURCE_MISC_SHARED`
+   textures, a two-GPU PC hands the runtime surfaces on the wrong GPU and nothing logs an
+   error. Their 39.3 fixes it (enumerate adapters, match the LUID, `D3D_DRIVER_TYPE_UNKNOWN`).
+   Untested by anyone who had the bug; port it first (ROADMAP D1a) and read these log lines
+   from an affected user: `xr: the runtime requires D3D11 on adapter luid ...`,
+   `D3D11 device created on adapter: <name>`, `*** THE D3D11 DEVICE IS ON THE WRONG GPU ***`.
+2. **The stuck menu flag** (their 39.4): explains "F9 helps but it's not quite right".
+3. **The engine discarding the rotator write.** A tester's diagnostic proved the pitch IS
+   written correctly and continuously while the screen does not move, which killed the
+   "camera modifiers overwrite each other" theory and the whole 38.86-38.88 chain-stamping
+   effort. Their 39.2 counts kept vs discarded pitch over 120-frame windows and, when the
+   engine discards, stops claiming the camera so the direct fallback can engage. Unknown:
+   whether the fallback drives correctly on affected hardware.
+
+Never collected from an affected user: GPU vendor / model / driver. Collect it.
+
 ## What was tried (build, verdict)
 
 - 37.6 RigidScreen (per-eye screen placement keyed to the HMD model): Quest lenses are canted.
@@ -52,4 +71,8 @@ a constant offset between the image motion and the pose motion.
 
 ## Do not retry
 
-OverlayScene (38.0 verdict), WorldScreen as a default (38.3 verdict), EyeCant as the cause.
+OverlayScene (38.0 verdict), WorldScreen as a default (38.3 verdict), EyeCant as the cause,
+and the author's dead-ends table (HANDOFF-GINGASVR.md section 9): a missing file in the zip,
+monitor resolution, monitor arrangement, camera modifiers overwriting each other in one frame,
+the FOV base race as the zoom cause, the controller-dispatch gate, fullscreen config / VD
+streamer version / layer mode / per-user game inis (the same break on SteamVR and Steam Link).

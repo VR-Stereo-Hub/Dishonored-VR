@@ -56,6 +56,44 @@ another game; findings go here in the same commit as the code that uses them.
   `FindNameIdx`, `AsUFunction`. `ProcessEvent` parms for `ProcessViewRotation` are sniffed
   by locating `DeltaTime` in the parm block (guessing `+4` crashed).
 
+## From the author's handoff (HANDOFF-GINGASVR.md, their build 39.4)
+
+Measured field offsets the table above lacks: PlayerController `+0x248` current Pawn;
+PlayerCamera `+0x53c` is the **sensor** (the FOV actually rendered) and `+0xC4` the cached
+POV origin; SkeletalMeshComponent `+0x60/0x70/0x80` world matrix rows, `+0x90` translation,
+`+0xcc` bounds origin; `kUEPerRad` 10430.378 (65536 / 2pi). The addresses are the same
+binary for everyone (Steam build): never chase them for a per-machine difference.
+
+**Three head-motion paths are on at once** and most head-tracking bugs were in the gates
+between them: (1) head-mouse (`[Tracking] Enabled`, synthetic mouse; silently needs the
+game window foreground and the menu gate clear); (2) the native script write
+(`[HeadTrack] Native`, `ApplyHeadToViewRotation`; `ProcessViewRotation` reaches
+`ProcessEvent` ONLY through the camera modifier chain, never the PlayerController, and the
+rotator is at `Parms+4` or `+8` depending on the declaring class, found by locating a
+plausible `DeltaTime`; yaw is a delta, pitch is absolute); (3) the direct fallback
+("viewinject") into the PlayerController when path 2 goes quiet, held off during cinematics,
+for 15 s after a pawn latch and while script writes are fresh. Collapse to one path only
+with the game in front of you.
+
+The VR hands ARE the weapon view models (`pPlayerMesh`); `Skm_Player` is the body and
+nothing drives it. `FpCollect` walks the object graph from the pawn (depth < 3, offsets
+0x20..0x600, 24-candidate cap) and world props (`wash_rag`, `FeatherDuster`) get in and eat
+slots. Calibration (`FpCalibrateTick`, 8 phases) is only valid while the player holds still;
+records must be banked by asset name (their 39.0), not component pointer.
+
+Resolution: `SpoofDesktopW/H` 4096x2304 is the lie to `GetSystemMetrics`/`GetMonitorInfo`,
+`RenderWidth/Height` 4032x2268 what the game is told its client rect is, the real window
+1600x900 for the spectator; `hkGetClientRect` returning the render size is load-bearing
+(without it the game falls back as far as 800x600 and writes that to its own ini).
+Windowed mode keeps the desktop cursor visible, so script events are the only menu signal.
+
+Traps (their section 10): every `POOL_DEFAULT` D3D9 resource must be released in `hkReset`;
+never log from a static initialiser (the fork stopped loading with no log at all); check
+UObject liveness by GObjects index before writing (`CamAlive`); the log is overwritten on
+launch (ours now rotates to `.prev.log`); inis are CRLF; **a direct exe launch crashes at
+the menu, launch through Steam**; an explicit adapter needs `D3D_DRIVER_TYPE_UNKNOWN`;
+diagnostics must pay out as discovered, not after a timer.
+
 ## The head-tracking seam (verified, shipped)
 
 `ApplyHeadToViewRotation` inside the ProcessEvent hook writes HMD pitch/yaw(/roll) into the

@@ -110,6 +110,11 @@ IPD; `errors` and `endsOutOfOrder` must be 0.
     non-black is unverified until D1.
 11. The game is not installed on the dev PC as of 2026-09-02: rows 8-20 of the table are
     written from the BioShock harness's shape and need their first attended run.
+12. The author's handoff says **a direct exe launch crashes at the menu; launch through
+    Steam**. `xrsim-launch.ps1` starts the exe directly (the BioShock shape). If that crashes,
+    the fallback is: write `[VR] XrRuntimeJson=<manifest>` and `[VR] Backend=openxr` into
+    `dishonored_vr.ini`, launch through `launch-game.ps1`, and restore the ini afterwards
+    (the mod reads the ini manifest before the registry). Decide on the first attended run.
 
 ## 6. What still needs a human in a headset
 

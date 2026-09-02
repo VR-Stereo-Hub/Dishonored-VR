@@ -11,6 +11,11 @@
 # openxr (the mod's AUTO backend choice would pick OpenVR or nothing with no
 # headset software running).
 #
+# UNVERIFIED: the original author's handoff says a direct exe launch crashes
+# at the menu (docs/dishonored/HANDOFF-GINGASVR.md, trap 6). If so, write the
+# manifest into the ini ([VR] XrRuntimeJson, [VR] Backend=openxr) and launch
+# through Steam instead - see docs/VERIFICATION.md gotcha 12.
+#
 # The single most valuable check here is the runtime-name assertion. If
 # XR_RUNTIME_JSON silently fails to take (an elevated shell, a bad manifest
 # path, a 64-bit dll), the mod falls through to the registry runtime, nothing

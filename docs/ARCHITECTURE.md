@@ -184,5 +184,13 @@ Next to the exe (user-facing, users depend on the locations): `dishonored_vr.ini
 - **No MinHook.** Every hook is a vtable slot, an IAT slot or a byte-verified 5-byte detour with
   a hand-built stub; `core/hooks` keeps them. Add MinHook only when an arbitrary function hook
   is needed.
-- **Version 39.0.0** continues the author's 38.92 line so user reports stay orderable;
-  `dvr_version.h` is generated from CMake + `git describe`.
+- **Version 40.0.0** continues the author's build-tag line so user reports stay orderable;
+  `dvr_version.h` is generated from CMake + `git describe`. (First chosen as 39.0.0; the
+  author's handoff showed their private line already reached 39.4, so 40 avoids two
+  different "39.x" binaries in the wild.)
+- **The author's handoff is a first-class source.** `docs/dishonored/HANDOFF-GINGASVR.md`
+  (2026-09-01, their build 39.4) records fixes our 38.92 base lacks (calibration bank by
+  asset name, the pitch kept/discarded loop, the D3D11 adapter LUID fix, the menu ghost
+  quadrant), a dead-ends table and process rules. Their 39.x line was rebased onto 38.72
+  because 38.73-38.92 stacked unverified changes; our base is 38.92, so D1 parity compares
+  against BOTH 38.72-era behavior and the 39.x fixes, not against 38.92 alone.

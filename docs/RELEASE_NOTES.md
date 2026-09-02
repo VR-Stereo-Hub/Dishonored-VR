@@ -1,8 +1,10 @@
 # Release notes
 
-## 39.0.0 (unreleased)
+## 40.0.0 (unreleased)
 
-No intended behavior change from 38.92 apart from the fixes below. The mod is rebuilt with
+Numbered 40 because the original author's private line reached 39.4 (see
+docs/dishonored/HANDOFF-GINGASVR.md; those fixes are being ported). No intended behavior
+change from 38.92 apart from the fixes below. The mod is rebuilt with
 Visual Studio from a module tree instead of one file, the DXVK fork lives in this repository,
 and there is a debugging surface for development.
 

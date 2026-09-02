@@ -49,6 +49,14 @@ repo continues it with the author's permission. Single game, one branch: `VR-Mai
   back are different operations; never take a reference to an engine D3D object inside a
   detour; backbuffer detectors sample before our own writers; ImGui only from the overlay's
   draw callback; a probe hook's argument count must equal `ret imm / 4`.
+- The original author's process rules (`docs/dishonored/HANDOFF-GINGASVR.md` section 11, each
+  one paid for): one behavioral change per build; build on a snapshot confirmed good; when
+  something that worked breaks, diff against the working build FIRST; measure before
+  theorising (read the artifacts already on disk, including the fork's own
+  `Dishonored_d3d9.log`); never ship a guessed constant as a measured one; the packaged
+  `dishonored_vr.ini` is a byte copy of the tested machine's ini; motion controls for
+  crouching and hands must never stop working; do not attribute logs to machines by drive
+  letter, check the build tag. Read the handoff's Traps and Dead ends before writing code.
 
 ## Session protocol
 
@@ -137,3 +145,4 @@ repo continues it with the author's permission. Single game, one branch: `VR-Mai
 | `docs/dishonored/ENGINE_NOTES.md` | The reverse-engineering knowledge base: addresses with derivation, class layouts, hook points, the head-coupling chronology, the XR stamp theories, dead ends |
 | `docs/dishonored/TESTING.md` | Install/launch loop, flat and simulator checks, headset checklist, crash triage |
 | `docs/dishonored/XR_HANDOFF.md` | Single-bug handoff for the unconverged OpenXR/Quest path |
+| `docs/dishonored/HANDOFF-GINGASVR.md` | **The original author's handoff** (their build 39.4): what was measured, disproved, the traps, the process rules, the 39.x fixes our base lacks |

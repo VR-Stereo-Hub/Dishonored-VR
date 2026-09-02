@@ -44,6 +44,12 @@ submits.
 
 **Reset everything.** Delete `dishonored_vr.ini`; the mod writes a fresh one.
 
+**Quest: "zoomed in", cannot look up or down.** On a PC with two GPUs (a laptop, or a CPU
+with integrated graphics next to the card) the mod may build its D3D11 device on the wrong
+one; a fix is being ported. Until then, in Windows Graphics settings set Dishonored.exe to
+the high-performance GPU, and disable the integrated GPU in Device Manager as a test.
+
 **Reporting.** Attach `dishonored_vr.log` (and `dishonored_vr_crash.txt` if present), say
-headset, runtime (SteamVR / Virtual Desktop / Link), GPU, and what you did. Developers:
+headset, runtime (SteamVR / Virtual Desktop / Link), **GPU vendor, model and driver version,
+and whether the PC has a second GPU** (integrated graphics counts), and what you did. Developers:
 `tools\log-parse.ps1` summarises a log; `tools\status-dump.ps1` reads the live state.

@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 3.21)
 
 # VERSION is the single source of truth for the version the mod logs and shows.
 # Bump it here and nowhere else; src/CMakeLists.txt generates dvr_version.h from
-# it at build time, stamped with `git describe`. 39.x continues the original
-# author's 38.92 build-tag line so user reports stay orderable.
-project(DishonoredVR VERSION 39.0.0 LANGUAGES C CXX)
+# it at build time, stamped with `git describe`. 40.x continues the original
+# author's build-tag line (their private builds went to 39.4, see
+# docs/dishonored/HANDOFF-GINGASVR.md) so user reports stay orderable.
+project(DishonoredVR VERSION 40.0.0 LANGUAGES C CXX)
 
 # Dishonored.exe is 32-bit x86. Everything we load into it must be too.
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)

@@ -3,11 +3,22 @@
 Alpha software. The list from the original 38.92 release plus what the continuation knows.
 The milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 
-- **Quest / OpenXR path is not converged** [D3]. The headset warps or the view locks a few
-  seconds after a load on some machines (the layer pose stamp), hands and the wrist HUD are
-  not drawn in the quad and cylinder presentation modes, and the settings overlay is
-  mis-scaled. SteamVR-native headsets (Vive, Index) are the tuned path. Details:
-  docs/dishonored/XR_HANDOFF.md.
+- **Quest / OpenXR path is not converged** [D1a, D3]. "Zoomed in / can't look up-down /
+  hands wrong" on some Quest + Virtual Desktop machines, never reproduced on the author's
+  PC. Best current explanation: on a PC with two GPUs (a laptop, or a CPU with integrated
+  graphics next to the card) the mod creates its D3D11 device on the default adapter instead
+  of the one the OpenXR runtime asks for, and the shared eye textures cannot cross adapters;
+  every call succeeds and nothing logs an error. The author's build 39.3 fixed it and it is
+  being ported (D1a); it has not been confirmed by an affected user. Also on this path: hands
+  and the wrist HUD are not drawn in the quad and cylinder presentation modes, and the
+  settings overlay is mis-scaled. SteamVR-native headsets (Vive, Index) are the tuned path.
+  Details: docs/dishonored/XR_HANDOFF.md.
+- **Head-look parks after a missed menu close event** ("F9 fixes it") [D1a]. Windowed mode
+  keeps the desktop cursor visible, so a ghost menu flag was cleared by neither automatic
+  rescue. The author's 39.4 fix is being ported. Plain F9 clears it meanwhile.
+- **Weapons "wiggle" after a weapon swap** [D1a]. Calibration records were keyed by component
+  pointer, so a swap re-probed mid-combat with inverted signs. The author's 39.0 fix (bank by
+  asset name) is being ported.
 - **Hands rotate with your head** [D5]. The first-person arms are placed by a camera-space
   LookAt control in Arkane's animation tree; the mod draws its own hand models for the
   weapons and drives the engine's hand bones, but the coupling is not fully removed. The
