@@ -71,6 +71,15 @@ static void XrRtTryInit(void)
                 strncpy(g_xriRuntimeName, ip.runtimeName,
                         sizeof(g_xriRuntimeName) - 1);
                 Log("xr: runtime \"%s\"", g_xriRuntimeName);
+                {   // 40.2: the crash file's run header must name the runtime.
+                    // dvr-xrsim and VirtualDesktopXR fault into the same
+                    // d3d11.dll and produce identical fingerprint text.
+                    char cx[128];
+                    _snprintf(cx, sizeof(cx) - 1, "backend=openxr runtime=\"%s\"",
+                              g_xriRuntimeName);
+                    cx[sizeof(cx) - 1] = 0;
+                    dvr::crash::set_context(cx);
+                }
             }
         }
     }
@@ -132,9 +141,38 @@ static void XrRtTryInit(void)
 
     XrGraphicsRequirementsD3D11KHR gr; memset(&gr, 0, sizeof(gr));
     gr.type = XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR;
-    xrGetD3D11GraphicsRequirementsKHR(g_xriInst, g_xriSys, &gr);  // spec: must call
+    XrResult grRes = xrGetD3D11GraphicsRequirementsKHR(g_xriInst, g_xriSys, &gr);  // spec: must call
+
+    // 40.1 (the author's 39.3 fix): this LUID used to be fetched and dropped on
+    // the floor - the spec says the call must happen, so it happened, and the
+    // answer went nowhere. Publish it so EnsureD3D11 creates the device on the
+    // adapter the runtime can actually read from.
+    if (XR_SUCCEEDED(grRes)) {
+        g_wantAdapterLuid.LowPart  = (DWORD)gr.adapterLuid.LowPart;
+        g_wantAdapterLuid.HighPart = (LONG)gr.adapterLuid.HighPart;
+        g_wantAdapterLuidOk = (gr.adapterLuid.LowPart || gr.adapterLuid.HighPart);
+        Log("xr: runtime graphics requirements: adapter luid %08lX-%08lX, "
+            "min feature level 0x%04X%s",
+            (unsigned long)gr.adapterLuid.HighPart,
+            (unsigned long)gr.adapterLuid.LowPart,
+            (unsigned)gr.minFeatureLevel,
+            g_wantAdapterLuidOk ? "" : " (zero luid - runtime expressed no preference)");
+    } else {
+        DVR_WARN("xr: xrGetD3D11GraphicsRequirementsKHR failed (%d) - the adapter the "
+                 "runtime needs is unknown; the device will use the default adapter",
+                 (int)grRes);
+    }
 
     if (!EnsureD3D11() || !g_dev11) { Log("xr: no D3D11 device yet"); return; }
+    // If something else built the device before XR bring-up, it never saw the
+    // LUID. Say so out loud rather than leaving a silent mismatch.
+    if (g_wantAdapterLuidOk && g_gotAdapterLuidOk &&
+        !LuidEq(g_gotAdapterLuid, g_wantAdapterLuid)) {
+        DVR_ERROR("xr: the D3D11 device predates XR bring-up and sits on the WRONG "
+                  "adapter (\"%s\"). Restarting the game usually re-orders this; if it "
+                  "persists the capture path is creating the device too early.",
+                  g_gotAdapterName);
+    }
     // pipeline (shaders + eye RTs) - with g_xrEyeW already known, the eye
     // RTs come out at the runtime's recommended size, so CopyResource into
     // the swapchain images is dimension-exact

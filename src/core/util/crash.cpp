@@ -3,6 +3,7 @@
 #include "core/util/log.h"
 #include "core/util/mem.h"
 #include "core/util/paths.h"
+#include "dvr_version.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -28,6 +29,24 @@ int g_threadCount = 0;
 // uses stdio, which is what the original fingerprinter did too).
 char g_line[512];
 
+// 40.2 A MEASUREMENT CARRIES THE IDENTITY OF WHAT IT MEASURED.
+// dishonored_vr_crash.txt is opened FILE_APPEND_DATA / OPEN_ALWAYS, so it
+// accumulates across every run forever with nothing separating them. Three
+// fingerprints sat in it for a session and could not be attributed to a build,
+// a backend or a runtime - the simulator and VDXR produce byte-identical text.
+// The file now opens with one header naming the run.
+char g_ctx[128] = "backend not up yet";
+bool g_headerDone = false;
+
+bool write_dump(EXCEPTION_POINTERS* ep, const char* why);   // defined below
+
+void context(const char* text)
+{
+    if (!text) return;
+    strncpy(g_ctx, text, sizeof(g_ctx) - 1);
+    g_ctx[sizeof(g_ctx) - 1] = 0;
+}
+
 void emit(const char* fmt, ...)
 {
     va_list ap; va_start(ap, fmt);
@@ -40,6 +59,21 @@ void emit(const char* fmt, ...)
         dvr::paths::in_game_dir(path, "dishonored_vr_crash.txt");
         g_crashFile = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
                                   OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (g_crashFile != INVALID_HANDLE_VALUE && !g_headerDone) {
+            g_headerDone = true;
+            SYSTEMTIME st; GetLocalTime(&st);
+            char hd[512];
+            int hn = snprintf(hd, sizeof(hd) - 2,
+                "\r\n===== run %04u-%02u-%02u %02u:%02u:%02u  "
+                "dishonoredvr %s build %s  pid=%lu  %s =====",
+                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+                DVR_VERSION, DVR_BUILD_ID, (unsigned long)GetCurrentProcessId(), g_ctx);
+            if (hn > 0) {
+                hd[hn] = '\r'; hd[hn + 1] = '\n';
+                DWORD hw = 0;
+                WriteFile(g_crashFile, hd, (DWORD)hn + 2, &hw, nullptr);
+            }
+        }
     }
     if (g_crashFile != INVALID_HANDLE_VALUE) {
         g_line[n] = '\r'; g_line[n + 1] = '\n';
@@ -97,10 +131,27 @@ LONG WINAPI fingerprint(EXCEPTION_POINTERS* ep)
     emit("EXCEPTION 0x%08lx at %p [%s+0x%lx] tid=%lu (%s)",
          (unsigned long)code, addr, mod, (unsigned long)((uintptr_t)addr - base),
          (unsigned long)tid, thread_name(tid));
-    if (code == EXCEPTION_ACCESS_VIOLATION && ep->ExceptionRecord->NumberParameters >= 2)
-        emit("  access violation %s %p",
-             ep->ExceptionRecord->ExceptionInformation[0] ? "writing" : "reading",
-             (void*)ep->ExceptionRecord->ExceptionInformation[1]);
+    if (code == EXCEPTION_ACCESS_VIOLATION && ep->ExceptionRecord->NumberParameters >= 2) {
+        // 40.2 THE OPERATION IS THREE-VALUED, NOT TWO. ExceptionInformation[0]
+        // is 0 read, 1 write, 8 execute (DEP). The old line tested it for
+        // truth, so an EXECUTE fault - the instruction pointer itself landing
+        // in freed memory - printed as "writing", and three identical
+        // fingerprints reading "access violation writing DEDEDEDE" were taken
+        // for a stray store into a freed D3D11 object. They are the opposite
+        // fault: a CALL through a poisoned function pointer. Decode all three,
+        // and say so on the line when the faulting address IS the instruction
+        // pointer, because that combination has exactly one meaning.
+        const ULONG_PTR op = ep->ExceptionRecord->ExceptionInformation[0];
+        const void* at = (const void*)ep->ExceptionRecord->ExceptionInformation[1];
+        const char* what = op == 0 ? "reading" : op == 1 ? "writing"
+                         : op == 8 ? "EXECUTING" : "accessing";
+        emit("  access violation %s %p%s", what, at,
+             (at == ep->ExceptionRecord->ExceptionAddress)
+                 ? "  <== this address IS the instruction pointer: control was"
+                   " transferred INTO this memory, so a code pointer we called"
+                   " through was already freed. Not a data write."
+                 : "");
+    }
     if (ep->ContextRecord) {
         const CONTEXT* c = ep->ContextRecord;
         emit("  eax=%08lx ecx=%08lx edx=%08lx ebx=%08lx esi=%08lx edi=%08lx ebp=%08lx esp=%08lx",
@@ -121,6 +172,27 @@ LONG WINAPI fingerprint(EXCEPTION_POINTERS* ep)
             if (v >= 0x401000 && v < 0x1800000) { emit("  stack[%d] = 0x%08lx", i, (unsigned long)v); shown++; }
         }
     }
+    // 40.2 THE WILD-EIP GATE. This handler is the only one that reliably runs
+    // (the unhandled filter never fired in three measured crashes), so the
+    // dump has to be taken here - but a VEH sees FIRST-CHANCE exceptions,
+    // including the ones UE3 raises and handles on purpose, and dumping on
+    // those would cost a multi-hundred-MB write mid-gameplay for a fault that
+    // was never fatal.
+    //
+    // base == 0 means module_of() could not place the instruction pointer in
+    // ANY loaded image. Nothing recovers from that: no __except frame can
+    // resume a thread whose EIP is in freed or unmapped memory, so this
+    // condition cannot be true for a handled probe. It is exactly the measured
+    // signature (EIP == 0xDEDEDEDE, module "?"), which makes this gate both
+    // fatal-only and able to fail its own hypothesis: if the freeze crash ever
+    // turns out to be an ordinary in-module fault, no dump appears and the
+    // wild-EIP theory is falsified by the silence.
+    if (!base) {
+        emit("  the instruction pointer is in NO loaded module - unrecoverable by "
+             "construction (no handler can resume from it), so this fault is fatal "
+             "and gets the dump");
+        write_dump(ep, "wild instruction pointer");
+    }
     dvr::log::flush();
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -128,26 +200,43 @@ LONG WINAPI fingerprint(EXCEPTION_POINTERS* ep)
 typedef BOOL (WINAPI *PFN_MiniDumpWriteDump)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE,
     PMINIDUMP_EXCEPTION_INFORMATION, PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
 
+// 40.2 dbghelp is resolved ONCE, at install time, on the game thread. The
+// dump can now be taken from the vectored handler, and a VEH must never call
+// LoadLibrary: it takes the loader lock, and a fault raised while that lock is
+// held would deadlock instead of producing the dump we came for.
+PFN_MiniDumpWriteDump g_miniDump = nullptr;
+volatile LONG g_dumpDone = 0;
+
+// One dump per run, from whichever handler gets there first. `why` names the
+// path that decided this fault was fatal, so the .dmp can be tied back to the
+// line in dishonored_vr_crash.txt that produced it.
+bool write_dump(EXCEPTION_POINTERS* ep, const char* why)
+{
+    if (!g_miniDump || g_teardown) return false;
+    if (InterlockedExchange(&g_dumpDone, 1) != 0) return false;
+    SYSTEMTIME st; GetLocalTime(&st);
+    char path[MAX_PATH];
+    snprintf(path, sizeof(path), "%s\\dvr_%04u%02u%02u_%02u%02u%02u.dmp", dvr::paths::dumps_dir(),
+             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    HANDLE f = CreateFileA(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) {
+        emit("minidump FAILED to create %s (err %lu) - is %s writable?",
+             path, (unsigned long)GetLastError(), dvr::paths::dumps_dir());
+        return false;
+    }
+    MINIDUMP_EXCEPTION_INFORMATION mei = { GetCurrentThreadId(), ep, FALSE };
+    BOOL ok = g_miniDump(GetCurrentProcess(), GetCurrentProcessId(), f,
+                         (MINIDUMP_TYPE)(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithDataSegs),
+                         ep ? &mei : nullptr, nullptr, nullptr);
+    CloseHandle(f);
+    emit("minidump %s (%s): %s", ok ? "written" : "FAILED", why, path);
+    return ok != FALSE;
+}
+
 LONG WINAPI unhandled(EXCEPTION_POINTERS* ep)
 {
     if (!g_teardown) {
-        HMODULE dbg = LoadLibraryA("dbghelp.dll");
-        PFN_MiniDumpWriteDump write = dbg ? (PFN_MiniDumpWriteDump)GetProcAddress(dbg, "MiniDumpWriteDump") : nullptr;
-        if (write) {
-            SYSTEMTIME st; GetLocalTime(&st);
-            char path[MAX_PATH];
-            snprintf(path, sizeof(path), "%s\\dvr_%04u%02u%02u_%02u%02u%02u.dmp", dvr::paths::dumps_dir(),
-                     st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-            HANDLE f = CreateFileA(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (f != INVALID_HANDLE_VALUE) {
-                MINIDUMP_EXCEPTION_INFORMATION mei = { GetCurrentThreadId(), ep, FALSE };
-                BOOL ok = write(GetCurrentProcess(), GetCurrentProcessId(), f,
-                                (MINIDUMP_TYPE)(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithDataSegs),
-                                ep ? &mei : nullptr, nullptr, nullptr);
-                CloseHandle(f);
-                emit("minidump %s: %s", ok ? "written" : "FAILED", path);
-            }
-        }
+        write_dump(ep, "unhandled-exception filter");
         dvr::log::flush();
     }
     if (g_previous && g_previous != g_ours) return g_previous(ep);
@@ -160,10 +249,21 @@ void install()
 {
     if (g_installed) return;
     g_installed = true;
+    {   // 40.2: resolve dbghelp here, never inside a handler (loader lock).
+        HMODULE dbg = LoadLibraryA("dbghelp.dll");
+        if (dbg) g_miniDump = (PFN_MiniDumpWriteDump)GetProcAddress(dbg, "MiniDumpWriteDump");
+    }
     AddVectoredExceptionHandler(1, fingerprint);
     g_ours = unhandled;
     g_previous = SetUnhandledExceptionFilter(g_ours);
-    DVR_INFO("crash handler installed (fingerprint VEH + minidump filter; dumps in %s)", dvr::paths::dumps_dir());
+    // Say which handler can actually produce a dump. Measured 2026-09-01: the
+    // filter below never ran - three fingerprints in dishonored_vr_crash.txt,
+    // zero minidump lines, dumps\ empty - because UE3's own filter or an SEH
+    // frame consumes the fault first. The VEH always runs, so the wild-EIP
+    // gate in fingerprint() is the path that will actually fire.
+    DVR_INFO("crash handler installed (fingerprint VEH%s + unhandled filter; dumps in %s)",
+             g_miniDump ? " with wild-EIP minidump" : " WITHOUT minidump - no dbghelp.dll",
+             dvr::paths::dumps_dir());
 }
 
 void rearm()
@@ -187,6 +287,8 @@ void register_thread(const char* name, DWORD tid)
         g_threadCount++;
     }
 }
+
+void set_context(const char* text) { context(text); }
 
 void note_teardown(const char* why)
 {
