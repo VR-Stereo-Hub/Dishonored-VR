@@ -65,6 +65,13 @@ static volatile LONG  g_sdPulse = 0;           // one-shot doubles for the A/B
 // shown to fail and to hold on the simulator ("make it MOVE").
 static volatile LONG  g_sdForceSkip2 = 0;
 static uint32_t       g_sdSkipForced = 0;
+// 41.1 (session 9): `reentry rearm [n]` - n ticks decided SINGLE at the gate
+// (no tag pushed, no pass 2), then the doubling resumes. The isolated half of
+// the user's remedy for the one-view state (a pause/resume, a mode switch
+// followed by a pause): does re-arming the second draw ALONE fix it, with
+// the capture untouched? A diagnostic word; it never fires on its own.
+static volatile LONG  g_sdForceSingle = 0;
+static uint32_t       g_sdRearms = 0;
 static volatile LONG  g_sdDepth = 0;
 static DWORD          g_sdDrawTid = 0;
 static uint32_t       g_sdDraws = 0, g_sdSecondDraws = 0;
@@ -203,6 +210,12 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
     if (InterlockedCompareExchange(&g_sdPulse, 0, 0) > 0) d.pulse = InterlockedDecrement(&g_sdPulse) >= 0;
     const bool armed = InterlockedCompareExchange(&g_sdArmed, 0, 0) != 0;
     if (!d.pulse && !armed) { d.why = "not armed"; return d; }
+    if (InterlockedCompareExchange(&g_sdForceSingle, 0, 0) > 0) {
+        if (InterlockedDecrement(&g_sdForceSingle) == 0)
+            Log("reentry/rearm: done - the doubling resumes at the next gameplay tick; the frameid line's next pairs "
+                "say whether a re-arm ALONE made two pictures of one");
+        d.why = "rearm by request"; return d;
+    }
     if (g_sdPoisoned) { d.why = "poisoned"; return d; }
     if (callerRet != kViewportDrawGameplayRet) { ++g_sdSkipForeign; d.why = "foreign caller"; return d; }
     if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; d.why = "exiting"; return d; }
@@ -421,6 +434,8 @@ static void SceneDrawStatus(dvr::status::Writer& w)
     w.kv("skipTest", (unsigned long)g_sdSkipTest);
     w.kv("skipExit", (unsigned long)g_sdSkipExit);
     w.kv("skipForced", (unsigned long)g_sdSkipForced);
+    w.kv("rearms", (unsigned long)g_sdRearms);
+
     w.kv("lastExc", (unsigned long)g_sdLastExcCode);
 }
 
@@ -450,6 +465,18 @@ static bool SceneDrawCommand(const char* args)
         Log("reentry/skip2: the next %d armed gameplay tick(s) push pass 1's -1 tag and SKIP pass 2 - a one-sided "
             "stream on purpose; expect `stereo: STALE R EYE` (strict off) or `xr: strict pair - stereo submit "
             "REFUSED` (strict on)", k);
+        return true;
+    }
+    if (n >= 1 && !strcmp(sub, "rearm")) {
+        int k = a1[0] ? atoi(a1) : 2;
+        if (k < 1) k = 1;
+        if (k > 300) k = 300;
+        if (!g_sdArmed) { Log("reentry/rearm: the doubling is not armed - nothing to re-arm (stereo reentry first)"); return true; }
+        InterlockedExchange(&g_sdForceSingle, k);
+        ++g_sdRearms;
+        Log("reentry/rearm: the next %d gameplay tick(s) draw SINGLE (no tag, no pass 2), then the doubling resumes - "
+            "the capture is untouched; expect `gates -> SINGLE draw (rearm by request)` then `DOUBLE draw after %d single "
+            "tick(s)` (rearm #%lu)", k, k, (unsigned long)g_sdRearms);
         return true;
     }
     if (n >= 1 && !strcmp(sub, "reset")) {
