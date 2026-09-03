@@ -72,6 +72,11 @@ static uint32_t       g_sdSkipForeign = 0, g_sdSkipState = 0, g_sdSkipSilent = 0
                       g_sdSkipSession = 0, g_sdSkipTest = 0, g_sdSkipExit = 0;
 static uint32_t       g_sdLastExcCode = 0, g_sdLastExcAddr = 0;
 static uint32_t       g_sdCall2Us = 0, g_sdCall2MaxUs = 0;
+// 41.1 (session 9): pass-2 writes that the camera seam REFUSED (a null or
+// stale camera object, no basis row, no field): the second draw still ran,
+// from pass 1's camera, and its +1 tag carried no position - the one silent
+// way both eyes end up with one view. Counted per beat window, lifetime too.
+static uint32_t       g_sdP2WriteRefused = 0, g_sdBeatP2Refused = 0;
 // 41.1 (session 8): the game thread's side of the tick budget. Per tick:
 // the period between draw-root entries, pass 1's own call time (call1), the
 // time from the previous tick's last pass returning to this entry (outside =
@@ -162,6 +167,7 @@ static void SceneDrawBeat()
     const uint32_t n = g_sdBeatTicks ? g_sdBeatTicks : 1;
     Log("reentry: beat draws/s=%.0f 2nd/s=%.0f presents/s=%.0f call2=%u us (max %u) skips foreign=%lu state=%lu "
         "silent=%lu stall=%lu session=%lu test=%lu exit=%lu drawTid=%lu presentTid=%lu%s%s"
+        " | p2write refused=%lu of %lu (lifetime %lu; a refused write = pass 2 drew from pass 1's camera) cam=%p"
         " | game: period %.1f ms (min %.1f max %.1f) call1=%.1f ms (max %.1f) call2=%.2f (max %.2f) "
         "outside=%.1f (the world tick + the render-thread sync, unsplit here; the perf line's idle says whether "
         "the render thread waits for this thread)%s",
@@ -171,6 +177,7 @@ static void SceneDrawBeat()
         (unsigned long)g_sdSkipExit, (unsigned long)g_sdDrawTid, (unsigned long)g_presentTid,
         g_sdArmed ? " gates=once-per-tick" : " (doubling OFF: 2nd/s reads 0 by design)",
         g_sdPoisoned ? " POISONED" : "",
+        (unsigned long)g_sdBeatP2Refused, (unsigned long)g_sdBeatSecond, (unsigned long)g_sdP2WriteRefused, (void*)g_camObj,
         g_sdSumPeriodUs / 1000.0 / n, g_sdMinPeriodUs == UINT32_MAX ? 0.0 : g_sdMinPeriodUs / 1000.0,
         g_sdMaxPeriodUs / 1000.0, g_sdSumCall1Us / 1000.0 / n, g_sdCall1MaxUs / 1000.0,
         g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdSumOutsideUs / 1000.0 / n,
@@ -178,6 +185,7 @@ static void SceneDrawBeat()
                                  "back-pressure)" : "");
     g_sdBeatMs = now;
     g_sdBeatDraws = g_sdBeatSecond = 0;
+    g_sdBeatP2Refused = 0;
     g_sdBeatPresents = presents;
     g_sdCall2MaxUs = 0;
     g_sdCall1MaxUs = 0;
@@ -255,6 +263,13 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     float wrotePos[3] = {0, 0, 0};
     dvr::camera::set_second_pass(true);
     const bool wrote = dvr::camera::apply_offsets(g_camObj) && dvr::camera::last_written_pos(wrotePos);
+    if (!wrote) {
+        ++g_sdP2WriteRefused; ++g_sdBeatP2Refused;
+        DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Warn, 3000,
+                         "reentry: pass 2's eye write REFUSED by the camera seam (cam=%p, field %s) - the second draw "
+                         "runs from pass 1's camera this tick: both eyes carry one view (counted on the beat line)",
+                         (void*)g_camObj, dvr::camera::eye_field());
+    }
     dvr::stereo::reentry_push_tag(+1, wrote ? wrotePos : NULL);
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
@@ -396,6 +411,8 @@ static void SceneDrawStatus(dvr::status::Writer& w)
     w.kv("draws", (unsigned long)g_sdDraws);
     w.kv("secondDraws", (unsigned long)g_sdSecondDraws);
     w.kv("call2Us", (int)g_sdCall2Us);
+    w.kv("p2WriteRefused", (unsigned long)g_sdP2WriteRefused);
+
     w.kv("skipForeign", (unsigned long)g_sdSkipForeign);
     w.kv("skipState", (unsigned long)g_sdSkipState);
     w.kv("skipSilent", (unsigned long)g_sdSkipSilent);
