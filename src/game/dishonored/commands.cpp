@@ -81,6 +81,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     // gameplay verdict reads false. `vrcine off` is the live A/B that separates
     // "the per-eye method is wrong" from "the verdict is wrong".
     if (!strcmp(cmd, "vrcine")) { dvr::vr::handle_cine_command(args); return true; }
+    // Find the FOREGROUND (viewmodel) fov field. UE3 draws the first-person
+    // weapon and hands with their own frustum, and a projection layer can only
+    // claim ONE fov - so anything drawn with the other one lands at the wrong
+    // apparent depth and carries the wrong per-eye disparity.
+    if (!strcmp(cmd, "fovprobe")) { FovPropHunt(); return true; }
     if (!strcmp(cmd, "vrinput")) {
         if (DvrOnOff(args, &b)) { g_padEnabled = b; dvr::pad::set_enabled(b);
             Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }

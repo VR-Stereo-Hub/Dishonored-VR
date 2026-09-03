@@ -138,3 +138,88 @@ static inline void FovLeverApply()
         }
     }
 }
+
+
+// ----------------------------------------------------------------------------
+// FOVPROBE: find the FOREGROUND (viewmodel) FOV field (41.1)
+// ----------------------------------------------------------------------------
+// UE3 draws the first-person weapon and hands in a SEPARATE foreground pass
+// with its OWN fov, and that number is not the world's. BioShock Remastered VR
+// measured the gap on the same render this branch uses: tanH 0.6468 for the
+// foreground against 1.1918 for the world at 2750x2850, a 1.84x difference.
+// Under a quad screen that is invisible - one flat picture, whatever frustum
+// drew it. Under a PROJECTION layer it is not: the layer is submitted with ONE
+// claimed fov, so anything the engine drew with a different frustum lands at
+// the wrong apparent depth and size, and its per-eye disparity is wrong too.
+//
+// BRVR found the field by snapshotting every float on the PlayerController and
+// diffing after a zoom (zoom drives DesiredFOV and ForegroundFovAngle to the
+// same value at the same instant, which is what disambiguates them). Dishonored
+// does not need the diff: GNames works here, so the property can be found BY
+// NAME and reported with its offset, its owning class and its live value.
+//
+// `fovprobe` on the command seam. Read the log: any FloatProperty whose name
+// carries FOV on a camera/controller/pawn/weapon class, with the value it
+// currently holds on the live camera object. The world fov is the one the lever
+// already drives ([Screen] FovLever, the 0x53c sensor); a SECOND fov-shaped
+// float that does not track it is the foreground lens.
+static void FovPropHunt()
+{
+    if (!RangeReadable((void*)kGObjHdr, 12)) { Log("fovprobe: GObjects not readable"); return; }
+    void** objs = *(void***)kGObjHdr;
+    uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || onum < 1000 || onum > 4000000) { Log("fovprobe: object table implausible (%u)", onum); return; }
+
+    uint8_t* cam = g_camObj;
+    const bool camOk = cam && CamStillValid();
+    Log("fovprobe: walking %u objects for fov-shaped float properties "
+        "(live camera %s, lever target %.1f, sensor %.1f)",
+        onum, camOk ? "OK" : "NOT AVAILABLE",
+        dvr::camera::fov_deg(), dvr::camera::rendered_fov_deg());
+
+    int logged = 0;
+    for (uint32_t i = 0; i < onum && logged < 60; i++) {
+        if ((i & 1023) == 0) {
+            uint32_t left = onum - i;
+            if (left > 1024) left = 1024;
+            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
+        }
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x80)) continue;
+        const char* pc = ObjClassName(o);
+        if (!pc || strcmp(pc, "FloatProperty")) continue;
+        const char* pn = NameFromIndex(*(uint32_t*)(o + kNameOff));
+        if (!pn) continue;
+        if (!(strstr(pn, "FOV") || strstr(pn, "Fov") || strstr(pn, "fov"))) continue;
+        uint8_t* ou = *(uint8_t**)(o + kOuterOff);
+        if (!ou || ((uintptr_t)ou & 3) || !RangeReadable(ou, kNameOff + 4)) continue;
+        const char* on = NameFromIndex(*(uint32_t*)(ou + kNameOff));
+        if (!on) continue;
+        // The classes that can own a view frustum. Everything else carrying
+        // "fov" is scenery, audio falloff or an anim curve.
+        if (!(strstr(on, "Camera") || strstr(on, "Controller") ||
+              strstr(on, "Pawn") || strstr(on, "Player") ||
+              strstr(on, "Weapon") || strstr(on, "Dis")))
+            continue;
+
+        const uint32_t off = *(uint32_t*)(o + 0x5c);
+        // The live value, read off the camera we already hold. A wrong-object
+        // read is guarded and simply will not be fov-shaped, which is exactly
+        // the discriminator the log prints.
+        char live[64];
+        strcpy(live, " (no live camera)");
+        if (camOk && RangeReadable(cam + off, 4)) {
+            const float v = *(const float*)(cam + off);
+            const bool fovish = (v > 10.0f && v < 170.0f);
+            _snprintf(live, sizeof(live) - 1, " cam+0x%x = %.2f%s", off, v,
+                      fovish ? "   <-- FOV-SHAPED" : "");
+            live[sizeof(live) - 1] = 0;
+        }
+        Log("fovprobe: %s.%s off=0x%x%s", on, pn, off, live);
+        logged++;
+    }
+    Log("fovprobe: done, %d candidate(s). The WORLD fov is the one that tracks "
+        "[Screen] FovLever (%.1f now). A second fov-shaped float that does NOT "
+        "track it is the FOREGROUND (weapon/hands) lens - that is the number the "
+        "projection layer is not claiming.", logged, dvr::camera::fov_deg());
+}

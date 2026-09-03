@@ -197,6 +197,7 @@ static uint32_t FindPropOffset(const char* clsName, const char* propName);
 static bool FindBoolProp(const char* clsName, const char* propName, uint32_t* off, uint32_t* mask);
 static void FpNoBlock(uint8_t* comp, const char* nm);
 static void BlockPropHunt();
+static void FovPropHunt();
 static void BlockStateTick();
 static float PawnCollisionHeight();
 static bool CrawlTuckNow();
