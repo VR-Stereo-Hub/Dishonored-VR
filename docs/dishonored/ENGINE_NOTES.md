@@ -1126,6 +1126,20 @@ measurement), `default` (textures lose their locks) and `dynamic` are the A/B, a
 The session's finding for the belief recorded above under "The capture cost, measured": the 9Ex
 route IS possible on this game, at the price of the shadow.
 
+## The shared hand-off needs a fence in BOTH directions (2026-09-03, session 8)
+
+A D3D9Ex share carries no keyed mutex, so the proxy fences it by hand. The first build fenced one
+direction: a D3D9 event query after the blit, waited on before D3D11 samples the slot. The
+headset run 15 then reported the eyes disagreeing "90 % of the time" with every tag instrument
+clean, and the other direction was the hole: D3D11's read of a slot is queued, not executed, when
+the consumer returns, and the runtime's `xrEndFrame` is what flushes it; two presents later D3D9
+blits the NEXT frame - the other eye's - into the same slot, and if the read has not executed
+yet it samples that frame. The consumer now ends a D3D11 event query after its draw and flushes,
+and the blit into a slot waits (bounded) for that query; the count of blits that found the read
+still pending (`readWaits`) is the number of frames that could have carried the wrong eye: 14 in
+one simulator run at 90 presents/s, so the race is real, not theoretical. Two slots suffice only
+because of this fence; without it, more slots would only have made the swap rarer.
+
 ## Evidence handling (both cost a session)
 
 - **Log rotation is one deep.** `dishonored_vr.log` + `.prev.log` only. Two simulator runs

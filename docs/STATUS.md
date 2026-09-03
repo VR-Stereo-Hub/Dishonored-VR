@@ -1,6 +1,6 @@
 # Status
 
-## Current state (2026-09-03, session 8: the tick measured, the readback named, the 9Ex device built - the first headset run crashed on a map bug, fixed)
+## Current state (2026-09-03, session 8: the 9Ex device and the shared capture SHIP; the eyes' disagreement traced to two mechanisms, both fixed on the simulator)
 
 **Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits on `native-stereo-rendering` (6ed1993f).**
 Everything below was measured on the simulator lane (RTX 4060, 2496x2688 VirtualMode, the sewers
@@ -46,6 +46,20 @@ this session.
   gains a capture-mode combo and the 9Ex tickbox writes `[Capture] Mode=shared` for the next
   launch as well, and the probe warns when the device can share but the mode does not use it.
   The shared path is STILL unjudged in the headset.
+- **THE SECOND HEADSET RUN (run 15, the user)**: with the fixed build, `Ex=1` and `capture mode
+  shared`, "the performance is pretty good" - so `[Device] Ex=1` and `[Capture] Mode=shared` are
+  the DEFAULTS now (860b6c18). The user then reported the eyes disagreeing "90 % of the time,
+  more at the beginning". The log has 0 STALE lines, 0 tag mismatches and every pair one IPD
+  apart, so the bookkeeping was right; two other mechanisms were found: (a) the shared path
+  fenced the D3D9 blit before the D3D11 read but not the D3D11 read before the NEXT blit into the
+  same slot, so at the headset's rate a slot could be overwritten with the other eye's frame
+  while D3D11 was still reading it - fenced now (230ac120, 5471f698), and the simulator counted
+  14 such pending reads in one run (`readWaits` on `capture status`); (b) the user paused and
+  resumed 32 times, and every resume held the headset on the flat quad for 1-1.5 s (the view-live
+  gate's one-second rule), a stereo -> flat -> stereo flip each time - a pause menu's silence now
+  resumes at once (0a23d509; the hammer: 10 cycles, 0 stale, `view live at once` on each). Whether
+  these two are the whole of what the user saw is the next headset question. (Run 15's log was
+  rotated away by two simulator launches after it was read; its numbers are the ones quoted here.)
 - **Found on the way**: the head write's four early returns now name themselves (`head: write
   refused - ...`); after a level load the mod's menu flag can stay up (state MENU in the level,
   the pair stream off) until a pause-menu open/close (VERIFICATION gotcha 17); the simulator lane
@@ -55,12 +69,13 @@ this session.
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset, Quest 3 via VDXR)**, in this order, with `dishonored_vr.log` and
-`D:\dvr-data\pacetrace.log` copied out after each: (1) DONE (runs 14a/b: 30-33 ticks/s on the
-shipped build, no attack freeze seen); (2) tick the F10 Display box "D3D9Ex device at the NEXT
-launch (and capture mode shared with it)", relaunch, confirm `device: the game's device IS
-IDirect3DDevice9Ex` and `capture: shared surfaces .. live` in the log (the F10 Display "capture
-mode" combo must read shared):
+**The user (headset, Quest 3 via VDXR)**, with `dishonored_vr.log` copied out after each: (1) DONE
+(runs 14-15: the shared path judged good, it ships); (2) the eyes: play WITHOUT pausing for a few
+minutes on the shipped build and say whether the eyes still disagree, then with pause/resumes;
+`capture status` prints `readWaits` (the frames the read fence had to hold) and the `[game] view
+live at once` line marks each resume; if the eyes still disagree with readWaits climbing, say
+so with the time - the next lever is `capture sharedwait on` (this present's slot after its
+fence: zero latency, a different hand-off order); then the old list:
 the expectation is a pace-bound 72 ticks/s at the Quest 3 size (falsified if `perf: gpu` reads a
 3D span above 12 ms per tick, or the tick line stays above 20 ms with `lock` near 0); play for
 five minutes and LOOK at the textures (black or noisy surfaces after a streaming step are the
@@ -105,6 +120,8 @@ Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits. Runs on the dev PC (simul
 | 14a | **HEADSET (the user)**, Ex=0, deferred | 30-33 ticks/s at 2496x2688 (dma 10.9 ms per present), 50 gap lines, no attack freeze felt |
 | 14b | **HEADSET (the user)**, Ex=1 | 9Ex device up, shared AVAILABLE but the capture stayed deferred (30 ticks/s); after repeated quickloads the twin map filled with tombstones and the game crashed in D3D9 (minidump `dvr_20260903_212436.dmp`) |
 | 06 | the tombstone fix, Ex=1 + shared, 3 quickloads | 2324 live, 1984 tombstones reused of 32768, 0 failures, the game alive; 90 ticks/s pace-bound |
+| 15 | **HEADSET (the user)**, Ex=1 + shared | "performance is pretty good"; the eyes disagree "90 % of the time, more at the beginning": 0 STALE, 0 tag mismatches, pairs one IPD apart, 32 pause/resumes each with a 1-1.5 s flat spell |
+| 07 | the read fence + the menu resume, shipped defaults | `readWaits` 14 in the run (the race was real); hammer 10 cycles 0 stale, `view live at once` x11; `reentry.xrs` 11/11 |
 
 ### 2026-09-03 - session 7: the four headset faults and the picker, on the simulator
 

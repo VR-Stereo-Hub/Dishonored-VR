@@ -15,24 +15,22 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   on both sides at the Quest 3 size: 16 ms of GPU copy per present into system memory plus
   7.5 ms of CPU, against 5 ms of actual 3D work per draw. `[Capture] Mode=deferred` ships now
   (27 vs 21 ticks/s on the simulator, one present of latency; `capture mode sync` is the A/B).
-  The fix is `[Device] Ex=1` (the F10 Display tickbox, relaunch) with `capture mode shared`:
+  The fix SHIPS: `[Device] Ex=1` with `[Capture] Mode=shared` (headset-judged 2026-09-03):
   the game's device as D3D9Ex, every MANAGED texture shadowed in system memory, the frame kept
-  in VRAM; 75-90 ticks/s on the simulator at the Quest 3 size, pace-bound. It is OFF by default
-  until a headset run has judged it (it changes how the game creates every texture and buffer;
-  the log's `device:` and `device/shadow` lines say what happened). The first headset run on it
-  crashed after repeated quickloads (a map in the shadow filled up; fixed 2026-09-03 and
-  reproduced clean on the simulator) and had never switched the capture to shared: the F10
-  tickbox now selects both for the next launch. `capture mode off` freezes
+  in VRAM, pace-bound at the headset's rate at the Quest 3 size. `Ex=0` (the F10 Display
+  tickbox, relaunch) is the fallback to the plain device and the deferred readback if the 9Ex
+  device misbehaves (the log's `device:` and `device/shadow` lines say what happened). `capture
+  mode off` freezes
   the image on purpose (the A/B control); `mark <text>` and the F10 MARK button stamp a felt
   freeze in the log with the ring of presents around it.
-- **`stereo reentry`: the eyes can still desync, mostly on load** [S2b, NOT fixed]. The
-  one-sided-tag cause was real and is fixed (the simulator proves it), but the headset still
-  sees the two eyes disagree on the first load and after some pause/resumes, clearing on its
-  own. Session 8 fixed a second source (a present whose capture delivered no frame pushed the
-  previous frame's tag again: a stale eye at every capture-mode switch) and made the pace
-  guard's eaten tag a named owner on the `STALE EYE` line (`eatenNoFrame`, `eaten=` on the eyes
-  line); a simulated focus loss and regain did not reproduce it. If you see it: F10 Runtime
-  `Strict pairs`, note the time, send the log; the owner line now says which mechanism.
+- **`stereo reentry`: the eyes could disagree** [S2b, four mechanisms fixed, headset verdict
+  pending]. The one-sided tag (session 7), a present whose capture delivered no frame pushing
+  the previous tag again, the pace guard's eaten tag (now a named owner on the `STALE EYE`
+  line), and, in the shared capture, a slot overwritten with the other eye's frame while D3D11
+  was still reading it (fenced 2026-09-03; `readWaits` on `capture status` counts the frames the
+  fence had to hold). Every pause/resume also used to hold the headset on the flat quad for
+  1-1.5 s (a stereo -> flat -> stereo flip); a pause menu's silence resumes at once now. If the
+  eyes still disagree: note the time, send the log; `capture sharedwait on` is the A/B.
 - **`stereo reentry`: fast head or player movement judders** [S2b, blocked on performance].
   The `pair phase` line and `vrpace ahead 0|1|2` (F10 Runtime, `Pose look-ahead`) are in;
   the headset run could not judge them at 28 ticks/s. Ships at 0.
