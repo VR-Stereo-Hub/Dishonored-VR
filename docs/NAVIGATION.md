@@ -1,68 +1,90 @@
 # Doc navigation: what to read, and how much of it
 
-This repo's own docs are ~3,300 lines, and the local reference mirrors under
-`docs/reference/` and `docs/bsvr-reference/` are another ~40,000. Read the wrong
-way that is most of a context window before any work starts. Read the right way
-a session start is under 4,000 tokens.
+This repo's own docs are ~66,000 tokens - small enough to read IN FULL at the start of a
+session, and that is what to do. The local reference mirrors under `docs/reference/` and
+`docs/bsvr-reference/`, and the 2,989-class decompiled corpus under `tools/uscript/`, are
+a different order of magnitude and must be grepped. That distinction is this file's whole
+point: the budget is not scarce, but two directories in here will eat it in one command.
 
-**This file is information, not instruction.** It says what is in which file and
-how each is organised, so an answer can be found without opening the file that
-contains it.
+**This file is information, not instruction.** It says what is in which file and how each
+is organised, so an answer can be found without opening the file that contains it - and so
+that reading everything is a choice made knowingly rather than a default.
 
 ---
+
+## The budget, measured
+
+A session start of **50-80k tokens is the target**, chosen deliberately: accuracy at the
+start is worth far more than the tokens, because a wrong assumption costs a whole session
+and a headset run. Measured 2026-09-03 (bytes / 4):
+
+| Read | ~Tokens | When |
+|---|---:|---|
+| `CLAUDE.md` | 4,300 | auto-loads, always |
+| `docs/STATUS.md` | 16,500 | **always** |
+| `docs/dishonored/ENGINE_NOTES.md` | 14,800 | **always** |
+| `docs/ARCHITECTURE.md` | 6,700 | **always** |
+| `docs/dishonored/HANDOFF-GINGASVR.md` | 6,500 | **always** - it is the traps and dead ends |
+| `docs/VERIFICATION.md` | 3,900 | **always** |
+| `docs/RESEARCH.md` | 2,400 | always |
+| `docs/ROADMAP.md` | 2,000 | **always** |
+| `docs/NAVIGATION.md` | 1,300 | this file |
+| CODE_REVIEW, RELEASE_NOTES, TESTING, XR_HANDOFF, KNOWN_ISSUES, TROUBLESHOOTING | 7,700 | when relevant |
+| **every project doc** | **~66,000** | affordable in one go |
+| the five contract headers (below) | 5,400 | when touching that seam |
+| the module in play (e.g. `aer.cpp` + `camera.cpp`) | 7,700 | yes, read the actual code |
+
+**So read all the project docs.** They are ~66k tokens and they are the whole institutional
+memory of this mod: nine sessions of measurements, the original author's traps, and the
+decision log. Skimming them to save 40k tokens is a false economy - session 6 lost a run to
+not checking which build was installed, which STATUS would have answered.
 
 ## The one rule
 
-**Grep an anchor, read a window. Never open a doc whole above ~400 lines.**
+The rule is NOT "read less". It is **read the project's own docs generously, and never
+bulk-read the two unbounded things**:
 
-Sizes, measured 2026-09-03:
-
-| File | Lines | Read it whole? |
+| | Size | How |
 |---|---:|---|
-| `docs/STATUS.md` | 921 | **No** - first ~120 lines only |
-| `docs/dishonored/ENGINE_NOTES.md` | 892 | **No** - grep a heading |
-| `docs/dishonored/HANDOFF-GINGASVR.md` | 540 | **No** - grep a section |
-| `docs/ARCHITECTURE.md` | 375 | borderline; prefer a section |
-| `docs/VERIFICATION.md` | 197 | yes, when you need the decision table |
-| `docs/RESEARCH.md` | 133 | yes |
-| `docs/ROADMAP.md` | 109 | yes |
-| `docs/RELEASE_NOTES.md` | 84 | yes |
-| `docs/dishonored/XR_HANDOFF.md` | 78 | yes |
-| `docs/dishonored/TESTING.md` | 69 | yes |
-| `docs/TROUBLESHOOTING.md` | 53 | yes |
-| `docs/KNOWN_ISSUES.md` | 47 | yes |
-| `docs/CODE_REVIEW.md` | 44 | yes |
+| This repo's `docs/` | ~66k tokens | **read whole** |
+| `docs/reference/`, `docs/bsvr-reference/` (BRVR, trilogy, Mirror's Edge mirrors) | ~40,000 LINES, 200k+ tokens | **grep only** |
+| `tools/uscript/` (2,989 decompiled classes) | 5.3 MB, ~1.3M tokens | **grep only** |
 
-`CLAUDE.md` (207 lines) auto-loads every session. That is the one fixed cost;
-everything else is a choice.
-
----
+Those last two are what actually blow a context window, and they are the ones a session
+reaches for casually. One grep, one window, and say which file the answer came from.
 
 ## Starting a session
 
 ```
-sed -n '1,120p' docs/STATUS.md      # the live handoff - current state, what is verified
-git log --oneline -10
+cat docs/STATUS.md docs/ROADMAP.md docs/ARCHITECTURE.md
+cat docs/dishonored/ENGINE_NOTES.md docs/dishonored/HANDOFF-GINGASVR.md
+cat docs/VERIFICATION.md docs/RESEARCH.md
+git log --oneline -15
 ```
 
-That is the whole start, ~2.5k tokens. **Do not read STATUS.md past line 120**
-unless you want a specific past session: everything below the current-state
-block is a dated session log going back to session 1, and nothing routes to it.
-`grep -n "session 4" docs/STATUS.md` finds one when you need it.
-
-Then read the ONE milestone in flight, not the ladder:
+~55k tokens, and the session then knows what was measured, what was disproved, what the
+instruments are and what the traps are. Add the contract headers and the module in play
+when the work touches them:
 
 ```
-grep -n "^## S2a" -A 20 docs/ROADMAP.md
+cat src/core/gfx/stereo.h src/game/dishonored/camera.h src/core/framework/frame_hooks.h
 ```
 
----
+**Then check what is actually installed** before believing any bug report is about your
+tree - the log header carries the build tag:
+
+```
+tools\tail-log.ps1 -Grep "proxy loaded"      # or Select-String the log
+git log --oneline -1
+```
+
+That check costs nothing and session 6 lost a whole run to skipping it.
 
 ## Routing by intent
 
 | I need to know | Go to | How |
 |---|---|---|
-| What is the current state, what is verified | `STATUS.md` | first 120 lines |
+| What is the current state, what is verified | `STATUS.md` | the top block is live; below it is a dated archive |
 | What am I supposed to do next | `ROADMAP.md` | the one milestone |
 | Why is the code shaped like this | `ARCHITECTURE.md` | the decision log is at the bottom, newest first |
 | How do I prove a change worked | `VERIFICATION.md` | section 1 is a decision table: intent -> tool -> command -> how to read it |

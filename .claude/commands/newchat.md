@@ -10,9 +10,10 @@ to it: `CLAUDE.md` auto-loads, `docs/NAVIGATION.md` routes, and the top of
 `docs/STATUS.md` holds the live handoff. This command's job is to make that
 *true* before the session ends.
 
-**Do not re-read the whole doc set to do this.** Follow `docs/NAVIGATION.md`:
-grep an anchor, edit a window. Rewriting the top block of `STATUS.md` needs the
-top block, not the file.
+To do this you already have the docs loaded from the session start - edit the
+windows that changed rather than re-reading. What you must NOT reach for here is
+`docs/reference/`, `docs/bsvr-reference/` or `tools/uscript/`; nothing in closing
+out a session needs them.
 
 ## 1. Update the handoff
 
@@ -68,10 +69,14 @@ If it needs more, `STATUS.md` is not doing its job and should be fixed instead o
 compensated for.
 
 ```
-Read docs/NAVIGATION.md, then the first 120 lines of docs/STATUS.md, and pick up
-where we left off.
+Read docs/NAVIGATION.md and follow its session-start read list, then pick up where
+we left off.
 Current focus: <one line naming the next step>
 ```
+
+`NAVIGATION.md` prescribes reading this repo's docs IN FULL (~55k tokens) - that
+is deliberate, not waste. Do not write a prompt that tells the next session to
+read less; if it needs to read something unusual, say which file and why.
 
 Add one extra line only for something the files genuinely cannot carry: a
 machine change, an uncommitted edit, a run that must happen before anything else.

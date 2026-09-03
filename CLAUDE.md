@@ -114,18 +114,23 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 
 ## Session protocol
 
-- **START, and it is two commands:** `sed -n '1,120p' docs/STATUS.md` plus
-  `git log --oneline -10`. That is the whole session start (~2.5k tokens). Then the ONE
-  milestone in flight from `docs/ROADMAP.md`, not the ladder. Branch off `VR-Main`.
-- **`docs/NAVIGATION.md` is the router - read it before opening any other doc.** It carries
-  every doc's measured size, a routing table by intent, and how each file is internally
-  organised, so an answer can be found without opening the file holding it. The one rule:
-  **grep an anchor and read a window; never open a doc whole above ~400 lines.** STATUS is
-  921 lines and everything past the current-state block is an archive nothing routes to;
-  ENGINE_NOTES is 892 and `grep -n "^## "` is its index. The reference mirrors under
-  `docs/reference/` and `docs/bsvr-reference/` are ~40,000 lines - grep them, never bulk read.
-  Touching engine internals? Grep `docs/dishonored/ENGINE_NOTES.md` first; new findings go
-  there in the same commit as the code.
+- **START: read this repo's docs IN FULL.** STATUS, ROADMAP, ARCHITECTURE, ENGINE_NOTES,
+  HANDOFF-GINGASVR, VERIFICATION, RESEARCH, plus `git log --oneline -15`. That is ~55k
+  tokens and it is the right spend: it carries nine sessions of measurements, the original
+  author's traps, the decision log and the instruments. Accuracy at the start is worth far
+  more than the tokens - a wrong assumption costs a whole session and a headset run. Add
+  the contract headers (`core/gfx/stereo.h`, `game/dishonored/camera.h`,
+  `core/framework/frame_hooks.h`) and the module in play when the work touches them, and
+  read the actual code rather than inferring it. Branch off `VR-Main`.
+- **The budget is not scarce; two directories in here will eat it in one command.**
+  `docs/reference/` and `docs/bsvr-reference/` (the BRVR / trilogy / Mirror's Edge mirrors,
+  ~40,000 lines) and `tools/uscript/` (2,989 decompiled classes, ~1.3M tokens) are
+  **grep-only, never bulk-read**. One grep, one window, and say which file the answer came
+  from. `docs/NAVIGATION.md` is the router: measured sizes, a table by intent, and how each
+  file is internally organised.
+- **Check what is actually INSTALLED before believing a bug report is about your tree.**
+  The log header carries the build tag; compare it against `git log --oneline -1`. Session 6
+  lost a run to assuming the tester was running the build it had just written.
 - **Filter the noisy commands.** `build.ps1` prints thousands of lines
   (`| Select-String -Pattern "error C|Build failed"`); `lint.ps1` prints ~37 informational
   `note:` lines and only the last is the verdict (`| Select-Object -Last 1`); the game log is
