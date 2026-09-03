@@ -1525,3 +1525,65 @@ every field named there (`m_ArmFollowWeight_Rot_Primary`, `m_Offset`, `m_FOV`,
 | FName index to text | yes - shipped (`RealName`, `NameFromIndex`) | works | - |
 | property offset by name | yes - shipped (`FindPropOffset`) | works | - |
 | property dump / offset to name | no | - | **OPEN, and small** |
+
+### CORRECTION: the trilogy's reflection layer, and ours is the weaker design
+
+**The entry above got this backwards and the difference matters.** It compared Dishonored's
+`FindPropOffset` against BRVR's `fname_text` and concluded "most of it already ships here, and
+more than the trilogy has". BRVR's is the small one. The trilogy's UE3 adapter -
+**BioShock Infinite, the same engine family as Dishonored** - carries
+`src/game/bioshockinf/reflect.{h,cpp}`, **1,712 lines** of self-deriving reflection, and by
+design it is ahead of what we have on almost every axis.
+
+What it provides:
+
+| | trilogy (`bsi::reflect`) | Dishonored today |
+|---|---|---|
+| name -> text | `fname_text(idx, out, size)`, **refuses rather than truncating**, min 64-byte buffer, UTF-16 flag checked in selftest | `RealName` / `NameFromIndex` |
+| text -> name | `fname_find` (linear, ~70k) with an explicit **"never on a cadence"** rule | `FindNameIdx` (linear, ungated) |
+| property offset | **walks the class chain**: UClass -> Children -> Next -> ... -> Super | **linear scan of up to 4M GObjects** |
+| link offsets | **DERIVED live every boot**, field-like gated | **hardcoded** `+0x5c` Offset, `+0x6c` BitMask |
+| object validation | **UClass fixpoint** | `LooksLikeObj` heuristics |
+| call a UFunction by name | `call_on_object` (vtable `+0x54` FindFunction, `+0x7C` ProcessEvent), SEH-isolated, game-thread interlocked, plus a by-index variant | `FindFunctionObj` + a fixed-address ProcessEvent |
+| load an object by path | `load_object` (DynamicLoadObject) | none |
+| self-test | yes, and a failure **invalidates every past result** of that instrument | none |
+
+Four ideas in it are worth more than the code:
+
+1. **The UClass fixpoint.** In UE3 the class of `UClass` is `UClass`, so
+   `obj->Class->Class == obj->Class->Class->Class`. It is self-referential, needs no names at
+   all, and validates BOTH a live object pointer AND the Class offset in three gated reads.
+   That is a stronger and cheaper gate than anything in our `LooksLikeObj`, and it is
+   immediately portable - our `kClassOff` is 0x30.
+
+2. **Derive the link offsets, do not hardcode them.** Their walker finds Children/Next by
+   testing whether a candidate dword points at an object whose class is *field-like* (name
+   ends in `Property`, or is `Function`/`ScriptStruct`/`Struct`/`Enum`/`Const`/`State`) and is
+   NOT `Class` (that is the class slot). A patch then moves the layout and the code moves with
+   it or refuses, instead of writing through a stale constant. **We hardcode `+0x5c` and
+   `+0x6c`**, which is exactly the shape of constant this project's own rules distrust.
+
+3. **The cost model, which we currently violate.** `FindPropOffset` here does THREE linear
+   scans per lookup - two `FindNameIdx` passes over GNames plus a full GObjects sweep - and
+   the trilogy's note records what that costs when it is not one-shot: "running it per poll
+   stuttered the entire game at 2-3 Hz". Ours is saved only by every caller happening to be
+   one-shot (`g_cylTried`, `fovprobe`). A class-chain walk is tens of reads instead of
+   millions, so the fix is also the faster design.
+
+4. **Command-driven, never init-driven.** Their header states the reason and it is ours
+   verbatim: the DLL loads during the exe's import resolution, **before the exe's CRT static
+   initializers**, so GNames is empty at adapter-init time. Dishonored's `d3d9.dll` proxy is
+   loaded by a static import for the same reason. Resolve on the command seam or lazily, never
+   at load.
+
+**So the plan changes.** The previous entry proposed "a small dumper on top of what we have".
+The better move is to port `reflect`'s shape: a class-chain walker with derived link offsets,
+fixpoint-gated, with the dump as one command on top of it. That gets offset-to-name,
+name-to-offset, typed live values and a UFunction-by-name call from one module, and it retires
+two hardcoded offsets rather than adding more callers to them.
+
+The read-only first step for the coupling work does not change and does not need any of it:
+resolve `m_ArmFollowWeight_Rot_Primary` and friends by name and log their live values. But the
+walker is what makes the rest of that work cheap, and it is the thing to build first if more
+than a handful of fields are wanted.
+
