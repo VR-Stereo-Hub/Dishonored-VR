@@ -986,3 +986,100 @@ be refreshed by something that always runs. That was true and it was not enough.
 READ from a source that fills - and "the refresh is on a path that always runs" hides the
 difference, because both failures print the same silent zero. BUILD-VERIFIED ONLY: nothing has
 run since the change.
+
+## Three things BRVR does that our AER does not (2026-09-02, session 7)
+
+The pawn-oracle fix landed and was verified in a headset run - `pawn oracle: source now
+ctrl+0x248`, `[game] state: GAMEPLAY`, `xr: cinematic quad off (strict=1 stale=0)`, so the
+projection layer now genuinely reaches the headset. **The flicker survived, and its shape
+changed: the tester reports each eye now flickering INDIVIDUALLY.** That is a different
+fault from the mono-quad one and it points at the pair.
+
+Read against BioShock Remastered VR (`docs/reference/bioshock-remastered-vr/`), which runs
+the same one-eye-per-Present shape and paid for all three of these. Sources cited per item.
+
+### 1. ONE WORLD ADVANCE PER EYE PAIR - we have no equivalent at all
+
+`BioshockVR/Camera/CameraHook.cpp`, "PHASE 10a: ONE WORLD ADVANCE PER EYE PAIR":
+
+> Option-B carry: pass 0 on the right-eye frame, (delta + carry) on the left. The world then
+> advances ONCE per stereo pair instead of once per eye. **That is the entire cause of the
+> bathysphere doubling - 4.2ms of world motion between the two eye renders, which near
+> geometry turns into unfusable disparity.** Nothing is discarded, so full speed is preserved.
+
+They hook the game-thread frame-delta function and zero the delta on the right-eye frame,
+carrying it into the left. `docs/INVARIANTS.md` states it as a rule: "`DeltaClamp` advances
+the world once per eye *pair*, so both eyes represent one instant. Reset carried state when a
+new world identity appears."
+
+**We do not do this.** Our two eyes are two consecutive game ticks, so at the measured 121
+fps the eyes are **8.3 ms of world motion apart** - twice BRVR's 4.2 ms. Every moving thing
+(the player's own translation, animation, particles, water, weapon bob) is at a different
+instant in each eye. That is unfusable disparity by construction and it is the leading
+suspect for per-eye flicker.
+
+Note what this implies for the ladder: **rung 3 (SequentialReentry) does not have this
+problem at all**, because it draws both eyes from ONE game tick. The delta clamp is the price
+of rung 2, and it belongs in the S3 comparison.
+
+### 2. THE PROJECTION LAYER MUST CARRY THE POSE THE IMAGE WAS RENDERED FROM
+
+`docs/INVARIANTS.md` and `docs/modules/render.md`:
+
+> The projection layer carries **the latched pose the image was rendered from**
+> (`CameraHook_GetLatchedPose`), not the freshest pose at submit time. This was a major
+> flicker fix - do not "improve" it by sampling a newer pose.
+
+and in the code (`Render/XRSession.cpp`, `SubmitPair`), commented "flicker fix, section 2":
+
+> stamp the pose the image was RENDERED from -- the eye-0 latched pose -- not the fresh one.
+> Fresh-vs-latched mismatch = ~3 deg of baked-in yaw at 200 deg/s = the flicker.
+
+BRVR gives BOTH eyes the latched orientation and puts each eye at `latchedPos +/- half-IPD
+along the LATCHED right vector`, "same sign convention as the camera write".
+
+**We stamp the runtime's own located per-eye poses.** The machinery to do it BRVR's way is
+already in the runtime layer (`parallel_eye_tag`, `set_eye_tag_rendered`, `g_poseLag`) and it
+is **default OFF with nothing in Dishonored arming it** - it was written for the Infinite
+adapter. `vreyetag rendered|located` is the live A/B now.
+
+Two caveats worth stating before anyone reads a result:
+
+- Even armed, `parallel_eye_tag` reconstructs from the runtime's LOCATED pair, not from the
+  game camera. In Dishonored the camera yaw is stick turn composed with a head DELTA, so the
+  game camera's orientation is not the located head orientation at all. A true latched-pose
+  channel (publish the rotation the script lane actually wrote, read it at submit) is the
+  full fix; `vreyetag rendered` only removes the cant/IPD half of the mismatch.
+- On a runtime whose located views are already parallel at the same IPD (the simulator) the
+  rendered tag is bit-for-bit identity, so **this lever cannot be tested on the simulator** -
+  it needs the headset.
+
+### 3. ANYTHING FLAT MUST TAKE ONE EYE
+
+`docs/INVARIANTS.md`, verified in a headset twice:
+
+> **Anything flat must take ONE of them.** The menu quad submitted on both Presents, so the
+> flat panel alternated between the left and right views - one IPD of horizontal shimmer on a
+> surface being read. The desktop mirror had the same bug for the same reason, reported as
+> *"on the monitor it flickers a lot which means people cant record it"*. Both now take
+> `eye == 0`.
+
+Worth auditing here for the F10 overlay and any quad that survives alongside the projection
+layer: our overlay is drawn INTO the per-eye texture (`aer.cpp` calls the overlay draw on
+every tagged present), so it is composited into whichever eye that present belongs to and
+alternates exactly as BRVR describes.
+
+### The instrument that was missing, and why the last run could not answer this
+
+The heartbeat printed `headset(submits)=121fps` next to `GAME=121fps`, which reads as one
+submit per present - but `dvr::frame::submit_count()` counts **presents that produced a
+texture**, not `xrEndFrame` calls. The line was named for a quantity it does not measure, so
+a pair that never closes and a pair that closes every time printed the same number. Fixed:
+the heartbeat now prints `eyetex=N/s` and `xrEndFrame=N/s` separately, and `aer: pair` prints
+the full `[pair]` probe every 3 s (pairs, aborts by kind, ring depth, per-eye captures,
+staleL/R). BRVR's health signal for the same thing: "~2 Presents per XR submit. `EYEQ: depth
+min=1 max=1`".
+
+**Read it as: `xrEndFrame` must be HALF `eyetex`.** Equal means the pair never holds and every
+XR frame carries one fresh eye beside one stale one - which is per-eye flicker on its own,
+independent of 1 and 2 above.

@@ -351,12 +351,21 @@ static void DvrGameTick(IDirect3DDevice9* self)
             LARGE_INTEGER now; QueryPerformanceCounter(&now);
             double el = (g_qpcFreq && hbQpc) ? (double)(now.QuadPart - hbQpc) / (double)g_qpcFreq : 0.0;
             if (el >= 3.0) {
-                static uint32_t sbPrev = 0;
+                static uint32_t sbPrev = 0, xrPrev = 0;
                 double gfps = g_gameFrames / el;
-                double sfps = (double)(dvr::frame::submit_count() - sbPrev) / el;
+                // 41.1: this used to be labelled "headset(submits)" and it is
+                // NOT that - dvr::frame::submit_count() counts PRESENTS that
+                // handed a texture over. Under a paired method the headset
+                // rate is half of it, and printing one number under the other
+                // one's name made a pair that never closes read as healthy.
+                // Both are here now, named for what they count (the
+                // counter-is-not-evidence rule).
+                double tfps = (double)(dvr::frame::submit_count() - sbPrev) / el;
                 sbPrev = dvr::frame::submit_count();
-                Log("heartbeat: GAME=%.0ffps  headset(submits)=%.0ffps  pos=%d lean=(%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
-                    gfps, sfps,
+                double xfps = (double)(dvr::vr::frames_submitted() - xrPrev) / el;
+                xrPrev = dvr::vr::frames_submitted();
+                Log("heartbeat: GAME=%.0ffps  eyetex=%.0f/s  xrEndFrame=%.0f/s  pos=%d lean=(%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
+                    gfps, tfps, xfps,
                     (int)g_posTrack, (float)g_leanRightUU, (float)g_leanUpUU,
                     (int)dvr::pad::active(), dvr::pad::polls(),
                     (long)g_pvrHits, (int)g_rotInject,

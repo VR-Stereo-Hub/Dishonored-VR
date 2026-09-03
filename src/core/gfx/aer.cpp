@@ -148,6 +148,31 @@ public:
                 "verdict reads MENU/CINEMATIC/NO_PAWN or has gone stale; `vrcine off` is "
                 "the live A/B that proves it.");
         }
+        // 41.1 THE PAIR HEALTH SIGNAL, from BioShock Remastered VR's
+        // invariant "~2 Presents per XR submit; EYEQ depth min=1 max=1 is the
+        // health signal" (docs/reference/bioshock-remastered-vr/docs/
+        // INVARIANTS.md). Until now nothing here measured the RATIO: the
+        // heartbeat's "headset(submits)" counts PRESENTS that produced a
+        // texture, not xrEndFrame calls, so a pair that never closes and a
+        // pair that closes every time print the same number. That is the
+        // counter-is-not-evidence rule: this line names its population.
+        //
+        // Read it as: xr/s should be HALF pres/s. Equal means no pairing is
+        // happening and each XR frame carries one fresh eye and one stale one,
+        // which is per-eye flicker. `aborts` names the break.
+        {
+            dvr::vr::PairProbe pp{};
+            dvr::vr::pair_probe(&pp);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                "aer: pair xr=%u pres=%lu pairs=%u aborts=%u (expired %u, secondL %u, "
+                "untagged %u) ring d=%d (pushed %u popped %u dropped %u cleared %u) "
+                "capL/R=%u/%u stale L/R=%u/%u - xr should be HALF the eye count; equal "
+                "means the pair never holds and every frame carries one stale eye",
+                dvr::vr::frames_submitted(), (unsigned long)(left_ + right_), pp.pairs,
+                pp.aborts, pp.abortExpired, pp.abortLeft, pp.abortUntagged,
+                (int)(pp.ringPushed - pp.ringPopped), pp.ringPushed, pp.ringPopped,
+                pp.ringDropped, pp.ringCleared, pp.cap[0], pp.cap[1], pp.staleL, pp.staleR);
+        }
         if (ipdM_ <= 0.0f) {
             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
                 "aer: the runtime has published no eye separation yet (ipd 0) - the camera "

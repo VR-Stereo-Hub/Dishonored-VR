@@ -456,6 +456,11 @@ struct PairProbe {
 };
 void pair_probe(PairProbe* out);
 
+// xrEndFrame calls that carried at least one layer. The pair ratio's numerator:
+// under paired submission this must be HALF the tagged-present count. Equal to
+// it means the pair never holds and every XR frame carries one stale eye.
+uint32_t frames_submitted();
+
 // --- M7: the aim laser ------------------------------------------------------
 // A row of soft dots along the hand's aim ray, submitted as extra XR quad
 // layers. Doing it as compositor layers rather than as geometry in the game

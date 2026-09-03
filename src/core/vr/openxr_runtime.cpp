@@ -5140,6 +5140,8 @@ void sr_push_eye(int eyeSign) {
     g_srPushed.fetch_add(1, std::memory_order_relaxed);
 }
 
+uint32_t frames_submitted() { return g_framesSubmitted; }
+
 void pair_probe(PairProbe* out) {
     if (!out) return;
     out->pairs = g_srPairs.load(std::memory_order_relaxed);
@@ -5306,6 +5308,7 @@ const char* cine_drive_name(CineDrive) { return "authored"; }
 float rendered_hfov_deg() { return 0.0f; }
 int current_eye_sign() { return 0; }
 void sr_push_eye(int) {}
+uint32_t frames_submitted() { return 0; }
 void set_laser(const LaserConfig&) {}
 void set_aim_dot(const AimDotConfig&) {}
 void set_hud_quad(float, float, float) {}

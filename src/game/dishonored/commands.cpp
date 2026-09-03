@@ -13,6 +13,8 @@
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
+//   vreyetag rendered|located    what the projection layer claims each eye was
+//                                rendered from (BRVR calls this a major flicker fix)
 //   vrinput on|off|status        the virtual gamepad
 //   console <text>               run a game console command on the script lane
 //   dump frame|capture|eyes
@@ -81,6 +83,29 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     // gameplay verdict reads false. `vrcine off` is the live A/B that separates
     // "the per-eye method is wrong" from "the verdict is wrong".
     if (!strcmp(cmd, "vrcine")) { dvr::vr::handle_cine_command(args); return true; }
+    // `vreyetag rendered|located|status` - the live A/B for what the projection
+    // layer CLAIMS each eye was rendered from. `located` (the default, and the
+    // behaviour every run so far) stamps the runtime's own per-eye poses;
+    // `rendered` rebuilds them as the PARALLEL pair the game actually drew
+    // (located midpoint, shared orientation, +/- ipd/2 along its right axis) -
+    // the same shape as the camera seam's write.
+    //
+    // Why it matters here: BioShock Remastered VR records this as "a major
+    // flicker fix" and its render invariants say plainly "the projection layer
+    // carries the latched pose the image was rendered from, not the freshest
+    // pose at submit time" (docs/reference/bioshock-remastered-vr/docs/
+    // INVARIANTS.md and modules/render.md). A claim that misdescribes the
+    // render makes the compositor reproject each eye by a different wrong
+    // delta, which is per-eye shimmer that comes and goes with head speed.
+    if (!strcmp(cmd, "vreyetag")) {
+        if (strstr(args, "rendered"))     dvr::vr::set_eye_tag_rendered(true);
+        else if (strstr(args, "located")) dvr::vr::set_eye_tag_rendered(false);
+        else Log("xr: eye tags = %s (vreyetag rendered|located|status). rendered = the "
+                 "parallel pair the game drew; located = the runtime's raw per-eye poses",
+                 dvr::vr::eye_tag_rendered() ? "RENDERED-POSE" : "located");
+        if (dvr::vr::eye_tag_rendered()) dvr::vr::set_eye_tag_ipd_mm(dvr::camera::ipd_m() * 1000.0f);
+        return true;
+    }
     // Find the FOREGROUND (viewmodel) fov field. UE3 draws the first-person
     // weapon and hands with their own frustum, and a projection layer can only
     // claim ONE fov - so anything drawn with the other one lands at the wrong

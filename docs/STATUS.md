@@ -1,5 +1,65 @@
 # Status
 
+## Current state (2026-09-02, session 7b: AER is PARKED - rung 3 won)
+
+**Branch `aer-rendering` is parked here, complete and pushed. The other developer got
+SequentialReentry (S2b) working, so the ladder's answer is rung 3 and work moves to
+`claude/s2b-stereo-scene-draw-a341c5`.** Everything below is the record of why AER stopped,
+so nobody re-derives it.
+
+### What this branch settled (all measured)
+
+1. **The eye offset is correct.** `camera+0x60` IS the camera's right row: driven round a
+   full circle it swept 375 deg against the head's 390, every sample a unit vector with
+   `r.z` exactly 0. Magnitude was already right. `camera/eyesep:` carries the verdict.
+2. **The projection layer was being dropped for the mono quad, and that is fixed.** The pawn
+   oracle read `g_pePawn`, which never fills in this game (the player pawn is native and
+   dispatches no script events). It reads `PlayerController+kPcPawn` now. VERIFIED in a
+   headset run: `pawn oracle: source now ctrl+0x248`, `[game] state: GAMEPLAY`,
+   `xr: cinematic quad off (strict=1 stale=0)`.
+3. **The flicker survived that fix and changed shape: each eye now flickers INDIVIDUALLY.**
+   Read against BioShock Remastered VR, which runs the same one-eye-per-Present shape and
+   paid for three things we do not do (ENGINE_NOTES, "Three things BRVR does that our AER
+   does not"):
+   - **One world advance per eye pair.** BRVR hooks the frame-delta function and zeroes it on
+     the right-eye frame: "That is the entire cause of the bathysphere doubling - 4.2ms of
+     world motion between the two eye renders, which near geometry turns into unfusable
+     disparity." Ours are **8.3 ms apart** at the measured 121 fps, with no clamp at all.
+   - **The projection layer must carry the pose the image was RENDERED from**, not the
+     freshest located pose. BRVR calls this "a major flicker fix". Our machinery for it
+     (`parallel_eye_tag`) was default OFF with nothing arming it; `vreyetag rendered|located`
+     is the live A/B now.
+   - **Anything flat must take ONE eye.** Our F10 overlay is drawn into whichever eye the
+     present belongs to, which is exactly the alternating-shimmer case BRVR measured.
+
+**The strategic point, and the reason parking is right:** rung 3 does not have problem 1 at
+all. SequentialReentry draws both eyes from ONE game tick, so both eyes show one instant by
+construction. The delta clamp is the price of rung 2 and it is a whole RE task (find
+Dishonored's world-tick delta). With rung 3 working, that price never has to be paid.
+
+### Instruments left behind (all build-verified, the pair beat unrun)
+
+- `camera/eyesep:` - the row sweep against the head sweep, with a one-shot VERDICT.
+  `status.json` -> `camera.rowSweepDeg` / `headSweepDeg`.
+- `pawn oracle:` - names its source on every change (`ctrl+0x248` / `event-latch` / `none`).
+- `aer: pair` every 3 s - the full `[pair]` probe (pairs, aborts by kind, ring depth, per-eye
+  captures, staleL/R). **Read it as: `xrEndFrame` must be HALF `eyetex`.**
+- The heartbeat's `headset(submits)` was a **mislabelled counter** - it counts presents that
+  produced a texture, not `xrEndFrame` calls, so a pair that never closes read as healthy.
+  It prints `eyetex=N/s` and `xrEndFrame=N/s` separately now.
+- `vreyetag rendered|located` - cannot be tested on the simulator (identity there); needs the
+  headset.
+- `tools/boot.ps1` passed `Enter` positionally to `game-key.ps1`, whose first positional
+  parameter is `-GamePath`, so unattended booting never pressed a key. Fixed.
+
+### If AER is ever picked back up
+
+In order: the delta clamp (1), then a real latched-pose channel (2 - `parallel_eye_tag`
+rebuilds from the runtime's LOCATED pair, and Dishonored's camera yaw is stick turn composed
+with a head delta, so the located pose is not the rendered pose), then the flat-layer eye
+test (3). Run artifacts from this session are outside the repo at
+`D:\dvr-data\runs\2026-09-02_eyesep\`.
+
 ## Current state (2026-09-02, session 7: the eye separation is NOT the bug; the pawn oracle is)
 
 **Branch `aer-rendering`. The eye-separation question is settled by measurement, and the
