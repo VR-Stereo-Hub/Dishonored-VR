@@ -21,7 +21,7 @@ enum class Level : uint8_t { Error = 0, Warn, Info, Debug, Trace };
 enum class Cat : uint8_t {
     core, proxy, cfg, d3d, present, capture, vr, openvr, openxr, pace, xrinput,
     pad, overlay, head, hands, graft, blink, aim, melee, crouch, fov, menu, cine,
-    script, console, hud, res, cmd, crash, perf, legacy,
+    script, console, hud, res, cmd, crash, perf, legacy, device,
     COUNT
 };
 

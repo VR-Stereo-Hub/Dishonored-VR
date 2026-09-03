@@ -16,6 +16,7 @@
 //   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
 //   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
 //   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
+//   device census|status         the creation census (core/gfx/device_census): the table and the 9Ex verdict
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
@@ -161,6 +162,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::delivered_tag(), dvr::capture::fence_late());
         return true;
     }
+    if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census
+        if (!args[0] || !strcmp(args, "status")) { dvr::census::log_status(); return true; }
+        if (!strcmp(args, "census")) { dvr::census::log_summary("device census"); return true; }
+        Log("device: usage - device census|status");
+        return true;
+    }
     if (!strcmp(cmd, "reentry")) {
         if (SceneDrawCommand(args)) return true;
         if (SceneProbeCommand(args)) return true;
@@ -266,6 +273,10 @@ static void GameStateTick()
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
         DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info, "[game] state: %s", s);
         if (!strcmp(s, "LOADING")) dvr::perf::note(dvr::perf::kFlagLevelLoad);   // the gap line's flag
+        // 41.1 (session 8): the census summary once, when the first level is
+        // up (the population that matters: the level's textures and meshes).
+        static bool censusSaid = false;
+        if (!censusSaid && !strcmp(s, "GAMEPLAY")) { censusSaid = true; dvr::census::log_summary("first GAMEPLAY"); }
     }
 }
 
@@ -284,6 +295,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("capMode", dvr::capture::mode_name());
     w.kv("capShared", dvr::capture::probed() && dvr::capture::shared_available());
     w.obj("perf"); dvr::perf::status(w); w.end_obj();   // 41.1 (session 8): the tick budget
+    w.obj("census"); dvr::census::status(w); w.end_obj();   // 41.1 (session 8): the creation census
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("camera"); dvr::camera::status(w); w.end_obj();

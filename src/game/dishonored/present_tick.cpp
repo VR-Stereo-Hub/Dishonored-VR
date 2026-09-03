@@ -17,6 +17,12 @@ static void DvrPreTick(IDirect3DDevice9*)
         dvr::status::tick(nowMs);
         GameStateTick();
         if ((g_frame & 255) == 0) dvr::crash::rearm();
+        {   // 41.1 (session 8): the creation census's deltas, every 60 s at Debug
+            static uint64_t censusMs = 0;
+            const uint64_t now = GetTickCount64();
+            if (censusMs == 0) censusMs = now;
+            else if (now - censusMs >= 60000) { censusMs = now; dvr::census::log_deltas(); }
+        }
     }
 
     // 38.17: the crash fingerprinter now guards BOTH backends. Tonight's

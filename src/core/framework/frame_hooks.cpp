@@ -3,6 +3,7 @@
 #include "core/framework/frame_hooks.h"
 
 #include "core/framework/perf.h"
+#include "core/gfx/device_census.h"
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
 #include "core/util/crash.h"
@@ -234,6 +235,9 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         old = PatchVtable(*outDev, 41, (void*)hkBeginScene);        // BeginScene (the perf marker)
         if (old && !g_origBeginScene) g_origBeginScene = (PFN_BeginScene)old;
         DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene)");
+        // 41.1 (session 8): the creation census - what the game asks of this
+        // device, the go/no-go for the D3D9Ex route (core/gfx/device_census).
+        dvr::census::install(*outDev, self, adapter, type, flags, pp);
     }
     return hr;
 }

@@ -34,6 +34,7 @@
 #include "core/framework/perf.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/device_census.h"
 #include "game/dishonored/camera.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"

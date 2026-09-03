@@ -47,6 +47,7 @@ set(DVR_REAL_SOURCES
     core/framework/perf.cpp    core/framework/perf.h
     core/gfx/stereo.cpp        core/gfx/stereo.h
     core/gfx/capture.cpp       core/gfx/capture.h
+    core/gfx/device_census.cpp core/gfx/device_census.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
     core/gfx/mono_screen.cpp
     core/gfx/aer.cpp
