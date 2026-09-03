@@ -174,6 +174,42 @@ location" was wrong - retire it). Whether 0x330 persists between dispatches (the
 re-base logic) was not separated out; the eyetest's own 120-present window shows the value
 must be rewritten every dispatch, which the seam does.
 
+## The camera field holds the POSITION, c5 is its negation (2026-09-03, corrects session 5)
+
+**This one sign put every eye offset and every lean backwards in the headset.** Session 5's
+`camera eyetest` measured that camera+0x330 reads exactly -c5, assumed c5 was the camera's
+world position, and recorded the field as holding the NEGATED position (`kFields[].sign =
+-1`). Everything downstream then wrote its offsets negated.
+
+**The measurement that settles it** (run 35, the simulator, the sewers, a DIFFERENTIAL
+picture test against a known-good reference - the c0 `LeanVP` patch, shipped and
+headset-tuned since 30.35): command the same head displacement on both lanes under a
+projection layer and dump the game's own frame.
+
+| displacement | vp lane (`LeanVP`, the reference) | camera lane, sign -1 (session 5) | camera lane, sign +1 |
+|---|---|---|---|
+| 2 m right | the corridor wall on the LEFT, the city outside on the right (the camera went right, through the wall) | MIRRORED: wall right, city left (the camera went LEFT) | matches the reference |
+| 2 m up | up inside the ceiling pipe, the corridor floor below | the camera went DOWN, under the floor looking up | matches the reference |
+
+So writing +X into camera+0x330 moves the rendered view by +X: **the field holds the
+camera's world POSITION, and c5 (the vertex constant) is its negation.** Two independent
+confirmations: the shipped 38.24 crouch clamp writes a world Z into these same fields and
+compares it against the pawn's world Z (which only makes sense for a position), and it was
+verified to fix crouch; and the picture above.
+
+`kFields[]` now carries two numbers: `sign` (what a wanted WORLD displacement is multiplied
+by to become the field delta: +1) and `c5Sign` (how c5 answers it: -1 on the POV fields).
+The eyetest asks for VIEW travel and expects c5 to move by `uu * c5Sign`; it still reads
+**HONOURED 119/120** (c5 -99.2 uu for +100 asked), the postest reads HONOURED on both axes
+(+29.8 for +30 right, -24.4 for -25 up), and the doubling is unaffected (L/s 52 R/s 51,
+draws = 2nd = 52).
+
+**The trap, for the next reader.** The eyetest was an instrument that could not fail its own
+hypothesis: it wrote into a field and measured a DIFFERENT engine quantity (c5) that moves
+with it, so it proved "the renderer noticed" and was read as "the renderer drew from the
+offset position". Only the picture can answer the direction. Any future write point needs a
+differential picture test against a known-good path before its sign is believed.
+
 ## Positional tracking on the camera seam (2026-09-03, S1)
 
 The camera object carries a row-major basis at +0x50 (forward), +0x60 (right, `kCamRight`),

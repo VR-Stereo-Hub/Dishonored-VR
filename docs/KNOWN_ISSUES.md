@@ -8,11 +8,14 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   shows the game's own frame on a flat screen in front of you (`[Screen] DistanceMeters`,
   `WidthMeters`; F10 has the sliders). Turning your head turns the GAME camera as before, the
   screen itself stays in front of your eyes. `stereo reentry` (41.1) draws the scene twice
-  per tick, once per eye, into a projection layer. The first headset run (2026-09-03,
-  Quest 3) FAILED on two counts, both explained by its log and fixed in the tree but not
-  yet re-judged: the pairing check dropped left-eye tags while walking (both frames went to
-  both eyes, alternating), and the head's real displacement and roll were not driven into
-  the game camera under the projection layer (lean read reversed, a second motion on pitch).
+  per tick, once per eye, into a projection layer. Two headset runs (2026-09-03, Quest 3)
+  found three faults, all fixed in the tree and none yet re-judged in a headset: the pairing
+  check dropped left-eye tags while walking (both frames in both eyes, alternating - fixed,
+  the second run reported stereo good); the head's displacement and roll were not driven
+  into the game camera under the projection layer; and the camera field's SIGN was inverted,
+  so every lean, crouch and per-eye offset went the wrong way (ENGINE_NOTES, "The camera
+  field holds the POSITION"). The eye offset was inverted with it, so the depth in those two
+  runs was inside-out: judge the depth again, near objects should read near.
   The tick rate halves while it runs (the second draw is a full scene draw). `stereo aer`
   is still a design stub.
 - **The eye-check bands are BioShock's** [S2b]. `tools\eye-check.ps1` legs 2/4/5 were

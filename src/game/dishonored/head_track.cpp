@@ -598,6 +598,7 @@ static void ApplyHeadToViewRotation(void* parms)
     // or the horizon counter-rolls (the 2026-09-03 headset run). [HeadTrack]
     // Roll stays the quad screen's choice.
     const bool rollNow = g_rotRoll || dvr::stereo::wants_projection();
+    const int32_t before2 = rot[2];   // what the engine handed us: did our last roll survive?
     if (rollNow) rot[2] = (int32_t)(g_hmdRoll * kUEPerRad * (float)g_flipRoll);
     frP = rot[0]; frY = rot[1];                       // 38.86/87: this chain
     frR = rollNow ? rot[2] : 0; frHave = true;        // pass's values
@@ -616,9 +617,17 @@ static void ApplyHeadToViewRotation(void* parms)
     static int hb = 0;
     if (++hb >= 150) {
         hb = 0;
-        Log("headtrack: hmd pitch=%.1f yaw=%.1f deg | view pitch %d->%d yaw %d->%d",
-            g_hmdPitch * 57.2958f, g_hmdYaw * 57.2958f,
-            before0, rot[0], before1, rot[1]);
+        // 41.1: the ROLL is on the line too. `wrote` is what we asked for and
+        // `incoming` is what the engine handed us THIS dispatch: incoming near
+        // the last write = the engine kept our roll, incoming ~0 while we keep
+        // writing = the engine recomputes it and the head tilt never reaches
+        // the render (the headset symptom: the horizon counter-rolls).
+        Log("headtrack: hmd pitch=%.1f yaw=%.1f roll=%.1f deg | view pitch %d->%d yaw %d->%d | "
+            "roll %s incoming=%d wrote=%d (%.1f deg)",
+            g_hmdPitch * 57.2958f, g_hmdYaw * 57.2958f, g_hmdRoll * 57.2958f,
+            before0, rot[0], before1, rot[1],
+            rollNow ? "ON" : "off (quad screen, [HeadTrack] Roll=0)",
+            before2, rot[2], (float)rot[2] / kUEPerRad * 57.2958f);
     }
 }
 

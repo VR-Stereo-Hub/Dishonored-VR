@@ -2,8 +2,17 @@
 
 ## Current state (2026-09-03, session 6: S2b, SequentialReentry on the simulator, 41.1)
 
-**The first headset run of rung 3 FAILED (run 30, Quest 3 via VDXR, the user): both frames
-alternating in both eyes, lean reversed, a second motion on pitch.** Both causes are in the
+**Two headset runs of rung 3 (runs 30 and 34, Quest 3 via VDXR, the user). Run 34: stereo
+good, head motion still wrong - and the cause is measured (run 35): the camera field's SIGN
+was inverted, so every lean, crouch and per-eye offset went the WRONG WAY. A differential
+picture test against the headset-proven c0 patch settles it (ENGINE_NOTES, "The camera field
+holds the POSITION, c5 is its negation"): the field holds the camera's world position and c5
+is its negation; session 5's eyetest had read c5 as the position. Fixed, verified on two
+axes by picture, both instruments still HONOURED, the doubling unaffected. The eye offset
+was inverted with it, so the stereo depth in both headset runs was inside-out - it needs
+re-judging. NOT yet re-tested in a headset. Run 30's two findings (below) are also fixed.**
+
+**Run 30 FAILED: both frames alternating in both eyes, lean reversed, a second motion on pitch.** Both causes are in the
 log and fixed in the tree (ENGINE_NOTES "The scene-draw root", the headset paragraph), NOT
 yet re-judged: (1) the method's pairing check dropped a third of the LEFT tags while the
 player walked (the engine moves the camera a tick after the write; the check is telemetry

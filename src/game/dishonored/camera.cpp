@@ -16,16 +16,26 @@
 namespace dvr::camera {
 namespace {
 
-// sign: +1 the field holds the camera position, -1 it holds the NEGATED position
-// (a view-matrix translation). Measured 2026-09-02 (ENGINE_NOTES, the per-eye
-// camera seam): 0x330/0x350/0x374 read exactly -c5; 0x80/0x90/0xc4 hold a fixed
-// offset vector, not the position, and keep +1 as a plain write.
-struct Field { const char* name; uint32_t off; float sign; };
+// sign  : what a wanted WORLD displacement must be multiplied by to become the
+//         delta added to the field. +1 = the field holds the camera position.
+// c5Sign: how the c5 constant answers that displacement (+1 it follows, -1 it
+//         is the negation).
+//
+// CORRECTED 2026-09-03 (ENGINE_NOTES, "The camera field holds the position,
+// c5 is its negation"). Session 5 read 0x330 as a negated position because it
+// reads exactly -c5 and assumed c5 was the camera position; the PICTURE says
+// otherwise - writing +X into the field moves the rendered view by +X, and the
+// shipped 38.24 crouch clamp agrees (it compares this field's Z against the
+// pawn's world Z). So the field IS the position and c5 is its negation; the
+// eyetest's old HONOURED verdict had the polarity backwards, which put every
+// eye offset and every lean in the wrong direction in the headset.
+struct Field { const char* name; uint32_t off; float sign; float c5Sign; };
 // The candidates: the matrix translation row, the two cached POV locations
 // and the three POV rotator/location blocks the 38.24 eye clamp writes Z into.
 const Field kFields[] = {
-    {"0x80", kCamLoc0, 1.0f}, {"0x90", kCamLoc1, 1.0f}, {"0xc4", kCamLoc2, 1.0f},
-    {"0x330", kPovOffs[0], -1.0f}, {"0x350", kPovOffs[1], -1.0f}, {"0x374", kPovOffs[2], -1.0f},
+    {"0x80", kCamLoc0, 1.0f, 1.0f}, {"0x90", kCamLoc1, 1.0f, 1.0f}, {"0xc4", kCamLoc2, 1.0f, 1.0f},
+    {"0x330", kPovOffs[0], 1.0f, -1.0f}, {"0x350", kPovOffs[1], 1.0f, -1.0f},
+    {"0x374", kPovOffs[2], 1.0f, -1.0f},
 };
 constexpr int kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 constexpr int kEyetestFrames = 120;
@@ -216,7 +226,7 @@ void eyetest_next_candidate() {
 void eyetest_verdict() {
     const Field& f = kFields[g_et.idx];
     const float mean = g_et.movedN ? (float)(g_et.movedSum / g_et.movedN) : 0.0f;
-    const float want = g_et.uu * f.sign;   // what an honoured write moves c5 by
+    const float want = g_et.uu * f.c5Sign;   // what an honoured write moves c5 by
     const int judged = g_et.honoured + g_et.discarded + g_et.other;
     const char* verdict = "INCONCLUSIVE";
     if (!g_et.wrote) verdict = "NOT WRITTEN";
@@ -230,19 +240,16 @@ void eyetest_verdict() {
                  f.name, g_et.uu, g_et.frames, g_et.ticks, g_et.noCam, g_et.noRight, g_et.noField,
                  g_et.ticks == 0 ? " - the ProcessEvent hook is not running (gameplay?)" : "");
     else
-        DVR_INFO("camera/eyetest: %s asked %+.1f uu along right -> c5 moved %+.1f uu (mean of %d): "
-                 "%s %d/%d frames (discarded %d, other %d, no c5 %d)%s",
-                 f.name, g_et.uu, mean, g_et.movedN, verdict,
-                 !strcmp(verdict, "HONOURED") ? g_et.honoured : g_et.discarded, judged,
+        DVR_INFO("camera/eyetest: %s asked %+.1f uu of VIEW travel along right -> c5 moved %+.1f uu "
+                 "(expected %+.1f: c5 %s the field here) (mean of %d): %s %d/%d frames (discarded %d, "
+                 "other %d, no c5 %d)%s",
+                 f.name, g_et.uu, mean, want, f.c5Sign < 0.0f ? "NEGATES" : "follows", g_et.movedN,
+                 verdict, !strcmp(verdict, "HONOURED") ? g_et.honoured : g_et.discarded, judged,
                  g_et.discarded, g_et.other, g_et.noWrite,
                  !strcmp(verdict, "HONOURED")
-                     ? (f.sign < 0.0f ? " - the renderer drew from the offset position (the field "
-                                        "holds -position, so the write is negated): this is the "
-                                        "write point ([Camera] EyeField=)"
-                                      : " - the renderer drew from the offset position: this is "
-                                        "the write point ([Camera] EyeField=)")
+                     ? " - the renderer drew from the offset position: this is the write point "
+                       "([Camera] EyeField=)"
                  : !strcmp(verdict, "DISCARDED") ? " - recomputed before the draw" : "");
-    (void)want;
 }
 
 void eyetest_finish() {
@@ -323,10 +330,12 @@ bool second_pass_for_current_thread() {
     const LONG t = InterlockedCompareExchange(&g_secondPassTid, 0, 0);
     return t != 0 && (DWORD)t == GetCurrentThreadId();
 }
+// The value c5 should read for the last write (telemetry: the reentry method
+// compares it against the c5 the constant hook captured).
 bool last_written_pos(float out[3]) {
     if (!g_eyeWriter.lastOk || g_field < 0 || !out) return false;
-    const float sign = kFields[g_field].sign;
-    for (int i = 0; i < 3; ++i) out[i] = sign * g_eyeWriter.last[i];
+    const float cs = kFields[g_field].c5Sign;
+    for (int i = 0; i < 3; ++i) out[i] = cs * g_eyeWriter.last[i];
     return true;
 }
 bool render_pos(float out[3]) {
@@ -519,7 +528,11 @@ void postest_present_tick() {
         if (!g_c5Ok || !g_pt.basisOk) {
             ++g_pt.noC5;
         } else {
-            const float d[3] = {g_c5[0] - g_pt.baseline[0], g_c5[1] - g_pt.baseline[1], g_c5[2] - g_pt.baseline[2]};
+            // c5 negates the view's travel on the POV fields, so the measure is
+            // taken back into WORLD terms before it is compared with the ask.
+            const float cs = g_field >= 0 ? kFields[g_field].c5Sign : 1.0f;
+            const float d[3] = {(g_c5[0] - g_pt.baseline[0]) * cs, (g_c5[1] - g_pt.baseline[1]) * cs,
+                                (g_c5[2] - g_pt.baseline[2]) * cs};
             g_pt.measSum[0] += d[0] * g_pt.r[0] + d[1] * g_pt.r[1] + d[2] * g_pt.r[2];
             g_pt.measSum[1] += d[0] * g_pt.u[0] + d[1] * g_pt.u[1] + d[2] * g_pt.u[2];
             g_pt.measSum[2] += d[0] * g_pt.f[0] + d[1] * g_pt.f[1] + d[2] * g_pt.f[2];
@@ -656,8 +669,12 @@ void eyetest_present_tick() {
                             g_c5[2] - g_et.baseline[2]};
         const float moved = d[0] * g_et.right[0] + d[1] * g_et.right[1] + d[2] * g_et.right[2];
         g_et.movedSum += moved; ++g_et.movedN;
+        // c5 answers a wanted +uu of VIEW travel with uu * c5Sign (it is the
+        // negated camera position on the POV fields - measured by picture,
+        // 2026-09-03).
+        const float want = g_et.uu * kFields[g_et.idx].c5Sign;
         const float band = 0.25f * g_et.uu;
-        if (fabsf(moved - g_et.uu) <= band) ++g_et.honoured;
+        if (fabsf(moved - want) <= band) ++g_et.honoured;
         else if (fabsf(moved) <= band) ++g_et.discarded;
         else ++g_et.other;
     }
