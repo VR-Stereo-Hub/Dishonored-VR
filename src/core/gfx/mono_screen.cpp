@@ -47,6 +47,7 @@ public:
         if (!ensure_target(d.dev11, w, h)) return false;
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
+            dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
             drawnOnce_ = true;
             ++frames_;

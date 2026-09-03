@@ -161,14 +161,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         }
         const dvr::capture::Cost c = dvr::capture::cost();
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
-            "(%u grabs) delivered serial %lu of %lu tag=%d sharedWait=%d fenceWaits=%u timeouts=%u (capture mode "
-            "sync|deferred|shared|off, capture sharedwait on|off)",
+            "(%u grabs) delivered serial %lu of %lu tag=%d sharedWait=%d fenceWaits=%u timeouts=%u readWaits=%u "
+            "readTimeouts=%u (capture mode sync|deferred|shared|off, capture sharedwait on|off)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
             (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
             dvr::capture::delivered_tag(), dvr::capture::shared_wait() ? 1 : 0, dvr::capture::fence_waits(),
-            dvr::capture::fence_timeouts());
+            dvr::capture::fence_timeouts(), dvr::capture::read_waits(), dvr::capture::read_timeouts());
         return true;
     }
     if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census and the 9Ex levers
