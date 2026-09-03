@@ -418,6 +418,11 @@ std::atomic<uint32_t> g_pmAbortExpired{0}, g_pmAbortLeft{0}, g_pmAbortUntag{0};
 std::atomic<uint32_t> g_pmCap[2] = {};       // SR captures per eye
 std::atomic<uint32_t> g_pmAcqFail{0}, g_pmWaitFail{0};
 std::atomic<uint32_t> g_pmUntaggedProj{0};   // untagged present captured in projection mode
+// 41.1 (Dishonored, session 8): a tag popped by a present that opened no XR
+// frame (the pace guard, a session hold, a handoff timeout): its sibling then
+// stands alone in the next pair. Counted so the method's STALE line can name
+// it instead of "unknown".
+std::atomic<uint32_t> g_srEatenNoFrame{0};
 std::atomic<uint32_t> g_pmRebuilds{0};
 std::atomic<uint32_t> g_pmStereoSubmits{0}, g_pmStaleL{0}, g_pmStaleR{0};
 std::atomic<uint32_t> g_pmAgeMax[2] = {};    // worst capture age at submit, ms
@@ -3518,7 +3523,9 @@ void on_present_end(ID3D11Texture2D* frame) {
         // it). The game may still be presenting alternating stereo eyes -
         // keep draining the tag ring and keep the window pinned to one eye.
         int64_t tComp = phase_now();
-        mirror_present(sr_pop_eye());
+        const int eatenEye = sr_pop_eye();
+        if (eatenEye != 0) g_srEatenNoFrame.fetch_add(1, std::memory_order_relaxed);
+        mirror_present(eatenEye);
         composite_hud();
         phase_record(kPhComposite, tComp);
         // SESSION 28: name the guard, on a heartbeat, while submission is idle.
@@ -5381,6 +5388,19 @@ void sr_push_eye(int eyeSign) {
     g_srPushed.fetch_add(1, std::memory_order_relaxed);
 }
 
+// 41.1 (Dishonored, session 8): the present-path phase timers for the tick
+// budget (core/framework/perf), read once per present on the present thread.
+// The values are the LAST run of each phase; a frame-less present leaves a
+// phase stale, which the reader clamps to the half it lives in.
+int present_phases_last(uint32_t* out, int cap) {
+    const int n = cap < kPhCount ? cap : kPhCount;
+    for (int i = 0; i < n; ++i) out[i] = g_phaseLastUs[i].load(std::memory_order_relaxed);
+    return n;
+}
+const char* present_phase_name(int i) { return (i >= 0 && i < kPhCount) ? kPhaseNames[i] : "?"; }
+bool pair_open() { return g_srPairOpen; }
+uint32_t pace_timeouts() { return g_paceTimeouts.load(std::memory_order_relaxed); }
+
 static void pair_probe_fill(PairProbe* out, bool drain);
 void pair_probe(PairProbe* out) { pair_probe_fill(out, true); }
 // 41.1 (Dishonored): the same snapshot WITHOUT draining the maxima, for a
@@ -5399,6 +5419,7 @@ static void pair_probe_fill(PairProbe* out, bool drain) {
     out->acqFail = g_pmAcqFail.load(std::memory_order_relaxed);
     out->waitFail = g_pmWaitFail.load(std::memory_order_relaxed);
     out->untaggedProj = g_pmUntaggedProj.load(std::memory_order_relaxed);
+    out->eatenNoFrame = g_srEatenNoFrame.load(std::memory_order_relaxed);
     out->rebuilds = g_pmRebuilds.load(std::memory_order_relaxed);
     out->stereoSubmits = g_pmStereoSubmits.load(std::memory_order_relaxed);
     out->staleL = g_pmStaleL.load(std::memory_order_relaxed);
@@ -5517,6 +5538,10 @@ void on_resize(unsigned, unsigned, unsigned) {}
 void pair_probe(PairProbe*) {}
 void pair_probe_peek(PairProbe*) {}
 uint32_t pair_stale_submits() { return 0; }
+int present_phases_last(uint32_t*, int) { return 0; }
+const char* present_phase_name(int) { return "?"; }
+bool pair_open() { return false; }
+uint32_t pace_timeouts() { return 0; }
 void draw_debug_ui() {}
 bool get_head_pose(HeadPose&) { return false; }
 bool peek_head_pose(HeadPose&) { return false; }

@@ -17,6 +17,12 @@ static void DvrPreTick(IDirect3DDevice9*)
         dvr::status::tick(nowMs);
         GameStateTick();
         if ((g_frame & 255) == 0) dvr::crash::rearm();
+        {   // 41.1 (session 8): the creation census's deltas, every 60 s at Debug
+            static uint64_t censusMs = 0;
+            const uint64_t now = GetTickCount64();
+            if (censusMs == 0) censusMs = now;
+            else if (now - censusMs >= 60000) { censusMs = now; dvr::census::log_deltas(); }
+        }
     }
 
     // 38.17: the crash fingerprinter now guards BOTH backends. Tonight's
@@ -179,14 +185,28 @@ static void DvrGameTick(IDirect3DDevice9* self)
     g_xrOn = g_vrReady = dvr::frame::xr_live();   // the session, as of this present
         // 30.24: hitch detector. Any Present-to-Present gap over 80 ms gets
         // logged with what was in flight, so "lag spike on swing" becomes a
-        // measured correlation instead of a hunch.
+        // measured correlation instead of a hunch. 41.1 (session 8): the tick
+        // budget detects it at hkPresent ENTRY (this tick runs after the
+        // runtime's wait, so a gap that sat in the wait used to be attributed
+        // to nothing), with a relative threshold and the phase it sat in; the
+        // 80 ms detector below stays as the fallback while `perf off`.
         {
-            static double lastPresentMs = 0.0;
             double nowMs = MaimNowMs();
-            if (lastPresentMs != 0.0) {
+            dvr::perf::Gap gp;
+            if (dvr::perf::take_gap(&gp)) {
+                Log("perf: frame gap %.0fms (%.1fx the mean present interval %.1f ms)  swingAge=%.0fms (-1 by design "
+                    "under GamepadOnly) aimWin=%d cal=%d gt=%d | %s",
+                    gp.ms, gp.medianMs > 0.0f ? gp.ms / gp.medianMs : 0.0f, gp.medianMs,
+                    g_meleeLastMs ? nowMs - g_meleeLastMs : -1.0,
+                    (int)(nowMs < g_maimArmedUntil),
+                    g_fpCalPhase, (int)g_gtActive, gp.where);
+                dvr::perf::log_gap_ring();
+            }
+            static double lastPresentMs = 0.0;
+            if (lastPresentMs != 0.0 && !dvr::perf::enabled()) {
                 double gap = nowMs - lastPresentMs;
                 if (gap > 80.0)
-                    Log("perf: frame gap %.0fms  swingAge=%.0fms aimWin=%d cal=%d gt=%d",
+                    Log("perf: frame gap %.0fms  swingAge=%.0fms aimWin=%d cal=%d gt=%d (perf off: no phase)",
                         gap,
                         g_meleeLastMs ? nowMs - g_meleeLastMs : -1.0,
                         (int)(nowMs < g_maimArmedUntil),

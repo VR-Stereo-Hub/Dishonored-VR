@@ -31,8 +31,11 @@
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
+#include "core/framework/perf.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/device_census.h"
+#include "core/gfx/d3d9ex.h"
 #include "game/dishonored/camera.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"

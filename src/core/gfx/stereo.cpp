@@ -4,6 +4,7 @@
 #include "core/gfx/stereo.h"
 
 #include "core/framework/status.h"
+#include "core/gfx/capture.h"
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
 
@@ -173,12 +174,14 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
     else if (now - g_beatMs >= 3000) {
         const double s = (double)(now - g_beatMs) / 1000.0;
         DVR_INFO("stereo: beat method=%s out/s=%.0f L/s=%.0f R/s=%.0f mono/s=%.0f none/s=%.0f %ux%u"
-                 "%s%s",
+                 "%s%s%s",
                  active_name(), g_beatOut / s, g_beatL / s, g_beatR / s, g_beatMono / s,
                  g_beatNone / s, out.w, out.h,
                  (g_beatL == 0 && g_beatR == 0 && g_beatMono > 0)
                      ? " (L/R read 0 by design on the mono screen)" : "",
-                 !g_armed ? " (PARKED: the selection is kept, not armed)" : "");
+                 !g_armed ? " (PARKED: the selection is kept, not armed)" : "",
+                 dvr::capture::mode() == dvr::capture::Mode::Off
+                     ? " capture OFF by request (frozen image expected)" : "");
         // The eyes line: per-eye image age in PRESENTS at the last stereo submit
         // and the pairing counters as window deltas. A stereo submit shows each
         // eye swapchain's last released image, so an eye older than one present
@@ -193,10 +196,11 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
             const uint32_t submits = p.stereoSubmits - q.stereoSubmits;
             DVR_INFO("stereo: eyes ageL=%u ageR=%u presents at the last stereo submit (max this window L=%u R=%u; "
                      "healthy 1/0) | stereoSubmits=%u pairs=%u aborts=%u (left=%u untagged=%u expired=%u) "
-                     "staleEye L=%u R=%u | window %.0f s%s",
+                     "staleEye L=%u R=%u eaten=%u | window %.0f s%s",
                      p.agePresL, p.agePresR, p.agePresMaxL, p.agePresMaxR, submits, p.pairs - q.pairs,
                      p.aborts - q.aborts, p.abortLeft - q.abortLeft, p.abortUntagged - q.abortUntagged,
-                     p.abortExpired - q.abortExpired, p.stalePresL - q.stalePresL, p.stalePresR - q.stalePresR, s,
+                     p.abortExpired - q.abortExpired, p.stalePresL - q.stalePresL, p.stalePresR - q.stalePresR,
+                     p.eatenNoFrame - q.eatenNoFrame, s,
                      submits == 0 ? " (stereoSubmits 0 this window: the quad screen or an untagged stream - "
                                     "the ages read 0 by design)" : "");
         }

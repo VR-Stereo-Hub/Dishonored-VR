@@ -65,6 +65,9 @@ struct Cost {
     uint32_t grabsInWindow = 0;
 };
 Cost cost();
+// The LAST grab's phases (this present's; zeros when the present grabbed
+// nothing): the tick budget (core/framework/perf) reads it once per present.
+Cost last_grab();
 
 // The shared-surface probe's verdict (one-shot at the first grab; the log
 // carries every HRESULT): can the game's D3D9 device hand D3D11 a surface
@@ -75,8 +78,13 @@ bool shared_available();
 // The mode. set_mode() queues the change for the next grab (any thread, the
 // config loader or the command seam); an impossible mode (shared on a device
 // that cannot share) is refused with the reason and the current mode stays.
-enum class Mode { Sync = 0, Deferred = 1, Shared = 2 };
-bool        set_mode(const char* name);   // "sync" | "deferred" | "shared"
+// `off` (41.1, session 8) is the tick budget's A/B control: grab() takes
+// nothing, texture() keeps re-showing the last frame (the headset image is
+// FROZEN on purpose and the cost line and the beat say so), and the tick rate
+// without any capture is what the perf line then measures. Live only; the
+// ini refuses it.
+enum class Mode { Sync = 0, Deferred = 1, Shared = 2, Off = 3 };
+bool        set_mode(const char* name);   // "sync" | "deferred" | "shared" | "off"
 Mode        mode();
 const char* mode_name();
 
@@ -88,7 +96,26 @@ void     set_pending_tag(int eyeSign);
 int      delivered_tag();
 uint32_t delivered_serial();
 uint32_t serial();
-uint32_t fence_late();   // shared: blits found unfinished at the next present (counted, never waited on)
+// shared (41.1, session 8): the delivery. SharedWait=0 (default) delivers the
+// PREVIOUS present's slot, whose blit had a whole present to finish (the tag
+// travels with the slot as under deferred); 1 delivers this present's after
+// waiting on its fence (zero latency; the CPU waits for the frame in flight).
+// The fence is a D3D9 event query, waited on with a bound (10 ms) and
+// counted: there is no cross-API GPU fence in D3D9, so this IS the fence.
+void     set_shared_wait(bool on);
+bool     shared_wait();
+uint32_t fence_waits();      // deliveries that had to spin on the fence (window)
+uint32_t fence_timeouts();   // deliveries whose fence had not signalled at the bound (lifetime)
+// The OTHER direction of the shared hand-off (41.1, session 8): the consumer
+// calls read_done(ctx) right after it drew from srv(), which ends a D3D11
+// event query on the delivered slot and flushes the context; the next D3D9
+// blit INTO that slot waits (bounded) for that query, so the D3D11 read can
+// never see the next present's frame (the other eye's image) land under it.
+// read_waits counts the blits that found the read still pending: the count
+// of frames that COULD have swapped an eye before this fence existed.
+void     read_done(ID3D11DeviceContext* ctx);
+uint32_t read_waits();
+uint32_t read_timeouts();
 
 // `dump capture` under shared mode: read the shared surface back now so
 // pixels() is this present's frame, not the last 3 s sample. True when

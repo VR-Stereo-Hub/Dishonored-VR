@@ -15,7 +15,11 @@
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
 //   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
-//   capture mode <m>|status      the capture path (sync|deferred|shared): live switch, fails soft
+//   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
+//   capture sharedwait on|off    shared: deliver this present after its fence (on) or the previous slot (off, default)
+//   device census|status         the creation census (core/gfx/device_census): the table and the 9Ex verdict
+//   device ex on|off             [Device] Ex for the NEXT launch (the 9Ex device, core/gfx/d3d9ex)
+//   device managed <m>           [Device] Managed=none|default|dynamic|shadow for the NEXT launch
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
@@ -151,14 +155,31 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::set_mode(m);   // logs the refusal itself
             return true;
         }
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "sharedwait") && DvrOnOff(m, &b)) {
+            dvr::capture::set_shared_wait(b);
+            return true;
+        }
         const dvr::capture::Cost c = dvr::capture::cost();
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
-            "(%u grabs) delivered serial %lu of %lu tag=%d fenceLate=%u (capture mode sync|deferred|shared)",
+            "(%u grabs) delivered serial %lu of %lu tag=%d sharedWait=%d fenceWaits=%u timeouts=%u readWaits=%u "
+            "readTimeouts=%u (capture mode sync|deferred|shared|off, capture sharedwait on|off)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
             (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
-            dvr::capture::delivered_tag(), dvr::capture::fence_late());
+            dvr::capture::delivered_tag(), dvr::capture::shared_wait() ? 1 : 0, dvr::capture::fence_waits(),
+            dvr::capture::fence_timeouts(), dvr::capture::read_waits(), dvr::capture::read_timeouts());
+        return true;
+    }
+    if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census and the 9Ex levers
+        if (!args[0] || !strcmp(args, "status")) { dvr::census::log_status(); dvr::d3d9ex::log_status(); return true; }
+        if (!strcmp(args, "census")) { dvr::census::log_summary("device census"); return true; }
+        char sub[16] = "", v[16] = "";
+        if (sscanf(args, "%15s %15s", sub, v) == 2) {
+            if (!strcmp(sub, "ex") && DvrOnOff(v, &b)) { DeviceSetEx(b, "seam"); return true; }
+            if (!strcmp(sub, "managed")) { DeviceSetManaged(v, "seam"); return true; }
+        }
+        Log("device: usage - device census|status | device ex on|off | device managed none|default|dynamic|shadow");
         return true;
     }
     if (!strcmp(cmd, "reentry")) {
@@ -235,14 +256,32 @@ static bool DvrScriptViewLive()
     // A loading screen dispatches a short burst about once a second (run 22:
     // GAMEPLAY/LOADING flapping), so leaving LOADING needs a full second of
     // continuous dispatches, and entering it 750 ms of silence.
+    // 41.1 (session 8): a PAUSE MENU silences the dispatches too, and the
+    // one-second rule then held every resume on the flat quad for 1-1.5 s
+    // (32 pause/resumes in the 2026-09-03 headset run, each one a stereo ->
+    // flat -> stereo flip the eyes felt). A silence that began while a menu
+    // was open is the menu's, not a load's: the first fresh dispatch after
+    // it is live at once. The one-second rule stays for every other silence.
     static double silentSince = 0.0, resumedAt = 0.0;
-    static bool live = false;
+    static bool live = false, menuSilence = false;
     const double now = MaimNowMs();
     const bool fresh = g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0;
-    if (!fresh) { silentSince = silentSince ? silentSince : now; resumedAt = 0.0; live = false; }
-    else {
+    if (!fresh) {
+        if (!silentSince) { silentSince = now; menuSilence = g_menuOpen || g_inMenu; }
+        else if (g_menuOpen) menuSilence = true;
+        resumedAt = 0.0; live = false;
+    } else {
         silentSince = 0.0;
-        if (resumedAt == 0.0) resumedAt = now;
+        if (resumedAt == 0.0) {
+            resumedAt = now;
+            if (menuSilence) {
+                live = true;
+                DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info,
+                        "[game] view live at once after a MENU's silence (no one-second hold: the dispatches "
+                        "stopped for the pause menu, not a load)");
+            }
+            menuSilence = false;
+        }
         if (now - resumedAt >= 1000.0) live = true;
     }
     return live;
@@ -265,6 +304,11 @@ static void GameStateTick()
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
         DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info, "[game] state: %s", s);
+        if (!strcmp(s, "LOADING")) dvr::perf::note(dvr::perf::kFlagLevelLoad);   // the gap line's flag
+        // 41.1 (session 8): the census summary once, when the first level is
+        // up (the population that matters: the level's textures and meshes).
+        static bool censusSaid = false;
+        if (!censusSaid && !strcmp(s, "GAMEPLAY")) { censusSaid = true; dvr::census::log_summary("first GAMEPLAY"); }
     }
 }
 
@@ -282,6 +326,9 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("capW", (int)dvr::capture::width()); w.kv("capH", (int)dvr::capture::height());
     w.kv("capMode", dvr::capture::mode_name());
     w.kv("capShared", dvr::capture::probed() && dvr::capture::shared_available());
+    w.obj("perf"); dvr::perf::status(w); w.end_obj();   // 41.1 (session 8): the tick budget
+    w.obj("census"); dvr::census::status(w); w.end_obj();   // 41.1 (session 8): the creation census
+    w.obj("device"); dvr::d3d9ex::status(w); w.end_obj();   // 41.1 (session 8): the 9Ex device and the translation
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
@@ -333,10 +380,23 @@ static void DvrStatusProvider(dvr::status::Writer& w)
 }
 
 // Called once from Direct3DCreate9 after the config is loaded.
+// The game side's context for a `mark` line: the state, the melee swing age
+// (reads -1 by design under GamepadOnly: no motion melee, no swing stamps),
+// the motion-aim window, the ground-truth test, the menu flags.
+static int DvrPerfContext(char* buf, size_t cap)
+{
+    const double nowMs = MaimNowMs();
+    return _snprintf(buf, cap, "game: state=%s menu=%d/%d swingAge=%.0f ms (-1 by design under GamepadOnly) aimWin=%d gt=%d cal=%d",
+                     g_dvrGameState[0] ? g_dvrGameState : "?", (int)g_inMenu, (int)g_menuOpen,
+                     g_meleeLastMs ? nowMs - g_meleeLastMs : -1.0, (int)(nowMs < g_maimArmedUntil),
+                     (int)g_gtActive, g_fpCalPhase);
+}
+
 static void DvrDebugInit()
 {
     dvr::command::set_game_handler(DvrGameCommand);
     dvr::status::set_provider(DvrStatusProvider);
+    dvr::perf::set_context_provider(DvrPerfContext);
     DVR_LOG(dvr::log::Cat::cmd, dvr::log::Level::Info,
             "command seam: %s\\command.txt (1 Hz), status: %s", dvr::paths::data_dir(), dvr::status::path());
 }

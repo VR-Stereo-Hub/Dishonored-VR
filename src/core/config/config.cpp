@@ -39,12 +39,19 @@ static void WriteDefaultIni(const char* ini)
         "[Capture]\n"
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
-        "; (the baseline, ~5 ms per present at 1080p); deferred copies on the GPU, queues\n"
-        "; the readback and locks it one present later (~2.3 ms measured; the picture is one\n"
-        "; present late; also resolves a multisampled backbuffer); shared needs a device\n"
-        "; that can share (the log's capture/probe lines say). `capture mode <m>` switches\n"
-        "; live; `capture status` prints the cost.\n"
-        "Mode=sync\n"
+        "; (the old baseline, ~5 ms per present at 1080p, 15 ms at the Quest 3 size);\n"
+        "; deferred copies on the GPU, queues the readback and locks it one present later\n"
+        "; (~2.3 ms at 1080p, ~10 ms at the Quest 3 size; the picture is one present late;\n"
+        "; also resolves a multisampled backbuffer; the fallback when the device cannot\n"
+        "; share); shared (ships, 41.1, headset-judged 2026-09-03) needs [Device] Ex=1 and\n"
+        "; keeps the frame in VRAM (the log's capture/probe lines say). `capture mode <m>` switches\n"
+        "; live; `capture status` prints the cost. shared (needs [Device] Ex=1) keeps the frame\n"
+        "; in VRAM: two shared render targets, each blit fenced by a D3D9 event query;\n"
+        "; SharedWait=0 delivers the previous present's slot (no wait in the common case),\n"
+        "; 1 delivers this present's after its fence (zero latency, the CPU waits for the frame\n"
+        "; in flight). `capture sharedwait on|off` live.\n"
+        "Mode=shared\n"
+        "SharedWait=0\n"
         "[Pace]\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
         "; the `vrpace` seam word and the F10 Runtime panel; SAVE AS DEFAULTS writes them.\n"
@@ -58,6 +65,30 @@ static void WriteDefaultIni(const char* ini)
         "Ahead=0\n"
         "Strict=0\n"
         "Lag=1\n"
+        "[Perf]\n"
+        "; The tick budget (core/framework/perf): Instruments=1 keeps one record per present\n"
+        "; (eight clock stamps) and prints the `perf: tick` line every 3 s; GpuQueries=1 adds\n"
+        "; the D3D9 timestamp ring behind the `perf: gpu` line (read five presents back, never\n"
+        "; waited on). `perf on|off`, `perf gpu on|off` live; `mark <text>` and the F10 MARK\n"
+        "; button stamp a felt freeze. ForceNoVSync=1 presents without vsync (the game's own\n"
+        "; setting is ignored while the headset paces the game).\n"
+        "Instruments=1\n"
+        "GpuQueries=1\n"
+        "ForceNoVSync=1\n"
+        "[Device]\n"
+        "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
+        "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
+        "; Quest 3 size: 16 ms of GPU copy per present, measured 2026-09-03). A 9Ex device refuses\n"
+        "; D3DPOOL_MANAGED, which this game asks for on every static texture and buffer, so\n"
+        "; Managed= says what stands in: shadow (a system-memory twin per texture, locks\n"
+        "; redirected; the safe one - the game locks textures READONLY while streaming),\n"
+        "; dynamic (DEFAULT+DYNAMIC: READONLY locks read uncached VRAM), default (textures lose\n"
+        "; their locks), none (the refusals are the measurement). Launch-time: `device ex on|off`\n"
+        "; and the F10 Display tickbox write the key for the NEXT launch. Ships ON since 41.1\n"
+        "; (headset-judged 2026-09-03: the Quest 3 size at the headset's rate); Ex=0 is the\n"
+        "; plain device and the readback capture, the fallback if the 9Ex device misbehaves.\n"
+        "Ex=1\n"
+        "Managed=shadow\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -360,8 +391,13 @@ static void LoadConfig()
     {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
         // mode is refused with the reason and sync keeps running)
         char cm[16] = "";
-        GetPrivateProfileStringA("Capture", "Mode", "sync", cm, sizeof(cm), ini);
+        GetPrivateProfileStringA("Capture", "Mode", "shared", cm, sizeof(cm), ini);
+        if (!_stricmp(cm, "off")) {   // the A/B control is live-only: a frozen headset at boot is a trap
+            Log("config: [Capture] Mode=off refused (live only, 'capture mode off' on the seam) - sync");
+            strcpy(cm, "sync");
+        }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
+        dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
     }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
@@ -481,6 +517,21 @@ static void LoadConfig()
     g_wpnShowNear= IniFloat(ini, "Weapon", "ShowNear", 0) != 0.0f;
     g_scanEnabled = IniFloat(ini, "Debug", "VsScan", 0) != 0.0f;
     g_forceNoVSync = IniFloat(ini, "Perf", "ForceNoVSync", 1) != 0.0f;
+    {   // 41.1 (session 8): [Device] Ex and Managed, read before the first Direct3DCreate9
+        const bool ex = IniFloat(ini, "Device", "Ex", 1) != 0.0f;
+        char mm[16] = "";
+        GetPrivateProfileStringA("Device", "Managed", "shadow", mm, sizeof(mm), ini);
+        dvr::d3d9ex::Managed m;
+        if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
+        dvr::d3d9ex::set_config(ex, m);
+    }
+    {   // 41.1 (session 8): the tick budget's levers, both default on
+        const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
+        const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
+        if (!inst) dvr::perf::set_enabled(false);
+        if (!gpu) dvr::perf::set_gpu_enabled(false);
+        Log("config: [Perf] Instruments=%d GpuQueries=%d (the tick line and the gpu line every 3 s)", inst ? 1 : 0, gpu ? 1 : 0);
+    }
     Log("config: per-frame diagnostics vsscan=%d shownear=%d (both off = more fps)",
         (int)g_scanEnabled, (int)g_wpnShowNear);
     g_wpnPosScale= IniFloat(ini, "Weapon", "PosScale", 55.0f);
@@ -1022,6 +1073,34 @@ static void EnsureConfig()
 }
 
 
+// 41.1 (session 8): the [Device] keys are launch-time; the seam word and the
+// F10 tickbox write them for the NEXT launch (no version bump: the rewrite
+// would wipe a tuned ini), and say so.
+static void DeviceSetEx(bool on, const char* who)
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Device", "Ex", on ? "1" : "0", ini);
+    // The only reason to ask for the 9Ex device is the shared capture, and the
+    // 2026-09-03 headset run asked for the device and never switched the
+    // capture: the tickbox picks the capture mode for the next launch too.
+    WritePrivateProfileStringA("Capture", "Mode", on ? "shared" : "deferred", ini);
+    Log("device: [Device] Ex=%d and [Capture] Mode=%s written by %s - both take effect at the NEXT LAUNCH (this "
+        "run's device %s 9Ex, capture %s)",
+        on ? 1 : 0, on ? "shared" : "deferred", who, dvr::d3d9ex::device_is_ex() ? "IS" : "is not",
+        dvr::capture::mode_name());
+}
+static void DeviceSetManaged(const char* name, const char* who)
+{
+    dvr::d3d9ex::Managed m;
+    if (!dvr::d3d9ex::parse_managed(name, &m)) { Log("device: managed none|default|dynamic|shadow (asked '%s')", name); return; }
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(m), ini);
+    Log("device: [Device] Managed=%s written by %s - takes effect at the NEXT LAUNCH (inert while Ex=0)",
+        dvr::d3d9ex::managed_name(m), who);
+}
+
 static void OverlaySaveDefaults()
 {
     char ini[MAX_PATH];
@@ -1255,6 +1334,18 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Screen", "RenderHeight", v, ini);
     WritePrivateProfileStringA("Screen", "RenderFullscreen", g_resWantFull ? "1" : "0", ini);
     WritePrivateProfileStringA("Screen", "VirtualMode", g_resVirtual ? "1" : "0", ini);
+    // 41.1 (session 8): the capture mode (off is live-only and is not saved)
+    if (dvr::capture::mode() != dvr::capture::Mode::Off)
+        WritePrivateProfileStringA("Capture", "Mode", dvr::capture::mode_name(), ini);
+    // 41.1 (session 8): the device levers as they were READ this run (the
+    // seam word writes the ask for the next launch; a save must not undo it)
+    {
+        char cur[16] = "";
+        GetPrivateProfileStringA("Device", "Ex", dvr::d3d9ex::ex_wanted() ? "1" : "0", cur, sizeof(cur), ini);
+        WritePrivateProfileStringA("Device", "Ex", cur, ini);
+        GetPrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(dvr::d3d9ex::managed_mode()), cur, sizeof(cur), ini);
+        WritePrivateProfileStringA("Device", "Managed", cur, ini);
+    }
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);

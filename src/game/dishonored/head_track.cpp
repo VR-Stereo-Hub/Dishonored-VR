@@ -488,9 +488,14 @@ static void RotInjectTick()
 }
 
 
+// 41.1 (session 8): every early return names itself, at most once per 5 s -
+// a run that dispatched ProcessViewRotation 90 times a second and wrote
+// nothing (hits=270 writes=0) had no line saying which guard refused.
+#define DVR_HEAD_REFUSE(...) DVR_LOG_EVERY_MS(dvr::log::Cat::head, dvr::log::Level::Info, 5000, __VA_ARGS__)
+
 static void ApplyHeadToViewRotation(void* parms)
 {
-    if (!parms || !RangeReadable(parms, 40)) return;
+    if (!parms || !RangeReadable(parms, 40)) { DVR_HEAD_REFUSE("head: write refused - parms %p unreadable", parms); return; }
 
     // Two different classes declare this event with different signatures:
     //   PlayerController: (float DeltaTime, out Rotator View, out Rotator Delta)
@@ -510,12 +515,15 @@ static void ApplyHeadToViewRotation(void* parms)
     uint32_t rotOff;
     if (f0 > kMinDT && f0 < kMaxDT)      rotOff = 4;
     else if (f4 > kMinDT && f4 < kMaxDT) rotOff = 8;
-    else return;                                     // unknown shape - hands off
+    else {                                           // unknown shape - hands off
+        DVR_HEAD_REFUSE("head: write refused - no DeltaTime at Parms+0 (%g) or +4 (%g): unknown parms shape, hands off", f0, f4);
+        return;
+    }
     int32_t* rot = (int32_t*)((uint8_t*)parms + rotOff);
 
     // second gate: it must actually look like a rotator before we touch it
-    if (rot[0] < -0x30000 || rot[0] > 0x30000) return;   // pitch out of range
-    if (rot[2] < -0x30000 || rot[2] > 0x30000) return;   // roll out of range
+    if (rot[0] < -0x30000 || rot[0] > 0x30000) { DVR_HEAD_REFUSE("head: write refused - pitch %d at Parms+%u out of range (not a rotator?)", rot[0], rotOff); return; }
+    if (rot[2] < -0x30000 || rot[2] > 0x30000) { DVR_HEAD_REFUSE("head: write refused - roll %d at Parms+%u out of range (not a rotator?)", rot[2], rotOff); return; }
 
     static uint32_t loggedOff = 0xffffffffu;
     if (loggedOff != rotOff) {
@@ -551,7 +559,7 @@ static void ApplyHeadToViewRotation(void* parms)
         // first dispatch per presented frame; every later dispatch of the
         // chain is left alone.
         static uint32_t lastFrameOld = 0xffffffffu;
-        if (g_frame == lastFrameOld) return;
+        if (g_frame == lastFrameOld) { DVR_HEAD_REFUSE("head: write skipped - a second dispatch in presented frame %lu (ChainStamp=0)", (unsigned long)g_frame); return; }
         lastFrameOld = g_frame;
     } else if (frNow - frWriteMs < 2.0) {
         if (frHave) {
@@ -568,7 +576,7 @@ static void ApplyHeadToViewRotation(void* parms)
 
     static float prevYaw = 0, prevPitch = 0;
     static bool  havePrev = false;
-    if (!havePrev) { prevYaw = g_hmdYaw; prevPitch = g_hmdPitch; havePrev = true; return; }
+    if (!havePrev) { prevYaw = g_hmdYaw; prevPitch = g_hmdPitch; havePrev = true; Log("head: first dispatch seeds the yaw reference (no write)"); return; }
 
     float dy = g_hmdYaw - prevYaw;
     while (dy >  3.14159265f) dy -= 6.2831853f;

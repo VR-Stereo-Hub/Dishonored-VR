@@ -72,6 +72,17 @@ static uint32_t       g_sdSkipForeign = 0, g_sdSkipState = 0, g_sdSkipSilent = 0
                       g_sdSkipSession = 0, g_sdSkipTest = 0, g_sdSkipExit = 0;
 static uint32_t       g_sdLastExcCode = 0, g_sdLastExcAddr = 0;
 static uint32_t       g_sdCall2Us = 0, g_sdCall2MaxUs = 0;
+// 41.1 (session 8): the game thread's side of the tick budget. Per tick:
+// the period between draw-root entries, pass 1's own call time (call1), the
+// time from the previous tick's last pass returning to this entry (outside =
+// the world tick plus the engine's render-thread sync, which this stub cannot
+// split; the perf line's idle says whether the render thread waits for THIS
+// thread). Window min/max/sum, printed on the beat line.
+static LARGE_INTEGER  g_sdT0Prev = {};          // the previous tick's entry
+static LARGE_INTEGER  g_sdRetPrev = {};         // the previous tick's last pass returning
+static uint32_t       g_sdCall1Us = 0, g_sdCall1MaxUs = 0;
+static uint64_t       g_sdSumPeriodUs = 0, g_sdSumCall1Us = 0, g_sdSumCall2Us = 0, g_sdSumOutsideUs = 0;
+static uint32_t       g_sdMinPeriodUs = UINT32_MAX, g_sdMaxPeriodUs = 0, g_sdBeatTicks = 0;
 static uint32_t       g_sdLastDrawPresent = 0;
 static uint32_t       g_sdLastDrawC5Serial = 0;
 static uint64_t       g_sdBeatMs = 0;
@@ -148,18 +159,30 @@ static void SceneDrawBeat()
     if (now - g_sdBeatMs < 3000) return;
     const double s = (double)(now - g_sdBeatMs) / 1000.0;
     const uint32_t presents = g_frame;
+    const uint32_t n = g_sdBeatTicks ? g_sdBeatTicks : 1;
     Log("reentry: beat draws/s=%.0f 2nd/s=%.0f presents/s=%.0f call2=%u us (max %u) skips foreign=%lu state=%lu "
-        "silent=%lu stall=%lu session=%lu test=%lu exit=%lu drawTid=%lu presentTid=%lu%s%s",
+        "silent=%lu stall=%lu session=%lu test=%lu exit=%lu drawTid=%lu presentTid=%lu%s%s"
+        " | game: period %.1f ms (min %.1f max %.1f) call1=%.1f ms (max %.1f) call2=%.2f (max %.2f) "
+        "outside=%.1f (the world tick + the render-thread sync, unsplit here; the perf line's idle says whether "
+        "the render thread waits for this thread)%s",
         g_sdBeatDraws / s, g_sdBeatSecond / s, (presents - g_sdBeatPresents) / s, g_sdCall2Us, g_sdCall2MaxUs,
         (unsigned long)g_sdSkipForeign, (unsigned long)g_sdSkipState, (unsigned long)g_sdSkipSilent,
         (unsigned long)g_sdSkipStall, (unsigned long)g_sdSkipSession, (unsigned long)g_sdSkipTest,
         (unsigned long)g_sdSkipExit, (unsigned long)g_sdDrawTid, (unsigned long)g_presentTid,
         g_sdArmed ? " gates=once-per-tick" : " (doubling OFF: 2nd/s reads 0 by design)",
-        g_sdPoisoned ? " POISONED" : "");
+        g_sdPoisoned ? " POISONED" : "",
+        g_sdSumPeriodUs / 1000.0 / n, g_sdMinPeriodUs == UINT32_MAX ? 0.0 : g_sdMinPeriodUs / 1000.0,
+        g_sdMaxPeriodUs / 1000.0, g_sdSumCall1Us / 1000.0 / n, g_sdCall1MaxUs / 1000.0,
+        g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdSumOutsideUs / 1000.0 / n,
+        g_sdCall1MaxUs >= 5000 ? " (call1 large: the game thread blocks INSIDE its own draw - render-command "
+                                 "back-pressure)" : "");
     g_sdBeatMs = now;
     g_sdBeatDraws = g_sdBeatSecond = 0;
     g_sdBeatPresents = presents;
     g_sdCall2MaxUs = 0;
+    g_sdCall1MaxUs = 0;
+    g_sdSumPeriodUs = g_sdSumCall1Us = g_sdSumCall2Us = g_sdSumOutsideUs = 0;
+    g_sdMinPeriodUs = UINT32_MAX; g_sdMaxPeriodUs = 0; g_sdBeatTicks = 0;
 }
 
 // One tick's decision, made at depth 0 BEFORE pass 1's tag (game thread only).
@@ -267,9 +290,20 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
     (void)edx;
     const uint32_t callerRet = (uint32_t)(uintptr_t)_ReturnAddress();
     const LONG depth = InterlockedIncrement(&g_sdDepth) - 1;
+    LARGE_INTEGER t0 = {}, t1 = {};
     if (depth == 0) {
         g_sdDrawTid = GetCurrentThreadId();
         ++g_sdDraws; ++g_sdBeatDraws;
+        QueryPerformanceCounter(&t0);
+        const LONGLONG f = g_qpcFreq ? g_qpcFreq : 1;
+        if (g_sdT0Prev.QuadPart) {
+            const uint32_t period = (uint32_t)((t0.QuadPart - g_sdT0Prev.QuadPart) * 1000000 / f);
+            const uint32_t outside = g_sdRetPrev.QuadPart ? (uint32_t)((t0.QuadPart - g_sdRetPrev.QuadPart) * 1000000 / f) : 0;
+            g_sdSumPeriodUs += period; g_sdSumOutsideUs += outside; ++g_sdBeatTicks;
+            if (period < g_sdMinPeriodUs) g_sdMinPeriodUs = period;
+            if (period > g_sdMaxPeriodUs) g_sdMaxPeriodUs = period;
+        }
+        g_sdT0Prev = t0;
         // The tick's ONE decision, before pass 1's tag: the tag is pushed iff
         // pass 2 will run, so a present can never carry a -1 whose +1 sibling
         // was skipped (41.1: the resume-window one-sided stream).
@@ -282,7 +316,14 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
     }
     ((DvrViewportDrawFn)kViewportDraw)(self, NULL, bShouldPresent);
     if (depth == 0) {
+        QueryPerformanceCounter(&t1);
+        g_sdCall1Us = (uint32_t)((t1.QuadPart - t0.QuadPart) * 1000000 / (g_qpcFreq ? g_qpcFreq : 1));
+        if (g_sdCall1Us > g_sdCall1MaxUs) g_sdCall1MaxUs = g_sdCall1Us;
+        g_sdSumCall1Us += g_sdCall1Us;
+        const uint32_t call2Before = g_sdSecondDraws;
         SceneDrawMaybeSecond(self, bShouldPresent, g_sdTick);
+        if (g_sdSecondDraws != call2Before) g_sdSumCall2Us += g_sdCall2Us;
+        QueryPerformanceCounter(&g_sdRetPrev);
         g_sdLastDrawPresent = g_frame;
         g_sdLastDrawC5Serial = dvr::camera::render_pos_serial();
         SceneDrawBeat();

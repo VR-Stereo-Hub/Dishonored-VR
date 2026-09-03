@@ -16,6 +16,8 @@
 //   log flush
 //   cmd                        poll counters and paths
 //   skip <subsystem>           what DVR_SKIP disabled
+//   perf on|off|status|gpu on|off  the tick budget (core/framework/perf): the 3 s tick and gpu lines
+//   mark <text>                stamp a felt freeze in the log with the ring's surroundings (Warn)
 // Everything else: one "cmd: unknown" line.
 #pragma once
 #include <stdint.h>
