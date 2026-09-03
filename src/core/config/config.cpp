@@ -130,6 +130,18 @@ static void WriteDefaultIni(const char* ini)
         "Scale=98\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
+        "[Neck]\n"
+        "; The pitch pivot (41.1). A real head pitches about a point below and behind the\n"
+        "; eyes, so looking up or down moves the eye on an arc. Mode=off|add|cancel, under\n"
+        "; a projection layer only: off = the tracked displacement alone (ships); add = the\n"
+        "; modelled arc is ADDED (a rig without positional tracking, or an arc the tracking is\n"
+        "; not supplying); cancel = the arc is SUBTRACTED, for an engine that already pitches\n"
+        "; its camera about its own neck (then PivotBelowM/PivotBehindM hold the ENGINE's\n"
+        "; numbers, measured by `camera pitchtest`). `neck off|add|cancel [below] [behind]`\n"
+        "; switches live; F10 Comfort has the buttons and sliders.\n"
+        "Mode=off\n"
+        "PivotBelowM=0.11\n"
+        "PivotBehindM=0.09\n"
         "[MotionAim]\n"
         "; Stage 7.3: hand-aimed projectile weapons (crossbow bolts, pistol\n"
         "; bullets, grenades). After you pull the fire trigger, the freshly\n"
@@ -383,6 +395,21 @@ static void LoadConfig()
     if (g_posMaxM < 0.05f) g_posMaxM = 0.05f;
     if (g_posMaxM > 2.0f)  g_posMaxM = 2.0f;
     g_posFlipX   = IniFloat(ini, "PosTrack", "FlipX", 0) != 0.0f;
+    {   // 41.1 [Neck]: the pitch pivot lever (default off; an unknown mode logs and stays off)
+        char nm[16] = "";
+        GetPrivateProfileStringA("Neck", "Mode", "off", nm, sizeof(nm), ini);
+        int mode = !_stricmp(nm, "add") ? 1 : !_stricmp(nm, "cancel") ? 2 : 0;
+        if (mode == 0 && _stricmp(nm, "off") != 0 && nm[0])
+            Log("config: [Neck] Mode='%s' unknown (off|add|cancel) - off", nm);
+        g_neckMode = mode;
+        g_neckBelowM = IniFloat(ini, "Neck", "PivotBelowM", 0.11f);
+        g_neckBehindM = IniFloat(ini, "Neck", "PivotBehindM", 0.09f);
+        if (g_neckBelowM < 0.0f) g_neckBelowM = 0.0f;   if (g_neckBelowM > 0.5f) g_neckBelowM = 0.5f;
+        if (g_neckBehindM < 0.0f) g_neckBehindM = 0.0f; if (g_neckBehindM > 0.5f) g_neckBehindM = 0.5f;
+        if (mode)
+            Log("config: [Neck] Mode=%s PivotBelowM=%.3f PivotBehindM=%.3f (the pitch pivot lever, projection only)",
+                nm, g_neckBelowM, g_neckBehindM);
+    }
     g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
     g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
     g_padDeadzone = IniFloat(ini, "Controllers", "Deadzone", 0.12f);
@@ -1184,6 +1211,12 @@ static void OverlaySaveDefaults()
             WritePrivateProfileStringA("VRHands", k, v, ini);
         } }
 
+    // 41.1: the [Neck] lever
+    WritePrivateProfileStringA("Neck", "Mode", NeckModeName(g_neckMode), ini);
+    _snprintf(v, 64, "%.3f", g_neckBelowM);
+    WritePrivateProfileStringA("Neck", "PivotBelowM", v, ini);
+    _snprintf(v, 64, "%.3f", g_neckBehindM);
+    WritePrivateProfileStringA("Neck", "PivotBehindM", v, ini);
     // 41.1: the [Pace] levers, so a headset run's choice survives the session
     _snprintf(v, 64, "%d", dvr::vr::pace_ahead());
     WritePrivateProfileStringA("Pace", "Ahead", v, ini);

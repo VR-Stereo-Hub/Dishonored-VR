@@ -17,6 +17,8 @@ static void SceneDrawSetArmed(bool on);
 static bool SceneDrawPoisoned();
 static uint32_t SceneDrawDraws();
 static void SceneDrawGates(uint32_t out[8]);   // 41.1: the pass-2 skip counters for the stale-eye line
+static const char* NeckModeName(int mode);     // 41.1: the [Neck] lever
+static void NeckSet(int mode, float belowM, float behindM, const char* who);
 static void SceneDrawStatus(dvr::status::Writer& w);
 static bool SceneDrawCommand(const char* args);
 static bool DvrGameplayVerdict();

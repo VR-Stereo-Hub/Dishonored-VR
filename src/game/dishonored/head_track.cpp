@@ -632,6 +632,36 @@ static void ApplyHeadToViewRotation(void* parms)
 }
 
 
+// 41.1 [Neck]: the lever's one setter - clamps, stores and logs the derived
+// numbers at the CURRENT pitch/roll so a headset run's log says what changed.
+static const char* NeckModeName(int mode) { return mode == 1 ? "add" : mode == 2 ? "cancel" : "off"; }
+static void NeckSet(int mode, float belowM, float behindM, const char* who)
+{
+    if (mode < 0) mode = 0;
+    if (mode > 2) mode = 2;
+    if (belowM < 0.0f) belowM = 0.0f;
+    if (belowM > 0.5f) belowM = 0.5f;
+    if (behindM < 0.0f) behindM = 0.0f;
+    if (behindM > 0.5f) behindM = 0.5f;
+    const int was = g_neckMode;
+    g_neckMode = mode; g_neckBelowM = belowM; g_neckBehindM = behindM;
+    // the arc at the current pitch, for the line (pitch only: the publish block does the full pose)
+    const float th = g_hmdPitch, b = belowM, f = behindM;
+    const float up = (b * (cosf(th) - 1.0f) + f * sinf(th)) * g_posScaleUU;
+    const float fwd = (f * (cosf(th) - 1.0f) - b * sinf(th)) * g_posScaleUU;
+    const float s = mode == 2 ? -1.0f : mode == 1 ? 1.0f : 0.0f;
+    Log("neck: mode %s -> %s (by %s), pivot below %.3f m behind %.3f m at %.0f uu/m: at pitch %+.1f roll %+.1f deg "
+        "the modelled arc is U%+.2f F%+.2f uu - %s%s",
+        NeckModeName(was), NeckModeName(mode), who ? who : "?", belowM, behindM, g_posScaleUU,
+        g_hmdPitch * 57.29578f, g_hmdRoll * 57.29578f, up * s, fwd * s,
+        mode == 0 ? "no term: the tracked displacement alone"
+        : mode == 1 ? "ADDED to the tracked displacement (alone with positional tracking off): the eye rides an arc "
+                      "the tracking is not supplying"
+                    : "SUBTRACTED from the tracked displacement: the engine pitches about its own neck, so the "
+                      "tracked arc must not be applied twice (set the pivot to the pitchtest's numbers)",
+        dvr::stereo::wants_projection() ? "" : " (inert now: the quad screen has no projection pose to agree with)");
+}
+
 static void TrackHead(const float (*m)[4])
 {
     // (30.8 key diet: F8 mouse-look toggle retired - F3 owns head tracking,
@@ -887,13 +917,38 @@ static void TrackHead(const float (*m)[4])
         // projection layer the seam gets the RAW head displacement (right, up,
         // forward in the head-yaw frame, world scale) - the compositor's own
         // expectation - instead of the tuned lean.
+        // 41.1 [Neck]: the modelled arc of the eye about a pivot below/behind it,
+        // from the head's ROTATION (the pose matrix), in the same head-yaw frame
+        // as the raw displacement. Device axes: x right, y up, z back; the
+        // pivot-to-eye vector at pitch zero is v0 = (0, below, -behind).
+        //   R_head * v0 = below * m[:,1] - behind * m[:,2]        (LOCAL, metres)
+        //   R_yaw  * v0 = (behind sin yaw, below, -behind cos yaw) (the yaw-only pose)
+        //   arc = R_head*v0 - R_yaw*v0, then right/up/forward like rawD above.
+        // Zero unless a projection layer is up and the mode is on; published on
+        // the heartbeat and status.json so a headset run can read what it added.
+        float neckR = 0.0f, neckU = 0.0f, neckF = 0.0f;
+        if (g_neckMode != 0 && dvr::stereo::wants_projection()) {
+            const float b = g_neckBelowM, f = g_neckBehindM;
+            const float hx = b * m[0][1] - f * m[0][2], hy = b * m[1][1] - f * m[1][2], hz = b * m[2][1] - f * m[2][2];
+            const float cyw = cosf(yaw), syw = sinf(yaw);
+            const float yx = f * syw, yy = b, yz = -f * cyw;
+            const float dx = hx - yx, dy = hy - yy, dz = hz - yz;
+            neckR = (dx * cyw + dz * syw) * g_posScaleUU;
+            neckU = dy * g_posScaleUU;
+            neckF = (dx * syw - dz * cyw) * g_posScaleUU;
+            if (g_neckMode == 2) { neckR = -neckR; neckU = -neckU; neckF = -neckF; }
+        }
+        g_neckArcUu[0] = neckR; g_neckArcUu[1] = neckU; g_neckArcUu[2] = neckF;
         if (!g_posTrack) {
-            dvr::camera::set_position_offset_uu(0.0f, 0.0f, 0.0f);   // off = zero on both lanes
+            // off = zero on both lanes; with the neck ADDED the arc alone rides
+            // the seam (a 3DoF rig gets a neck it never had)
+            dvr::camera::set_position_offset_uu(g_neckMode == 1 ? neckR : 0.0f, g_neckMode == 1 ? neckU : 0.0f,
+                                                g_neckMode == 1 ? neckF : 0.0f);
         } else if (dvr::stereo::wants_projection()) {
             const float cyw = cosf(yaw), syw = sinf(yaw);
-            dvr::camera::set_position_offset_uu((rawDx*cyw + rawDz*syw) * g_posScaleUU,
-                                                rawDy * g_posScaleUU,
-                                                (rawDx*syw - rawDz*cyw) * g_posScaleUU);
+            dvr::camera::set_position_offset_uu((rawDx*cyw + rawDz*syw) * g_posScaleUU + neckR,
+                                                rawDy * g_posScaleUU + neckU,
+                                                (rawDx*syw - rawDz*cyw) * g_posScaleUU + neckF);
         } else {
             dvr::camera::set_position_offset_uu((float)g_leanRightUU, (float)g_leanUpUU, (float)g_leanFwdUU);
         }

@@ -57,6 +57,21 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "neck")) {
+        // 41.1: `neck off|add|cancel [below] [behind]` - the pitch pivot lever (head_track.cpp NeckSet)
+        char mode[16] = "";
+        float below = g_neckBelowM, behind = g_neckBehindM;
+        const int n = sscanf(args, "%15s %f %f", mode, &below, &behind);
+        if (n >= 1) {
+            const int m = !_stricmp(mode, "off") ? 0 : !_stricmp(mode, "add") ? 1 : !_stricmp(mode, "cancel") ? 2 : -1;
+            if (m < 0) { Log("neck: off|add|cancel [below m] [behind m] (now %s %.3f/%.3f)", NeckModeName(g_neckMode), g_neckBelowM, g_neckBehindM); return true; }
+            NeckSet(m, below, behind, "seam");
+            return true;
+        }
+        Log("neck: mode %s, pivot below %.3f m behind %.3f m, arc now R%+.1f U%+.1f F%+.1f uu (neck off|add|cancel [below] [behind])",
+            NeckModeName(g_neckMode), g_neckBelowM, g_neckBehindM, g_neckArcUu[0], g_neckArcUu[1], g_neckArcUu[2]);
+        return true;
+    }
     if (!strcmp(cmd, "postrack")) {
         char sub[16] = "", lane[16] = "";
         if (sscanf(args, "%15s %15s", sub, lane) == 2 && !strcmp(sub, "lane")) {
@@ -254,6 +269,11 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("tracked", (bool)g_devPoseOk[0]);
     w.kv("rotInject", (bool)g_rotInject); w.kv("posTrack", (bool)g_posTrack);
     w.kv("scriptHeadOK", (bool)g_scriptHeadOK);
+    w.end_obj();
+    w.obj("neck");   // 41.1: the pitch pivot lever
+    w.kv("mode", NeckModeName(g_neckMode));
+    w.kv("belowM", (double)g_neckBelowM); w.kv("behindM", (double)g_neckBehindM);
+    w.kv("arcRightUu", (double)g_neckArcUu[0]); w.kv("arcUpUu", (double)g_neckArcUu[1]); w.kv("arcFwdUu", (double)g_neckArcUu[2]);
     w.end_obj();
     w.arr("hands");
     for (int h = 0; h < 2; h++) {

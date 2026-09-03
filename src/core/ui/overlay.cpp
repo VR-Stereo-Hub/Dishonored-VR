@@ -112,6 +112,30 @@ static void OverlayFrame()
         if (!pt) { g_leanRightUU = 0; g_leanUpUU = 0; g_leanFwdUU = 0; }
     }
 
+    // 41.1 [Neck]: the pitch pivot three-way, here because the tester is in a
+    // headset. Look up and down at something an arm's length away after each
+    // button: with the right mode it stays put.
+    ImGui::Separator();
+    ImGui::TextUnformatted("neck (pitch pivot)");
+    {
+        ImGui::Text("now: %s | arc R%+.1f U%+.1f F%+.1f uu at pitch %+.0f deg", NeckModeName(g_neckMode),
+                    g_neckArcUu[0], g_neckArcUu[1], g_neckArcUu[2], g_hmdPitch * 57.29578f);
+        if (ImGui::Button("off"))    NeckSet(0, g_neckBelowM, g_neckBehindM, "F10 Comfort");
+        ImGui::SameLine();
+        if (ImGui::Button("add"))    NeckSet(1, g_neckBelowM, g_neckBehindM, "F10 Comfort");
+        ImGui::SameLine();
+        if (ImGui::Button("cancel")) NeckSet(2, g_neckBelowM, g_neckBehindM, "F10 Comfort");
+        float below = g_neckBelowM, behind = g_neckBehindM;
+        ImGui::SliderFloat("pivot below eyes (m)", &below, 0.0f, 0.30f, "%.3f");
+        if (ImGui::IsItemDeactivatedAfterEdit()) NeckSet(g_neckMode, below, g_neckBehindM, "F10 Comfort slider");
+        else g_neckBelowM = below;
+        ImGui::SliderFloat("pivot behind eyes (m)", &behind, 0.0f, 0.30f, "%.3f");
+        if (ImGui::IsItemDeactivatedAfterEdit()) NeckSet(g_neckMode, g_neckBelowM, behind, "F10 Comfort slider");
+        else g_neckBehindM = behind;
+        ImGui::TextDisabled("look up and down at something an arm's length away: with the right mode it stays put");
+        ImGui::TextDisabled("`camera pitchtest` measures the engine's own neck; use those numbers with cancel");
+    }
+
     ImGui::EndTabItem(); }
 
     // 38.61 ship polish: blink is a finished feature with good defaults -

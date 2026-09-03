@@ -100,6 +100,19 @@ static bool  g_posTrack   = true;     // ini [PosTrack] Enabled, F4 toggle
 static float g_posScaleUU = 50.0f;    // game units per meter (UE3 ~1uu=2cm)
 static bool  g_posFlipX   = false;    // ini escape hatch if lean X is inverted
 static float g_posMaxM    = 0.80f;    // clamp radius in meters (safety)
+// 41.1 [Neck]: the pitch pivot lever (docs/KNOWN_ISSUES: looking up or down
+// pitched about a point behind the eyes). A real head pitches about a point
+// below and behind the eyes, so pitching translates the eye on an arc; the
+// term models that arc from the tracked head ROTATION. Mode 0 off (the tracked
+// displacement alone), 1 add (the arc added: a rig without positional tracking,
+// or an arc the tracking is not supplying), 2 cancel (the arc SUBTRACTED from
+// the tracked displacement: the engine pitches about its own neck, so the
+// tracked arc must not be applied twice - the pivot then holds the ENGINE's
+// numbers from `camera pitchtest`). Under a projection layer only.
+static int   g_neckMode    = 0;
+static float g_neckBelowM  = 0.11f;   // the pivot below the eyes, metres
+static float g_neckBehindM = 0.09f;   // the pivot behind the eyes, metres
+static volatile float g_neckArcUu[3] = {0, 0, 0};   // the last term: right, up, forward (uu)
 // 38.46 ROOMSCALE. Positional tracking was LEAN only: your real-world offset
 // slid the CAMERA, clamped to MaxMeters, and the pawn never moved - so every
 // real step drifted you off-centre until you recentred by hand. Real
