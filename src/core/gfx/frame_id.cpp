@@ -31,6 +31,8 @@ struct Record {
     int      tag = 0;
     bool     c5Ok = false;
     float    c5[3] = {0, 0, 0};
+    bool     rightOk = false;
+    float    right[3] = {0, 0, 0};   // the camera's right row at the grab (the side check)
     int      slot = -1;
     int      scTarget = -1;
     uint32_t scIndex = 0;
@@ -49,6 +51,8 @@ uint32_t g_lastEval = 0;
 bool     g_lastEvalInit = false;
 float    g_pendingC5[3] = {0, 0, 0};
 bool     g_pendingC5Ok = false;
+float    g_pendingRight[3] = {0, 0, 0};
+bool     g_pendingRightOk = false;
 
 // ---- stage bb: the D3D9 ring -----------------------------------------------
 IDirect3DDevice9*  g_dev9 = nullptr;
@@ -82,6 +86,12 @@ float    g_lastDiff[kStages] = {};
 double   g_floorSumWindow = 0.0; uint32_t g_floorN = 0;
 double   g_c5SumWindow = 0.0; uint32_t g_c5N = 0;
 uint32_t g_slotRepeats = 0, g_scRepeats = 0;
+// the side check: pairs whose +1 present's c5 sat on the wrong side of the -1's
+// along the camera's right row (the tags swapped against the draws)
+uint32_t g_swapped = 0, g_swappedWindow = 0, g_sideUnknownWindow = 0;
+// the picture's side: pairs whose best shift put the right eye's content
+// right of the left eye's (positive), left (negative), or nowhere (0)
+uint32_t g_shiftPosWindow = 0, g_shiftNegWindow = 0, g_shiftZeroWindow = 0;
 int      g_lastSlot = -2, g_lastScTarget = -2;
 uint64_t g_summaryMs = 0;
 // the state: how many pairs in a row read as one picture / two pictures at stage bb
@@ -115,6 +125,34 @@ float mean_abs_diff(const uint8_t* a, const uint8_t* b) {
     uint32_t s = 0;
     for (uint32_t i = 0; i < kPixels; ++i) s += (uint32_t)(a[i] > b[i] ? a[i] - b[i] : b[i] - a[i]);
     return (float)s / (float)kPixels;
+}
+
+// The picture's own side check: the horizontal shift s (thumbnail px) that
+// best maps L onto R, i.e. R[x + s] ~ L[x] over the overlap. A true pair
+// puts the right eye's content LEFT of the left eye's (negative s); the
+// convention-free answer to "which draw was the left eye". Returns the best
+// s in [-kShiftMax, kShiftMax] and the mean difference there.
+constexpr int kShiftMax = 6;
+int best_shift(const uint8_t* l, const uint8_t* r, float* diffAt) {
+    int bestS = 0;
+    float best = 1e9f;
+    for (int s = -kShiftMax; s <= kShiftMax; ++s) {
+        uint32_t sum = 0, n = 0;
+        for (uint32_t y = 0; y < kThumb; ++y) {
+            const uint8_t* lr = l + y * kThumb;
+            const uint8_t* rr = r + y * kThumb;
+            const int x0 = s < 0 ? -s : 0, x1 = s > 0 ? (int)kThumb - s : (int)kThumb;
+            for (int x = x0; x < x1; ++x) {
+                const int a = lr[x], b = rr[x + s];
+                sum += (uint32_t)(a > b ? a - b : b - a);
+                ++n;
+            }
+        }
+        const float m = n ? (float)sum / (float)n : 1e9f;
+        if (m < best) { best = m; bestS = s; }
+    }
+    if (diffAt) *diffAt = best;
+    return bestS;
 }
 
 void store(Record& r, Stage st, const uint8_t* rows, uint32_t pitch, int rAt) {
@@ -268,8 +306,10 @@ void summary(const char* prefix) {
         else
             n += _snprintf(buf + n, sizeof(buf) - n, " %s=none", kStageName[s]);
     }
-    n += _snprintf(buf + n, sizeof(buf) - n, " | same-eye floor bb=%.1f (%u) | c5 |d| mean=%.2f (%u)",
-                   g_floorN ? g_floorSumWindow / g_floorN : 0.0, g_floorN, g_c5N ? g_c5SumWindow / g_c5N : 0.0, g_c5N);
+    n += _snprintf(buf + n, sizeof(buf) - n, " | same-eye floor bb=%.1f (%u) | c5 |d| mean=%.2f (%u) side SWAPPED=%u unknown=%u"
+                   " | picture shift neg=%u (R content left of L: a true pair) pos=%u (swapped) none=%u",
+                   g_floorN ? g_floorSumWindow / g_floorN : 0.0, g_floorN, g_c5N ? g_c5SumWindow / g_c5N : 0.0, g_c5N,
+                   g_swappedWindow, g_sideUnknownWindow, g_shiftNegWindow, g_shiftPosWindow, g_shiftZeroWindow);
     n += _snprintf(buf + n, sizeof(buf) - n, " | busy reads bb=%u slot=%u out=%u sc=%u (blocked %u/%u/%u/%u) missing %u/%u/%u/%u",
                    g_busy[0], g_busy[1], g_busy[2], g_busy[3], g_blocked[0], g_blocked[1], g_blocked[2], g_blocked[3],
                    g_missing[0], g_missing[1], g_missing[2], g_missing[3]);
@@ -286,6 +326,8 @@ void window_reset() {
         g_diffMinWindow[s] = 0.0f; g_diffMaxWindow[s] = 0.0f;
     }
     g_floorSumWindow = 0.0; g_floorN = 0; g_c5SumWindow = 0.0; g_c5N = 0;
+    g_swappedWindow = 0; g_sideUnknownWindow = 0;
+    g_shiftPosWindow = g_shiftNegWindow = g_shiftZeroWindow = 0;
 }
 
 void judge_pair(const Record& l, const Record& r, uint32_t serialL) {
@@ -313,12 +355,32 @@ void judge_pair(const Record& l, const Record& r, uint32_t serialL) {
     }
     ++g_pairs; ++g_pairsWindow;
     if (floorBb >= 0.0f) { g_floorSumWindow += floorBb; ++g_floorN; }
+    // the picture's side, at the first stage both have
+    int shift = 0; float shiftDiff = -1.0f; int shiftStage = -1;
+    for (int s = 0; s < kStages && shiftStage < 0; ++s) if (have[s]) shiftStage = s;
+    if (shiftStage >= 0) {
+        shift = best_shift(l.luma[shiftStage], r.luma[shiftStage], &shiftDiff);
+        if (shift < 0) ++g_shiftNegWindow; else if (shift > 0) ++g_shiftPosWindow; else ++g_shiftZeroWindow;
+    }
     float c5d = -1.0f;
+    // The side check. The field holds the POSITION and c5 is its negation
+    // (camera.cpp, kFields: sign +1, c5Sign -1); the writer puts eye +1 at
+    // +ipd/2 along the camera's right row. So c5(+1) - c5(-1) must sit at
+    // -ipd*scale ALONG RIGHT: a positive component means the +1 tag rode the
+    // left eye's draw (the tags swapped against the draws).
+    const char* side = "?";
+    float along = 0.0f;
     if (l.c5Ok && r.c5Ok) {
         const float dx = r.c5[0] - l.c5[0], dy = r.c5[1] - l.c5[1], dz = r.c5[2] - l.c5[2];
         c5d = sqrtf(dx * dx + dy * dy + dz * dz);
         g_c5SumWindow += c5d; ++g_c5N;
-    }
+        if (l.rightOk && c5d > 0.5f) {
+            along = dx * l.right[0] + dy * l.right[1] + dz * l.right[2];
+            if (along < -0.5f * c5d) side = "ok";
+            else if (along > 0.5f * c5d) { side = "SWAPPED"; ++g_swapped; ++g_swappedWindow; }
+            else ++g_sideUnknownWindow;
+        } else ++g_sideUnknownWindow;
+    } else ++g_sideUnknownWindow;
     char sums[2][kStages][12];
     for (int e = 0; e < 2; ++e)
         for (int s = 0; s < kStages; ++s) {
@@ -333,12 +395,19 @@ void judge_pair(const Record& l, const Record& r, uint32_t serialL) {
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
                      "stereo: frameid #%u [-1] c5=(%.1f %.1f %.1f) slot%d bb=%s slot=%s out=%s sc%d=%s | #%u [+1] "
                      "c5=(%.1f %.1f %.1f) slot%d bb=%s slot=%s out=%s sc%d=%s | L-R diff bb=%s slot=%s out=%s sc=%s "
-                     "(c5 |d| %.2f uu) | same-eye floor bb=%.1f (this L vs the previous L; one picture = below %.1f) "
-                     "| first one-picture stage: %s",
+                     "(c5 |d| %.2f uu, %+.2f along right: side %s) | picture shift %+d px at %s (diff %.1f there; R content "
+                     "LEFT of L = negative = a true pair) | same-eye floor bb=%.1f (this L vs the previous L; "
+                     "one picture = below %.1f) | first one-picture stage: %s",
                      l.serial, l.c5[0], l.c5[1], l.c5[2], l.slot, sums[0][0], sums[0][1], sums[0][2], l.scTarget, sums[0][3],
                      r.serial, r.c5[0], r.c5[1], r.c5[2], r.slot, sums[1][0], sums[1][1], sums[1][2], r.scTarget, sums[1][3],
-                     d[0], d[1], d[2], d[3], c5d, floorBb, sameBelow,
-                     firstSame < 0 ? "none (two pictures at every stage read)" : kStageName[firstSame]);
+                     d[0], d[1], d[2], d[3], c5d, along, side, shift, shiftStage >= 0 ? kStageName[shiftStage] : "-", shiftDiff,
+                     floorBb, sameBelow, firstSame < 0 ? "none (two pictures at every stage read)" : kStageName[firstSame]);
+
+    if (side[0] == 'S')
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                         "stereo: frameid EYES SWAPPED - the +1 present's c5 sits %+.2f uu along right of the -1's (a right "
+                         "eye sits at -ipd*scale): the tags rode the other draw (serials %u/%u; %u swapped pairs so far)",
+                         along, l.serial, r.serial, g_swapped);
     // the state CHANGE at stage bb (or the first stage both had, when bb is not there)
     int judgeStage = have[kBb] ? kBb : have[kSlot] ? kSlot : have[kOut] ? kOut : have[kSc] ? kSc : -1;
     if (judgeStage >= 0) {
@@ -367,9 +436,11 @@ void set_enabled(bool on) {
 }
 bool enabled() { return g_enabled; }
 
-void note_c5(const float c5[3], bool ok) {
+void note_c5(const float c5[3], bool ok, const float right[3], bool rightOk) {
     g_pendingC5Ok = ok && c5 != nullptr;
     if (g_pendingC5Ok) memcpy(g_pendingC5, c5, sizeof(g_pendingC5));
+    g_pendingRightOk = rightOk && right != nullptr;
+    if (g_pendingRightOk) memcpy(g_pendingRight, right, sizeof(g_pendingRight));
 }
 
 void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t serial, int tag) {
@@ -377,8 +448,9 @@ void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t ser
     Record& r = rec_for(serial);
     r.used = true; r.serial = serial; r.tag = tag;
     r.c5Ok = g_pendingC5Ok; memcpy(r.c5, g_pendingC5, sizeof(r.c5));
+    r.rightOk = g_pendingRightOk; memcpy(r.right, g_pendingRight, sizeof(r.right));
     r.slot = -1; r.scTarget = -1; r.scIndex = 0; r.mask = 0; r.tried = 0;
-    g_pendingC5Ok = false;
+    g_pendingC5Ok = false; g_pendingRightOk = false;
     if (g_bbDead || !dev || !bb || !ensure9(dev)) return;
     read9(serial);
     const uint32_t k = serial % kRing;
@@ -439,12 +511,17 @@ void stage_swapchain(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2
     g_serial11[kSc][k] = g_curSerial; g_issued11[kSc][k] = true;
 }
 
-void present_tick() {
-    if (!g_enabled || !g_curValid) return;
+void begin_present() {
+    // The previous present's delivery is over (its sc stage ran in the
+    // runtime's tail, after the method returned); nothing is current until
+    // note_delivery says so.
+    const bool had = g_curValid;
     g_curValid = false;
+    if (!g_enabled || !had) return;
     // Judge every serial old enough for all four reads to have been attempted
     // (the sc read for serial e happens at delivered serial e + kReadBack).
     if (g_curSerial < kReadBack + 2) return;
+
     const uint32_t upTo = g_curSerial - kReadBack - 1;
     if (!g_lastEvalInit) { g_lastEval = upTo > 0 ? upTo - 1 : 0; g_lastEvalInit = true; }
     if (upTo <= g_lastEval) return;
@@ -459,7 +536,16 @@ void present_tick() {
     g_lastEval = upTo;
     const uint64_t now = GetTickCount64();
     if (g_summaryMs == 0) g_summaryMs = now;
-    else if (now - g_summaryMs >= 3000) { summary("3s:"); window_reset(); g_summaryMs = now; }
+    else if (now - g_summaryMs >= 3000) {
+        // An empty window (the quad screen, an untagged stream) prints once
+        // per 30 s, not every 3 s: the zero is by design there.
+        static uint64_t emptySaidMs = 0;
+        if (g_pairsWindow || emptySaidMs == 0 || now - emptySaidMs >= 30000) {
+            summary(g_pairsWindow ? "3s:" : "30s (0 pairs):");
+            if (!g_pairsWindow) emptySaidMs = now;
+        }
+        window_reset(); g_summaryMs = now;
+    }
 }
 
 void on_reset() { release9(); }
@@ -486,6 +572,8 @@ void status(dvr::status::Writer& w) {
     }
     w.kv("slotRepeats", (unsigned long)g_slotRepeats);
     w.kv("scRepeats", (unsigned long)g_scRepeats);
+    w.kv("swapped", (unsigned long)g_swapped);
+
 }
 
 } // namespace dvr::frameid

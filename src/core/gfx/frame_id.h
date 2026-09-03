@@ -55,9 +55,16 @@ void set_enabled(bool on);
 bool enabled();
 
 // Present thread, in this order per present:
+//  0. the method, first thing: the previous present's delivery is closed (its
+//     sc stage ran in the runtime's tail, after the method returned), the
+//     serials old enough are judged, the lines print
+void begin_present();
 //  1. the method, before capture::grab: the c5 the constant hook saw for the
-//     frame the game just drew (the grab attaches it to its serial)
-void note_c5(const float c5[3], bool ok);
+//     frame the game just drew (the grab attaches it to its serial), and the
+//     camera's right row for the side check (a +1 present's c5 must sit at
+//     -ipd*scale along it: the other sign = the tags rode the other draw)
+void note_c5(const float c5[3], bool ok, const float right[3], bool rightOk);
+
 //  2. capture::grab, right after the backbuffer is fetched: stage bb for
 //     grab `serial` with the tag the method attached
 void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t serial, int tag);
@@ -69,9 +76,7 @@ void stage_out(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResource
 //  4. the runtime, after CopyResource into the acquired swapchain image and
 //     before its release: stage sc for the serial note_delivery named
 void stage_swapchain(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* image, int target, uint32_t index);
-//  5. the method, once per present after the stages: the reads three presents
-//     back, the pair judgement, the lines
-void present_tick();
+
 
 void on_reset();     // the D3D9 ring goes (default pool) before the device resets
 void shutdown();

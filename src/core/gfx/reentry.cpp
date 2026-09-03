@@ -198,6 +198,7 @@ public:
             return false;
         }
         stale_check();
+        dvr::frameid::begin_present();   // 41.1 (session 9): the previous present's trace closes, its pairs are judged
         if (!d.dev9 || !d.dev11 || !d.ctx11) return false;
         if (!blit_.init(d.dev11)) return false;
         // The tag for the frame the game just drew, checked against its c5.
@@ -285,7 +286,12 @@ public:
             ++g_tagUntagged;
         }
         dvr::capture::set_pending_tag(eye);
-        dvr::frameid::note_c5(c5now, haveC5);   // 41.1 (session 9): the camera of the draw the grab will take
+        {   // 41.1 (session 9): the camera of the draw the grab will take, and its right row
+            float bf[3], br[3], bu[3];
+            const bool basisOk = dvr::camera::last_basis(bf, br, bu);
+            dvr::frameid::note_c5(c5now, haveC5, br, basisOk);
+        }
+
         const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
         ID3D11ShaderResourceView* src = dvr::capture::srv();
         if (!src) return false;
@@ -305,7 +311,7 @@ public:
             dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
             drawnOnce_ = true;
         }
-        dvr::frameid::present_tick();
+
         // 41.1 (session 8): a grab that delivered NOTHING (a mode switch's first
         // present, a Reset, capture off) leaves texture() re-showing the last
         // frame; its tag is the previous present's and must not be pushed
