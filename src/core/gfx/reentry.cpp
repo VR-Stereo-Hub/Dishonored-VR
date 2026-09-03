@@ -130,6 +130,7 @@ public:
             const uint32_t dUntagged = g_tagUntagged - lastUntagged_;
             const uint32_t dNoFrame = g_tagNoFrame - lastNoFrame_;
             const uint32_t dAbortLeft = pp.abortLeft - lastProbe_.abortLeft;
+            const uint32_t dEaten = pp.eatenNoFrame - lastProbe_.eatenNoFrame;
             // The game thread's skip counters can lag this present by a tick;
             // a second LEFT tag closing a pair (abortLeft) is the runtime's own
             // evidence of the same one-sided stream and needs no lag.
@@ -138,6 +139,8 @@ public:
                 : dAbortLeft ? "a second -1 tag closed the pair (the game side skipped pass 2; its counters lag a "
                                "tick, read forced/stall/state on the next line)"
                 : (dAcq || dWait) ? "the runtime's swapchain path (acquire/wait failed, the release still ran)"
+                : dEaten ? "a frame-less present ate the tag (the runtime opened no XR frame for it: the pace guard "
+                           "while not FOCUSED, a session hold, or a pace-thread timeout; the sibling stood alone)"
                 : dUntagged ? "a present that delivered no tag (a frame-less present ate its sibling's tag)"
                 : dNoFrame ? "a present whose grab delivered no frame went out untagged (a capture mode switch, a "
                              "Reset, capture off) and its sibling stood alone"
@@ -147,11 +150,11 @@ public:
                              "stereo: STALE %c EYE in a stereo submit - owner: %s | ages L=%u R=%u presents (the runtime "
                              "shows each eye swapchain's last released image; healthy = 1/0) | pass-2 skips since the "
                              "last line: foreign=%u state=%u silent=%u stall=%u session=%u test=%u exit=%u forced=%u | runtime: "
-                             "acqFail=%u waitFail=%u untaggedProj=%u abortLeft=%u | method untagged presents=%u "
-                             "noFrame=%u | stale submits so far L=%u R=%u | strict=%s",
+                             "acqFail=%u waitFail=%u untaggedProj=%u abortLeft=%u eatenNoFrame=%u | method untagged "
+                             "presents=%u noFrame=%u | stale submits so far L=%u R=%u | strict=%s",
                              eye, owner, pp.agePresL, pp.agePresR, dg[0], dg[1], dg[2], dg[3], dg[4], dg[5], dg[6], dg[7],
                              dAcq, dWait, pp.untaggedProj - lastProbe_.untaggedProj,
-                             pp.abortLeft - lastProbe_.abortLeft, dUntagged, dNoFrame, pp.stalePresL, pp.stalePresR,
+                             pp.abortLeft - lastProbe_.abortLeft, dEaten, dUntagged, dNoFrame, pp.stalePresL, pp.stalePresR,
                              dvr::vr::pair_strict() ? "on (the held eye was replaced by the fresh one)" : "off");
         }
         lastStale_ = stale; lastStaleInit_ = true;

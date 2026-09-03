@@ -196,10 +196,11 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
             const uint32_t submits = p.stereoSubmits - q.stereoSubmits;
             DVR_INFO("stereo: eyes ageL=%u ageR=%u presents at the last stereo submit (max this window L=%u R=%u; "
                      "healthy 1/0) | stereoSubmits=%u pairs=%u aborts=%u (left=%u untagged=%u expired=%u) "
-                     "staleEye L=%u R=%u | window %.0f s%s",
+                     "staleEye L=%u R=%u eaten=%u | window %.0f s%s",
                      p.agePresL, p.agePresR, p.agePresMaxL, p.agePresMaxR, submits, p.pairs - q.pairs,
                      p.aborts - q.aborts, p.abortLeft - q.abortLeft, p.abortUntagged - q.abortUntagged,
-                     p.abortExpired - q.abortExpired, p.stalePresL - q.stalePresL, p.stalePresR - q.stalePresR, s,
+                     p.abortExpired - q.abortExpired, p.stalePresL - q.stalePresL, p.stalePresR - q.stalePresR,
+                     p.eatenNoFrame - q.eatenNoFrame, s,
                      submits == 0 ? " (stereoSubmits 0 this window: the quad screen or an untagged stream - "
                                     "the ages read 0 by design)" : "");
         }
