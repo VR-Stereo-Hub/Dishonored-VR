@@ -87,6 +87,13 @@ enum class Mode { Sync = 0, Deferred = 1, Shared = 2, Off = 3 };
 bool        set_mode(const char* name);   // "sync" | "deferred" | "shared" | "off"
 Mode        mode();
 const char* mode_name();
+// 41.1 (session 9): `capture reinit` - release and rebuild the mode's slots
+// (shared: the surfaces, fences and D3D11 views; deferred: the readback ring)
+// at the next grab, the mode unchanged. One present delivers nothing. The
+// isolated "rebuild the capture" half of the one-view state's remedy.
+bool        request_reinit();
+uint32_t    reinits();
+
 
 // The eye tag of the frame being grabbed (a stereo method sets it before
 // grab()), and the tag of the content the last grab DELIVERED: the same tag

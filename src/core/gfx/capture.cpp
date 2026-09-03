@@ -62,6 +62,14 @@ int                       g_bboxClass = -1;   // 0 all black, 1 cropped, 2 full
 // ---- the mode -----------------------------------------------------------------
 Mode g_mode = Mode::Sync;
 Mode g_modeWant = Mode::Sync;
+// 41.1 (session 9): `capture reinit` - rebuild the mode's slots (the shared
+// surfaces, their fences and D3D11 views; the deferred ring) at the next grab
+// WITHOUT changing the mode: the other isolated half of the user's remedy for
+// the one-view state (deferred -> shared rebuilt the slots AND was followed by
+// a pause). One present delivers nothing (a rebuild cannot deliver the frame
+// it released), counted on the method's noFrame like a mode switch.
+bool     g_reinitWant = false;
+uint32_t g_reinits = 0;
 const char* const kModeNames[] = {"sync", "deferred", "shared", "off"};
 uint32_t g_offSkipped = 0;     // presents grab() took nothing from while Off (this window)
 
@@ -500,6 +508,15 @@ bool read_back(IDirect3DDevice9* dev, IDirect3DSurface9* src, uint64_t* rtdUs, u
 // Apply a queued mode change at the top of a grab (present thread).
 void apply_mode_want(IDirect3DDevice9* dev, ID3D11Device* dev11) {
     (void)dev; (void)dev11;
+    if (g_reinitWant) {
+        g_reinitWant = false;
+        ++g_reinits;
+        release_deferred();
+        release_shared();
+        DVR_INFO("capture: %s slots REBUILT by request (reinit #%u: released and re-created at this grab, the mode "
+                 "unchanged; this present delivers nothing, so its sibling stands alone once - the frameid line's next "
+                 "pairs say whether a slot rebuild ALONE made two pictures of one)", kModeNames[(int)g_mode], g_reinits);
+    }
     if (g_modeWant == g_mode) return;
     if (g_modeWant == Mode::Shared && g_probed && !g_sharedOk) {
         DVR_WARN("capture: mode shared refused - the probe said the device cannot share; staying on %s",
@@ -733,6 +750,18 @@ bool set_mode(const char* name) {
 }
 Mode mode() { return g_mode; }
 const char* mode_name() { return kModeNames[(int)g_mode]; }
+bool request_reinit() {
+    if (g_mode != Mode::Shared && g_mode != Mode::Deferred) {
+        DVR_WARN("capture: reinit refused - mode %s has no slots to rebuild (shared|deferred only)", kModeNames[(int)g_mode]);
+        return false;
+    }
+    g_reinitWant = true;
+    DVR_INFO("capture: reinit requested - the %s slots are released and re-created at the next grab, mode unchanged",
+             kModeNames[(int)g_mode]);
+    return true;
+}
+uint32_t reinits() { return g_reinits; }
+
 
 void set_pending_tag(int eyeSign) { g_pendingTag = eyeSign < 0 ? -1 : eyeSign > 0 ? 1 : 0; }
 int delivered_tag() { return g_deliveredTag; }
