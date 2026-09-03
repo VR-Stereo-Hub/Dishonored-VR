@@ -88,6 +88,24 @@ void mark(const char* text, const char* origin);
 typedef int (*ContextProvider)(char* buf, size_t cap);
 void set_context_provider(ContextProvider fn);
 
+// The frame gap (commit 6): detected at hkPresent entry (before the runtime's
+// wait, so a gap that sat in the wait is attributed to it), when the interval
+// since the previous entry is 80 ms or more, OR 2.5x the last window's mean
+// present interval (never under 40 ms) so a two-tick hitch at 39 ms/tick is
+// caught. The game side takes it once and prints its line with the game
+// fields; `where` names the phase of the previous present the gap sat in,
+// that present's lock and gpu, and the flags since the last gap (a Reset, a
+// level load, a pair hold open at the entry, pace-thread timeouts).
+enum Flag { kFlagReset = 0, kFlagLevelLoad };
+void note(Flag f);
+struct Gap {
+    float    ms = 0, medianMs = 0;
+    uint32_t present = 0;
+    char     where[400] = "";
+};
+bool take_gap(Gap* out);      // true once per detected gap (present thread)
+void log_gap_ring();          // the ring's tail at Info, at most once per second
+
 // The lever ([Perf] Instruments=, `perf on|off`): off = no stamps are kept
 // and no line prints. Default on: eight QPC reads per present.
 void set_enabled(bool on);

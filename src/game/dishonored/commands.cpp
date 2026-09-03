@@ -265,6 +265,7 @@ static void GameStateTick()
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
         DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info, "[game] state: %s", s);
+        if (!strcmp(s, "LOADING")) dvr::perf::note(dvr::perf::kFlagLevelLoad);   // the gap line's flag
     }
 }
 

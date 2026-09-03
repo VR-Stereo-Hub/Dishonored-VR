@@ -230,6 +230,15 @@ char     g_lastLine[1024] = "";
 char     g_lastGpuLine[512] = "";
 ContextProvider g_context = nullptr;
 uint32_t g_marks = 0;
+// the gap
+Gap      g_gap;
+bool     g_gapPending = false;
+uint32_t g_gaps = 0;
+uint64_t g_lastGapMs = 0;      // GetTickCount64 of the last gap (for the mark line)
+float    g_lastGapValMs = 0;
+uint32_t g_lastGapPresent = 0;
+bool     g_flagReset = false, g_flagLoad = false;
+uint32_t g_gapPaceTimeoutsSeen = 0;
 
 // One class as text: `in a (pre .. begin .. [wait ..] tick .. method .. [cap ..: lock .. copy ..
 // up .. blit ..] end .. [acq .. xrCopy .. endFrame ..] present ..) + out b`.
@@ -367,6 +376,43 @@ void window_close(uint64_t nowMs) {
     g_windowMs = nowMs;
 }
 
+// The gap detector, at the entry that ends the previous present's OUT.
+void gap_check(const Rec& prev, int64_t tEntry) {
+    const float ms = us(prev.tEntry, tEntry) / 1000.0f;
+    const float mean = g_last.presentsPerS > 0.0f ? 1000.0f / g_last.presentsPerS : 0.0f;
+    float rel = mean > 0.0f ? mean * 2.5f : 0.0f;
+    if (rel > 0.0f && rel < 40.0f) rel = 40.0f;
+    const bool hit = ms >= 80.0f || (rel > 0.0f && ms >= rel);
+    if (!hit) return;
+    ++g_gaps;
+    g_gap = Gap();
+    g_gap.ms = ms; g_gap.medianMs = mean; g_gap.present = prev.present;
+    // The phase the gap sat in: the largest share of the previous present's
+    // in + out, named with its inner owner where one is known.
+    struct { const char* name; uint32_t us; } ph[] = {
+        {"pre_tick", prev.preUs}, {"present-head (wait)", prev.beginUs}, {"game_tick", prev.tickUs},
+        {"the method (capture)", prev.methodUs}, {"present-tail (xrEndFrame)", prev.endUs},
+        {"the game's Present", prev.gamePresentUs}, {"out/idle (waiting for the game thread)", prev.idleUs},
+        {"out/R (executing the frame)", prev.rUs}};
+    int best = 0;
+    for (int i = 1; i < 8; ++i) if (ph[i].us > ph[best].us) best = i;
+    const uint32_t timeouts = dvr::vr::pace_timeouts();
+    const uint32_t dTimeouts = timeouts - g_gapPaceTimeoutsSeen;
+    g_gapPaceTimeoutsSeen = timeouts;
+    _snprintf(g_gap.where, sizeof(g_gap.where),
+              "sat in: %s of #%u tag %+d (%.1f ms of in %.1f / out %.1f; wait %.1f lock %.1f endFrame %.1f) | that "
+              "present: gpu %s span %.1f dma %.1f | flags: reset=%d load=%d pairOpen=%d paceTimeouts=+%u",
+              ph[best].name, prev.present, prev.tag, ph[best].us / 1000.0, prev.inUs / 1000.0, prev.outUs / 1000.0,
+              prev.waitUs / 1000.0, prev.lockUs / 1000.0, prev.endFrameUs / 1000.0,
+              prev.gpuState == 1 ? "resolved" : prev.gpuState == 0 ? "pending" : "n/a", prev.gpuSpanUs / 1000.0,
+              prev.gpuDmaUs / 1000.0, g_flagReset ? 1 : 0, g_flagLoad ? 1 : 0, dvr::vr::pair_open() ? 1 : 0,
+              dTimeouts);
+    g_gap.where[sizeof(g_gap.where) - 1] = 0;
+    g_flagReset = g_flagLoad = false;
+    g_gapPending = true;
+    g_lastGapMs = GetTickCount64(); g_lastGapValMs = ms; g_lastGapPresent = prev.present;
+}
+
 void record_close(Rec& r, int64_t tNextEntry) {
     r.outUs = us(r.tGameRet, tNextEntry);
     // The marker splits OUT: BeginScene when the game issued one after its
@@ -395,7 +441,7 @@ void stamp(Point p) {
     if (p == kEntry) {
         Rec& prev = g_ring[g_head];
         if (g_open) {
-            if (prev.tGameRet) record_close(prev, t);
+            if (prev.tGameRet) { record_close(prev, t); gap_check(prev, t); }
             else { ++g_incomplete; ++g_windowIncomplete; }
             g_head = (g_head + 1) % kRing;
         }
@@ -541,12 +587,17 @@ void mark(const char* text, const char* origin) {
     const Rec& r = g_ring[(g_head + kRing - 1) % kRing];
     char ctx[256] = "";
     if (g_context) g_context(ctx, sizeof(ctx));
-    DVR_WARN("mark: \"%s\" (%s) #%u | present #%u tag %+d pairOpen=%d | 3 s: tick %.1f ms (%.1f/s) in %.1f out %.1f "
+    char gap[96];
+    if (g_lastGapMs)
+        _snprintf(gap, sizeof(gap), "last gap %.0f ms at #%u (%.1f s ago, %u gaps)", g_lastGapValMs, g_lastGapPresent,
+                  (double)(GetTickCount64() - g_lastGapMs) / 1000.0, g_gaps);
+    else strcpy_s(gap, sizeof(gap), "no gap detected yet");
+    DVR_WARN("mark: \"%s\" (%s) #%u | present #%u tag %+d pairOpen=%d | %s | 3 s: tick %.1f ms (%.1f/s) in %.1f out %.1f "
              "(idle %.1f R %.1f) cap %.1f [lock %.1f] wait %.1f%s | gpu %s span %.1f dma %.1f idle %.1f | pace "
              "timeouts %u | last closed present #%u: in %.1f (cap %.1f [lock %.1f] end %.1f present %.1f) out %.1f "
              "(idle %.1f R %.1f) gpu %s | %s",
              text ? text : "", origin ? origin : "?", g_marks, dvr::frame::count(),
-             dvr::stereo::last_output().eyeSign, dvr::vr::pair_open() ? 1 : 0, w.tickMs, w.ticksPerS, w.inMs,
+             dvr::stereo::last_output().eyeSign, dvr::vr::pair_open() ? 1 : 0, gap, w.tickMs, w.ticksPerS, w.inMs,
              w.outMs, w.idleMs, w.rMs, w.captureMs, w.lockMs, w.waitMs, w.paceBound ? " PACE-BOUND" : "",
              w.gpu, w.gpuSpanMs, w.gpuDmaMs, w.gpuIdleMs, dvr::vr::pace_timeouts(), r.present,
              r.inUs / 1000.0, r.capUs / 1000.0, r.lockUs / 1000.0, r.endUs / 1000.0, r.gamePresentUs / 1000.0,
@@ -559,6 +610,24 @@ void mark(const char* text, const char* origin) {
 }
 
 void set_context_provider(ContextProvider fn) { g_context = fn; }
+
+void note(Flag f) {
+    if (f == kFlagReset) g_flagReset = true;
+    else if (f == kFlagLevelLoad) g_flagLoad = true;
+}
+
+bool take_gap(Gap* out) {
+    if (!g_gapPending) return false;
+    g_gapPending = false;
+    if (out) *out = g_gap;
+    return true;
+}
+
+void log_gap_ring() {
+    char buf[1024];
+    ring_line(buf, sizeof(buf), 16, "perf: gap ring");
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000, "%s", buf);
+}
 
 void set_device(IDirect3DDevice9* dev) {
     if (dev == g_dev) return;
@@ -575,6 +644,7 @@ void gpu_mark(GpuPoint p) {
 void on_reset() {
     gpu_release();
     g_lastPresentTs = 0;
+    g_flagReset = true;
 }
 
 void set_gpu_enabled(bool on) {
@@ -640,6 +710,9 @@ void status(dvr::status::Writer& w) {
     w.kv("gpuLate", (unsigned long)g_last.gpuLate);
     w.kv("gpuDisjoint", (unsigned long)g_last.gpuDisjoint);
     w.kv("marks", (unsigned long)g_marks);
+    w.kv("gaps", (unsigned long)g_gaps);
+    w.kv("lastGapMs", (double)g_lastGapValMs);
+    w.kv("lastGapPresent", (unsigned long)g_lastGapPresent);
     w.kv("paceBound", g_last.paceBound);
     w.kv("stereo", g_last.stereo);
     w.kv("incomplete", (unsigned long)g_incomplete);
