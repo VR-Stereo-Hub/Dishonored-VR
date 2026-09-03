@@ -1257,6 +1257,20 @@ now), and stage bb's `GetRenderTargetData` read every present is a pipeline sync
 (60/s under a 72 Hz headset, `wait 0.0`, the time inside the game's own Present). The trace
 samples one pair every 8 ticks now (`[Perf] FrameIdEvery`), which is all the judgement needs.
 
+**THE A/B, IN THE HEADSET (run 08, 2026-09-04, the user): the pairing IS the fault.** With `c5
+pairing` unticked on the F10 EYES block the eyes stayed right until a pause/resume, and then
+went wrong at once and stayed wrong: the 3 s windows read `swapped=24 of 25` then `12 of 12`,
+with the picture's own shift agreeing (`shiftPos=20`, the right eye's content on the wrong
+side of the left's). Ticking it back on: one transitional pair, then `swapped=0` for the
+remaining eighty seconds and the shift negative throughout. The user reported the same thing
+by eye, three times, without seeing the log. So the eye fault this project has chased since
+run 15 - "the eyes disagree", "90 % of the time, more at the beginning", "never correct
+after a load" - is the order-based pairing breaking wherever the game thread runs ahead of
+the render thread, and the within-tick camera step is the fix. The run-17 dump pair whose two
+eyes differed by only 1.49 at 64x64 remains the one artifact not separately explained; it has
+not recurred on the fixed build, and a swapped pair of a near-symmetric corridor view is the
+simplest account of it.
+
 **What this does and does not say about the headset's one-picture state.** A swap is two
 pictures, not one; the run-17 dumps were one picture, so the swap is not that fault. It is,
 though, exactly what "the eyes disagree" looks like, and it happened on every state transition

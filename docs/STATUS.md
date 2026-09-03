@@ -1,122 +1,98 @@
 # Status
 
-## Current state (2026-09-04, session 9: the frame-identity trace ships, the eye tags SWAPPED and are fixed on the simulator, the one-picture state waits for its headset run)
+## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
-**Branch `claude/dishonored-vr-both-eyes-same-659cb5` on `native-stereo-rendering` (8d09a341, the
-PR #5 merge). PR #6 is rejected and nothing of it is merged except the pair dump, rewritten.**
-Everything below was measured on the simulator lane (RTX 4060, 2496x2688 VirtualMode, the sewers,
-the shipped defaults `Ex=1` + `Mode=shared` + `reentry`; logs `D:\dvr-data\logs\45-run01..05-*.log`).
-Nothing has run on the headset this session.
+**Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
+headset, at rate, with the tested configuration shipping as the defaults.
 
-- **The headset logs re-read (runs 16-17) before any code**: the engine's per-present population is
-  identical in the bad and the good state (BeginScene 1.0/present, 6 ms of GPU per present, draws
-  == 2nd draws); the `reentry: pair` line is FIRST_N(6) and its six "one IPD apart" lines ARE the
-  bad state; no capture-mode switch tripped a gate and every switch to `shared` was followed by a
-  pause/resume (the user's remedy is confounded); `dump eyes` re-armed the second draw by itself
-  (a 640 ms PNG encode on the present thread -> stale script writes -> LOADING -> SINGLE -> DOUBLE);
-  `drawTid == presentTid` was a one-shot latch. ENGINE_NOTES "The one-view state".
-- **BUILT AND MEASURED: the frame-identity trace** (`core/gfx/frame_id`, `[Perf] FrameId=1`,
-  `frameid on|off|status`, status.json `frameid{}`): a 64x64 luma thumbnail per present at the
-  backbuffer as the capture found it, the shared slot as the method samples it, the eye texture
-  and the swapchain image the runtime copied into, keyed by the capture serial, read three
-  presents later, never waited on, with the draw's c5 and the camera's right row on the record.
-  The `stereo: frameid` line per pair: checksums, L-R diff per stage, the same-eye floor, the c5
-  step along right (the side check), the picture's own parallax shift, the first one-picture
-  stage. On the simulator a true pair reads 4.1 / 4.1 / 4.1 / 4.8 against a floor of 1.5, c5 |d|
-  6.17, shift -1 px, busy reads 0.
-- **FOUND AND FIXED (simulator): the eyes SWAPPED.** The tag ring paired by order, and the order
-  broke across a single -> double transition (a `reentry rearm 2` flipped the -1 tag's c5 to the
-  right eye's position), within a second of the first arming, and spontaneously in gameplay
-  (`reentry c5pair off`: two flips in 25 s, no pause, no log event; the perf window's `untagged
-  16-19` per 3 s = presents that found the ring empty); in menus the ring overflowed every 3 s
-  (draws outnumber presents). The picture agreed with the c5 side every time, which also fixes
-  the sign convention by picture. The pairing now follows the within-tick invariant (pass 2 sits
-  at exactly -ipd*scale along right of pass 1, 0.00 other; measured on every pair), the ring is
-  drained to the next expected tag on a disagreement streak, armed single gameplay draws push a
-  0 tag; `[Stereo] C5Pair=1`, `reentry c5pair on|off` is the A/B. On the fixed build: `side ok`
-  from the first pair through rearms of 1, 2, 3, `capture reinit`, `stereo projection off/auto`,
-  `stereo mono`/`reentry`; P1 == P2 per window; `reentry.xrs` 11/11.
-- **THE HEADSET RUN (run 07, the user, Quest 3 via VDXR, the session's build): the eyes were
-  RIGHT from the load and stayed right**; the user pressed REARM, REINIT, PROJECTION OFF/AUTO and
-  the mode combo and nothing changed them. The log: `side ok` and `SWAPPED=0` on every pair, c5
-  |d| 6.11, the picture shift negative, L-R 3-14 at 64x64 against the one-picture dump's 1.5 -
-  two pictures throughout - and **the tag ring skewed against the draws 131 times in about four
-  minutes (every 2 s)**, each one a swap of the eyes before this session. So the one-picture
-  state did not recur on the build that pairs by the camera step; a swap every 2 s is what "the
-  eyes disagree 90 % of the time" was, and the one-picture pair is most simply two draws of one
-  eye's view held in both swapchains while the tags were off (not proven: the A/B is `c5 pairing`
-  OFF on the F10 EYES block for a minute after a load, which should bring the old eyes back).
-  The `THE EYES BECAME ONE PICTURE` warns in that log were the instrument's threshold being
-  wrong for a moving head (the floor holds a tick of head motion; a within-tick pair does not):
-  the verdict is an absolute 2.0 at 64x64 now (the one-picture dump reads 1.49, the smallest
-  true headset pairs 3.0).
-- **THE HEADSET RUN'S COST**: the trace read every present cost 1.5 ms of GPU idle per present
-  (the backbuffer stage's `GetRenderTargetData` is a pipeline sync on the user's GPU; `perf:
-  gpu idle(d3d9)` 1.5 vs 0.3 ms in run 17) and the tick went 13.9 -> 16.7 ms (60/s under 72 Hz,
-  `wait 0.0`, the time in the game's own Present). It samples one pair every 8 ticks now
-  (`[Perf] FrameIdEvery=8`, `frameid every N`) and has an F10 tickbox (off = no cost at all).
-- **Also shipped**: `dump eyes` writes a consecutive pair, encoded on a worker thread (no stall,
-  no re-arm); the beat line's `presentTid` follows the presenting thread; pass-2 eye writes the
-  camera seam refused are counted (`p2write refused=`, `cam=`); `capture status` prints the
-  delivered slot and the reinit count.
+- **THE ROOT CAUSE, found and fixed and PROVEN**: the eye tags paired draws to presents by
+  push/pop ORDER, and the order breaks wherever the game thread runs ahead of the render thread -
+  a level load, a pause/resume, a re-arm - and spontaneously in gameplay every ~2 s on the
+  tester's rig (131 skews in four minutes). Each break showed each eye the other's draw until the
+  next one. That is the fault this project has chased since run 15 ("the eyes disagree", "90 % of
+  the time, more at the beginning", "never correct after a load"). THE FIX: between a tick's two
+  draws nothing moves the camera but the eye offset, so pass 2's camera sits exactly one IPD along
+  the camera's right row from pass 1's; a present whose camera step reads that IS the second draw
+  whatever the queue claims, and a disagreement streak realigns the queue. `[Stereo] C5Pair=1`.
+  THE PROOF (headset, the user, 2026-09-04): unticking `c5 pairing` on the F10 EYES block and
+  pausing brought the fault straight back (`swapped=24 of 25` pairs, the picture's parallax on the
+  wrong side), ticking it back removed it (`swapped=0` for the rest of the run) - by eye and in the
+  log, three times.
+- **THE INSTRUMENT that found it ships**: the frame-identity trace (`core/gfx/frame_id`, `[Perf]
+  FrameId=1 FrameIdEvery=8`, `frameid on|off|status|every N`, status.json `frameid{}`): one 64x64
+  luma thumbnail per sampled present at the backbuffer as the capture found it, the shared slot,
+  the eye texture and the swapchain image, read three presents later and never waited on, with the
+  draw's camera position and right row on the same record. The `stereo: frameid` line prints, per
+  left/right pair, the L-R difference per stage, the camera step and side check, the picture's own
+  parallax shift and the first stage that reads as one picture. The F10 Display tab's **EYES
+  block** shows the same numbers live and carries DUMP EYES, REARM 2, CAPTURE REINIT, PROJECTION
+  OFF / AUTO, the c5-pairing tickbox and the trace tickbox.
+- **PERFORMANCE: back at the headset's rate.** The trace read every present cost the tester's GPU
+  1.5 ms per present (stage bb's `GetRenderTargetData` is a pipeline sync there) and the tick went
+  13.9 -> 16.7 ms, 60/s under a 72 Hz headset; sampling one pair every 8 ticks removed it
+  ("the fps is perfect now", 2026-09-04). The trace tickbox is off = no cost at all.
+- **THE DEFAULTS ARE THE HEADSET-JUDGED VALUES** (a fresh ini now comes up where the testing left
+  off): `[Stereo] Method=reentry Armed=1 C5Pair=1`, `[Camera] EyeField=0x330`, `[Neck] Mode=cancel`
+  with the measured pivot (0.321 / 0.062 m), `[PosTrack] Scale=98 Lane=auto`, `[Tracking]
+  HeightOffsetM=-0.090`, `[Screen] RenderWidth=2496 RenderHeight=2688 RenderFullscreen=1
+  VirtualMode=1` (the Quest 3 through VDXR per-eye size, advertised so the game creates it - a
+  fresh install used to render the game's own size and look soft), `[Device] Ex=1 Managed=shadow`,
+  `[Capture] Mode=shared`, `[Perf] FrameId=1 FrameIdEvery=8`. Another headset: the F10 Display
+  picker writes its size for the next launch; `res 0x0` asks for none.
+- **Also fixed this session**: `dump eyes` writes a consecutive left/right pair and encodes it on a
+  worker thread (the 640 ms present-thread stall used to re-arm the second draw, so every dump
+  changed what it was taken to judge); the beat line's `presentTid` follows the presenting thread
+  (it was latched at the first present, which at boot is the game thread's - a false lead in run
+  17); pass-2 eye writes the camera seam refuses are counted (`p2write refused=`).
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset, Quest 3 via VDXR), ONE scripted run** with `dishonored_vr.log` copied out
-after it: (1) install the build, launch with the shipped ini (it has the new keys already; a
-fresh ini adds `[Perf] FrameId=1` and `[Stereo] C5Pair=1`), load a level and WAIT 30 s without
-pausing; say whether the eyes fuse AND whether the tick line reads 72/s again (the trace is
-sampled now; the F10 EYES block's `frame-identity trace` tickbox off is the A/B if not); (2)
-everything else is on the F10 Display tab's EYES block
-(the readout line, DUMP EYES, REARM 2, CAPTURE REINIT, PROJECTION OFF / AUTO, the c5 pairing
-tickbox, and the capture mode combo above it): if the eyes are one picture press REARM 2, judge;
-CAPTURE REINIT, judge; PROJECTION OFF then PROJECTION AUTO, judge; the combo to deferred then
-back to shared, judge; press DUMP EYES before and after each step (the dump no longer stalls or
-re-arms); (3) send `dishonored_vr.log` and the `eye_*.png` files. What the
-log will say: the `stereo: frameid` line's `L-R diff` per stage against the `same-eye floor` (one
-picture = below the floor; the first stage below it is the fault's stage), `side ok|SWAPPED`
-and `picture shift -N|+N px` (a swap, which should not happen now), `reentry: the tag ring
-skewed against the draws` (how often the ring was off), `p2write refused=` on the beat line, and
-after each word whether the next pairs read two pictures.
+**The user (headset)**: nothing is blocking. When you next play, the open comfort questions are
+the ones a correct stereo pair finally lets you judge: (1) JUDDER on fast head or player movement -
+`vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and the `xr: pair
+phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT with
+`[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real frame
+rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
+Say which of the three is worst and the log will carry the numbers.
 
-**The next developer session**: read the headset log first. The prediction: in the bad state the
-frameid line reads below the floor at `bb` (the engine handed one picture twice: the fix goes to
-the camera seam or the scene-draw call site, byte-verified, with an ENGINE_NOTES derivation) or
-above at `bb` and below at `slot`/`out`/`sc` (that stage is the fault: `capture.cpp`, the method,
-or the runtime's 41.0 seam). `reentry rearm 2` alone fixing it names the engine side; `capture
-reinit` alone names the capture; `stereo projection off`/`auto` alone names the runtime's
-hand-off. No lever, no fallback, no detector: fix at the named stage. If the run does not name
-it, the next instrument is a full-resolution stage-1 dump of both draws of one tick (a `dump
-tick` word) - not a heuristic. Then the old list: `vrpace ahead 0|1|2`, `neck cancel` vs `off`,
-the pivot at a real frame rate, the SteamVR shim (never run with this game).
+**The next developer session**: the correctness question of S2b is closed, so S3 is open - write
+the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
+correctness, failure modes, the headset verdicts) and bring the features back on the winner: the
+hands (SkelControl drive, hand meshes, `[Mode] GamepadOnly=0`), the wrist HUD through the runtime
+layer's HUD quad and texture-provider seam, Blink and motion aim. `stereo aer` is still a design
+stub and the losing method stays registered as the A/B. Carried: the SteamVR shim has never run
+with this game; the ini version rewrite still wipes a tuned ini (session-8 and -9 keys shipped
+without a bump); the pace guard's eaten tag if the headset ever names it.
 
 ## Blockers
 
-- **The headset run needs the user** (the one-picture state does not reproduce on the simulator).
-- **The walk-in on the simulator is still by hand**: Return x4 with 28 s waits reached the level
-  on three of four launches this session; on the fourth the mod's menu flag stuck (gotcha 17) and
-  an Escape pair cleared it. `xrsim-shot` before trusting a state line.
 - **The ini version rewrite wipes a tuned ini** (`config.cpp` carries three keys over): the
-  session-9 keys ship without a bump, like session 8's.
+  session-8 and session-9 keys ship without a version bump. A key-preserving rewrite is a
+  separate change.
 - **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
   `Stop-Process`; a menu quit is clean on the Quest (run 15).
+- **The walk-in on the simulator is by hand**: Return x4 with 28 s waits reached the level on four
+  of six launches this session; otherwise the mod's menu flag sticks (VERIFICATION gotcha 17) and
+  an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
 
-### 2026-09-04 - session 9: the one-view state - the trace, the words, and the swap it found
+### 2026-09-04 - session 9: the eyes - the trace, the swap, the fix, the proof
 
-Branch `claude/dishonored-vr-both-eyes-same-659cb5`, 10 commits. Runs on the dev PC (simulator
-lane, RTX 4060, 2496x2688 VirtualMode, the sewers, shipped defaults; logs in
-`D:\dvr-data\logs\45-run*.log`):
+Branch `claude/dishonored-vr-both-eyes-same-659cb5` -> PR #7, 13 commits. Runs on the dev PC
+(simulator lane, RTX 4060, 2496x2688 VirtualMode, the sewers, shipped defaults; logs in
+`D:\dvr-data\logs\45-run*.log`) and the user's Quest 3 through VirtualDesktopXR:
 
 | Run | What | Result |
 |---|---|---|
-| 01 | the trace and the words, first build | `stereo: frameid` pairs from the arming: L-R 4.1 at bb/slot/out, floor 1.5, c5 6.17, busy 0; `reentry rearm 2` -> SINGLE x2 then DOUBLE; `capture reinit` -> REBUILT, no STALE; `dump eyes` queued + written off-thread, no gap, no LOADING; `frameid off/on`; the sc stage empty (an ordering bug) |
-| 02 | the sc stage, the side check | sc reads (4.7-5.0); **the side flipped across `reentry rearm 2`** (the -1 tag's c5 from y=6376.9 to 6383.1) and within a second of the first arming; rearm 1 and 3 did not flip; the ring overflowed 363 times in the menu |
-| 03 | the 0-tag push + the c5 pairing (first form), the A/B | side ok from the first pair; `reentry c5pair off`: the side flipped on its own twice in 25 s, `untagged 16-19` per window; `c5pair on`: no flips, ~1 realign per second at Info |
-| 04 | the invariant as the pairing, the picture shift | side ok + shift -1 px on every pair, P1 == P2, untagged 0-1; across rearm 2 and `capture reinit`; `reentry.xrs` 11/11; a `stereo mono` -> `reentry` switch left a ring backlog the one-pop realign drained slowly (30 in 3 s) |
-| 07 | **HEADSET (the user)**, the session's build, the F10 EYES block | the eyes right from the load; `side ok` / `SWAPPED=0` on every pair, c5 6.11, shift negative, L-R 3-14 (one picture = 1.5); the ring skewed 131 times in ~4 min (every 2 s: the old swaps); the trace read every present cost 1.5 ms GPU idle per present, tick 16.7 ms (60/s) - sampled every 8 ticks since |
-| 05 | the drain to the next expected tag | side ok + shift -1 px from the first pair, across a `stereo mono` -> `stereo reentry` switch and a `reentry rearm 2`; one realign line in a minute (53 lifetime, 3 disagreements each, `c5Untagged` 57 = presents that found the ring empty and were named by the measurement), 0 ring drops, P1 == P2 |
+| 01 | the trace and the words, first build | `stereo: frameid` pairs from the arming: L-R 4.1 at bb/slot/out, floor 1.5, c5 6.17, busy 0; `reentry rearm 2` -> SINGLE x2 then DOUBLE; `capture reinit` -> REBUILT, no STALE; `dump eyes` queued + written off-thread, no gap, no LOADING; the sc stage empty (an ordering bug) |
+| 02 | the sc stage, the side check | sc reads (4.7-5.0); **the side flipped across `reentry rearm 2`** and within a second of the first arming; the ring overflowed 363 times in the menu |
+| 03 | the 0-tag push + the c5 pairing (first form), the A/B | side ok from the first pair; `reentry c5pair off`: the side flipped on its own twice in 25 s, `untagged 16-19` per window; on: no flips |
+| 04 | the invariant as the pairing, the picture shift | side ok + shift -1 px on every pair, P1 == P2, untagged 0-1; `reentry.xrs` 11/11 |
+| 05 | the drain to the next expected tag | side ok from the first pair across a `stereo mono` -> `reentry` switch and a rearm; 0 ring drops |
+| 06 | the F10 EYES block | the overlay renders the readout and the buttons in the headset's own view (`xrsim-shot`) |
+| 07 | **HEADSET (the user)**, the session's build | the eyes RIGHT from the load and after every button; `side ok` / `SWAPPED=0` on every pair, c5 6.11, shift negative, L-R 3-14 (one picture = 1.5); the ring skewed 131 times in ~4 min - the old swaps, absorbed; the trace read every present cost 1.5 ms GPU idle per present, tick 16.7 ms (60/s under 72 Hz) |
+| 08 | **HEADSET (the user)**, the sampled trace + the A/B | "the fps is perfect now"; `c5 pairing` OFF + pause/resume -> the fault returns (`swapped=24 of 25`, then 12 of 12, the picture agreeing), ON -> `swapped=0` for the rest of the run. **The root cause is proven.** |
 
 ### 2026-09-03 - session 8: performance - the tick budget, the census, the 9Ex device, the shared capture
 

@@ -23,29 +23,23 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   mode off` freezes
   the image on purpose (the A/B control); `mark <text>` and the F10 MARK button stamp a felt
   freeze in the log with the ring of presents around it.
-- **`stereo reentry`: both eyes carry ONE picture after a level load** [S2b, NOT SEEN since
-  the pairing fix below; the instrument ships]. Headset runs 16-17 (2026-09-03): from the first
-  arming after a load the left and the right eye were the same picture until something re-armed
-  the second draw. On the session-9 build (headset run 07, 2026-09-04) the eyes were right from
-  the load and stayed right while the tag ring skewed 131 times in four minutes - the swaps the
-  fix absorbs - so the one-picture state most likely was the old pairing too (unproven: `c5
-  pairing` OFF on the F10 EYES block after a load is the A/B). 41.1 (session 9) ships the
-  frame-identity trace (`[Perf] FrameId=1`, one pair every 8 ticks: read every present it cost
-  the user's GPU 1.5 ms per present): the `stereo: frameid` line prints, per left/right pair, how
-  different the two eyes are at four stages (the game's backbuffer, the shared slot, the eye
-  texture, the swapchain image), the camera step between the two draws, and the picture's own
-  parallax sign - so the headset log names the stage at which the two eyes stop being two
-  pictures. If the eyes are one picture: read `frameid status`, then `reentry rearm 2`,
-  `capture reinit`, `stereo projection off` then `auto`, and `capture mode deferred` then
-  `shared`, pressing DUMP EYES before and after each (a dump no longer stalls the game), and
-  say after each whether the eyes fused; send `dishonored_vr.log` and the `eye_*.png` files.
-- **`stereo reentry`: the eyes SWAPPED after a pause, a load or a re-arm** [S2b, FIXED
-  2026-09-04 on the simulator, headset verdict pending]. The eye tags paired by order alone, and
-  the order broke on every transition where the game thread ran ahead of the render thread, and
-  spontaneously in gameplay; each time the left eye showed the right draw. The pairing now
-  follows the camera step measured per present (pass 2 sits exactly one IPD along right of
-  pass 1, nothing else moves inside a tick); `[Stereo] C5Pair=0` / `reentry c5pair off` is the
-  A/B. A `side SWAPPED` or `picture shift +N px` on the `frameid` line is the signature.
+- **`stereo reentry`: the eyes disagreed after a load or a pause** [S2b, **FIXED and
+  headset-confirmed 2026-09-04**]. THE ROOT CAUSE: the eye tags paired draws to presents by
+  push/pop ORDER, and the order broke wherever the game thread ran ahead of the render thread -
+  a level load, a pause/resume, a re-arm - and spontaneously in gameplay every ~2 s on the
+  tester's rig, showing each eye the other's draw until the next break. The pairing now follows
+  the camera step measured per present: between a tick's two draws nothing moves the camera but
+  the eye offset, so pass 2's camera sits exactly one IPD along right of pass 1's, and a present
+  whose step reads that IS the second draw whatever the queue claims. THE PROOF (headset, the
+  user, 2026-09-04): with `c5 pairing` unticked on the F10 EYES block a pause/resume brought the
+  fault straight back (24 of 25 pairs swapped, the picture's parallax on the wrong side),
+  ticking it back removed it (0 swapped for the rest of the run) - by eye and in the log, three
+  times. `[Stereo] C5Pair=1` ships; `reentry c5pair off` and the F10 tickbox are the A/B.
+  The `stereo: frameid` line (`[Perf] FrameId=1`, one pair every 8 ticks) is the instrument: per
+  left/right pair it prints how different the two eyes are at four stages (the game's
+  backbuffer, the shared slot, the eye texture, the swapchain image), the camera step, the side
+  check and the picture's own parallax sign, and the F10 EYES block shows the same numbers. If
+  the eyes ever disagree again: note the time and send `dishonored_vr.log`.
 - **`stereo reentry`: the eyes could disagree (the earlier mechanisms)** [S2b, fixed]. The
   one-sided tag (session 7), a present whose capture delivered no frame pushing the previous
   tag again, the pace guard's eaten tag (a named owner on the `STALE EYE` line), the shared

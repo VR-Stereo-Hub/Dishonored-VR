@@ -128,9 +128,15 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
       gameplay (the A/B: twice in 25 s with `reentry c5pair off`); the pairing follows the
       within-tick camera step now (`[Stereo] C5Pair=1`), the ring realigned when it disagrees;
       `reentry.xrs` 11/11 on the fixed build
-- [ ] THE ONE-VIEW STATE, on the headset: the one scripted run (STATUS "Next steps") reads the
-      `frameid` line in the bad state and tries `reentry rearm 2`, `capture reinit` and `stereo
-      projection off`/`auto` each alone; the stage it names gets the fix, and nothing else
+- [x] THE EYES, on the headset (the user, 2026-09-04, runs 07-08): RIGHT from the load and
+      through every word on the F10 EYES block; and the A/B proves the cause - `c5 pairing`
+      unticked plus a pause/resume brings the fault straight back (24 of 25 pairs swapped, the
+      picture agreeing), ticking it on clears it (0 swapped for the rest of the run). The
+      per-eye ladder's correctness question is CLOSED
+- [x] The headset-judged values are the defaults (2026-09-04): `[Stereo] Method=reentry Armed=1
+      C5Pair=1`, `[Camera] EyeField=0x330`, `[Neck] Mode=cancel` with the measured pivot,
+      `[PosTrack] Scale=98`, `[Tracking] HeightOffsetM=-0.090`, `[Screen] RenderWidth=2496
+      RenderHeight=2688 VirtualMode=1`, `[Device] Ex=1 Managed=shadow`, `[Capture] Mode=shared`
 - [ ] Then `ahead`, the desync on load with the new owner line, and the pivot re-judged at a
       real frame rate (STATUS "Next steps")
 

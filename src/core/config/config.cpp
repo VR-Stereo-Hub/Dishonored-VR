@@ -20,6 +20,10 @@ static void WriteDefaultIni(const char* ini)
         "YawCountsPerDegree=11.5\n"
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
+        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). -0.090 is the\n"
+        "; value the 2026-09-03/04 headset runs were judged at (it was the code default and\n"
+        "; unwritten before); F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
+        "HeightOffsetM=-0.090\n"
         "[Stereo]\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
@@ -118,10 +122,16 @@ static void WriteDefaultIni(const char* ini)
         "; create the fullscreen device windowed with the backbuffer kept, the route to the\n"
         "; eye's own near-square size. `res <W>x<H>[f|w]` asks live; F10 Display has the picker\n"
         "; and the verdict (`res: HONOURED` reads the capture, never the requested number).\n"
-        "RenderWidth=0\n"
-        "RenderHeight=0\n"
+        "; 41.1 (session 9): the values the headset judged (Quest 3 through VirtualDesktopXR,\n"
+        "; 2026-09-03/04) - the runtime's recommended per-eye size, asked on the game's command\n"
+        "; line and ADVERTISED by the proxy so the game creates it (VirtualMode=1; without it the\n"
+        "; game falls back to a display mode and the picture is soft). Another headset wants its\n"
+        "; own size: the F10 Display picker writes these three for the next launch, and\n"
+        "; RenderWidth=0 RenderHeight=0 asks for nothing at all (the game's own size).\n"
+        "RenderWidth=2496\n"
+        "RenderHeight=2688\n"
         "RenderFullscreen=1\n"
-        "VirtualMode=0\n"
+        "VirtualMode=1\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
         "; FovLever writes the game's camera FOV every tick (40..160; 0 = off, the game's\n"
         "; own FOV). 130 filled the old side-by-side render vertically; the mono screen\n"
@@ -371,10 +381,13 @@ static void LoadConfig()
     dvr::vr::set_screen(g_screenDist, g_screenWidth);
     dvr::vr::set_screen_head_locked(IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f);
     {   // 41.1 [Screen] Render*: the picker's ask (core/window/render_size.cpp)
-        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 0, ini);
-        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 0, ini);
+        // 41.1 (session 9): the headset-judged size, and the advertisement that makes the
+        // game create it, are the DEFAULTS now (an ini naming neither key gets them);
+        // `res 0x0` writes an explicit 0 and still means "the game's own size".
+        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2496, ini);
+        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2688, ini);
         g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
-        g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 0, ini) != 0 || g_launchVirtual;
+        g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 1, ini) != 0 || g_launchVirtual;
         if (!g_resWantW && g_launchW && g_launchH) {   // the launch file carried an ask the ini lost
             g_resWantW = g_launchW; g_resWantH = g_launchH; g_resWantFull = g_launchFull;
             Log("config: [Screen] Render* read 0 but the launch file asked %ux%u %s - using that for the verdict",

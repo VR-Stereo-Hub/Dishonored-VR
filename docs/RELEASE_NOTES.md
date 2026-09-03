@@ -2,11 +2,19 @@
 
 ## 41.1.0 (unreleased) - native stereo ships, the four headset faults, the resolution picker
 
-- **The eyes swapped (session 9, 2026-09-04)**: after a pause, a load or a re-arm the left eye
-  could show the right eye's draw, and the same could happen on its own in gameplay - the eye
-  tags paired by order and the order broke. FIXED: the pairing follows the camera step measured
-  per present (pass 2 sits exactly one IPD along right of pass 1 and nothing else moves inside
-  a tick); `[Stereo] C5Pair=1`, `reentry c5pair on|off` is the A/B, status.json `stereo.c5*`.
+- **THE EYES ARE FIXED (session 9, 2026-09-04, headset-confirmed)**: after a level load or a
+  pause the two eyes disagreed - the eye tags paired draws to presents by order, and the order
+  broke wherever the game thread ran ahead of the render thread (and on its own every ~2 s on
+  the tester's rig), showing each eye the other's draw. The pairing follows the camera step
+  measured per present now: inside one tick nothing moves the camera but the eye offset, so the
+  second draw sits exactly one IPD along right of the first. Proven by A/B in the headset:
+  unticking `c5 pairing` and pausing brought the fault back, ticking it on removed it.
+  `[Stereo] C5Pair=1` ships; `reentry c5pair on|off` and the F10 tickbox are the A/B.
+- **New defaults, all headset-judged**: `[Screen] RenderWidth=2496 RenderHeight=2688
+  VirtualMode=1` (the Quest 3 through VirtualDesktopXR per-eye size, advertised so the game
+  actually creates it - a fresh install used to render the game's own size and look soft) and
+  `[Tracking] HeightOffsetM=-0.090` written out instead of left implicit. The F10 Display
+  picker still writes another headset's size for the next launch, and `res 0x0` asks for none.
 - **The one-picture state has its instrument**: the frame-identity trace (`[Perf] FrameId=1`,
   `frameid on|off|status`, status.json `frameid{}`): the `stereo: frameid` line prints, per
   left/right pair, how different the two eyes are at the backbuffer, the shared slot, the eye
