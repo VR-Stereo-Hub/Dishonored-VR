@@ -201,12 +201,27 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 static void DvrConsoleApply()
 {
     if (!g_dvrConsoleReq[0]) return;
+    // RunConsole calls the engine's ProcessEvent, which is OUR hook, which
+    // runs this function again: with the request still pending that recursed
+    // until the stack overflowed (0xc00000fd on the game thread, run 05 of
+    // 2026-09-03 - the first time a console word ever reached the engine on
+    // 41.x). The re-entry flag stops the nested call, and the request is taken
+    // off the seam BEFORE the engine runs it.
+    if (g_peReentry) return;
+    char req[256];
+    strncpy(req, g_dvrConsoleReq, sizeof(req) - 1);
+    req[sizeof(req) - 1] = 0;
+    g_dvrConsoleReq[0] = 0;
     wchar_t w[256];
-    MultiByteToWideChar(CP_UTF8, 0, g_dvrConsoleReq, -1, w, 256);
+    MultiByteToWideChar(CP_UTF8, 0, req, -1, w, 256);
     char reply[512] = "";
     int n = RunConsole(w, reply, sizeof(reply));
-    Log("console: '%s' -> %d %s", g_dvrConsoleReq, n, reply);
-    g_dvrConsoleReq[0] = 0;
+    if (n < 0)
+        Log("console: '%s' -> -1 (%s)", req,
+            !g_fnConsoleCmd ? "no ConsoleCommand UFunction in the name tables"
+                            : "no PlayerController latched yet - wait for GAMEPLAY");
+    else
+        Log("console: '%s' -> %d %s", req, n, n ? reply : "(empty reply)");
 }
 
 // 41.1: is the engine's view pipeline dispatching? ProcessViewRotation fires
