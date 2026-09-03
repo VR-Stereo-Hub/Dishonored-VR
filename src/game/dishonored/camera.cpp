@@ -262,6 +262,23 @@ bool apply_eye_offset(uint8_t* camObj) {
     const float uu = eye_offset_uu() * kFields[g_field].sign;
     const float off[3] = {r[0] * uu, r[1] * uu, r[2] * uu};
     const bool ok = write_offset(camObj, kFields[g_field].off, off, g_eyeWriter, nullptr);
+    // 41.1 THE EYE-SEPARATION INSTRUMENT. The offset is laid along what
+    // read_right() believes is the camera basis's right row (cam+kCamRight, an
+    // ASSUMED offset). If that row does not actually rotate with the view, the
+    // separation is laid along a FIXED WORLD AXIS: correct at one facing,
+    // shrinking to nothing at ninety degrees to it, and reversed beyond that -
+    // which is exactly "the eyes are misaligned with one another" and it would
+    // come and go as the player turns. The first-3 line below cannot answer
+    // that; this one can. Watch `right=` while turning a full circle:
+    //   it ROTATES  -> the basis row is real, look elsewhere for the flicker
+    //   it is FIXED -> kCamRight is not the right row, and that is the bug
+    if (ok) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+            "camera/eyesep: eye %+d right=(%+.3f %+.3f %+.3f) offset %+.2f uu "
+            "(ipd %.4f m, %.0f uu/m, field %s) - TURN IN A CIRCLE: if right= does "
+            "not rotate, the separation is on a fixed world axis and that is the bug",
+            g_eye, r[0], r[1], r[2], uu, g_ipdM, g_scale, kFields[g_field].name);
+    }
     if (ok)
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3,
                         "camera: eye %+d offset %+.2f uu along right (%.3f %.3f %.3f) -> camera+%s "

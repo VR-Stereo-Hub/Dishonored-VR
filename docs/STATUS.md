@@ -1,5 +1,78 @@
 # Status
 
+## Current state (2026-09-03, session 6: AER works; eye separation is the open bug)
+
+**Branch `aer-rendering`. AlternateEye is implemented, installed, and fusing in a headset.**
+The next session's whole job is the EYE SEPARATION.
+
+### The open bug, and the instrument that answers it
+
+The world fuses as stereo, but the image FLICKERS - and the tester's read after several
+runs is that it is the whole scene, world and weapon together, i.e. the two eyes are
+misaligned with each other rather than the viewmodel being special.
+
+**The first suspect is concrete.** `camera::apply_eye_offset` lays the +/- IPD/2 offset
+along what `read_right()` believes is the camera basis's right row, at `cam + kCamRight` -
+an ASSUMED offset, never derived. One run logged:
+
+```
+camera: eye +1 offset -3.09 uu along right (-0.000 1.000 -0.000) -> camera+0x330
+```
+
+`right = (0, 1, 0)` is the world Y axis. If that row does not ROTATE with the view, the
+separation is being laid along a fixed world axis: correct at one facing, shrinking to
+nothing ninety degrees from it, reversed beyond that. That is exactly "the eyes are
+misaligned with one another", and it would come and go as the player turns.
+
+The old log line was `DVR_LOG_FIRST_N(..., 3, ...)` - three prints per run, so it could
+not answer this. **`camera/eyesep:` now prints once a second with the live right vector.**
+One run settles it:
+
+- **`right=` rotates as you turn a full circle** -> the basis row is real; the flicker is
+  somewhere else (pair alignment, or the one-present tag lag).
+- **`right=` stays fixed** -> `kCamRight` is not the right row. That is the bug, and the
+  fix is to derive the row properly - `tools/uscript/` now has the class layouts by name,
+  so it can be derived rather than swept for.
+
+The arithmetic is already right: 3.09 uu = half of the measured 63.1 mm IPD at 98 uu/m.
+So this is a DIRECTION problem, not a magnitude one.
+
+### What landed this session
+
+| | Evidence |
+|---|---|
+| `pad_bridge` is a real module; motion controls out of the input path | builds both configs, exports 9, golden ini unchanged |
+| Pad packet number moves on change, not every present | from BRVR's measured rule |
+| Movement stick deadzone is radial, not per-axis | same source |
+| **AER implemented** - one eye per frame, PAIRED submit through the runtime's tag ring | `stereo: beat method=aer out/s=116 L/s=58 R/s=58` |
+| `FrameOutput::eyeSign` was computed and thrown away; now pushed to the runtime | was the stale-left class waiting to happen |
+| Gameplay verdict published, so the projection layer is not dropped for the quad | `xr: cinematic quad off (strict=1 stale=0)` |
+| **The pawn oracle was parasitic on motion crouch** - one dead signal, three bugs | `[game] state:` was stuck at NO_PAWN for a whole 116 fps run |
+| Boot-default menu flag cleared on the first gameplay frame | it was parking the sticks for 5263 ms |
+| `fovprobe` + 2,989 decompiled classes | named `m_fCurFOV_Arms` on `DishonoredPlayerCamera` |
+| `docs/NAVIGATION.md`, `/newchat`, CLAUDE.md session-start | session start is now two commands |
+
+### Verified vs assumed
+
+**Verified in a headset** (Quest 3 / VirtualDesktopXR): AER fuses as real stereo; head
+tracking, positional tracking, the gamepad and the FOV loop all work
+(`heartbeat: GAME=120fps ... pos=1 pad=1 lever=100`). The render is 1355x1405 windowed,
+near-square, with the claim following the readback (`engine RENDERED 99.4 deg`).
+
+**Build-verified only**: the eye-separation instrument, the boot-default menu fix and the
+named-offset half of `fovprobe` all went in after the last headset run.
+
+**Installed right now**: `d3d9.dll` 41.0.0 RelWithDebInfo built from this branch's tip.
+The game needs the Steam launch option `-windowed -ResX=2750 -ResY=2850`; without
+`-windowed` the game goes fullscreen and D3D9 snaps the render to a real display mode.
+
+### Next step
+
+Run once, turn a full circle in gameplay, and read `camera/eyesep:`. That single line
+decides whether the eye offset is being laid along a real camera basis row or a fixed
+world axis, and the fix follows from the answer. `tools/uscript/` (local, 2,989 classes)
+has `DishonoredPlayerCamera`'s layout by name if the row needs deriving.
+
 ## Current state (2026-09-03, session 6: AlternateEye implemented and installed)
 
 **`aer` is implemented and INSTALLED on this PC.** ROADMAP S2a's code is done; its

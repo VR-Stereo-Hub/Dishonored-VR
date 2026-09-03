@@ -67,13 +67,23 @@ its pair pacing. BioShock Remastered VR's `XR_SubmitPair` settled that choice.
 Acceptance, in order:
 
 - [x] `stereo aer` accepted (needs `[Camera] EyeField` from the eyetest); the beat line reads
-      `L/s == R/s == out/s / 2` - CODE DONE, the beat reading is still owed from a run
+      `L/s == R/s == out/s / 2` - MEASURED in a headset:
+      `stereo: beat method=aer out/s=116 L/s=58 R/s=58 mono/s=0 none/s=0`
+- [x] The projection layer actually reaches the headset (`xr: cinematic quad off
+      (strict=1 stale=0)`) - it was being dropped for the mono quad because no gameplay
+      verdict was ever published
 - [ ] `stereo.xrs` on the simulator: two projection views, `EyeSeparationM` == IPD, left vs
       right `img-diff` well above the noise floor with parallax on near geometry
 - [ ] eye-check.ps1 legs 0-5 PASS; the runtime's pair probe reports no untagged presents
       (the stale-left class)
-- [ ] Headset: fusion at the measured IPD, no swim on head turns; half-rate per eye judged
-      acceptable or not (write the verdict)
+- [ ] **THE OPEN ONE: the eye separation.** The world fuses, but the image flickers and
+      the tester reads it as the two eyes misaligned with each other (whole scene, not just
+      the viewmodel). The offset MAGNITUDE is right (3.09 uu = half of a measured 63.1 mm
+      IPD at 98 uu/m); the suspect is its DIRECTION - `read_right()` reads an assumed
+      `cam + kCamRight` and one run logged `right=(0,1,0)`, a fixed world axis. The
+      `camera/eyesep:` line prints it once a second now: turn a full circle and see whether
+      it rotates. STATUS carries the reading
+- [ ] Headset: no swim on head turns; half-rate per eye judged acceptable or not (verdict)
 
 ## S2b - SequentialReentry (rung 3; developer B)
 

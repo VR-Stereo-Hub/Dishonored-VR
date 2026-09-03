@@ -114,9 +114,26 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 
 ## Session protocol
 
-- **START**: read `docs/STATUS.md`, the current milestone in `docs/ROADMAP.md`, then
-  `git log --oneline -10`. Branch off `VR-Main`. Touching engine internals? Read
-  `docs/dishonored/ENGINE_NOTES.md` first; new findings go there in the same commit as the code.
+- **START, and it is two commands:** `sed -n '1,120p' docs/STATUS.md` plus
+  `git log --oneline -10`. That is the whole session start (~2.5k tokens). Then the ONE
+  milestone in flight from `docs/ROADMAP.md`, not the ladder. Branch off `VR-Main`.
+- **`docs/NAVIGATION.md` is the router - read it before opening any other doc.** It carries
+  every doc's measured size, a routing table by intent, and how each file is internally
+  organised, so an answer can be found without opening the file holding it. The one rule:
+  **grep an anchor and read a window; never open a doc whole above ~400 lines.** STATUS is
+  921 lines and everything past the current-state block is an archive nothing routes to;
+  ENGINE_NOTES is 892 and `grep -n "^## "` is its index. The reference mirrors under
+  `docs/reference/` and `docs/bsvr-reference/` are ~40,000 lines - grep them, never bulk read.
+  Touching engine internals? Grep `docs/dishonored/ENGINE_NOTES.md` first; new findings go
+  there in the same commit as the code.
+- **Filter the noisy commands.** `build.ps1` prints thousands of lines
+  (`| Select-String -Pattern "error C|Build failed"`); `lint.ps1` prints ~37 informational
+  `note:` lines and only the last is the verdict (`| Select-Object -Last 1`); the game log is
+  300+ lines a run (`tail-log.ps1 -Grep`, never read it whole); `git diff` on a refactor wants
+  `--stat` first.
+- **`/newchat` closes a session out** (`.claude/commands/newchat.md`): it brings STATUS,
+  ROADMAP, ARCHITECTURE and ENGINE_NOTES up to date, checks the repo and the installed build,
+  and prints a short prompt to paste into a fresh chat.
 - **Validate in the SIMULATOR before asking for a headset.** `tools\xrsim-launch.ps1` runs the
   game against `dvr_xrsim32.dll`, a simulated 32-bit OpenXR runtime that presents as a Quest 3:
   head/hand poses, every controller button, deterministic frame stepping and per-eye compositor
