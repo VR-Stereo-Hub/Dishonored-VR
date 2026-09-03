@@ -256,14 +256,32 @@ static bool DvrScriptViewLive()
     // A loading screen dispatches a short burst about once a second (run 22:
     // GAMEPLAY/LOADING flapping), so leaving LOADING needs a full second of
     // continuous dispatches, and entering it 750 ms of silence.
+    // 41.1 (session 8): a PAUSE MENU silences the dispatches too, and the
+    // one-second rule then held every resume on the flat quad for 1-1.5 s
+    // (32 pause/resumes in the 2026-09-03 headset run, each one a stereo ->
+    // flat -> stereo flip the eyes felt). A silence that began while a menu
+    // was open is the menu's, not a load's: the first fresh dispatch after
+    // it is live at once. The one-second rule stays for every other silence.
     static double silentSince = 0.0, resumedAt = 0.0;
-    static bool live = false;
+    static bool live = false, menuSilence = false;
     const double now = MaimNowMs();
     const bool fresh = g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0;
-    if (!fresh) { silentSince = silentSince ? silentSince : now; resumedAt = 0.0; live = false; }
-    else {
+    if (!fresh) {
+        if (!silentSince) { silentSince = now; menuSilence = g_menuOpen || g_inMenu; }
+        else if (g_menuOpen) menuSilence = true;
+        resumedAt = 0.0; live = false;
+    } else {
         silentSince = 0.0;
-        if (resumedAt == 0.0) resumedAt = now;
+        if (resumedAt == 0.0) {
+            resumedAt = now;
+            if (menuSilence) {
+                live = true;
+                DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info,
+                        "[game] view live at once after a MENU's silence (no one-second hold: the dispatches "
+                        "stopped for the pause menu, not a load)");
+            }
+            menuSilence = false;
+        }
         if (now - resumedAt >= 1000.0) live = true;
     }
     return live;
