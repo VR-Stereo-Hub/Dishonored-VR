@@ -354,6 +354,34 @@ twice, so the diff FALLS. The instruments that carry the verdict here are leg 0 
 pairing) and the pair line's c5 travel; the interocular band needs its own Dishonored
 calibration once a headset run has judged fusion (KNOWN_ISSUES).
 
+**The first headset run (2026-09-03, Quest 3 via VDXR, the user; `42-run30-quest3-reentry.log`)
+failed on two counts, both explained by the log, both invisible on the simulator:**
+
+1. *Both frames in both eyes, alternating.* The doubling ran (`draws/s=54 2nd/s=54
+   presents/s=108`, `pair pacing live`, the pair c5 line 6.08 uu) but the beat read
+   `L/s=36 R/s=54 mono/s=18`: a third of the LEFT tags were dropped by the method's own
+   pairing check, which compared the camera position the tick's last write produced with
+   the present's c5 and required them equal within 2 uu. While the player WALKS the engine
+   moves the camera by a tick of travel AFTER that write (measured: `c5 5692.0 6376.0` vs
+   `written 5689.5 6375.8`, ~2.5 uu along the heading, the eye offset intact), so the -1
+   present failed the check (the +1 present is written in the stub right before its draw
+   and always matched). Every dropped left tag broke a pair and the runtime submitted its
+   latest single image to both eyes for that frame. On the simulator every run stood
+   still. The position check is telemetry now (a 40 uu line for teleports); the ring's
+   push/pop ORDER pairs the eyes.
+2. *Head motion reversed on lean, a second motion on pitch.* Under a projection layer the
+   compositor moves the image for the head's REAL displacement (the located pose,
+   including the neck's travel on a pitch and the roll). The positional path was built
+   for the head-locked quad: a screen-space matrix shift with a deadzone and a room-scale
+   bleed that re-centres the reference within a second (the heartbeat shows the lean
+   decaying to 1-4 uu while the user leaned), and `[HeadTrack] Roll=0` never rolled the
+   camera. So the game rendered from a camera that had not moved while the layer said it
+   had: reversed parallax on a lean, a swim on a pitch, a counter-rolling horizon. Under a
+   projection layer the game camera now follows the head's RAW displacement (no deadzone,
+   no bleed, no clamp, no synthetic crouch drop) through the camera lane in the yaw-only
+   frame (`[PosTrack] Lane=auto`), and the head roll is written. The quad screen keeps the
+   tuned lean and no roll. Not yet re-judged in the headset.
+
 **A loose end, recorded.** The ring between the game thread's tag push (per draw) and the
 present thread's pop (per present) can hold two pairs legitimately (the game thread runs a
 frame ahead); the first build cleared it at depth 3 and re-paired mid-pair every few

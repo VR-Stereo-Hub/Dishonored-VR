@@ -212,8 +212,12 @@ static void GameStateTick()
     const char* s;
     if (!CylTruthLive())               s = "NO_PAWN";
     else if (g_menuOpen || g_inMenu || g_mainMenu) s = "MENU";
+    else if (!DvrScriptViewLive()) {
+        // A loading screen ends whatever cutscene the latch remembers.
+        if (g_cineNow) { g_cineNow = false; Log("cine: latch cleared - a loading screen"); }
+        s = "LOADING";
+    }
     else if (g_cineNow)                s = "CINEMATIC";
-    else if (!DvrScriptViewLive())     s = "LOADING";
     else                               s = "GAMEPLAY";
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);

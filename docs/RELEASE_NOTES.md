@@ -11,9 +11,10 @@
   `deferred` halves the per-present capture cost (measured 5.0 -> 2.3 ms at 1080p) for one
   present of latency and resolves a multisampled backbuffer; `shared` is refused by this
   game's device and says so.
-- New: `[PosTrack] Lane=vp|camera` (ships `vp`) and `postrack on|off|lane <l>`: lean, crouch
-  and roomscale through the camera seam's own write instead of the c0 matrix patch; `camera
-  postest <R> [U] [F]` measures the travel in uu.
+- New: `[PosTrack] Lane=auto|vp|camera` (ships `auto`: the c0 matrix patch on the mono
+  screen, the camera seam's own write under a projection layer, where the head's raw
+  displacement drives the camera and the head roll is written) and `postrack on|off|lane
+  <l>`; `camera postest <R> [U] [F]` measures the travel in uu.
 - Fixed: under `[Mode] GamepadOnly=1` the title screen, the main menu and a loading screen
   read as GAMEPLAY (the script-event tracking sat inside the motion-aim block); the
   `[game] state` line now knows the main menu (its own signal) and a `LOADING` state, and

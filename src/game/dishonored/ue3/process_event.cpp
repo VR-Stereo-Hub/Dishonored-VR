@@ -226,7 +226,16 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                     // (head_track.cpp) clears g_menuOpen while dispatches flow,
                     // and the attract camera behind the main menu dispatches.
                     const bool leaving = !strcmp(nm, "UnregisterControllerDelegates") || !strcmp(nm, "OnFocusLost");
-                    if (leaving && g_mainMenu) { g_mainMenu = false; Log("menu: main menu gone (%s)", nm); }
+                    if (leaving && g_mainMenu) {
+                        g_mainMenu = false;
+                        Log("menu: main menu gone (%s)", nm);
+                        // The title screen's attract scene toggles the cinematic
+                        // latch ON; whether the level's pawn latch clears it
+                        // depends on which fires first (run 32: the pawn came
+                        // first and CINEMATIC stuck for the whole level). Leaving
+                        // the main menu is the level load: start clean here too.
+                        if (g_cineNow) { g_cineNow = false; Log("cine: latch cleared - leaving the main menu"); }
+                    }
                     else if (!leaving && !g_mainMenu) { g_mainMenu = true; Log("menu: main menu up (%s)", nm); }
                 }
             }

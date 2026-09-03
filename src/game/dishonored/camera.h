@@ -60,13 +60,18 @@ bool render_pos(float out[3]);
 //           EyeField with the eye offset, in ONE write per dispatch, along
 //           the camera object's basis rows (+0x50 forward, +0x60 right,
 //           +0x70 up; validated orthonormal before the first write)
-// [PosTrack] Lane= picks the lane (default vp); `postrack lane <l>` live.
+// [PosTrack] Lane= picks the lane: auto (default: vp on the quad screen, camera
+// under a projection layer, where the compositor moves the image for the
+// head's real displacement and the game camera must follow it exactly),
+// vp or camera to force. `postrack lane <l>` live. Under a projection layer
+// the offset is applied in the yaw-only frame (world up, the camera's
+// heading), never along a pitched or rolled basis.
 void  set_position_offset_uu(float right, float up, float fwd);   // present thread
 void  position_offset_uu(float out[3]);                           // any thread
 enum class PosLane { Vp = 0, Camera = 1 };
-bool        set_pos_lane(const char* name);   // "vp" | "camera"
-PosLane     pos_lane();
-const char* pos_lane_name();
+bool        set_pos_lane(const char* name);   // "auto" | "vp" | "camera"
+PosLane     pos_lane();                       // the lane in effect this present
+const char* pos_lane_name();                  // "vp" | "camera" (+ " (auto)")
 
 // The 38.24 eye clamp's ceiling (world Z the camera may not rise above),
 // published by FovLeverApply while its clamp is live; the camera-lane writer

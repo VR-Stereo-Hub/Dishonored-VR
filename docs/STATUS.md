@@ -2,109 +2,129 @@
 
 ## Current state (2026-09-03, session 6: S2b, SequentialReentry on the simulator, 41.1)
 
-**Rung 3 renders true per-eye stereo on the simulator.** ``stereo reentry`` patches the one
-gameplay call of the viewport draw root (derived live this session: ``kViewportDraw
-0x5fc5b0``, called ``push 1; call`` from UGameEngine::Tick at ``0x6330da``; ENGINE_NOTES "The
+**The first headset run of rung 3 FAILED (run 30, Quest 3 via VDXR, the user): both frames
+alternating in both eyes, lean reversed, a second motion on pitch.** Both causes are in the
+log and fixed in the tree (ENGINE_NOTES "The scene-draw root", the headset paragraph), NOT
+yet re-judged: (1) the method's pairing check dropped a third of the LEFT tags while the
+player walked (the engine moves the camera a tick after the write; the check is telemetry
+now, the ring's order pairs the eyes); (2) under a projection layer the compositor moves
+the image for the head's real displacement and roll, and the game camera followed neither
+(the tuned lean with its deadzone and re-centring bleed, `[HeadTrack] Roll=0`); now the
+raw head displacement drives the camera lane in the yaw-only frame (`[PosTrack] Lane=auto`,
+30 cm reads +29.4 uu held steady on the simulator, run 32) and the roll is written. A
+third fix from the same runs: the cinematic latch could stick CINEMATIC across a level load
+(the second draw gated off for the whole level, run 32); it clears when the main menu goes
+and on a loading screen. The doubling itself worked on the headset: draws/s 54 = 2nd/s 54,
+presents 108, pair pacing live, the pair line 6.08 uu. Everything below stands as measured
+on the simulator.
+
+**Rung 3 renders true per-eye stereo on the simulator.** `stereo reentry` patches the one
+gameplay call of the viewport draw root (derived live this session: `kViewportDraw
+0x5fc5b0`, called `push 1; call` from UGameEngine::Tick at `0x6330da`; ENGINE_NOTES "The
 scene-draw root, derived live") and calls the root a second time per tick with eye +1
 written into camera+0x330 between the passes. Measured in the sewers level (runs 27-29,
-the simulator at 90 Hz, 1920x1080): ``reentry: beat draws/s=53 2nd/s=53 presents/s=106``,
-``stereo: beat method=reentry out/s=104 L/s=52 R/s=52 mono/s=0``, the second call 220-470 us,
+the simulator at 90 Hz, 1920x1080): `reentry: beat draws/s=53 2nd/s=53 presents/s=106`,
+`stereo: beat method=reentry out/s=104 L/s=52 R/s=52 mono/s=0`, the second call 220-470 us,
 every gate's skip counter 0, no fault in a 90 s soak, and the pair line **the +1 present's
 c5 sits (0.02 6.17 0.00) uu from the -1 present's (ipd*scale = 6.17)** on every pair. The
-capture pair shows the parallax on the near pipe. ``reentry.xrs`` and ``stereo.xrs`` pass (two
+capture pair shows the parallax on the near pipe. `reentry.xrs` and `stereo.xrs` pass (two
 projection views, both eyes ~70 % non-black), eye-check legs 0-1 pass (legs 2-5 carry
-BioShock's bands: KNOWN_ISSUES), ``stereo mono`` restores the call site. ``[Stereo] Method``
-still ships ``mono``; the headset verdict is the user's (below).
+BioShock's bands: KNOWN_ISSUES), `stereo mono` restores the call site. `[Stereo] Method`
+still ships `mono`; the headset verdict is the user's (below).
 
 **The S1 levers, measured (all ship OFF):**
 
-- Capture: the shipped path costs ~5 ms per present at 1080p, all of it ``LockRect`` waiting
+- Capture: the shipped path costs ~5 ms per present at 1080p, all of it `LockRect` waiting
   on the queued readback; the D3D9Ex shared surface is REFUSED by this device (not 9Ex);
-  ``[Capture] Mode=deferred`` (queue the readback, lock it one present later) measures
-  2.3 ms with ``mono.xrs`` passing (runs 16-19; ENGINE_NOTES "The capture cost, measured").
-- Positional tracking on the camera seam (``[PosTrack] Lane=camera``): ``camera postest``
+  `[Capture] Mode=deferred` (queue the readback, lock it one present later) measures
+  2.3 ms with `mono.xrs` passing (runs 16-19; ENGINE_NOTES "The capture cost, measured").
+- Positional tracking on the camera seam (`[PosTrack] Lane=camera`): `camera postest`
   HONOURED within 1-2 % on all three axes in gameplay (+30.0 right, -24.4 up, +39.7
   forward); the basis rows +0x50/+0x60/+0x70 read orthonormal (run 20 on the attract
   camera, run 21 in the sewers).
 - FOV from the render size: under a projection layer the lever target follows the
   runtime's circumscribed hfov (137.0 at 16:9) and the layer claims the 0x53c sensor
-  (``fovaudit src=readback``, the sensor ramping 136->137 within a second). Measured at
-  16:9 only: the game did not take ``ResX/ResY`` from its ini, so the second aspect is open.
+  (`fovaudit src=readback`, the sensor ramping 136->137 within a second). Measured at
+  16:9 only: the game did not take `ResX/ResY` from its ini, so the second aspect is open.
 
-**Found on the way (each fixed):** under ``[Mode] GamepadOnly=1`` every script-event tracker
+**Found on the way (each fixed):** under `[Mode] GamepadOnly=1` every script-event tracker
 sat inside the motion-aim block, so the title screen, the main menu and a loading screen
 read GAMEPLAY (the earlier "gameplay" instrument runs were on the attract camera; the
 loading screen's static camera reads DISCARDED for every write); the runtime's projection
 path had no caller in this game (camera mode was an overlay checkbox and a stale verdict
 pins the quad); the cinematic latch the title screen toggles ON survived a level load; the
 tag ring cleared every few seconds because the game thread runs a frame ahead of the render
-thread; ``eye-check.ps1`` failed at start (a param default calling the library early).
+thread; `eye-check.ps1` failed at start (a param default calling the library early).
 
 **Not verified**: the headset (fusion, per-eye reflections, flicker on fast motion, the
-tick rate halving); the SteamVR shim with Dishonored; ``aer`` (Developer A's stub, untouched).
+tick rate halving); the SteamVR shim with Dishonored; `aer` (Developer A's stub, untouched).
 
 ## Next steps (one paragraph per developer)
 
-**The user (the headset run, Quest 3 via VDXR)**: ``tools\install.ps1``, launch through Steam
-with VD streaming and VDXR active, reach gameplay, then ``tools\game-cmd.ps1 "stereo reentry"``
-(``$env:DVR_DATA_DIR='D:\dvr-data'``). Expect: the world in stereo at full frame rate
-per eye, the game's tick halved (the F10 overlay and the log's ``heartbeat: GAME=... ticks=``
+**The user (the headset run, Quest 3 via VDXR)**: `tools\install.ps1`, launch through Steam
+with VD streaming and VDXR active, reach gameplay, then `tools\game-cmd.ps1 "stereo reentry"`
+(`$env:DVR_DATA_DIR='D:\dvr-data'`). Expect: the world in stereo at full frame rate
+per eye, the game's tick halved (the F10 overlay and the log's `heartbeat: GAME=... ticks=`
 say by how much), reflections and post effects per eye. Judge fusion, world scale, and
-fast head motion; then ``capture mode deferred`` (one present of latency for 2.7 ms back);
-then ``postrack lane camera`` (lean/crouch through the camera write). Quit through the menu.
-Send ``dishonored_vr.log``; the verdict picks the defaults for ``[Stereo] Method``,
-``[Capture] Mode`` and ``[PosTrack] Lane``.
+fast head motion; then `capture mode deferred` (one present of latency for 2.7 ms back);
+then `postrack lane camera` (lean/crouch through the camera write). Quit through the menu.
+Send `dishonored_vr.log`; the verdict picks the defaults for `[Stereo] Method`,
+`[Capture] Mode` and `[PosTrack] Lane`.
 
 **Developer B (S2b follow-ups)**: the eye-check bands recalibrated on this game after the
 headset verdict; the second aspect (how the game takes its render size now that the window
-machinery is gone; ``setres`` through the console seam is the lead); the tick-rate cost
+machinery is gone; `setres` through the console seam is the lead); the tick-rate cost
 (the second draw is a full scene draw: measure on the headset rig, consider a per-eye
 resolution below the window's); the F10 overlay is drawn into both eye textures at
 infinity; the frame-path items still per present under two presents per tick (TrackHead,
 the pad composition) are harmless but wasteful.
 
-**Developer A (AlternateEye)**: ``core/gfx/aer.cpp`` untouched; the seam now carries
-``wants_projection()`` (return true), the projection arming and the FOV handoff for free,
-and ``capture::set_pending_tag/delivered_tag`` for the eye tag under ``deferred`` capture.
+**Developer A (AlternateEye)**: `core/gfx/aer.cpp` untouched; the seam now carries
+`wants_projection()` (return true), the projection arming and the FOV handoff for free,
+and `capture::set_pending_tag/delivered_tag` for the eye tag under `deferred` capture.
 
-**Both**: the recipe on this PC is ``tools\build.ps1; tools\install.ps1;
-$env:DVR_DATA_DIR='D:\dvr-data'; tools\xrsim-launch.ps1 -ViaSteam``, foreground the window,
-then ``tools\game-key.ps1 -Key Return`` three times to reach the sewers (VERIFICATION gotcha
-15), ``tools\xrsim-run.ps1 -Path tools\xrsim\reentry.xrs -Dir D:\dvr-data\xrsim``. Stop the
-game with Stop-Process, never WM_CLOSE. Copy ``dishonored_vr.log`` to ``D:\dvr-data\logs``
-before every relaunch (this session's runs are ``42-run16..29-*.log`` there).
+**Both**: the recipe on this PC is `tools\build.ps1; tools\install.ps1;
+$env:DVR_DATA_DIR='D:\dvr-data'; tools\xrsim-launch.ps1 -ViaSteam`, foreground the window,
+then `tools\game-key.ps1 -Key Return` three times to reach the sewers (VERIFICATION gotcha
+15), `tools\xrsim-run.ps1 -Path tools\xrsim\reentry.xrs -Dir D:\dvr-data\xrsim`. Stop the
+game with Stop-Process, never WM_CLOSE. Copy `dishonored_vr.log` to `D:\dvr-data\logs`
+before every relaunch (this session's runs are `42-run16..29-*.log` there).
 
 ## Blockers
 
 - The headset verdict on rung 3 needs the user.
 - The second aspect for the FOV law needs a way to change the render size (KNOWN_ISSUES).
-- **WM_CLOSE leaves a stuck ``Dishonored.exe``** (session 5): close a healthy game with
-  ``Stop-Process``; a menu quit is clean on the Quest (run 15).
+- **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
+  `Stop-Process`; a menu quit is clean on the Quest (run 15).
 
 ## Session log
 
 ### 2026-09-03 - session 6: S2b - the capture cost, the lanes, the root, the second draw
 
-Branch ``claude/s2b-stereo-scene-draw-a341c5``, seven commits on ``VR-Main`` (24b22390): the
+Branch `claude/s2b-stereo-scene-draw-a341c5`, seven commits on `VR-Main` (24b22390): the
 capture cost measured and the modes, the pipelined deferred capture, positional tracking on
 the camera seam, the projection claim and the FOV handoff with the state-gate fixes, the
 root derivation and the second draw, the docs. Runs on the dev PC (simulator lane, logs in
-``D:\dvr-data\logs\42-run*.log``):
+`D:\dvr-data\logs\42-run*.log`):
 
 | Run | What | Result |
 |---|---|---|
-| 16 | capture modes | probe: shared REFUSED; sync 5.4 ms, deferred (first form) 5.2 ms: no gain; ``mono.xrs`` PASS both |
+| 16 | capture modes | probe: shared REFUSED; sync 5.4 ms, deferred (first form) 5.2 ms: no gain; `mono.xrs` PASS both |
 | 17 | user-memory surface | REFUSED (D3DERR_INVALIDCALL), fell back to sync |
 | 18 | the lock split | sync: lock 2.4-3.1 ms, copy 0.7, upload 1.5; deferred first form: the lock still waits |
-| 19 | deferred pipelined | lock 0, total 2.25-2.4 ms; ``mono.xrs`` PASS |
+| 19 | deferred pipelined | lock 0, total 2.25-2.4 ms; `mono.xrs` PASS |
 | 20 | postest | camera lane HONOURED on all axes - on the attract camera (the state mislabel found in run 21) |
 | 21 | projection on the mono screen | two views, sensor 137, claim readback; the pictures were the title screen, then the loading screen (DISCARDED there), then the sewers: eyetest 120/120, postest +30.0 in real gameplay |
 | 22-24 | the state gate | menu/cine tracking hoisted, main-menu flag, LOADING state, the cinematic latch cleared on a new pawn: title MENU -> quad, load LOADING -> quad, level GAMEPLAY -> projection |
 | 25 | 1440x1440 | the game stayed 1920x1080 with ResX/ResY=1440 in both ini places; second aspect open |
 | 26 | census + scrapes | PVR from one site once per present; render thread presents; the draw chain to the HUD PostRender |
 | 27 | tick chain + probes | both chains under UGameEngine::Tick; the root 0x5fc5b0 named from the bytes at 0x6330da; pe-xref confirms every edge |
-| 28 | first light | pulse: 3 second draws at 218-414 us, presents +1 each; ``stereo reentry``: L/s 54 R/s 53, pair c5 travel 6.17 uu, no fault; the ring cleared every few seconds |
-| 29 | the ring fix + soak | L/s 52 R/s 52 mono 0, ringCleared 0, 90 s clean; ``reentry.xrs`` 11/11 |
+| 28 | first light | pulse: 3 second draws at 218-414 us, presents +1 each; `stereo reentry`: L/s 54 R/s 53, pair c5 travel 6.17 uu, no fault; the ring cleared every few seconds |
+| 29 | the ring fix + soak | L/s 52 R/s 52 mono 0, ringCleared 0, 90 s clean; `reentry.xrs` 11/11 |
+| 30 | **the headset (Quest 3, VDXR, the user)** | the doubling ran (draws 54 = 2nd 54, presents 108, pair 6.08 uu) but L/s=36 R/s=54 mono/s=18: left tags dropped by the position check while walking -> both frames in both eyes; lean reversed, a second motion on pitch (the head's displacement and roll not driven under the projection layer) |
+| 31 | the fixes, sim | tags never dropped: L/s 53 R/s 53 mono 0; `reentry.xrs` 11/11; the lean under projection read 13.7 uu for 30 cm (the reference had crept) |
+| 32 | the stable reference | 30 cm -> +29.4 uu held for 10 s, crouch/forward signs right, postest HONOURED; CINEMATIC stuck across the load (the pawn latched before the title toggle) |
+| 33 | the cinematic latch | `cine: latch cleared - leaving the main menu`, LOADING -> GAMEPLAY, L/s 53 R/s 53 mono 0 |
 
 ### 2026-09-02 - session 5: the state as session 5 left it (archived)
 

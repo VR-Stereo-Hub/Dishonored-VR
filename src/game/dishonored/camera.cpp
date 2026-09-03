@@ -3,6 +3,7 @@
 #include "game/dishonored/camera.h"
 
 #include "core/framework/status.h"
+#include "core/gfx/stereo.h"
 #include "core/util/log.h"
 #include "core/util/mem.h"
 #include "game/dishonored/patterns.h"
@@ -51,7 +52,7 @@ Writer g_eyeWriter;
 
 // ---- positional tracking on the seam ----------------------------------------
 volatile float g_pos[3] = {0, 0, 0};   // right, up, forward (uu); present thread writes
-PosLane  g_posLane = PosLane::Vp;
+// (the lane is resolved by pos_lane(): [PosTrack] Lane=auto follows the projection claim)
 float    g_ceilZ = 0.0f;
 bool     g_ceilOn = false;
 bool     g_basisSaid = false;
@@ -349,27 +350,37 @@ void position_offset_uu(float out[3]) {
     out[0] = g_pos[0]; out[1] = g_pos[1]; out[2] = g_pos[2];
 }
 
+int g_posLaneCfg = -1;   // -1 auto, 0 vp, 1 camera
+
 bool set_pos_lane(const char* name) {
     if (!name) return false;
-    PosLane l;
-    if (!_stricmp(name, "vp")) l = PosLane::Vp;
-    else if (!_stricmp(name, "camera")) l = PosLane::Camera;
+    int cfg;
+    if (!_stricmp(name, "auto")) cfg = -1;
+    else if (!_stricmp(name, "vp")) cfg = 0;
+    else if (!_stricmp(name, "camera")) cfg = 1;
     else {
-        DVR_WARN("camera: unknown positional lane '%s' (vp|camera) - staying on %s", name, pos_lane_name());
+        DVR_WARN("camera: unknown positional lane '%s' (auto|vp|camera) - staying on %s", name, pos_lane_name());
         return false;
     }
-    if (l != g_posLane) {
-        g_posLane = l;
+    if (cfg != g_posLaneCfg) {
+        g_posLaneCfg = cfg;
         DVR_INFO("camera: positional tracking lane -> %s (%s)", pos_lane_name(),
-                 l == PosLane::Camera ? "the lean/crouch/roomscale offset is written into the camera field "
-                                        "with the eye offset; the c0 patch is off"
-                                      : "the c0 view-projection patch (LeanVP); the camera write carries "
-                                        "the eye offset only");
+                 cfg < 0 ? "auto: the c0 patch on the quad screen, the camera write under a projection layer"
+                 : cfg == 1 ? "the lean/crouch/roomscale offset is written into the camera field with the eye "
+                              "offset; the c0 patch is off"
+                            : "the c0 view-projection patch (LeanVP); the camera write carries the eye offset only");
     }
     return true;
 }
-PosLane pos_lane() { return g_posLane; }
-const char* pos_lane_name() { return g_posLane == PosLane::Camera ? "camera" : "vp"; }
+PosLane pos_lane() {
+    if (g_posLaneCfg < 0) return dvr::stereo::wants_projection() ? PosLane::Camera : PosLane::Vp;
+    return g_posLaneCfg == 1 ? PosLane::Camera : PosLane::Vp;
+}
+const char* pos_lane_name() {
+    const PosLane l = pos_lane();
+    if (g_posLaneCfg < 0) return l == PosLane::Camera ? "camera (auto)" : "vp (auto)";
+    return l == PosLane::Camera ? "camera" : "vp";
+}
 
 void set_eye_ceiling(float zMax, bool on) { g_ceilZ = zMax; g_ceilOn = on; }
 
@@ -378,7 +389,7 @@ bool apply_offsets(uint8_t* camObj) {
     if (g_et.active) return false;   // the instrument owns the fields while it runs
     float pos[3];
     position_offset_uu(pos);
-    const bool posWanted = g_posLane == PosLane::Camera || (g_pt.active && g_pt.lane == PosLane::Camera);
+    const bool posWanted = pos_lane() == PosLane::Camera || (g_pt.active && g_pt.lane == PosLane::Camera);
     const bool posLive = posWanted && (pos[0] != 0.0f || pos[1] != 0.0f || pos[2] != 0.0f);
     // The eye: the seam's, or +1 inside SequentialReentry's second draw.
     const int eyeNow = second_pass_for_current_thread() ? 1 : g_eye;
@@ -399,13 +410,33 @@ bool apply_offsets(uint8_t* camObj) {
     bool haveBasis = false;
     if (posLive) haveBasis = read_basis(camObj, f, r, u);
     if (!haveBasis && !read_right(camObj, r)) return false;
+    // Under a projection layer the displacement is the HEAD's, measured in a
+    // yaw-only frame: apply it along the camera's heading with world up (Z),
+    // never along a pitched forward row or a rolled right row - the
+    // compositor's expectation is the play space, not the view.
+    float pr[3], pu[3], pf[3];
+    if (haveBasis && dvr::stereo::wants_projection()) {
+        const float hn = sqrtf(f[0] * f[0] + f[1] * f[1]);
+        if (hn > 0.2f) {
+            pf[0] = f[0] / hn; pf[1] = f[1] / hn; pf[2] = 0.0f;
+            pr[0] = -pf[1]; pr[1] = pf[0]; pr[2] = 0.0f;   // UE3: X forward, Y right, Z up
+            if (pr[0] * r[0] + pr[1] * r[1] < 0.0f) { pr[0] = -pr[0]; pr[1] = -pr[1]; }   // keep the camera's handedness
+            pu[0] = 0.0f; pu[1] = 0.0f; pu[2] = 1.0f;
+            memcpy(f, pf, sizeof(pf)); memcpy(u, pu, sizeof(pu));
+            // the eye offset keeps the camera's true right row (r); the position uses pr
+        } else {
+            memcpy(pr, r, sizeof(pr));
+        }
+    } else {
+        memcpy(pr, r, sizeof(pr));
+    }
     const float sign = kFields[g_field].sign;
     // The displacement in POSITION form (world uu): the eye along right, the
     // lean along the basis when the lane is ours and the basis is measured.
     float off[3];
     for (int i = 0; i < 3; ++i) {
         off[i] = r[i] * eyeUu;
-        if (posLive && haveBasis) off[i] += r[i] * pos[0] + u[i] * pos[1] + f[i] * pos[2];
+        if (posLive && haveBasis) off[i] += pr[i] * pos[0] + u[i] * pos[1] + f[i] * pos[2];
     }
     // The 38.24 ceiling: the camera may not rise above the capsule top. Cap
     // the position Z the field will hold (the field is base + off in its own
@@ -445,7 +476,7 @@ bool postest_start(float rr, float uu, float ff) {
     }
     g_pt = Postest();
     g_pt.active = true;
-    g_pt.lane = g_posLane;
+    g_pt.lane = pos_lane();
     g_pt.cmd[0] = rr; g_pt.cmd[1] = uu; g_pt.cmd[2] = ff;
     DVR_INFO("camera/postest: START lane=%s asked R%+.1f U%+.1f F%+.1f uu: %d presents of c5 baseline at "
              "zero offset, then %d presents with the offset (the tracked head offset is overridden "

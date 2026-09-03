@@ -593,9 +593,14 @@ static void ApplyHeadToViewRotation(void* parms)
     if (wantPitch < -16000) wantPitch = -16000;
     rot[0] = wantPitch;
 
-    if (g_rotRoll) rot[2] = (int32_t)(g_hmdRoll * kUEPerRad * (float)g_flipRoll);
+    // 41.1: under a PROJECTION layer the compositor shows the image at the
+    // head's pose INCLUDING roll, so the game camera must roll with the head
+    // or the horizon counter-rolls (the 2026-09-03 headset run). [HeadTrack]
+    // Roll stays the quad screen's choice.
+    const bool rollNow = g_rotRoll || dvr::stereo::wants_projection();
+    if (rollNow) rot[2] = (int32_t)(g_hmdRoll * kUEPerRad * (float)g_flipRoll);
     frP = rot[0]; frY = rot[1];                       // 38.86/87: this chain
-    frR = g_rotRoll ? rot[2] : 0; frHave = true;      // pass's values
+    frR = rollNow ? rot[2] : 0; frHave = true;        // pass's values
     frWriteMs = MaimNowMs();
     InterlockedIncrement(&g_pvrWrites);   // 30.57: writes that actually landed
     g_scriptHeadOK = true;
@@ -732,6 +737,7 @@ static void TrackHead(const float (*m)[4])
         }
         g_f5Was = f5;
 
+        float rawDx = 0.0f, rawDy = 0.0f, rawDz = 0.0f;   // the raw head displacement (m), for the projection lane
         if (g_posTrack) {
             float px = m[0][3], py = m[1][3], pz = m[2][3]; // meters
             if (!g_posHaveRef) {
@@ -745,12 +751,22 @@ static void TrackHead(const float (*m)[4])
             // crouch. Dead code has to be deleted, not switched off.
             float dx = px - g_posRefX, dy = py - g_posRefY + g_heightOffsetM,
                   dz = pz - g_posRefZ;
+            // 41.1: the RAW displacement, before the room-scale bleed, the safety
+            // clamp and the synthetic crouch drop. Under a PROJECTION layer the
+            // compositor moves the image for the head's real displacement, so the
+            // game camera has to follow exactly that (the 2026-09-03 headset run:
+            // the bled-away lean read as REVERSED motion, the neck's travel on a
+            // pitch as a second motion). Published below in the head-yaw frame.
+            rawDx = dx; rawDy = dy; rawDz = dz;
             // 38.46: publish the RAW horizontal offset in the head's own yaw
             // frame - before the safety clamp, which exists to stop the camera
             // leaving the body and must not shrink what we hand the stick -
             // and bleed the reference toward the head while past the deadzone.
             // That bleed IS the auto-recenter.
-            if (g_roomScaleCfg) {
+            // 41.1: under a projection layer the reference must NOT creep - the
+            // compositor measures the head from a fixed origin, so the bleed
+            // (the auto-recenter) is the quad screen's only.
+            if (g_roomScaleCfg && !dvr::stereo::wants_projection()) {
                 float cy0 = cosf(yaw), sy0 = sinf(yaw);
                 g_roomRightM = dx * cy0 + dz * sy0;
                 g_roomFwdM   = dx * sy0 - dz * cy0;
@@ -849,10 +865,20 @@ static void TrackHead(const float (*m)[4])
         }
         // 41.1: the camera seam owns the offset from here; both lanes (the c0
         // patch, the camera write) read it there. Off = zero, so a disabled
-        // tracker never leaves a stale lean behind on either lane.
-        dvr::camera::set_position_offset_uu(g_posTrack ? (float)g_leanRightUU : 0.0f,
-                                            g_posTrack ? (float)g_leanUpUU : 0.0f,
-                                            g_posTrack ? (float)g_leanFwdUU : 0.0f);
+        // tracker never leaves a stale lean behind on either lane. Under a
+        // projection layer the seam gets the RAW head displacement (right, up,
+        // forward in the head-yaw frame, world scale) - the compositor's own
+        // expectation - instead of the tuned lean.
+        if (!g_posTrack) {
+            dvr::camera::set_position_offset_uu(0.0f, 0.0f, 0.0f);   // off = zero on both lanes
+        } else if (dvr::stereo::wants_projection()) {
+            const float cyw = cosf(yaw), syw = sinf(yaw);
+            dvr::camera::set_position_offset_uu((rawDx*cyw + rawDz*syw) * g_posScaleUU,
+                                                rawDy * g_posScaleUU,
+                                                (rawDx*syw - rawDz*cyw) * g_posScaleUU);
+        } else {
+            dvr::camera::set_position_offset_uu((float)g_leanRightUU, (float)g_leanUpUU, (float)g_leanFwdUU);
+        }
     }
 
     // Menus show the Windows cursor; gameplay hides it. Track that state

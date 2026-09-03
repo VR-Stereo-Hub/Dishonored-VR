@@ -59,14 +59,16 @@ uint32_t      g_ringDropped = 0, g_ringCleared = 0, g_tagMismatch = 0, g_tagOk =
 
 uint32_t g_tagResynced = 0;
 
-// Pop the tag for THIS present. The game thread runs up to a frame ahead of
-// the render thread (UE3's OneFrameThreadLag), so two pairs can sit in the
-// ring legitimately; a depth beyond that is a skew and the ring is cleared.
-// When the head-of-ring tag's position does not match this present's c5 but
-// a later tag's does, the stale ones are skipped (a present that never
-// popped: a Reset, a movie frame) instead of swapping the eyes.
+// Pop the tag for THIS present, strictly in push order. The game thread runs
+// up to a frame ahead of the render thread (UE3's OneFrameThreadLag), so two
+// pairs can sit in the ring legitimately; a depth beyond that is a skew and
+// the ring is cleared. The ORDER pairs the eyes: one push per draw, one pop
+// per present. (The 2026-09-03 headset run: re-aligning by camera position
+// mis-paired a walking player - the engine moves the camera after the tick's
+// write - and showed both frames in both eyes. Position is telemetry now.)
 bool pop_tag(Tag& out, const float* c5) {
-    LONG tail = g_ringTail;
+    (void)c5;
+    const LONG tail = g_ringTail;
     const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0);
     if (tail == head) return false;
     if (head - tail > 6) {
@@ -75,17 +77,6 @@ bool pop_tag(Tag& out, const float* c5) {
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
                          "reentry: tag ring skewed (depth %ld) - cleared, mono until the next pair", head - tail);
         return false;
-    }
-    if (c5) {
-        for (LONG t = tail; t != head; ++t) {
-            const Tag& cand = g_ring[t & (kRing - 1)];
-            if (!cand.posOk) break;
-            const float d0 = c5[0] - cand.pos[0], d1 = c5[1] - cand.pos[1], d2 = c5[2] - cand.pos[2];
-            if (d0 * d0 + d1 * d1 + d2 * d2 <= 4.0f) {
-                if (t != tail) { g_tagResynced += (uint32_t)(t - tail); tail = t; }
-                break;
-            }
-        }
     }
     out = g_ring[tail & (kRing - 1)];
     InterlockedExchange(&g_ringTail, tail + 1);
@@ -134,17 +125,25 @@ public:
         float c5now[3];
         const bool haveC5 = dvr::camera::render_pos(c5now);
         if (pop_tag(t, haveC5 ? c5now : nullptr)) {
-            float c5[3];
-            if (t.posOk && dvr::camera::render_pos(c5)) {
-                const float d0 = c5[0] - t.pos[0], d1 = c5[1] - t.pos[1], d2 = c5[2] - t.pos[2];
-                if (sqrtf(d0 * d0 + d1 * d1 + d2 * d2) > 2.0f) {
+            eye = t.eye;
+            ++g_tagOk;
+            // TELEMETRY ONLY: the engine moves the camera by up to a tick of
+            // travel after the tick's last write, so a walking player's -1
+            // present sits a few uu from the written position with its eye
+            // offset intact. A large distance is a teleport or a present from
+            // another draw - counted and named, never a dropped tag.
+            if (t.posOk && haveC5) {
+                const float d0 = c5now[0] - t.pos[0], d1 = c5now[1] - t.pos[1], d2 = c5now[2] - t.pos[2];
+                const float dist = sqrtf(d0 * d0 + d1 * d1 + d2 * d2);
+                if (dist > 40.0f) {
                     ++g_tagMismatch;
-                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
-                                     "reentry: tag %+d dropped - this present's c5 (%.1f %.1f %.1f) is not the "
-                                     "position the draw wrote (%.1f %.1f %.1f): a present from another draw?",
-                                     t.eye, c5[0], c5[1], c5[2], t.pos[0], t.pos[1], t.pos[2]);
-                } else { eye = t.eye; ++g_tagOk; }
-            } else { eye = t.eye; ++g_tagOk; }
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                                     "reentry: tag %+d kept - this present's c5 (%.1f %.1f %.1f) is %.1f uu from the "
+                                     "position the draw wrote (%.1f %.1f %.1f): a teleport, or a present from another "
+                                     "draw (counted, not dropped)",
+                                     t.eye, c5now[0], c5now[1], c5now[2], dist, t.pos[0], t.pos[1], t.pos[2]);
+                }
+            }
         } else {
             ++g_tagUntagged;
         }

@@ -8,10 +8,13 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   shows the game's own frame on a flat screen in front of you (`[Screen] DistanceMeters`,
   `WidthMeters`; F10 has the sliders). Turning your head turns the GAME camera as before, the
   screen itself stays in front of your eyes. `stereo reentry` (41.1) draws the scene twice
-  per tick, once per eye, into a projection layer: verified on the simulator (two eyes half
-  an IPD apart, per-eye effects native), NOT yet judged in a headset - fusion, comfort and
-  flicker on fast motion are the headset's call, and the tick rate halves while it runs
-  (the second draw is a full scene draw). `stereo aer` is still a design stub.
+  per tick, once per eye, into a projection layer. The first headset run (2026-09-03,
+  Quest 3) FAILED on two counts, both explained by its log and fixed in the tree but not
+  yet re-judged: the pairing check dropped left-eye tags while walking (both frames went to
+  both eyes, alternating), and the head's real displacement and roll were not driven into
+  the game camera under the projection layer (lean read reversed, a second motion on pitch).
+  The tick rate halves while it runs (the second draw is a full scene draw). `stereo aer`
+  is still a design stub.
 - **The eye-check bands are BioShock's** [S2b]. `tools\eye-check.ps1` legs 2/4/5 were
   calibrated on another game; on Dishonored's sewers a true stereo pair reads an
   interocular mean of 6-7 against 13-22 for the same image shown twice, so those legs FAIL

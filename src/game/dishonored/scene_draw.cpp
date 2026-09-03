@@ -130,7 +130,7 @@ static bool SceneDrawCallGuarded(DvrViewportDrawFn fn, void* self, int b)
 static void SceneDrawBeat()
 {
     const uint64_t now = GetTickCount64();
-    if (g_sdBeatMs == 0) { g_sdBeatMs = now; return; }
+    if (g_sdBeatMs == 0) { g_sdBeatMs = now; g_sdBeatPresents = g_frame; return; }
     if (now - g_sdBeatMs < 3000) return;
     const double s = (double)(now - g_sdBeatMs) / 1000.0;
     const uint32_t presents = g_frame;
