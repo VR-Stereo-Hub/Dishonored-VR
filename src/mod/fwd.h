@@ -7,6 +7,7 @@ static void DvrDebugInit();
 static bool DvrGameCommand(const char* cmd, const char* args);
 static void DvrConsoleApply();
 static void GameStateTick();
+static bool DvrScriptViewLive();
 static void FrameDumpRequest(const char* what);
 static void FrameDumpTick(IDirect3DDevice9* dev);
 

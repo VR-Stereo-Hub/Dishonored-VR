@@ -44,6 +44,9 @@ static volatile double g_uiEventMs = 0.0;
 // held, or the DXVK fork reports a frame with no stereo splices - loading
 // screens, videos), SBS presentation drops to mono so flat UI is readable.
 static volatile bool g_menuOpen = true;
+// 41.1: the title screen / main menu movie is up (DisGFxMoviePlayerMainMenu events,
+// process_event.cpp); its own flag because the ghost-clear owns g_menuOpen.
+static volatile bool g_mainMenu = false;
 // 36.2: the panel places itself ONCE (FirstUseEver), and 36.1's shrink can
 // fire after that - the panel's latched position then sits outside both the
 // new logical space (invisible) and the mouse's reachable range (dead).

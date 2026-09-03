@@ -64,6 +64,7 @@ class SequentialReentry : public IStereo {
 public:
     const char* name() const override { return "reentry"; }
     bool implemented() const override { return false; }
+    bool wants_projection() const override { return true; }   // per-eye renders: the projection layer
     const char* note() const override {
         return "reentry is a design stub (core/gfx/reentry.cpp): the engine's scene draw is "
                "called a second time per tick with the other eye's camera; task one is "

@@ -17,6 +17,14 @@ static void PeLatch(void* obj)
             g_pePawn = (uint8_t*)obj;             // spawn/load - restart the
             g_fbPawnMs = MaimNowMs();             // fallback's hold-off
             g_fbPvrSince = 0;
+            // 41.1: the cinematic latch is a parity toggle (OnToggleCinematicMode
+            // flips it), and the title screen flips it ON with the attract
+            // scene's pawn already latched, so a level load inherited CINEMATIC
+            // (measured run 22). A new pawn is a fresh level: start it clean.
+            if (g_cineNow) {
+                g_cineNow = false;
+                Log("cine: latch cleared - new pawn (a level load, not a cutscene end)");
+            }
         }
         return;
     }
@@ -161,7 +169,14 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             LogFlush();
         }
     }
-    if (g_maimEnabled && obj) {
+    // 41.1: the script-EVENT tracking below (menu open/close, the cinematic
+    // toggle, the UI vocabulary, the shop) used to sit behind g_maimEnabled,
+    // so under [Mode] GamepadOnly=1 (motion aim off) the game state read
+    // GAMEPLAY on the title screen, in the main menu and on a loading screen
+    // (measured 2026-09-03, run 21: the projection layer stayed up on the
+    // title screen). The tracking runs for every dispatch now; only the
+    // motion-aim pieces inside stay gated.
+    if (obj) {
         uint8_t* f = (uint8_t*)a1;
         if (f && !((uintptr_t)f & 3) && RangeReadable(f, kNameOff + 8)) {
             uint32_t nidx = *(uint32_t*)(f + kNameOff);
@@ -175,9 +190,30 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // lag spikes every time I swing". Left-hand fire still arms via
             // UseSecondaryItem/Fire here plus the trigger edge in
             // MotionAimTick.
-            if (nm && (strstr(nm, "UseSecondaryItem") || strstr(nm, "Fire"))) {
+            if (g_maimEnabled && nm && (strstr(nm, "UseSecondaryItem") || strstr(nm, "Fire"))) {
                 g_maimArmedUntil = now + 1500.0;
                 g_maimArmMs = now;
+            }
+            // 41.1: the TITLE SCREEN and the MAIN MENU. Their Scaleform movie
+            // player (DisGFxMoviePlayerMainMenu) announces itself with Start /
+            // OnFocusGained / BackToStartScreen / Req_CanContinueGame and leaves
+            // with UnregisterControllerDelegates (measured run 21). Windowed
+            // mode has no cursor test (32.9), so these events are the only
+            // signal; the class name is checked so the same verbs on another
+            // movie player (the HUD, the gamma screen) do not flap the flag.
+            if (nm && (!strcmp(nm, "Start") || !strcmp(nm, "OnFocusGained") ||
+                       !strcmp(nm, "BackToStartScreen") || !strcmp(nm, "Req_CanContinueGame") ||
+                       !strcmp(nm, "UnregisterControllerDelegates") || !strcmp(nm, "OnFocusLost"))) {
+                const char* cn = (!((uintptr_t)obj & 3) && RangeReadable(obj, kClassOff + 4))
+                                     ? ObjClassName((uint8_t*)obj) : NULL;
+                if (cn && strstr(cn, "MoviePlayerMainMenu")) {
+                    // Its own flag, not g_menuOpen: the stale-flag ghost test
+                    // (head_track.cpp) clears g_menuOpen while dispatches flow,
+                    // and the attract camera behind the main menu dispatches.
+                    const bool leaving = !strcmp(nm, "UnregisterControllerDelegates") || !strcmp(nm, "OnFocusLost");
+                    if (leaving && g_mainMenu) { g_mainMenu = false; Log("menu: main menu gone (%s)", nm); }
+                    else if (!leaving && !g_mainMenu) { g_mainMenu = true; Log("menu: main menu up (%s)", nm); }
+                }
             }
             // menu / dialog activity - mute melee injection (30.26)
             if (nm && (strstr(nm, "PauseMenu") || strstr(nm, "PauseGame") ||

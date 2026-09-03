@@ -5,6 +5,7 @@
 
 #include "core/framework/status.h"
 #include "core/util/log.h"
+#include "core/vr/openxr_runtime.h"
 
 #include <windows.h>
 #include <string.h>
@@ -27,6 +28,7 @@ OverlayDrawFn g_overlay = nullptr;
 // right BY DESIGN, and the line says so.
 uint64_t g_beatMs = 0;
 uint32_t g_beatOut = 0, g_beatL = 0, g_beatR = 0, g_beatMono = 0, g_beatNone = 0;
+int      g_projOverride = -1;   // -1 auto, 0 off, 1 on
 
 } // namespace
 
@@ -58,10 +60,13 @@ bool select(const char* name) {
     for (int i = 0; i < g_methodCount; ++i)
         if (!_stricmp(g_methods[i]->name(), name)) found = g_methods[i];
     if (!found) {
-        DVR_WARN("stereo: no method named '%s' (registered:%s%s%s%s); staying on '%s'", name,
-                 g_methodCount > 0 ? " " : " none", g_methodCount > 0 ? g_methods[0]->name() : "",
-                 g_methodCount > 1 ? " " : "", g_methodCount > 1 ? g_methods[1]->name() : "",
-                 active_name());
+        char list[64] = "";
+        for (int i = 0; i < g_methodCount; ++i) {
+            strncat(list, i ? " " : "", sizeof(list) - strlen(list) - 1);
+            strncat(list, g_methods[i]->name(), sizeof(list) - strlen(list) - 1);
+        }
+        DVR_WARN("stereo: no method named '%s' (registered: %s); staying on '%s'", name,
+                 g_methodCount ? list : "none", active_name());
         return false;
     }
     if (!found->implemented()) {
@@ -132,6 +137,23 @@ void shutdown() {
 const FrameOutput& last_output() { return g_last; }
 uint32_t frames_out() { return g_framesOut; }
 
+bool wants_projection() {
+    if (g_projOverride >= 0) return g_projOverride == 1;
+    return g_active && g_active->wants_projection();
+}
+void set_projection_override(int mode) {
+    const int m = mode < 0 ? -1 : mode > 0 ? 1 : 0;
+    if (m == g_projOverride) return;
+    g_projOverride = m;
+    DVR_INFO("stereo: projection %s (the frame path arms camera mode on the next present: %s)",
+             projection_override_name(),
+             wants_projection() ? "PROJECTION layer, per-eye poses, the FOV lever follows the frame aspect"
+                                : "the head-locked quad screen, lever as configured");
+}
+const char* projection_override_name() {
+    return g_projOverride < 0 ? "auto" : g_projOverride ? "on" : "off";
+}
+
 void status(dvr::status::Writer& w) {
     w.kv("method", active_name());
     w.kv("w", (int)g_last.w);
@@ -139,13 +161,20 @@ void status(dvr::status::Writer& w) {
     w.kv("eyeSign", (int)g_last.eyeSign);
     w.kv("framesOut", (unsigned long)g_framesOut);
     w.kv("nextEye", g_active ? g_active->eye_for_next_frame() : 0);
+    w.kv("projection", wants_projection());
+    w.kv("projectionOverride", projection_override_name());
+    w.kv("camMode", dvr::vr::vr_camera_mode());
+    w.kv("cineActive", dvr::vr::cinematic_active());
     if (g_active) g_active->status(w);
 }
 
 void log_status() {
-    DVR_INFO("stereo: method=%s framesOut=%lu last=%ux%u eyeSign=%d nextEye=%d registered=%d",
+    DVR_INFO("stereo: method=%s framesOut=%lu last=%ux%u eyeSign=%d nextEye=%d projection=%s (%s) "
+             "camMode=%d cineQuad=%d registered=%d",
              active_name(), (unsigned long)g_framesOut, g_last.w, g_last.h, g_last.eyeSign,
-             g_active ? g_active->eye_for_next_frame() : 0, g_methodCount);
+             g_active ? g_active->eye_for_next_frame() : 0, wants_projection() ? "yes" : "no",
+             projection_override_name(), (int)dvr::vr::vr_camera_mode(), (int)dvr::vr::cinematic_active(),
+             g_methodCount);
     for (int i = 0; i < g_methodCount; ++i)
         DVR_INFO("stereo:   %s%s%s", g_methods[i]->name(),
                  g_methods[i] == g_active ? " (active)" : "",

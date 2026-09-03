@@ -66,6 +66,12 @@ public:
     // False for a registered design stub: select() refuses it with the note.
     virtual bool implemented() const = 0;
     virtual const char* note() const { return ""; }
+    // True when the method's output is a per-eye render the runtime should
+    // submit as a PROJECTION layer (camera mode, the per-eye poses, the FOV
+    // claim) rather than the head-locked quad screen. The frame path arms the
+    // runtime on the transition and, while it holds, the FOV lever follows the
+    // frame aspect and the layer claims the rendered FOV (present_tick.cpp).
+    virtual bool wants_projection() const { return false; }
     // Present-head, before the game-side tick: the method learns the head and
     // decides which eye the NEXT game frame renders (the camera seam reads it).
     virtual void begin_frame(const FrameInput& in) = 0;
@@ -97,6 +103,16 @@ void on_reset();
 void shutdown();
 const FrameOutput& last_output();   // what the last end_frame produced
 uint32_t frames_out();              // presents that produced a texture
+// Does the active method want the projection layer? `stereo projection
+// on|off|auto` (default auto = the method's own answer) overrides it: `on`
+// puts the mono screen's frame into a projection layer as the same image for
+// both eyes (rung 1.5, the way to exercise camera mode, the cinematic gate,
+// the FOV lever and the claim before a per-eye method exists), `off` pins the
+// quad. A lever, default auto, live.
+bool wants_projection();
+void set_projection_override(int mode);   // -1 auto, 0 off, 1 on
+const char* projection_override_name();
+
 // status.json "stereo" object and the log line the `stereo status` word prints.
 void status(dvr::status::Writer& w);
 void log_status();

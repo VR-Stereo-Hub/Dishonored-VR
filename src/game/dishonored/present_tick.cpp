@@ -84,6 +84,57 @@ static void DvrConsumePoses()
     }
 }
 
+// 41.1: FOV from the render size. While a projection layer is claimed the
+// lever's TARGET follows the aspect of the frame the game renders (the
+// runtime circumscribes the headset's per-eye FOV at the swapchain aspect:
+// dvr::vr::suggested_hfov_deg, 137 deg at 16:9 on a Quest 3), and the layer
+// claims the SENSOR (camera+0x53c, what the engine actually rendered), never
+// the target - a claim that mismatches the render reads as fisheye or a
+// binocular-scope squeeze in the headset. On the quad screen the lever is the
+// manual [Screen] FovLever (default off) and no claim is made. The derived
+// numbers print on every change so a complaint is arithmetic.
+static void DvrFovHandoff()
+{
+    static bool  wasProj = false;
+    static float saidTarget = -1.0f, saidSensor = -1.0f;
+    static uint32_t saidW = 0, saidH = 0;
+    const bool proj = dvr::stereo::wants_projection();
+    if (proj) {
+        const float target = dvr::vr::suggested_hfov_deg();   // 0 until the views are located
+        dvr::camera::set_fov_deg(target);
+        const float sensor = dvr::camera::rendered_fov_deg();
+        dvr::vr::set_rendered_hfov(sensor);
+        const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
+        if (fabsf(target - saidTarget) > 0.05f || fabsf(sensor - saidSensor) > 0.5f || w != saidW || h != saidH) {
+            saidTarget = target; saidSensor = sensor; saidW = w; saidH = h;
+            const float aspect = h ? (float)w / (float)h : 0.0f;
+            const float vfov = (target > 0.0f && aspect > 0.0f)
+                                   ? 2.0f * atanf(tanf(target * 0.5f * 0.0174533f) / aspect) * 57.29578f : 0.0f;
+            uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh);
+            float hh = 0.0f, hv = 0.0f; dvr::vr::headset_half_fov_deg(&hh, &hv);
+            Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f); "
+                "sensor %.1f deg = the layer's claim%s; eye %ux%u",
+                aspect, w, h, target, vfov, hh, hv, sensor,
+                sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : "",
+                ew, eh);
+        }
+        wasProj = true;
+    } else if (wasProj) {
+        wasProj = false;
+        saidTarget = saidSensor = -1.0f;
+        dvr::camera::set_fov_deg(g_fovLever);   // back to the manual lever (0 = off)
+        dvr::vr::set_rendered_hfov(0.0f);
+        Log("fov: projection released - lever back to [Screen] FovLever=%.0f, no claim", g_fovLever);
+    }
+}
+
+// The game side's "strict gameplay" verdict for the runtime's cinematic gate
+// (the same terms as the [game] state line: a live pawn, no menu, no cinematic).
+static bool DvrGameplayVerdict()
+{
+    return CylTruthLive() && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow && DvrScriptViewLive();
+}
+
 // Every enabled present, after the runtime located the head for this frame
 // and before the stereo method captures the game's frame.
 static void DvrGameTick(IDirect3DDevice9* self)
@@ -126,6 +177,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::set_world_scale(g_posScaleUU);
         dvr::camera::eyetest_present_tick();
         dvr::camera::postest_present_tick();
+        DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
         FrameDumpTick(self);
@@ -470,6 +522,7 @@ static void DvrInstallFrameHooks()
     cb.set_vs_const         = hkSetVSConstF;
     cb.set_render_target    = hkSetRenderTarget;
     cb.d3d11                = DvrFrameD3D11;
+    cb.gameplay_verdict     = DvrGameplayVerdict;
     dvr::frame::set_callbacks(cb);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
 }

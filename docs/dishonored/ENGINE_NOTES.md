@@ -200,6 +200,16 @@ then judges 120 presents:
 | camera | +30, +25, -40 | +29.7, +25.2, -39.7 | HONOURED |
 | vp | +30, 0, 0 | the c0 patch ran on 120/120 presents (2760 uploads) | APPLIED (c5 cannot see a matrix patch) |
 
+**Where that table was measured.** Run 20's rows come from the TITLE SCREEN's attract
+camera (`DishonoredPlayerCamera_0`), which the state line called GAMEPLAY (the next section).
+Re-measured in real gameplay (run 21, the Dunwall Sewers level, `DishonoredPlayerCamera_1`,
+ProcessViewRotation dispatching at 270/3 s): `camera eyetest 100 0x330` HONOURED 120/120
+(+100.0 uu), `camera postest 30 0 0` on the camera lane measured R+30.0 U+0.2 F-0.0. The
+same two instruments on the level's LOADING screen ("press any key to continue", no script
+dispatches) read DISCARDED / NOT HONOURED with c5 frozen: a static camera the loader
+re-sets every tick. So the write point holds on the attract camera and in gameplay, and
+an instrument run must know which camera it measured: the `[game] state` line now says.
+
 So the renderer draws from the offset position on the camera lane within 1-2 %, on all
 three axes, the same write point the eye offset uses. What the instrument does NOT say:
 the vp lane's effect is a matrix change c5 never sees, so "the same travel on both lanes"
@@ -214,6 +224,48 @@ default (`[Screen] FovLever=0`). The camera lane's writer caps its Z at the same
 while the clamp is live (`camera::set_eye_ceiling`), so the two never fight; with the lever
 off neither runs. (2) The seam writes ~19 times per present (every ProcessEvent dispatch
 of the camera pass), which is the cadence the 38.24 clamp and the FOV lever already used.
+
+## The game state under GamepadOnly, and the projection gate (2026-09-03, S2)
+
+The `[game] state` line read GAMEPLAY on the title screen, in the main menu and on a
+loading screen (runs 21-22; the simulator captures showed "Press any key" while the
+instruments ran). Cause: every script-event tracker (the pause-menu open/close names, the
+`OnToggleCinematicMode` latch, the UI vocabulary) sat inside the motion-aim block behind
+`g_maimEnabled`, which `[Mode] GamepadOnly=1` turns off, and windowed mode has no cursor
+test (32.9). The same class of bug as the 41.0 PreExit handler. 41.1 hoists the tracking
+out (only the fire-window arm stays gated) and adds what the runs measured:
+
+| screen | signal (measured) | state |
+|---|---|---|
+| title screen / main menu | `Start`, `OnFocusGained`, `BackToStartScreen`, `Req_CanContinueGame` on an object whose class contains `MoviePlayerMainMenu`; leaves with `UnregisterControllerDelegates`. Its own flag (`g_mainMenu`): the stale-flag ghost test clears `g_menuOpen` while dispatches flow, and the attract camera behind the menu dispatches | MENU |
+| the attract scene's cinematic toggle | `OnToggleCinematicMode` fires ON at the title screen with the attract pawn already latched, so a level load INHERITED the latch (CINEMATIC in the sewers). A new pawn latch now clears it: a fresh level starts clean; in-level cutscenes keep their parity | CINEMATIC only in a cutscene |
+| loading screen ("press any key to continue") | no ProcessViewRotation dispatch for 750 ms with a live pawn (the head-write counter read 0/3 s); the loader dispatches a burst about once a second, so leaving LOADING needs one second of continuous dispatches | LOADING (new) |
+| gameplay | pawn live, no menu, no cinematic, dispatches continuous | GAMEPLAY |
+
+The runtime layer's projection path is gated on the same verdict: `frame_hooks` arms
+camera mode when the active method (or `stereo projection on`) claims a projection layer
+and publishes the verdict every present; the runtime's cinematic fallback (3-present
+hysteresis) drops to the quad screen on a false verdict and returns on a true one. Walked
+in run 24: title MENU -> quad, main menu MENU -> quad, load LOADING -> quad, level
+GAMEPLAY -> `xr: cinematic quad off`, two projection views, both eyes 72 % non-black.
+Before this, the runtime's projection machinery had no caller in this game at all (camera
+mode was the overlay checkbox only, and a stale verdict would have pinned the quad).
+
+Two FOV facts from the same runs. Under a projection layer the lever's target is the
+runtime's circumscribed hfov (137.0 deg at 16:9 on the simulated Quest 3; vfov 110.0 for
+the 54/55 deg half-angles) and the 0x53c sensor followed it to 137.0 within a second in
+gameplay (the engine interpolates: 136.1, 136.2 ... per present), the claim reading
+`src=readback`. The loading screen's camera ignores the lever (sensor 75.0, the level's
+natural FOV). And the lever captures its "natural base" whenever it re-arms: after an
+arm-disarm-arm it captured 137 (the FOV its own previous writes had left on the
+controller), so the ratio law then scales from 137, which is harmless for the target but
+means "natural" is not the game's 75 any more - a re-arm should reset the FOV first if the
+number is ever used as a baseline.
+
+The simulator's `claimRatioH` reads 2.17 under this lever by construction (the claim's
+tan(68.5) against the eye's own mean half-tangent, tan(54)/tan(44)): BioShock rendered
+the eye's own FOV, this lever renders the circumscribed one. Not a magnification error
+while the claim equals the render; `fovaudit src=readback` is the check.
 
 ## Head coupling of the arms (the open problem; roadmap D5)
 

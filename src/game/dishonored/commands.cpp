@@ -13,6 +13,7 @@
 //   camera postest <R> [U] [F]   the positional instrument (uu along right/up/forward; `camera postest stop`)
 //   postrack on|off|lane <l>     positional tracking and its lane (vp = the c0 patch, camera = the seam's write)
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
+//   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
 //   capture mode <m>|status      the capture path (sync|deferred|shared): live switch, fails soft
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
@@ -100,6 +101,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "stereo")) {
         if (!args[0] || !strcmp(args, "status")) { dvr::stereo::log_status(); return true; }
+        char sub[16] = "", v[16] = "";
+        if (sscanf(args, "%15s %15s", sub, v) == 2 && !strcmp(sub, "projection")) {
+            if (!strcmp(v, "auto")) dvr::stereo::set_projection_override(-1);
+            else if (DvrOnOff(v, &b)) dvr::stereo::set_projection_override(b ? 1 : 0);
+            else Log("stereo: projection on|off|auto");
+            return true;
+        }
         dvr::stereo::select(args);   // logs the refusal itself
         return true;
     }
@@ -162,14 +170,38 @@ static void DvrConsoleApply()
     g_dvrConsoleReq[0] = 0;
 }
 
-// "[game] state: GAMEPLAY|MENU|CINEMATIC|NO_PAWN" on every transition - the
-// line tools\boot.ps1 waits for. Present thread, once per frame.
+// 41.1: is the engine's view pipeline dispatching? ProcessViewRotation fires
+// every tick while a player camera is being driven (gameplay, and the title
+// screen's attract camera); a LOADING screen dispatches nothing (measured run
+// 21: headwrites 0/3s on "press any key to continue"). 750 ms of silence
+// with a live pawn is a loading screen, not gameplay.
+static bool DvrScriptViewLive()
+{
+    // A loading screen dispatches a short burst about once a second (run 22:
+    // GAMEPLAY/LOADING flapping), so leaving LOADING needs a full second of
+    // continuous dispatches, and entering it 750 ms of silence.
+    static double silentSince = 0.0, resumedAt = 0.0;
+    static bool live = false;
+    const double now = MaimNowMs();
+    const bool fresh = g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0;
+    if (!fresh) { silentSince = silentSince ? silentSince : now; resumedAt = 0.0; live = false; }
+    else {
+        silentSince = 0.0;
+        if (resumedAt == 0.0) resumedAt = now;
+        if (now - resumedAt >= 1000.0) live = true;
+    }
+    return live;
+}
+
+// "[game] state: GAMEPLAY|MENU|CINEMATIC|LOADING|NO_PAWN" on every transition -
+// the line tools\boot.ps1 waits for. Present thread, once per frame.
 static void GameStateTick()
 {
     const char* s;
     if (!CylTruthLive())               s = "NO_PAWN";
-    else if (g_menuOpen || g_inMenu)   s = "MENU";
+    else if (g_menuOpen || g_inMenu || g_mainMenu) s = "MENU";
     else if (g_cineNow)                s = "CINEMATIC";
+    else if (!DvrScriptViewLive())     s = "LOADING";
     else                               s = "GAMEPLAY";
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
@@ -219,7 +251,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("fovLever", (double)g_fovLever);
     w.kv("fpsCap", (double)g_fpsCap);
     w.end_obj();
-    w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu);
+    w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);
     w.kv("exiting", InterlockedCompareExchange(&g_gameExiting, 0, 0) != 0);
     w.obj("counters");

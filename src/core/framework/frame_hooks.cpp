@@ -135,6 +135,25 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::vr::recommended_eye_size(&in.eyeW, &in.eyeH);
     dvr::stereo::begin_frame(in);
 
+    // 41.1: the projection arming. The runtime submits a projection layer only
+    // in camera mode, and nothing in this game armed it before; a method that
+    // wants it (or `stereo projection on`) turns it on here, on the transition,
+    // and the gameplay verdict is published EVERY present while it holds - the
+    // runtime's cinematic fallback drops to the quad on a stale publish, so a
+    // silent game side would pin the quad forever.
+    {
+        static bool wantedPrev = false;
+        const bool wanted = dvr::stereo::wants_projection();
+        if (wanted != wantedPrev) {
+            wantedPrev = wanted;
+            dvr::vr::set_camera_mode(wanted);
+            DVR_INFO("stereo: projection layer %s - runtime camera mode %s (method %s, override %s)",
+                     wanted ? "CLAIMED" : "released", wanted ? "ON" : "off", dvr::stereo::active_name(),
+                     dvr::stereo::projection_override_name());
+        }
+        if (wanted) dvr::vr::publish_gameplay_view(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
+    }
+
     if (g_cb.game_tick) g_cb.game_tick(self);
 
     // Present-tail: the method produces the eye texture; the runtime shows it.

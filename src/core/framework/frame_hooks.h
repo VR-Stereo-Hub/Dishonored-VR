@@ -41,6 +41,12 @@ struct Callbacks {
     SetRenderTargetFn set_render_target = nullptr;
     // The mod's D3D11 device for the stereo methods (null = none; flat game).
     ID3D11Device* (*d3d11)(ID3D11DeviceContext** ctx) = nullptr;
+    // The game side's verdict "this present is strict gameplay" (a live pawn,
+    // no menu, no cinematic): published to the runtime every present while a
+    // projection layer is claimed, so its cinematic quad fallback becomes the
+    // menu/cutscene gate instead of a permanent trap (it trips on a STALE
+    // publish). Null = always true.
+    bool (*gameplay_verdict)() = nullptr;
 };
 void set_callbacks(const Callbacks& cb);
 
