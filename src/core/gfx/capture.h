@@ -106,6 +106,16 @@ void     set_shared_wait(bool on);
 bool     shared_wait();
 uint32_t fence_waits();      // deliveries that had to spin on the fence (window)
 uint32_t fence_timeouts();   // deliveries whose fence had not signalled at the bound (lifetime)
+// The OTHER direction of the shared hand-off (41.1, session 8): the consumer
+// calls read_done(ctx) right after it drew from srv(), which ends a D3D11
+// event query on the delivered slot and flushes the context; the next D3D9
+// blit INTO that slot waits (bounded) for that query, so the D3D11 read can
+// never see the next present's frame (the other eye's image) land under it.
+// read_waits counts the blits that found the read still pending: the count
+// of frames that COULD have swapped an eye before this fence existed.
+void     read_done(ID3D11DeviceContext* ctx);
+uint32_t read_waits();
+uint32_t read_timeouts();
 
 // `dump capture` under shared mode: read the shared surface back now so
 // pixels() is this present's frame, not the last 3 s sample. True when

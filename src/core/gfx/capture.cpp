@@ -88,6 +88,9 @@ ID3D11Texture2D*          g_sharedTex[2] = {nullptr, nullptr};
 ID3D11ShaderResourceView* g_sharedSrv[2] = {nullptr, nullptr};
 IDirect3DQuery9*          g_fence[2] = {nullptr, nullptr};
 bool                      g_fenceIssued[2] = {false, false};
+ID3D11Query*              g_readQuery[2] = {nullptr, nullptr};   // the D3D11 read of the slot, for the next blit into it
+bool                      g_readIssued[2] = {false, false};
+uint32_t                  g_readWaits = 0, g_readTimeouts = 0, g_readWaitsWindow = 0;
 bool                      g_sharedValid[2] = {false, false};
 int                       g_sharedTag[2] = {0, 0};
 uint32_t                  g_sharedSerial[2] = {0, 0};
@@ -153,12 +156,12 @@ void cost_tick() {
                  (double)g_w * (double)g_h * 4.0 / (1024.0 * 1024.0),
                  g_mode == Mode::Shared ? "; shared: no CPU copy, rtd is the 3 s bbox sample, lock is the fence wait" : "");
         if (g_mode == Mode::Shared)
-            DVR_INFO("capture: shared delivery %s | fence waits %u of %u grabs this window, timeouts %u lifetime "
-                     "(a wait = the blit had not finished when its slot was delivered; a timeout = still not after "
-                     "10 ms, delivered anyway)",
+            DVR_INFO("capture: shared delivery %s | blit fence waits %u of %u grabs this window (timeouts %u lifetime) "
+                     "| D3D11 read still pending at the next blit %u this window (timeouts %u lifetime; each one was a "
+                     "frame that could have shown the OTHER eye's image before the read fence)",
                      g_sharedWait ? "this present after its fence (SharedWait=1)" : "the previous present's slot (SharedWait=0)",
-                     g_fenceWaitsWindow, g_windowGrabs, g_fenceTimeouts);
-        g_fenceWaitsWindow = 0;
+                     g_fenceWaitsWindow, g_windowGrabs, g_fenceTimeouts, g_readWaitsWindow, g_readTimeouts);
+        g_fenceWaitsWindow = 0; g_readWaitsWindow = 0;
     }
     g_sumRtd = g_sumLock = g_sumCopy = g_sumUpload = g_sumBlit = 0;
     g_windowGrabs = 0;
@@ -309,11 +312,12 @@ void release_shared() {
     // surface across a Reset), unbound from the context that sampled it.
     if (g_lastCtx) { ID3D11ShaderResourceView* nul = nullptr; g_lastCtx->PSSetShaderResources(0, 1, &nul); }
     for (int i = 0; i < 2; ++i) {
+        if (g_readQuery[i]) { g_readQuery[i]->Release(); g_readQuery[i] = nullptr; }
         if (g_sharedSrv[i]) { g_sharedSrv[i]->Release(); g_sharedSrv[i] = nullptr; }
         if (g_sharedTex[i]) { g_sharedTex[i]->Release(); g_sharedTex[i] = nullptr; }
         if (g_fence[i]) { g_fence[i]->Release(); g_fence[i] = nullptr; }
         if (g_sharedRt[i]) { g_sharedRt[i]->Release(); g_sharedRt[i] = nullptr; }
-        g_fenceIssued[i] = false; g_sharedValid[i] = false;
+        g_fenceIssued[i] = false; g_sharedValid[i] = false; g_readIssued[i] = false;
     }
     g_sharedCur = 0; g_sharedDelivered = -1;
 }
@@ -365,6 +369,13 @@ bool ensure_shared_slot(IDirect3DDevice9* dev, ID3D11Device* dev11, int i, D3DFO
         DVR_ERROR("capture: the event query for shared slot %d refused (0x%08lx) - no fence, no shared mode", i, (unsigned long)hr);
         return false;
     }
+    D3D11_QUERY_DESC qd = {};
+    qd.Query = D3D11_QUERY_EVENT;
+    hr = dev11->CreateQuery(&qd, &g_readQuery[i]);
+    if (FAILED(hr) || !g_readQuery[i]) {
+        DVR_ERROR("capture: the D3D11 event query for shared slot %d refused (0x%08lx) - no read fence, no shared mode", i, (unsigned long)hr);
+        return false;
+    }
     g_fenceIssued[i] = false; g_sharedValid[i] = false;
     return true;
 }
@@ -399,6 +410,27 @@ bool ensure_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
              (unsigned long)luid.LowPart, haveLuid ? "" : " (unknown)",
              g_sharedWait ? "this present after its fence" : "the previous present's slot");
     return true;
+}
+
+// Before D3D9 blits INTO a slot: the D3D11 read of that slot (the consumer's
+// draw from srv() at the present it was delivered) must have executed, or the
+// read sees the new frame - the other eye's image - land under it. Bounded
+// like the blit fence; counted, because the count is the number of frames
+// that could have swapped an eye before this fence existed.
+void read_wait(int i, uint64_t* lockUs) {
+    if (!g_readIssued[i] || !g_readQuery[i] || !g_lastCtx) return;
+    const long long t0 = qpc_now();
+    HRESULT hr = g_lastCtx->GetData(g_readQuery[i], nullptr, 0, 0);
+    if (hr == S_FALSE) {
+        ++g_readWaits; ++g_readWaitsWindow;
+        while (hr == S_FALSE && qpc_us(t0, qpc_now()) < 10000) {
+            Sleep(0);
+            hr = g_lastCtx->GetData(g_readQuery[i], nullptr, 0, 0);
+        }
+        if (hr == S_FALSE) ++g_readTimeouts;
+    }
+    *lockUs += qpc_us(t0, qpc_now());
+    g_readIssued[i] = false;
 }
 
 // Wait for a slot's blit with a bound: S_OK at once is the common case (a
@@ -602,6 +634,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         if (!ensure_shared(dev, dev11)) { g_mode = g_modeWant = Mode::Sync; bb->Release(); return false; }
         g_lastCtx = ctx;
         const int cur = g_sharedCur, prev = g_sharedCur ^ 1;
+        read_wait(cur, &lockUs);   // the D3D11 side must be done reading this slot
         const long long t0 = qpc_now();
         dvr::perf::gpu_mark(dvr::perf::kGpuRtdA);   // shared: the blit alone
         const HRESULT hr = dev->StretchRect(bb, nullptr, g_sharedRt[cur], nullptr, D3DTEXF_NONE);
@@ -701,6 +734,18 @@ void set_pending_tag(int eyeSign) { g_pendingTag = eyeSign < 0 ? -1 : eyeSign > 
 int delivered_tag() { return g_deliveredTag; }
 uint32_t delivered_serial() { return g_deliveredSerial; }
 uint32_t serial() { return g_serial; }
+void read_done(ID3D11DeviceContext* ctx) {
+    if (g_mode != Mode::Shared || g_sharedDelivered < 0 || !ctx) return;
+    const int slot = g_sharedDelivered;
+    if (!g_readQuery[slot]) return;
+    ctx->End(g_readQuery[slot]);
+    ctx->Flush();   // the read goes to the GPU now, not at the runtime's next flush
+    g_readIssued[slot] = true;
+    g_lastCtx = ctx;
+}
+uint32_t read_waits() { return g_readWaits; }
+uint32_t read_timeouts() { return g_readTimeouts; }
+
 void set_shared_wait(bool on) {
     if (on == g_sharedWait) return;
     g_sharedWait = on;
