@@ -1,0 +1,21 @@
+# pause-resume.xrs - one pause/resume cycle under `stereo reentry`, judged by the
+# per-eye release age at the next projection submit.
+#
+# Escape opens the game's pause menu (the gameplay verdict drops, the runtime
+# shows the head-locked quad) and a second Escape resumes. The resume window
+# is where the 2026-09-03 headset run saw the eyes desync; after it both eyes
+# must be fresh again (eyeAge 0/0) and no stale submit may have been counted.
+# tools\arming-hammer.ps1 loops this with seeded delays. Needs GAMEPLAY and
+# the game window reachable (game-key.ps1 foregrounds it).
+@mod stereo reentry
+@frames 120
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+@key Escape
+@wait 600
+@key Escape
+@frames 120
+@assert projectionViews eq 2
+@assert eyeAgeL le 0
+@assert eyeAgeR le 0
+@assert projStaleSubmits eq 0

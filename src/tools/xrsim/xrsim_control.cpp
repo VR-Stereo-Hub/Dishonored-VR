@@ -576,6 +576,7 @@ void apply_line(const char* line) {
         g.captureCountdown.store(0);
         g.captureEvery.store(0);
         g.captureLayers.store(true);
+        compositor_reset_pair_stats();   // 41.1: the per-eye age maxima and the submit classes
         pacing_wake();
         return;
     }
@@ -679,6 +680,19 @@ void write_state_json() {
     fprintf(f, "  \"quadLayers\": %u,\n", compositor_last_quad_layers());
     fprintf(f, "  \"capNonBlackL\": %d,\n", compositor_last_capture_nonblack(0));
     fprintf(f, "  \"capNonBlackR\": %d,\n", compositor_last_capture_nonblack(1));
+    // 41.1: per-eye freshness of the last projection submit (a healthy pair reads
+    // eyeAge 0/0; an eye at 1+ is a held image) and the close phase.
+    fprintf(f, "  \"eyeReleasedOnFrameL\": %u,\n", compositor_eye_released_on_frame(0));
+    fprintf(f, "  \"eyeReleasedOnFrameR\": %u,\n", compositor_eye_released_on_frame(1));
+    fprintf(f, "  \"eyeAgeL\": %u,\n", compositor_eye_age(0));
+    fprintf(f, "  \"eyeAgeR\": %u,\n", compositor_eye_age(1));
+    fprintf(f, "  \"eyeAgeMaxL\": %u,\n", compositor_eye_age_max(0));
+    fprintf(f, "  \"eyeAgeMaxR\": %u,\n", compositor_eye_age_max(1));
+    fprintf(f, "  \"eyeSameSwapchain\": %s,\n", compositor_eye_same_swapchain() ? "true" : "false");
+    fprintf(f, "  \"projSubmits\": %u,\n", compositor_proj_submits(0));
+    fprintf(f, "  \"projMonoSubmits\": %u,\n", compositor_proj_submits(1));
+    fprintf(f, "  \"projStaleSubmits\": %u,\n", compositor_proj_submits(2));
+    fprintf(f, "  \"endPhaseMs\": %.3f,\n", compositor_last_end_phase_ms());
     char esc[1024];
     fprintf(f, "  \"captureSeq\": %u,\n", g.captureSeq.load());
     fprintf(f, "  \"lastCapture\": \"%s\",\n", json_escape(g.lastCapturePath, esc, sizeof(esc)));
