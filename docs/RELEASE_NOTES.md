@@ -2,6 +2,24 @@
 
 ## 41.1.0 (unreleased) - native stereo ships, the four headset faults, the resolution picker
 
+- **Performance (session 8)**: `[Capture] Mode=deferred` is the default (27 vs 21 ticks/s at
+  the Quest 3 size on the simulator; `capture mode sync` is the A/B). New `[Device] Ex=0|1` and
+  `Managed=none|default|dynamic|shadow` (launch-time; `device ex on|off`, `device managed <m>`,
+  the F10 Display tickbox): the game's device as D3D9Ex with every MANAGED texture shadowed in
+  system memory, which lets `capture mode shared` keep the frame in VRAM (a fenced two-slot
+  shared surface; `[Capture] SharedWait=0|1`, `capture sharedwait on|off`); 75-90 ticks/s at the
+  Quest 3 size on the simulator. Off by default until a headset run has judged it.
+- New instruments: the tick budget (`perf: tick` and `perf: gpu` every 3 s: the render-thread
+  split per present, the BeginScene marker, a D3D9 timestamp ring with the readback's own GPU
+  time; `[Perf] Instruments=1 GpuQueries=1`, `perf on|off|status|gpu on|off`, status.json
+  `perf{}`), `mark <text>` and the F10 MARK button (the freeze marker with the ring of presents),
+  the frame-gap line with the phase it sat in and a relative threshold, `capture mode off` (the
+  A/B control: the image freezes by design), the creation census (`device census|status`,
+  status.json `census{}`), the reentry beat's game-thread period, the head write's refusal
+  reasons, `captureCost` in status.json under reentry too.
+- Fixed: a present whose capture delivered no frame pushed the previous frame's eye tag again
+  (a stale eye at every capture-mode switch); the pace guard's eaten tag is a named owner on
+  the `STALE EYE` line (`eatenNoFrame`, `eaten=` on the eyes line).
 - **Stereo ships ON**: a fresh ini has `[Stereo] Method=reentry Armed=1` (rung 3 is headset-
   verified). New `Armed=` and the F10 Display `stereo armed` tickbox park the game on the mono
   screen without forgetting the method; `stereo arm on|off`. An ini asking for `reentry` used

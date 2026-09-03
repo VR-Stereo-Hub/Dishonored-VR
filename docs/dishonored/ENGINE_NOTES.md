@@ -1040,6 +1040,92 @@ together as "copy = 3.5 ms" and read as a slow write-combined memcpy; splitting 
 out (run 18) showed the memcpy at 0.7 ms and the wait inside `LockRect`, which is what made
 the pipelined form the obvious move instead of the user-memory trick.
 
+## The tick budget, measured (2026-09-03, session 8)
+
+The headset ticked at 26-28/s at the Quest 3 size and the capture's cost line could not say who
+owned the tick: the `LockRect` wait it counts as "capture" is also the GPU finishing the frame,
+so the same numbers fit "the render thread is bound by the readback" and "the GPU is bound by
+two 2496x2688 draws". `core/framework/perf` measures the split per present (eight QPC stamps in
+hkPresent, the first BeginScene after Present as the frame-start marker, a D3D9 timestamp ring
+with a bracket around the readback copy, read five presents back and never waited on) and prints
+`perf: tick` and `perf: gpu` every 3 s. Simulator lane, RTX 4060, 2496x2688 VirtualMode, the
+sewers save, `stereo reentry` (runs 44-01, 44-03, 44-04; logs in `D:\dvr-data\logs`):
+
+| capture | tick ms | ticks/s | presents/s | CPU capture / present | of which lock | GPU 3D / present | GPU readback DMA / present |
+|---|---|---|---|---|---|---|---|
+| sync (the 41.0 path) | 46-48 | 21-22 | 43 | 17-21 ms | 9-13 ms | 4.8 ms | 15.5-16.8 ms |
+| deferred | 36-37 | 27-28 | 54 | 9.6-10.5 ms (copy 2.8, upload 7) | 0 | 4.8 ms | 10.4 ms |
+| off (the control) | pace-bound at the sim's 90 Hz | - | 93 | 0 | 0 | 2.8 ms | 0 |
+| shared on a 9Ex device, SharedWait=1 | 13.3 | 75 | 151 | 3.6-3.8 ms (the fence wait) | 3.6 ms | 4.4 ms | 0.2 ms |
+| shared, SharedWait=0 (ships) | 11.1, PACE-BOUND (the sim's 11.11 ms) | 90 | 180 | 0.5-0.8 ms | 0.5 ms | 5.0 ms | 0.2 ms |
+
+What the table says: the readback owned the tick on BOTH sides. `GetRenderTargetData` into a
+system-memory surface moves 25.6 MB at about 1.6 GB/s, 16 ms of GPU time per present that
+serialises with the next frame's draws, plus 7.5 ms of CPU copy and upload; the actual 3D work is
+5 ms per draw. `deferred` hides the CPU wait but not the DMA (the GPU still spends 21 ms per tick
+copying), which is why it gains only 6 ticks/s. The shared surface (a VRAM-to-VRAM StretchRect
+fenced by an event query) removes the DMA and the crossing: the tick drops from 46 ms to the
+simulator's pacing limit, with the GPU at 5 ms per present. The headset at 72 Hz should be
+pace-bound at the Quest 3 size with about 4 ms of GPU headroom per tick (the render thread's own
+work is 3.3 ms per present; Virtual Desktop's encoder shares the GPU and is not in this table).
+
+The confounds the instrument named: the 1080p simulator runs of session 6 (sync 83-90 vs deferred
+90-92 presents/s) were PACE-BOUND by the simulator's 90 Hz gate (`wait` 3-6 ms per present), so
+"deferred gained nothing" there said nothing about the capture; the menu and the loading screen
+are game-thread-limited (`RENDER THREAD STARVED`, idle 18 ms of 18); and the simulator lane shows
+a 130-140 ms lock stall every 2-3 s under `sync` at the Quest size (`perf: frame gap ... sat in:
+the method (capture)`, lock 125 ms) that the headset run 13 never showed: a simulator-lane
+artifact until measured otherwise (VERIFICATION, known simulator defects).
+
+## The creation census: what UE3 asks of D3D9 (2026-09-03, session 8)
+
+`core/gfx/device_census` patches the device's eight creation calls and each resource class's
+Lock, and counts what the game asks (run 44-02, the sewers level fully loaded, `device census`):
+
+- 8120 creations, 859 MB asked; **8060 MANAGED (398 MB)**: textures 5217 (DXT1 2564 of them,
+  244 MB at the first GAMEPLAY; DXT3/5 463; 8bpp 521; 16bpp 15; 32bpp 12), cube textures 23,
+  vertex buffers 1874 (12 MB), index buffers 962 (2.6 MB). DEFAULT: the render targets (21
+  float, 18 32bpp, 253 + 101 MB), 5 depth-stencils, one dynamic write-only vertex buffer.
+  SYSTEMMEM: the mod's own readback surface. No AUTOGENMIPMAP anywhere.
+- **Locks on MANAGED textures: READONLY 10598, write (NOSYSLOCK) 55393, partial 56, level > 0
+  45415**; cube textures 774 plain writes; every static vertex and index buffer locked once,
+  plain, at creation. The READONLY locks are UE3's mip streaming copying from the old texture.
+- The device: `CreateDevice adapter=0 type=HAL flags=HWVP|PURE|FPU_PRESERVE`, the present
+  parameters A8R8G8B8, one backbuffer, DISCARD, LOCKABLE_BACKBUFFER, interval IMMEDIATE; caps
+  DYNAMICTEXTURES and CANAUTOGENMIPMAP; 4070 MB available.
+
+So a 9Ex device (which refuses D3DPOOL_MANAGED) needs a translation for 99 % of the game's
+creations, and the DEFAULT + DYNAMIC stand-in is the wrong one: a READONLY lock of a DYNAMIC
+DEFAULT texture reads VRAM through an uncached map and can return garbage after streaming. The
+translation that holds is the shadow (below). The census stays on (creation calls are rare, a
+lock is one hash lookup); `device census|status` on the seam, `census{}` in status.json.
+
+## The D3D9Ex device and the managed-pool shadow (2026-09-03, session 8)
+
+`[Device] Ex=1` (launch-time; `device ex on|off`, the F10 Display tickbox) makes
+`Direct3DCreate9` return an `IDirect3D9Ex` as the game's `IDirect3D9` and `hkCreateDevice` call
+`CreateDeviceEx` (a `D3DDISPLAYMODEEX` from the present parameters when fullscreen, NULL when
+windowed), falling soft to the plain `CreateDevice` on the Ex object, then to the plain
+`IDirect3D9`. Measured on the simulator lane (runs 44-03, 44-04): `CreateDeviceEx -> 0x0`, the
+device answers `QueryInterface(IDirect3DDevice9Ex)`, `GetAdapterLUID` 0-d03b, the capture probe
+reads `shared surface AVAILABLE` (a 2496x2688 A8R8G8B8 render target opened as D3D11 fmt 87).
+No Reset happened on the level load under VirtualMode (the windowed device keeps its size), so
+the 9Ex Reset semantics are still unmeasured; a fullscreen Reset that returns INVALIDCALL has
+`ResetEx` as its contingency.
+
+`[Device] Managed=shadow` (the default while Ex=1): every MANAGED creation is passed to the
+device as DEFAULT (buffers too; they are lockable there), and every translated texture gets a
+SYSTEMMEM twin with the same levels and format. The class-wide Lock hooks the census installs
+redirect `LockRect`/`LockBox`/`AddDirtyRect` on a translated texture to its twin, `UnlockRect`
+pushes the twin's dirty regions to the real texture with `UpdateTexture`, and the last `Release`
+drops the twin: what MANAGED did inside the runtime, done in the proxy, so a READONLY lock reads
+the twin (every write went through it) and the game keeps its pointer to the real texture for
+everything else. Measured: 5240 twins, 65552 unlock pushes, 0 failures, the sewers rendered
+intact after minutes of play (`dump capture`, run 44-04). `none` (the refusals are the
+measurement), `default` (textures lose their locks) and `dynamic` are the A/B, all behind Ex.
+The session's finding for the belief recorded above under "The capture cost, measured": the 9Ex
+route IS possible on this game, at the price of the shadow.
+
 ## Evidence handling (both cost a session)
 
 - **Log rotation is one deep.** `dishonored_vr.log` + `.prev.log` only. Two simulator runs

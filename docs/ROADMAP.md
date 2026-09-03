@@ -46,11 +46,12 @@ results.
 - [ ] The headset run above signed off: readable screen at `[Screen] DistanceMeters` /
       `WidthMeters`, no judder at the game's frame rate, `[VR] FpsCap` cadence chosen
 - [x] The capture cost measured and cut (2026-09-03, runs 16-19): the shipped path costs
-      ~5 ms per present at 1080p, all of it `LockRect` waiting on the queued readback; the
-      D3D9Ex shared surface is REFUSED by this game's device (not 9Ex, and UE3 needs
-      D3DPOOL_MANAGED), so `[Capture] Mode=deferred` (queue the readback, lock it one present
-      later) is the cut: 2.3 ms, `mono.xrs` passing. Ships default sync; the headset run
-      picks the default (ENGINE_NOTES "The capture cost, measured")
+      ~5 ms per present at 1080p, all of it `LockRect` waiting on the queued readback;
+      `[Capture] Mode=deferred` (queue the readback, lock it one present later) is the cut:
+      2.3 ms, `mono.xrs` passing (ENGINE_NOTES "The capture cost, measured"). Session 8:
+      deferred SHIPS as the default; the readback's GPU side measured (16 ms of DMA per
+      present at the Quest 3 size) and removed by the 9Ex shared path behind `[Device] Ex=1`
+      (ENGINE_NOTES "The tick budget, measured")
 - [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (it holds the POSITION and
       c5 is its negation - the sign corrected 2026-09-03 by picture, bbd04fec), the five
       others DISCARDED (ENGINE_NOTES)
@@ -106,13 +107,18 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
       WORKS and is sharp at 2496x2688; `neck cancel` is RIGHT (now the default); the desync
       still recurs on load and after some pause/resumes (one stale-left submit at a FOCUSED
       regain, owner unnamed); the judder could not be judged: 28 ticks/s at the eye's size
-- [ ] PERFORMANCE (the next session, before anything about comfort): the per-present CPU
-      readback (5-15 ms, a GPU sync, twice per tick) replaced by a GPU path - the game's
-      device created as D3D9Ex so `[Capture] Mode=shared` (a shared surface opened in D3D11)
-      works, `deferred` as the interim; the render thread's second-draw cost measured; the
-      attack freeze caught with a user-placed marker; then `ahead`, the desync on load
-      (add the pace guard's eaten tag to the owner line, the eyes line during mono spells,
-      `strict` on by default if it holds) and the pivot re-judged at a real frame rate
+- [x] PERFORMANCE, on the simulator (session 8, 2026-09-03): the tick budget measured (the
+      readback owns the tick on the CPU and the GPU: 16 ms of DMA per present at the Quest 3
+      size against 5 ms of 3D per draw), the creation census (99 % MANAGED, READONLY streaming
+      locks), the game's device as D3D9Ex with the managed-pool shadow (`[Device] Ex=1
+      Managed=shadow`, off by default), the fenced two-slot shared capture (75-90 ticks/s at the
+      Quest 3 size, pace-bound), `deferred` shipping as the default, `mark` and the F10 MARK
+      button, the richer gap line; the pace guard's eaten tag named on the STALE line and the
+      no-frame tag fixed; a simulated focus loss did not reproduce the regain desync
+- [ ] PERFORMANCE, on the headset: `[Device] Ex=1` + `capture mode shared` judged at the Quest 3
+      size (the tick line, the textures after minutes of play, a level load, alt-tab), then
+      `ahead`, the desync on load with the new owner line, and the pivot re-judged at a real
+      frame rate (STATUS "Next steps")
 
 ## S3 - Compare and choose; the features come back on the winner
 

@@ -23,6 +23,8 @@ Section "config"       "\[cfg\]" 40
 Section "openxr"       "xr: " 25
 Section "openvr"       "openvr|SteamVR|VR_Init" 10
 Section "hooks"        "INSTALLED|REFUSING|hooked|hook installed" 12
+Section "device"       "device: |device/census: 9Ex|shared surface|capture/probe" 12
+Section "perf"         "perf: tick|perf: gpu|capture: cost|heartbeat: GAME|mark:" 16
 Section "warnings"     "\[W\]|\[E\]|REFUSING|FAILED|failed|EXCEPTION" 40
 ""
 "--- tail ($Tail)"

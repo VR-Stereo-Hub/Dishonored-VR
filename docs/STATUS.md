@@ -1,65 +1,95 @@
 # Status
 
-## Current state (2026-09-03, session 7b: the headset verdicts - two good, the desync open, PERFORMANCE next)
+## Current state (2026-09-03, session 8: the tick measured, the readback named, the 9Ex device built - headset verdict next)
 
-**Branch `claude/dishonored-vr-stereo-polish-449d43`, 18 commits, merged into
-`native-stereo-rendering` (PR #4).** The user ran session 7's build on the Quest 3 via VDXR
-(runs 13a/b, `D:\dvr-data\logs\43-run13*.log`):
+**Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits on `native-stereo-rendering` (6ed1993f).**
+Everything below was measured on the simulator lane (RTX 4060, 2496x2688 VirtualMode, the sewers
+save, `stereo reentry`; logs `D:\dvr-data\logs\44-run01..05-*.log`). Nothing has run on the headset
+this session.
 
-- **WORKING: the resolution picker.** The Quest 3 entry (2496x2688, VirtualMode) relaunched
-  into `CreateDevice -> (2496x2688 windowed=1)`, `res: HONOURED`, hfov 108 deg, and the user
-  calls it "pretty sharp".
-- **WORKING: the pitch pivot.** `neck cancel` judged right; it is the default now
-  (`[Neck] Mode=cancel`, `off`/`add` kept as the A/B). Re-judge at a real frame rate.
-- **NOT FIXED: the eye desync**, seen on the first load and after some pause/resumes, clearing
-  on its own. The one-sided-tag cause was real and is fixed on the simulator, so this is a
-  second mechanism. The instruments through gameplay read healthy (`eyes ageL=1 ageR=0`,
-  0 stale over 76 pairs per window); the one `STALE L EYE` (age 567 presents) sits at a
-  `xr: session state FOCUSED` regain and its owner reads "unknown": the pace guard's
-  frame-less present eats the sibling's tag and that counter is not in the owner deltas.
-  The long single-draw spells on load (196 and 155 ticks, `state not GAMEPLAY`) are the
-  mono path, not a pair.
-- **UNJUDGEABLE: the judder**, because of the frame rate.
-- **THE NEXT SESSION: PERFORMANCE.** `heartbeat: GAME=57fps (presents; ticks=28/s)` at the
-  eye's size, ~40 fps at 1080p, attacks freezing the game for a moment. The cost line names
-  it: `capture: cost/present ... lock=10545 ... total=15237 us (mode=sync, 2496x2688, 25.6 MB
-  each way)` and `lock=3373 ... total=5845 us` at 2508x1411: a CPU readback with a GPU sync on
-  EVERY present, two per tick, that the game's frame loop waits behind. The BioShock Infinite
-  mod (D3D11-native, shared textures) never had this stage, which is why that heavier game
-  ran smoothly. The second draw itself costs 0.35 ms of call time on the game thread; its
-  render-thread cost is unmeasured. The pair phase read -27 ms mean, 0 % missed (pairs close
-  well before their slot; the slot is not the problem, the tick rate is).
-
-Also in these runs: the pace look-ahead was toggled 2 -> 1 -> 0 (logged), `Strict pairs`
-was not tried, and a fullscreen ask of 2560x1440 on the real display ended windowed at
-2508x1411 after two Resets (the game's own windowed fallback; VirtualMode's conversion is
-what holds a size).
+- **MEASURED: the readback owns the tick, on the CPU and on the GPU.** The new tick budget
+  (`perf: tick` and `perf: gpu` every 3 s; the F10 Display block) split the 46 ms tick at the Quest
+  3 size: 16 ms of GPU copy per present (`GetRenderTargetData` into system memory at ~1.6 GB/s)
+  plus 7.5 ms of CPU copy and upload, against 4.8 ms of actual 3D per draw and 3.3 ms of render
+  thread. `deferred` hides the CPU wait, not the GPU copy (27 ticks/s); with the capture off the
+  game is pace-bound at the simulator's 90 Hz. The brief's "13 ms unexplained at 1080p" was the
+  simulator's own pacing gate on the session-6 runs, which the line now prints as PACE-BOUND
+  (ENGINE_NOTES "The tick budget, measured").
+- **MEASURED: the game asks for MANAGED on 99 % of its creations and locks its textures READONLY
+  while streaming** (the census, `device census`): 8060 of 8120 creations, 398 MB, 10598 READONLY
+  locks. So the cheap DEFAULT + DYNAMIC stand-in for a 9Ex device was ruled out by measurement
+  and the shadow (a SYSTEMMEM twin per texture, the Lock hooks redirecting) is the translation
+  (ENGINE_NOTES "The creation census").
+- **BUILT AND MEASURED: the 9Ex device and the shared capture.** `[Device] Ex=1 Managed=shadow`:
+  `CreateDeviceEx` accepted, the device answers as 9Ex, 5240 twins, 65552 unlock pushes, 0
+  failures, the sewers rendered intact after minutes (`dump capture`). `capture mode shared` (two
+  fenced slots, `SharedWait=0|1`): 0.5 ms of capture per present, 0.2 ms of GPU copy, **75 ticks/s
+  with SharedWait=1 and 90 ticks/s pace-bound with SharedWait=0**, against 21 on the shipped path;
+  `reentry.xrs` 11/11 and the hammer 0 stale over 5 cycles on it. Ships OFF (`Ex=0`) until the
+  headset judges it; `deferred` ships as the default meanwhile (agreed with the user).
+- **The desync on load: one source fixed, one owner named, the FOCUSED-regain case not
+  reproduced.** A present whose grab delivered no frame pushed the previous tag again (a stale
+  eye at every capture-mode switch; fixed, `noFrame=` counted); the pace guard's eaten tag is
+  counted by the runtime (`eatenNoFrame`) and named on the `STALE EYE` line before "unknown"; a
+  simulated `focus lose 2500` / `focus regain` read `eaten=0`, 0 stale, so `[Pace] Strict` stays 0
+  and the headset log decides.
+- **Found on the way**: the head write's four early returns now name themselves (`head: write
+  refused - ...`); after a level load the mod's menu flag can stay up (state MENU in the level,
+  the pair stream off) until a pause-menu open/close (VERIFICATION gotcha 17); the simulator lane
+  stalls the capture lock for 130-140 ms every 2-3 s under `sync` at the Quest size, which the
+  headset run 13 never showed (gotcha 18); the ini version rewrite would wipe a tuned ini, so
+  the new keys ship without a bump (ARCHITECTURE decision log).
 
 ## Next steps (one paragraph per developer)
 
-**Next session, in this order.** (1) PERFORMANCE: measure first (the `capture: cost` lock
-against a present with capture off; the render thread's second-draw cost by the pulse
-instrument at both sizes; a `mark <text>` seam word so the user can stamp an attack freeze),
-then the GPU path: the proxy owns `Direct3DCreate9`, so create the game's device as D3D9Ex
-(`Direct3DCreate9Ex` + `CreateDeviceEx`, the IDirect3D9Ex handed back as IDirect3D9) and let
-`[Capture] Mode=shared` open the render target in D3D11 through a shared handle: zero
-readback, no sync; `deferred` as the interim default if the 9Ex route needs more than one
-build. The KNOWN_ISSUES bullet carries the numbers. (2) The desync on load: read the user's
-timestamps, add the pace guard's skip count to the owner deltas, print the eyes line during
-mono spells too, and if the FOCUSED-regain case is the mechanism, `strict` on by default. (3)
-Re-judge `ahead` and the pivot at a real frame rate. Every rule of the session-7 brief holds.
+**The user (headset, Quest 3 via VDXR)**, in this order, with `dishonored_vr.log` and
+`D:\dvr-data\pacetrace.log` copied out after each: (1) the shipped build as it is
+(`[Capture] Mode=deferred`, `[Device] Ex=0`) at the Quest 3 entry: read `perf: tick` and
+`perf: gpu` from the F10 Display block or the log for one window, then `capture mode sync`
+and `capture mode off` (the image freezes on purpose) through `game-cmd.ps1`, and press MARK on
+every attack freeze; (2) tick the F10 Display box "D3D9Ex device at the NEXT launch", relaunch,
+confirm `device: the game's device IS IDirect3DDevice9Ex` in the log, then `capture mode shared`:
+the expectation is a pace-bound 72 ticks/s at the Quest 3 size (falsified if `perf: gpu` reads a
+3D span above 12 ms per tick, or the tick line stays above 20 ms with `lock` near 0); play for
+five minutes and LOOK at the textures (black or noisy surfaces after a streaming step are the
+shadow's failure signature; `device status` counts its failures), do one level load and one
+alt-tab, then `capture sharedwait on` as the A/B; (3) at a real frame rate: `vrpace ahead 0|1|2`,
+`neck cancel` vs `off`, `Strict pairs`, the desync on first load (the `STALE .. EYE` line now
+names the owner; send its timestamp). If the 9Ex device misbehaves in any way, `device ex off`
+and relaunch: everything else is unchanged.
 
-**The user**: at 1080p and at the Quest 3 entry with `capture mode deferred`, note the frame
-rate the F10 panel shows and the exact clock time of any freeze; `Strict pairs` ticked when
-the desync appears; send the logs.
+**The next developer session**: read the headset logs first. If the shared path held, make
+`[Device] Ex=1` and `[Capture] Mode=shared` the defaults (one commit each), and fold the shadow's
+memory estimate into the census's byte model (`device status` overstates `shadowMB`: it counts
+w*h*4 per twin, not the compressed levels). If the 3D span at the Quest size is the ceiling, the
+render-size lever (the picker) is the next A/B, not the capture. Then the `Reset` semantics under
+9Ex (a fullscreen ask that Resets: `res 2560x1440f`), the pace guard's eaten tag if the headset
+names it, and the SteamVR shim (never run with this game). The 1080p tick budget on the
+simulator is unmeasured this session (the `[Screen]` picker was at the Quest 3 entry throughout).
 
 ## Blockers
 
-- The frame rate (above) blocks every comfort judgement.
+- **The headset run needs the user** (every simulator number above is at 90 Hz pacing with the
+  simulator's own compositor sharing the GPU).
+- **The ini version rewrite wipes a tuned ini** (`config.cpp` carries three keys over): the
+  session-8 keys ship without a version bump; a key-preserving rewrite is a separate change.
 - **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
   `Stop-Process`; a menu quit is clean on the Quest (run 15).
 
 ## Session log
+
+### 2026-09-03 - session 8: performance - the tick budget, the census, the 9Ex device, the shared capture
+
+Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits. Runs on the dev PC (simulator lane, RTX 4060,
+2496x2688 VirtualMode, logs in `D:\dvr-data\logs\44-run*.log`):
+
+| Run | What | Result |
+|---|---|---|
+| 01 | the tick budget, sync / deferred / off | stereo sync: tick 46 ms (21/s), capture 17-21 ms per present of which lock 9-13, GPU dma 15.5-16.8 vs 3D 4.8; deferred: 36 ms (27/s), lock 0, dma 10.4; off: 93 presents/s pace-bound; the marker 1 BeginScene per present, 0 late GPU reads; `mark` and the gap line print; `reentry.xrs` 11/11 |
+| 02 | the creation census | 8060 of 8120 creations MANAGED (398 MB), READONLY texture locks 10598, no AUTOGENMIPMAP; the shadow route decided |
+| 03 | `[Device] Ex=1 Managed=shadow` | `CreateDeviceEx -> 0x0`, IS 9Ex, `shared surface AVAILABLE`; 5240 twins, 65552 updates, 0 failures; the sewers intact; shared (one slot) 0.2 ms per present |
+| 04 | the fenced two-slot shared capture, stereo | SharedWait=1: tick 13.3 ms (75/s), lock = the 3.6 ms fence wait, dma 0.2; SharedWait=0: 11.1 ms (90/s) PACE-BOUND; `reentry.xrs` 11/11; hammer 0 stale over 5 cycles; the frame intact |
+| 05 | the final build | deferred default 27.7/s; `capture mode off` with 0 STALE lines (the no-frame fix); `focus lose 2500` / `focus regain`: `eaten=0`, 0 stale; `reentry.xrs` 11/11 |
 
 ### 2026-09-03 - session 7: the four headset faults and the picker, on the simulator
 

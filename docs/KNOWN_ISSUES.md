@@ -9,21 +9,27 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   tickbox (ticked) parks the game on the head-locked mono screen without forgetting the
   method; `stereo arm on|off` on the seam. The tick rate halves while stereo runs (the second
   draw is a full scene draw). `stereo aer` is still a design stub.
-- **PERFORMANCE: the frame reaches the headset through a CPU readback, twice per tick**
-  [S1, the next session]. Headset run 2026-09-03: ~40 fps at 1080p, 28 ticks/s at the eye's
-  size, and every present spends 5-6 ms (2560x1440) to 13-15 ms (2496x2688) inside the
-  readback (`capture: cost/present ... lock=`), a GPU sync the game's own frame loop has to
-  wait behind; attacks freeze the game for a moment. The BioShock Infinite mod never had this
-  stage (D3D11-native, shared textures). Until the GPU path lands, `[Capture] Mode=deferred`
-  halves the wait and `Mode=shared` is refused because the game's device is not D3D9Ex.
-  Comfort (the judder, `vrpace ahead`) cannot be judged until this is fixed.
+- **PERFORMANCE: the frame reaches the headset through a readback, twice per tick** [S1,
+  measured and levered 2026-09-03, headset verdict pending]. The tick budget (`perf: tick` and
+  `perf: gpu` every 3 s, the F10 Display block) measured the readback as the owner of the tick
+  on both sides at the Quest 3 size: 16 ms of GPU copy per present into system memory plus
+  7.5 ms of CPU, against 5 ms of actual 3D work per draw. `[Capture] Mode=deferred` ships now
+  (27 vs 21 ticks/s on the simulator, one present of latency; `capture mode sync` is the A/B).
+  The fix is `[Device] Ex=1` (the F10 Display tickbox, relaunch) with `capture mode shared`:
+  the game's device as D3D9Ex, every MANAGED texture shadowed in system memory, the frame kept
+  in VRAM; 75-90 ticks/s on the simulator at the Quest 3 size, pace-bound. It is OFF by default
+  until a headset run has judged it (it changes how the game creates every texture and buffer;
+  the log's `device:` and `device/shadow` lines say what happened). `capture mode off` freezes
+  the image on purpose (the A/B control); `mark <text>` and the F10 MARK button stamp a felt
+  freeze in the log with the ring of presents around it.
 - **`stereo reentry`: the eyes can still desync, mostly on load** [S2b, NOT fixed]. The
   one-sided-tag cause was real and is fixed (the simulator proves it), but the headset still
   sees the two eyes disagree on the first load and after some pause/resumes, clearing on its
-  own. The instruments read healthy through gameplay; the log has one stale-left submit at a
-  `session state FOCUSED` regain whose owner the line could not name (the pace guard's eaten
-  tag is not in its deltas yet). If you see it: F10 Runtime `Strict pairs`, note the time,
-  send the log.
+  own. Session 8 fixed a second source (a present whose capture delivered no frame pushed the
+  previous frame's tag again: a stale eye at every capture-mode switch) and made the pace
+  guard's eaten tag a named owner on the `STALE EYE` line (`eatenNoFrame`, `eaten=` on the eyes
+  line); a simulated focus loss and regain did not reproduce it. If you see it: F10 Runtime
+  `Strict pairs`, note the time, send the log; the owner line now says which mechanism.
 - **`stereo reentry`: fast head or player movement judders** [S2b, blocked on performance].
   The `pair phase` line and `vrpace ahead 0|1|2` (F10 Runtime, `Pose look-ahead`) are in;
   the headset run could not judge them at 28 ticks/s. Ships at 0.
@@ -46,12 +52,12 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   hand code, which is compiled but untested on this render.
 - **The wrist HUD and the aim reticle are gone** [S3]. The game's own HUD is on the screen with
   the rest of the frame; the floating panel returns through the runtime layer's HUD quad.
-- **The headset image is the game window's resolution, captured once per frame on the CPU**
-  [S1]. Set the game's video options to what your PC renders comfortably (1920x1080 is a fine
-  start); a bigger window costs a bigger per-frame readback (~5 ms per present at 1080p on
-  the shipped path, measured). `[Capture] Mode=deferred` halves it (2.3 ms) at the price of
-  one present of latency; it ships off until a headset run picks the default. A D3D9Ex
-  shared surface is NOT possible on this game's device (measured: not a 9Ex device).
+- **The headset image is the game window's resolution, captured once per present** [S1]. A
+  bigger window costs a bigger readback on the shipped `deferred` path (10 ms of GPU copy per
+  present at the Quest 3 size); `[Device] Ex=1` with `capture mode shared` keeps it in VRAM
+  (above). After a level load the mod's menu flag can stay up for a while (the state line reads
+  MENU in the level, the headset shows the head-locked screen): open and close the pause menu
+  once and the pair stream resumes.
 - **SteamVR headsets need the shim** (Vive, Index, WMR through SteamVR). 41.0 is OpenXR-only
   and SteamVR ships no 32-bit OpenXR runtime, so `dvr_steamvr32.dll` and `openvr_api.dll` sit
   next to `d3d9.dll` and the mod falls back to them (`[VR] Runtime=steamvr` forces it). Vive

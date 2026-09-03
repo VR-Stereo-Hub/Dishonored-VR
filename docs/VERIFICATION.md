@@ -28,7 +28,11 @@ question the simulator could answer is a wasted session.
 | Does head rotation move the camera? | capture | `headlook.xrs` | `img-diff` of left eye at yaw 0 vs 35 rises well above the ~0.4 noise floor |
 | Stereo depth present? | capture | `stereo.xrs` | left vs right `img-diff` >> 0.4 (BioShock's expectation; on Dishonored a true pair reads LOWER than the mono projection - see the row below) |
 | Is SequentialReentry drawing two eyes? (S2b) | log + capture | `xrsim-run.ps1 -Path tools\xrsim\reentry.xrs` from GAMEPLAY | `projectionViews eq 2`, `capNonBlackL/R >= 30`, then the log: `reentry: beat draws/s == 2nd/s`, `stereo: beat L/s == R/s == out/s / 2`, `reentry: pair - the +1 present's c5 sits (0 ipd*scale 0) uu from the -1 present's`; `stereo mono` restores the quad |
-| What is the capture costing? | log | `capture status`, or the 3 s `capture: cost/present rtd= lock= copy= upload= blit= total=` line | sync ~5 ms at 1080p (the lock is the wait), deferred ~2.3 ms; `capture mode deferred` is the live A/B |
+| What is the capture costing? | log | `capture status`, or the 3 s `capture: cost/present rtd= lock= copy= upload= blit= total=` line | deferred (ships) ~2.3 ms at 1080p, ~10 ms at the Quest 3 size; sync ~5 / ~17 ms; shared (needs `[Device] Ex=1`) ~0.5 ms; `capture mode <m>` is the live A/B, `off` freezes the image by design |
+| Who owns the tick: the render thread, the GPU, the game thread? | log | the 3 s `perf: tick` and `perf: gpu` lines (`perf status` now); `capture mode off` as the control | `tick N ms = P1[-1] in .. + out (idle .. R ..) \| P2[+1] ..`; `PACE-BOUND` when the runtime's wait owns the present (the simulator's 90 Hz gate at 1080p); `RENDER THREAD STARVED` when the game thread is the limiter; `gpu/present span=(3d + readback dma)` - a dma near the lock is the readback owning the tick (ENGINE_NOTES "The tick budget, measured") |
+| Where did a freeze sit? | log | `game-cmd.ps1 "mark <text>"` or the F10 MARK button at the moment; the `perf: frame gap` line fires on its own at 80 ms or 2.5x the mean interval | `mark: ...` (two Warn lines: the last window, the last closed present, the ring of 24) and `perf: frame gap .. sat in: <phase> of #N` with the flags (reset, load, pairOpen, paceTimeouts) |
+| What does the game ask of D3D9, and would a 9Ex device refuse it? | log | `device census` (the summary also prints at the first GAMEPLAY) | the table by call/pool/usage/format, the lock table, `9Ex would refuse N of M creations ... locks on MANAGED: READONLY=..`; READONLY > 0 means the shadow translation, not dynamic |
+| Is the game's device 9Ex, and does the shared capture run? | log | `[Device] Ex=1` in the ini (or `device ex on` + relaunch), then `capture mode shared`, `device status`, `capture status` | `device: the game's device IS IDirect3DDevice9Ex (route: CreateDeviceEx ..)`, `capture/probe: shared surface AVAILABLE`, `capture: shared surfaces .. live (2 slots ..)`, the cost line `lock` = the fence wait, `shadow twins made=N failed=0 .. updates=N failed=0`; then `dump capture` and LOOK at the textures |
 | Is the game really in gameplay? | log | `[game] state:` line, `status.json` `state` | the title screen reads MENU, the main menu MENU, a loading screen LOADING, a cutscene CINEMATIC; the simulator's saved game reaches GAMEPLAY with `game-key.ps1 -Key Return` three times (start screen, Continue, "press any key" after the load, ~45 s) |
 | World rigidity under 6DoF | capture | `world-6dof.xrs` | `ClaimRatioH` ~1.0 at every yaw/pitch, `EyeSeparationM` constant |
 | Is the weapon glued to the controller? | capture | `coupling-hand.xrs` | hand-quad bbox moves with the hand, not the head |
@@ -199,6 +203,15 @@ defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault
     the attract camera (runs 16-21 did). Walk in with `tools\game-key.ps1 -Key Return` three
     times (title -> main menu, Continue -> the load, "press any key" -> the level) and wait
     for `[game] state: GAMEPLAY`; look at a `xrsim-shot` before believing a number.
+17. **After a level load the mod's menu flag can stay up** (the state line reads MENU in the
+    level, the pair stream stays off, the head-locked screen shows the level): open and close
+    the pause menu (`game-key.ps1 -Key Escape` twice) and the state flips to GAMEPLAY with
+    `reentry: gates -> DOUBLE draw`. Seen on three of five session-8 runs; the walk-in key
+    timing decides it.
+18. **The simulator lane stalls the capture lock for 130-140 ms every 2-3 s** at the Quest 3 size
+    under `capture mode sync` (`perf: frame gap .. sat in: the method (capture)`, lock 125 ms);
+    the headset run 13 at the same size never showed it. A simulator-lane artifact until
+    measured otherwise; read tick numbers from the 3 s window means, not from the gaps.
 16. **`xrsim-launch.ps1 -ViaSteam` restores the mod's ini from a pre-launch backup**, so a
     key the running game wrote into it (`res <W>x<H>`, `res virtual on`) is gone at the next
     launch. The picker's ask travels in `dishonored_vr_launch.txt` next to the exe instead,

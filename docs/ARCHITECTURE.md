@@ -209,11 +209,16 @@ is written). `core/util/paths.h` is the one place that knows this.
 
 ## Known costs
 
-- The per-present CPU readback of the game window (`GetRenderTargetData` + row copy +
-  `UpdateSubresource`; 8 MB each way at 1080p): measured ~5 ms per present in the shipped
-  `[Capture] Mode=sync`, of which 2.4-3.1 ms is `LockRect` waiting on the queued readback;
-  `deferred` (queue the readback, lock it one present later) measures ~2.3 ms. A D3D9Ex shared
-  surface is refused by this game's device (ENGINE_NOTES "The capture cost, measured").
+- The per-present readback of the game window (`GetRenderTargetData` + row copy +
+  `UpdateSubresource`): at the Quest 3 size 16 ms of GPU copy per present plus 7.5 ms of CPU,
+  the owner of the tick on both sides (ENGINE_NOTES "The tick budget, measured"). `deferred`
+  (ships, 41.1) hides the CPU wait, not the GPU copy; `shared` on a `[Device] Ex=1` device
+  (a fenced VRAM-to-VRAM StretchRect) removes both and leaves the tick at the pacing limit.
+  The tick budget instruments (`core/framework/perf`: the per-present split, the BeginScene
+  marker, the D3D9 timestamp ring, `mark`, the gap line) are on by default and cost eight
+  clock stamps and one query issue per point.
+- The managed-pool shadow under `[Device] Ex=1`: a SYSTEMMEM twin per game texture (398 MB
+  asked by the sewers level) and one `UpdateTexture` per unlock; nothing per frame.
 - SequentialReentry's second draw: a full scene draw per tick for the GPU (the call itself
   returns in 220-470 us; the tick rate halved on the dev PC's simulator run at 1080p).
 - `xrWaitFrame` runs inline on the present thread by default and paces the game to the
@@ -222,6 +227,26 @@ is written). `core/util/paths.h` is the one place that knows this.
   and the (uncalled) hand drives live there.
 
 ## Decision log
+
+### 2026-09-03 - session 8 (performance: the tick budget, the 9Ex device, the shared capture)
+
+- **Measure the tick before building the GPU path.** The brief predicted the GPU path from the
+  capture's cost line; the same numbers fit a GPU-bound tick that no capture path would fix.
+  The tick budget (perf) was built first, with the one number that separates the two models
+  (the readback's own GPU time, from a D3D9 timestamp bracket), and it said the readback owns
+  both the CPU and the GPU side. The 1080p simulator runs that seemed to say "deferred gains
+  nothing" were pace-bound by the simulator's own gate, which the line now prints.
+- **The 9Ex device goes behind a launch-time lever, and the census decides the translation.**
+  A 9Ex device refuses MANAGED; the census measured 99 % of the game's creations MANAGED and
+  10598 READONLY texture locks, so the cheap DYNAMIC stand-in was ruled out by measurement and
+  the shadow (a SYSTEMMEM twin per texture, the class-wide Lock hooks redirecting) is the
+  translation. `[Device] Ex=0` ships; `Ex=1 Managed=shadow` is the headset test.
+- **No ini version bump.** The version rewrite carries three keys over and would wipe a tuned
+  ini (the picker size, F10 saves); new keys are read with defaults when absent, written by
+  their seam word and by SAVE AS DEFAULTS, and appear in the golden ini for fresh installs.
+- **`[Capture] Mode=deferred` ships as the default** (agreed with the user): 27 vs 21 ticks/s at
+  the Quest 3 size, one present of latency, `sync` the live A/B; `shared` is the fix once the
+  headset has judged the 9Ex device.
 
 ### 2026-09-03 - session 7 (S2b polish: the four headset faults, the picker)
 
