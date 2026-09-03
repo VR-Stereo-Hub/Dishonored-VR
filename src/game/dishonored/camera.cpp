@@ -685,19 +685,27 @@ static void pitchtest_verdict() {
     const float consU = (resU[1] + resU[2]) - 2.0f * belowUu * c1;     // 0 when the model fits
     const float consF = (resF[1] + resF[2]) - 2.0f * behindUu * c1;
     const float scale = g_scale > 1.0f ? g_scale : 100.0f;
+    // The residual is what the ENGINE added on top of the seam's ask. Three
+    // readings: it is nothing (the engine pivots about the camera origin and
+    // the seam's arc, if any, is the whole travel); it fits a pivot (the
+    // engine has its own neck - and the seam's ask, when there was one, is
+    // accounted for inside the fit, so it DID reach the draw); or it fits no
+    // pivot (something between the seam and the draw: the ceiling, a stale
+    // basis, the player moving). Measured 2026-09-03 on the simulator: the
+    // engine's pivot sits 0.32 m below and 0.06 m behind the eyes (17 cm of
+    // backward travel at +30 deg), consistency 0.3 uu - the "whole body"
+    // pitch the headset reported.
     const bool residualSmall = fabsf(resU[1]) < 1.0f && fabsf(resF[1]) < 1.0f && fabsf(resU[2]) < 1.0f && fabsf(resF[2]) < 1.0f;
-    const float askMag = fabsf(askU[1]) + fabsf(askF[1]) + fabsf(askU[2]) + fabsf(askF[2]);
-    bool seamBlocked = false;
-    if (askMag > 2.0f) {
-        const float gotMag = fabsf(U[1]) + fabsf(F[1]) + fabsf(U[2]) + fabsf(F[2]);
-        seamBlocked = fabsf(gotMag - askMag) > 0.25f * askMag + 2.0f;
-    }
+    const bool fitsPivot = fabsf(consU) < 3.0f && fabsf(consF) < 3.0f;
     const uint32_t clips = g_ceilClips - p.clipsStart;
     const char* verdict =
         !p.n[0] || !p.n[1] || !p.n[2] ? "INCOMPLETE (a bucket never arrived: drive the head to both pitches)"
-        : residualSmall ? "ENGINE PIVOTS ABOUT THE CAMERA ORIGIN (residual < 1 uu): H1 false - the tracked arc alone is the eye's travel"
-        : seamBlocked   ? "THE SEAM'S OFFSET DID NOT REACH c5 (asked vs measured differ by > 25%): H2 - the arc is blocked between the seam and the draw"
-                        : "ENGINE HAS ITS OWN NECK: H1 true - with positional tracking the arc is applied twice; `neck cancel <below> <behind>` with THESE numbers";
+        : residualSmall ? "ENGINE PIVOTS ABOUT THE CAMERA ORIGIN (residual < 1 uu): the seam's ask, if any, is the whole travel"
+        : fitsPivot     ? "ENGINE HAS ITS OWN NECK (the residual fits a pivot; the seam's ask is inside the fit, so it reached the draw): "
+                          "with positional tracking the tracked arc rides on top of it - `neck cancel <below> <behind>` with THESE numbers "
+                          "cancels the engine's, then re-run: the travel must read the seam's ask alone"
+                        : "THE RESIDUAL FITS NO PIVOT: something between the seam and the draw (the ceiling clips, a stale basis, "
+                          "the player moving) - read the bucket lines";
     DVR_INFO("camera/pitchtest: buckets LEVEL n=%d pitch %+.1f | UP n=%d pitch %+.1f | DOWN n=%d pitch %+.1f | c5 LEVEL (%.1f %.1f %.1f)",
              p.n[0], p.pitchAt[0], p.n[1], p.pitchAt[1], p.n[2], p.pitchAt[2], c5[0][0], c5[0][1], c5[0][2]);
     DVR_INFO("camera/pitchtest: c5 travel from LEVEL: UP -> U%+.2f F%+.2f uu (seam asked U%+.2f F%+.2f), DOWN -> U%+.2f F%+.2f uu "

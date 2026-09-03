@@ -138,10 +138,13 @@ static void WriteDefaultIni(const char* ini)
         "; not supplying); cancel = the arc is SUBTRACTED, for an engine that already pitches\n"
         "; its camera about its own neck (then PivotBelowM/PivotBehindM hold the ENGINE's\n"
         "; numbers, measured by `camera pitchtest`). `neck off|add|cancel [below] [behind]`\n"
-        "; switches live; F10 Comfort has the buttons and sliders.\n"
+        "; switches live; F10 Comfort has the buttons and sliders. The defaults ARE the\n"
+        "; engine's pivot, MEASURED 2026-09-03 on the simulator (0.321 m below, 0.062 m\n"
+        "; behind: 17 cm of backward travel at +30 deg), so `cancel` is one word away; a\n"
+        "; human neck for `add` is about 0.11 / 0.09.\n"
         "Mode=off\n"
-        "PivotBelowM=0.11\n"
-        "PivotBehindM=0.09\n"
+        "PivotBelowM=0.321\n"
+        "PivotBehindM=0.062\n"
         "[MotionAim]\n"
         "; Stage 7.3: hand-aimed projectile weapons (crossbow bolts, pistol\n"
         "; bullets, grenades). After you pull the fire trigger, the freshly\n"
@@ -402,8 +405,8 @@ static void LoadConfig()
         if (mode == 0 && _stricmp(nm, "off") != 0 && nm[0])
             Log("config: [Neck] Mode='%s' unknown (off|add|cancel) - off", nm);
         g_neckMode = mode;
-        g_neckBelowM = IniFloat(ini, "Neck", "PivotBelowM", 0.11f);
-        g_neckBehindM = IniFloat(ini, "Neck", "PivotBehindM", 0.09f);
+        g_neckBelowM = IniFloat(ini, "Neck", "PivotBelowM", 0.321f)   /* the engine's pivot, measured 2026-09-03 */;
+        g_neckBehindM = IniFloat(ini, "Neck", "PivotBehindM", 0.062f);
         if (g_neckBelowM < 0.0f) g_neckBelowM = 0.0f;   if (g_neckBelowM > 0.5f) g_neckBelowM = 0.5f;
         if (g_neckBehindM < 0.0f) g_neckBehindM = 0.0f; if (g_neckBehindM > 0.5f) g_neckBehindM = 0.5f;
         if (mode)

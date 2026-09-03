@@ -110,8 +110,13 @@ static float g_posMaxM    = 0.80f;    // clamp radius in meters (safety)
 // tracked arc must not be applied twice - the pivot then holds the ENGINE's
 // numbers from `camera pitchtest`). Under a projection layer only.
 static int   g_neckMode    = 0;
-static float g_neckBelowM  = 0.11f;   // the pivot below the eyes, metres
-static float g_neckBehindM = 0.09f;   // the pivot behind the eyes, metres
+// MEASURED 2026-09-03 (camera pitchtest, simulator, the sewers): the ENGINE
+// pitches its camera about a point 0.321 m below and 0.062 m behind the eyes
+// (17 cm of backward travel at +30 deg), consistency 0.3 uu; `neck cancel`
+// with these numbers held the render camera still (< 0.5 uu) while the head
+// pitched at a fixed position. A human neck for `add` is about 0.11 / 0.09.
+static float g_neckBelowM  = 0.321f;  // the pivot below the eyes, metres (the engine's, measured)
+static float g_neckBehindM = 0.062f;  // the pivot behind the eyes, metres (the engine's, measured)
 static volatile float g_neckArcUu[3] = {0, 0, 0};   // the last term: right, up, forward (uu)
 // 38.46 ROOMSCALE. Positional tracking was LEAN only: your real-world offset
 // slid the CAMERA, clamped to MaxMeters, and the pawn never moved - so every
