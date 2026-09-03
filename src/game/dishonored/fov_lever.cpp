@@ -163,8 +163,44 @@ static inline void FovLeverApply()
 // currently holds on the live camera object. The world fov is the one the lever
 // already drives ([Screen] FovLever, the 0x53c sensor); a SECOND fov-shaped
 // float that does not track it is the foreground lens.
+// The names the decompiled script gives these fields (DishonoredPlayerCamera).
+// Resolving them through the game's OWN reflection turns patterns.h's kLevCam /
+// kFovCands - which were derived empirically, by watching values move during a
+// spyglass zoom - into offsets derived by NAME. That is the strongest
+// derivation available and it is what the hard rule in CLAUDE.md asks for.
+static const char* const kCamFovNames[] = {
+    "m_fCurFOV",        // the WORLD fov: what the lever drives, what 0x53c senses
+    "m_fCurFOV_Arms",   // the ARMS/weapon fov - the foreground lens, blended
+                        // SEPARATELY and gated per FOV target by m_bLockArms,
+                        // so it does not necessarily follow the world fov
+    "m_fTargetFOV", "m_fCurrentFOV", "m_fCustomFOV", "m_fZoomFOVOverride",
+};
+
+static void FovNamedOffsets()
+{
+    Log("fovprobe: --- offsets by NAME from the game's own reflection ---");
+    for (size_t i = 0; i < sizeof(kCamFovNames) / sizeof(kCamFovNames[0]); i++) {
+        const char* nm = kCamFovNames[i];
+        uint32_t off = FindPropOffset("DishonoredPlayerCamera", nm);
+        if (!off) { Log("fovprobe:   %-18s not found on DishonoredPlayerCamera", nm); continue; }
+        // Does the lever currently write this offset, and does it skip it?
+        bool written = false, isSensor = (off == 0x53c);
+        for (int k = 0; k < 7; k++) if (kLevCam[k] == off) written = true;
+        char live[48]; live[0] = 0;
+        if (g_camObj && CamStillValid() && RangeReadable(g_camObj + off, 4))
+            _snprintf(live, sizeof(live) - 1, "  live=%.2f", *(const float*)(g_camObj + off));
+        Log("fovprobe:   %-18s camera+0x%-4x  lever %s%s%s", nm, off,
+            written ? (isSensor ? "SKIPS it (sensor)" : "WRITES it") : "does NOT write it",
+            live, written && !isSensor ? "" : "   <-- candidate gap");
+    }
+    Log("fovprobe:   (the lever's list is patterns.h kLevCam, derived empirically "
+        "in 30.52 by watching fields move through a spyglass zoom - anything above "
+        "that disagrees with it is a correction worth making)");
+}
+
 static void FovPropHunt()
 {
+    FovNamedOffsets();
     if (!RangeReadable((void*)kGObjHdr, 12)) { Log("fovprobe: GObjects not readable"); return; }
     void** objs = *(void***)kGObjHdr;
     uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
