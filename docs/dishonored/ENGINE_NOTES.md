@@ -1070,6 +1070,107 @@ the pipelined form the obvious move instead of the user-memory trick.
   4032x2268 mode; the window hooks hold it; `[Screen] SpoofDesktopW/H` and `ResX/ResY` must
   match.
 
+## The pause/resume desync: a one-sided tag stream (2026-09-03, session 7)
+
+The run-40 report ("the judder stays in the LEFT eye and stops in the RIGHT") is the
+signature of a held right swapchain image, and the cause is on the game side, not in a
+ring. Pass 1 pushed its `-1` tag on five gates and pass 2 re-evaluated them AFTER the draw
+plus four more (exiting, a test running, the c5 serial, a present since the previous draw),
+so the resume window - the game thread's catch-up burst tripping the stall gate, the verdict
+flapping through LOADING for a second - produced `-1` tags with no `+1`. The runtime then
+counted `abortLeft`, captured the left again and submitted a stereo layer that names each
+eye's swapchain: the LEFT rewritten every other present (the judder), the RIGHT showing its
+pre-pause image with its old pose (reprojected smoothly, so it looked frozen). STATUS had
+attributed it to `xr: sr tag ring skewed`; that ring is pushed and popped consecutively on the
+present thread in this port and cannot skew - the line that does appear is `reentry: tag ring
+skewed` (the method's ring, a different threshold). The quad transition was never the fault:
+`reset_aer()` clears both eyes on every quad present.
+
+Fixed at the source (813807e3): the gates are decided ONCE at depth 0 before pass 1's tag, and
+pass 2 takes the decision. Instrumented first (a9b2ef12): each eye capture stamps the present
+counter, every stereo submit computes the per-eye image age in PRESENTS (a healthy pair reads
+L=1 R=0), the beat prints an `eyes` line, and the method prints `STALE R EYE` with the OWNER
+named from the game side's skip deltas or the runtime's counters. The fail-soft (d0650a38,
+`vrpace strict`, default off): a stereo submit with an eye older than one present shows the
+fresh eye to both eyes for that frame. `reentry skip2 <n>` reproduces the one-sided stream on
+demand: strict off, the simulator counted held-eye stereo submits and the mod printed the
+line; strict on, no new stale submit and 37 fallbacks to mono. The hammer
+(`tools\arming-hammer.ps1`, 15 pause/resume cycles) and `stale-eye.xrs` read 0 stale submits
+on the fixed build.
+
+## The pair phase (2026-09-03, session 7)
+
+`xrEndFrame` time minus the frame's `predictedDisplayTime`, through
+`XR_KHR_win32_convert_performance_counter_time` (enabled when the runtime lists it; the
+simulator now offers it with the same split QPC conversion its clock uses), sampled at every
+pair close: negative = the pair closed before its slot, positive = it missed the slot and
+displays a slot late with a pose predicted for the earlier one. On the TRACE pairs line, a
+5 s log line, `vrpace status`, `stereo status`, status.json `stereo.pair.phase*`. On the
+simulator the number is meaningless (its predicted time is `now + period` re-anchored, and it
+read +58 to +75 ms, 100 % missed, at 40-64 pairs/s on a 90 Hz schedule); the headset's is the
+number the judder question is decided on. `vrpace ahead 0|1|2` (7f569463) locates the head
+pose the game renders with, and the views the layer is tagged with, for `predictedDisplayTime
++ ahead x period`; `xrEndFrame`'s displayTime and the tag generation are untouched, so at 0 the
+paths are byte-identical. `vrpace lag` exposes the attribution generation for the measurement.
+
+## The pitch pivot: the engine's neck, measured (2026-09-03, session 7)
+
+`camera pitchtest 30` (e374a6a2) takes three buckets of c5 (LEVEL, looking UP, looking DOWN,
+60 presents each) and projects the travel from LEVEL on world up and the pitch-0 heading, so
+the per-eye offset cancels and it runs under `stereo reentry`. Simulator, the sewers, 98 uu/m:
+
+| run | head | c5 travel UP (U, F uu) | DOWN (U, F) | seam asked UP / DOWN | fit |
+|---|---|---|---|---|---|
+| 1 | `head rot 0 +/-30 0` at a FIXED position | -1.04, -16.58 | -7.07, +14.90 | 0 / 0 | below 0.321 m, behind 0.062 m, consistency 0.33 / -0.07 uu |
+| 2 | `head pose` on an 11/9 cm arc | +1.91, -23.14 | -12.86, +19.13 | U+2.97 F-6.58 / U-5.85 F+4.20 | the same fit; the extra travel equals the ask |
+| 3 | fixed position, `neck cancel 0.321 0.062` | -0.48, +0.11 | +0.14, +0.15 | the cancelling term | the render camera holds still |
+
+So the ENGINE pitches its camera about a pivot 32 cm below and 6 cm behind the eyes: 17 cm of
+backward travel at +30 deg, which the compositor (expecting only the tracked head translation)
+cannot reproject - "looking up with the whole body". The tracked arc arrives on top of it
+(run 2). `neck cancel` with the engine's own numbers cancels it (run 3), and the +30 frames
+with and without the cancel differ by the predicted 17 cm (the lamp at the right edge cut
+off, the pipe junction lower). The `[Neck]` lever (0db35c10) ships off with the measured pivot
+as its defaults; the headset judges `cancel` against `off` from F10 Comfort. The 38.24 ceiling
+now counts the presents it clips (0 in all runs).
+
+## The console seam was dead since 41.0, and setres is inert (2026-09-03, session 7)
+
+`RunConsole` returned -1 unless `g_fnConsoleCmd` was set, and the only latch lived inside the
+resolution script 41.0 removed: every `console` word and IntroSkip returned -1 since 41.0
+without reaching the engine, so "setres is a dead end" (session 2) was never re-measured on
+this line. Latched again (c0bd3831); the first word that reached the engine overflowed the
+game thread's stack, because `RunConsole` calls ProcessEvent, which is the mod's own hook,
+which ran the still-pending request again - the request now leaves the seam before the engine
+runs it and the nested call returns on the re-entry flag. Measured then: `setres 2560x1440f`
+(a real mode) and `setres 1600x900w` both dispatch (`ConsoleCommand` on
+`DishonoredPlayerController`, the console's `OutputText` fires), return an empty reply, and
+change nothing - no Reset, no size change. `setres` is inert on this build.
+
+## The render size: the ini route is inert, the command line is honoured (2026-09-03, session 7)
+
+With 2560x1440 fullscreen in every place of the game's own ini (both files, all four AppCompat
+buckets, the compat file rewritten by the game itself at launch) the game created a 1920x1080
+WINDOWED device on every run, including the headset run, and never Reset out of it (runs
+07-08); the install-side `DefaultEngine.ini` carries exactly 1920x1080. The command line is the
+route: the proxy is loaded before the engine's entry point, so `ResRequest` writes the ask to
+`dishonored_vr_launch.txt` and DllMain points the exe's and the CRT's `GetCommandLineA/W`
+import slots (3 patched) at the line with `-ResX= -ResY= -FullScreen` appended (ce10a3f7).
+Run 09: `CreateDevice -> (2560x1440 windowed=0)`, the capture and the eye swapchains followed.
+
+A size the display does not list falls back to a real mode (2496x2688 -> 2560x1440, run 10).
+`[Screen] VirtualMode=1` (3935f9f7): the proxy, which IS the game's IDirect3D9, advertises the
+asked size in the mode list the game validates against (`GetAdapterModeCount` /
+`EnumAdapterModes`, asked from 0x9b79b7 at startup and 0x9b9a20 in the frame loop, our mode
+handed at slot 123) and, when the game asks for a FULLSCREEN device at that size, creates it
+WINDOWED with the backbuffer kept. Run 12: `CreateDevice -> (2496x2688 windowed=1)`,
+`capture: 2496x2688`, `res: HONOURED`, `xr: swapchain pair 2496x2688`, the runtime's
+circumscribed hfov 108.0 deg at aspect 0.929 (137 at 16:9), the sim's claim ratio 1.18 (2.17
+at 16:9), both eyes 77 % non-black in the sewers, the frame complete floor to ceiling by
+picture. Every 41.0-era dead end ran the game WINDOWED, where the desktop clamp lives; this is
+the fullscreen path. The cost: the sync readback reads 18-20 ms per present at that size
+(25.6 MB each way; `[Capture] Mode=deferred` is the answer, ROADMAP S1).
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.
@@ -1080,7 +1181,7 @@ the pipelined form the obvious move instead of the user-memory trick.
   render-size masks (`WeaponHideBones`, `ArmsHideTick`).
 - Window-route resolution changes (work area, max tracking size, self-resize, fullscreen
   escape, client-rect spoof, mode list): six builds, the game still chose its own size; the
-  engine's own setres is the way.
+  engine's own setres is INERT on this build (measured 2026-09-03: it dispatches and does nothing); the command line is the way, and the fullscreen path takes a proxy-advertised mode ("The render size", session 7).
 - The overlay-scene XR architecture (compositor overlay, reprojection-exempt): rejected
   at 38.0 (cannot be motion-smoothed).
 

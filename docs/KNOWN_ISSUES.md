@@ -3,39 +3,38 @@
 41.x is the FOUNDATION line for the new native-stereo render: it is not a release. The
 milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 
-- **Stereo ships OFF: the game is on a head-locked screen, the same image in both eyes**
-  [S2, S3]. The DXVK side-by-side render of releases up to 40.x is gone; the shipped method
-  shows the game's own frame on a flat screen in front of you (`[Screen] DistanceMeters`,
-  `WidthMeters`; F10 has the sliders). Turning your head turns the GAME camera as before, the
-  screen itself stays in front of your eyes. `stereo reentry` (41.1) draws the scene twice
-  per tick, once per eye, into a projection layer, and is HEADSET-VERIFIED (Quest 3,
-  2026-09-03): depth, head tilt, lean, look and crouch are all correct. It stays off by
-  default until the four items below are fixed. The tick rate halves while it runs (the
-  second draw is a full scene draw). `stereo aer` is still a design stub.
-- **`stereo reentry`: the eyes occasionally desync after a pause/resume** [S2b]. Rare, and
-  it clears itself, but while it lasts the two eyes show different images instead of a
-  stereo pair. Reported symptom: the judder below stays visible in the left eye and stops
-  in the right, so the right eye looks like it stops getting fresh frames. Suspected in the
-  arming path (the pair ring resyncs from mono when the cinematic quad hands back).
-- **`stereo reentry`: fast head or player movement judders** [S2b]. Slightly floaty rather
-  than locked. The pair is submitted as it completes rather than being paced against the
-  predicted display time.
-- **`stereo reentry`: looking up and down pitches about a point behind your eyes** [S2b].
-  It reads as pitching your whole body instead of your head; a neck model (the pivot below
-  and behind the eyes) is missing.
-- **The F10 overlay has no render-resolution picker and no stereo arming tickbox** [S2b].
-  Planned: a custom per-eye resolution defaulting to the Quest 3's, and a tickbox that arms
-  the current stereo method, ticked by default.
-- **The eye-check bands are BioShock's** [S2b]. `tools\eye-check.ps1` legs 2/4/5 were
-  calibrated on another game; on Dishonored's sewers a true stereo pair reads an
-  interocular mean of 6-7 against 13-22 for the same image shown twice, so those legs FAIL
-  on a correct render. Leg 0 (the pairing) and the pair line's c5 travel in the log are the
-  instruments that carry the verdict until the bands are recalibrated after a headset run.
-- **The lever's FOV law is measured at 16:9 only** [S2b]. Under a projection layer the game
-  renders the circumscribed 137 deg for a Quest 3 (a wide, rectilinear frame the compositor
-  crops to the eye); a squarer frame would render less and waste less, but 41.0 removed the
-  window machinery and `ResX/ResY` in the game's ini did not move the render here, so the
-  second aspect is unmeasured and the render size stays the game's own.
+- **Stereo ships ON: `[Stereo] Method=reentry`, `Armed=1`** [S2b]. The game's scene is drawn
+  twice per tick, once per eye, into a projection layer (HEADSET-VERIFIED on a Quest 3,
+  2026-09-03: depth, head tilt, lean, look and crouch). The F10 Display tab's `stereo armed`
+  tickbox (ticked) parks the game on the head-locked mono screen without forgetting the
+  method; `stereo arm on|off` on the seam. The tick rate halves while stereo runs (the second
+  draw is a full scene draw). `stereo aer` is still a design stub.
+- **`stereo reentry`: the eyes could desync after a pause/resume** [S2b, fixed at the source,
+  headset verdict pending]. The second draw's gates re-decided after the first draw, so the
+  resume window produced left tags with no right sibling and the right eye kept a held image.
+  The gates are decided once per tick now; `vrpace strict` (off) is the fail-soft that shows
+  the fresh eye to both eyes for a frame if it recurs, and the log's `STALE R EYE` line names
+  the owner. If you see it: F10 Runtime, `Strict pairs`, and send the log.
+- **`stereo reentry`: fast head or player movement judders** [S2b, instrumented, headset
+  judges]. The `pair phase` line says whether a pair closes before or after the display slot
+  it was predicted for; `vrpace ahead 0|1|2` (F10 Runtime, `Pose look-ahead`) locates the pose
+  for the slot the image will reach. Ships at 0 (today's behaviour) until a headset run picks.
+- **`stereo reentry`: looking up and down pitches about a point below the eyes** [S2b,
+  measured, headset judges]. The ENGINE pitches its camera about a pivot 32 cm below and 6 cm
+  behind the eyes (17 cm of backward travel at 30 deg of pitch), which the compositor cannot
+  reproject. `[Neck] Mode=cancel` with the measured pivot (the defaults) cancels it; ships
+  `off`, F10 Comfort has the three-way (`off` / `add` / `cancel`) and `neck` is the seam word.
+  Look up and down at something an arm's length away and pick the mode that keeps it still.
+- **The render size, the F10 picker, and sharpness** [S2b]. The Display tab's picker (default:
+  the runtime's recommended per-eye size, 2496x2688 on a Quest 3 via VDXR) takes effect at
+  the NEXT LAUNCH: the ask goes on the game's command line (`-ResX/-ResY/-FullScreen`), the
+  one route this build honours (its own ini and the console's `setres` are both measured
+  inert), and `VirtualMode` provides a size your display does not list (the proxy advertises it
+  and creates the fullscreen device windowed). A near-square render is what sharpness needs: a
+  16:9 frame must claim 137 deg to cover the eye and spends half its pixels outside it; at
+  2496x2688 the claim is 108 deg. The catch: the CPU readback at that size costs ~18 ms per
+  present on the shipped `[Capture] Mode=sync`; set `Mode=deferred` with it. `res: HONOURED`
+  in the log is the verdict; `res modes`, `res <W>x<H>[f|w]`, `res 0x0` on the seam.
 - **Motion controls are OFF by default** [S3]. `[Mode] GamepadOnly=1` makes the VR controllers
   a plain gamepad: no hand models, no motion aim, no motion melee, no motion crouch; Blink aims
   down your view. Head tracking, positional (lean/peek/crouch) tracking and the FOV lever work.

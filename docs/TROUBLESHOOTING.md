@@ -51,3 +51,21 @@ and whether the PC has a second GPU** (integrated graphics counts; the log's `ad
 say which one the mod used), and what you did. Developers: `tools\log-parse.ps1` summarises
 a log; `tools\status-dump.ps1` reads the live state; `tools\game-cmd.ps1 "stereo status"`
 and `"camera status"` print the two seams.
+
+**The world is soft or blurry in stereo.** Sharpness is set by how many pixels per degree the
+frame carries at the centre, and a 16:9 frame must claim 137 deg to cover the eye, so most of
+it lands outside your view. Pick the runtime's per-eye size on the F10 Display tab (the
+default entry), tick `VirtualMode` if the log says the size is not a display mode, Apply, and
+relaunch: the log must then say `res: HONOURED - the game renders 2496x2688` (or your
+headset's size). If it says NOT HONOURED, read the `res:` lines above it: `launch: command
+line extended` must be there (the ask travels in `dishonored_vr_launch.txt` next to the exe;
+`res 0x0` clears it). At that size set `[Capture] Mode=deferred` - the shipped `sync` readback
+costs ~18 ms per present there and halves your frame rate.
+
+**One eye stops updating after a pause.** Press F10, Runtime tab, tick `Strict pairs`, and
+send the log: the `STALE R EYE` line in it names which side dropped the sibling frame.
+
+**Looking up or down feels like the whole body pitches.** F10 Comfort, `neck (pitch pivot)`:
+press `cancel`. The engine moves its camera on its own neck arc (measured 32 cm below the
+eyes); the cancel keeps the eye where the headset says it is.
+
