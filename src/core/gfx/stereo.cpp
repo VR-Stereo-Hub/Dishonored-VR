@@ -18,6 +18,12 @@ IStereo*     g_methods[kMaxMethods] = {};
 int          g_methodCount = 0;
 IStereo*     g_active = nullptr;
 bool         g_registered = false;
+// A method that was asked for and refused because it was not available yet.
+// See retry_pending(): the ini's method is chosen before the game side
+// installs its hooks, so without this an ini naming a hook-backed method
+// spends the whole session on mono.
+char         g_pending[16] = "";
+bool         g_retrying = false;
 FrameOutput  g_last;
 uint32_t     g_framesOut = 0;
 OverlayDrawFn g_overlay = nullptr;
@@ -70,8 +76,20 @@ bool select(const char* name) {
         return false;
     }
     if (!found->implemented()) {
-        DVR_WARN("stereo: '%s' is a design stub, not implemented - staying on '%s'. %s",
-                 found->name(), active_name(), found->note());
+        // Remember the ask. A method can refuse because it IS a stub, or only
+        // because its game side has not registered yet - and the second is a
+        // startup ORDER, not a verdict. `[Stereo] Method` is read inside
+        // Direct3DCreate9, before the game side installs its hooks later in
+        // that same function, so without this an ini naming a hook-backed
+        // method refused once at boot and spent the whole session on mono.
+        if (!g_retrying) {
+            strncpy(g_pending, found->name(), sizeof(g_pending) - 1);
+            g_pending[sizeof(g_pending) - 1] = 0;
+        }
+        DVR_WARN("stereo: '%s' is not available yet - staying on '%s'. %s%s", found->name(),
+                 active_name(), found->note(),
+                 g_retrying ? "" : " (remembered: it is retried the moment its game side "
+                                   "registers, so an ini asking for it still takes)");
         return false;
     }
     if (found == g_active) {
@@ -85,6 +103,25 @@ bool select(const char* name) {
     DVR_INFO("stereo: method %s -> %s (live; the next present uses it)",
              prev ? prev->name() : "none", found->name());
     return true;
+}
+
+// Re-attempt the method that refused because it was not available yet. Called
+// by a game side as it registers its hooks. Clears the ask BEFORE trying, so a
+// second refusal simply re-records it and nothing recurses.
+void retry_pending() {
+    if (!g_pending[0]) return;
+    char want[16];
+    strncpy(want, g_pending, sizeof(want) - 1);
+    want[sizeof(want) - 1] = 0;
+    g_pending[0] = 0;
+    DVR_INFO("stereo: '%s' was asked for before its game side was up - retrying now", want);
+    g_retrying = true;
+    const bool ok = select(want);
+    g_retrying = false;
+    if (!ok) {
+        strncpy(g_pending, want, sizeof(g_pending) - 1);
+        g_pending[sizeof(g_pending) - 1] = 0;
+    }
 }
 
 IStereo* active() { return g_active; }

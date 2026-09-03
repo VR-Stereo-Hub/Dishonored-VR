@@ -97,6 +97,13 @@ void register_all();
 // Live switch by name; refuses (and logs why, keeping the current method)
 // for an unknown name or a design stub. Returns true when the switch happened.
 bool select(const char* name);
+// A method that refused only because its GAME SIDE had not registered yet is
+// remembered, and this re-attempts it. `[Stereo] Method` is read inside
+// Direct3DCreate9, before the game side installs its hooks in the same
+// function, so an ini asking for a hook-backed method could never take at boot
+// - it refused once and stayed on mono for the session. The registrar calls
+// this; a method that refuses for any other reason is not retried.
+void retry_pending();
 IStereo* active();
 const char* active_name();
 

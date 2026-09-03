@@ -252,7 +252,16 @@ SequentialReentry g_reentry;
 
 } // namespace
 
-void set_reentry_hooks(const ReentryHooks& h) { g_hooks = h; }
+void set_reentry_hooks(const ReentryHooks& h) {
+    g_hooks = h;
+    // The game side is up now. `[Stereo] Method` was read back in
+    // Direct3DCreate9, BEFORE this call, so an ini asking for reentry refused
+    // there with "the game side has not registered" and the session stayed on
+    // mono - the key could never do what it documents. Availability is pure
+    // byte verification against the loaded exe, so retrying here succeeds or
+    // fails for a real reason.
+    retry_pending();
+}
 
 void reentry_push_tag(int eyeSign, const float pos[3]) {
     const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0), tail = InterlockedCompareExchange(&g_ringTail, 0, 0);
