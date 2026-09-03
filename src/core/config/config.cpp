@@ -28,9 +28,14 @@ static void WriteDefaultIni(const char* ini)
         "; refused method leaves running); aer is a design stub and refuses with a note.\n"
         "; `stereo <name>` switches live and fails soft. Armed=1|0: whether the selected method\n"
         "; RUNS (the F10 Display tickbox, `stereo arm on|off`); 0 parks the game on the mono\n"
-        "; screen without forgetting the selection.\n"
+        "; screen without forgetting the selection. C5Pair=1 (41.1, session 9): each present's\n"
+        "; eye tag is checked against its camera step from the previous present (pass 2 sits\n"
+        "; exactly one IPD along right of pass 1, nothing else moves inside a tick) and the\n"
+        "; tag ring is realigned when they disagree - the tags rode the other draw across\n"
+        "; every pause, load and re-arm before (the eyes SWAPPED). 0 = the ring's order alone.\n"
         "Method=reentry\n"
         "Armed=1\n"
+        "C5Pair=1\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -387,7 +392,9 @@ static void LoadConfig()
         GetPrivateProfileStringA("Stereo", "Method", "reentry", sm, sizeof(sm), ini);
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
+        dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
     }
+
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)
         char ef[16] = "";

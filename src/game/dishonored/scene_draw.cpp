@@ -27,6 +27,17 @@
 // camera position the writer produced so a present can prove which draw it
 // carries.
 //
+// ONE PUSH PER DRAW (41.1, session 9). The ring pairs by ORDER, and the game
+// thread runs a frame ahead of the render thread that presents, so a single
+// draw that pushed nothing let its present pop the NEXT tick's -1 and every
+// tag after it rode the other draw: the eyes SWAPPED across every
+// single -> double transition where the game thread was ahead (measured on
+// the simulator with `reentry rearm 2` and the frameid line's c5 per
+// present: the -1 tag's c5 jumped from the left eye's position to the
+// right's). An armed single draw now pushes a 0 tag (its present pops it and
+// goes out untagged, as before), so pushes equal presents while the method
+// is popping.
+//
 // GATES: decided ONCE per tick, at depth 0, BEFORE pass 1's tag is pushed,
 // and the same decision drives pass 2 (SceneDrawDecide -> g_sdTick). That is
 // what makes tags and doubles unable to go one-sided: until 41.1 pass 1's tag
@@ -201,12 +212,12 @@ static void SceneDrawBeat()
 }
 
 // One tick's decision, made at depth 0 BEFORE pass 1's tag (game thread only).
-struct SdDecision { bool doubleIt; bool pulse; const char* why; };
-static SdDecision g_sdTick = { false, false, "" };
+struct SdDecision { bool doubleIt; bool pulse; const char* why; bool gameplay; };
+static SdDecision g_sdTick = { false, false, "", false };
 
 static SdDecision SceneDrawDecide(uint32_t callerRet)
 {
-    SdDecision d = { false, false, "" };
+    SdDecision d = { false, false, "", false };
     if (InterlockedCompareExchange(&g_sdPulse, 0, 0) > 0) d.pulse = InterlockedDecrement(&g_sdPulse) >= 0;
     const bool armed = InterlockedCompareExchange(&g_sdArmed, 0, 0) != 0;
     if (!d.pulse && !armed) { d.why = "not armed"; return d; }
@@ -221,6 +232,7 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
     if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; d.why = "exiting"; return d; }
     if (!dvr::vr::session_live() && !d.pulse) { ++g_sdSkipSession; d.why = "no XR session"; return d; }
     if (!DvrGameplayVerdict()) { ++g_sdSkipState; d.why = "state not GAMEPLAY"; return d; }
+    d.gameplay = true;   // from here on the draw presents once (a menu's draws outnumber its presents)
     if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; d.why = "eyetest/postest running"; return d; }
     // The camera-silent hole: a c5 upload must have arrived since the previous
     // tick's draws (a load screen draws no scene). The serial counts uploads.
@@ -340,7 +352,14 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         if (g_sdTick.doubleIt) {
             float pos[3];
             dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);
+        } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
+            // A single GAMEPLAY draw while the method pops: one push per draw,
+            // so its present cannot eat the next tick's -1 (the header's ONE
+            // PUSH). Not in menus: their draws outnumber their presents and
+            // the ring would only fill with junk (measured: cleared every 3 s).
+            dvr::stereo::reentry_push_tag(0, NULL);
         }
+
     }
     ((DvrViewportDrawFn)kViewportDraw)(self, NULL, bShouldPresent);
     if (depth == 0) {
@@ -467,7 +486,14 @@ static bool SceneDrawCommand(const char* args)
             "REFUSED` (strict on)", k);
         return true;
     }
+    if (n >= 1 && !strcmp(sub, "c5pair")) {   // 41.1 (session 9): the within-tick invariant's A/B
+        bool on;
+        if (DvrOnOff(a1, &on)) { dvr::stereo::set_reentry_c5_pair(on); return true; }
+        Log("reentry: c5pair on|off (now %s)", dvr::stereo::reentry_c5_pair() ? "on" : "off");
+        return true;
+    }
     if (n >= 1 && !strcmp(sub, "rearm")) {
+
         int k = a1[0] ? atoi(a1) : 2;
         if (k < 1) k = 1;
         if (k > 300) k = 300;
