@@ -1140,6 +1140,119 @@ still pending (`readWaits`) is the number of frames that could have carried the 
 one simulator run at 90 presents/s, so the race is real, not theoretical. Two slots suffice only
 because of this fence; without it, more slots would only have made the swap rarer.
 
+## The one-view state: what the headset logs say, the frame-identity trace, and the pairing that swapped (2026-09-04, session 9)
+
+**The fault as measured (runs 16-17, the user, Quest 3 via VDXR, `Ex=1` + `Mode=shared`)**: after a
+level load, from the first arming of the second draw, both eyes show ONE picture (the run-17 dump
+pair `eye_3342/3343` differs by 2.5 grey levels with no horizontal shift improving it; the later
+pairs from the same run carry 64-96 px of parallax), with every tag instrument clean.
+
+**What the archived logs say, read again before any code was written**:
+
+- The engine's per-present population does not change between the bad and the good state:
+  `BeginScene 1.0/present`, SRT 64-75/present, `perf: gpu 3d 6.0-6.4 ms/present`, `draws/s ==
+  2nd/s == 72`, the P1/P2 split the same. The only per-window number that moves is the shared
+  capture's `blit fence waits`: 41-95 of 432 grabs in the bad state, 172-220 in the good state,
+  in BOTH runs. Unexplained; the trace below carries it.
+- The dump pair is genuinely one tick's pass 1 and pass 2: `FrameDumpTick` runs in `game_tick`
+  before `end_frame`, so `eye_N` holds present N-1's output, and under `shared` (delivery = the
+  previous present's slot) those are the backbuffers of presents N-2 and N-1 with their own tags.
+  Both were blitted before the dump's stall. 2.5 grey levels is two renders, not one texture
+  copied twice (that reads 0.0).
+- The `reentry: pair` line is `DVR_LOG_FIRST_N(6)`: its six lines in run 17 are the first six
+  pairs of the BAD state, and they read c5 one IPD apart. So the two draws uploaded different
+  camera positions while the pictures were the same. The line samples "the last c5 upload before
+  this Present" with no per-draw association; the trace ties c5 to the pixels per present now.
+- No capture-mode switch in run 17 tripped a gate (no `gates ->` line at any of the eight
+  switches). Every switch to `shared` was followed within 1.5-9 s by a pause menu whose resume
+  re-armed the doubling; no switch to `deferred` was. The user's "shared fixes it" is confounded
+  with a pause/resume; PR #6's "a mode switch trips the no-present gate" is not in the log.
+- **`dump eyes` re-armed the second draw by itself**: the PNG encode on the present thread
+  stalled 620-660 ms per file, the script camera writes read stale (`viewinject: ... the direct
+  fallback is taking the camera back`), the state dropped to LOADING, the gates went SINGLE for
+  74 ticks and DOUBLE again. Both "good" pairs of run 17 (4464, 8499) were dumped after such a
+  re-arm. The encode is on a worker thread now (the present thread copies 27 MB and returns).
+- `drawTid == presentTid` in run 17 was a latch artifact: `g_presentTid` was set once, at the
+  first present, which at boot is the game thread's. It follows the presenting thread now and
+  logs a change. Every simulator run since reads two threads.
+
+**The frame-identity trace (`core/gfx/frame_id`, `[Perf] FrameId=1`, `frameid on|off|status`)**:
+one 64x64 luma thumbnail per present at four stages, keyed by the capture serial of the pixels
+(so one frame lines up across the stages whatever the delivery lag), read three presents later
+and never waited on, with the c5 of the draw and the camera's right row on the same record:
+
+| stage | where | how |
+|---|---|---|
+| `bb` | `capture::grab`, right after `GetBackBuffer(0)` | D3D9 `StretchRect(bb -> 64x64 A8R8G8B8 RT, LINEAR)`, `GetRenderTargetData` into a SYSTEMMEM surface, `LockRect(READONLY|DONOTWAIT)` three grabs later |
+| `slot` | `reentry::end_frame`, inside the read fence | the delivered slot's SRV drawn into a 64x64 RGBA target by the blit quad, `CopyResource` to staging, `Map(DO_NOT_WAIT)` three presents later |
+| `out` | the same, from an SRV of the method's output texture | the same |
+| `sc` | the runtime's frame-texture seam, after `CopyResource` into the acquired swapchain image, before its release | `CopySubresourceRegion` of the centre 64x64 into a staging texture of the swapchain format |
+
+Per left/right pair the `stereo: frameid` line (at most once a second) prints the checksums, the
+mean absolute luma difference per stage, the same-eye floor (this left against the previous
+left), the c5 step of the +1 present from the -1's projected on the right row (the side check),
+the picture's own best horizontal shift (the right eye's content must sit LEFT of the left
+eye's: negative = a true pair, convention-free), and the first stage that reads as one
+picture. A 3 s summary carries the counts; a state change at stage `bb` (ten pairs in a row
+below the floor, or above it again) prints once at Warn. Evidence only: nothing here re-arms,
+switches or kicks.
+
+Simulator numbers (RTX 4060, 2496x2688, the sewers, runs 45-01..05): a true pair reads
+L-R 4.1 at `bb`/`slot`/`out` and 4.7-5.0 at `sc` (a centre patch, not a downscale), the same-eye
+floor 1.4-1.5, c5 |d| 6.17 = ipd*scale, picture shift -1 px at 64 wide, busy reads 0 at every
+stage, slot repeats 0. Stages `bb`, `slot` and `out` come out byte-identical (one 2x2 bilinear tap
+at the same 64x64 centres on both APIs), so a difference between them would itself be a finding.
+
+**The diagnostic words, one per half of the user's remedy**: `reentry rearm [n]` (n gameplay
+ticks decided SINGLE at the gate, no tag, no pass 2, then the doubling resumes; the capture
+untouched), `capture reinit` (the shared slots, fences and D3D11 views, or the deferred ring,
+released and re-created at the next grab, the mode unchanged; one present delivers nothing),
+and the existing `stereo projection off` then `auto` for the runtime's quad -> projection
+transition the pause path also makes. `capture status` prints the delivered slot and the reinit
+count; the beat line counts pass-2 eye writes the camera seam refused (`p2write refused=`, the
+camera pointer beside it): a refused write leaves pass 2 drawing from pass 1's camera.
+
+**What the trace found on the simulator (not the headset fault, a second fault)**: the eye tags
+SWAPPED against the draws. The method's tag ring pairs by ORDER (one push per draw on the game
+thread, one pop per present on the render thread), and the order claim breaks in three
+measured ways: (a) across a single -> double transition when the game thread runs a frame ahead
+(a `reentry rearm 2` flipped the -1 tag's c5 from the left eye's position to the right's), (b)
+within a second of the first arming, and (c) spontaneously in plain gameplay - with the check
+off (`reentry c5pair off`) the side flipped twice in 25 s with no pause, no re-arm, no log
+event, while the perf window read `untagged 16-19` per 3 s and P2 exceeding P1 by the same
+count: a present found the ring EMPTY and the next one popped its tag. In the menu state the
+ring overflowed every 3 s (draws outnumber presents there: `draws/s=67 presents/s=57`). Each
+such skew showed the eyes swapped until the next one. The picture agreed with the c5 side every
+time (shift +1 px when the side read SWAPPED, -1 px when ok), which also settles the sign
+convention by picture: the field holds the position, c5 negates it, a right eye's c5 sits at
+-ipd*scale along the camera's right row.
+
+**The fix (`[Stereo] C5Pair=1`, `reentry c5pair on|off`, the A/B)**: the within-tick invariant is
+the pairing. Between pass 1 and pass 2 the world does not tick, so the ONLY thing that moves the
+camera is the writer's eye: `c5(pass 2) - c5(pass 1) = -ipd*scale` along right and 0.00 along
+anything else (measured: `-6.17 along right, 0.00 other` on every pair). A present whose c5 sits
+there from the previous present's is a pass-2 present whatever the ring says; one at +ipd*scale
+is a pass 1 after a still pass 2; anything else (a pass 1 after a moving pass 2, an extra
+present) takes the ring's tag. The ring's claim is checked against the measurement on every
+present it can name; three disagreements in a row drain the ring to the tag the next present
+must pop (`reentry: the tag ring skewed against the draws ... realigned`, Info, 3 s), and armed
+single gameplay draws push a 0 tag so their presents cannot eat the next tick's -1 (not in
+menus, where the ring would only fill with junk). On the fixed build: `side ok` from the first
+pair after the arming through rearms of 1, 2 and 3 ticks, a `capture reinit`, a `stereo
+projection off`/`auto` and a `stereo mono`/`stereo reentry` switch; P1 == P2 per window,
+`untagged 0-1`; `reentry.xrs` 11/11. Counters: `c5Agree`, `c5Disagree`, `c5Realigned`,
+`c5Unknown` (presents the invariant could not name), `c5Untagged` (the ring was empty, the
+measurement named the eye) in status.json `stereo`.
+
+**What this does and does not say about the headset's one-picture state.** A swap is two
+pictures, not one; the run-17 dumps were one picture, so the swap is not that fault. It is,
+though, exactly what "the eyes disagree" looks like, and it happened on every state transition
+the ring order got wrong, so some of the run-15/16 reports were swaps. The one-picture state
+still needs the headset run with the trace: if the line reads L-R below the floor at `bb` the
+engine handed one picture twice (then the engine or the camera seam owns it); above at `bb` and
+below at a later stage names that stage; `reentry rearm 2`, `capture reinit` and `stereo
+projection off`/`auto` each alone say which half of the user's remedy repairs it.
+
 ## Evidence handling (both cost a session)
 
 - **Log rotation is one deep.** `dishonored_vr.log` + `.prev.log` only. Two simulator runs

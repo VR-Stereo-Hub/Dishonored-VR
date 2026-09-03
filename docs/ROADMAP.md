@@ -115,10 +115,25 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
       Quest 3 size, pace-bound), `deferred` shipping as the default, `mark` and the F10 MARK
       button, the richer gap line; the pace guard's eaten tag named on the STALE line and the
       no-frame tag fixed; a simulated focus loss did not reproduce the regain desync
-- [ ] PERFORMANCE, on the headset: `[Device] Ex=1` + `capture mode shared` judged at the Quest 3
-      size (the tick line, the textures after minutes of play, a level load, alt-tab), then
-      `ahead`, the desync on load with the new owner line, and the pivot re-judged at a real
-      frame rate (STATUS "Next steps")
+- [x] PERFORMANCE, on the headset (the user, 2026-09-03, run 15): `[Device] Ex=1` + `capture mode
+      shared` judged good at the Quest 3 size and made the defaults
+- [x] THE ONE-VIEW STATE, the instrument (session 9, 2026-09-04): the frame-identity trace
+      (`core/gfx/frame_id`, `[Perf] FrameId=1`, the `stereo: frameid` line: a 64x64 thumbnail of
+      every present at the backbuffer, the shared slot, the eye texture and the swapchain image,
+      the c5 step between the two draws, the picture's own parallax sign), `reentry rearm [n]`,
+      `capture reinit`, `dump eyes` as a pair encoded off the present thread (a dump used to
+      re-arm the doubling), the presenting thread followed live, pass-2 write refusals counted
+- [x] THE EYES SWAPPED, found and fixed on the simulator (session 9): the tag ring's order broke
+      across single -> double transitions, within a second of an arming and spontaneously in
+      gameplay (the A/B: twice in 25 s with `reentry c5pair off`); the pairing follows the
+      within-tick camera step now (`[Stereo] C5Pair=1`), the ring realigned when it disagrees;
+      `reentry.xrs` 11/11 on the fixed build
+- [ ] THE ONE-VIEW STATE, on the headset: the one scripted run (STATUS "Next steps") reads the
+      `frameid` line in the bad state and tries `reentry rearm 2`, `capture reinit` and `stereo
+      projection off`/`auto` each alone; the stage it names gets the fix, and nothing else
+- [ ] Then `ahead`, the desync on load with the new owner line, and the pivot re-judged at a
+      real frame rate (STATUS "Next steps")
+
 
 ## S3 - Compare and choose; the features come back on the winner
 

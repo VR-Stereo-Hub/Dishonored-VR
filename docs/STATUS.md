@@ -1,109 +1,102 @@
 # Status
 
-## Current state (2026-09-03, session 8: the 9Ex device and the shared capture SHIP; the eyes' disagreement traced to two mechanisms, both fixed on the simulator)
+## Current state (2026-09-04, session 9: the frame-identity trace ships, the eye tags SWAPPED and are fixed on the simulator, the one-picture state waits for its headset run)
 
-**Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits on `native-stereo-rendering` (6ed1993f).**
-Everything below was measured on the simulator lane (RTX 4060, 2496x2688 VirtualMode, the sewers
-save, `stereo reentry`; logs `D:\dvr-data\logs\44-run01..05-*.log`). Nothing has run on the headset
-this session.
+**Branch `claude/dishonored-vr-both-eyes-same-659cb5` on `native-stereo-rendering` (8d09a341, the
+PR #5 merge). PR #6 is rejected and nothing of it is merged except the pair dump, rewritten.**
+Everything below was measured on the simulator lane (RTX 4060, 2496x2688 VirtualMode, the sewers,
+the shipped defaults `Ex=1` + `Mode=shared` + `reentry`; logs `D:\dvr-data\logs\45-run01..05-*.log`).
+Nothing has run on the headset this session.
 
-- **MEASURED: the readback owns the tick, on the CPU and on the GPU.** The new tick budget
-  (`perf: tick` and `perf: gpu` every 3 s; the F10 Display block) split the 46 ms tick at the Quest
-  3 size: 16 ms of GPU copy per present (`GetRenderTargetData` into system memory at ~1.6 GB/s)
-  plus 7.5 ms of CPU copy and upload, against 4.8 ms of actual 3D per draw and 3.3 ms of render
-  thread. `deferred` hides the CPU wait, not the GPU copy (27 ticks/s); with the capture off the
-  game is pace-bound at the simulator's 90 Hz. The brief's "13 ms unexplained at 1080p" was the
-  simulator's own pacing gate on the session-6 runs, which the line now prints as PACE-BOUND
-  (ENGINE_NOTES "The tick budget, measured").
-- **MEASURED: the game asks for MANAGED on 99 % of its creations and locks its textures READONLY
-  while streaming** (the census, `device census`): 8060 of 8120 creations, 398 MB, 10598 READONLY
-  locks. So the cheap DEFAULT + DYNAMIC stand-in for a 9Ex device was ruled out by measurement
-  and the shadow (a SYSTEMMEM twin per texture, the Lock hooks redirecting) is the translation
-  (ENGINE_NOTES "The creation census").
-- **BUILT AND MEASURED: the 9Ex device and the shared capture.** `[Device] Ex=1 Managed=shadow`:
-  `CreateDeviceEx` accepted, the device answers as 9Ex, 5240 twins, 65552 unlock pushes, 0
-  failures, the sewers rendered intact after minutes (`dump capture`). `capture mode shared` (two
-  fenced slots, `SharedWait=0|1`): 0.5 ms of capture per present, 0.2 ms of GPU copy, **75 ticks/s
-  with SharedWait=1 and 90 ticks/s pace-bound with SharedWait=0**, against 21 on the shipped path;
-  `reentry.xrs` 11/11 and the hammer 0 stale over 5 cycles on it. Ships OFF (`Ex=0`) until the
-  headset judges it; `deferred` ships as the default meanwhile (agreed with the user).
-- **The desync on load: one source fixed, one owner named, the FOCUSED-regain case not
-  reproduced.** A present whose grab delivered no frame pushed the previous tag again (a stale
-  eye at every capture-mode switch; fixed, `noFrame=` counted); the pace guard's eaten tag is
-  counted by the runtime (`eatenNoFrame`) and named on the `STALE EYE` line before "unknown"; a
-  simulated `focus lose 2500` / `focus regain` read `eaten=0`, 0 stale, so `[Pace] Strict` stays 0
-  and the headset log decides.
-- **THE FIRST HEADSET RUN (runs 14a/b, Quest 3 via VDXR, the user, after the session's build)**:
-  (a) with `[Device] Ex=0` and the deferred default the tick read 30-33/s at the Quest 3 size,
-  as the simulator predicted; (b) with `Ex=1` the 9Ex device came up and the probe read `shared
-  surface AVAILABLE`, but the capture STAYED deferred (no `capture mode shared` ever reached the
-  seam, no MARK), so the readback's GPU copy was still there (19 ms per tick, 30 ticks/s): the
-  user saw no difference between modes because the mode never changed; (c) after repeated
-  quickloads the game crashed inside D3D9: the shadow's twin map left tombstones its insert
-  never reused, reported "full (2400 live)", one texture got no twin, its lock was refused.
-  FIXED (1226849f): the map reuses tombstones and holds 32768 slots (three quickloads on the
-  simulator: 2324 live, 1984 tombstones reused, 0 failures, the game alive); the F10 Display tab
-  gains a capture-mode combo and the 9Ex tickbox writes `[Capture] Mode=shared` for the next
-  launch as well, and the probe warns when the device can share but the mode does not use it.
-  The shared path is STILL unjudged in the headset.
-- **THE SECOND HEADSET RUN (run 15, the user)**: with the fixed build, `Ex=1` and `capture mode
-  shared`, "the performance is pretty good" - so `[Device] Ex=1` and `[Capture] Mode=shared` are
-  the DEFAULTS now (860b6c18). The user then reported the eyes disagreeing "90 % of the time,
-  more at the beginning". The log has 0 STALE lines, 0 tag mismatches and every pair one IPD
-  apart, so the bookkeeping was right; two other mechanisms were found: (a) the shared path
-  fenced the D3D9 blit before the D3D11 read but not the D3D11 read before the NEXT blit into the
-  same slot, so at the headset's rate a slot could be overwritten with the other eye's frame
-  while D3D11 was still reading it - fenced now (230ac120, 5471f698), and the simulator counted
-  14 such pending reads in one run (`readWaits` on `capture status`); (b) the user paused and
-  resumed 32 times, and every resume held the headset on the flat quad for 1-1.5 s (the view-live
-  gate's one-second rule), a stereo -> flat -> stereo flip each time - a pause menu's silence now
-  resumes at once (0a23d509; the hammer: 10 cycles, 0 stale, `view live at once` on each). Whether
-  these two are the whole of what the user saw is the next headset question. (Run 15's log was
-  rotated away by two simulator launches after it was read; its numbers are the ones quoted here.)
-- **Found on the way**: the head write's four early returns now name themselves (`head: write
-  refused - ...`); after a level load the mod's menu flag can stay up (state MENU in the level,
-  the pair stream off) until a pause-menu open/close (VERIFICATION gotcha 17); the simulator lane
-  stalls the capture lock for 130-140 ms every 2-3 s under `sync` at the Quest size, which the
-  headset run 13 never showed (gotcha 18); the ini version rewrite would wipe a tuned ini, so
-  the new keys ship without a bump (ARCHITECTURE decision log).
+- **The headset logs re-read (runs 16-17) before any code**: the engine's per-present population is
+  identical in the bad and the good state (BeginScene 1.0/present, 6 ms of GPU per present, draws
+  == 2nd draws); the `reentry: pair` line is FIRST_N(6) and its six "one IPD apart" lines ARE the
+  bad state; no capture-mode switch tripped a gate and every switch to `shared` was followed by a
+  pause/resume (the user's remedy is confounded); `dump eyes` re-armed the second draw by itself
+  (a 640 ms PNG encode on the present thread -> stale script writes -> LOADING -> SINGLE -> DOUBLE);
+  `drawTid == presentTid` was a one-shot latch. ENGINE_NOTES "The one-view state".
+- **BUILT AND MEASURED: the frame-identity trace** (`core/gfx/frame_id`, `[Perf] FrameId=1`,
+  `frameid on|off|status`, status.json `frameid{}`): a 64x64 luma thumbnail per present at the
+  backbuffer as the capture found it, the shared slot as the method samples it, the eye texture
+  and the swapchain image the runtime copied into, keyed by the capture serial, read three
+  presents later, never waited on, with the draw's c5 and the camera's right row on the record.
+  The `stereo: frameid` line per pair: checksums, L-R diff per stage, the same-eye floor, the c5
+  step along right (the side check), the picture's own parallax shift, the first one-picture
+  stage. On the simulator a true pair reads 4.1 / 4.1 / 4.1 / 4.8 against a floor of 1.5, c5 |d|
+  6.17, shift -1 px, busy reads 0.
+- **FOUND AND FIXED (simulator): the eyes SWAPPED.** The tag ring paired by order, and the order
+  broke across a single -> double transition (a `reentry rearm 2` flipped the -1 tag's c5 to the
+  right eye's position), within a second of the first arming, and spontaneously in gameplay
+  (`reentry c5pair off`: two flips in 25 s, no pause, no log event; the perf window's `untagged
+  16-19` per 3 s = presents that found the ring empty); in menus the ring overflowed every 3 s
+  (draws outnumber presents). The picture agreed with the c5 side every time, which also fixes
+  the sign convention by picture. The pairing now follows the within-tick invariant (pass 2 sits
+  at exactly -ipd*scale along right of pass 1, 0.00 other; measured on every pair), the ring is
+  drained to the next expected tag on a disagreement streak, armed single gameplay draws push a
+  0 tag; `[Stereo] C5Pair=1`, `reentry c5pair on|off` is the A/B. On the fixed build: `side ok`
+  from the first pair through rearms of 1, 2, 3, `capture reinit`, `stereo projection off/auto`,
+  `stereo mono`/`reentry`; P1 == P2 per window; `reentry.xrs` 11/11.
+- **The one-picture state is NOT reproduced on the simulator and NOT fixed**: it is two pictures
+  from the first pair here. The trace and the three diagnostic words (`reentry rearm [n]`,
+  `capture reinit`, `stereo projection off`/`auto`) are what the headset run decides with.
+- **Also shipped**: `dump eyes` writes a consecutive pair, encoded on a worker thread (no stall,
+  no re-arm); the beat line's `presentTid` follows the presenting thread; pass-2 eye writes the
+  camera seam refused are counted (`p2write refused=`, `cam=`); `capture status` prints the
+  delivered slot and the reinit count.
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset, Quest 3 via VDXR)**, with `dishonored_vr.log` copied out after each: (1) DONE
-(runs 14-15: the shared path judged good, it ships); (2) the eyes: play WITHOUT pausing for a few
-minutes on the shipped build and say whether the eyes still disagree, then with pause/resumes;
-`capture status` prints `readWaits` (the frames the read fence had to hold) and the `[game] view
-live at once` line marks each resume; if the eyes still disagree with readWaits climbing, say
-so with the time - the next lever is `capture sharedwait on` (this present's slot after its
-fence: zero latency, a different hand-off order); then the old list:
-the expectation is a pace-bound 72 ticks/s at the Quest 3 size (falsified if `perf: gpu` reads a
-3D span above 12 ms per tick, or the tick line stays above 20 ms with `lock` near 0); play for
-five minutes and LOOK at the textures (black or noisy surfaces after a streaming step are the
-shadow's failure signature; `device status` counts its failures), do one level load and one
-alt-tab, then `capture sharedwait on` as the A/B; (3) at a real frame rate: `vrpace ahead 0|1|2`,
-`neck cancel` vs `off`, `Strict pairs`, the desync on first load (the `STALE .. EYE` line now
-names the owner; send its timestamp). If the 9Ex device misbehaves in any way, `device ex off`
-and relaunch: everything else is unchanged.
+**The user (headset, Quest 3 via VDXR), ONE scripted run** with `dishonored_vr.log` copied out
+after it: (1) install the build, launch with the shipped ini (it has the new keys already; a
+fresh ini adds `[Perf] FrameId=1` and `[Stereo] C5Pair=1`), load a level and WAIT 30 s without
+pausing; say whether the eyes fuse; (2) `frameid status` (F10 is not needed: `game-cmd.ps1`
+or the command file); if the eyes are one picture: `reentry rearm 2`, judge; `capture reinit`,
+judge; `stereo projection off` then `stereo projection auto`, judge; `capture mode deferred`
+then `capture mode shared`, judge; press DUMP EYES before and after each step (the dump no
+longer stalls or re-arms); (3) send `dishonored_vr.log` and the `eye_*.png` files. What the
+log will say: the `stereo: frameid` line's `L-R diff` per stage against the `same-eye floor` (one
+picture = below the floor; the first stage below it is the fault's stage), `side ok|SWAPPED`
+and `picture shift -N|+N px` (a swap, which should not happen now), `reentry: the tag ring
+skewed against the draws` (how often the ring was off), `p2write refused=` on the beat line, and
+after each word whether the next pairs read two pictures.
 
-**The next developer session**: read the headset logs first. If the shared path held, make
-`[Device] Ex=1` and `[Capture] Mode=shared` the defaults (one commit each), and fold the shadow's
-memory estimate into the census's byte model (`device status` overstates `shadowMB`: it counts
-w*h*4 per twin, not the compressed levels). If the 3D span at the Quest size is the ceiling, the
-render-size lever (the picker) is the next A/B, not the capture. Then the `Reset` semantics under
-9Ex (a fullscreen ask that Resets: `res 2560x1440f`), the pace guard's eaten tag if the headset
-names it, and the SteamVR shim (never run with this game). The 1080p tick budget on the
-simulator is unmeasured this session (the `[Screen]` picker was at the Quest 3 entry throughout).
+**The next developer session**: read the headset log first. The prediction: in the bad state the
+frameid line reads below the floor at `bb` (the engine handed one picture twice: the fix goes to
+the camera seam or the scene-draw call site, byte-verified, with an ENGINE_NOTES derivation) or
+above at `bb` and below at `slot`/`out`/`sc` (that stage is the fault: `capture.cpp`, the method,
+or the runtime's 41.0 seam). `reentry rearm 2` alone fixing it names the engine side; `capture
+reinit` alone names the capture; `stereo projection off`/`auto` alone names the runtime's
+hand-off. No lever, no fallback, no detector: fix at the named stage. If the run does not name
+it, the next instrument is a full-resolution stage-1 dump of both draws of one tick (a `dump
+tick` word) - not a heuristic. Then the old list: `vrpace ahead 0|1|2`, `neck cancel` vs `off`,
+the pivot at a real frame rate, the SteamVR shim (never run with this game).
 
 ## Blockers
 
-- **The headset run needs the user** (every simulator number above is at 90 Hz pacing with the
-  simulator's own compositor sharing the GPU).
+- **The headset run needs the user** (the one-picture state does not reproduce on the simulator).
+- **The walk-in on the simulator is still by hand**: Return x4 with 28 s waits reached the level
+  on three of four launches this session; on the fourth the mod's menu flag stuck (gotcha 17) and
+  an Escape pair cleared it. `xrsim-shot` before trusting a state line.
 - **The ini version rewrite wipes a tuned ini** (`config.cpp` carries three keys over): the
-  session-8 keys ship without a version bump; a key-preserving rewrite is a separate change.
+  session-9 keys ship without a bump, like session 8's.
 - **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
   `Stop-Process`; a menu quit is clean on the Quest (run 15).
 
 ## Session log
+
+### 2026-09-04 - session 9: the one-view state - the trace, the words, and the swap it found
+
+Branch `claude/dishonored-vr-both-eyes-same-659cb5`, 10 commits. Runs on the dev PC (simulator
+lane, RTX 4060, 2496x2688 VirtualMode, the sewers, shipped defaults; logs in
+`D:\dvr-data\logs\45-run*.log`):
+
+| Run | What | Result |
+|---|---|---|
+| 01 | the trace and the words, first build | `stereo: frameid` pairs from the arming: L-R 4.1 at bb/slot/out, floor 1.5, c5 6.17, busy 0; `reentry rearm 2` -> SINGLE x2 then DOUBLE; `capture reinit` -> REBUILT, no STALE; `dump eyes` queued + written off-thread, no gap, no LOADING; `frameid off/on`; the sc stage empty (an ordering bug) |
+| 02 | the sc stage, the side check | sc reads (4.7-5.0); **the side flipped across `reentry rearm 2`** (the -1 tag's c5 from y=6376.9 to 6383.1) and within a second of the first arming; rearm 1 and 3 did not flip; the ring overflowed 363 times in the menu |
+| 03 | the 0-tag push + the c5 pairing (first form), the A/B | side ok from the first pair; `reentry c5pair off`: the side flipped on its own twice in 25 s, `untagged 16-19` per window; `c5pair on`: no flips, ~1 realign per second at Info |
+| 04 | the invariant as the pairing, the picture shift | side ok + shift -1 px on every pair, P1 == P2, untagged 0-1; across rearm 2 and `capture reinit`; `reentry.xrs` 11/11; a `stereo mono` -> `reentry` switch left a ring backlog the one-pop realign drained slowly (30 in 3 s) |
+| 05 | the drain to the next expected tag | side ok + shift -1 px from the first pair, across a `stereo mono` -> `stereo reentry` switch and a `reentry rearm 2`; one realign line in a minute (53 lifetime, 3 disagreements each, `c5Untagged` 57 = presents that found the ring empty and were named by the measurement), 0 ring drops, P1 == P2 |
 
 ### 2026-09-03 - session 8: performance - the tick budget, the census, the 9Ex device, the shared capture
 

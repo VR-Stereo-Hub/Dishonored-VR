@@ -38,7 +38,10 @@ question the simulator could answer is a wasted session.
 | Is the weapon glued to the controller? | capture | `coupling-hand.xrs` | hand-quad bbox moves with the hand, not the head |
 | Frame pacing collapse | capture | `unfocused-pacing.xrs` | `@fps 60` across FOCUSED -> VISIBLE -> FOCUSED |
 | Wedge / hang | soak | `tools\soak.ps1 -Minutes 10` | exit 0; 2 = log stalled, 4 = died |
-| What was the headset fed? | dump | `game-cmd.ps1 "dump frame"` | `dumps\capture_*.bmp` (the game window), `eye_*_mono|left|right.png` (the method's output) |
+| What was the headset fed? | dump | `game-cmd.ps1 "dump frame"`; `dump eyes` writes the next TWO presents (a left and a right of one tick under reentry), encoded on a worker thread | `dumps\capture_*.bmp` (the game window), `eye_*_mono|left|right.png` (the method's output); `dump: eye ... written (N ms on the dump thread)` - no `frame gap`, no LOADING, no `gates ->` line around it (a dump used to re-arm the doubling, gotcha 19) |
+| At which stage do the two eyes stop being two pictures? (session 9) | log | the `stereo: frameid` line (once a second while pairs flow; `[Perf] FrameId=1`, `frameid on|off|status`), the 3 s `frameid 3s:` summary, status.json `frameid{}` | per pair: `L-R diff bb= slot= out= sc=` well above the `same-eye floor` (a true pair on the simulator: 4.1 / 4.1 / 4.1 / 4.8 against a floor of 1.5); `first one-picture stage: none`; the stage it names is the fault's stage. `busy reads` near 0 (the reads land three presents later) |
+| Are the eye tags on the right draws? (session 9) | log | the same line: `c5 |d| 6.17 uu, -6.17 along right: side ok` and `picture shift -N px` | `side ok` and a NEGATIVE shift (the right eye's content sits left of the left eye's) on every pair; `side SWAPPED` / a positive shift = the tags rode the other draw; `reentry: the tag ring skewed against the draws ... realigned` (Info) counts the ring's skews the invariant absorbed; `reentry c5pair off` is the A/B (expect the side to flip on its own within a minute) |
+| Which half of a remedy repairs the eyes? (session 9) | seam | `reentry rearm [n]` (n single ticks, the capture untouched), `capture reinit` (the slots rebuilt, the mode unchanged), `stereo projection off` then `auto` (the runtime's quad -> projection transition) | `gates -> SINGLE draw (rearm by request)` then `DOUBLE draw after n single tick(s)`; `capture: shared slots REBUILT by request`; `projection layer released` / `CLAIMED`; then the `frameid` line and the eyes |
 | Comfort, judder, world scale, warp | headset | F10 overlay + the user | the verdict; write it in STATUS |
 
 ## 2. The simulated runtime (`dvr_xrsim32.dll`)
@@ -208,7 +211,18 @@ defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault
     the pause menu (`game-key.ps1 -Key Escape` twice) and the state flips to GAMEPLAY with
     `reentry: gates -> DOUBLE draw`. Seen on three of five session-8 runs; the walk-in key
     timing decides it.
+19. **A `dump eyes` used to re-arm the second draw** (until 41.1, session 9): the PNG encode on
+    the present thread stalled 620-660 ms per file, the script camera writes read stale, the
+    state dropped to LOADING and the gates went SINGLE then DOUBLE - so a dump taken to judge
+    the eyes changed the eyes. The encode is on a worker thread now; a before/after dump pair
+    around a seam word is valid only on a build whose log reads `dump: eye ... queued`.
+20. **The menu's draws outnumber its presents** (`reentry: beat draws/s=67 presents/s=57` on the
+    title screen), and in gameplay a present can find the tag ring empty (`perf: tick ...
+    untagged 16-19` per 3 s with `reentry c5pair off`): any instrument that pairs draws to
+    presents by order alone reads wrong there. The eye pairing follows the per-present camera
+    step since session 9; the beat's `2nd/s` and `presents/s` are still order-free counts.
 18. **The simulator lane stalls the capture lock for 130-140 ms every 2-3 s** at the Quest 3 size
+
     under `capture mode sync` (`perf: frame gap .. sat in: the method (capture)`, lock 125 ms);
     the headset run 13 at the same size never showed it. A simulator-lane artifact until
     measured otherwise; read tick numbers from the 3 s window means, not from the gaps.

@@ -2,6 +2,21 @@
 
 ## 41.1.0 (unreleased) - native stereo ships, the four headset faults, the resolution picker
 
+- **The eyes swapped (session 9, 2026-09-04)**: after a pause, a load or a re-arm the left eye
+  could show the right eye's draw, and the same could happen on its own in gameplay - the eye
+  tags paired by order and the order broke. FIXED: the pairing follows the camera step measured
+  per present (pass 2 sits exactly one IPD along right of pass 1 and nothing else moves inside
+  a tick); `[Stereo] C5Pair=1`, `reentry c5pair on|off` is the A/B, status.json `stereo.c5*`.
+- **The one-picture state has its instrument**: the frame-identity trace (`[Perf] FrameId=1`,
+  `frameid on|off|status`, status.json `frameid{}`): the `stereo: frameid` line prints, per
+  left/right pair, how different the two eyes are at the backbuffer, the shared slot, the eye
+  texture and the swapchain image, the camera step between the draws, the side check and the
+  picture's own parallax sign. New seam words for the headset run: `reentry rearm [n]`,
+  `capture reinit`. `dump eyes` writes a consecutive pair and no longer stalls the game (the
+  PNG is encoded on a worker thread; the stall used to re-arm the second draw). The beat line's
+  `presentTid` follows the presenting thread; pass-2 eye writes the camera seam refused are
+  counted (`p2write refused=`).
+
 - **Performance (session 8)**: `[Capture] Mode=deferred` is the default (27 vs 21 ticks/s at
   the Quest 3 size on the simulator; `capture mode sync` is the A/B). New `[Device] Ex=0|1` and
   `Managed=none|default|dynamic|shadow` (launch-time; `device ex on|off`, `device managed <m>`,
