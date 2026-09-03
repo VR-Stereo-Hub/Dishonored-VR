@@ -49,6 +49,40 @@ struct Writer {
 };
 Writer g_eyeWriter;
 
+// ---- the eye-separation witness (41.1) --------------------------------------------------
+// One run has to be able to say, on its own, whether the row we lay the eye
+// offset along ROTATES with the view. A stream of `right=(x y z)` lines cannot:
+// it needs a human to remember what they were facing. So the seam tracks the
+// yaw the row implies AND the HMD's own yaw, and reports how far each has swept.
+// The head sweep is the control - it is what makes the reading falsifiable:
+//   head swept ~0     -> the player did not turn; the instrument says INCONCLUSIVE
+//   head 360, row 360 -> +0x60 is a real camera basis row
+//   head 360, row ~0  -> the offset is on a FIXED WORLD AXIS, and that is the bug
+struct Sweep {
+    bool   have = false;
+    float  last = 0.0f;     // the last raw reading, degrees
+    float  cont = 0.0f;     // unwrapped, continuous
+    float  lo = 0.0f, hi = 0.0f;
+    void feed(float deg) {
+        if (!have) { have = true; last = deg; cont = lo = hi = deg; return; }
+        float d = deg - last;
+        while (d > 180.0f) d -= 360.0f;
+        while (d < -180.0f) d += 360.0f;
+        last = deg;
+        cont += d;
+        if (cont < lo) lo = cont;
+        if (cont > hi) hi = cont;
+    }
+    float range() const { return have ? hi - lo : 0.0f; }
+};
+Sweep g_rowSweep;          // the yaw implied by cam+kCamRight
+Sweep g_headSweep;         // the HMD's own yaw, fed from head_track
+float g_headYawDeg = 0.0f; // published by the present lane, folded in on the script lane
+bool  g_sweepSaid = false; // the one-shot verdict has been printed
+
+// A full circle. Below this the instrument refuses to answer.
+constexpr float kSweepDecideDeg = 300.0f;
+
 // Read the camera's right row (kCamRight: basis Y) as a unit vector.
 bool read_right(uint8_t* cam, float r[3]) {
     if (!cam || !RangeReadable(cam + kCamRight, 12)) return false;
@@ -231,6 +265,10 @@ void  note_rendered_fov(float deg) { g_renderedFov = deg; }
 float rendered_fov_deg() { return g_renderedFov; }
 
 // ---- render truth -----------------------------------------------------------------------
+// Present lane. A plain aligned float store; the script lane folds it into the
+// head sweep when it next writes an eye offset (see Sweep, above).
+void note_head_yaw_deg(float deg) { g_headYawDeg = deg; }
+
 void note_render_pos(const float pos[3]) {
     if (!pos) return;
     g_c5[0] = pos[0]; g_c5[1] = pos[1]; g_c5[2] = pos[2];
@@ -264,26 +302,54 @@ bool apply_eye_offset(uint8_t* camObj) {
     const bool ok = write_offset(camObj, kFields[g_field].off, off, g_eyeWriter, nullptr);
     // 41.1 THE EYE-SEPARATION INSTRUMENT. The offset is laid along what
     // read_right() believes is the camera basis's right row (cam+kCamRight, an
-    // ASSUMED offset). If that row does not actually rotate with the view, the
-    // separation is laid along a FIXED WORLD AXIS: correct at one facing,
-    // shrinking to nothing at ninety degrees to it, and reversed beyond that -
-    // which is exactly "the eyes are misaligned with one another" and it would
-    // come and go as the player turns. The first-3 line below cannot answer
-    // that; this one can. Watch `right=` while turning a full circle:
-    //   it ROTATES  -> the basis row is real, look elsewhere for the flicker
-    //   it is FIXED -> kCamRight is not the right row, and that is the bug
+    // ASSUMED offset, never derived). If that row does not actually rotate with
+    // the view, the separation is laid along a FIXED WORLD AXIS: correct at one
+    // facing, shrinking to nothing at ninety degrees to it, and reversed beyond
+    // that - which is exactly "the eyes are misaligned with one another", and it
+    // would come and go as the player turns.
+    //
+    // A row of the form UE3 gives a roll-free basis is right = (-sin yaw, cos yaw, 0),
+    // so the row implies a yaw. Sweeping that against the HMD's own yaw answers
+    // the question without a human remembering which way they were facing, and
+    // the head sweep is the control that lets the answer be "you did not turn".
     if (ok) {
+        const float rowYaw = atan2f(-r[0], r[1]) * 57.29578f;
+        g_rowSweep.feed(rowYaw);
+        g_headSweep.feed(g_headYawDeg);
+        const float rowDeg = g_rowSweep.range(), headDeg = g_headSweep.range();
+        const char* reading =
+            headDeg < 90.0f      ? "TURN A FULL CIRCLE - the head has not turned enough to decide"
+            : rowDeg >= 0.5f * headDeg ? "the row is FOLLOWING the view"
+            : rowDeg <= 0.2f * headDeg ? "the row is NOT following the view"
+                                       : "the row is following only PARTLY";
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
-            "camera/eyesep: eye %+d right=(%+.3f %+.3f %+.3f) offset %+.2f uu "
-            "(ipd %.4f m, %.0f uu/m, field %s) - TURN IN A CIRCLE: if right= does "
-            "not rotate, the separation is on a fixed world axis and that is the bug",
-            g_eye, r[0], r[1], r[2], uu, g_ipdM, g_scale, kFields[g_field].name);
+            "camera/eyesep: eye %+d right=(%+.3f %+.3f %+.3f) = yaw %+.1f deg | swept so far: "
+            "row %.0f deg vs head %.0f deg -> %s | offset %+.2f uu (ipd %.4f m, %.0f uu/m, "
+            "field %s)",
+            g_eye, r[0], r[1], r[2], rowYaw, rowDeg, headDeg, reading, uu, g_ipdM, g_scale,
+            kFields[g_field].name);
+        // The verdict, once, as soon as the head has been round far enough that
+        // the answer cannot be "you did not turn". It must be able to print the
+        // unwelcome result, so both branches are spelled out here.
+        if (!g_sweepSaid && headDeg >= kSweepDecideDeg) {
+            g_sweepSaid = true;
+            if (rowDeg >= 0.5f * headDeg)
+                DVR_INFO("camera/eyesep: VERDICT the right row ROTATES WITH THE VIEW - it swept "
+                         "%.0f deg while the head swept %.0f deg. camera+0x%x is a real camera "
+                         "basis row, the eye offset points where it should, and the flicker is "
+                         "NOT the separation direction - look at the pair (tag lag, a stale "
+                         "present) instead",
+                         rowDeg, headDeg, (unsigned)kCamRight);
+            else
+                DVR_ERROR("camera/eyesep: VERDICT the right row is FIXED - it swept only %.0f deg "
+                          "while the head swept %.0f deg. camera+0x%x is NOT the camera's right "
+                          "row, so the eye separation is being laid along a fixed world axis: "
+                          "correct at one facing, nothing ninety degrees from it, reversed "
+                          "beyond. THIS IS THE BUG - derive the right row from the camera's own "
+                          "rotation instead of assuming the offset",
+                          rowDeg, headDeg, (unsigned)kCamRight);
+        }
     }
-    if (ok)
-        DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3,
-                        "camera: eye %+d offset %+.2f uu along right (%.3f %.3f %.3f) -> camera+%s "
-                        "(ipd %.4f m, %.0f uu/m)",
-                        g_eye, uu, r[0], r[1], r[2], kFields[g_field].name, g_ipdM, g_scale);
     return ok;
 }
 
@@ -410,6 +476,10 @@ void status(dvr::status::Writer& w) {
     w.kv("fovDeg", (double)g_fovDeg);
     w.kv("renderedFovDeg", (double)g_renderedFov);
     w.kv("c5ok", g_c5Ok);
+    // The eye-separation witness: rowSweepDeg against headSweepDeg is the reading.
+    w.kv("rowYawDeg", (double)g_rowSweep.last);
+    w.kv("rowSweepDeg", (double)g_rowSweep.range());
+    w.kv("headSweepDeg", (double)g_headSweep.range());
     w.obj("eyetest");
     w.kv("active", g_et.active);
     w.kv("candidate", g_et.active ? kFields[g_et.idx].name : "-");

@@ -646,6 +646,11 @@ static void TrackHead(const float (*m)[4])
     float pitch = asinf(fyc);
     g_hmdYaw = yaw; g_hmdPitch = pitch;
     g_hmdRoll = atan2f(m[1][0], m[1][1]); // right.up vs up.up
+    // 41.1: the CONTROL for the eye-separation witness. The camera seam compares
+    // how far the camera's right row has swept against how far the head has, so
+    // "the row does not rotate" and "you never turned" come out as different
+    // answers instead of one silent zero (camera.h, note_head_yaw_deg).
+    ::dvr::camera::note_head_yaw_deg(g_hmdYaw * 57.29578f);
 
     // 31.8: physical crouch moved OUT of the positional-tracking block. It only
     // needs your head height against the standing reference, and burying it

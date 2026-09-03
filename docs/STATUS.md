@@ -1,5 +1,97 @@
 # Status
 
+## Current state (2026-09-02, session 7: the eye separation is NOT the bug; the pawn oracle is)
+
+**Branch `aer-rendering`. The eye-separation question is settled by measurement, and the
+answer sends the session somewhere else.**
+
+### 1. The eye offset points where it should - MEASURED
+
+`camera+0x60` IS the camera's right row. Driven round a full circle on the simulator lane
+(the game in gameplay through Steam on `dvr-xrsim`, `[Stereo] Method=aer`, head stepped
+0..360 in 30 degree steps), the row swept **375 deg against the head's 390** and every
+sample was a unit vector with `r.z` exactly 0 - the shape of a roll-free UE3 right row, not
+of a cached constant:
+
+```
+camera/eyesep: VERDICT the right row ROTATES WITH THE VIEW - it swept 258 deg while the head
+  swept 300 deg. camera+0x60 is a real camera basis row, the eye offset points where it
+  should, and the flicker is NOT the separation direction
+```
+
+The magnitude was already right (3.09 uu = half of 63.0 mm at 98 uu/m), so the whole write is
+correct. `right=(0,1,0)` in the earlier run was the world Y axis **because the player was at
+yaw 0**, not because the row was fixed. The instrument that settled it is in the seam now and
+carries its own control: it tracks the yaw the row implies AND the HMD's own yaw, so "the row
+does not rotate" and "you never turned" come out as different answers instead of one silent
+zero. `status.json` -> `camera.rowSweepDeg` / `headSweepDeg` reads it without the log.
+
+### 2. What the same run found instead, and it fits the report better
+
+**Every one of the 26,895 correctly-tagged eyes was thrown away for the mono quad.**
+
+```
+aer: tagging eyes but the CINEMATIC QUAD is up - the projection layer is being dropped for
+     the flat screen                              (every 5 s, the whole 5.5 minute run)
+[game] state: NO_PAWN                             (logged ONCE at t+4.5 s, never transitioned)
+status.json: aerProjection true, aerCineQuad true, aerLeft 13448, aerRight 13447, aerLRGap 1
+```
+
+The game was demonstrably in a level (`DisGFxMoviePlayerPauseMenu` dispatched at the end of
+the run). ENGINE_NOTES already names this percept: one image in both eyes whose camera
+alternates +/- IPD/2 **is** a picture flickering side to side, world and weapon together -
+which is what the tester described, and it is not something the separation direction could
+produce.
+
+**Root cause, one level below the 41.1 fix.** `2d131622` moved `PawnCollisionHeight()` into
+`DvrPreTick` so the oracle is refreshed every present even under `[Mode] GamepadOnly=1`. It
+is. But the function read `g_pePawn`, and `g_pePawn` is **never set in this game**: `PeLatch`
+wants a `ProcessEvent` dispatched ON a `*PlayerPawn` object, and `DishonoredPlayerPawn` is
+native and dispatches none. The log proves it - `latched controller` fired,
+`latched pawn` never did, and the whole-run script census carries `DishonoredNPCPawn` and no
+player pawn.
+
+Fixed here: `PlayerController+0x248` (the author's measured field, proved by the 32.40 census,
+already preferred by `crouch.cpp` and `fp_mesh.cpp` - but only inside motion-control code that
+`GamepadOnly=1` disables) is now `kPcPawn` in `patterns.h`, and `PossessedPawn()` in
+`crouch.cpp` tries it first with the event latch as the fallback. The oracle names its own
+source on every change, so a dead one cannot look like a healthy one again.
+
+### Verified vs assumed
+
+**Measured this session** (simulator lane, build `alpha-186-gf8640b63-dirty`, RelWithDebInfo,
+one 5.5 minute gameplay run): the row sweep verdict; the dropped projection layer; the dead
+pawn oracle and its cause. The run's log, ini, crash file and `status.json` are archived at
+`D:\dvr-data\runs\2026-09-02_eyesep\`.
+
+**Build-verified only**: the pawn-oracle fix and the `pawn oracle:` line. Debug, Release and
+`-Legacy` all build, `lint: clean`, exports 9 undecorated, the golden ini unchanged. **Nothing
+has run since the change.**
+
+**Still true from session 6**: AER fuses as real stereo in a headset; head tracking, positional
+tracking, the gamepad and the FOV loop all work.
+
+**Installed right now**: `d3d9.dll` 41.0.0 RelWithDebInfo from this branch's tip. The game's
+ini carries `[Paths] DataDir=D:\dvr-data` so the harness and the game share a real location
+(VERIFICATION gotcha 14).
+
+### Next step
+
+**One run decides whether the flicker is gone.** Launch, reach gameplay, and read three lines:
+
+1. `pawn oracle: source now ctrl+0x248` - the fix took. If it still says `none`, the
+   controller latch is the next suspect, not the pawn.
+2. `[game] state: GAMEPLAY` - the oracle reached the state machine.
+3. `xr: cinematic quad off (strict=1 stale=0)` and `status.json` -> `aerCineQuad false`,
+   `aerProjection true` - the projection layer is actually reaching the headset.
+
+If all three read right, the headset should show real stereo instead of one alternating
+picture, and S2a's last acceptance rows can be measured. `vrcine off` is the live A/B if they
+disagree. If the flicker survives all three, the next suspects in order are the eye tag's one
+present of lag (inverted depth, not flicker), a stale present tagged as the other eye
+(`aerStaleSkipped` was 0 all run), and whether 0x60 is the right row or the LEFT one - the
+run above proves it rotates, not which way it points.
+
 ## Current state (2026-09-03, session 6: AER works; eye separation is the open bug)
 
 **Branch `aer-rendering`. AlternateEye is implemented, installed, and fusing in a headset.**
@@ -335,6 +427,58 @@ lingers.
 - The headset run needs the user.
 
 ## Session log
+
+### 2026-09-02 - session 7: the eye separation answered, and what it uncovered
+
+(Dated from the machine clock and the run artifacts, both 2026-09-02. Session 6 below is
+labelled 2026-09-03; one of the two is wrong and it is not this one. Newest-first ordering
+in this file is by SESSION, not by the dates in the headings.)
+
+One question, one run, two answers.
+
+**The question.** Session 6 left `camera::apply_eye_offset` laying +/- IPD/2 along an ASSUMED
+offset (`cam + kCamRight`, 0x60) and one log line reading `right=(0,1,0)` - the world Y axis.
+If that row did not rotate with the view the separation was on a fixed world axis, which
+would come and go as the player turned and would look exactly like the reported flicker.
+
+**Why the standing instrument could not answer it.** It printed `right=(x y z)` once a second
+and nothing else. A row that never moves and a player who never turned print the same thing.
+So the seam now derives the yaw the row implies (`right = (-sin yaw, cos yaw, 0)` for a
+roll-free UE3 basis) and sweeps it against **the HMD's own yaw** - the control - and prints a
+one-shot VERDICT with both branches written out, including the unwelcome one.
+
+**The answer: the row is real.** Simulator lane, the game in gameplay through Steam on
+`dvr-xrsim`, `[Stereo] Method=aer`, head stepped round a full circle: the row swept 375 deg
+against the head's 390, every sample a unit vector with `r.z` exactly 0. The earlier
+`right=(0,1,0)` was the world Y axis because the player was at yaw 0. The eye offset's
+magnitude and direction are both correct and the flicker is not the camera.
+
+**What the same run found instead.** `aer: tagging eyes but the CINEMATIC QUAD is up`, every
+5 s, for the whole 5.5 minute run, with `aerLeft 13448 / aerRight 13447` - 26,895 correctly
+tagged eyes, all discarded for the mono quad. One image in both eyes whose camera alternates
++/- IPD/2 is a picture flickering side to side, world and weapon together, which is the
+tester's report almost word for word.
+
+**Root cause, one level below the 41.1 fix.** `[game] state: NO_PAWN` logged once at t+4.5 s
+and never transitioned. `2d131622` had moved `PawnCollisionHeight()` into `DvrPreTick` so the
+oracle refreshes every present under `GamepadOnly=1` - and it does - but the function read
+`g_pePawn`, which never fills in this game: `PeLatch` wants a `ProcessEvent` on a
+`*PlayerPawn` object and `DishonoredPlayerPawn` is native. The log proves it (`latched
+controller` fired, `latched pawn` never did, the whole-run script census carries
+`DishonoredNPCPawn` and no player pawn), and the game was demonstrably in a level because
+`DisGFxMoviePlayerPauseMenu` dispatched at the end of the run.
+
+Fixed to `PlayerController+kPcPawn` (0x248), the author's measured field, already preferred
+by `crouch.cpp` and `fp_mesh.cpp` since 32.40 - but only inside motion-control code that
+`GamepadOnly=1` disables. The oracle names its own source on every change now.
+
+**Also**: `boot.ps1` passed `Enter` positionally to `game-key.ps1`, whose first positional
+parameter is `-GamePath`, so it threw "give -Key <name>" and never pressed a key. Unattended
+booting has never worked. One word.
+
+Gates: Debug, Release and `-Legacy` build; `lint: clean`; exports 9 undecorated; the golden
+ini unchanged; `xrsim-selftest` PASS. The run's artifacts are archived outside the repo at
+`D:\dvr-data\runs\2026-09-02_eyesep\`.
 
 ### 2026-09-03 - session 6: the branch split, and the pad becomes a module
 

@@ -213,6 +213,39 @@ is written). `core/util/paths.h` is the one place that knows this.
 
 ## Decision log
 
+### 2026-09-02 - session 7 (the eye separation, settled)
+
+- **An instrument that measures one thing needs the CONTROL beside it.** The eye-separation
+  question was "does the row we lay the offset along rotate with the view", and the standing
+  instrument printed `right=(x y z)` once a second. That cannot answer it: a row that never
+  moves and a player who never turned print the same thing, and only a reader who remembers
+  which way they were facing can tell them apart. The seam now derives the yaw the row implies
+  and sweeps it against **the HMD's own yaw**, and prints a one-shot VERDICT with both
+  branches spelled out. One run settled a question three sessions had carried. Generalise it:
+  where an instrument measures whether X follows Y, it must measure Y as well, or its silence
+  is unreadable.
+
+- **camera+0x60 IS the camera's right row, so the flicker is not the camera.** Measured (the
+  row swept 375 deg against the head's 390; ENGINE_NOTES). The earlier `right=(0,1,0)` that
+  looked like a fixed world axis was the world Y axis *because the player was at yaw 0*. The
+  eye offset's magnitude and direction are both correct.
+
+- **The layer, not the camera.** The same run found every one of 26,895 correctly tagged eyes
+  being dropped for the mono quad, all run, in gameplay - the exact failure the 2026-09-03
+  entry recorded and believed fixed. The gameplay verdict is published now; what it publishes
+  is false, because `CylTruthLive()` reads `PawnCollisionHeight()` reads `g_pePawn`, and
+  `g_pePawn` never fills in this game: `PeLatch` needs a script dispatch on a `*PlayerPawn`
+  object and Dishonored's player pawn is native. The possessed pawn comes from
+  `PlayerController+kPcPawn` instead - an offset this codebase has trusted since 32.40, but
+  only inside motion-control code that `[Mode] GamepadOnly=1` disables.
+
+  **The rule this sharpens.** "Refresh a shared signal from something that always runs" was
+  right and insufficient; the signal must also READ from a source that fills. Both failures
+  print the same silent zero, so the oracle now names its own source on every change
+  (`pawn oracle: source now ctrl+0x248 ...` / `... none <-- NO GAMEPLAY PAWN ...`) - a dead
+  oracle and a healthy one must not produce the same log.
+
+
 ### 2026-09-03 - session 6b (AlternateEye)
 
 - **AER is PAIRED, not held-eye.** Two shapes exist. (a) submit every present and let the

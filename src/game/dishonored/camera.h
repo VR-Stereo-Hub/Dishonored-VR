@@ -46,6 +46,12 @@ float fov_deg();
 void  note_rendered_fov(float deg);    // fov_lever.cpp, from the 0x53c sensor
 float rendered_fov_deg();
 
+// The HMD's own yaw in degrees (present lane, from head_track). It is the
+// CONTROL for the eye-separation witness: `camera/eyesep:` reports how far the
+// camera's right row has swept against how far the head has, so one run can
+// tell "the row does not rotate" from "you never turned".
+void note_head_yaw_deg(float deg);
+
 // The render-side truth: c5 of the last draw (vs_const_hook.cpp).
 void note_render_pos(const float pos[3]);
 bool render_pos(float out[3]);

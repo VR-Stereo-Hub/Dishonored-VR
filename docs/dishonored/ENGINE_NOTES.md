@@ -890,3 +890,99 @@ neither is a reason to undo the other.
 
 `vrcine on|off|status` is on the command seam now - the live A/B that separates "the per-eye
 method is wrong" from "the verdict is wrong" without a rebuild.
+
+## camera+0x60 IS the camera's right row - MEASURED (2026-09-02, session 7)
+
+**The eye-separation direction is settled, and it is not the bug.** `camera::apply_eye_offset`
+lays +/- IPD/2 along `cam + kCamRight` (0x60), an offset that had been ASSUMED since 41.0 and
+never derived. One run logged `right=(-0.000 1.000 -0.000)` - the world Y axis - which is what
+a fixed world axis would look like at yaw 0, and a fixed axis would make the two eyes drift
+apart and back together as the player turns. That reads exactly like the reported flicker.
+
+**The instrument that settled it.** A stream of `right=(x y z)` lines cannot answer this: it
+needs a reader who remembers which way they were facing. So the seam now derives the yaw the
+row implies (a roll-free UE3 basis gives `right = (-sin yaw, cos yaw, 0)`, so `yaw =
+atan2(-r.x, r.y)`), tracks how far that has swept, and tracks **the HMD's own yaw as the
+control** (`camera::note_head_yaw_deg`, fed from `head_track`). The control is what makes the
+reading falsifiable: a row that never moves and a player who never turned are different
+answers, and without the head sweep they print the same zero.
+
+**Measured on the simulator lane** (build `alpha-186-gf8640b63-dirty`, RelWithDebInfo, the
+game in gameplay through Steam on `dvr-xrsim`, `[Stereo] Method=aer`, head driven round a
+full circle in 30 degree steps with `xrsim-cmd "head rot <yaw> 0 0"`):
+
+```
+camera/eyesep: eye -1 right=(-0.303 +0.953 -0.000) = yaw +17.6 deg | swept so far: row 0 deg vs head 0 deg
+camera/eyesep: eye -1 right=(+0.191 +0.982 -0.000) = yaw -11.0 deg | swept so far: row 29 deg vs head 30 deg
+camera/eyesep: eye -1 right=(+0.434 -0.901 -0.000) = yaw -154.3 deg | swept so far: row 172 deg vs head 180 deg
+camera/eyesep: VERDICT the right row ROTATES WITH THE VIEW - it swept 258 deg while the head
+  swept 300 deg. camera+0x60 is a real camera basis row ...
+```
+
+Final reading in `status.json`: `rowSweepDeg 375.2`, `headSweepDeg 390.0`. Every sample had
+`r.z` exactly 0 and unit length, which is the shape of a roll-free right row and not of a
+cached constant. **camera+0x60 is the camera's right row.** The offset MAGNITUDE was already
+right (3.09 uu = half of 63.0 mm at 98 uu/m), so the whole write is correct and the flicker
+has to come from somewhere else.
+
+Two things the run did NOT settle, both cheap to look at next:
+
+- **The row's yaw runs OPPOSITE to the HMD's** (head +30 gave row -28.6). That is either the
+  mod's `g_hmdYaw` convention or the sign in `atan2(-r.x, r.y)`, and neither affects the
+  offset (the vector is used directly, never the derived yaw). It WOULD matter if 0x60 turned
+  out to be the camera's LEFT row - the eyes would be swapped and depth inverted, which is a
+  different percept from flicker.
+- The row sweeps ~96% of the head's sweep, not 100%. Expected: yaw is injected as a delta and
+  the samples are one per second against a stepped head.
+
+## The pawn oracle reads a source that never fills (2026-09-02, session 7)
+
+**The 41.1 fix cured the plumbing and not the source, and the same three bugs are still live.**
+`2d131622` moved the `PawnCollisionHeight()` call out of the motion-crouch paths and into
+`DvrPreTick` so it runs every present under `[Mode] GamepadOnly=1`. It does. But the function
+read `g_pePawn`, and **`g_pePawn` is never set in this game.**
+
+`PeLatch` (`ue3/process_event.cpp`) names a pawn only when `ProcessEvent` dispatches ON an
+object whose class name contains `"PlayerPawn"`. `DishonoredPlayerPawn` exists (the name
+passes the filter) but it is native and dispatches no script events. Measured over a 5.5
+minute gameplay run, same build and run as above:
+
+```
+handmesh: latched controller 'DishonoredPlayerController' @ 17BA6800 (from the event stream)
+[game] state: NO_PAWN            <- logged ONCE at t+4.5 s, never transitioned
+```
+
+`latched pawn` never appears; the script-event census over the whole log carries
+`DishonoredNPCPawn`, `DishonoredPlayerController`, `DishonoredPlayerInput`, `DishonoredHUD`
+and no player pawn. `status.json` ended the run at `state NO_PAWN`, `menuOpen true`,
+`inMenu true` - and the game was demonstrably IN a level, because `DisGFxMoviePlayerPauseMenu`
+dispatched at the end of the run (a pause menu cannot exist outside gameplay).
+
+Everything downstream agreed with the dead oracle, exactly as the 2026-09-03 entry above
+predicted it would:
+
+```
+aer: tagging eyes but the CINEMATIC QUAD is up - the projection layer is being dropped for
+     the flat screen  (every 5 s for the whole run)
+status.json: aerProjection true, aerCineQuad true, aerLeft 13448, aerRight 13447, aerLRGap 1
+```
+
+**So AER tagged 26,895 eyes perfectly and every one of them was thrown away for the mono
+quad** - which is the percept ENGINE_NOTES already named: one image in both eyes whose camera
+alternates +/- IPD/2 IS a picture flickering side to side. That is a far better fit for the
+tester's report than the separation direction ever was.
+
+**The fix, and why it is the right one.** `PlayerController+0x248` is the possessed pawn: it
+comes from the original author's measured field table and the 32.40 census, and `crouch.cpp`
+and `hands/fp_mesh.cpp` have both preferred it over the event latch since then - but only
+inside motion-control code, which `GamepadOnly=1` disables. It is now `kPcPawn` in
+`patterns.h` and `PossessedPawn()` in `crouch.cpp`, tried first with the event latch as the
+fallback, and `PawnCollisionHeight()` reads it. The oracle also names its own owner on every
+change now (`pawn oracle: source now ctrl+0x248 ...` / `... none <-- NO GAMEPLAY PAWN ...`),
+so a dead one can no longer look like a healthy one.
+
+**The general shape, restated one level down:** the 2026-09-03 entry said a shared signal must
+be refreshed by something that always runs. That was true and it was not enough. It must also
+READ from a source that fills - and "the refresh is on a path that always runs" hides the
+difference, because both failures print the same silent zero. BUILD-VERIFIED ONLY: nothing has
+run since the change.

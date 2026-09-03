@@ -3,6 +3,42 @@
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
 
 
+// The pawn the player is actually possessing. PlayerController+kPcPawn first,
+// the event latch second - the same preference crouch and fp_mesh have used
+// since 32.40, hoisted here because everything that asks "is there a gameplay
+// pawn" ends up in PawnCollisionHeight().
+//
+// 41.1: THE EVENT LATCH NEVER FIRES IN THIS GAME. PeLatch names a pawn only
+// when ProcessEvent dispatches ON an object whose class contains "PlayerPawn",
+// and DishonoredPlayerPawn is native - measured over a 5.5 minute gameplay run
+// (2026-09-02, simulator lane, build alpha-186): `handmesh: latched controller
+// 'DishonoredPlayerController'` fired, `latched pawn` never did, the script
+// census carried DishonoredNPCPawn and no player pawn, and g_pePawn was NULL
+// the whole run. Everything downstream of CylTruthLive() then read "no
+// gameplay" for the entire session (ENGINE_NOTES, "the pawn oracle").
+static uint8_t* PossessedPawn()
+{
+    const char* src = "none";
+    uint8_t* pawn = NULL;
+    if (g_peCtrl && LooksLikeObj(g_peCtrl) && RangeReadable(g_peCtrl + kPcPawn, 4)) {
+        uint8_t* pp = *(uint8_t**)(g_peCtrl + kPcPawn);
+        if (LooksLikeObj(pp)) { pawn = pp; src = "ctrl+0x248"; }
+    }
+    if (!pawn && g_pePawn && LooksLikeObj(g_pePawn)) { pawn = g_pePawn; src = "event-latch"; }
+    // Name the OWNER before the result, and log the CHANGE only: this one
+    // signal decides the game state, the stale-menu clear and the runtime's
+    // gameplay verdict, so a healthy run and a dead one must not read alike.
+    static const char* was = NULL;
+    if (src != was) {
+        was = src;
+        Log("pawn oracle: source now %s%s (controller %s, event latch %s)", src,
+            pawn ? "" : "  <-- NO GAMEPLAY PAWN: the game state, the stale-menu clear and "
+                        "the runtime's gameplay verdict all read 'menu' from here",
+            g_peCtrl ? "latched" : "NOT latched", g_pePawn ? "latched" : "NOT latched");
+    }
+    return pawn;
+}
+
 static float PawnCollisionHeight()              // < 0 = unknown
 {
     if (!g_cylTried) {
@@ -14,8 +50,8 @@ static float PawnCollisionHeight()              // < 0 = unknown
             (g_cylHOff && g_cylCompOff) ? "" : "  <-- NOT FOUND, no measurement");
     }
     if (!g_cylHOff || !g_cylCompOff) return -1.0f;
-    uint8_t* pawn = g_pePawn;
-    if (!pawn || !LooksLikeObj(pawn)) return -1.0f;
+    uint8_t* pawn = PossessedPawn();
+    if (!pawn) return -1.0f;
     if (!RangeReadable(pawn + g_cylCompOff, 4)) return -1.0f;
     uint8_t* comp = *(uint8_t**)(pawn + g_cylCompOff);
     if (!comp || ((uintptr_t)comp & 3) || !RangeReadable(comp, g_cylHOff + 4))

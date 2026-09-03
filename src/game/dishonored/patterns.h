@@ -29,6 +29,15 @@ static const uint32_t  kNameOff  = 0x28;
 static const uint32_t  kClassOff = 0x30;
 static const uint32_t  kOuterOff = 0x24;
 
+// ---- PlayerController layout ----
+// The pawn the controller actually possesses. From the original author's
+// handoff (their measured field table) and proved out by the 32.40 census;
+// crouch.cpp and hands/fp_mesh.cpp have preferred it over the event latch
+// since then. It is the ONLY working pawn source in this game: the player
+// pawn is native and dispatches no script events, so PeLatch's name route
+// (which wants a ProcessEvent on a "*PlayerPawn" object) never fires.
+static const uint32_t  kPcPawn   = 0x248;
+
 // ---- Camera object ----
 static const uint32_t  kCamRight = 0x60;   // basis Y (right) row
 static const uint32_t  kCamLoc0  = 0x80;   // matrix translation row

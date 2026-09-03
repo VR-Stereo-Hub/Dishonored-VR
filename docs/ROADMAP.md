@@ -69,20 +69,30 @@ Acceptance, in order:
 - [x] `stereo aer` accepted (needs `[Camera] EyeField` from the eyetest); the beat line reads
       `L/s == R/s == out/s / 2` - MEASURED in a headset:
       `stereo: beat method=aer out/s=116 L/s=58 R/s=58 mono/s=0 none/s=0`
-- [x] The projection layer actually reaches the headset (`xr: cinematic quad off
-      (strict=1 stale=0)`) - it was being dropped for the mono quad because no gameplay
-      verdict was ever published
+- [ ] The projection layer actually reaches the headset (`xr: cinematic quad off
+      (strict=1 stale=0)`). **Unticked 2026-09-02: this regressed, or never held.** It was
+      ticked for `a87b6303`, which published the gameplay verdict - but the verdict it
+      publishes is still false, because the pawn oracle underneath it reads a source that
+      never fills. See the open row below
 - [ ] `stereo.xrs` on the simulator: two projection views, `EyeSeparationM` == IPD, left vs
       right `img-diff` well above the noise floor with parallax on near geometry
 - [ ] eye-check.ps1 legs 0-5 PASS; the runtime's pair probe reports no untagged presents
       (the stale-left class)
-- [ ] **THE OPEN ONE: the eye separation.** The world fuses, but the image flickers and
-      the tester reads it as the two eyes misaligned with each other (whole scene, not just
-      the viewmodel). The offset MAGNITUDE is right (3.09 uu = half of a measured 63.1 mm
-      IPD at 98 uu/m); the suspect is its DIRECTION - `read_right()` reads an assumed
-      `cam + kCamRight` and one run logged `right=(0,1,0)`, a fixed world axis. The
-      `camera/eyesep:` line prints it once a second now: turn a full circle and see whether
-      it rotates. STATUS carries the reading
+- [x] **The eye separation is NOT the bug - MEASURED (2026-09-02, session 7).** The offset
+      MAGNITUDE was already right (3.09 uu = half of a measured 63.0 mm IPD at 98 uu/m) and
+      the DIRECTION is right too: driven round a full circle on the simulator lane, the row
+      at `camera+0x60` swept 375 deg against the head's 390, every sample a unit vector with
+      `r.z` exactly 0. `camera/eyesep:` carries the verdict and `status.json` ->
+      `camera.rowSweepDeg` / `headSweepDeg` reads it without the log (ENGINE_NOTES)
+- [ ] **THE OPEN ONE, and it is the layer, not the camera: the projection layer is being
+      dropped for the mono quad again.** The same run logged `aer: tagging eyes but the
+      CINEMATIC QUAD is up` every 5 s for 5.5 minutes of gameplay with `aerLeft 13448 /
+      aerRight 13447`, i.e. every correctly tagged eye thrown away - which is exactly a
+      picture flickering side to side. Cause: `[game] state:` stuck at NO_PAWN because the
+      pawn oracle read `g_pePawn`, which never fills in this game (the player pawn is native
+      and dispatches no script events). Fixed to `PlayerController+kPcPawn`; BUILD-VERIFIED
+      ONLY. One run reads `pawn oracle: source now ctrl+0x248`, `[game] state: GAMEPLAY` and
+      `xr: cinematic quad off`
 - [ ] Headset: no swim on head turns; half-rate per eye judged acceptable or not (verdict)
 
 ## S2b - SequentialReentry (rung 3; developer B)
