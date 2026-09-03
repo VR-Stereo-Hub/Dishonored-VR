@@ -151,6 +151,10 @@ static void FrameDumpTick(IDirect3DDevice9* dev)
         } else Log("dump: no capture yet");
     }
     if (g_dumpReqEyes) {
+        // The pair is a left THEN its right (one tick's two draws): under a
+        // per-eye method the first file waits for a -1 output (headset run 07
+        // wrote a right then the next tick's left).
+        if (g_dumpReqEyes == 2 && dvr::stereo::last_output().eyeSign > 0) return;
         --g_dumpReqEyes;
         // last_output() is the PREVIOUS present's output (this tick runs before
         // end_frame), so eye_<N> holds present N-1's eye, tagged as delivered.

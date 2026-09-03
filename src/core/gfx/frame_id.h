@@ -53,6 +53,11 @@ namespace dvr::frameid {
 
 void set_enabled(bool on);
 bool enabled();
+// One pair every n ticks is sampled (default 8): the backbuffer stage's readback
+// is a pipeline sync on some GPUs (headset run 07: 1.5 ms of GPU idle per
+// present when read every present). [Perf] FrameIdEvery, `frameid every N`.
+void set_every(uint32_t n);
+uint32_t every();
 
 // Present thread, in this order per present:
 //  0. the method, first thing: the previous present's delivery is closed (its

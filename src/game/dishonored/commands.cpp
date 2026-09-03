@@ -213,6 +213,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "frameid")) {   // 41.1 (session 9): the frame-identity trace
         if (DvrOnOff(args, &b)) { dvr::frameid::set_enabled(b); return true; }
+        { char sub[16] = "", v[16] = ""; if (sscanf(args, "%15s %15s", sub, v) == 2 && !strcmp(sub, "every")) { dvr::frameid::set_every((uint32_t)atoi(v)); return true; } }
         dvr::frameid::log_status();
         return true;
     }

@@ -1244,6 +1244,19 @@ projection off`/`auto` and a `stereo mono`/`stereo reentry` switch; P1 == P2 per
 `c5Unknown` (presents the invariant could not name), `c5Untagged` (the ring was empty, the
 measurement named the eye) in status.json `stereo`.
 
+**The headset run on this build (run 07, 2026-09-04, the user)**: the eyes right from the load
+and after every word on the F10 EYES block; `side ok` and `SWAPPED=0` on every pair, c5 |d| 6.11
+(the user's IPD), the picture shift negative, L-R 3-14 at 64x64 (the one-picture dump pair of
+run 17 reads 1.49 at 64x64; the run-17 true pairs 9-10) - and the ring skewed against the
+draws 131 times in about four minutes: on the user's rig the order claim goes wrong every 2 s,
+which before this session swapped the eyes each time. Two costs of the first build, both fixed:
+the verdict compared L-R against the same-eye floor, which on a live head holds a tick of head
+motion that a within-tick pair does not (false `ONE PICTURE` warns; an absolute 2.0 at 64x64
+now), and stage bb's `GetRenderTargetData` read every present is a pipeline sync on that GPU:
+`perf: gpu idle(d3d9)` 1.5 ms per present against 0.3 in run 17, the tick 13.9 -> 16.7 ms
+(60/s under a 72 Hz headset, `wait 0.0`, the time inside the game's own Present). The trace
+samples one pair every 8 ticks now (`[Perf] FrameIdEvery`), which is all the judgement needs.
+
 **What this does and does not say about the headset's one-picture state.** A swap is two
 pictures, not one; the run-17 dumps were one picture, so the swap is not that fault. It is,
 though, exactly what "the eyes disagree" looks like, and it happened on every state transition

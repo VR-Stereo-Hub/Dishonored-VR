@@ -23,12 +23,15 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   mode off` freezes
   the image on purpose (the A/B control); `mark <text>` and the F10 MARK button stamp a felt
   freeze in the log with the ring of presents around it.
-- **`stereo reentry`: both eyes carry ONE picture after a level load** [S2b, OPEN, the
-  instrument ships]. Headset runs 16-17 (2026-09-03): from the first arming after a load the
-  left and the right eye are the same picture until something re-arms the second draw (a
-  pause/resume did; the capture-mode switch the user tried was followed by a pause each time).
-  Every tag instrument reads clean in that state. 41.1 (session 9) ships the frame-identity
-  trace (`[Perf] FrameId=1`): the `stereo: frameid` line prints, per left/right pair, how
+- **`stereo reentry`: both eyes carry ONE picture after a level load** [S2b, NOT SEEN since
+  the pairing fix below; the instrument ships]. Headset runs 16-17 (2026-09-03): from the first
+  arming after a load the left and the right eye were the same picture until something re-armed
+  the second draw. On the session-9 build (headset run 07, 2026-09-04) the eyes were right from
+  the load and stayed right while the tag ring skewed 131 times in four minutes - the swaps the
+  fix absorbs - so the one-picture state most likely was the old pairing too (unproven: `c5
+  pairing` OFF on the F10 EYES block after a load is the A/B). 41.1 (session 9) ships the
+  frame-identity trace (`[Perf] FrameId=1`, one pair every 8 ticks: read every present it cost
+  the user's GPU 1.5 ms per present): the `stereo: frameid` line prints, per left/right pair, how
   different the two eyes are at four stages (the game's backbuffer, the shared slot, the eye
   texture, the swapchain image), the camera step between the two draws, and the picture's own
   parallax sign - so the headset log names the stage at which the two eyes stop being two

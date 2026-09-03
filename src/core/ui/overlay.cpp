@@ -610,7 +610,15 @@ static void OverlayFrame()
             if (ImGui::Button("PROJECTION AUTO (back to per-eye)")) dvr::stereo::set_projection_override(-1);
             ImGui::SameLine();
             bool c5 = dvr::stereo::reentry_c5_pair();
-            if (ImGui::Checkbox("c5 pairing (off = the old order-only tags: the A/B)", &c5)) dvr::stereo::set_reentry_c5_pair(c5);
+            if (ImGui::Checkbox("c5 pairing (off = the old order-only tags: the A/B)", &c5)) {
+                dvr::stereo::set_reentry_c5_pair(c5);
+                ConfigWriteKey("Stereo", "C5Pair", c5 ? "1" : "0", "F10 Display");
+            }
+            bool fid = dvr::frameid::enabled();
+            if (ImGui::Checkbox("frame-identity trace (one pair every 8 ticks; off = no cost at all)", &fid)) {
+                dvr::frameid::set_enabled(fid);
+                ConfigWriteKey("Perf", "FrameId", fid ? "1" : "0", "F10 Display");
+            }
             ImGui::TextDisabled("the log's `stereo: frameid` line has the same numbers once a second; use the capture mode combo above for deferred -> shared");
             ImGui::Separator();
         }

@@ -43,6 +43,21 @@ struct Record {
 };
 Record   g_rec[kRecords];
 bool     g_enabled = true;
+// 41.1 (session 9, headset run 07): sampled, not per present. The backbuffer
+// stage's GetRenderTargetData is a pipeline sync on the user's GPU: read every
+// present it cost 1.5 ms of GPU idle per present and the tick went 13.9 ->
+// 16.7 ms (60/s under a 72 Hz headset). One pair every kEvery ticks (the -1
+// grab and the +1 grab after it) is all the judgement needs.
+uint32_t g_every = 8;                // [Perf] FrameIdEvery; `frameid every N`
+uint32_t g_countdown = 0;            // -1 grabs until the next sampled pair
+uint32_t g_sampleSerial = 0;         // the sampled -1 grab's serial (and +1 = its sibling)
+bool     g_sampleValid = false;
+inline bool sampled(uint32_t serial) { return g_sampleValid && (serial == g_sampleSerial || serial == g_sampleSerial + 1); }
+// One picture at 64x64: the run-17 one-picture dump pair reads 1.49, the
+// smallest true headset pairs 3.0, the simulator's 4.1. The same-eye floor
+// is printed for the reader but not used for the verdict: with a live head
+// it holds one tick of head motion, which a within-tick pair does not.
+constexpr float kOnePicture = 2.0f;
 uint32_t g_curSerial = 0;          // the serial the stages slot/out/sc belong to this present
 bool     g_curValid = false;
 int      g_curTag = 0;
@@ -285,9 +300,10 @@ void read11(ID3D11DeviceContext* ctx, Stage st, uint32_t serial) {
 }
 
 void draw11(ID3D11Device* dev, ID3D11DeviceContext* ctx, Stage st, ID3D11ShaderResourceView* src) {
-    if (!g_enabled || !g_curValid || !dev || !ctx || !src || !ensure11(dev, st)) return;
+    if (!g_enabled || !dev || !ctx || !src || !ensure11(dev, st)) return;
     const int s = st == kSlot ? 0 : 1;
-    read11(ctx, st, g_curSerial);
+    read11(ctx, st, g_curSerial);   // the reads three deliveries back, sampled or not
+    if (!g_curValid) return;
     const uint32_t k = g_curSerial % kRing;
     g_blit.draw(ctx, src, g_rtv11[s][k], kThumb, kThumb);
     ctx->CopyResource(g_staging[st][k], g_tex11[s][k]);
@@ -340,7 +356,7 @@ void judge_pair(const Record& l, const Record& r, uint32_t serialL) {
     }
     float diff[kStages];
     bool  have[kStages];
-    const float sameBelow = floorBb >= 0.0f ? (1.5f * floorBb > 1.0f ? 1.5f * floorBb : 1.0f) : 1.0f;
+    const float sameBelow = kOnePicture;
     int firstSame = -1;
     for (int s = 0; s < kStages; ++s) {
         have[s] = ((l.mask & r.mask) >> s) & 1u;
@@ -433,6 +449,14 @@ void judge_pair(const Record& l, const Record& r, uint32_t serialL) {
 
 } // namespace
 
+void set_every(uint32_t n) {
+    if (n < 1) n = 1;
+    if (n > 600) n = 600;
+    g_every = n;
+    DVR_INFO("stereo: frameid samples one pair every %u tick(s) ([Perf] FrameIdEvery=%u for the next launch)", n, n);
+}
+uint32_t every() { return g_every; }
+
 void set_enabled(bool on) {
     if (on == g_enabled) return;
     g_enabled = on;
@@ -449,6 +473,12 @@ void note_c5(const float c5[3], bool ok, const float right[3], bool rightOk) {
 
 void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t serial, int tag) {
     if (!g_enabled) return;
+    if (tag < 0) {
+        if (g_countdown == 0) { g_sampleSerial = serial; g_sampleValid = true; g_countdown = g_every > 1 ? g_every : 1; }
+        --g_countdown;
+    }
+    if (!g_bbDead && dev && bb && g_dev9 == dev) read9(serial);   // the reads three grabs back, sampled or not
+    if (!sampled(serial)) return;
     Record& r = rec_for(serial);
     r.used = true; r.serial = serial; r.tag = tag;
     r.c5Ok = g_pendingC5Ok; memcpy(r.c5, g_pendingC5, sizeof(r.c5));
@@ -456,7 +486,6 @@ void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t ser
     r.slot = -1; r.scTarget = -1; r.scIndex = 0; r.mask = 0; r.tried = 0;
     g_pendingC5Ok = false; g_pendingRightOk = false;
     if (g_bbDead || !dev || !bb || !ensure9(dev)) return;
-    read9(serial);
     const uint32_t k = serial % kRing;
     HRESULT hr = dev->StretchRect(bb, nullptr, g_rt9[k], nullptr, g_bbLinear ? D3DTEXF_LINEAR : D3DTEXF_NONE);
     if (FAILED(hr) && g_bbLinear) {
@@ -479,7 +508,7 @@ void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t ser
 }
 
 void note_delivery(uint32_t serial, int tag, int slot, const char* modeName) {
-    g_curSerial = serial; g_curValid = g_enabled; g_curTag = tag;
+    g_curSerial = serial; g_curValid = g_enabled && sampled(serial); g_curTag = tag;
     if (modeName) { strncpy(g_modeName, modeName, sizeof(g_modeName) - 1); g_modeName[sizeof(g_modeName) - 1] = 0; }
     if (Record* r = rec_get(serial)) { r->slot = slot; if (r->tag == 0) r->tag = tag; }
     if (slot >= 0 && slot == g_lastSlot) ++g_slotRepeats;
@@ -490,7 +519,7 @@ void stage_slot(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourc
 void stage_out(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* outSrv) { draw11(dev, ctx, kOut, outSrv); }
 
 void stage_swapchain(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* image, int target, uint32_t index) {
-    if (!g_enabled || !g_curValid || !dev || !ctx || !image || g_dead11[kSc]) return;
+    if (!g_enabled || !dev || !ctx || !image || g_dead11[kSc]) return;
     if (g_dev11 != dev) { release11(); g_dev11 = dev; }
     D3D11_TEXTURE2D_DESC id; image->GetDesc(&id);
     if (id.Width < kThumb || id.Height < kThumb) return;
@@ -503,7 +532,8 @@ void stage_swapchain(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2
         }
         g_scFormat = id.Format;
     }
-    read11(ctx, kSc, g_curSerial);
+    read11(ctx, kSc, g_curSerial);   // the reads three deliveries back, sampled or not
+    if (!g_curValid) return;
     if (Record* r = rec_get(g_curSerial)) { r->scTarget = target; r->scIndex = index; }
     if (g_curTag != 0) { if (target == g_lastScTarget) ++g_scRepeats; g_lastScTarget = target; }
     const uint32_t k = g_curSerial % kRing;
@@ -518,12 +548,14 @@ void stage_swapchain(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2
 void begin_present() {
     // The previous present's delivery is over (its sc stage ran in the
     // runtime's tail, after the method returned); nothing is current until
-    // note_delivery says so.
-    const bool had = g_curValid;
+    // note_delivery says so. The judgement runs every present (a sampled
+    // pair's reads land three deliveries after it).
     g_curValid = false;
-    if (!g_enabled || !had) return;
+    if (!g_enabled) return;
     // Judge every serial old enough for all four reads to have been attempted
     // (the sc read for serial e happens at delivered serial e + kReadBack).
+    // Sampled: the reads of a pair land at the sibling's delivery and the two
+    // deliveries after, so a pair is judged three presents after its +1.
     if (g_curSerial < kReadBack + 2) return;
 
     const uint32_t upTo = g_curSerial - kReadBack - 1;
@@ -557,8 +589,8 @@ void on_reset() { release9(); }
 void shutdown() { release9(); release11(); }
 
 void log_status() {
-    DVR_INFO("stereo: frameid %s - lifetime pairs=%u, one-picture pairs bb=%u slot=%u out=%u sc=%u, last L-R diff bb=%.1f slot=%.1f "
-             "out=%.1f sc=%.1f, state=%s (frameid on|off|status)", g_enabled ? "ON" : "off", g_pairs,
+    DVR_INFO("stereo: frameid %s (one pair every %u ticks) - lifetime pairs=%u, one-picture pairs bb=%u slot=%u out=%u sc=%u, last L-R diff bb=%.1f slot=%.1f "
+             "out=%.1f sc=%.1f, state=%s (frameid on|off|status|every N)", g_enabled ? "ON" : "off", g_every, g_pairs,
              g_samePairs[0], g_samePairs[1], g_samePairs[2], g_samePairs[3], g_lastDiff[0], g_lastDiff[1], g_lastDiff[2], g_lastDiff[3],
              g_onePicture ? "ONE PICTURE" : "two pictures");
     summary("window so far:");

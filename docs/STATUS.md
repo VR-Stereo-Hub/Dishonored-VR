@@ -36,9 +36,25 @@ Nothing has run on the headset this session.
   0 tag; `[Stereo] C5Pair=1`, `reentry c5pair on|off` is the A/B. On the fixed build: `side ok`
   from the first pair through rearms of 1, 2, 3, `capture reinit`, `stereo projection off/auto`,
   `stereo mono`/`reentry`; P1 == P2 per window; `reentry.xrs` 11/11.
-- **The one-picture state is NOT reproduced on the simulator and NOT fixed**: it is two pictures
-  from the first pair here. The trace and the three diagnostic words (`reentry rearm [n]`,
-  `capture reinit`, `stereo projection off`/`auto`) are what the headset run decides with.
+- **THE HEADSET RUN (run 07, the user, Quest 3 via VDXR, the session's build): the eyes were
+  RIGHT from the load and stayed right**; the user pressed REARM, REINIT, PROJECTION OFF/AUTO and
+  the mode combo and nothing changed them. The log: `side ok` and `SWAPPED=0` on every pair, c5
+  |d| 6.11, the picture shift negative, L-R 3-14 at 64x64 against the one-picture dump's 1.5 -
+  two pictures throughout - and **the tag ring skewed against the draws 131 times in about four
+  minutes (every 2 s)**, each one a swap of the eyes before this session. So the one-picture
+  state did not recur on the build that pairs by the camera step; a swap every 2 s is what "the
+  eyes disagree 90 % of the time" was, and the one-picture pair is most simply two draws of one
+  eye's view held in both swapchains while the tags were off (not proven: the A/B is `c5 pairing`
+  OFF on the F10 EYES block for a minute after a load, which should bring the old eyes back).
+  The `THE EYES BECAME ONE PICTURE` warns in that log were the instrument's threshold being
+  wrong for a moving head (the floor holds a tick of head motion; a within-tick pair does not):
+  the verdict is an absolute 2.0 at 64x64 now (the one-picture dump reads 1.49, the smallest
+  true headset pairs 3.0).
+- **THE HEADSET RUN'S COST**: the trace read every present cost 1.5 ms of GPU idle per present
+  (the backbuffer stage's `GetRenderTargetData` is a pipeline sync on the user's GPU; `perf:
+  gpu idle(d3d9)` 1.5 vs 0.3 ms in run 17) and the tick went 13.9 -> 16.7 ms (60/s under 72 Hz,
+  `wait 0.0`, the time in the game's own Present). It samples one pair every 8 ticks now
+  (`[Perf] FrameIdEvery=8`, `frameid every N`) and has an F10 tickbox (off = no cost at all).
 - **Also shipped**: `dump eyes` writes a consecutive pair, encoded on a worker thread (no stall,
   no re-arm); the beat line's `presentTid` follows the presenting thread; pass-2 eye writes the
   camera seam refused are counted (`p2write refused=`, `cam=`); `capture status` prints the
@@ -49,7 +65,9 @@ Nothing has run on the headset this session.
 **The user (headset, Quest 3 via VDXR), ONE scripted run** with `dishonored_vr.log` copied out
 after it: (1) install the build, launch with the shipped ini (it has the new keys already; a
 fresh ini adds `[Perf] FrameId=1` and `[Stereo] C5Pair=1`), load a level and WAIT 30 s without
-pausing; say whether the eyes fuse; (2) everything else is on the F10 Display tab's EYES block
+pausing; say whether the eyes fuse AND whether the tick line reads 72/s again (the trace is
+sampled now; the F10 EYES block's `frame-identity trace` tickbox off is the A/B if not); (2)
+everything else is on the F10 Display tab's EYES block
 (the readout line, DUMP EYES, REARM 2, CAPTURE REINIT, PROJECTION OFF / AUTO, the c5 pairing
 tickbox, and the capture mode combo above it): if the eyes are one picture press REARM 2, judge;
 CAPTURE REINIT, judge; PROJECTION OFF then PROJECTION AUTO, judge; the combo to deferred then
@@ -97,6 +115,7 @@ lane, RTX 4060, 2496x2688 VirtualMode, the sewers, shipped defaults; logs in
 | 02 | the sc stage, the side check | sc reads (4.7-5.0); **the side flipped across `reentry rearm 2`** (the -1 tag's c5 from y=6376.9 to 6383.1) and within a second of the first arming; rearm 1 and 3 did not flip; the ring overflowed 363 times in the menu |
 | 03 | the 0-tag push + the c5 pairing (first form), the A/B | side ok from the first pair; `reentry c5pair off`: the side flipped on its own twice in 25 s, `untagged 16-19` per window; `c5pair on`: no flips, ~1 realign per second at Info |
 | 04 | the invariant as the pairing, the picture shift | side ok + shift -1 px on every pair, P1 == P2, untagged 0-1; across rearm 2 and `capture reinit`; `reentry.xrs` 11/11; a `stereo mono` -> `reentry` switch left a ring backlog the one-pop realign drained slowly (30 in 3 s) |
+| 07 | **HEADSET (the user)**, the session's build, the F10 EYES block | the eyes right from the load; `side ok` / `SWAPPED=0` on every pair, c5 6.11, shift negative, L-R 3-14 (one picture = 1.5); the ring skewed 131 times in ~4 min (every 2 s: the old swaps); the trace read every present cost 1.5 ms GPU idle per present, tick 16.7 ms (60/s) - sampled every 8 ticks since |
 | 05 | the drain to the next expected tag | side ok + shift -1 px from the first pair, across a `stereo mono` -> `stereo reentry` switch and a `reentry rearm 2`; one realign line in a minute (53 lifetime, 3 disagreements each, `c5Untagged` 57 = presents that found the ring empty and were named by the measurement), 0 ring drops, P1 == P2 |
 
 ### 2026-09-03 - session 8: performance - the tick budget, the census, the 9Ex device, the shared capture

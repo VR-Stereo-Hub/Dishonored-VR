@@ -86,6 +86,7 @@ static void WriteDefaultIni(const char* ini)
         "GpuQueries=1\n"
         "ForceNoVSync=1\n"
         "FrameId=1\n"
+        "FrameIdEvery=8\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -545,6 +546,7 @@ static void LoadConfig()
         if (!gpu) dvr::perf::set_gpu_enabled(false);
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
         dvr::frameid::set_enabled(fid);
+        dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
             inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
 
@@ -1093,6 +1095,16 @@ static void EnsureConfig()
 // 41.1 (session 8): the [Device] keys are launch-time; the seam word and the
 // F10 tickbox write them for the NEXT launch (no version bump: the rewrite
 // would wipe a tuned ini), and say so.
+// 41.1 (session 9): one key into the ini for the F10 tickboxes that are live
+// AND persistent (the trace, the c5 pairing), so a tester's choice survives
+// the next launch without an ini edit.
+static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who)
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA(section, key, value, ini);
+    Log("config: [%s] %s=%s written by %s (live now, and the next launch's default)", section, key, value, who);
+}
 static void DeviceSetEx(bool on, const char* who)
 {
     char ini[MAX_PATH];
