@@ -283,6 +283,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("capW", (int)dvr::capture::width()); w.kv("capH", (int)dvr::capture::height());
     w.kv("capMode", dvr::capture::mode_name());
     w.kv("capShared", dvr::capture::probed() && dvr::capture::shared_available());
+    w.obj("perf"); dvr::perf::status(w); w.end_obj();   // 41.1 (session 8): the tick budget
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("camera"); dvr::camera::status(w); w.end_obj();

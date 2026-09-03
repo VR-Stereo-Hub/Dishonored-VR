@@ -80,7 +80,7 @@ public:
         const dvr::capture::Cost c = dvr::capture::cost();
         w.obj("captureCost");
         w.kv("rtdUs", (int)c.rtdUs); w.kv("lockUs", (int)c.lockUs); w.kv("copyUs", (int)c.copyUs);
-        w.kv("uploadUs", (int)c.uploadUs); w.kv("totalUs", (int)c.totalUs);
+        w.kv("uploadUs", (int)c.uploadUs); w.kv("blitUs", (int)c.blitUs); w.kv("totalUs", (int)c.totalUs);
         w.kv("grabs", (int)c.grabsInWindow);
         w.end_obj();
     }

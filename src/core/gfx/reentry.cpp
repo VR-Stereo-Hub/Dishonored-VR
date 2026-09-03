@@ -254,6 +254,14 @@ public:
         w.kv("ringDropped", (unsigned long)g_ringDropped);
         w.kv("ringCleared", (unsigned long)g_ringCleared);
         if (g_hooks.status) { w.obj("draw"); g_hooks.status(w); w.end_obj(); }
+        // 41.1 (session 8): the capture cost under the shipped method too
+        // (only the mono screen wrote it, so a default run had none).
+        const dvr::capture::Cost c = dvr::capture::cost();
+        w.obj("captureCost");
+        w.kv("rtdUs", (int)c.rtdUs); w.kv("lockUs", (int)c.lockUs); w.kv("copyUs", (int)c.copyUs);
+        w.kv("uploadUs", (int)c.uploadUs); w.kv("blitUs", (int)c.blitUs); w.kv("totalUs", (int)c.totalUs);
+        w.kv("grabs", (int)c.grabsInWindow);
+        w.end_obj();
     }
 
 private:
