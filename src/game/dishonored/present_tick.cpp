@@ -1,4 +1,4 @@
-// game/dishonored/present_tick.cpp - the game side of the frame path (41.0).
+﻿// game/dishonored/present_tick.cpp - the game side of the frame path (41.0).
 // Included by the unity build. core/framework/frame_hooks (a real module) owns
 // the D3D9 hooks and the ORDER of the frame path; what the game does per
 // present - the seam poll, the head pose into the camera write, the hands, the
@@ -84,6 +84,93 @@ static void DvrConsumePoses()
     }
 }
 
+// 41.1: FOV from the render size. While a projection layer is claimed the
+// lever's TARGET follows the aspect of the frame the game renders (the
+// runtime circumscribes the headset's per-eye FOV at the swapchain aspect:
+// dvr::vr::suggested_hfov_deg, 137 deg at 16:9 on a Quest 3), and the layer
+// claims the SENSOR (camera+0x53c, what the engine actually rendered), never
+// the target - a claim that mismatches the render reads as fisheye or a
+// binocular-scope squeeze in the headset. On the quad screen the lever is the
+// manual [Screen] FovLever (default off) and no claim is made. The derived
+// numbers print on every change so a complaint is arithmetic.
+static void DvrFovHandoff()
+{
+    static bool  wasProj = false;
+    static float saidTarget = -1.0f, saidSensor = -1.0f;
+    static uint32_t saidW = 0, saidH = 0;
+    const bool proj = dvr::stereo::wants_projection();
+    if (proj) {
+        const float target = dvr::vr::suggested_hfov_deg();   // 0 until the views are located
+        dvr::camera::set_fov_deg(target);
+        const float sensor = dvr::camera::rendered_fov_deg();
+        dvr::vr::set_rendered_hfov(sensor);
+        const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
+        if (fabsf(target - saidTarget) > 0.05f || fabsf(sensor - saidSensor) > 0.5f || w != saidW || h != saidH) {
+            saidTarget = target; saidSensor = sensor; saidW = w; saidH = h;
+            const float aspect = h ? (float)w / (float)h : 0.0f;
+            const float vfov = (target > 0.0f && aspect > 0.0f)
+                                   ? 2.0f * atanf(tanf(target * 0.5f * 0.0174533f) / aspect) * 57.29578f : 0.0f;
+            uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh);
+            float hh = 0.0f, hv = 0.0f; dvr::vr::headset_half_fov_deg(&hh, &hv);
+            Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f); "
+                "sensor %.1f deg = the layer's claim%s; eye %ux%u",
+                aspect, w, h, target, vfov, hh, hv, sensor,
+                sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : "",
+                ew, eh);
+        }
+        wasProj = true;
+    } else if (wasProj) {
+        wasProj = false;
+        saidTarget = saidSensor = -1.0f;
+        dvr::camera::set_fov_deg(g_fovLever);   // back to the manual lever (0 = off)
+        dvr::vr::set_rendered_hfov(0.0f);
+        Log("fov: projection released - lever back to [Screen] FovLever=%.0f, no claim", g_fovLever);
+    }
+}
+
+// The game side's "strict gameplay" verdict for the runtime's cinematic gate
+// (the same terms as the [game] state line: a live pawn, no menu, no cinematic).
+static bool DvrGameplayVerdict()
+{
+    const bool pawn = CylTruthLive();
+    const bool viewLive = DvrScriptViewLive();
+    const bool verdict = pawn && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow && viewLive;
+
+    // 41.1: name the gate that flipped. A false verdict drops the runtime's
+    // layer to the head-locked quad ("xr: cinematic quad ON"), and in the
+    // headset that reads as the frames pinned in front of your face while
+    // the world stops turning with you (the 2026-09-03 run: once, after
+    // turning around, cleared by an alt-tab). The runtime's line only says
+    // strict=0; this one says WHICH term did it, so a remote log can tell a
+    // pause menu from a missed menu-close event from a starved view pipeline.
+    static bool said = false, last = false;
+    static uint64_t falseSinceMs = 0;
+    if (!said || verdict != last) {
+        said = true; last = verdict;
+        falseSinceMs = verdict ? 0 : GetTickCount64();
+        const char* why = verdict ? "all clear" : !pawn ? "no live pawn" : g_menuOpen ? "menuOpen"
+                        : g_inMenu ? "inMenu" : g_mainMenu ? "mainMenu" : g_cineNow ? "cinematic latch"
+                        : "view pipeline silent (no ProcessViewRotation dispatch)";
+        Log("gameplay verdict: %s (%s) pawn=%d menuOpen=%d inMenu=%d mainMenu=%d cine=%d viewLive=%d "
+            "lastHeadWrite=%.0f ms ago -> the runtime's layer is %s",
+            verdict ? "TRUE" : "FALSE", why, pawn ? 1 : 0, g_menuOpen ? 1 : 0, g_inMenu ? 1 : 0,
+            g_mainMenu ? 1 : 0, g_cineNow ? 1 : 0, viewLive ? 1 : 0,
+            g_scriptHeadOK ? (MaimNowMs() - g_scriptHeadMs) : -1.0,
+            verdict ? "the projection (world-locked)" : "the head-locked quad (frames pinned to the head)");
+    } else if (!verdict && falseSinceMs && GetTickCount64() - falseSinceMs > 5000) {
+        // Still false 5 s later and no menu owns it: say so, once per spell.
+        // A pause menu is expected to sit here; gameplay is not.
+        falseSinceMs = 0;
+        if (!g_menuOpen && !g_inMenu && !g_mainMenu)
+            DVR_WARN("gameplay verdict: FALSE for 5 s with NO menu open (pawn=%d cine=%d viewLive=%d, last head "
+                 "write %.0f ms ago) - the headset shows a head-locked quad in what is probably gameplay; "
+                 "F9 / alt-tab clears the parked state, and this line is the evidence for what parked it",
+                 pawn ? 1 : 0, g_cineNow ? 1 : 0, viewLive ? 1 : 0,
+                 g_scriptHeadOK ? (MaimNowMs() - g_scriptHeadMs) : -1.0);
+    }
+    return verdict;
+}
+
 // Every enabled present, after the runtime located the head for this frame
 // and before the stereo method captures the game's frame.
 static void DvrGameTick(IDirect3DDevice9* self)
@@ -125,9 +212,12 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::set_ipd_m(g_ipdM);
         dvr::camera::set_world_scale(g_posScaleUU);
         dvr::camera::eyetest_present_tick();
+        dvr::camera::postest_present_tick();
+        DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
+        SceneProbePresentTick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
-        FrameDumpTick();
+        FrameDumpTick(self);
         // UE3 probe: automatic at ~frame 900 and ~frame 14400, or F9 on demand
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         bool f9Edge = f9 && !g_f9WasDown;
@@ -152,9 +242,15 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 double gfps = g_gameFrames / el;
                 double sfps = (double)(dvr::frame::submit_count() - sbPrev) / el;
                 sbPrev = dvr::frame::submit_count();
-                Log("heartbeat: GAME=%.0ffps  headset(submits)=%.0ffps  pos=%d lean=(%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
-                    gfps, sfps,
-                    (int)g_posTrack, (float)g_leanRightUU, (float)g_leanUpUU,
+                // 41.1: the positional OWNER is named (vp = the c0 patch, camera = the
+                // seam's write), and the forward component joins the pair. GAME= counts
+                // PRESENTS; under reentry (two per tick) ticks= is the draw count.
+                static uint32_t drawsPrev = 0;
+                const uint32_t drawsNow = SceneDrawDraws();
+                Log("heartbeat: GAME=%.0ffps (presents; ticks=%.0f/s)  headset(submits)=%.0ffps  pos=%d postrack OWNER=%s lean=(%+.1f,%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
+                    gfps, drawsNow > drawsPrev ? (drawsNow - drawsPrev) / el : gfps, sfps,
+                    (int)g_posTrack, dvr::camera::pos_lane_name(),
+                    (float)g_leanRightUU, (float)g_leanUpUU, (float)g_leanFwdUU,
                     (int)g_padActive, (long)g_padPolls,
                     (long)g_pvrHits, (int)g_rotInject,
                     g_idxViewRot != 0xffffffffu ? "found" : "hunting",
@@ -219,6 +315,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 memset(g_rtdCensus, 0, sizeof(g_rtdCensus));
                 g_pvrHits = 0; g_pvrWrites = 0; g_fovLeverWrites = 0;
                 g_gameFrames = 0; g_padPolls = 0;
+                drawsPrev = drawsNow;
                 hbQpc = now.QuadPart;
             } else if (!hbQpc) {
                 hbQpc = now.QuadPart;
@@ -466,6 +563,14 @@ static void DvrInstallFrameHooks()
     cb.set_vs_const         = hkSetVSConstF;
     cb.set_render_target    = hkSetRenderTarget;
     cb.d3d11                = DvrFrameD3D11;
+    cb.gameplay_verdict     = DvrGameplayVerdict;
     dvr::frame::set_callbacks(cb);
+    dvr::stereo::ReentryHooks rh;
+    rh.available = SceneDrawAvailable;
+    rh.set_armed = SceneDrawSetArmed;
+    rh.poisoned  = SceneDrawPoisoned;
+    rh.status    = SceneDrawStatus;
+    rh.draws     = SceneDrawDraws;
+    dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
 }

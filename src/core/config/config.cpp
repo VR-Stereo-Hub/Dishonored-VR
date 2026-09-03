@@ -22,14 +22,25 @@ static void WriteDefaultIni(const char* ini)
         "InvertPitch=0\n"
         "[Stereo]\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
-        "; mono shows the game on a head-locked screen in both eyes; aer and reentry\n"
-        "; are design stubs in 41.0 and refuse with a note (`stereo <name>` switches live).\n"
+        "; mono shows the game on a head-locked screen in both eyes (ships); reentry draws\n"
+        "; the scene twice per tick, once per eye, into a projection layer (41.1, verified on\n"
+        "; the simulator, awaiting the headset verdict); aer is a design stub and refuses with\n"
+        "; a note. `stereo <name>` switches live and fails soft.\n"
         "Method=mono\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
         "; the per-eye camera seam); none disables the write.\n"
         "EyeField=0x330\n"
+        "[Capture]\n"
+        "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
+        "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
+        "; (the baseline, ~5 ms per present at 1080p); deferred copies on the GPU, queues\n"
+        "; the readback and locks it one present later (~2.3 ms measured; the picture is one\n"
+        "; present late; also resolves a multisampled backbuffer); shared needs a device\n"
+        "; that can share (the log's capture/probe lines say). `capture mode <m>` switches\n"
+        "; live; `capture status` prints the cost.\n"
+        "Mode=sync\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -84,6 +95,13 @@ static void WriteDefaultIni(const char* ini)
         "[PosTrack]\n"
         "; Stage 5: positional head tracking - lean/peek/crouch with your real\n"
         "; head. F4 = toggle, F5 = re-center to your current head position.\n"
+        "; Lane=auto|vp|camera: where the offset is applied. vp patches the view-projection\n"
+        "; matrix at c0 (the mono screen's path; attachments do not follow); camera writes it\n"
+        "; into the camera field with the per-eye offset (game/dishonored/camera); auto = vp\n"
+        "; on the mono screen, camera under a projection layer (stereo), where the head's raw\n"
+        "; displacement drives the camera. `postrack lane <l>` switches live; `camera postest\n"
+        "; <R> [U] [F]` measures the travel in uu.\n"
+        "Lane=auto\n"
         "; Scale = game units per meter. 50 is GingasVR's shipped value and is\n"
         "; the baseline her release was tuned around, so it is what ships.\n"
         "; NOTE: 100 is the MEASURED value (1 uu = 1 cm), derived from the\n"
@@ -275,10 +293,21 @@ static void LoadConfig()
         GetPrivateProfileStringA("Camera", "EyeField", "0x330", ef, sizeof(ef), ini);
         dvr::camera::set_eye_field(ef);
     }
+    {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
+        // mode is refused with the reason and sync keeps running)
+        char cm[16] = "";
+        GetPrivateProfileStringA("Capture", "Mode", "sync", cm, sizeof(cm), ini);
+        if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
+    }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
     g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
     g_posTrack   = IniFloat(ini, "PosTrack", "Enabled", 1) != 0.0f;
+    {   // [PosTrack] Lane: vp (the c0 patch, shipped) or camera (the seam's write)
+        char pl[16] = "";
+        GetPrivateProfileStringA("PosTrack", "Lane", "auto", pl, sizeof(pl), ini);
+        if (!dvr::camera::set_pos_lane(pl)) dvr::camera::set_pos_lane("auto");
+    }
     g_crouchEyeCfg   = IniFloat(ini, "PosTrack", "CrouchEyeDrop", 1) != 0.0f; // 38.15
     g_crouchEyeScale = IniFloat(ini, "PosTrack", "CrouchEyeScale", 1.0f);
     if (g_crouchEyeScale < 0.0f) g_crouchEyeScale = 0.0f;

@@ -115,6 +115,9 @@ static inline void FovLeverApply()
             }
             zmax = g_ecCeil;
         }
+        // 41.1: the camera seam's position write (lean, crouch on the camera
+        // lane) runs after this pass and caps what it writes at the same ceiling.
+        dvr::camera::set_eye_ceiling(zmax, true);
         static const uint32_t kCamLoc[4] = { kCamLoc0, kPovOffs[0], kPovOffs[1], kPovOffs[2] };
         bool did = false; float was = 0.0f;
         for (int ci = 0; ci < 4; ci++) {
@@ -136,5 +139,7 @@ static inline void FovLeverApply()
                     g_cylLast);
             }
         }
+    } else {
+        dvr::camera::set_eye_ceiling(0.0f, false);
     }
 }

@@ -26,7 +26,10 @@ question the simulator could answer is a wasted session.
 | Which camera field does the renderer honour? | log | `game-cmd.ps1 "camera eyetest 100"` in gameplay, standing still | `camera/eyetest: <field> ... HONOURED|DISCARDED|INCONCLUSIVE`, then `DONE` with the field for `[Camera] EyeField` (ENGINE_NOTES, the per-eye camera seam) |
 | Are the two eyes paired? (S2) | log | `tools\eye-check.ps1` leg 0 | `stereo: beat ... L/s=N R/s=N`, both flowing and within 80% |
 | Does head rotation move the camera? | capture | `headlook.xrs` | `img-diff` of left eye at yaw 0 vs 35 rises well above the ~0.4 noise floor |
-| Stereo depth present? | capture | `stereo.xrs` | left vs right `img-diff` >> 0.4 |
+| Stereo depth present? | capture | `stereo.xrs` | left vs right `img-diff` >> 0.4 (BioShock's expectation; on Dishonored a true pair reads LOWER than the mono projection - see the row below) |
+| Is SequentialReentry drawing two eyes? (S2b) | log + capture | `xrsim-run.ps1 -Path tools\xrsim\reentry.xrs` from GAMEPLAY | `projectionViews eq 2`, `capNonBlackL/R >= 30`, then the log: `reentry: beat draws/s == 2nd/s`, `stereo: beat L/s == R/s == out/s / 2`, `reentry: pair - the +1 present's c5 sits (0 ipd*scale 0) uu from the -1 present's`; `stereo mono` restores the quad |
+| What is the capture costing? | log | `capture status`, or the 3 s `capture: cost/present rtd= lock= copy= upload= blit= total=` line | sync ~5 ms at 1080p (the lock is the wait), deferred ~2.3 ms; `capture mode deferred` is the live A/B |
+| Is the game really in gameplay? | log | `[game] state:` line, `status.json` `state` | the title screen reads MENU, the main menu MENU, a loading screen LOADING, a cutscene CINEMATIC; the simulator's saved game reaches GAMEPLAY with `game-key.ps1 -Key Return` three times (start screen, Continue, "press any key" after the load, ~45 s) |
 | World rigidity under 6DoF | capture | `world-6dof.xrs` | `ClaimRatioH` ~1.0 at every yaw/pitch, `EyeSeparationM` constant |
 | Is the weapon glued to the controller? | capture | `coupling-hand.xrs` | hand-quad bbox moves with the hand, not the head |
 | Frame pacing collapse | capture | `unfocused-pacing.xrs` | `@fps 60` across FOCUSED -> VISIBLE -> FOCUSED |
@@ -190,6 +193,12 @@ defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault
     at a real location: `DVR_DATA_DIR=D:\dvr-data` for the scripts and `[Paths]
     DataDir=D:\dvr-data` in `dishonored_vr.ini` for the mod; the simulator follows the
     manifest's directory when `DVR_XRSIM_DIR` cannot reach it.
+15. **The game does NOT auto-continue into a level on the simulator.** A launch sits on the
+    title screen ("Press any key") behind the attract scene, whose camera dispatches like
+    gameplay; until 41.1 the state line read GAMEPLAY there and every instrument measured
+    the attract camera (runs 16-21 did). Walk in with `tools\game-key.ps1 -Key Return` three
+    times (title -> main menu, Continue -> the load, "press any key" -> the level) and wait
+    for `[game] state: GAMEPLAY`; look at a `xrsim-shot` before believing a number.
 
 
 Comfort, judder, warp, world scale, the mono screen's size and distance, fusion once a

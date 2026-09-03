@@ -30,7 +30,12 @@ static const uint32_t  kClassOff = 0x30;
 static const uint32_t  kOuterOff = 0x24;
 
 // ---- Camera object ----
+// A row-major basis at +0x50..+0x7F: forward, right, up (the original
+// author's FindPovRotators matched +0x50 against the POV rotator's forward;
+// 41.1 validates the three rows orthonormal before writing along them).
+static const uint32_t  kCamFwd   = 0x50;   // basis X (forward) row
 static const uint32_t  kCamRight = 0x60;   // basis Y (right) row
+static const uint32_t  kCamUp    = 0x70;   // basis Z (up) row
 static const uint32_t  kCamLoc0  = 0x80;   // matrix translation row
 static const uint32_t  kCamLoc1  = 0x90;   // cached POV loc
 static const uint32_t  kCamLoc2  = 0xC4;   // cached POV loc 2
@@ -56,6 +61,27 @@ static const uint8_t   kBlkDirOrig[5] = { 0x8b, 0x08, 0x89, 0x4d, 0xb4 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };
+
+// ---- The scene-draw root (41.1, derived live 2026-09-03; ENGINE_NOTES "The
+// scene-draw root, derived live") ----
+// FViewport::Draw's analog: __thiscall on the viewport, ONE stack arg
+// (bShouldPresent; `ret 4` at +0x1fc), SEH prologue. Its body builds a stack
+// canvas, calls the viewport client's Draw through [viewport+0x1c] -> vtable
+// slot 2, tears the canvas down; the present is enqueued to the render thread
+// from its tail. UGameEngine::Tick (0x632860, reached through the engine
+// vtable's Tick at +0x124 from the main loop) calls it ONCE per tick at
+// 0x6330dc as `push 1; call` with ecx = GameViewport->Viewport - the gameplay
+// dispatcher, and the ONLY site the re-entry patches (3 static E8 callers
+// exist; the other two are not gameplay). Byte-verified before patching.
+static const uintptr_t kViewportDraw = 0x005fc5b0;
+static const uint8_t   kViewportDrawPrologue[16] = { 0x55, 0x8b, 0xec, 0x6a, 0xff, 0x68, 0xa3, 0x97,
+                                                     0xf2, 0x00, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00 };
+static const uint32_t  kViewportDrawRetImm = 4;                 // one stack arg
+static const uintptr_t kViewportDrawCallSite = 0x006330da;      // push 1; call rel32 (7 bytes)
+static const uint8_t   kViewportDrawCallSiteOrig[7] = { 0x6a, 0x01, 0xe8, 0xcf, 0x94, 0xfc, 0xff };
+static const uintptr_t kViewportDrawGameplayRet = 0x006330e1;   // the return address of that call
+static const uintptr_t kGameEngineTick = 0x00632860;            // UGameEngine::Tick (derivation only)
+static const uint32_t  kViewportClientOff = 0x1c;               // FViewport -> its client (derivation only)
 
 // ---- Import table slots ----
 static const uintptr_t kXIGetSlot = 0x00f946c4; // IAT slot: xinput1_3 ord 2

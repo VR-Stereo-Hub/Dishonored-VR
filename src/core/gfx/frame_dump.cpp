@@ -89,12 +89,13 @@ static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex)
 }
 
 // Present thread, after the eyes are rendered and before they are submitted.
-static void FrameDumpTick()
+static void FrameDumpTick(IDirect3DDevice9* dev)
 {
     if (!g_dumpReqCapture && !g_dumpReqEyes) return;
     char path[MAX_PATH];
     if (g_dumpReqCapture) {
         g_dumpReqCapture = 0;
+        dvr::capture::snapshot_pixels(dev);   // shared mode: read this present back, not the 3 s sample
         const uint8_t* px = dvr::capture::pixels();
         const uint32_t cw = dvr::capture::width(), ch = dvr::capture::height();
         if (px && cw && ch) {

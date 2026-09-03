@@ -174,6 +174,277 @@ location" was wrong - retire it). Whether 0x330 persists between dispatches (the
 re-base logic) was not separated out; the eyetest's own 120-present window shows the value
 must be rewritten every dispatch, which the seam does.
 
+## Head roll: UE3 positive roll = right ear DOWN (2026-09-03, measured by picture)
+
+The second headset run reported the head TILT reversed under the projection layer. The
+roll telemetry on the `headtrack:` line (41.1) first proved the write LANDS - `incoming`
+(what the engine hands ProcessViewRotation) equals `wrote` on the next dispatch, so the
+engine keeps our roll and it reaches the render. The direction was then measured on the
+simulator by picture (run 37): `head rot 0 0 20` rolls the simulated head right-ear-down
+(the simulator's roll is a rotation about the forward axis, `quat_from_ypr`), and the
+game's own frame showed the world's verticals leaning with their tops to the RIGHT. A
+right-ear-down head must see them lean LEFT. Reversed, as reported.
+
+Cause: `g_hmdRoll = atan2(right.y, up.y)` is positive for the right ear UP, and UE3's
+rotator roll is positive for the right ear DOWN (the picture: writing a negative roll
+rolled the camera left-ear-down). The value is now negated once at its derivation, so the
+ProcessViewRotation write, the matrix injection and the lean counter-rotation all inherit
+UE3's sense; `[HeadInject] FlipRoll` stays the A/B override with 1 = the measured
+direction. Re-measured after the fix (run 38): +20 leans the verticals left, -20 right,
+the exact mirror of the faulty frames; pitch and yaw untouched (hmd pitch -30 -> view
+pitch -5461 units = -30 deg).
+
+## The camera field holds the POSITION, c5 is its negation (2026-09-03, corrects session 5)
+
+**This one sign put every eye offset and every lean backwards in the headset.** Session 5's
+`camera eyetest` measured that camera+0x330 reads exactly -c5, assumed c5 was the camera's
+world position, and recorded the field as holding the NEGATED position (`kFields[].sign =
+-1`). Everything downstream then wrote its offsets negated.
+
+**The measurement that settles it** (run 35, the simulator, the sewers, a DIFFERENTIAL
+picture test against a known-good reference - the c0 `LeanVP` patch, shipped and
+headset-tuned since 30.35): command the same head displacement on both lanes under a
+projection layer and dump the game's own frame.
+
+| displacement | vp lane (`LeanVP`, the reference) | camera lane, sign -1 (session 5) | camera lane, sign +1 |
+|---|---|---|---|
+| 2 m right | the corridor wall on the LEFT, the city outside on the right (the camera went right, through the wall) | MIRRORED: wall right, city left (the camera went LEFT) | matches the reference |
+| 2 m up | up inside the ceiling pipe, the corridor floor below | the camera went DOWN, under the floor looking up | matches the reference |
+
+So writing +X into camera+0x330 moves the rendered view by +X: **the field holds the
+camera's world POSITION, and c5 (the vertex constant) is its negation.** Two independent
+confirmations: the shipped 38.24 crouch clamp writes a world Z into these same fields and
+compares it against the pawn's world Z (which only makes sense for a position), and it was
+verified to fix crouch; and the picture above.
+
+`kFields[]` now carries two numbers: `sign` (what a wanted WORLD displacement is multiplied
+by to become the field delta: +1) and `c5Sign` (how c5 answers it: -1 on the POV fields).
+The eyetest asks for VIEW travel and expects c5 to move by `uu * c5Sign`; it still reads
+**HONOURED 119/120** (c5 -99.2 uu for +100 asked), the postest reads HONOURED on both axes
+(+29.8 for +30 right, -24.4 for -25 up), and the doubling is unaffected (L/s 52 R/s 51,
+draws = 2nd = 52).
+
+**The trap, for the next reader.** The eyetest was an instrument that could not fail its own
+hypothesis: it wrote into a field and measured a DIFFERENT engine quantity (c5) that moves
+with it, so it proved "the renderer noticed" and was read as "the renderer drew from the
+offset position". Only the picture can answer the direction. Any future write point needs a
+differential picture test against a known-good path before its sign is believed.
+
+## Positional tracking on the camera seam (2026-09-03, S1)
+
+The camera object carries a row-major basis at +0x50 (forward), +0x60 (right, `kCamRight`),
++0x70 (up); the original author's `FindPovRotators` matched +0x50 against the POV
+rotator's forward, and 41.1 reads all three (`kCamFwd`/`kCamRight`/`kCamUp` in patterns.h),
+validating them orthonormal before the first write. Measured at yaw 0 in the auto-continued
+save (run 20): `fwd=(1.000 0.000 -0.002) right=(-0.000 1.000 -0.000) up=(0.002 0.000 1.000)`,
+pairwise dots 0.000 (UE3: X forward, Y right, Z up).
+
+Lean/crouch/roomscale used to ride the c0 view-projection patch (`LeanVP`), a matrix patch
+the renderer's attachments do not follow. `[PosTrack] Lane=vp|camera` (default vp, the
+shipped path; `postrack lane <l>` live) moves the offset onto the camera seam's write: ONE
+write per dispatch of `base - (eye + position)` into camera+0x330, the position offset
+resolved along the basis rows. The seam is the single owner of the offset (TrackHead
+publishes it there; both lanes read it there), and the `camera postest <R> [U] [F]`
+instrument overrides it with a commanded triple, takes 45 presents of c5 baseline at zero,
+then judges 120 presents:
+
+| lane | asked (R, U, F uu) | measured (c5 travel on the basis rows) | verdict |
+|---|---|---|---|
+| camera | +30, 0, 0 | +29.7, +0.2, +0.0 (mean of 120; 2284 seam writes) | HONOURED |
+| camera | 0, -25, 0 (a crouch drop) | +0.0, -24.4, -0.0 | HONOURED |
+| camera | 0, 0, +40 | +0.0, +0.4, +39.7 | HONOURED |
+| camera | +30, +25, -40 | +29.7, +25.2, -39.7 | HONOURED |
+| vp | +30, 0, 0 | the c0 patch ran on 120/120 presents (2760 uploads) | APPLIED (c5 cannot see a matrix patch) |
+
+**Where that table was measured.** Run 20's rows come from the TITLE SCREEN's attract
+camera (`DishonoredPlayerCamera_0`), which the state line called GAMEPLAY (the next section).
+Re-measured in real gameplay (run 21, the Dunwall Sewers level, `DishonoredPlayerCamera_1`,
+ProcessViewRotation dispatching at 270/3 s): `camera eyetest 100 0x330` HONOURED 120/120
+(+100.0 uu), `camera postest 30 0 0` on the camera lane measured R+30.0 U+0.2 F-0.0. The
+same two instruments on the level's LOADING screen ("press any key to continue", no script
+dispatches) read DISCARDED / NOT HONOURED with c5 frozen: a static camera the loader
+re-sets every tick. So the write point holds on the attract camera and in gameplay, and
+an instrument run must know which camera it measured: the `[game] state` line now says.
+
+So the renderer draws from the offset position on the camera lane within 1-2 %, on all
+three axes, the same write point the eye offset uses. What the instrument does NOT say:
+the vp lane's effect is a matrix change c5 never sees, so "the same travel on both lanes"
+is only half measurable; and a shot diff on the mono screen (a simulated 40 cm head step)
+reads 1.5-2.1 mean-abs-diff on both lanes against a 1.3-1.7 return-to-zero control, i.e.
+the scene's own animation swamps a 14 uu lean at the quad's 16 % coverage. The picture
+verdict belongs to a stereo method's projection layer (`world-6dof.xrs` `w_trans_x`).
+
+Two facts found on the way. (1) The 38.24 eye clamp lives inside `FovLeverApply` AFTER
+its early return, so it is dead whenever the lever is off - which is the mono screen's
+default (`[Screen] FovLever=0`). The camera lane's writer caps its Z at the same ceiling
+while the clamp is live (`camera::set_eye_ceiling`), so the two never fight; with the lever
+off neither runs. (2) The seam writes ~19 times per present (every ProcessEvent dispatch
+of the camera pass), which is the cadence the 38.24 clamp and the FOV lever already used.
+
+## The game state under GamepadOnly, and the projection gate (2026-09-03, S2)
+
+The `[game] state` line read GAMEPLAY on the title screen, in the main menu and on a
+loading screen (runs 21-22; the simulator captures showed "Press any key" while the
+instruments ran). Cause: every script-event tracker (the pause-menu open/close names, the
+`OnToggleCinematicMode` latch, the UI vocabulary) sat inside the motion-aim block behind
+`g_maimEnabled`, which `[Mode] GamepadOnly=1` turns off, and windowed mode has no cursor
+test (32.9). The same class of bug as the 41.0 PreExit handler. 41.1 hoists the tracking
+out (only the fire-window arm stays gated) and adds what the runs measured:
+
+| screen | signal (measured) | state |
+|---|---|---|
+| title screen / main menu | `Start`, `OnFocusGained`, `BackToStartScreen`, `Req_CanContinueGame` on an object whose class contains `MoviePlayerMainMenu`; leaves with `UnregisterControllerDelegates`. Its own flag (`g_mainMenu`): the stale-flag ghost test clears `g_menuOpen` while dispatches flow, and the attract camera behind the menu dispatches | MENU |
+| the attract scene's cinematic toggle | `OnToggleCinematicMode` fires ON at the title screen with the attract pawn already latched, so a level load INHERITED the latch (CINEMATIC in the sewers). A new pawn latch now clears it: a fresh level starts clean; in-level cutscenes keep their parity | CINEMATIC only in a cutscene |
+| loading screen ("press any key to continue") | no ProcessViewRotation dispatch for 750 ms with a live pawn (the head-write counter read 0/3 s); the loader dispatches a burst about once a second, so leaving LOADING needs one second of continuous dispatches | LOADING (new) |
+| gameplay | pawn live, no menu, no cinematic, dispatches continuous | GAMEPLAY |
+
+The runtime layer's projection path is gated on the same verdict: `frame_hooks` arms
+camera mode when the active method (or `stereo projection on`) claims a projection layer
+and publishes the verdict every present; the runtime's cinematic fallback (3-present
+hysteresis) drops to the quad screen on a false verdict and returns on a true one. Walked
+in run 24: title MENU -> quad, main menu MENU -> quad, load LOADING -> quad, level
+GAMEPLAY -> `xr: cinematic quad off`, two projection views, both eyes 72 % non-black.
+Before this, the runtime's projection machinery had no caller in this game at all (camera
+mode was the overlay checkbox only, and a stale verdict would have pinned the quad).
+
+Two FOV facts from the same runs. Under a projection layer the lever's target is the
+runtime's circumscribed hfov (137.0 deg at 16:9 on the simulated Quest 3; vfov 110.0 for
+the 54/55 deg half-angles) and the 0x53c sensor followed it to 137.0 within a second in
+gameplay (the engine interpolates: 136.1, 136.2 ... per present), the claim reading
+`src=readback`. The loading screen's camera ignores the lever (sensor 75.0, the level's
+natural FOV). And the lever captures its "natural base" whenever it re-arms: after an
+arm-disarm-arm it captured 137 (the FOV its own previous writes had left on the
+controller), so the ratio law then scales from 137, which is harmless for the target but
+means "natural" is not the game's 75 any more - a re-arm should reset the FOV first if the
+number is ever used as a baseline.
+
+The simulator's `claimRatioH` reads 2.17 under this lever by construction (the claim's
+tan(68.5) against the eye's own mean half-tangent, tan(54)/tan(44)): BioShock rendered
+the eye's own FOV, this lever renders the circumscribed one. Not a magnification error
+while the claim equals the render; `fovaudit src=readback` is the check.
+
+## The scene-draw root, derived live (2026-09-03, S2b)
+
+The SequentialReentry seam needs the ONE function whose call tree draws the scene and
+enqueues the present, called once per tick from the engine's tick. Derived live in runs
+26-27 with the instruments in `game/dishonored/scene_probe.cpp` (`reentry census`, `reentry
+stack event|caller|present`, `reentry probe`, `reentry findstart`), the method BioShock
+Infinite's session 40 used (bioshock-1-vr-mod, ENGINE_NOTES "the render root"), then
+confirmed statically with `tools\pe-xref.ps1`. Static walking alone was not attempted: on
+Infinite it failed twice.
+
+**1. The caller census at the camera write.** `ProcessViewRotation` (the head-tracking
+write's dispatch) is dispatched from ONE call site, `call eax` returning to `0x005d0789`,
+693 times in 693 presents (once per present); the dispatching object is the camera
+modifier (`CameraModifier_CameraShake`). The script thread and the present thread are
+DIFFERENT threads (script tid 16012, present tid 16848 that run): a render thread presents;
+this game is Infinite's substrate (threaded, `OneFrameThreadLag`), not BioShock 1's.
+
+**2. The one-shot stack scrapes** (`RtlCaptureStackBackTrace` is cut to 3 frames by
+frame-pointer-omitted code; the raw call-preceded scrape walks the whole chain and, for an
+`E8` site, names the function the frame ENTERED). Two chains on the game thread, walk-up
+order, outermost frames last; they SHARE their outer half:
+
+| ret | enters | role |
+|---|---|---|
+| `0x00ec44f3` | `0x009e3c60` | the main loop's per-frame body |
+| `0x009e3d20` | `0x009e3b90` | |
+| `0x009e3c4a` | `0x009e3980` | |
+| `0x009e3b1f` | `0x009e03b0` | the frame function that calls the engine: at `0x9e0555` it does `mov edx,[ecx]; mov eax,[edx+0x124]; push ecx; fstp [esp]; call eax` = `GEngine->Tick(DeltaSeconds)` (a virtual with ONE float argument) |
+| `0x009e055a` | (virtual) `0x00a17890` | `UDishonoredEngine::Tick` (0 direct callers, 1 `.rdata` vtable reference - a virtual, as it must be); it calls `0x00632860` at `0xa1799f` |
+| `0x00a179a4` | `0x00632860` | **`UGameEngine::Tick`** (1 direct caller = the subclass above, 1 vtable reference); both chains below live inside it |
+| tick chain: `0x00632a09` | `0x0065e0d0` | the world tick (1 caller) -> ... -> `0x005d0710` (1 caller) -> `call eax` at `0x5d0784` = the `ProcessViewRotation` dispatch. **The camera is computed in the TICK, before the draw** |
+| draw chain: `0x006330e1` | **`0x005fc5b0`** | **the viewport draw root** (below) -> at `0x5fc92b` `mov ecx,[ebx+0x1c]; mov edx,[ecx]; mov edx,[edx+8]; ... call edx` = the viewport CLIENT's Draw through `[viewport+0x1c]` -> vtable slot 2 (Infinite's exact shape) -> a script event on the viewport client -> natives -> the generic event helper at `0x567a5e` (the ONLY direct `E8` caller of `ProcessEvent` in the exe; every other dispatch is virtual) -> `ProcessEvent(PostRender)` on `DishonoredHUD` |
+
+**3. The bytes at the call site** (`reentry probe 633090 128`), inside `UGameEngine::Tick`:
+
+    63309a  mov edi,[esi+0x48c]        ; this->GameViewport (UGameViewportClient*)
+    6330a0  test edi,edi / jz
+    ...     (a virtual on the client with one argument, slot 0xec)
+    6330cd  mov eax,[esi+0x48c]
+    6330d3  mov ecx,[eax+0x40]         ; GameViewport->Viewport (FViewport*)
+    6330d6  test ecx,ecx / jz 6330e1
+    6330da  push 1                     ; bShouldPresent = TRUE
+    6330dc  call 0x5fc5b0              ; FViewport::Draw(TRUE)   <- kViewportDrawCallSite
+    6330e1  ...                        ; kViewportDrawGameplayRet
+
+and the root: `0x005fc5b0` begins `55 8b ec 6a ff 68 a3 97 f2 00 64 a1 00 00 00 00` (push
+ebp; mov ebp,esp; push -1; push 0xf297a3; mov eax,fs:[0] - an SEH prologue, a function
+entry), its first `ret imm16` is `ret 4` at +0x1fc (ONE stack argument: the `push 1`), its
+body builds a canvas (the `lea ecx,[ebp-0x10c]; call` pair around the client-Draw dispatch)
+and tears it down after. `pe-xref`: 3 direct callers (`0x4dba68`, `0x6330dc`, `0x641d87`),
+0 vtable references; only `0x6330dc` is the per-tick gameplay dispatcher - the other two
+are not reached in gameplay (the deny gate's foreign-caller counter reads 0 across the
+runs). The control for the static tool: `ProcessEvent 0x470640` must report exactly 1
+direct caller (`0x567a5e`) and ~2087 vtable references, and it does.
+
+**The values in patterns.h**: `kViewportDraw 0x005fc5b0`, `kViewportDrawPrologue[16]`,
+`kViewportDrawRetImm 4`, `kViewportDrawCallSite 0x006330da` (7 bytes `6a 01 e8 cf 94 fc
+ff`, the `push 1; call`), `kViewportDrawGameplayRet 0x006330e1`, `kGameEngineTick
+0x00632860` and `kViewportClientOff 0x1c` (derivation only). Every hook byte-verifies the
+prologue AND the site (and that the site's rel32 targets the root) before patching, and
+refuses with the bytes it found.
+
+**4. Made to MOVE.** `reentry pulse 3` doubled three gameplay draws: `second draw ok,
+call2=414/229/218 us`, presents advanced by one per pulse (the root presents in its own
+tail, unlike Infinite's client draw), and under the method the pair line reads **the +1
+present's c5 sits (0.02 6.17 0.00) uu from the -1 present's (|d| 6.17; ipd*scale = 6.17
+expected along right)** - every pair, to the hundredth: the two presents of a tick are
+drawn from two cameras half an IPD apart along the camera's right row. The capture pair
+(`D:\dvr-data\xrsim\eyecheck\20260903_032840_reentry`) shows the parallax on the near pipe.
+
+**5. The method, measured (run 28, the sewers, simulator at 90 Hz):** `reentry: beat
+draws/s=53 2nd/s=53 presents/s=106`, `stereo: beat method=reentry out/s=107 L/s=54 R/s=53
+mono/s=0`, `call2` 218-467 us, skips 0 on every gate, no fault, `stereo.xrs`
+`projectionViews eq 2` PASS with both eyes 71/68 % non-black, eye-check leg 0 PASS (38/37)
+and leg 1 PASS (projection, 0.063 m), `stereo mono` restores the call site (`reentry: hook
+removed`) and the mono beat returns. The tick rate halves under the doubling on this rig
+(90 -> 53 draws/s at 1080p on the simulator: the second draw is a full scene draw for the
+GPU, and the game thread waits for the render thread); presents = 2x ticks holds.
+
+**What the eye-check bands say here.** Legs 2/4/5 were calibrated on BioShock 1's
+fairground (interocular mean 40-70). On this scene the MONO projection (identical images
+composited at the two eye poses) reads 13-22 mean and the true stereo pair reads 6-7: a
+per-eye render agrees with the compositor's per-eye poses better than one image shown
+twice, so the diff FALLS. The instruments that carry the verdict here are leg 0 (the
+pairing) and the pair line's c5 travel; the interocular band needs its own Dishonored
+calibration once a headset run has judged fusion (KNOWN_ISSUES).
+
+**The first headset run (2026-09-03, Quest 3 via VDXR, the user; `42-run30-quest3-reentry.log`)
+failed on two counts, both explained by the log, both invisible on the simulator:**
+
+1. *Both frames in both eyes, alternating.* The doubling ran (`draws/s=54 2nd/s=54
+   presents/s=108`, `pair pacing live`, the pair c5 line 6.08 uu) but the beat read
+   `L/s=36 R/s=54 mono/s=18`: a third of the LEFT tags were dropped by the method's own
+   pairing check, which compared the camera position the tick's last write produced with
+   the present's c5 and required them equal within 2 uu. While the player WALKS the engine
+   moves the camera by a tick of travel AFTER that write (measured: `c5 5692.0 6376.0` vs
+   `written 5689.5 6375.8`, ~2.5 uu along the heading, the eye offset intact), so the -1
+   present failed the check (the +1 present is written in the stub right before its draw
+   and always matched). Every dropped left tag broke a pair and the runtime submitted its
+   latest single image to both eyes for that frame. On the simulator every run stood
+   still. The position check is telemetry now (a 40 uu line for teleports); the ring's
+   push/pop ORDER pairs the eyes.
+2. *Head motion reversed on lean, a second motion on pitch.* Under a projection layer the
+   compositor moves the image for the head's REAL displacement (the located pose,
+   including the neck's travel on a pitch and the roll). The positional path was built
+   for the head-locked quad: a screen-space matrix shift with a deadzone and a room-scale
+   bleed that re-centres the reference within a second (the heartbeat shows the lean
+   decaying to 1-4 uu while the user leaned), and `[HeadTrack] Roll=0` never rolled the
+   camera. So the game rendered from a camera that had not moved while the layer said it
+   had: reversed parallax on a lean, a swim on a pitch, a counter-rolling horizon. Under a
+   projection layer the game camera now follows the head's RAW displacement (no deadzone,
+   no bleed, no clamp, no synthetic crouch drop) through the camera lane in the yaw-only
+   frame (`[PosTrack] Lane=auto`), and the head roll is written. The quad screen keeps the
+   tuned lean and no roll. Not yet re-judged in the headset.
+
+**A loose end, recorded.** The ring between the game thread's tag push (per draw) and the
+present thread's pop (per present) can hold two pairs legitimately (the game thread runs a
+frame ahead); the first build cleared it at depth 3 and re-paired mid-pair every few
+seconds (the c5 check caught every one: "tag -1 dropped ... c5 6383.1 is not the position
+the draw wrote 6376.9" - the two eye positions, 6.2 uu apart). Fixed by allowing two pairs
+and letting the c5 match skip stale tags (`tagResynced` in status.json).
+
 ## Head coupling of the arms (the open problem; roadmap D5)
 
 Root cause as established: Arkane draws the first-person view model in camera space; there
@@ -739,6 +1010,35 @@ a timeout was dropped permanently rather than retried. It now advances only once
 have actually received the content. The image is still released after a timeout to keep
 acquire/release paired - an unreleased image starves the swapchain within a few frames,
 which is a hard stall rather than one stale frame.
+
+## The capture cost, measured (2026-09-03, S1)
+
+The mono screen's per-present capture (`core/gfx/capture`) was the known structural cost
+and nothing had measured it. Runs 16-19 on the dev PC (simulator lane, 1920x1080 windowed,
+the auto-continued save in gameplay, ~85 presents/s), with the `capture: cost/present` line
+(one 3 s window each, microseconds per present):
+
+| mode | rtd | lock | copy | upload | blit | total | what it says |
+|---|---|---|---|---|---|---|---|
+| sync (shipped) | 2 | 2400-3150 | 700 | 1500-1700 | 0 | 4700-5500 | `GetRenderTargetData` returns at once; **`LockRect` is the wait** (the readback is queued behind the frame in flight); the row copy of 8 MB is 0.7 ms (cached), `UpdateSubresource` 1.5 ms |
+| deferred, first form (read back the previous copy AND lock it in the same present) | 2 | 2900-3100 | 700 | 1500 | 1 | 5100-5400 | **no gain**: the readback queued this present sits behind this present's rendering too, so the lock waits just the same (run 18) |
+| deferred, pipelined (queue the readback this present, lock the PREVIOUS present's) | 2 | **0** | 730 | 1500-1650 | 1 | **2250-2400** | the wait is gone; the picture is one present late (head-locked screen: tolerable; a stereo method's tag travels with the slot) |
+| shared (a D3D9 surface opened on D3D11) | - | - | - | - | - | - | **REFUSED** by the device: `QueryInterface(IDirect3DDevice9Ex)` fails (the game calls `Direct3DCreate9`), `CreateRenderTarget` with a shared handle returns `D3DERR_INVALIDCALL`. D3D9 shares only under 9Ex, and a 9Ex device refuses `D3DPOOL_MANAGED`, which UE3's D3D9 RHI depends on, so upgrading the device is not an option either |
+| user-memory readback surface (`CreateOffscreenPlainSurface` with the buffer pointer in `pSharedHandle`, to lose the row copy) | - | - | - | - | - | - | **REFUSED**: `D3DERR_INVALIDCALL` (run 17); the runtime does not take a caller's buffer here. Not kept as a mode |
+
+So the cheapest capture this game's device allows is the pipelined `deferred` mode: half
+the cost of the shipped path, at the price of one present of latency. It also resolves a
+multisampled backbuffer through its `StretchRect`, which is what the run 6
+`GetRenderTargetData` failure under the game's AA setting needed. `[Capture] Mode=` ships
+`sync` (every new lever default OFF); `capture mode deferred` is the live A/B, and the
+headset run decides whether it becomes the default (ROADMAP S1). The remaining 2.2 ms is
+the row copy plus the D3D11 upload of 8 MB; a staging-texture map would fold the two into
+one and is the next step only if the headset number asks for it.
+
+The instrument that settled it: the phase split. The first cost line lumped lock and copy
+together as "copy = 3.5 ms" and read as a slow write-combined memcpy; splitting the lock
+out (run 18) showed the memcpy at 0.7 ms and the wait inside `LockRect`, which is what made
+the pipelined form the obvious move instead of the user-memory trick.
 
 ## Evidence handling (both cost a session)
 

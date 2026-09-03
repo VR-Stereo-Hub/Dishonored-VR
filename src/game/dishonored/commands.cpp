@@ -10,7 +10,12 @@
 //   camera status                the per-eye camera seam (eye, ipd, field, fov, c5)
 //   camera eyetest <uu> [field]  the write-point instrument (field 0x80|..|all; `camera eyetest stop`)
 //   camera eyefield <name|none>  the field the eye offset writes to ([Camera] EyeField)
+//   camera postest <R> [U] [F]   the positional instrument (uu along right/up/forward; `camera postest stop`)
+//   postrack on|off|lane <l>     positional tracking and its lane (vp = the c0 patch, camera = the seam's write)
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
+//   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
+//   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
+//   capture mode <m>|status      the capture path (sync|deferred|shared): live switch, fails soft
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
@@ -52,13 +57,43 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "postrack")) {
+        char sub[16] = "", lane[16] = "";
+        if (sscanf(args, "%15s %15s", sub, lane) == 2 && !strcmp(sub, "lane")) {
+            dvr::camera::set_pos_lane(lane);   // logs the refusal itself
+            return true;
+        }
+        if (DvrOnOff(args, &b)) {
+            g_posTrack = b;
+            if (!b) { g_leanRightUU = 0; g_leanUpUU = 0; g_leanFwdUU = 0; }
+            Log("postrack: %s (seam)", b ? "ON" : "off");
+            return true;
+        }
+        float pos[3]; dvr::camera::position_offset_uu(pos);
+        Log("postrack: %s lane=%s offset R%+.1f U%+.1f F%+.1f uu scale=%.0f uu/m (postrack on|off|lane vp|camera)",
+            g_posTrack ? "ON" : "off", dvr::camera::pos_lane_name(), pos[0], pos[1], pos[2], g_posScaleUU);
+        return true;
+    }
     if (!strcmp(cmd, "camera")) {
         char sub[32] = "", fld[16] = "all";
         float uu = 0.0f;
         if (sscanf(args, "%31s", sub) == 1 && !strcmp(sub, "eyetest")) {
             if (strstr(args, "stop")) { dvr::camera::eyetest_stop("seam"); return true; }
+            if (!strcmp(dvr::stereo::active_name(), "reentry")) {
+                Log("camera/eyetest: refused while the reentry method is active (two presents per tick with "
+                    "different eyes would destroy the verdict) - `stereo mono` first");
+                return true;
+            }
             sscanf(args, "%*s %f %15s", &uu, fld);
             dvr::camera::eyetest_start(uu > 0.0f ? uu : 100.0f, fld);
+            return true;
+        }
+        if (!strcmp(sub, "postest")) {
+            if (strstr(args, "stop")) { dvr::camera::postest_stop("seam"); return true; }
+            float r = 0.0f, u = 0.0f, f = 0.0f;
+            const int n = sscanf(args, "%*s %f %f %f", &r, &u, &f);
+            if (n < 1) { Log("camera: postest <R> [U] [F] in uu (e.g. `camera postest 30 0 0` = lean 30 cm right at 100 uu/m)"); return true; }
+            dvr::camera::postest_start(r, u, f);
             return true;
         }
         if (!strcmp(sub, "eyefield")) {
@@ -72,7 +107,36 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "stereo")) {
         if (!args[0] || !strcmp(args, "status")) { dvr::stereo::log_status(); return true; }
+        char sub[16] = "", v[16] = "";
+        if (sscanf(args, "%15s %15s", sub, v) == 2 && !strcmp(sub, "projection")) {
+            if (!strcmp(v, "auto")) dvr::stereo::set_projection_override(-1);
+            else if (DvrOnOff(v, &b)) dvr::stereo::set_projection_override(b ? 1 : 0);
+            else Log("stereo: projection on|off|auto");
+            return true;
+        }
         dvr::stereo::select(args);   // logs the refusal itself
+        return true;
+    }
+    if (!strcmp(cmd, "capture")) {
+        char sub[16] = "", m[16] = "";
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "mode")) {
+            dvr::capture::set_mode(m);   // logs the refusal itself
+            return true;
+        }
+        const dvr::capture::Cost c = dvr::capture::cost();
+        Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
+            "(%u grabs) delivered serial %lu of %lu tag=%d fenceLate=%u (capture mode sync|deferred|shared)",
+            dvr::capture::mode_name(),
+            !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
+            c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
+            (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
+            dvr::capture::delivered_tag(), dvr::capture::fence_late());
+        return true;
+    }
+    if (!strcmp(cmd, "reentry")) {
+        if (SceneDrawCommand(args)) return true;
+        if (SceneProbeCommand(args)) return true;
+        Log("reentry: pulse [n] | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
         return true;
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
@@ -118,13 +182,41 @@ static void DvrConsoleApply()
     g_dvrConsoleReq[0] = 0;
 }
 
-// "[game] state: GAMEPLAY|MENU|CINEMATIC|NO_PAWN" on every transition - the
-// line tools\boot.ps1 waits for. Present thread, once per frame.
+// 41.1: is the engine's view pipeline dispatching? ProcessViewRotation fires
+// every tick while a player camera is being driven (gameplay, and the title
+// screen's attract camera); a LOADING screen dispatches nothing (measured run
+// 21: headwrites 0/3s on "press any key to continue"). 750 ms of silence
+// with a live pawn is a loading screen, not gameplay.
+static bool DvrScriptViewLive()
+{
+    // A loading screen dispatches a short burst about once a second (run 22:
+    // GAMEPLAY/LOADING flapping), so leaving LOADING needs a full second of
+    // continuous dispatches, and entering it 750 ms of silence.
+    static double silentSince = 0.0, resumedAt = 0.0;
+    static bool live = false;
+    const double now = MaimNowMs();
+    const bool fresh = g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0;
+    if (!fresh) { silentSince = silentSince ? silentSince : now; resumedAt = 0.0; live = false; }
+    else {
+        silentSince = 0.0;
+        if (resumedAt == 0.0) resumedAt = now;
+        if (now - resumedAt >= 1000.0) live = true;
+    }
+    return live;
+}
+
+// "[game] state: GAMEPLAY|MENU|CINEMATIC|LOADING|NO_PAWN" on every transition -
+// the line tools\boot.ps1 waits for. Present thread, once per frame.
 static void GameStateTick()
 {
     const char* s;
     if (!CylTruthLive())               s = "NO_PAWN";
-    else if (g_menuOpen || g_inMenu)   s = "MENU";
+    else if (g_menuOpen || g_inMenu || g_mainMenu) s = "MENU";
+    else if (!DvrScriptViewLive()) {
+        // A loading screen ends whatever cutscene the latch remembers.
+        if (g_cineNow) { g_cineNow = false; Log("cine: latch cleared - a loading screen"); }
+        s = "LOADING";
+    }
     else if (g_cineNow)                s = "CINEMATIC";
     else                               s = "GAMEPLAY";
     if (strcmp(s, g_dvrGameState) != 0) {
@@ -145,6 +237,8 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("state", g_dvrGameState);
     w.kv("frame", (unsigned long)g_frame);
     w.kv("capW", (int)dvr::capture::width()); w.kv("capH", (int)dvr::capture::height());
+    w.kv("capMode", dvr::capture::mode_name());
+    w.kv("capShared", dvr::capture::probed() && dvr::capture::shared_available());
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
@@ -173,7 +267,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("fovLever", (double)g_fovLever);
     w.kv("fpsCap", (double)g_fpsCap);
     w.end_obj();
-    w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu);
+    w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);
     w.kv("exiting", InterlockedCompareExchange(&g_gameExiting, 0, 0) != 0);
     w.obj("counters");

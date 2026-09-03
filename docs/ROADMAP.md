@@ -45,12 +45,18 @@ results.
 
 - [ ] The headset run above signed off: readable screen at `[Screen] DistanceMeters` /
       `WidthMeters`, no judder at the game's frame rate, `[VR] FpsCap` cadence chosen
-- [ ] The capture cost measured and cut: a D3D9Ex shared surface opened on the D3D11 side
-      replaces `GetRenderTargetData` (the per-frame CPU round trip in `core/gfx/capture`)
+- [x] The capture cost measured and cut (2026-09-03, runs 16-19): the shipped path costs
+      ~5 ms per present at 1080p, all of it `LockRect` waiting on the queued readback; the
+      D3D9Ex shared surface is REFUSED by this game's device (not 9Ex, and UE3 needs
+      D3DPOOL_MANAGED), so `[Capture] Mode=deferred` (queue the readback, lock it one present
+      later) is the cut: 2.3 ms, `mono.xrs` passing. Ships default sync; the headset run
+      picks the default (ENGINE_NOTES "The capture cost, measured")
 - [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (holds -position), the five
       others DISCARDED (ENGINE_NOTES)
-- [ ] Positional (lean/crouch/roomscale) tracking moved from the c0 `LeanVP` patch to the
-      camera seam's position write once the write point is known, and measured equal
+- [x] Positional (lean/crouch/roomscale) tracking on the camera seam's position write behind
+      `[PosTrack] Lane=vp|camera` (default vp): `camera postest` HONOURED on all three axes
+      within 1-2 % on the camera lane (run 20; ENGINE_NOTES "Positional tracking on the
+      camera seam"); the vp lane's matrix effect is not c5-measurable, its APPLIED count is
 - [ ] `head_track` and `pad_bridge` converted to real modules (the D1-era refactor step
       that S0 deferred)
 - [ ] SteamVR rig confirmed through the shim (`xr: runtime "DishonoredVR SteamVR shim (OpenVR)"`)
@@ -74,14 +80,18 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 `core/gfx/reentry.cpp` carries the design. Acceptance, in order:
 
-- [ ] The scene-draw root found and byte-verified (caller census, live stack scrape, the
-      eyetest as the mover); its address in `patterns.h` with the derivation in ENGINE_NOTES
-- [ ] The second draw gated deny-by-default and SEH-guarded; a fault poisons the method for
-      the session and the game runs on mono
-- [ ] `stereo reentry` accepted; presents = 2x ticks; the beat line reads `L/s == R/s`;
-      second-draw cost logged
-- [ ] `stereo.xrs`, eye-check legs 0-5 on the simulator; headset: fusion, per-eye
-      reflections and effects, no flicker on fast motion
+- [x] The scene-draw root found and byte-verified (2026-09-03, runs 26-27: the caller
+      census, the live stack scrapes, pe-xref confirmation, `reentry pulse` as the mover);
+      `kViewportDraw` and its call site in `patterns.h`, ENGINE_NOTES "The scene-draw root,
+      derived live"
+- [x] The second draw through a patched call site (deny-by-default by construction, the
+      return address checked), SEH-guarded; a fault poisons the method for the session and
+      the game runs on mono
+- [x] `stereo reentry` accepted; presents = 2x ticks (106 vs 53); the beat line reads
+      `L/s == R/s == out/s / 2`; the second draw costs 220-470 us (run 28-29)
+- [x] `stereo.xrs` and `reentry.xrs` on the simulator, eye-check legs 0-1 (legs 2-5 carry
+      BioShock's bands: KNOWN_ISSUES); the pair line proves the two cameras half an IPD apart
+- [ ] Headset: fusion, per-eye reflections and effects, no flicker on fast motion (the user)
 
 ## S3 - Compare and choose; the features come back on the winner
 

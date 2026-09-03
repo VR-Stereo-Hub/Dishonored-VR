@@ -17,6 +17,14 @@ static void PeLatch(void* obj)
             g_pePawn = (uint8_t*)obj;             // spawn/load - restart the
             g_fbPawnMs = MaimNowMs();             // fallback's hold-off
             g_fbPvrSince = 0;
+            // 41.1: the cinematic latch is a parity toggle (OnToggleCinematicMode
+            // flips it), and the title screen flips it ON with the attract
+            // scene's pawn already latched, so a level load inherited CINEMATIC
+            // (measured run 22). A new pawn is a fresh level: start it clean.
+            if (g_cineNow) {
+                g_cineNow = false;
+                Log("cine: latch cleared - new pawn (a level load, not a cutscene end)");
+            }
         }
         return;
     }
@@ -44,7 +52,17 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
 {
     InterlockedIncrement(&g_peCalls);
 
+    // 41.1: the ProcessEvent CALLER's return address, for the scene probe.
+    // The hand-built stub (InstallProcessEventHook) pushed, above this frame's
+    // four args: pushad's eight registers (8 dwords) and pushfd's flags (1);
+    // the dword after those is what the game's `call ProcessEvent` pushed.
+    // Layout from &obj: [this a1 a2 a3][EDI ESI EBP ESP EBX EDX ECX EAX][EFLAGS][ret]
+    const uint32_t peCallerRet = ((const uint32_t*)&obj)[13];
+    const uint32_t peNameIdx = (a1 && !((uintptr_t)a1 & 3) && RangeReadable(a1, kNameOff + 4))
+                                   ? *(uint32_t*)((uint8_t*)a1 + kNameOff) : 0xffffffffu;
+
     PeLatch(obj);   // the engine tells us who the real actors are
+    SceneDrawApply();   // 41.1: the re-entry's call-site patch/restore, on the thread that runs the site
     // 32.8: while the blink window is open, note which script events fire ON a
     // candidate. Pointer compares only - no class-name lookup on this path.
     if (g_bpGo && obj) {
@@ -77,17 +95,23 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // lever only revalidates the camera object while it is armed, so the seam
     // keeps its own liveness check while it has something to write (the first
     // eyetest ran with a null camera for all six candidates - lever off).
-    if (dvr::camera::eyetest_active() || dvr::camera::eye() != 0) {
+    if (dvr::camera::eyetest_active() || dvr::camera::postest_active() || dvr::camera::eye() != 0 ||
+        dvr::camera::pos_lane() == dvr::camera::PosLane::Camera) {
         static LONG camReval = 0;
         if (g_camObj && !CamAlive()) g_camObj = NULL;
         if (!g_camObj && (InterlockedIncrement(&camReval) & 31) == 0) FindLiveCamera();
     }
     dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
-    dvr::camera::apply_eye_offset(g_camObj);      // the eye offset (aer/reentry)
+    dvr::camera::apply_offsets(g_camObj);         // the eye offset (aer/reentry) + the lean on the camera lane
     BlinkTestApply();  // 32.14: same lane, same reason
     SkcRotApply();     // 32.1: same trick for the hand rotators
     BoneWigApply();    // 30.62: which bone bank does the renderer read
     if (g_sbWritePoint == 0) SbApply("script");   // 30.83 oracle, tick-time lane
+
+    // 41.1: the scene probe (census / one-shot stack scrape); pointer compares
+    // unless a word armed it.
+    SceneProbeOnDispatch(peCallerRet, peNameIdx,
+                         g_idxViewRot != 0xffffffffu && peNameIdx == g_idxViewRot, &obj, obj);
 
     // fast path: the view-rotation event, every frame
     // 38.77: the HAND DRIVE lives on this lane and used to sit behind the
@@ -160,7 +184,14 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             LogFlush();
         }
     }
-    if (g_maimEnabled && obj) {
+    // 41.1: the script-EVENT tracking below (menu open/close, the cinematic
+    // toggle, the UI vocabulary, the shop) used to sit behind g_maimEnabled,
+    // so under [Mode] GamepadOnly=1 (motion aim off) the game state read
+    // GAMEPLAY on the title screen, in the main menu and on a loading screen
+    // (measured 2026-09-03, run 21: the projection layer stayed up on the
+    // title screen). The tracking runs for every dispatch now; only the
+    // motion-aim pieces inside stay gated.
+    if (obj) {
         uint8_t* f = (uint8_t*)a1;
         if (f && !((uintptr_t)f & 3) && RangeReadable(f, kNameOff + 8)) {
             uint32_t nidx = *(uint32_t*)(f + kNameOff);
@@ -174,9 +205,39 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // lag spikes every time I swing". Left-hand fire still arms via
             // UseSecondaryItem/Fire here plus the trigger edge in
             // MotionAimTick.
-            if (nm && (strstr(nm, "UseSecondaryItem") || strstr(nm, "Fire"))) {
+            if (g_maimEnabled && nm && (strstr(nm, "UseSecondaryItem") || strstr(nm, "Fire"))) {
                 g_maimArmedUntil = now + 1500.0;
                 g_maimArmMs = now;
+            }
+            // 41.1: the TITLE SCREEN and the MAIN MENU. Their Scaleform movie
+            // player (DisGFxMoviePlayerMainMenu) announces itself with Start /
+            // OnFocusGained / BackToStartScreen / Req_CanContinueGame and leaves
+            // with UnregisterControllerDelegates (measured run 21). Windowed
+            // mode has no cursor test (32.9), so these events are the only
+            // signal; the class name is checked so the same verbs on another
+            // movie player (the HUD, the gamma screen) do not flap the flag.
+            if (nm && (!strcmp(nm, "Start") || !strcmp(nm, "OnFocusGained") ||
+                       !strcmp(nm, "BackToStartScreen") || !strcmp(nm, "Req_CanContinueGame") ||
+                       !strcmp(nm, "UnregisterControllerDelegates") || !strcmp(nm, "OnFocusLost"))) {
+                const char* cn = (!((uintptr_t)obj & 3) && RangeReadable(obj, kClassOff + 4))
+                                     ? ObjClassName((uint8_t*)obj) : NULL;
+                if (cn && strstr(cn, "MoviePlayerMainMenu")) {
+                    // Its own flag, not g_menuOpen: the stale-flag ghost test
+                    // (head_track.cpp) clears g_menuOpen while dispatches flow,
+                    // and the attract camera behind the main menu dispatches.
+                    const bool leaving = !strcmp(nm, "UnregisterControllerDelegates") || !strcmp(nm, "OnFocusLost");
+                    if (leaving && g_mainMenu) {
+                        g_mainMenu = false;
+                        Log("menu: main menu gone (%s)", nm);
+                        // The title screen's attract scene toggles the cinematic
+                        // latch ON; whether the level's pawn latch clears it
+                        // depends on which fires first (run 32: the pawn came
+                        // first and CINEMATIC stuck for the whole level). Leaving
+                        // the main menu is the level load: start clean here too.
+                        if (g_cineNow) { g_cineNow = false; Log("cine: latch cleared - leaving the main menu"); }
+                    }
+                    else if (!leaving && !g_mainMenu) { g_mainMenu = true; Log("menu: main menu up (%s)", nm); }
+                }
             }
             // menu / dialog activity - mute melee injection (30.26)
             if (nm && (strstr(nm, "PauseMenu") || strstr(nm, "PauseGame") ||
