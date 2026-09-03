@@ -65,6 +65,11 @@ static volatile LONG  g_sdPulse = 0;           // one-shot doubles for the A/B
 // shown to fail and to hold on the simulator ("make it MOVE").
 static volatile LONG  g_sdForceSkip2 = 0;
 static uint32_t       g_sdSkipForced = 0;
+// 41.1 (session 8): `reentry rearm [n]` and the eye check's fail-soft: n ticks
+// decided SINGLE (no tag pushed, no pass 2), then the doubling resumes - a
+// re-arm without touching the call-site patch.
+static volatile LONG  g_sdForceSingle = 0;
+static uint32_t       g_sdRearms = 0;
 static volatile LONG  g_sdDepth = 0;
 static DWORD          g_sdDrawTid = 0;
 static uint32_t       g_sdDraws = 0, g_sdSecondDraws = 0;
@@ -196,6 +201,11 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
     const bool armed = InterlockedCompareExchange(&g_sdArmed, 0, 0) != 0;
     if (!d.pulse && !armed) { d.why = "not armed"; return d; }
     if (g_sdPoisoned) { d.why = "poisoned"; return d; }
+    if (InterlockedCompareExchange(&g_sdForceSingle, 0, 0) > 0) {
+        if (InterlockedDecrement(&g_sdForceSingle) == 0) ++g_sdRearms;
+        d.why = "re-arm requested (a forced single tick)";
+        return d;
+    }
     if (callerRet != kViewportDrawGameplayRet) { ++g_sdSkipForeign; d.why = "foreign caller"; return d; }
     if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; d.why = "exiting"; return d; }
     if (!dvr::vr::session_live() && !d.pulse) { ++g_sdSkipSession; d.why = "no XR session"; return d; }
@@ -368,6 +378,15 @@ static void SceneDrawApply()
 
 // The method arms / disarms (present thread): the patch request goes to the
 // game thread, the arm flag is immediate.
+static void SceneDrawRearm(int ticks)
+{
+    if (ticks < 1) ticks = 1;
+    if (ticks > 30) ticks = 30;
+    InterlockedExchange(&g_sdForceSingle, ticks);
+    Log("reentry: re-arm - the next %d tick(s) draw SINGLE (no tag), then both eyes again (re-arms so far %lu)",
+        ticks, (unsigned long)g_sdRearms + 1);
+}
+
 static void SceneDrawSetArmed(bool on)
 {
     if (on && g_sdPoisoned) { Log("reentry: arm refused - POISONED (reentry reset to clear)"); return; }
@@ -411,6 +430,10 @@ static bool SceneDrawCommand(const char* args)
 {
     char sub[16] = "", a1[16] = "";
     const int n = sscanf(args, "%15s %15s", sub, a1);
+    if (n >= 1 && !strcmp(sub, "rearm")) {
+        SceneDrawRearm(a1[0] ? atoi(a1) : 2);
+        return true;
+    }
     if (n >= 1 && !strcmp(sub, "pulse")) {
         int k = a1[0] ? atoi(a1) : 1;
         if (k < 1) k = 1;

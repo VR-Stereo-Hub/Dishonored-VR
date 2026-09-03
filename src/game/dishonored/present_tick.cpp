@@ -600,6 +600,7 @@ static void DvrInstallFrameHooks()
     rh.status    = SceneDrawStatus;
     rh.draws     = SceneDrawDraws;
     rh.gates     = SceneDrawGates;
+    rh.rearm     = SceneDrawRearm;
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
 }

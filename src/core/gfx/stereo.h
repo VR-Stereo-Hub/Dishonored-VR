@@ -168,6 +168,11 @@ struct ReentryHooks {
     void (*status)(dvr::status::Writer& w) = nullptr;
     uint32_t (*draws)() = nullptr;
     void (*gates)(uint32_t out[kReentryGateCount]) = nullptr;
+    // 41.1 (session 8): re-arm - decide SINGLE (no tag, no pass 2) for n ticks,
+    // then double again. The remedy the headset found by hand for the
+    // eyes-without-parallax state after a first arming (a capture mode switch
+    // or a pause did the same by accident); the eye check calls it on its own.
+    void (*rearm)(int ticks) = nullptr;
 };
 void set_reentry_hooks(const ReentryHooks& h);
 // The game thread pushes one tag per draw (-1 pass 1, +1 pass 2) with the

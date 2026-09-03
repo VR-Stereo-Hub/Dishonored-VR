@@ -15,6 +15,7 @@
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
 //   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
+//   reentry rearm [n]            n ticks of single draw, then both eyes again (the eyes-without-parallax remedy)
 //   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
 //   capture sharedwait on|off    shared: deliver this present after its fence (on) or the previous slot (off, default)
 //   device census|status         the creation census (core/gfx/device_census): the table and the 9Ex verdict

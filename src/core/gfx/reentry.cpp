@@ -84,6 +84,126 @@ bool pop_tag(Tag& out, const float* c5) {
     return true;
 }
 
+// ---- the eye check (41.1, session 8) --------------------------------------------
+// The headset run 17 dumped a left and a right that were the same picture while
+// every tag instrument read clean: both eyes carried one eye's view from the
+// first arming after a load until something re-armed the second draw. This
+// measures it as it happens: a 256x256 centre patch of each output frame is
+// copied to a staging texture and read one present later (never waited on);
+// per pair the mean difference left vs right at no shift (d0) against the
+// best of nine horizontal shifts up to 32 px (dbest), and left vs the
+// previous left (dt, the head's motion). A true pair has parallax: dbest is
+// well below d0. A pair whose best shift is 0 and whose d0 is within the
+// motion floor has NO parallax: the same view in both eyes. Counted per
+// window on the beat line; a streak of 30 such pairs re-arms the second draw
+// (the remedy found by hand) at most once per 3 s.
+struct EyeCheck {
+    static constexpr uint32_t kPatch = 256, kN = 64, kStride = 4;
+    ID3D11Texture2D* st[2] = {nullptr, nullptr};
+    int      k = 0;
+    int      stTag[2] = {0, 0};
+    bool     stValid[2] = {false, false};
+    uint8_t  L[kN * kN] = {}, R[kN * kN] = {}, prevL[kN * kN] = {};
+    bool     haveL = false, havePrevL = false;
+    uint32_t pairs = 0, noParallax = 0, streak = 0, rearms = 0, mapBusy = 0;
+    float    sumD0 = 0, sumBest = 0, sumDt = 0;
+    uint64_t lastRearmMs = 0;
+    int      lastShift = 0;
+
+    bool ensure(ID3D11Device* dev) {
+        if (st[0] && st[1]) return true;
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = kPatch; td.Height = kPatch; td.MipLevels = 1; td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_STAGING; td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        for (int i = 0; i < 2; ++i)
+            if (!st[i] && FAILED(dev->CreateTexture2D(&td, nullptr, &st[i]))) { release(); return false; }
+        return true;
+    }
+    void release() {
+        for (int i = 0; i < 2; ++i) { if (st[i]) { st[i]->Release(); st[i] = nullptr; } stValid[i] = false; }
+        haveL = havePrevL = false; streak = 0;
+    }
+    static float mean_diff(const uint8_t* a, const uint8_t* b, int dx) {
+        uint32_t sum = 0, n = 0;
+        for (uint32_t y = 0; y < kN; ++y)
+            for (uint32_t x = 0; x < kN; ++x) {
+                const int xs = (int)x + dx;
+                if (xs < 0 || xs >= (int)kN) continue;
+                const int d = (int)a[y * kN + xs] - (int)b[y * kN + x];
+                sum += (uint32_t)(d < 0 ? -d : d); ++n;
+            }
+        return n ? (float)sum / (float)n : 0.0f;
+    }
+    // Called right after the method's blit into tex (w x h): queue this
+    // present's copy, read the previous present's, judge a pair when the
+    // right arrives after a left.
+    void sample(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* tex, uint32_t w, uint32_t h, int tag,
+                const ReentryHooks& hooks) {
+        if (tag == 0 || !tex || w < kPatch || h < kPatch || !ensure(dev)) return;
+        // read the OTHER slot (queued last present) first
+        const int prev = k ^ 1;
+        if (stValid[prev]) {
+            D3D11_MAPPED_SUBRESOURCE m = {};
+            const HRESULT hr = ctx->Map(st[prev], 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m);
+            if (SUCCEEDED(hr)) {
+                uint8_t* dst = stTag[prev] < 0 ? L : R;
+                if (stTag[prev] < 0) { memcpy(prevL, L, sizeof(L)); havePrevL = haveL; }
+                for (uint32_t y = 0; y < kN; ++y) {
+                    const uint8_t* row = (const uint8_t*)m.pData + (size_t)(y * kStride) * m.RowPitch;
+                    for (uint32_t x = 0; x < kN; ++x) {
+                        const uint8_t* px = row + (size_t)(x * kStride) * 4;
+                        dst[y * kN + x] = (uint8_t)((px[0] * 77 + px[1] * 151 + px[2] * 28) >> 8);
+                    }
+                }
+                ctx->Unmap(st[prev], 0);
+                if (stTag[prev] < 0) haveL = true;
+                else if (haveL) judge(hooks);
+            } else ++mapBusy;
+            stValid[prev] = false;
+        }
+        D3D11_BOX box = {};
+        box.left = (w - kPatch) / 2; box.top = (h - kPatch) / 2; box.front = 0;
+        box.right = box.left + kPatch; box.bottom = box.top + kPatch; box.back = 1;
+        ctx->CopySubresourceRegion(st[k], 0, 0, 0, 0, tex, 0, &box);
+        stTag[k] = tag; stValid[k] = true;
+        k = prev;
+    }
+    void judge(const ReentryHooks& hooks) {
+        const float d0 = mean_diff(L, R, 0);
+        float best = d0; int bestDx = 0;
+        for (int dx = -8; dx <= 8; dx += 2) {
+            if (dx == 0) continue;
+            const float m = mean_diff(L, R, dx);
+            if (m < best) { best = m; bestDx = dx; }
+        }
+        const float dt = havePrevL ? mean_diff(L, prevL, 0) : 0.0f;
+        ++pairs; sumD0 += d0; sumBest += best; sumDt += dt; lastShift = bestDx * (int)kStride;
+        // No parallax: no shift beats none by more than a grey level, and
+        // the pair differs no more than the motion floor allows.
+        const bool none = (d0 - best) < 0.3f && d0 < (dt * 1.5f + 1.0f);
+        if (none) { ++noParallax; ++streak; } else streak = 0;
+        if (streak >= 30 && hooks.rearm) {
+            const uint64_t now = GetTickCount64();
+            if (now - lastRearmMs >= 3000) {
+                lastRearmMs = now; ++rearms; streak = 0;
+                DVR_WARN("stereo: EYES WITHOUT PARALLAX for 30 pairs (d0 %.2f best %.2f at %d px, motion %.2f) - "
+                         "the same view in both eyes; re-arming the second draw (the headset's own remedy; re-arms %u)",
+                         d0, best, lastShift, dt, rearms);
+                hooks.rearm(2);
+            }
+        }
+    }
+    int beat_text(char* buf, int cap) {
+        const int n = _snprintf(buf, cap, " | eyecheck pairs=%u noParallax=%u (d0 %.2f best %.2f dt %.2f, last shift %d px) rearms=%u%s",
+                                pairs, noParallax, pairs ? sumD0 / pairs : 0.0f, pairs ? sumBest / pairs : 0.0f,
+                                pairs ? sumDt / pairs : 0.0f, lastShift, rearms,
+                                mapBusy ? " (some patches not read: map busy)" : "");
+        pairs = noParallax = mapBusy = 0; sumD0 = sumBest = sumDt = 0;
+        return n;
+    }
+};
+
 class SequentialReentry : public IStereo {
 public:
     const char* name() const override { return "reentry"; }
@@ -211,9 +331,12 @@ public:
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
             dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
+            // the eye check samples the frame before the overlay lands on it
+            eyecheck_.sample(d.dev11, d.ctx11, tex_, w, h, fresh ? dvr::capture::delivered_tag() : 0, g_hooks);
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
             drawnOnce_ = true;
         }
+        eyecheck_beat();
         // 41.1 (session 8): a grab that delivered NOTHING (a mode switch's first
         // present, a Reset, capture off) leaves texture() re-showing the last
         // frame; its tag is the previous present's and must not be pushed
@@ -246,9 +369,10 @@ public:
         return true;
     }
 
-    void on_reset() override { dvr::capture::on_reset(); }
+    void on_reset() override { dvr::capture::on_reset(); eyecheck_.release(); }
 
     void shutdown() override {
+        eyecheck_.release();
         if (armed_) {
             armed_ = false;
             if (g_hooks.set_armed) g_hooks.set_armed(false);
@@ -309,6 +433,18 @@ private:
         w_ = h_ = 0;
     }
 
+    // the eye check's 3 s line (its own cadence, next to the stereo beat)
+    void eyecheck_beat() {
+        const uint64_t now = GetTickCount64();
+        if (eyeBeatMs_ == 0) { eyeBeatMs_ = now; return; }
+        if (now - eyeBeatMs_ < 3000) return;
+        eyeBeatMs_ = now;
+        char buf[320];
+        eyecheck_.beat_text(buf, sizeof(buf));
+        DVR_INFO("stereo: eyes-parallax%s", buf);
+    }
+    EyeCheck                eyecheck_;
+    uint64_t                eyeBeatMs_ = 0;
     mutable char            note_[240] = "";
     dvr::gfx::BlitQuad      blit_;
     ID3D11Texture2D*        tex_ = nullptr;
