@@ -1,92 +1,54 @@
 # Status
 
-## Current state (2026-09-03, session 6: S2b, SequentialReentry on the simulator, 41.1)
+## Current state (2026-09-03, session 6: S2b MERGED, native stereo works in the headset, 41.1)
 
-**Two headset runs of rung 3 (runs 30 and 34, Quest 3 via VDXR, the user). Run 34: stereo
-good, head motion still wrong - and the cause is measured (run 35): the camera field's SIGN
-was inverted, so every lean, crouch and per-eye offset went the WRONG WAY. A differential
-picture test against the headset-proven c0 patch settles it (ENGINE_NOTES, "The camera field
-holds the POSITION, c5 is its negation"): the field holds the camera's world position and c5
-is its negation; session 5's eyetest had read c5 as the position. Fixed, verified on two
-axes by picture, both instruments still HONOURED, the doubling unaffected. The eye offset
-was inverted with it, so the stereo depth in both headset runs was inside-out - it needs
-re-judging. The head TILT was reversed too, independently: the roll write lands (the new
-`headtrack:` roll telemetry: incoming = wrote) but UE3's roll is positive right-ear-DOWN and
-ours was positive right-ear-UP; negated at the derivation, re-measured by picture (run 38:
-+20 leans the verticals left, -20 right). All three displacement axes match the reference
-by picture (right, up, forward). The one-off "frames pinned in front" glitch has its
-instrument: `gameplay verdict:` names the gate that dropped the layer to the head-locked
-quad (menuOpen / inMenu / mainMenu / cinematic latch / silent view pipeline) and a Warn
-fires when it parks for 5 s with no menu open. NOT yet re-tested in a headset. Run 30's two
-findings (below) are also fixed.**
+**Rung 3 is HEADSET-VERIFIED (run 40, Quest 3 via VDXR, the user) and merged into
+`native-stereo-rendering`, which is now the branch this work continues on** (PR #3, merge
+3be4a0c4; branch off `native-stereo-rendering`, not `VR-Main`). Working in the headset:
+stereo depth (the world reads in 3D), head tilt, lean, looking around, crouching and
+standing. That closes every fault the two earlier headset runs found - the tag pairing
+(3a4757bc), the camera field's inverted SIGN (bbd04fec: the field holds the camera's world
+POSITION, c5 is its negation; it had put every lean, crouch and per-eye offset backwards)
+and the head roll's sense (5513a570: UE3 rolls positive right-ear-DOWN). Both signs were
+settled by a differential PICTURE test against the headset-proven c0 patch, after two
+instruments had each "verified" the wrong direction by measuring a proxy - see the trap
+paragraph in ENGINE_NOTES.
 
-**Run 30 FAILED: both frames alternating in both eyes, lean reversed, a second motion on pitch.** Both causes are in the
-log and fixed in the tree (ENGINE_NOTES "The scene-draw root", the headset paragraph), NOT
-yet re-judged: (1) the method's pairing check dropped a third of the LEFT tags while the
-player walked (the engine moves the camera a tick after the write; the check is telemetry
-now, the ring's order pairs the eyes); (2) under a projection layer the compositor moves
-the image for the head's real displacement and roll, and the game camera followed neither
-(the tuned lean with its deadzone and re-centring bleed, `[HeadTrack] Roll=0`); now the
-raw head displacement drives the camera lane in the yaw-only frame (`[PosTrack] Lane=auto`,
-30 cm reads +29.4 uu held steady on the simulator, run 32) and the roll is written. A
-third fix from the same runs: the cinematic latch could stick CINEMATIC across a level load
-(the second draw gated off for the whole level, run 32); it clears when the main menu goes
-and on a loading screen. The doubling itself worked on the headset: draws/s 54 = 2nd/s 54,
-presents 108, pair pacing live, the pair line 6.08 uu. Everything below stands as measured
-on the simulator.
+**Four faults remain, all reported from run 40 and none reproduced on the simulator yet:**
 
-**Rung 3 renders true per-eye stereo on the simulator.** `stereo reentry` patches the one
-gameplay call of the viewport draw root (derived live this session: `kViewportDraw
-0x5fc5b0`, called `push 1; call` from UGameEngine::Tick at `0x6330da`; ENGINE_NOTES "The
-scene-draw root, derived live") and calls the root a second time per tick with eye +1
-written into camera+0x330 between the passes. Measured in the sewers level (runs 27-29,
-the simulator at 90 Hz, 1920x1080): `reentry: beat draws/s=53 2nd/s=53 presents/s=106`,
-`stereo: beat method=reentry out/s=104 L/s=52 R/s=52 mono/s=0`, the second call 220-470 us,
-every gate's skip counter 0, no fault in a 90 s soak, and the pair line **the +1 present's
-c5 sits (0.02 6.17 0.00) uu from the -1 present's (ipd*scale = 6.17)** on every pair. The
-capture pair shows the parallax on the near pipe. `reentry.xrs` and `stereo.xrs` pass (two
-projection views, both eyes ~70 % non-black), eye-check legs 0-1 pass (legs 2-5 carry
-BioShock's bands: KNOWN_ISSUES), `stereo mono` restores the call site. `[Stereo] Method`
-still ships `mono`; the headset verdict is the user's (below).
-
-**The S1 levers, measured (all ship OFF):**
-
-- Capture: the shipped path costs ~5 ms per present at 1080p, all of it `LockRect` waiting
-  on the queued readback; the D3D9Ex shared surface is REFUSED by this device (not 9Ex);
-  `[Capture] Mode=deferred` (queue the readback, lock it one present later) measures
-  2.3 ms with `mono.xrs` passing (runs 16-19; ENGINE_NOTES "The capture cost, measured").
-- Positional tracking on the camera seam (`[PosTrack] Lane=camera`): `camera postest`
-  HONOURED within 1-2 % on all three axes in gameplay (+30.0 right, -24.4 up, +39.7
-  forward); the basis rows +0x50/+0x60/+0x70 read orthonormal (run 20 on the attract
-  camera, run 21 in the sewers).
-- FOV from the render size: under a projection layer the lever target follows the
-  runtime's circumscribed hfov (137.0 at 16:9) and the layer claims the 0x53c sensor
-  (`fovaudit src=readback`, the sensor ramping 136->137 within a second). Measured at
-  16:9 only: the game did not take `ResX/ResY` from its ini, so the second aspect is open.
-
-**Found on the way (each fixed):** under `[Mode] GamepadOnly=1` every script-event tracker
-sat inside the motion-aim block, so the title screen, the main menu and a loading screen
-read GAMEPLAY (the earlier "gameplay" instrument runs were on the attract camera; the
-loading screen's static camera reads DISCARDED for every write); the runtime's projection
-path had no caller in this game (camera mode was an overlay checkbox and a stale verdict
-pins the quad); the cinematic latch the title screen toggles ON survived a level load; the
-tag ring cleared every few seconds because the game thread runs a frame ahead of the render
-thread; `eye-check.ps1` failed at start (a param default calling the library early).
-
-**Not verified**: the headset (fusion, per-eye reflections, flicker on fast motion, the
-tick rate halving); the SteamVR shim with Dishonored; `aer` (Developer A's stub, untouched).
+1. **The stereo arming glitch.** Occasionally after a pause/resume the two eyes show
+   DIFFERENT images (not a stereo pair) - uncomfortable, and it clears on its own. The
+   user's observation narrows it: the per-eye judder (item 2) stays visible in the LEFT
+   eye but disappears in the RIGHT while it is happening, so the right eye looks like it
+   stops receiving fresh frames. Suspect the arming path around the cinematic quad: the
+   pair ring resyncs from mono (`sr tag ring skewed - cleared`), the projection re-arms and
+   the right swapchain image is held or re-presented. The simulator DOES exercise the
+   transition cleanly (run 38: pause/resume re-pairs, L/s = R/s, mono 0), so the repro
+   needs the arming path hammered, not the steady state.
+2. **Judder on fast movement.** Not smooth, slightly floaty. The pair is submitted as it
+   completes; the likely fix is the same one the BioShock Infinite mod needed - hold the
+   pair and submit against the predicted display time one or two frames ahead, so the two
+   eyes and the pose belong to the same instant. `[Pace]`/`vrpace` and the pair-cadence
+   samples (`g_pairInt*`, spike trace) are the instruments already in place.
+3. **The pitch pivot sits behind the camera.** Looking up or down feels like the whole body
+   pitches rather than the head: the rotation centre is somewhere behind the eyes. Expect a
+   missing neck-model offset - the head should rotate about a point ~10-12 cm below and
+   ~8-10 cm behind the eyes, and the engine is pitching the view about the camera origin
+   while the projection layer expects the eye to translate on the arc.
+4. **F10 overlay: no resolution picker, no stereo arming tickbox.** Wanted: a custom
+   render-resolution picker defaulting to the Quest 3's per-eye resolution, and a tickbox
+   that arms the current stereo method, TICKED by default.
 
 ## Next steps (one paragraph per developer)
 
-**The user (the headset run, Quest 3 via VDXR)**: `tools\install.ps1`, launch through Steam
-with VD streaming and VDXR active, reach gameplay, then `tools\game-cmd.ps1 "stereo reentry"`
-(`$env:DVR_DATA_DIR='D:\dvr-data'`). Expect: the world in stereo at full frame rate
-per eye, the game's tick halved (the F10 overlay and the log's `heartbeat: GAME=... ticks=`
-say by how much), reflections and post effects per eye. Judge fusion, world scale, and
-fast head motion; then `capture mode deferred` (one present of latency for 2.7 ms back);
-then `postrack lane camera` (lean/crouch through the camera write). Quit through the menu.
-Send `dishonored_vr.log`; the verdict picks the defaults for `[Stereo] Method`,
-`[Capture] Mode` and `[PosTrack] Lane`.
+**Next session (branch off `native-stereo-rendering`)**: the four items above, in that
+order - the arming glitch first (it is the only one that breaks fusion), then the pair
+pacing, then the neck model, then the F10 controls. Reproduce 1 by hammering the arming
+path (pause/resume in a loop on the simulator with `reentry` armed, watching `sr tag ring
+skewed`, `pair aborts` and which eye's swapchain image goes stale); 2 needs the headset to
+judge but the cadence numbers are already logged; 3 is measurable on the simulator by
+picture (pitch the simulated head and watch a near landmark translate). Every new lever
+ships default OFF with a live A/B toggle except the two F10 defaults the user asked for.
 
 **Developer B (S2b follow-ups)**: the eye-check bands recalibrated on this game after the
 headset verdict; the second aspect (how the game takes its render size now that the window
@@ -148,6 +110,7 @@ root derivation and the second draw, the docs. Runs on the dev PC (simulator lan
 | 37 | roll by picture | roll write lands (incoming = wrote); +20 right-ear-down leaned the verticals RIGHT - reversed |
 | 38 | roll negated | +20 leans left, -20 right; forward axis matches the vp lane; pause/resume re-pairs cleanly (L/s = R/s, mono 0) |
 | 39 | the verdict logger | `gameplay verdict: FALSE (menuOpen) ... -> the head-locked quad` 30 ms ahead of the runtime's own line |
+| 40 | **HEADSET (the user), the verdict** | PASS: stereo depth, tilt, lean, look, crouch all correct. Open: the arming glitch (right eye), judder on fast movement, the pitch pivot behind the camera, and the F10 resolution picker + arming tickbox |
 
 ### 2026-09-02 - session 5: the state as session 5 left it (archived)
 

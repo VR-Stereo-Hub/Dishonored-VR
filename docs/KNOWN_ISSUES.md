@@ -8,20 +8,24 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   shows the game's own frame on a flat screen in front of you (`[Screen] DistanceMeters`,
   `WidthMeters`; F10 has the sliders). Turning your head turns the GAME camera as before, the
   screen itself stays in front of your eyes. `stereo reentry` (41.1) draws the scene twice
-  per tick, once per eye, into a projection layer. Two headset runs (2026-09-03, Quest 3)
-  found three faults, all fixed in the tree and none yet re-judged in a headset: the pairing
-  check dropped left-eye tags while walking (both frames in both eyes, alternating - fixed,
-  the second run reported stereo good); the head's displacement and roll were not driven
-  into the game camera under the projection layer; and the camera field's SIGN was inverted,
-  so every lean, crouch and per-eye offset went the wrong way (ENGINE_NOTES, "The camera
-  field holds the POSITION"); and the head roll was written in the wrong sense (UE3 rolls
-  positive right-ear-down), measured and fixed by picture. The eye offset was inverted with
-  the field's sign, so the depth in those two runs was inside-out: judge the depth again,
-  near objects should read near. A one-off "frames pinned in front of me until alt-tab"
-  now has an instrument: `gameplay verdict:` in the log names the gate that dropped the
-  layer to the head-locked quad.
-  The tick rate halves while it runs (the second draw is a full scene draw). `stereo aer`
-  is still a design stub.
+  per tick, once per eye, into a projection layer, and is HEADSET-VERIFIED (Quest 3,
+  2026-09-03): depth, head tilt, lean, look and crouch are all correct. It stays off by
+  default until the four items below are fixed. The tick rate halves while it runs (the
+  second draw is a full scene draw). `stereo aer` is still a design stub.
+- **`stereo reentry`: the eyes occasionally desync after a pause/resume** [S2b]. Rare, and
+  it clears itself, but while it lasts the two eyes show different images instead of a
+  stereo pair. Reported symptom: the judder below stays visible in the left eye and stops
+  in the right, so the right eye looks like it stops getting fresh frames. Suspected in the
+  arming path (the pair ring resyncs from mono when the cinematic quad hands back).
+- **`stereo reentry`: fast head or player movement judders** [S2b]. Slightly floaty rather
+  than locked. The pair is submitted as it completes rather than being paced against the
+  predicted display time.
+- **`stereo reentry`: looking up and down pitches about a point behind your eyes** [S2b].
+  It reads as pitching your whole body instead of your head; a neck model (the pivot below
+  and behind the eyes) is missing.
+- **The F10 overlay has no render-resolution picker and no stereo arming tickbox** [S2b].
+  Planned: a custom per-eye resolution defaulting to the Quest 3's, and a tickbox that arms
+  the current stereo method, ticked by default.
 - **The eye-check bands are BioShock's** [S2b]. `tools\eye-check.ps1` legs 2/4/5 were
   calibrated on another game; on Dishonored's sewers a true stereo pair reads an
   interocular mean of 6-7 against 13-22 for the same image shown twice, so those legs FAIL

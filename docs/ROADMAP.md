@@ -51,7 +51,8 @@ results.
       D3DPOOL_MANAGED), so `[Capture] Mode=deferred` (queue the readback, lock it one present
       later) is the cut: 2.3 ms, `mono.xrs` passing. Ships default sync; the headset run
       picks the default (ENGINE_NOTES "The capture cost, measured")
-- [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (holds -position), the five
+- [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (it holds the POSITION and
+      c5 is its negation - the sign corrected 2026-09-03 by picture, bbd04fec), the five
       others DISCARDED (ENGINE_NOTES)
 - [x] Positional (lean/crouch/roomscale) tracking on the camera seam's position write behind
       `[PosTrack] Lane=vp|camera` (default vp): `camera postest` HONOURED on all three axes
@@ -91,7 +92,14 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
       `L/s == R/s == out/s / 2`; the second draw costs 220-470 us (run 28-29)
 - [x] `stereo.xrs` and `reentry.xrs` on the simulator, eye-check legs 0-1 (legs 2-5 carry
       BioShock's bands: KNOWN_ISSUES); the pair line proves the two cameras half an IPD apart
-- [ ] Headset: fusion, per-eye reflections and effects, no flicker on fast motion (the user)
+- [x] Headset: fusion confirmed (user, Quest 3 via VDXR, 2026-09-03, run 40) - the world
+      reads in 3D, head tilt, lean, look and crouch all correct. Merged to
+      `native-stereo-rendering` (PR #3, 3be4a0c4), which is the working branch from here.
+- [ ] The four faults run 40 left open (KNOWN_ISSUES, one bullet each): the eyes desync
+      after a pause/resume (the right eye stops taking fresh frames), fast motion judders
+      (pace the pair against the predicted display time), the pitch pivot sits behind the
+      eyes (no neck model), and the F10 overlay needs the render-resolution picker
+      (default: the Quest 3's per-eye size) and a stereo arming tickbox (ticked)
 
 ## S3 - Compare and choose; the features come back on the winner
 
