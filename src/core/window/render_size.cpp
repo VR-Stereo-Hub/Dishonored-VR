@@ -173,7 +173,17 @@ static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who)
     g_resVerdictW = g_resVerdictH = 0;
     const bool isMode = ResIsMode(w, h);
     const bool written = ResWriteGameIni(w, h, full);
-    _snprintf(g_resLastLine, sizeof(g_resLastLine), "asked %ux%u %s (%s) - takes effect at the next launch%s",
+    LaunchArgsWrite(w, h, full);   // the route the engine honours (see LaunchArgsInstall)
+    {   // the ask must survive the relaunch it needs: into the mod's ini now, not
+        // only on SAVE AS DEFAULTS (the verdict at the next boot reads it back)
+        char ini[MAX_PATH], v[32];
+        _snprintf(ini, MAX_PATH, "%s\dishonored_vr.ini", g_dir);
+        _snprintf(v, sizeof(v), "%u", w); WritePrivateProfileStringA("Screen", "RenderWidth", v, ini);
+        _snprintf(v, sizeof(v), "%u", h); WritePrivateProfileStringA("Screen", "RenderHeight", v, ini);
+        WritePrivateProfileStringA("Screen", "RenderFullscreen", full ? "1" : "0", ini);
+        WritePrivateProfileStringA("Screen", "VirtualMode", g_resVirtual ? "1" : "0", ini);
+    }
+    _snprintf(g_resLastLine, sizeof(g_resLastLine), "asked %ux%u %s (%s) - takes effect at the next launch (-ResX/-ResY on the command line)%s",
               w, h, full ? "fullscreen" : "windowed", who,
               !full ? "; a windowed size is clamped to the desktop's rows"
               : isMode ? "" : g_resVirtual ? "; not a display mode: VirtualMode provides it"
@@ -236,6 +246,10 @@ static bool ResCommand(const char* args)
         bool on;
         if (n >= 2 && DvrOnOff(b, &on)) {
             g_resVirtual = on;
+            char ini[MAX_PATH];
+            _snprintf(ini, MAX_PATH, "%s\dishonored_vr.ini", g_dir);
+            WritePrivateProfileStringA("Screen", "VirtualMode", on ? "1" : "0", ini);   // survives the relaunch
+            if (g_resWantW && g_resWantH) LaunchArgsWrite(g_resWantW, g_resWantH, g_resWantFull);   // the file carries it too
             Log("res: virtual mode %s - the proxy %s the asked size in the adapter's mode list and turns a fullscreen "
                 "device at that size windowed with the backbuffer kept (takes effect at the next launch)",
                 on ? "ON" : "off", on ? "advertises" : "no longer advertises");
@@ -244,6 +258,15 @@ static bool ResCommand(const char* args)
     }
     unsigned w = 0, h = 0; char tail = 'f';
     if (sscanf(a, "%ux%u%c", &w, &h, &tail) >= 2) {
+        if (!w && !h) {   // res 0x0: the game's own size again
+            g_resWantW = g_resWantH = 0;
+            LaunchArgsWrite(0, 0, true);
+            char ini[MAX_PATH];
+            _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+            WritePrivateProfileStringA("Screen", "RenderWidth", "0", ini);
+            WritePrivateProfileStringA("Screen", "RenderHeight", "0", ini);
+            return true;
+        }
         ResRequest(w, h, tail != 'w', "seam");
         return true;
     }
@@ -310,6 +333,111 @@ static void ResHookD3D9(IDirect3D9* d3d)
     Log("res: adapter mode hooks %s (count/enum/display mode; the list is logged, and fed only with VirtualMode=1: %s%s)",
         g_resHooked ? "installed" : "FAILED", g_resVirtual ? "ON, " : "off",
         ResVirtualActive() ? "the asked size is advertised" : g_resVirtual ? "no size asked" : "");
+}
+
+// ---- the launch arguments: the route the engine honours ----------------------
+// Measured 2026-09-03 (runs 07-08): with 2560x1440 fullscreen in every place
+// of the game's own ini (both files, all four buckets, rewritten by the game
+// itself at launch) the game still created a 1920x1080 WINDOWED device, and
+// never Reset out of it. The one route measured to be taken verbatim is the
+// command line: UE3 parses -ResX= -ResY= -FullScreen / -Windowed before it
+// reads anything else (the research branch's probes: fullscreen 5120x1440
+// honoured exactly, a windowed size clamped to the desktop's rows). The proxy
+// is loaded before the engine's entry point, so it can hand the engine an
+// extended command line: the exe's (and the CRT's) import slots for
+// GetCommandLineA/W are pointed at copies with the picker's arguments
+// appended. kernel32 only, so it is loader-lock safe like the pad hook.
+// The ask lives in <gamedir>\dishonored_vr_launch.txt (one line, written by
+// ResRequest, deleted by `res 0x0`) - DllMain must not touch the ini.
+typedef LPSTR  (WINAPI* PFN_GetCommandLineA)();
+typedef LPWSTR (WINAPI* PFN_GetCommandLineW)();
+static PFN_GetCommandLineA g_origGetCmdA = NULL;
+static PFN_GetCommandLineW g_origGetCmdW = NULL;
+static char    g_launchExtra[128] = "";
+static char    g_launchCmdA[2048] = "";
+static wchar_t g_launchCmdW[2048] = L"";
+static int     g_launchSlots = 0;
+
+static LPSTR WINAPI hkLaunchGetCommandLineA() { return g_launchCmdA[0] ? g_launchCmdA : (g_origGetCmdA ? g_origGetCmdA() : NULL); }
+static LPWSTR WINAPI hkLaunchGetCommandLineW() { return g_launchCmdW[0] ? g_launchCmdW : (g_origGetCmdW ? g_origGetCmdW() : NULL); }
+
+static void LaunchArgsPath(char* out, size_t cap) { _snprintf(out, cap, "%s\\dishonored_vr_launch.txt", g_dir); }
+
+// ResRequest writes the ask here; DllMain reads it at the next launch.
+static void LaunchArgsWrite(uint32_t w, uint32_t h, bool full)
+{
+    char path[MAX_PATH];
+    LaunchArgsPath(path, MAX_PATH);
+    if (!w || !h) {
+        DeleteFileA(path);
+        Log("res: launch arguments cleared (%s) - the game picks its own size at the next launch", path);
+        return;
+    }
+    char line[128];
+    _snprintf(line, sizeof(line), "-ResX=%u -ResY=%u %s%s", w, h, full ? "-FullScreen" : "-Windowed",
+              g_resVirtual ? " -DvrVirtualMode" : "");   // our own token, stripped before the engine sees it
+    HANDLE f = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) { Log("res: could not write %s (err %lu)", path, GetLastError()); return; }
+    DWORD wr = 0;
+    WriteFile(f, line, (DWORD)strlen(line), &wr, NULL);
+    CloseHandle(f);
+    Log("res: launch arguments for the next launch: \"%s\" (%s; the proxy appends them to the command line the "
+        "engine reads, before its entry point)", line, path);
+}
+
+// DllMain: read the ask, extend the command line the engine will read.
+static void LaunchArgsInstall()
+{
+    char path[MAX_PATH];
+    LaunchArgsPath(path, MAX_PATH);
+    HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) return;
+    DWORD rd = 0;
+    char buf[128] = "";
+    ReadFile(f, buf, sizeof(buf) - 1, &rd, NULL);
+    CloseHandle(f);
+    buf[rd < sizeof(buf) ? rd : sizeof(buf) - 1] = 0;
+    for (char* p = buf; *p; ++p) if (*p == '\r' || *p == '\n') { *p = 0; break; }
+    if (!buf[0] || strncmp(buf, "-ResX=", 6) != 0) {
+        DVR_LOG(dvr::log::Cat::res, dvr::log::Level::Warn, "launch: %s holds \"%s\", not a -ResX= line - ignored", path, buf);
+        return;
+    }
+    strncpy(g_launchExtra, buf, sizeof(g_launchExtra) - 1);
+    {   // the ask travels with the file, so the verdict knows it even when the
+        // harness restores the mod's ini around a launch
+        unsigned w = 0, h = 0;
+        if (sscanf(buf, "-ResX=%u -ResY=%u", &w, &h) == 2) { g_launchW = w; g_launchH = h; }
+        g_launchFull = strstr(buf, "-Windowed") == NULL;
+        char* tok = strstr(buf, " -DvrVirtualMode");
+        if (tok) { g_launchVirtual = true; *tok = 0; }   // ours, not the engine's
+        g_resVirtual = g_resVirtual || g_launchVirtual;
+        if (g_launchVirtual) { g_resWantW = g_launchW; g_resWantH = g_launchH; g_resWantFull = g_launchFull; }
+    }
+    const char* origA = GetCommandLineA();
+    const wchar_t* origW = GetCommandLineW();
+    _snprintf(g_launchCmdA, sizeof(g_launchCmdA), "%s %s", origA ? origA : "", g_launchExtra);
+    wchar_t extraW[128];
+    MultiByteToWideChar(CP_ACP, 0, g_launchExtra, -1, extraW, 128);
+    _snwprintf(g_launchCmdW, 2048, L"%s %s", origW ? origW : L"", extraW);
+    g_launchCmdW[2047] = 0;
+    // the exe's own import slots, and the CRT's if the CRT is a DLL (its
+    // WinMain glue is where UE3 gets its lpCmdLine from)
+    static const char* kMods[] = { NULL, "msvcr100.dll", "msvcr90.dll", "msvcr110.dll", "msvcr120.dll" };
+    for (size_t i = 0; i < sizeof(kMods) / sizeof(kMods[0]); ++i) {
+        HMODULE m = kMods[i] ? GetModuleHandleA(kMods[i]) : GetModuleHandleA(NULL);
+        if (!m) continue;
+        void** sa = dvr::hooks::find_iat_slot_in(m, "kernel32.dll", "GetCommandLineA");
+        void** sw = dvr::hooks::find_iat_slot_in(m, "kernel32.dll", "GetCommandLineW");
+        if (sa) { void* o = dvr::hooks::patch_iat_slot(sa, (void*)hkLaunchGetCommandLineA); if (o && !g_origGetCmdA) g_origGetCmdA = (PFN_GetCommandLineA)o; if (o) ++g_launchSlots; }
+        if (sw) { void* o = dvr::hooks::patch_iat_slot(sw, (void*)hkLaunchGetCommandLineW); if (o && !g_origGetCmdW) g_origGetCmdW = (PFN_GetCommandLineW)o; if (o) ++g_launchSlots; }
+    }
+    DVR_LOG(dvr::log::Cat::res, dvr::log::Level::Info,
+            "launch: command line extended for the engine: \"%s\" + \" %s\" (%d import slot(s) patched; the "
+            "CreateDevice line says whether the engine took it)", origA ? origA : "", g_launchExtra, g_launchSlots);
+    if (!g_launchSlots)
+        DVR_LOG(dvr::log::Cat::res, dvr::log::Level::Warn,
+                "launch: no GetCommandLine import slot found - the engine reads its command line another way; the "
+                "ask in %s is inert", path);
 }
 
 // Before CreateDevice / Reset: log what the game asked for; under VirtualMode,

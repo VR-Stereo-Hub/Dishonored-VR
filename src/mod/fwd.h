@@ -26,6 +26,8 @@ static bool ResCommand(const char* args);
 static void ResHookD3D9(IDirect3D9* d3d);
 static void ResBeforePresentParams(D3DPRESENT_PARAMETERS* pp, const char* where);
 static bool ResIsMode(uint32_t w, uint32_t h);
+static void LaunchArgsInstall();               // DllMain: -ResX/-ResY on the command line the engine reads
+static void LaunchArgsWrite(uint32_t w, uint32_t h, bool full);
 static bool DvrOnOff(const char* s, bool* out);   // commands.cpp: on|off|1|0 parser, used by the picker's word
 static void NeckSet(int mode, float belowM, float behindM, const char* who);
 static void SceneDrawStatus(dvr::status::Writer& w);

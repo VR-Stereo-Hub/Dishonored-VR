@@ -330,7 +330,12 @@ static void LoadConfig()
         g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 0, ini);
         g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 0, ini);
         g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
-        g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 0, ini) != 0;
+        g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 0, ini) != 0 || g_launchVirtual;
+        if (!g_resWantW && g_launchW && g_launchH) {   // the launch file carried an ask the ini lost
+            g_resWantW = g_launchW; g_resWantH = g_launchH; g_resWantFull = g_launchFull;
+            Log("config: [Screen] Render* read 0 but the launch file asked %ux%u %s - using that for the verdict",
+                g_resWantW, g_resWantH, g_resWantFull ? "fullscreen" : "windowed");
+        }
         if (g_resWantW && g_resWantH)
             Log("config: [Screen] Render %ux%u %s, VirtualMode=%d (the verdict prints once the capture knows the size)",
                 g_resWantW, g_resWantH, g_resWantFull ? "fullscreen" : "windowed", (int)g_resVirtual);

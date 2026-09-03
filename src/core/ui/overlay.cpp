@@ -559,7 +559,7 @@ static void OverlayFrame()
         ImGui::SameLine();
         if (ImGui::Button("refresh modes")) ResEnumModes("F10");
         ImGui::SameLine();
-        if (ImGui::Button("use the game's own size")) { g_resWantW = g_resWantH = 0; Log("res: ask cleared - the game's own size at the next launch (its ini keeps whatever it holds)"); }
+        if (ImGui::Button("use the game's own size")) ResCommand("0x0");
         ImGui::TextDisabled("%s", g_resLastLine);
         ImGui::Separator();
     }

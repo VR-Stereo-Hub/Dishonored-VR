@@ -51,6 +51,10 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
         // are loader-lock-safe. From the game's first poll we answer "pad
         // connected" (neutral state until the VR controllers come online).
         if (!g_disabled) InstallPadHook();
+        // 41.1: the render-resolution picker's ask as -ResX/-ResY/-FullScreen on
+        // the command line the engine reads (kernel32 + a plain file read; see
+        // core/window/render_size.cpp, LaunchArgsInstall). The ini is not touched.
+        if (!g_disabled) LaunchArgsInstall();
     } else if (reason == DLL_PROCESS_DETACH) {
         DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Info, "=== proxy unloading ===");
         dvr::log::shutdown();

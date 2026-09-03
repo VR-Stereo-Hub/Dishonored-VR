@@ -77,6 +77,9 @@ static bool     g_resVirtual = false;
 static uint32_t g_resModes[64][2];                  // the display modes the picker lists (render_size.cpp)
 static int      g_resModeN = 0;
 static char     g_resLastLine[200] = "no ask yet";  // the picker's last verdict, for F10
+static uint32_t g_launchW = 0, g_launchH = 0;       // the ask the launch file carried (DllMain reads it; the verdict uses it)
+static bool     g_launchFull = true;
+static bool     g_launchVirtual = false;            // the file asked for VirtualMode (wins over the ini)
 static const char* kBuildTag = "41.0";
 static const int kConfigVersion = 10; // bump to refresh users' ini with new defaults
 
