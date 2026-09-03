@@ -199,7 +199,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // clean it up.
                 if (strstr(nm, "MenuClosed") || strstr(nm, "ResumeGameClicked") ||
                     strstr(nm, "NewGameClicked")) {
-                    if (g_menuOpen) { g_menuOpen = false; Log("menu: closed (%s)", nm); }
+                    if (g_menuOpen) { g_menuOpen = false; g_menuEverSet = true; Log("menu: closed (%s)", nm); }
                     // (38.70: the NewGameClicked arm lived here and never
                     // fired - the skip now triggers on the intro boat's
                     // measured spawn position instead, in IntroSkipApply)
@@ -207,15 +207,15 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                            strstr(nm, "CanLoadGame") || strstr(nm, "CanSaveGame") ||
                            strstr(nm, "SaveSlotInfos") || strstr(nm, "BackToWindows") ||
                            strstr(nm, "LoadGameClicked")) {
-                    if (!g_menuOpen) { g_menuOpen = true; Log("menu: open (%s)", nm); }
+                    if (!g_menuOpen) { g_menuOpen = true;  g_menuEverSet = true; Log("menu: open (%s)", nm); }
                 } else if (strstr(nm, "CloseJournal")) {
                     // 34.2: the journal/powers screen measured. It announces
                     // itself as Dis_ToggleJournal and leaves as CloseJournal
                     // (both straight from the 34.1 vocab log). Close first -
                     // "CloseJournal" must not fall into the open branch.
-                    if (g_menuOpen) { g_menuOpen = false; Log("menu: closed (%s)", nm); }
+                    if (g_menuOpen) { g_menuOpen = false; g_menuEverSet = true; Log("menu: closed (%s)", nm); }
                 } else if (strstr(nm, "ToggleJournal")) {
-                    if (!g_menuOpen) { g_menuOpen = true; Log("menu: open (%s)", nm); }
+                    if (!g_menuOpen) { g_menuOpen = true;  g_menuEverSet = true; Log("menu: open (%s)", nm); }
                 } else if (strstr(nm, "Shop") || strstr(nm, "Upgrade") ||
                            strstr(nm, "PurchasesList")) {
                     // 34.5: Req_PurchasesList is the shop's BUY screen - the
@@ -230,9 +230,9 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                     // the flag ~1.5 s after gameplay dispatches resume.
                     if (strstr(nm, "Close") || strstr(nm, "Exit") ||
                         strstr(nm, "Leave")) {
-                        if (g_menuOpen) { g_menuOpen = false; Log("menu: closed (%s)", nm); }
+                        if (g_menuOpen) { g_menuOpen = false; g_menuEverSet = true; Log("menu: closed (%s)", nm); }
                     } else {
-                        if (!g_menuOpen) { g_menuOpen = true; Log("menu: open (%s)", nm); }
+                        if (!g_menuOpen) { g_menuOpen = true;  g_menuEverSet = true; Log("menu: open (%s)", nm); }
                     }
                 }
                 // 34.1 diagnostic: learn the game's UI event vocabulary. Each

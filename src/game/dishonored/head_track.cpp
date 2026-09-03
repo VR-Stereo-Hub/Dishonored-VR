@@ -915,6 +915,24 @@ static void TrackHead(const float (*m)[4])
             if (g_menuOpen && !cursorVis && CylTruthLive()) {
                 double now = MaimNowMs();
                 if (!wasOpen) { wasOpen = true; menuSince = now; hitsAtStale = g_pvrHits; }
+                // 41.1: THE BOOT DEFAULT IS NOT A MENU. g_menuOpen ships true so
+                // the main menu is never mistaken for gameplay, and the
+                // auto-continue-into-save path never sends a close event - so
+                // the default stands unchallenged into gameplay and the pad
+                // spends the first seconds pulsing the movement stick and
+                // zeroing the right one ("could not move with the sticks for a
+                // bit, menu controls were fine"). A live pawn already rules out
+                // the main menu, which is what this whole test is gated on, so
+                // when NO script event has ever touched the flag there is
+                // nothing to be careful about: clear it on the first gameplay
+                // frame instead of after 1500 ms and 20 dispatches.
+                else if (!g_menuEverSet) {
+                    g_menuOpen = false; wasOpen = false;
+                    Log("menu: boot default cleared on the first gameplay frame - "
+                        "no script event ever set it and a pawn is live, so it was "
+                        "never a menu (this is what used to park the sticks for "
+                        "the first few seconds of play)");
+                }
                 else if (now - menuSince > 1500.0 && (g_pvrHits - hitsAtStale) > 20) {
                     g_menuOpen = false; wasOpen = false;
                     Log("menu: stale flag cleared after %.0f ms - no cursor AND "

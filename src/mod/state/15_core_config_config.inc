@@ -44,6 +44,14 @@ static volatile double g_uiEventMs = 0.0;
 // held, or the DXVK fork reports a frame with no stereo splices - loading
 // screens, videos), SBS presentation drops to mono so flat UI is readable.
 static volatile bool g_menuOpen = true;
+// 41.1: has a SCRIPT EVENT ever driven g_menuOpen, or is it still the boot
+// default? The flag ships true so the main menu is not mistaken for gameplay,
+// but the game auto-continues into the last save without ever sending a
+// close event - so on that path the default is simply never contradicted and
+// the pad spends the first seconds of play chopping the movement stick into
+// menu pulses with the right stick hard-zeroed. A default is not evidence;
+// this says which one we are looking at.
+static volatile bool g_menuEverSet = false;
 // 36.2: the panel places itself ONCE (FirstUseEver), and 36.1's shrink can
 // fire after that - the panel's latched position then sits outside both the
 // new logical space (invisible) and the mouse's reachable range (dead).
