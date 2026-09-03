@@ -49,11 +49,12 @@ Nothing has run on the headset this session.
 **The user (headset, Quest 3 via VDXR), ONE scripted run** with `dishonored_vr.log` copied out
 after it: (1) install the build, launch with the shipped ini (it has the new keys already; a
 fresh ini adds `[Perf] FrameId=1` and `[Stereo] C5Pair=1`), load a level and WAIT 30 s without
-pausing; say whether the eyes fuse; (2) `frameid status` (F10 is not needed: `game-cmd.ps1`
-or the command file); if the eyes are one picture: `reentry rearm 2`, judge; `capture reinit`,
-judge; `stereo projection off` then `stereo projection auto`, judge; `capture mode deferred`
-then `capture mode shared`, judge; press DUMP EYES before and after each step (the dump no
-longer stalls or re-arms); (3) send `dishonored_vr.log` and the `eye_*.png` files. What the
+pausing; say whether the eyes fuse; (2) everything else is on the F10 Display tab's EYES block
+(the readout line, DUMP EYES, REARM 2, CAPTURE REINIT, PROJECTION OFF / AUTO, the c5 pairing
+tickbox, and the capture mode combo above it): if the eyes are one picture press REARM 2, judge;
+CAPTURE REINIT, judge; PROJECTION OFF then PROJECTION AUTO, judge; the combo to deferred then
+back to shared, judge; press DUMP EYES before and after each step (the dump no longer stalls or
+re-arms); (3) send `dishonored_vr.log` and the `eye_*.png` files. What the
 log will say: the `stereo: frameid` line's `L-R diff` per stage against the `same-eye floor` (one
 picture = below the floor; the first stage below it is the fault's stage), `side ok|SWAPPED`
 and `picture shift -N|+N px` (a swap, which should not happen now), `reentry: the tag ring

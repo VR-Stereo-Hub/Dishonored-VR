@@ -86,6 +86,7 @@ float    g_lastDiff[kStages] = {};
 double   g_floorSumWindow = 0.0; uint32_t g_floorN = 0;
 double   g_c5SumWindow = 0.0; uint32_t g_c5N = 0;
 uint32_t g_slotRepeats = 0, g_scRepeats = 0;
+Last     g_last;   // the F10 readout
 // the side check: pairs whose +1 present's c5 sat on the wrong side of the -1's
 // along the camera's right row (the tags swapped against the draws)
 uint32_t g_swapped = 0, g_swappedWindow = 0, g_sideUnknownWindow = 0;
@@ -355,6 +356,8 @@ void judge_pair(const Record& l, const Record& r, uint32_t serialL) {
     }
     ++g_pairs; ++g_pairsWindow;
     if (floorBb >= 0.0f) { g_floorSumWindow += floorBb; ++g_floorN; }
+    g_last.pairs = g_pairs; g_last.floorBb = floorBb;
+    for (int s = 0; s < kStages; ++s) g_last.diff[s] = have[s] ? diff[s] : -1.0f;
     // the picture's side, at the first stage both have
     int shift = 0; float shiftDiff = -1.0f; int shiftStage = -1;
     for (int s = 0; s < kStages && shiftStage < 0; ++s) if (have[s]) shiftStage = s;
@@ -403,6 +406,7 @@ void judge_pair(const Record& l, const Record& r, uint32_t serialL) {
                      d[0], d[1], d[2], d[3], c5d, along, side, shift, shiftStage >= 0 ? kStageName[shiftStage] : "-", shiftDiff,
                      floorBb, sameBelow, firstSame < 0 ? "none (two pictures at every stage read)" : kStageName[firstSame]);
 
+    strncpy(g_last.side, side, sizeof(g_last.side) - 1); g_last.shift = shift; g_last.swapped = g_swapped;
     if (side[0] == 'S')
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
                          "stereo: frameid EYES SWAPPED - the +1 present's c5 sits %+.2f uu along right of the -1's (a right "
@@ -414,13 +418,13 @@ void judge_pair(const Record& l, const Record& r, uint32_t serialL) {
         const bool one = diff[judgeStage] < sameBelow;
         if (one) { ++g_oneStreak; g_twoStreak = 0; } else { ++g_twoStreak; g_oneStreak = 0; }
         if (!g_onePicture && g_oneStreak >= 10) {
-            g_onePicture = true;
+            g_onePicture = true; g_last.onePicture = true;
             DVR_WARN("stereo: frameid THE EYES BECAME ONE PICTURE at stage %s (10 pairs in a row below the floor; "
                      "diff %.1f vs floor %.1f at serial %u) - the stages after it %s", kStageName[judgeStage],
                      diff[judgeStage], floorBb, l.serial,
                      firstSame == judgeStage ? "inherit it" : "are the ones to read");
         } else if (g_onePicture && g_twoStreak >= 10) {
-            g_onePicture = false;
+            g_onePicture = false; g_last.onePicture = false;
             DVR_WARN("stereo: frameid the eyes became TWO PICTURES again at stage %s (10 pairs in a row above the floor; "
                      "diff %.1f vs floor %.1f at serial %u)", kStageName[judgeStage], diff[judgeStage], floorBb, l.serial);
         }
@@ -559,6 +563,8 @@ void log_status() {
              g_onePicture ? "ONE PICTURE" : "two pictures");
     summary("window so far:");
 }
+
+Last last() { return g_last; }
 
 void status(dvr::status::Writer& w) {
     w.kv("enabled", g_enabled);

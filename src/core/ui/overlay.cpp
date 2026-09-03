@@ -589,6 +589,31 @@ static void OverlayFrame()
             ImGui::TextDisabled("%s", !dvr::capture::probed() ? "probe pending"
                                       : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared refused (plain device)");
         }
+        // 41.1 (session 9): THE EYES - the frame-identity readout and the one-
+        // press versions of the headset run's words, so the whole run happens
+        // in the headset (the same functions as the seam words).
+        {
+            ImGui::Separator();
+            const dvr::frameid::Last fl = dvr::frameid::last();
+            ImGui::Text("EYES: %s | pairs %u | L-R diff bb %.1f slot %.1f out %.1f sc %.1f (floor %.1f; one picture = below it)",
+                        fl.pairs == 0 ? "no pairs yet (the quad screen, or not armed)" : fl.onePicture ? "ONE PICTURE" : "two pictures",
+                        fl.pairs, fl.diff[0], fl.diff[1], fl.diff[2], fl.diff[3], fl.floorBb);
+            ImGui::Text("      side %s | picture shift %+d px (negative = a true pair) | swapped pairs %u | c5 pairing %s",
+                        fl.side, fl.shift, fl.swapped, dvr::stereo::reentry_c5_pair() ? "on" : "OFF");
+            if (ImGui::Button("DUMP EYES (a left + a right PNG; no stall)")) FrameDumpRequest("eyes");
+            ImGui::SameLine();
+            if (ImGui::Button("REARM 2 (two single ticks, capture untouched)")) SceneDrawCommand("rearm 2");
+            ImGui::SameLine();
+            if (ImGui::Button("CAPTURE REINIT (rebuild the slots)")) dvr::capture::request_reinit();
+            if (ImGui::Button("PROJECTION OFF (the quad)")) dvr::stereo::set_projection_override(0);
+            ImGui::SameLine();
+            if (ImGui::Button("PROJECTION AUTO (back to per-eye)")) dvr::stereo::set_projection_override(-1);
+            ImGui::SameLine();
+            bool c5 = dvr::stereo::reentry_c5_pair();
+            if (ImGui::Checkbox("c5 pairing (off = the old order-only tags: the A/B)", &c5)) dvr::stereo::set_reentry_c5_pair(c5);
+            ImGui::TextDisabled("the log's `stereo: frameid` line has the same numbers once a second; use the capture mode combo above for deferred -> shared");
+            ImGui::Separator();
+        }
         // 41.1 (session 8): the 9Ex device lever (next launch) - what lets the
         // capture keep the frame in VRAM ([Capture] Mode=shared).
         {

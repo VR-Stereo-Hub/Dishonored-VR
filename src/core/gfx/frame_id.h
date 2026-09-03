@@ -81,6 +81,19 @@ void stage_swapchain(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2
 void on_reset();     // the D3D9 ring goes (default pool) before the device resets
 void shutdown();
 void log_status();   // `frameid status`
+// The last judged pair, for the F10 Display tab: the L-R difference per stage
+// (bb, slot, out, sc; -1 = the stage was not read), the same-eye floor, the
+// side check, the picture shift, the state, the lifetime counts.
+struct Last {
+    uint32_t pairs = 0;
+    float    diff[4] = {-1, -1, -1, -1};
+    float    floorBb = -1;
+    char     side[12] = "-";
+    int      shift = 0;
+    bool     onePicture = false;
+    uint32_t swapped = 0;
+};
+Last last();
 void status(dvr::status::Writer& w);   // status.json "frameid"
 
 } // namespace dvr::frameid
