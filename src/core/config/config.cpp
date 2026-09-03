@@ -41,6 +41,19 @@ static void WriteDefaultIni(const char* ini)
         "; that can share (the log's capture/probe lines say). `capture mode <m>` switches\n"
         "; live; `capture status` prints the cost.\n"
         "Mode=sync\n"
+        "[Pace]\n"
+        "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
+        "; the `vrpace` seam word and the F10 Runtime panel; SAVE AS DEFAULTS writes them.\n"
+        "; Ahead=0|1|2: locate the head pose (and the layer's views) this many display\n"
+        "; periods past predictedDisplayTime - a pair that closes after its slot displays a\n"
+        "; slot late, and 1 makes the pose match that slot (the log's `pair phase` line says\n"
+        "; which). Strict=1: a stereo submit whose eye is older than one present shows the\n"
+        "; fresh eye to both eyes for that frame instead of a held eye (the pause/resume\n"
+        "; desync fail-soft). Lag=0|1|2: which locate generation the layer is tagged with\n"
+        "; (1 = one back, the measured default). All ship at today's behaviour.\n"
+        "Ahead=0\n"
+        "Strict=0\n"
+        "Lag=1\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -857,6 +870,16 @@ static void LoadConfig()
         dvr::frame::set_fps_cap(g_fpsCap);
         if (g_fpsCap > 0.0f)
             Log("config: FPS cap %.1f (even-cadence limiter)", g_fpsCap);
+        {   // 41.1: [Pace] - the projection layer's pacing levers (defaults = today)
+            const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
+            const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
+            const int lag = GetPrivateProfileIntA("Pace", "Lag", 1, ini);
+            dvr::vr::set_pace_ahead(ahead);
+            dvr::vr::set_pair_strict(strict != 0);
+            dvr::vr::set_pose_lag(lag);
+            if (ahead || strict || lag != 1)
+                Log("config: [Pace] Ahead=%d Strict=%d Lag=%d (levers off today's behaviour)", ahead, strict, lag);
+        }
         // 37.5: SAFE mode - rendering + head tracking only, every game-memory
         // writer held back. The crash bisector: if XR-safe holds stable, one
         // of the writers is the killer; if it still dies, they are innocent.
@@ -1160,6 +1183,13 @@ static void OverlaySaveDefaults()
             _snprintf(v, 64, "%.1f", g_hmRot[hh][q]);
             WritePrivateProfileStringA("VRHands", k, v, ini);
         } }
+
+    // 41.1: the [Pace] levers, so a headset run's choice survives the session
+    _snprintf(v, 64, "%d", dvr::vr::pace_ahead());
+    WritePrivateProfileStringA("Pace", "Ahead", v, ini);
+    WritePrivateProfileStringA("Pace", "Strict", dvr::vr::pair_strict() ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", dvr::vr::get_pose_lag());
+    WritePrivateProfileStringA("Pace", "Lag", v, ini);
 
     Log("overlay: saved defaults (scale %.1f dist %.2f)", g_posScaleUU, g_screenDist);
 }

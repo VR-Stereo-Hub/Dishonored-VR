@@ -2996,9 +2996,19 @@ void on_present_begin() {
     // M3: locate the head pose + per-eye views for the predicted display time.
     // The head pose feeds the CalcView camera drive on the game thread; the
     // views feed projection-layer submission at Present-tail.
+    // 41.1 (Dishonored): the look-ahead lever. The game renders this locate's
+    // pose one present later and its pair closes later still; when the pair
+    // misses the slot xrWaitFrame named, the image displays a slot late with a
+    // pose predicted for the earlier one. `ahead` locates for the slot the
+    // image will actually reach. xrEndFrame's displayTime is NOT touched (the
+    // runtime's contract), and the tag generation is unchanged, so the layer
+    // still carries the pose the image was rendered from.
+    const XrTime locateTime =
+        g_frameState.predictedDisplayTime +
+        static_cast<XrTime>(g_paceAhead.load(std::memory_order_relaxed)) * g_frameState.predictedDisplayPeriod;
     XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
     bool poseOk =
-        XR_SUCCEEDED(xrLocateSpace(g_viewSpace, g_space, g_frameState.predictedDisplayTime, &sl)) &&
+        XR_SUCCEEDED(xrLocateSpace(g_viewSpace, g_space, locateTime, &sl)) &&
         (sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
         (sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
     {
@@ -3027,7 +3037,7 @@ void on_present_begin() {
 
     XrViewLocateInfo vli{XR_TYPE_VIEW_LOCATE_INFO};
     vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-    vli.displayTime = g_frameState.predictedDisplayTime;
+    vli.displayTime = locateTime;   // 41.1 (Dishonored): the same look-ahead as the head
     vli.space = g_space;
     XrViewState vs{XR_TYPE_VIEW_STATE};
     uint32_t viewCount = 0;
@@ -4407,6 +4417,22 @@ void draw_debug_ui() {
             bool strict = g_pairStrict.load(std::memory_order_relaxed);
             if (ImGui::Checkbox("Strict pairs (mono for a frame when an eye is stale)", &strict))
                 set_pair_strict(strict);
+            // 41.1 (Dishonored): the look-ahead lever, with the phase beside it.
+            {
+                static const char* kAhead[] = {"0 (the slot xrWaitFrame named)", "1 period ahead", "2 periods ahead"};
+                int ahead = g_paceAhead.load(std::memory_order_relaxed);
+                ImGui::SetNextItemWidth(260);
+                if (ImGui::Combo("Pose look-ahead (judder A/B)", &ahead, kAhead, 3)) set_pace_ahead(ahead);
+                const uint32_t phN = g_pairPhaseCount.load(std::memory_order_relaxed);
+                if (g_pfnQpcToXrTime)
+                    ImGui::TextDisabled("pair phase %+.1f ms mean, missed slot %.0f%% of %u | poseGenDelta %.2f deg | lag %d",
+                                        phN ? g_pairPhaseSumUs.load(std::memory_order_relaxed) / 1000.0 / phN : 0.0,
+                                        phN ? 100.0 * g_pairPhaseMissed.load(std::memory_order_relaxed) / phN : 0.0, phN,
+                                        g_poseGenDeltaDeg.load(std::memory_order_relaxed),
+                                        g_poseLag.load(std::memory_order_relaxed));
+                else
+                    ImGui::TextDisabled("pair phase n/a (no runtime clock extension)");
+            }
         }
         bool cine = g_cineEnabled.load(std::memory_order_relaxed);
         if (ImGui::Checkbox("Cinematic auto-detect (cutscenes/screens)", &cine))
@@ -4737,6 +4763,20 @@ void set_pace_sync(bool on) {
                 on ? "ON" : "off");
 }
 
+void set_pace_ahead(int periods) {
+    if (periods < 0) periods = 0;
+    if (periods > 2) periods = 2;
+    const int was = g_paceAhead.exchange(periods, std::memory_order_relaxed);
+    if (was != periods)
+        XRLOG("xr: pace ahead %d -> %d period(s): the head pose handed to the game and the views the layer is "
+                "tagged with are located for predictedDisplayTime + %d x %.2f ms; xrEndFrame's displayTime is "
+                "unchanged (`vrpace ahead 0|1|2` is the live A/B; the pair phase line says which slot the close "
+                "lands in)",
+                was, periods, periods, g_displayPeriodNs.load(std::memory_order_relaxed) / 1.0e6);
+}
+
+int pace_ahead() { return g_paceAhead.load(std::memory_order_relaxed); }
+
 void set_pose_lag(int lag) {
     if (lag < 0) lag = 0;
     if (lag > 2) lag = 2;
@@ -4862,6 +4902,22 @@ void handle_pace_command(const char* args) {
                     g_spikeTrace.load(std::memory_order_relaxed) ? "ON" : "off",
                     g_spikeCount.load(std::memory_order_relaxed));
         }
+    } else if (strcmp(verb, "ahead") == 0) {
+        // 41.1 (Dishonored): the look-ahead lever (state at g_paceAhead).
+        int n = -1;
+        if (sscanf_s(rest, "%d", &n) == 1 && n >= 0 && n <= 2) set_pace_ahead(n);
+        else
+            XRLOG("xr: pace ahead %d period(s) (the locate time for the head pose and the layer's views: "
+                    "predictedDisplayTime + ahead x period) | usage: vrpace ahead 0|1|2",
+                    g_paceAhead.load(std::memory_order_relaxed));
+    } else if (strcmp(verb, "lag") == 0) {
+        // 41.1 (Dishonored): the pose-attribution generation (set_pose_lag).
+        int n = -1;
+        if (sscanf_s(rest, "%d", &n) == 1 && n >= 0 && n <= 2) set_pose_lag(n);
+        else
+            XRLOG("xr: pose attribution lag %d generation(s) (0 fresh, 1 one back = the default, 2 two back) | "
+                    "poseGenDelta %.2f deg | usage: vrpace lag 0|1|2",
+                    g_poseLag.load(std::memory_order_relaxed), g_poseGenDeltaDeg.load(std::memory_order_relaxed));
     } else if (strcmp(verb, "strict") == 0) {
         // 41.1 (Dishonored): the stale-eye fail-soft A/B (state at g_pairStrict).
         if (strncmp(rest, "on", 2) == 0) set_pair_strict(true);
@@ -4881,7 +4937,7 @@ void handle_pace_command(const char* args) {
     } else {
         XRLOG("xr: pace guard %s | wait %s | session %s everFocused=%d | skips %u "
                 "lastWait %u ms | handoffs %u timeouts %u | simidle %s "
-                "(vrpace on|off|thread on|off|detach on|off|sync|spike|strict|simidle on|off|status)",
+                "(vrpace on|off|thread on|off|detach on|off|sync|spike|strict|ahead|lag|simidle on|off|status)",
                 g_paceGuard.load(std::memory_order_relaxed) ? "ON" : "off",
                 g_paceOffThread.load(std::memory_order_relaxed) ? "off-thread" : "inline",
                 state_str(g_state), g_everFocused.load(std::memory_order_relaxed) ? 1 : 0,
@@ -5491,6 +5547,8 @@ void set_pace_sync(bool) {}
 void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }
+void set_pace_ahead(int) {}
+int pace_ahead() { return 0; }
 float get_pose_gen_delta_deg() { return 0.0f; }
 void set_present_stage(const char*) {}
 void set_draw_stage(const char*) {}

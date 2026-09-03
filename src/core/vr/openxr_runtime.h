@@ -304,6 +304,13 @@ bool pair_strict();
 // behave byte-identically; the Infinite adapter exposes the in-headset A/B.
 void set_pose_lag(int lag);
 int get_pose_lag();
+// 41.1 (Dishonored): pose look-ahead in display periods (0..2, default 0): the
+// head pose the game renders with and the views the layer is tagged with are
+// located for predictedDisplayTime + ahead x period, for a pipeline whose pair
+// closes after the slot xrWaitFrame named. `vrpace ahead`, the F10 combo,
+// [Pace] Ahead= persist the tester's choice.
+void set_pace_ahead(int periods);
+int pace_ahead();
 // Rotation delta between consecutive locate generations (deg) - the error
 // magnitude one generation of mis-attribution costs at the current head
 // speed. For the adapter's F10 telemetry next to the A/B.
