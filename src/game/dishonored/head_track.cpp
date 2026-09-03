@@ -597,7 +597,10 @@ static void ApplyHeadToViewRotation(void* parms)
     // head's pose INCLUDING roll, so the game camera must roll with the head
     // or the horizon counter-rolls (the 2026-09-03 headset run). [HeadTrack]
     // Roll stays the quad screen's choice.
-    const bool rollNow = g_rotRoll || dvr::stereo::wants_projection();
+    // `headroll off` forces the third case: no roll write at all, so the
+    // compositor's own rotation is the only one and a double-application shows
+    // up as the difference between this and `headroll 1`.
+    const bool rollNow = !g_rollForceOff && (g_rotRoll || dvr::stereo::wants_projection());
     const int32_t before2 = rot[2];   // what the engine handed us: did our last roll survive?
     if (rollNow) rot[2] = (int32_t)(g_hmdRoll * kUEPerRad * (float)g_flipRoll);
     frP = rot[0]; frY = rot[1];                       // 38.86/87: this chain

@@ -1,5 +1,100 @@
 # Status
 
+## Current state (2026-09-02, session 7c: the resolution fault is the FOV CLAIM)
+
+**For the S2b developer.** Your `bbd04fec` is built, installed and was run in a headset by
+the user. Rung 3 boots into stereo and runs. Two faults dominate what he saw, and the first
+one is now understood.
+
+### 1. THE RESOLUTION FAULT IS THE FOV CLAIM, NOT THE RENDER SIZE
+
+The tester found it by arming the FOV lever from F10: the world became "a tiny square really
+far away" with **"extremely good resolution and depth"**. Same render, same headset, only the
+claimed FOV changed - a controlled experiment, and it says the render size was never the
+problem.
+
+At 16:9 the layer must claim **137 deg** to cover the eye's ~110 deg vertical
+(`tanH = tanV * aspect`), and the log agrees the engine really renders it
+(`fovaudit ... hfov 136.99 deg, src=readback`). The cost, on this rig (eye 2496x2688,
+half-angles h=54 v=55):
+
+| render | claim | centre px/deg | covers the eye |
+|---|---:|---:|---|
+| 3840x2160 | 137 (auto) | **13.2** | yes |
+| 3840x2160 | 100 (lever) | **28.2** | ~47% vertically - the tiny square |
+| the eye | 108 | 15.8 | - |
+
+**Over half the resolution is spent on periphery outside the frustum.** It also explains the
+null result that ate an hour: 1080p and 4K look IDENTICAL in the headset, because both are
+16:9 and get squeezed by the same factor.
+
+**The fix is the render ASPECT.** The eye is 0.928; at that aspect the covering claim is
+~105.6 deg and there is no trade at all. Measured this session by probe (launch, read
+`CreateDevice`, kill):
+
+| requested | got |
+|---|---|
+| windowed 2496x2688 | 1304x1405 |
+| windowed 2560x2880 | 1248x1405 |
+| windowed 3840x2160 | 2497x1405 |
+| **fullscreen 5120x1440** | **5120x1440 - honoured exactly** |
+
+Windowed is hard-capped at **1405 rows** here (desktop 5120x1440 at 125% DPI, minus the
+caption). Fullscreen takes a real display mode verbatim, so a near-square render is reachable
+if a near-square MODE exists. Three routes, cheapest first: a virtual display at ~2560x2688
+(this machine has three virtual display adapters, untested); the size spoof `99d4f576`
+removed (`res_spoof.cpp`, 594 lines, recoverable verbatim from `99d4f576^`, and the original
+author calls the `GetClientRect` lie load-bearing); or pin `FovLever` ~105-115 and accept a
+border. ENGINE_NOTES carries the arithmetic and the BRVR comparison - BRVR claims the GAME's
+fov and never inflates it, which is why a modest windowed render looks fine there.
+
+**Whatever is chosen, the capture cost scales with it**: 3840x2160 measures **14.4 ms per
+present** (`31.6 MB each way, mode=sync, lock=9616us`). Near-square 2496x2688 is 26.8 MB.
+S1's readback item has to land before that is playable.
+
+### 2. HEAD TILT: the roll write is honoured, so it is not just a sign
+
+`FlipRoll=-1` was applied and the telemetry shows the write negated AND kept
+(`roll ON incoming=172 wrote=152`, incoming tracking the previous write). Tilt was still
+wrong, which leaves DOUBLE APPLICATION: the compositor rotates the image for head roll and
+`ApplyHeadToViewRotation` writes roll too, and `rollNow` is FORCED true under
+`stereo::wants_projection()` so `[HeadTrack] Roll=0` cannot switch it off.
+
+A three-way A/B is in for it, because the question is three-way: `headroll 1|-1|off` on the
+seam, and the same three buttons on the **F10 Comfort tab** (the tester is in a headset).
+`g_rollForceOff` gates `rollNow`. **NOT YET RUN** - one run answers it.
+
+### Also landed this session
+
+- **`[Stereo] Method=reentry` could never take at boot.** `EnsureConfig()` selects the method
+  inside `Direct3DCreate9`, and `DvrInstallFrameHooks()` registers the scene-draw hooks later
+  in that same function, so the ini always refused with "the game side has not registered".
+  `select()` now remembers a not-yet-available method and `set_reentry_hooks()` retries it.
+  VERIFIED in a headset run: `'reentry' was asked for before its game side was up - retrying
+  now` -> `method mono -> reentry`, beat `L/s == R/s == out/s / 2`.
+- The game config in `Documents` was still carrying pre-41.0 leftovers (2750x2850 in
+  DishonoredEngine.ini and all four AppCompat buckets); reset to a real size, console bind
+  added, `MaxAnisotropy` 4 -> 16, `MaxShadowResolution` 800 -> 2048. **`MaxMultisamples` left
+  at 1 on purpose** - ENGINE_NOTES records a `GetRenderTargetData` failure on a multisampled
+  backbuffer, so MSAA would likely break the capture path.
+- `tools/boot.ps1` passed `Enter` positionally to `game-key.ps1`, whose first positional
+  parameter is `-GamePath`, so unattended booting never pressed a key.
+
+### The AER branch is parked
+
+`aer-rendering` is pushed and complete. Its findings that still apply to rung 3 are in
+ENGINE_NOTES ("Three things BRVR does that our AER does not"): the projection layer should
+carry the pose the image was RENDERED from (BRVR: "a major flicker fix"), and anything flat
+must take ONE eye. The world-advance-per-eye-pair one does NOT apply to reentry - rung 3
+draws both eyes from one tick, which is the argument that settled the ladder.
+
+### Next run, in order
+
+1. F10 Comfort -> head tilt: `match` / `oppose` / `no write`, tilting both ways after each.
+2. `fov 100` -> `115` -> `125` -> `137` -> `0` and report where sharp turns into filled. That
+   crossover is the number the aspect fix is sized against.
+3. `capture mode deferred` (14.4 ms -> should roughly halve).
+
 ## Current state (2026-09-03, session 6: S2b, SequentialReentry on the simulator, 41.1)
 
 **Two headset runs of rung 3 (runs 30 and 34, Quest 3 via VDXR, the user). Run 34: stereo

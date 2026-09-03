@@ -112,6 +112,27 @@ static void OverlayFrame()
         if (!pt) { g_leanRightUU = 0; g_leanUpUU = 0; g_leanFwdUU = 0; }
     }
 
+    // 41.1 HEAD TILT (roll), the three-way A/B - same thing the `headroll`
+    // seam word does, put here because the tester is in a headset and cannot
+    // reach a keyboard. Under a projection layer the COMPOSITOR already
+    // rotates the image for head roll and the game camera writes roll too, so
+    // "tilt goes the wrong way" has three candidate causes and only one of
+    // them is a sign. Tilt your head both ways after each button.
+    ImGui::Separator();
+    ImGui::TextUnformatted("head tilt (roll)");
+    {
+        const bool off = g_rollForceOff;
+        ImGui::Text("now: write %s, sign %+d", off ? "OFF (compositor only)" : "ON", g_flipRoll);
+        if (ImGui::Button("match (+1)"))  { g_rollForceOff = false; g_flipRoll =  1; }
+        ImGui::SameLine();
+        if (ImGui::Button("oppose (-1)")) { g_rollForceOff = false; g_flipRoll = -1; }
+        ImGui::SameLine();
+        if (ImGui::Button("no write"))    { g_rollForceOff = true; }
+        ImGui::TextDisabled("if neither sign is right, the compositor is already rolling the");
+        ImGui::TextDisabled("image and 'no write' is the answer; if 'no write' leaves the");
+        ImGui::TextDisabled("horizon dead, the write is needed and the sign is the answer");
+    }
+
     ImGui::EndTabItem(); }
 
     // 38.61 ship polish: blink is a finished feature with good defaults -

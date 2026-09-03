@@ -1071,3 +1071,121 @@ Blink detours, 33-36 graft and calibration, 37.x OpenXR bring-up (XR-1 bench, XR
 XR-3 pace thread), 38.x the Quest convergence attempts, 38.92 shipped. The fork: M2 frame
 map, M3 splice, M4 twins, M5 sequential + shafts, M6 wrist HUD + shadows, M7 pixel-shader
 shear, M8 quarter-res light passes (M8.2 shipped).
+
+## THE RESOLUTION IS THE FOV CLAIM, NOT THE RENDER SIZE (2026-09-02, session 7c)
+
+**The tester found this by accident and it is the whole answer.** Arming the FOV lever from
+the F10 panel turned the world into "a tiny square really far away" - and that square had
+"extremely good resolution and depth". Same render size, same headset, same everything: only
+the claimed FOV changed. That is a controlled experiment, and it says the sharpness problem
+was never the render size.
+
+### The arithmetic
+
+A projection layer's image is rectilinear, so its pixels-per-degree at the CENTRE is
+`W / (2 * tan(hfov/2))` px per radian. The eye's own density is the same formula on the
+headset's numbers. Measured on this rig (VDXR, Quest 3, `xr: headset fov half-angles
+h=54.0 v=55.0 deg`, eye 2496x2688):
+
+| render | claimed hfov | centre px/deg | covers the eye? |
+|---|---:|---:|---|
+| 3840x2160 | **137** (the auto claim) | **13.2** | yes, fully |
+| 3840x2160 | 100 (lever armed) | **28.2** | no - ~47% vertically: the tiny square |
+| the eye itself | 108 | 15.8 | - |
+
+**So the shipped configuration feeds 13.2 px/deg into an eye that wants 15.8, while the same
+frame at 100 deg would carry 28.2.** More than half the resolution is being spent on
+periphery that falls outside the headset's frustum.
+
+### Why the claim is 137 and not something sane
+
+`aspect 1.777` is the whole reason. The layer must cover the eye's ~110 deg VERTICAL, and for
+a rectilinear image `tanV = tanH / aspect`. At 16:9 that forces
+`tanH = 1.428 * 1.777 = 2.538`, i.e. **hfov 137 deg**, which the log states outright:
+
+```
+xr: headset fov half-angles h=54.0 v=55.0 deg -> game hfov 137.0 deg (aspect 1.777)
+xr: fovaudit submit tanH=2.538139 tanV=1.428148 (hfov 136.99 deg, src=readback, swap 3840x2160)
+```
+
+`src=readback` means the engine really is rendering at 137 deg, so the claim is honest - the
+loop is closed and the geometry is correct. It is the ASPECT that is wrong, not the code.
+
+**This also explains the null result that confused the session for an hour: 1080p and 4K look
+identical in the headset.** Both are 16:9, so both are squeezed by the same factor; the ratio
+of what you render to what you can see never changes. Chasing the render size could not have
+worked, and the tester's "I don't think it's the resolution at all" was correct.
+
+### The fix, and why it needs something we removed
+
+The eye is 2496x2688 - **aspect 0.928**. At that aspect the claim that covers the eye is
+`2*atan(1.428*0.928) = 105.6 deg`, which costs almost nothing in density. A near-square render
+gets coverage AND sharpness; there is no trade. The trade only exists because the frame is the
+shape of a monitor.
+
+Measured this session, so nobody re-derives it (probe: launch, read `CreateDevice`, kill):
+
+| requested | got | note |
+|---|---|---|
+| windowed 2496x2688 | **1304x1405** | aspect kept, height clamped |
+| windowed 2560x2880 | **1248x1405** | same clamp |
+| windowed 3840x2160 | **2497x1405** | same clamp |
+| **fullscreen 5120x1440** | **5120x1440** | honoured EXACTLY |
+
+**Windowed is hard-capped at 1405 rows** on this rig (physical desktop 5120x1440 at 125% DPI;
+1405 = 1440 minus the caption). No `-ResY` beats it. **Fullscreen takes a real display mode
+verbatim** - which is the useful half: it means a near-square render is reachable IF a
+near-square display mode exists. Routes, in order of cost:
+
+1. **A virtual display at ~2560x2688** (this machine already has `Virtual Display Driver`,
+   `Meta Virtual Monitor` and `Virtual Desktop Monitor` adapters). Game fullscreen on it,
+   lever pinned near 105. No code. UNTESTED - the cheapest thing to try first.
+2. **The size spoof 41.0 removed** (`99d4f576`: `res_spoof.cpp`, nine user32 IAT hooks, 594
+   lines, recoverable verbatim from `99d4f576^`). The original author's handoff calls the
+   `GetClientRect` lie load-bearing, so it is the proven mechanism in this game - but it is
+   the machinery the project deleted on purpose.
+3. **Claim less than the eye and accept letterboxing.** Pin `[Screen] FovLever` around 105-115
+   and live with a border, trading coverage for density by hand. Free, ugly, works today.
+
+Whatever is chosen, note the cost that scales with it: capture is a CPU readback and at
+3840x2160 it measures **14.4 ms per present** (`31.6 MB each way, mode=sync, lock=9616us`).
+`[Capture] Mode=deferred` exists for exactly this. A near-square 2496x2688 is 26.8 MB and the
+readback has to be cut before that is playable (ROADMAP S1's open item; the D3D9Ex shared
+surface was REFUSED by this device).
+
+### What BRVR does instead
+
+BioShock Remastered VR claims the GAME's own fov on its projection views
+(`pv[e].fov = ScaleFov(base, ...)` where base is the game fov or the located view fov,
+`Render/XRSession.cpp`) and lets the image sit inside the eye. It never inflates the claim to
+force edge-to-edge coverage, which is why a modest windowed render looks fine there and the
+same render looks mushy here. That is the design difference, and it is worth deciding
+deliberately rather than inheriting.
+
+## Head tilt: the roll write is HONOURED, so a sign is not the whole story (2026-09-02)
+
+The 41.1 roll telemetry answers its own question. `[HeadInject] FlipRoll=-1` was applied and
+the log shows the write negated and KEPT:
+
+```
+headtrack: hmd pitch=0.1 yaw=-22.8 roll=-0.8 deg | view pitch 10->16 yaw 3142->3129
+           | roll ON incoming=172 wrote=152 (0.8 deg)
+```
+
+`incoming` tracking the previous write is the "the engine kept our roll" case, so the write
+reaches the render and the tilt fault is downstream of it. Tilt was still wrong with the sign
+flipped, which leaves DOUBLE APPLICATION as the live hypothesis: under a projection layer the
+compositor already rotates the image for head roll (the layer carries the located pose), and
+`ApplyHeadToViewRotation` writes roll as well - `rollNow` is FORCED true whenever
+`stereo::wants_projection()`, so `[HeadTrack] Roll=0` cannot switch it off.
+
+The instrument for it is a three-way, because the question is three-way:
+
+- `headroll 1` - the write matches the compositor (shipped)
+- `headroll -1` - the write opposes it
+- `headroll off` - no write at all; the compositor's rotation is the only one
+
+Also on the F10 **Comfort** tab (the tester is in a headset and cannot reach a keyboard).
+`g_rollForceOff` gates `rollNow`. If neither sign is right and `off` is, the fix is to stop
+writing roll under a projection layer. If `off` leaves the horizon dead, the write is needed
+and the answer is the sign. NOT YET RUN.

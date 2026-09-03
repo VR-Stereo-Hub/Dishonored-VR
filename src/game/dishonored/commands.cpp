@@ -57,6 +57,28 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    // `headroll 1|-1|off` - the live three-way for head TILT. Under a projection
+    // layer the compositor already rotates the image for head roll, and the game
+    // camera writes roll as well, so "tilt goes the wrong way" has three
+    // candidate causes and only one of them is a sign:
+    //   1    the write matches the compositor (the shipped behaviour)
+    //   -1   the write opposes it
+    //   off  no write at all - the compositor's rotation is the only one
+    // Sweeping these in ONE run is the difference between a measurement and
+    // three restarts of guessing. Read it beside the telemetry line
+    // `headtrack: ... roll <ON|off> incoming=N wrote=M`, which already says
+    // whether the engine is keeping the write at all.
+    if (!strcmp(cmd, "headroll")) {
+        if (strstr(args, "off"))     { g_rollForceOff = true; }
+        else if (strstr(args, "-1")) { g_rollForceOff = false; g_flipRoll = -1; }
+        else if (strstr(args, "1"))  { g_rollForceOff = false; g_flipRoll = 1; }
+        Log("headroll: write %s, sign %+d (headroll 1|-1|off). Tilt your head both ways after "
+            "each: if NEITHER sign is right the compositor is already rolling the image and "
+            "'off' is the answer; if 'off' leaves the horizon dead then the write is needed "
+            "and the sign is the answer",
+            g_rollForceOff ? "OFF (compositor only)" : "ON", g_flipRoll);
+        return true;
+    }
     if (!strcmp(cmd, "postrack")) {
         char sub[16] = "", lane[16] = "";
         if (sscanf(args, "%15s %15s", sub, lane) == 2 && !strcmp(sub, "lane")) {

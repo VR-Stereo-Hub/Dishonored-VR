@@ -30,6 +30,13 @@ static bool     g_wpnMaster  = false;
 static bool     g_wpnAutoSmall = false; // move every small skeleton (old 10.x way)
 static bool     g_rotInject = false;    // native head tracking (F3)
 static bool     g_rotRoll   = false;    // inject head roll too (fights lean)
+// 41.1 `headroll` A/B. Under a projection layer the roll write is FORCED on
+// (the compositor rotates the image for head roll, so the game camera has to
+// follow it). If tilt still reads wrong, the question is three-way and not a
+// sign: the write matches the compositor (+1), fights it (-1), or should not
+// happen at all because the compositor already did it (off). This forces the
+// third case so all three can be swept in ONE run instead of three restarts.
+static bool     g_rollForceOff = false;
 static bool     g_scriptHeadOK = false; // engine view hook is driving the view
 // 32.96: ...and WHEN it last drove it. The flag used to be latched forever,
 // so when a save-load killed the script event, g_scriptHeadOK stayed true,
