@@ -58,6 +58,16 @@ static void WriteDefaultIni(const char* ini)
         "Ahead=0\n"
         "Strict=0\n"
         "Lag=1\n"
+        "[Perf]\n"
+        "; The tick budget (core/framework/perf): Instruments=1 keeps one record per present\n"
+        "; (eight clock stamps) and prints the `perf: tick` line every 3 s; GpuQueries=1 adds\n"
+        "; the D3D9 timestamp ring behind the `perf: gpu` line (read five presents back, never\n"
+        "; waited on). `perf on|off`, `perf gpu on|off` live; `mark <text>` and the F10 MARK\n"
+        "; button stamp a felt freeze. ForceNoVSync=1 presents without vsync (the game's own\n"
+        "; setting is ignored while the headset paces the game).\n"
+        "Instruments=1\n"
+        "GpuQueries=1\n"
+        "ForceNoVSync=1\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -485,6 +495,13 @@ static void LoadConfig()
     g_wpnShowNear= IniFloat(ini, "Weapon", "ShowNear", 0) != 0.0f;
     g_scanEnabled = IniFloat(ini, "Debug", "VsScan", 0) != 0.0f;
     g_forceNoVSync = IniFloat(ini, "Perf", "ForceNoVSync", 1) != 0.0f;
+    {   // 41.1 (session 8): the tick budget's levers, both default on
+        const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
+        const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
+        if (!inst) dvr::perf::set_enabled(false);
+        if (!gpu) dvr::perf::set_gpu_enabled(false);
+        Log("config: [Perf] Instruments=%d GpuQueries=%d (the tick line and the gpu line every 3 s)", inst ? 1 : 0, gpu ? 1 : 0);
+    }
     Log("config: per-frame diagnostics vsscan=%d shownear=%d (both off = more fps)",
         (int)g_scanEnabled, (int)g_wpnShowNear);
     g_wpnPosScale= IniFloat(ini, "Weapon", "PosScale", 55.0f);
