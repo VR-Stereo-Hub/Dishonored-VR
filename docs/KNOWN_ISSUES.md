@@ -23,14 +23,18 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   mode off` freezes
   the image on purpose (the A/B control); `mark <text>` and the F10 MARK button stamp a felt
   freeze in the log with the ring of presents around it.
-- **`stereo reentry`: the eyes could disagree** [S2b, four mechanisms fixed, headset verdict
-  pending]. The one-sided tag (session 7), a present whose capture delivered no frame pushing
-  the previous tag again, the pace guard's eaten tag (now a named owner on the `STALE EYE`
-  line), and, in the shared capture, a slot overwritten with the other eye's frame while D3D11
-  was still reading it (fenced 2026-09-03; `readWaits` on `capture status` counts the frames the
-  fence had to hold). Every pause/resume also used to hold the headset on the flat quad for
-  1-1.5 s (a stereo -> flat -> stereo flip); a pause menu's silence resumes at once now. If the
-  eyes still disagree: note the time, send the log; `capture sharedwait on` is the A/B.
+- **`stereo reentry`: both eyes can carry ONE eye's view after a load** [S2b, NOT fixed, the
+  fail-soft ships]. Measured 2026-09-03 with `DUMP EYES`: from the first arming of the second draw
+  after a load the left and the right are the same picture (no parallax, a flat world that does
+  not sit right) until the second draw is re-armed, which a pause/resume or a capture-mode
+  switch does by accident. The eye check (`stereo: eyes-parallax` every 3 s) measures the
+  parallax of every pair and re-arms on its own after 30 pairs without it (`EYES WITHOUT
+  PARALLAX` at Warn; `reentry rearm` on the seam does it by hand). Four other mechanisms were
+  fixed in session 8: the one-sided tag, a present whose capture delivered no frame pushing the
+  previous tag again, the pace guard's eaten tag (a named owner on the `STALE EYE` line), and a
+  shared-capture slot overwritten while D3D11 was still reading it (`readWaits`). A pause/resume
+  no longer holds the flat quad for a second. If the eyes still disagree with no `EYES WITHOUT
+  PARALLAX` line: press DUMP EYES, note the time, send the log.
 - **`stereo reentry`: fast head or player movement judders** [S2b, blocked on performance].
   The `pair phase` line and `vrpace ahead 0|1|2` (F10 Runtime, `Pose look-ahead`) are in;
   the headset run could not judge them at 28 ticks/s. Ships at 0.

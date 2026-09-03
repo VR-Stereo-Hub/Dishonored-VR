@@ -60,6 +60,24 @@ this session.
   resumes at once (0a23d509; the hammer: 10 cycles, 0 stale, `view live at once` on each). Whether
   these two are the whole of what the user saw is the next headset question. (Run 15's log was
   rotated away by two simulator launches after it was read; its numbers are the ones quoted here.)
+- **THE THIRD HEADSET RUN (runs 16-17, the user, the shipped defaults)**: the eyes "never
+  correct" from the load, and the user found the remedy by hand: switching the capture to deferred
+  and back to shared fixes them every time. The dumps (`DUMP EYES` on F10) settled the "what": in
+  the bad state the left and the right are the SAME picture (mean difference 2.5, no horizontal
+  shift improves it), after the remedy they are a true pair (64-96 px of parallax). Every tag
+  instrument was clean throughout (0 stale, 0 mismatch, readWaits 0, pairs one IPD apart), the
+  runtime's first eye frame was an R, and the remedy is a RE-ARM of the second draw: a mode
+  switch skips a present and trips the "no present since the previous draw" gate, exactly what a
+  pause did in run 15. So: from the FIRST arming after a load both eyes carry one eye's view until
+  the second draw is re-armed. The simulator does not reproduce it (its pairs are stereo inside
+  the first arming: same-eye consecutive dumps differ by 0.4, left vs right by 3.8). Built for
+  the headset: the eye check (`stereo: eyes-parallax` every 3 s: pairs judged from a 256x256
+  centre patch read three presents back, `noParallax` counted, the numbers on the line) and its
+  fail-soft, a re-arm after 30 pairs without parallax (`reentry rearm [n]` on the seam; the
+  `ReentryHooks::rearm` hook forces n single ticks without touching the patch), at most once per
+  3 s, at Warn. Root cause still open: something the first arming leaves behind that a re-arm
+  clears; the headset log's `eyes-parallax` line and the `EYES WITHOUT PARALLAX` line are the
+  next evidence.
 - **Found on the way**: the head write's four early returns now name themselves (`head: write
   refused - ...`); after a level load the mod's menu flag can stay up (state MENU in the level,
   the pair stream off) until a pause-menu open/close (VERIFICATION gotcha 17); the simulator lane
@@ -70,12 +88,12 @@ this session.
 ## Next steps (one paragraph per developer)
 
 **The user (headset, Quest 3 via VDXR)**, with `dishonored_vr.log` copied out after each: (1) DONE
-(runs 14-15: the shared path judged good, it ships); (2) the eyes: play WITHOUT pausing for a few
-minutes on the shipped build and say whether the eyes still disagree, then with pause/resumes;
-`capture status` prints `readWaits` (the frames the read fence had to hold) and the `[game] view
-live at once` line marks each resume; if the eyes still disagree with readWaits climbing, say
-so with the time - the next lever is `capture sharedwait on` (this present's slot after its
-fence: zero latency, a different hand-off order); then the old list:
+(runs 14-17); (2) the eyes on the eye-check build: load a level and WAIT without touching anything
+- if the eyes are one picture, the `EYES WITHOUT PARALLAX` line should appear within a second and
+the re-arm should fix them on its own; say whether it did, and send the log (the `eyes-parallax`
+lines carry d0/best/dt for the bad and the good state, which is what tunes the thresholds and
+names the mechanism); if it did not fire while the eyes were wrong, press DUMP EYES and say so;
+then the old list:
 the expectation is a pace-bound 72 ticks/s at the Quest 3 size (falsified if `perf: gpu` reads a
 3D span above 12 ms per tick, or the tick line stays above 20 ms with `lock` near 0); play for
 five minutes and LOOK at the textures (black or noisy surfaces after a streaming step are the
@@ -122,6 +140,8 @@ Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits. Runs on the dev PC (simul
 | 06 | the tombstone fix, Ex=1 + shared, 3 quickloads | 2324 live, 1984 tombstones reused of 32768, 0 failures, the game alive; 90 ticks/s pace-bound |
 | 15 | **HEADSET (the user)**, Ex=1 + shared | "performance is pretty good"; the eyes disagree "90 % of the time, more at the beginning": 0 STALE, 0 tag mismatches, pairs one IPD apart, 32 pause/resumes each with a 1-1.5 s flat spell |
 | 07 | the read fence + the menu resume, shipped defaults | `readWaits` 14 in the run (the race was real); hammer 10 cycles 0 stale, `view live at once` x11; `reentry.xrs` 11/11 |
+| 16-17 | **HEADSET (the user)**, shipped defaults | the eyes never correct from the load; deferred -> shared fixes them every time; dumps: the bad pair is one picture (diff 2.5, no parallax), the good pairs 64-96 px of parallax; 0 stale, 0 mismatch, readWaits 0 |
+| 08-09 | the sim: dumps inside the first arming; the eye check | the sim's pairs are stereo from the first arming (0.4 same-eye vs 3.8 L/R); the eye check judges 270 pairs per window, 3-6 % flagged, no streak, no re-arm; `reentry rearm 2` forces two single ticks |
 
 ### 2026-09-03 - session 7: the four headset faults and the picker, on the simulator
 
