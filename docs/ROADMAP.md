@@ -95,11 +95,24 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] Headset: fusion confirmed (user, Quest 3 via VDXR, 2026-09-03, run 40) - the world
       reads in 3D, head tilt, lean, look and crouch all correct. Merged to
       `native-stereo-rendering` (PR #3, 3be4a0c4), which is the working branch from here.
-- [ ] The four faults run 40 left open (KNOWN_ISSUES, one bullet each): the eyes desync
-      after a pause/resume (the right eye stops taking fresh frames), fast motion judders
-      (pace the pair against the predicted display time), the pitch pivot sits behind the
-      eyes (no neck model), and the F10 overlay needs the render-resolution picker
-      (default: the Quest 3's per-eye size) and a stereo arming tickbox (ticked)
+- [x] The four faults run 40 left open, each fixed or levered on the simulator (session 7,
+      2026-09-03): the desync (the gates decided once per tick; `vrpace strict` off; the
+      `STALE R EYE` line; `reentry skip2` reproduces it), the judder (the pair phase measured;
+      `vrpace ahead` 0..2 ships at 0), the pitch pivot (the engine's own neck measured at
+      0.321/0.062 m; `[Neck] Mode=cancel` cancels it, ships off), the F10 tickbox (ticked,
+      `reentry` the default) and the picker (the command-line route, VirtualMode: 2496x2688
+      honoured on the simulator). Headset verdicts pending (STATUS "Next steps").
+- [x] The headset run on session 7's build (the user, 2026-09-03, runs 13a/b): the picker
+      WORKS and is sharp at 2496x2688; `neck cancel` is RIGHT (now the default); the desync
+      still recurs on load and after some pause/resumes (one stale-left submit at a FOCUSED
+      regain, owner unnamed); the judder could not be judged: 28 ticks/s at the eye's size
+- [ ] PERFORMANCE (the next session, before anything about comfort): the per-present CPU
+      readback (5-15 ms, a GPU sync, twice per tick) replaced by a GPU path - the game's
+      device created as D3D9Ex so `[Capture] Mode=shared` (a shared surface opened in D3D11)
+      works, `deferred` as the interim; the render thread's second-draw cost measured; the
+      attack freeze caught with a user-placed marker; then `ahead`, the desync on load
+      (add the pace guard's eaten tag to the owner line, the eyes line during mono spells,
+      `strict` on by default if it holds) and the pivot re-judged at a real frame rate
 
 ## S3 - Compare and choose; the features come back on the winner
 

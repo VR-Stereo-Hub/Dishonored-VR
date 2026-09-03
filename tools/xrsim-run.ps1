@@ -14,6 +14,9 @@
 #                         cost a `vraim on` in the first version of this file.
 #   @assert <k> <op> <v>  assert on state.json (ops: eq ne gt ge lt le)
 #   @fps <min> [secs]     measure frames/s over a window and fail below <min>.
+#   @key <name> [n] [ms]  press a keyboard key in the GAME window (game-key.ps1:
+#                         scancode injection; foregrounds the game). Escape is the
+#                         pause menu, so "@key Escape" twice is a pause/resume.
 #                         This is the session-33 oracle: the symptom there was a
 #                         frame-rate COLLAPSE, which no state field records.
 #
@@ -46,6 +49,7 @@ $cmdScript   = Join-Path $PSScriptRoot "xrsim-cmd.ps1"
 $stateScript = Join-Path $PSScriptRoot "xrsim-state.ps1"
 $shotScript  = Join-Path $PSScriptRoot "xrsim-shot.ps1"
 $gameCmd     = Join-Path $PSScriptRoot "game-cmd.ps1"
+$keyScript   = Join-Path $PSScriptRoot "game-key.ps1"
 
 $shots = @()
 $n = 0
@@ -77,6 +81,11 @@ try {
                 $modCmds = @($Matches[1] -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
                 & $gameCmd @modCmds | Out-Null
                 Start-Sleep -Milliseconds $ModPollMs
+            }
+            elseif ($line -match '^@key\s+(\S+)(?:\s+(\d+))?(?:\s+(\d+))?') {
+                $rep = if ($Matches[2]) { [int]$Matches[2] } else { 1 }
+                $del = if ($Matches[3]) { [int]$Matches[3] } else { 500 }
+                & $keyScript -Key $Matches[1] -Repeat $rep -Delay $del | Out-Null
             }
             elseif ($line -match '^@fps\s+([\d.]+)(?:\s+([\d.]+))?') {
                 $min = [double]$Matches[1]

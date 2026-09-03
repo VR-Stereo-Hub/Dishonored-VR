@@ -1,0 +1,35 @@
+# stale-eye.xrs - the deterministic one-sided tag stream, and the runtime's answer to it.
+#
+# Under `stereo reentry` a projection submit names each eye's swapchain, and the
+# compositor shows that swapchain's most recently RELEASED image. When pass 1
+# tags its present (-1) and pass 2 is skipped, the LEFT is rewritten every
+# other present while the RIGHT keeps showing a held image: the 2026-09-03
+# headset desync ("the judder stays in the left eye and stops in the right").
+# `camera postest` trips the pass-2 test gate on every tick, so it reproduces
+# the one-sided stream on demand without a pause menu.
+#
+# The sim classifies every projection submit: projStaleSubmits counts a
+# two-swapchain submit whose eye was released in an earlier frame. Before the
+# 41.1 gate fix this sequence FAILS at the first stale assert with `vrpace
+# strict off` (the instrument can print the unwelcome answer), passes with
+# strict on (the fallback shows the fresh eye to both eyes: projMonoSubmits
+# climbs instead), and passes with strict off once the gates are decided once
+# per tick. Needs GAMEPLAY (the sewers) - the pass-2 gates refuse a menu.
+reset
+@mod stereo reentry
+@frames 300
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+@assert eyeSameSwapchain eq False
+@assert eyeAgeL le 0
+@assert eyeAgeR le 0
+@assert projStaleSubmits eq 0
+@mod camera postest 30 0 0
+@frames 200
+@assert projStaleSubmits eq 0
+@mod camera postest stop
+@frames 200
+@assert eyeAgeL le 0
+@assert eyeAgeR le 0
+@assert projStaleSubmits eq 0
+@mod stereo mono

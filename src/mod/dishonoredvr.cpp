@@ -116,6 +116,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::res
 #include "core/window/game_window.cpp"
+#include "core/window/render_size.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::blink
 #include "game/dishonored/blink.cpp"

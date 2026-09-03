@@ -57,6 +57,22 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "res")) return ResCommand(args);   // 41.1: the render-resolution picker
+    if (!strcmp(cmd, "neck")) {
+        // 41.1: `neck off|add|cancel [below] [behind]` - the pitch pivot lever (head_track.cpp NeckSet)
+        char mode[16] = "";
+        float below = g_neckBelowM, behind = g_neckBehindM;
+        const int n = sscanf(args, "%15s %f %f", mode, &below, &behind);
+        if (n >= 1) {
+            const int m = !_stricmp(mode, "off") ? 0 : !_stricmp(mode, "add") ? 1 : !_stricmp(mode, "cancel") ? 2 : -1;
+            if (m < 0) { Log("neck: off|add|cancel [below m] [behind m] (now %s %.3f/%.3f)", NeckModeName(g_neckMode), g_neckBelowM, g_neckBehindM); return true; }
+            NeckSet(m, below, behind, "seam");
+            return true;
+        }
+        Log("neck: mode %s, pivot below %.3f m behind %.3f m, arc now R%+.1f U%+.1f F%+.1f uu (neck off|add|cancel [below] [behind])",
+            NeckModeName(g_neckMode), g_neckBelowM, g_neckBehindM, g_neckArcUu[0], g_neckArcUu[1], g_neckArcUu[2]);
+        return true;
+    }
     if (!strcmp(cmd, "postrack")) {
         char sub[16] = "", lane[16] = "";
         if (sscanf(args, "%15s %15s", sub, lane) == 2 && !strcmp(sub, "lane")) {
@@ -96,6 +112,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::camera::postest_start(r, u, f);
             return true;
         }
+        if (!strcmp(sub, "pitchtest")) {
+            if (strstr(args, "stop")) { dvr::camera::pitchtest_stop("seam"); return true; }
+            float deg = 30.0f;
+            sscanf(args, "%*s %f", &deg);
+            dvr::camera::pitchtest_start(deg);
+            return true;
+        }
         if (!strcmp(sub, "eyefield")) {
             fld[0] = 0;
             sscanf(args, "%*s %15s", fld);
@@ -114,7 +137,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             else Log("stereo: projection on|off|auto");
             return true;
         }
-        dvr::stereo::select(args);   // logs the refusal itself
+        if (!strcmp(sub, "arm")) {   // 41.1: the tickbox on the seam
+            if (DvrOnOff(v, &b)) dvr::stereo::set_armed(b);
+            else Log("stereo: arm on|off (now %s, selected '%s')", dvr::stereo::armed() ? "armed" : "parked", dvr::stereo::wanted_name());
+            return true;
+        }
+        dvr::stereo::choose(args);   // logs the refusal itself; an explicit choice is the selection
         return true;
     }
     if (!strcmp(cmd, "capture")) {
@@ -136,7 +164,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "reentry")) {
         if (SceneDrawCommand(args)) return true;
         if (SceneProbeCommand(args)) return true;
-        Log("reentry: pulse [n] | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
+        Log("reentry: pulse [n] | skip2 [n] | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
         return true;
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
@@ -174,12 +202,27 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 static void DvrConsoleApply()
 {
     if (!g_dvrConsoleReq[0]) return;
+    // RunConsole calls the engine's ProcessEvent, which is OUR hook, which
+    // runs this function again: with the request still pending that recursed
+    // until the stack overflowed (0xc00000fd on the game thread, run 05 of
+    // 2026-09-03 - the first time a console word ever reached the engine on
+    // 41.x). The re-entry flag stops the nested call, and the request is taken
+    // off the seam BEFORE the engine runs it.
+    if (g_peReentry) return;
+    char req[256];
+    strncpy(req, g_dvrConsoleReq, sizeof(req) - 1);
+    req[sizeof(req) - 1] = 0;
+    g_dvrConsoleReq[0] = 0;
     wchar_t w[256];
-    MultiByteToWideChar(CP_UTF8, 0, g_dvrConsoleReq, -1, w, 256);
+    MultiByteToWideChar(CP_UTF8, 0, req, -1, w, 256);
     char reply[512] = "";
     int n = RunConsole(w, reply, sizeof(reply));
-    Log("console: '%s' -> %d %s", g_dvrConsoleReq, n, reply);
-    g_dvrConsoleReq[0] = 0;
+    if (n < 0)
+        Log("console: '%s' -> -1 (%s)", req,
+            !g_fnConsoleCmd ? "no ConsoleCommand UFunction in the name tables"
+                            : "no PlayerController latched yet - wait for GAMEPLAY");
+    else
+        Log("console: '%s' -> %d %s", req, n, n ? reply : "(empty reply)");
 }
 
 // 41.1: is the engine's view pipeline dispatching? ProcessViewRotation fires
@@ -247,6 +290,15 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("tracked", (bool)g_devPoseOk[0]);
     w.kv("rotInject", (bool)g_rotInject); w.kv("posTrack", (bool)g_posTrack);
     w.kv("scriptHeadOK", (bool)g_scriptHeadOK);
+    w.end_obj();
+    w.obj("res");    // 41.1: the render-resolution picker
+    w.kv("wantW", (int)g_resWantW); w.kv("wantH", (int)g_resWantH); w.kv("wantFull", (bool)g_resWantFull);
+    w.kv("virtualMode", (bool)g_resVirtual);
+    w.end_obj();
+    w.obj("neck");   // 41.1: the pitch pivot lever
+    w.kv("mode", NeckModeName(g_neckMode));
+    w.kv("belowM", (double)g_neckBelowM); w.kv("behindM", (double)g_neckBehindM);
+    w.kv("arcRightUu", (double)g_neckArcUu[0]); w.kv("arcUpUu", (double)g_neckArcUu[1]); w.kv("arcFwdUu", (double)g_neckArcUu[2]);
     w.end_obj();
     w.arr("hands");
     for (int h = 0; h < 2; h++) {

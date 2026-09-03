@@ -285,6 +285,14 @@ void set_pace_feed(bool on);
 // live A/B; the overlay checkbox rides under SR pair pacing.
 void set_pace_sync(bool on);
 
+// 41.1 (Dishonored): strict pairs - a stereo submit whose eye is older than one
+// present (the held-eye case: pass 1 tagged, pass 2 skipped in the resume
+// window) shows the fresh eye to both eyes for that frame instead. DEFAULT
+// OFF; `vrpace strict on|off` and the F10 checkbox are the live A/B, [Pace]
+// Strict= persists the tester's choice.
+void set_pair_strict(bool on);
+bool pair_strict();
+
 // Session 43b (the Infinite "jumpy camera"): which locate generation the
 // SequentialReentry capture attributes its eyes to. 0 = the fresh locate,
 // 1 = one generation back (the historical default - calibrated on BS1's
@@ -296,6 +304,13 @@ void set_pace_sync(bool on);
 // behave byte-identically; the Infinite adapter exposes the in-headset A/B.
 void set_pose_lag(int lag);
 int get_pose_lag();
+// 41.1 (Dishonored): pose look-ahead in display periods (0..2, default 0): the
+// head pose the game renders with and the views the layer is tagged with are
+// located for predictedDisplayTime + ahead x period, for a pipeline whose pair
+// closes after the slot xrWaitFrame named. `vrpace ahead`, the F10 combo,
+// [Pace] Ahead= persist the tester's choice.
+void set_pace_ahead(int periods);
+int pace_ahead();
 // Rotation delta between consecutive locate generations (deg) - the error
 // magnitude one generation of mis-attribution costs at the current head
 // speed. For the adapter's F10 telemetry next to the A/B.
@@ -451,10 +466,24 @@ struct PairProbe {
     uint32_t staleR = 0;
     uint32_t ageMaxL = 0;        // worst capture age at submit, ms - DRAINED on read
     uint32_t ageMaxR = 0;        //   (window = the caller's own read cadence)
+    // 41.1 (Dishonored): the age in PRESENTS - a healthy SequentialReentry pair
+    // reads L=1 R=0; more is an image from a previous tick shown again.
+    uint32_t agePresL = 0, agePresR = 0;        // at the last stereo submit
+    uint32_t agePresMaxL = 0, agePresMaxR = 0;  // DRAINED on read
+    uint32_t stalePresL = 0, stalePresR = 0;    // submits with this eye stale while the other was fresh (cumulative)
+    // 41.1 (Dishonored): the pair phase - xrEndFrame time minus the frame's
+    // predictedDisplayTime (us, cumulative; negative = closed before its slot).
+    bool     phaseAvailable = false;            // the runtime offers its clock
+    int64_t  phaseLastUs = 0, phaseSumUs = 0, phaseMaxUs = 0;
+    uint32_t phaseCount = 0, phaseMissed = 0;   // pairs sampled, pairs that missed their slot
     uint32_t ringPushed = 0, ringPopped = 0, ringDropped = 0, ringCleared = 0;
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };
 void pair_probe(PairProbe* out);
+void pair_probe_peek(PairProbe* out);   // 41.1 (Dishonored): the same without draining the maxima
+// 41.1 (Dishonored): stalePresL + stalePresR, cumulative and never drained, so a
+// per-present reader can notice a new stale submit without eating the beat's window.
+uint32_t pair_stale_submits();
 
 // --- M7: the aim laser ------------------------------------------------------
 // A row of soft dots along the hand's aim ray, submitted as extra XR quad

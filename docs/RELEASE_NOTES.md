@@ -1,5 +1,36 @@
 # Release notes
 
+## 41.1.0 (unreleased) - native stereo ships, the four headset faults, the resolution picker
+
+- **Stereo ships ON**: a fresh ini has `[Stereo] Method=reentry Armed=1` (rung 3 is headset-
+  verified). New `Armed=` and the F10 Display `stereo armed` tickbox park the game on the mono
+  screen without forgetting the method; `stereo arm on|off`. An ini asking for `reentry` used
+  to refuse at boot (the game side registered later); fixed.
+- Fixed: the eyes could desync after a pause/resume (the second draw's gates were re-decided
+  after the first draw). New `vrpace strict on|off` fail-soft (off), the `stereo: eyes` beat
+  line (per-eye image age in presents), the `STALE R EYE` line, `reentry skip2 <n>`.
+- New: the pair phase (`xr: pair phase`, the TRACE pairs line, status.json `stereo.pair`) and
+  `vrpace ahead 0|1|2` / `vrpace lag 0|1|2`; a new `[Pace]` ini section (`Ahead=0 Strict=0
+  Lag=1`, all today's behaviour) that SAVE AS DEFAULTS writes.
+- New: `camera pitchtest [deg]` (the engine's own neck: measured 0.321 m below, 0.062 m
+  behind the eyes) and the `[Neck] Mode=off|add|cancel` lever with `PivotBelowM/PivotBehindM`
+  (the measured pivot as defaults), `neck` on the seam, F10 Comfort buttons and sliders,
+  status.json `neck{}`, `camera.ceilClips`.
+- Fixed: the `console` seam word (and IntroSkip) returned -1 since 41.0; latched again, and
+  the re-entry through the ProcessEvent hook that then overflowed the stack is guarded.
+- New: the F10 Display render-resolution picker: `[Screen] RenderWidth/RenderHeight/
+  RenderFullscreen` (the names return from 40.x with a new mechanism: the ask goes on the
+  game's command line at the next launch through `dishonored_vr_launch.txt`; the game's own
+  ini and `setres` are measured inert) and `VirtualMode=0|1` (the proxy advertises a size the
+  display lacks and creates the fullscreen device windowed). `res <W>x<H>[f|w] | modes |
+  status | virtual on|off | 0x0`; `res: HONOURED` is the verdict. `[Capture] Mode=deferred`
+  is the companion at the eye's size.
+- New (developers): `tools\xrsim\stale-eye.xrs`, `pause-resume.xrs`, `tools\arming-hammer.ps1`,
+  `@key` in `xrsim-run.ps1`, the simulator's per-eye release age (`eyeAgeL/R`,
+  `projStaleSubmits`, `endPhaseMs` in state.json) and its QPC time extension; the `res:` lines
+  (every adapter mode-list query with its caller). The upgrade note: `[HeadInject] FlipRoll`
+  stays 1 (the roll sense is fixed in the tracker, 5513a570).
+
 ## 41.1.0 (unreleased) - SequentialReentry on the simulator, the S1 levers
 
 - New: `stereo reentry` - the scene drawn twice per tick, once per eye, submitted as a

@@ -112,6 +112,30 @@ static void OverlayFrame()
         if (!pt) { g_leanRightUU = 0; g_leanUpUU = 0; g_leanFwdUU = 0; }
     }
 
+    // 41.1 [Neck]: the pitch pivot three-way, here because the tester is in a
+    // headset. Look up and down at something an arm's length away after each
+    // button: with the right mode it stays put.
+    ImGui::Separator();
+    ImGui::TextUnformatted("neck (pitch pivot)");
+    {
+        ImGui::Text("now: %s | arc R%+.1f U%+.1f F%+.1f uu at pitch %+.0f deg", NeckModeName(g_neckMode),
+                    g_neckArcUu[0], g_neckArcUu[1], g_neckArcUu[2], g_hmdPitch * 57.29578f);
+        if (ImGui::Button("off"))    NeckSet(0, g_neckBelowM, g_neckBehindM, "F10 Comfort");
+        ImGui::SameLine();
+        if (ImGui::Button("add"))    NeckSet(1, g_neckBelowM, g_neckBehindM, "F10 Comfort");
+        ImGui::SameLine();
+        if (ImGui::Button("cancel")) NeckSet(2, g_neckBelowM, g_neckBehindM, "F10 Comfort");
+        float below = g_neckBelowM, behind = g_neckBehindM;
+        ImGui::SliderFloat("pivot below eyes (m)", &below, 0.0f, 0.30f, "%.3f");
+        if (ImGui::IsItemDeactivatedAfterEdit()) NeckSet(g_neckMode, below, g_neckBehindM, "F10 Comfort slider");
+        else g_neckBelowM = below;
+        ImGui::SliderFloat("pivot behind eyes (m)", &behind, 0.0f, 0.30f, "%.3f");
+        if (ImGui::IsItemDeactivatedAfterEdit()) NeckSet(g_neckMode, g_neckBelowM, behind, "F10 Comfort slider");
+        else g_neckBehindM = behind;
+        ImGui::TextDisabled("look up and down at something an arm's length away: with the right mode it stays put");
+        ImGui::TextDisabled("`camera pitchtest` measures the engine's own neck; use those numbers with cancel");
+    }
+
     ImGui::EndTabItem(); }
 
     // 38.61 ship polish: blink is a finished feature with good defaults -
@@ -457,6 +481,88 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Display")) {
+    // 41.1: the stereo arming tickbox, TICKED by default (the user's ask). It
+    // parks the selected method on the mono screen without forgetting it; the
+    // selection is the ini's [Stereo] Method or `stereo <name>`.
+    {
+        const bool monoWanted = !_stricmp(dvr::stereo::wanted_name(), "mono");
+        bool armed = dvr::stereo::armed();
+        if (monoWanted) ImGui::BeginDisabled();
+        if (ImGui::Checkbox("stereo armed", &armed)) dvr::stereo::set_armed(armed);
+        if (monoWanted) ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s: active %s, %s", dvr::stereo::wanted_name(), dvr::stereo::active_name(),
+                            dvr::stereo::wants_projection() ? "projection layer" : "head-locked screen");
+        if (monoWanted) {
+            ImGui::SameLine();
+            if (ImGui::Button("select reentry")) dvr::stereo::choose("reentry");
+        }
+        ImGui::Separator();
+    }
+    // 41.1: the render-resolution picker. Takes effect at the NEXT LAUNCH (the
+    // engine's setres does nothing on this build, measured); the size goes into
+    // the game's own ini, and a size the display does not list needs
+    // VirtualMode (core/window/render_size.cpp). Defaults to the runtime's
+    // recommended per-eye size, the user's ask.
+    {
+        static int  sel = -2;          // -2 = not chosen yet (defaults to the eye entry)
+        static int  customW = 2496, customH = 2688;
+        static bool full = true;
+        static bool modesRead = false;
+        if (!modesRead) { ResEnumModes("F10"); modesRead = true; }
+        uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh);
+        const uint32_t cw = dvr::capture::width(), ch = dvr::capture::height();
+        const float claim = dvr::camera::fov_deg();
+        const float dens = (cw && claim > 1.0f) ? (float)cw / (2.0f * tanf(claim * 0.5f * 0.0174533f)) / 57.29578f : 0.0f;
+        float hh = 0.0f, hv = 0.0f; dvr::vr::headset_half_fov_deg(&hh, &hv);
+        const float eyeDens = (ew && hh > 0.0f) ? (float)ew / (2.0f * tanf(hh * 0.0174533f)) / 57.29578f : 0.0f;
+        ImGui::TextUnformatted("render resolution (takes effect at the next launch)");
+        ImGui::Text("game renders %ux%u | asked %ux%u %s | eye recommended %ux%u", cw, ch, g_resWantW, g_resWantH,
+                    g_resWantFull ? "fullscreen" : "windowed", ew, eh);
+        ImGui::Text("claim %.1f deg -> centre %.1f px/deg (the eye wants %.1f)", claim, dens, eyeDens);
+        // the combo: the eye entry, the display's modes, custom
+        const int nModes = g_resModeN;
+        const int eyeIdx = 0, customIdx = 1 + nModes;
+        if (sel == -2) { sel = ew ? eyeIdx : customIdx; if (ew) { customW = (int)ew; customH = (int)eh; } }
+        char label[64];
+        if (sel == eyeIdx) _snprintf(label, sizeof(label), "Quest 3 per eye (runtime): %ux%u", ew, eh);
+        else if (sel == customIdx) _snprintf(label, sizeof(label), "custom");
+        else _snprintf(label, sizeof(label), "%ux%u", g_resModes[sel - 1][0], g_resModes[sel - 1][1]);
+        ImGui::SetNextItemWidth(260);
+        if (ImGui::BeginCombo("size", label)) {
+            _snprintf(label, sizeof(label), "Quest 3 per eye (runtime): %ux%u%s", ew, eh,
+                      ew && !ResIsMode(ew, eh) ? "  (not a display mode: needs VirtualMode)" : "");
+            if (ImGui::Selectable(label, sel == eyeIdx)) sel = eyeIdx;
+            for (int k = 0; k < nModes; ++k) {
+                _snprintf(label, sizeof(label), "%ux%u", g_resModes[k][0], g_resModes[k][1]);
+                if (ImGui::Selectable(label, sel == 1 + k)) sel = 1 + k;
+            }
+            if (ImGui::Selectable("custom", sel == customIdx)) sel = customIdx;
+            ImGui::EndCombo();
+        }
+        if (sel == customIdx) {
+            ImGui::SetNextItemWidth(120); ImGui::InputInt("W", &customW, 16, 128);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120); ImGui::InputInt("H", &customH, 16, 128);
+        }
+        ImGui::Checkbox("fullscreen", &full);
+        ImGui::SameLine();
+        bool virt = g_resVirtual;
+        if (ImGui::Checkbox("VirtualMode (provide a size the display lacks)", &virt)) g_resVirtual = virt;
+        if (ImGui::Button("Apply (writes the game's ini; relaunch)")) {
+            uint32_t w = 0, h = 0;
+            if (sel == eyeIdx) { w = ew; h = eh; }
+            else if (sel == customIdx) { w = (uint32_t)(customW > 0 ? customW : 0); h = (uint32_t)(customH > 0 ? customH : 0); }
+            else { w = g_resModes[sel - 1][0]; h = g_resModes[sel - 1][1]; }
+            ResRequest(w, h, full, "F10 Display");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("refresh modes")) ResEnumModes("F10");
+        ImGui::SameLine();
+        if (ImGui::Button("use the game's own size")) ResCommand("0x0");
+        ImGui::TextDisabled("%s", g_resLastLine);
+        ImGui::Separator();
+    }
     // 30.47: on-demand camera experiments (auto-start fired them at the main
     // menu before, where nobody could see the result).
     // 30.50: the FOV lever - enforced on every script dispatch so it outruns

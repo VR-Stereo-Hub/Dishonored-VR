@@ -1,82 +1,85 @@
 # Status
 
-## Current state (2026-09-03, session 6: S2b MERGED, native stereo works in the headset, 41.1)
+## Current state (2026-09-03, session 7b: the headset verdicts - two good, the desync open, PERFORMANCE next)
 
-**Rung 3 is HEADSET-VERIFIED (run 40, Quest 3 via VDXR, the user) and merged into
-`native-stereo-rendering`, which is now the branch this work continues on** (PR #3, merge
-3be4a0c4; branch off `native-stereo-rendering`, not `VR-Main`). Working in the headset:
-stereo depth (the world reads in 3D), head tilt, lean, looking around, crouching and
-standing. That closes every fault the two earlier headset runs found - the tag pairing
-(3a4757bc), the camera field's inverted SIGN (bbd04fec: the field holds the camera's world
-POSITION, c5 is its negation; it had put every lean, crouch and per-eye offset backwards)
-and the head roll's sense (5513a570: UE3 rolls positive right-ear-DOWN). Both signs were
-settled by a differential PICTURE test against the headset-proven c0 patch, after two
-instruments had each "verified" the wrong direction by measuring a proxy - see the trap
-paragraph in ENGINE_NOTES.
+**Branch `claude/dishonored-vr-stereo-polish-449d43`, 18 commits, merged into
+`native-stereo-rendering` (PR #4).** The user ran session 7's build on the Quest 3 via VDXR
+(runs 13a/b, `D:\dvr-data\logs\43-run13*.log`):
 
-**Four faults remain, all reported from run 40 and none reproduced on the simulator yet:**
+- **WORKING: the resolution picker.** The Quest 3 entry (2496x2688, VirtualMode) relaunched
+  into `CreateDevice -> (2496x2688 windowed=1)`, `res: HONOURED`, hfov 108 deg, and the user
+  calls it "pretty sharp".
+- **WORKING: the pitch pivot.** `neck cancel` judged right; it is the default now
+  (`[Neck] Mode=cancel`, `off`/`add` kept as the A/B). Re-judge at a real frame rate.
+- **NOT FIXED: the eye desync**, seen on the first load and after some pause/resumes, clearing
+  on its own. The one-sided-tag cause was real and is fixed on the simulator, so this is a
+  second mechanism. The instruments through gameplay read healthy (`eyes ageL=1 ageR=0`,
+  0 stale over 76 pairs per window); the one `STALE L EYE` (age 567 presents) sits at a
+  `xr: session state FOCUSED` regain and its owner reads "unknown": the pace guard's
+  frame-less present eats the sibling's tag and that counter is not in the owner deltas.
+  The long single-draw spells on load (196 and 155 ticks, `state not GAMEPLAY`) are the
+  mono path, not a pair.
+- **UNJUDGEABLE: the judder**, because of the frame rate.
+- **THE NEXT SESSION: PERFORMANCE.** `heartbeat: GAME=57fps (presents; ticks=28/s)` at the
+  eye's size, ~40 fps at 1080p, attacks freezing the game for a moment. The cost line names
+  it: `capture: cost/present ... lock=10545 ... total=15237 us (mode=sync, 2496x2688, 25.6 MB
+  each way)` and `lock=3373 ... total=5845 us` at 2508x1411: a CPU readback with a GPU sync on
+  EVERY present, two per tick, that the game's frame loop waits behind. The BioShock Infinite
+  mod (D3D11-native, shared textures) never had this stage, which is why that heavier game
+  ran smoothly. The second draw itself costs 0.35 ms of call time on the game thread; its
+  render-thread cost is unmeasured. The pair phase read -27 ms mean, 0 % missed (pairs close
+  well before their slot; the slot is not the problem, the tick rate is).
 
-1. **The stereo arming glitch.** Occasionally after a pause/resume the two eyes show
-   DIFFERENT images (not a stereo pair) - uncomfortable, and it clears on its own. The
-   user's observation narrows it: the per-eye judder (item 2) stays visible in the LEFT
-   eye but disappears in the RIGHT while it is happening, so the right eye looks like it
-   stops receiving fresh frames. Suspect the arming path around the cinematic quad: the
-   pair ring resyncs from mono (`sr tag ring skewed - cleared`), the projection re-arms and
-   the right swapchain image is held or re-presented. The simulator DOES exercise the
-   transition cleanly (run 38: pause/resume re-pairs, L/s = R/s, mono 0), so the repro
-   needs the arming path hammered, not the steady state.
-2. **Judder on fast movement.** Not smooth, slightly floaty. The pair is submitted as it
-   completes; the likely fix is the same one the BioShock Infinite mod needed - hold the
-   pair and submit against the predicted display time one or two frames ahead, so the two
-   eyes and the pose belong to the same instant. `[Pace]`/`vrpace` and the pair-cadence
-   samples (`g_pairInt*`, spike trace) are the instruments already in place.
-3. **The pitch pivot sits behind the camera.** Looking up or down feels like the whole body
-   pitches rather than the head: the rotation centre is somewhere behind the eyes. Expect a
-   missing neck-model offset - the head should rotate about a point ~10-12 cm below and
-   ~8-10 cm behind the eyes, and the engine is pitching the view about the camera origin
-   while the projection layer expects the eye to translate on the arc.
-4. **F10 overlay: no resolution picker, no stereo arming tickbox.** Wanted: a custom
-   render-resolution picker defaulting to the Quest 3's per-eye resolution, and a tickbox
-   that arms the current stereo method, TICKED by default.
+Also in these runs: the pace look-ahead was toggled 2 -> 1 -> 0 (logged), `Strict pairs`
+was not tried, and a fullscreen ask of 2560x1440 on the real display ended windowed at
+2508x1411 after two Resets (the game's own windowed fallback; VirtualMode's conversion is
+what holds a size).
 
 ## Next steps (one paragraph per developer)
 
-**Next session (branch off `native-stereo-rendering`)**: the four items above, in that
-order - the arming glitch first (it is the only one that breaks fusion), then the pair
-pacing, then the neck model, then the F10 controls. Reproduce 1 by hammering the arming
-path (pause/resume in a loop on the simulator with `reentry` armed, watching `sr tag ring
-skewed`, `pair aborts` and which eye's swapchain image goes stale); 2 needs the headset to
-judge but the cadence numbers are already logged; 3 is measurable on the simulator by
-picture (pitch the simulated head and watch a near landmark translate). Every new lever
-ships default OFF with a live A/B toggle except the two F10 defaults the user asked for.
+**Next session, in this order.** (1) PERFORMANCE: measure first (the `capture: cost` lock
+against a present with capture off; the render thread's second-draw cost by the pulse
+instrument at both sizes; a `mark <text>` seam word so the user can stamp an attack freeze),
+then the GPU path: the proxy owns `Direct3DCreate9`, so create the game's device as D3D9Ex
+(`Direct3DCreate9Ex` + `CreateDeviceEx`, the IDirect3D9Ex handed back as IDirect3D9) and let
+`[Capture] Mode=shared` open the render target in D3D11 through a shared handle: zero
+readback, no sync; `deferred` as the interim default if the 9Ex route needs more than one
+build. The KNOWN_ISSUES bullet carries the numbers. (2) The desync on load: read the user's
+timestamps, add the pace guard's skip count to the owner deltas, print the eyes line during
+mono spells too, and if the FOCUSED-regain case is the mechanism, `strict` on by default. (3)
+Re-judge `ahead` and the pivot at a real frame rate. Every rule of the session-7 brief holds.
 
-**Developer B (S2b follow-ups)**: the eye-check bands recalibrated on this game after the
-headset verdict; the second aspect (how the game takes its render size now that the window
-machinery is gone; `setres` through the console seam is the lead); the tick-rate cost
-(the second draw is a full scene draw: measure on the headset rig, consider a per-eye
-resolution below the window's); the F10 overlay is drawn into both eye textures at
-infinity; the frame-path items still per present under two presents per tick (TrackHead,
-the pad composition) are harmless but wasteful.
-
-**Developer A (AlternateEye)**: `core/gfx/aer.cpp` untouched; the seam now carries
-`wants_projection()` (return true), the projection arming and the FOV handoff for free,
-and `capture::set_pending_tag/delivered_tag` for the eye tag under `deferred` capture.
-
-**Both**: the recipe on this PC is `tools\build.ps1; tools\install.ps1;
-$env:DVR_DATA_DIR='D:\dvr-data'; tools\xrsim-launch.ps1 -ViaSteam`, foreground the window,
-then `tools\game-key.ps1 -Key Return` three times to reach the sewers (VERIFICATION gotcha
-15), `tools\xrsim-run.ps1 -Path tools\xrsim\reentry.xrs -Dir D:\dvr-data\xrsim`. Stop the
-game with Stop-Process, never WM_CLOSE. Copy `dishonored_vr.log` to `D:\dvr-data\logs`
-before every relaunch (this session's runs are `42-run16..29-*.log` there).
+**The user**: at 1080p and at the Quest 3 entry with `capture mode deferred`, note the frame
+rate the F10 panel shows and the exact clock time of any freeze; `Strict pairs` ticked when
+the desync appears; send the logs.
 
 ## Blockers
 
-- The headset verdict on rung 3 needs the user.
-- The second aspect for the FOV law needs a way to change the render size (KNOWN_ISSUES).
+- The frame rate (above) blocks every comfort judgement.
 - **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
   `Stop-Process`; a menu quit is clean on the Quest (run 15).
 
 ## Session log
+
+### 2026-09-03 - session 7: the four headset faults and the picker, on the simulator
+
+Branch `claude/dishonored-vr-stereo-polish-449d43`, 15 commits. Runs (simulator lane, logs in
+`D:\dvr-data\logs\43-run*.log`; the run-40 headset log archived as `42-run40-quest3-verdict.log`):
+
+| Run | What | Result |
+|---|---|---|
+| 01 | commits 0-1d | `Method=mono applied after the game side registered`; the gate decision logs its reason; `reentry.xrs` 11/11, `stale-eye.xrs` 18/18; hammer 10 cycles PASS, ages L=1 R=0 |
+| 02 | `reentry skip2 120` | strict off: sim stale 0 -> 2, mono +62, `STALE R EYE` (owner first "unknown", then the game side); strict on: stale unchanged, 37 fallbacks to mono |
+| 03 | the phase + ahead | runtime clock extension on the sim; phase +58 ms mean (synthetic); `vrpace ahead 1` logs and locates; hammer 5 PASS |
+| 04 | pitchtest x3 | engine neck 0.321/0.062 m (cons 0.3 uu); the arc reached c5 on top of it; `neck cancel` -> travel < 0.5 uu; the picture agrees |
+| 05 | Armed + console | park/re-arm on the seam correct; the first console word overflowed the game thread's stack (the hook re-entered) |
+| 06 | the guard, boot | `Method=reentry Armed=1 -> active reentry` before the first present; `setres 2560x1440f`/`1600x900w` dispatch, empty reply, no Reset: INERT |
+| 07-08 | the ini route | 2560x1440 fullscreen in every ini place -> `CreateDevice 1920x1080 windowed=1`: the ini is inert |
+| 09 | the command line | `-ResX=2560 -ResY=1440 -FullScreen` via 3 import slots -> `CreateDevice 2560x1440 windowed=0`, capture and swapchains followed |
+| 10-11 | 2496x2688, no VirtualMode | the game asked the mode list, fell back to 2560x1440 (a harness launch had restored the mod ini; the launch file carries the token now) |
+| 12 | **2496x2688 with VirtualMode** | our mode handed at slot 123; `CreateDevice 2496x2688 windowed=1`; `res: HONOURED`; hfov 108 deg; both eyes 77 % non-black in the sewers; the frame complete; readback 18-20 ms/present |
+| 13a | **HEADSET (the user)**: 2560x1440 fullscreen asked | Reset 2560x1440 twice then 2508x1411 windowed=1 (the game's own fallback); the run sat in menus, stereo never armed (`state` skips); readback 5.3-5.8 ms/present |
+| 13b | **HEADSET (the user)**: 2496x2688 VirtualMode | `CreateDevice 2496x2688 windowed=1`, HONOURED, "pretty sharp"; `neck cancel` right; stereo L/s=R/s=16-28, ticks 28/s, readback 13-15 ms/present; one `STALE L EYE` (age 567) at a FOCUSED regain; the desync still seen on load; judder unjudgeable |
 
 ### 2026-09-03 - session 6: S2b - the capture cost, the lanes, the root, the second draw
 

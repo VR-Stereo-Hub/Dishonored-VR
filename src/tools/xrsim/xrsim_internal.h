@@ -237,6 +237,18 @@ uint32_t compositor_last_layer_count();
 uint32_t compositor_last_projection_views();
 uint32_t compositor_last_quad_layers();
 int compositor_last_capture_nonblack(int eye);   // percent, last capture frame
+// 41.1: per-eye release age of the last projection submit, in frames (0 = released
+// inside the submitting frame; 1+ = a held image), the max since `reset`, whether
+// both views named one swapchain (the mono path), the cumulative classification of
+// projection submits (0 all, 1 mono, 2 stale) and the close phase (xrEndFrame time
+// minus its displayTime, ms; negative = closed before its slot).
+uint32_t compositor_eye_released_on_frame(int eye);
+uint32_t compositor_eye_age(int eye);
+uint32_t compositor_eye_age_max(int eye);
+bool compositor_eye_same_swapchain();
+uint32_t compositor_proj_submits(int kind);
+double compositor_last_end_phase_ms();
+void compositor_reset_pair_stats();
 
 // ---------------------------------------------------------------------------
 // Entry points implemented outside xrsim_instance.cpp

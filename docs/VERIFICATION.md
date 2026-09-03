@@ -61,7 +61,7 @@ head/hand poses, controls, errors) and per shot `capture\<name>_left.png`, `_rig
 `_sbs.png`, `<name>.json` (layers with type/space/size/pose, `derived.eyeSeparationM`,
 `derived.claimRatioH`, `derived.aimRayMaxDevDeg`, `stats.meanLuma`, `stats.nonBlackPct`,
 `stats.bboxL/R` (41.0), and per layer `src[]` (the source image's `nonBlackPct`, `bbox`,
-`image`, `releasedOnFrame`)). `state.json` also carries `quadLayers`, `capNonBlackL/R`.
+`image`, `releasedOnFrame`)). `state.json` also carries `quadLayers`, `capNonBlackL/R`, and (41.1) the per-eye release age of the last projection submit `eyeAgeL/R` (0 = released inside the submitting frame, 1+ = a held image), `eyeAgeMaxL/R`, `eyeSameSwapchain`, `projSubmits/projMonoSubmits/projStaleSubmits` and `endPhaseMs` (xrEndFrame minus displayTime). Sequences: `stale-eye.xrs` (the one-sided tag stream on demand, must fail with `vrpace strict off` on a broken game side), `pause-resume.xrs` (`@key Escape` twice, the eye ages after), `tools\arming-hammer.ps1 -Cycles 30` (exit 2 = the sim saw a held eye, 3 = the mod's pair probe did, 5 = not in gameplay). `xrsim-run.ps1` accepts `@key <name> [n] [ms]`. The neck: `camera pitchtest 30` with `head rot 0 30 0` at a fixed position, then `head pose 0 1.6303 0.0671 0 30 0` on the arc, `dump eyes` at each step (ENGINE_NOTES "The pitch pivot").
 
 Hard invariants: no wait in the sim is unbounded (30 s starve grant); the control channel
 polls on its own thread (a frame-path poller could never receive the `step` that unblocks it);
@@ -199,6 +199,11 @@ defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault
     the attract camera (runs 16-21 did). Walk in with `tools\game-key.ps1 -Key Return` three
     times (title -> main menu, Continue -> the load, "press any key" -> the level) and wait
     for `[game] state: GAMEPLAY`; look at a `xrsim-shot` before believing a number.
+16. **`xrsim-launch.ps1 -ViaSteam` restores the mod's ini from a pre-launch backup**, so a
+    key the running game wrote into it (`res <W>x<H>`, `res virtual on`) is gone at the next
+    launch. The picker's ask travels in `dishonored_vr_launch.txt` next to the exe instead,
+    which the launcher does not touch; the game's own ini is inert for the startup size
+    anyway (ENGINE_NOTES "The render size").
 
 
 Comfort, judder, warp, world scale, the mono screen's size and distance, fusion once a

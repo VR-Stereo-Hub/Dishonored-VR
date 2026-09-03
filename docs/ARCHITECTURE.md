@@ -223,6 +223,34 @@ is written). `core/util/paths.h` is the one place that knows this.
 
 ## Decision log
 
+### 2026-09-03 - session 7 (S2b polish: the four headset faults, the picker)
+
+- **The second draw's gates are decided once, before the first tag.** A tag stream that can
+  go one-sided (a `-1` whose `+1` was skipped) makes the runtime show a held eye, because a
+  stereo layer names each eye's swapchain and the compositor shows its last released image.
+  The fix is at the source; `vrpace strict` is a lever (default off) rather than an
+  unconditional fail-soft because the fault case is a headset percept and the A/B must
+  attribute it, and `reentry skip2` exists so the instrument can be shown failing.
+- **Pacing is a look-ahead on the locate time, not a hold on the close.** Delaying `xrEndFrame`
+  to the slot was rejected (it stretches the intra-pair gap and back-pressures the game
+  thread); `vrpace ahead` moves only what the pose is predicted for, and the phase
+  instrument says which slot the close lands in. Ships at 0.
+- **The neck term lives on the present thread in the head-yaw frame, beside the raw
+  displacement**, because the two must combine before the seam sees one triple, and the term
+  needs the head matrix (roll for free), which the script lane does not have. The pivot
+  defaults are the ENGINE's measured numbers, so `cancel` is one word away; the mode ships off
+  because the direction is settled by the headset.
+- **`Armed` is a second key**, so parking never forgets the selection and a SAVE AS DEFAULTS
+  while parked keeps `Method=reentry Armed=0`; `reentry` is the default method because rung 3
+  is headset-verified and this session's fixes are its polish.
+- **The render size is asked of the engine through its command line, never spoofed into the
+  window.** The game's ini is inert for the startup size on this build and `setres` dispatches
+  and does nothing (both measured); `-ResX/-ResY/-FullScreen` is honoured verbatim, and the
+  proxy is loaded before the engine reads it. `VirtualMode` revives exactly two hooks from the
+  removed machinery (the mode list) plus a fullscreen-to-windowed present-parameter
+  conversion, and nothing of the window/GetClientRect lie: the fullscreen path has no desktop
+  clamp, which is where every 41.0-era dead end ran.
+
 ### 2026-09-03 - session 6 (S2b: SequentialReentry on the simulator)
 
 - **The re-entry patches the CALL SITE, not the root's prologue.** UGameEngine::Tick
