@@ -1257,3 +1257,135 @@ The residual is the thing to chase next, and the candidates in order:
 The F10 buttons log their choice now (`headroll: write ... sign ... (F10 Comfort)`), so the
 next run's log will say which case was active for which stretch - session 7c's sweep did not,
 and the log could not attribute the verdicts.
+
+## The arms/weapon coupling has a SCRIPT-DECLARED API (2026-09-02, session 7e - research)
+
+**Source: the decompiled corpus (`tools/uscript/`), not a measurement.** Everything below is
+declaration-level. Nothing here has been read or written on a live object yet, and the whole
+entry is a hypothesis with an address-free derivation path. Treat it that way.
+
+Read against ENGINE_NOTES "Head coupling of the arms", whose six attempts all fought the
+RESULT of the coupling. None of them touched the game's own follow controls, and the reason
+is simply that nobody had the script until session 6 decompiled it.
+
+### The chain, as the game declares it
+
+1. **The first-person camera is a BONE on the player's animated skeleton.**
+   `DisTweaks_PlayerPawn_Camera.m_CameraBoneName`, and
+   `DishonoredNotify_CameraPitchTarget` defaults `m_CameraBone="camera_jnt"`. So the camera
+   rides the body rig - the structural reason the arms and the view cannot be separated
+   downstream, and it corroborates "Arkane draws the first-person view model in camera space".
+
+2. **The viewmodel is per-INVENTORY-ITEM, not a single arms mesh.**
+   `DishonoredInventoryItem` carries `m_pMesh` and `m_pPlayerMesh`, both
+   `DishonoredItemSkeletalComponent`. That confirms the author's "the VR hands ARE the weapon
+   view models" from the script side, and explains why a weapon swap recreates the component
+   (her 39.0 asset-name banking fix).
+
+3. **The viewmodel component has its own position and FOV.**
+   `DishonoredItemSkeletalComponent` -> `DishonoredPlayerSkeletalComponent` ->
+   `DisSkeletalMeshComponent` -> `SkeletalMeshComponent`. The middle class adds exactly three
+   fields and all three are interesting:
+
+   ```
+   var bool    m_bUseFOV;   // this mesh renders with its own FOV
+   var float   m_FOV;       // the foreground lens - what fovprobe found as m_fCurFOV_Arms
+   var Vector  m_Offset;    // a PER-VIEWMODEL POSITION OFFSET
+   ```
+
+4. **The camera holds the arm-follow weights**, in a struct declared in
+   `DishonoredCameraInfluenceGroup` and instanced on the camera as
+   `DishonoredPlayerCamera.m_DishonoredVTSettings`:
+
+   ```
+   struct DishonoredVTSettings {
+       float   m_ArmFollowWeight;
+       float   m_ArmFollowWeight_Rot_Primary;      // <- the decoupling switch
+       float   m_ArmFollowWeight_Rot_Secondary;
+       Rotator m_ArmFollowOffset_Rot_Primary;      // <- an authored rotation, per slot
+       Rotator m_ArmFollowOffset_Rot_Secondary;
+       float   m_ArmFollowOffset_Weight_Primary;
+       float   m_ArmFollowOffset_Weight_Secondary;
+       float   m_MeshSpecificFOVWeight;            // gates m_bUseFOV/m_FOV above
+       Rotator m_ControllerOffset_Rot;
+       Rotator m_NonAdditive_Rot;
+       Vector  m_NonAdditive_Pos;
+   }
+   ```
+
+   and the camera's own defaultproperties ship it as **arm follow FULLY ON**:
+   `m_ArmFollowWeight=1.0`, `m_ArmFollowWeight_Rot_Primary=1.0`,
+   `m_ArmFollowWeight_Rot_Secondary=1.0`, `m_ArmFollowOffset_Weight_*=1.0`,
+   `m_MeshSpecificFOVWeight=1.0`, every rotator zero.
+
+5. **And the game has first-class influences for turning it OFF.**
+   `DishonoredCamera_DisableArmFollow`, `DishonoredCamera_DisableArmOffset` and their
+   `DisCamera_*_Secondary` subclasses, all extending `DishonoredCameraInfluence`, all shipping
+   `m_fDefaultWeight=0.0` with a `m_TransitionSpeed` (2.0 and 4.0). They are held as NAMED
+   object pointers on the camera:
+
+   ```
+   var transient DishonoredCamera_DisableArmFollow m_pDisableArmFollow_Primary_Influence;
+   var transient DishonoredCamera_DisableArmOffset m_pDisableArmOffset_Primary_Influence;
+   var transient DishonoredCamera_DisableArmFollow m_pDisableArmFollow_Secondary_Influence;
+   var transient DishonoredCamera_DisableArmOffset m_pDisableArmOffset_Secondary_Influence;
+   ```
+
+   and `DishonoredCameraInfluence` carries `m_Weight`, `m_TargetWeight`, `m_bActive`,
+   `m_TransitionSpeed`. **The game ships a blended, transitioned way to stop the arms
+   following the camera, and it is reachable by name from the object the mod already holds.**
+
+### Why this does not contradict the six attempts, and which conclusion needs re-opening
+
+Attempts 1-6 went after the RESULT: bone banks (`SpaceBases`/`LocalAtoms`), the render-time
+bone palette at c6, SkelControl strength, and the donor graft. All of those sit downstream of
+the pose the camera system already produced, so it is unsurprising they fought it.
+
+**The conclusion to re-open is attempt 3's.** `g_rtdLockTest` applied `gain * (head yaw since
+neutral)` and swept the gain; no gain held the weapon still, and the recorded conclusion was
+"no seam between the arms and the camera downstream". That is sound for the seam it tested -
+the render-time bone drive - and it is NOT evidence that no seam exists, because the follow
+weight above was never set to zero. The same applies to attempt 5's "world-space rotation does
+not work": 9,000 writes/s outrunning the recompute measures a fight with the recompute, not
+the absence of a switch that stops the recompute wanting anything.
+
+### What this buys, if it holds
+
+A 6DoF weapon drive through engine-sanctioned fields rather than by force:
+
+| need | field | on |
+|---|---|---|
+| stop following the view | `m_ArmFollowWeight_Rot_Primary/_Secondary = 0`, or the DisableArmFollow influence weight | camera |
+| rotate the weapon | `m_ArmFollowOffset_Rot_Primary/_Secondary` (Rotator), `m_ControllerOffset_Rot` | camera |
+| translate the weapon | `m_Offset` (Vector) | the viewmodel component |
+| the foreground lens | `m_bUseFOV` / `m_FOV`, gated by `m_MeshSpecificFOVWeight` | component / camera |
+
+The FOV row matters beyond the hands: under a PROJECTION layer a viewmodel drawn with a
+different frustum than the world lands at the wrong apparent depth and carries the wrong
+per-eye disparity. `fovprobe` already resolves `m_fCurFOV_Arms` by name; this says where the
+weight that gates it lives.
+
+### Suppressing the viewmodel, cleanly
+
+`HideBoneByName` is a recorded dead end and the mod currently hides arms with render-size
+masks. `DisSkeletalMeshComponent` declares `array<UsedMaterial> m_UsedMaterials` where
+`UsedMaterial = { int m_Index; bool m_bShown; }` - a per-material visibility list the game
+maintains itself. That is a more surgical suppression route than bone masks, and it sits on
+the same component chain as `m_Offset`.
+
+### The honest caveats
+
+- **All of these classes are `native(Camera)` / `native(Player)`.** The blend runs in C++, so
+  a direct write into `m_DishonoredVTSettings` may be recomputed from the influence list every
+  tick. Driving the INFLUENCE (`m_TargetWeight`, `m_bActive`) is the game's own mechanism and
+  is the more likely one to stick; a direct struct write at ProcessEvent dispatch cadence is
+  the fallback, which is exactly the shape the FOV lever already uses and is measured to be
+  honoured.
+- **The space of `m_Offset` and the rotator offsets is unknown** (camera space, component
+  space, or bone space). It must be measured, not assumed - `camera postest` is the pattern.
+- **Primary vs Secondary is not mapped to left/right hand.** `EDisEquipUsage` gives
+  `_Primary` = 1 and `_Secondary` = 2 and nothing about handedness.
+- Nothing above is measured. **The first step is a READ-ONLY probe**: resolve each field with
+  `FindPropOffset` and log its live value, exactly as `fovprobe` does, then watch the follow
+  weights while equipping, aiming, sheathing and swapping weapons. That alone says whether
+  these are driven at runtime or left at their defaults, and it needs no write and no risk.
