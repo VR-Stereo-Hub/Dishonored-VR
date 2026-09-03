@@ -110,7 +110,11 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
     dvr::vr::set_device_provider(DvrProvideD3D11Device);
     dvr::vr::init_instance();
     if (!EnsureRealD3D9() || !g_realCreate9) return NULL;
-    IDirect3D9* d3d = g_realCreate9(sdkVersion);
+    // 41.1 (session 8): [Device] Ex=1 hands the game an IDirect3D9Ex as its
+    // IDirect3D9, so the device can be 9Ex and the capture can share a
+    // surface with D3D11 (core/gfx/d3d9ex). Ex=0 is the plain object.
+    IDirect3D9* d3d = dvr::d3d9ex::create_d3d(sdkVersion, (dvr::d3d9ex::PFN_Create9)g_realCreate9,
+                                              (dvr::d3d9ex::PFN_Create9Ex)g_realCreate9Ex);
     Log("Direct3DCreate9(sdk=%u) -> %p", sdkVersion, (void*)d3d);
     dvr::frame::set_disabled(g_disabled);
     if (d3d && !g_disabled) {

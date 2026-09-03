@@ -3,6 +3,7 @@
 #include "core/framework/frame_hooks.h"
 
 #include "core/framework/perf.h"
+#include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
@@ -183,6 +184,20 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
     const HRESULT hr = g_origPresent(self, src, dst, wnd, dirty);
     dvr::perf::stamp(dvr::perf::kAfterGamePresent);
+    // 41.1 (session 8): the codes only a 9Ex device returns (the game never
+    // handles them); the first of each is named so a TDR reads as a TDR.
+    if (hr != D3D_OK) {
+        if (hr == D3DERR_DEVICEHUNG)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 3, "device: Present -> D3DERR_DEVICEHUNG (a GPU timeout; the 9Ex device does not go lost, the game may not notice)");
+        else if (hr == D3DERR_DEVICEREMOVED)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 3, "device: Present -> D3DERR_DEVICEREMOVED (the adapter went away)");
+        else if (hr == S_PRESENT_OCCLUDED)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3, "device: Present -> S_PRESENT_OCCLUDED (the window is covered; the 9Ex device keeps presenting)");
+        else if (hr == S_PRESENT_MODE_CHANGED)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3, "device: Present -> S_PRESENT_MODE_CHANGED (the desktop mode changed under a 9Ex device)");
+        else
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Warn, 3, "device: Present -> 0x%08lx", (unsigned long)hr);
+    }
     return hr;
 }
 
@@ -194,7 +209,13 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     // (38.63: a forgotten one made the game's Reset fail forever).
     dvr::perf::on_reset();
     dvr::stereo::on_reset();
-    return g_origReset(self, pp);
+    const HRESULT hr = g_origReset(self, pp);
+    if (FAILED(hr))
+        DVR_ERROR("device Reset FAILED 0x%08lx (%ux%u windowed=%d) - %s", (unsigned long)hr, pp ? pp->BackBufferWidth : 0,
+                  pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1,
+                  dvr::d3d9ex::device_is_ex() ? "on a 9Ex device (ResetEx is the contingency for a fullscreen refusal)"
+                                              : "a default-pool object still held? (the hkReset LAW)");
+    return hr;
 }
 
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
@@ -219,7 +240,11 @@ HRESULT __stdcall hkBeginScene(IDirect3DDevice9* self) {
 HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND wnd,
                                  DWORD flags, D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** outDev) {
     if (g_cb.before_create_device) g_cb.before_create_device(pp);
-    HRESULT hr = g_origCreateDevice(self, adapter, type, wnd, flags, pp, outDev);
+    // 41.1 (session 8): on an Ex object the device is created with
+    // CreateDeviceEx (the fallbacks and every HRESULT in core/gfx/d3d9ex);
+    // on the plain object this is the original call.
+    HRESULT hr = dvr::d3d9ex::create_device(self, adapter, type, wnd, flags, pp,
+                                            (dvr::d3d9ex::PFN_CreateDevice)g_origCreateDevice, outDev);
     DVR_INFO("CreateDevice -> 0x%08lx (%ux%u windowed=%d)", (unsigned long)hr,
              pp ? pp->BackBufferWidth : 0, pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1);
     if (g_cb.after_create_device) g_cb.after_create_device(hr, wnd, pp);

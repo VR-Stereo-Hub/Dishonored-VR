@@ -576,6 +576,16 @@ static void OverlayFrame()
                     pw.marker[0] ? pw.marker : "-", dvr::capture::mode_name());
         if (ImGui::Button("MARK (stamp a freeze now)", ImVec2(-1, 0))) dvr::perf::mark("F10", "F10");
         ImGui::TextDisabled("marks so far: %u (the log gets three Warn lines per press)", pw.marks);
+        // 41.1 (session 8): the 9Ex device lever (next launch) - what lets the
+        // capture keep the frame in VRAM ([Capture] Mode=shared).
+        {
+            static int exAsk = -1;
+            if (exAsk < 0) exAsk = dvr::d3d9ex::ex_wanted() ? 1 : 0;
+            bool ex = exAsk != 0;
+            if (ImGui::Checkbox("D3D9Ex device at the NEXT launch (enables capture mode shared)", &ex)) { exAsk = ex ? 1 : 0; DeviceSetEx(ex, "F10 Display"); }
+            ImGui::SameLine();
+            ImGui::TextDisabled("this run: %s", dvr::d3d9ex::device_is_ex() ? "9Ex" : "plain D3D9");
+        }
         ImGui::Separator();
     }
     // 30.47: on-demand camera experiments (auto-start fired them at the main

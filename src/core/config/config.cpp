@@ -68,6 +68,18 @@ static void WriteDefaultIni(const char* ini)
         "Instruments=1\n"
         "GpuQueries=1\n"
         "ForceNoVSync=1\n"
+        "[Device]\n"
+        "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
+        "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
+        "; Quest 3 size: 16 ms of GPU copy per present, measured 2026-09-03). A 9Ex device refuses\n"
+        "; D3DPOOL_MANAGED, which this game asks for on every static texture and buffer, so\n"
+        "; Managed= says what stands in: shadow (a system-memory twin per texture, locks\n"
+        "; redirected; the safe one - the game locks textures READONLY while streaming),\n"
+        "; dynamic (DEFAULT+DYNAMIC: READONLY locks read uncached VRAM), default (textures lose\n"
+        "; their locks), none (the refusals are the measurement). Launch-time: `device ex on|off`\n"
+        "; and the F10 Display tickbox write the key for the NEXT launch. Ships off.\n"
+        "Ex=0\n"
+        "Managed=shadow\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -495,6 +507,14 @@ static void LoadConfig()
     g_wpnShowNear= IniFloat(ini, "Weapon", "ShowNear", 0) != 0.0f;
     g_scanEnabled = IniFloat(ini, "Debug", "VsScan", 0) != 0.0f;
     g_forceNoVSync = IniFloat(ini, "Perf", "ForceNoVSync", 1) != 0.0f;
+    {   // 41.1 (session 8): [Device] Ex and Managed, read before the first Direct3DCreate9
+        const bool ex = IniFloat(ini, "Device", "Ex", 0) != 0.0f;
+        char mm[16] = "";
+        GetPrivateProfileStringA("Device", "Managed", "shadow", mm, sizeof(mm), ini);
+        dvr::d3d9ex::Managed m;
+        if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
+        dvr::d3d9ex::set_config(ex, m);
+    }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
@@ -1043,6 +1063,28 @@ static void EnsureConfig()
 }
 
 
+// 41.1 (session 8): the [Device] keys are launch-time; the seam word and the
+// F10 tickbox write them for the NEXT launch (no version bump: the rewrite
+// would wipe a tuned ini), and say so.
+static void DeviceSetEx(bool on, const char* who)
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Device", "Ex", on ? "1" : "0", ini);
+    Log("device: [Device] Ex=%d written by %s - takes effect at the NEXT LAUNCH (this run's device %s 9Ex)",
+        on ? 1 : 0, who, dvr::d3d9ex::device_is_ex() ? "IS" : "is not");
+}
+static void DeviceSetManaged(const char* name, const char* who)
+{
+    dvr::d3d9ex::Managed m;
+    if (!dvr::d3d9ex::parse_managed(name, &m)) { Log("device: managed none|default|dynamic|shadow (asked '%s')", name); return; }
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(m), ini);
+    Log("device: [Device] Managed=%s written by %s - takes effect at the NEXT LAUNCH (inert while Ex=0)",
+        dvr::d3d9ex::managed_name(m), who);
+}
+
 static void OverlaySaveDefaults()
 {
     char ini[MAX_PATH];
@@ -1276,6 +1318,15 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Screen", "RenderHeight", v, ini);
     WritePrivateProfileStringA("Screen", "RenderFullscreen", g_resWantFull ? "1" : "0", ini);
     WritePrivateProfileStringA("Screen", "VirtualMode", g_resVirtual ? "1" : "0", ini);
+    // 41.1 (session 8): the device levers as they were READ this run (the
+    // seam word writes the ask for the next launch; a save must not undo it)
+    {
+        char cur[16] = "";
+        GetPrivateProfileStringA("Device", "Ex", dvr::d3d9ex::ex_wanted() ? "1" : "0", cur, sizeof(cur), ini);
+        WritePrivateProfileStringA("Device", "Ex", cur, ini);
+        GetPrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(dvr::d3d9ex::managed_mode()), cur, sizeof(cur), ini);
+        WritePrivateProfileStringA("Device", "Managed", cur, ini);
+    }
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);

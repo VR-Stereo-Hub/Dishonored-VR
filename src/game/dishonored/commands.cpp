@@ -17,6 +17,8 @@
 //   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
 //   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
 //   device census|status         the creation census (core/gfx/device_census): the table and the 9Ex verdict
+//   device ex on|off             [Device] Ex for the NEXT launch (the 9Ex device, core/gfx/d3d9ex)
+//   device managed <m>           [Device] Managed=none|default|dynamic|shadow for the NEXT launch
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
@@ -162,10 +164,15 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::delivered_tag(), dvr::capture::fence_late());
         return true;
     }
-    if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census
-        if (!args[0] || !strcmp(args, "status")) { dvr::census::log_status(); return true; }
+    if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census and the 9Ex levers
+        if (!args[0] || !strcmp(args, "status")) { dvr::census::log_status(); dvr::d3d9ex::log_status(); return true; }
         if (!strcmp(args, "census")) { dvr::census::log_summary("device census"); return true; }
-        Log("device: usage - device census|status");
+        char sub[16] = "", v[16] = "";
+        if (sscanf(args, "%15s %15s", sub, v) == 2) {
+            if (!strcmp(sub, "ex") && DvrOnOff(v, &b)) { DeviceSetEx(b, "seam"); return true; }
+            if (!strcmp(sub, "managed")) { DeviceSetManaged(v, "seam"); return true; }
+        }
+        Log("device: usage - device census|status | device ex on|off | device managed none|default|dynamic|shadow");
         return true;
     }
     if (!strcmp(cmd, "reentry")) {
@@ -296,6 +303,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("capShared", dvr::capture::probed() && dvr::capture::shared_available());
     w.obj("perf"); dvr::perf::status(w); w.end_obj();   // 41.1 (session 8): the tick budget
     w.obj("census"); dvr::census::status(w); w.end_obj();   // 41.1 (session 8): the creation census
+    w.obj("device"); dvr::d3d9ex::status(w); w.end_obj();   // 41.1 (session 8): the 9Ex device and the translation
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("camera"); dvr::camera::status(w); w.end_obj();

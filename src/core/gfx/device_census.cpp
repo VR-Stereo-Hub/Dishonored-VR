@@ -3,6 +3,7 @@
 #include "core/gfx/device_census.h"
 
 #include "core/framework/status.h"
+#include "core/gfx/d3d9ex.h"
 #include "core/hooks/vtable.h"
 #include "core/util/log.h"
 
@@ -293,44 +294,68 @@ void record(int call, D3DPOOL pool, DWORD usage, D3DFORMAT fmt, uint64_t bytes, 
     LeaveCriticalSection(&g_cs);
 }
 
+// The census records what the GAME asked (the pool before any translation),
+// and the lock map keeps that pool too, so the lock table stays the table of
+// the game's own habits. The translation (core/gfx/d3d9ex) rewrites the pool
+// and usage that reach the device, and the shadow twin is made right after
+// a translated texture exists.
 HRESULT __stdcall hkCreateTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                   IDirect3DTexture9** out, HANDLE* shared) {
+    const D3DPOOL asked = pool; const DWORD askedUsage = usage;
+    const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateTexture(self, w, h, levels, usage, fmt, pool, out, shared);
-    char ask[96]; _snprintf(ask, sizeof(ask), "%ux%u lv=%u usage=0x%lx fmt=%d pool=%d", w, h, levels, (unsigned long)usage, (int)fmt, (int)pool);
-    record(kTexture, pool, usage, fmt, texture_bytes(w, h, 1, levels, fmt, 1), hr, ask);
-    if (SUCCEEDED(hr) && out && *out) { map_put(*out, (int)pool, kLcTexture); patch_lock_class(kLcTexture, *out); }
+    char ask[96]; _snprintf(ask, sizeof(ask), "%ux%u lv=%u usage=0x%lx fmt=%d pool=%d%s", w, h, levels, (unsigned long)askedUsage, (int)fmt, (int)asked, translated ? " (translated)" : "");
+    record(kTexture, asked, askedUsage, fmt, texture_bytes(w, h, 1, levels, fmt, 1), hr, ask);
+    if (SUCCEEDED(hr) && out && *out) {
+        map_put(*out, (int)asked, kLcTexture); patch_lock_class(kLcTexture, *out);
+        if (translated) dvr::d3d9ex::shadow_register_texture(self, *out, w, h, levels, fmt);
+    }
     return hr;
 }
 HRESULT __stdcall hkCreateVolumeTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT d, UINT levels, DWORD usage, D3DFORMAT fmt,
                                         D3DPOOL pool, IDirect3DVolumeTexture9** out, HANDLE* shared) {
+    const D3DPOOL asked = pool; const DWORD askedUsage = usage;
+    const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateVolume(self, w, h, d, levels, usage, fmt, pool, out, shared);
-    char ask[96]; _snprintf(ask, sizeof(ask), "%ux%ux%u lv=%u usage=0x%lx fmt=%d pool=%d", w, h, d, levels, (unsigned long)usage, (int)fmt, (int)pool);
-    record(kVolume, pool, usage, fmt, texture_bytes(w, h, d, levels, fmt, 1), hr, ask);
-    if (SUCCEEDED(hr) && out && *out) { map_put(*out, (int)pool, kLcVolume); patch_lock_class(kLcVolume, *out); }
+    char ask[96]; _snprintf(ask, sizeof(ask), "%ux%ux%u lv=%u usage=0x%lx fmt=%d pool=%d%s", w, h, d, levels, (unsigned long)askedUsage, (int)fmt, (int)asked, translated ? " (translated)" : "");
+    record(kVolume, asked, askedUsage, fmt, texture_bytes(w, h, d, levels, fmt, 1), hr, ask);
+    if (SUCCEEDED(hr) && out && *out) {
+        map_put(*out, (int)asked, kLcVolume); patch_lock_class(kLcVolume, *out);
+        if (translated) dvr::d3d9ex::shadow_register_volume(self, *out, w, h, d, levels, fmt);
+    }
     return hr;
 }
 HRESULT __stdcall hkCreateCubeTexture(IDirect3DDevice9* self, UINT edge, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                       IDirect3DCubeTexture9** out, HANDLE* shared) {
+    const D3DPOOL asked = pool; const DWORD askedUsage = usage;
+    const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateCube(self, edge, levels, usage, fmt, pool, out, shared);
-    char ask[96]; _snprintf(ask, sizeof(ask), "cube %u lv=%u usage=0x%lx fmt=%d pool=%d", edge, levels, (unsigned long)usage, (int)fmt, (int)pool);
-    record(kCube, pool, usage, fmt, texture_bytes(edge, edge, 1, levels, fmt, 6), hr, ask);
-    if (SUCCEEDED(hr) && out && *out) { map_put(*out, (int)pool, kLcCube); patch_lock_class(kLcCube, *out); }
+    char ask[96]; _snprintf(ask, sizeof(ask), "cube %u lv=%u usage=0x%lx fmt=%d pool=%d%s", edge, levels, (unsigned long)askedUsage, (int)fmt, (int)asked, translated ? " (translated)" : "");
+    record(kCube, asked, askedUsage, fmt, texture_bytes(edge, edge, 1, levels, fmt, 6), hr, ask);
+    if (SUCCEEDED(hr) && out && *out) {
+        map_put(*out, (int)asked, kLcCube); patch_lock_class(kLcCube, *out);
+        if (translated) dvr::d3d9ex::shadow_register_cube(self, *out, edge, levels, fmt);
+    }
     return hr;
 }
 HRESULT __stdcall hkCreateVertexBuffer(IDirect3DDevice9* self, UINT len, DWORD usage, DWORD fvf, D3DPOOL pool,
                                        IDirect3DVertexBuffer9** out, HANDLE* shared) {
+    const D3DPOOL asked = pool; const DWORD askedUsage = usage;
+    const bool translated = dvr::d3d9ex::translate_buffer(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateVb(self, len, usage, fvf, pool, out, shared);
-    char ask[96]; _snprintf(ask, sizeof(ask), "vb %u bytes usage=0x%lx pool=%d", len, (unsigned long)usage, (int)pool);
-    record(kVertexBuffer, pool, usage, D3DFMT_UNKNOWN, len, hr, ask);
-    if (SUCCEEDED(hr) && out && *out) { map_put(*out, (int)pool, kLcVb); patch_lock_class(kLcVb, *out); }
+    char ask[96]; _snprintf(ask, sizeof(ask), "vb %u bytes usage=0x%lx pool=%d%s", len, (unsigned long)askedUsage, (int)asked, translated ? " (translated)" : "");
+    record(kVertexBuffer, asked, askedUsage, D3DFMT_UNKNOWN, len, hr, ask);
+    if (SUCCEEDED(hr) && out && *out) { map_put(*out, (int)asked, kLcVb); patch_lock_class(kLcVb, *out); }
     return hr;
 }
 HRESULT __stdcall hkCreateIndexBuffer(IDirect3DDevice9* self, UINT len, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                       IDirect3DIndexBuffer9** out, HANDLE* shared) {
+    const D3DPOOL asked = pool; const DWORD askedUsage = usage;
+    const bool translated = dvr::d3d9ex::translate_buffer(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateIb(self, len, usage, fmt, pool, out, shared);
-    char ask[96]; _snprintf(ask, sizeof(ask), "ib %u bytes usage=0x%lx fmt=%d pool=%d", len, (unsigned long)usage, (int)fmt, (int)pool);
-    record(kIndexBuffer, pool, usage, D3DFMT_UNKNOWN, len, hr, ask);
-    if (SUCCEEDED(hr) && out && *out) { map_put(*out, (int)pool, kLcIb); patch_lock_class(kLcIb, *out); }
+    char ask[96]; _snprintf(ask, sizeof(ask), "ib %u bytes usage=0x%lx fmt=%d pool=%d%s", len, (unsigned long)askedUsage, (int)fmt, (int)asked, translated ? " (translated)" : "");
+    record(kIndexBuffer, asked, askedUsage, D3DFMT_UNKNOWN, len, hr, ask);
+    if (SUCCEEDED(hr) && out && *out) { map_put(*out, (int)asked, kLcIb); patch_lock_class(kLcIb, *out); }
     return hr;
 }
 HRESULT __stdcall hkCreateRenderTarget(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DMULTISAMPLE_TYPE ms, DWORD q,
