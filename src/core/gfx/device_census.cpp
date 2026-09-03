@@ -190,35 +190,109 @@ void lock_count(int cls, void* obj, DWORD flags, bool partial, UINT level) {
 }
 
 typedef HRESULT (__stdcall *PFN_TexLockRect)(IDirect3DTexture9*, UINT, D3DLOCKED_RECT*, const RECT*, DWORD);
+typedef HRESULT (__stdcall *PFN_TexUnlockRect)(IDirect3DTexture9*, UINT);
 typedef HRESULT (__stdcall *PFN_TexAddDirtyRect)(IDirect3DTexture9*, const RECT*);
 typedef HRESULT (__stdcall *PFN_CubeLockRect)(IDirect3DCubeTexture9*, D3DCUBEMAP_FACES, UINT, D3DLOCKED_RECT*, const RECT*, DWORD);
+typedef HRESULT (__stdcall *PFN_CubeUnlockRect)(IDirect3DCubeTexture9*, D3DCUBEMAP_FACES, UINT);
+typedef HRESULT (__stdcall *PFN_CubeAddDirtyRect)(IDirect3DCubeTexture9*, D3DCUBEMAP_FACES, const RECT*);
 typedef HRESULT (__stdcall *PFN_VolLockBox)(IDirect3DVolumeTexture9*, UINT, D3DLOCKED_BOX*, const D3DBOX*, DWORD);
+typedef HRESULT (__stdcall *PFN_VolUnlockBox)(IDirect3DVolumeTexture9*, UINT);
+typedef HRESULT (__stdcall *PFN_VolAddDirtyBox)(IDirect3DVolumeTexture9*, const D3DBOX*);
+typedef ULONG (__stdcall *PFN_Release)(IUnknown*);
 typedef HRESULT (__stdcall *PFN_VbLock)(IDirect3DVertexBuffer9*, UINT, UINT, void**, DWORD);
 typedef HRESULT (__stdcall *PFN_IbLock)(IDirect3DIndexBuffer9*, UINT, UINT, void**, DWORD);
-PFN_TexLockRect     g_origTexLock = nullptr;
-PFN_TexAddDirtyRect g_origTexDirty = nullptr;
-PFN_CubeLockRect    g_origCubeLock = nullptr;
-PFN_VolLockBox      g_origVolLock = nullptr;
-PFN_VbLock          g_origVbLock = nullptr;
-PFN_IbLock          g_origIbLock = nullptr;
+PFN_TexLockRect      g_origTexLock = nullptr;
+PFN_TexUnlockRect    g_origTexUnlock = nullptr;
+PFN_TexAddDirtyRect  g_origTexDirty = nullptr;
+PFN_Release          g_origTexRelease = nullptr;
+PFN_CubeLockRect     g_origCubeLock = nullptr;
+PFN_CubeUnlockRect   g_origCubeUnlock = nullptr;
+PFN_CubeAddDirtyRect g_origCubeDirty = nullptr;
+PFN_Release          g_origCubeRelease = nullptr;
+PFN_VolLockBox       g_origVolLock = nullptr;
+PFN_VolUnlockBox     g_origVolUnlock = nullptr;
+PFN_VolAddDirtyBox   g_origVolDirty = nullptr;
+PFN_Release          g_origVolRelease = nullptr;
+PFN_VbLock           g_origVbLock = nullptr;
+PFN_IbLock           g_origIbLock = nullptr;
+uint32_t g_shadowLocks = 0, g_shadowUnlocks = 0, g_shadowDirty = 0;
 
+// The shadow redirect (core/gfx/d3d9ex, [Device] Managed=shadow): a lock on
+// a translated texture lands on its SYSTEMMEM twin (the twin shares this
+// class vtable, so its own lock arrives here too and falls through to the
+// original: it is not in the map), the unlock pushes the dirty regions to
+// the real texture, a dirty rect goes to the twin, the last Release drops it.
 HRESULT __stdcall hkTexLockRect(IDirect3DTexture9* self, UINT level, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags) {
     lock_count(kLcTexture, self, flags, rc != nullptr, level);
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowLocks; return ((IDirect3DTexture9*)t)->LockRect(level, lr, rc, flags); }
     return g_origTexLock(self, level, lr, rc, flags);
+}
+HRESULT __stdcall hkTexUnlockRect(IDirect3DTexture9* self, UINT level) {
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
+        ++g_shadowUnlocks;
+        const HRESULT hr = ((IDirect3DTexture9*)t)->UnlockRect(level);
+        dvr::d3d9ex::shadow_unlocked(self);
+        return hr;
+    }
+    return g_origTexUnlock(self, level);
 }
 HRESULT __stdcall hkTexAddDirtyRect(IDirect3DTexture9* self, const RECT* rc) {
     ++g_dirtyRects;
     if (map_pool(self) == 1) ++g_dirtyRectsOnManaged;
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowDirty; return ((IDirect3DTexture9*)t)->AddDirtyRect(rc); }
     return g_origTexDirty(self, rc);
+}
+ULONG __stdcall hkTexRelease(IUnknown* self) {
+    const ULONG n = g_origTexRelease(self);
+    if (n == 0) dvr::d3d9ex::shadow_released(self);
+    return n;
 }
 HRESULT __stdcall hkCubeLockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT* lr,
                                  const RECT* rc, DWORD flags) {
     lock_count(kLcCube, self, flags, rc != nullptr, level);
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowLocks; return ((IDirect3DCubeTexture9*)t)->LockRect(face, level, lr, rc, flags); }
     return g_origCubeLock(self, face, level, lr, rc, flags);
+}
+HRESULT __stdcall hkCubeUnlockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level) {
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
+        ++g_shadowUnlocks;
+        const HRESULT hr = ((IDirect3DCubeTexture9*)t)->UnlockRect(face, level);
+        dvr::d3d9ex::shadow_unlocked(self);
+        return hr;
+    }
+    return g_origCubeUnlock(self, face, level);
+}
+HRESULT __stdcall hkCubeAddDirtyRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, const RECT* rc) {
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowDirty; return ((IDirect3DCubeTexture9*)t)->AddDirtyRect(face, rc); }
+    return g_origCubeDirty(self, face, rc);
+}
+ULONG __stdcall hkCubeRelease(IUnknown* self) {
+    const ULONG n = g_origCubeRelease(self);
+    if (n == 0) dvr::d3d9ex::shadow_released(self);
+    return n;
 }
 HRESULT __stdcall hkVolLockBox(IDirect3DVolumeTexture9* self, UINT level, D3DLOCKED_BOX* lb, const D3DBOX* box, DWORD flags) {
     lock_count(kLcVolume, self, flags, box != nullptr, level);
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowLocks; return ((IDirect3DVolumeTexture9*)t)->LockBox(level, lb, box, flags); }
     return g_origVolLock(self, level, lb, box, flags);
+}
+HRESULT __stdcall hkVolUnlockBox(IDirect3DVolumeTexture9* self, UINT level) {
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
+        ++g_shadowUnlocks;
+        const HRESULT hr = ((IDirect3DVolumeTexture9*)t)->UnlockBox(level);
+        dvr::d3d9ex::shadow_unlocked(self);
+        return hr;
+    }
+    return g_origVolUnlock(self, level);
+}
+HRESULT __stdcall hkVolAddDirtyBox(IDirect3DVolumeTexture9* self, const D3DBOX* box) {
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowDirty; return ((IDirect3DVolumeTexture9*)t)->AddDirtyBox(box); }
+    return g_origVolDirty(self, box);
+}
+ULONG __stdcall hkVolRelease(IUnknown* self) {
+    const ULONG n = g_origVolRelease(self);
+    if (n == 0) dvr::d3d9ex::shadow_released(self);
+    return n;
 }
 HRESULT __stdcall hkVbLock(IDirect3DVertexBuffer9* self, UINT off, UINT size, void** data, DWORD flags) {
     lock_count(kLcVb, self, flags, off != 0 || size != 0, 0);
@@ -241,10 +315,22 @@ void patch_lock_class(int cls, void* obj) {
     switch (cls) {
     case kLcTexture:
         old = PatchVtable(obj, 19, (void*)hkTexLockRect); if (old) g_origTexLock = (PFN_TexLockRect)old;
+        old = PatchVtable(obj, 20, (void*)hkTexUnlockRect); if (old) g_origTexUnlock = (PFN_TexUnlockRect)old;
         old = PatchVtable(obj, 21, (void*)hkTexAddDirtyRect); if (old) g_origTexDirty = (PFN_TexAddDirtyRect)old;
+        old = PatchVtable(obj, 2, (void*)hkTexRelease); if (old) g_origTexRelease = (PFN_Release)old;
         break;
-    case kLcCube:   old = PatchVtable(obj, 19, (void*)hkCubeLockRect); if (old) g_origCubeLock = (PFN_CubeLockRect)old; break;
-    case kLcVolume: old = PatchVtable(obj, 19, (void*)hkVolLockBox); if (old) g_origVolLock = (PFN_VolLockBox)old; break;
+    case kLcCube:
+        old = PatchVtable(obj, 19, (void*)hkCubeLockRect); if (old) g_origCubeLock = (PFN_CubeLockRect)old;
+        old = PatchVtable(obj, 20, (void*)hkCubeUnlockRect); if (old) g_origCubeUnlock = (PFN_CubeUnlockRect)old;
+        old = PatchVtable(obj, 21, (void*)hkCubeAddDirtyRect); if (old) g_origCubeDirty = (PFN_CubeAddDirtyRect)old;
+        old = PatchVtable(obj, 2, (void*)hkCubeRelease); if (old) g_origCubeRelease = (PFN_Release)old;
+        break;
+    case kLcVolume:
+        old = PatchVtable(obj, 19, (void*)hkVolLockBox); if (old) g_origVolLock = (PFN_VolLockBox)old;
+        old = PatchVtable(obj, 20, (void*)hkVolUnlockBox); if (old) g_origVolUnlock = (PFN_VolUnlockBox)old;
+        old = PatchVtable(obj, 21, (void*)hkVolAddDirtyBox); if (old) g_origVolDirty = (PFN_VolAddDirtyBox)old;
+        old = PatchVtable(obj, 2, (void*)hkVolRelease); if (old) g_origVolRelease = (PFN_Release)old;
+        break;
     case kLcVb:     old = PatchVtable(obj, 11, (void*)hkVbLock); if (old) g_origVbLock = (PFN_VbLock)old; break;
     case kLcIb:     old = PatchVtable(obj, 11, (void*)hkIbLock); if (old) g_origIbLock = (PFN_IbLock)old; break;
     default: break;
@@ -520,6 +606,8 @@ void log_deltas() {
 void log_status() {
     char v[640]; verdict_line(v, sizeof(v));
     DVR_INFO("%s", v);
+    if (g_shadowLocks || g_shadowUnlocks)
+        DVR_INFO("device/census: shadow redirects: locks=%u unlocks=%u dirtyRects=%u", g_shadowLocks, g_shadowUnlocks, g_shadowDirty);
 }
 
 void status(dvr::status::Writer& w) {
