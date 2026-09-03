@@ -27,15 +27,23 @@
 // camera position the writer produced so a present can prove which draw it
 // carries.
 //
-// GATES (decided once per tick, before pass 1's tag, so tags and doubles can
-// never go one-sided): armed and not poisoned; an XR session live; the game
-// state strictly GAMEPLAY; a c5 upload since the previous root call (a load
-// screen draws no scene); a present since the previous tick's draw (liveness
-// only - with a render thread it sequences nothing); no eyetest/postest
-// running; not exiting. A fault in pass 2 poisons the method for the session
-// (the method drops to mono on the next present) and stands the VR path down
-// with a line that says the game MAY not survive: an access violation between
-// the root's begin/end enqueues is not something this code can undo.
+// GATES: decided ONCE per tick, at depth 0, BEFORE pass 1's tag is pushed,
+// and the same decision drives pass 2 (SceneDrawDecide -> g_sdTick). That is
+// what makes tags and doubles unable to go one-sided: until 41.1 pass 1's tag
+// checked five gates and pass 2 re-evaluated them after the draw plus four
+// more (exiting, a test running, the c5 serial, a present since the previous
+// draw), so the resume window - the game thread's catch-up burst, the verdict
+// flapping through LOADING - produced -1 tags with no +1, and the runtime
+// showed the RIGHT eye's held image against a fresh LEFT (the headset run 40
+// report). The gates: armed (or a pulse credit) and not poisoned; the
+// gameplay caller; not exiting; an XR session live; the game state strictly
+// GAMEPLAY; no eyetest/postest running; a c5 upload since the previous tick's
+// draws (a load screen draws no scene); a present since the previous tick's
+// draw (liveness only - with a render thread it sequences nothing). A fault
+// in pass 2 poisons the method for the session (the method drops to mono on
+// the next present) and stands the VR path down with a line that says the
+// game MAY not survive: an access violation between the root's begin/end
+// enqueues is not something this code can undo.
 //
 // `reentry pulse [n]` doubles the next n gameplay draws with the same gates
 // (armed or not) - the "make it MOVE" instrument: presents must advance by
@@ -140,7 +148,7 @@ static void SceneDrawBeat()
         (unsigned long)g_sdSkipForeign, (unsigned long)g_sdSkipState, (unsigned long)g_sdSkipSilent,
         (unsigned long)g_sdSkipStall, (unsigned long)g_sdSkipSession, (unsigned long)g_sdSkipTest,
         (unsigned long)g_sdSkipExit, (unsigned long)g_sdDrawTid, (unsigned long)g_presentTid,
-        g_sdArmed ? "" : " (doubling OFF: 2nd/s reads 0 by design)",
+        g_sdArmed ? " gates=once-per-tick" : " (doubling OFF: 2nd/s reads 0 by design)",
         g_sdPoisoned ? " POISONED" : "");
     g_sdBeatMs = now;
     g_sdBeatDraws = g_sdBeatSecond = 0;
@@ -148,26 +156,60 @@ static void SceneDrawBeat()
     g_sdCall2MaxUs = 0;
 }
 
-// The second draw, or the reason it did not happen (each counted, named on the beat).
-static void SceneDrawMaybeSecond(void* self, int b, uint32_t callerRet)
+// One tick's decision, made at depth 0 BEFORE pass 1's tag (game thread only).
+struct SdDecision { bool doubleIt; bool pulse; const char* why; };
+static SdDecision g_sdTick = { false, false, "" };
+
+static SdDecision SceneDrawDecide(uint32_t callerRet)
 {
-    if (g_sdPoisoned) return;
-    bool pulse = false;
-    if (InterlockedCompareExchange(&g_sdPulse, 0, 0) > 0) pulse = InterlockedDecrement(&g_sdPulse) >= 0;
+    SdDecision d = { false, false, "" };
+    if (InterlockedCompareExchange(&g_sdPulse, 0, 0) > 0) d.pulse = InterlockedDecrement(&g_sdPulse) >= 0;
     const bool armed = InterlockedCompareExchange(&g_sdArmed, 0, 0) != 0;
-    if (!pulse && !armed) return;
-    if (callerRet != kViewportDrawGameplayRet) { ++g_sdSkipForeign; return; }
-    if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; return; }
-    if (!dvr::vr::session_live() && !pulse) { ++g_sdSkipSession; return; }
-    if (!DvrGameplayVerdict()) { ++g_sdSkipState; return; }
-    if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; return; }
+    if (!d.pulse && !armed) { d.why = "not armed"; return d; }
+    if (g_sdPoisoned) { d.why = "poisoned"; return d; }
+    if (callerRet != kViewportDrawGameplayRet) { ++g_sdSkipForeign; d.why = "foreign caller"; return d; }
+    if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; d.why = "exiting"; return d; }
+    if (!dvr::vr::session_live() && !d.pulse) { ++g_sdSkipSession; d.why = "no XR session"; return d; }
+    if (!DvrGameplayVerdict()) { ++g_sdSkipState; d.why = "state not GAMEPLAY"; return d; }
+    if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; d.why = "eyetest/postest running"; return d; }
     // The camera-silent hole: a c5 upload must have arrived since the previous
-    // root call (a load screen draws no scene). The serial counts uploads.
-    const uint32_t c5serial = dvr::camera::render_pos_serial();
-    if (c5serial == g_sdLastDrawC5Serial) { ++g_sdSkipSilent; return; }
+    // tick's draws (a load screen draws no scene). The serial counts uploads.
+    if (dvr::camera::render_pos_serial() == g_sdLastDrawC5Serial) { ++g_sdSkipSilent; d.why = "camera silent (no c5 upload since the previous draw)"; return d; }
     // Present-stall guard (liveness only): at least one present since the
     // previous tick's draw; pulses bypass it so the A/B works while paused.
-    if (g_frame == g_sdLastDrawPresent && !pulse) { ++g_sdSkipStall; return; }
+    if (g_frame == g_sdLastDrawPresent && !d.pulse) { ++g_sdSkipStall; d.why = "no present since the previous draw"; return d; }
+    d.doubleIt = true;
+    d.why = "all gates pass";
+    return d;
+}
+
+// The decision's CHANGES only: a spell of single draws is the mono path in the
+// headset (both eyes the same image), and its reason is the thing to read.
+static void SceneDrawDecisionLog(const SdDecision& d)
+{
+    static bool wasDouble = false, said = false;
+    static uint32_t singleTicks = 0;
+    if (!d.doubleIt) ++singleTicks;
+    if (said && d.doubleIt == wasDouble) return;
+    said = true; wasDouble = d.doubleIt;
+    if (d.doubleIt) {
+        if (singleTicks)
+            Log("reentry: gates -> DOUBLE draw after %lu single tick(s) - both eyes tagged again", (unsigned long)singleTicks);
+        singleTicks = 0;
+    } else {
+        DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Info, 1000,
+                         "reentry: gates -> SINGLE draw (%s): no tag this tick, the runtime shows the untagged "
+                         "present on the mono path until the gates pass", d.why);
+    }
+}
+
+// The second draw, taking the tick's decision (never re-deciding: that is what
+// made the tags one-sided). Only the poison is re-read - a fault poisons
+// mid-tick.
+static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
+{
+    if (!d.doubleIt || g_sdPoisoned) return;
+    const bool pulse = d.pulse;
 
     // Pass 2: the other eye into the camera field, on this thread, through the
     // seam's writer (its per-thread fork keeps in-draw dispatches on +1 too).
@@ -209,22 +251,22 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
     (void)edx;
     const uint32_t callerRet = (uint32_t)(uintptr_t)_ReturnAddress();
     const LONG depth = InterlockedIncrement(&g_sdDepth) - 1;
-    const bool armed = InterlockedCompareExchange(&g_sdArmed, 0, 0) != 0;
     if (depth == 0) {
         g_sdDrawTid = GetCurrentThreadId();
         ++g_sdDraws; ++g_sdBeatDraws;
-        // Pass 1's tag, pushed BEFORE the draw so it is in the ring by the time
-        // this pass's present pops it; gated like the doubling (the state and
-        // the caller) so tags and doubles cannot go one-sided.
-        if (armed && !g_sdPoisoned && callerRet == kViewportDrawGameplayRet && DvrGameplayVerdict() &&
-            dvr::vr::session_live()) {
+        // The tick's ONE decision, before pass 1's tag: the tag is pushed iff
+        // pass 2 will run, so a present can never carry a -1 whose +1 sibling
+        // was skipped (41.1: the resume-window one-sided stream).
+        g_sdTick = SceneDrawDecide(callerRet);
+        if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
+        if (g_sdTick.doubleIt) {
             float pos[3];
             dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);
         }
     }
     ((DvrViewportDrawFn)kViewportDraw)(self, NULL, bShouldPresent);
     if (depth == 0) {
-        SceneDrawMaybeSecond(self, bShouldPresent, callerRet);
+        SceneDrawMaybeSecond(self, bShouldPresent, g_sdTick);
         g_sdLastDrawPresent = g_frame;
         g_sdLastDrawC5Serial = dvr::camera::render_pos_serial();
         SceneDrawBeat();
