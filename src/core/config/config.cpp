@@ -150,16 +150,17 @@ static void WriteDefaultIni(const char* ini)
         "[Neck]\n"
         "; The pitch pivot (41.1). A real head pitches about a point below and behind the\n"
         "; eyes, so looking up or down moves the eye on an arc. Mode=off|add|cancel, under\n"
-        "; a projection layer only: off = the tracked displacement alone (ships); add = the\n"
+        "; a projection layer only: off = the tracked displacement alone; add = the\n"
         "; modelled arc is ADDED (a rig without positional tracking, or an arc the tracking is\n"
         "; not supplying); cancel = the arc is SUBTRACTED, for an engine that already pitches\n"
         "; its camera about its own neck (then PivotBelowM/PivotBehindM hold the ENGINE's\n"
         "; numbers, measured by `camera pitchtest`). `neck off|add|cancel [below] [behind]`\n"
         "; switches live; F10 Comfort has the buttons and sliders. The defaults ARE the\n"
         "; engine's pivot, MEASURED 2026-09-03 on the simulator (0.321 m below, 0.062 m\n"
-        "; behind: 17 cm of backward travel at +30 deg), so `cancel` is one word away; a\n"
-        "; human neck for `add` is about 0.11 / 0.09.\n"
-        "Mode=off\n"
+        "; behind: 17 cm of backward travel at +30 deg). cancel SHIPS: the headset run of\n"
+        "; 2026-09-03 judged it right (the user); off and add stay as the live A/B. A human\n"
+        "; neck for `add` is about 0.11 / 0.09.\n"
+        "Mode=cancel\n"
         "PivotBelowM=0.321\n"
         "PivotBehindM=0.062\n"
         "[MotionAim]\n"
@@ -430,9 +431,10 @@ static void LoadConfig()
     if (g_posMaxM < 0.05f) g_posMaxM = 0.05f;
     if (g_posMaxM > 2.0f)  g_posMaxM = 2.0f;
     g_posFlipX   = IniFloat(ini, "PosTrack", "FlipX", 0) != 0.0f;
-    {   // 41.1 [Neck]: the pitch pivot lever (default off; an unknown mode logs and stays off)
+    {   // 41.1 [Neck]: the pitch pivot lever. Default `cancel` (headset-judged 2026-09-03,
+        // the engine's own neck cancelled); an unknown mode logs and stays off.
         char nm[16] = "";
-        GetPrivateProfileStringA("Neck", "Mode", "off", nm, sizeof(nm), ini);
+        GetPrivateProfileStringA("Neck", "Mode", "cancel", nm, sizeof(nm), ini);
         int mode = !_stricmp(nm, "add") ? 1 : !_stricmp(nm, "cancel") ? 2 : 0;
         if (mode == 0 && _stricmp(nm, "off") != 0 && nm[0])
             Log("config: [Neck] Mode='%s' unknown (off|add|cancel) - off", nm);
