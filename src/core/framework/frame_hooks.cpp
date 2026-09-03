@@ -22,11 +22,13 @@ typedef HRESULT (__stdcall *PFN_CreateDevice)(IDirect3D9*, UINT, D3DDEVTYPE, HWN
 typedef HRESULT (__stdcall *PFN_Present)(IDirect3DDevice9*, const RECT*, const RECT*, HWND,
                                          const RGNDATA*);
 typedef HRESULT (__stdcall *PFN_Reset)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
+typedef HRESULT (__stdcall *PFN_BeginScene)(IDirect3DDevice9*);
 
 Callbacks         g_cb;
 PFN_CreateDevice  g_origCreateDevice = nullptr;
 PFN_Present       g_origPresent = nullptr;
 PFN_Reset         g_origReset = nullptr;
+PFN_BeginScene    g_origBeginScene = nullptr;
 SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
 
@@ -198,8 +200,17 @@ HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const floa
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
+    dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
     if (g_cb.set_render_target) return g_cb.set_render_target(self, idx, rt);
     return g_origSetRt(self, idx, rt);
+}
+
+// 41.1 (session 8): the frame-start marker. UE3's D3D9 RHI issues BeginScene
+// from the thread that draws; the first one after the game's Present is where
+// the render thread stopped waiting and started executing the frame.
+HRESULT __stdcall hkBeginScene(IDirect3DDevice9* self) {
+    dvr::perf::frame_start_marker("BeginScene");
+    return g_origBeginScene(self);
 }
 
 HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND wnd,
@@ -218,7 +229,9 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         if (old && !g_origSetVsConst) g_origSetVsConst = (SetVsConstFn)old;
         old = PatchVtable(*outDev, 37, (void*)hkSetRenderTarget);   // SetRenderTarget
         if (old && !g_origSetRt) g_origSetRt = (SetRenderTargetFn)old;
-        DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget)");
+        old = PatchVtable(*outDev, 41, (void*)hkBeginScene);        // BeginScene (the perf marker)
+        if (old && !g_origBeginScene) g_origBeginScene = (PFN_BeginScene)old;
+        DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene)");
     }
     return hr;
 }

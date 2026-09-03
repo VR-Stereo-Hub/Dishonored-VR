@@ -38,6 +38,10 @@ struct Rec {
     uint32_t gamePresentUs = 0;
     uint32_t inUs = 0;         // entry -> the game's Present returned
     uint32_t outUs = 0;        // the game's Present returned -> the next entry
+    int64_t  tFirstBegin = 0;  // the first BeginScene after the game's Present (0 = none)
+    int64_t  tFirstSrt = 0;    // the first SetRenderTarget after it (the fallback marker)
+    uint16_t beginScenes = 0, srts = 0;   // marker populations in this present's OUT
+    uint32_t idleUs = 0, rUs = 0;         // OUT split: before the marker / after it
     bool     complete = false;
 };
 
@@ -50,6 +54,9 @@ int64_t  g_t[kPointCount] = {};
 bool     g_enabled = true;
 uint32_t g_incomplete = 0;
 long long g_qpcFreq = 0;
+DWORD    g_presentTid = 0;     // the thread that stamps kEntry
+DWORD    g_markerTid = 0;      // the thread the marker last arrived on
+bool     g_markerTidSaid = false;
 
 inline int64_t now_qpc() {
     LARGE_INTEGER t;
@@ -72,13 +79,17 @@ inline uint32_t us(int64_t from, int64_t to) {
 struct Sum {
     uint32_t n = 0;
     uint64_t in = 0, out = 0, pre = 0, begin = 0, wait = 0, tick = 0, method = 0, cap = 0, lock = 0,
-             copy = 0, upload = 0, blit = 0, end = 0, acquire = 0, xrCopy = 0, endFrame = 0, gamePresent = 0;
-    void add(const Rec& r) {
+             copy = 0, upload = 0, blit = 0, end = 0, acquire = 0, xrCopy = 0, endFrame = 0, gamePresent = 0,
+             idle = 0, r = 0, beginScenes = 0, srts = 0, withBegin = 0, withSrt = 0;
+    void add(const Rec& r_) {
         ++n;
-        in += r.inUs; out += r.outUs; pre += r.preUs; begin += r.beginUs; wait += r.waitUs;
-        tick += r.tickUs; method += r.methodUs; cap += r.capUs; lock += r.lockUs; copy += r.copyUs;
-        upload += r.uploadUs; blit += r.blitUs; end += r.endUs; acquire += r.acquireUs;
-        xrCopy += r.xrCopyUs; endFrame += r.endFrameUs; gamePresent += r.gamePresentUs;
+        in += r_.inUs; out += r_.outUs; pre += r_.preUs; begin += r_.beginUs; wait += r_.waitUs;
+        tick += r_.tickUs; method += r_.methodUs; cap += r_.capUs; lock += r_.lockUs; copy += r_.copyUs;
+        upload += r_.uploadUs; blit += r_.blitUs; end += r_.endUs; acquire += r_.acquireUs;
+        xrCopy += r_.xrCopyUs; endFrame += r_.endFrameUs; gamePresent += r_.gamePresentUs;
+        idle += r_.idleUs; r += r_.rUs; beginScenes += r_.beginScenes; srts += r_.srts;
+        if (r_.tFirstBegin) ++withBegin;
+        if (r_.tFirstSrt) ++withSrt;
     }
     float ms(uint64_t v) const { return n ? (float)v / (float)n / 1000.0f : 0.0f; }
 };
@@ -94,10 +105,32 @@ int class_text(char* buf, int cap, const Sum& s) {
     return _snprintf(buf, cap,
                      "n=%u in %.1f (pre %.1f begin %.1f [wait %.1f] tick %.1f method %.1f [cap %.1f: lock %.1f "
                      "copy %.1f up %.1f blit %.1f] end %.1f [acq %.1f xrCopy %.1f endFrame %.1f] present %.1f) "
-                     "+ out %.1f",
+                     "+ out %.1f (idle %.1f R %.1f)",
                      s.n, s.ms(s.in), s.ms(s.pre), s.ms(s.begin), s.ms(s.wait), s.ms(s.tick), s.ms(s.method),
                      s.ms(s.cap), s.ms(s.lock), s.ms(s.copy), s.ms(s.upload), s.ms(s.blit), s.ms(s.end),
-                     s.ms(s.acquire), s.ms(s.xrCopy), s.ms(s.endFrame), s.ms(s.gamePresent), s.ms(s.out));
+                     s.ms(s.acquire), s.ms(s.xrCopy), s.ms(s.endFrame), s.ms(s.gamePresent), s.ms(s.out),
+                     s.ms(s.idle), s.ms(s.r));
+}
+
+// Which marker split OUT this window, with its population per present, and
+// the starved verdict: idle above 30 % of OUT means the render thread waited
+// for the game thread more than it worked (model C, the one neither "the
+// capture" nor "the GPU" names).
+int marker_text(char* buf, int cap, const Sum& a, const Sum& b, const Sum& c, Window& w) {
+    const uint32_t n = a.n + b.n + c.n;
+    const uint64_t bs = a.beginScenes + b.beginScenes + c.beginScenes;
+    const uint64_t sr = a.srts + b.srts + c.srts;
+    const uint64_t wb = a.withBegin + b.withBegin + c.withBegin;
+    const uint64_t ws = a.withSrt + b.withSrt + c.withSrt;
+    const uint64_t idle = a.idle + b.idle + c.idle, out = a.out + b.out + c.out;
+    if (wb) strcpy_s(w.marker, sizeof(w.marker), "BeginScene");
+    else if (ws) strcpy_s(w.marker, sizeof(w.marker), "SRT-first");
+    else strcpy_s(w.marker, sizeof(w.marker), "none");
+    const bool starved = out > 0 && idle * 10 > out * 3;
+    return _snprintf(buf, cap, "marker=%s(BeginScene %.1f/present in %llu of %u, SRT %.1f/present)%s%s",
+                     w.marker, n ? (double)bs / n : 0.0, (unsigned long long)wb, n, n ? (double)sr / n : 0.0,
+                     wb == 0 && ws == 0 ? " (no marker: idle/R unsplit, R = OUT)" : "",
+                     starved ? " (RENDER THREAD STARVED: idle > 30 % of OUT, the game thread is the limiter)" : "");
 }
 
 void window_close(uint64_t nowMs) {
@@ -119,7 +152,8 @@ void window_close(uint64_t nowMs) {
     if (w.paceBound)
         _snprintf(paced, sizeof(paced), "PACE-BOUND (wait %.1f ms/present = the headset's cadence at %.2f ms; the "
                   "split is a budget, not a bottleneck) ", w.waitMs, periodMs);
-    char c1[400], c2[400], cm[400];
+    char c1[400], c2[400], cm[400], mk[240];
+    marker_text(mk, sizeof(mk), g_p1, g_p2, g_m, w);
     if (w.stereo) {
         // The tick: one P1 and one P2 present. Its rate is the P1 count (the
         // P2 count when a window opened on a P2).
@@ -130,22 +164,25 @@ void window_close(uint64_t nowMs) {
         w.outMs = (g_p1.ms(g_p1.out) + g_p2.ms(g_p2.out));
         w.captureMs = g_p1.ms(g_p1.cap) + g_p2.ms(g_p2.cap);
         w.lockMs = g_p1.ms(g_p1.lock) + g_p2.ms(g_p2.lock);
+        w.idleMs = g_p1.ms(g_p1.idle) + g_p2.ms(g_p2.idle);
+        w.rMs = g_p1.ms(g_p1.r) + g_p2.ms(g_p2.r);
         class_text(c1, sizeof(c1), g_p1);
         class_text(c2, sizeof(c2), g_p2);
         _snprintf(g_lastLine, sizeof(g_lastLine),
-                  "perf: tick %.1f ms (%.1f/s, %.0f presents/s) %s= P1[-1] %s | P2[+1] %s | untagged %u%s",
-                  w.tickMs, w.ticksPerS, w.presentsPerS, paced, c1, c2, g_m.n,
+                  "perf: tick %.1f ms (%.1f/s, %.0f presents/s) %s= P1[-1] %s | P2[+1] %s | untagged %u | %s%s",
+                  w.tickMs, w.ticksPerS, w.presentsPerS, paced, c1, c2, g_m.n, mk,
                   g_windowIncomplete ? " | incomplete presents dropped" : "");
     } else {
         w.tickMs = g_m.ms(g_m.in) + g_m.ms(g_m.out);
         w.ticksPerS = w.presentsPerS;
         w.inMs = g_m.ms(g_m.in); w.outMs = g_m.ms(g_m.out);
         w.captureMs = g_m.ms(g_m.cap); w.lockMs = g_m.ms(g_m.lock);
+        w.idleMs = g_m.ms(g_m.idle); w.rMs = g_m.ms(g_m.r);
         class_text(cm, sizeof(cm), g_m);
         _snprintf(g_lastLine, sizeof(g_lastLine),
                   "perf: present %.1f ms (%.1f/s) %s= %s | tick=n/a (one present per tick; the present line is "
-                  "the tick)%s",
-                  w.tickMs, w.presentsPerS, paced, cm,
+                  "the tick) | %s%s",
+                  w.tickMs, w.presentsPerS, paced, cm, mk,
                   g_windowIncomplete ? " | incomplete presents dropped" : "");
     }
     g_lastLine[sizeof(g_lastLine) - 1] = 0;
@@ -158,6 +195,16 @@ void window_close(uint64_t nowMs) {
 
 void record_close(Rec& r, int64_t tNextEntry) {
     r.outUs = us(r.tGameRet, tNextEntry);
+    // The marker splits OUT: BeginScene when the game issued one after its
+    // Present, else the first SetRenderTarget, else nothing (R = OUT).
+    const int64_t tMark = r.tFirstBegin ? r.tFirstBegin : r.tFirstSrt;
+    if (tMark && tMark >= r.tGameRet && tMark <= tNextEntry) {
+        r.idleUs = us(r.tGameRet, tMark);
+        r.rUs = us(tMark, tNextEntry);
+    } else {
+        r.idleUs = 0;
+        r.rUs = r.outUs;
+    }
     r.complete = true;
     const bool twoPerTick = dvr::stereo::active() && dvr::stereo::active()->presents_per_tick() > 1;
     if (twoPerTick && r.tag < 0) g_p1.add(r);
@@ -183,6 +230,7 @@ void stamp(Point p) {
         r.tEntry = t;
         r.present = dvr::frame::count() + 1;
         g_open = true;
+        g_presentTid = GetCurrentThreadId();
         ++g_records;
         const uint64_t nowMs = GetTickCount64();
         if (g_windowMs == 0) g_windowMs = nowMs;
@@ -228,6 +276,26 @@ void stamp(Point p) {
     }
 }
 
+void frame_start_marker(const char* which) {
+    if (!g_enabled || !g_open) return;
+    Rec& r = g_ring[g_head];
+    if (!r.tGameRet) return;   // inside hkPresent (the mod's own draws): not the frame start
+    const int64_t t = now_qpc();
+    const bool bs = which && which[0] == 'B';
+    if (bs) { if (!r.tFirstBegin) r.tFirstBegin = t; if (r.beginScenes < 0xffff) ++r.beginScenes; }
+    else    { if (!r.tFirstSrt) r.tFirstSrt = t;     if (r.srts < 0xffff) ++r.srts; }
+    const DWORD tid = GetCurrentThreadId();
+    if (tid != g_markerTid) {
+        g_markerTid = tid;
+        if (tid != g_presentTid && !g_markerTidSaid) {
+            g_markerTidSaid = true;
+            DVR_WARN("perf: the frame-start marker (%s) arrives on tid %lu, Present on tid %lu - idle/R are "
+                     "cross-thread wall-clock deltas, read them as such", which, (unsigned long)tid,
+                     (unsigned long)g_presentTid);
+        }
+    }
+}
+
 void set_enabled(bool on) {
     if (on == g_enabled) return;
     g_enabled = on;
@@ -269,6 +337,9 @@ void status(dvr::status::Writer& w) {
     w.kv("waitMs", (double)g_last.waitMs);
     w.kv("captureMs", (double)g_last.captureMs);
     w.kv("lockMs", (double)g_last.lockMs);
+    w.kv("idleMs", (double)g_last.idleMs);
+    w.kv("rMs", (double)g_last.rMs);
+    w.kv("marker", g_last.marker);
     w.kv("paceBound", g_last.paceBound);
     w.kv("stereo", g_last.stereo);
     w.kv("incomplete", (unsigned long)g_incomplete);

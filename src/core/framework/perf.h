@@ -50,6 +50,14 @@ enum Point {
 };
 void stamp(Point p);
 
+// The frame-start marker (commit 2): the first BeginScene after the game's
+// Present returned splits OUT into idle (the render thread had nothing queued:
+// it waited for the game thread) and R (executing the frame's commands). The
+// device's BeginScene is patched for it; the first SetRenderTarget after
+// Present is the fallback marker when a window sees no BeginScene. `which` is
+// "BeginScene" or "SRT". Any thread; the tid is compared with the presenter's.
+void frame_start_marker(const char* which);
+
 // The lever ([Perf] Instruments=, `perf on|off`): off = no stamps are kept
 // and no line prints. Default on: eight QPC reads per present.
 void set_enabled(bool on);
@@ -65,6 +73,8 @@ void status(dvr::status::Writer& w);
 struct Window {
     float tickMs = 0, ticksPerS = 0, presentsPerS = 0;
     float inMs = 0, outMs = 0, waitMs = 0, captureMs = 0, lockMs = 0;
+    float idleMs = 0, rMs = 0;   // OUT split by the marker (per tick under stereo)
+    char  marker[24] = "";       // "BeginScene", "SRT-first" or "none"
     bool  paceBound = false;
     bool  stereo = false;     // two presents per tick this window
 };
