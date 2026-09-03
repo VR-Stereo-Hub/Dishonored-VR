@@ -65,6 +65,9 @@ struct Cost {
     uint32_t grabsInWindow = 0;
 };
 Cost cost();
+// The LAST grab's phases (this present's; zeros when the present grabbed
+// nothing): the tick budget (core/framework/perf) reads it once per present.
+Cost last_grab();
 
 // The shared-surface probe's verdict (one-shot at the first grab; the log
 // carries every HRESULT): can the game's D3D9 device hand D3D11 a surface

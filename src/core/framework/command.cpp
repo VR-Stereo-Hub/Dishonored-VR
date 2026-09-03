@@ -1,5 +1,6 @@
 #define DVR_CAT ::dvr::log::Cat::cmd
 #include "core/framework/command.h"
+#include "core/framework/perf.h"
 #include "core/framework/status.h"
 #include "core/util/log.h"
 #include "core/util/paths.h"
@@ -86,6 +87,13 @@ bool core_command(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "skip")) {
         DVR_INFO("skip: DVR_SKIP says %s is %s", args, dvr::diag::skip(args) ? "SKIPPED" : "installed");
+        return true;
+    }
+    if (!strcmp(cmd, "perf")) {   // 41.1 (session 8): the tick budget
+        if (!args[0] || !strcmp(args, "status")) { dvr::perf::log_status(); return true; }
+        if (!strcmp(args, "on"))  { dvr::perf::set_enabled(true); return true; }
+        if (!strcmp(args, "off")) { dvr::perf::set_enabled(false); return true; }
+        DVR_WARN("perf: usage - perf on|off|status (the tick line, `perf: tick ...`, every 3 s)");
         return true;
     }
     return false;

@@ -484,6 +484,15 @@ void pair_probe_peek(PairProbe* out);   // 41.1 (Dishonored): the same without d
 // 41.1 (Dishonored): stalePresL + stalePresR, cumulative and never drained, so a
 // per-present reader can notice a new stale submit without eating the beat's window.
 uint32_t pair_stale_submits();
+// 41.1 (Dishonored, session 8): the present-path phase timers (last run of
+// each, us; the order of the runtime's phase table: presentBegin, presentEnd,
+// wait, beginFrame, locate, acquire, capture, endFrame, composite), whether a
+// pair hold is open, and the pace-thread handoff timeouts so far. Read by the
+// tick budget (core/framework/perf) once per present on the present thread.
+int present_phases_last(uint32_t* out, int cap);   // returns the count filled
+const char* present_phase_name(int i);
+bool pair_open();
+uint32_t pace_timeouts();
 
 // --- M7: the aim laser ------------------------------------------------------
 // A row of soft dots along the hand's aim ray, submitted as extra XR quad

@@ -5381,6 +5381,19 @@ void sr_push_eye(int eyeSign) {
     g_srPushed.fetch_add(1, std::memory_order_relaxed);
 }
 
+// 41.1 (Dishonored, session 8): the present-path phase timers for the tick
+// budget (core/framework/perf), read once per present on the present thread.
+// The values are the LAST run of each phase; a frame-less present leaves a
+// phase stale, which the reader clamps to the half it lives in.
+int present_phases_last(uint32_t* out, int cap) {
+    const int n = cap < kPhCount ? cap : kPhCount;
+    for (int i = 0; i < n; ++i) out[i] = g_phaseLastUs[i].load(std::memory_order_relaxed);
+    return n;
+}
+const char* present_phase_name(int i) { return (i >= 0 && i < kPhCount) ? kPhaseNames[i] : "?"; }
+bool pair_open() { return g_srPairOpen; }
+uint32_t pace_timeouts() { return g_paceTimeouts.load(std::memory_order_relaxed); }
+
 static void pair_probe_fill(PairProbe* out, bool drain);
 void pair_probe(PairProbe* out) { pair_probe_fill(out, true); }
 // 41.1 (Dishonored): the same snapshot WITHOUT draining the maxima, for a
@@ -5517,6 +5530,10 @@ void on_resize(unsigned, unsigned, unsigned) {}
 void pair_probe(PairProbe*) {}
 void pair_probe_peek(PairProbe*) {}
 uint32_t pair_stale_submits() { return 0; }
+int present_phases_last(uint32_t*, int) { return 0; }
+const char* present_phase_name(int) { return "?"; }
+bool pair_open() { return false; }
+uint32_t pace_timeouts() { return 0; }
 void draw_debug_ui() {}
 bool get_head_pose(HeadPose&) { return false; }
 bool peek_head_pose(HeadPose&) { return false; }

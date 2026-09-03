@@ -94,6 +94,7 @@ uint64_t  g_sumRtd = 0, g_sumLock = 0, g_sumCopy = 0, g_sumUpload = 0, g_sumBlit
 uint32_t  g_windowGrabs = 0;
 uint64_t  g_windowMs = 0;
 Cost      g_cost;
+Cost      g_last;      // this present's grab (zeros when nothing was grabbed)
 
 inline long long qpc_now() {
     LARGE_INTEGER t;
@@ -393,6 +394,7 @@ void apply_mode_want(IDirect3DDevice9* dev, ID3D11Device* dev11) {
 } // namespace
 
 bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) {
+    g_last = Cost();
     if (!dev || !dev11 || !ctx) return false;
     IDirect3DSurface9* bb = nullptr;
     if (FAILED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || !bb) return false;
@@ -515,6 +517,10 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     if (delivered) ++g_grabs;
     g_sumRtd += rtdUs; g_sumLock += lockUs; g_sumCopy += copyUs; g_sumUpload += uploadUs; g_sumBlit += blitUs;
     ++g_windowGrabs;
+    g_last.rtdUs = (uint32_t)rtdUs; g_last.lockUs = (uint32_t)lockUs; g_last.copyUs = (uint32_t)copyUs;
+    g_last.uploadUs = (uint32_t)uploadUs; g_last.blitUs = (uint32_t)blitUs;
+    g_last.totalUs = (uint32_t)(rtdUs + lockUs + copyUs + uploadUs + blitUs);
+    g_last.grabsInWindow = 1;
     cost_tick();
     return delivered;
 }
@@ -527,6 +533,7 @@ const uint8_t* pixels() { return g_pixels; }
 Bbox bbox() { return g_bbox; }
 uint32_t grabs() { return g_grabs; }
 Cost cost() { return g_cost; }
+Cost last_grab() { return g_last; }
 bool shared_available() { return g_sharedOk; }
 bool probed() { return g_probed; }
 

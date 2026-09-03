@@ -2,6 +2,7 @@
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/frame_hooks.h"
 
+#include "core/framework/perf.h"
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
 #include "core/util/crash.h"
@@ -111,6 +112,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         if (!torn) { torn = true; dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit"); }
         return g_origPresent(self, src, dst, wnd, dirty);
     }
+    // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
+    // present's record (its OUT = the render thread's time outside this hook).
+    dvr::perf::stamp(dvr::perf::kEntry);
     if (g_cb.pre_tick) g_cb.pre_tick(self);
     // 41.1: a method that presents twice per tick is paced by the runtime's
     // pair pacing (one xrWaitFrame per pair); a per-present cap would halve
@@ -118,11 +122,13 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     if (!(dvr::stereo::active() && dvr::stereo::active()->presents_per_tick() > 1)) fps_cap_wait();
     ++g_count;
     if (g_disabled) return g_origPresent(self, src, dst, wnd, dirty);
+    dvr::perf::stamp(dvr::perf::kAfterPre);
 
     // Present-head: the runtime layer brings the session up, pumps events,
     // waits for the frame (this is what paces the game to the headset),
     // begins it and locates the head and the views.
     dvr::vr::on_present_begin();
+    dvr::perf::stamp(dvr::perf::kAfterBegin);
     track_session();
 
     dvr::stereo::FrameInput in;
@@ -158,6 +164,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     }
 
     if (g_cb.game_tick) g_cb.game_tick(self);
+    dvr::perf::stamp(dvr::perf::kAfterTick);
 
     // Present-tail: the method produces the eye texture; the runtime shows it.
     dvr::stereo::FrameDevices devs;
@@ -165,9 +172,14 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
     dvr::stereo::FrameOutput out;
     dvr::stereo::end_frame(devs, out);
+    dvr::perf::stamp(dvr::perf::kAfterEnd);
     if (out.tex) ++g_submits;
     dvr::vr::on_present_end(out.tex);
-    return g_origPresent(self, src, dst, wnd, dirty);
+    dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
+    dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
+    const HRESULT hr = g_origPresent(self, src, dst, wnd, dirty);
+    dvr::perf::stamp(dvr::perf::kAfterGamePresent);
+    return hr;
 }
 
 HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
