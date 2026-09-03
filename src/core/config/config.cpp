@@ -361,6 +361,10 @@ static void LoadConfig()
         // mode is refused with the reason and sync keeps running)
         char cm[16] = "";
         GetPrivateProfileStringA("Capture", "Mode", "sync", cm, sizeof(cm), ini);
+        if (!_stricmp(cm, "off")) {   // the A/B control is live-only: a frozen headset at boot is a trap
+            Log("config: [Capture] Mode=off refused (live only, 'capture mode off' on the seam) - sync");
+            strcpy(cm, "sync");
+        }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
     }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;

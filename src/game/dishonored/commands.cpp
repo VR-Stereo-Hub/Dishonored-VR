@@ -15,7 +15,7 @@
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
 //   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
-//   capture mode <m>|status      the capture path (sync|deferred|shared): live switch, fails soft
+//   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
@@ -153,7 +153,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         }
         const dvr::capture::Cost c = dvr::capture::cost();
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
-            "(%u grabs) delivered serial %lu of %lu tag=%d fenceLate=%u (capture mode sync|deferred|shared)",
+            "(%u grabs) delivered serial %lu of %lu tag=%d fenceLate=%u (capture mode sync|deferred|shared|off)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,

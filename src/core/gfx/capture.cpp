@@ -60,7 +60,8 @@ int                       g_bboxClass = -1;   // 0 all black, 1 cropped, 2 full
 // ---- the mode -----------------------------------------------------------------
 Mode g_mode = Mode::Sync;
 Mode g_modeWant = Mode::Sync;
-const char* const kModeNames[] = {"sync", "deferred", "shared"};
+const char* const kModeNames[] = {"sync", "deferred", "shared", "off"};
+uint32_t g_offSkipped = 0;     // presents grab() took nothing from while Off (this window)
 
 // The eye tag a method attaches to the present being grabbed, and the tag of
 // the content the last grab actually delivered (equal except under deferred).
@@ -118,6 +119,14 @@ void cost_tick() {
     const uint64_t now = GetTickCount64();
     if (g_windowMs == 0) { g_windowMs = now; return; }
     if (now - g_windowMs < 3000) return;
+    if (g_mode == Mode::Off) {
+        // The A/B control: the zero is by design and the line says what the
+        // headset shows meanwhile, so a frozen image is not read as a fault.
+        DVR_INFO("capture: OFF by request - 0 grabs by design (%u presents skipped in %.1f s), texture() re-shows "
+                 "serial %u; the headset image is FROZEN on purpose ('capture mode sync' restores)",
+                 g_offSkipped, (double)(now - g_windowMs) / 1000.0, g_deliveredSerial);
+        g_offSkipped = 0;
+    }
     if (g_windowGrabs) {
         g_cost.rtdUs = (uint32_t)(g_sumRtd / g_windowGrabs);
         g_cost.lockUs = (uint32_t)(g_sumLock / g_windowGrabs);
@@ -390,6 +399,7 @@ void apply_mode_want(IDirect3DDevice9* dev, ID3D11Device* dev11) {
                  ? " (the frame reaches the headset one present late; the readback waits on the "
                    "previous present's copy, not the frame in flight)"
                  : g_modeWant == Mode::Shared ? " (no CPU round trip)"
+                 : g_modeWant == Mode::Off    ? " (NO capture: the last frame stays on the headset)"
                                               : " (the readback is queued and locked in the same present)");
     g_mode = g_modeWant;
 }
@@ -440,6 +450,16 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     if (!g_pixels) { bb->Release(); return false; }
     probe_shared(dev, dev11);
     apply_mode_want(dev, dev11);
+    if (g_mode == Mode::Off) {
+        // Nothing grabbed: the consumer keeps the last texture (both methods
+        // handle a false return by re-showing it). The tag is consumed so a
+        // stereo method's pairing sees an untagged present, not a stale one.
+        bb->Release();
+        g_pendingTag = 0;
+        ++g_offSkipped;
+        cost_tick();
+        return false;
+    }
     if (g_mode == Mode::Shared && !g_sharedOk) {
         DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn,
                      "capture: [Capture] Mode=shared but the probe said the device cannot share - running sync");
@@ -554,11 +574,15 @@ bool set_mode(const char* name) {
     if (!_stricmp(name, "sync")) m = Mode::Sync;
     else if (!_stricmp(name, "deferred")) m = Mode::Deferred;
     else if (!_stricmp(name, "shared")) m = Mode::Shared;
+    else if (!_stricmp(name, "off")) m = Mode::Off;
     else {
-        DVR_WARN("capture: unknown mode '%s' (sync|deferred|shared) - staying on %s", name,
+        DVR_WARN("capture: unknown mode '%s' (sync|deferred|shared|off) - staying on %s", name,
                  kModeNames[(int)g_mode]);
         return false;
     }
+    if (m == Mode::Off)
+        DVR_WARN("capture: mode off requested - the headset image FREEZES on the last frame by design (the tick "
+                 "budget's A/B: what the tick rate is with no capture at all); 'capture mode sync' restores");
     if (m == Mode::Shared && g_probed && !g_sharedOk) {
         DVR_WARN("capture: mode shared refused - the probe said this device cannot share (the log's "
                  "capture/probe lines say why); staying on %s", kModeNames[(int)g_mode]);

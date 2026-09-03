@@ -78,8 +78,13 @@ bool shared_available();
 // The mode. set_mode() queues the change for the next grab (any thread, the
 // config loader or the command seam); an impossible mode (shared on a device
 // that cannot share) is refused with the reason and the current mode stays.
-enum class Mode { Sync = 0, Deferred = 1, Shared = 2 };
-bool        set_mode(const char* name);   // "sync" | "deferred" | "shared"
+// `off` (41.1, session 8) is the tick budget's A/B control: grab() takes
+// nothing, texture() keeps re-showing the last frame (the headset image is
+// FROZEN on purpose and the cost line and the beat say so), and the tick rate
+// without any capture is what the perf line then measures. Live only; the
+// ini refuses it.
+enum class Mode { Sync = 0, Deferred = 1, Shared = 2, Off = 3 };
+bool        set_mode(const char* name);   // "sync" | "deferred" | "shared" | "off"
 Mode        mode();
 const char* mode_name();
 
