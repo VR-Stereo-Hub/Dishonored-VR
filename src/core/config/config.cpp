@@ -39,8 +39,9 @@ static void WriteDefaultIni(const char* ini)
         "[Capture]\n"
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
-        "; (the baseline, ~5 ms per present at 1080p); deferred copies on the GPU, queues\n"
-        "; the readback and locks it one present later (~2.3 ms measured; the picture is one\n"
+        "; (the old baseline, ~5 ms per present at 1080p, 15 ms at the Quest 3 size);\n"
+        "; deferred (ships, 41.1) copies on the GPU, queues the readback and locks it one\n"
+        "; present later (~2.3 ms at 1080p, ~10 ms at the Quest 3 size; the picture is one\n"
         "; present late; also resolves a multisampled backbuffer); shared needs a device\n"
         "; that can share (the log's capture/probe lines say). `capture mode <m>` switches\n"
         "; live; `capture status` prints the cost. shared (needs [Device] Ex=1) keeps the frame\n"
@@ -48,7 +49,7 @@ static void WriteDefaultIni(const char* ini)
         "; SharedWait=0 delivers the previous present's slot (no wait in the common case),\n"
         "; 1 delivers this present's after its fence (zero latency, the CPU waits for the frame\n"
         "; in flight). `capture sharedwait on|off` live.\n"
-        "Mode=sync\n"
+        "Mode=deferred\n"
         "SharedWait=0\n"
         "[Pace]\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
@@ -387,7 +388,7 @@ static void LoadConfig()
     {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
         // mode is refused with the reason and sync keeps running)
         char cm[16] = "";
-        GetPrivateProfileStringA("Capture", "Mode", "sync", cm, sizeof(cm), ini);
+        GetPrivateProfileStringA("Capture", "Mode", "deferred", cm, sizeof(cm), ini);
         if (!_stricmp(cm, "off")) {   // the A/B control is live-only: a frozen headset at boot is a trap
             Log("config: [Capture] Mode=off refused (live only, 'capture mode off' on the seam) - sync");
             strcpy(cm, "sync");
@@ -1324,6 +1325,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Screen", "RenderHeight", v, ini);
     WritePrivateProfileStringA("Screen", "RenderFullscreen", g_resWantFull ? "1" : "0", ini);
     WritePrivateProfileStringA("Screen", "VirtualMode", g_resVirtual ? "1" : "0", ini);
+    // 41.1 (session 8): the capture mode (off is live-only and is not saved)
+    if (dvr::capture::mode() != dvr::capture::Mode::Off)
+        WritePrivateProfileStringA("Capture", "Mode", dvr::capture::mode_name(), ini);
     // 41.1 (session 8): the device levers as they were READ this run (the
     // seam word writes the ask for the next launch; a save must not undo it)
     {
