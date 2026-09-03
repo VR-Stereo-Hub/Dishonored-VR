@@ -1078,8 +1078,14 @@ static void DeviceSetEx(bool on, const char* who)
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     WritePrivateProfileStringA("Device", "Ex", on ? "1" : "0", ini);
-    Log("device: [Device] Ex=%d written by %s - takes effect at the NEXT LAUNCH (this run's device %s 9Ex)",
-        on ? 1 : 0, who, dvr::d3d9ex::device_is_ex() ? "IS" : "is not");
+    // The only reason to ask for the 9Ex device is the shared capture, and the
+    // 2026-09-03 headset run asked for the device and never switched the
+    // capture: the tickbox picks the capture mode for the next launch too.
+    WritePrivateProfileStringA("Capture", "Mode", on ? "shared" : "deferred", ini);
+    Log("device: [Device] Ex=%d and [Capture] Mode=%s written by %s - both take effect at the NEXT LAUNCH (this "
+        "run's device %s 9Ex, capture %s)",
+        on ? 1 : 0, on ? "shared" : "deferred", who, dvr::d3d9ex::device_is_ex() ? "IS" : "is not",
+        dvr::capture::mode_name());
 }
 static void DeviceSetManaged(const char* name, const char* who)
 {

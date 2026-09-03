@@ -576,13 +576,26 @@ static void OverlayFrame()
                     pw.marker[0] ? pw.marker : "-", dvr::capture::mode_name());
         if (ImGui::Button("MARK (stamp a freeze now)", ImVec2(-1, 0))) dvr::perf::mark("F10", "F10");
         ImGui::TextDisabled("marks so far: %u (the log gets three Warn lines per press)", pw.marks);
+        // 41.1 (session 8): the capture mode, live (the same setter as the seam
+        // word; shared needs the 9Ex device below, off freezes the image on purpose).
+        {
+            static const char* kModes[] = {"sync (readback, waits)", "deferred (readback, one present late)",
+                                           "shared (VRAM, needs the D3D9Ex device)", "off (frozen image: the A/B control)"};
+            int mode = (int)dvr::capture::mode();
+            ImGui::SetNextItemWidth(320);
+            if (ImGui::Combo("capture mode", &mode, kModes, 4))
+                dvr::capture::set_mode(mode == 0 ? "sync" : mode == 1 ? "deferred" : mode == 2 ? "shared" : "off");
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", !dvr::capture::probed() ? "probe pending"
+                                      : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared refused (plain device)");
+        }
         // 41.1 (session 8): the 9Ex device lever (next launch) - what lets the
         // capture keep the frame in VRAM ([Capture] Mode=shared).
         {
             static int exAsk = -1;
             if (exAsk < 0) exAsk = dvr::d3d9ex::ex_wanted() ? 1 : 0;
             bool ex = exAsk != 0;
-            if (ImGui::Checkbox("D3D9Ex device at the NEXT launch (enables capture mode shared)", &ex)) { exAsk = ex ? 1 : 0; DeviceSetEx(ex, "F10 Display"); }
+            if (ImGui::Checkbox("D3D9Ex device at the NEXT launch (and capture mode shared with it)", &ex)) { exAsk = ex ? 1 : 0; DeviceSetEx(ex, "F10 Display"); }
             ImGui::SameLine();
             ImGui::TextDisabled("this run: %s", dvr::d3d9ex::device_is_ex() ? "9Ex" : "plain D3D9");
         }

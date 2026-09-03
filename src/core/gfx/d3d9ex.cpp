@@ -32,11 +32,18 @@ uint32_t g_texTranslated = 0, g_bufTranslated = 0, g_texDynamic = 0;
 uint32_t g_shadowMade = 0, g_shadowFailed = 0, g_shadowUpdates = 0, g_shadowUpdateFailed = 0, g_shadowReleased = 0;
 uint64_t g_shadowBytes = 0;
 
-// the twin map: real -> twin, open addressing
-constexpr int kMap = 8192;
+// the twin map: real -> twin, open addressing. Removal leaves a tombstone
+// (real = the map itself, never a texture pointer) that lookups skip and
+// puts REUSE: the 2026-09-03 headset run filled 8192 slots with tombstones
+// across repeated quickloads (2400 live), a texture then got no twin, its
+// lock was refused and the game died inside D3D9 on it. 32768 slots (256 KB)
+// hold two levels' textures during a transition.
+constexpr int kMap = 32768;
+constexpr int kProbe = 512;
 struct Ent { void* real; IDirect3DBaseTexture9* twin; };
 Ent g_map[kMap];
 int g_mapCount = 0;
+int g_mapTombs = 0;
 uint32_t g_mapFull = 0;
 CRITICAL_SECTION g_cs;
 bool g_csInit = false;
@@ -44,33 +51,37 @@ bool g_csInit = false;
 void cs_init() { if (!g_csInit) { InitializeCriticalSection(&g_cs); g_csInit = true; } }
 
 inline uint32_t hash_ptr(void* p) { return (uint32_t)((uintptr_t)p >> 4) * 2654435761u; }
+void* const kTomb = (void*)&g_map;
 
 bool map_put(void* real, IDirect3DBaseTexture9* twin) {
     const uint32_t h = hash_ptr(real);
-    for (int i = 0; i < 128; ++i) {
+    Ent* tomb = nullptr;
+    for (int i = 0; i < kProbe; ++i) {
         Ent& e = g_map[(h + i) % kMap];
-        if (e.real == real || e.real == nullptr) {
-            if (e.real == nullptr) ++g_mapCount;
-            e.real = real; e.twin = twin;
+        if (e.real == real) { e.twin = twin; return true; }
+        if (e.real == kTomb) { if (!tomb) tomb = &e; continue; }
+        if (e.real == nullptr) {
+            Ent& slot = tomb ? *tomb : e;
+            if (tomb) --g_mapTombs;
+            slot.real = real; slot.twin = twin;
+            ++g_mapCount;
             return true;
         }
     }
+    if (tomb) { tomb->real = real; tomb->twin = twin; --g_mapTombs; ++g_mapCount; return true; }
     ++g_mapFull;
     return false;
 }
 Ent* map_find(void* real) {
     const uint32_t h = hash_ptr(real);
-    for (int i = 0; i < 128; ++i) {
+    for (int i = 0; i < kProbe; ++i) {
         Ent& e = g_map[(h + i) % kMap];
         if (e.real == real) return &e;
         if (e.real == nullptr) return nullptr;
     }
     return nullptr;
 }
-// Removal keeps the probe chains intact by leaving a tombstone (real = the
-// map itself, never a texture pointer) that lookups skip and puts reuse.
-void* const kTomb = (void*)&g_map;
-void map_remove(Ent* e) { e->real = kTomb; e->twin = nullptr; --g_mapCount; }
+void map_remove(Ent* e) { e->real = kTomb; e->twin = nullptr; --g_mapCount; ++g_mapTombs; }
 
 } // namespace
 
@@ -304,12 +315,12 @@ void shadow_released(void* real) {
 
 void log_status() {
     DVR_INFO("device: [Device] Ex=%d Managed=%s | Direct3DCreate9 calls %d (Ex objects %d) | device %s (%s) | "
-             "translated tex=%u (dynamic %u) buf=%u | shadow twins made=%u failed=%u live=%d (%.1f MB) updates=%u "
-             "failed=%u released=%u mapFull=%u",
+             "translated tex=%u (dynamic %u) buf=%u | shadow twins made=%u failed=%u live=%d tombstones=%d of %d slots "
+             "(%.1f MB asked, uncompressed) updates=%u failed=%u released=%u mapFull=%u",
              g_exWanted ? 1 : 0, managed_name(g_managed), g_createCalls, g_exCount,
              !g_deviceLive ? "not created yet" : g_deviceIsEx ? "IS 9Ex" : "is NOT 9Ex", g_route, g_texTranslated,
-             g_texDynamic, g_bufTranslated, g_shadowMade, g_shadowFailed, g_mapCount, g_shadowBytes / 1048576.0,
-             g_shadowUpdates, g_shadowUpdateFailed, g_shadowReleased, g_mapFull);
+             g_texDynamic, g_bufTranslated, g_shadowMade, g_shadowFailed, g_mapCount, g_mapTombs, kMap,
+             g_shadowBytes / 1048576.0, g_shadowUpdates, g_shadowUpdateFailed, g_shadowReleased, g_mapFull);
 }
 
 void status(dvr::status::Writer& w) {
@@ -320,6 +331,8 @@ void status(dvr::status::Writer& w) {
     w.kv("texTranslated", (unsigned long)g_texTranslated);
     w.kv("bufTranslated", (unsigned long)g_bufTranslated);
     w.kv("shadowLive", g_mapCount);
+    w.kv("shadowTombstones", g_mapTombs);
+    w.kv("shadowMapFull", (unsigned long)g_mapFull);
     w.kv("shadowMB", (double)(g_shadowBytes / 1048576.0));
     w.kv("shadowUpdates", (unsigned long)g_shadowUpdates);
     w.kv("shadowUpdateFailed", (unsigned long)g_shadowUpdateFailed);

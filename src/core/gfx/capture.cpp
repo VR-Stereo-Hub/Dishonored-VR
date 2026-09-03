@@ -262,6 +262,11 @@ void probe_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
         DVR_INFO("capture/probe: shared surface AVAILABLE - D3D9 %ux%u opened as D3D11 %ux%u fmt=%d "
                  "(no CPU round trip: [Capture] Mode=shared)",
                  g_w, g_h, td.Width, td.Height, (int)td.Format);
+        if (g_modeWant != Mode::Shared)
+            DVR_WARN("capture/probe: the device can share but the capture mode is %s, so the readback (and its "
+                     "GPU copy) still runs - pick 'shared' on the F10 Display tab or 'capture mode shared' on the "
+                     "seam; the 9Ex device buys nothing until then",
+                     kModeNames[(int)g_modeWant]);
         tex->Release();
     }
     rt->Release();
