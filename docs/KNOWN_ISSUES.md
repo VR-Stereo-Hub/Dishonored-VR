@@ -9,32 +9,36 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   tickbox (ticked) parks the game on the head-locked mono screen without forgetting the
   method; `stereo arm on|off` on the seam. The tick rate halves while stereo runs (the second
   draw is a full scene draw). `stereo aer` is still a design stub.
-- **`stereo reentry`: the eyes could desync after a pause/resume** [S2b, fixed at the source,
-  headset verdict pending]. The second draw's gates re-decided after the first draw, so the
-  resume window produced left tags with no right sibling and the right eye kept a held image.
-  The gates are decided once per tick now; `vrpace strict` (off) is the fail-soft that shows
-  the fresh eye to both eyes for a frame if it recurs, and the log's `STALE R EYE` line names
-  the owner. If you see it: F10 Runtime, `Strict pairs`, and send the log.
-- **`stereo reentry`: fast head or player movement judders** [S2b, instrumented, headset
-  judges]. The `pair phase` line says whether a pair closes before or after the display slot
-  it was predicted for; `vrpace ahead 0|1|2` (F10 Runtime, `Pose look-ahead`) locates the pose
-  for the slot the image will reach. Ships at 0 (today's behaviour) until a headset run picks.
-- **`stereo reentry`: looking up and down pitches about a point below the eyes** [S2b,
-  measured, headset judges]. The ENGINE pitches its camera about a pivot 32 cm below and 6 cm
-  behind the eyes (17 cm of backward travel at 30 deg of pitch), which the compositor cannot
-  reproject. `[Neck] Mode=cancel` with the measured pivot (the defaults) cancels it; ships
-  `off`, F10 Comfort has the three-way (`off` / `add` / `cancel`) and `neck` is the seam word.
-  Look up and down at something an arm's length away and pick the mode that keeps it still.
-- **The render size, the F10 picker, and sharpness** [S2b]. The Display tab's picker (default:
-  the runtime's recommended per-eye size, 2496x2688 on a Quest 3 via VDXR) takes effect at
-  the NEXT LAUNCH: the ask goes on the game's command line (`-ResX/-ResY/-FullScreen`), the
-  one route this build honours (its own ini and the console's `setres` are both measured
-  inert), and `VirtualMode` provides a size your display does not list (the proxy advertises it
-  and creates the fullscreen device windowed). A near-square render is what sharpness needs: a
-  16:9 frame must claim 137 deg to cover the eye and spends half its pixels outside it; at
-  2496x2688 the claim is 108 deg. The catch: the CPU readback at that size costs ~18 ms per
-  present on the shipped `[Capture] Mode=sync`; set `Mode=deferred` with it. `res: HONOURED`
-  in the log is the verdict; `res modes`, `res <W>x<H>[f|w]`, `res 0x0` on the seam.
+- **PERFORMANCE: the frame reaches the headset through a CPU readback, twice per tick**
+  [S1, the next session]. Headset run 2026-09-03: ~40 fps at 1080p, 28 ticks/s at the eye's
+  size, and every present spends 5-6 ms (2560x1440) to 13-15 ms (2496x2688) inside the
+  readback (`capture: cost/present ... lock=`), a GPU sync the game's own frame loop has to
+  wait behind; attacks freeze the game for a moment. The BioShock Infinite mod never had this
+  stage (D3D11-native, shared textures). Until the GPU path lands, `[Capture] Mode=deferred`
+  halves the wait and `Mode=shared` is refused because the game's device is not D3D9Ex.
+  Comfort (the judder, `vrpace ahead`) cannot be judged until this is fixed.
+- **`stereo reentry`: the eyes can still desync, mostly on load** [S2b, NOT fixed]. The
+  one-sided-tag cause was real and is fixed (the simulator proves it), but the headset still
+  sees the two eyes disagree on the first load and after some pause/resumes, clearing on its
+  own. The instruments read healthy through gameplay; the log has one stale-left submit at a
+  `session state FOCUSED` regain whose owner the line could not name (the pace guard's eaten
+  tag is not in its deltas yet). If you see it: F10 Runtime `Strict pairs`, note the time,
+  send the log.
+- **`stereo reentry`: fast head or player movement judders** [S2b, blocked on performance].
+  The `pair phase` line and `vrpace ahead 0|1|2` (F10 Runtime, `Pose look-ahead`) are in;
+  the headset run could not judge them at 28 ticks/s. Ships at 0.
+- **Looking up and down: the engine's own neck** [S2b, FIXED by default]. The engine pitches
+  its camera about a pivot 32 cm below and 6 cm behind the eyes; `[Neck] Mode=cancel` with
+  the measured pivot ships (headset-judged right, 2026-09-03). `off` and `add` stay on F10
+  Comfort as the A/B; re-judge once the frame rate is fixed.
+- **The render size, the F10 picker, and sharpness** [S2b, WORKING]. The Display tab's picker
+  (default: the runtime's recommended per-eye size, 2496x2688 on a Quest 3 via VDXR; tick
+  `VirtualMode` for a size your display does not list) takes effect at the NEXT LAUNCH: the
+  ask goes on the game's command line, the one route this build honours (its own ini and the
+  console's `setres` are both measured inert). Headset-judged: "pretty sharp" at the Quest 3
+  entry. The cost is the readback above: at that size use `[Capture] Mode=deferred` until the
+  GPU path lands. `res: HONOURED` in the log is the verdict; `res modes`, `res <W>x<H>[f|w]`,
+  `res 0x0` on the seam.
 - **Motion controls are OFF by default** [S3]. `[Mode] GamepadOnly=1` makes the VR controllers
   a plain gamepad: no hand models, no motion aim, no motion melee, no motion crouch; Blink aims
   down your view. Head tracking, positional (lean/peek/crouch) tracking and the FOV lever work.

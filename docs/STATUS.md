@@ -1,58 +1,61 @@
 # Status
 
-## Current state (2026-09-03, session 7: the four headset faults, the picker - awaiting the headset)
+## Current state (2026-09-03, session 7b: the headset verdicts - two good, the desync open, PERFORMANCE next)
 
-**Branch `claude/dishonored-vr-stereo-polish-449d43` off `native-stereo-rendering`, 15 commits,
-PR back into `native-stereo-rendering`.** Every item of the session-7 brief is built and
-measured on the simulator; the headset judges each (the list below). `[Stereo]
-Method=reentry Armed=1` is the fresh-ini default now (the live ini on this PC carries it);
-every other new lever ships off.
+**Branch `claude/dishonored-vr-stereo-polish-449d43`, 18 commits, merged into
+`native-stereo-rendering` (PR #4).** The user ran session 7's build on the Quest 3 via VDXR
+(runs 13a/b, `D:\dvr-data\logs\43-run13*.log`):
 
-1. **The pause/resume desync** - found and fixed at the source: pass 2's gates were
-   re-decided after pass 1's draw, so the resume window produced `-1` tags with no `+1` and
-   the runtime showed a held RIGHT eye (ENGINE_NOTES "The pause/resume desync"). Instruments:
-   the per-eye image age in presents (`stereo: eyes`, healthy L=1 R=0), the `STALE R EYE`
-   line with the owner, `reentry skip2 <n>` to reproduce it, `vrpace strict` (off) as the
-   fail-soft. Simulator: `stale-eye.xrs` and the hammer read 0 stale submits; with skip2 and
-   strict off the sim counted held-eye submits and the mod printed the line; strict on, none.
-2. **The judder** - the pair phase instrument (`xr: pair phase`, the TRACE line) and `vrpace
-   ahead 0|1|2` (ships 0), `[Pace]` in the ini. The simulator's phase is synthetic; the
-   headset's number decides.
-3. **The pitch pivot** - MEASURED: the engine pitches its camera about a pivot 0.321 m below
-   and 0.062 m behind the eyes (17 cm back at +30 deg); `neck cancel` with those numbers held
-   the render camera still, and the picture agrees. `[Neck]` ships off with the measured
-   pivot as defaults; F10 Comfort has the three-way.
-4. **F10** - the `stereo armed` tickbox (ticked) and the resolution picker. The game's own
-   ini and `setres` are measured inert; the ask goes on the command line at the next launch
-   (`dishonored_vr_launch.txt`, `GetCommandLine` import slots), and `VirtualMode` provides a
-   size the display lacks: 2496x2688 HONOURED on the simulator, hfov 108 deg instead of 137,
-   the frame complete. At that size the sync readback costs 18-20 ms per present:
-   `[Capture] Mode=deferred` is the companion (untested at that size).
+- **WORKING: the resolution picker.** The Quest 3 entry (2496x2688, VirtualMode) relaunched
+  into `CreateDevice -> (2496x2688 windowed=1)`, `res: HONOURED`, hfov 108 deg, and the user
+  calls it "pretty sharp".
+- **WORKING: the pitch pivot.** `neck cancel` judged right; it is the default now
+  (`[Neck] Mode=cancel`, `off`/`add` kept as the A/B). Re-judge at a real frame rate.
+- **NOT FIXED: the eye desync**, seen on the first load and after some pause/resumes, clearing
+  on its own. The one-sided-tag cause was real and is fixed on the simulator, so this is a
+  second mechanism. The instruments through gameplay read healthy (`eyes ageL=1 ageR=0`,
+  0 stale over 76 pairs per window); the one `STALE L EYE` (age 567 presents) sits at a
+  `xr: session state FOCUSED` regain and its owner reads "unknown": the pace guard's
+  frame-less present eats the sibling's tag and that counter is not in the owner deltas.
+  The long single-draw spells on load (196 and 155 ticks, `state not GAMEPLAY`) are the
+  mono path, not a pair.
+- **UNJUDGEABLE: the judder**, because of the frame rate.
+- **THE NEXT SESSION: PERFORMANCE.** `heartbeat: GAME=57fps (presents; ticks=28/s)` at the
+  eye's size, ~40 fps at 1080p, attacks freezing the game for a moment. The cost line names
+  it: `capture: cost/present ... lock=10545 ... total=15237 us (mode=sync, 2496x2688, 25.6 MB
+  each way)` and `lock=3373 ... total=5845 us` at 2508x1411: a CPU readback with a GPU sync on
+  EVERY present, two per tick, that the game's frame loop waits behind. The BioShock Infinite
+  mod (D3D11-native, shared textures) never had this stage, which is why that heavier game
+  ran smoothly. The second draw itself costs 0.35 ms of call time on the game thread; its
+  render-thread cost is unmeasured. The pair phase read -27 ms mean, 0 % missed (pairs close
+  well before their slot; the slot is not the problem, the tick rate is).
 
-Also found: the `console` seam word had returned -1 since 41.0 (latched again; the re-entry
-through our own ProcessEvent hook that then overflowed the stack is guarded), and the
-xrsim launcher restores the mod ini around a launch (VERIFICATION gotcha 16).
+Also in these runs: the pace look-ahead was toggled 2 -> 1 -> 0 (logged), `Strict pairs`
+was not tried, and a fullscreen ask of 2560x1440 on the real display ended windowed at
+2508x1411 after two Resets (the game's own windowed fallback; VirtualMode's conversion is
+what holds a size).
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset, Quest 3 via VDXR)**: install the branch build (`tools\install.ps1`),
-launch through Steam. (1) Pause/resume 20 times: no eye desync; if it recurs, F10 Runtime
-`Strict pairs` and send the log (the `STALE R EYE` line names the owner). (2) Turn the head
-fast and sprint: F10 Runtime `Pose look-ahead` 0 vs 1 vs 2, then `vrpace status` for the phase
-numbers; `Sync pair rate` is the cadence A/B. (3) Look up and down at a near object: F10
-Comfort `neck` `cancel` vs `off`. (4) F10 Display: the picker's default entry (2496x2688),
-tick `VirtualMode`, Apply, relaunch; read `res: HONOURED` and judge sharpness against 1080p;
-set `[Capture] Mode=deferred` (`capture mode deferred`) if the frame rate halves. (5) Untick
-and re-tick `stereo armed`; SAVE AS DEFAULTS keeps both. Send `dishonored_vr.log` after each.
+**Next session, in this order.** (1) PERFORMANCE: measure first (the `capture: cost` lock
+against a present with capture off; the render thread's second-draw cost by the pulse
+instrument at both sizes; a `mark <text>` seam word so the user can stamp an attack freeze),
+then the GPU path: the proxy owns `Direct3DCreate9`, so create the game's device as D3D9Ex
+(`Direct3DCreate9Ex` + `CreateDeviceEx`, the IDirect3D9Ex handed back as IDirect3D9) and let
+`[Capture] Mode=shared` open the render target in D3D11 through a shared handle: zero
+readback, no sync; `deferred` as the interim default if the 9Ex route needs more than one
+build. The KNOWN_ISSUES bullet carries the numbers. (2) The desync on load: read the user's
+timestamps, add the pace guard's skip count to the owner deltas, print the eyes line during
+mono spells too, and if the FOCUSED-regain case is the mechanism, `strict` on by default. (3)
+Re-judge `ahead` and the pivot at a real frame rate. Every rule of the session-7 brief holds.
 
-**Next session**: read the headset verdicts into KNOWN_ISSUES/ROADMAP; flip the defaults the
-run picks (`strict`, `ahead`, `neck cancel`) in their own commits; the deferred capture at
-the eye's size (ROADMAP S1's readback item is the frame-rate ceiling now); recalibrate the
-eye-check bands; the tick-rate cost of the second draw.
+**The user**: at 1080p and at the Quest 3 entry with `capture mode deferred`, note the frame
+rate the F10 panel shows and the exact clock time of any freeze; `Strict pairs` ticked when
+the desync appears; send the logs.
 
 ## Blockers
 
-- The headset verdicts need the user.
+- The frame rate (above) blocks every comfort judgement.
 - **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
   `Stop-Process`; a menu quit is clean on the Quest (run 15).
 
@@ -75,6 +78,8 @@ Branch `claude/dishonored-vr-stereo-polish-449d43`, 15 commits. Runs (simulator 
 | 09 | the command line | `-ResX=2560 -ResY=1440 -FullScreen` via 3 import slots -> `CreateDevice 2560x1440 windowed=0`, capture and swapchains followed |
 | 10-11 | 2496x2688, no VirtualMode | the game asked the mode list, fell back to 2560x1440 (a harness launch had restored the mod ini; the launch file carries the token now) |
 | 12 | **2496x2688 with VirtualMode** | our mode handed at slot 123; `CreateDevice 2496x2688 windowed=1`; `res: HONOURED`; hfov 108 deg; both eyes 77 % non-black in the sewers; the frame complete; readback 18-20 ms/present |
+| 13a | **HEADSET (the user)**: 2560x1440 fullscreen asked | Reset 2560x1440 twice then 2508x1411 windowed=1 (the game's own fallback); the run sat in menus, stereo never armed (`state` skips); readback 5.3-5.8 ms/present |
+| 13b | **HEADSET (the user)**: 2496x2688 VirtualMode | `CreateDevice 2496x2688 windowed=1`, HONOURED, "pretty sharp"; `neck cancel` right; stereo L/s=R/s=16-28, ticks 28/s, readback 13-15 ms/present; one `STALE L EYE` (age 567) at a FOCUSED regain; the desync still seen on load; judder unjudgeable |
 
 ### 2026-09-03 - session 6: S2b - the capture cost, the lanes, the root, the second draw
 
