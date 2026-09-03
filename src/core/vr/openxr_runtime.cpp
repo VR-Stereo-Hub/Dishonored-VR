@@ -10,6 +10,7 @@
 #include "core/util/paths.h"
 #include "core/util/xr_math.h"
 #include "core/vr/hud_stub.h"
+#include "core/gfx/frame_id.h"   // 41.1 (Dishonored): the frame-identity trace's stage sc
 
 // The runtime layer logs under the openxr category at Info; every per-frame
 // line in it is first-N or rate-limited (the CLAUDE.md cost rules).
@@ -3854,6 +3855,11 @@ void on_present_end(ID3D11Texture2D* frame) {
                     int64_t tCap = phase_now();
                     capture_frame(g_images[target][index].texture, backbuffer);
                     phase_record(kPhCapture, tCap);
+                    // 41.1 (Dishonored): the frame-identity trace's last stage - the
+                    // centre of the swapchain image this present's frame was copied
+                    // into, read three presents later, never waited on.
+                    dvr::frameid::stage_swapchain(g_device, g_context, g_images[target][index].texture, target, index);
+
                 }
                 XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                 xrReleaseSwapchainImage(g_swapchains[target], &ri);
