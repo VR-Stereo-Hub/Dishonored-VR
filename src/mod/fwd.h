@@ -18,6 +18,15 @@ static bool SceneDrawPoisoned();
 static uint32_t SceneDrawDraws();
 static void SceneDrawGates(uint32_t out[8]);   // 41.1: the pass-2 skip counters for the stale-eye line
 static const char* NeckModeName(int mode);     // 41.1: the [Neck] lever
+static void ResEnumModes(const char* who);     // 41.1: the render-resolution picker (core/window/render_size.cpp)
+static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who);
+static void ResVerdictTick();
+static void ResStatusLine();
+static bool ResCommand(const char* args);
+static void ResHookD3D9(IDirect3D9* d3d);
+static void ResBeforePresentParams(D3DPRESENT_PARAMETERS* pp, const char* where);
+static bool ResIsMode(uint32_t w, uint32_t h);
+static bool DvrOnOff(const char* s, bool* out);   // commands.cpp: on|off|1|0 parser, used by the picker's word
 static void NeckSet(int mode, float belowM, float behindM, const char* who);
 static void SceneDrawStatus(dvr::status::Writer& w);
 static bool SceneDrawCommand(const char* args);

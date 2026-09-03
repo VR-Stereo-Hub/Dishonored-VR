@@ -499,6 +499,70 @@ static void OverlayFrame()
         }
         ImGui::Separator();
     }
+    // 41.1: the render-resolution picker. Takes effect at the NEXT LAUNCH (the
+    // engine's setres does nothing on this build, measured); the size goes into
+    // the game's own ini, and a size the display does not list needs
+    // VirtualMode (core/window/render_size.cpp). Defaults to the runtime's
+    // recommended per-eye size, the user's ask.
+    {
+        static int  sel = -2;          // -2 = not chosen yet (defaults to the eye entry)
+        static int  customW = 2496, customH = 2688;
+        static bool full = true;
+        static bool modesRead = false;
+        if (!modesRead) { ResEnumModes("F10"); modesRead = true; }
+        uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh);
+        const uint32_t cw = dvr::capture::width(), ch = dvr::capture::height();
+        const float claim = dvr::camera::fov_deg();
+        const float dens = (cw && claim > 1.0f) ? (float)cw / (2.0f * tanf(claim * 0.5f * 0.0174533f)) / 57.29578f : 0.0f;
+        float hh = 0.0f, hv = 0.0f; dvr::vr::headset_half_fov_deg(&hh, &hv);
+        const float eyeDens = (ew && hh > 0.0f) ? (float)ew / (2.0f * tanf(hh * 0.0174533f)) / 57.29578f : 0.0f;
+        ImGui::TextUnformatted("render resolution (takes effect at the next launch)");
+        ImGui::Text("game renders %ux%u | asked %ux%u %s | eye recommended %ux%u", cw, ch, g_resWantW, g_resWantH,
+                    g_resWantFull ? "fullscreen" : "windowed", ew, eh);
+        ImGui::Text("claim %.1f deg -> centre %.1f px/deg (the eye wants %.1f)", claim, dens, eyeDens);
+        // the combo: the eye entry, the display's modes, custom
+        const int nModes = g_resModeN;
+        const int eyeIdx = 0, customIdx = 1 + nModes;
+        if (sel == -2) { sel = ew ? eyeIdx : customIdx; if (ew) { customW = (int)ew; customH = (int)eh; } }
+        char label[64];
+        if (sel == eyeIdx) _snprintf(label, sizeof(label), "Quest 3 per eye (runtime): %ux%u", ew, eh);
+        else if (sel == customIdx) _snprintf(label, sizeof(label), "custom");
+        else _snprintf(label, sizeof(label), "%ux%u", g_resModes[sel - 1][0], g_resModes[sel - 1][1]);
+        ImGui::SetNextItemWidth(260);
+        if (ImGui::BeginCombo("size", label)) {
+            _snprintf(label, sizeof(label), "Quest 3 per eye (runtime): %ux%u%s", ew, eh,
+                      ew && !ResIsMode(ew, eh) ? "  (not a display mode: needs VirtualMode)" : "");
+            if (ImGui::Selectable(label, sel == eyeIdx)) sel = eyeIdx;
+            for (int k = 0; k < nModes; ++k) {
+                _snprintf(label, sizeof(label), "%ux%u", g_resModes[k][0], g_resModes[k][1]);
+                if (ImGui::Selectable(label, sel == 1 + k)) sel = 1 + k;
+            }
+            if (ImGui::Selectable("custom", sel == customIdx)) sel = customIdx;
+            ImGui::EndCombo();
+        }
+        if (sel == customIdx) {
+            ImGui::SetNextItemWidth(120); ImGui::InputInt("W", &customW, 16, 128);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120); ImGui::InputInt("H", &customH, 16, 128);
+        }
+        ImGui::Checkbox("fullscreen", &full);
+        ImGui::SameLine();
+        bool virt = g_resVirtual;
+        if (ImGui::Checkbox("VirtualMode (provide a size the display lacks)", &virt)) g_resVirtual = virt;
+        if (ImGui::Button("Apply (writes the game's ini; relaunch)")) {
+            uint32_t w = 0, h = 0;
+            if (sel == eyeIdx) { w = ew; h = eh; }
+            else if (sel == customIdx) { w = (uint32_t)(customW > 0 ? customW : 0); h = (uint32_t)(customH > 0 ? customH : 0); }
+            else { w = g_resModes[sel - 1][0]; h = g_resModes[sel - 1][1]; }
+            ResRequest(w, h, full, "F10 Display");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("refresh modes")) ResEnumModes("F10");
+        ImGui::SameLine();
+        if (ImGui::Button("use the game's own size")) { g_resWantW = g_resWantH = 0; Log("res: ask cleared - the game's own size at the next launch (its ini keeps whatever it holds)"); }
+        ImGui::TextDisabled("%s", g_resLastLine);
+        ImGui::Separator();
+    }
     // 30.47: on-demand camera experiments (auto-start fired them at the main
     // menu before, where nobody could see the result).
     // 30.50: the FOV lever - enforced on every script dispatch so it outruns

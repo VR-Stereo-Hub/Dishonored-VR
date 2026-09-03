@@ -68,6 +68,15 @@ static void BlockCfgLoad();          // defined with the mesh-block machinery
 // change. 10 = 41.0, the native-stereo foundation: the wide-window, side-by-
 // side, OpenVR and [Stereo] shear keys are gone and the mono screen's
 // DistanceMeters/WidthMeters defaults changed (docs/RELEASE_NOTES.md).
+// 41.1 [Screen] RenderWidth/RenderHeight/RenderFullscreen/VirtualMode: the
+// render-resolution picker's ask (0 = the game's own size). The mechanism and
+// what the game will take: core/window/render_size.cpp.
+static uint32_t g_resWantW = 0, g_resWantH = 0;
+static bool     g_resWantFull = true;
+static bool     g_resVirtual = false;
+static uint32_t g_resModes[64][2];                  // the display modes the picker lists (render_size.cpp)
+static int      g_resModeN = 0;
+static char     g_resLastLine[200] = "no ask yet";  // the picker's last verdict, for F10
 static const char* kBuildTag = "41.0";
 static const int kConfigVersion = 10; // bump to refresh users' ini with new defaults
 

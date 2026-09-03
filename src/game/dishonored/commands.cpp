@@ -57,6 +57,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "res")) return ResCommand(args);   // 41.1: the render-resolution picker
     if (!strcmp(cmd, "neck")) {
         // 41.1: `neck off|add|cancel [below] [behind]` - the pitch pivot lever (head_track.cpp NeckSet)
         char mode[16] = "";
@@ -289,6 +290,10 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("tracked", (bool)g_devPoseOk[0]);
     w.kv("rotInject", (bool)g_rotInject); w.kv("posTrack", (bool)g_posTrack);
     w.kv("scriptHeadOK", (bool)g_scriptHeadOK);
+    w.end_obj();
+    w.obj("res");    // 41.1: the render-resolution picker
+    w.kv("wantW", (int)g_resWantW); w.kv("wantH", (int)g_resWantH); w.kv("wantFull", (bool)g_resWantFull);
+    w.kv("virtualMode", (bool)g_resVirtual);
     w.end_obj();
     w.obj("neck");   // 41.1: the pitch pivot lever
     w.kv("mode", NeckModeName(g_neckMode));

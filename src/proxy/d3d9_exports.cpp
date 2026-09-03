@@ -116,6 +116,7 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
     if (d3d && !g_disabled) {
         DvrInstallFrameHooks();        // the game side of the frame path
         dvr::frame::hook_d3d9(d3d);    // CreateDevice -> Present/Reset/... hooks
+        ResHookD3D9(d3d);              // 41.1: the adapter mode list (logged; fed under VirtualMode)
     }
     // 41.1: the ini's [Stereo] Method, now that the game side's hooks exist
     // (a hook-backed method verifies its bytes here instead of refusing on

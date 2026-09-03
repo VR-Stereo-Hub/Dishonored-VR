@@ -216,6 +216,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::set_head_pitch_deg(g_hmdPitch * 57.29578f);   // 41.1: the pitchtest's input
         dvr::camera::pitchtest_present_tick();
         DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
+        ResVerdictTick();  // 41.1: the render size against the picker's ask, once per size
         SceneProbePresentTick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
@@ -511,7 +512,11 @@ static void DvrGameTick(IDirect3DDevice9* self)
 
 }
 
-static void DvrBeforeCreateDevice(D3DPRESENT_PARAMETERS* pp) { UncapPresent(pp, "CreateDevice"); }
+static void DvrBeforeCreateDevice(D3DPRESENT_PARAMETERS* pp)
+{
+    ResBeforePresentParams(pp, "CreateDevice");   // 41.1: the picker's log + VirtualMode
+    UncapPresent(pp, "CreateDevice");
+}
 
 static void DvrAfterCreateDevice(HRESULT hr, HWND wnd, D3DPRESENT_PARAMETERS* pp)
 {
@@ -531,6 +536,7 @@ static void DvrAfterCreateDevice(HRESULT hr, HWND wnd, D3DPRESENT_PARAMETERS* pp
 
 static void DvrBeforeReset(D3DPRESENT_PARAMETERS* pp)
 {
+    ResBeforePresentParams(pp, "Reset");   // 41.1
     UncapPresent(pp, "Reset");
     if (pp) g_gameWindowed = pp->Windowed != FALSE;      // 32.9
 }

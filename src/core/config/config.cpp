@@ -66,6 +66,19 @@ static void WriteDefaultIni(const char* ini)
         "; game camera); 0 leaves it standing in the room where you recentered.\n"
         "HeadLocked=1\n"
         "WidthMeters=2.4\n"
+        "; RenderWidth/RenderHeight/RenderFullscreen (41.1): the render-resolution picker's\n"
+        "; ask, 0 = the game's own size. It takes effect at the NEXT LAUNCH: the size goes\n"
+        "; into the game's own ini (Documents\\My Games\\Dishonored, [SystemSettings] and the four\n"
+        "; AppCompat buckets, backed up once as .pre-dvr) because the engine's own setres does\n"
+        "; nothing on this build (measured). A fullscreen size must be a display mode the\n"
+        "; adapter lists (`res modes`) - or VirtualMode=1 makes the proxy advertise it and\n"
+        "; create the fullscreen device windowed with the backbuffer kept, the route to the\n"
+        "; eye's own near-square size. `res <W>x<H>[f|w]` asks live; F10 Display has the picker\n"
+        "; and the verdict (`res: HONOURED` reads the capture, never the requested number).\n"
+        "RenderWidth=0\n"
+        "RenderHeight=0\n"
+        "RenderFullscreen=1\n"
+        "VirtualMode=0\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
         "; FovLever writes the game's camera FOV every tick (40..160; 0 = off, the game's\n"
         "; own FOV). 130 filled the old side-by-side render vertically; the mono screen\n"
@@ -313,6 +326,15 @@ static void LoadConfig()
     if (g_screenWidth > 10.0f) g_screenWidth = 10.0f;
     dvr::vr::set_screen(g_screenDist, g_screenWidth);
     dvr::vr::set_screen_head_locked(IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f);
+    {   // 41.1 [Screen] Render*: the picker's ask (core/window/render_size.cpp)
+        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 0, ini);
+        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 0, ini);
+        g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
+        g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 0, ini) != 0;
+        if (g_resWantW && g_resWantH)
+            Log("config: [Screen] Render %ux%u %s, VirtualMode=%d (the verdict prints once the capture knows the size)",
+                g_resWantW, g_resWantH, g_resWantFull ? "fullscreen" : "windowed", (int)g_resVirtual);
+    }
     {   // [Stereo] Method: the rung of the ladder (docs/ARCHITECTURE.md); a
         // stub or an unknown name logs why and leaves the mono screen running.
         // Recorded here, APPLIED by Direct3DCreate9 after the game side has
@@ -1219,6 +1241,13 @@ static void OverlaySaveDefaults()
             WritePrivateProfileStringA("VRHands", k, v, ini);
         } }
 
+    // 41.1: the render-resolution ask
+    _snprintf(v, 64, "%u", g_resWantW);
+    WritePrivateProfileStringA("Screen", "RenderWidth", v, ini);
+    _snprintf(v, 64, "%u", g_resWantH);
+    WritePrivateProfileStringA("Screen", "RenderHeight", v, ini);
+    WritePrivateProfileStringA("Screen", "RenderFullscreen", g_resWantFull ? "1" : "0", ini);
+    WritePrivateProfileStringA("Screen", "VirtualMode", g_resVirtual ? "1" : "0", ini);
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
