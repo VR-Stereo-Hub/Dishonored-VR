@@ -488,9 +488,14 @@ static void RotInjectTick()
 }
 
 
+// 41.1 (session 8): every early return names itself, at most once per 5 s -
+// a run that dispatched ProcessViewRotation 90 times a second and wrote
+// nothing (hits=270 writes=0) had no line saying which guard refused.
+#define DVR_HEAD_REFUSE(...) DVR_LOG_EVERY_MS(dvr::log::Cat::head, dvr::log::Level::Info, 5000, __VA_ARGS__)
+
 static void ApplyHeadToViewRotation(void* parms)
 {
-    if (!parms || !RangeReadable(parms, 40)) return;
+    if (!parms || !RangeReadable(parms, 40)) { DVR_HEAD_REFUSE("head: write refused - parms %p unreadable", parms); return; }
 
     // Two different classes declare this event with different signatures:
     //   PlayerController: (float DeltaTime, out Rotator View, out Rotator Delta)
@@ -510,12 +515,15 @@ static void ApplyHeadToViewRotation(void* parms)
     uint32_t rotOff;
     if (f0 > kMinDT && f0 < kMaxDT)      rotOff = 4;
     else if (f4 > kMinDT && f4 < kMaxDT) rotOff = 8;
-    else return;                                     // unknown shape - hands off
+    else {                                           // unknown shape - hands off
+        DVR_HEAD_REFUSE("head: write refused - no DeltaTime at Parms+0 (%g) or +4 (%g): unknown parms shape, hands off", f0, f4);
+        return;
+    }
     int32_t* rot = (int32_t*)((uint8_t*)parms + rotOff);
 
     // second gate: it must actually look like a rotator before we touch it
-    if (rot[0] < -0x30000 || rot[0] > 0x30000) return;   // pitch out of range
-    if (rot[2] < -0x30000 || rot[2] > 0x30000) return;   // roll out of range
+    if (rot[0] < -0x30000 || rot[0] > 0x30000) { DVR_HEAD_REFUSE("head: write refused - pitch %d at Parms+%u out of range (not a rotator?)", rot[0], rotOff); return; }
+    if (rot[2] < -0x30000 || rot[2] > 0x30000) { DVR_HEAD_REFUSE("head: write refused - roll %d at Parms+%u out of range (not a rotator?)", rot[2], rotOff); return; }
 
     static uint32_t loggedOff = 0xffffffffu;
     if (loggedOff != rotOff) {
@@ -551,7 +559,7 @@ static void ApplyHeadToViewRotation(void* parms)
         // first dispatch per presented frame; every later dispatch of the
         // chain is left alone.
         static uint32_t lastFrameOld = 0xffffffffu;
-        if (g_frame == lastFrameOld) return;
+        if (g_frame == lastFrameOld) { DVR_HEAD_REFUSE("head: write skipped - a second dispatch in presented frame %lu (ChainStamp=0)", (unsigned long)g_frame); return; }
         lastFrameOld = g_frame;
     } else if (frNow - frWriteMs < 2.0) {
         if (frHave) {
@@ -568,7 +576,7 @@ static void ApplyHeadToViewRotation(void* parms)
 
     static float prevYaw = 0, prevPitch = 0;
     static bool  havePrev = false;
-    if (!havePrev) { prevYaw = g_hmdYaw; prevPitch = g_hmdPitch; havePrev = true; return; }
+    if (!havePrev) { prevYaw = g_hmdYaw; prevPitch = g_hmdPitch; havePrev = true; Log("head: first dispatch seeds the yaw reference (no write)"); return; }
 
     float dy = g_hmdYaw - prevYaw;
     while (dy >  3.14159265f) dy -= 6.2831853f;
@@ -593,9 +601,15 @@ static void ApplyHeadToViewRotation(void* parms)
     if (wantPitch < -16000) wantPitch = -16000;
     rot[0] = wantPitch;
 
-    if (g_rotRoll) rot[2] = (int32_t)(g_hmdRoll * kUEPerRad * (float)g_flipRoll);
+    // 41.1: under a PROJECTION layer the compositor shows the image at the
+    // head's pose INCLUDING roll, so the game camera must roll with the head
+    // or the horizon counter-rolls (the 2026-09-03 headset run). [HeadTrack]
+    // Roll stays the quad screen's choice.
+    const bool rollNow = g_rotRoll || dvr::stereo::wants_projection();
+    const int32_t before2 = rot[2];   // what the engine handed us: did our last roll survive?
+    if (rollNow) rot[2] = (int32_t)(g_hmdRoll * kUEPerRad * (float)g_flipRoll);
     frP = rot[0]; frY = rot[1];                       // 38.86/87: this chain
-    frR = g_rotRoll ? rot[2] : 0; frHave = true;      // pass's values
+    frR = rollNow ? rot[2] : 0; frHave = true;        // pass's values
     frWriteMs = MaimNowMs();
     InterlockedIncrement(&g_pvrWrites);   // 30.57: writes that actually landed
     g_scriptHeadOK = true;
@@ -611,12 +625,50 @@ static void ApplyHeadToViewRotation(void* parms)
     static int hb = 0;
     if (++hb >= 150) {
         hb = 0;
-        Log("headtrack: hmd pitch=%.1f yaw=%.1f deg | view pitch %d->%d yaw %d->%d",
-            g_hmdPitch * 57.2958f, g_hmdYaw * 57.2958f,
-            before0, rot[0], before1, rot[1]);
+        // 41.1: the ROLL is on the line too. `wrote` is what we asked for and
+        // `incoming` is what the engine handed us THIS dispatch: incoming near
+        // the last write = the engine kept our roll, incoming ~0 while we keep
+        // writing = the engine recomputes it and the head tilt never reaches
+        // the render (the headset symptom: the horizon counter-rolls).
+        Log("headtrack: hmd pitch=%.1f yaw=%.1f roll=%.1f deg | view pitch %d->%d yaw %d->%d | "
+            "roll %s incoming=%d wrote=%d (%.1f deg)",
+            g_hmdPitch * 57.2958f, g_hmdYaw * 57.2958f, g_hmdRoll * 57.2958f,
+            before0, rot[0], before1, rot[1],
+            rollNow ? "ON" : "off (quad screen, [HeadTrack] Roll=0)",
+            before2, rot[2], (float)rot[2] / kUEPerRad * 57.2958f);
     }
 }
 
+
+// 41.1 [Neck]: the lever's one setter - clamps, stores and logs the derived
+// numbers at the CURRENT pitch/roll so a headset run's log says what changed.
+static const char* NeckModeName(int mode) { return mode == 1 ? "add" : mode == 2 ? "cancel" : "off"; }
+static void NeckSet(int mode, float belowM, float behindM, const char* who)
+{
+    if (mode < 0) mode = 0;
+    if (mode > 2) mode = 2;
+    if (belowM < 0.0f) belowM = 0.0f;
+    if (belowM > 0.5f) belowM = 0.5f;
+    if (behindM < 0.0f) behindM = 0.0f;
+    if (behindM > 0.5f) behindM = 0.5f;
+    const int was = g_neckMode;
+    g_neckMode = mode; g_neckBelowM = belowM; g_neckBehindM = behindM;
+    // the arc at the current pitch, for the line (pitch only: the publish block does the full pose)
+    const float th = g_hmdPitch, b = belowM, f = behindM;
+    const float up = (b * (cosf(th) - 1.0f) + f * sinf(th)) * g_posScaleUU;
+    const float fwd = (f * (cosf(th) - 1.0f) - b * sinf(th)) * g_posScaleUU;
+    const float s = mode == 2 ? -1.0f : mode == 1 ? 1.0f : 0.0f;
+    Log("neck: mode %s -> %s (by %s), pivot below %.3f m behind %.3f m at %.0f uu/m: at pitch %+.1f roll %+.1f deg "
+        "the modelled arc is U%+.2f F%+.2f uu - %s%s",
+        NeckModeName(was), NeckModeName(mode), who ? who : "?", belowM, behindM, g_posScaleUU,
+        g_hmdPitch * 57.29578f, g_hmdRoll * 57.29578f, up * s, fwd * s,
+        mode == 0 ? "no term: the tracked displacement alone"
+        : mode == 1 ? "ADDED to the tracked displacement (alone with positional tracking off): the eye rides an arc "
+                      "the tracking is not supplying"
+                    : "SUBTRACTED from the tracked displacement: the engine pitches about its own neck, so the "
+                      "tracked arc must not be applied twice (set the pivot to the pitchtest's numbers)",
+        dvr::stereo::wants_projection() ? "" : " (inert now: the quad screen has no projection pose to agree with)");
+}
 
 static void TrackHead(const float (*m)[4])
 {
@@ -645,7 +697,16 @@ static void TrackHead(const float (*m)[4])
     float fyc   = fy < -1.f ? -1.f : (fy > 1.f ? 1.f : fy);
     float pitch = asinf(fyc);
     g_hmdYaw = yaw; g_hmdPitch = pitch;
-    g_hmdRoll = atan2f(m[1][0], m[1][1]); // right.up vs up.up
+    // Roll in UE3's rotator sense: positive = right ear DOWN. atan2(right.y,
+    // up.y) is positive for right ear UP, so it is negated here, once, and
+    // every consumer (the ProcessViewRotation write, the matrix injection,
+    // the lean counter-rotation) inherits the corrected direction.
+    // MEASURED by picture on the simulator (run 37, 2026-09-03, ENGINE_NOTES
+    // "Head roll"): with the un-negated value a right-ear-down head rolled
+    // the game camera LEFT-ear-down, the world's verticals leaned right
+    // instead of left - the headset's "tilt is reversed". [HeadInject]
+    // FlipRoll stays the A/B override, 1 = this measured direction.
+    g_hmdRoll = -atan2f(m[1][0], m[1][1]);
 
     // 31.8: physical crouch moved OUT of the positional-tracking block. It only
     // needs your head height against the standing reference, and burying it
@@ -732,6 +793,7 @@ static void TrackHead(const float (*m)[4])
         }
         g_f5Was = f5;
 
+        float rawDx = 0.0f, rawDy = 0.0f, rawDz = 0.0f;   // the raw head displacement (m), for the projection lane
         if (g_posTrack) {
             float px = m[0][3], py = m[1][3], pz = m[2][3]; // meters
             if (!g_posHaveRef) {
@@ -745,12 +807,22 @@ static void TrackHead(const float (*m)[4])
             // crouch. Dead code has to be deleted, not switched off.
             float dx = px - g_posRefX, dy = py - g_posRefY + g_heightOffsetM,
                   dz = pz - g_posRefZ;
+            // 41.1: the RAW displacement, before the room-scale bleed, the safety
+            // clamp and the synthetic crouch drop. Under a PROJECTION layer the
+            // compositor moves the image for the head's real displacement, so the
+            // game camera has to follow exactly that (the 2026-09-03 headset run:
+            // the bled-away lean read as REVERSED motion, the neck's travel on a
+            // pitch as a second motion). Published below in the head-yaw frame.
+            rawDx = dx; rawDy = dy; rawDz = dz;
             // 38.46: publish the RAW horizontal offset in the head's own yaw
             // frame - before the safety clamp, which exists to stop the camera
             // leaving the body and must not shrink what we hand the stick -
             // and bleed the reference toward the head while past the deadzone.
             // That bleed IS the auto-recenter.
-            if (g_roomScaleCfg) {
+            // 41.1: under a projection layer the reference must NOT creep - the
+            // compositor measures the head from a fixed origin, so the bleed
+            // (the auto-recenter) is the quad screen's only.
+            if (g_roomScaleCfg && !dvr::stereo::wants_projection()) {
                 float cy0 = cosf(yaw), sy0 = sinf(yaw);
                 g_roomRightM = dx * cy0 + dz * sy0;
                 g_roomFwdM   = dx * sy0 - dz * cy0;
@@ -846,6 +918,47 @@ static void TrackHead(const float (*m)[4])
                 g_leanRightUU =  R*cr + U*sr;
                 g_leanUpUU    = -R*sr + U*cr;
             }
+        }
+        // 41.1: the camera seam owns the offset from here; both lanes (the c0
+        // patch, the camera write) read it there. Off = zero, so a disabled
+        // tracker never leaves a stale lean behind on either lane. Under a
+        // projection layer the seam gets the RAW head displacement (right, up,
+        // forward in the head-yaw frame, world scale) - the compositor's own
+        // expectation - instead of the tuned lean.
+        // 41.1 [Neck]: the modelled arc of the eye about a pivot below/behind it,
+        // from the head's ROTATION (the pose matrix), in the same head-yaw frame
+        // as the raw displacement. Device axes: x right, y up, z back; the
+        // pivot-to-eye vector at pitch zero is v0 = (0, below, -behind).
+        //   R_head * v0 = below * m[:,1] - behind * m[:,2]        (LOCAL, metres)
+        //   R_yaw  * v0 = (behind sin yaw, below, -behind cos yaw) (the yaw-only pose)
+        //   arc = R_head*v0 - R_yaw*v0, then right/up/forward like rawD above.
+        // Zero unless a projection layer is up and the mode is on; published on
+        // the heartbeat and status.json so a headset run can read what it added.
+        float neckR = 0.0f, neckU = 0.0f, neckF = 0.0f;
+        if (g_neckMode != 0 && dvr::stereo::wants_projection()) {
+            const float b = g_neckBelowM, f = g_neckBehindM;
+            const float hx = b * m[0][1] - f * m[0][2], hy = b * m[1][1] - f * m[1][2], hz = b * m[2][1] - f * m[2][2];
+            const float cyw = cosf(yaw), syw = sinf(yaw);
+            const float yx = f * syw, yy = b, yz = -f * cyw;
+            const float dx = hx - yx, dy = hy - yy, dz = hz - yz;
+            neckR = (dx * cyw + dz * syw) * g_posScaleUU;
+            neckU = dy * g_posScaleUU;
+            neckF = (dx * syw - dz * cyw) * g_posScaleUU;
+            if (g_neckMode == 2) { neckR = -neckR; neckU = -neckU; neckF = -neckF; }
+        }
+        g_neckArcUu[0] = neckR; g_neckArcUu[1] = neckU; g_neckArcUu[2] = neckF;
+        if (!g_posTrack) {
+            // off = zero on both lanes; with the neck ADDED the arc alone rides
+            // the seam (a 3DoF rig gets a neck it never had)
+            dvr::camera::set_position_offset_uu(g_neckMode == 1 ? neckR : 0.0f, g_neckMode == 1 ? neckU : 0.0f,
+                                                g_neckMode == 1 ? neckF : 0.0f);
+        } else if (dvr::stereo::wants_projection()) {
+            const float cyw = cosf(yaw), syw = sinf(yaw);
+            dvr::camera::set_position_offset_uu((rawDx*cyw + rawDz*syw) * g_posScaleUU + neckR,
+                                                rawDy * g_posScaleUU + neckU,
+                                                (rawDx*syw - rawDz*cyw) * g_posScaleUU + neckF);
+        } else {
+            dvr::camera::set_position_offset_uu((float)g_leanRightUU, (float)g_leanUpUU, (float)g_leanFwdUU);
         }
     }
 

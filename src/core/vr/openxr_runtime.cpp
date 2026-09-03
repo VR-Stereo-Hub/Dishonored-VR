@@ -10,6 +10,7 @@
 #include "core/util/paths.h"
 #include "core/util/xr_math.h"
 #include "core/vr/hud_stub.h"
+#include "core/gfx/frame_id.h"   // 41.1 (Dishonored): the frame-identity trace's stage sc
 
 // The runtime layer logs under the openxr category at Info; every per-frame
 // line in it is first-N or rate-limited (the CLAUDE.md cost rules).
@@ -218,6 +219,12 @@ bool g_viewsValid = false;
 XrView g_viewsPrev2[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 bool g_viewsPrev2Valid = false;
 std::atomic<int> g_poseLag{1};
+// 41.1 (Dishonored): pose look-ahead in display periods - the head pose the
+// game renders with, and the views the layer is tagged with, are located for
+// predictedDisplayTime + ahead * period (0 = today: the slot xrWaitFrame
+// named, which a two-draw tick misses one time in nine at 64 pairs/s on a
+// 72 Hz display). `vrpace ahead`, the F10 combo, [Pace] Ahead=.
+std::atomic<int> g_paceAhead{0};
 // Telemetry: yaw delta between consecutive locate generations (deg) - the
 // size of the attribution error one generation of lag would cause at the
 // current head speed. Read by the adapter's F10 section.
@@ -386,6 +393,18 @@ uint64_t g_lastIdleLogMs = 0; // rate limit for the SUBMISSION IDLE heartbeat
 // presents stop mid-pair and no sibling is ever coming.
 constexpr uint32_t kPairHoldMaxMs = 500;
 std::atomic<uint32_t> g_srPairs{0}, g_srPairAborts{0};
+// 41.1 (Dishonored): strict pairs. A stereo submit references each eye
+// swapchain's most recently RELEASED image; when the tag stream goes one-sided
+// (pass 1 tagged, pass 2 skipped in the resume window) the LEFT is rewritten
+// every other present while the RIGHT keeps showing its pre-pause image with
+// its old pose - the "one eye stops taking fresh frames" report. With strict
+// on, a stereo submit whose eye is older than one present falls to the mono
+// branch for that frame (the fresh image to both eyes, the headset-proven
+// rung 1.5 path) instead of showing a held eye. DEFAULT OFF: the fault case is
+// a headset percept and the A/B must attribute it (`vrpace strict on|off`, the
+// F10 checkbox, [Pace] Strict=).
+std::atomic<bool> g_pairStrict{false};
+std::atomic<uint32_t> g_strictFallbacks{0};
 std::atomic<bool> g_loggedFirstPair{false};
 
 // Session 62: the [pair] probe (issue #31 - BS2 left-eye double image on
@@ -400,11 +419,28 @@ std::atomic<uint32_t> g_pmAbortExpired{0}, g_pmAbortLeft{0}, g_pmAbortUntag{0};
 std::atomic<uint32_t> g_pmCap[2] = {};       // SR captures per eye
 std::atomic<uint32_t> g_pmAcqFail{0}, g_pmWaitFail{0};
 std::atomic<uint32_t> g_pmUntaggedProj{0};   // untagged present captured in projection mode
+// 41.1 (Dishonored, session 8): a tag popped by a present that opened no XR
+// frame (the pace guard, a session hold, a handoff timeout): its sibling then
+// stands alone in the next pair. Counted so the method's STALE line can name
+// it instead of "unknown".
+std::atomic<uint32_t> g_srEatenNoFrame{0};
 std::atomic<uint32_t> g_pmRebuilds{0};
 std::atomic<uint32_t> g_pmStereoSubmits{0}, g_pmStaleL{0}, g_pmStaleR{0};
 std::atomic<uint32_t> g_pmAgeMax[2] = {};    // worst capture age at submit, ms
 std::atomic<uint64_t> g_pmLastCapMs[2] = {}; // tick of last SR capture per eye
 constexpr uint32_t kPmStaleAgeMs = 50; // > any healthy cadence (SR ~14ms, AER ~28ms)
+// 41.1 (Dishonored): the same age in PRESENTS, which is the unit the fault is
+// in. A stereo submit shows each eye swapchain's most recently RELEASED image;
+// a healthy SequentialReentry pair reads L=1 R=0 (the left captured on the
+// hold present, the right on the closing one) and AER reads 1/0 alternating.
+// An eye older than that is an image from a previous tick shown again with
+// its old pose - the "one eye stops taking fresh frames" report. Stamped at
+// capture, read at submit; the max drains on read like g_pmAgeMax.
+std::atomic<uint32_t> g_pmCapPresent[2] = {};  // g_presentsSeen at the eye's last capture
+std::atomic<uint32_t> g_pmAgePres[2] = {};     // age at the last stereo submit
+std::atomic<uint32_t> g_pmAgePresMax[2] = {};  // worst age since the last read
+std::atomic<uint32_t> g_pmStalePres[2] = {};   // stereo submits with THIS eye > 1 present old while the other was fresh
+constexpr uint32_t kPmStalePresents = 1;       // the healthy maximum
 
 // Session 42 (Infinite I6 judder): pair-CADENCE statistics. The judder question
 // is not "how many pairs per second" but "how EVENLY are they spaced" - a mean
@@ -429,6 +465,18 @@ std::atomic<uint64_t> g_pairWaitSumUs{0};
 // in this codebase until now (only the sim ever WROTE it). It is the refresh
 // input a pace sync needs, published so the fix can target measured reality.
 std::atomic<int64_t> g_displayPeriodNs{0};
+// 41.1 (Dishonored): the pair PHASE - where a pair's close lands relative to
+// the display slot it was predicted for (xrEndFrame time minus the frame's
+// predictedDisplayTime, us; negative = closed before its slot, positive =
+// missed it and displays a slot late with a pose predicted for the earlier
+// one). Needs the runtime's clock: XR_KHR_win32_convert_performance_counter_time
+// (VDXR and the simulator have it; without it every line says n/a). Present
+// thread writes at each pair close; readers derive mean and missed share.
+PFN_xrConvertWin32PerformanceCounterToTimeKHR g_pfnQpcToXrTime = nullptr;
+std::atomic<int64_t>  g_pairPhaseLastUs{0};
+std::atomic<int64_t>  g_pairPhaseSumUs{0};
+std::atomic<int64_t>  g_pairPhaseMaxUs{-1000000};
+std::atomic<uint32_t> g_pairPhaseCount{0}, g_pairPhaseMissed{0};
 
 // Session 43 (Infinite stutter hunt): SPIKE-TRIGGERED EVIDENCE CAPTURE.
 // The s42 headset run named the judder as 39-113 ms pair intervals in bursts;
@@ -1495,6 +1543,8 @@ DWORD WINAPI trace_thread_proc(void*) {
     uint64_t lastPairSumSqUs = 0;
     uint64_t lastPairWaitUs = 0;
     uint32_t lastSpikes = 0; // session 43: spike count baseline for the window delta
+    int64_t lastPhaseSumUs = 0;   // 41.1 (Dishonored): the phase window
+    uint32_t lastPhaseCount = 0, lastPhaseMissed = 0;
     while (g_traceRun.load(std::memory_order_relaxed)) {
         Sleep(1000);
         if (!g_traceRun.load(std::memory_order_relaxed)) break;
@@ -1642,6 +1692,13 @@ DWORD WINAPI trace_thread_proc(void*) {
             uint64_t sumSq = g_pairIntSumSqUs.load(std::memory_order_relaxed);
             uint64_t waitUs = g_pairWaitSumUs.load(std::memory_order_relaxed);
             uint32_t spikes = g_spikeCount.load(std::memory_order_relaxed);
+            // 41.1 (Dishonored): the window's phase.
+            const int64_t phSum = g_pairPhaseSumUs.load(std::memory_order_relaxed);
+            const uint32_t phCnt = g_pairPhaseCount.load(std::memory_order_relaxed);
+            const uint32_t phMissed = g_pairPhaseMissed.load(std::memory_order_relaxed);
+            const int64_t dPhSum = phSum - lastPhaseSumUs;
+            const uint32_t dPhCnt = phCnt - lastPhaseCount, dPhMissed = phMissed - lastPhaseMissed;
+            lastPhaseSumUs = phSum; lastPhaseCount = phCnt; lastPhaseMissed = phMissed;
             uint32_t dPairs = pairs - lastPairs;
             uint32_t dCnt = cnt - lastPairCount;
             uint64_t dSum = sum - lastPairSumUs;
@@ -1666,16 +1723,22 @@ DWORD WINAPI trace_thread_proc(void*) {
                     sdUs = static_cast<uint32_t>(sqrt(static_cast<double>(var)));
                 }
                 int64_t periodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
-                char pl[320];
+                char pl[448];
+                char ph[96];
+                if (g_pfnQpcToXrTime && dPhCnt)
+                    sprintf_s(ph, " | phase ms mean=%+.1f missed=%u/%u (close - predicted slot)",
+                              dPhSum / 1000.0 / dPhCnt, dPhMissed, dPhCnt);
+                else
+                    sprintf_s(ph, " | phase=n/a%s", g_pfnQpcToXrTime ? "" : " (no XR_KHR_win32_convert_performance_counter_time)");
                 sprintf_s(pl,
                           "TRACE pairs %u/s | interval us mean=%u sd=%u min=%u max=%u | "
                           "spikes=%u | waitGate %llu ms/s timeouts=%u | period %.2f ms "
-                          "(%.1f Hz)",
+                          "(%.1f Hz)%s",
                           dPairs, meanUs, sdUs, minUs, maxUs, dSpikes,
                           static_cast<unsigned long long>(dWaitUs / 1000),
                           g_paceTimeouts.load(std::memory_order_relaxed),
                           periodNs > 0 ? periodNs / 1.0e6 : 0.0,
-                          periodNs > 0 ? 1.0e9 / periodNs : 0.0);
+                          periodNs > 0 ? 1.0e9 / periodNs : 0.0, ph);
                 trace_write(pl);
             }
         }
@@ -2431,23 +2494,38 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
     }
     std::vector<XrExtensionProperties> exts(extCount, {XR_TYPE_EXTENSION_PROPERTIES});
     xrEnumerateInstanceExtensionProperties(nullptr, extCount, &extCount, exts.data());
-    bool hasD3D11 = false;
-    for (const auto& e : exts)
+    bool hasD3D11 = false, hasQpcTime = false;
+    for (const auto& e : exts) {
         if (strcmp(e.extensionName, XR_KHR_D3D11_ENABLE_EXTENSION_NAME) == 0) hasD3D11 = true;
+        // 41.1 (Dishonored): the runtime's clock, for the pair phase instrument.
+        if (strcmp(e.extensionName, XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME) == 0)
+            hasQpcTime = true;
+    }
     if (!hasD3D11) {
         XRLOG("xr: [%s] runtime lacks XR_KHR_D3D11_enable", label);
         return XR_ERROR_EXTENSION_NOT_PRESENT;
     }
 
-    const char* enabled[] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+    const char* enabled[2] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME,
+                              XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME};
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
     strcpy_s(ici.applicationInfo.applicationName, "dishonored-vr");
     ici.applicationInfo.applicationVersion = 1;
     strcpy_s(ici.applicationInfo.engineName, "dishonored-vr");
     ici.applicationInfo.apiVersion = XR_API_VERSION_1_0;
-    ici.enabledExtensionCount = 1;
+    ici.enabledExtensionCount = hasQpcTime ? 2 : 1;
     ici.enabledExtensionNames = enabled;
     r = xrCreateInstance(&ici, &g_instance);
+    g_pfnQpcToXrTime = nullptr;
+    if (XR_SUCCEEDED(r) && hasQpcTime) {
+        PFN_xrVoidFunction fn = nullptr;
+        xrGetInstanceProcAddr(g_instance, "xrConvertWin32PerformanceCounterToTimeKHR", &fn);
+        g_pfnQpcToXrTime = reinterpret_cast<PFN_xrConvertWin32PerformanceCounterToTimeKHR>(fn);
+    }
+    XRLOG("xr: [%s] runtime clock %s - the pair phase (close vs predicted slot) %s", label,
+            g_pfnQpcToXrTime ? "available (XR_KHR_win32_convert_performance_counter_time)"
+                             : "NOT offered by this runtime",
+            g_pfnQpcToXrTime ? "is measured" : "reads n/a");
     if (XR_FAILED(r)) {
         XRLOG("xr: [%s] xrCreateInstance failed: %s", label, res_str(r));
         // XR_ERROR_RUNTIME_UNAVAILABLE from a 32-bit process is very rarely a
@@ -2924,9 +3002,19 @@ void on_present_begin() {
     // M3: locate the head pose + per-eye views for the predicted display time.
     // The head pose feeds the CalcView camera drive on the game thread; the
     // views feed projection-layer submission at Present-tail.
+    // 41.1 (Dishonored): the look-ahead lever. The game renders this locate's
+    // pose one present later and its pair closes later still; when the pair
+    // misses the slot xrWaitFrame named, the image displays a slot late with a
+    // pose predicted for the earlier one. `ahead` locates for the slot the
+    // image will actually reach. xrEndFrame's displayTime is NOT touched (the
+    // runtime's contract), and the tag generation is unchanged, so the layer
+    // still carries the pose the image was rendered from.
+    const XrTime locateTime =
+        g_frameState.predictedDisplayTime +
+        static_cast<XrTime>(g_paceAhead.load(std::memory_order_relaxed)) * g_frameState.predictedDisplayPeriod;
     XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
     bool poseOk =
-        XR_SUCCEEDED(xrLocateSpace(g_viewSpace, g_space, g_frameState.predictedDisplayTime, &sl)) &&
+        XR_SUCCEEDED(xrLocateSpace(g_viewSpace, g_space, locateTime, &sl)) &&
         (sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
         (sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
     {
@@ -2955,7 +3043,7 @@ void on_present_begin() {
 
     XrViewLocateInfo vli{XR_TYPE_VIEW_LOCATE_INFO};
     vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-    vli.displayTime = g_frameState.predictedDisplayTime;
+    vli.displayTime = locateTime;   // 41.1 (Dishonored): the same look-ahead as the head
     vli.space = g_space;
     XrViewState vs{XR_TYPE_VIEW_STATE};
     uint32_t viewCount = 0;
@@ -3436,7 +3524,9 @@ void on_present_end(ID3D11Texture2D* frame) {
         // it). The game may still be presenting alternating stereo eyes -
         // keep draining the tag ring and keep the window pinned to one eye.
         int64_t tComp = phase_now();
-        mirror_present(sr_pop_eye());
+        const int eatenEye = sr_pop_eye();
+        if (eatenEye != 0) g_srEatenNoFrame.fetch_add(1, std::memory_order_relaxed);
+        mirror_present(eatenEye);
         composite_hud();
         phase_record(kPhComposite, tComp);
         // SESSION 28: name the guard, on a heartbeat, while submission is idle.
@@ -3647,6 +3737,37 @@ void on_present_end(ID3D11Texture2D* frame) {
                     }
                 }
             }
+            // 41.1 (Dishonored): the pair PHASE against its predicted slot.
+            if (g_pfnQpcToXrTime && g_frameState.predictedDisplayTime != 0) {
+                LARGE_INTEGER qpc;
+                QueryPerformanceCounter(&qpc);
+                XrTime nowXr = 0;
+                if (XR_SUCCEEDED(g_pfnQpcToXrTime(g_instance, &qpc, &nowXr)) && nowXr != 0) {
+                    const int64_t phaseUs = (nowXr - g_frameState.predictedDisplayTime) / 1000;
+                    g_pairPhaseLastUs.store(phaseUs, std::memory_order_relaxed);
+                    g_pairPhaseSumUs.fetch_add(phaseUs, std::memory_order_relaxed);
+                    const uint32_t n = g_pairPhaseCount.fetch_add(1, std::memory_order_relaxed) + 1;
+                    if (phaseUs > 0) g_pairPhaseMissed.fetch_add(1, std::memory_order_relaxed);
+                    int64_t m = g_pairPhaseMaxUs.load(std::memory_order_relaxed);
+                    while (phaseUs > m && !g_pairPhaseMaxUs.compare_exchange_weak(m, phaseUs, std::memory_order_relaxed)) {}
+                    static uint64_t saidMs = 0;
+                    const uint64_t nowSay = GetTickCount64();
+                    if (nowSay - saidMs >= 5000) {
+                        saidMs = nowSay;
+                        const int64_t periodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
+                        XRLOG("xr: pair phase %+.1f ms mean (last %+.1f, max %+.1f) over %u pairs, missed slot %u "
+                                "(%.0f%%) - close minus predictedDisplayTime, negative = closed before its slot; "
+                                "ahead=%d lag=%d period %.2f ms",
+                                g_pairPhaseSumUs.load(std::memory_order_relaxed) / 1000.0 / (n ? n : 1),
+                                phaseUs / 1000.0, g_pairPhaseMaxUs.load(std::memory_order_relaxed) / 1000.0, n,
+                                g_pairPhaseMissed.load(std::memory_order_relaxed),
+                                n ? 100.0 * g_pairPhaseMissed.load(std::memory_order_relaxed) / n : 0.0,
+                                g_paceAhead.load(std::memory_order_relaxed),
+                                g_poseLag.load(std::memory_order_relaxed),
+                                periodNs > 0 ? periodNs / 1.0e6 : 0.0);
+                    }
+                }
+            }
         } else {
             g_srPairAborts.fetch_add(1, std::memory_order_relaxed);
             // [pair] probe: name the break. A second LEFT means the previous
@@ -3734,6 +3855,11 @@ void on_present_end(ID3D11Texture2D* frame) {
                     int64_t tCap = phase_now();
                     capture_frame(g_images[target][index].texture, backbuffer);
                     phase_record(kPhCapture, tCap);
+                    // 41.1 (Dishonored): the frame-identity trace's last stage - the
+                    // centre of the swapchain image this present's frame was copied
+                    // into, read three presents later, never waited on.
+                    dvr::frameid::stage_swapchain(g_device, g_context, g_images[target][index].texture, target, index);
+
                 }
                 XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                 xrReleaseSwapchainImage(g_swapchains[target], &ri);
@@ -3766,6 +3892,12 @@ void on_present_end(ID3D11Texture2D* frame) {
                     g_pmCap[srEye].fetch_add(1, std::memory_order_relaxed);
                     g_pmLastCapMs[srEye].store(GetTickCount64(),
                                                std::memory_order_relaxed);
+                    // 41.1 (Dishonored): stamped only when the copy RAN - a wait
+                    // failure still releases the image (spec) and that eye must
+                    // then read as held, not fresh.
+                    if (imageReady)
+                        g_pmCapPresent[srEye].store(g_presentsSeen.load(std::memory_order_relaxed),
+                                                    std::memory_order_relaxed);
                     if (!g_loggedFirstSr.exchange(true))
                         XRLOG("xr: first SequentialReentry eye frame captured "
                                 "(eye %c)", srEye == 0 ? 'L' : 'R');
@@ -3778,6 +3910,9 @@ void on_present_end(ID3D11Texture2D* frame) {
                     else
                         g_eyePose[g_currentEye] = g_viewsContent[g_currentEye].pose;
                     g_eyeValid[g_currentEye] = true;
+                    if (imageReady)
+                        g_pmCapPresent[g_currentEye].store(g_presentsSeen.load(std::memory_order_relaxed),
+                                                           std::memory_order_relaxed);
                     eyeCaptured = true;
                 }
 
@@ -3847,6 +3982,36 @@ void on_present_end(ID3D11Texture2D* frame) {
                             uint32_t m = g_pmAgeMax[e].load(std::memory_order_relaxed);
                             while (age > m && !g_pmAgeMax[e].compare_exchange_weak(
                                                   m, age, std::memory_order_relaxed)) {}
+                        }
+                        // 41.1 (Dishonored): the age in presents, the unit of the
+                        // "right eye stops taking fresh frames" report. Present N
+                        // is the one closing this submit.
+                        const uint32_t presentsNow = g_presentsSeen.load(std::memory_order_relaxed);
+                        uint32_t ageP[2];
+                        for (int e = 0; e < 2; ++e) {
+                            ageP[e] = presentsNow - g_pmCapPresent[e].load(std::memory_order_relaxed);
+                            g_pmAgePres[e].store(ageP[e], std::memory_order_relaxed);
+                            uint32_t m = g_pmAgePresMax[e].load(std::memory_order_relaxed);
+                            while (ageP[e] > m && !g_pmAgePresMax[e].compare_exchange_weak(
+                                                      m, ageP[e], std::memory_order_relaxed)) {}
+                        }
+                        for (int e = 0; e < 2; ++e)
+                            if (ageP[e] > kPmStalePresents && ageP[1 - e] <= kPmStalePresents)
+                                g_pmStalePres[e].fetch_add(1, std::memory_order_relaxed);
+                        // 41.1 (Dishonored): strict pairs - never show a held eye.
+                        if (g_pairStrict.load(std::memory_order_relaxed) &&
+                            (ageP[0] > kPmStalePresents || ageP[1] > kPmStalePresents)) {
+                            stereo = false;
+                            const uint32_t n = g_strictFallbacks.fetch_add(1, std::memory_order_relaxed) + 1;
+                            static uint64_t saidMs = 0;
+                            const uint64_t nowSay = GetTickCount64();
+                            if (nowSay - saidMs >= 1000) {
+                                saidMs = nowSay;
+                                const int old = ageP[0] > ageP[1] ? 0 : 1;
+                                XRLOG("xr: strict pair - stereo submit REFUSED, %c eye is %u presents old (other %u): "
+                                        "the fresh eye to both eyes this frame (mono); fallbacks %u",
+                                        old == 0 ? 'L' : 'R', ageP[old], ageP[1 - old], n);
+                            }
                         }
                     }
                     for (int eye = 0; eye < 2; ++eye) {
@@ -4261,6 +4426,26 @@ void draw_debug_ui() {
             bool sync = g_paceSync.load(std::memory_order_relaxed);
             if (ImGui::Checkbox("Sync pair rate to headset refresh (judder A/B)", &sync))
                 g_paceSync.store(sync, std::memory_order_relaxed);
+            // 41.1 (Dishonored): the stale-eye fail-soft A/B.
+            bool strict = g_pairStrict.load(std::memory_order_relaxed);
+            if (ImGui::Checkbox("Strict pairs (mono for a frame when an eye is stale)", &strict))
+                set_pair_strict(strict);
+            // 41.1 (Dishonored): the look-ahead lever, with the phase beside it.
+            {
+                static const char* kAhead[] = {"0 (the slot xrWaitFrame named)", "1 period ahead", "2 periods ahead"};
+                int ahead = g_paceAhead.load(std::memory_order_relaxed);
+                ImGui::SetNextItemWidth(260);
+                if (ImGui::Combo("Pose look-ahead (judder A/B)", &ahead, kAhead, 3)) set_pace_ahead(ahead);
+                const uint32_t phN = g_pairPhaseCount.load(std::memory_order_relaxed);
+                if (g_pfnQpcToXrTime)
+                    ImGui::TextDisabled("pair phase %+.1f ms mean, missed slot %.0f%% of %u | poseGenDelta %.2f deg | lag %d",
+                                        phN ? g_pairPhaseSumUs.load(std::memory_order_relaxed) / 1000.0 / phN : 0.0,
+                                        phN ? 100.0 * g_pairPhaseMissed.load(std::memory_order_relaxed) / phN : 0.0, phN,
+                                        g_poseGenDeltaDeg.load(std::memory_order_relaxed),
+                                        g_poseLag.load(std::memory_order_relaxed));
+                else
+                    ImGui::TextDisabled("pair phase n/a (no runtime clock extension)");
+            }
         }
         bool cine = g_cineEnabled.load(std::memory_order_relaxed);
         if (ImGui::Checkbox("Cinematic auto-detect (cutscenes/screens)", &cine))
@@ -4372,13 +4557,17 @@ void draw_debug_ui() {
     uint32_t srPushed = g_srPushed.load(std::memory_order_relaxed);
     if (srPushed)
         ImGui::Text("SR tags: pushed %u popped %u dropped %u cleared %u  eyes %d/%d"
-                    "  pairs %u aborts %u",
+                    "  pairs %u aborts %u  age L/R %u/%u presents (healthy 1/0) stale %u/%u",
                     srPushed, g_srPopped.load(std::memory_order_relaxed),
                     g_srDropped.load(std::memory_order_relaxed),
                     g_srCleared.load(std::memory_order_relaxed),
                     g_eyeValid[0] ? 1 : 0, g_eyeValid[1] ? 1 : 0,
                     g_srPairs.load(std::memory_order_relaxed),
-                    g_srPairAborts.load(std::memory_order_relaxed));
+                    g_srPairAborts.load(std::memory_order_relaxed),
+                    g_pmAgePres[0].load(std::memory_order_relaxed),
+                    g_pmAgePres[1].load(std::memory_order_relaxed),
+                    g_pmStalePres[0].load(std::memory_order_relaxed),
+                    g_pmStalePres[1].load(std::memory_order_relaxed));
     if (camMode && !g_projectionReady.load(std::memory_order_relaxed))
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                            "projection NOT ready - drive is held off (see log)");
@@ -4568,6 +4757,17 @@ void set_sr_pair_pacing(bool on) {
     g_srPairPacing.store(on, std::memory_order_relaxed);
 }
 
+void set_pair_strict(bool on) {
+    const bool was = g_pairStrict.exchange(on, std::memory_order_relaxed);
+    if (was != on)
+        XRLOG("xr: strict pairs %s (a stereo submit with an eye older than one present shows the "
+                "fresh eye to both eyes for that frame instead of a held eye; `vrpace strict` is the "
+                "live A/B, fallbacks so far %u)",
+                on ? "ON" : "off", g_strictFallbacks.load(std::memory_order_relaxed));
+}
+
+bool pair_strict() { return g_pairStrict.load(std::memory_order_relaxed); }
+
 void set_pace_sync(bool on) {
     bool was = g_paceSync.exchange(on, std::memory_order_relaxed);
     if (was != on)
@@ -4575,6 +4775,20 @@ void set_pace_sync(bool on) {
                 "live A/B and telemetry)",
                 on ? "ON" : "off");
 }
+
+void set_pace_ahead(int periods) {
+    if (periods < 0) periods = 0;
+    if (periods > 2) periods = 2;
+    const int was = g_paceAhead.exchange(periods, std::memory_order_relaxed);
+    if (was != periods)
+        XRLOG("xr: pace ahead %d -> %d period(s): the head pose handed to the game and the views the layer is "
+                "tagged with are located for predictedDisplayTime + %d x %.2f ms; xrEndFrame's displayTime is "
+                "unchanged (`vrpace ahead 0|1|2` is the live A/B; the pair phase line says which slot the close "
+                "lands in)",
+                was, periods, periods, g_displayPeriodNs.load(std::memory_order_relaxed) / 1.0e6);
+}
+
+int pace_ahead() { return g_paceAhead.load(std::memory_order_relaxed); }
 
 void set_pose_lag(int lag) {
     if (lag < 0) lag = 0;
@@ -4701,6 +4915,31 @@ void handle_pace_command(const char* args) {
                     g_spikeTrace.load(std::memory_order_relaxed) ? "ON" : "off",
                     g_spikeCount.load(std::memory_order_relaxed));
         }
+    } else if (strcmp(verb, "ahead") == 0) {
+        // 41.1 (Dishonored): the look-ahead lever (state at g_paceAhead).
+        int n = -1;
+        if (sscanf_s(rest, "%d", &n) == 1 && n >= 0 && n <= 2) set_pace_ahead(n);
+        else
+            XRLOG("xr: pace ahead %d period(s) (the locate time for the head pose and the layer's views: "
+                    "predictedDisplayTime + ahead x period) | usage: vrpace ahead 0|1|2",
+                    g_paceAhead.load(std::memory_order_relaxed));
+    } else if (strcmp(verb, "lag") == 0) {
+        // 41.1 (Dishonored): the pose-attribution generation (set_pose_lag).
+        int n = -1;
+        if (sscanf_s(rest, "%d", &n) == 1 && n >= 0 && n <= 2) set_pose_lag(n);
+        else
+            XRLOG("xr: pose attribution lag %d generation(s) (0 fresh, 1 one back = the default, 2 two back) | "
+                    "poseGenDelta %.2f deg | usage: vrpace lag 0|1|2",
+                    g_poseLag.load(std::memory_order_relaxed), g_poseGenDeltaDeg.load(std::memory_order_relaxed));
+    } else if (strcmp(verb, "strict") == 0) {
+        // 41.1 (Dishonored): the stale-eye fail-soft A/B (state at g_pairStrict).
+        if (strncmp(rest, "on", 2) == 0) set_pair_strict(true);
+        else if (strncmp(rest, "off", 3) == 0) set_pair_strict(false);
+        else
+            XRLOG("xr: strict pairs %s | fallbacks %u (a stereo submit with an eye older than one present "
+                    "shows the fresh eye to both eyes instead) | usage: vrpace strict on|off",
+                    g_pairStrict.load(std::memory_order_relaxed) ? "ON" : "off",
+                    g_strictFallbacks.load(std::memory_order_relaxed));
     } else if (strcmp(verb, "simidle") == 0) {
         bool on = strncmp(rest, "on", 2) == 0;
         g_simIdle.store(on, std::memory_order_relaxed);
@@ -4711,7 +4950,7 @@ void handle_pace_command(const char* args) {
     } else {
         XRLOG("xr: pace guard %s | wait %s | session %s everFocused=%d | skips %u "
                 "lastWait %u ms | handoffs %u timeouts %u | simidle %s "
-                "(vrpace on|off|thread on|off|detach on|off|sync|spike|simidle on|off|status)",
+                "(vrpace on|off|thread on|off|detach on|off|sync|spike|strict|ahead|lag|simidle on|off|status)",
                 g_paceGuard.load(std::memory_order_relaxed) ? "ON" : "off",
                 g_paceOffThread.load(std::memory_order_relaxed) ? "off-thread" : "inline",
                 state_str(g_state), g_everFocused.load(std::memory_order_relaxed) ? 1 : 0,
@@ -4728,12 +4967,27 @@ void handle_pace_command(const char* args) {
             int64_t periodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
             XRLOG("xr: pair cadence: pairs %u aborts %u | lifetime mean interval %u us "
                     "over %u samples | runtime period %.2f ms (%.1f Hz) | per-second "
-                    "jitter on the TRACE pairs line (pacetrace.log)",
+                    "jitter on the TRACE pairs line (pacetrace.log) | strict %s (fallbacks %u)",
                     g_srPairs.load(std::memory_order_relaxed),
                     g_srPairAborts.load(std::memory_order_relaxed),
                     cnt ? static_cast<uint32_t>(sum / cnt) : 0, cnt,
                     periodNs > 0 ? periodNs / 1.0e6 : 0.0,
-                    periodNs > 0 ? 1.0e9 / periodNs : 0.0);
+                    periodNs > 0 ? 1.0e9 / periodNs : 0.0,
+                    g_pairStrict.load(std::memory_order_relaxed) ? "ON" : "off",
+                    g_strictFallbacks.load(std::memory_order_relaxed));
+            // 41.1 (Dishonored): the phase, lifetime.
+            const uint32_t phN = g_pairPhaseCount.load(std::memory_order_relaxed);
+            if (!g_pfnQpcToXrTime)
+                XRLOG("xr: pair phase n/a - this runtime does not offer XR_KHR_win32_convert_performance_counter_time");
+            else
+                XRLOG("xr: pair phase %+.1f ms mean (last %+.1f, max %+.1f) over %u pairs, missed slot %u (%.0f%%) - "
+                        "close minus predictedDisplayTime; negative = closed before its slot | ahead=%d lag=%d",
+                        phN ? g_pairPhaseSumUs.load(std::memory_order_relaxed) / 1000.0 / phN : 0.0,
+                        g_pairPhaseLastUs.load(std::memory_order_relaxed) / 1000.0,
+                        g_pairPhaseMaxUs.load(std::memory_order_relaxed) / 1000.0, phN,
+                        g_pairPhaseMissed.load(std::memory_order_relaxed),
+                        phN ? 100.0 * g_pairPhaseMissed.load(std::memory_order_relaxed) / phN : 0.0,
+                        g_paceAhead.load(std::memory_order_relaxed), g_poseLag.load(std::memory_order_relaxed));
         }
         XRLOG("xr: detach %s (keepalive every %u ms) | detachedNow=%d | episodes %u "
                 "| unpaced presents %u, keepalive frames %u",
@@ -5140,7 +5394,26 @@ void sr_push_eye(int eyeSign) {
     g_srPushed.fetch_add(1, std::memory_order_relaxed);
 }
 
-void pair_probe(PairProbe* out) {
+// 41.1 (Dishonored, session 8): the present-path phase timers for the tick
+// budget (core/framework/perf), read once per present on the present thread.
+// The values are the LAST run of each phase; a frame-less present leaves a
+// phase stale, which the reader clamps to the half it lives in.
+int present_phases_last(uint32_t* out, int cap) {
+    const int n = cap < kPhCount ? cap : kPhCount;
+    for (int i = 0; i < n; ++i) out[i] = g_phaseLastUs[i].load(std::memory_order_relaxed);
+    return n;
+}
+const char* present_phase_name(int i) { return (i >= 0 && i < kPhCount) ? kPhaseNames[i] : "?"; }
+bool pair_open() { return g_srPairOpen; }
+uint32_t pace_timeouts() { return g_paceTimeouts.load(std::memory_order_relaxed); }
+
+static void pair_probe_fill(PairProbe* out, bool drain);
+void pair_probe(PairProbe* out) { pair_probe_fill(out, true); }
+// 41.1 (Dishonored): the same snapshot WITHOUT draining the maxima, for a
+// per-present reader (the method's stale-eye line) that must not eat the
+// beat's window.
+void pair_probe_peek(PairProbe* out) { pair_probe_fill(out, false); }
+static void pair_probe_fill(PairProbe* out, bool drain) {
     if (!out) return;
     out->pairs = g_srPairs.load(std::memory_order_relaxed);
     out->aborts = g_srPairAborts.load(std::memory_order_relaxed);
@@ -5152,6 +5425,7 @@ void pair_probe(PairProbe* out) {
     out->acqFail = g_pmAcqFail.load(std::memory_order_relaxed);
     out->waitFail = g_pmWaitFail.load(std::memory_order_relaxed);
     out->untaggedProj = g_pmUntaggedProj.load(std::memory_order_relaxed);
+    out->eatenNoFrame = g_srEatenNoFrame.load(std::memory_order_relaxed);
     out->rebuilds = g_pmRebuilds.load(std::memory_order_relaxed);
     out->stereoSubmits = g_pmStereoSubmits.load(std::memory_order_relaxed);
     out->staleL = g_pmStaleL.load(std::memory_order_relaxed);
@@ -5159,13 +5433,37 @@ void pair_probe(PairProbe* out) {
     // Drained on read (like the [flick] dmax window): the caller's cadence
     // defines the window, so the printed worst age lines up with the minute
     // the user reports seeing the defect.
-    out->ageMaxL = g_pmAgeMax[0].exchange(0, std::memory_order_relaxed);
-    out->ageMaxR = g_pmAgeMax[1].exchange(0, std::memory_order_relaxed);
+    out->ageMaxL = drain ? g_pmAgeMax[0].exchange(0, std::memory_order_relaxed)
+                         : g_pmAgeMax[0].load(std::memory_order_relaxed);
+    out->ageMaxR = drain ? g_pmAgeMax[1].exchange(0, std::memory_order_relaxed)
+                         : g_pmAgeMax[1].load(std::memory_order_relaxed);
+    // 41.1 (Dishonored): the same in presents.
+    out->agePresL = g_pmAgePres[0].load(std::memory_order_relaxed);
+    out->agePresR = g_pmAgePres[1].load(std::memory_order_relaxed);
+    out->agePresMaxL = drain ? g_pmAgePresMax[0].exchange(0, std::memory_order_relaxed)
+                             : g_pmAgePresMax[0].load(std::memory_order_relaxed);
+    out->agePresMaxR = drain ? g_pmAgePresMax[1].exchange(0, std::memory_order_relaxed)
+                             : g_pmAgePresMax[1].load(std::memory_order_relaxed);
+    out->stalePresL = g_pmStalePres[0].load(std::memory_order_relaxed);
+    out->stalePresR = g_pmStalePres[1].load(std::memory_order_relaxed);
+    out->phaseAvailable = g_pfnQpcToXrTime != nullptr;
+    out->phaseLastUs = g_pairPhaseLastUs.load(std::memory_order_relaxed);
+    out->phaseSumUs = g_pairPhaseSumUs.load(std::memory_order_relaxed);
+    out->phaseMaxUs = g_pairPhaseMaxUs.load(std::memory_order_relaxed);
+    out->phaseCount = g_pairPhaseCount.load(std::memory_order_relaxed);
+    out->phaseMissed = g_pairPhaseMissed.load(std::memory_order_relaxed);
     out->ringPushed = g_srPushed.load(std::memory_order_relaxed);
     out->ringPopped = g_srPopped.load(std::memory_order_relaxed);
     out->ringDropped = g_srDropped.load(std::memory_order_relaxed);
     out->ringCleared = g_srCleared.load(std::memory_order_relaxed);
     out->mirrorOn = g_mirror.load(std::memory_order_relaxed);
+}
+
+// 41.1 (Dishonored): cumulative, NOT drained - a per-present reader must not eat
+// the beat's window. Sum of both eyes' stale-present submits.
+uint32_t pair_stale_submits() {
+    return g_pmStalePres[0].load(std::memory_order_relaxed) +
+           g_pmStalePres[1].load(std::memory_order_relaxed);
 }
 
 // ---- 41.0 (Dishonored): the D3D9 host's seams ------------------------------------
@@ -5244,6 +5542,12 @@ void haptic(int, float, float) {}
 void shutdown(const char*) {}
 void on_resize(unsigned, unsigned, unsigned) {}
 void pair_probe(PairProbe*) {}
+void pair_probe_peek(PairProbe*) {}
+uint32_t pair_stale_submits() { return 0; }
+int present_phases_last(uint32_t*, int) { return 0; }
+const char* present_phase_name(int) { return "?"; }
+bool pair_open() { return false; }
+uint32_t pace_timeouts() { return 0; }
 void draw_debug_ui() {}
 bool get_head_pose(HeadPose&) { return false; }
 bool peek_head_pose(HeadPose&) { return false; }
@@ -5266,12 +5570,16 @@ void set_edge_snapshot(bool) {}
 bool get_edge_snapshot(EdgeViewSnapshot&) { return false; }
 void set_enabled(bool) {}
 void set_sr_pair_pacing(bool) {}
+void set_pair_strict(bool) {}
+bool pair_strict() { return false; }
 void handle_pace_command(const char*) {}
 void set_pace_detach(bool) {}
 void set_pace_sync(bool) {}
 void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }
+void set_pace_ahead(int) {}
+int pace_ahead() { return 0; }
 float get_pose_gen_delta_deg() { return 0.0f; }
 void set_present_stage(const char*) {}
 void set_draw_stage(const char*) {}

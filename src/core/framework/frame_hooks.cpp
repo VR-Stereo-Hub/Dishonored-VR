@@ -2,6 +2,9 @@
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/frame_hooks.h"
 
+#include "core/framework/perf.h"
+#include "core/gfx/d3d9ex.h"
+#include "core/gfx/device_census.h"
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
 #include "core/util/crash.h"
@@ -21,11 +24,13 @@ typedef HRESULT (__stdcall *PFN_CreateDevice)(IDirect3D9*, UINT, D3DDEVTYPE, HWN
 typedef HRESULT (__stdcall *PFN_Present)(IDirect3DDevice9*, const RECT*, const RECT*, HWND,
                                          const RGNDATA*);
 typedef HRESULT (__stdcall *PFN_Reset)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
+typedef HRESULT (__stdcall *PFN_BeginScene)(IDirect3DDevice9*);
 
 Callbacks         g_cb;
 PFN_CreateDevice  g_origCreateDevice = nullptr;
 PFN_Present       g_origPresent = nullptr;
 PFN_Reset         g_origReset = nullptr;
+PFN_BeginScene    g_origBeginScene = nullptr;
 SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
 
@@ -111,15 +116,24 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         if (!torn) { torn = true; dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit"); }
         return g_origPresent(self, src, dst, wnd, dirty);
     }
+    // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
+    // present's record (its OUT = the render thread's time outside this hook).
+    dvr::perf::set_device(self);
+    dvr::perf::stamp(dvr::perf::kEntry);
     if (g_cb.pre_tick) g_cb.pre_tick(self);
-    fps_cap_wait();
+    // 41.1: a method that presents twice per tick is paced by the runtime's
+    // pair pacing (one xrWaitFrame per pair); a per-present cap would halve
+    // the tick rate.
+    if (!(dvr::stereo::active() && dvr::stereo::active()->presents_per_tick() > 1)) fps_cap_wait();
     ++g_count;
     if (g_disabled) return g_origPresent(self, src, dst, wnd, dirty);
+    dvr::perf::stamp(dvr::perf::kAfterPre);
 
     // Present-head: the runtime layer brings the session up, pumps events,
     // waits for the frame (this is what paces the game to the headset),
     // begins it and locates the head and the views.
     dvr::vr::on_present_begin();
+    dvr::perf::stamp(dvr::perf::kAfterBegin);
     track_session();
 
     dvr::stereo::FrameInput in;
@@ -135,7 +149,27 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::vr::recommended_eye_size(&in.eyeW, &in.eyeH);
     dvr::stereo::begin_frame(in);
 
+    // 41.1: the projection arming. The runtime submits a projection layer only
+    // in camera mode, and nothing in this game armed it before; a method that
+    // wants it (or `stereo projection on`) turns it on here, on the transition,
+    // and the gameplay verdict is published EVERY present while it holds - the
+    // runtime's cinematic fallback drops to the quad on a stale publish, so a
+    // silent game side would pin the quad forever.
+    {
+        static bool wantedPrev = false;
+        const bool wanted = dvr::stereo::wants_projection();
+        if (wanted != wantedPrev) {
+            wantedPrev = wanted;
+            dvr::vr::set_camera_mode(wanted);
+            DVR_INFO("stereo: projection layer %s - runtime camera mode %s (method %s, override %s)",
+                     wanted ? "CLAIMED" : "released", wanted ? "ON" : "off", dvr::stereo::active_name(),
+                     dvr::stereo::projection_override_name());
+        }
+        if (wanted) dvr::vr::publish_gameplay_view(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
+    }
+
     if (g_cb.game_tick) g_cb.game_tick(self);
+    dvr::perf::stamp(dvr::perf::kAfterTick);
 
     // Present-tail: the method produces the eye texture; the runtime shows it.
     dvr::stereo::FrameDevices devs;
@@ -143,9 +177,28 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
     dvr::stereo::FrameOutput out;
     dvr::stereo::end_frame(devs, out);
+    dvr::perf::stamp(dvr::perf::kAfterEnd);
     if (out.tex) ++g_submits;
     dvr::vr::on_present_end(out.tex);
-    return g_origPresent(self, src, dst, wnd, dirty);
+    dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
+    dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
+    const HRESULT hr = g_origPresent(self, src, dst, wnd, dirty);
+    dvr::perf::stamp(dvr::perf::kAfterGamePresent);
+    // 41.1 (session 8): the codes only a 9Ex device returns (the game never
+    // handles them); the first of each is named so a TDR reads as a TDR.
+    if (hr != D3D_OK) {
+        if (hr == D3DERR_DEVICEHUNG)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 3, "device: Present -> D3DERR_DEVICEHUNG (a GPU timeout; the 9Ex device does not go lost, the game may not notice)");
+        else if (hr == D3DERR_DEVICEREMOVED)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 3, "device: Present -> D3DERR_DEVICEREMOVED (the adapter went away)");
+        else if (hr == S_PRESENT_OCCLUDED)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3, "device: Present -> S_PRESENT_OCCLUDED (the window is covered; the 9Ex device keeps presenting)");
+        else if (hr == S_PRESENT_MODE_CHANGED)
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3, "device: Present -> S_PRESENT_MODE_CHANGED (the desktop mode changed under a 9Ex device)");
+        else
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Warn, 3, "device: Present -> 0x%08lx", (unsigned long)hr);
+    }
+    return hr;
 }
 
 HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
@@ -154,8 +207,15 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
              pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1);
     // Every default-pool resource this proxy creates must be released here
     // (38.63: a forgotten one made the game's Reset fail forever).
+    dvr::perf::on_reset();
     dvr::stereo::on_reset();
-    return g_origReset(self, pp);
+    const HRESULT hr = g_origReset(self, pp);
+    if (FAILED(hr))
+        DVR_ERROR("device Reset FAILED 0x%08lx (%ux%u windowed=%d) - %s", (unsigned long)hr, pp ? pp->BackBufferWidth : 0,
+                  pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1,
+                  dvr::d3d9ex::device_is_ex() ? "on a 9Ex device (ResetEx is the contingency for a fullscreen refusal)"
+                                              : "a default-pool object still held? (the hkReset LAW)");
+    return hr;
 }
 
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
@@ -164,14 +224,27 @@ HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const floa
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
+    dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
     if (g_cb.set_render_target) return g_cb.set_render_target(self, idx, rt);
     return g_origSetRt(self, idx, rt);
+}
+
+// 41.1 (session 8): the frame-start marker. UE3's D3D9 RHI issues BeginScene
+// from the thread that draws; the first one after the game's Present is where
+// the render thread stopped waiting and started executing the frame.
+HRESULT __stdcall hkBeginScene(IDirect3DDevice9* self) {
+    dvr::perf::frame_start_marker("BeginScene");
+    return g_origBeginScene(self);
 }
 
 HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND wnd,
                                  DWORD flags, D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** outDev) {
     if (g_cb.before_create_device) g_cb.before_create_device(pp);
-    HRESULT hr = g_origCreateDevice(self, adapter, type, wnd, flags, pp, outDev);
+    // 41.1 (session 8): on an Ex object the device is created with
+    // CreateDeviceEx (the fallbacks and every HRESULT in core/gfx/d3d9ex);
+    // on the plain object this is the original call.
+    HRESULT hr = dvr::d3d9ex::create_device(self, adapter, type, wnd, flags, pp,
+                                            (dvr::d3d9ex::PFN_CreateDevice)g_origCreateDevice, outDev);
     DVR_INFO("CreateDevice -> 0x%08lx (%ux%u windowed=%d)", (unsigned long)hr,
              pp ? pp->BackBufferWidth : 0, pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1);
     if (g_cb.after_create_device) g_cb.after_create_device(hr, wnd, pp);
@@ -184,7 +257,12 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         if (old && !g_origSetVsConst) g_origSetVsConst = (SetVsConstFn)old;
         old = PatchVtable(*outDev, 37, (void*)hkSetRenderTarget);   // SetRenderTarget
         if (old && !g_origSetRt) g_origSetRt = (SetRenderTargetFn)old;
-        DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget)");
+        old = PatchVtable(*outDev, 41, (void*)hkBeginScene);        // BeginScene (the perf marker)
+        if (old && !g_origBeginScene) g_origBeginScene = (PFN_BeginScene)old;
+        DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene)");
+        // 41.1 (session 8): the creation census - what the game asks of this
+        // device, the go/no-go for the D3D9Ex route (core/gfx/device_census).
+        dvr::census::install(*outDev, self, adapter, type, flags, pp);
     }
     return hr;
 }

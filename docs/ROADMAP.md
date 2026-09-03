@@ -45,12 +45,20 @@ results.
 
 - [ ] The headset run above signed off: readable screen at `[Screen] DistanceMeters` /
       `WidthMeters`, no judder at the game's frame rate, `[VR] FpsCap` cadence chosen
-- [ ] The capture cost measured and cut: a D3D9Ex shared surface opened on the D3D11 side
-      replaces `GetRenderTargetData` (the per-frame CPU round trip in `core/gfx/capture`)
-- [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (holds -position), the five
+- [x] The capture cost measured and cut (2026-09-03, runs 16-19): the shipped path costs
+      ~5 ms per present at 1080p, all of it `LockRect` waiting on the queued readback;
+      `[Capture] Mode=deferred` (queue the readback, lock it one present later) is the cut:
+      2.3 ms, `mono.xrs` passing (ENGINE_NOTES "The capture cost, measured"). Session 8:
+      deferred SHIPS as the default; the readback's GPU side measured (16 ms of DMA per
+      present at the Quest 3 size) and removed by the 9Ex shared path behind `[Device] Ex=1`
+      (ENGINE_NOTES "The tick budget, measured")
+- [x] `camera eyetest` verdicts recorded: camera+0x330 HONOURED (it holds the POSITION and
+      c5 is its negation - the sign corrected 2026-09-03 by picture, bbd04fec), the five
       others DISCARDED (ENGINE_NOTES)
-- [ ] Positional (lean/crouch/roomscale) tracking moved from the c0 `LeanVP` patch to the
-      camera seam's position write once the write point is known, and measured equal
+- [x] Positional (lean/crouch/roomscale) tracking on the camera seam's position write behind
+      `[PosTrack] Lane=vp|camera` (default vp): `camera postest` HONOURED on all three axes
+      within 1-2 % on the camera lane (run 20; ENGINE_NOTES "Positional tracking on the
+      camera seam"); the vp lane's matrix effect is not c5-measurable, its APPLIED count is
 - [ ] `head_track` and `pad_bridge` converted to real modules (the D1-era refactor step
       that S0 deferred)
 - [ ] SteamVR rig confirmed through the shim (`xr: runtime "DishonoredVR SteamVR shim (OpenVR)"`)
@@ -74,14 +82,64 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 `core/gfx/reentry.cpp` carries the design. Acceptance, in order:
 
-- [ ] The scene-draw root found and byte-verified (caller census, live stack scrape, the
-      eyetest as the mover); its address in `patterns.h` with the derivation in ENGINE_NOTES
-- [ ] The second draw gated deny-by-default and SEH-guarded; a fault poisons the method for
-      the session and the game runs on mono
-- [ ] `stereo reentry` accepted; presents = 2x ticks; the beat line reads `L/s == R/s`;
-      second-draw cost logged
-- [ ] `stereo.xrs`, eye-check legs 0-5 on the simulator; headset: fusion, per-eye
-      reflections and effects, no flicker on fast motion
+- [x] The scene-draw root found and byte-verified (2026-09-03, runs 26-27: the caller
+      census, the live stack scrapes, pe-xref confirmation, `reentry pulse` as the mover);
+      `kViewportDraw` and its call site in `patterns.h`, ENGINE_NOTES "The scene-draw root,
+      derived live"
+- [x] The second draw through a patched call site (deny-by-default by construction, the
+      return address checked), SEH-guarded; a fault poisons the method for the session and
+      the game runs on mono
+- [x] `stereo reentry` accepted; presents = 2x ticks (106 vs 53); the beat line reads
+      `L/s == R/s == out/s / 2`; the second draw costs 220-470 us (run 28-29)
+- [x] `stereo.xrs` and `reentry.xrs` on the simulator, eye-check legs 0-1 (legs 2-5 carry
+      BioShock's bands: KNOWN_ISSUES); the pair line proves the two cameras half an IPD apart
+- [x] Headset: fusion confirmed (user, Quest 3 via VDXR, 2026-09-03, run 40) - the world
+      reads in 3D, head tilt, lean, look and crouch all correct. Merged to
+      `native-stereo-rendering` (PR #3, 3be4a0c4), which is the working branch from here.
+- [x] The four faults run 40 left open, each fixed or levered on the simulator (session 7,
+      2026-09-03): the desync (the gates decided once per tick; `vrpace strict` off; the
+      `STALE R EYE` line; `reentry skip2` reproduces it), the judder (the pair phase measured;
+      `vrpace ahead` 0..2 ships at 0), the pitch pivot (the engine's own neck measured at
+      0.321/0.062 m; `[Neck] Mode=cancel` cancels it, ships off), the F10 tickbox (ticked,
+      `reentry` the default) and the picker (the command-line route, VirtualMode: 2496x2688
+      honoured on the simulator). Headset verdicts pending (STATUS "Next steps").
+- [x] The headset run on session 7's build (the user, 2026-09-03, runs 13a/b): the picker
+      WORKS and is sharp at 2496x2688; `neck cancel` is RIGHT (now the default); the desync
+      still recurs on load and after some pause/resumes (one stale-left submit at a FOCUSED
+      regain, owner unnamed); the judder could not be judged: 28 ticks/s at the eye's size
+- [x] PERFORMANCE, on the simulator (session 8, 2026-09-03): the tick budget measured (the
+      readback owns the tick on the CPU and the GPU: 16 ms of DMA per present at the Quest 3
+      size against 5 ms of 3D per draw), the creation census (99 % MANAGED, READONLY streaming
+      locks), the game's device as D3D9Ex with the managed-pool shadow (`[Device] Ex=1
+      Managed=shadow`, off by default), the fenced two-slot shared capture (75-90 ticks/s at the
+      Quest 3 size, pace-bound), `deferred` shipping as the default, `mark` and the F10 MARK
+      button, the richer gap line; the pace guard's eaten tag named on the STALE line and the
+      no-frame tag fixed; a simulated focus loss did not reproduce the regain desync
+- [x] PERFORMANCE, on the headset (the user, 2026-09-03, run 15): `[Device] Ex=1` + `capture mode
+      shared` judged good at the Quest 3 size and made the defaults
+- [x] THE ONE-VIEW STATE, the instrument (session 9, 2026-09-04): the frame-identity trace
+      (`core/gfx/frame_id`, `[Perf] FrameId=1`, the `stereo: frameid` line: a 64x64 thumbnail of
+      every present at the backbuffer, the shared slot, the eye texture and the swapchain image,
+      the c5 step between the two draws, the picture's own parallax sign), `reentry rearm [n]`,
+      `capture reinit`, `dump eyes` as a pair encoded off the present thread (a dump used to
+      re-arm the doubling), the presenting thread followed live, pass-2 write refusals counted
+- [x] THE EYES SWAPPED, found and fixed on the simulator (session 9): the tag ring's order broke
+      across single -> double transitions, within a second of an arming and spontaneously in
+      gameplay (the A/B: twice in 25 s with `reentry c5pair off`); the pairing follows the
+      within-tick camera step now (`[Stereo] C5Pair=1`), the ring realigned when it disagrees;
+      `reentry.xrs` 11/11 on the fixed build
+- [x] THE EYES, on the headset (the user, 2026-09-04, runs 07-08): RIGHT from the load and
+      through every word on the F10 EYES block; and the A/B proves the cause - `c5 pairing`
+      unticked plus a pause/resume brings the fault straight back (24 of 25 pairs swapped, the
+      picture agreeing), ticking it on clears it (0 swapped for the rest of the run). The
+      per-eye ladder's correctness question is CLOSED
+- [x] The headset-judged values are the defaults (2026-09-04): `[Stereo] Method=reentry Armed=1
+      C5Pair=1`, `[Camera] EyeField=0x330`, `[Neck] Mode=cancel` with the measured pivot,
+      `[PosTrack] Scale=98`, `[Tracking] HeightOffsetM=-0.090`, `[Screen] RenderWidth=2496
+      RenderHeight=2688 VirtualMode=1`, `[Device] Ex=1 Managed=shadow`, `[Capture] Mode=shared`
+- [ ] Then `ahead`, the desync on load with the new owner line, and the pivot re-judged at a
+      real frame rate (STATUS "Next steps")
+
 
 ## S3 - Compare and choose; the features come back on the winner
 

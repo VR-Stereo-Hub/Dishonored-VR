@@ -31,8 +31,13 @@
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
+#include "core/framework/perf.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/frame_id.h"
+#include "core/gfx/device_census.h"
+
+#include "core/gfx/d3d9ex.h"
 #include "game/dishonored/camera.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
@@ -116,6 +121,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::res
 #include "core/window/game_window.cpp"
+#include "core/window/render_size.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::blink
 #include "game/dishonored/blink.cpp"
@@ -166,6 +172,8 @@
 #include "game/dishonored/shared/ue_math.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::script
+#include "game/dishonored/scene_probe.cpp"
+#include "game/dishonored/scene_draw.cpp"
 #include "game/dishonored/ue3/process_event.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::script

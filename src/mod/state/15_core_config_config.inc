@@ -44,6 +44,9 @@ static volatile double g_uiEventMs = 0.0;
 // held, or the DXVK fork reports a frame with no stereo splices - loading
 // screens, videos), SBS presentation drops to mono so flat UI is readable.
 static volatile bool g_menuOpen = true;
+// 41.1: the title screen / main menu movie is up (DisGFxMoviePlayerMainMenu events,
+// process_event.cpp); its own flag because the ghost-clear owns g_menuOpen.
+static volatile bool g_mainMenu = false;
 // 36.2: the panel places itself ONCE (FirstUseEver), and 36.1's shrink can
 // fire after that - the panel's latched position then sits outside both the
 // new logical space (invisible) and the mouse's reachable range (dead).
@@ -65,6 +68,18 @@ static void BlockCfgLoad();          // defined with the mesh-block machinery
 // change. 10 = 41.0, the native-stereo foundation: the wide-window, side-by-
 // side, OpenVR and [Stereo] shear keys are gone and the mono screen's
 // DistanceMeters/WidthMeters defaults changed (docs/RELEASE_NOTES.md).
+// 41.1 [Screen] RenderWidth/RenderHeight/RenderFullscreen/VirtualMode: the
+// render-resolution picker's ask (0 = the game's own size). The mechanism and
+// what the game will take: core/window/render_size.cpp.
+static uint32_t g_resWantW = 0, g_resWantH = 0;
+static bool     g_resWantFull = true;
+static bool     g_resVirtual = false;
+static uint32_t g_resModes[64][2];                  // the display modes the picker lists (render_size.cpp)
+static int      g_resModeN = 0;
+static char     g_resLastLine[200] = "no ask yet";  // the picker's last verdict, for F10
+static uint32_t g_launchW = 0, g_launchH = 0;       // the ask the launch file carried (DllMain reads it; the verdict uses it)
+static bool     g_launchFull = true;
+static bool     g_launchVirtual = false;            // the file asked for VirtualMode (wins over the ini)
 static const char* kBuildTag = "41.0";
 static const int kConfigVersion = 10; // bump to refresh users' ini with new defaults
 

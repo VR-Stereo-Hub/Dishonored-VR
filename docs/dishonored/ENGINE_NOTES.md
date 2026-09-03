@@ -174,6 +174,277 @@ location" was wrong - retire it). Whether 0x330 persists between dispatches (the
 re-base logic) was not separated out; the eyetest's own 120-present window shows the value
 must be rewritten every dispatch, which the seam does.
 
+## Head roll: UE3 positive roll = right ear DOWN (2026-09-03, measured by picture)
+
+The second headset run reported the head TILT reversed under the projection layer. The
+roll telemetry on the `headtrack:` line (41.1) first proved the write LANDS - `incoming`
+(what the engine hands ProcessViewRotation) equals `wrote` on the next dispatch, so the
+engine keeps our roll and it reaches the render. The direction was then measured on the
+simulator by picture (run 37): `head rot 0 0 20` rolls the simulated head right-ear-down
+(the simulator's roll is a rotation about the forward axis, `quat_from_ypr`), and the
+game's own frame showed the world's verticals leaning with their tops to the RIGHT. A
+right-ear-down head must see them lean LEFT. Reversed, as reported.
+
+Cause: `g_hmdRoll = atan2(right.y, up.y)` is positive for the right ear UP, and UE3's
+rotator roll is positive for the right ear DOWN (the picture: writing a negative roll
+rolled the camera left-ear-down). The value is now negated once at its derivation, so the
+ProcessViewRotation write, the matrix injection and the lean counter-rotation all inherit
+UE3's sense; `[HeadInject] FlipRoll` stays the A/B override with 1 = the measured
+direction. Re-measured after the fix (run 38): +20 leans the verticals left, -20 right,
+the exact mirror of the faulty frames; pitch and yaw untouched (hmd pitch -30 -> view
+pitch -5461 units = -30 deg).
+
+## The camera field holds the POSITION, c5 is its negation (2026-09-03, corrects session 5)
+
+**This one sign put every eye offset and every lean backwards in the headset.** Session 5's
+`camera eyetest` measured that camera+0x330 reads exactly -c5, assumed c5 was the camera's
+world position, and recorded the field as holding the NEGATED position (`kFields[].sign =
+-1`). Everything downstream then wrote its offsets negated.
+
+**The measurement that settles it** (run 35, the simulator, the sewers, a DIFFERENTIAL
+picture test against a known-good reference - the c0 `LeanVP` patch, shipped and
+headset-tuned since 30.35): command the same head displacement on both lanes under a
+projection layer and dump the game's own frame.
+
+| displacement | vp lane (`LeanVP`, the reference) | camera lane, sign -1 (session 5) | camera lane, sign +1 |
+|---|---|---|---|
+| 2 m right | the corridor wall on the LEFT, the city outside on the right (the camera went right, through the wall) | MIRRORED: wall right, city left (the camera went LEFT) | matches the reference |
+| 2 m up | up inside the ceiling pipe, the corridor floor below | the camera went DOWN, under the floor looking up | matches the reference |
+
+So writing +X into camera+0x330 moves the rendered view by +X: **the field holds the
+camera's world POSITION, and c5 (the vertex constant) is its negation.** Two independent
+confirmations: the shipped 38.24 crouch clamp writes a world Z into these same fields and
+compares it against the pawn's world Z (which only makes sense for a position), and it was
+verified to fix crouch; and the picture above.
+
+`kFields[]` now carries two numbers: `sign` (what a wanted WORLD displacement is multiplied
+by to become the field delta: +1) and `c5Sign` (how c5 answers it: -1 on the POV fields).
+The eyetest asks for VIEW travel and expects c5 to move by `uu * c5Sign`; it still reads
+**HONOURED 119/120** (c5 -99.2 uu for +100 asked), the postest reads HONOURED on both axes
+(+29.8 for +30 right, -24.4 for -25 up), and the doubling is unaffected (L/s 52 R/s 51,
+draws = 2nd = 52).
+
+**The trap, for the next reader.** The eyetest was an instrument that could not fail its own
+hypothesis: it wrote into a field and measured a DIFFERENT engine quantity (c5) that moves
+with it, so it proved "the renderer noticed" and was read as "the renderer drew from the
+offset position". Only the picture can answer the direction. Any future write point needs a
+differential picture test against a known-good path before its sign is believed.
+
+## Positional tracking on the camera seam (2026-09-03, S1)
+
+The camera object carries a row-major basis at +0x50 (forward), +0x60 (right, `kCamRight`),
++0x70 (up); the original author's `FindPovRotators` matched +0x50 against the POV
+rotator's forward, and 41.1 reads all three (`kCamFwd`/`kCamRight`/`kCamUp` in patterns.h),
+validating them orthonormal before the first write. Measured at yaw 0 in the auto-continued
+save (run 20): `fwd=(1.000 0.000 -0.002) right=(-0.000 1.000 -0.000) up=(0.002 0.000 1.000)`,
+pairwise dots 0.000 (UE3: X forward, Y right, Z up).
+
+Lean/crouch/roomscale used to ride the c0 view-projection patch (`LeanVP`), a matrix patch
+the renderer's attachments do not follow. `[PosTrack] Lane=vp|camera` (default vp, the
+shipped path; `postrack lane <l>` live) moves the offset onto the camera seam's write: ONE
+write per dispatch of `base - (eye + position)` into camera+0x330, the position offset
+resolved along the basis rows. The seam is the single owner of the offset (TrackHead
+publishes it there; both lanes read it there), and the `camera postest <R> [U] [F]`
+instrument overrides it with a commanded triple, takes 45 presents of c5 baseline at zero,
+then judges 120 presents:
+
+| lane | asked (R, U, F uu) | measured (c5 travel on the basis rows) | verdict |
+|---|---|---|---|
+| camera | +30, 0, 0 | +29.7, +0.2, +0.0 (mean of 120; 2284 seam writes) | HONOURED |
+| camera | 0, -25, 0 (a crouch drop) | +0.0, -24.4, -0.0 | HONOURED |
+| camera | 0, 0, +40 | +0.0, +0.4, +39.7 | HONOURED |
+| camera | +30, +25, -40 | +29.7, +25.2, -39.7 | HONOURED |
+| vp | +30, 0, 0 | the c0 patch ran on 120/120 presents (2760 uploads) | APPLIED (c5 cannot see a matrix patch) |
+
+**Where that table was measured.** Run 20's rows come from the TITLE SCREEN's attract
+camera (`DishonoredPlayerCamera_0`), which the state line called GAMEPLAY (the next section).
+Re-measured in real gameplay (run 21, the Dunwall Sewers level, `DishonoredPlayerCamera_1`,
+ProcessViewRotation dispatching at 270/3 s): `camera eyetest 100 0x330` HONOURED 120/120
+(+100.0 uu), `camera postest 30 0 0` on the camera lane measured R+30.0 U+0.2 F-0.0. The
+same two instruments on the level's LOADING screen ("press any key to continue", no script
+dispatches) read DISCARDED / NOT HONOURED with c5 frozen: a static camera the loader
+re-sets every tick. So the write point holds on the attract camera and in gameplay, and
+an instrument run must know which camera it measured: the `[game] state` line now says.
+
+So the renderer draws from the offset position on the camera lane within 1-2 %, on all
+three axes, the same write point the eye offset uses. What the instrument does NOT say:
+the vp lane's effect is a matrix change c5 never sees, so "the same travel on both lanes"
+is only half measurable; and a shot diff on the mono screen (a simulated 40 cm head step)
+reads 1.5-2.1 mean-abs-diff on both lanes against a 1.3-1.7 return-to-zero control, i.e.
+the scene's own animation swamps a 14 uu lean at the quad's 16 % coverage. The picture
+verdict belongs to a stereo method's projection layer (`world-6dof.xrs` `w_trans_x`).
+
+Two facts found on the way. (1) The 38.24 eye clamp lives inside `FovLeverApply` AFTER
+its early return, so it is dead whenever the lever is off - which is the mono screen's
+default (`[Screen] FovLever=0`). The camera lane's writer caps its Z at the same ceiling
+while the clamp is live (`camera::set_eye_ceiling`), so the two never fight; with the lever
+off neither runs. (2) The seam writes ~19 times per present (every ProcessEvent dispatch
+of the camera pass), which is the cadence the 38.24 clamp and the FOV lever already used.
+
+## The game state under GamepadOnly, and the projection gate (2026-09-03, S2)
+
+The `[game] state` line read GAMEPLAY on the title screen, in the main menu and on a
+loading screen (runs 21-22; the simulator captures showed "Press any key" while the
+instruments ran). Cause: every script-event tracker (the pause-menu open/close names, the
+`OnToggleCinematicMode` latch, the UI vocabulary) sat inside the motion-aim block behind
+`g_maimEnabled`, which `[Mode] GamepadOnly=1` turns off, and windowed mode has no cursor
+test (32.9). The same class of bug as the 41.0 PreExit handler. 41.1 hoists the tracking
+out (only the fire-window arm stays gated) and adds what the runs measured:
+
+| screen | signal (measured) | state |
+|---|---|---|
+| title screen / main menu | `Start`, `OnFocusGained`, `BackToStartScreen`, `Req_CanContinueGame` on an object whose class contains `MoviePlayerMainMenu`; leaves with `UnregisterControllerDelegates`. Its own flag (`g_mainMenu`): the stale-flag ghost test clears `g_menuOpen` while dispatches flow, and the attract camera behind the menu dispatches | MENU |
+| the attract scene's cinematic toggle | `OnToggleCinematicMode` fires ON at the title screen with the attract pawn already latched, so a level load INHERITED the latch (CINEMATIC in the sewers). A new pawn latch now clears it: a fresh level starts clean; in-level cutscenes keep their parity | CINEMATIC only in a cutscene |
+| loading screen ("press any key to continue") | no ProcessViewRotation dispatch for 750 ms with a live pawn (the head-write counter read 0/3 s); the loader dispatches a burst about once a second, so leaving LOADING needs one second of continuous dispatches | LOADING (new) |
+| gameplay | pawn live, no menu, no cinematic, dispatches continuous | GAMEPLAY |
+
+The runtime layer's projection path is gated on the same verdict: `frame_hooks` arms
+camera mode when the active method (or `stereo projection on`) claims a projection layer
+and publishes the verdict every present; the runtime's cinematic fallback (3-present
+hysteresis) drops to the quad screen on a false verdict and returns on a true one. Walked
+in run 24: title MENU -> quad, main menu MENU -> quad, load LOADING -> quad, level
+GAMEPLAY -> `xr: cinematic quad off`, two projection views, both eyes 72 % non-black.
+Before this, the runtime's projection machinery had no caller in this game at all (camera
+mode was the overlay checkbox only, and a stale verdict would have pinned the quad).
+
+Two FOV facts from the same runs. Under a projection layer the lever's target is the
+runtime's circumscribed hfov (137.0 deg at 16:9 on the simulated Quest 3; vfov 110.0 for
+the 54/55 deg half-angles) and the 0x53c sensor followed it to 137.0 within a second in
+gameplay (the engine interpolates: 136.1, 136.2 ... per present), the claim reading
+`src=readback`. The loading screen's camera ignores the lever (sensor 75.0, the level's
+natural FOV). And the lever captures its "natural base" whenever it re-arms: after an
+arm-disarm-arm it captured 137 (the FOV its own previous writes had left on the
+controller), so the ratio law then scales from 137, which is harmless for the target but
+means "natural" is not the game's 75 any more - a re-arm should reset the FOV first if the
+number is ever used as a baseline.
+
+The simulator's `claimRatioH` reads 2.17 under this lever by construction (the claim's
+tan(68.5) against the eye's own mean half-tangent, tan(54)/tan(44)): BioShock rendered
+the eye's own FOV, this lever renders the circumscribed one. Not a magnification error
+while the claim equals the render; `fovaudit src=readback` is the check.
+
+## The scene-draw root, derived live (2026-09-03, S2b)
+
+The SequentialReentry seam needs the ONE function whose call tree draws the scene and
+enqueues the present, called once per tick from the engine's tick. Derived live in runs
+26-27 with the instruments in `game/dishonored/scene_probe.cpp` (`reentry census`, `reentry
+stack event|caller|present`, `reentry probe`, `reentry findstart`), the method BioShock
+Infinite's session 40 used (bioshock-1-vr-mod, ENGINE_NOTES "the render root"), then
+confirmed statically with `tools\pe-xref.ps1`. Static walking alone was not attempted: on
+Infinite it failed twice.
+
+**1. The caller census at the camera write.** `ProcessViewRotation` (the head-tracking
+write's dispatch) is dispatched from ONE call site, `call eax` returning to `0x005d0789`,
+693 times in 693 presents (once per present); the dispatching object is the camera
+modifier (`CameraModifier_CameraShake`). The script thread and the present thread are
+DIFFERENT threads (script tid 16012, present tid 16848 that run): a render thread presents;
+this game is Infinite's substrate (threaded, `OneFrameThreadLag`), not BioShock 1's.
+
+**2. The one-shot stack scrapes** (`RtlCaptureStackBackTrace` is cut to 3 frames by
+frame-pointer-omitted code; the raw call-preceded scrape walks the whole chain and, for an
+`E8` site, names the function the frame ENTERED). Two chains on the game thread, walk-up
+order, outermost frames last; they SHARE their outer half:
+
+| ret | enters | role |
+|---|---|---|
+| `0x00ec44f3` | `0x009e3c60` | the main loop's per-frame body |
+| `0x009e3d20` | `0x009e3b90` | |
+| `0x009e3c4a` | `0x009e3980` | |
+| `0x009e3b1f` | `0x009e03b0` | the frame function that calls the engine: at `0x9e0555` it does `mov edx,[ecx]; mov eax,[edx+0x124]; push ecx; fstp [esp]; call eax` = `GEngine->Tick(DeltaSeconds)` (a virtual with ONE float argument) |
+| `0x009e055a` | (virtual) `0x00a17890` | `UDishonoredEngine::Tick` (0 direct callers, 1 `.rdata` vtable reference - a virtual, as it must be); it calls `0x00632860` at `0xa1799f` |
+| `0x00a179a4` | `0x00632860` | **`UGameEngine::Tick`** (1 direct caller = the subclass above, 1 vtable reference); both chains below live inside it |
+| tick chain: `0x00632a09` | `0x0065e0d0` | the world tick (1 caller) -> ... -> `0x005d0710` (1 caller) -> `call eax` at `0x5d0784` = the `ProcessViewRotation` dispatch. **The camera is computed in the TICK, before the draw** |
+| draw chain: `0x006330e1` | **`0x005fc5b0`** | **the viewport draw root** (below) -> at `0x5fc92b` `mov ecx,[ebx+0x1c]; mov edx,[ecx]; mov edx,[edx+8]; ... call edx` = the viewport CLIENT's Draw through `[viewport+0x1c]` -> vtable slot 2 (Infinite's exact shape) -> a script event on the viewport client -> natives -> the generic event helper at `0x567a5e` (the ONLY direct `E8` caller of `ProcessEvent` in the exe; every other dispatch is virtual) -> `ProcessEvent(PostRender)` on `DishonoredHUD` |
+
+**3. The bytes at the call site** (`reentry probe 633090 128`), inside `UGameEngine::Tick`:
+
+    63309a  mov edi,[esi+0x48c]        ; this->GameViewport (UGameViewportClient*)
+    6330a0  test edi,edi / jz
+    ...     (a virtual on the client with one argument, slot 0xec)
+    6330cd  mov eax,[esi+0x48c]
+    6330d3  mov ecx,[eax+0x40]         ; GameViewport->Viewport (FViewport*)
+    6330d6  test ecx,ecx / jz 6330e1
+    6330da  push 1                     ; bShouldPresent = TRUE
+    6330dc  call 0x5fc5b0              ; FViewport::Draw(TRUE)   <- kViewportDrawCallSite
+    6330e1  ...                        ; kViewportDrawGameplayRet
+
+and the root: `0x005fc5b0` begins `55 8b ec 6a ff 68 a3 97 f2 00 64 a1 00 00 00 00` (push
+ebp; mov ebp,esp; push -1; push 0xf297a3; mov eax,fs:[0] - an SEH prologue, a function
+entry), its first `ret imm16` is `ret 4` at +0x1fc (ONE stack argument: the `push 1`), its
+body builds a canvas (the `lea ecx,[ebp-0x10c]; call` pair around the client-Draw dispatch)
+and tears it down after. `pe-xref`: 3 direct callers (`0x4dba68`, `0x6330dc`, `0x641d87`),
+0 vtable references; only `0x6330dc` is the per-tick gameplay dispatcher - the other two
+are not reached in gameplay (the deny gate's foreign-caller counter reads 0 across the
+runs). The control for the static tool: `ProcessEvent 0x470640` must report exactly 1
+direct caller (`0x567a5e`) and ~2087 vtable references, and it does.
+
+**The values in patterns.h**: `kViewportDraw 0x005fc5b0`, `kViewportDrawPrologue[16]`,
+`kViewportDrawRetImm 4`, `kViewportDrawCallSite 0x006330da` (7 bytes `6a 01 e8 cf 94 fc
+ff`, the `push 1; call`), `kViewportDrawGameplayRet 0x006330e1`, `kGameEngineTick
+0x00632860` and `kViewportClientOff 0x1c` (derivation only). Every hook byte-verifies the
+prologue AND the site (and that the site's rel32 targets the root) before patching, and
+refuses with the bytes it found.
+
+**4. Made to MOVE.** `reentry pulse 3` doubled three gameplay draws: `second draw ok,
+call2=414/229/218 us`, presents advanced by one per pulse (the root presents in its own
+tail, unlike Infinite's client draw), and under the method the pair line reads **the +1
+present's c5 sits (0.02 6.17 0.00) uu from the -1 present's (|d| 6.17; ipd*scale = 6.17
+expected along right)** - every pair, to the hundredth: the two presents of a tick are
+drawn from two cameras half an IPD apart along the camera's right row. The capture pair
+(`D:\dvr-data\xrsim\eyecheck\20260903_032840_reentry`) shows the parallax on the near pipe.
+
+**5. The method, measured (run 28, the sewers, simulator at 90 Hz):** `reentry: beat
+draws/s=53 2nd/s=53 presents/s=106`, `stereo: beat method=reentry out/s=107 L/s=54 R/s=53
+mono/s=0`, `call2` 218-467 us, skips 0 on every gate, no fault, `stereo.xrs`
+`projectionViews eq 2` PASS with both eyes 71/68 % non-black, eye-check leg 0 PASS (38/37)
+and leg 1 PASS (projection, 0.063 m), `stereo mono` restores the call site (`reentry: hook
+removed`) and the mono beat returns. The tick rate halves under the doubling on this rig
+(90 -> 53 draws/s at 1080p on the simulator: the second draw is a full scene draw for the
+GPU, and the game thread waits for the render thread); presents = 2x ticks holds.
+
+**What the eye-check bands say here.** Legs 2/4/5 were calibrated on BioShock 1's
+fairground (interocular mean 40-70). On this scene the MONO projection (identical images
+composited at the two eye poses) reads 13-22 mean and the true stereo pair reads 6-7: a
+per-eye render agrees with the compositor's per-eye poses better than one image shown
+twice, so the diff FALLS. The instruments that carry the verdict here are leg 0 (the
+pairing) and the pair line's c5 travel; the interocular band needs its own Dishonored
+calibration once a headset run has judged fusion (KNOWN_ISSUES).
+
+**The first headset run (2026-09-03, Quest 3 via VDXR, the user; `42-run30-quest3-reentry.log`)
+failed on two counts, both explained by the log, both invisible on the simulator:**
+
+1. *Both frames in both eyes, alternating.* The doubling ran (`draws/s=54 2nd/s=54
+   presents/s=108`, `pair pacing live`, the pair c5 line 6.08 uu) but the beat read
+   `L/s=36 R/s=54 mono/s=18`: a third of the LEFT tags were dropped by the method's own
+   pairing check, which compared the camera position the tick's last write produced with
+   the present's c5 and required them equal within 2 uu. While the player WALKS the engine
+   moves the camera by a tick of travel AFTER that write (measured: `c5 5692.0 6376.0` vs
+   `written 5689.5 6375.8`, ~2.5 uu along the heading, the eye offset intact), so the -1
+   present failed the check (the +1 present is written in the stub right before its draw
+   and always matched). Every dropped left tag broke a pair and the runtime submitted its
+   latest single image to both eyes for that frame. On the simulator every run stood
+   still. The position check is telemetry now (a 40 uu line for teleports); the ring's
+   push/pop ORDER pairs the eyes.
+2. *Head motion reversed on lean, a second motion on pitch.* Under a projection layer the
+   compositor moves the image for the head's REAL displacement (the located pose,
+   including the neck's travel on a pitch and the roll). The positional path was built
+   for the head-locked quad: a screen-space matrix shift with a deadzone and a room-scale
+   bleed that re-centres the reference within a second (the heartbeat shows the lean
+   decaying to 1-4 uu while the user leaned), and `[HeadTrack] Roll=0` never rolled the
+   camera. So the game rendered from a camera that had not moved while the layer said it
+   had: reversed parallax on a lean, a swim on a pitch, a counter-rolling horizon. Under a
+   projection layer the game camera now follows the head's RAW displacement (no deadzone,
+   no bleed, no clamp, no synthetic crouch drop) through the camera lane in the yaw-only
+   frame (`[PosTrack] Lane=auto`), and the head roll is written. The quad screen keeps the
+   tuned lean and no roll. Not yet re-judged in the headset.
+
+**A loose end, recorded.** The ring between the game thread's tag push (per draw) and the
+present thread's pop (per present) can hold two pairs legitimately (the game thread runs a
+frame ahead); the first build cleared it at depth 3 and re-paired mid-pair every few
+seconds (the c5 check caught every one: "tag -1 dropped ... c5 6383.1 is not the position
+the draw wrote 6376.9" - the two eye positions, 6.2 uu apart). Fixed by allowing two pairs
+and letting the c5 match skip stale tags (`tagResynced` in status.json).
+
 ## Head coupling of the arms (the open problem; roadmap D5)
 
 Root cause as established: Arkane draws the first-person view model in camera space; there
@@ -740,6 +1011,275 @@ have actually received the content. The image is still released after a timeout 
 acquire/release paired - an unreleased image starves the swapchain within a few frames,
 which is a hard stall rather than one stale frame.
 
+## The capture cost, measured (2026-09-03, S1)
+
+The mono screen's per-present capture (`core/gfx/capture`) was the known structural cost
+and nothing had measured it. Runs 16-19 on the dev PC (simulator lane, 1920x1080 windowed,
+the auto-continued save in gameplay, ~85 presents/s), with the `capture: cost/present` line
+(one 3 s window each, microseconds per present):
+
+| mode | rtd | lock | copy | upload | blit | total | what it says |
+|---|---|---|---|---|---|---|---|
+| sync (shipped) | 2 | 2400-3150 | 700 | 1500-1700 | 0 | 4700-5500 | `GetRenderTargetData` returns at once; **`LockRect` is the wait** (the readback is queued behind the frame in flight); the row copy of 8 MB is 0.7 ms (cached), `UpdateSubresource` 1.5 ms |
+| deferred, first form (read back the previous copy AND lock it in the same present) | 2 | 2900-3100 | 700 | 1500 | 1 | 5100-5400 | **no gain**: the readback queued this present sits behind this present's rendering too, so the lock waits just the same (run 18) |
+| deferred, pipelined (queue the readback this present, lock the PREVIOUS present's) | 2 | **0** | 730 | 1500-1650 | 1 | **2250-2400** | the wait is gone; the picture is one present late (head-locked screen: tolerable; a stereo method's tag travels with the slot) |
+| shared (a D3D9 surface opened on D3D11) | - | - | - | - | - | - | **REFUSED** by the device: `QueryInterface(IDirect3DDevice9Ex)` fails (the game calls `Direct3DCreate9`), `CreateRenderTarget` with a shared handle returns `D3DERR_INVALIDCALL`. D3D9 shares only under 9Ex, and a 9Ex device refuses `D3DPOOL_MANAGED`, which UE3's D3D9 RHI depends on, so upgrading the device is not an option either |
+| user-memory readback surface (`CreateOffscreenPlainSurface` with the buffer pointer in `pSharedHandle`, to lose the row copy) | - | - | - | - | - | - | **REFUSED**: `D3DERR_INVALIDCALL` (run 17); the runtime does not take a caller's buffer here. Not kept as a mode |
+
+So the cheapest capture this game's device allows is the pipelined `deferred` mode: half
+the cost of the shipped path, at the price of one present of latency. It also resolves a
+multisampled backbuffer through its `StretchRect`, which is what the run 6
+`GetRenderTargetData` failure under the game's AA setting needed. `[Capture] Mode=` ships
+`sync` (every new lever default OFF); `capture mode deferred` is the live A/B, and the
+headset run decides whether it becomes the default (ROADMAP S1). The remaining 2.2 ms is
+the row copy plus the D3D11 upload of 8 MB; a staging-texture map would fold the two into
+one and is the next step only if the headset number asks for it.
+
+The instrument that settled it: the phase split. The first cost line lumped lock and copy
+together as "copy = 3.5 ms" and read as a slow write-combined memcpy; splitting the lock
+out (run 18) showed the memcpy at 0.7 ms and the wait inside `LockRect`, which is what made
+the pipelined form the obvious move instead of the user-memory trick.
+
+## The tick budget, measured (2026-09-03, session 8)
+
+The headset ticked at 26-28/s at the Quest 3 size and the capture's cost line could not say who
+owned the tick: the `LockRect` wait it counts as "capture" is also the GPU finishing the frame,
+so the same numbers fit "the render thread is bound by the readback" and "the GPU is bound by
+two 2496x2688 draws". `core/framework/perf` measures the split per present (eight QPC stamps in
+hkPresent, the first BeginScene after Present as the frame-start marker, a D3D9 timestamp ring
+with a bracket around the readback copy, read five presents back and never waited on) and prints
+`perf: tick` and `perf: gpu` every 3 s. Simulator lane, RTX 4060, 2496x2688 VirtualMode, the
+sewers save, `stereo reentry` (runs 44-01, 44-03, 44-04; logs in `D:\dvr-data\logs`):
+
+| capture | tick ms | ticks/s | presents/s | CPU capture / present | of which lock | GPU 3D / present | GPU readback DMA / present |
+|---|---|---|---|---|---|---|---|
+| sync (the 41.0 path) | 46-48 | 21-22 | 43 | 17-21 ms | 9-13 ms | 4.8 ms | 15.5-16.8 ms |
+| deferred | 36-37 | 27-28 | 54 | 9.6-10.5 ms (copy 2.8, upload 7) | 0 | 4.8 ms | 10.4 ms |
+| off (the control) | pace-bound at the sim's 90 Hz | - | 93 | 0 | 0 | 2.8 ms | 0 |
+| shared on a 9Ex device, SharedWait=1 | 13.3 | 75 | 151 | 3.6-3.8 ms (the fence wait) | 3.6 ms | 4.4 ms | 0.2 ms |
+| shared, SharedWait=0 (ships) | 11.1, PACE-BOUND (the sim's 11.11 ms) | 90 | 180 | 0.5-0.8 ms | 0.5 ms | 5.0 ms | 0.2 ms |
+
+What the table says: the readback owned the tick on BOTH sides. `GetRenderTargetData` into a
+system-memory surface moves 25.6 MB at about 1.6 GB/s, 16 ms of GPU time per present that
+serialises with the next frame's draws, plus 7.5 ms of CPU copy and upload; the actual 3D work is
+5 ms per draw. `deferred` hides the CPU wait but not the DMA (the GPU still spends 21 ms per tick
+copying), which is why it gains only 6 ticks/s. The shared surface (a VRAM-to-VRAM StretchRect
+fenced by an event query) removes the DMA and the crossing: the tick drops from 46 ms to the
+simulator's pacing limit, with the GPU at 5 ms per present. The headset at 72 Hz should be
+pace-bound at the Quest 3 size with about 4 ms of GPU headroom per tick (the render thread's own
+work is 3.3 ms per present; Virtual Desktop's encoder shares the GPU and is not in this table).
+
+The confounds the instrument named: the 1080p simulator runs of session 6 (sync 83-90 vs deferred
+90-92 presents/s) were PACE-BOUND by the simulator's 90 Hz gate (`wait` 3-6 ms per present), so
+"deferred gained nothing" there said nothing about the capture; the menu and the loading screen
+are game-thread-limited (`RENDER THREAD STARVED`, idle 18 ms of 18); and the simulator lane shows
+a 130-140 ms lock stall every 2-3 s under `sync` at the Quest size (`perf: frame gap ... sat in:
+the method (capture)`, lock 125 ms) that the headset run 13 never showed: a simulator-lane
+artifact until measured otherwise (VERIFICATION, known simulator defects).
+
+## The creation census: what UE3 asks of D3D9 (2026-09-03, session 8)
+
+`core/gfx/device_census` patches the device's eight creation calls and each resource class's
+Lock, and counts what the game asks (run 44-02, the sewers level fully loaded, `device census`):
+
+- 8120 creations, 859 MB asked; **8060 MANAGED (398 MB)**: textures 5217 (DXT1 2564 of them,
+  244 MB at the first GAMEPLAY; DXT3/5 463; 8bpp 521; 16bpp 15; 32bpp 12), cube textures 23,
+  vertex buffers 1874 (12 MB), index buffers 962 (2.6 MB). DEFAULT: the render targets (21
+  float, 18 32bpp, 253 + 101 MB), 5 depth-stencils, one dynamic write-only vertex buffer.
+  SYSTEMMEM: the mod's own readback surface. No AUTOGENMIPMAP anywhere.
+- **Locks on MANAGED textures: READONLY 10598, write (NOSYSLOCK) 55393, partial 56, level > 0
+  45415**; cube textures 774 plain writes; every static vertex and index buffer locked once,
+  plain, at creation. The READONLY locks are UE3's mip streaming copying from the old texture.
+- The device: `CreateDevice adapter=0 type=HAL flags=HWVP|PURE|FPU_PRESERVE`, the present
+  parameters A8R8G8B8, one backbuffer, DISCARD, LOCKABLE_BACKBUFFER, interval IMMEDIATE; caps
+  DYNAMICTEXTURES and CANAUTOGENMIPMAP; 4070 MB available.
+
+So a 9Ex device (which refuses D3DPOOL_MANAGED) needs a translation for 99 % of the game's
+creations, and the DEFAULT + DYNAMIC stand-in is the wrong one: a READONLY lock of a DYNAMIC
+DEFAULT texture reads VRAM through an uncached map and can return garbage after streaming. The
+translation that holds is the shadow (below). The census stays on (creation calls are rare, a
+lock is one hash lookup); `device census|status` on the seam, `census{}` in status.json.
+
+## The D3D9Ex device and the managed-pool shadow (2026-09-03, session 8)
+
+`[Device] Ex=1` (launch-time; `device ex on|off`, the F10 Display tickbox) makes
+`Direct3DCreate9` return an `IDirect3D9Ex` as the game's `IDirect3D9` and `hkCreateDevice` call
+`CreateDeviceEx` (a `D3DDISPLAYMODEEX` from the present parameters when fullscreen, NULL when
+windowed), falling soft to the plain `CreateDevice` on the Ex object, then to the plain
+`IDirect3D9`. Measured on the simulator lane (runs 44-03, 44-04): `CreateDeviceEx -> 0x0`, the
+device answers `QueryInterface(IDirect3DDevice9Ex)`, `GetAdapterLUID` 0-d03b, the capture probe
+reads `shared surface AVAILABLE` (a 2496x2688 A8R8G8B8 render target opened as D3D11 fmt 87).
+No Reset happened on the level load under VirtualMode (the windowed device keeps its size), so
+the 9Ex Reset semantics are still unmeasured; a fullscreen Reset that returns INVALIDCALL has
+`ResetEx` as its contingency.
+
+`[Device] Managed=shadow` (the default while Ex=1): every MANAGED creation is passed to the
+device as DEFAULT (buffers too; they are lockable there), and every translated texture gets a
+SYSTEMMEM twin with the same levels and format. The class-wide Lock hooks the census installs
+redirect `LockRect`/`LockBox`/`AddDirtyRect` on a translated texture to its twin, `UnlockRect`
+pushes the twin's dirty regions to the real texture with `UpdateTexture`, and the last `Release`
+drops the twin: what MANAGED did inside the runtime, done in the proxy, so a READONLY lock reads
+the twin (every write went through it) and the game keeps its pointer to the real texture for
+everything else. Measured: 5240 twins, 65552 unlock pushes, 0 failures, the sewers rendered
+intact after minutes of play (`dump capture`, run 44-04). `none` (the refusals are the
+measurement), `default` (textures lose their locks) and `dynamic` are the A/B, all behind Ex.
+The session's finding for the belief recorded above under "The capture cost, measured": the 9Ex
+route IS possible on this game, at the price of the shadow.
+
+## The shared hand-off needs a fence in BOTH directions (2026-09-03, session 8)
+
+A D3D9Ex share carries no keyed mutex, so the proxy fences it by hand. The first build fenced one
+direction: a D3D9 event query after the blit, waited on before D3D11 samples the slot. The
+headset run 15 then reported the eyes disagreeing "90 % of the time" with every tag instrument
+clean, and the other direction was the hole: D3D11's read of a slot is queued, not executed, when
+the consumer returns, and the runtime's `xrEndFrame` is what flushes it; two presents later D3D9
+blits the NEXT frame - the other eye's - into the same slot, and if the read has not executed
+yet it samples that frame. The consumer now ends a D3D11 event query after its draw and flushes,
+and the blit into a slot waits (bounded) for that query; the count of blits that found the read
+still pending (`readWaits`) is the number of frames that could have carried the wrong eye: 14 in
+one simulator run at 90 presents/s, so the race is real, not theoretical. Two slots suffice only
+because of this fence; without it, more slots would only have made the swap rarer.
+
+## The one-view state: what the headset logs say, the frame-identity trace, and the pairing that swapped (2026-09-04, session 9)
+
+**The fault as measured (runs 16-17, the user, Quest 3 via VDXR, `Ex=1` + `Mode=shared`)**: after a
+level load, from the first arming of the second draw, both eyes show ONE picture (the run-17 dump
+pair `eye_3342/3343` differs by 2.5 grey levels with no horizontal shift improving it; the later
+pairs from the same run carry 64-96 px of parallax), with every tag instrument clean.
+
+**What the archived logs say, read again before any code was written**:
+
+- The engine's per-present population does not change between the bad and the good state:
+  `BeginScene 1.0/present`, SRT 64-75/present, `perf: gpu 3d 6.0-6.4 ms/present`, `draws/s ==
+  2nd/s == 72`, the P1/P2 split the same. The only per-window number that moves is the shared
+  capture's `blit fence waits`: 41-95 of 432 grabs in the bad state, 172-220 in the good state,
+  in BOTH runs. Unexplained; the trace below carries it.
+- The dump pair is genuinely one tick's pass 1 and pass 2: `FrameDumpTick` runs in `game_tick`
+  before `end_frame`, so `eye_N` holds present N-1's output, and under `shared` (delivery = the
+  previous present's slot) those are the backbuffers of presents N-2 and N-1 with their own tags.
+  Both were blitted before the dump's stall. 2.5 grey levels is two renders, not one texture
+  copied twice (that reads 0.0).
+- The `reentry: pair` line is `DVR_LOG_FIRST_N(6)`: its six lines in run 17 are the first six
+  pairs of the BAD state, and they read c5 one IPD apart. So the two draws uploaded different
+  camera positions while the pictures were the same. The line samples "the last c5 upload before
+  this Present" with no per-draw association; the trace ties c5 to the pixels per present now.
+- No capture-mode switch in run 17 tripped a gate (no `gates ->` line at any of the eight
+  switches). Every switch to `shared` was followed within 1.5-9 s by a pause menu whose resume
+  re-armed the doubling; no switch to `deferred` was. The user's "shared fixes it" is confounded
+  with a pause/resume; PR #6's "a mode switch trips the no-present gate" is not in the log.
+- **`dump eyes` re-armed the second draw by itself**: the PNG encode on the present thread
+  stalled 620-660 ms per file, the script camera writes read stale (`viewinject: ... the direct
+  fallback is taking the camera back`), the state dropped to LOADING, the gates went SINGLE for
+  74 ticks and DOUBLE again. Both "good" pairs of run 17 (4464, 8499) were dumped after such a
+  re-arm. The encode is on a worker thread now (the present thread copies 27 MB and returns).
+- `drawTid == presentTid` in run 17 was a latch artifact: `g_presentTid` was set once, at the
+  first present, which at boot is the game thread's. It follows the presenting thread now and
+  logs a change. Every simulator run since reads two threads.
+
+**The frame-identity trace (`core/gfx/frame_id`, `[Perf] FrameId=1`, `frameid on|off|status`)**:
+one 64x64 luma thumbnail per present at four stages, keyed by the capture serial of the pixels
+(so one frame lines up across the stages whatever the delivery lag), read three presents later
+and never waited on, with the c5 of the draw and the camera's right row on the same record:
+
+| stage | where | how |
+|---|---|---|
+| `bb` | `capture::grab`, right after `GetBackBuffer(0)` | D3D9 `StretchRect(bb -> 64x64 A8R8G8B8 RT, LINEAR)`, `GetRenderTargetData` into a SYSTEMMEM surface, `LockRect(READONLY|DONOTWAIT)` three grabs later |
+| `slot` | `reentry::end_frame`, inside the read fence | the delivered slot's SRV drawn into a 64x64 RGBA target by the blit quad, `CopyResource` to staging, `Map(DO_NOT_WAIT)` three presents later |
+| `out` | the same, from an SRV of the method's output texture | the same |
+| `sc` | the runtime's frame-texture seam, after `CopyResource` into the acquired swapchain image, before its release | `CopySubresourceRegion` of the centre 64x64 into a staging texture of the swapchain format |
+
+Per left/right pair the `stereo: frameid` line (at most once a second) prints the checksums, the
+mean absolute luma difference per stage, the same-eye floor (this left against the previous
+left), the c5 step of the +1 present from the -1's projected on the right row (the side check),
+the picture's own best horizontal shift (the right eye's content must sit LEFT of the left
+eye's: negative = a true pair, convention-free), and the first stage that reads as one
+picture. A 3 s summary carries the counts; a state change at stage `bb` (ten pairs in a row
+below the floor, or above it again) prints once at Warn. Evidence only: nothing here re-arms,
+switches or kicks.
+
+Simulator numbers (RTX 4060, 2496x2688, the sewers, runs 45-01..05): a true pair reads
+L-R 4.1 at `bb`/`slot`/`out` and 4.7-5.0 at `sc` (a centre patch, not a downscale), the same-eye
+floor 1.4-1.5, c5 |d| 6.17 = ipd*scale, picture shift -1 px at 64 wide, busy reads 0 at every
+stage, slot repeats 0. Stages `bb`, `slot` and `out` come out byte-identical (one 2x2 bilinear tap
+at the same 64x64 centres on both APIs), so a difference between them would itself be a finding.
+
+**The diagnostic words, one per half of the user's remedy**: `reentry rearm [n]` (n gameplay
+ticks decided SINGLE at the gate, no tag, no pass 2, then the doubling resumes; the capture
+untouched), `capture reinit` (the shared slots, fences and D3D11 views, or the deferred ring,
+released and re-created at the next grab, the mode unchanged; one present delivers nothing),
+and the existing `stereo projection off` then `auto` for the runtime's quad -> projection
+transition the pause path also makes. `capture status` prints the delivered slot and the reinit
+count; the beat line counts pass-2 eye writes the camera seam refused (`p2write refused=`, the
+camera pointer beside it): a refused write leaves pass 2 drawing from pass 1's camera.
+
+**What the trace found on the simulator (not the headset fault, a second fault)**: the eye tags
+SWAPPED against the draws. The method's tag ring pairs by ORDER (one push per draw on the game
+thread, one pop per present on the render thread), and the order claim breaks in three
+measured ways: (a) across a single -> double transition when the game thread runs a frame ahead
+(a `reentry rearm 2` flipped the -1 tag's c5 from the left eye's position to the right's), (b)
+within a second of the first arming, and (c) spontaneously in plain gameplay - with the check
+off (`reentry c5pair off`) the side flipped twice in 25 s with no pause, no re-arm, no log
+event, while the perf window read `untagged 16-19` per 3 s and P2 exceeding P1 by the same
+count: a present found the ring EMPTY and the next one popped its tag. In the menu state the
+ring overflowed every 3 s (draws outnumber presents there: `draws/s=67 presents/s=57`). Each
+such skew showed the eyes swapped until the next one. The picture agreed with the c5 side every
+time (shift +1 px when the side read SWAPPED, -1 px when ok), which also settles the sign
+convention by picture: the field holds the position, c5 negates it, a right eye's c5 sits at
+-ipd*scale along the camera's right row.
+
+**The fix (`[Stereo] C5Pair=1`, `reentry c5pair on|off`, the A/B)**: the within-tick invariant is
+the pairing. Between pass 1 and pass 2 the world does not tick, so the ONLY thing that moves the
+camera is the writer's eye: `c5(pass 2) - c5(pass 1) = -ipd*scale` along right and 0.00 along
+anything else (measured: `-6.17 along right, 0.00 other` on every pair). A present whose c5 sits
+there from the previous present's is a pass-2 present whatever the ring says; one at +ipd*scale
+is a pass 1 after a still pass 2; anything else (a pass 1 after a moving pass 2, an extra
+present) takes the ring's tag. The ring's claim is checked against the measurement on every
+present it can name; three disagreements in a row drain the ring to the tag the next present
+must pop (`reentry: the tag ring skewed against the draws ... realigned`, Info, 3 s), and armed
+single gameplay draws push a 0 tag so their presents cannot eat the next tick's -1 (not in
+menus, where the ring would only fill with junk). On the fixed build: `side ok` from the first
+pair after the arming through rearms of 1, 2 and 3 ticks, a `capture reinit`, a `stereo
+projection off`/`auto` and a `stereo mono`/`stereo reentry` switch; P1 == P2 per window,
+`untagged 0-1`; `reentry.xrs` 11/11. Counters: `c5Agree`, `c5Disagree`, `c5Realigned`,
+`c5Unknown` (presents the invariant could not name), `c5Untagged` (the ring was empty, the
+measurement named the eye) in status.json `stereo`.
+
+**The headset run on this build (run 07, 2026-09-04, the user)**: the eyes right from the load
+and after every word on the F10 EYES block; `side ok` and `SWAPPED=0` on every pair, c5 |d| 6.11
+(the user's IPD), the picture shift negative, L-R 3-14 at 64x64 (the one-picture dump pair of
+run 17 reads 1.49 at 64x64; the run-17 true pairs 9-10) - and the ring skewed against the
+draws 131 times in about four minutes: on the user's rig the order claim goes wrong every 2 s,
+which before this session swapped the eyes each time. Two costs of the first build, both fixed:
+the verdict compared L-R against the same-eye floor, which on a live head holds a tick of head
+motion that a within-tick pair does not (false `ONE PICTURE` warns; an absolute 2.0 at 64x64
+now), and stage bb's `GetRenderTargetData` read every present is a pipeline sync on that GPU:
+`perf: gpu idle(d3d9)` 1.5 ms per present against 0.3 in run 17, the tick 13.9 -> 16.7 ms
+(60/s under a 72 Hz headset, `wait 0.0`, the time inside the game's own Present). The trace
+samples one pair every 8 ticks now (`[Perf] FrameIdEvery`), which is all the judgement needs.
+
+**THE A/B, IN THE HEADSET (run 08, 2026-09-04, the user): the pairing IS the fault.** With `c5
+pairing` unticked on the F10 EYES block the eyes stayed right until a pause/resume, and then
+went wrong at once and stayed wrong: the 3 s windows read `swapped=24 of 25` then `12 of 12`,
+with the picture's own shift agreeing (`shiftPos=20`, the right eye's content on the wrong
+side of the left's). Ticking it back on: one transitional pair, then `swapped=0` for the
+remaining eighty seconds and the shift negative throughout. The user reported the same thing
+by eye, three times, without seeing the log. So the eye fault this project has chased since
+run 15 - "the eyes disagree", "90 % of the time, more at the beginning", "never correct
+after a load" - is the order-based pairing breaking wherever the game thread runs ahead of
+the render thread, and the within-tick camera step is the fix. The run-17 dump pair whose two
+eyes differed by only 1.49 at 64x64 remains the one artifact not separately explained; it has
+not recurred on the fixed build, and a swapped pair of a near-symmetric corridor view is the
+simplest account of it.
+
+**What this does and does not say about the headset's one-picture state.** A swap is two
+pictures, not one; the run-17 dumps were one picture, so the swap is not that fault. It is,
+though, exactly what "the eyes disagree" looks like, and it happened on every state transition
+the ring order got wrong, so some of the run-15/16 reports were swaps. The one-picture state
+still needs the headset run with the trace: if the line reads L-R below the floor at `bb` the
+engine handed one picture twice (then the engine or the camera seam owns it); above at `bb` and
+below at a later stage names that stage; `reentry rearm 2`, `capture reinit` and `stereo
+projection off`/`auto` each alone say which half of the user's remedy repairs it.
+
 ## Evidence handling (both cost a session)
 
 - **Log rotation is one deep.** `dishonored_vr.log` + `.prev.log` only. Two simulator runs
@@ -770,6 +1310,107 @@ which is a hard stall rather than one stale frame.
   4032x2268 mode; the window hooks hold it; `[Screen] SpoofDesktopW/H` and `ResX/ResY` must
   match.
 
+## The pause/resume desync: a one-sided tag stream (2026-09-03, session 7)
+
+The run-40 report ("the judder stays in the LEFT eye and stops in the RIGHT") is the
+signature of a held right swapchain image, and the cause is on the game side, not in a
+ring. Pass 1 pushed its `-1` tag on five gates and pass 2 re-evaluated them AFTER the draw
+plus four more (exiting, a test running, the c5 serial, a present since the previous draw),
+so the resume window - the game thread's catch-up burst tripping the stall gate, the verdict
+flapping through LOADING for a second - produced `-1` tags with no `+1`. The runtime then
+counted `abortLeft`, captured the left again and submitted a stereo layer that names each
+eye's swapchain: the LEFT rewritten every other present (the judder), the RIGHT showing its
+pre-pause image with its old pose (reprojected smoothly, so it looked frozen). STATUS had
+attributed it to `xr: sr tag ring skewed`; that ring is pushed and popped consecutively on the
+present thread in this port and cannot skew - the line that does appear is `reentry: tag ring
+skewed` (the method's ring, a different threshold). The quad transition was never the fault:
+`reset_aer()` clears both eyes on every quad present.
+
+Fixed at the source (813807e3): the gates are decided ONCE at depth 0 before pass 1's tag, and
+pass 2 takes the decision. Instrumented first (a9b2ef12): each eye capture stamps the present
+counter, every stereo submit computes the per-eye image age in PRESENTS (a healthy pair reads
+L=1 R=0), the beat prints an `eyes` line, and the method prints `STALE R EYE` with the OWNER
+named from the game side's skip deltas or the runtime's counters. The fail-soft (d0650a38,
+`vrpace strict`, default off): a stereo submit with an eye older than one present shows the
+fresh eye to both eyes for that frame. `reentry skip2 <n>` reproduces the one-sided stream on
+demand: strict off, the simulator counted held-eye stereo submits and the mod printed the
+line; strict on, no new stale submit and 37 fallbacks to mono. The hammer
+(`tools\arming-hammer.ps1`, 15 pause/resume cycles) and `stale-eye.xrs` read 0 stale submits
+on the fixed build.
+
+## The pair phase (2026-09-03, session 7)
+
+`xrEndFrame` time minus the frame's `predictedDisplayTime`, through
+`XR_KHR_win32_convert_performance_counter_time` (enabled when the runtime lists it; the
+simulator now offers it with the same split QPC conversion its clock uses), sampled at every
+pair close: negative = the pair closed before its slot, positive = it missed the slot and
+displays a slot late with a pose predicted for the earlier one. On the TRACE pairs line, a
+5 s log line, `vrpace status`, `stereo status`, status.json `stereo.pair.phase*`. On the
+simulator the number is meaningless (its predicted time is `now + period` re-anchored, and it
+read +58 to +75 ms, 100 % missed, at 40-64 pairs/s on a 90 Hz schedule); the headset's is the
+number the judder question is decided on. `vrpace ahead 0|1|2` (7f569463) locates the head
+pose the game renders with, and the views the layer is tagged with, for `predictedDisplayTime
++ ahead x period`; `xrEndFrame`'s displayTime and the tag generation are untouched, so at 0 the
+paths are byte-identical. `vrpace lag` exposes the attribution generation for the measurement.
+
+## The pitch pivot: the engine's neck, measured (2026-09-03, session 7)
+
+`camera pitchtest 30` (e374a6a2) takes three buckets of c5 (LEVEL, looking UP, looking DOWN,
+60 presents each) and projects the travel from LEVEL on world up and the pitch-0 heading, so
+the per-eye offset cancels and it runs under `stereo reentry`. Simulator, the sewers, 98 uu/m:
+
+| run | head | c5 travel UP (U, F uu) | DOWN (U, F) | seam asked UP / DOWN | fit |
+|---|---|---|---|---|---|
+| 1 | `head rot 0 +/-30 0` at a FIXED position | -1.04, -16.58 | -7.07, +14.90 | 0 / 0 | below 0.321 m, behind 0.062 m, consistency 0.33 / -0.07 uu |
+| 2 | `head pose` on an 11/9 cm arc | +1.91, -23.14 | -12.86, +19.13 | U+2.97 F-6.58 / U-5.85 F+4.20 | the same fit; the extra travel equals the ask |
+| 3 | fixed position, `neck cancel 0.321 0.062` | -0.48, +0.11 | +0.14, +0.15 | the cancelling term | the render camera holds still |
+
+So the ENGINE pitches its camera about a pivot 32 cm below and 6 cm behind the eyes: 17 cm of
+backward travel at +30 deg, which the compositor (expecting only the tracked head translation)
+cannot reproject - "looking up with the whole body". The tracked arc arrives on top of it
+(run 2). `neck cancel` with the engine's own numbers cancels it (run 3), and the +30 frames
+with and without the cancel differ by the predicted 17 cm (the lamp at the right edge cut
+off, the pipe junction lower). The `[Neck]` lever (0db35c10) ships off with the measured pivot
+as its defaults; the headset judges `cancel` against `off` from F10 Comfort. The 38.24 ceiling
+now counts the presents it clips (0 in all runs).
+
+## The console seam was dead since 41.0, and setres is inert (2026-09-03, session 7)
+
+`RunConsole` returned -1 unless `g_fnConsoleCmd` was set, and the only latch lived inside the
+resolution script 41.0 removed: every `console` word and IntroSkip returned -1 since 41.0
+without reaching the engine, so "setres is a dead end" (session 2) was never re-measured on
+this line. Latched again (c0bd3831); the first word that reached the engine overflowed the
+game thread's stack, because `RunConsole` calls ProcessEvent, which is the mod's own hook,
+which ran the still-pending request again - the request now leaves the seam before the engine
+runs it and the nested call returns on the re-entry flag. Measured then: `setres 2560x1440f`
+(a real mode) and `setres 1600x900w` both dispatch (`ConsoleCommand` on
+`DishonoredPlayerController`, the console's `OutputText` fires), return an empty reply, and
+change nothing - no Reset, no size change. `setres` is inert on this build.
+
+## The render size: the ini route is inert, the command line is honoured (2026-09-03, session 7)
+
+With 2560x1440 fullscreen in every place of the game's own ini (both files, all four AppCompat
+buckets, the compat file rewritten by the game itself at launch) the game created a 1920x1080
+WINDOWED device on every run, including the headset run, and never Reset out of it (runs
+07-08); the install-side `DefaultEngine.ini` carries exactly 1920x1080. The command line is the
+route: the proxy is loaded before the engine's entry point, so `ResRequest` writes the ask to
+`dishonored_vr_launch.txt` and DllMain points the exe's and the CRT's `GetCommandLineA/W`
+import slots (3 patched) at the line with `-ResX= -ResY= -FullScreen` appended (ce10a3f7).
+Run 09: `CreateDevice -> (2560x1440 windowed=0)`, the capture and the eye swapchains followed.
+
+A size the display does not list falls back to a real mode (2496x2688 -> 2560x1440, run 10).
+`[Screen] VirtualMode=1` (3935f9f7): the proxy, which IS the game's IDirect3D9, advertises the
+asked size in the mode list the game validates against (`GetAdapterModeCount` /
+`EnumAdapterModes`, asked from 0x9b79b7 at startup and 0x9b9a20 in the frame loop, our mode
+handed at slot 123) and, when the game asks for a FULLSCREEN device at that size, creates it
+WINDOWED with the backbuffer kept. Run 12: `CreateDevice -> (2496x2688 windowed=1)`,
+`capture: 2496x2688`, `res: HONOURED`, `xr: swapchain pair 2496x2688`, the runtime's
+circumscribed hfov 108.0 deg at aspect 0.929 (137 at 16:9), the sim's claim ratio 1.18 (2.17
+at 16:9), both eyes 77 % non-black in the sewers, the frame complete floor to ceiling by
+picture. Every 41.0-era dead end ran the game WINDOWED, where the desktop clamp lives; this is
+the fullscreen path. The cost: the sync readback reads 18-20 ms per present at that size
+(25.6 MB each way; `[Capture] Mode=deferred` is the answer, ROADMAP S1).
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.
@@ -780,7 +1421,7 @@ which is a hard stall rather than one stale frame.
   render-size masks (`WeaponHideBones`, `ArmsHideTick`).
 - Window-route resolution changes (work area, max tracking size, self-resize, fullscreen
   escape, client-rect spoof, mode list): six builds, the game still chose its own size; the
-  engine's own setres is the way.
+  engine's own setres is INERT on this build (measured 2026-09-03: it dispatches and does nothing); the command line is the way, and the fullscreen path takes a proxy-advertised mode ("The render size", session 7).
 - The overlay-scene XR architecture (compositor overlay, reprojection-exempt): rejected
   at 38.0 (cannot be motion-smoothed).
 

@@ -47,6 +47,7 @@ public:
         if (!ensure_target(d.dev11, w, h)) return false;
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
+            dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
             drawnOnce_ = true;
             ++frames_;
@@ -76,6 +77,12 @@ public:
         w.kv("x0", (int)b.x0); w.kv("y0", (int)b.y0); w.kv("x1", (int)b.x1); w.kv("y1", (int)b.y1);
         w.kv("pctW", (double)b.pctW); w.kv("pctH", (double)b.pctH);
         w.kv("nonBlackPct", (double)b.nonBlackPct);
+        w.end_obj();
+        const dvr::capture::Cost c = dvr::capture::cost();
+        w.obj("captureCost");
+        w.kv("rtdUs", (int)c.rtdUs); w.kv("lockUs", (int)c.lockUs); w.kv("copyUs", (int)c.copyUs);
+        w.kv("uploadUs", (int)c.uploadUs); w.kv("blitUs", (int)c.blitUs); w.kv("totalUs", (int)c.totalUs);
+        w.kv("grabs", (int)c.grabsInWindow);
         w.end_obj();
     }
 

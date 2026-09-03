@@ -7,8 +7,35 @@ static void DvrDebugInit();
 static bool DvrGameCommand(const char* cmd, const char* args);
 static void DvrConsoleApply();
 static void GameStateTick();
+static bool DvrScriptViewLive();
+static void SceneProbeOnDispatch(uint32_t callerRet, uint32_t nameIdx, bool isViewRot, const void* anchor, void* obj);
+static void SceneProbePresentTick();
+static bool SceneProbeCommand(const char* args);
+static bool SceneDrawAvailable(char* why, size_t cap);
+static void SceneDrawApply();
+static void SceneDrawSetArmed(bool on);
+static bool SceneDrawPoisoned();
+static uint32_t SceneDrawDraws();
+static void SceneDrawGates(uint32_t out[8]);   // 41.1: the pass-2 skip counters for the stale-eye line
+static const char* NeckModeName(int mode);     // 41.1: the [Neck] lever
+static void ResEnumModes(const char* who);     // 41.1: the render-resolution picker (core/window/render_size.cpp)
+static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who);
+static void ResVerdictTick();
+static void ResStatusLine();
+static bool ResCommand(const char* args);
+static void ResHookD3D9(IDirect3D9* d3d);
+static void ResBeforePresentParams(D3DPRESENT_PARAMETERS* pp, const char* where);
+static bool ResIsMode(uint32_t w, uint32_t h);
+static void LaunchArgsInstall();               // DllMain: -ResX/-ResY on the command line the engine reads
+static void LaunchArgsWrite(uint32_t w, uint32_t h, bool full);
+static bool DvrOnOff(const char* s, bool* out);   // commands.cpp: on|off|1|0 parser, used by the picker's word
+static void NeckSet(int mode, float belowM, float behindM, const char* who);
+static void SceneDrawStatus(dvr::status::Writer& w);
+static bool SceneDrawCommand(const char* args);
+static bool DvrGameplayVerdict();
 static void FrameDumpRequest(const char* what);
-static void FrameDumpTick();
+static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who);   // 41.1 (session 9)
+static void FrameDumpTick(IDirect3DDevice9* dev);
 
 static inline bool SkcAlive(int slot);
 static inline bool GraftDonorAlive(int u);

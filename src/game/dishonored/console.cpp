@@ -15,6 +15,17 @@
 static int RunConsole(const wchar_t* wcmd, char* reply, int replyCap)
 {
     if (reply) reply[0] = 0;
+    // 41.1: latch the UFunction here. The only latch used to live in the
+    // resolution script 41.0 removed, so since then every console word (and
+    // IntroSkip) returned -1 without reaching the engine, and "setres is a
+    // dead end" was never re-measured on this line.
+    if (!g_fnConsoleCmd) {
+        g_fnConsoleCmd = FindFunctionObj("ConsoleCommand");
+        DVR_LOG_ONCE(dvr::log::Cat::console, dvr::log::Level::Info,
+                     "console: UFunction ConsoleCommand %s%p (PlayerController %s)",
+                     g_fnConsoleCmd ? "found @ " : "NOT FOUND ", (void*)g_fnConsoleCmd,
+                     g_peCtrl ? "latched" : "not latched yet");
+    }
     if (!g_fnConsoleCmd || !g_peCtrl) return -1;
     wchar_t cmd[96];
     _snwprintf(cmd, 96, L"%s", wcmd);

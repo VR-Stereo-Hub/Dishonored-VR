@@ -73,11 +73,16 @@ static inline bool IsMainScenePass()
 // column norms, so no FOV assumption is needed. Unlike the stereo shear there
 // is NO uniform screen-shift term: at infinity the world stays put, which is
 // exactly how real head translation behaves. No rotation math anywhere.
+// 41.1: the offset comes from the camera seam (its single owner: TrackHead
+// publishes it there, and the `camera postest` instrument overrides it there),
+// so the vp lane and the camera lane read one source.
 static inline void LeanVP(float* m)
 {
-    float rx = g_leanRightUU * (g_posFlipX ? -1.0f : 1.0f);
-    float uy = g_leanUpUU;
-    float fz = g_leanFwdUU;
+    float pos[3];
+    dvr::camera::position_offset_uu(pos);
+    float rx = pos[0] * (g_posFlipX ? -1.0f : 1.0f);
+    float uy = pos[1];
+    float fz = pos[2];
     {
         // row-major: col0 = (m0,m4,m8 | m12), col1 = (m1,m5,m9 | m13)
         float p00 = sqrtf(m[0]*m[0] + m[4]*m[4] + m[8]*m[8]);

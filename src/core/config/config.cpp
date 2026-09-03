@@ -20,16 +20,91 @@ static void WriteDefaultIni(const char* ini)
         "YawCountsPerDegree=11.5\n"
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
+        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). -0.090 is the\n"
+        "; value the 2026-09-03/04 headset runs were judged at (it was the code default and\n"
+        "; unwritten before); F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
+        "HeightOffsetM=-0.090\n"
         "[Stereo]\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
-        "; mono shows the game on a head-locked screen in both eyes; aer and reentry\n"
-        "; are design stubs in 41.0 and refuse with a note (`stereo <name>` switches live).\n"
-        "Method=mono\n"
+        "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
+        "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
+        "; shows the game on a head-locked screen in both eyes (the fallback, and what a\n"
+        "; refused method leaves running); aer is a design stub and refuses with a note.\n"
+        "; `stereo <name>` switches live and fails soft. Armed=1|0: whether the selected method\n"
+        "; RUNS (the F10 Display tickbox, `stereo arm on|off`); 0 parks the game on the mono\n"
+        "; screen without forgetting the selection. C5Pair=1 (41.1, session 9): each present's\n"
+        "; eye tag is checked against its camera step from the previous present (pass 2 sits\n"
+        "; exactly one IPD along right of pass 1, nothing else moves inside a tick) and the\n"
+        "; tag ring is realigned when they disagree - the tags rode the other draw across\n"
+        "; every pause, load and re-arm before (the eyes SWAPPED). 0 = the ring's order alone.\n"
+        "Method=reentry\n"
+        "Armed=1\n"
+        "C5Pair=1\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
         "; the per-eye camera seam); none disables the write.\n"
         "EyeField=0x330\n"
+        "[Capture]\n"
+        "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
+        "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
+        "; (the old baseline, ~5 ms per present at 1080p, 15 ms at the Quest 3 size);\n"
+        "; deferred copies on the GPU, queues the readback and locks it one present later\n"
+        "; (~2.3 ms at 1080p, ~10 ms at the Quest 3 size; the picture is one present late;\n"
+        "; also resolves a multisampled backbuffer; the fallback when the device cannot\n"
+        "; share); shared (ships, 41.1, headset-judged 2026-09-03) needs [Device] Ex=1 and\n"
+        "; keeps the frame in VRAM (the log's capture/probe lines say). `capture mode <m>` switches\n"
+        "; live; `capture status` prints the cost. shared (needs [Device] Ex=1) keeps the frame\n"
+        "; in VRAM: two shared render targets, each blit fenced by a D3D9 event query;\n"
+        "; SharedWait=0 delivers the previous present's slot (no wait in the common case),\n"
+        "; 1 delivers this present's after its fence (zero latency, the CPU waits for the frame\n"
+        "; in flight). `capture sharedwait on|off` live.\n"
+        "Mode=shared\n"
+        "SharedWait=0\n"
+        "[Pace]\n"
+        "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
+        "; the `vrpace` seam word and the F10 Runtime panel; SAVE AS DEFAULTS writes them.\n"
+        "; Ahead=0|1|2: locate the head pose (and the layer's views) this many display\n"
+        "; periods past predictedDisplayTime - a pair that closes after its slot displays a\n"
+        "; slot late, and 1 makes the pose match that slot (the log's `pair phase` line says\n"
+        "; which). Strict=1: a stereo submit whose eye is older than one present shows the\n"
+        "; fresh eye to both eyes for that frame instead of a held eye (the pause/resume\n"
+        "; desync fail-soft). Lag=0|1|2: which locate generation the layer is tagged with\n"
+        "; (1 = one back, the measured default). All ship at today's behaviour.\n"
+        "Ahead=0\n"
+        "Strict=0\n"
+        "Lag=1\n"
+        "[Perf]\n"
+        "; The tick budget (core/framework/perf): Instruments=1 keeps one record per present\n"
+        "; (eight clock stamps) and prints the `perf: tick` line every 3 s; GpuQueries=1 adds\n"
+        "; the D3D9 timestamp ring behind the `perf: gpu` line (read five presents back, never\n"
+        "; waited on). `perf on|off`, `perf gpu on|off` live; `mark <text>` and the F10 MARK\n"
+        "; button stamp a felt freeze. ForceNoVSync=1 presents without vsync (the game's own\n"
+        "; setting is ignored while the headset paces the game). FrameId=1 runs the frame-\n"
+        "; identity trace (core/gfx/frame_id): a 64x64 thumbnail of every present at four\n"
+        "; stages (the backbuffer, the shared slot, the eye texture, the swapchain image),\n"
+        "; read three presents later, and per left/right pair the `stereo: frameid` line\n"
+        "; says at which stage the two eyes stopped being two pictures. 16 KB per present;\n"
+        "; `frameid on|off|status` live.\n"
+        "Instruments=1\n"
+        "GpuQueries=1\n"
+        "ForceNoVSync=1\n"
+        "FrameId=1\n"
+        "FrameIdEvery=8\n"
+        "[Device]\n"
+        "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
+        "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
+        "; Quest 3 size: 16 ms of GPU copy per present, measured 2026-09-03). A 9Ex device refuses\n"
+        "; D3DPOOL_MANAGED, which this game asks for on every static texture and buffer, so\n"
+        "; Managed= says what stands in: shadow (a system-memory twin per texture, locks\n"
+        "; redirected; the safe one - the game locks textures READONLY while streaming),\n"
+        "; dynamic (DEFAULT+DYNAMIC: READONLY locks read uncached VRAM), default (textures lose\n"
+        "; their locks), none (the refusals are the measurement). Launch-time: `device ex on|off`\n"
+        "; and the F10 Display tickbox write the key for the NEXT launch. Ships ON since 41.1\n"
+        "; (headset-judged 2026-09-03: the Quest 3 size at the headset's rate); Ex=0 is the\n"
+        "; plain device and the readback capture, the fallback if the 9Ex device misbehaves.\n"
+        "Ex=1\n"
+        "Managed=shadow\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -38,6 +113,25 @@ static void WriteDefaultIni(const char* ini)
         "; game camera); 0 leaves it standing in the room where you recentered.\n"
         "HeadLocked=1\n"
         "WidthMeters=2.4\n"
+        "; RenderWidth/RenderHeight/RenderFullscreen (41.1): the render-resolution picker's\n"
+        "; ask, 0 = the game's own size. It takes effect at the NEXT LAUNCH: the size goes\n"
+        "; into the game's own ini (Documents\\My Games\\Dishonored, [SystemSettings] and the four\n"
+        "; AppCompat buckets, backed up once as .pre-dvr) because the engine's own setres does\n"
+        "; nothing on this build (measured). A fullscreen size must be a display mode the\n"
+        "; adapter lists (`res modes`) - or VirtualMode=1 makes the proxy advertise it and\n"
+        "; create the fullscreen device windowed with the backbuffer kept, the route to the\n"
+        "; eye's own near-square size. `res <W>x<H>[f|w]` asks live; F10 Display has the picker\n"
+        "; and the verdict (`res: HONOURED` reads the capture, never the requested number).\n"
+        "; 41.1 (session 9): the values the headset judged (Quest 3 through VirtualDesktopXR,\n"
+        "; 2026-09-03/04) - the runtime's recommended per-eye size, asked on the game's command\n"
+        "; line and ADVERTISED by the proxy so the game creates it (VirtualMode=1; without it the\n"
+        "; game falls back to a display mode and the picture is soft). Another headset wants its\n"
+        "; own size: the F10 Display picker writes these three for the next launch, and\n"
+        "; RenderWidth=0 RenderHeight=0 asks for nothing at all (the game's own size).\n"
+        "RenderWidth=2496\n"
+        "RenderHeight=2688\n"
+        "RenderFullscreen=1\n"
+        "VirtualMode=1\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
         "; FovLever writes the game's camera FOV every tick (40..160; 0 = off, the game's\n"
         "; own FOV). 130 filled the old side-by-side render vertically; the mono screen\n"
@@ -84,6 +178,13 @@ static void WriteDefaultIni(const char* ini)
         "[PosTrack]\n"
         "; Stage 5: positional head tracking - lean/peek/crouch with your real\n"
         "; head. F4 = toggle, F5 = re-center to your current head position.\n"
+        "; Lane=auto|vp|camera: where the offset is applied. vp patches the view-projection\n"
+        "; matrix at c0 (the mono screen's path; attachments do not follow); camera writes it\n"
+        "; into the camera field with the per-eye offset (game/dishonored/camera); auto = vp\n"
+        "; on the mono screen, camera under a projection layer (stereo), where the head's raw\n"
+        "; displacement drives the camera. `postrack lane <l>` switches live; `camera postest\n"
+        "; <R> [U] [F]` measures the travel in uu.\n"
+        "Lane=auto\n"
         "; Scale = game units per meter. 50 is GingasVR's shipped value and is\n"
         "; the baseline her release was tuned around, so it is what ships.\n"
         "; NOTE: 100 is the MEASURED value (1 uu = 1 cm), derived from the\n"
@@ -99,6 +200,22 @@ static void WriteDefaultIni(const char* ini)
         "Scale=98\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
+        "[Neck]\n"
+        "; The pitch pivot (41.1). A real head pitches about a point below and behind the\n"
+        "; eyes, so looking up or down moves the eye on an arc. Mode=off|add|cancel, under\n"
+        "; a projection layer only: off = the tracked displacement alone; add = the\n"
+        "; modelled arc is ADDED (a rig without positional tracking, or an arc the tracking is\n"
+        "; not supplying); cancel = the arc is SUBTRACTED, for an engine that already pitches\n"
+        "; its camera about its own neck (then PivotBelowM/PivotBehindM hold the ENGINE's\n"
+        "; numbers, measured by `camera pitchtest`). `neck off|add|cancel [below] [behind]`\n"
+        "; switches live; F10 Comfort has the buttons and sliders. The defaults ARE the\n"
+        "; engine's pivot, MEASURED 2026-09-03 on the simulator (0.321 m below, 0.062 m\n"
+        "; behind: 17 cm of backward travel at +30 deg). cancel SHIPS: the headset run of\n"
+        "; 2026-09-03 judged it right (the user); off and add stay as the live A/B. A human\n"
+        "; neck for `add` is about 0.11 / 0.09.\n"
+        "Mode=cancel\n"
+        "PivotBelowM=0.321\n"
+        "PivotBehindM=0.062\n"
         "[MotionAim]\n"
         "; Stage 7.3: hand-aimed projectile weapons (crossbow bolts, pistol\n"
         "; bullets, grenades). After you pull the fire trigger, the freshly\n"
@@ -263,22 +380,61 @@ static void LoadConfig()
     if (g_screenWidth > 10.0f) g_screenWidth = 10.0f;
     dvr::vr::set_screen(g_screenDist, g_screenWidth);
     dvr::vr::set_screen_head_locked(IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f);
-    {   // [Stereo] Method: the rung of the ladder (docs/ARCHITECTURE.md); a
-        // stub or an unknown name logs why and leaves the mono screen running
-        char sm[16] = "";
-        GetPrivateProfileStringA("Stereo", "Method", "mono", sm, sizeof(sm), ini);
-        if (!dvr::stereo::select(sm)) dvr::stereo::select("mono");
+    {   // 41.1 [Screen] Render*: the picker's ask (core/window/render_size.cpp)
+        // 41.1 (session 9): the headset-judged size, and the advertisement that makes the
+        // game create it, are the DEFAULTS now (an ini naming neither key gets them);
+        // `res 0x0` writes an explicit 0 and still means "the game's own size".
+        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2496, ini);
+        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2688, ini);
+        g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
+        g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 1, ini) != 0 || g_launchVirtual;
+        if (!g_resWantW && g_launchW && g_launchH) {   // the launch file carried an ask the ini lost
+            g_resWantW = g_launchW; g_resWantH = g_launchH; g_resWantFull = g_launchFull;
+            Log("config: [Screen] Render* read 0 but the launch file asked %ux%u %s - using that for the verdict",
+                g_resWantW, g_resWantH, g_resWantFull ? "fullscreen" : "windowed");
+        }
+        if (g_resWantW && g_resWantH)
+            Log("config: [Screen] Render %ux%u %s, VirtualMode=%d (the verdict prints once the capture knows the size)",
+                g_resWantW, g_resWantH, g_resWantFull ? "fullscreen" : "windowed", (int)g_resVirtual);
     }
+    {   // [Stereo] Method: the rung of the ladder (docs/ARCHITECTURE.md); a
+        // stub or an unknown name logs why and leaves the mono screen running.
+        // Recorded here, APPLIED by Direct3DCreate9 after the game side has
+        // registered its hooks (41.1: selecting here refused reentry every
+        // boot - the scene-draw hooks did not exist yet).
+        char sm[16] = "";
+        GetPrivateProfileStringA("Stereo", "Method", "reentry", sm, sizeof(sm), ini);
+        dvr::stereo::set_config_method(sm);
+        dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
+        dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
+    }
+
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)
         char ef[16] = "";
         GetPrivateProfileStringA("Camera", "EyeField", "0x330", ef, sizeof(ef), ini);
         dvr::camera::set_eye_field(ef);
     }
+    {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
+        // mode is refused with the reason and sync keeps running)
+        char cm[16] = "";
+        GetPrivateProfileStringA("Capture", "Mode", "shared", cm, sizeof(cm), ini);
+        if (!_stricmp(cm, "off")) {   // the A/B control is live-only: a frozen headset at boot is a trap
+            Log("config: [Capture] Mode=off refused (live only, 'capture mode off' on the seam) - sync");
+            strcpy(cm, "sync");
+        }
+        if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
+        dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
+    }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
     g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
     g_posTrack   = IniFloat(ini, "PosTrack", "Enabled", 1) != 0.0f;
+    {   // [PosTrack] Lane: vp (the c0 patch, shipped) or camera (the seam's write)
+        char pl[16] = "";
+        GetPrivateProfileStringA("PosTrack", "Lane", "auto", pl, sizeof(pl), ini);
+        if (!dvr::camera::set_pos_lane(pl)) dvr::camera::set_pos_lane("auto");
+    }
     g_crouchEyeCfg   = IniFloat(ini, "PosTrack", "CrouchEyeDrop", 1) != 0.0f; // 38.15
     g_crouchEyeScale = IniFloat(ini, "PosTrack", "CrouchEyeScale", 1.0f);
     if (g_crouchEyeScale < 0.0f) g_crouchEyeScale = 0.0f;
@@ -338,6 +494,22 @@ static void LoadConfig()
     if (g_posMaxM < 0.05f) g_posMaxM = 0.05f;
     if (g_posMaxM > 2.0f)  g_posMaxM = 2.0f;
     g_posFlipX   = IniFloat(ini, "PosTrack", "FlipX", 0) != 0.0f;
+    {   // 41.1 [Neck]: the pitch pivot lever. Default `cancel` (headset-judged 2026-09-03,
+        // the engine's own neck cancelled); an unknown mode logs and stays off.
+        char nm[16] = "";
+        GetPrivateProfileStringA("Neck", "Mode", "cancel", nm, sizeof(nm), ini);
+        int mode = !_stricmp(nm, "add") ? 1 : !_stricmp(nm, "cancel") ? 2 : 0;
+        if (mode == 0 && _stricmp(nm, "off") != 0 && nm[0])
+            Log("config: [Neck] Mode='%s' unknown (off|add|cancel) - off", nm);
+        g_neckMode = mode;
+        g_neckBelowM = IniFloat(ini, "Neck", "PivotBelowM", 0.321f)   /* the engine's pivot, measured 2026-09-03 */;
+        g_neckBehindM = IniFloat(ini, "Neck", "PivotBehindM", 0.062f);
+        if (g_neckBelowM < 0.0f) g_neckBelowM = 0.0f;   if (g_neckBelowM > 0.5f) g_neckBelowM = 0.5f;
+        if (g_neckBehindM < 0.0f) g_neckBehindM = 0.0f; if (g_neckBehindM > 0.5f) g_neckBehindM = 0.5f;
+        if (mode)
+            Log("config: [Neck] Mode=%s PivotBelowM=%.3f PivotBehindM=%.3f (the pitch pivot lever, projection only)",
+                nm, g_neckBelowM, g_neckBehindM);
+    }
     g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
     g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
     g_padDeadzone = IniFloat(ini, "Controllers", "Deadzone", 0.12f);
@@ -372,6 +544,26 @@ static void LoadConfig()
     g_wpnShowNear= IniFloat(ini, "Weapon", "ShowNear", 0) != 0.0f;
     g_scanEnabled = IniFloat(ini, "Debug", "VsScan", 0) != 0.0f;
     g_forceNoVSync = IniFloat(ini, "Perf", "ForceNoVSync", 1) != 0.0f;
+    {   // 41.1 (session 8): [Device] Ex and Managed, read before the first Direct3DCreate9
+        const bool ex = IniFloat(ini, "Device", "Ex", 1) != 0.0f;
+        char mm[16] = "";
+        GetPrivateProfileStringA("Device", "Managed", "shadow", mm, sizeof(mm), ini);
+        dvr::d3d9ex::Managed m;
+        if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
+        dvr::d3d9ex::set_config(ex, m);
+    }
+    {   // 41.1 (session 8): the tick budget's levers, both default on
+        const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
+        const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
+        if (!inst) dvr::perf::set_enabled(false);
+        if (!gpu) dvr::perf::set_gpu_enabled(false);
+        const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
+        dvr::frameid::set_enabled(fid);
+        dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
+        Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
+            inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
+
+    }
     Log("config: per-frame diagnostics vsscan=%d shownear=%d (both off = more fps)",
         (int)g_scanEnabled, (int)g_wpnShowNear);
     g_wpnPosScale= IniFloat(ini, "Weapon", "PosScale", 55.0f);
@@ -825,6 +1017,16 @@ static void LoadConfig()
         dvr::frame::set_fps_cap(g_fpsCap);
         if (g_fpsCap > 0.0f)
             Log("config: FPS cap %.1f (even-cadence limiter)", g_fpsCap);
+        {   // 41.1: [Pace] - the projection layer's pacing levers (defaults = today)
+            const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
+            const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
+            const int lag = GetPrivateProfileIntA("Pace", "Lag", 1, ini);
+            dvr::vr::set_pace_ahead(ahead);
+            dvr::vr::set_pair_strict(strict != 0);
+            dvr::vr::set_pose_lag(lag);
+            if (ahead || strict || lag != 1)
+                Log("config: [Pace] Ahead=%d Strict=%d Lag=%d (levers off today's behaviour)", ahead, strict, lag);
+        }
         // 37.5: SAFE mode - rendering + head tracking only, every game-memory
         // writer held back. The crash bisector: if XR-safe holds stable, one
         // of the writers is the killer; if it still dies, they are innocent.
@@ -902,6 +1104,44 @@ static void EnsureConfig()
         }
 }
 
+
+// 41.1 (session 8): the [Device] keys are launch-time; the seam word and the
+// F10 tickbox write them for the NEXT launch (no version bump: the rewrite
+// would wipe a tuned ini), and say so.
+// 41.1 (session 9): one key into the ini for the F10 tickboxes that are live
+// AND persistent (the trace, the c5 pairing), so a tester's choice survives
+// the next launch without an ini edit.
+static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who)
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA(section, key, value, ini);
+    Log("config: [%s] %s=%s written by %s (live now, and the next launch's default)", section, key, value, who);
+}
+static void DeviceSetEx(bool on, const char* who)
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Device", "Ex", on ? "1" : "0", ini);
+    // The only reason to ask for the 9Ex device is the shared capture, and the
+    // 2026-09-03 headset run asked for the device and never switched the
+    // capture: the tickbox picks the capture mode for the next launch too.
+    WritePrivateProfileStringA("Capture", "Mode", on ? "shared" : "deferred", ini);
+    Log("device: [Device] Ex=%d and [Capture] Mode=%s written by %s - both take effect at the NEXT LAUNCH (this "
+        "run's device %s 9Ex, capture %s)",
+        on ? 1 : 0, on ? "shared" : "deferred", who, dvr::d3d9ex::device_is_ex() ? "IS" : "is not",
+        dvr::capture::mode_name());
+}
+static void DeviceSetManaged(const char* name, const char* who)
+{
+    dvr::d3d9ex::Managed m;
+    if (!dvr::d3d9ex::parse_managed(name, &m)) { Log("device: managed none|default|dynamic|shadow (asked '%s')", name); return; }
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(m), ini);
+    Log("device: [Device] Managed=%s written by %s - takes effect at the NEXT LAUNCH (inert while Ex=0)",
+        dvr::d3d9ex::managed_name(m), who);
+}
 
 static void OverlaySaveDefaults()
 {
@@ -1128,6 +1368,41 @@ static void OverlaySaveDefaults()
             _snprintf(v, 64, "%.1f", g_hmRot[hh][q]);
             WritePrivateProfileStringA("VRHands", k, v, ini);
         } }
+
+    // 41.1: the render-resolution ask
+    _snprintf(v, 64, "%u", g_resWantW);
+    WritePrivateProfileStringA("Screen", "RenderWidth", v, ini);
+    _snprintf(v, 64, "%u", g_resWantH);
+    WritePrivateProfileStringA("Screen", "RenderHeight", v, ini);
+    WritePrivateProfileStringA("Screen", "RenderFullscreen", g_resWantFull ? "1" : "0", ini);
+    WritePrivateProfileStringA("Screen", "VirtualMode", g_resVirtual ? "1" : "0", ini);
+    // 41.1 (session 8): the capture mode (off is live-only and is not saved)
+    if (dvr::capture::mode() != dvr::capture::Mode::Off)
+        WritePrivateProfileStringA("Capture", "Mode", dvr::capture::mode_name(), ini);
+    // 41.1 (session 8): the device levers as they were READ this run (the
+    // seam word writes the ask for the next launch; a save must not undo it)
+    {
+        char cur[16] = "";
+        GetPrivateProfileStringA("Device", "Ex", dvr::d3d9ex::ex_wanted() ? "1" : "0", cur, sizeof(cur), ini);
+        WritePrivateProfileStringA("Device", "Ex", cur, ini);
+        GetPrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(dvr::d3d9ex::managed_mode()), cur, sizeof(cur), ini);
+        WritePrivateProfileStringA("Device", "Managed", cur, ini);
+    }
+    // 41.1: the stereo selection and the tickbox
+    WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
+    WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
+    // 41.1: the [Neck] lever
+    WritePrivateProfileStringA("Neck", "Mode", NeckModeName(g_neckMode), ini);
+    _snprintf(v, 64, "%.3f", g_neckBelowM);
+    WritePrivateProfileStringA("Neck", "PivotBelowM", v, ini);
+    _snprintf(v, 64, "%.3f", g_neckBehindM);
+    WritePrivateProfileStringA("Neck", "PivotBehindM", v, ini);
+    // 41.1: the [Pace] levers, so a headset run's choice survives the session
+    _snprintf(v, 64, "%d", dvr::vr::pace_ahead());
+    WritePrivateProfileStringA("Pace", "Ahead", v, ini);
+    WritePrivateProfileStringA("Pace", "Strict", dvr::vr::pair_strict() ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", dvr::vr::get_pose_lag());
+    WritePrivateProfileStringA("Pace", "Lag", v, ini);
 
     Log("overlay: saved defaults (scale %.1f dist %.2f)", g_posScaleUU, g_screenDist);
 }

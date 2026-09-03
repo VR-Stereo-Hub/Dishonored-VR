@@ -293,8 +293,16 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
 
     // --- c0 view-projection: positional lean (the head matrix branch is the
     // retired camera-inject experiment; it stays until the camera seam lands)
+    // 41.1: the lean rides this patch only on the vp lane ([PosTrack] Lane=vp,
+    // the shipped path); on the camera lane the seam writes it into the camera
+    // field with the eye offset and this patch stays out.
     bool wantHead   = g_injectHead && g_haveA;
-    bool wantPos    = g_posTrack && (g_leanRightUU != 0.0f || g_leanUpUU != 0.0f || g_leanFwdUU != 0.0f);
+    bool wantPos    = false;
+    if (g_posTrack && dvr::camera::pos_lane() == dvr::camera::PosLane::Vp) {
+        float pos[3];
+        dvr::camera::position_offset_uu(pos);
+        wantPos = pos[0] != 0.0f || pos[1] != 0.0f || pos[2] != 0.0f;
+    }
     if ((wantHead || wantPos) && data && count >= 4 && count <= 240 &&
         startReg == 0) {
         const float* m = data;
@@ -313,7 +321,7 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
                     }
                 memcpy(buf, M, sizeof(float) * 16);
             }
-            if (wantPos)    LeanVP(buf);
+            if (wantPos)    { LeanVP(buf); dvr::camera::note_vp_applied(); }
             if (Finite16(buf)) {              // never forward a poisoned matrix
                 return dvr::frame::orig_set_vs_const(self, startReg, buf, count);
             }

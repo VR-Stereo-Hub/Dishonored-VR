@@ -66,7 +66,7 @@ prove something the next one builds on:
 |---|---|---|---|---|
 | 1 | `mono` - the game frame on a head-locked quad, both eyes | the whole path headset-to-eye: capture, D3D11, swapchain, compositor, pacing, head tracking, the gamepad | one readback per present | `core/gfx/mono_screen.cpp`, shipped |
 | 2 | `aer` - AlternateEye: each tick renders ONE eye (the camera seam offsets +/- IPD/2), the compositor holds the other eye's last frame | geometric stereo and the eye-offset write point, cheaply; half temporal rate per eye | none on the game | `core/gfx/aer.cpp`, design stub |
-| 3 | `reentry` - SequentialReentry: the engine's scene draw is called a second time per tick with the other eye's camera | per-eye native effects at full rate; the big bet (needs the draw root, a gated and guarded second call) | one extra scene draw per tick | `core/gfx/reentry.cpp`, design stub |
+| 3 | `reentry` - SequentialReentry: the viewport draw root is called a second time per tick with the other eye's camera (`game/dishonored/scene_draw.cpp` patches the one gameplay call site; the camera seam writes +1 between the passes) | per-eye native effects at full rate; presents = 2x ticks; the ticks halve on the dev PC | one extra scene draw per tick (the second call itself 220-470 us) | `core/gfx/reentry.cpp` + `scene_draw.cpp`, simulator-verified 41.1, headset verdict pending |
 
 `IStereo` (stereo.h): `begin_frame(FrameInput)`, `eye_for_next_frame()`, `end_frame(FrameDevices,
 FrameOutput&)`, `on_reset()`, `shutdown()`, `status()`. `FrameOutput` is one texture and one
@@ -120,10 +120,16 @@ Index, Vive, Touch and WMR, logging to `%LOCALAPPDATA%\DishonoredVR\ovrshim.log`
 `note_render_pos`/`render_pos` (c5, the draw's camera position), `apply_eye_offset(camObj)`
 on the script lane into `[Camera] EyeField`, and the `camera eyetest` instrument that decides
 which field the renderer honours (ENGINE_NOTES "The per-eye camera seam: write points").
-Rotation and FOV are measured write points; the lateral eye offset is not, and the seam says
-so once when a method asks for an eye with no field measured. Positional tracking (lean,
-crouch, roomscale) still rides the c0 view-projection patch (`LeanVP` in
-`core/framework/vs_const.cpp`) until the write point is known (ROADMAP S1).
+Rotation, FOV and the lateral eye offset (camera+0x330, holding -position) are measured
+write points. Positional tracking (lean, crouch, roomscale) is the seam's too since 41.1:
+`set_position_offset_uu` (published by `TrackHead`), applied along the camera's basis rows
+(+0x50/+0x60/+0x70) in the same write as the eye offset when `[PosTrack] Lane=camera`;
+`Lane=vp` (the shipped default) keeps the c0 view-projection patch (`LeanVP`), which reads
+the same offset from the seam. `camera postest` measures either lane. Under a projection
+layer the seam's FOV target follows the runtime's circumscribed hfov for the frame aspect
+and the layer claims the 0x53c sensor (`present_tick.cpp: DvrFovHandoff`). SequentialReentry
+adds a per-thread fork: inside the re-entered second draw `apply_offsets` writes eye +1
+whatever the seam's eye says (`set_second_pass`).
 
 ## Directory contract
 
@@ -203,15 +209,100 @@ is written). `core/util/paths.h` is the one place that knows this.
 
 ## Known costs
 
-- The per-present CPU readback of the game window (`GetRenderTargetData` + row copy +
-  `UpdateSubresource`; 8 MB each way at 1080p). Structural until S1 replaces it with a D3D9Ex
-  shared surface opened on the D3D11 side.
+- The per-present readback of the game window (`GetRenderTargetData` + row copy +
+  `UpdateSubresource`): at the Quest 3 size 16 ms of GPU copy per present plus 7.5 ms of CPU,
+  the owner of the tick on both sides (ENGINE_NOTES "The tick budget, measured"). `deferred`
+  (ships, 41.1) hides the CPU wait, not the GPU copy; `shared` on a `[Device] Ex=1` device
+  (a fenced VRAM-to-VRAM StretchRect) removes both and leaves the tick at the pacing limit.
+  The tick budget instruments (`core/framework/perf`: the per-present split, the BeginScene
+  marker, the D3D9 timestamp ring, `mark`, the gap line) are on by default and cost eight
+  clock stamps and one query issue per point.
+- The managed-pool shadow under `[Device] Ex=1`: a SYSTEMMEM twin per game texture (398 MB
+  asked by the sewers level) and one `UpdateTexture` per unlock; nothing per frame.
+- SequentialReentry's second draw: a full scene draw per tick for the GPU (the call itself
+  returns in 220-470 us; the tick rate halved on the dev PC's simulator run at 1080p).
 - `xrWaitFrame` runs inline on the present thread by default and paces the game to the
   headset; `vrpace thread on` moves it to the pace thread (the BioShock session-34 fix).
 - `hkSetVSConstF` is on the hottest D3D9 entry point: the c5 camera capture, the c0 lean patch
   and the (uncalled) hand drives live there.
 
 ## Decision log
+
+### 2026-09-03 - session 8 (performance: the tick budget, the 9Ex device, the shared capture)
+
+- **Measure the tick before building the GPU path.** The brief predicted the GPU path from the
+  capture's cost line; the same numbers fit a GPU-bound tick that no capture path would fix.
+  The tick budget (perf) was built first, with the one number that separates the two models
+  (the readback's own GPU time, from a D3D9 timestamp bracket), and it said the readback owns
+  both the CPU and the GPU side. The 1080p simulator runs that seemed to say "deferred gains
+  nothing" were pace-bound by the simulator's own gate, which the line now prints.
+- **The 9Ex device goes behind a launch-time lever, and the census decides the translation.**
+  A 9Ex device refuses MANAGED; the census measured 99 % of the game's creations MANAGED and
+  10598 READONLY texture locks, so the cheap DYNAMIC stand-in was ruled out by measurement and
+  the shadow (a SYSTEMMEM twin per texture, the class-wide Lock hooks redirecting) is the
+  translation. `[Device] Ex=0` ships; `Ex=1 Managed=shadow` is the headset test.
+- **No ini version bump.** The version rewrite carries three keys over and would wipe a tuned
+  ini (the picker size, F10 saves); new keys are read with defaults when absent, written by
+  their seam word and by SAVE AS DEFAULTS, and appear in the golden ini for fresh installs.
+- **`[Capture] Mode=deferred` ships as the default** (agreed with the user): 27 vs 21 ticks/s at
+  the Quest 3 size, one present of latency, `sync` the live A/B; `shared` is the fix once the
+  headset has judged the 9Ex device.
+
+### 2026-09-03 - session 7 (S2b polish: the four headset faults, the picker)
+
+- **The second draw's gates are decided once, before the first tag.** A tag stream that can
+  go one-sided (a `-1` whose `+1` was skipped) makes the runtime show a held eye, because a
+  stereo layer names each eye's swapchain and the compositor shows its last released image.
+  The fix is at the source; `vrpace strict` is a lever (default off) rather than an
+  unconditional fail-soft because the fault case is a headset percept and the A/B must
+  attribute it, and `reentry skip2` exists so the instrument can be shown failing.
+- **Pacing is a look-ahead on the locate time, not a hold on the close.** Delaying `xrEndFrame`
+  to the slot was rejected (it stretches the intra-pair gap and back-pressures the game
+  thread); `vrpace ahead` moves only what the pose is predicted for, and the phase
+  instrument says which slot the close lands in. Ships at 0.
+- **The neck term lives on the present thread in the head-yaw frame, beside the raw
+  displacement**, because the two must combine before the seam sees one triple, and the term
+  needs the head matrix (roll for free), which the script lane does not have. The pivot
+  defaults are the ENGINE's measured numbers, so `cancel` is one word away; the mode ships off
+  because the direction is settled by the headset.
+- **`Armed` is a second key**, so parking never forgets the selection and a SAVE AS DEFAULTS
+  while parked keeps `Method=reentry Armed=0`; `reentry` is the default method because rung 3
+  is headset-verified and this session's fixes are its polish.
+- **The render size is asked of the engine through its command line, never spoofed into the
+  window.** The game's ini is inert for the startup size on this build and `setres` dispatches
+  and does nothing (both measured); `-ResX/-ResY/-FullScreen` is honoured verbatim, and the
+  proxy is loaded before the engine reads it. `VirtualMode` revives exactly two hooks from the
+  removed machinery (the mode list) plus a fullscreen-to-windowed present-parameter
+  conversion, and nothing of the window/GetClientRect lie: the fullscreen path has no desktop
+  clamp, which is where every 41.0-era dead end ran.
+
+### 2026-09-03 - session 6 (S2b: SequentialReentry on the simulator)
+
+- **The re-entry patches the CALL SITE, not the root's prologue.** UGameEngine::Tick
+  reaches the viewport draw root through one direct `push 1; call` at 0x6330da; redirecting
+  that E8 to the stub means no trampoline, the root and its two other callers run pristine
+  code, and the deny-by-default caller gate is a byte in the image (the return address is
+  still checked). The prologue-copy trampoline (the SEH prologue has no rel32) stays the
+  documented fallback; MinHook stays out.
+- **Pass 2's eye is a per-thread fork in the camera seam**, not a flip of the seam's eye:
+  the present thread rewrites `camera::set_eye` every present, so a flip from the game thread
+  between the passes would be overwritten mid-draw. `set_second_pass` latches the thread id;
+  `apply_offsets` writes +1 on that thread and the seam's eye everywhere else.
+- **One tag per present into the runtime's ring, pushed by the method in `end_frame`**, from
+  its own ring the game thread fills per draw; each tag carries the camera position the
+  writer produced and the present's c5 must match it (stale tags are skipped, never swapped).
+  The runtime layer stays verbatim.
+- **The capture's cheaper path is `deferred`, measured, not the shared surface planned in
+  S1**: the device is not 9Ex and refuses to share; the shipped path's cost is the lock
+  waiting on a readback queued behind the frame in flight, so queueing it a present earlier
+  is the cut. Ships off until a headset run picks the default.
+- **Positional tracking is a lane on the camera seam** (`[PosTrack] Lane`), the old c0 patch
+  kept as the shipped A/B; the seam owns the offset so both lanes read one source.
+- **A method claims the projection layer through the seam** (`wants_projection`), the frame
+  path arms the runtime's camera mode and publishes the gameplay verdict every present; the
+  runtime's cinematic quad fallback is the menu/loading/cutscene gate. The verdict needed the
+  script-event tracking hoisted out of the motion-aim block (GamepadOnly had switched it
+  off) and a dispatch-liveness term for loading screens.
 
 ### 2026-09-02 - session 5 (native stereo foundation)
 

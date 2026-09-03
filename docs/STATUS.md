@@ -1,6 +1,172 @@
 # Status
 
-## Current state (2026-09-02, session 5: the native-stereo foundation, 41.0)
+## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
+
+**Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
+headset, at rate, with the tested configuration shipping as the defaults.
+
+- **THE ROOT CAUSE, found and fixed and PROVEN**: the eye tags paired draws to presents by
+  push/pop ORDER, and the order breaks wherever the game thread runs ahead of the render thread -
+  a level load, a pause/resume, a re-arm - and spontaneously in gameplay every ~2 s on the
+  tester's rig (131 skews in four minutes). Each break showed each eye the other's draw until the
+  next one. That is the fault this project has chased since run 15 ("the eyes disagree", "90 % of
+  the time, more at the beginning", "never correct after a load"). THE FIX: between a tick's two
+  draws nothing moves the camera but the eye offset, so pass 2's camera sits exactly one IPD along
+  the camera's right row from pass 1's; a present whose camera step reads that IS the second draw
+  whatever the queue claims, and a disagreement streak realigns the queue. `[Stereo] C5Pair=1`.
+  THE PROOF (headset, the user, 2026-09-04): unticking `c5 pairing` on the F10 EYES block and
+  pausing brought the fault straight back (`swapped=24 of 25` pairs, the picture's parallax on the
+  wrong side), ticking it back removed it (`swapped=0` for the rest of the run) - by eye and in the
+  log, three times.
+- **THE INSTRUMENT that found it ships**: the frame-identity trace (`core/gfx/frame_id`, `[Perf]
+  FrameId=1 FrameIdEvery=8`, `frameid on|off|status|every N`, status.json `frameid{}`): one 64x64
+  luma thumbnail per sampled present at the backbuffer as the capture found it, the shared slot,
+  the eye texture and the swapchain image, read three presents later and never waited on, with the
+  draw's camera position and right row on the same record. The `stereo: frameid` line prints, per
+  left/right pair, the L-R difference per stage, the camera step and side check, the picture's own
+  parallax shift and the first stage that reads as one picture. The F10 Display tab's **EYES
+  block** shows the same numbers live and carries DUMP EYES, REARM 2, CAPTURE REINIT, PROJECTION
+  OFF / AUTO, the c5-pairing tickbox and the trace tickbox.
+- **PERFORMANCE: back at the headset's rate.** The trace read every present cost the tester's GPU
+  1.5 ms per present (stage bb's `GetRenderTargetData` is a pipeline sync there) and the tick went
+  13.9 -> 16.7 ms, 60/s under a 72 Hz headset; sampling one pair every 8 ticks removed it
+  ("the fps is perfect now", 2026-09-04). The trace tickbox is off = no cost at all.
+- **THE DEFAULTS ARE THE HEADSET-JUDGED VALUES** (a fresh ini now comes up where the testing left
+  off): `[Stereo] Method=reentry Armed=1 C5Pair=1`, `[Camera] EyeField=0x330`, `[Neck] Mode=cancel`
+  with the measured pivot (0.321 / 0.062 m), `[PosTrack] Scale=98 Lane=auto`, `[Tracking]
+  HeightOffsetM=-0.090`, `[Screen] RenderWidth=2496 RenderHeight=2688 RenderFullscreen=1
+  VirtualMode=1` (the Quest 3 through VDXR per-eye size, advertised so the game creates it - a
+  fresh install used to render the game's own size and look soft), `[Device] Ex=1 Managed=shadow`,
+  `[Capture] Mode=shared`, `[Perf] FrameId=1 FrameIdEvery=8`. Another headset: the F10 Display
+  picker writes its size for the next launch; `res 0x0` asks for none.
+- **Also fixed this session**: `dump eyes` writes a consecutive left/right pair and encodes it on a
+  worker thread (the 640 ms present-thread stall used to re-arm the second draw, so every dump
+  changed what it was taken to judge); the beat line's `presentTid` follows the presenting thread
+  (it was latched at the first present, which at boot is the game thread's - a false lead in run
+  17); pass-2 eye writes the camera seam refuses are counted (`p2write refused=`).
+
+## Next steps (one paragraph per developer)
+
+**The user (headset)**: nothing is blocking. When you next play, the open comfort questions are
+the ones a correct stereo pair finally lets you judge: (1) JUDDER on fast head or player movement -
+`vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and the `xr: pair
+phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT with
+`[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real frame
+rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
+Say which of the three is worst and the log will carry the numbers.
+
+**The next developer session**: the correctness question of S2b is closed, so S3 is open - write
+the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
+correctness, failure modes, the headset verdicts) and bring the features back on the winner: the
+hands (SkelControl drive, hand meshes, `[Mode] GamepadOnly=0`), the wrist HUD through the runtime
+layer's HUD quad and texture-provider seam, Blink and motion aim. `stereo aer` is still a design
+stub and the losing method stays registered as the A/B. Carried: the SteamVR shim has never run
+with this game; the ini version rewrite still wipes a tuned ini (session-8 and -9 keys shipped
+without a bump); the pace guard's eaten tag if the headset ever names it.
+
+## Blockers
+
+- **The ini version rewrite wipes a tuned ini** (`config.cpp` carries three keys over): the
+  session-8 and session-9 keys ship without a version bump. A key-preserving rewrite is a
+  separate change.
+- **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
+  `Stop-Process`; a menu quit is clean on the Quest (run 15).
+- **The walk-in on the simulator is by hand**: Return x4 with 28 s waits reached the level on four
+  of six launches this session; otherwise the mod's menu flag sticks (VERIFICATION gotcha 17) and
+  an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
+
+## Session log
+
+### 2026-09-04 - session 9: the eyes - the trace, the swap, the fix, the proof
+
+Branch `claude/dishonored-vr-both-eyes-same-659cb5` -> PR #7, 13 commits. Runs on the dev PC
+(simulator lane, RTX 4060, 2496x2688 VirtualMode, the sewers, shipped defaults; logs in
+`D:\dvr-data\logs\45-run*.log`) and the user's Quest 3 through VirtualDesktopXR:
+
+| Run | What | Result |
+|---|---|---|
+| 01 | the trace and the words, first build | `stereo: frameid` pairs from the arming: L-R 4.1 at bb/slot/out, floor 1.5, c5 6.17, busy 0; `reentry rearm 2` -> SINGLE x2 then DOUBLE; `capture reinit` -> REBUILT, no STALE; `dump eyes` queued + written off-thread, no gap, no LOADING; the sc stage empty (an ordering bug) |
+| 02 | the sc stage, the side check | sc reads (4.7-5.0); **the side flipped across `reentry rearm 2`** and within a second of the first arming; the ring overflowed 363 times in the menu |
+| 03 | the 0-tag push + the c5 pairing (first form), the A/B | side ok from the first pair; `reentry c5pair off`: the side flipped on its own twice in 25 s, `untagged 16-19` per window; on: no flips |
+| 04 | the invariant as the pairing, the picture shift | side ok + shift -1 px on every pair, P1 == P2, untagged 0-1; `reentry.xrs` 11/11 |
+| 05 | the drain to the next expected tag | side ok from the first pair across a `stereo mono` -> `reentry` switch and a rearm; 0 ring drops |
+| 06 | the F10 EYES block | the overlay renders the readout and the buttons in the headset's own view (`xrsim-shot`) |
+| 07 | **HEADSET (the user)**, the session's build | the eyes RIGHT from the load and after every button; `side ok` / `SWAPPED=0` on every pair, c5 6.11, shift negative, L-R 3-14 (one picture = 1.5); the ring skewed 131 times in ~4 min - the old swaps, absorbed; the trace read every present cost 1.5 ms GPU idle per present, tick 16.7 ms (60/s under 72 Hz) |
+| 08 | **HEADSET (the user)**, the sampled trace + the A/B | "the fps is perfect now"; `c5 pairing` OFF + pause/resume -> the fault returns (`swapped=24 of 25`, then 12 of 12, the picture agreeing), ON -> `swapped=0` for the rest of the run. **The root cause is proven.** |
+
+### 2026-09-03 - session 8: performance - the tick budget, the census, the 9Ex device, the shared capture
+
+Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits. Runs on the dev PC (simulator lane, RTX 4060,
+2496x2688 VirtualMode, logs in `D:\dvr-data\logs\44-run*.log`):
+
+| Run | What | Result |
+|---|---|---|
+| 01 | the tick budget, sync / deferred / off | stereo sync: tick 46 ms (21/s), capture 17-21 ms per present of which lock 9-13, GPU dma 15.5-16.8 vs 3D 4.8; deferred: 36 ms (27/s), lock 0, dma 10.4; off: 93 presents/s pace-bound; the marker 1 BeginScene per present, 0 late GPU reads; `mark` and the gap line print; `reentry.xrs` 11/11 |
+| 02 | the creation census | 8060 of 8120 creations MANAGED (398 MB), READONLY texture locks 10598, no AUTOGENMIPMAP; the shadow route decided |
+| 03 | `[Device] Ex=1 Managed=shadow` | `CreateDeviceEx -> 0x0`, IS 9Ex, `shared surface AVAILABLE`; 5240 twins, 65552 updates, 0 failures; the sewers intact; shared (one slot) 0.2 ms per present |
+| 04 | the fenced two-slot shared capture, stereo | SharedWait=1: tick 13.3 ms (75/s), lock = the 3.6 ms fence wait, dma 0.2; SharedWait=0: 11.1 ms (90/s) PACE-BOUND; `reentry.xrs` 11/11; hammer 0 stale over 5 cycles; the frame intact |
+| 05 | the final build | deferred default 27.7/s; `capture mode off` with 0 STALE lines (the no-frame fix); `focus lose 2500` / `focus regain`: `eaten=0`, 0 stale; `reentry.xrs` 11/11 |
+| 14a | **HEADSET (the user)**, Ex=0, deferred | 30-33 ticks/s at 2496x2688 (dma 10.9 ms per present), 50 gap lines, no attack freeze felt |
+| 14b | **HEADSET (the user)**, Ex=1 | 9Ex device up, shared AVAILABLE but the capture stayed deferred (30 ticks/s); after repeated quickloads the twin map filled with tombstones and the game crashed in D3D9 (minidump `dvr_20260903_212436.dmp`) |
+| 06 | the tombstone fix, Ex=1 + shared, 3 quickloads | 2324 live, 1984 tombstones reused of 32768, 0 failures, the game alive; 90 ticks/s pace-bound |
+| 15 | **HEADSET (the user)**, Ex=1 + shared | "performance is pretty good"; the eyes disagree "90 % of the time, more at the beginning": 0 STALE, 0 tag mismatches, pairs one IPD apart, 32 pause/resumes each with a 1-1.5 s flat spell |
+| 07 | the read fence + the menu resume, shipped defaults | `readWaits` 14 in the run (the race was real); hammer 10 cycles 0 stale, `view live at once` x11; `reentry.xrs` 11/11 |
+
+### 2026-09-03 - session 7: the four headset faults and the picker, on the simulator
+
+Branch `claude/dishonored-vr-stereo-polish-449d43`, 15 commits. Runs (simulator lane, logs in
+`D:\dvr-data\logs\43-run*.log`; the run-40 headset log archived as `42-run40-quest3-verdict.log`):
+
+| Run | What | Result |
+|---|---|---|
+| 01 | commits 0-1d | `Method=mono applied after the game side registered`; the gate decision logs its reason; `reentry.xrs` 11/11, `stale-eye.xrs` 18/18; hammer 10 cycles PASS, ages L=1 R=0 |
+| 02 | `reentry skip2 120` | strict off: sim stale 0 -> 2, mono +62, `STALE R EYE` (owner first "unknown", then the game side); strict on: stale unchanged, 37 fallbacks to mono |
+| 03 | the phase + ahead | runtime clock extension on the sim; phase +58 ms mean (synthetic); `vrpace ahead 1` logs and locates; hammer 5 PASS |
+| 04 | pitchtest x3 | engine neck 0.321/0.062 m (cons 0.3 uu); the arc reached c5 on top of it; `neck cancel` -> travel < 0.5 uu; the picture agrees |
+| 05 | Armed + console | park/re-arm on the seam correct; the first console word overflowed the game thread's stack (the hook re-entered) |
+| 06 | the guard, boot | `Method=reentry Armed=1 -> active reentry` before the first present; `setres 2560x1440f`/`1600x900w` dispatch, empty reply, no Reset: INERT |
+| 07-08 | the ini route | 2560x1440 fullscreen in every ini place -> `CreateDevice 1920x1080 windowed=1`: the ini is inert |
+| 09 | the command line | `-ResX=2560 -ResY=1440 -FullScreen` via 3 import slots -> `CreateDevice 2560x1440 windowed=0`, capture and swapchains followed |
+| 10-11 | 2496x2688, no VirtualMode | the game asked the mode list, fell back to 2560x1440 (a harness launch had restored the mod ini; the launch file carries the token now) |
+| 12 | **2496x2688 with VirtualMode** | our mode handed at slot 123; `CreateDevice 2496x2688 windowed=1`; `res: HONOURED`; hfov 108 deg; both eyes 77 % non-black in the sewers; the frame complete; readback 18-20 ms/present |
+| 13a | **HEADSET (the user)**: 2560x1440 fullscreen asked | Reset 2560x1440 twice then 2508x1411 windowed=1 (the game's own fallback); the run sat in menus, stereo never armed (`state` skips); readback 5.3-5.8 ms/present |
+| 13b | **HEADSET (the user)**: 2496x2688 VirtualMode | `CreateDevice 2496x2688 windowed=1`, HONOURED, "pretty sharp"; `neck cancel` right; stereo L/s=R/s=16-28, ticks 28/s, readback 13-15 ms/present; one `STALE L EYE` (age 567) at a FOCUSED regain; the desync still seen on load; judder unjudgeable |
+
+### 2026-09-03 - session 6: S2b - the capture cost, the lanes, the root, the second draw
+
+Branch `claude/s2b-stereo-scene-draw-a341c5`, seven commits on `VR-Main` (24b22390): the
+capture cost measured and the modes, the pipelined deferred capture, positional tracking on
+the camera seam, the projection claim and the FOV handoff with the state-gate fixes, the
+root derivation and the second draw, the docs. Runs on the dev PC (simulator lane, logs in
+`D:\dvr-data\logs\42-run*.log`):
+
+| Run | What | Result |
+|---|---|---|
+| 16 | capture modes | probe: shared REFUSED; sync 5.4 ms, deferred (first form) 5.2 ms: no gain; `mono.xrs` PASS both |
+| 17 | user-memory surface | REFUSED (D3DERR_INVALIDCALL), fell back to sync |
+| 18 | the lock split | sync: lock 2.4-3.1 ms, copy 0.7, upload 1.5; deferred first form: the lock still waits |
+| 19 | deferred pipelined | lock 0, total 2.25-2.4 ms; `mono.xrs` PASS |
+| 20 | postest | camera lane HONOURED on all axes - on the attract camera (the state mislabel found in run 21) |
+| 21 | projection on the mono screen | two views, sensor 137, claim readback; the pictures were the title screen, then the loading screen (DISCARDED there), then the sewers: eyetest 120/120, postest +30.0 in real gameplay |
+| 22-24 | the state gate | menu/cine tracking hoisted, main-menu flag, LOADING state, the cinematic latch cleared on a new pawn: title MENU -> quad, load LOADING -> quad, level GAMEPLAY -> projection |
+| 25 | 1440x1440 | the game stayed 1920x1080 with ResX/ResY=1440 in both ini places; second aspect open |
+| 26 | census + scrapes | PVR from one site once per present; render thread presents; the draw chain to the HUD PostRender |
+| 27 | tick chain + probes | both chains under UGameEngine::Tick; the root 0x5fc5b0 named from the bytes at 0x6330da; pe-xref confirms every edge |
+| 28 | first light | pulse: 3 second draws at 218-414 us, presents +1 each; `stereo reentry`: L/s 54 R/s 53, pair c5 travel 6.17 uu, no fault; the ring cleared every few seconds |
+| 29 | the ring fix + soak | L/s 52 R/s 52 mono 0, ringCleared 0, 90 s clean; `reentry.xrs` 11/11 |
+| 30 | **the headset (Quest 3, VDXR, the user)** | the doubling ran (draws 54 = 2nd 54, presents 108, pair 6.08 uu) but L/s=36 R/s=54 mono/s=18: left tags dropped by the position check while walking -> both frames in both eyes; lean reversed, a second motion on pitch (the head's displacement and roll not driven under the projection layer) |
+| 31 | the fixes, sim | tags never dropped: L/s 53 R/s 53 mono 0; `reentry.xrs` 11/11; the lean under projection read 13.7 uu for 30 cm (the reference had crept) |
+| 32 | the stable reference | 30 cm -> +29.4 uu held for 10 s, crouch/forward signs right, postest HONOURED; CINEMATIC stuck across the load (the pawn latched before the title toggle) |
+| 33 | the cinematic latch | `cine: latch cleared - leaving the main menu`, LOADING -> GAMEPLAY, L/s 53 R/s 53 mono 0 |
+| 34 | HEADSET (the user) | stereo good; tilt and lean reversed in all four directions, also with `stereo projection on` |
+| 35 | the lane picture test | 2 m right / 2 m up on both lanes: the camera lane MIRRORED the vp lane on both axes - the field's sign |
+| 36 | sign +1 | both axes match the vp lane by picture; eyetest HONOURED 119/120 (c5 -99.2 for +100), postest HONOURED both axes, L/s 52 R/s 51 |
+| 37 | roll by picture | roll write lands (incoming = wrote); +20 right-ear-down leaned the verticals RIGHT - reversed |
+| 38 | roll negated | +20 leans left, -20 right; forward axis matches the vp lane; pause/resume re-pairs cleanly (L/s = R/s, mono 0) |
+| 39 | the verdict logger | `gameplay verdict: FALSE (menuOpen) ... -> the head-locked quad` 30 ms ahead of the runtime's own line |
+| 40 | **HEADSET (the user), the verdict** | PASS: stereo depth, tilt, lean, look, crouch all correct. Open: the arming glitch (right eye), judder on fast movement, the pitch pivot behind the camera, and the F10 resolution picker + arming tickbox |
+
+### 2026-09-02 - session 5: the state as session 5 left it (archived)
 
 **The render is restarted on a native D3D9 game.** The DXVK fork, the side-by-side present
 pipeline, the 4032x2268 window machinery, the OpenVR backend and the mod's own OpenXR
@@ -95,7 +261,7 @@ ran under GamepadOnly; hoisted, it closes the session from PreExit and the third
 Dishonored; `apply_eye_offset` driving a real per-eye render (no method asks for an eye yet);
 `head_track`/`pad_bridge` as real modules (deferred, S1).
 
-## Next steps (one paragraph per developer)
+#### Session 5 next steps (superseded by the list above)
 
 **Both**: the recipe on this PC is `tools\build.ps1; tools\install.ps1;
 $env:DVR_DATA_DIR='D:\dvr-data'; tools\xrsim-launch.ps1 -ViaSteam` (the game ini carries
@@ -122,7 +288,7 @@ screen in both eyes, head rotation turning the view, the gamepad working; F10 fo
 size; send `dishonored_vr.log`. Quit through the game's own menu and report whether the process
 lingers.
 
-## Blockers
+#### Session 5 blockers (superseded)
 
 - **WM_CLOSE leaves a stuck `Dishonored.exe`** (one thread, unkillable, holds `d3d9.dll` and
   the build's `dvr_xrsim32.dll`, Steam refuses a relaunch). Pid 13452 cleared on its own after
@@ -133,8 +299,6 @@ lingers.
   thread is stuck (the simulator's, the runtime's, a driver's) is unknown; a debugger on the
   next occurrence, or a minidump taken by hand before killing it.
 - The headset run needs the user.
-
-## Session log
 
 ### 2026-09-02 - session 5: the native-stereo foundation (41.0)
 

@@ -138,6 +138,20 @@ bool g_disabled = false;
 std::atomic<uint32_t> g_lastLayerCount{0};
 std::atomic<uint32_t> g_lastProjViews{0};
 std::atomic<uint32_t> g_lastQuadLayers{0};
+// 41.1: the per-eye freshness of a projection submit, in FRAMES. A view names a
+// swapchain, and the compositor shows that swapchain's most recently released
+// image; `age` = this submit's frame index minus the frame the image was
+// released in. A healthy pair reads 0/0 (both eyes released inside this frame);
+// an eye at 1 or more is a held image from an earlier frame - the instrument
+// for "one eye stops taking fresh frames". `same` = both views named ONE
+// swapchain (the mono path). Cumulative counters classify every projection
+// submit; `reset` clears them.
+std::atomic<uint32_t> g_lastEyeReleased[2] = {};
+std::atomic<uint32_t> g_lastEyeAge[2] = {};
+std::atomic<uint32_t> g_eyeAgeMax[2] = {};
+std::atomic<bool> g_lastEyeSame{false};
+std::atomic<uint32_t> g_projSubmits{0}, g_projMonoSubmits{0}, g_projStaleSubmits{0};
+std::atomic<int64_t> g_lastEndPhaseNs{0};   // xrEndFrame time minus its displayTime
 // The last capture's composite verdict, published to state.json so a sequence
 // can assert on it (`@assert capNonBlackL ge 50`).
 std::atomic<int> g_capNonBlackPct[2] = {};
@@ -925,14 +939,51 @@ std::string build_json(const SimSubmission& sub, const std::vector<LayerStat>& s
 void compositor_note_layers(const SimSubmission& sub) {
     g_lastLayerCount.store(sub.layerCount);
     uint32_t projViews = 0, quads = 0;
+    g_lastEndPhaseNs.store(now_xr_time() - sub.displayTime);
     for (uint32_t i = 0; i < sub.layerCount; ++i) {
-        if (sub.layers[i].type == XR_TYPE_COMPOSITION_LAYER_PROJECTION)
-            projViews = sub.layers[i].viewCount;
-        else if (sub.layers[i].type == XR_TYPE_COMPOSITION_LAYER_QUAD)
+        const SimLayer& L = sub.layers[i];
+        if (L.type == XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
+            projViews = L.viewCount;
+            if (L.viewCount == 2) {
+                // 41.1: the per-eye release age (see the globals).
+                bool stale = false;
+                for (uint32_t v = 0; v < 2; ++v) {
+                    uint32_t idx = 0, rel = 0;
+                    swapchain_last_info(L.views[v].subImage.swapchain, &idx, &rel);
+                    const uint32_t frame = static_cast<uint32_t>(sub.frameIndex);
+                    const uint32_t age = (rel && rel <= frame) ? frame - rel : 0;
+                    g_lastEyeReleased[v].store(rel);
+                    g_lastEyeAge[v].store(age);
+                    uint32_t m = g_eyeAgeMax[v].load();
+                    while (age > m && !g_eyeAgeMax[v].compare_exchange_weak(m, age)) {}
+                    if (age >= 1) stale = true;
+                }
+                const bool same = L.views[0].subImage.swapchain == L.views[1].subImage.swapchain;
+                g_lastEyeSame.store(same);
+                g_projSubmits.fetch_add(1);
+                if (same) g_projMonoSubmits.fetch_add(1);
+                else if (stale) g_projStaleSubmits.fetch_add(1);
+            }
+        } else if (L.type == XR_TYPE_COMPOSITION_LAYER_QUAD)
             ++quads;
     }
     g_lastProjViews.store(projViews);
     g_lastQuadLayers.store(quads);
+}
+
+uint32_t compositor_eye_released_on_frame(int eye) { return (eye == 0 || eye == 1) ? g_lastEyeReleased[eye].load() : 0; }
+uint32_t compositor_eye_age(int eye) { return (eye == 0 || eye == 1) ? g_lastEyeAge[eye].load() : 0; }
+uint32_t compositor_eye_age_max(int eye) { return (eye == 0 || eye == 1) ? g_eyeAgeMax[eye].load() : 0; }
+bool compositor_eye_same_swapchain() { return g_lastEyeSame.load(); }
+uint32_t compositor_proj_submits(int kind) {
+    return kind == 1 ? g_projMonoSubmits.load() : kind == 2 ? g_projStaleSubmits.load() : g_projSubmits.load();
+}
+double compositor_last_end_phase_ms() { return g_lastEndPhaseNs.load() / 1.0e6; }
+void compositor_reset_pair_stats() {
+    for (int e = 0; e < 2; ++e) { g_lastEyeReleased[e].store(0); g_lastEyeAge[e].store(0); g_eyeAgeMax[e].store(0); }
+    g_lastEyeSame.store(false);
+    g_projSubmits.store(0); g_projMonoSubmits.store(0); g_projStaleSubmits.store(0);
+    g_lastEndPhaseNs.store(0);
 }
 
 uint32_t compositor_last_quad_layers() { return g_lastQuadLayers.load(); }

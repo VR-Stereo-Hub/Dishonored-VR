@@ -1,5 +1,105 @@
 # Release notes
 
+## 41.1.0 (unreleased) - native stereo ships, the four headset faults, the resolution picker
+
+- **THE EYES ARE FIXED (session 9, 2026-09-04, headset-confirmed)**: after a level load or a
+  pause the two eyes disagreed - the eye tags paired draws to presents by order, and the order
+  broke wherever the game thread ran ahead of the render thread (and on its own every ~2 s on
+  the tester's rig), showing each eye the other's draw. The pairing follows the camera step
+  measured per present now: inside one tick nothing moves the camera but the eye offset, so the
+  second draw sits exactly one IPD along right of the first. Proven by A/B in the headset:
+  unticking `c5 pairing` and pausing brought the fault back, ticking it on removed it.
+  `[Stereo] C5Pair=1` ships; `reentry c5pair on|off` and the F10 tickbox are the A/B.
+- **New defaults, all headset-judged**: `[Screen] RenderWidth=2496 RenderHeight=2688
+  VirtualMode=1` (the Quest 3 through VirtualDesktopXR per-eye size, advertised so the game
+  actually creates it - a fresh install used to render the game's own size and look soft) and
+  `[Tracking] HeightOffsetM=-0.090` written out instead of left implicit. The F10 Display
+  picker still writes another headset's size for the next launch, and `res 0x0` asks for none.
+- **The one-picture state has its instrument**: the frame-identity trace (`[Perf] FrameId=1`,
+  `frameid on|off|status`, status.json `frameid{}`): the `stereo: frameid` line prints, per
+  left/right pair, how different the two eyes are at the backbuffer, the shared slot, the eye
+  texture and the swapchain image, the camera step between the draws, the side check and the
+  picture's own parallax sign. New seam words for the headset run: `reentry rearm [n]`,
+  `capture reinit`. `dump eyes` writes a consecutive pair and no longer stalls the game (the
+  PNG is encoded on a worker thread; the stall used to re-arm the second draw). The beat line's
+  `presentTid` follows the presenting thread; pass-2 eye writes the camera seam refused are
+  counted (`p2write refused=`).
+
+- **Performance (session 8)**: `[Capture] Mode=deferred` is the default (27 vs 21 ticks/s at
+  the Quest 3 size on the simulator; `capture mode sync` is the A/B). New `[Device] Ex=0|1` and
+  `Managed=none|default|dynamic|shadow` (launch-time; `device ex on|off`, `device managed <m>`,
+  the F10 Display tickbox): the game's device as D3D9Ex with every MANAGED texture shadowed in
+  system memory, which lets `capture mode shared` keep the frame in VRAM (a fenced two-slot
+  shared surface; `[Capture] SharedWait=0|1`, `capture sharedwait on|off`); 75-90 ticks/s at the
+  Quest 3 size on the simulator. Off by default until a headset run has judged it.
+- New instruments: the tick budget (`perf: tick` and `perf: gpu` every 3 s: the render-thread
+  split per present, the BeginScene marker, a D3D9 timestamp ring with the readback's own GPU
+  time; `[Perf] Instruments=1 GpuQueries=1`, `perf on|off|status|gpu on|off`, status.json
+  `perf{}`), `mark <text>` and the F10 MARK button (the freeze marker with the ring of presents),
+  the frame-gap line with the phase it sat in and a relative threshold, `capture mode off` (the
+  A/B control: the image freezes by design), the creation census (`device census|status`,
+  status.json `census{}`), the reentry beat's game-thread period, the head write's refusal
+  reasons, `captureCost` in status.json under reentry too.
+- Fixed: a present whose capture delivered no frame pushed the previous frame's eye tag again
+  (a stale eye at every capture-mode switch); the pace guard's eaten tag is a named owner on
+  the `STALE EYE` line (`eatenNoFrame`, `eaten=` on the eyes line).
+- **Stereo ships ON**: a fresh ini has `[Stereo] Method=reentry Armed=1` (rung 3 is headset-
+  verified). New `Armed=` and the F10 Display `stereo armed` tickbox park the game on the mono
+  screen without forgetting the method; `stereo arm on|off`. An ini asking for `reentry` used
+  to refuse at boot (the game side registered later); fixed.
+- Fixed: the eyes could desync after a pause/resume (the second draw's gates were re-decided
+  after the first draw). New `vrpace strict on|off` fail-soft (off), the `stereo: eyes` beat
+  line (per-eye image age in presents), the `STALE R EYE` line, `reentry skip2 <n>`.
+- New: the pair phase (`xr: pair phase`, the TRACE pairs line, status.json `stereo.pair`) and
+  `vrpace ahead 0|1|2` / `vrpace lag 0|1|2`; a new `[Pace]` ini section (`Ahead=0 Strict=0
+  Lag=1`, all today's behaviour) that SAVE AS DEFAULTS writes.
+- New: `camera pitchtest [deg]` (the engine's own neck: measured 0.321 m below, 0.062 m
+  behind the eyes) and the `[Neck] Mode=off|add|cancel` lever with `PivotBelowM/PivotBehindM`
+  (the measured pivot as defaults), `neck` on the seam, F10 Comfort buttons and sliders,
+  status.json `neck{}`, `camera.ceilClips`.
+- Fixed: the `console` seam word (and IntroSkip) returned -1 since 41.0; latched again, and
+  the re-entry through the ProcessEvent hook that then overflowed the stack is guarded.
+- New: the F10 Display render-resolution picker: `[Screen] RenderWidth/RenderHeight/
+  RenderFullscreen` (the names return from 40.x with a new mechanism: the ask goes on the
+  game's command line at the next launch through `dishonored_vr_launch.txt`; the game's own
+  ini and `setres` are measured inert) and `VirtualMode=0|1` (the proxy advertises a size the
+  display lacks and creates the fullscreen device windowed). `res <W>x<H>[f|w] | modes |
+  status | virtual on|off | 0x0`; `res: HONOURED` is the verdict. `[Capture] Mode=deferred`
+  is the companion at the eye's size.
+- New (developers): `tools\xrsim\stale-eye.xrs`, `pause-resume.xrs`, `tools\arming-hammer.ps1`,
+  `@key` in `xrsim-run.ps1`, the simulator's per-eye release age (`eyeAgeL/R`,
+  `projStaleSubmits`, `endPhaseMs` in state.json) and its QPC time extension; the `res:` lines
+  (every adapter mode-list query with its caller). The upgrade note: `[HeadInject] FlipRoll`
+  stays 1 (the roll sense is fixed in the tracker, 5513a570).
+
+## 41.1.0 (unreleased) - SequentialReentry on the simulator, the S1 levers
+
+- New: `stereo reentry` - the scene drawn twice per tick, once per eye, submitted as a
+  projection layer (ROADMAP S2b). Verified on the simulator (two eyes half an IPD apart,
+  presents = 2x ticks, no fault in a soak); awaiting the headset verdict. `[Stereo] Method`
+  still ships `mono`. `stereo projection on|off|auto` forces or pins the projection layer
+  (on = the mono frame in both eyes of a projection layer, for instruments).
+- New: `[Capture] Mode=sync|deferred|shared` (ships `sync`) and `capture mode <m>|status`:
+  `deferred` halves the per-present capture cost (measured 5.0 -> 2.3 ms at 1080p) for one
+  present of latency and resolves a multisampled backbuffer; `shared` is refused by this
+  game's device and says so.
+- New: `[PosTrack] Lane=auto|vp|camera` (ships `auto`: the c0 matrix patch on the mono
+  screen, the camera seam's own write under a projection layer, where the head's raw
+  displacement drives the camera and the head roll is written) and `postrack on|off|lane
+  <l>`; `camera postest <R> [U] [F]` measures the travel in uu.
+- Fixed: under `[Mode] GamepadOnly=1` the title screen, the main menu and a loading screen
+  read as GAMEPLAY (the script-event tracking sat inside the motion-aim block); the
+  `[game] state` line now knows the main menu (its own signal) and a `LOADING` state, and
+  a level load clears the cinematic latch the title screen leaves behind.
+- Fixed: `tools\eye-check.ps1` failed at start (its log-path default ran before the library
+  loaded).
+- New (developers): the `capture: cost/present` line; the `fov:` line (aspect, lever target,
+  vfov, sensor, eye size) under a projection layer; the `reentry <verb>` words (pulse, reset,
+  status, census, stack, probe, findstart); the `reentry: beat` and `reentry: pair` lines;
+  `tools\xrsim\reentry.xrs`; status.json `capMode`, `capShared`, `stereo.projection/camMode/
+  cineActive`, `camera.posLane/...`, `stereo.draw{}`, `mainMenu`. New patterns.h entries for
+  the scene-draw root (ENGINE_NOTES "The scene-draw root, derived live").
+
 ## 41.0.0 (unreleased) - native stereo foundation
 
 - Removed: the DXVK fork (`dxvk_d3d9.dll`) and the whole `dxvk/` tree. The game renders

@@ -110,9 +110,12 @@ static XrResult impl_EnumerateInstanceExtensionProperties(const char* layerName,
     if (layerName && layerName[0]) return XR_ERROR_API_LAYER_NOT_PRESENT;
     if (!countOutput) return XR_ERROR_VALIDATION_FAILURE;
 
-    // One extension, which is exactly what the mod asks for. Advertising more
-    // than we implement would be a lie a test tool has no business telling.
-    static const char* kExts[] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+    // Exactly what the mod asks for and we implement. Advertising more than
+    // we implement would be a lie a test tool has no business telling. 41.1:
+    // the QPC clock conversion, so the mod's pair-phase instrument (xrEndFrame
+    // time against predictedDisplayTime) reads the same units here as on VDXR.
+    static const char* kExts[] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME,
+                                  "XR_KHR_win32_convert_performance_counter_time"};
     const uint32_t total = static_cast<uint32_t>(sizeof(kExts) / sizeof(kExts[0]));
 
     *countOutput = total;
@@ -146,6 +149,8 @@ static XrResult impl_CreateInstance(const XrInstanceCreateInfo* info,
     for (uint32_t i = 0; i < info->enabledExtensionCount; ++i) {
         if (strcmp(info->enabledExtensionNames[i], XR_KHR_D3D11_ENABLE_EXTENSION_NAME) == 0)
             d3d11 = true;
+        else if (strcmp(info->enabledExtensionNames[i], "XR_KHR_win32_convert_performance_counter_time") == 0)
+            ; // 41.1: implemented below (impl_ConvertWin32PerformanceCounterToTimeKHR)
         else {
             XRSIM_LOG("xrsim: app asked for unsupported extension '%s'",
                       info->enabledExtensionNames[i]);
@@ -388,6 +393,36 @@ static XrResult impl_GetD3D11GraphicsRequirements(XrInstance instance, XrSystemI
 }
 
 // ---------------------------------------------------------------------------
+// XR_KHR_win32_convert_performance_counter_time (41.1): the same split
+// conversion now_xr_time() uses (xrsim_log.cpp), so a QPC reading converted
+// here lands on the exact clock the predicted display times are on.
+// ---------------------------------------------------------------------------
+
+static int64_t qpc_frequency() {
+    static LARGE_INTEGER f = [] { LARGE_INTEGER v; QueryPerformanceFrequency(&v); return v; }();
+    return f.QuadPart ? f.QuadPart : 1;
+}
+
+static XrResult impl_ConvertWin32PerformanceCounterToTimeKHR(XrInstance instance,
+                                                            const LARGE_INTEGER* counter,
+                                                            XrTime* out) noexcept {
+    if (!valid_instance(instance)) return XR_ERROR_HANDLE_INVALID;
+    if (!counter || !out) return XR_ERROR_VALIDATION_FAILURE;
+    const int64_t f = qpc_frequency(), t = counter->QuadPart;
+    *out = (t / f) * 1000000000LL + (t % f) * 1000000000LL / f;
+    return XR_SUCCESS;
+}
+
+static XrResult impl_ConvertTimeToWin32PerformanceCounterKHR(XrInstance instance, XrTime time,
+                                                            LARGE_INTEGER* out) noexcept {
+    if (!valid_instance(instance)) return XR_ERROR_HANDLE_INVALID;
+    if (!out || time <= 0) return XR_ERROR_VALIDATION_FAILURE;
+    const int64_t f = qpc_frequency();
+    out->QuadPart = (time / 1000000000LL) * f + (time % 1000000000LL) * f / 1000000000LL;
+    return XR_SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
 // SEH shims - one per entry point, correctly typed
 // ---------------------------------------------------------------------------
 
@@ -407,6 +442,8 @@ XRSIM_SHIM(ResultToString, (XrInstance i, XrResult v, char b[XR_MAX_RESULT_STRIN
 XRSIM_SHIM(StructureTypeToString,
            (XrInstance i, XrStructureType v, char b[XR_MAX_STRUCTURE_NAME_SIZE]), (i, v, b))
 XRSIM_SHIM(GetSystem, (XrInstance i, const XrSystemGetInfo* gi, XrSystemId* s), (i, gi, s))
+XRSIM_SHIM(ConvertWin32PerformanceCounterToTimeKHR, (XrInstance i, const LARGE_INTEGER* c, XrTime* t), (i, c, t))
+XRSIM_SHIM(ConvertTimeToWin32PerformanceCounterKHR, (XrInstance i, XrTime t, LARGE_INTEGER* c), (i, t, c))
 XRSIM_SHIM(GetSystemProperties, (XrInstance i, XrSystemId s, XrSystemProperties* p), (i, s, p))
 XRSIM_SHIM(EnumerateViewConfigurations,
            (XrInstance i, XrSystemId s, uint32_t c, uint32_t* o, XrViewConfigurationType* t),
@@ -554,6 +591,8 @@ XRAPI_ATTR XrResult XRAPI_CALL xrsim_GetInstanceProcAddr(XrInstance instance, co
     XRSIM_BIND("xrResultToString", xrsim_ResultToString)
     XRSIM_BIND("xrStructureTypeToString", xrsim_StructureTypeToString)
     XRSIM_BIND("xrGetSystem", xrsim_GetSystem)
+    XRSIM_BIND("xrConvertWin32PerformanceCounterToTimeKHR", xrsim_ConvertWin32PerformanceCounterToTimeKHR)
+    XRSIM_BIND("xrConvertTimeToWin32PerformanceCounterKHR", xrsim_ConvertTimeToWin32PerformanceCounterKHR)
     XRSIM_BIND("xrGetSystemProperties", xrsim_GetSystemProperties)
     XRSIM_BIND("xrEnumerateEnvironmentBlendModes", xrsim_EnumerateEnvironmentBlendModes)
     XRSIM_BIND("xrEnumerateViewConfigurations", xrsim_EnumerateViewConfigurations)

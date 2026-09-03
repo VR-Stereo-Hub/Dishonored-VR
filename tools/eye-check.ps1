@@ -77,12 +77,15 @@ param(
     # minimum of L/s and R/s as a fraction of the larger one. 0.8 leaves room
     # for a beat straddling a load hitch; healthy is 1.0 (45/45 under AER at
     # 90 presents/s, 90/90 under re-entry).
-    [string]$GameLog = (Get-DvrLogPath),
+    # Empty = resolve through tools\lib\game-path.ps1 once it is loaded (a param
+    # default runs BEFORE the dot-source below, so it cannot call the helper).
+    [string]$GameLog = "",
     [double]$PairMinFrac = 0.8,
     [int]$BeatWaitSec = 14,
     [switch]$NoFocus
 )
 . (Join-Path $PSScriptRoot "lib\game-path.ps1")
+if (-not $GameLog) { $GameLog = Get-DvrLogPath }
 
 $ErrorActionPreference = 'Stop'
 $shotScript = Join-Path $PSScriptRoot "xrsim-shot.ps1"
