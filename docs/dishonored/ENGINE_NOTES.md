@@ -1389,3 +1389,139 @@ the same component chain as `m_Offset`.
   `FindPropOffset` and log its live value, exactly as `fovprobe` does, then watch the follow
   weights while equipping, aiming, sheathing and swapping weapons. That alone says whether
   these are driven at runtime or left at their defaults, and it needs no write and no risk.
+
+## Hiding bones, and reading the scripts by name (2026-09-02, session 7f - research)
+
+Two questions from the user, both answered against the BioShock mirrors and both checked
+against what GingasVR already tried. **Both recorded dead ends turn out to be narrower than
+the note that records them**, which is the second and third time this has happened in two
+sessions.
+
+### 1. "Bone density 0" - how the BioShock mods hide everything but the hands
+
+Both mirrors do the same thing and neither uses a script call. They write **scale = (0,0,0)
+directly into the render-side bone transform array**, plus a position collapse to an anchor:
+
+```c
+// docs/reference/bioshock-remastered-vr/BioshockVR/Hands/ArmHide.cpp, HideBone()
+const float zero[3] = { 0.0f, 0.0f, 0.0f };
+SafeWrite(g_bones[idx].position, target, sizeof(float) * 3);
+SafeWrite(g_bones[idx].scale,    zero,   sizeof(zero));
+```
+
+The array is reached from the actor (`kActorSkelOff 0x3FC` -> component, `kSkelBonesOff 0x48`,
+`kSkelCountOff 0x4C`, dirty flag `0x88`). The trilogy mod has the same in
+`src/game/bioshock1r/bones.cpp` with three explicit arm states:
+
+```
+0 = game   the engine owns them
+1 = follow driven with the hand (BS2's shape)
+2 = hide   the existing collapse
+```
+
+**The rule both mods paid for, and the one that must port:** never scale the bone the weapon
+attaches to.
+
+> "the attachment path inverse-decomposes bone scale, so a zero there divides by zero and
+> throws the weapon across the near plane" - BRVR ArmHide.cpp
+
+It is hidden by TRANSLATION instead (`kFarBelow = {0,0,-5000}`), scale left exactly as the
+engine wrote it. The trilogy quotes BRVR twice on this and adds an open question worth
+carrying: if the decomposition also carries ROTATION, a quat written to the attach bone is
+applied to the weapon a second time and it turns twice as far as the controller did.
+
+Both mods also save only a pose the ENGINE wrote (`ScaleLooksNormal`) before overwriting, so
+the second stereo pass cannot save our own zeroes over the reference. That matters directly
+here - rung 3 draws twice per tick.
+
+#### Does it port to Dishonored?
+
+**The equivalent write was tried and failed, but not the equivalent MECHANISM.** ENGINE_NOTES
+attempt 1: bone-bank writes into `SpaceBases +0x208` / `LocalAtoms +0x214` had "no visible
+effect at any rate; the renderer keeps its own copy". That is the same shape as BRVR's array
+and it did not work. So a straight port of `HideBone` is not available.
+
+But two routes remain, and the recorded dead end closes neither:
+
+**(a) The per-bone visibility array, which THIS GAME USES ITSELF.** Build 30.12's probe found
+it (`arms_hide.cpp`): a byte array at component **+0x288** on the player rig, 79 entries,
+`0xFF` everywhere except **`0x02` on `spine_3_jnt`** - the chest bone the game hides in first
+person. The game is already hiding a bone this way, which is as strong an existence proof as
+this project ever gets. The 30.13 experiment wrote `0x02` onto the arm chain behind F3 and
+**its result was never recorded**; what got recorded instead is 30.17:
+
+> per-bone hiding is a dead end in this branch (**ProcessEvent-called HideBoneByName**
+> provably does nothing - no visuals, no allocation, twice)
+
+Read the emphasis. That measured the SCRIPT FUNCTION doing nothing, which is a fact about
+dispatching `HideBoneByName`, not about the byte array the game itself writes. ENGINE_NOTES'
+dead-end line ("HideBoneByName on the arms does nothing") is faithful to the measurement and
+the conclusion drawn from it is wider than the evidence.
+
+**(b) The c6 bone palette, which is proven writable in this game.** Attempt 2 established that
+bone palettes arrive as vertex-shader constants at c6, 3 registers per bone, and that the
+sizes SEPARATE the meshes: **x36 = sword, x144 = arms, x204 = NPC**. It "moved the sword",
+so the renderer's own copy is reachable and writes to it land. A zeroed matrix collapses that
+bone's vertices, which is the same visual result as scale 0 - and because the arms and the
+weapon are DIFFERENT uploads, zeroing the x144 block while leaving x36 alone is exactly
+"hide the arms, keep the weapon". `src/legacy/rtd_drive.cpp` already has the machinery.
+
+Route (a) is cheaper to test and is read-mostly; route (b) is proven but sits on the hottest
+D3D9 entry point. Try (a) first, and note that neither has anything to do with
+`HideBoneByName`.
+
+### 2. The FName resolver - can we read and write script variables by name?
+
+**Most of it already exists here.** The trilogy's resolver is small:
+
+```c
+// docs/reference/bioshock-trilogy-vr/src/game/bioshock1r/patterns.cpp
+const wchar_t* fname_text(int32_t index) {
+    ... data = *(GNames.Data); count = GNames.Count;
+    const uint8_t* entry = data[index];
+    // Entries self-identify: +0 is the entry's own index. A mismatch means the
+    // layout assumption broke (or the slot is recycled garbage) - refuse.
+    if (*(const int32_t*)entry != index) return nullptr;
+    return (const wchar_t*)(entry + kFNameEntryTextOffset);
+}
+```
+
+Dishonored's proxy already has the same capability and more: `kGNamesData/kGNamesNum`,
+`NameFromIndex`, `RealName`, `ObjClassName`, and - crucially - **name-to-offset resolution**
+that the trilogy does not have, `FindPropOffset(class, prop)` and `FindBoolProp` (offset +
+bitmask). `fovprobe` already uses it to name camera FOV fields, `crouch.cpp` to find
+`CollisionHeight`, `graft.cpp` to find `SkelControlBase` members.
+
+So the answer is yes, and the gap is narrow. What is missing for comfortable
+read/write-by-name is the **reverse direction and a dump**: given a live object, walk its
+class's property chain and print every property's NAME, OFFSET, TYPE and LIVE VALUE. That
+turns "I know the field is called m_ArmFollowWeight_Rot_Primary" into an address without a
+sweep, and it turns an unknown offset into a name. `FindPropOffset` already proves every
+ingredient works - it finds UProperty objects by `Outer == class`, filters on a class name
+containing "Property", and reads `UProperty::Offset` at **+0x5c** (bitmask at **+0x6c**).
+
+Two hardening ideas worth porting from the trilogy while building it:
+
+- **The self-identifying FNameEntry check** (`entry[0] == index`). A recycled or wrong-layout
+  slot then refuses instead of returning garbage text.
+- **Vtable-gating the UClass** before trusting `obj->Class` (`object_class_name` compares the
+  class's vtable against the known UClass vtable). A freed object cannot then produce a
+  plausible-looking name - which is exactly the failure mode the handoff's trap 3 warns about
+  ("freed memory keeps its old contents until reused").
+
+This is the single highest-leverage tool for the coupling work in the entry above, because
+every field named there (`m_ArmFollowWeight_Rot_Primary`, `m_Offset`, `m_FOV`,
+`m_TargetWeight`) is resolvable by name the moment it exists, and a read-only dump answers
+"are these driven at runtime or left at their defaults" without a single write.
+
+### What GingasVR did and did not try, on both questions
+
+| | tried | result | still open |
+|---|---|---|---|
+| script `HideBoneByName` | yes, twice | nothing - no visuals, no allocation | closed, correctly |
+| direct write to `BoneVisibilityStates` (+0x288) | probe found it; the F3 write experiment exists in 30.13 | **never recorded** | **OPEN - and the game uses this array itself** |
+| bone-bank writes (`SpaceBases`/`LocalAtoms`) | yes | no effect, renderer keeps its own copy | closed for that array |
+| c6 bone palette writes | yes (attempt 2) | moved the sword; arms x144 and weapon x36 are separate uploads | **OPEN as a hide route** |
+| FName index to text | yes - shipped (`RealName`, `NameFromIndex`) | works | - |
+| property offset by name | yes - shipped (`FindPropOffset`) | works | - |
+| property dump / offset to name | no | - | **OPEN, and small** |
