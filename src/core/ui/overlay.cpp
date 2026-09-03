@@ -481,6 +481,24 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Display")) {
+    // 41.1: the stereo arming tickbox, TICKED by default (the user's ask). It
+    // parks the selected method on the mono screen without forgetting it; the
+    // selection is the ini's [Stereo] Method or `stereo <name>`.
+    {
+        const bool monoWanted = !_stricmp(dvr::stereo::wanted_name(), "mono");
+        bool armed = dvr::stereo::armed();
+        if (monoWanted) ImGui::BeginDisabled();
+        if (ImGui::Checkbox("stereo armed", &armed)) dvr::stereo::set_armed(armed);
+        if (monoWanted) ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s: active %s, %s", dvr::stereo::wanted_name(), dvr::stereo::active_name(),
+                            dvr::stereo::wants_projection() ? "projection layer" : "head-locked screen");
+        if (monoWanted) {
+            ImGui::SameLine();
+            if (ImGui::Button("select reentry")) dvr::stereo::choose("reentry");
+        }
+        ImGui::Separator();
+    }
     // 30.47: on-demand camera experiments (auto-start fired them at the main
     // menu before, where nobody could see the result).
     // 30.50: the FOV lever - enforced on every script dispatch so it outruns

@@ -246,7 +246,7 @@ public:
     }
 
     void status(dvr::status::Writer& w) override {
-        w.kv("armed", armed_);
+        w.kv("drawArmed", armed_);   // the second draw's own arm (the seam's `armed` is the tickbox)
         w.kv("tagOk", (unsigned long)g_tagOk);
         w.kv("tagMismatch", (unsigned long)g_tagMismatch);
         w.kv("tagResynced", (unsigned long)g_tagResynced);

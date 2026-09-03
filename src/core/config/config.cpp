@@ -22,11 +22,15 @@ static void WriteDefaultIni(const char* ini)
         "InvertPitch=0\n"
         "[Stereo]\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
-        "; mono shows the game on a head-locked screen in both eyes (ships); reentry draws\n"
-        "; the scene twice per tick, once per eye, into a projection layer (41.1, verified on\n"
-        "; the simulator, awaiting the headset verdict); aer is a design stub and refuses with\n"
-        "; a note. `stereo <name>` switches live and fails soft.\n"
-        "Method=mono\n"
+        "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
+        "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
+        "; shows the game on a head-locked screen in both eyes (the fallback, and what a\n"
+        "; refused method leaves running); aer is a design stub and refuses with a note.\n"
+        "; `stereo <name>` switches live and fails soft. Armed=1|0: whether the selected method\n"
+        "; RUNS (the F10 Display tickbox, `stereo arm on|off`); 0 parks the game on the mono\n"
+        "; screen without forgetting the selection.\n"
+        "Method=reentry\n"
+        "Armed=1\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -315,8 +319,9 @@ static void LoadConfig()
         // registered its hooks (41.1: selecting here refused reentry every
         // boot - the scene-draw hooks did not exist yet).
         char sm[16] = "";
-        GetPrivateProfileStringA("Stereo", "Method", "mono", sm, sizeof(sm), ini);
+        GetPrivateProfileStringA("Stereo", "Method", "reentry", sm, sizeof(sm), ini);
         dvr::stereo::set_config_method(sm);
+        dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
     }
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)
@@ -1214,6 +1219,9 @@ static void OverlaySaveDefaults()
             WritePrivateProfileStringA("VRHands", k, v, ini);
         } }
 
+    // 41.1: the stereo selection and the tickbox
+    WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
+    WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     // 41.1: the [Neck] lever
     WritePrivateProfileStringA("Neck", "Mode", NeckModeName(g_neckMode), ini);
     _snprintf(v, 64, "%.3f", g_neckBelowM);

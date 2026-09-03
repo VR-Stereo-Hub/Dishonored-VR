@@ -136,7 +136,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             else Log("stereo: projection on|off|auto");
             return true;
         }
-        dvr::stereo::select(args);   // logs the refusal itself
+        if (!strcmp(sub, "arm")) {   // 41.1: the tickbox on the seam
+            if (DvrOnOff(v, &b)) dvr::stereo::set_armed(b);
+            else Log("stereo: arm on|off (now %s, selected '%s')", dvr::stereo::armed() ? "armed" : "parked", dvr::stereo::wanted_name());
+            return true;
+        }
+        dvr::stereo::choose(args);   // logs the refusal itself; an explicit choice is the selection
         return true;
     }
     if (!strcmp(cmd, "capture")) {

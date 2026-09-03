@@ -105,6 +105,15 @@ bool select(const char* name);
 // normal fail-soft (an unknown name or a stub still leaves mono running).
 void set_config_method(const char* name);
 void apply_config_method();
+// The selection and the arm flag (41.1, the F10 tickbox). choose() records
+// the player's method and selects it when armed; set_armed(false) parks on
+// the mono screen WITHOUT forgetting the selection, set_armed(true) selects
+// it again. [Stereo] Method= / Armed= persist both; `stereo <name>` chooses,
+// `stereo arm on|off` parks and re-arms.
+bool choose(const char* name);
+void set_armed(bool on);
+bool armed();
+const char* wanted_name();
 IStereo* active();
 const char* active_name();
 

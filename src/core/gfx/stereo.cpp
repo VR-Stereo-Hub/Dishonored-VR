@@ -30,6 +30,13 @@ uint64_t g_beatMs = 0;
 uint32_t g_beatOut = 0, g_beatL = 0, g_beatR = 0, g_beatMono = 0, g_beatNone = 0;
 int      g_projOverride = -1;   // -1 auto, 0 off, 1 on
 char     g_configMethod[16] = "";   // [Stereo] Method, applied once the game side is up
+// The SELECTION and whether it RUNS are two things (41.1, the F10 tickbox):
+// `g_wanted` is the method the player chose ([Stereo] Method, `stereo <name>`),
+// `g_armed` whether it is live. Parking (armed off) selects the mono screen
+// without forgetting the choice, so a SAVE AS DEFAULTS while parked keeps
+// Method=reentry Armed=0 instead of losing the method for good.
+char     g_wanted[16] = "mono";
+bool     g_armed = true;
 
 // The runtime's [pair] probe, drained ONCE per beat here (its maxima reset on
 // read, so a second drainer would steal the window); status.json and the
@@ -101,12 +108,44 @@ void set_config_method(const char* name) {
 }
 
 void apply_config_method() {
-    if (!g_configMethod[0]) return;
-    const bool ok = select(g_configMethod);
+    static bool applied = false;
+    if (!g_configMethod[0] || applied) return;   // the game calls Direct3DCreate9 twice
+    applied = true;
+    const bool ok = choose(g_configMethod);
     if (!ok && !g_active) select("mono");
-    DVR_INFO("stereo: [Stereo] Method=%s applied after the game side registered -> active '%s'%s",
-             g_configMethod, active_name(), ok ? "" : " (refused above; the mono screen runs)");
+    DVR_INFO("stereo: [Stereo] Method=%s Armed=%d applied after the game side registered -> active '%s'%s",
+             g_configMethod, g_armed ? 1 : 0, active_name(),
+             !g_armed ? " (PARKED on the mono screen: the F10 tickbox or `stereo arm on` runs it)"
+             : ok ? "" : " (refused above; the mono screen runs)");
 }
+
+bool choose(const char* name) {
+    if (!name || !name[0]) return false;
+    strncpy(g_wanted, name, sizeof(g_wanted) - 1);
+    g_wanted[sizeof(g_wanted) - 1] = 0;
+    if (!g_armed) {
+        DVR_INFO("stereo: '%s' selected while parked - it runs when armed (the F10 tickbox, `stereo arm on`)", g_wanted);
+        return true;
+    }
+    return select(name);
+}
+
+void set_armed(bool on) {
+    if (on == g_armed) return;
+    g_armed = on;
+    if (!on) {
+        if (g_active && _stricmp(g_active->name(), "mono") != 0) select("mono");
+        DVR_INFO("stereo: armed -> off (selected '%s', active '%s') - parked on the mono screen; the selection is "
+                 "kept, `stereo arm on` or the F10 tickbox re-arms it", g_wanted, active_name());
+    } else {
+        const bool ok = select(g_wanted);
+        DVR_INFO("stereo: armed -> ON (selected '%s', active '%s')%s", g_wanted, active_name(),
+                 ok ? " - the next present uses it" : " (the selection refused above; the mono screen runs)");
+    }
+}
+
+bool armed() { return g_armed; }
+const char* wanted_name() { return g_wanted; }
 
 IStereo* active() { return g_active; }
 const char* active_name() { return g_active ? g_active->name() : "none"; }
@@ -134,11 +173,12 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
     else if (now - g_beatMs >= 3000) {
         const double s = (double)(now - g_beatMs) / 1000.0;
         DVR_INFO("stereo: beat method=%s out/s=%.0f L/s=%.0f R/s=%.0f mono/s=%.0f none/s=%.0f %ux%u"
-                 "%s",
+                 "%s%s",
                  active_name(), g_beatOut / s, g_beatL / s, g_beatR / s, g_beatMono / s,
                  g_beatNone / s, out.w, out.h,
                  (g_beatL == 0 && g_beatR == 0 && g_beatMono > 0)
-                     ? " (L/R read 0 by design on the mono screen)" : "");
+                     ? " (L/R read 0 by design on the mono screen)" : "",
+                 !g_armed ? " (PARKED: the selection is kept, not armed)" : "");
         // The eyes line: per-eye image age in PRESENTS at the last stereo submit
         // and the pairing counters as window deltas. A stereo submit shows each
         // eye swapchain's last released image, so an eye older than one present
@@ -198,6 +238,8 @@ const char* projection_override_name() {
 
 void status(dvr::status::Writer& w) {
     w.kv("method", active_name());
+    w.kv("wanted", g_wanted);
+    w.kv("armed", g_armed);
     w.kv("w", (int)g_last.w);
     w.kv("h", (int)g_last.h);
     w.kv("eyeSign", (int)g_last.eyeSign);
@@ -235,9 +277,9 @@ void status(dvr::status::Writer& w) {
 }
 
 void log_status() {
-    DVR_INFO("stereo: method=%s framesOut=%lu last=%ux%u eyeSign=%d nextEye=%d projection=%s (%s) "
+    DVR_INFO("stereo: method=%s (selected %s, armed %d) framesOut=%lu last=%ux%u eyeSign=%d nextEye=%d projection=%s (%s) "
              "camMode=%d cineQuad=%d registered=%d",
-             active_name(), (unsigned long)g_framesOut, g_last.w, g_last.h, g_last.eyeSign,
+             active_name(), g_wanted, g_armed ? 1 : 0, (unsigned long)g_framesOut, g_last.w, g_last.h, g_last.eyeSign,
              g_active ? g_active->eye_for_next_frame() : 0, wants_projection() ? "yes" : "no",
              projection_override_name(), (int)dvr::vr::vr_camera_mode(), (int)dvr::vr::cinematic_active(),
              g_methodCount);
