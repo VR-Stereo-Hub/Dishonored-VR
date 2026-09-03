@@ -207,6 +207,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         FrameDumpRequest(args[0] ? args : "frame");
         return true;
     }
+    if (!strcmp(cmd, "frameid")) {   // 41.1 (session 9): the frame-identity trace
+        if (DvrOnOff(args, &b)) { dvr::frameid::set_enabled(b); return true; }
+        dvr::frameid::log_status();
+        return true;
+    }
     if (!strcmp(cmd, "cfg") && !strcmp(args, "dump")) {
         Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f fpsCap=%.1f posTrack=%d melee=%d",
             (int)g_gamepadOnly,
@@ -331,7 +336,9 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("device"); dvr::d3d9ex::status(w); w.end_obj();   // 41.1 (session 8): the 9Ex device and the translation
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
+    w.obj("frameid"); dvr::frameid::status(w); w.end_obj();   // 41.1 (session 9): the frame-identity trace
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
+
     w.obj("head");
     w.kv("yaw", (double)g_hmdYaw); w.kv("pitch", (double)g_hmdPitch); w.kv("roll", (double)g_hmdRoll);
     w.kv("tracked", (bool)g_devPoseOk[0]);

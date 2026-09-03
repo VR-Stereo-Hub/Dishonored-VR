@@ -34,6 +34,7 @@
 #include "core/framework/status.h"
 #include "core/gfx/blit_quad.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/frame_id.h"
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
 #include "game/dishonored/camera.h"
@@ -203,6 +204,7 @@ public:
             ++g_tagUntagged;
         }
         dvr::capture::set_pending_tag(eye);
+        dvr::frameid::note_c5(c5now, haveC5);   // 41.1 (session 9): the camera of the draw the grab will take
         const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
         ID3D11ShaderResourceView* src = dvr::capture::srv();
         if (!src) return false;
@@ -210,10 +212,19 @@ public:
         if (!ensure_target(d.dev11, w, h)) return false;
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
-            dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
+            // 41.1 (session 9): the frame-identity trace's stages slot and out,
+            // inside the read fence (the slot thumbnail is a read of the slot).
+            if (fresh) {
+                dvr::frameid::note_delivery(dvr::capture::delivered_serial(), dvr::capture::delivered_tag(),
+                                            dvr::capture::delivered_slot(), dvr::capture::mode_name());
+                dvr::frameid::stage_slot(d.dev11, d.ctx11, src);
+                dvr::frameid::stage_out(d.dev11, d.ctx11, srv_);
+            }
+            dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
             drawnOnce_ = true;
         }
+        dvr::frameid::present_tick();
         // 41.1 (session 8): a grab that delivered NOTHING (a mode switch's first
         // present, a Reset, capture off) leaves texture() re-showing the last
         // frame; its tag is the previous present's and must not be pushed
@@ -293,7 +304,8 @@ private:
         td.Usage = D3D11_USAGE_DEFAULT;
         td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
         if (FAILED(dev->CreateTexture2D(&td, nullptr, &tex_)) ||
-            FAILED(dev->CreateRenderTargetView(tex_, nullptr, &rtv_))) {
+            FAILED(dev->CreateRenderTargetView(tex_, nullptr, &rtv_)) ||
+            FAILED(dev->CreateShaderResourceView(tex_, nullptr, &srv_))) {   // the trace's stage out reads it
             DVR_ERROR("reentry: output texture %ux%u failed", w, h);
             release_target();
             return false;
@@ -304,6 +316,7 @@ private:
         return true;
     }
     void release_target() {
+        if (srv_) { srv_->Release(); srv_ = nullptr; }
         if (rtv_) { rtv_->Release(); rtv_ = nullptr; }
         if (tex_) { tex_->Release(); tex_ = nullptr; }
         w_ = h_ = 0;
@@ -313,7 +326,9 @@ private:
     dvr::gfx::BlitQuad      blit_;
     ID3D11Texture2D*        tex_ = nullptr;
     ID3D11RenderTargetView* rtv_ = nullptr;
+    ID3D11ShaderResourceView* srv_ = nullptr;
     uint32_t w_ = 0, h_ = 0;
+
     bool     drawnOnce_ = false;
     bool     armed_ = false;
     float    lastLeft_[3] = {0, 0, 0};

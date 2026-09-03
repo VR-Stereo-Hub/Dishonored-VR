@@ -32,6 +32,7 @@
 
 #include "core/framework/perf.h"
 #include "core/gfx/d3d9ex.h"
+#include "core/gfx/frame_id.h"
 #include "core/util/log.h"
 
 #include <windows.h>
@@ -586,6 +587,9 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     g_pendingTag = 0;
     uint64_t rtdUs = 0, lockUs = 0, copyUs = 0, uploadUs = 0, blitUs = 0;
     bool delivered = false;
+    // 41.1 (session 9): the frame-identity trace's stage bb - the backbuffer
+    // as this grab found it, keyed by this grab's serial and tag.
+    dvr::frameid::stage_backbuffer(dev, bb, thisSerial, thisTag);
 
     if (g_mode == Mode::Sync) {
         const bool ok = read_back(dev, bb, &rtdUs, &lockUs, &copyUs);
@@ -734,6 +738,7 @@ void set_pending_tag(int eyeSign) { g_pendingTag = eyeSign < 0 ? -1 : eyeSign > 
 int delivered_tag() { return g_deliveredTag; }
 uint32_t delivered_serial() { return g_deliveredSerial; }
 uint32_t serial() { return g_serial; }
+int delivered_slot() { return g_mode == Mode::Shared ? g_sharedDelivered : g_mode == Mode::Deferred ? (g_rtCur ^ 1) : -1; }
 void read_done(ID3D11DeviceContext* ctx) {
     if (g_mode != Mode::Shared || g_sharedDelivered < 0 || !ctx) return;
     const int slot = g_sharedDelivered;
@@ -760,13 +765,16 @@ void on_reset() {
     if (g_sysmem) { g_sysmem->Release(); g_sysmem = nullptr; }
     release_deferred();   // default pool: must go before the device resets (38.63)
     release_shared();
+    dvr::frameid::on_reset();   // its 64x64 D3D9 ring is default pool too
     g_w = g_h = 0;
     g_fmt = D3DFMT_UNKNOWN;
 }
 
 void shutdown() {
     on_reset();
+    dvr::frameid::shutdown();
     free(g_pixels); g_pixels = nullptr;
+
     if (g_srv) { g_srv->Release(); g_srv = nullptr; }
     if (g_tex) { g_tex->Release(); g_tex = nullptr; }
     g_texW = g_texH = 0;

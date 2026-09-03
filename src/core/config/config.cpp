@@ -71,10 +71,16 @@ static void WriteDefaultIni(const char* ini)
         "; the D3D9 timestamp ring behind the `perf: gpu` line (read five presents back, never\n"
         "; waited on). `perf on|off`, `perf gpu on|off` live; `mark <text>` and the F10 MARK\n"
         "; button stamp a felt freeze. ForceNoVSync=1 presents without vsync (the game's own\n"
-        "; setting is ignored while the headset paces the game).\n"
+        "; setting is ignored while the headset paces the game). FrameId=1 runs the frame-\n"
+        "; identity trace (core/gfx/frame_id): a 64x64 thumbnail of every present at four\n"
+        "; stages (the backbuffer, the shared slot, the eye texture, the swapchain image),\n"
+        "; read three presents later, and per left/right pair the `stereo: frameid` line\n"
+        "; says at which stage the two eyes stopped being two pictures. 16 KB per present;\n"
+        "; `frameid on|off|status` live.\n"
         "Instruments=1\n"
         "GpuQueries=1\n"
         "ForceNoVSync=1\n"
+        "FrameId=1\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -530,7 +536,11 @@ static void LoadConfig()
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
         if (!inst) dvr::perf::set_enabled(false);
         if (!gpu) dvr::perf::set_gpu_enabled(false);
-        Log("config: [Perf] Instruments=%d GpuQueries=%d (the tick line and the gpu line every 3 s)", inst ? 1 : 0, gpu ? 1 : 0);
+        const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
+        dvr::frameid::set_enabled(fid);
+        Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
+            inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
+
     }
     Log("config: per-frame diagnostics vsscan=%d shownear=%d (both off = more fps)",
         (int)g_scanEnabled, (int)g_wpnShowNear);

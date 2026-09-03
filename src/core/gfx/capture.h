@@ -96,6 +96,11 @@ void     set_pending_tag(int eyeSign);
 int      delivered_tag();
 uint32_t delivered_serial();
 uint32_t serial();
+// 41.1 (session 9): the slot the delivered pixels sit in (shared: 0|1;
+// deferred: the readback slot; sync: -1) - the frame-identity trace records
+// it per present so a delivery that stops alternating is a number.
+int      delivered_slot();
+
 // shared (41.1, session 8): the delivery. SharedWait=0 (default) delivers the
 // PREVIOUS present's slot, whose blit had a whole present to finish (the tag
 // travels with the slot as under deferred); 1 delivers this present's after
