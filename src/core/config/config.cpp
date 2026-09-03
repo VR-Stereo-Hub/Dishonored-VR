@@ -40,16 +40,17 @@ static void WriteDefaultIni(const char* ini)
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
         "; (the old baseline, ~5 ms per present at 1080p, 15 ms at the Quest 3 size);\n"
-        "; deferred (ships, 41.1) copies on the GPU, queues the readback and locks it one\n"
-        "; present later (~2.3 ms at 1080p, ~10 ms at the Quest 3 size; the picture is one\n"
-        "; present late; also resolves a multisampled backbuffer); shared needs a device\n"
-        "; that can share (the log's capture/probe lines say). `capture mode <m>` switches\n"
+        "; deferred copies on the GPU, queues the readback and locks it one present later\n"
+        "; (~2.3 ms at 1080p, ~10 ms at the Quest 3 size; the picture is one present late;\n"
+        "; also resolves a multisampled backbuffer; the fallback when the device cannot\n"
+        "; share); shared (ships, 41.1, headset-judged 2026-09-03) needs [Device] Ex=1 and\n"
+        "; keeps the frame in VRAM (the log's capture/probe lines say). `capture mode <m>` switches\n"
         "; live; `capture status` prints the cost. shared (needs [Device] Ex=1) keeps the frame\n"
         "; in VRAM: two shared render targets, each blit fenced by a D3D9 event query;\n"
         "; SharedWait=0 delivers the previous present's slot (no wait in the common case),\n"
         "; 1 delivers this present's after its fence (zero latency, the CPU waits for the frame\n"
         "; in flight). `capture sharedwait on|off` live.\n"
-        "Mode=deferred\n"
+        "Mode=shared\n"
         "SharedWait=0\n"
         "[Pace]\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
@@ -83,8 +84,10 @@ static void WriteDefaultIni(const char* ini)
         "; redirected; the safe one - the game locks textures READONLY while streaming),\n"
         "; dynamic (DEFAULT+DYNAMIC: READONLY locks read uncached VRAM), default (textures lose\n"
         "; their locks), none (the refusals are the measurement). Launch-time: `device ex on|off`\n"
-        "; and the F10 Display tickbox write the key for the NEXT launch. Ships off.\n"
-        "Ex=0\n"
+        "; and the F10 Display tickbox write the key for the NEXT launch. Ships ON since 41.1\n"
+        "; (headset-judged 2026-09-03: the Quest 3 size at the headset's rate); Ex=0 is the\n"
+        "; plain device and the readback capture, the fallback if the 9Ex device misbehaves.\n"
+        "Ex=1\n"
         "Managed=shadow\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
@@ -388,7 +391,7 @@ static void LoadConfig()
     {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
         // mode is refused with the reason and sync keeps running)
         char cm[16] = "";
-        GetPrivateProfileStringA("Capture", "Mode", "deferred", cm, sizeof(cm), ini);
+        GetPrivateProfileStringA("Capture", "Mode", "shared", cm, sizeof(cm), ini);
         if (!_stricmp(cm, "off")) {   // the A/B control is live-only: a frozen headset at boot is a trap
             Log("config: [Capture] Mode=off refused (live only, 'capture mode off' on the seam) - sync");
             strcpy(cm, "sync");
@@ -515,7 +518,7 @@ static void LoadConfig()
     g_scanEnabled = IniFloat(ini, "Debug", "VsScan", 0) != 0.0f;
     g_forceNoVSync = IniFloat(ini, "Perf", "ForceNoVSync", 1) != 0.0f;
     {   // 41.1 (session 8): [Device] Ex and Managed, read before the first Direct3DCreate9
-        const bool ex = IniFloat(ini, "Device", "Ex", 0) != 0.0f;
+        const bool ex = IniFloat(ini, "Device", "Ex", 1) != 0.0f;
         char mm[16] = "";
         GetPrivateProfileStringA("Device", "Managed", "shadow", mm, sizeof(mm), ini);
         dvr::d3d9ex::Managed m;

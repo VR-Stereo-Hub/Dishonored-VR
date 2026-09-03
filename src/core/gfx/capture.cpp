@@ -544,8 +544,9 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     }
     if (g_mode == Mode::Shared && !g_sharedOk) {
         DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn,
-                     "capture: [Capture] Mode=shared but the probe said the device cannot share - running sync");
-        g_mode = g_modeWant = Mode::Sync;
+                     "capture: [Capture] Mode=shared but the probe said the device cannot share (a plain D3D9 "
+                     "device: [Device] Ex=0, or the 9Ex creation fell back) - running deferred");
+        g_mode = g_modeWant = Mode::Deferred;
     }
     ++g_serial;
     const uint32_t thisSerial = g_serial;
