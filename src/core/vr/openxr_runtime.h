@@ -460,6 +460,7 @@ struct PairProbe {
     uint32_t acqFail = 0;        // xrAcquireSwapchainImage failures
     uint32_t waitFail = 0;       // xrWaitSwapchainImage failures (release still runs)
     uint32_t untaggedProj = 0;   // untagged presents captured in projection mode
+    uint32_t eatenNoFrame = 0;   // 41.1 (Dishonored): tags popped by a present that opened no frame (cumulative)
     uint32_t rebuilds = 0;       // swapchain destroy/recreate cycles
     uint32_t stereoSubmits = 0;  // submits with both eyes valid
     uint32_t staleL = 0;         // stereo submits with left capture age > 50 ms
