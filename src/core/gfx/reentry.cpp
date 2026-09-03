@@ -138,10 +138,11 @@ public:
                              "shows each eye swapchain's last released image; healthy = 1/0) | pass-2 skips since the "
                              "last line: foreign=%u state=%u silent=%u stall=%u session=%u test=%u exit=%u | runtime: "
                              "acqFail=%u waitFail=%u untaggedProj=%u abortLeft=%u | method untagged presents=%u | "
-                             "stale submits so far L=%u R=%u",
+                             "stale submits so far L=%u R=%u | strict=%s",
                              eye, owner, pp.agePresL, pp.agePresR, dg[0], dg[1], dg[2], dg[3], dg[4], dg[5], dg[6],
                              dAcq, dWait, pp.untaggedProj - lastProbe_.untaggedProj,
-                             pp.abortLeft - lastProbe_.abortLeft, dUntagged, pp.stalePresL, pp.stalePresR);
+                             pp.abortLeft - lastProbe_.abortLeft, dUntagged, pp.stalePresL, pp.stalePresR,
+                             dvr::vr::pair_strict() ? "on (the held eye was replaced by the fresh one)" : "off");
         }
         lastStale_ = stale; lastStaleInit_ = true;
         memcpy(lastGates_, gates, sizeof(lastGates_));

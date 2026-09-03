@@ -285,6 +285,14 @@ void set_pace_feed(bool on);
 // live A/B; the overlay checkbox rides under SR pair pacing.
 void set_pace_sync(bool on);
 
+// 41.1 (Dishonored): strict pairs - a stereo submit whose eye is older than one
+// present (the held-eye case: pass 1 tagged, pass 2 skipped in the resume
+// window) shows the fresh eye to both eyes for that frame instead. DEFAULT
+// OFF; `vrpace strict on|off` and the F10 checkbox are the live A/B, [Pace]
+// Strict= persists the tester's choice.
+void set_pair_strict(bool on);
+bool pair_strict();
+
 // Session 43b (the Infinite "jumpy camera"): which locate generation the
 // SequentialReentry capture attributes its eyes to. 0 = the fresh locate,
 // 1 = one generation back (the historical default - calibrated on BS1's

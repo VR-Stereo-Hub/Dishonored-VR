@@ -386,6 +386,18 @@ uint64_t g_lastIdleLogMs = 0; // rate limit for the SUBMISSION IDLE heartbeat
 // presents stop mid-pair and no sibling is ever coming.
 constexpr uint32_t kPairHoldMaxMs = 500;
 std::atomic<uint32_t> g_srPairs{0}, g_srPairAborts{0};
+// 41.1 (Dishonored): strict pairs. A stereo submit references each eye
+// swapchain's most recently RELEASED image; when the tag stream goes one-sided
+// (pass 1 tagged, pass 2 skipped in the resume window) the LEFT is rewritten
+// every other present while the RIGHT keeps showing its pre-pause image with
+// its old pose - the "one eye stops taking fresh frames" report. With strict
+// on, a stereo submit whose eye is older than one present falls to the mono
+// branch for that frame (the fresh image to both eyes, the headset-proven
+// rung 1.5 path) instead of showing a held eye. DEFAULT OFF: the fault case is
+// a headset percept and the A/B must attribute it (`vrpace strict on|off`, the
+// F10 checkbox, [Pace] Strict=).
+std::atomic<bool> g_pairStrict{false};
+std::atomic<uint32_t> g_strictFallbacks{0};
 std::atomic<bool> g_loggedFirstPair{false};
 
 // Session 62: the [pair] probe (issue #31 - BS2 left-eye double image on
@@ -3879,6 +3891,21 @@ void on_present_end(ID3D11Texture2D* frame) {
                         for (int e = 0; e < 2; ++e)
                             if (ageP[e] > kPmStalePresents && ageP[1 - e] <= kPmStalePresents)
                                 g_pmStalePres[e].fetch_add(1, std::memory_order_relaxed);
+                        // 41.1 (Dishonored): strict pairs - never show a held eye.
+                        if (g_pairStrict.load(std::memory_order_relaxed) &&
+                            (ageP[0] > kPmStalePresents || ageP[1] > kPmStalePresents)) {
+                            stereo = false;
+                            const uint32_t n = g_strictFallbacks.fetch_add(1, std::memory_order_relaxed) + 1;
+                            static uint64_t saidMs = 0;
+                            const uint64_t nowSay = GetTickCount64();
+                            if (nowSay - saidMs >= 1000) {
+                                saidMs = nowSay;
+                                const int old = ageP[0] > ageP[1] ? 0 : 1;
+                                XRLOG("xr: strict pair - stereo submit REFUSED, %c eye is %u presents old (other %u): "
+                                        "the fresh eye to both eyes this frame (mono); fallbacks %u",
+                                        old == 0 ? 'L' : 'R', ageP[old], ageP[1 - old], n);
+                            }
+                        }
                     }
                     for (int eye = 0; eye < 2; ++eye) {
                         if (stereo) {
@@ -4292,6 +4319,10 @@ void draw_debug_ui() {
             bool sync = g_paceSync.load(std::memory_order_relaxed);
             if (ImGui::Checkbox("Sync pair rate to headset refresh (judder A/B)", &sync))
                 g_paceSync.store(sync, std::memory_order_relaxed);
+            // 41.1 (Dishonored): the stale-eye fail-soft A/B.
+            bool strict = g_pairStrict.load(std::memory_order_relaxed);
+            if (ImGui::Checkbox("Strict pairs (mono for a frame when an eye is stale)", &strict))
+                set_pair_strict(strict);
         }
         bool cine = g_cineEnabled.load(std::memory_order_relaxed);
         if (ImGui::Checkbox("Cinematic auto-detect (cutscenes/screens)", &cine))
@@ -4603,6 +4634,17 @@ void set_sr_pair_pacing(bool on) {
     g_srPairPacing.store(on, std::memory_order_relaxed);
 }
 
+void set_pair_strict(bool on) {
+    const bool was = g_pairStrict.exchange(on, std::memory_order_relaxed);
+    if (was != on)
+        XRLOG("xr: strict pairs %s (a stereo submit with an eye older than one present shows the "
+                "fresh eye to both eyes for that frame instead of a held eye; `vrpace strict` is the "
+                "live A/B, fallbacks so far %u)",
+                on ? "ON" : "off", g_strictFallbacks.load(std::memory_order_relaxed));
+}
+
+bool pair_strict() { return g_pairStrict.load(std::memory_order_relaxed); }
+
 void set_pace_sync(bool on) {
     bool was = g_paceSync.exchange(on, std::memory_order_relaxed);
     if (was != on)
@@ -4736,6 +4778,15 @@ void handle_pace_command(const char* args) {
                     g_spikeTrace.load(std::memory_order_relaxed) ? "ON" : "off",
                     g_spikeCount.load(std::memory_order_relaxed));
         }
+    } else if (strcmp(verb, "strict") == 0) {
+        // 41.1 (Dishonored): the stale-eye fail-soft A/B (state at g_pairStrict).
+        if (strncmp(rest, "on", 2) == 0) set_pair_strict(true);
+        else if (strncmp(rest, "off", 3) == 0) set_pair_strict(false);
+        else
+            XRLOG("xr: strict pairs %s | fallbacks %u (a stereo submit with an eye older than one present "
+                    "shows the fresh eye to both eyes instead) | usage: vrpace strict on|off",
+                    g_pairStrict.load(std::memory_order_relaxed) ? "ON" : "off",
+                    g_strictFallbacks.load(std::memory_order_relaxed));
     } else if (strcmp(verb, "simidle") == 0) {
         bool on = strncmp(rest, "on", 2) == 0;
         g_simIdle.store(on, std::memory_order_relaxed);
@@ -4746,7 +4797,7 @@ void handle_pace_command(const char* args) {
     } else {
         XRLOG("xr: pace guard %s | wait %s | session %s everFocused=%d | skips %u "
                 "lastWait %u ms | handoffs %u timeouts %u | simidle %s "
-                "(vrpace on|off|thread on|off|detach on|off|sync|spike|simidle on|off|status)",
+                "(vrpace on|off|thread on|off|detach on|off|sync|spike|strict|simidle on|off|status)",
                 g_paceGuard.load(std::memory_order_relaxed) ? "ON" : "off",
                 g_paceOffThread.load(std::memory_order_relaxed) ? "off-thread" : "inline",
                 state_str(g_state), g_everFocused.load(std::memory_order_relaxed) ? 1 : 0,
@@ -4763,12 +4814,14 @@ void handle_pace_command(const char* args) {
             int64_t periodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
             XRLOG("xr: pair cadence: pairs %u aborts %u | lifetime mean interval %u us "
                     "over %u samples | runtime period %.2f ms (%.1f Hz) | per-second "
-                    "jitter on the TRACE pairs line (pacetrace.log)",
+                    "jitter on the TRACE pairs line (pacetrace.log) | strict %s (fallbacks %u)",
                     g_srPairs.load(std::memory_order_relaxed),
                     g_srPairAborts.load(std::memory_order_relaxed),
                     cnt ? static_cast<uint32_t>(sum / cnt) : 0, cnt,
                     periodNs > 0 ? periodNs / 1.0e6 : 0.0,
-                    periodNs > 0 ? 1.0e9 / periodNs : 0.0);
+                    periodNs > 0 ? 1.0e9 / periodNs : 0.0,
+                    g_pairStrict.load(std::memory_order_relaxed) ? "ON" : "off",
+                    g_strictFallbacks.load(std::memory_order_relaxed));
         }
         XRLOG("xr: detach %s (keepalive every %u ms) | detachedNow=%d | episodes %u "
                 "| unpaced presents %u, keepalive frames %u",
@@ -5327,6 +5380,8 @@ void set_edge_snapshot(bool) {}
 bool get_edge_snapshot(EdgeViewSnapshot&) { return false; }
 void set_enabled(bool) {}
 void set_sr_pair_pacing(bool) {}
+void set_pair_strict(bool) {}
+bool pair_strict() { return false; }
 void handle_pace_command(const char*) {}
 void set_pace_detach(bool) {}
 void set_pace_sync(bool) {}
