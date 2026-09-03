@@ -19,7 +19,10 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   the game's device as D3D9Ex, every MANAGED texture shadowed in system memory, the frame kept
   in VRAM; 75-90 ticks/s on the simulator at the Quest 3 size, pace-bound. It is OFF by default
   until a headset run has judged it (it changes how the game creates every texture and buffer;
-  the log's `device:` and `device/shadow` lines say what happened). `capture mode off` freezes
+  the log's `device:` and `device/shadow` lines say what happened). The first headset run on it
+  crashed after repeated quickloads (a map in the shadow filled up; fixed 2026-09-03 and
+  reproduced clean on the simulator) and had never switched the capture to shared: the F10
+  tickbox now selects both for the next launch. `capture mode off` freezes
   the image on purpose (the A/B control); `mark <text>` and the F10 MARK button stamp a felt
   freeze in the log with the ring of presents around it.
 - **`stereo reentry`: the eyes can still desync, mostly on load** [S2b, NOT fixed]. The

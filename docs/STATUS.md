@@ -1,6 +1,6 @@
 # Status
 
-## Current state (2026-09-03, session 8: the tick measured, the readback named, the 9Ex device built - headset verdict next)
+## Current state (2026-09-03, session 8: the tick measured, the readback named, the 9Ex device built - the first headset run crashed on a map bug, fixed)
 
 **Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits on `native-stereo-rendering` (6ed1993f).**
 Everything below was measured on the simulator lane (RTX 4060, 2496x2688 VirtualMode, the sewers
@@ -33,6 +33,19 @@ this session.
   counted by the runtime (`eatenNoFrame`) and named on the `STALE EYE` line before "unknown"; a
   simulated `focus lose 2500` / `focus regain` read `eaten=0`, 0 stale, so `[Pace] Strict` stays 0
   and the headset log decides.
+- **THE FIRST HEADSET RUN (runs 14a/b, Quest 3 via VDXR, the user, after the session's build)**:
+  (a) with `[Device] Ex=0` and the deferred default the tick read 30-33/s at the Quest 3 size,
+  as the simulator predicted; (b) with `Ex=1` the 9Ex device came up and the probe read `shared
+  surface AVAILABLE`, but the capture STAYED deferred (no `capture mode shared` ever reached the
+  seam, no MARK), so the readback's GPU copy was still there (19 ms per tick, 30 ticks/s): the
+  user saw no difference between modes because the mode never changed; (c) after repeated
+  quickloads the game crashed inside D3D9: the shadow's twin map left tombstones its insert
+  never reused, reported "full (2400 live)", one texture got no twin, its lock was refused.
+  FIXED (1226849f): the map reuses tombstones and holds 32768 slots (three quickloads on the
+  simulator: 2324 live, 1984 tombstones reused, 0 failures, the game alive); the F10 Display tab
+  gains a capture-mode combo and the 9Ex tickbox writes `[Capture] Mode=shared` for the next
+  launch as well, and the probe warns when the device can share but the mode does not use it.
+  The shared path is STILL unjudged in the headset.
 - **Found on the way**: the head write's four early returns now name themselves (`head: write
   refused - ...`); after a level load the mod's menu flag can stay up (state MENU in the level,
   the pair stream off) until a pause-menu open/close (VERIFICATION gotcha 17); the simulator lane
@@ -43,12 +56,11 @@ this session.
 ## Next steps (one paragraph per developer)
 
 **The user (headset, Quest 3 via VDXR)**, in this order, with `dishonored_vr.log` and
-`D:\dvr-data\pacetrace.log` copied out after each: (1) the shipped build as it is
-(`[Capture] Mode=deferred`, `[Device] Ex=0`) at the Quest 3 entry: read `perf: tick` and
-`perf: gpu` from the F10 Display block or the log for one window, then `capture mode sync`
-and `capture mode off` (the image freezes on purpose) through `game-cmd.ps1`, and press MARK on
-every attack freeze; (2) tick the F10 Display box "D3D9Ex device at the NEXT launch", relaunch,
-confirm `device: the game's device IS IDirect3DDevice9Ex` in the log, then `capture mode shared`:
+`D:\dvr-data\pacetrace.log` copied out after each: (1) DONE (runs 14a/b: 30-33 ticks/s on the
+shipped build, no attack freeze seen); (2) tick the F10 Display box "D3D9Ex device at the NEXT
+launch (and capture mode shared with it)", relaunch, confirm `device: the game's device IS
+IDirect3DDevice9Ex` and `capture: shared surfaces .. live` in the log (the F10 Display "capture
+mode" combo must read shared):
 the expectation is a pace-bound 72 ticks/s at the Quest 3 size (falsified if `perf: gpu` reads a
 3D span above 12 ms per tick, or the tick line stays above 20 ms with `lock` near 0); play for
 five minutes and LOOK at the textures (black or noisy surfaces after a streaming step are the
@@ -90,6 +102,9 @@ Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits. Runs on the dev PC (simul
 | 03 | `[Device] Ex=1 Managed=shadow` | `CreateDeviceEx -> 0x0`, IS 9Ex, `shared surface AVAILABLE`; 5240 twins, 65552 updates, 0 failures; the sewers intact; shared (one slot) 0.2 ms per present |
 | 04 | the fenced two-slot shared capture, stereo | SharedWait=1: tick 13.3 ms (75/s), lock = the 3.6 ms fence wait, dma 0.2; SharedWait=0: 11.1 ms (90/s) PACE-BOUND; `reentry.xrs` 11/11; hammer 0 stale over 5 cycles; the frame intact |
 | 05 | the final build | deferred default 27.7/s; `capture mode off` with 0 STALE lines (the no-frame fix); `focus lose 2500` / `focus regain`: `eaten=0`, 0 stale; `reentry.xrs` 11/11 |
+| 14a | **HEADSET (the user)**, Ex=0, deferred | 30-33 ticks/s at 2496x2688 (dma 10.9 ms per present), 50 gap lines, no attack freeze felt |
+| 14b | **HEADSET (the user)**, Ex=1 | 9Ex device up, shared AVAILABLE but the capture stayed deferred (30 ticks/s); after repeated quickloads the twin map filled with tombstones and the game crashed in D3D9 (minidump `dvr_20260903_212436.dmp`) |
+| 06 | the tombstone fix, Ex=1 + shared, 3 quickloads | 2324 live, 1984 tombstones reused of 32768, 0 failures, the game alive; 90 ticks/s pace-bound |
 
 ### 2026-09-03 - session 7: the four headset faults and the picker, on the simulator
 
