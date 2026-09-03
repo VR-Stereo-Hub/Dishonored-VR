@@ -213,6 +213,8 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::set_world_scale(g_posScaleUU);
         dvr::camera::eyetest_present_tick();
         dvr::camera::postest_present_tick();
+        dvr::camera::set_head_pitch_deg(g_hmdPitch * 57.29578f);   // 41.1: the pitchtest's input
+        dvr::camera::pitchtest_present_tick();
         DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
         SceneProbePresentTick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }

@@ -114,6 +114,21 @@ void postest_present_tick();     // present thread, after the draw
 void note_vp_applied();          // vs_const_hook: the c0 patch ran this upload
 bool postest_active();
 
+// The neck instrument (41.1). `camera pitchtest [deg]`: three buckets of c5 -
+// LEVEL, looking UP (+deg), looking DOWN (-deg), 60 presents each after 30 of
+// settle - and the travel from LEVEL projected on world up and the pitch-0
+// heading, beside the seam's own offset. The verdict names H1 (the engine
+// moves its camera on its own neck: the residual solves a pivot below/behind
+// the eyes) or H2 (the seam's arc never reached the draw), and prints the
+// picture prediction the dumps are judged against. Needs a projection layer.
+bool pitchtest_start(float deg);
+void pitchtest_stop(const char* why);
+void pitchtest_present_tick();     // present thread, after the draw
+bool pitchtest_active();
+void set_head_pitch_deg(float deg);   // present thread: the tracked head pitch
+bool last_basis(float f[3], float r[3], float u[3]);   // the basis apply_offsets used last (yaw-only under projection)
+uint32_t ceiling_clips();             // presents where the 38.24 ceiling clipped the written position
+
 // The instrument. `camera eyetest <uu> [field|all]`: for 120 presents per
 // candidate the script lane adds <uu> along right into the candidate and the
 // present thread reads c5 back; each candidate gets a HONOURED / DISCARDED /

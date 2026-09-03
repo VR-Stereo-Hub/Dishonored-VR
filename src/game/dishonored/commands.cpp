@@ -96,6 +96,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::camera::postest_start(r, u, f);
             return true;
         }
+        if (!strcmp(sub, "pitchtest")) {
+            if (strstr(args, "stop")) { dvr::camera::pitchtest_stop("seam"); return true; }
+            float deg = 30.0f;
+            sscanf(args, "%*s %f", &deg);
+            dvr::camera::pitchtest_start(deg);
+            return true;
+        }
         if (!strcmp(sub, "eyefield")) {
             fld[0] = 0;
             sscanf(args, "%*s %15s", fld);

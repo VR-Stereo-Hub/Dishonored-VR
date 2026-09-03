@@ -3,6 +3,7 @@
 #include "game/dishonored/camera.h"
 
 #include "core/framework/status.h"
+#include "core/gfx/capture.h"
 #include "core/gfx/stereo.h"
 #include "core/util/log.h"
 #include "core/util/mem.h"
@@ -166,6 +167,35 @@ struct Postest {
     uint32_t vpPresents = 0;          // vp lane: presents with at least one patched upload
     uint32_t vpUploadsTotal = 0;
 } g_pt;
+
+// ---- the pitchtest (the neck instrument, 41.1) -------------------------------
+// Does the ENGINE move its camera when the view pitches? Three buckets of c5
+// (the render position): pitch 0, looking UP, looking DOWN, each a mean over
+// kPitchFrames presents after kPitchSettle; the travel from the 0 bucket is
+// projected on world up and the pitch-0 heading (the per-eye offset along
+// right cancels by construction, so it runs under stereo reentry). Read
+// beside the seam's own offset: the difference is the engine's own neck, or
+// the proof that the seam's arc never reached the draw.
+constexpr int kPitchSettle = 30, kPitchFrames = 60, kPitchWaitMax = 30 * 90;
+struct Pitchtest {
+    bool  active = false;
+    float deg = 30.0f;
+    int   bucket = 0;                    // 0 = level, 1 = UP, 2 = DOWN
+    int   settled = 0, frames = 0, waited = 0;
+    double c5Sum[3][3] = {};             // per bucket
+    double seamSum[3][3] = {};
+    int    n[3] = {0, 0, 0};
+    uint32_t clipsAt[3] = {0, 0, 0};     // ceiling clips counted during the bucket
+    uint32_t clipsStart = 0;
+    float  pitchAt[3] = {0, 0, 0};
+    float  f[3] = {1, 0, 0}, u[3] = {0, 0, 1};   // the heading and up at pitch 0
+    bool   basisOk = false;
+} g_pitch;
+float    g_lastBasisF[3] = {1, 0, 0}, g_lastBasisR[3] = {0, 1, 0}, g_lastBasisU[3] = {0, 0, 1};
+bool     g_lastBasisOk = false;
+uint32_t g_ceilClips = 0;                // presents where the 38.24 ceiling clipped the written position
+float    g_ceilClipMaxUu = 0.0f;
+float    g_headPitchDeg = 0.0f;          // the tracked head pitch, published per present
 
 // Put a persistent field back to its base (no-op for a recomputed one).
 void restore(uint8_t* cam, uint32_t fieldOff, Writer& w) {
@@ -439,6 +469,12 @@ bool apply_offsets(uint8_t* camObj) {
     } else {
         memcpy(pr, r, sizeof(pr));
     }
+    if (haveBasis) {
+        memcpy(g_lastBasisF, f, sizeof(g_lastBasisF));
+        memcpy(g_lastBasisR, r, sizeof(g_lastBasisR));
+        memcpy(g_lastBasisU, u, sizeof(g_lastBasisU));
+        g_lastBasisOk = true;
+    }
     const float sign = kFields[g_field].sign;
     // The displacement in POSITION form (world uu): the eye along right, the
     // lean along the basis when the lane is ours and the basis is measured.
@@ -454,7 +490,13 @@ bool apply_offsets(uint8_t* camObj) {
         float base[3];
         if (current_base(camObj, kFields[g_field].off, g_eyeWriter, base)) {
             const float posZ = sign * base[2] + off[2];
-            if (posZ > g_ceilZ) off[2] -= (posZ - g_ceilZ);
+            if (posZ > g_ceilZ) {
+                // Counted (41.1): a clipped rise is invisible otherwise, and the
+                // pitchtest must be able to blame it.
+                ++g_ceilClips;
+                if (posZ - g_ceilZ > g_ceilClipMaxUu) g_ceilClipMaxUu = posZ - g_ceilZ;
+                off[2] -= (posZ - g_ceilZ);
+            }
         }
     }
     const float fieldOff[3] = {off[0] * sign, off[1] * sign, off[2] * sign};
@@ -571,6 +613,164 @@ void postest_present_tick() {
 }
 
 bool postest_active() { return g_pt.active; }
+
+// ---- the pitchtest ----------------------------------------------------------------------
+void set_head_pitch_deg(float deg) { g_headPitchDeg = deg; }
+bool last_basis(float f[3], float r[3], float u[3]) {
+    if (!g_lastBasisOk) return false;
+    if (f) memcpy(f, g_lastBasisF, sizeof(g_lastBasisF));
+    if (r) memcpy(r, g_lastBasisR, sizeof(g_lastBasisR));
+    if (u) memcpy(u, g_lastBasisU, sizeof(g_lastBasisU));
+    return true;
+}
+uint32_t ceiling_clips() { return g_ceilClips; }
+
+static const char* kPitchBucketName[3] = {"LEVEL", "UP", "DOWN"};
+
+bool pitchtest_start(float deg) {
+    if (g_pitch.active) { DVR_WARN("camera/pitchtest: already running"); return false; }
+    if (g_pt.active || g_et.active) { DVR_WARN("camera/pitchtest: another camera instrument owns the seam - wait for it"); return false; }
+    if (!dvr::stereo::wants_projection()) {
+        DVR_WARN("camera/pitchtest: refused - needs a projection layer (stereo reentry, or stereo projection on): "
+                 "the neck question only exists where the compositor moves the image for the head");
+        return false;
+    }
+    if (!(deg >= 10.0f && deg <= 80.0f)) { DVR_WARN("camera/pitchtest: <deg> must be 10..80 (got %.1f)", deg); return false; }
+    g_pitch = Pitchtest();
+    g_pitch.active = true;
+    g_pitch.deg = deg;
+    g_pitch.clipsStart = g_ceilClips;
+    DVR_INFO("camera/pitchtest: START +/-%.0f deg: %d presents of c5 at pitch 0 (LEVEL), then at +%.0f (looking UP) "
+             "and -%.0f (looking DOWN), %d presents settle each; c5 travel from LEVEL projected on world up and the "
+             "pitch-0 heading (the eye offset along right cancels by construction). Drive the head: 'head rot 0 %.0f 0' "
+             "at a FIXED position isolates the ENGINE's own neck; 'head pose' on the arc carries the tracked neck. "
+             "Stand still in gameplay.",
+             deg, kPitchFrames, deg, deg, kPitchSettle, deg);
+    return true;
+}
+
+void pitchtest_stop(const char* why) {
+    if (!g_pitch.active) return;
+    g_pitch.active = false;
+    DVR_INFO("camera/pitchtest: stopped (%s)", why ? why : "?");
+}
+
+static void pitchtest_verdict() {
+    Pitchtest& p = g_pitch;
+    p.active = false;
+    float c5[3][3], seam[3][3];
+    for (int b = 0; b < 3; ++b)
+        for (int i = 0; i < 3; ++i) {
+            c5[b][i] = p.n[b] ? (float)(p.c5Sum[b][i] / p.n[b]) : 0.0f;
+            seam[b][i] = p.n[b] ? (float)(p.seamSum[b][i] / p.n[b]) : 0.0f;
+        }
+    // c5 negates the view's travel on the POV fields (kFields c5Sign): back to WORLD terms.
+    const float cs = g_field >= 0 ? kFields[g_field].c5Sign : 1.0f;
+    float U[3] = {0, 0, 0}, F[3] = {0, 0, 0};   // travel from LEVEL, per bucket (uu)
+    for (int b = 1; b < 3; ++b) {
+        const float d[3] = {(c5[b][0] - c5[0][0]) * cs, (c5[b][1] - c5[0][1]) * cs, (c5[b][2] - c5[0][2]) * cs};
+        U[b] = d[0] * p.u[0] + d[1] * p.u[1] + d[2] * p.u[2];
+        F[b] = d[0] * p.f[0] + d[1] * p.f[1] + d[2] * p.f[2];
+    }
+    // the seam's own ask, relative to LEVEL (up = [1], forward = [2])
+    const float askU[3] = {0, seam[1][1] - seam[0][1], seam[2][1] - seam[0][1]};
+    const float askF[3] = {0, seam[1][2] - seam[0][2], seam[2][2] - seam[0][2]};
+    const float resU[3] = {0, U[1] - askU[1], U[2] - askU[2]};
+    const float resF[3] = {0, F[1] - askF[1], F[2] - askF[2]};
+    // the engine's own neck from the residual: eye = pivot + R(pitch) * (0, below, behind)
+    //   up(th)  = below*(cos-1) + behind*sin,  fwd(th) = behind*(cos-1) - below*sin
+    //   behind = (up(+) - up(-)) / (2 sin th),  below = (fwd(-) - fwd(+)) / (2 sin th)
+    const float th = p.deg * 0.0174533f, s2 = 2.0f * sinf(th), c1 = cosf(th) - 1.0f;
+    const float behindUu = (resU[1] - resU[2]) / s2, belowUu = (resF[2] - resF[1]) / s2;
+    const float consU = (resU[1] + resU[2]) - 2.0f * belowUu * c1;     // 0 when the model fits
+    const float consF = (resF[1] + resF[2]) - 2.0f * behindUu * c1;
+    const float scale = g_scale > 1.0f ? g_scale : 100.0f;
+    const bool residualSmall = fabsf(resU[1]) < 1.0f && fabsf(resF[1]) < 1.0f && fabsf(resU[2]) < 1.0f && fabsf(resF[2]) < 1.0f;
+    const float askMag = fabsf(askU[1]) + fabsf(askF[1]) + fabsf(askU[2]) + fabsf(askF[2]);
+    bool seamBlocked = false;
+    if (askMag > 2.0f) {
+        const float gotMag = fabsf(U[1]) + fabsf(F[1]) + fabsf(U[2]) + fabsf(F[2]);
+        seamBlocked = fabsf(gotMag - askMag) > 0.25f * askMag + 2.0f;
+    }
+    const uint32_t clips = g_ceilClips - p.clipsStart;
+    const char* verdict =
+        !p.n[0] || !p.n[1] || !p.n[2] ? "INCOMPLETE (a bucket never arrived: drive the head to both pitches)"
+        : residualSmall ? "ENGINE PIVOTS ABOUT THE CAMERA ORIGIN (residual < 1 uu): H1 false - the tracked arc alone is the eye's travel"
+        : seamBlocked   ? "THE SEAM'S OFFSET DID NOT REACH c5 (asked vs measured differ by > 25%): H2 - the arc is blocked between the seam and the draw"
+                        : "ENGINE HAS ITS OWN NECK: H1 true - with positional tracking the arc is applied twice; `neck cancel <below> <behind>` with THESE numbers";
+    DVR_INFO("camera/pitchtest: buckets LEVEL n=%d pitch %+.1f | UP n=%d pitch %+.1f | DOWN n=%d pitch %+.1f | c5 LEVEL (%.1f %.1f %.1f)",
+             p.n[0], p.pitchAt[0], p.n[1], p.pitchAt[1], p.n[2], p.pitchAt[2], c5[0][0], c5[0][1], c5[0][2]);
+    DVR_INFO("camera/pitchtest: c5 travel from LEVEL: UP -> U%+.2f F%+.2f uu (seam asked U%+.2f F%+.2f), DOWN -> U%+.2f F%+.2f uu "
+             "(seam asked U%+.2f F%+.2f) | seam-to-c5 residual UP U%+.2f F%+.2f / DOWN U%+.2f F%+.2f uu | engine neck solved from "
+             "the residual: below %.3f m behind %.3f m (consistency %.2f / %.2f uu, 0 = the model fits) | ceiling clipped %lu "
+             "presents (max %.1f uu) | %s",
+             U[1], F[1], askU[1], askF[1], U[2], F[2], askU[2], askF[2], resU[1], resF[1], resU[2], resF[2],
+             belowUu / scale, behindUu / scale, consU, consF, (unsigned long)clips, g_ceilClipMaxUu, verdict);
+    // the picture prediction for the configured arc, so the dump can fail it
+    {
+        const float b = 0.11f, fwd = 0.09f;   // the [Neck] defaults (the lever prints its own)
+        const float upM = b * (cosf(th) - 1.0f) + fwd * sinf(th), fwdM = fwd * (cosf(th) - 1.0f) - b * sinf(th);
+        const float screenUp = upM * cosf(th) + fwdM * sinf(th);     // travel across the view axis
+        const float halfH = g_fovDeg > 1.0f ? g_fovDeg * 0.5f * 0.0174533f : 0.0f;
+        const float pxPerRad = halfH > 0.0f ? (float)dvr::capture::width() / (2.0f * tanf(halfH)) : 0.0f;
+        DVR_INFO("camera/pitchtest: picture prediction at %ux%u, claim %.1f deg (%.0f px/rad): an eye on a %.2f/%.2f m arc at "
+                 "+%.0f deg travels %.3f m across the view axis, so a landmark D metres away moves DOWN %.1f/D px in the UP frame "
+                 "(a 2 m landmark: %.1f px); compare `dump eyes` at the SAME pitch with and without the arc",
+                 dvr::capture::width(), dvr::capture::height(), g_fovDeg, pxPerRad, b, fwd, p.deg, fabsf(screenUp),
+                 fabsf(screenUp) * pxPerRad, fabsf(screenUp) * pxPerRad / 2.0f);
+    }
+}
+
+void pitchtest_present_tick() {
+    if (!g_pitch.active) return;
+    Pitchtest& p = g_pitch;
+    const float deg = g_headPitchDeg;
+    const bool here = p.bucket == 0 ? fabsf(deg) < 2.0f
+                    : p.bucket == 1 ? deg > p.deg - 2.0f
+                                    : deg < -(p.deg - 2.0f);
+    if (!here) {
+        p.settled = 0;
+        if (++p.waited >= kPitchWaitMax) {
+            DVR_WARN("camera/pitchtest: the %s bucket never arrived (head pitch %+.1f deg, wanted %s) - stopping",
+                     kPitchBucketName[p.bucket], deg, p.bucket == 0 ? "|pitch| < 2" : p.bucket == 1 ? "> +deg-2" : "< -(deg-2)");
+            pitchtest_verdict();
+        } else if ((p.waited % 180) == 1) {
+            DVR_INFO("camera/pitchtest: waiting for the %s bucket (head pitch %+.1f deg now)", kPitchBucketName[p.bucket], deg);
+        }
+        return;
+    }
+    if (p.settled < kPitchSettle) { ++p.settled; return; }
+    if (!g_c5Ok) return;
+    if (p.bucket == 0 && !p.basisOk) {
+        if (!last_basis(p.f, nullptr, p.u)) {
+            if ((p.waited++ % 180) == 1)
+                DVR_WARN("camera/pitchtest: no camera basis yet (the seam has not written: positional tracking off, or "
+                         "no live camera) - the heading cannot be read");
+            return;
+        }
+        p.basisOk = true;
+    }
+    float seam[3];
+    position_offset_uu(seam);
+    for (int i = 0; i < 3; ++i) { p.c5Sum[p.bucket][i] += g_c5[i]; p.seamSum[p.bucket][i] += seam[i]; }
+    p.pitchAt[p.bucket] = deg;
+    if (++p.n[p.bucket] >= kPitchFrames) {
+        p.clipsAt[p.bucket] = g_ceilClips;
+        DVR_INFO("camera/pitchtest: bucket %s pitch %+.1f deg: c5 mean (%.1f %.1f %.1f) over %d presents, seam offset "
+                 "R%+.2f U%+.2f F%+.2f uu, ceiling clips so far %lu",
+                 kPitchBucketName[p.bucket], deg, p.c5Sum[p.bucket][0] / p.n[p.bucket], p.c5Sum[p.bucket][1] / p.n[p.bucket],
+                 p.c5Sum[p.bucket][2] / p.n[p.bucket], p.n[p.bucket], p.seamSum[p.bucket][0] / p.n[p.bucket],
+                 p.seamSum[p.bucket][1] / p.n[p.bucket], p.seamSum[p.bucket][2] / p.n[p.bucket],
+                 (unsigned long)(g_ceilClips - p.clipsStart));
+        if (p.bucket == 2) { pitchtest_verdict(); return; }
+        ++p.bucket;
+        p.settled = 0; p.waited = 0;
+        DVR_INFO("camera/pitchtest: now drive the head to %s (%s)", kPitchBucketName[p.bucket],
+                 p.bucket == 1 ? "head rot 0 <deg> 0, or head pose on the arc" : "head rot 0 -<deg> 0, or head pose on the arc");
+    }
+}
+
+bool pitchtest_active() { return g_pitch.active; }
 
 // ---- the eyetest ------------------------------------------------------------------------
 bool eyetest_start(float uu, const char* field) {
@@ -702,8 +902,11 @@ void status(dvr::status::Writer& w) {
     w.kv("posLane", pos_lane_name());
     w.kv("posRightUu", (double)g_pos[0]); w.kv("posUpUu", (double)g_pos[1]); w.kv("posFwdUu", (double)g_pos[2]);
     w.kv("ceilingOn", g_ceilOn);
+    w.kv("ceilClips", (unsigned long)g_ceilClips);
     w.kv("basisBad", (unsigned long)g_basisBad);
     w.kv("postest", g_pt.active);
+    w.kv("pitchtest", g_pitch.active);
+    w.kv("headPitchDeg", (double)g_headPitchDeg);
     w.obj("eyetest");
     w.kv("active", g_et.active);
     w.kv("candidate", g_et.active ? kFields[g_et.idx].name : "-");
@@ -715,12 +918,14 @@ void status(dvr::status::Writer& w) {
 
 void log_status() {
     DVR_INFO("camera: eye=%+d ipd=%.4f m scale=%.0f uu/m offset=%+.2f uu field=%s writes=%lu | "
-             "postrack lane=%s (R%+.1f U%+.1f F%+.1f uu) ceiling=%s basisBad=%lu | "
-             "fov lever=%.0f rendered=%.1f | c5=%s(%.1f %.1f %.1f) | eyetest=%s postest=%s",
+             "postrack lane=%s (R%+.1f U%+.1f F%+.1f uu) ceiling=%s clips=%lu basisBad=%lu | "
+             "fov lever=%.0f rendered=%.1f | c5=%s(%.1f %.1f %.1f) | eyetest=%s postest=%s pitchtest=%s (head pitch %+.1f deg)",
              g_eye, g_ipdM, g_scale, eye_offset_uu(), eye_field(), (unsigned long)g_eyeWriter.writes,
-             pos_lane_name(), g_pos[0], g_pos[1], g_pos[2], g_ceilOn ? "on" : "off", (unsigned long)g_basisBad,
+             pos_lane_name(), g_pos[0], g_pos[1], g_pos[2], g_ceilOn ? "on" : "off", (unsigned long)g_ceilClips,
+             (unsigned long)g_basisBad,
              g_fovDeg, g_renderedFov, g_c5Ok ? "" : "none ", g_c5[0], g_c5[1], g_c5[2],
-             g_et.active ? kFields[g_et.idx].name : "idle", g_pt.active ? "running" : "idle");
+             g_et.active ? kFields[g_et.idx].name : "idle", g_pt.active ? "running" : "idle",
+             g_pitch.active ? "running" : "idle", g_headPitchDeg);
 }
 
 } // namespace dvr::camera
