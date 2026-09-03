@@ -99,10 +99,12 @@ bool pop_tag(Tag& out, const float* c5) {
 // (the remedy found by hand) at most once per 3 s.
 struct EyeCheck {
     static constexpr uint32_t kPatch = 256, kN = 64, kStride = 4;
-    ID3D11Texture2D* st[2] = {nullptr, nullptr};
+    static constexpr int kRing = 4;   // read the copy queued three presents ago
+    ID3D11Texture2D* st[kRing] = {};
     int      k = 0;
-    int      stTag[2] = {0, 0};
-    bool     stValid[2] = {false, false};
+    int      stTag[kRing] = {};
+    bool     stValid[kRing] = {};
+    uint32_t busyRun = 0;
     uint8_t  L[kN * kN] = {}, R[kN * kN] = {}, prevL[kN * kN] = {};
     bool     haveL = false, havePrevL = false;
     uint32_t pairs = 0, noParallax = 0, streak = 0, rearms = 0, mapBusy = 0;
@@ -111,17 +113,18 @@ struct EyeCheck {
     int      lastShift = 0;
 
     bool ensure(ID3D11Device* dev) {
-        if (st[0] && st[1]) return true;
+        if (ready()) return true;
         D3D11_TEXTURE2D_DESC td = {};
         td.Width = kPatch; td.Height = kPatch; td.MipLevels = 1; td.ArraySize = 1;
         td.Format = DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc.Count = 1;
         td.Usage = D3D11_USAGE_STAGING; td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        for (int i = 0; i < 2; ++i)
+        for (int i = 0; i < kRing; ++i)
             if (!st[i] && FAILED(dev->CreateTexture2D(&td, nullptr, &st[i]))) { release(); return false; }
         return true;
     }
+    bool ready() const { return st[0] && st[kRing - 1]; }
     void release() {
-        for (int i = 0; i < 2; ++i) { if (st[i]) { st[i]->Release(); st[i] = nullptr; } stValid[i] = false; }
+        for (int i = 0; i < kRing; ++i) { if (st[i]) { st[i]->Release(); st[i] = nullptr; } stValid[i] = false; }
         haveL = havePrevL = false; streak = 0;
     }
     static float mean_diff(const uint8_t* a, const uint8_t* b, int dx) {
@@ -141,12 +144,16 @@ struct EyeCheck {
     void sample(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* tex, uint32_t w, uint32_t h, int tag,
                 const ReentryHooks& hooks) {
         if (tag == 0 || !tex || w < kPatch || h < kPatch || !ensure(dev)) return;
-        // read the OTHER slot (queued last present) first
-        const int prev = k ^ 1;
+        // read the oldest slot (queued three presents ago) first; a copy still
+        // in flight after that long is waited for once in a while so the
+        // check keeps sampling on a runtime that batches deeply
+        const int prev = (k + 1) % kRing;
         if (stValid[prev]) {
             D3D11_MAPPED_SUBRESOURCE m = {};
-            const HRESULT hr = ctx->Map(st[prev], 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m);
+            HRESULT hr = ctx->Map(st[prev], 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m);
+            if (hr == DXGI_ERROR_WAS_STILL_DRAWING && ++busyRun >= 8) { busyRun = 0; hr = ctx->Map(st[prev], 0, D3D11_MAP_READ, 0, &m); }
             if (SUCCEEDED(hr)) {
+                busyRun = 0;
                 uint8_t* dst = stTag[prev] < 0 ? L : R;
                 if (stTag[prev] < 0) { memcpy(prevL, L, sizeof(L)); havePrevL = haveL; }
                 for (uint32_t y = 0; y < kN; ++y) {
@@ -166,6 +173,7 @@ struct EyeCheck {
         box.left = (w - kPatch) / 2; box.top = (h - kPatch) / 2; box.front = 0;
         box.right = box.left + kPatch; box.bottom = box.top + kPatch; box.back = 1;
         ctx->CopySubresourceRegion(st[k], 0, 0, 0, 0, tex, 0, &box);
+        ctx->Flush();   // the copy goes to the GPU now, so the read three presents on finds it done
         stTag[k] = tag; stValid[k] = true;
         k = prev;
     }
