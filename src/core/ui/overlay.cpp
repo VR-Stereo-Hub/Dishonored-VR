@@ -588,6 +588,13 @@ static void OverlayFrame()
             ImGui::SameLine();
             ImGui::TextDisabled("%s", !dvr::capture::probed() ? "probe pending"
                                       : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared refused (plain device)");
+            // 41.1 (session 8): the shared hand-off's delivery A/B and the
+            // eye-pair dump, so a headset report can carry the picture.
+            bool sw = dvr::capture::shared_wait();
+            if (ImGui::Checkbox("SharedWait: deliver this present after its fence (A/B; off = the previous slot)", &sw))
+                dvr::capture::set_shared_wait(sw);
+            if (ImGui::Button("DUMP EYES (press while the eyes look wrong: writes a left and a right PNG)", ImVec2(-1, 0)))
+                FrameDumpRequest("eyes");
         }
         // 41.1 (session 8): the 9Ex device lever (next launch) - what lets the
         // capture keep the frame in VRAM ([Capture] Mode=shared).
