@@ -844,3 +844,49 @@ render should carry the EYE's aspect. At 3840x2160 (1.778) with a 100 deg hfov c
 tanV = tan(50)/1.778 = 0.670 against the Quest 3 eye's 1.428 - the render fills about 47% of
 the eye vertically and the rest is black band. At 2750x2850 (0.965 vs the eye's 0.928) it
 very nearly fits.
+
+## CylTruthLive was parasitic on motion crouch (2026-09-03, second AER run)
+
+**One dead signal, three unrelated-looking bugs.** `CylTruthLive()` answers "a gameplay pawn
+exists" and reads `g_cylOkMs`, which was refreshed ONLY as a side effect of
+`PawnCollisionHeight()` being called from the motion-crouch paths. `[Mode] GamepadOnly=1`
+disables those, so on the shipped gamepad-only build the oracle never ticked. Measured over
+35 s of gameplay at 116 fps, windowed, 1355x1405:
+
+```
+[game] state: NO_PAWN            <- logged ONCE, never transitioned
+heartbeat: head hits=350 writes=350 | menu=1 (script=1) wheel=0
+xr: cinematic quad ON (strict=0 stale=0 fovMismatch=0 screenOnly=0)
+stereo: beat method=aer out/s=116 L/s=58 R/s=58 mono/s=0 none/s=0
+```
+
+Everything downstream agreed with the dead oracle:
+
+1. **`[game] state:` stuck at NO_PAWN** - so `boot.ps1`'s wait line and `status.json` were
+   both wrong all session.
+2. **The stale-menu ghost clear never fired.** It is gated on `CylTruthLive()` (deliberately,
+   38.17: the main menu's 3D background also dispatches view rotations, and a live pawn is
+   the discriminator). `g_menuOpen` **defaults to true** and only clears on a script event
+   (`MenuClosed` / `ResumeGameClicked` / ...) that the auto-continue-into-save path never
+   sends. So the flag stayed true for the whole run: the head-mouse parks, and the pad chops
+   the movement stick into discrete menu pulses and hard-zeroes the right stick.
+3. **The runtime's cinematic fallback read "not gameplay" forever** and dropped the
+   projection layer for the mono quad - discarding every correctly tagged per-eye frame while
+   the beat line read a perfect `L/s == R/s`.
+
+Fixed by calling `PawnCollisionHeight()` from `DvrPreTick` beside `GameStateTick`,
+unconditionally - two guarded dereferences returning -1 with no pawn. It is not a motion
+control and should never have lived behind one.
+
+**The general shape, worth carrying to the other adapters:** a signal that several subsystems
+depend on must be refreshed by something that always runs, not as a side effect of an
+optional feature. The failure is silent and it does not look like one bug.
+
+**Windowed mode removed the last safety net.** The mod logs it plainly:
+`menu: game is WINDOWED - the desktop cursor is always showing, so the cursor half of the
+menu test is disabled and script events are the only menu signal`. So the `-windowed` switch
+that fixed the render size is also what let the stuck menu flag bite. Both are true at once;
+neither is a reason to undo the other.
+
+`vrcine on|off|status` is on the command seam now - the live A/B that separates "the per-eye
+method is wrong" from "the verdict is wrong" without a rebuild.
