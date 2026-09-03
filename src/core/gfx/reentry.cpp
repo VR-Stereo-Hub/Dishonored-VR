@@ -110,6 +110,45 @@ public:
         }
     }
 
+    // The runtime submits at the tail of the PREVIOUS present, after this
+    // method returned; a stale eye in that submit is noticed here, one present
+    // later, and named with the owner first: the deltas of the game side's
+    // pass-2 skip counters (a one-sided -1 stream), the runtime's swapchain
+    // failures, or a tag eaten by a present that opened no frame.
+    void stale_check() {
+        const uint32_t stale = dvr::vr::pair_stale_submits();
+        uint32_t gates[kReentryGateCount] = {};
+        if (g_hooks.gates) g_hooks.gates(gates);
+        dvr::vr::PairProbe pp;
+        dvr::vr::pair_probe_peek(&pp);
+        if (stale != lastStale_ && lastStaleInit_) {
+            uint32_t dg[kReentryGateCount];
+            uint32_t gameSkips = 0;
+            for (int i = 0; i < kReentryGateCount; ++i) { dg[i] = gates[i] - lastGates_[i]; gameSkips += dg[i]; }
+            const uint32_t dAcq = pp.acqFail - lastProbe_.acqFail, dWait = pp.waitFail - lastProbe_.waitFail;
+            const uint32_t dUntagged = g_tagUntagged - lastUntagged_;
+            const char* owner =
+                gameSkips ? "the game side's pass-2 gates (a one-sided -1 stream: pass 1 tagged, pass 2 skipped)"
+                : (dAcq || dWait) ? "the runtime's swapchain path (acquire/wait failed, the release still ran)"
+                : dUntagged ? "a present that delivered no tag (a frame-less present ate its sibling's tag)"
+                : "unknown - a lone +1 (arming mid-tick?) or a tag eaten by the pace guard";
+            const char eye = pp.stalePresR != lastProbe_.stalePresR ? 'R' : 'L';
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 1000,
+                             "stereo: STALE %c EYE in a stereo submit - owner: %s | ages L=%u R=%u presents (the runtime "
+                             "shows each eye swapchain's last released image; healthy = 1/0) | pass-2 skips since the "
+                             "last line: foreign=%u state=%u silent=%u stall=%u session=%u test=%u exit=%u | runtime: "
+                             "acqFail=%u waitFail=%u untaggedProj=%u abortLeft=%u | method untagged presents=%u | "
+                             "stale submits so far L=%u R=%u",
+                             eye, owner, pp.agePresL, pp.agePresR, dg[0], dg[1], dg[2], dg[3], dg[4], dg[5], dg[6],
+                             dAcq, dWait, pp.untaggedProj - lastProbe_.untaggedProj,
+                             pp.abortLeft - lastProbe_.abortLeft, dUntagged, pp.stalePresL, pp.stalePresR);
+        }
+        lastStale_ = stale; lastStaleInit_ = true;
+        memcpy(lastGates_, gates, sizeof(lastGates_));
+        lastProbe_ = pp;
+        lastUntagged_ = g_tagUntagged;
+    }
+
     bool end_frame(const FrameDevices& d, FrameOutput& out) override {
         if (g_hooks.poisoned && g_hooks.poisoned()) {
             DVR_ERROR("stereo: reentry POISONED by a second-draw fault - dropping to mono");
@@ -117,6 +156,7 @@ public:
             select("mono");
             return false;
         }
+        stale_check();
         if (!d.dev9 || !d.dev11 || !d.ctx11) return false;
         if (!blit_.init(d.dev11)) return false;
         // The tag for the frame the game just drew, checked against its c5.
@@ -246,6 +286,12 @@ private:
     bool     armed_ = false;
     float    lastLeft_[3] = {0, 0, 0};
     bool     lastLeftOk_ = false;
+    // the stale-eye line's previous snapshot
+    uint32_t lastStale_ = 0;
+    bool     lastStaleInit_ = false;
+    uint32_t lastGates_[kReentryGateCount] = {};
+    uint32_t lastUntagged_ = 0;
+    dvr::vr::PairProbe lastProbe_;
 };
 
 SequentialReentry g_reentry;

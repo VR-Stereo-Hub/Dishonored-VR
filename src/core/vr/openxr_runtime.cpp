@@ -405,6 +405,18 @@ std::atomic<uint32_t> g_pmStereoSubmits{0}, g_pmStaleL{0}, g_pmStaleR{0};
 std::atomic<uint32_t> g_pmAgeMax[2] = {};    // worst capture age at submit, ms
 std::atomic<uint64_t> g_pmLastCapMs[2] = {}; // tick of last SR capture per eye
 constexpr uint32_t kPmStaleAgeMs = 50; // > any healthy cadence (SR ~14ms, AER ~28ms)
+// 41.1 (Dishonored): the same age in PRESENTS, which is the unit the fault is
+// in. A stereo submit shows each eye swapchain's most recently RELEASED image;
+// a healthy SequentialReentry pair reads L=1 R=0 (the left captured on the
+// hold present, the right on the closing one) and AER reads 1/0 alternating.
+// An eye older than that is an image from a previous tick shown again with
+// its old pose - the "one eye stops taking fresh frames" report. Stamped at
+// capture, read at submit; the max drains on read like g_pmAgeMax.
+std::atomic<uint32_t> g_pmCapPresent[2] = {};  // g_presentsSeen at the eye's last capture
+std::atomic<uint32_t> g_pmAgePres[2] = {};     // age at the last stereo submit
+std::atomic<uint32_t> g_pmAgePresMax[2] = {};  // worst age since the last read
+std::atomic<uint32_t> g_pmStalePres[2] = {};   // stereo submits with THIS eye > 1 present old while the other was fresh
+constexpr uint32_t kPmStalePresents = 1;       // the healthy maximum
 
 // Session 42 (Infinite I6 judder): pair-CADENCE statistics. The judder question
 // is not "how many pairs per second" but "how EVENLY are they spaced" - a mean
@@ -3766,6 +3778,8 @@ void on_present_end(ID3D11Texture2D* frame) {
                     g_pmCap[srEye].fetch_add(1, std::memory_order_relaxed);
                     g_pmLastCapMs[srEye].store(GetTickCount64(),
                                                std::memory_order_relaxed);
+                    g_pmCapPresent[srEye].store(g_presentsSeen.load(std::memory_order_relaxed),
+                                                std::memory_order_relaxed);
                     if (!g_loggedFirstSr.exchange(true))
                         XRLOG("xr: first SequentialReentry eye frame captured "
                                 "(eye %c)", srEye == 0 ? 'L' : 'R');
@@ -3778,6 +3792,8 @@ void on_present_end(ID3D11Texture2D* frame) {
                     else
                         g_eyePose[g_currentEye] = g_viewsContent[g_currentEye].pose;
                     g_eyeValid[g_currentEye] = true;
+                    g_pmCapPresent[g_currentEye].store(g_presentsSeen.load(std::memory_order_relaxed),
+                                                       std::memory_order_relaxed);
                     eyeCaptured = true;
                 }
 
@@ -3848,6 +3864,21 @@ void on_present_end(ID3D11Texture2D* frame) {
                             while (age > m && !g_pmAgeMax[e].compare_exchange_weak(
                                                   m, age, std::memory_order_relaxed)) {}
                         }
+                        // 41.1 (Dishonored): the age in presents, the unit of the
+                        // "right eye stops taking fresh frames" report. Present N
+                        // is the one closing this submit.
+                        const uint32_t presentsNow = g_presentsSeen.load(std::memory_order_relaxed);
+                        uint32_t ageP[2];
+                        for (int e = 0; e < 2; ++e) {
+                            ageP[e] = presentsNow - g_pmCapPresent[e].load(std::memory_order_relaxed);
+                            g_pmAgePres[e].store(ageP[e], std::memory_order_relaxed);
+                            uint32_t m = g_pmAgePresMax[e].load(std::memory_order_relaxed);
+                            while (ageP[e] > m && !g_pmAgePresMax[e].compare_exchange_weak(
+                                                      m, ageP[e], std::memory_order_relaxed)) {}
+                        }
+                        for (int e = 0; e < 2; ++e)
+                            if (ageP[e] > kPmStalePresents && ageP[1 - e] <= kPmStalePresents)
+                                g_pmStalePres[e].fetch_add(1, std::memory_order_relaxed);
                     }
                     for (int eye = 0; eye < 2; ++eye) {
                         if (stereo) {
@@ -4372,13 +4403,17 @@ void draw_debug_ui() {
     uint32_t srPushed = g_srPushed.load(std::memory_order_relaxed);
     if (srPushed)
         ImGui::Text("SR tags: pushed %u popped %u dropped %u cleared %u  eyes %d/%d"
-                    "  pairs %u aborts %u",
+                    "  pairs %u aborts %u  age L/R %u/%u presents (healthy 1/0) stale %u/%u",
                     srPushed, g_srPopped.load(std::memory_order_relaxed),
                     g_srDropped.load(std::memory_order_relaxed),
                     g_srCleared.load(std::memory_order_relaxed),
                     g_eyeValid[0] ? 1 : 0, g_eyeValid[1] ? 1 : 0,
                     g_srPairs.load(std::memory_order_relaxed),
-                    g_srPairAborts.load(std::memory_order_relaxed));
+                    g_srPairAborts.load(std::memory_order_relaxed),
+                    g_pmAgePres[0].load(std::memory_order_relaxed),
+                    g_pmAgePres[1].load(std::memory_order_relaxed),
+                    g_pmStalePres[0].load(std::memory_order_relaxed),
+                    g_pmStalePres[1].load(std::memory_order_relaxed));
     if (camMode && !g_projectionReady.load(std::memory_order_relaxed))
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                            "projection NOT ready - drive is held off (see log)");
@@ -5140,7 +5175,13 @@ void sr_push_eye(int eyeSign) {
     g_srPushed.fetch_add(1, std::memory_order_relaxed);
 }
 
-void pair_probe(PairProbe* out) {
+static void pair_probe_fill(PairProbe* out, bool drain);
+void pair_probe(PairProbe* out) { pair_probe_fill(out, true); }
+// 41.1 (Dishonored): the same snapshot WITHOUT draining the maxima, for a
+// per-present reader (the method's stale-eye line) that must not eat the
+// beat's window.
+void pair_probe_peek(PairProbe* out) { pair_probe_fill(out, false); }
+static void pair_probe_fill(PairProbe* out, bool drain) {
     if (!out) return;
     out->pairs = g_srPairs.load(std::memory_order_relaxed);
     out->aborts = g_srPairAborts.load(std::memory_order_relaxed);
@@ -5159,13 +5200,31 @@ void pair_probe(PairProbe* out) {
     // Drained on read (like the [flick] dmax window): the caller's cadence
     // defines the window, so the printed worst age lines up with the minute
     // the user reports seeing the defect.
-    out->ageMaxL = g_pmAgeMax[0].exchange(0, std::memory_order_relaxed);
-    out->ageMaxR = g_pmAgeMax[1].exchange(0, std::memory_order_relaxed);
+    out->ageMaxL = drain ? g_pmAgeMax[0].exchange(0, std::memory_order_relaxed)
+                         : g_pmAgeMax[0].load(std::memory_order_relaxed);
+    out->ageMaxR = drain ? g_pmAgeMax[1].exchange(0, std::memory_order_relaxed)
+                         : g_pmAgeMax[1].load(std::memory_order_relaxed);
+    // 41.1 (Dishonored): the same in presents.
+    out->agePresL = g_pmAgePres[0].load(std::memory_order_relaxed);
+    out->agePresR = g_pmAgePres[1].load(std::memory_order_relaxed);
+    out->agePresMaxL = drain ? g_pmAgePresMax[0].exchange(0, std::memory_order_relaxed)
+                             : g_pmAgePresMax[0].load(std::memory_order_relaxed);
+    out->agePresMaxR = drain ? g_pmAgePresMax[1].exchange(0, std::memory_order_relaxed)
+                             : g_pmAgePresMax[1].load(std::memory_order_relaxed);
+    out->stalePresL = g_pmStalePres[0].load(std::memory_order_relaxed);
+    out->stalePresR = g_pmStalePres[1].load(std::memory_order_relaxed);
     out->ringPushed = g_srPushed.load(std::memory_order_relaxed);
     out->ringPopped = g_srPopped.load(std::memory_order_relaxed);
     out->ringDropped = g_srDropped.load(std::memory_order_relaxed);
     out->ringCleared = g_srCleared.load(std::memory_order_relaxed);
     out->mirrorOn = g_mirror.load(std::memory_order_relaxed);
+}
+
+// 41.1 (Dishonored): cumulative, NOT drained - a per-present reader must not eat
+// the beat's window. Sum of both eyes' stale-present submits.
+uint32_t pair_stale_submits() {
+    return g_pmStalePres[0].load(std::memory_order_relaxed) +
+           g_pmStalePres[1].load(std::memory_order_relaxed);
 }
 
 // ---- 41.0 (Dishonored): the D3D9 host's seams ------------------------------------
@@ -5244,6 +5303,8 @@ void haptic(int, float, float) {}
 void shutdown(const char*) {}
 void on_resize(unsigned, unsigned, unsigned) {}
 void pair_probe(PairProbe*) {}
+void pair_probe_peek(PairProbe*) {}
+uint32_t pair_stale_submits() { return 0; }
 void draw_debug_ui() {}
 bool get_head_pose(HeadPose&) { return false; }
 bool peek_head_pose(HeadPose&) { return false; }

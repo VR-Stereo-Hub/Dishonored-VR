@@ -16,6 +16,7 @@ static void SceneDrawApply();
 static void SceneDrawSetArmed(bool on);
 static bool SceneDrawPoisoned();
 static uint32_t SceneDrawDraws();
+static void SceneDrawGates(uint32_t out[7]);   // 41.1: the pass-2 skip counters for the stale-eye line
 static void SceneDrawStatus(dvr::status::Writer& w);
 static bool SceneDrawCommand(const char* args);
 static bool DvrGameplayVerdict();

@@ -31,6 +31,13 @@ uint32_t g_beatOut = 0, g_beatL = 0, g_beatR = 0, g_beatMono = 0, g_beatNone = 0
 int      g_projOverride = -1;   // -1 auto, 0 off, 1 on
 char     g_configMethod[16] = "";   // [Stereo] Method, applied once the game side is up
 
+// The runtime's [pair] probe, drained ONCE per beat here (its maxima reset on
+// read, so a second drainer would steal the window); status.json and the
+// `stereo status` word print this cached snapshot.
+dvr::vr::PairProbe g_pairBeat;
+uint64_t           g_pairBeatMs = 0;
+dvr::vr::PairProbe g_pairPrev;     // the previous beat's cumulative counters (for the deltas)
+
 } // namespace
 
 void register_method(IStereo* m) {
@@ -132,6 +139,27 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
                  g_beatNone / s, out.w, out.h,
                  (g_beatL == 0 && g_beatR == 0 && g_beatMono > 0)
                      ? " (L/R read 0 by design on the mono screen)" : "");
+        // The eyes line: per-eye image age in PRESENTS at the last stereo submit
+        // and the pairing counters as window deltas. A stereo submit shows each
+        // eye swapchain's last released image, so an eye older than one present
+        // is a previous tick shown again - the instrument that can print the
+        // unwelcome answer for "one eye stopped taking fresh frames".
+        g_pairPrev = g_pairBeat;
+        dvr::vr::pair_probe(&g_pairBeat);
+        g_pairBeatMs = now;
+        if (wants_projection()) {
+            const dvr::vr::PairProbe& p = g_pairBeat;
+            const dvr::vr::PairProbe& q = g_pairPrev;
+            const uint32_t submits = p.stereoSubmits - q.stereoSubmits;
+            DVR_INFO("stereo: eyes ageL=%u ageR=%u presents at the last stereo submit (max this window L=%u R=%u; "
+                     "healthy 1/0) | stereoSubmits=%u pairs=%u aborts=%u (left=%u untagged=%u expired=%u) "
+                     "staleEye L=%u R=%u | window %.0f s%s",
+                     p.agePresL, p.agePresR, p.agePresMaxL, p.agePresMaxR, submits, p.pairs - q.pairs,
+                     p.aborts - q.aborts, p.abortLeft - q.abortLeft, p.abortUntagged - q.abortUntagged,
+                     p.abortExpired - q.abortExpired, p.stalePresL - q.stalePresL, p.stalePresR - q.stalePresR, s,
+                     submits == 0 ? " (stereoSubmits 0 this window: the quad screen or an untagged stream - "
+                                    "the ages read 0 by design)" : "");
+        }
         g_beatMs = now;
         g_beatOut = g_beatL = g_beatR = g_beatMono = g_beatNone = 0;
     }
@@ -179,6 +207,24 @@ void status(dvr::status::Writer& w) {
     w.kv("projectionOverride", projection_override_name());
     w.kv("camMode", dvr::vr::vr_camera_mode());
     w.kv("cineActive", dvr::vr::cinematic_active());
+    {   // the runtime's pair probe as the beat last drained it (cumulative counters)
+        const dvr::vr::PairProbe& p = g_pairBeat;
+        w.obj("pair");
+        w.kv("beatAgeMs", (unsigned long)(g_pairBeatMs ? GetTickCount64() - g_pairBeatMs : 0));
+        w.kv("ageL", (unsigned long)p.agePresL); w.kv("ageR", (unsigned long)p.agePresR);
+        w.kv("ageMaxL", (unsigned long)p.agePresMaxL); w.kv("ageMaxR", (unsigned long)p.agePresMaxR);
+        w.kv("staleL", (unsigned long)p.stalePresL); w.kv("staleR", (unsigned long)p.stalePresR);
+        w.kv("staleMsL", (unsigned long)p.staleL); w.kv("staleMsR", (unsigned long)p.staleR);
+        w.kv("stereoSubmits", (unsigned long)p.stereoSubmits);
+        w.kv("pairs", (unsigned long)p.pairs); w.kv("aborts", (unsigned long)p.aborts);
+        w.kv("abortLeft", (unsigned long)p.abortLeft); w.kv("abortUntagged", (unsigned long)p.abortUntagged);
+        w.kv("abortExpired", (unsigned long)p.abortExpired);
+        w.kv("capL", (unsigned long)p.cap[0]); w.kv("capR", (unsigned long)p.cap[1]);
+        w.kv("acqFail", (unsigned long)p.acqFail); w.kv("waitFail", (unsigned long)p.waitFail);
+        w.kv("untaggedProj", (unsigned long)p.untaggedProj);
+        w.kv("ringPushed", (unsigned long)p.ringPushed); w.kv("ringPopped", (unsigned long)p.ringPopped);
+        w.end_obj();
+    }
     if (g_active) g_active->status(w);
 }
 
@@ -193,6 +239,18 @@ void log_status() {
         DVR_INFO("stereo:   %s%s%s", g_methods[i]->name(),
                  g_methods[i] == g_active ? " (active)" : "",
                  g_methods[i]->implemented() ? "" : " (design stub)");
+    {   // the pair probe as the beat last drained it
+        const dvr::vr::PairProbe& p = g_pairBeat;
+        DVR_INFO("stereo: pair (as of %lu ms ago): ages L=%u R=%u presents (healthy 1/0) | stereoSubmits=%lu pairs=%lu "
+                 "aborts=%lu (left=%lu untagged=%lu expired=%lu) staleEye L=%lu R=%lu | caps L=%lu R=%lu acqFail=%lu "
+                 "waitFail=%lu untaggedProj=%lu | ring pushed=%lu popped=%lu",
+                 (unsigned long)(g_pairBeatMs ? GetTickCount64() - g_pairBeatMs : 0), p.agePresL, p.agePresR,
+                 (unsigned long)p.stereoSubmits, (unsigned long)p.pairs, (unsigned long)p.aborts,
+                 (unsigned long)p.abortLeft, (unsigned long)p.abortUntagged, (unsigned long)p.abortExpired,
+                 (unsigned long)p.stalePresL, (unsigned long)p.stalePresR, (unsigned long)p.cap[0],
+                 (unsigned long)p.cap[1], (unsigned long)p.acqFail, (unsigned long)p.waitFail,
+                 (unsigned long)p.untaggedProj, (unsigned long)p.ringPushed, (unsigned long)p.ringPopped);
+    }
 }
 
 void set_overlay_draw(OverlayDrawFn fn) { g_overlay = fn; }

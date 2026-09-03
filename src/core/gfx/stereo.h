@@ -146,12 +146,17 @@ IStereo* create_reentry();
 // SequentialReentry's game side (game/dishonored/scene_draw.cpp) registers
 // itself here: whether the root's bytes verify (with the refusal text), the
 // arm/disarm of the second draw, its status fields and its draw count (ticks).
+// The pass-2 skip counters the game side keeps, in this order, so the method
+// can name the OWNER of a one-sided tag stream without knowing the game:
+// foreign, state, silent, stall, session, test, exit (cumulative).
+constexpr int kReentryGateCount = 7;
 struct ReentryHooks {
     bool (*available)(char* why, size_t cap) = nullptr;
     void (*set_armed)(bool on) = nullptr;
     bool (*poisoned)() = nullptr;
     void (*status)(dvr::status::Writer& w) = nullptr;
     uint32_t (*draws)() = nullptr;
+    void (*gates)(uint32_t out[kReentryGateCount]) = nullptr;
 };
 void set_reentry_hooks(const ReentryHooks& h);
 // The game thread pushes one tag per draw (-1 pass 1, +1 pass 2) with the

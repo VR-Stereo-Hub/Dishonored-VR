@@ -451,10 +451,19 @@ struct PairProbe {
     uint32_t staleR = 0;
     uint32_t ageMaxL = 0;        // worst capture age at submit, ms - DRAINED on read
     uint32_t ageMaxR = 0;        //   (window = the caller's own read cadence)
+    // 41.1 (Dishonored): the age in PRESENTS - a healthy SequentialReentry pair
+    // reads L=1 R=0; more is an image from a previous tick shown again.
+    uint32_t agePresL = 0, agePresR = 0;        // at the last stereo submit
+    uint32_t agePresMaxL = 0, agePresMaxR = 0;  // DRAINED on read
+    uint32_t stalePresL = 0, stalePresR = 0;    // submits with this eye stale while the other was fresh (cumulative)
     uint32_t ringPushed = 0, ringPopped = 0, ringDropped = 0, ringCleared = 0;
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };
 void pair_probe(PairProbe* out);
+void pair_probe_peek(PairProbe* out);   // 41.1 (Dishonored): the same without draining the maxima
+// 41.1 (Dishonored): stalePresL + stalePresR, cumulative and never drained, so a
+// per-present reader can notice a new stale submit without eating the beat's window.
+uint32_t pair_stale_submits();
 
 // --- M7: the aim laser ------------------------------------------------------
 // A row of soft dots along the hand's aim ray, submitted as extra XR quad

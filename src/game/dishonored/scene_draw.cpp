@@ -55,7 +55,7 @@ static volatile LONG  g_sdDepth = 0;
 static DWORD          g_sdDrawTid = 0;
 static uint32_t       g_sdDraws = 0, g_sdSecondDraws = 0;
 static uint32_t       g_sdSkipForeign = 0, g_sdSkipState = 0, g_sdSkipSilent = 0, g_sdSkipStall = 0,
-                      g_sdSkipSession = 0, g_sdSkipTest = 0;
+                      g_sdSkipSession = 0, g_sdSkipTest = 0, g_sdSkipExit = 0;
 static uint32_t       g_sdLastExcCode = 0, g_sdLastExcAddr = 0;
 static uint32_t       g_sdCall2Us = 0, g_sdCall2MaxUs = 0;
 static uint32_t       g_sdLastDrawPresent = 0;
@@ -135,11 +135,11 @@ static void SceneDrawBeat()
     const double s = (double)(now - g_sdBeatMs) / 1000.0;
     const uint32_t presents = g_frame;
     Log("reentry: beat draws/s=%.0f 2nd/s=%.0f presents/s=%.0f call2=%u us (max %u) skips foreign=%lu state=%lu "
-        "silent=%lu stall=%lu session=%lu test=%lu drawTid=%lu presentTid=%lu%s%s",
+        "silent=%lu stall=%lu session=%lu test=%lu exit=%lu drawTid=%lu presentTid=%lu%s%s",
         g_sdBeatDraws / s, g_sdBeatSecond / s, (presents - g_sdBeatPresents) / s, g_sdCall2Us, g_sdCall2MaxUs,
         (unsigned long)g_sdSkipForeign, (unsigned long)g_sdSkipState, (unsigned long)g_sdSkipSilent,
         (unsigned long)g_sdSkipStall, (unsigned long)g_sdSkipSession, (unsigned long)g_sdSkipTest,
-        (unsigned long)g_sdDrawTid, (unsigned long)g_presentTid,
+        (unsigned long)g_sdSkipExit, (unsigned long)g_sdDrawTid, (unsigned long)g_presentTid,
         g_sdArmed ? "" : " (doubling OFF: 2nd/s reads 0 by design)",
         g_sdPoisoned ? " POISONED" : "");
     g_sdBeatMs = now;
@@ -157,7 +157,7 @@ static void SceneDrawMaybeSecond(void* self, int b, uint32_t callerRet)
     const bool armed = InterlockedCompareExchange(&g_sdArmed, 0, 0) != 0;
     if (!pulse && !armed) return;
     if (callerRet != kViewportDrawGameplayRet) { ++g_sdSkipForeign; return; }
-    if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) return;
+    if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; return; }
     if (!dvr::vr::session_live() && !pulse) { ++g_sdSkipSession; return; }
     if (!DvrGameplayVerdict()) { ++g_sdSkipState; return; }
     if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; return; }
@@ -281,6 +281,14 @@ static void SceneDrawSetArmed(bool on)
 static bool SceneDrawPoisoned() { return InterlockedCompareExchange(&g_sdPoisoned, 0, 0) != 0; }
 static uint32_t SceneDrawDraws() { return g_sdDraws; }
 
+// The pass-2 skip counters for the method's stale-eye line (present thread
+// reads what the game thread counts: diagnostics, a torn read costs one).
+static void SceneDrawGates(uint32_t out[dvr::stereo::kReentryGateCount])
+{
+    out[0] = g_sdSkipForeign; out[1] = g_sdSkipState; out[2] = g_sdSkipSilent; out[3] = g_sdSkipStall;
+    out[4] = g_sdSkipSession; out[5] = g_sdSkipTest;  out[6] = g_sdSkipExit;
+}
+
 static void SceneDrawStatus(dvr::status::Writer& w)
 {
     w.kv("hook", g_sdInstalled);
@@ -294,6 +302,8 @@ static void SceneDrawStatus(dvr::status::Writer& w)
     w.kv("skipSilent", (unsigned long)g_sdSkipSilent);
     w.kv("skipStall", (unsigned long)g_sdSkipStall);
     w.kv("skipSession", (unsigned long)g_sdSkipSession);
+    w.kv("skipTest", (unsigned long)g_sdSkipTest);
+    w.kv("skipExit", (unsigned long)g_sdSkipExit);
     w.kv("lastExc", (unsigned long)g_sdLastExcCode);
 }
 
