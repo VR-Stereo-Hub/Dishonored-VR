@@ -127,8 +127,14 @@ public:
             for (int i = 0; i < kReentryGateCount; ++i) { dg[i] = gates[i] - lastGates_[i]; gameSkips += dg[i]; }
             const uint32_t dAcq = pp.acqFail - lastProbe_.acqFail, dWait = pp.waitFail - lastProbe_.waitFail;
             const uint32_t dUntagged = g_tagUntagged - lastUntagged_;
+            const uint32_t dAbortLeft = pp.abortLeft - lastProbe_.abortLeft;
+            // The game thread's skip counters can lag this present by a tick;
+            // a second LEFT tag closing a pair (abortLeft) is the runtime's own
+            // evidence of the same one-sided stream and needs no lag.
             const char* owner =
                 gameSkips ? "the game side's pass-2 gates (a one-sided -1 stream: pass 1 tagged, pass 2 skipped)"
+                : dAbortLeft ? "a second -1 tag closed the pair (the game side skipped pass 2; its counters lag a "
+                               "tick, read forced/stall/state on the next line)"
                 : (dAcq || dWait) ? "the runtime's swapchain path (acquire/wait failed, the release still ran)"
                 : dUntagged ? "a present that delivered no tag (a frame-less present ate its sibling's tag)"
                 : "unknown - a lone +1 (arming mid-tick?) or a tag eaten by the pace guard";
@@ -136,10 +142,10 @@ public:
             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 1000,
                              "stereo: STALE %c EYE in a stereo submit - owner: %s | ages L=%u R=%u presents (the runtime "
                              "shows each eye swapchain's last released image; healthy = 1/0) | pass-2 skips since the "
-                             "last line: foreign=%u state=%u silent=%u stall=%u session=%u test=%u exit=%u | runtime: "
+                             "last line: foreign=%u state=%u silent=%u stall=%u session=%u test=%u exit=%u forced=%u | runtime: "
                              "acqFail=%u waitFail=%u untaggedProj=%u abortLeft=%u | method untagged presents=%u | "
                              "stale submits so far L=%u R=%u | strict=%s",
-                             eye, owner, pp.agePresL, pp.agePresR, dg[0], dg[1], dg[2], dg[3], dg[4], dg[5], dg[6],
+                             eye, owner, pp.agePresL, pp.agePresR, dg[0], dg[1], dg[2], dg[3], dg[4], dg[5], dg[6], dg[7],
                              dAcq, dWait, pp.untaggedProj - lastProbe_.untaggedProj,
                              pp.abortLeft - lastProbe_.abortLeft, dUntagged, pp.stalePresL, pp.stalePresR,
                              dvr::vr::pair_strict() ? "on (the held eye was replaced by the fresh one)" : "off");

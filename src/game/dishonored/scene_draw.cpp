@@ -59,6 +59,12 @@ static volatile LONG  g_sdWant = 0;            // 1 = patch requested, 0 = resto
 static volatile LONG  g_sdArmed = 0;           // the doubling runs per gameplay tick
 static volatile LONG  g_sdPoisoned = 0;
 static volatile LONG  g_sdPulse = 0;           // one-shot doubles for the A/B
+// `reentry skip2 <n>`: skip pass 2 for n ticks AFTER pass 1 pushed its tag -
+// the one-sided -1 stream the 2026-09-03 headset desync was made of, on
+// demand, so the stale-eye instrument and the strict-pair fallback can be
+// shown to fail and to hold on the simulator ("make it MOVE").
+static volatile LONG  g_sdForceSkip2 = 0;
+static uint32_t       g_sdSkipForced = 0;
 static volatile LONG  g_sdDepth = 0;
 static DWORD          g_sdDrawTid = 0;
 static uint32_t       g_sdDraws = 0, g_sdSecondDraws = 0;
@@ -209,6 +215,16 @@ static void SceneDrawDecisionLog(const SdDecision& d)
 static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
 {
     if (!d.doubleIt || g_sdPoisoned) return;
+    if (InterlockedCompareExchange(&g_sdForceSkip2, 0, 0) > 0) {
+        // The instrument: the -1 tag is already in the ring, pass 2 is not
+        // coming. Exactly what the pre-41.1 gates did by accident.
+        if (InterlockedDecrement(&g_sdForceSkip2) == 0)
+            Log("reentry/skip2: done - pass 2 skipped after pass 1's tag on %lu tick(s); the eyes line "
+                "and the STALE EYE line say what the runtime made of the one-sided stream",
+                (unsigned long)g_sdSkipForced + 1);
+        ++g_sdSkipForced;
+        return;
+    }
     const bool pulse = d.pulse;
 
     // Pass 2: the other eye into the camera field, on this thread, through the
@@ -328,7 +344,7 @@ static uint32_t SceneDrawDraws() { return g_sdDraws; }
 static void SceneDrawGates(uint32_t out[dvr::stereo::kReentryGateCount])
 {
     out[0] = g_sdSkipForeign; out[1] = g_sdSkipState; out[2] = g_sdSkipSilent; out[3] = g_sdSkipStall;
-    out[4] = g_sdSkipSession; out[5] = g_sdSkipTest;  out[6] = g_sdSkipExit;
+    out[4] = g_sdSkipSession; out[5] = g_sdSkipTest;  out[6] = g_sdSkipExit;   out[7] = g_sdSkipForced;
 }
 
 static void SceneDrawStatus(dvr::status::Writer& w)
@@ -346,6 +362,7 @@ static void SceneDrawStatus(dvr::status::Writer& w)
     w.kv("skipSession", (unsigned long)g_sdSkipSession);
     w.kv("skipTest", (unsigned long)g_sdSkipTest);
     w.kv("skipExit", (unsigned long)g_sdSkipExit);
+    w.kv("skipForced", (unsigned long)g_sdSkipForced);
     w.kv("lastExc", (unsigned long)g_sdLastExcCode);
 }
 
@@ -365,6 +382,16 @@ static bool SceneDrawCommand(const char* args)
         }
         InterlockedExchange(&g_sdPulse, k);
         Log("reentry/pulse: doubling the next %d gameplay draw(s) with eye +1 on pass 2", k);
+        return true;
+    }
+    if (n >= 1 && !strcmp(sub, "skip2")) {
+        int k = a1[0] ? atoi(a1) : 60;
+        if (k < 1) k = 1;
+        if (k > 3000) k = 3000;
+        InterlockedExchange(&g_sdForceSkip2, k);
+        Log("reentry/skip2: the next %d armed gameplay tick(s) push pass 1's -1 tag and SKIP pass 2 - a one-sided "
+            "stream on purpose; expect `stereo: STALE R EYE` (strict off) or `xr: strict pair - stereo submit "
+            "REFUSED` (strict on)", k);
         return true;
     }
     if (n >= 1 && !strcmp(sub, "reset")) {

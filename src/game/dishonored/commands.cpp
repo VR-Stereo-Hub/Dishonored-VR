@@ -136,7 +136,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "reentry")) {
         if (SceneDrawCommand(args)) return true;
         if (SceneProbeCommand(args)) return true;
-        Log("reentry: pulse [n] | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
+        Log("reentry: pulse [n] | skip2 [n] | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
         return true;
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }

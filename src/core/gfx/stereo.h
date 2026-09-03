@@ -148,8 +148,10 @@ IStereo* create_reentry();
 // arm/disarm of the second draw, its status fields and its draw count (ticks).
 // The pass-2 skip counters the game side keeps, in this order, so the method
 // can name the OWNER of a one-sided tag stream without knowing the game:
-// foreign, state, silent, stall, session, test, exit (cumulative).
-constexpr int kReentryGateCount = 7;
+// foreign, state, silent, stall, session, test, exit, forced (cumulative;
+// `forced` is the `reentry skip2 <n>` instrument: pass 2 skipped on purpose
+// AFTER pass 1's tag, the one-sided stream the headset fault is made of).
+constexpr int kReentryGateCount = 8;
 struct ReentryHooks {
     bool (*available)(char* why, size_t cap) = nullptr;
     void (*set_armed)(bool on) = nullptr;

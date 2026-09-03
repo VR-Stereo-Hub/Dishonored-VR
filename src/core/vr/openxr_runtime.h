@@ -464,6 +464,11 @@ struct PairProbe {
     uint32_t agePresL = 0, agePresR = 0;        // at the last stereo submit
     uint32_t agePresMaxL = 0, agePresMaxR = 0;  // DRAINED on read
     uint32_t stalePresL = 0, stalePresR = 0;    // submits with this eye stale while the other was fresh (cumulative)
+    // 41.1 (Dishonored): the pair phase - xrEndFrame time minus the frame's
+    // predictedDisplayTime (us, cumulative; negative = closed before its slot).
+    bool     phaseAvailable = false;            // the runtime offers its clock
+    int64_t  phaseLastUs = 0, phaseSumUs = 0, phaseMaxUs = 0;
+    uint32_t phaseCount = 0, phaseMissed = 0;   // pairs sampled, pairs that missed their slot
     uint32_t ringPushed = 0, ringPopped = 0, ringDropped = 0, ringCleared = 0;
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };

@@ -223,6 +223,12 @@ void status(dvr::status::Writer& w) {
         w.kv("acqFail", (unsigned long)p.acqFail); w.kv("waitFail", (unsigned long)p.waitFail);
         w.kv("untaggedProj", (unsigned long)p.untaggedProj);
         w.kv("ringPushed", (unsigned long)p.ringPushed); w.kv("ringPopped", (unsigned long)p.ringPopped);
+        w.kv("phaseAvailable", p.phaseAvailable);
+        w.kv("phaseMeanMs", p.phaseCount ? (double)p.phaseSumUs / 1000.0 / p.phaseCount : 0.0);
+        w.kv("phaseLastMs", (double)p.phaseLastUs / 1000.0);
+        w.kv("phaseMaxMs", (double)p.phaseMaxUs / 1000.0);
+        w.kv("phaseMissedPct", p.phaseCount ? 100.0 * p.phaseMissed / p.phaseCount : 0.0);
+        w.kv("phasePairs", (unsigned long)p.phaseCount);
         w.end_obj();
     }
     if (g_active) g_active->status(w);
@@ -250,6 +256,14 @@ void log_status() {
                  (unsigned long)p.stalePresL, (unsigned long)p.stalePresR, (unsigned long)p.cap[0],
                  (unsigned long)p.cap[1], (unsigned long)p.acqFail, (unsigned long)p.waitFail,
                  (unsigned long)p.untaggedProj, (unsigned long)p.ringPushed, (unsigned long)p.ringPopped);
+        if (p.phaseAvailable)
+            DVR_INFO("stereo: pair phase %+.1f ms mean (last %+.1f, max %+.1f) over %lu pairs, missed slot %lu (%.0f%%) - "
+                     "close minus predictedDisplayTime; negative = closed before its slot",
+                     p.phaseCount ? (double)p.phaseSumUs / 1000.0 / p.phaseCount : 0.0, (double)p.phaseLastUs / 1000.0,
+                     (double)p.phaseMaxUs / 1000.0, (unsigned long)p.phaseCount, (unsigned long)p.phaseMissed,
+                     p.phaseCount ? 100.0 * p.phaseMissed / p.phaseCount : 0.0);
+        else
+            DVR_INFO("stereo: pair phase n/a (the runtime offers no XR_KHR_win32_convert_performance_counter_time)");
     }
 }
 
