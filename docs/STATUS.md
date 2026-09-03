@@ -1,5 +1,102 @@
 # Status
 
+## HANDOFF (2026-09-02, session 7d) - branch `head-tilt-fix-and-resolution-research`
+
+**For the S2b developer.** Branched off your `bbd04fec`. Two faults were chased in a headset
+with the user driving. **One is diagnosed and half-fixed; the other is diagnosed but NOT
+fixed, and the diagnosis is the valuable part.** Read the two ENGINE_NOTES entries dated
+2026-09-02 session 7c before touching either.
+
+### HEAD TILT - usable now, still janky. Not finished.
+
+`[HeadInject] FlipRoll` now defaults to **-1** (WriteDefaultIni, the loader and the golden
+ini). The user swept the three cases in a headset with the new F10 control and reported
+`oppose (-1)` as **"a little jittery still, but much better"**; `+1`, the old default, tilted
+the world the wrong way.
+
+**Treat this as usable, not solved.** A pure sign error would have been fully fixed by the
+flip and this one was not, so the double-application theory survives: under a projection
+layer the compositor rotates the image for head roll AND `ApplyHeadToViewRotation` writes
+roll, with `rollNow` FORCED true whenever `stereo::wants_projection()` - so `[HeadTrack]
+Roll=0` cannot switch it off. The leading suspect for the residual is that the two rotations
+are sampled on different lanes at different rates (the write is script-lane, at dispatch
+cadence; the layer pose is located once per XR frame on the present thread), which is jitter
+by construction.
+
+**`headroll off` has still never been judged**, and it is the case that answers whether the
+game should write roll at all under a projection layer. It is one button on F10 Comfort, or
+`headroll off` on the seam.
+
+### RESOLUTION - the cause is FOUND, the fix is NOT in
+
+**The claimed FOV is the resolution knob, and the frame aspect is what forces the claim.**
+Confirmed across an 8x range of angle in the headset:
+
+| claim | centre px/deg (2560 wide) | what the tester saw |
+|---:|---:|---|
+| 20 (lever, run 2) | ~125 | tiny box, razor sharp |
+| 100 (lever, run 1) | ~19 | small box, very sharp |
+| 137 (auto, 16:9) | ~9 | fills the eye, mushy |
+
+At 16:9 the layer MUST claim 137 deg to cover the eye's ~110 deg vertical
+(`tanH = tanV * aspect`), and `fovaudit ... src=readback` confirms the engine really renders
+it. More than half the resolution lands outside the frustum. This is also why **1080p and 4K
+look identical in the headset** - both are 16:9, so both are squeezed by the same factor, and
+chasing the render size could never have worked.
+
+**The fix is a render whose ASPECT is the eye's (~0.93)**, where the covering claim is
+~105 deg and coverage stops fighting density. **That has not been achieved yet.** Both
+attempts fell back, measured:
+
+| requested | got |
+|---|---|
+| windowed 2496x2688 / 2560x2880 / 3840x2160 | 1304x1405 / 1248x1405 / 2497x1405 (**1405-row cap**) |
+| fullscreen 2560x2688 | **2560x1440** - not a real display mode, fell back |
+| fullscreen 5120x1440 | 5120x1440 - honoured exactly |
+
+So: windowed is hard-capped at 1405 rows on this rig, and fullscreen takes only real display
+modes. The two untried routes, cheapest first: **a virtual display set near-square** (three
+virtual display adapters exist on this machine), or **the size spoof `99d4f576` removed**
+(`res_spoof.cpp`, 594 lines, recoverable verbatim from `99d4f576^`; the original author calls
+the `GetClientRect` lie load-bearing). BRVR sidesteps the whole thing by claiming the game's
+own fov and never inflating it - worth deciding deliberately rather than inheriting.
+
+**Whichever route, the capture cost scales with it and is already the bigger number**:
+3840x2160 measures **14.4 ms per present** (31.6 MB each way, `mode=sync`, `lock=9616us`).
+S1's readback item has to land before a near-square 2496x2688 is playable.
+
+### Landed on this branch
+
+- `[Stereo] Method=reentry` **could never take at boot** - `EnsureConfig()` selects the method
+  inside `Direct3DCreate9` and `DvrInstallFrameHooks()` registers the scene-draw hooks later
+  in the same function, so the ini always refused with "the game side has not registered".
+  `select()` remembers a not-yet-available method and `set_reentry_hooks()` retries.
+  **VERIFIED in a headset**: `retrying now` -> `method mono -> reentry`, beat `L/s == R/s`.
+- `headroll 1|-1|off` on the seam and three buttons on **F10 Comfort**; the buttons log their
+  choice, so the next run's log attributes the verdicts (session 7c's sweep did not).
+- `FlipRoll` default -1, golden ini regenerated, `tools/ini-golden.py` updated to match.
+- `tools/boot.ps1` passed `Enter` positionally to `game-key.ps1`, whose first positional
+  parameter is `-GamePath` - unattended booting never pressed a key.
+- Game config in `Documents` reset off its pre-41.0 leftovers; `MaxAnisotropy` 4 -> 16,
+  `MaxShadowResolution` 800 -> 2048. **`MaxMultisamples` left at 1 deliberately** -
+  ENGINE_NOTES records a `GetRenderTargetData` failure on a multisampled backbuffer.
+
+### From the parked AER branch, still relevant to rung 3
+
+`aer-rendering` is pushed and complete. Two of its three BRVR findings apply to reentry
+unchanged (ENGINE_NOTES, "Three things BRVR does that our AER does not"): the projection
+layer should carry the pose the image was **rendered** from (BRVR calls it "a major flicker
+fix"), and **anything flat must take ONE eye** - our F10 overlay is drawn into whichever eye
+the present owns. The world-advance-per-eye-pair one does NOT apply to you: rung 3 draws both
+eyes from one tick, which is the argument that settled the ladder.
+
+### Next run, in order
+
+1. **F10 Comfort -> `no write`**, tilt both ways. That single button decides the roll
+   architecture and has never been pressed.
+2. A genuinely near-square render by either route above, then `fov 105` and judge.
+3. `capture mode deferred` before raising the render size any further.
+
 ## Current state (2026-09-02, session 7c: the resolution fault is the FOV CLAIM)
 
 **For the S2b developer.** Your `bbd04fec` is built, installed and was run in a headset by

@@ -1189,3 +1189,71 @@ Also on the F10 **Comfort** tab (the tester is in a headset and cannot reach a k
 `g_rollForceOff` gates `rollNow`. If neither sign is right and `off` is, the fix is to stop
 writing roll under a projection layer. If `off` leaves the horizon dead, the write is needed
 and the answer is the sign. NOT YET RUN.
+
+## The FOV claim IS the resolution - confirmed at 20 degrees (2026-09-02, session 7c)
+
+The second lever run closed this. The tester set `-ResX=2560 -ResY=2688` (the eye's aspect)
+and armed the lever; the world became a tiny box again, "still super sharp in the box". Two
+things in the log, both important:
+
+```
+CreateDevice -> 0x00000000 (2560x1440 windowed=0)
+xr: fovaudit submit tanH=0.177813 tanV=0.100020 (hfov 20.17 deg, src=readback, swap 2560x1440)
+```
+
+1. **The near-square render never happened.** `2560x2688` is not a real display mode, and
+   fullscreen falls back to one - it landed on 2560x1440, aspect 1.778 again. So this run did
+   NOT test the aspect hypothesis; it tested the lever a second time. The aspect is still open.
+2. **The lever drove the game to a 20 degree FOV.** At 2560 px across 20 deg that is about
+   **125 centre px/deg** - eight times what the 137 deg claim delivers, which is exactly why
+   the little box looked razor sharp. `src=readback` means the engine really rendered it.
+
+**That is the model confirmed across nearly a decade of angle.** Centre density goes as
+`W / (2*tan(hfov/2))`, so on this rig:
+
+| claim | centre px/deg at 2560 wide | what the tester saw |
+|---:|---:|---|
+| 20 | ~125 | a tiny box, razor sharp |
+| 100 | ~19 | a small box, very sharp |
+| 137 | ~9 | fills the eye, mushy |
+
+There is nothing wrong with the renderer or the capture. **The claim is the resolution knob,
+and the frame ASPECT is what forces the claim.** The remaining work is to get a render whose
+aspect is the eye's (~0.93) so that the covering claim is ~105 deg instead of 137, at which
+point coverage and density stop fighting.
+
+**"The FOV lever slider did nothing in gameplay" is a real report and it is not what happened
+- it did a great deal.** The slider is not inert; it is unlabelled in headset terms, so a
+tester cannot tell 20 deg from 100 deg except by the picture. If the lever stays a tuning
+control it wants its live value and the resulting centre px/deg on the F10 panel beside it.
+
+### What is NOT yet tested
+
+A genuinely near-square render. Both attempts fell back: windowed clamps to 1405 rows,
+fullscreen needs a real display mode and 2560x2688 is not one. The untried routes are still
+the two in the previous entry - a virtual display set to a near-square resolution (three
+virtual display adapters exist on this machine), or the size spoof `99d4f576` removed.
+
+## Head tilt: -1 is measured correct, and a residual remains (2026-09-02, session 7c)
+
+Swept in a headset with the F10 three-way. **`oppose (-1)` mostly fixed it** - the tester's
+words: "it's a little jittery still, but much better". `+1` (the shipped default) tilted the
+world the wrong way. `[HeadInject] FlipRoll` now defaults to **-1** in `WriteDefaultIni` and
+in the loader, with the golden ini regenerated.
+
+So the sign was half the answer and the double-application theory is not dead: a pure sign
+error would have been fully fixed by the flip, and this one is "much better, still jittery".
+The residual is the thing to chase next, and the candidates in order:
+
+1. **The compositor and the game camera both roll, at different cadences.** The game camera's
+   roll is written on the SCRIPT lane at ProcessEvent dispatch rate; the layer's pose is
+   located once per XR frame on the present thread. Two rotations of the same image sampled
+   at two different times is jitter by construction, and it would look exactly like this.
+2. **`headroll off` has still never been judged.** It is the case that decides whether the
+   game should write roll at all under a projection layer, and it is one button on F10.
+3. The roll write is honoured (`incoming` tracks the previous write), so the engine is not
+   fighting us; whatever remains is downstream.
+
+The F10 buttons log their choice now (`headroll: write ... sign ... (F10 Comfort)`), so the
+next run's log will say which case was active for which stretch - session 7c's sweep did not,
+and the log could not attribute the verdicts.

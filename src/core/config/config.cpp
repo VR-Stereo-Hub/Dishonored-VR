@@ -217,10 +217,13 @@ static void WriteDefaultIni(const char* ini)
         "WpnPitch=0\n"
         "WpnRoll=0\n"
         "[HeadInject]\n"
-        "; (legacy, unused)\n"
+        "; FlipYaw and FlipPitch are legacy and unused. FlipRoll is NOT: under a\n"
+        "; projection layer the roll write is forced on, and -1 is the sign the\n"
+        "; tester measured as correct in a headset (2026-09-02). +1 tilted the world\n"
+        "; the wrong way. F10 Comfort carries the live three-way.\n"
         "FlipYaw=1\n"
         "FlipPitch=1\n"
-        "FlipRoll=1\n", kConfigVersion);
+        "FlipRoll=-1\n", kConfigVersion);
     fclose(f);
 }
 
@@ -301,7 +304,11 @@ static void LoadConfig()
     }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
-    g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll",  1) < 0 ? -1 : 1;
+    // -1 by DEFAULT, measured in a headset 2026-09-02. The roll write is
+    // honoured (the telemetry shows the engine keeping it) and +1 tilted the
+    // world the wrong way; -1 is "mostly fixed, still slightly jittery", which
+    // is the residual the F10 three-way exists to pin down.
+    g_flipRoll  = IniFloat(ini, "HeadInject", "FlipRoll", -1) < 0 ? -1 : 1;
     g_posTrack   = IniFloat(ini, "PosTrack", "Enabled", 1) != 0.0f;
     {   // [PosTrack] Lane: vp (the c0 patch, shipped) or camera (the seam's write)
         char pl[16] = "";

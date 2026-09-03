@@ -123,11 +123,19 @@ static void OverlayFrame()
     {
         const bool off = g_rollForceOff;
         ImGui::Text("now: write %s, sign %+d", off ? "OFF (compositor only)" : "ON", g_flipRoll);
-        if (ImGui::Button("match (+1)"))  { g_rollForceOff = false; g_flipRoll =  1; }
+        // Log the choice. The tester picks these in a headset and then sends the
+        // log; without a line here their pick is invisible and the run cannot be
+        // attributed (session 7c: three tilt cases were swept and the log said
+        // nothing about which was active for which stretch).
+        bool changed = false;
+        if (ImGui::Button("match (+1)"))  { g_rollForceOff = false; g_flipRoll =  1; changed = true; }
         ImGui::SameLine();
-        if (ImGui::Button("oppose (-1)")) { g_rollForceOff = false; g_flipRoll = -1; }
+        if (ImGui::Button("oppose (-1)")) { g_rollForceOff = false; g_flipRoll = -1; changed = true; }
         ImGui::SameLine();
-        if (ImGui::Button("no write"))    { g_rollForceOff = true; }
+        if (ImGui::Button("no write"))    { g_rollForceOff = true; changed = true; }
+        if (changed)
+            Log("headroll: write %s, sign %+d (F10 Comfort) - tilt both ways and judge",
+                g_rollForceOff ? "OFF (compositor only)" : "ON", g_flipRoll);
         ImGui::TextDisabled("if neither sign is right, the compositor is already rolling the");
         ImGui::TextDisabled("image and 'no write' is the answer; if 'no write' leaves the");
         ImGui::TextDisabled("horizon dead, the write is needed and the sign is the answer");
