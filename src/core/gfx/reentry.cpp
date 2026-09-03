@@ -56,6 +56,7 @@ struct Tag { int eye; bool posOk; float pos[3]; };
 Tag           g_ring[kRing];
 volatile LONG g_ringHead = 0, g_ringTail = 0;
 uint32_t      g_ringDropped = 0, g_ringCleared = 0, g_tagMismatch = 0, g_tagOk = 0, g_tagUntagged = 0;
+uint32_t      g_tagNoFrame = 0;   // 41.1 (session 8): tagged presents whose grab delivered no frame (no tag pushed)
 
 uint32_t g_tagResynced = 0;
 
@@ -127,6 +128,7 @@ public:
             for (int i = 0; i < kReentryGateCount; ++i) { dg[i] = gates[i] - lastGates_[i]; gameSkips += dg[i]; }
             const uint32_t dAcq = pp.acqFail - lastProbe_.acqFail, dWait = pp.waitFail - lastProbe_.waitFail;
             const uint32_t dUntagged = g_tagUntagged - lastUntagged_;
+            const uint32_t dNoFrame = g_tagNoFrame - lastNoFrame_;
             const uint32_t dAbortLeft = pp.abortLeft - lastProbe_.abortLeft;
             // The game thread's skip counters can lag this present by a tick;
             // a second LEFT tag closing a pair (abortLeft) is the runtime's own
@@ -137,23 +139,26 @@ public:
                                "tick, read forced/stall/state on the next line)"
                 : (dAcq || dWait) ? "the runtime's swapchain path (acquire/wait failed, the release still ran)"
                 : dUntagged ? "a present that delivered no tag (a frame-less present ate its sibling's tag)"
+                : dNoFrame ? "a present whose grab delivered no frame went out untagged (a capture mode switch, a "
+                             "Reset, capture off) and its sibling stood alone"
                 : "unknown - a lone +1 (arming mid-tick?) or a tag eaten by the pace guard";
             const char eye = pp.stalePresR != lastProbe_.stalePresR ? 'R' : 'L';
             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 1000,
                              "stereo: STALE %c EYE in a stereo submit - owner: %s | ages L=%u R=%u presents (the runtime "
                              "shows each eye swapchain's last released image; healthy = 1/0) | pass-2 skips since the "
                              "last line: foreign=%u state=%u silent=%u stall=%u session=%u test=%u exit=%u forced=%u | runtime: "
-                             "acqFail=%u waitFail=%u untaggedProj=%u abortLeft=%u | method untagged presents=%u | "
-                             "stale submits so far L=%u R=%u | strict=%s",
+                             "acqFail=%u waitFail=%u untaggedProj=%u abortLeft=%u | method untagged presents=%u "
+                             "noFrame=%u | stale submits so far L=%u R=%u | strict=%s",
                              eye, owner, pp.agePresL, pp.agePresR, dg[0], dg[1], dg[2], dg[3], dg[4], dg[5], dg[6], dg[7],
                              dAcq, dWait, pp.untaggedProj - lastProbe_.untaggedProj,
-                             pp.abortLeft - lastProbe_.abortLeft, dUntagged, pp.stalePresL, pp.stalePresR,
+                             pp.abortLeft - lastProbe_.abortLeft, dUntagged, dNoFrame, pp.stalePresL, pp.stalePresR,
                              dvr::vr::pair_strict() ? "on (the held eye was replaced by the fresh one)" : "off");
         }
         lastStale_ = stale; lastStaleInit_ = true;
         memcpy(lastGates_, gates, sizeof(lastGates_));
         lastProbe_ = pp;
         lastUntagged_ = g_tagUntagged;
+        lastNoFrame_ = g_tagNoFrame;
     }
 
     bool end_frame(const FrameDevices& d, FrameOutput& out) override {
@@ -205,7 +210,14 @@ public:
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
             drawnOnce_ = true;
         }
-        const int delivered = dvr::capture::delivered_tag();   // the tag of the pixels texture() holds
+        // 41.1 (session 8): a grab that delivered NOTHING (a mode switch's first
+        // present, a Reset, capture off) leaves texture() re-showing the last
+        // frame; its tag is the previous present's and must not be pushed
+        // again, or the runtime pairs a stale duplicate (the STALE EYE at
+        // every capture-mode switch, and the STALE spam under capture off).
+        // The present goes out untagged: the mono path, honest.
+        const int delivered = fresh ? dvr::capture::delivered_tag() : 0;   // the tag of the pixels texture() holds
+        if (!fresh && eye != 0) ++g_tagNoFrame;
         // The pulse instrument's readout: the c5 of consecutive tagged presents.
         if (delivered != 0) {
             float c5[3];
@@ -251,6 +263,7 @@ public:
         w.kv("tagMismatch", (unsigned long)g_tagMismatch);
         w.kv("tagResynced", (unsigned long)g_tagResynced);
         w.kv("tagUntagged", (unsigned long)g_tagUntagged);
+        w.kv("tagNoFrame", (unsigned long)g_tagNoFrame);
         w.kv("ringDropped", (unsigned long)g_ringDropped);
         w.kv("ringCleared", (unsigned long)g_ringCleared);
         if (g_hooks.status) { w.obj("draw"); g_hooks.status(w); w.end_obj(); }
@@ -306,6 +319,7 @@ private:
     bool     lastStaleInit_ = false;
     uint32_t lastGates_[kReentryGateCount] = {};
     uint32_t lastUntagged_ = 0;
+    uint32_t lastNoFrame_ = 0;
     dvr::vr::PairProbe lastProbe_;
 };
 
