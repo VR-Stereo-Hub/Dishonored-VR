@@ -43,8 +43,13 @@ static void WriteDefaultIni(const char* ini)
         "; the readback and locks it one present later (~2.3 ms measured; the picture is one\n"
         "; present late; also resolves a multisampled backbuffer); shared needs a device\n"
         "; that can share (the log's capture/probe lines say). `capture mode <m>` switches\n"
-        "; live; `capture status` prints the cost.\n"
+        "; live; `capture status` prints the cost. shared (needs [Device] Ex=1) keeps the frame\n"
+        "; in VRAM: two shared render targets, each blit fenced by a D3D9 event query;\n"
+        "; SharedWait=0 delivers the previous present's slot (no wait in the common case),\n"
+        "; 1 delivers this present's after its fence (zero latency, the CPU waits for the frame\n"
+        "; in flight). `capture sharedwait on|off` live.\n"
         "Mode=sync\n"
+        "SharedWait=0\n"
         "[Pace]\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
         "; the `vrpace` seam word and the F10 Runtime panel; SAVE AS DEFAULTS writes them.\n"
@@ -388,6 +393,7 @@ static void LoadConfig()
             strcpy(cm, "sync");
         }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
+        dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
     }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;

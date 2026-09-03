@@ -31,6 +31,7 @@
 #include "core/gfx/capture.h"
 
 #include "core/framework/perf.h"
+#include "core/gfx/d3d9ex.h"
 #include "core/util/log.h"
 
 #include <windows.h>
@@ -79,14 +80,24 @@ int      g_rtTag[2] = {0, 0};
 uint32_t g_rtSerial[2] = {0, 0};
 int      g_rtCur = 0;
 
-// shared: the D3D9 surface, its D3D11 view, the fence
-IDirect3DSurface9*        g_sharedRt = nullptr;
-ID3D11Texture2D*          g_sharedTex = nullptr;
-ID3D11ShaderResourceView* g_sharedSrv = nullptr;
-IDirect3DQuery9*          g_fence = nullptr;
-bool                      g_fenceIssued = false;
-uint32_t                  g_fenceLate = 0;
+// shared: TWO D3D9 surfaces opened on D3D11, each with an event-query fence,
+// alternating like deferred: slot cur is blitted at present N, delivered at
+// N+1 (SharedWait=0) or at N after its fence (SharedWait=1).
+IDirect3DSurface9*        g_sharedRt[2] = {nullptr, nullptr};
+ID3D11Texture2D*          g_sharedTex[2] = {nullptr, nullptr};
+ID3D11ShaderResourceView* g_sharedSrv[2] = {nullptr, nullptr};
+IDirect3DQuery9*          g_fence[2] = {nullptr, nullptr};
+bool                      g_fenceIssued[2] = {false, false};
+bool                      g_sharedValid[2] = {false, false};
+int                       g_sharedTag[2] = {0, 0};
+uint32_t                  g_sharedSerial[2] = {0, 0};
+int                       g_sharedCur = 0;
+int                       g_sharedDelivered = -1;   // the slot texture()/srv() hand out
+bool                      g_sharedWait = false;
+uint32_t                  g_fenceWaits = 0, g_fenceTimeouts = 0, g_fenceWaitsWindow = 0;
 uint64_t                  g_sharedBboxMs = 0;
+D3DFORMAT                 g_sharedFmt = D3DFMT_UNKNOWN;
+ID3D11DeviceContext*      g_lastCtx = nullptr;
 
 // ---- the cost window ----------------------------------------------------------
 // Sums of the phases over the grabs since the last 3 s line, and the averages
@@ -140,11 +151,14 @@ void cost_tick() {
                  g_cost.rtdUs, g_cost.lockUs, g_cost.copyUs, g_cost.uploadUs, g_cost.blitUs, g_cost.totalUs,
                  g_windowGrabs, (double)(now - g_windowMs) / 1000.0, kModeNames[(int)g_mode], g_w, g_h,
                  (double)g_w * (double)g_h * 4.0 / (1024.0 * 1024.0),
-                 g_mode == Mode::Shared ? "; shared: no CPU copy, rtd is the 3 s bbox sample" : "");
-        if (g_mode == Mode::Shared && g_fenceLate)
-            DVR_INFO("capture: shared fence late %u times this window (the previous blit had not "
-                     "finished when the next present began; counted, never waited on)", g_fenceLate);
-        g_fenceLate = 0;
+                 g_mode == Mode::Shared ? "; shared: no CPU copy, rtd is the 3 s bbox sample, lock is the fence wait" : "");
+        if (g_mode == Mode::Shared)
+            DVR_INFO("capture: shared delivery %s | fence waits %u of %u grabs this window, timeouts %u lifetime "
+                     "(a wait = the blit had not finished when its slot was delivered; a timeout = still not after "
+                     "10 ms, delivered anyway)",
+                     g_sharedWait ? "this present after its fence (SharedWait=1)" : "the previous present's slot (SharedWait=0)",
+                     g_fenceWaitsWindow, g_windowGrabs, g_fenceTimeouts);
+        g_fenceWaitsWindow = 0;
     }
     g_sumRtd = g_sumLock = g_sumCopy = g_sumUpload = g_sumBlit = 0;
     g_windowGrabs = 0;
@@ -286,11 +300,17 @@ void release_deferred() {
 }
 
 void release_shared() {
-    if (g_sharedSrv) { g_sharedSrv->Release(); g_sharedSrv = nullptr; }
-    if (g_sharedTex) { g_sharedTex->Release(); g_sharedTex = nullptr; }
-    if (g_fence) { g_fence->Release(); g_fence = nullptr; }
-    if (g_sharedRt) { g_sharedRt->Release(); g_sharedRt = nullptr; }
-    g_fenceIssued = false;
+    // The D3D11 side first (the opened texture must not outlive the D3D9
+    // surface across a Reset), unbound from the context that sampled it.
+    if (g_lastCtx) { ID3D11ShaderResourceView* nul = nullptr; g_lastCtx->PSSetShaderResources(0, 1, &nul); }
+    for (int i = 0; i < 2; ++i) {
+        if (g_sharedSrv[i]) { g_sharedSrv[i]->Release(); g_sharedSrv[i] = nullptr; }
+        if (g_sharedTex[i]) { g_sharedTex[i]->Release(); g_sharedTex[i] = nullptr; }
+        if (g_fence[i]) { g_fence[i]->Release(); g_fence[i] = nullptr; }
+        if (g_sharedRt[i]) { g_sharedRt[i]->Release(); g_sharedRt[i] = nullptr; }
+        g_fenceIssued[i] = false; g_sharedValid[i] = false;
+    }
+    g_sharedCur = 0; g_sharedDelivered = -1;
 }
 
 bool ensure_deferred(IDirect3DDevice9* dev) {
@@ -309,33 +329,90 @@ bool ensure_deferred(IDirect3DDevice9* dev) {
     return true;
 }
 
-bool ensure_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
-    if (g_sharedRt && g_sharedTex && g_sharedSrv && g_fence) return true;
-    release_shared();
+// One shared slot: the D3D9 render target with a shared handle (A8R8G8B8 when
+// the backbuffer is X8R8G8B8, so D3D11 opens the same B8G8R8A8 the upload
+// path uses; StretchRect converts at equal size), opened on D3D11, its SRV,
+// its fence. Every refusal names the step and the HRESULT.
+bool ensure_shared_slot(IDirect3DDevice9* dev, ID3D11Device* dev11, int i, D3DFORMAT fmt) {
     HANDLE shared = nullptr;
-    HRESULT hr = dev->CreateRenderTarget(g_w, g_h, g_fmt, D3DMULTISAMPLE_NONE, 0, FALSE, &g_sharedRt, &shared);
-    if (FAILED(hr) || !g_sharedRt || !shared) {
-        DVR_ERROR("capture: shared render target %ux%u failed (0x%08lx) - back to sync", g_w, g_h, (unsigned long)hr);
-        release_shared();
+    HRESULT hr = dev->CreateRenderTarget(g_w, g_h, fmt, D3DMULTISAMPLE_NONE, 0, FALSE, &g_sharedRt[i], &shared);
+    if (FAILED(hr) || !g_sharedRt[i] || !shared) {
+        DVR_ERROR("capture: shared render target %d %ux%u fmt=%d refused (0x%08lx; handle %p) - %s", i, g_w, g_h, (int)fmt,
+                  (unsigned long)hr, shared, hr == D3DERR_INVALIDCALL ? "the device does not share (not 9Ex? [Device] Ex=1)"
+                                                                      : "out of memory or an unshareable format");
         return false;
     }
-    hr = dev11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D), (void**)&g_sharedTex);
-    if (FAILED(hr) || !g_sharedTex ||
-        FAILED(dev11->CreateShaderResourceView(g_sharedTex, nullptr, &g_sharedSrv))) {
-        DVR_ERROR("capture: opening the shared surface on D3D11 failed (0x%08lx) - back to sync", (unsigned long)hr);
-        release_shared();
+    hr = dev11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D), (void**)&g_sharedTex[i]);
+    if (FAILED(hr) || !g_sharedTex[i]) {
+        DVR_ERROR("capture: OpenSharedResource on slot %d refused (0x%08lx) - D3D9 created it but D3D11 cannot open "
+                  "it (another adapter? the runtime names the D3D11 adapter)", i, (unsigned long)hr);
         return false;
     }
-    if (FAILED(dev->CreateQuery(D3DQUERYTYPE_EVENT, &g_fence)) || !g_fence) {
-        DVR_ERROR("capture: the event query for the shared surface failed - back to sync");
+    hr = dev11->CreateShaderResourceView(g_sharedTex[i], nullptr, &g_sharedSrv[i]);
+    if (FAILED(hr) || !g_sharedSrv[i]) {
+        D3D11_TEXTURE2D_DESC td = {};
+        g_sharedTex[i]->GetDesc(&td);
+        DVR_ERROR("capture: the SRV on shared slot %d refused (0x%08lx, DXGI fmt %d)", i, (unsigned long)hr, (int)td.Format);
+        return false;
+    }
+    hr = dev->CreateQuery(D3DQUERYTYPE_EVENT, &g_fence[i]);
+    if (FAILED(hr) || !g_fence[i]) {
+        DVR_ERROR("capture: the event query for shared slot %d refused (0x%08lx) - no fence, no shared mode", i, (unsigned long)hr);
+        return false;
+    }
+    g_fenceIssued[i] = false; g_sharedValid[i] = false;
+    return true;
+}
+
+bool ensure_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
+    if (g_sharedRt[0] && g_sharedRt[1] && g_sharedTex[0] && g_sharedTex[1] && g_fence[0] && g_fence[1]) return true;
+    release_shared();
+    // The format: the backbuffer's when it carries alpha (A8R8G8B8 opens as
+    // B8G8R8A8), else A8R8G8B8 first (the same D3D11 format the upload path
+    // uses) and the backbuffer's own as the fallback.
+    const D3DFORMAT first = (g_fmt == D3DFMT_X8R8G8B8) ? D3DFMT_A8R8G8B8 : g_fmt;
+    bool ok = ensure_shared_slot(dev, dev11, 0, first) && ensure_shared_slot(dev, dev11, 1, first);
+    g_sharedFmt = first;
+    if (!ok && first != g_fmt) {
+        DVR_WARN("capture: shared slots in fmt=%d refused - retrying in the backbuffer's own fmt=%d", (int)first, (int)g_fmt);
+        release_shared();
+        ok = ensure_shared_slot(dev, dev11, 0, g_fmt) && ensure_shared_slot(dev, dev11, 1, g_fmt);
+        g_sharedFmt = g_fmt;
+    }
+    if (!ok) {
+        DVR_ERROR("capture: shared mode refused (the lines above say which step) - back to sync");
         release_shared();
         return false;
     }
     D3D11_TEXTURE2D_DESC td = {};
-    g_sharedTex->GetDesc(&td);
-    DVR_INFO("capture: shared surface %ux%u live - D3D11 sees fmt=%d; no CPU copy per present, the "
-             "bbox samples a readback every 3 s", g_w, g_h, (int)td.Format);
+    g_sharedTex[0]->GetDesc(&td);
+    LUID luid = {};
+    const bool haveLuid = dvr::d3d9ex::adapter_luid(&luid);
+    DVR_INFO("capture: shared surfaces %ux%u live (2 slots, D3D9 fmt=%d -> D3D11 fmt=%d, D3D9 adapter LUID %08lx-%08lx%s); "
+             "no CPU copy per present, the blit is fenced by a D3D9 event query, delivery = %s; the bbox samples a "
+             "readback every 3 s", g_w, g_h, (int)g_sharedFmt, (int)td.Format, (unsigned long)luid.HighPart,
+             (unsigned long)luid.LowPart, haveLuid ? "" : " (unknown)",
+             g_sharedWait ? "this present after its fence" : "the previous present's slot");
     return true;
+}
+
+// Wait for a slot's blit with a bound: S_OK at once is the common case (a
+// whole present passed); otherwise spin on GetData with FLUSH for up to
+// 10 ms, then deliver anyway and count the timeout.
+void fence_wait(int i, uint64_t* lockUs) {
+    if (!g_fenceIssued[i] || !g_fence[i]) return;
+    const long long t0 = qpc_now();
+    HRESULT hr = g_fence[i]->GetData(nullptr, 0, D3DGETDATA_FLUSH);
+    if (hr == S_FALSE) {
+        ++g_fenceWaits; ++g_fenceWaitsWindow;
+        while (hr == S_FALSE && qpc_us(t0, qpc_now()) < 10000) {
+            Sleep(0);
+            hr = g_fence[i]->GetData(nullptr, 0, D3DGETDATA_FLUSH);
+        }
+        if (hr == S_FALSE) ++g_fenceTimeouts;
+    }
+    *lockUs += qpc_us(t0, qpc_now());
+    g_fenceIssued[i] = false;
 }
 
 // GetRenderTargetData(src -> dst): the rtd phase. The call returns at once;
@@ -517,27 +594,39 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         sample_bbox();
     } else {   // Shared
         if (!ensure_shared(dev, dev11)) { g_mode = g_modeWant = Mode::Sync; bb->Release(); return false; }
-        if (g_fenceIssued && g_fence->GetData(nullptr, 0, 0) == S_FALSE) ++g_fenceLate;
+        g_lastCtx = ctx;
+        const int cur = g_sharedCur, prev = g_sharedCur ^ 1;
         const long long t0 = qpc_now();
         dvr::perf::gpu_mark(dvr::perf::kGpuRtdA);   // shared: the blit alone
-        const HRESULT hr = dev->StretchRect(bb, nullptr, g_sharedRt, nullptr, D3DTEXF_NONE);
+        const HRESULT hr = dev->StretchRect(bb, nullptr, g_sharedRt[cur], nullptr, D3DTEXF_NONE);
         dvr::perf::gpu_mark(dvr::perf::kGpuRtdB);
-        g_fence->Issue(D3DISSUE_END);
-        g_fenceIssued = true;
+        g_fence[cur]->Issue(D3DISSUE_END);
+        g_fenceIssued[cur] = true;
         blitUs = qpc_us(t0, qpc_now());
         bb->Release();
         if (FAILED(hr)) {
             DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Error,
-                         "capture: StretchRect backbuffer -> shared surface failed (0x%08lx) - the headset "
-                         "gets nothing in shared mode; `capture mode sync`", (unsigned long)hr);
+                         "capture: StretchRect backbuffer -> shared slot %d failed (0x%08lx; D3D9 fmt %d -> %d) - the "
+                         "headset gets nothing in shared mode; `capture mode sync`", cur, (unsigned long)hr, (int)g_fmt,
+                         (int)g_sharedFmt);
             return false;
         }
-        g_deliveredTag = thisTag; g_deliveredSerial = thisSerial;
+        g_sharedValid[cur] = true; g_sharedTag[cur] = thisTag; g_sharedSerial[cur] = thisSerial;
+        g_sharedCur = prev;
+        // Delivery: the previous slot (pipelined, the tag travels with it) or
+        // this one after its fence; either way the fence is waited on with a
+        // bound BEFORE the D3D11 side samples it (the consumer draws from
+        // srv() right after this returns).
+        const int slot = g_sharedWait ? cur : prev;
+        if (!g_sharedValid[slot]) { cost_tick(); return false; }   // the mode's first present
+        fence_wait(slot, &lockUs);
+        g_sharedDelivered = slot;
+        g_deliveredTag = g_sharedTag[slot]; g_deliveredSerial = g_sharedSerial[slot];
         delivered = true;
         const uint64_t now = GetTickCount64();
         if (g_sharedBboxMs == 0 || now - g_sharedBboxMs >= 3000 || !g_bboxSaidForSize) {
             g_sharedBboxMs = now;
-            if (read_back(dev, g_sharedRt, &rtdUs, &lockUs, &copyUs)) sample_bbox();
+            if (read_back(dev, g_sharedRt[slot], &rtdUs, &lockUs, &copyUs)) sample_bbox();
         }
     }
     if (delivered) ++g_grabs;
@@ -551,8 +640,14 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     return delivered;
 }
 
-ID3D11Texture2D* texture() { return g_mode == Mode::Shared && g_sharedTex ? g_sharedTex : g_tex; }
-ID3D11ShaderResourceView* srv() { return g_mode == Mode::Shared && g_sharedSrv ? g_sharedSrv : g_srv; }
+ID3D11Texture2D* texture() {
+    if (g_mode == Mode::Shared && g_sharedDelivered >= 0 && g_sharedTex[g_sharedDelivered]) return g_sharedTex[g_sharedDelivered];
+    return g_tex;
+}
+ID3D11ShaderResourceView* srv() {
+    if (g_mode == Mode::Shared && g_sharedDelivered >= 0 && g_sharedSrv[g_sharedDelivered]) return g_sharedSrv[g_sharedDelivered];
+    return g_srv;
+}
 uint32_t width() { return g_w; }
 uint32_t height() { return g_h; }
 const uint8_t* pixels() { return g_pixels; }
@@ -564,8 +659,8 @@ bool shared_available() { return g_sharedOk; }
 bool probed() { return g_probed; }
 
 bool snapshot_pixels(IDirect3DDevice9* dev) {
-    if (g_mode != Mode::Shared || !g_sharedRt || !dev) return g_pixels != nullptr;
-    return read_back(dev, g_sharedRt, nullptr, nullptr, nullptr);
+    if (g_mode != Mode::Shared || g_sharedDelivered < 0 || !g_sharedRt[g_sharedDelivered] || !dev) return g_pixels != nullptr;
+    return read_back(dev, g_sharedRt[g_sharedDelivered], nullptr, nullptr, nullptr);
 }
 
 bool set_mode(const char* name) {
@@ -600,7 +695,15 @@ void set_pending_tag(int eyeSign) { g_pendingTag = eyeSign < 0 ? -1 : eyeSign > 
 int delivered_tag() { return g_deliveredTag; }
 uint32_t delivered_serial() { return g_deliveredSerial; }
 uint32_t serial() { return g_serial; }
-uint32_t fence_late() { return g_fenceLate; }
+void set_shared_wait(bool on) {
+    if (on == g_sharedWait) return;
+    g_sharedWait = on;
+    DVR_INFO("capture: shared delivery -> %s", on ? "this present after its fence (SharedWait=1: zero latency, the CPU waits for the frame in flight)"
+                                                 : "the previous present's slot (SharedWait=0: one present late, no wait in the common case)");
+}
+bool shared_wait() { return g_sharedWait; }
+uint32_t fence_waits() { return g_fenceWaits; }
+uint32_t fence_timeouts() { return g_fenceTimeouts; }
 
 void on_reset() {
     if (g_sysmem) { g_sysmem->Release(); g_sysmem = nullptr; }

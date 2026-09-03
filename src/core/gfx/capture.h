@@ -96,7 +96,16 @@ void     set_pending_tag(int eyeSign);
 int      delivered_tag();
 uint32_t delivered_serial();
 uint32_t serial();
-uint32_t fence_late();   // shared: blits found unfinished at the next present (counted, never waited on)
+// shared (41.1, session 8): the delivery. SharedWait=0 (default) delivers the
+// PREVIOUS present's slot, whose blit had a whole present to finish (the tag
+// travels with the slot as under deferred); 1 delivers this present's after
+// waiting on its fence (zero latency; the CPU waits for the frame in flight).
+// The fence is a D3D9 event query, waited on with a bound (10 ms) and
+// counted: there is no cross-API GPU fence in D3D9, so this IS the fence.
+void     set_shared_wait(bool on);
+bool     shared_wait();
+uint32_t fence_waits();      // deliveries that had to spin on the fence (window)
+uint32_t fence_timeouts();   // deliveries whose fence had not signalled at the bound (lifetime)
 
 // `dump capture` under shared mode: read the shared surface back now so
 // pixels() is this present's frame, not the last 3 s sample. True when

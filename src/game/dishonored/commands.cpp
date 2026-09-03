@@ -16,6 +16,7 @@
 //   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
 //   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
 //   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
+//   capture sharedwait on|off    shared: deliver this present after its fence (on) or the previous slot (off, default)
 //   device census|status         the creation census (core/gfx/device_census): the table and the 9Ex verdict
 //   device ex on|off             [Device] Ex for the NEXT launch (the 9Ex device, core/gfx/d3d9ex)
 //   device managed <m>           [Device] Managed=none|default|dynamic|shadow for the NEXT launch
@@ -154,14 +155,20 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::set_mode(m);   // logs the refusal itself
             return true;
         }
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "sharedwait") && DvrOnOff(m, &b)) {
+            dvr::capture::set_shared_wait(b);
+            return true;
+        }
         const dvr::capture::Cost c = dvr::capture::cost();
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
-            "(%u grabs) delivered serial %lu of %lu tag=%d fenceLate=%u (capture mode sync|deferred|shared|off)",
+            "(%u grabs) delivered serial %lu of %lu tag=%d sharedWait=%d fenceWaits=%u timeouts=%u (capture mode "
+            "sync|deferred|shared|off, capture sharedwait on|off)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
             (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
-            dvr::capture::delivered_tag(), dvr::capture::fence_late());
+            dvr::capture::delivered_tag(), dvr::capture::shared_wait() ? 1 : 0, dvr::capture::fence_waits(),
+            dvr::capture::fence_timeouts());
         return true;
     }
     if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census and the 9Ex levers
