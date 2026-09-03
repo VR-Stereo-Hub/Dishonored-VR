@@ -333,10 +333,23 @@ static void DvrStatusProvider(dvr::status::Writer& w)
 }
 
 // Called once from Direct3DCreate9 after the config is loaded.
+// The game side's context for a `mark` line: the state, the melee swing age
+// (reads -1 by design under GamepadOnly: no motion melee, no swing stamps),
+// the motion-aim window, the ground-truth test, the menu flags.
+static int DvrPerfContext(char* buf, size_t cap)
+{
+    const double nowMs = MaimNowMs();
+    return _snprintf(buf, cap, "game: state=%s menu=%d/%d swingAge=%.0f ms (-1 by design under GamepadOnly) aimWin=%d gt=%d cal=%d",
+                     g_dvrGameState[0] ? g_dvrGameState : "?", (int)g_inMenu, (int)g_menuOpen,
+                     g_meleeLastMs ? nowMs - g_meleeLastMs : -1.0, (int)(nowMs < g_maimArmedUntil),
+                     (int)g_gtActive, g_fpCalPhase);
+}
+
 static void DvrDebugInit()
 {
     dvr::command::set_game_handler(DvrGameCommand);
     dvr::status::set_provider(DvrStatusProvider);
+    dvr::perf::set_context_provider(DvrPerfContext);
     DVR_LOG(dvr::log::Cat::cmd, dvr::log::Level::Info,
             "command seam: %s\\command.txt (1 Hz), status: %s", dvr::paths::data_dir(), dvr::status::path());
 }

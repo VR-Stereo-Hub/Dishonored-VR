@@ -31,6 +31,7 @@
 // keeps no lock. `perf on|off|status` on the seam; [Perf] Instruments=.
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
 
 struct IDirect3DDevice9;
 namespace dvr::status { class Writer; }
@@ -75,6 +76,18 @@ void on_reset();                          // hkReset: every query goes
 void set_gpu_enabled(bool on);            // [Perf] GpuQueries=, `perf gpu on|off`
 bool gpu_enabled();
 
+// The freeze marker (commit 5): `mark <text>` on the seam and the F10 MARK
+// button stamp the moment a player felt a freeze, at Warn, with everything
+// the ring knows: the present and its tag, the pair hold, the last 3 s tick
+// and gpu numbers, the pace timeouts, the last closed present's split, the
+// game side's context (state, swing age, aim window, the ground-truth test),
+// then the last 24 presents as a compact table (in/out, lock, gpu span; a
+// star on a present above twice the median). Bounded: three lines.
+void mark(const char* text, const char* origin);
+// The game side supplies its context string (registered once; null = none).
+typedef int (*ContextProvider)(char* buf, size_t cap);
+void set_context_provider(ContextProvider fn);
+
 // The lever ([Perf] Instruments=, `perf on|off`): off = no stamps are kept
 // and no line prints. Default on: eight QPC reads per present.
 void set_enabled(bool on);
@@ -98,6 +111,7 @@ struct Window {
     float gpuSpanMs = 0, gpuDmaMs = 0, gpuIdleMs = 0;
     uint32_t gpuResolved = 0, gpuLate = 0, gpuDisjoint = 0, gpuUnmarked = 0;
     char  gpu[8] = "";           // "ok", "n/a", "off"
+    uint32_t marks = 0;          // `mark` calls so far
     bool  paceBound = false;
     bool  stereo = false;     // two presents per tick this window
 };

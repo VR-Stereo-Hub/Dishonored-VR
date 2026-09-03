@@ -89,8 +89,13 @@ bool core_command(const char* cmd, const char* args)
         DVR_INFO("skip: DVR_SKIP says %s is %s", args, dvr::diag::skip(args) ? "SKIPPED" : "installed");
         return true;
     }
+    if (!strcmp(cmd, "mark")) {   // 41.1 (session 8): the freeze marker
+        dvr::perf::mark(args[0] ? args : "(no text)", "seam");
+        return true;
+    }
     if (!strcmp(cmd, "perf")) {   // 41.1 (session 8): the tick budget
         if (!args[0] || !strcmp(args, "status")) { dvr::perf::log_status(); return true; }
+        if (!strncmp(args, "mark", 4)) { dvr::perf::mark(args[4] == ' ' ? args + 5 : "(no text)", "seam"); return true; }
         if (!strcmp(args, "on"))  { dvr::perf::set_enabled(true); return true; }
         if (!strcmp(args, "off")) { dvr::perf::set_enabled(false); return true; }
         if (!strcmp(args, "gpu on"))  { dvr::perf::set_gpu_enabled(true); return true; }

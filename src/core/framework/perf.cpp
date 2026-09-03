@@ -228,6 +228,8 @@ uint32_t g_windowIncomplete = 0;
 Window   g_last;
 char     g_lastLine[1024] = "";
 char     g_lastGpuLine[512] = "";
+ContextProvider g_context = nullptr;
+uint32_t g_marks = 0;
 
 // One class as text: `in a (pre .. begin .. [wait ..] tick .. method .. [cap ..: lock .. copy ..
 // up .. blit ..] end .. [acq .. xrCopy .. endFrame ..] present ..) + out b`.
@@ -357,6 +359,7 @@ void window_close(uint64_t nowMs) {
         }
         g_lastGpuLine[sizeof(g_lastGpuLine) - 1] = 0;
     }
+    w.marks = g_marks;
     g_last = w;
     if (total) { DVR_INFO("%s", g_lastLine); DVR_INFO("%s", g_lastGpuLine); }
     g_p1 = Sum(); g_p2 = Sum(); g_m = Sum();
@@ -497,6 +500,66 @@ void frame_start_marker(const char* which) {
     }
 }
 
+// The ring's tail as one bounded line: the last n closed presents, oldest
+// first, `#present:tag in/out lock gpu` in ms, a star on a present whose
+// in+out is above twice the median of the same n.
+void ring_line(char* buf, int cap, int n, const char* head) {
+    uint32_t sums[64];
+    int cnt = 0;
+    int idx = g_head;
+    if (n > 64) n = 64;
+    for (int k = 0; k < n; ++k) {
+        idx = (idx + kRing - 1) % kRing;
+        const Rec& r = g_ring[idx];
+        if (!r.complete) break;
+        sums[cnt++] = r.inUs + r.outUs;
+    }
+    // the median by a small insertion sort on a copy
+    uint32_t sorted[64];
+    memcpy(sorted, sums, sizeof(uint32_t) * cnt);
+    for (int i = 1; i < cnt; ++i) { uint32_t v = sorted[i]; int j = i; while (j > 0 && sorted[j - 1] > v) { sorted[j] = sorted[j - 1]; --j; } sorted[j] = v; }
+    const uint32_t median = cnt ? sorted[cnt / 2] : 0;
+    int pos = _snprintf(buf, cap, "%s (last %d presents, oldest first; #present:tag in/out lock gpu ms; * = above 2x "
+                        "the median %.1f ms):", head, cnt, median / 1000.0);
+    for (int k = cnt - 1; k >= 0 && pos > 0 && pos < cap - 40; --k) {
+        const int ri = (g_head + kRing - 1 - k) % kRing;
+        const Rec& r = g_ring[ri];
+        const bool star = median && (r.inUs + r.outUs) > 2 * median;
+        char gpu[16];
+        if (r.gpuState == 1) _snprintf(gpu, sizeof(gpu), "%.1f", r.gpuSpanUs / 1000.0);
+        else strcpy_s(gpu, sizeof(gpu), r.gpuState == 0 ? "pend" : "-");
+        pos += _snprintf(buf + pos, cap - pos, " #%u:%+d%s %.1f/%.1f %.1f %s", r.present, r.tag, star ? "*" : "",
+                         r.inUs / 1000.0, r.outUs / 1000.0, r.lockUs / 1000.0, gpu);
+    }
+    buf[cap - 1] = 0;
+}
+
+void mark(const char* text, const char* origin) {
+    ++g_marks;
+    const Window& w = g_last;
+    // the last CLOSED present (the open one has no OUT yet)
+    const Rec& r = g_ring[(g_head + kRing - 1) % kRing];
+    char ctx[256] = "";
+    if (g_context) g_context(ctx, sizeof(ctx));
+    DVR_WARN("mark: \"%s\" (%s) #%u | present #%u tag %+d pairOpen=%d | 3 s: tick %.1f ms (%.1f/s) in %.1f out %.1f "
+             "(idle %.1f R %.1f) cap %.1f [lock %.1f] wait %.1f%s | gpu %s span %.1f dma %.1f idle %.1f | pace "
+             "timeouts %u | last closed present #%u: in %.1f (cap %.1f [lock %.1f] end %.1f present %.1f) out %.1f "
+             "(idle %.1f R %.1f) gpu %s | %s",
+             text ? text : "", origin ? origin : "?", g_marks, dvr::frame::count(),
+             dvr::stereo::last_output().eyeSign, dvr::vr::pair_open() ? 1 : 0, w.tickMs, w.ticksPerS, w.inMs,
+             w.outMs, w.idleMs, w.rMs, w.captureMs, w.lockMs, w.waitMs, w.paceBound ? " PACE-BOUND" : "",
+             w.gpu, w.gpuSpanMs, w.gpuDmaMs, w.gpuIdleMs, dvr::vr::pace_timeouts(), r.present,
+             r.inUs / 1000.0, r.capUs / 1000.0, r.lockUs / 1000.0, r.endUs / 1000.0, r.gamePresentUs / 1000.0,
+             r.outUs / 1000.0, r.idleUs / 1000.0, r.rUs / 1000.0,
+             r.gpuState == 1 ? "resolved" : r.gpuState == 0 ? "pending" : "n/a", ctx[0] ? ctx : "(no game context)");
+    char buf[1024];
+    ring_line(buf, sizeof(buf), 24, "mark: ring");
+    DVR_WARN("%s", buf);
+    ::dvr::log::flush();
+}
+
+void set_context_provider(ContextProvider fn) { g_context = fn; }
+
 void set_device(IDirect3DDevice9* dev) {
     if (dev == g_dev) return;
     gpu_release();
@@ -576,6 +639,7 @@ void status(dvr::status::Writer& w) {
     w.kv("gpuResolved", (unsigned long)g_last.gpuResolved);
     w.kv("gpuLate", (unsigned long)g_last.gpuLate);
     w.kv("gpuDisjoint", (unsigned long)g_last.gpuDisjoint);
+    w.kv("marks", (unsigned long)g_marks);
     w.kv("paceBound", g_last.paceBound);
     w.kv("stereo", g_last.stereo);
     w.kv("incomplete", (unsigned long)g_incomplete);
