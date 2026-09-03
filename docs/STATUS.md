@@ -10,7 +10,15 @@ holds the POSITION, c5 is its negation"): the field holds the camera's world pos
 is its negation; session 5's eyetest had read c5 as the position. Fixed, verified on two
 axes by picture, both instruments still HONOURED, the doubling unaffected. The eye offset
 was inverted with it, so the stereo depth in both headset runs was inside-out - it needs
-re-judging. NOT yet re-tested in a headset. Run 30's two findings (below) are also fixed.**
+re-judging. The head TILT was reversed too, independently: the roll write lands (the new
+`headtrack:` roll telemetry: incoming = wrote) but UE3's roll is positive right-ear-DOWN and
+ours was positive right-ear-UP; negated at the derivation, re-measured by picture (run 38:
++20 leans the verticals left, -20 right). All three displacement axes match the reference
+by picture (right, up, forward). The one-off "frames pinned in front" glitch has its
+instrument: `gameplay verdict:` names the gate that dropped the layer to the head-locked
+quad (menuOpen / inMenu / mainMenu / cinematic latch / silent view pipeline) and a Warn
+fires when it parks for 5 s with no menu open. NOT yet re-tested in a headset. Run 30's two
+findings (below) are also fixed.**
 
 **Run 30 FAILED: both frames alternating in both eyes, lean reversed, a second motion on pitch.** Both causes are in the
 log and fixed in the tree (ENGINE_NOTES "The scene-draw root", the headset paragraph), NOT
@@ -134,6 +142,12 @@ root derivation and the second draw, the docs. Runs on the dev PC (simulator lan
 | 31 | the fixes, sim | tags never dropped: L/s 53 R/s 53 mono 0; `reentry.xrs` 11/11; the lean under projection read 13.7 uu for 30 cm (the reference had crept) |
 | 32 | the stable reference | 30 cm -> +29.4 uu held for 10 s, crouch/forward signs right, postest HONOURED; CINEMATIC stuck across the load (the pawn latched before the title toggle) |
 | 33 | the cinematic latch | `cine: latch cleared - leaving the main menu`, LOADING -> GAMEPLAY, L/s 53 R/s 53 mono 0 |
+| 34 | HEADSET (the user) | stereo good; tilt and lean reversed in all four directions, also with `stereo projection on` |
+| 35 | the lane picture test | 2 m right / 2 m up on both lanes: the camera lane MIRRORED the vp lane on both axes - the field's sign |
+| 36 | sign +1 | both axes match the vp lane by picture; eyetest HONOURED 119/120 (c5 -99.2 for +100), postest HONOURED both axes, L/s 52 R/s 51 |
+| 37 | roll by picture | roll write lands (incoming = wrote); +20 right-ear-down leaned the verticals RIGHT - reversed |
+| 38 | roll negated | +20 leans left, -20 right; forward axis matches the vp lane; pause/resume re-pairs cleanly (L/s = R/s, mono 0) |
+| 39 | the verdict logger | `gameplay verdict: FALSE (menuOpen) ... -> the head-locked quad` 30 ms ahead of the runtime's own line |
 
 ### 2026-09-02 - session 5: the state as session 5 left it (archived)
 

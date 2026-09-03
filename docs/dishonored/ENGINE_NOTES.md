@@ -174,6 +174,26 @@ location" was wrong - retire it). Whether 0x330 persists between dispatches (the
 re-base logic) was not separated out; the eyetest's own 120-present window shows the value
 must be rewritten every dispatch, which the seam does.
 
+## Head roll: UE3 positive roll = right ear DOWN (2026-09-03, measured by picture)
+
+The second headset run reported the head TILT reversed under the projection layer. The
+roll telemetry on the `headtrack:` line (41.1) first proved the write LANDS - `incoming`
+(what the engine hands ProcessViewRotation) equals `wrote` on the next dispatch, so the
+engine keeps our roll and it reaches the render. The direction was then measured on the
+simulator by picture (run 37): `head rot 0 0 20` rolls the simulated head right-ear-down
+(the simulator's roll is a rotation about the forward axis, `quat_from_ypr`), and the
+game's own frame showed the world's verticals leaning with their tops to the RIGHT. A
+right-ear-down head must see them lean LEFT. Reversed, as reported.
+
+Cause: `g_hmdRoll = atan2(right.y, up.y)` is positive for the right ear UP, and UE3's
+rotator roll is positive for the right ear DOWN (the picture: writing a negative roll
+rolled the camera left-ear-down). The value is now negated once at its derivation, so the
+ProcessViewRotation write, the matrix injection and the lean counter-rotation all inherit
+UE3's sense; `[HeadInject] FlipRoll` stays the A/B override with 1 = the measured
+direction. Re-measured after the fix (run 38): +20 leans the verticals left, -20 right,
+the exact mirror of the faulty frames; pitch and yaw untouched (hmd pitch -30 -> view
+pitch -5461 units = -30 deg).
+
 ## The camera field holds the POSITION, c5 is its negation (2026-09-03, corrects session 5)
 
 **This one sign put every eye offset and every lean backwards in the headset.** Session 5's

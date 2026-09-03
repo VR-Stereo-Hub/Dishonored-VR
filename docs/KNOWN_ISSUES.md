@@ -14,8 +14,12 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   the second run reported stereo good); the head's displacement and roll were not driven
   into the game camera under the projection layer; and the camera field's SIGN was inverted,
   so every lean, crouch and per-eye offset went the wrong way (ENGINE_NOTES, "The camera
-  field holds the POSITION"). The eye offset was inverted with it, so the depth in those two
-  runs was inside-out: judge the depth again, near objects should read near.
+  field holds the POSITION"); and the head roll was written in the wrong sense (UE3 rolls
+  positive right-ear-down), measured and fixed by picture. The eye offset was inverted with
+  the field's sign, so the depth in those two runs was inside-out: judge the depth again,
+  near objects should read near. A one-off "frames pinned in front of me until alt-tab"
+  now has an instrument: `gameplay verdict:` in the log names the gate that dropped the
+  layer to the head-locked quad.
   The tick rate halves while it runs (the second draw is a full scene draw). `stereo aer`
   is still a design stub.
 - **The eye-check bands are BioShock's** [S2b]. `tools\eye-check.ps1` legs 2/4/5 were

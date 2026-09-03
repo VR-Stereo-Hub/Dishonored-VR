@@ -1,4 +1,4 @@
-// game/dishonored/present_tick.cpp - the game side of the frame path (41.0).
+﻿// game/dishonored/present_tick.cpp - the game side of the frame path (41.0).
 // Included by the unity build. core/framework/frame_hooks (a real module) owns
 // the D3D9 hooks and the ORDER of the frame path; what the game does per
 // present - the seam poll, the head pose into the camera write, the hands, the
@@ -132,7 +132,43 @@ static void DvrFovHandoff()
 // (the same terms as the [game] state line: a live pawn, no menu, no cinematic).
 static bool DvrGameplayVerdict()
 {
-    return CylTruthLive() && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow && DvrScriptViewLive();
+    const bool pawn = CylTruthLive();
+    const bool viewLive = DvrScriptViewLive();
+    const bool verdict = pawn && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow && viewLive;
+
+    // 41.1: name the gate that flipped. A false verdict drops the runtime's
+    // layer to the head-locked quad ("xr: cinematic quad ON"), and in the
+    // headset that reads as the frames pinned in front of your face while
+    // the world stops turning with you (the 2026-09-03 run: once, after
+    // turning around, cleared by an alt-tab). The runtime's line only says
+    // strict=0; this one says WHICH term did it, so a remote log can tell a
+    // pause menu from a missed menu-close event from a starved view pipeline.
+    static bool said = false, last = false;
+    static uint64_t falseSinceMs = 0;
+    if (!said || verdict != last) {
+        said = true; last = verdict;
+        falseSinceMs = verdict ? 0 : GetTickCount64();
+        const char* why = verdict ? "all clear" : !pawn ? "no live pawn" : g_menuOpen ? "menuOpen"
+                        : g_inMenu ? "inMenu" : g_mainMenu ? "mainMenu" : g_cineNow ? "cinematic latch"
+                        : "view pipeline silent (no ProcessViewRotation dispatch)";
+        Log("gameplay verdict: %s (%s) pawn=%d menuOpen=%d inMenu=%d mainMenu=%d cine=%d viewLive=%d "
+            "lastHeadWrite=%.0f ms ago -> the runtime's layer is %s",
+            verdict ? "TRUE" : "FALSE", why, pawn ? 1 : 0, g_menuOpen ? 1 : 0, g_inMenu ? 1 : 0,
+            g_mainMenu ? 1 : 0, g_cineNow ? 1 : 0, viewLive ? 1 : 0,
+            g_scriptHeadOK ? (MaimNowMs() - g_scriptHeadMs) : -1.0,
+            verdict ? "the projection (world-locked)" : "the head-locked quad (frames pinned to the head)");
+    } else if (!verdict && falseSinceMs && GetTickCount64() - falseSinceMs > 5000) {
+        // Still false 5 s later and no menu owns it: say so, once per spell.
+        // A pause menu is expected to sit here; gameplay is not.
+        falseSinceMs = 0;
+        if (!g_menuOpen && !g_inMenu && !g_mainMenu)
+            DVR_WARN("gameplay verdict: FALSE for 5 s with NO menu open (pawn=%d cine=%d viewLive=%d, last head "
+                 "write %.0f ms ago) - the headset shows a head-locked quad in what is probably gameplay; "
+                 "F9 / alt-tab clears the parked state, and this line is the evidence for what parked it",
+                 pawn ? 1 : 0, g_cineNow ? 1 : 0, viewLive ? 1 : 0,
+                 g_scriptHeadOK ? (MaimNowMs() - g_scriptHeadMs) : -1.0);
+    }
+    return verdict;
 }
 
 // Every enabled present, after the runtime located the head for this frame

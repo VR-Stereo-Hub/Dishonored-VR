@@ -659,7 +659,16 @@ static void TrackHead(const float (*m)[4])
     float fyc   = fy < -1.f ? -1.f : (fy > 1.f ? 1.f : fy);
     float pitch = asinf(fyc);
     g_hmdYaw = yaw; g_hmdPitch = pitch;
-    g_hmdRoll = atan2f(m[1][0], m[1][1]); // right.up vs up.up
+    // Roll in UE3's rotator sense: positive = right ear DOWN. atan2(right.y,
+    // up.y) is positive for right ear UP, so it is negated here, once, and
+    // every consumer (the ProcessViewRotation write, the matrix injection,
+    // the lean counter-rotation) inherits the corrected direction.
+    // MEASURED by picture on the simulator (run 37, 2026-09-03, ENGINE_NOTES
+    // "Head roll"): with the un-negated value a right-ear-down head rolled
+    // the game camera LEFT-ear-down, the world's verticals leaned right
+    // instead of left - the headset's "tilt is reversed". [HeadInject]
+    // FlipRoll stays the A/B override, 1 = this measured direction.
+    g_hmdRoll = -atan2f(m[1][0], m[1][1]);
 
     // 31.8: physical crouch moved OUT of the positional-tracking block. It only
     // needs your head height against the standing reference, and burying it
