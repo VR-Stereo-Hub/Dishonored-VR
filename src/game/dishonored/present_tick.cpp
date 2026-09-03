@@ -15,6 +15,20 @@ static void DvrPreTick(IDirect3DDevice9*)
         double nowMs = MaimNowMs();
         dvr::command::poll(nowMs);
         dvr::status::tick(nowMs);
+        // 41.1: REFRESH THE PAWN ORACLE HERE, not from a motion-control path.
+        // CylTruthLive() ("a gameplay pawn exists") is the discriminator under
+        // the game state, the stale-menu ghost clear and the runtime's
+        // gameplay verdict - and it was only ever refreshed as a side effect of
+        // PawnCollisionHeight() being called from the motion-crouch code, which
+        // [Mode] GamepadOnly=1 disables. So on a gamepad-only build the oracle
+        // was dead, and ONE dead signal produced three unrelated-looking bugs:
+        // `[game] state:` stuck at NO_PAWN; the ghost clear (gated on
+        // CylTruthLive) never firing, so a g_menuOpen that DEFAULTS TRUE stayed
+        // true all session and the pad chopped both sticks into menu pulses;
+        // and the runtime's cinematic fallback reading "not gameplay" forever,
+        // which threw away every correctly-tagged per-eye frame for the mono
+        // quad. The read is two guarded derefs and returns -1 with no pawn.
+        PawnCollisionHeight();
         GameStateTick();
         if ((g_frame & 255) == 0) dvr::crash::rearm();
     }

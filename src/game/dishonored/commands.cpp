@@ -77,6 +77,10 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
     if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
+    // The cinematic quad drops the PROJECTION layer for the flat screen when the
+    // gameplay verdict reads false. `vrcine off` is the live A/B that separates
+    // "the per-eye method is wrong" from "the verdict is wrong".
+    if (!strcmp(cmd, "vrcine")) { dvr::vr::handle_cine_command(args); return true; }
     if (!strcmp(cmd, "vrinput")) {
         if (DvrOnOff(args, &b)) { g_padEnabled = b; dvr::pad::set_enabled(b);
             Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }
