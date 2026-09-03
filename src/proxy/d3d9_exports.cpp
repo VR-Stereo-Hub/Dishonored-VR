@@ -117,6 +117,10 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
         DvrInstallFrameHooks();        // the game side of the frame path
         dvr::frame::hook_d3d9(d3d);    // CreateDevice -> Present/Reset/... hooks
     }
+    // 41.1: the ini's [Stereo] Method, now that the game side's hooks exist
+    // (a hook-backed method verifies its bytes here instead of refusing on
+    // "the game side has not registered").
+    dvr::stereo::apply_config_method();
     return d3d;
 }
 

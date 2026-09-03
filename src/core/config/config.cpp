@@ -282,10 +282,13 @@ static void LoadConfig()
     dvr::vr::set_screen(g_screenDist, g_screenWidth);
     dvr::vr::set_screen_head_locked(IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f);
     {   // [Stereo] Method: the rung of the ladder (docs/ARCHITECTURE.md); a
-        // stub or an unknown name logs why and leaves the mono screen running
+        // stub or an unknown name logs why and leaves the mono screen running.
+        // Recorded here, APPLIED by Direct3DCreate9 after the game side has
+        // registered its hooks (41.1: selecting here refused reentry every
+        // boot - the scene-draw hooks did not exist yet).
         char sm[16] = "";
         GetPrivateProfileStringA("Stereo", "Method", "mono", sm, sizeof(sm), ini);
-        if (!dvr::stereo::select(sm)) dvr::stereo::select("mono");
+        dvr::stereo::set_config_method(sm);
     }
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)

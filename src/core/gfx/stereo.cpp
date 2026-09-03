@@ -29,6 +29,7 @@ OverlayDrawFn g_overlay = nullptr;
 uint64_t g_beatMs = 0;
 uint32_t g_beatOut = 0, g_beatL = 0, g_beatR = 0, g_beatMono = 0, g_beatNone = 0;
 int      g_projOverride = -1;   // -1 auto, 0 off, 1 on
+char     g_configMethod[16] = "";   // [Stereo] Method, applied once the game side is up
 
 } // namespace
 
@@ -85,6 +86,19 @@ bool select(const char* name) {
     DVR_INFO("stereo: method %s -> %s (live; the next present uses it)",
              prev ? prev->name() : "none", found->name());
     return true;
+}
+
+void set_config_method(const char* name) {
+    strncpy(g_configMethod, name ? name : "", sizeof(g_configMethod) - 1);
+    g_configMethod[sizeof(g_configMethod) - 1] = 0;
+}
+
+void apply_config_method() {
+    if (!g_configMethod[0]) return;
+    const bool ok = select(g_configMethod);
+    if (!ok && !g_active) select("mono");
+    DVR_INFO("stereo: [Stereo] Method=%s applied after the game side registered -> active '%s'%s",
+             g_configMethod, active_name(), ok ? "" : " (refused above; the mono screen runs)");
 }
 
 IStereo* active() { return g_active; }

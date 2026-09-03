@@ -97,6 +97,14 @@ void register_all();
 // Live switch by name; refuses (and logs why, keeping the current method)
 // for an unknown name or a design stub. Returns true when the switch happened.
 bool select(const char* name);
+// The ini's choice ([Stereo] Method) is read inside Direct3DCreate9 BEFORE the
+// game side registers its scene-draw hooks later in that same function, so a
+// hook-backed method (reentry) refused there for a startup ORDER, not a
+// verdict, and the session spent itself on mono. The config only RECORDS the
+// name; the proxy applies it once the game side is up, through select()'s
+// normal fail-soft (an unknown name or a stub still leaves mono running).
+void set_config_method(const char* name);
+void apply_config_method();
 IStereo* active();
 const char* active_name();
 
