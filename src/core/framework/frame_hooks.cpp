@@ -116,6 +116,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     }
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
     // present's record (its OUT = the render thread's time outside this hook).
+    dvr::perf::set_device(self);
     dvr::perf::stamp(dvr::perf::kEntry);
     if (g_cb.pre_tick) g_cb.pre_tick(self);
     // 41.1: a method that presents twice per tick is paced by the runtime's
@@ -190,6 +191,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
              pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1);
     // Every default-pool resource this proxy creates must be released here
     // (38.63: a forgotten one made the game's Reset fail forever).
+    dvr::perf::on_reset();
     dvr::stereo::on_reset();
     return g_origReset(self, pp);
 }

@@ -10,6 +10,7 @@
 #include "core/vr/openxr_runtime.h"
 
 #include <windows.h>
+#include <d3d9.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -43,6 +44,10 @@ struct Rec {
     uint16_t beginScenes = 0, srts = 0;   // marker populations in this present's OUT
     uint32_t idleUs = 0, rUs = 0;         // OUT split: before the marker / after it
     bool     complete = false;
+    // The GPU timestamps of this present (raw ticks, resolved K presents later).
+    uint64_t gpuBegin = 0, gpuEntry = 0, gpuRtdA = 0, gpuRtdB = 0, gpuPresent = 0, gpuFreq = 0;
+    uint32_t gpuSpanUs = 0, gpuDmaUs = 0, gpuIdleUs = 0;
+    uint8_t  gpuState = 0;     // 0 pending, 1 resolved, 2 late, 3 disjoint, 4 unmarked (no tsBegin), 5 off
 };
 
 constexpr int kRing = 256;
@@ -57,6 +62,119 @@ long long g_qpcFreq = 0;
 DWORD    g_presentTid = 0;     // the thread that stamps kEntry
 DWORD    g_markerTid = 0;      // the thread the marker last arrived on
 bool     g_markerTidSaid = false;
+
+// ---- the GPU query ring ---------------------------------------------------------
+// Set i serves record i % kGpuRing. Each set: disjoint (BEGIN at the marker,
+// END before the game's Present), freq (END before the game's Present), and
+// the four timestamps. `issued` says which GetData calls are legal.
+enum { kQDisjoint = 0, kQFreq, kQBegin, kQEntry, kQRtdA, kQRtdB, kQPresent, kQCount };
+constexpr int kGpuRing = 8;
+constexpr int kGpuReadBack = 5;   // read record N-5: past D3D9's default 3-frame queue
+struct GpuSet {
+    IDirect3DQuery9* q[kQCount] = {};
+    bool issued[kQCount] = {};
+    uint32_t record = 0;          // the record this set was issued for
+    bool inUse = false;
+};
+GpuSet   g_gpu[kGpuRing];
+IDirect3DDevice9* g_dev = nullptr;
+bool     g_gpuEnabled = true;
+bool     g_gpuCreated = false;
+bool     g_gpuNa = false;         // the device refused a query type (said once)
+uint32_t g_gpuLate = 0, g_gpuDisjoint = 0, g_gpuResolved = 0, g_gpuUnmarked = 0;
+uint64_t g_lastPresentTs = 0;     // the previous resolved record's tsPresent (for idle)
+uint32_t g_lastPresentRec = 0;
+
+void gpu_release() {
+    for (int i = 0; i < kGpuRing; ++i) {
+        for (int k = 0; k < kQCount; ++k) {
+            if (g_gpu[i].q[k]) { g_gpu[i].q[k]->Release(); g_gpu[i].q[k] = nullptr; }
+            g_gpu[i].issued[k] = false;
+        }
+        g_gpu[i].inUse = false;
+    }
+    g_gpuCreated = false;
+}
+
+bool gpu_ensure() {
+    if (g_gpuCreated) return true;
+    if (!g_dev || !g_gpuEnabled || g_gpuNa) return false;
+    static const D3DQUERYTYPE kTypes[kQCount] = {
+        D3DQUERYTYPE_TIMESTAMPDISJOINT, D3DQUERYTYPE_TIMESTAMPFREQ, D3DQUERYTYPE_TIMESTAMP,
+        D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP};
+    for (int i = 0; i < kGpuRing; ++i) {
+        for (int k = 0; k < kQCount; ++k) {
+            const HRESULT hr = g_dev->CreateQuery(kTypes[k], &g_gpu[i].q[k]);
+            if (FAILED(hr) || !g_gpu[i].q[k]) {
+                g_gpuNa = true;
+                DVR_WARN("perf: gpu n/a - D3DQUERYTYPE %d refused by this device (CreateQuery 0x%08lx); the tick "
+                         "line still measures the render thread, the GPU/CPU split cannot be measured on this "
+                         "driver", (int)kTypes[k], (unsigned long)hr);
+                gpu_release();
+                return false;
+            }
+        }
+    }
+    g_gpuCreated = true;
+    DVR_INFO("perf: gpu timestamp ring live (%d sets, read %d presents back, never waited on)", kGpuRing,
+             kGpuReadBack);
+    return true;
+}
+
+inline GpuSet& gpu_set_for(uint32_t rec) { return g_gpu[rec % kGpuRing]; }
+
+void gpu_issue_into(uint32_t recNo, int k, DWORD flags) {
+    if (!gpu_ensure()) return;
+    GpuSet& s = gpu_set_for(recNo);
+    if (!s.inUse || s.record != recNo) {
+        for (int j = 0; j < kQCount; ++j) s.issued[j] = false;
+        s.record = recNo; s.inUse = true;
+    }
+    if (s.q[k] && SUCCEEDED(s.q[k]->Issue(flags))) s.issued[k] = true;
+}
+// The marker fires after record N's game Present and before record N+1's
+// entry: it belongs to the frame N+1 completes.
+inline void gpu_issue_next(int k, DWORD flags) { gpu_issue_into(g_records + 1, k, flags); }
+
+// Issue one timestamp (or the END of a bracket) into the open record's set.
+inline void gpu_issue(int k, DWORD flags) { if (g_open) gpu_issue_into(g_records, k, flags); }
+
+// Resolve the set of record N - kGpuReadBack, never waiting.
+void gpu_resolve(Rec* ring, int headIdx) {
+    if (!g_gpuCreated || g_records < (uint32_t)kGpuReadBack + 1) return;
+    const uint32_t recNo = g_records - kGpuReadBack;
+    GpuSet& s = gpu_set_for(recNo);
+    if (!s.inUse || s.record != recNo) return;
+    const int idx = (headIdx + kRing - kGpuReadBack) % kRing;
+    Rec& r = ring[idx];
+    if (r.gpuState != 0) return;
+    if (!s.issued[kQEntry] || !s.issued[kQPresent] || !s.issued[kQFreq] || !s.issued[kQDisjoint]) {
+        r.gpuState = 4; ++g_gpuUnmarked; s.inUse = false; return;
+    }
+    if (!s.issued[kQBegin]) { r.gpuState = 4; ++g_gpuUnmarked; s.inUse = false; return; }
+    BOOL disjoint = FALSE;
+    UINT64 freq = 0, v[kQCount] = {};
+    HRESULT hr = s.q[kQDisjoint]->GetData(&disjoint, sizeof(disjoint), 0);
+    if (hr == S_FALSE) { r.gpuState = 2; ++g_gpuLate; s.inUse = false; return; }
+    if (FAILED(hr)) { r.gpuState = 2; ++g_gpuLate; s.inUse = false; return; }
+    hr = s.q[kQFreq]->GetData(&freq, sizeof(freq), 0);
+    if (hr != S_OK || !freq) { r.gpuState = 2; ++g_gpuLate; s.inUse = false; return; }
+    for (int k = kQBegin; k < kQCount; ++k) {
+        if (!s.issued[k]) continue;
+        hr = s.q[k]->GetData(&v[k], sizeof(v[k]), 0);
+        if (hr != S_OK) { r.gpuState = 2; ++g_gpuLate; s.inUse = false; return; }
+    }
+    s.inUse = false;
+    if (disjoint) { r.gpuState = 3; ++g_gpuDisjoint; return; }
+    r.gpuFreq = freq; r.gpuBegin = v[kQBegin]; r.gpuEntry = v[kQEntry]; r.gpuPresent = v[kQPresent];
+    r.gpuRtdA = s.issued[kQRtdA] ? v[kQRtdA] : 0; r.gpuRtdB = s.issued[kQRtdB] ? v[kQRtdB] : 0;
+    auto toUs = [freq](uint64_t a, uint64_t b) -> uint32_t { return b > a ? (uint32_t)((b - a) * 1000000 / freq) : 0u; };
+    r.gpuSpanUs = toUs(r.gpuBegin, r.gpuEntry);
+    r.gpuDmaUs = (r.gpuRtdA && r.gpuRtdB) ? toUs(r.gpuRtdA, r.gpuRtdB) : 0;
+    r.gpuIdleUs = (g_lastPresentTs && g_lastPresentRec + 1 == recNo) ? toUs(g_lastPresentTs, r.gpuBegin) : 0;
+    g_lastPresentTs = r.gpuPresent; g_lastPresentRec = recNo;
+    r.gpuState = 1; ++g_gpuResolved;
+}
 
 inline int64_t now_qpc() {
     LARGE_INTEGER t;
@@ -80,7 +198,9 @@ struct Sum {
     uint32_t n = 0;
     uint64_t in = 0, out = 0, pre = 0, begin = 0, wait = 0, tick = 0, method = 0, cap = 0, lock = 0,
              copy = 0, upload = 0, blit = 0, end = 0, acquire = 0, xrCopy = 0, endFrame = 0, gamePresent = 0,
-             idle = 0, r = 0, beginScenes = 0, srts = 0, withBegin = 0, withSrt = 0;
+             idle = 0, r = 0, beginScenes = 0, srts = 0, withBegin = 0, withSrt = 0,
+             gpuSpan = 0, gpuDma = 0, gpuIdle = 0;
+    uint32_t gpuN = 0, gpuLate = 0, gpuDisjoint = 0, gpuUnmarked = 0;
     void add(const Rec& r_) {
         ++n;
         in += r_.inUs; out += r_.outUs; pre += r_.preUs; begin += r_.beginUs; wait += r_.waitUs;
@@ -91,13 +211,23 @@ struct Sum {
         if (r_.tFirstBegin) ++withBegin;
         if (r_.tFirstSrt) ++withSrt;
     }
+    // The GPU numbers arrive kGpuReadBack presents after the record closed,
+    // so they are added by the resolver, not by add().
+    void add_gpu(const Rec& r_) {
+        if (r_.gpuState == 1) { ++gpuN; gpuSpan += r_.gpuSpanUs; gpuDma += r_.gpuDmaUs; gpuIdle += r_.gpuIdleUs; }
+        else if (r_.gpuState == 2) ++gpuLate;
+        else if (r_.gpuState == 3) ++gpuDisjoint;
+        else if (r_.gpuState == 4) ++gpuUnmarked;
+    }
     float ms(uint64_t v) const { return n ? (float)v / (float)n / 1000.0f : 0.0f; }
+    float gms(uint64_t v) const { return gpuN ? (float)v / (float)gpuN / 1000.0f : 0.0f; }
 };
 Sum      g_p1, g_p2, g_m;
 uint64_t g_windowMs = 0;
 uint32_t g_windowIncomplete = 0;
 Window   g_last;
 char     g_lastLine[1024] = "";
+char     g_lastGpuLine[512] = "";
 
 // One class as text: `in a (pre .. begin .. [wait ..] tick .. method .. [cap ..: lock .. copy ..
 // up .. blit ..] end .. [acq .. xrCopy .. endFrame ..] present ..) + out b`.
@@ -186,8 +316,49 @@ void window_close(uint64_t nowMs) {
                   g_windowIncomplete ? " | incomplete presents dropped" : "");
     }
     g_lastLine[sizeof(g_lastLine) - 1] = 0;
+    // The GPU line: per tick under stereo (P1 + P2 means), per present under
+    // mono. The 3d tail = the CPU's lock wait minus the readback's own GPU
+    // time: what the lock spent waiting for the GPU to FINISH THE FRAME, the
+    // part no capture path removes.
+    {
+        const uint32_t gn = g_p1.gpuN + g_p2.gpuN + g_m.gpuN;
+        const uint32_t late = g_p1.gpuLate + g_p2.gpuLate + g_m.gpuLate;
+        const uint32_t dis = g_p1.gpuDisjoint + g_p2.gpuDisjoint + g_m.gpuDisjoint;
+        const uint32_t unm = g_p1.gpuUnmarked + g_p2.gpuUnmarked + g_m.gpuUnmarked;
+        w.gpuResolved = gn; w.gpuLate = late; w.gpuDisjoint = dis; w.gpuUnmarked = unm;
+        if (!g_gpuEnabled) { strcpy_s(w.gpu, sizeof(w.gpu), "off"); _snprintf(g_lastGpuLine, sizeof(g_lastGpuLine), "perf: gpu off (`perf gpu on`)"); }
+        else if (g_gpuNa) { strcpy_s(w.gpu, sizeof(w.gpu), "n/a"); _snprintf(g_lastGpuLine, sizeof(g_lastGpuLine), "perf: gpu n/a (timestamp queries refused by this device; the CPU split above stands alone)"); }
+        else {
+            strcpy_s(w.gpu, sizeof(w.gpu), "ok");
+            float spanP, dmaP, idleP, spanT, idleT, dmaT, lockT;
+            if (w.stereo) {
+                spanP = (g_p1.gms(g_p1.gpuSpan) + g_p2.gms(g_p2.gpuSpan)) * 0.5f;
+                dmaP = (g_p1.gms(g_p1.gpuDma) + g_p2.gms(g_p2.gpuDma)) * 0.5f;
+                idleP = (g_p1.gms(g_p1.gpuIdle) + g_p2.gms(g_p2.gpuIdle)) * 0.5f;
+                spanT = g_p1.gms(g_p1.gpuSpan) + g_p2.gms(g_p2.gpuSpan);
+                dmaT = g_p1.gms(g_p1.gpuDma) + g_p2.gms(g_p2.gpuDma);
+                idleT = g_p1.gms(g_p1.gpuIdle) + g_p2.gms(g_p2.gpuIdle);
+                lockT = w.lockMs;
+            } else {
+                spanP = spanT = g_m.gms(g_m.gpuSpan); dmaP = dmaT = g_m.gms(g_m.gpuDma);
+                idleP = idleT = g_m.gms(g_m.gpuIdle); lockT = w.lockMs;
+            }
+            w.gpuSpanMs = spanT; w.gpuDmaMs = dmaT; w.gpuIdleMs = idleT;
+            const float tail = lockT > dmaT ? lockT - dmaT : 0.0f;
+            const uint32_t population = gn + late + dis + unm;
+            _snprintf(g_lastGpuLine, sizeof(g_lastGpuLine),
+                      "perf: gpu/present span=%.1f ms (3d %.1f + readback dma %.1f) idle(d3d9)=%.1f ms | per %s "
+                      "span=%.1f dma=%.1f idle=%.1f | %u resolved, %u late, %u disjoint, %u unmarked of %u | cpu "
+                      "lock=%.1f -> 3d tail = lock - dma = %.1f ms%s%s",
+                      spanP, spanP > dmaP ? spanP - dmaP : 0.0f, dmaP, idleP, w.stereo ? "tick" : "present",
+                      spanT, dmaT, idleT, gn, late, dis, unm, population, lockT, tail,
+                      population && late * 4 > population ? " (late > 25 %: K=5 too shallow for this queue)" : "",
+                      gn == 0 && population ? " (nothing resolved: no marker, or every set late)" : "");
+        }
+        g_lastGpuLine[sizeof(g_lastGpuLine) - 1] = 0;
+    }
     g_last = w;
-    if (total) DVR_INFO("%s", g_lastLine);
+    if (total) { DVR_INFO("%s", g_lastLine); DVR_INFO("%s", g_lastGpuLine); }
     g_p1 = Sum(); g_p2 = Sum(); g_m = Sum();
     g_windowIncomplete = 0;
     g_windowMs = nowMs;
@@ -232,6 +403,22 @@ void stamp(Point p) {
         g_open = true;
         g_presentTid = GetCurrentThreadId();
         ++g_records;
+        // The GPU: this present's entry stamp (the frame the GPU is finishing
+        // passes here), then the set from five presents ago is read, never
+        // waited on, and joins the window's class sums.
+        gpu_issue(kQEntry, D3DISSUE_END);
+        if (g_gpuCreated) {
+            const int idx = (g_head + kRing - kGpuReadBack) % kRing;
+            Rec& old = g_ring[idx];
+            const uint8_t before = old.gpuState;
+            gpu_resolve(g_ring, g_head);
+            if (before == 0 && old.gpuState != 0 && old.complete) {
+                const bool twoPerTick = dvr::stereo::active() && dvr::stereo::active()->presents_per_tick() > 1;
+                if (twoPerTick && old.tag < 0) g_p1.add_gpu(old);
+                else if (twoPerTick && old.tag > 0) g_p2.add_gpu(old);
+                else g_m.add_gpu(old);
+            }
+        }
         const uint64_t nowMs = GetTickCount64();
         if (g_windowMs == 0) g_windowMs = nowMs;
         else if (nowMs - g_windowMs >= 3000) window_close(nowMs);
@@ -266,7 +453,11 @@ void stamp(Point p) {
         }
         break;
     }
-    case kBeforeGamePresent: break;
+    case kBeforeGamePresent:
+        gpu_issue(kQPresent, D3DISSUE_END);
+        gpu_issue(kQFreq, D3DISSUE_END);
+        gpu_issue(kQDisjoint, D3DISSUE_END);
+        break;
     case kAfterGamePresent:
         r.gamePresentUs = us(g_t[kBeforeGamePresent], t);
         r.tGameRet = t;
@@ -282,7 +473,17 @@ void frame_start_marker(const char* which) {
     if (!r.tGameRet) return;   // inside hkPresent (the mod's own draws): not the frame start
     const int64_t t = now_qpc();
     const bool bs = which && which[0] == 'B';
-    if (bs) { if (!r.tFirstBegin) r.tFirstBegin = t; if (r.beginScenes < 0xffff) ++r.beginScenes; }
+    if (bs) {
+        if (!r.tFirstBegin) {
+            r.tFirstBegin = t;
+            // The GPU frame starts here: the disjoint bracket opens for the
+            // NEXT record's set (this marker belongs to the frame the next
+            // Present completes), and its tsBegin is issued.
+            gpu_issue_next(kQDisjoint, D3DISSUE_BEGIN);
+            gpu_issue_next(kQBegin, D3DISSUE_END);
+        }
+        if (r.beginScenes < 0xffff) ++r.beginScenes;
+    }
     else    { if (!r.tFirstSrt) r.tFirstSrt = t;     if (r.srts < 0xffff) ++r.srts; }
     const DWORD tid = GetCurrentThreadId();
     if (tid != g_markerTid) {
@@ -296,6 +497,34 @@ void frame_start_marker(const char* which) {
     }
 }
 
+void set_device(IDirect3DDevice9* dev) {
+    if (dev == g_dev) return;
+    gpu_release();
+    g_dev = dev;
+    g_gpuNa = false;
+}
+
+void gpu_mark(GpuPoint p) {
+    if (!g_enabled || !g_open) return;
+    gpu_issue(p == kGpuRtdA ? kQRtdA : kQRtdB, D3DISSUE_END);
+}
+
+void on_reset() {
+    gpu_release();
+    g_lastPresentTs = 0;
+}
+
+void set_gpu_enabled(bool on) {
+    if (on == g_gpuEnabled) return;
+    g_gpuEnabled = on;
+    if (!on) gpu_release();
+    else g_gpuNa = false;
+    DVR_INFO("perf: gpu timestamps %s (%s)", on ? "ON" : "off",
+             on ? "a query ring on the game's device, read five presents back, never waited on"
+                : "no queries issued; the tick line keeps the CPU split");
+}
+bool gpu_enabled() { return g_gpuEnabled; }
+
 void set_enabled(bool on) {
     if (on == g_enabled) return;
     g_enabled = on;
@@ -308,7 +537,7 @@ bool enabled() { return g_enabled; }
 
 void log_status() {
     if (!g_enabled) { DVR_INFO("perf: instruments off (`perf on`)"); return; }
-    if (g_lastLine[0]) DVR_INFO("%s", g_lastLine);
+    if (g_lastLine[0]) { DVR_INFO("%s", g_lastLine); DVR_INFO("%s", g_lastGpuLine); }
     else DVR_INFO("perf: no window closed yet (the first line comes 3 s after the first present)");
     // The ring's tail: the last 8 closed presents.
     char buf[512];
@@ -340,6 +569,13 @@ void status(dvr::status::Writer& w) {
     w.kv("idleMs", (double)g_last.idleMs);
     w.kv("rMs", (double)g_last.rMs);
     w.kv("marker", g_last.marker);
+    w.kv("gpu", g_last.gpu);
+    w.kv("gpuSpanMs", (double)g_last.gpuSpanMs);
+    w.kv("gpuDmaMs", (double)g_last.gpuDmaMs);
+    w.kv("gpuIdleMs", (double)g_last.gpuIdleMs);
+    w.kv("gpuResolved", (unsigned long)g_last.gpuResolved);
+    w.kv("gpuLate", (unsigned long)g_last.gpuLate);
+    w.kv("gpuDisjoint", (unsigned long)g_last.gpuDisjoint);
     w.kv("paceBound", g_last.paceBound);
     w.kv("stereo", g_last.stereo);
     w.kv("incomplete", (unsigned long)g_incomplete);

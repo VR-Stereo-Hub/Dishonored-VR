@@ -16,7 +16,7 @@
 //   log flush
 //   cmd                        poll counters and paths
 //   skip <subsystem>           what DVR_SKIP disabled
-//   perf on|off|status         the tick budget (core/framework/perf): the 3 s tick line
+//   perf on|off|status|gpu on|off  the tick budget (core/framework/perf): the 3 s tick and gpu lines
 // Everything else: one "cmd: unknown" line.
 #pragma once
 #include <stdint.h>

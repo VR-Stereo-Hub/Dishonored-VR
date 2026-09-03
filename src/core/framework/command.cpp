@@ -93,7 +93,9 @@ bool core_command(const char* cmd, const char* args)
         if (!args[0] || !strcmp(args, "status")) { dvr::perf::log_status(); return true; }
         if (!strcmp(args, "on"))  { dvr::perf::set_enabled(true); return true; }
         if (!strcmp(args, "off")) { dvr::perf::set_enabled(false); return true; }
-        DVR_WARN("perf: usage - perf on|off|status (the tick line, `perf: tick ...`, every 3 s)");
+        if (!strcmp(args, "gpu on"))  { dvr::perf::set_gpu_enabled(true); return true; }
+        if (!strcmp(args, "gpu off")) { dvr::perf::set_gpu_enabled(false); return true; }
+        DVR_WARN("perf: usage - perf on|off|status|gpu on|off (the tick line and the gpu line, every 3 s)");
         return true;
     }
     return false;

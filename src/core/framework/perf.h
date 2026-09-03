@@ -32,6 +32,7 @@
 #pragma once
 #include <stdint.h>
 
+struct IDirect3DDevice9;
 namespace dvr::status { class Writer; }
 
 namespace dvr::perf {
@@ -58,6 +59,22 @@ void stamp(Point p);
 // "BeginScene" or "SRT". Any thread; the tid is compared with the presenter's.
 void frame_start_marker(const char* which);
 
+// The GPU timestamps (commit 3): a ring of D3D9 query sets on the game's
+// device - a TIMESTAMPDISJOINT bracket per present, TIMESTAMPFREQ, and four
+// TIMESTAMPs: the first BeginScene after Present (the GPU starts the frame),
+// hkPresent entry (the GPU's frame is complete when it passes here), and a
+// pair around the capture's readback copy (its OWN GPU cost, the number that
+// splits the CPU's lock wait into "the GPU finishing the frame" and "the
+// readback"). Read back five presents later with GetData(0): never flushed,
+// never waited on. The device comes from hkPresent; the queries are released
+// on Reset (the hkReset LAW) and recreated lazily.
+enum GpuPoint { kGpuRtdA = 0, kGpuRtdB };
+void set_device(IDirect3DDevice9* dev);   // hkPresent, before kEntry
+void gpu_mark(GpuPoint p);                // the capture, around its readback copy
+void on_reset();                          // hkReset: every query goes
+void set_gpu_enabled(bool on);            // [Perf] GpuQueries=, `perf gpu on|off`
+bool gpu_enabled();
+
 // The lever ([Perf] Instruments=, `perf on|off`): off = no stamps are kept
 // and no line prints. Default on: eight QPC reads per present.
 void set_enabled(bool on);
@@ -75,6 +92,12 @@ struct Window {
     float inMs = 0, outMs = 0, waitMs = 0, captureMs = 0, lockMs = 0;
     float idleMs = 0, rMs = 0;   // OUT split by the marker (per tick under stereo)
     char  marker[24] = "";       // "BeginScene", "SRT-first" or "none"
+    // The GPU, per tick (per present under mono): the frame span (first
+    // BeginScene -> Present entry), the readback's own GPU time, the D3D9 idle
+    // gap between frames; and the population the means come from.
+    float gpuSpanMs = 0, gpuDmaMs = 0, gpuIdleMs = 0;
+    uint32_t gpuResolved = 0, gpuLate = 0, gpuDisjoint = 0, gpuUnmarked = 0;
+    char  gpu[8] = "";           // "ok", "n/a", "off"
     bool  paceBound = false;
     bool  stereo = false;     // two presents per tick this window
 };

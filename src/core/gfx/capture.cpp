@@ -30,6 +30,7 @@
 #define DVR_CAT ::dvr::log::Cat::capture
 #include "core/gfx/capture.h"
 
+#include "core/framework/perf.h"
 #include "core/util/log.h"
 
 #include <windows.h>
@@ -332,7 +333,9 @@ bool ensure_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
 // the copy is queued on the GPU behind everything submitted before it.
 bool read_back_queue(IDirect3DDevice9* dev, IDirect3DSurface9* src, IDirect3DSurface9* dst, uint64_t* rtdUs) {
     const long long t0 = qpc_now();
+    dvr::perf::gpu_mark(dvr::perf::kGpuRtdA);   // the readback copy's own GPU time (perf)
     const HRESULT hr = dev->GetRenderTargetData(src, dst);
+    dvr::perf::gpu_mark(dvr::perf::kGpuRtdB);
     if (rtdUs) *rtdUs = qpc_us(t0, qpc_now());
     if (FAILED(hr)) {
         if (!g_warnedRtd) {
@@ -464,6 +467,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         if (!ensure_deferred(dev)) { g_mode = g_modeWant = Mode::Sync; bb->Release(); return false; }
         const int cur = g_rtCur, prev = g_rtCur ^ 1;
         const long long t0 = qpc_now();
+        dvr::perf::gpu_mark(dvr::perf::kGpuRtdA);   // deferred: the blit + the queued readback
         const HRESULT hr = dev->StretchRect(bb, nullptr, g_rt[cur], nullptr, D3DTEXF_NONE);
         blitUs = qpc_us(t0, qpc_now());
         bb->Release();
@@ -495,7 +499,9 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         if (!ensure_shared(dev, dev11)) { g_mode = g_modeWant = Mode::Sync; bb->Release(); return false; }
         if (g_fenceIssued && g_fence->GetData(nullptr, 0, 0) == S_FALSE) ++g_fenceLate;
         const long long t0 = qpc_now();
+        dvr::perf::gpu_mark(dvr::perf::kGpuRtdA);   // shared: the blit alone
         const HRESULT hr = dev->StretchRect(bb, nullptr, g_sharedRt, nullptr, D3DTEXF_NONE);
+        dvr::perf::gpu_mark(dvr::perf::kGpuRtdB);
         g_fence->Issue(D3DISSUE_END);
         g_fenceIssued = true;
         blitUs = qpc_us(t0, qpc_now());
