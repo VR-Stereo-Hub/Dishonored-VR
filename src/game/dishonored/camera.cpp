@@ -306,10 +306,27 @@ void  note_rendered_fov(float deg) { g_renderedFov = deg; }
 float rendered_fov_deg() { return g_renderedFov; }
 
 // ---- render truth -----------------------------------------------------------------------
+volatile LONG g_c5Serial = 0;
 void note_render_pos(const float pos[3]) {
     if (!pos) return;
     g_c5[0] = pos[0]; g_c5[1] = pos[1]; g_c5[2] = pos[2];
     g_c5Ok = true;
+    InterlockedIncrement(&g_c5Serial);
+}
+uint32_t render_pos_serial() { return (uint32_t)InterlockedCompareExchange(&g_c5Serial, 0, 0); }
+
+// The second-pass latch: the thread id inside the re-entered draw (0 = none).
+volatile LONG g_secondPassTid = 0;
+void set_second_pass(bool on) { InterlockedExchange(&g_secondPassTid, on ? (LONG)GetCurrentThreadId() : 0); }
+bool second_pass_for_current_thread() {
+    const LONG t = InterlockedCompareExchange(&g_secondPassTid, 0, 0);
+    return t != 0 && (DWORD)t == GetCurrentThreadId();
+}
+bool last_written_pos(float out[3]) {
+    if (!g_eyeWriter.lastOk || g_field < 0 || !out) return false;
+    const float sign = kFields[g_field].sign;
+    for (int i = 0; i < 3; ++i) out[i] = sign * g_eyeWriter.last[i];
+    return true;
 }
 bool render_pos(float out[3]) {
     if (!g_c5Ok || !out) return false;
@@ -363,7 +380,10 @@ bool apply_offsets(uint8_t* camObj) {
     position_offset_uu(pos);
     const bool posWanted = g_posLane == PosLane::Camera || (g_pt.active && g_pt.lane == PosLane::Camera);
     const bool posLive = posWanted && (pos[0] != 0.0f || pos[1] != 0.0f || pos[2] != 0.0f);
-    if (g_eye == 0 && !posLive) {
+    // The eye: the seam's, or +1 inside SequentialReentry's second draw.
+    const int eyeNow = second_pass_for_current_thread() ? 1 : g_eye;
+    const float eyeUu = (float)eyeNow * 0.5f * g_ipdM * g_scale;
+    if (eyeNow == 0 && !posLive) {
         if (g_eyeWriter.lastOk && g_field >= 0) restore(camObj, kFields[g_field].off, g_eyeWriter);
         return false;
     }
@@ -380,7 +400,6 @@ bool apply_offsets(uint8_t* camObj) {
     if (posLive) haveBasis = read_basis(camObj, f, r, u);
     if (!haveBasis && !read_right(camObj, r)) return false;
     const float sign = kFields[g_field].sign;
-    const float eyeUu = eye_offset_uu();
     // The displacement in POSITION form (world uu): the eye along right, the
     // lean along the basis when the lane is ours and the basis is measured.
     float off[3];
@@ -409,7 +428,7 @@ bool apply_offsets(uint8_t* camObj) {
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3,
                         "camera: eye %+d (%+.2f uu along right) + position (R%+.1f U%+.1f F%+.1f uu, lane %s%s) "
                         "-> camera+%s as (%.1f %.1f %.1f) (ipd %.4f m, %.0f uu/m)",
-                        g_eye, eyeUu, posLive ? pos[0] : 0.0f, posLive ? pos[1] : 0.0f, posLive ? pos[2] : 0.0f,
+                        eyeNow, eyeUu, posLive ? pos[0] : 0.0f, posLive ? pos[1] : 0.0f, posLive ? pos[2] : 0.0f,
                         pos_lane_name(), posLive && !haveBasis ? ", basis NOT measured: position dropped" : "",
                         kFields[g_field].name, off[0], off[1], off[2], g_ipdM, g_scale);
     }

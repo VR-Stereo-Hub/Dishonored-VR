@@ -1,0 +1,26 @@
+# reentry.xrs - the rung-3 gate: SequentialReentry produces two projection
+# views with both eyes carrying the scene.
+#
+# Preconditions: the game in GAMEPLAY (the sewers save: title screen -> Return
+# -> Return -> loading -> Return; the `[game] state` line must read GAMEPLAY, a
+# menu or a loading screen drops the runtime to the quad by design), the sim
+# session FOCUSED. The method arms on the first present after `stereo reentry`
+# (the call-site patch lands at the next script dispatch) and needs a few
+# seconds to pair up; the assertions read the composited eyes.
+#
+# Read with the log: `stereo: beat method=reentry out/s=N L/s=N/2 R/s=N/2`,
+# `reentry: beat draws/s == 2nd/s`, and the pair line `the +1 present's c5 sits
+# (0.0 ipd*scale 0.0) uu from the -1 present's`. eye-check.ps1 leg 0 is the
+# pairing gate; its interocular bands are BioShock's (ENGINE_NOTES, "The
+# scene-draw root": a true pair reads LOWER than the mono projection here).
+reset
+@mod stereo reentry
+@frames 300
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+@shot reentry
+@assert capNonBlackL ge 30
+@assert capNonBlackR ge 30
+@mod stereo mono
+@frames 60
+@assert quadLayers ge 1

@@ -14,6 +14,7 @@
 //   postrack on|off|lane <l>     positional tracking and its lane (vp = the c0 patch, camera = the seam's write)
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
+//   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
 //   capture mode <m>|status      the capture path (sync|deferred|shared): live switch, fails soft
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
@@ -78,6 +79,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         float uu = 0.0f;
         if (sscanf(args, "%31s", sub) == 1 && !strcmp(sub, "eyetest")) {
             if (strstr(args, "stop")) { dvr::camera::eyetest_stop("seam"); return true; }
+            if (!strcmp(dvr::stereo::active_name(), "reentry")) {
+                Log("camera/eyetest: refused while the reentry method is active (two presents per tick with "
+                    "different eyes would destroy the verdict) - `stereo mono` first");
+                return true;
+            }
             sscanf(args, "%*s %f %15s", &uu, fld);
             dvr::camera::eyetest_start(uu > 0.0f ? uu : 100.0f, fld);
             return true;
@@ -125,6 +131,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
             (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
             dvr::capture::delivered_tag(), dvr::capture::fence_late());
+        return true;
+    }
+    if (!strcmp(cmd, "reentry")) {
+        if (SceneDrawCommand(args)) return true;
+        if (SceneProbeCommand(args)) return true;
+        Log("reentry: pulse [n] | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
         return true;
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }

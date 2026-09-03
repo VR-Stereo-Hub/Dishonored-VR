@@ -81,6 +81,21 @@ void set_eye_ceiling(float zMax, bool on);
 bool apply_offsets(uint8_t* camObj);
 inline bool apply_eye_offset(uint8_t* camObj) { return apply_offsets(camObj); }
 
+// SequentialReentry's pass 2 (game/dishonored/scene_draw.cpp): while the
+// calling thread is inside the re-entered second draw, apply_offsets writes
+// eye +1 whatever the seam's eye says (the present thread sets the seam's eye
+// every present, so a flip there would be overwritten mid-draw). A thread-id
+// latch, never a global flip.
+void set_second_pass(bool on);
+bool second_pass_for_current_thread();
+// The camera POSITION the writer produced last (world uu, position form,
+// whatever the field's sign), so a present can prove which write it carries
+// against its c5. False before the first write.
+bool last_written_pos(float out[3]);
+// Counts c5 uploads (note_render_pos calls): a serial that does not move
+// between two root calls means no scene was drawn (a loading screen).
+uint32_t render_pos_serial();
+
 // The positional instrument. `camera postest <R> <U> <F>` (uu): the seam
 // OVERRIDES the tracked offset with the commanded triple, takes a 45-present
 // c5 baseline at zero, then applies it for 120 presents. On the camera lane

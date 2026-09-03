@@ -112,7 +112,10 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         return g_origPresent(self, src, dst, wnd, dirty);
     }
     if (g_cb.pre_tick) g_cb.pre_tick(self);
-    fps_cap_wait();
+    // 41.1: a method that presents twice per tick is paced by the runtime's
+    // pair pacing (one xrWaitFrame per pair); a per-present cap would halve
+    // the tick rate.
+    if (!(dvr::stereo::active() && dvr::stereo::active()->presents_per_tick() > 1)) fps_cap_wait();
     ++g_count;
     if (g_disabled) return g_origPresent(self, src, dst, wnd, dirty);
 

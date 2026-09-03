@@ -267,6 +267,100 @@ tan(68.5) against the eye's own mean half-tangent, tan(54)/tan(44)): BioShock re
 the eye's own FOV, this lever renders the circumscribed one. Not a magnification error
 while the claim equals the render; `fovaudit src=readback` is the check.
 
+## The scene-draw root, derived live (2026-09-03, S2b)
+
+The SequentialReentry seam needs the ONE function whose call tree draws the scene and
+enqueues the present, called once per tick from the engine's tick. Derived live in runs
+26-27 with the instruments in `game/dishonored/scene_probe.cpp` (`reentry census`, `reentry
+stack event|caller|present`, `reentry probe`, `reentry findstart`), the method BioShock
+Infinite's session 40 used (bioshock-1-vr-mod, ENGINE_NOTES "the render root"), then
+confirmed statically with `tools\pe-xref.ps1`. Static walking alone was not attempted: on
+Infinite it failed twice.
+
+**1. The caller census at the camera write.** `ProcessViewRotation` (the head-tracking
+write's dispatch) is dispatched from ONE call site, `call eax` returning to `0x005d0789`,
+693 times in 693 presents (once per present); the dispatching object is the camera
+modifier (`CameraModifier_CameraShake`). The script thread and the present thread are
+DIFFERENT threads (script tid 16012, present tid 16848 that run): a render thread presents;
+this game is Infinite's substrate (threaded, `OneFrameThreadLag`), not BioShock 1's.
+
+**2. The one-shot stack scrapes** (`RtlCaptureStackBackTrace` is cut to 3 frames by
+frame-pointer-omitted code; the raw call-preceded scrape walks the whole chain and, for an
+`E8` site, names the function the frame ENTERED). Two chains on the game thread, walk-up
+order, outermost frames last; they SHARE their outer half:
+
+| ret | enters | role |
+|---|---|---|
+| `0x00ec44f3` | `0x009e3c60` | the main loop's per-frame body |
+| `0x009e3d20` | `0x009e3b90` | |
+| `0x009e3c4a` | `0x009e3980` | |
+| `0x009e3b1f` | `0x009e03b0` | the frame function that calls the engine: at `0x9e0555` it does `mov edx,[ecx]; mov eax,[edx+0x124]; push ecx; fstp [esp]; call eax` = `GEngine->Tick(DeltaSeconds)` (a virtual with ONE float argument) |
+| `0x009e055a` | (virtual) `0x00a17890` | `UDishonoredEngine::Tick` (0 direct callers, 1 `.rdata` vtable reference - a virtual, as it must be); it calls `0x00632860` at `0xa1799f` |
+| `0x00a179a4` | `0x00632860` | **`UGameEngine::Tick`** (1 direct caller = the subclass above, 1 vtable reference); both chains below live inside it |
+| tick chain: `0x00632a09` | `0x0065e0d0` | the world tick (1 caller) -> ... -> `0x005d0710` (1 caller) -> `call eax` at `0x5d0784` = the `ProcessViewRotation` dispatch. **The camera is computed in the TICK, before the draw** |
+| draw chain: `0x006330e1` | **`0x005fc5b0`** | **the viewport draw root** (below) -> at `0x5fc92b` `mov ecx,[ebx+0x1c]; mov edx,[ecx]; mov edx,[edx+8]; ... call edx` = the viewport CLIENT's Draw through `[viewport+0x1c]` -> vtable slot 2 (Infinite's exact shape) -> a script event on the viewport client -> natives -> the generic event helper at `0x567a5e` (the ONLY direct `E8` caller of `ProcessEvent` in the exe; every other dispatch is virtual) -> `ProcessEvent(PostRender)` on `DishonoredHUD` |
+
+**3. The bytes at the call site** (`reentry probe 633090 128`), inside `UGameEngine::Tick`:
+
+    63309a  mov edi,[esi+0x48c]        ; this->GameViewport (UGameViewportClient*)
+    6330a0  test edi,edi / jz
+    ...     (a virtual on the client with one argument, slot 0xec)
+    6330cd  mov eax,[esi+0x48c]
+    6330d3  mov ecx,[eax+0x40]         ; GameViewport->Viewport (FViewport*)
+    6330d6  test ecx,ecx / jz 6330e1
+    6330da  push 1                     ; bShouldPresent = TRUE
+    6330dc  call 0x5fc5b0              ; FViewport::Draw(TRUE)   <- kViewportDrawCallSite
+    6330e1  ...                        ; kViewportDrawGameplayRet
+
+and the root: `0x005fc5b0` begins `55 8b ec 6a ff 68 a3 97 f2 00 64 a1 00 00 00 00` (push
+ebp; mov ebp,esp; push -1; push 0xf297a3; mov eax,fs:[0] - an SEH prologue, a function
+entry), its first `ret imm16` is `ret 4` at +0x1fc (ONE stack argument: the `push 1`), its
+body builds a canvas (the `lea ecx,[ebp-0x10c]; call` pair around the client-Draw dispatch)
+and tears it down after. `pe-xref`: 3 direct callers (`0x4dba68`, `0x6330dc`, `0x641d87`),
+0 vtable references; only `0x6330dc` is the per-tick gameplay dispatcher - the other two
+are not reached in gameplay (the deny gate's foreign-caller counter reads 0 across the
+runs). The control for the static tool: `ProcessEvent 0x470640` must report exactly 1
+direct caller (`0x567a5e`) and ~2087 vtable references, and it does.
+
+**The values in patterns.h**: `kViewportDraw 0x005fc5b0`, `kViewportDrawPrologue[16]`,
+`kViewportDrawRetImm 4`, `kViewportDrawCallSite 0x006330da` (7 bytes `6a 01 e8 cf 94 fc
+ff`, the `push 1; call`), `kViewportDrawGameplayRet 0x006330e1`, `kGameEngineTick
+0x00632860` and `kViewportClientOff 0x1c` (derivation only). Every hook byte-verifies the
+prologue AND the site (and that the site's rel32 targets the root) before patching, and
+refuses with the bytes it found.
+
+**4. Made to MOVE.** `reentry pulse 3` doubled three gameplay draws: `second draw ok,
+call2=414/229/218 us`, presents advanced by one per pulse (the root presents in its own
+tail, unlike Infinite's client draw), and under the method the pair line reads **the +1
+present's c5 sits (0.02 6.17 0.00) uu from the -1 present's (|d| 6.17; ipd*scale = 6.17
+expected along right)** - every pair, to the hundredth: the two presents of a tick are
+drawn from two cameras half an IPD apart along the camera's right row. The capture pair
+(`D:\dvr-data\xrsim\eyecheck\20260903_032840_reentry`) shows the parallax on the near pipe.
+
+**5. The method, measured (run 28, the sewers, simulator at 90 Hz):** `reentry: beat
+draws/s=53 2nd/s=53 presents/s=106`, `stereo: beat method=reentry out/s=107 L/s=54 R/s=53
+mono/s=0`, `call2` 218-467 us, skips 0 on every gate, no fault, `stereo.xrs`
+`projectionViews eq 2` PASS with both eyes 71/68 % non-black, eye-check leg 0 PASS (38/37)
+and leg 1 PASS (projection, 0.063 m), `stereo mono` restores the call site (`reentry: hook
+removed`) and the mono beat returns. The tick rate halves under the doubling on this rig
+(90 -> 53 draws/s at 1080p on the simulator: the second draw is a full scene draw for the
+GPU, and the game thread waits for the render thread); presents = 2x ticks holds.
+
+**What the eye-check bands say here.** Legs 2/4/5 were calibrated on BioShock 1's
+fairground (interocular mean 40-70). On this scene the MONO projection (identical images
+composited at the two eye poses) reads 13-22 mean and the true stereo pair reads 6-7: a
+per-eye render agrees with the compositor's per-eye poses better than one image shown
+twice, so the diff FALLS. The instruments that carry the verdict here are leg 0 (the
+pairing) and the pair line's c5 travel; the interocular band needs its own Dishonored
+calibration once a headset run has judged fusion (KNOWN_ISSUES).
+
+**A loose end, recorded.** The ring between the game thread's tag push (per draw) and the
+present thread's pop (per present) can hold two pairs legitimately (the game thread runs a
+frame ahead); the first build cleared it at depth 3 and re-paired mid-pair every few
+seconds (the c5 check caught every one: "tag -1 dropped ... c5 6383.1 is not the position
+the draw wrote 6376.9" - the two eye positions, 6.2 uu apart). Fixed by allowing two pairs
+and letting the c5 match skip stale tags (`tagResynced` in status.json).
+
 ## Head coupling of the arms (the open problem; roadmap D5)
 
 Root cause as established: Arkane draws the first-person view model in camera space; there

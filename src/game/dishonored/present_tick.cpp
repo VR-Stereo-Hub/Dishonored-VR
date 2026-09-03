@@ -178,6 +178,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::eyetest_present_tick();
         dvr::camera::postest_present_tick();
         DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
+        SceneProbePresentTick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
         FrameDumpTick(self);
@@ -206,9 +207,12 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 double sfps = (double)(dvr::frame::submit_count() - sbPrev) / el;
                 sbPrev = dvr::frame::submit_count();
                 // 41.1: the positional OWNER is named (vp = the c0 patch, camera = the
-                // seam's write), and the forward component joins the pair.
-                Log("heartbeat: GAME=%.0ffps  headset(submits)=%.0ffps  pos=%d postrack OWNER=%s lean=(%+.1f,%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
-                    gfps, sfps,
+                // seam's write), and the forward component joins the pair. GAME= counts
+                // PRESENTS; under reentry (two per tick) ticks= is the draw count.
+                static uint32_t drawsPrev = 0;
+                const uint32_t drawsNow = SceneDrawDraws();
+                Log("heartbeat: GAME=%.0ffps (presents; ticks=%.0f/s)  headset(submits)=%.0ffps  pos=%d postrack OWNER=%s lean=(%+.1f,%+.1f,%+.1f)uu  pad=%d polls=%ld  headwrites=%ld/3s inject=%d idx=%s  lever=%.0f writes=%ld",
+                    gfps, drawsNow > drawsPrev ? (drawsNow - drawsPrev) / el : gfps, sfps,
                     (int)g_posTrack, dvr::camera::pos_lane_name(),
                     (float)g_leanRightUU, (float)g_leanUpUU, (float)g_leanFwdUU,
                     (int)g_padActive, (long)g_padPolls,
@@ -275,6 +279,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 memset(g_rtdCensus, 0, sizeof(g_rtdCensus));
                 g_pvrHits = 0; g_pvrWrites = 0; g_fovLeverWrites = 0;
                 g_gameFrames = 0; g_padPolls = 0;
+                drawsPrev = drawsNow;
                 hbQpc = now.QuadPart;
             } else if (!hbQpc) {
                 hbQpc = now.QuadPart;
@@ -524,5 +529,12 @@ static void DvrInstallFrameHooks()
     cb.d3d11                = DvrFrameD3D11;
     cb.gameplay_verdict     = DvrGameplayVerdict;
     dvr::frame::set_callbacks(cb);
+    dvr::stereo::ReentryHooks rh;
+    rh.available = SceneDrawAvailable;
+    rh.set_armed = SceneDrawSetArmed;
+    rh.poisoned  = SceneDrawPoisoned;
+    rh.status    = SceneDrawStatus;
+    rh.draws     = SceneDrawDraws;
+    dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
 }

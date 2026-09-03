@@ -52,7 +52,17 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
 {
     InterlockedIncrement(&g_peCalls);
 
+    // 41.1: the ProcessEvent CALLER's return address, for the scene probe.
+    // The hand-built stub (InstallProcessEventHook) pushed, above this frame's
+    // four args: pushad's eight registers (8 dwords) and pushfd's flags (1);
+    // the dword after those is what the game's `call ProcessEvent` pushed.
+    // Layout from &obj: [this a1 a2 a3][EDI ESI EBP ESP EBX EDX ECX EAX][EFLAGS][ret]
+    const uint32_t peCallerRet = ((const uint32_t*)&obj)[13];
+    const uint32_t peNameIdx = (a1 && !((uintptr_t)a1 & 3) && RangeReadable(a1, kNameOff + 4))
+                                   ? *(uint32_t*)((uint8_t*)a1 + kNameOff) : 0xffffffffu;
+
     PeLatch(obj);   // the engine tells us who the real actors are
+    SceneDrawApply();   // 41.1: the re-entry's call-site patch/restore, on the thread that runs the site
     // 32.8: while the blink window is open, note which script events fire ON a
     // candidate. Pointer compares only - no class-name lookup on this path.
     if (g_bpGo && obj) {
@@ -97,6 +107,11 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     SkcRotApply();     // 32.1: same trick for the hand rotators
     BoneWigApply();    // 30.62: which bone bank does the renderer read
     if (g_sbWritePoint == 0) SbApply("script");   // 30.83 oracle, tick-time lane
+
+    // 41.1: the scene probe (census / one-shot stack scrape); pointer compares
+    // unless a word armed it.
+    SceneProbeOnDispatch(peCallerRet, peNameIdx,
+                         g_idxViewRot != 0xffffffffu && peNameIdx == g_idxViewRot, &obj, obj);
 
     // fast path: the view-rotation event, every frame
     // 38.77: the HAND DRIVE lives on this lane and used to sit behind the
