@@ -80,14 +80,18 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 `core/gfx/reentry.cpp` carries the design. Acceptance, in order:
 
-- [ ] The scene-draw root found and byte-verified (caller census, live stack scrape, the
-      eyetest as the mover); its address in `patterns.h` with the derivation in ENGINE_NOTES
-- [ ] The second draw gated deny-by-default and SEH-guarded; a fault poisons the method for
-      the session and the game runs on mono
-- [ ] `stereo reentry` accepted; presents = 2x ticks; the beat line reads `L/s == R/s`;
-      second-draw cost logged
-- [ ] `stereo.xrs`, eye-check legs 0-5 on the simulator; headset: fusion, per-eye
-      reflections and effects, no flicker on fast motion
+- [x] The scene-draw root found and byte-verified (2026-09-03, runs 26-27: the caller
+      census, the live stack scrapes, pe-xref confirmation, `reentry pulse` as the mover);
+      `kViewportDraw` and its call site in `patterns.h`, ENGINE_NOTES "The scene-draw root,
+      derived live"
+- [x] The second draw through a patched call site (deny-by-default by construction, the
+      return address checked), SEH-guarded; a fault poisons the method for the session and
+      the game runs on mono
+- [x] `stereo reentry` accepted; presents = 2x ticks (106 vs 53); the beat line reads
+      `L/s == R/s == out/s / 2`; the second draw costs 220-470 us (run 28-29)
+- [x] `stereo.xrs` and `reentry.xrs` on the simulator, eye-check legs 0-1 (legs 2-5 carry
+      BioShock's bands: KNOWN_ISSUES); the pair line proves the two cameras half an IPD apart
+- [ ] Headset: fusion, per-eye reflections and effects, no flicker on fast motion (the user)
 
 ## S3 - Compare and choose; the features come back on the winner
 

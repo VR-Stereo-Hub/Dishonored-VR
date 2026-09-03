@@ -66,7 +66,7 @@ prove something the next one builds on:
 |---|---|---|---|---|
 | 1 | `mono` - the game frame on a head-locked quad, both eyes | the whole path headset-to-eye: capture, D3D11, swapchain, compositor, pacing, head tracking, the gamepad | one readback per present | `core/gfx/mono_screen.cpp`, shipped |
 | 2 | `aer` - AlternateEye: each tick renders ONE eye (the camera seam offsets +/- IPD/2), the compositor holds the other eye's last frame | geometric stereo and the eye-offset write point, cheaply; half temporal rate per eye | none on the game | `core/gfx/aer.cpp`, design stub |
-| 3 | `reentry` - SequentialReentry: the engine's scene draw is called a second time per tick with the other eye's camera | per-eye native effects at full rate; the big bet (needs the draw root, a gated and guarded second call) | one extra scene draw per tick | `core/gfx/reentry.cpp`, design stub |
+| 3 | `reentry` - SequentialReentry: the viewport draw root is called a second time per tick with the other eye's camera (`game/dishonored/scene_draw.cpp` patches the one gameplay call site; the camera seam writes +1 between the passes) | per-eye native effects at full rate; presents = 2x ticks; the ticks halve on the dev PC | one extra scene draw per tick (the second call itself 220-470 us) | `core/gfx/reentry.cpp` + `scene_draw.cpp`, simulator-verified 41.1, headset verdict pending |
 
 `IStereo` (stereo.h): `begin_frame(FrameInput)`, `eye_for_next_frame()`, `end_frame(FrameDevices,
 FrameOutput&)`, `on_reset()`, `shutdown()`, `status()`. `FrameOutput` is one texture and one
@@ -120,10 +120,16 @@ Index, Vive, Touch and WMR, logging to `%LOCALAPPDATA%\DishonoredVR\ovrshim.log`
 `note_render_pos`/`render_pos` (c5, the draw's camera position), `apply_eye_offset(camObj)`
 on the script lane into `[Camera] EyeField`, and the `camera eyetest` instrument that decides
 which field the renderer honours (ENGINE_NOTES "The per-eye camera seam: write points").
-Rotation and FOV are measured write points; the lateral eye offset is not, and the seam says
-so once when a method asks for an eye with no field measured. Positional tracking (lean,
-crouch, roomscale) still rides the c0 view-projection patch (`LeanVP` in
-`core/framework/vs_const.cpp`) until the write point is known (ROADMAP S1).
+Rotation, FOV and the lateral eye offset (camera+0x330, holding -position) are measured
+write points. Positional tracking (lean, crouch, roomscale) is the seam's too since 41.1:
+`set_position_offset_uu` (published by `TrackHead`), applied along the camera's basis rows
+(+0x50/+0x60/+0x70) in the same write as the eye offset when `[PosTrack] Lane=camera`;
+`Lane=vp` (the shipped default) keeps the c0 view-projection patch (`LeanVP`), which reads
+the same offset from the seam. `camera postest` measures either lane. Under a projection
+layer the seam's FOV target follows the runtime's circumscribed hfov for the frame aspect
+and the layer claims the 0x53c sensor (`present_tick.cpp: DvrFovHandoff`). SequentialReentry
+adds a per-thread fork: inside the re-entered second draw `apply_offsets` writes eye +1
+whatever the seam's eye says (`set_second_pass`).
 
 ## Directory contract
 
@@ -204,14 +210,46 @@ is written). `core/util/paths.h` is the one place that knows this.
 ## Known costs
 
 - The per-present CPU readback of the game window (`GetRenderTargetData` + row copy +
-  `UpdateSubresource`; 8 MB each way at 1080p). Structural until S1 replaces it with a D3D9Ex
-  shared surface opened on the D3D11 side.
+  `UpdateSubresource`; 8 MB each way at 1080p): measured ~5 ms per present in the shipped
+  `[Capture] Mode=sync`, of which 2.4-3.1 ms is `LockRect` waiting on the queued readback;
+  `deferred` (queue the readback, lock it one present later) measures ~2.3 ms. A D3D9Ex shared
+  surface is refused by this game's device (ENGINE_NOTES "The capture cost, measured").
+- SequentialReentry's second draw: a full scene draw per tick for the GPU (the call itself
+  returns in 220-470 us; the tick rate halved on the dev PC's simulator run at 1080p).
 - `xrWaitFrame` runs inline on the present thread by default and paces the game to the
   headset; `vrpace thread on` moves it to the pace thread (the BioShock session-34 fix).
 - `hkSetVSConstF` is on the hottest D3D9 entry point: the c5 camera capture, the c0 lean patch
   and the (uncalled) hand drives live there.
 
 ## Decision log
+
+### 2026-09-03 - session 6 (S2b: SequentialReentry on the simulator)
+
+- **The re-entry patches the CALL SITE, not the root's prologue.** UGameEngine::Tick
+  reaches the viewport draw root through one direct `push 1; call` at 0x6330da; redirecting
+  that E8 to the stub means no trampoline, the root and its two other callers run pristine
+  code, and the deny-by-default caller gate is a byte in the image (the return address is
+  still checked). The prologue-copy trampoline (the SEH prologue has no rel32) stays the
+  documented fallback; MinHook stays out.
+- **Pass 2's eye is a per-thread fork in the camera seam**, not a flip of the seam's eye:
+  the present thread rewrites `camera::set_eye` every present, so a flip from the game thread
+  between the passes would be overwritten mid-draw. `set_second_pass` latches the thread id;
+  `apply_offsets` writes +1 on that thread and the seam's eye everywhere else.
+- **One tag per present into the runtime's ring, pushed by the method in `end_frame`**, from
+  its own ring the game thread fills per draw; each tag carries the camera position the
+  writer produced and the present's c5 must match it (stale tags are skipped, never swapped).
+  The runtime layer stays verbatim.
+- **The capture's cheaper path is `deferred`, measured, not the shared surface planned in
+  S1**: the device is not 9Ex and refuses to share; the shipped path's cost is the lock
+  waiting on a readback queued behind the frame in flight, so queueing it a present earlier
+  is the cut. Ships off until a headset run picks the default.
+- **Positional tracking is a lane on the camera seam** (`[PosTrack] Lane`), the old c0 patch
+  kept as the shipped A/B; the seam owns the offset so both lanes read one source.
+- **A method claims the projection layer through the seam** (`wants_projection`), the frame
+  path arms the runtime's camera mode and publishes the gameplay verdict every present; the
+  runtime's cinematic quad fallback is the menu/loading/cutscene gate. The verdict needed the
+  script-event tracking hoisted out of the motion-aim block (GamepadOnly had switched it
+  off) and a dispatch-liveness term for loading screens.
 
 ### 2026-09-02 - session 5 (native stereo foundation)
 

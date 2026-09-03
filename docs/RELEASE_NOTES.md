@@ -1,5 +1,32 @@
 # Release notes
 
+## 41.1.0 (unreleased) - SequentialReentry on the simulator, the S1 levers
+
+- New: `stereo reentry` - the scene drawn twice per tick, once per eye, submitted as a
+  projection layer (ROADMAP S2b). Verified on the simulator (two eyes half an IPD apart,
+  presents = 2x ticks, no fault in a soak); awaiting the headset verdict. `[Stereo] Method`
+  still ships `mono`. `stereo projection on|off|auto` forces or pins the projection layer
+  (on = the mono frame in both eyes of a projection layer, for instruments).
+- New: `[Capture] Mode=sync|deferred|shared` (ships `sync`) and `capture mode <m>|status`:
+  `deferred` halves the per-present capture cost (measured 5.0 -> 2.3 ms at 1080p) for one
+  present of latency and resolves a multisampled backbuffer; `shared` is refused by this
+  game's device and says so.
+- New: `[PosTrack] Lane=vp|camera` (ships `vp`) and `postrack on|off|lane <l>`: lean, crouch
+  and roomscale through the camera seam's own write instead of the c0 matrix patch; `camera
+  postest <R> [U] [F]` measures the travel in uu.
+- Fixed: under `[Mode] GamepadOnly=1` the title screen, the main menu and a loading screen
+  read as GAMEPLAY (the script-event tracking sat inside the motion-aim block); the
+  `[game] state` line now knows the main menu (its own signal) and a `LOADING` state, and
+  a level load clears the cinematic latch the title screen leaves behind.
+- Fixed: `tools\eye-check.ps1` failed at start (its log-path default ran before the library
+  loaded).
+- New (developers): the `capture: cost/present` line; the `fov:` line (aspect, lever target,
+  vfov, sensor, eye size) under a projection layer; the `reentry <verb>` words (pulse, reset,
+  status, census, stack, probe, findstart); the `reentry: beat` and `reentry: pair` lines;
+  `tools\xrsim\reentry.xrs`; status.json `capMode`, `capShared`, `stereo.projection/camMode/
+  cineActive`, `camera.posLane/...`, `stereo.draw{}`, `mainMenu`. New patterns.h entries for
+  the scene-draw root (ENGINE_NOTES "The scene-draw root, derived live").
+
 ## 41.0.0 (unreleased) - native stereo foundation
 
 - Removed: the DXVK fork (`dxvk_d3d9.dll`) and the whole `dxvk/` tree. The game renders
