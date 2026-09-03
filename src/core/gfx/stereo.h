@@ -170,6 +170,14 @@ struct ReentryHooks {
     void (*gates)(uint32_t out[kReentryGateCount]) = nullptr;
 };
 void set_reentry_hooks(const ReentryHooks& h);
+// 41.1 (session 9): the within-tick invariant as the pairing's check ([Stereo]
+// C5Pair=1, `reentry c5pair on|off`): a present whose c5 sits exactly
+// -ipd*scale along the camera's right row from the previous present's is a
+// pass-2 present whatever the ring's order says; a disagreement streak
+// realigns the ring. Off = the ring's order alone (the pre-41.1 behaviour).
+void set_reentry_c5_pair(bool on);
+bool reentry_c5_pair();
+
 // The game thread pushes one tag per draw (-1 pass 1, +1 pass 2) with the
 // camera position the writer produced (null = unknown); the method pops one
 // per present in end_frame and hands the eye to the runtime's tag ring.

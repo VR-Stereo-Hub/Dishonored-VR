@@ -214,10 +214,23 @@ static void DvrGameTick(IDirect3DDevice9* self)
             }
             lastPresentMs = nowMs;
         }
-        if (!g_presentTid) {
-            g_presentTid = GetCurrentThreadId();
-            dvr::crash::register_thread("present", g_presentTid);
+        {   // 41.1 (session 9): the presenting thread, LIVE. It was latched once, at
+            // the first present, which at boot is the game thread's (the render
+            // thread starts later), so a run could read drawTid == presentTid on
+            // the beat line for its whole life while the render thread presented
+            // (headset run 17 vs 16: a false topology lead). A change is logged.
+            const DWORD tid = GetCurrentThreadId();
+            if (tid != g_presentTid) {
+                if (g_presentTid)
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+                                     "present: the presenting thread changed %lu -> %lu (present #%lu; the beat line's "
+                                     "presentTid follows it)", (unsigned long)g_presentTid, (unsigned long)tid,
+                                     (unsigned long)g_frame);
+                g_presentTid = tid;
+                dvr::crash::register_thread("present", g_presentTid);
+            }
         }
+
         g_gameFrames++;
         SbTick();   // 30.83: SpaceBases oracle (legacy stub unless -Legacy)
         {   // 34.7: one-shot block-property hunt, ~30 s in so a level is loaded

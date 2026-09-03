@@ -27,6 +27,17 @@
 // camera position the writer produced so a present can prove which draw it
 // carries.
 //
+// ONE PUSH PER DRAW (41.1, session 9). The ring pairs by ORDER, and the game
+// thread runs a frame ahead of the render thread that presents, so a single
+// draw that pushed nothing let its present pop the NEXT tick's -1 and every
+// tag after it rode the other draw: the eyes SWAPPED across every
+// single -> double transition where the game thread was ahead (measured on
+// the simulator with `reentry rearm 2` and the frameid line's c5 per
+// present: the -1 tag's c5 jumped from the left eye's position to the
+// right's). An armed single draw now pushes a 0 tag (its present pops it and
+// goes out untagged, as before), so pushes equal presents while the method
+// is popping.
+//
 // GATES: decided ONCE per tick, at depth 0, BEFORE pass 1's tag is pushed,
 // and the same decision drives pass 2 (SceneDrawDecide -> g_sdTick). That is
 // what makes tags and doubles unable to go one-sided: until 41.1 pass 1's tag
@@ -65,6 +76,13 @@ static volatile LONG  g_sdPulse = 0;           // one-shot doubles for the A/B
 // shown to fail and to hold on the simulator ("make it MOVE").
 static volatile LONG  g_sdForceSkip2 = 0;
 static uint32_t       g_sdSkipForced = 0;
+// 41.1 (session 9): `reentry rearm [n]` - n ticks decided SINGLE at the gate
+// (no tag pushed, no pass 2), then the doubling resumes. The isolated half of
+// the user's remedy for the one-view state (a pause/resume, a mode switch
+// followed by a pause): does re-arming the second draw ALONE fix it, with
+// the capture untouched? A diagnostic word; it never fires on its own.
+static volatile LONG  g_sdForceSingle = 0;
+static uint32_t       g_sdRearms = 0;
 static volatile LONG  g_sdDepth = 0;
 static DWORD          g_sdDrawTid = 0;
 static uint32_t       g_sdDraws = 0, g_sdSecondDraws = 0;
@@ -72,6 +90,11 @@ static uint32_t       g_sdSkipForeign = 0, g_sdSkipState = 0, g_sdSkipSilent = 0
                       g_sdSkipSession = 0, g_sdSkipTest = 0, g_sdSkipExit = 0;
 static uint32_t       g_sdLastExcCode = 0, g_sdLastExcAddr = 0;
 static uint32_t       g_sdCall2Us = 0, g_sdCall2MaxUs = 0;
+// 41.1 (session 9): pass-2 writes that the camera seam REFUSED (a null or
+// stale camera object, no basis row, no field): the second draw still ran,
+// from pass 1's camera, and its +1 tag carried no position - the one silent
+// way both eyes end up with one view. Counted per beat window, lifetime too.
+static uint32_t       g_sdP2WriteRefused = 0, g_sdBeatP2Refused = 0;
 // 41.1 (session 8): the game thread's side of the tick budget. Per tick:
 // the period between draw-root entries, pass 1's own call time (call1), the
 // time from the previous tick's last pass returning to this entry (outside =
@@ -162,6 +185,7 @@ static void SceneDrawBeat()
     const uint32_t n = g_sdBeatTicks ? g_sdBeatTicks : 1;
     Log("reentry: beat draws/s=%.0f 2nd/s=%.0f presents/s=%.0f call2=%u us (max %u) skips foreign=%lu state=%lu "
         "silent=%lu stall=%lu session=%lu test=%lu exit=%lu drawTid=%lu presentTid=%lu%s%s"
+        " | p2write refused=%lu of %lu (lifetime %lu; a refused write = pass 2 drew from pass 1's camera) cam=%p"
         " | game: period %.1f ms (min %.1f max %.1f) call1=%.1f ms (max %.1f) call2=%.2f (max %.2f) "
         "outside=%.1f (the world tick + the render-thread sync, unsplit here; the perf line's idle says whether "
         "the render thread waits for this thread)%s",
@@ -171,6 +195,7 @@ static void SceneDrawBeat()
         (unsigned long)g_sdSkipExit, (unsigned long)g_sdDrawTid, (unsigned long)g_presentTid,
         g_sdArmed ? " gates=once-per-tick" : " (doubling OFF: 2nd/s reads 0 by design)",
         g_sdPoisoned ? " POISONED" : "",
+        (unsigned long)g_sdBeatP2Refused, (unsigned long)g_sdBeatSecond, (unsigned long)g_sdP2WriteRefused, (void*)g_camObj,
         g_sdSumPeriodUs / 1000.0 / n, g_sdMinPeriodUs == UINT32_MAX ? 0.0 : g_sdMinPeriodUs / 1000.0,
         g_sdMaxPeriodUs / 1000.0, g_sdSumCall1Us / 1000.0 / n, g_sdCall1MaxUs / 1000.0,
         g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdSumOutsideUs / 1000.0 / n,
@@ -178,6 +203,7 @@ static void SceneDrawBeat()
                                  "back-pressure)" : "");
     g_sdBeatMs = now;
     g_sdBeatDraws = g_sdBeatSecond = 0;
+    g_sdBeatP2Refused = 0;
     g_sdBeatPresents = presents;
     g_sdCall2MaxUs = 0;
     g_sdCall1MaxUs = 0;
@@ -186,20 +212,27 @@ static void SceneDrawBeat()
 }
 
 // One tick's decision, made at depth 0 BEFORE pass 1's tag (game thread only).
-struct SdDecision { bool doubleIt; bool pulse; const char* why; };
-static SdDecision g_sdTick = { false, false, "" };
+struct SdDecision { bool doubleIt; bool pulse; const char* why; bool gameplay; };
+static SdDecision g_sdTick = { false, false, "", false };
 
 static SdDecision SceneDrawDecide(uint32_t callerRet)
 {
-    SdDecision d = { false, false, "" };
+    SdDecision d = { false, false, "", false };
     if (InterlockedCompareExchange(&g_sdPulse, 0, 0) > 0) d.pulse = InterlockedDecrement(&g_sdPulse) >= 0;
     const bool armed = InterlockedCompareExchange(&g_sdArmed, 0, 0) != 0;
     if (!d.pulse && !armed) { d.why = "not armed"; return d; }
+    if (InterlockedCompareExchange(&g_sdForceSingle, 0, 0) > 0) {
+        if (InterlockedDecrement(&g_sdForceSingle) == 0)
+            Log("reentry/rearm: done - the doubling resumes at the next gameplay tick; the frameid line's next pairs "
+                "say whether a re-arm ALONE made two pictures of one");
+        d.why = "rearm by request"; return d;
+    }
     if (g_sdPoisoned) { d.why = "poisoned"; return d; }
     if (callerRet != kViewportDrawGameplayRet) { ++g_sdSkipForeign; d.why = "foreign caller"; return d; }
     if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; d.why = "exiting"; return d; }
     if (!dvr::vr::session_live() && !d.pulse) { ++g_sdSkipSession; d.why = "no XR session"; return d; }
     if (!DvrGameplayVerdict()) { ++g_sdSkipState; d.why = "state not GAMEPLAY"; return d; }
+    d.gameplay = true;   // from here on the draw presents once (a menu's draws outnumber its presents)
     if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; d.why = "eyetest/postest running"; return d; }
     // The camera-silent hole: a c5 upload must have arrived since the previous
     // tick's draws (a load screen draws no scene). The serial counts uploads.
@@ -255,6 +288,13 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     float wrotePos[3] = {0, 0, 0};
     dvr::camera::set_second_pass(true);
     const bool wrote = dvr::camera::apply_offsets(g_camObj) && dvr::camera::last_written_pos(wrotePos);
+    if (!wrote) {
+        ++g_sdP2WriteRefused; ++g_sdBeatP2Refused;
+        DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Warn, 3000,
+                         "reentry: pass 2's eye write REFUSED by the camera seam (cam=%p, field %s) - the second draw "
+                         "runs from pass 1's camera this tick: both eyes carry one view (counted on the beat line)",
+                         (void*)g_camObj, dvr::camera::eye_field());
+    }
     dvr::stereo::reentry_push_tag(+1, wrote ? wrotePos : NULL);
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
@@ -312,7 +352,14 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         if (g_sdTick.doubleIt) {
             float pos[3];
             dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);
+        } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
+            // A single GAMEPLAY draw while the method pops: one push per draw,
+            // so its present cannot eat the next tick's -1 (the header's ONE
+            // PUSH). Not in menus: their draws outnumber their presents and
+            // the ring would only fill with junk (measured: cleared every 3 s).
+            dvr::stereo::reentry_push_tag(0, NULL);
         }
+
     }
     ((DvrViewportDrawFn)kViewportDraw)(self, NULL, bShouldPresent);
     if (depth == 0) {
@@ -396,6 +443,8 @@ static void SceneDrawStatus(dvr::status::Writer& w)
     w.kv("draws", (unsigned long)g_sdDraws);
     w.kv("secondDraws", (unsigned long)g_sdSecondDraws);
     w.kv("call2Us", (int)g_sdCall2Us);
+    w.kv("p2WriteRefused", (unsigned long)g_sdP2WriteRefused);
+
     w.kv("skipForeign", (unsigned long)g_sdSkipForeign);
     w.kv("skipState", (unsigned long)g_sdSkipState);
     w.kv("skipSilent", (unsigned long)g_sdSkipSilent);
@@ -404,6 +453,8 @@ static void SceneDrawStatus(dvr::status::Writer& w)
     w.kv("skipTest", (unsigned long)g_sdSkipTest);
     w.kv("skipExit", (unsigned long)g_sdSkipExit);
     w.kv("skipForced", (unsigned long)g_sdSkipForced);
+    w.kv("rearms", (unsigned long)g_sdRearms);
+
     w.kv("lastExc", (unsigned long)g_sdLastExcCode);
 }
 
@@ -433,6 +484,25 @@ static bool SceneDrawCommand(const char* args)
         Log("reentry/skip2: the next %d armed gameplay tick(s) push pass 1's -1 tag and SKIP pass 2 - a one-sided "
             "stream on purpose; expect `stereo: STALE R EYE` (strict off) or `xr: strict pair - stereo submit "
             "REFUSED` (strict on)", k);
+        return true;
+    }
+    if (n >= 1 && !strcmp(sub, "c5pair")) {   // 41.1 (session 9): the within-tick invariant's A/B
+        bool on;
+        if (DvrOnOff(a1, &on)) { dvr::stereo::set_reentry_c5_pair(on); return true; }
+        Log("reentry: c5pair on|off (now %s)", dvr::stereo::reentry_c5_pair() ? "on" : "off");
+        return true;
+    }
+    if (n >= 1 && !strcmp(sub, "rearm")) {
+
+        int k = a1[0] ? atoi(a1) : 2;
+        if (k < 1) k = 1;
+        if (k > 300) k = 300;
+        if (!g_sdArmed) { Log("reentry/rearm: the doubling is not armed - nothing to re-arm (stereo reentry first)"); return true; }
+        InterlockedExchange(&g_sdForceSingle, k);
+        ++g_sdRearms;
+        Log("reentry/rearm: the next %d gameplay tick(s) draw SINGLE (no tag, no pass 2), then the doubling resumes - "
+            "the capture is untouched; expect `gates -> SINGLE draw (rearm by request)` then `DOUBLE draw after %d single "
+            "tick(s)` (rearm #%lu)", k, k, (unsigned long)g_sdRearms);
         return true;
     }
     if (n >= 1 && !strcmp(sub, "reset")) {

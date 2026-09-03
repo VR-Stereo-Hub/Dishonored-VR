@@ -20,6 +20,10 @@ static void WriteDefaultIni(const char* ini)
         "YawCountsPerDegree=11.5\n"
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
+        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). -0.090 is the\n"
+        "; value the 2026-09-03/04 headset runs were judged at (it was the code default and\n"
+        "; unwritten before); F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
+        "HeightOffsetM=-0.090\n"
         "[Stereo]\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
@@ -28,9 +32,14 @@ static void WriteDefaultIni(const char* ini)
         "; refused method leaves running); aer is a design stub and refuses with a note.\n"
         "; `stereo <name>` switches live and fails soft. Armed=1|0: whether the selected method\n"
         "; RUNS (the F10 Display tickbox, `stereo arm on|off`); 0 parks the game on the mono\n"
-        "; screen without forgetting the selection.\n"
+        "; screen without forgetting the selection. C5Pair=1 (41.1, session 9): each present's\n"
+        "; eye tag is checked against its camera step from the previous present (pass 2 sits\n"
+        "; exactly one IPD along right of pass 1, nothing else moves inside a tick) and the\n"
+        "; tag ring is realigned when they disagree - the tags rode the other draw across\n"
+        "; every pause, load and re-arm before (the eyes SWAPPED). 0 = the ring's order alone.\n"
         "Method=reentry\n"
         "Armed=1\n"
+        "C5Pair=1\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -71,10 +80,17 @@ static void WriteDefaultIni(const char* ini)
         "; the D3D9 timestamp ring behind the `perf: gpu` line (read five presents back, never\n"
         "; waited on). `perf on|off`, `perf gpu on|off` live; `mark <text>` and the F10 MARK\n"
         "; button stamp a felt freeze. ForceNoVSync=1 presents without vsync (the game's own\n"
-        "; setting is ignored while the headset paces the game).\n"
+        "; setting is ignored while the headset paces the game). FrameId=1 runs the frame-\n"
+        "; identity trace (core/gfx/frame_id): a 64x64 thumbnail of every present at four\n"
+        "; stages (the backbuffer, the shared slot, the eye texture, the swapchain image),\n"
+        "; read three presents later, and per left/right pair the `stereo: frameid` line\n"
+        "; says at which stage the two eyes stopped being two pictures. 16 KB per present;\n"
+        "; `frameid on|off|status` live.\n"
         "Instruments=1\n"
         "GpuQueries=1\n"
         "ForceNoVSync=1\n"
+        "FrameId=1\n"
+        "FrameIdEvery=8\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -106,10 +122,16 @@ static void WriteDefaultIni(const char* ini)
         "; create the fullscreen device windowed with the backbuffer kept, the route to the\n"
         "; eye's own near-square size. `res <W>x<H>[f|w]` asks live; F10 Display has the picker\n"
         "; and the verdict (`res: HONOURED` reads the capture, never the requested number).\n"
-        "RenderWidth=0\n"
-        "RenderHeight=0\n"
+        "; 41.1 (session 9): the values the headset judged (Quest 3 through VirtualDesktopXR,\n"
+        "; 2026-09-03/04) - the runtime's recommended per-eye size, asked on the game's command\n"
+        "; line and ADVERTISED by the proxy so the game creates it (VirtualMode=1; without it the\n"
+        "; game falls back to a display mode and the picture is soft). Another headset wants its\n"
+        "; own size: the F10 Display picker writes these three for the next launch, and\n"
+        "; RenderWidth=0 RenderHeight=0 asks for nothing at all (the game's own size).\n"
+        "RenderWidth=2496\n"
+        "RenderHeight=2688\n"
         "RenderFullscreen=1\n"
-        "VirtualMode=0\n"
+        "VirtualMode=1\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
         "; FovLever writes the game's camera FOV every tick (40..160; 0 = off, the game's\n"
         "; own FOV). 130 filled the old side-by-side render vertically; the mono screen\n"
@@ -359,10 +381,13 @@ static void LoadConfig()
     dvr::vr::set_screen(g_screenDist, g_screenWidth);
     dvr::vr::set_screen_head_locked(IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f);
     {   // 41.1 [Screen] Render*: the picker's ask (core/window/render_size.cpp)
-        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 0, ini);
-        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 0, ini);
+        // 41.1 (session 9): the headset-judged size, and the advertisement that makes the
+        // game create it, are the DEFAULTS now (an ini naming neither key gets them);
+        // `res 0x0` writes an explicit 0 and still means "the game's own size".
+        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2496, ini);
+        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2688, ini);
         g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
-        g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 0, ini) != 0 || g_launchVirtual;
+        g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 1, ini) != 0 || g_launchVirtual;
         if (!g_resWantW && g_launchW && g_launchH) {   // the launch file carried an ask the ini lost
             g_resWantW = g_launchW; g_resWantH = g_launchH; g_resWantFull = g_launchFull;
             Log("config: [Screen] Render* read 0 but the launch file asked %ux%u %s - using that for the verdict",
@@ -381,7 +406,9 @@ static void LoadConfig()
         GetPrivateProfileStringA("Stereo", "Method", "reentry", sm, sizeof(sm), ini);
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
+        dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
     }
+
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)
         char ef[16] = "";
@@ -530,7 +557,12 @@ static void LoadConfig()
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
         if (!inst) dvr::perf::set_enabled(false);
         if (!gpu) dvr::perf::set_gpu_enabled(false);
-        Log("config: [Perf] Instruments=%d GpuQueries=%d (the tick line and the gpu line every 3 s)", inst ? 1 : 0, gpu ? 1 : 0);
+        const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
+        dvr::frameid::set_enabled(fid);
+        dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
+        Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
+            inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
+
     }
     Log("config: per-frame diagnostics vsscan=%d shownear=%d (both off = more fps)",
         (int)g_scanEnabled, (int)g_wpnShowNear);
@@ -1076,6 +1108,16 @@ static void EnsureConfig()
 // 41.1 (session 8): the [Device] keys are launch-time; the seam word and the
 // F10 tickbox write them for the NEXT launch (no version bump: the rewrite
 // would wipe a tuned ini), and say so.
+// 41.1 (session 9): one key into the ini for the F10 tickboxes that are live
+// AND persistent (the trace, the c5 pairing), so a tester's choice survives
+// the next launch without an ini edit.
+static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who)
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA(section, key, value, ini);
+    Log("config: [%s] %s=%s written by %s (live now, and the next launch's default)", section, key, value, who);
+}
 static void DeviceSetEx(bool on, const char* who)
 {
     char ini[MAX_PATH];

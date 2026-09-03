@@ -159,17 +159,20 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::set_shared_wait(b);
             return true;
         }
+        if (!strcmp(args, "reinit")) { dvr::capture::request_reinit(); return true; }   // 41.1 (session 9)
         const dvr::capture::Cost c = dvr::capture::cost();
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
-            "(%u grabs) delivered serial %lu of %lu tag=%d sharedWait=%d fenceWaits=%u timeouts=%u readWaits=%u "
-            "readTimeouts=%u (capture mode sync|deferred|shared|off, capture sharedwait on|off)",
+            "(%u grabs) delivered serial %lu of %lu tag=%d slot=%d sharedWait=%d fenceWaits=%u timeouts=%u readWaits=%u "
+            "readTimeouts=%u reinits=%u (capture mode sync|deferred|shared|off, capture sharedwait on|off, capture reinit)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
             (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
-            dvr::capture::delivered_tag(), dvr::capture::shared_wait() ? 1 : 0, dvr::capture::fence_waits(),
-            dvr::capture::fence_timeouts(), dvr::capture::read_waits(), dvr::capture::read_timeouts());
+            dvr::capture::delivered_tag(), dvr::capture::delivered_slot(), dvr::capture::shared_wait() ? 1 : 0,
+            dvr::capture::fence_waits(), dvr::capture::fence_timeouts(), dvr::capture::read_waits(),
+            dvr::capture::read_timeouts(), dvr::capture::reinits());
         return true;
+
     }
     if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census and the 9Ex levers
         if (!args[0] || !strcmp(args, "status")) { dvr::census::log_status(); dvr::d3d9ex::log_status(); return true; }
@@ -185,7 +188,8 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "reentry")) {
         if (SceneDrawCommand(args)) return true;
         if (SceneProbeCommand(args)) return true;
-        Log("reentry: pulse [n] | skip2 [n] | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
+        Log("reentry: pulse [n] | skip2 [n] | rearm [n] | c5pair on|off | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
+
         return true;
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
@@ -205,6 +209,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "dump")) {
         FrameDumpRequest(args[0] ? args : "frame");
+        return true;
+    }
+    if (!strcmp(cmd, "frameid")) {   // 41.1 (session 9): the frame-identity trace
+        if (DvrOnOff(args, &b)) { dvr::frameid::set_enabled(b); return true; }
+        { char sub[16] = "", v[16] = ""; if (sscanf(args, "%15s %15s", sub, v) == 2 && !strcmp(sub, "every")) { dvr::frameid::set_every((uint32_t)atoi(v)); return true; } }
+        dvr::frameid::log_status();
         return true;
     }
     if (!strcmp(cmd, "cfg") && !strcmp(args, "dump")) {
@@ -331,7 +341,9 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("device"); dvr::d3d9ex::status(w); w.end_obj();   // 41.1 (session 8): the 9Ex device and the translation
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
+    w.obj("frameid"); dvr::frameid::status(w); w.end_obj();   // 41.1 (session 9): the frame-identity trace
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
+
     w.obj("head");
     w.kv("yaw", (double)g_hmdYaw); w.kv("pitch", (double)g_hmdPitch); w.kv("roll", (double)g_hmdRoll);
     w.kv("tracked", (bool)g_devPoseOk[0]);

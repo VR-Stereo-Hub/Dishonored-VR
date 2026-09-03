@@ -34,6 +34,7 @@
 #include "core/framework/status.h"
 #include "core/gfx/blit_quad.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/frame_id.h"
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
 #include "game/dishonored/camera.h"
@@ -59,6 +60,21 @@ uint32_t      g_ringDropped = 0, g_ringCleared = 0, g_tagMismatch = 0, g_tagOk =
 uint32_t      g_tagNoFrame = 0;   // 41.1 (session 8): tagged presents whose grab delivered no frame (no tag pushed)
 
 uint32_t g_tagResynced = 0;
+// 41.1 (session 9): the within-tick invariant. Between pass 1 and pass 2 the
+// world does not tick, so the ONLY thing that moves the camera is the writer's
+// eye: c5(pass 2) - c5(pass 1) = -ipd*scale along the camera's right row (the
+// field holds the position, c5 negates it), nothing along forward or up. A
+// present whose c5 sits exactly there from the previous present's IS a pass-2
+// present, whatever the ring says; one whose c5 sits exactly +ipd*scale along
+// right is a pass 1 after a still pass 2. The ring's order claim is checked
+// against that measurement every present: a disagreement is counted, and
+// three in a row drain the ring to the next expected tag (a tag eaten by a present that
+// drew nothing, or pushed by a draw that never presented - both happen, the
+// menu's draws outnumber its presents). Measured on the simulator: the tags
+// swapped across a re-arm and within a second of the first arming (the
+// frameid line's side check), the picture agreeing.
+bool     g_c5Pair = true;              // [Stereo] C5Pair=1; `reentry c5pair on|off`
+uint32_t g_c5Agree = 0, g_c5Disagree = 0, g_c5Realigned = 0, g_c5Verdicts = 0, g_c5Unknown = 0, g_c5Untagged = 0;
 
 // Pop the tag for THIS present, strictly in push order. The game thread runs
 // up to a frame ahead of the render thread (UE3's OneFrameThreadLag), so two
@@ -84,7 +100,17 @@ bool pop_tag(Tag& out, const float* c5) {
     return true;
 }
 
+// The eye of the tag the next pop would return (false = empty).
+bool peek_tag(int& eye) {
+    const LONG tail = g_ringTail;
+    const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0);
+    if (tail == head) return false;
+    eye = g_ring[tail & (kRing - 1)].eye;
+    return true;
+}
+
 class SequentialReentry : public IStereo {
+
 public:
     const char* name() const override { return "reentry"; }
     bool implemented() const override {
@@ -172,6 +198,7 @@ public:
             return false;
         }
         stale_check();
+        dvr::frameid::begin_present();   // 41.1 (session 9): the previous present's trace closes, its pairs are judged
         if (!d.dev9 || !d.dev11 || !d.ctx11) return false;
         if (!blit_.init(d.dev11)) return false;
         // The tag for the frame the game just drew, checked against its c5.
@@ -179,7 +206,63 @@ public:
         int eye = 0;
         float c5now[3];
         const bool haveC5 = dvr::camera::render_pos(c5now);
-        if (pop_tag(t, haveC5 ? c5now : nullptr)) {
+        bool tagged = pop_tag(t, haveC5 ? c5now : nullptr);
+        // The within-tick invariant (see g_c5Pair): what this present's c5
+        // says about its pass, before the ring's claim is read.
+        int inv = 0;
+        float along = 0.0f, other = 0.0f;
+        {
+            float bf[3], br[3], bu[3];
+            const float ipd = dvr::camera::ipd_m() * dvr::camera::world_scale();
+            if (haveC5 && prevC5Ok_ && ipd > 1.0f && dvr::camera::last_basis(bf, br, bu)) {
+                const float s[3] = {c5now[0] - prevC5_[0], c5now[1] - prevC5_[1], c5now[2] - prevC5_[2]};
+                along = s[0] * br[0] + s[1] * br[1] + s[2] * br[2];
+                const float o[3] = {s[0] - along * br[0], s[1] - along * br[1], s[2] - along * br[2]};
+                other = sqrtf(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]);
+                if (fabsf(along + ipd) < 0.35f * ipd && other < 0.5f * ipd) inv = +1;        // pass 2 after pass 1
+                else if (fabsf(along - ipd) < 0.35f * ipd && other < 0.5f * ipd) inv = -1;   // pass 1 after a still pass 2
+            }
+            if (haveC5) { memcpy(prevC5_, c5now, sizeof(prevC5_)); prevC5Ok_ = true; }
+        }
+        // The measurement is the pairing; the ring's order is the fallback for
+        // the presents the invariant cannot name (a pass 1 after a moving
+        // pass 2) and is kept aligned by the measurement (measured on the
+        // simulator: the ring skews on its own in plain gameplay, ~2 per 25 s,
+        // an extra present popping the next draw's tag; with the order alone
+        // each skew swapped the eyes until the next).
+        if (g_c5Pair && inv != 0) {
+            if (tagged && t.eye != 0) {
+                ++g_c5Verdicts;
+                if (t.eye == inv) { ++g_c5Agree; c5Streak_ = 0; }
+                else {
+                    ++g_c5Disagree;
+                    if (++c5Streak_ >= 3) {
+                        // The ring is off: drain it to the tag the NEXT present
+                        // must pop (the other eye of this measured one), so a
+                        // backlog of any depth (a method re-select leaves up to
+                        // a ring of stale tags) aligns in one present.
+                        Tag t2;
+                        bool popped = false;
+                        for (uint32_t k = 0; k < kRing; ++k) {
+                            int next = 0;
+                            if (!peek_tag(next) || next == -inv) break;
+                            if (pop_tag(t2, nullptr)) popped = true; else break;
+                        }
+                        ++g_c5Realigned;
+                        c5Streak_ = 0;
+                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                                         "reentry: the tag ring skewed against the draws - three presents in a row whose c5 "
+                                         "step (%+.2f along right, %.2f other; ipd*scale %.2f) named the other pass; realigned "
+                                         "by one pop (%s) - realigned %u times, %u agree / %u disagree so far (the eyes "
+                                         "followed the measurement throughout; the order alone would have swapped them)",
+                                         along, other, dvr::camera::ipd_m() * dvr::camera::world_scale(),
+                                         popped ? "a tag dropped" : "the ring was empty", g_c5Realigned, g_c5Agree, g_c5Disagree);
+                    }
+                }
+            } else if (!tagged) ++g_c5Untagged;   // the ring was empty; the measurement still names the eye
+            t.eye = inv; tagged = true;
+        } else if (inv == 0 && tagged && t.eye != 0) ++g_c5Unknown;
+        if (tagged) {
             eye = t.eye;
             ++g_tagOk;
             // TELEMETRY ONLY: the engine moves the camera by up to a tick of
@@ -203,6 +286,12 @@ public:
             ++g_tagUntagged;
         }
         dvr::capture::set_pending_tag(eye);
+        {   // 41.1 (session 9): the camera of the draw the grab will take, and its right row
+            float bf[3], br[3], bu[3];
+            const bool basisOk = dvr::camera::last_basis(bf, br, bu);
+            dvr::frameid::note_c5(c5now, haveC5, br, basisOk);
+        }
+
         const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
         ID3D11ShaderResourceView* src = dvr::capture::srv();
         if (!src) return false;
@@ -210,10 +299,19 @@ public:
         if (!ensure_target(d.dev11, w, h)) return false;
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
-            dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
+            // 41.1 (session 9): the frame-identity trace's stages slot and out,
+            // inside the read fence (the slot thumbnail is a read of the slot).
+            if (fresh) {
+                dvr::frameid::note_delivery(dvr::capture::delivered_serial(), dvr::capture::delivered_tag(),
+                                            dvr::capture::delivered_slot(), dvr::capture::mode_name());
+                dvr::frameid::stage_slot(d.dev11, d.ctx11, src);
+                dvr::frameid::stage_out(d.dev11, d.ctx11, srv_);
+            }
+            dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
             drawnOnce_ = true;
         }
+
         // 41.1 (session 8): a grab that delivered NOTHING (a mode switch's first
         // present, a Reset, capture off) leaves texture() re-showing the last
         // frame; its tag is the previous present's and must not be pushed
@@ -259,6 +357,8 @@ public:
         blit_.shutdown();
         drawnOnce_ = false;
         lastLeftOk_ = false;
+        prevC5Ok_ = false;
+        c5Streak_ = 0;
     }
 
     void status(dvr::status::Writer& w) override {
@@ -270,6 +370,13 @@ public:
         w.kv("tagNoFrame", (unsigned long)g_tagNoFrame);
         w.kv("ringDropped", (unsigned long)g_ringDropped);
         w.kv("ringCleared", (unsigned long)g_ringCleared);
+        w.kv("c5Pair", g_c5Pair);
+        w.kv("c5Agree", (unsigned long)g_c5Agree);
+        w.kv("c5Disagree", (unsigned long)g_c5Disagree);
+        w.kv("c5Realigned", (unsigned long)g_c5Realigned);
+        w.kv("c5Unknown", (unsigned long)g_c5Unknown);
+        w.kv("c5Untagged", (unsigned long)g_c5Untagged);
+
         if (g_hooks.status) { w.obj("draw"); g_hooks.status(w); w.end_obj(); }
         // 41.1 (session 8): the capture cost under the shipped method too
         // (only the mono screen wrote it, so a default run had none).
@@ -293,7 +400,8 @@ private:
         td.Usage = D3D11_USAGE_DEFAULT;
         td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
         if (FAILED(dev->CreateTexture2D(&td, nullptr, &tex_)) ||
-            FAILED(dev->CreateRenderTargetView(tex_, nullptr, &rtv_))) {
+            FAILED(dev->CreateRenderTargetView(tex_, nullptr, &rtv_)) ||
+            FAILED(dev->CreateShaderResourceView(tex_, nullptr, &srv_))) {   // the trace's stage out reads it
             DVR_ERROR("reentry: output texture %ux%u failed", w, h);
             release_target();
             return false;
@@ -304,6 +412,7 @@ private:
         return true;
     }
     void release_target() {
+        if (srv_) { srv_->Release(); srv_ = nullptr; }
         if (rtv_) { rtv_->Release(); rtv_ = nullptr; }
         if (tex_) { tex_->Release(); tex_ = nullptr; }
         w_ = h_ = 0;
@@ -313,11 +422,16 @@ private:
     dvr::gfx::BlitQuad      blit_;
     ID3D11Texture2D*        tex_ = nullptr;
     ID3D11RenderTargetView* rtv_ = nullptr;
+    ID3D11ShaderResourceView* srv_ = nullptr;
     uint32_t w_ = 0, h_ = 0;
+
     bool     drawnOnce_ = false;
     bool     armed_ = false;
     float    lastLeft_[3] = {0, 0, 0};
     bool     lastLeftOk_ = false;
+    float    prevC5_[3] = {0, 0, 0};   // the previous present's c5 (the within-tick invariant)
+    bool     prevC5Ok_ = false;
+    uint32_t c5Streak_ = 0;
     // the stale-eye line's previous snapshot
     uint32_t lastStale_ = 0;
     bool     lastStaleInit_ = false;
@@ -333,7 +447,19 @@ SequentialReentry g_reentry;
 
 void set_reentry_hooks(const ReentryHooks& h) { g_hooks = h; }
 
+void set_reentry_c5_pair(bool on) {
+    if (on == g_c5Pair) return;
+    g_c5Pair = on;
+    DVR_INFO("reentry: c5 pairing %s - %s ([Stereo] C5Pair=%d for the next launch)", on ? "ON" : "off",
+             on ? "each present's eye is checked against its c5 step from the previous present (the within-tick invariant), "
+                  "the ring realigned on a disagreement streak"
+                : "the ring's order is the only claim (the pre-41.1 behaviour: a single draw's present can eat the next tag)",
+             on ? 1 : 0);
+}
+bool reentry_c5_pair() { return g_c5Pair; }
+
 void reentry_push_tag(int eyeSign, const float pos[3]) {
+
     const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0), tail = InterlockedCompareExchange(&g_ringTail, 0, 0);
     if (head - tail >= (LONG)kRing) { ++g_ringDropped; return; }   // no consumer (no present) or stalled
     Tag& t = g_ring[head & (kRing - 1)];

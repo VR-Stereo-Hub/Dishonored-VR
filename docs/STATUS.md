@@ -1,109 +1,98 @@
 # Status
 
-## Current state (2026-09-03, session 8: the 9Ex device and the shared capture SHIP; the eyes' disagreement traced to two mechanisms, both fixed on the simulator)
+## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
-**Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits on `native-stereo-rendering` (6ed1993f).**
-Everything below was measured on the simulator lane (RTX 4060, 2496x2688 VirtualMode, the sewers
-save, `stereo reentry`; logs `D:\dvr-data\logs\44-run01..05-*.log`). Nothing has run on the headset
-this session.
+**Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
+headset, at rate, with the tested configuration shipping as the defaults.
 
-- **MEASURED: the readback owns the tick, on the CPU and on the GPU.** The new tick budget
-  (`perf: tick` and `perf: gpu` every 3 s; the F10 Display block) split the 46 ms tick at the Quest
-  3 size: 16 ms of GPU copy per present (`GetRenderTargetData` into system memory at ~1.6 GB/s)
-  plus 7.5 ms of CPU copy and upload, against 4.8 ms of actual 3D per draw and 3.3 ms of render
-  thread. `deferred` hides the CPU wait, not the GPU copy (27 ticks/s); with the capture off the
-  game is pace-bound at the simulator's 90 Hz. The brief's "13 ms unexplained at 1080p" was the
-  simulator's own pacing gate on the session-6 runs, which the line now prints as PACE-BOUND
-  (ENGINE_NOTES "The tick budget, measured").
-- **MEASURED: the game asks for MANAGED on 99 % of its creations and locks its textures READONLY
-  while streaming** (the census, `device census`): 8060 of 8120 creations, 398 MB, 10598 READONLY
-  locks. So the cheap DEFAULT + DYNAMIC stand-in for a 9Ex device was ruled out by measurement
-  and the shadow (a SYSTEMMEM twin per texture, the Lock hooks redirecting) is the translation
-  (ENGINE_NOTES "The creation census").
-- **BUILT AND MEASURED: the 9Ex device and the shared capture.** `[Device] Ex=1 Managed=shadow`:
-  `CreateDeviceEx` accepted, the device answers as 9Ex, 5240 twins, 65552 unlock pushes, 0
-  failures, the sewers rendered intact after minutes (`dump capture`). `capture mode shared` (two
-  fenced slots, `SharedWait=0|1`): 0.5 ms of capture per present, 0.2 ms of GPU copy, **75 ticks/s
-  with SharedWait=1 and 90 ticks/s pace-bound with SharedWait=0**, against 21 on the shipped path;
-  `reentry.xrs` 11/11 and the hammer 0 stale over 5 cycles on it. Ships OFF (`Ex=0`) until the
-  headset judges it; `deferred` ships as the default meanwhile (agreed with the user).
-- **The desync on load: one source fixed, one owner named, the FOCUSED-regain case not
-  reproduced.** A present whose grab delivered no frame pushed the previous tag again (a stale
-  eye at every capture-mode switch; fixed, `noFrame=` counted); the pace guard's eaten tag is
-  counted by the runtime (`eatenNoFrame`) and named on the `STALE EYE` line before "unknown"; a
-  simulated `focus lose 2500` / `focus regain` read `eaten=0`, 0 stale, so `[Pace] Strict` stays 0
-  and the headset log decides.
-- **THE FIRST HEADSET RUN (runs 14a/b, Quest 3 via VDXR, the user, after the session's build)**:
-  (a) with `[Device] Ex=0` and the deferred default the tick read 30-33/s at the Quest 3 size,
-  as the simulator predicted; (b) with `Ex=1` the 9Ex device came up and the probe read `shared
-  surface AVAILABLE`, but the capture STAYED deferred (no `capture mode shared` ever reached the
-  seam, no MARK), so the readback's GPU copy was still there (19 ms per tick, 30 ticks/s): the
-  user saw no difference between modes because the mode never changed; (c) after repeated
-  quickloads the game crashed inside D3D9: the shadow's twin map left tombstones its insert
-  never reused, reported "full (2400 live)", one texture got no twin, its lock was refused.
-  FIXED (1226849f): the map reuses tombstones and holds 32768 slots (three quickloads on the
-  simulator: 2324 live, 1984 tombstones reused, 0 failures, the game alive); the F10 Display tab
-  gains a capture-mode combo and the 9Ex tickbox writes `[Capture] Mode=shared` for the next
-  launch as well, and the probe warns when the device can share but the mode does not use it.
-  The shared path is STILL unjudged in the headset.
-- **THE SECOND HEADSET RUN (run 15, the user)**: with the fixed build, `Ex=1` and `capture mode
-  shared`, "the performance is pretty good" - so `[Device] Ex=1` and `[Capture] Mode=shared` are
-  the DEFAULTS now (860b6c18). The user then reported the eyes disagreeing "90 % of the time,
-  more at the beginning". The log has 0 STALE lines, 0 tag mismatches and every pair one IPD
-  apart, so the bookkeeping was right; two other mechanisms were found: (a) the shared path
-  fenced the D3D9 blit before the D3D11 read but not the D3D11 read before the NEXT blit into the
-  same slot, so at the headset's rate a slot could be overwritten with the other eye's frame
-  while D3D11 was still reading it - fenced now (230ac120, 5471f698), and the simulator counted
-  14 such pending reads in one run (`readWaits` on `capture status`); (b) the user paused and
-  resumed 32 times, and every resume held the headset on the flat quad for 1-1.5 s (the view-live
-  gate's one-second rule), a stereo -> flat -> stereo flip each time - a pause menu's silence now
-  resumes at once (0a23d509; the hammer: 10 cycles, 0 stale, `view live at once` on each). Whether
-  these two are the whole of what the user saw is the next headset question. (Run 15's log was
-  rotated away by two simulator launches after it was read; its numbers are the ones quoted here.)
-- **Found on the way**: the head write's four early returns now name themselves (`head: write
-  refused - ...`); after a level load the mod's menu flag can stay up (state MENU in the level,
-  the pair stream off) until a pause-menu open/close (VERIFICATION gotcha 17); the simulator lane
-  stalls the capture lock for 130-140 ms every 2-3 s under `sync` at the Quest size, which the
-  headset run 13 never showed (gotcha 18); the ini version rewrite would wipe a tuned ini, so
-  the new keys ship without a bump (ARCHITECTURE decision log).
+- **THE ROOT CAUSE, found and fixed and PROVEN**: the eye tags paired draws to presents by
+  push/pop ORDER, and the order breaks wherever the game thread runs ahead of the render thread -
+  a level load, a pause/resume, a re-arm - and spontaneously in gameplay every ~2 s on the
+  tester's rig (131 skews in four minutes). Each break showed each eye the other's draw until the
+  next one. That is the fault this project has chased since run 15 ("the eyes disagree", "90 % of
+  the time, more at the beginning", "never correct after a load"). THE FIX: between a tick's two
+  draws nothing moves the camera but the eye offset, so pass 2's camera sits exactly one IPD along
+  the camera's right row from pass 1's; a present whose camera step reads that IS the second draw
+  whatever the queue claims, and a disagreement streak realigns the queue. `[Stereo] C5Pair=1`.
+  THE PROOF (headset, the user, 2026-09-04): unticking `c5 pairing` on the F10 EYES block and
+  pausing brought the fault straight back (`swapped=24 of 25` pairs, the picture's parallax on the
+  wrong side), ticking it back removed it (`swapped=0` for the rest of the run) - by eye and in the
+  log, three times.
+- **THE INSTRUMENT that found it ships**: the frame-identity trace (`core/gfx/frame_id`, `[Perf]
+  FrameId=1 FrameIdEvery=8`, `frameid on|off|status|every N`, status.json `frameid{}`): one 64x64
+  luma thumbnail per sampled present at the backbuffer as the capture found it, the shared slot,
+  the eye texture and the swapchain image, read three presents later and never waited on, with the
+  draw's camera position and right row on the same record. The `stereo: frameid` line prints, per
+  left/right pair, the L-R difference per stage, the camera step and side check, the picture's own
+  parallax shift and the first stage that reads as one picture. The F10 Display tab's **EYES
+  block** shows the same numbers live and carries DUMP EYES, REARM 2, CAPTURE REINIT, PROJECTION
+  OFF / AUTO, the c5-pairing tickbox and the trace tickbox.
+- **PERFORMANCE: back at the headset's rate.** The trace read every present cost the tester's GPU
+  1.5 ms per present (stage bb's `GetRenderTargetData` is a pipeline sync there) and the tick went
+  13.9 -> 16.7 ms, 60/s under a 72 Hz headset; sampling one pair every 8 ticks removed it
+  ("the fps is perfect now", 2026-09-04). The trace tickbox is off = no cost at all.
+- **THE DEFAULTS ARE THE HEADSET-JUDGED VALUES** (a fresh ini now comes up where the testing left
+  off): `[Stereo] Method=reentry Armed=1 C5Pair=1`, `[Camera] EyeField=0x330`, `[Neck] Mode=cancel`
+  with the measured pivot (0.321 / 0.062 m), `[PosTrack] Scale=98 Lane=auto`, `[Tracking]
+  HeightOffsetM=-0.090`, `[Screen] RenderWidth=2496 RenderHeight=2688 RenderFullscreen=1
+  VirtualMode=1` (the Quest 3 through VDXR per-eye size, advertised so the game creates it - a
+  fresh install used to render the game's own size and look soft), `[Device] Ex=1 Managed=shadow`,
+  `[Capture] Mode=shared`, `[Perf] FrameId=1 FrameIdEvery=8`. Another headset: the F10 Display
+  picker writes its size for the next launch; `res 0x0` asks for none.
+- **Also fixed this session**: `dump eyes` writes a consecutive left/right pair and encodes it on a
+  worker thread (the 640 ms present-thread stall used to re-arm the second draw, so every dump
+  changed what it was taken to judge); the beat line's `presentTid` follows the presenting thread
+  (it was latched at the first present, which at boot is the game thread's - a false lead in run
+  17); pass-2 eye writes the camera seam refuses are counted (`p2write refused=`).
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset, Quest 3 via VDXR)**, with `dishonored_vr.log` copied out after each: (1) DONE
-(runs 14-15: the shared path judged good, it ships); (2) the eyes: play WITHOUT pausing for a few
-minutes on the shipped build and say whether the eyes still disagree, then with pause/resumes;
-`capture status` prints `readWaits` (the frames the read fence had to hold) and the `[game] view
-live at once` line marks each resume; if the eyes still disagree with readWaits climbing, say
-so with the time - the next lever is `capture sharedwait on` (this present's slot after its
-fence: zero latency, a different hand-off order); then the old list:
-the expectation is a pace-bound 72 ticks/s at the Quest 3 size (falsified if `perf: gpu` reads a
-3D span above 12 ms per tick, or the tick line stays above 20 ms with `lock` near 0); play for
-five minutes and LOOK at the textures (black or noisy surfaces after a streaming step are the
-shadow's failure signature; `device status` counts its failures), do one level load and one
-alt-tab, then `capture sharedwait on` as the A/B; (3) at a real frame rate: `vrpace ahead 0|1|2`,
-`neck cancel` vs `off`, `Strict pairs`, the desync on first load (the `STALE .. EYE` line now
-names the owner; send its timestamp). If the 9Ex device misbehaves in any way, `device ex off`
-and relaunch: everything else is unchanged.
+**The user (headset)**: nothing is blocking. When you next play, the open comfort questions are
+the ones a correct stereo pair finally lets you judge: (1) JUDDER on fast head or player movement -
+`vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and the `xr: pair
+phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT with
+`[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real frame
+rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
+Say which of the three is worst and the log will carry the numbers.
 
-**The next developer session**: read the headset logs first. If the shared path held, make
-`[Device] Ex=1` and `[Capture] Mode=shared` the defaults (one commit each), and fold the shadow's
-memory estimate into the census's byte model (`device status` overstates `shadowMB`: it counts
-w*h*4 per twin, not the compressed levels). If the 3D span at the Quest size is the ceiling, the
-render-size lever (the picker) is the next A/B, not the capture. Then the `Reset` semantics under
-9Ex (a fullscreen ask that Resets: `res 2560x1440f`), the pace guard's eaten tag if the headset
-names it, and the SteamVR shim (never run with this game). The 1080p tick budget on the
-simulator is unmeasured this session (the `[Screen]` picker was at the Quest 3 entry throughout).
+**The next developer session**: the correctness question of S2b is closed, so S3 is open - write
+the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
+correctness, failure modes, the headset verdicts) and bring the features back on the winner: the
+hands (SkelControl drive, hand meshes, `[Mode] GamepadOnly=0`), the wrist HUD through the runtime
+layer's HUD quad and texture-provider seam, Blink and motion aim. `stereo aer` is still a design
+stub and the losing method stays registered as the A/B. Carried: the SteamVR shim has never run
+with this game; the ini version rewrite still wipes a tuned ini (session-8 and -9 keys shipped
+without a bump); the pace guard's eaten tag if the headset ever names it.
 
 ## Blockers
 
-- **The headset run needs the user** (every simulator number above is at 90 Hz pacing with the
-  simulator's own compositor sharing the GPU).
 - **The ini version rewrite wipes a tuned ini** (`config.cpp` carries three keys over): the
-  session-8 keys ship without a version bump; a key-preserving rewrite is a separate change.
+  session-8 and session-9 keys ship without a version bump. A key-preserving rewrite is a
+  separate change.
 - **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
   `Stop-Process`; a menu quit is clean on the Quest (run 15).
+- **The walk-in on the simulator is by hand**: Return x4 with 28 s waits reached the level on four
+  of six launches this session; otherwise the mod's menu flag sticks (VERIFICATION gotcha 17) and
+  an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 9: the eyes - the trace, the swap, the fix, the proof
+
+Branch `claude/dishonored-vr-both-eyes-same-659cb5` -> PR #7, 13 commits. Runs on the dev PC
+(simulator lane, RTX 4060, 2496x2688 VirtualMode, the sewers, shipped defaults; logs in
+`D:\dvr-data\logs\45-run*.log`) and the user's Quest 3 through VirtualDesktopXR:
+
+| Run | What | Result |
+|---|---|---|
+| 01 | the trace and the words, first build | `stereo: frameid` pairs from the arming: L-R 4.1 at bb/slot/out, floor 1.5, c5 6.17, busy 0; `reentry rearm 2` -> SINGLE x2 then DOUBLE; `capture reinit` -> REBUILT, no STALE; `dump eyes` queued + written off-thread, no gap, no LOADING; the sc stage empty (an ordering bug) |
+| 02 | the sc stage, the side check | sc reads (4.7-5.0); **the side flipped across `reentry rearm 2`** and within a second of the first arming; the ring overflowed 363 times in the menu |
+| 03 | the 0-tag push + the c5 pairing (first form), the A/B | side ok from the first pair; `reentry c5pair off`: the side flipped on its own twice in 25 s, `untagged 16-19` per window; on: no flips |
+| 04 | the invariant as the pairing, the picture shift | side ok + shift -1 px on every pair, P1 == P2, untagged 0-1; `reentry.xrs` 11/11 |
+| 05 | the drain to the next expected tag | side ok from the first pair across a `stereo mono` -> `reentry` switch and a rearm; 0 ring drops |
+| 06 | the F10 EYES block | the overlay renders the readout and the buttons in the headset's own view (`xrsim-shot`) |
+| 07 | **HEADSET (the user)**, the session's build | the eyes RIGHT from the load and after every button; `side ok` / `SWAPPED=0` on every pair, c5 6.11, shift negative, L-R 3-14 (one picture = 1.5); the ring skewed 131 times in ~4 min - the old swaps, absorbed; the trace read every present cost 1.5 ms GPU idle per present, tick 16.7 ms (60/s under 72 Hz) |
+| 08 | **HEADSET (the user)**, the sampled trace + the A/B | "the fps is perfect now"; `c5 pairing` OFF + pause/resume -> the fault returns (`swapped=24 of 25`, then 12 of 12, the picture agreeing), ON -> `swapped=0` for the rest of the run. **The root cause is proven.** |
 
 ### 2026-09-03 - session 8: performance - the tick budget, the census, the 9Ex device, the shared capture
 

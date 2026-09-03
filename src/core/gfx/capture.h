@@ -87,6 +87,13 @@ enum class Mode { Sync = 0, Deferred = 1, Shared = 2, Off = 3 };
 bool        set_mode(const char* name);   // "sync" | "deferred" | "shared" | "off"
 Mode        mode();
 const char* mode_name();
+// 41.1 (session 9): `capture reinit` - release and rebuild the mode's slots
+// (shared: the surfaces, fences and D3D11 views; deferred: the readback ring)
+// at the next grab, the mode unchanged. One present delivers nothing. The
+// isolated "rebuild the capture" half of the one-view state's remedy.
+bool        request_reinit();
+uint32_t    reinits();
+
 
 // The eye tag of the frame being grabbed (a stereo method sets it before
 // grab()), and the tag of the content the last grab DELIVERED: the same tag
@@ -96,6 +103,11 @@ void     set_pending_tag(int eyeSign);
 int      delivered_tag();
 uint32_t delivered_serial();
 uint32_t serial();
+// 41.1 (session 9): the slot the delivered pixels sit in (shared: 0|1;
+// deferred: the readback slot; sync: -1) - the frame-identity trace records
+// it per present so a delivery that stops alternating is a number.
+int      delivered_slot();
+
 // shared (41.1, session 8): the delivery. SharedWait=0 (default) delivers the
 // PREVIOUS present's slot, whose blit had a whole present to finish (the tag
 // travels with the slot as under deferred); 1 delivers this present's after

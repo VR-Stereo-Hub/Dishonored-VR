@@ -2,6 +2,29 @@
 
 ## 41.1.0 (unreleased) - native stereo ships, the four headset faults, the resolution picker
 
+- **THE EYES ARE FIXED (session 9, 2026-09-04, headset-confirmed)**: after a level load or a
+  pause the two eyes disagreed - the eye tags paired draws to presents by order, and the order
+  broke wherever the game thread ran ahead of the render thread (and on its own every ~2 s on
+  the tester's rig), showing each eye the other's draw. The pairing follows the camera step
+  measured per present now: inside one tick nothing moves the camera but the eye offset, so the
+  second draw sits exactly one IPD along right of the first. Proven by A/B in the headset:
+  unticking `c5 pairing` and pausing brought the fault back, ticking it on removed it.
+  `[Stereo] C5Pair=1` ships; `reentry c5pair on|off` and the F10 tickbox are the A/B.
+- **New defaults, all headset-judged**: `[Screen] RenderWidth=2496 RenderHeight=2688
+  VirtualMode=1` (the Quest 3 through VirtualDesktopXR per-eye size, advertised so the game
+  actually creates it - a fresh install used to render the game's own size and look soft) and
+  `[Tracking] HeightOffsetM=-0.090` written out instead of left implicit. The F10 Display
+  picker still writes another headset's size for the next launch, and `res 0x0` asks for none.
+- **The one-picture state has its instrument**: the frame-identity trace (`[Perf] FrameId=1`,
+  `frameid on|off|status`, status.json `frameid{}`): the `stereo: frameid` line prints, per
+  left/right pair, how different the two eyes are at the backbuffer, the shared slot, the eye
+  texture and the swapchain image, the camera step between the draws, the side check and the
+  picture's own parallax sign. New seam words for the headset run: `reentry rearm [n]`,
+  `capture reinit`. `dump eyes` writes a consecutive pair and no longer stalls the game (the
+  PNG is encoded on a worker thread; the stall used to re-arm the second draw). The beat line's
+  `presentTid` follows the presenting thread; pass-2 eye writes the camera seam refused are
+  counted (`p2write refused=`).
+
 - **Performance (session 8)**: `[Capture] Mode=deferred` is the default (27 vs 21 ticks/s at
   the Quest 3 size on the simulator; `capture mode sync` is the A/B). New `[Device] Ex=0|1` and
   `Managed=none|default|dynamic|shadow` (launch-time; `device ex on|off`, `device managed <m>`,
