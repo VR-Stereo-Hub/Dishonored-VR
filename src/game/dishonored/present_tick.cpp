@@ -615,4 +615,6 @@ static void DvrInstallFrameHooks()
     rh.gates     = SceneDrawGates;
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
+    // 41.2 (session 10): the two counters the draw census cannot see for itself.
+    dvr::draws::set_game_counters(SceneDrawDraws, DvrPostRenderCount);
 }

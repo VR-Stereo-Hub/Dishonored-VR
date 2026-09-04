@@ -48,6 +48,12 @@ static void PeLatch(void* obj)
 }
 
 
+// 41.2 (session 10): the draw census reads this per present (present thread).
+static uint32_t DvrPostRenderCount()
+{
+    return (uint32_t)InterlockedCompareExchange(&g_pePostRender, 0, 0);
+}
+
 extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
 {
     InterlockedIncrement(&g_peCalls);
@@ -183,6 +189,23 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             dvr::vr::shutdown("PreExit");
             LogFlush();
         }
+    }
+    // 41.2 (session 10): count PostRender dispatches for the draw census. The
+    // HUD's draws are issued from inside this event (ENGINE_NOTES, "The
+    // scene-draw root"), so its rate against the viewport-draw count is what
+    // says whether the HUD is drawn once per tick or once per eye. One FName
+    // index compare per event, on the same sparse-retry pattern as PreExit.
+    if (obj) {
+        uint8_t* f = (uint8_t*)a1;
+        static uint32_t postRenderIdx = 0xffffffffu;
+        static int prRetryIn = 0;
+        if (postRenderIdx == 0xffffffffu && --prRetryIn <= 0) {
+            postRenderIdx = FindNameIdx("PostRender");
+            prRetryIn = 3000;
+        }
+        if (postRenderIdx != 0xffffffffu && f && !((uintptr_t)f & 3) &&
+            RangeReadable(f, kNameOff + 8) && *(uint32_t*)(f + kNameOff) == postRenderIdx)
+            InterlockedIncrement(&g_pePostRender);
     }
     // 41.1: the script-EVENT tracking below (menu open/close, the cinematic
     // toggle, the UI vocabulary, the shop) used to sit behind g_maimEnabled,

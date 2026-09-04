@@ -67,6 +67,11 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // 8 minutes in case an off-toggle is ever missed.
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
+// 41.2 (session 10): PostRender dispatches, for the draw census. The HUD is
+// drawn from inside this dispatch, and under `stereo reentry` the viewport
+// draw root runs TWICE per tick, so this against the viewport-draw count says
+// whether the HUD is drawn once or twice. Game thread writes, present reads.
+static volatile LONG g_pePostRender = 0;
 static bool CylTruthLive();              // fwd
 // per-eye frustum + eye offsets, cached by BuildEyeQuads for the panel math
 static float g_eyeFr[2][4];           // l, r, t, b

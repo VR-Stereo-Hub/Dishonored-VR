@@ -50,6 +50,12 @@ void shutdown();
 // no reference is ever taken on an engine D3D object inside a detour.
 void on_set_render_target(DWORD idx, IDirect3DSurface9* rt);
 
+// The game side lends two counters this module cannot see for itself: the
+// engine's viewport-draw count (one per re-entry pass) and the number of
+// PostRender dispatches, the event the HUD draws from. Their ratio says
+// whether the HUD is drawn once per tick or once per eye.
+void set_game_counters(uint32_t (*viewportDraws)(), uint32_t (*postRenderDispatches)());
+
 // [Draws] Census / `draws on|off`. Refuses (loudly, with the values) when a
 // hook is missing or the draws are not on the presenting thread.
 bool enabled();

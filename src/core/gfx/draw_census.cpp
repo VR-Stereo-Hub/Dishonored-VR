@@ -293,6 +293,18 @@ int      g_killN = 0;
 bool     g_killHud = false;
 uint32_t g_winKilled = 0;
 
+// The two counters the game side lends this module. The viewport-draw count is
+// the engine's own per-pass count (2 per tick under `stereo reentry`); the
+// PostRender count is script-thread and one dispatch per pass. Their RATIO is
+// the number that says whether the HUD is drawn once per tick or once per eye,
+// and it is the only honest way to use a game-thread counter here: the game
+// thread runs a frame AHEAD of the render thread, so a per-present delta of
+// this counter is not aligned to the present it is printed beside.
+uint32_t (*g_viewportDraws)() = nullptr;
+uint32_t (*g_postRender)() = nullptr;
+uint32_t g_prAtWinStart = 0, g_vdAtWinStart = 0;
+uint32_t g_prLast = 0, g_prDeltaLast = 0;
+
 // The short key the table prints and `draws kill` takes.
 inline uint32_t short_key(uint64_t k) { return (uint32_t)(k >> 32); }
 
@@ -490,6 +502,8 @@ void window_reset() {
     g_winPresents = 0; g_winDraws = 0; g_winTonemapDraws = 0;
     g_winTmFirstOrdSum = g_winTmLastOrdSum = g_winTmPresents = 0;
     g_winOrdSum = 0; g_winRtSampleAfterCand = 0; g_winKilled = 0;
+    g_prAtWinStart = g_postRender ? g_postRender() : 0;
+    g_vdAtWinStart = g_viewportDraws ? g_viewportDraws() : 0;
     memset(g_winByEntry, 0, sizeof(g_winByEntry));
     g_psHash.clear(); g_texIsRt.clear(); g_surfSize.clear();
     g_psDistinct = 0;
@@ -568,6 +582,12 @@ void install(IDirect3DDevice9* dev) {
     apply_wanted("armed by the ini");
 }
 
+void set_game_counters(uint32_t (*viewportDraws)(), uint32_t (*postRenderDispatches)()) {
+    g_viewportDraws = viewportDraws;
+    g_postRender = postRenderDispatches;
+    g_prLast = g_postRender ? g_postRender() : 0;
+}
+
 void on_set_render_target(DWORD idx, IDirect3DSurface9* rt) {
     if (idx == 0) g_rt0 = rt;   // pointer VALUE; no reference is taken
 }
@@ -606,6 +626,11 @@ void present_tick(IDirect3DDevice9* dev) {
     }
     ++g_presentNo;
     g_ord = 0; g_tmSeen = false; g_tmFirstOrd = g_tmLastOrd = 0; g_candSeen = false;
+    if (g_postRender) {
+        const uint32_t pr = g_postRender();
+        g_prDeltaLast = pr - g_prLast;
+        g_prLast = pr;
+    }
 
     // The backbuffer's identity for the next present. GetBackBuffer hands back a
     // reference; it is released inside this call, as capture::grab does.
@@ -660,6 +685,26 @@ void log_summary(const char* why) {
              (unsigned)(g_winTmPresents ? g_winTmFirstOrdSum / g_winTmPresents : 0),
              (unsigned)(g_winTmPresents ? g_winTmLastOrdSum / g_winTmPresents : 0),
              (double)g_winOrdSum / presents);
+    {   // The HUD is drawn from inside PostRender, so this ratio says how many
+        // times per engine tick the HUD is drawn: 2.0 under `stereo reentry`
+        // (once per eye), 1.0 on the mono screen. A ratio near 0 means the
+        // dispatch was never seen and the column is meaningless, which the line
+        // says rather than printing a silent zero.
+        const uint32_t pr = g_postRender ? g_postRender() - g_prAtWinStart : 0;
+        const uint32_t vd = g_viewportDraws ? g_viewportDraws() - g_vdAtWinStart : 0;
+        if (!g_postRender)
+            DVR_INFO("draws: postRender: no counter registered (the game side did not hand one over)");
+        else if (!pr)
+            DVR_INFO("draws: postRender: 0 dispatches in the window - the HUD's own event never "
+                     "fired, so nothing in this table was drawn from it");
+        else
+            DVR_INFO("draws: postRender %u dispatches, viewport draws %u -> %.2f per draw "
+                     "(2.00 under reentry = the HUD is drawn once per EYE; 1.00 = once per tick). "
+                     "Last present's delta %u, which is a game-thread count read a frame ahead of "
+                     "these draws and is NOT aligned to this present",
+                     (unsigned)pr, (unsigned)vd, vd ? (double)pr / (double)vd : 0.0,
+                     (unsigned)g_prDeltaLast);
+    }
     if (g_killN || g_killHud)
         DVR_INFO("draws: KILLING %s%s%d key(s): %.1f draws/present dropped - the picture is NOT "
                  "what the game drew", g_killHud ? "the HUD candidates" : "", g_killHud && g_killN ? " and " : "",
@@ -760,6 +805,7 @@ void status(dvr::status::Writer& w) {
     w.kv("stateBlocks", (unsigned long)g_stateBlocksCreated);
     w.kv("killHud", g_killHud);
     w.kv("killKeys", (int)g_killN);
+    w.kv("postRender", (unsigned long)(g_postRender ? g_postRender() : 0));
     w.kv("verdict", g_verdict);
 }
 
