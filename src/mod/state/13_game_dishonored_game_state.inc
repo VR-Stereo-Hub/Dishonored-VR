@@ -79,6 +79,24 @@ static bool g_verdictLast = false;
 // would see it. The one instrument that says whether a wrong-looking panel is
 // a bad redirect, a bad copy or a bad quad.
 static int g_dumpReqHud = 0;
+// 41.2 (session 10): [Cine] Mode. quad (default, and what has always
+// happened) drops the gameplay verdict while the cinematic latch is up, so
+// the re-entry parks its second draw and the runtime layer falls to its
+// head-locked cinematic quad: one image, both eyes, no stereo. stereo keeps
+// the projection and the eye pair through the cutscene. The engine's matinee
+// camera does not follow the head either way - only the fallback head path is
+// held during a cinematic, and the script-lane write lands on a camera the
+// cutscene ignores - so `stereo` buys depth, not look-around, and whether
+// that is comfortable is a headset question.
+static bool g_cineStereoMode = false;
+// 41.2 (session 10): whether the HUD panel stays live through a cutscene.
+// It only bites under Mode=stereo (under quad the verdict is false anyway, so
+// the panel is down and the subtitles ride the cinematic quad with the rest of
+// the frame). This IS the subtitle decision: on, the subtitles are on the
+// panel, one image in both eyes, which is the runtime layer's own documented
+// stereo-correct choice; off, they stay in each eye's frame, where the two
+// eyes are captured from different game frames and text can double.
+static bool g_cineHudPanel = true;
 static bool CylTruthLive();              // fwd
 // per-eye frustum + eye offsets, cached by BuildEyeQuads for the panel math
 static float g_eyeFr[2][4];           // l, r, t, b

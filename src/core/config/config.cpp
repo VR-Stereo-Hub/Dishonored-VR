@@ -116,6 +116,22 @@ static void WriteDefaultIni(const char* ini)
         "; distance, width and height are the HUD sliders on the F10 Runtime tab.\n"
         "Panel=0\n"
         "SlotScale=0.50\n"
+        "[Cine]\n"
+        "; What the headset shows during a cutscene. quad (the default, and what has always\n"
+        "; happened) drops the gameplay verdict while the cinematic latch is up: the scene\n"
+        "; is drawn once and the runtime layer shows it on its head-locked quad, one image\n"
+        "; in both eyes. stereo keeps the per-eye projection through the cutscene, so it has\n"
+        "; depth, and the HUD panel stays live for the subtitles. Neither makes the engine's\n"
+        "; matinee camera follow your head - a cutscene owns the camera - so under stereo the\n"
+        "; picture holds its frame while you turn. Judge it in the headset: `cine stereo`,\n"
+        "; `cine quad`, `cine status`, and `cine latch on|off` to enter the state by hand.\n"
+        "Mode=quad\n"
+        "; HudPanel=1 keeps the HUD panel live through a cutscene, which puts the SUBTITLES\n"
+        "; on the panel: one image in both eyes, which is the stereo-correct place for text.\n"
+        "; 0 leaves them in the frame, where each eye is captured from a different game\n"
+        "; frame and text can double. Only bites under Mode=stereo (under quad the panel is\n"
+        "; down anyway and the subtitles ride the cinematic quad with the rest of the frame).\n"
+        "HudPanel=1\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -579,6 +595,18 @@ static void LoadConfig()
     }
     {   // 41.2 (session 10): the draw census - the HUD measurement, default off
         dvr::draws::set_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
+    }
+    {   // 41.2 (session 10): what the headset shows during a cutscene
+        char cm[16] = "";
+        GetPrivateProfileStringA("Cine", "Mode", "quad", cm, sizeof(cm), ini);
+        g_cineStereoMode = !strcmp(cm, "stereo");
+        g_cineHudPanel = IniFloat(ini, "Cine", "HudPanel", 1) != 0.0f;
+        Log("config: [Cine] Mode=%s HudPanel=%d (%s during a cutscene; the subtitles are %s)",
+            g_cineStereoMode ? "stereo" : "quad", g_cineHudPanel ? 1 : 0,
+            g_cineStereoMode ? "the per-eye projection holds"
+                             : "the runtime layer's head-locked cinematic quad",
+            (g_cineStereoMode && g_cineHudPanel) ? "on the panel, one image in both eyes"
+                                                 : "in the frame");
     }
     {   // 41.2 (session 10): the HUD panel, default off
         dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
@@ -1425,6 +1453,8 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%.2f", dvr::hudcap::slot_scale());
     WritePrivateProfileStringA("Hud", "SlotScale", v, ini);
     WritePrivateProfileStringA("Draws", "Census", dvr::draws::enabled() ? "1" : "0", ini);
+    WritePrivateProfileStringA("Cine", "Mode", g_cineStereoMode ? "stereo" : "quad", ini);
+    WritePrivateProfileStringA("Cine", "HudPanel", g_cineHudPanel ? "1" : "0", ini);
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);

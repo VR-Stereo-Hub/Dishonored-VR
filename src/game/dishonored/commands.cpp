@@ -22,6 +22,12 @@
 //   device managed <m>           [Device] Managed=none|default|dynamic|shadow for the NEXT launch
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
+//   vrcine <args>                the runtime layer's cinematic seam (on|off|mode|bars|...)
+//   cine quad|stereo|status      what the headset shows during a cutscene
+//   cine hud on|off              whether the HUD panel (and the subtitles) survive one
+//   cine latch on|off            flip the cinematic latch by hand (the simulator's A/B)
+//   draws on|off|status|kill|unkill   the draw census (core/gfx/draw_census)
+//   hud on|off|status|scale <f>  the HUD panel (core/gfx/hud_capture)
 //   vrinput on|off|status        the virtual gamepad
 //   console <text>               run a game console command on the script lane
 //   dump frame|capture|eyes
@@ -194,6 +200,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
     if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
+    // 41.2 (session 10): the runtime layer's own cinematic seam had no word at
+    // all, so its whole vocabulary (on|off|mode|bars|effects|status) was
+    // unreachable from this game. It is reachable now.
+    if (!strcmp(cmd, "vrcine"))   { dvr::vr::handle_cine_command(args); return true; }
+    if (!strcmp(cmd, "cine")) {    // the GAME side's cinematic policy
+        return DvrCineCommand(args);
+    }
     if (!strcmp(cmd, "vrinput")) {
         if (DvrOnOff(args, &b)) { g_padEnabled = b; Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }
         Log("input: pad %s active=%d polls=%ld actions=%s haptics=%d (vrinput on|off|status)",
@@ -350,6 +363,12 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("frameid"); dvr::frameid::status(w); w.end_obj();   // 41.1 (session 9): the frame-identity trace
     w.obj("draws"); dvr::draws::status(w); w.end_obj();       // 41.2 (session 10): the draw census
     w.obj("hud"); dvr::hudcap::status(w); w.end_obj();        // 41.2 (session 10): the HUD panel
+    w.obj("cine");                                            // 41.2 (session 10): the cutscene policy
+    w.kv("mode", g_cineStereoMode ? "stereo" : "quad");
+    w.kv("hudPanel", (bool)g_cineHudPanel);
+    w.kv("latch", (bool)g_cineNow);
+    w.kv("active", (bool)CineActive());
+    w.end_obj();
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
 
     w.obj("head");

@@ -21,6 +21,68 @@ static bool CineActive()
     return g_cineNow;
 }
 
+// 41.2 (session 10): `cine quad|stereo|status` and `cine latch on|off`.
+// The latch word exists because no cutscene can be triggered on demand on the
+// simulator, and a policy nobody can enter is a policy nobody can test; it is
+// the same kind of instrument as `reentry rearm`.
+static bool DvrCineCommand(const char* args)
+{
+    if (!strcmp(args, "quad") || !strcmp(args, "stereo")) {
+        const bool st = !strcmp(args, "stereo");
+        if (st != g_cineStereoMode) {
+            g_cineStereoMode = st;
+            ConfigWriteKey("Cine", "Mode", st ? "stereo" : "quad", "the seam");
+        }
+        // Keep the runtime layer's own policy agreeing with ours.
+        dvr::vr::handle_cine_command(st ? "mode stereo" : "mode quad");
+        Log("cine: mode %s - during a cutscene the headset %s. The engine's matinee camera does "
+            "not follow your head in either mode (only the fallback head path is held; the "
+            "script-lane write lands on a camera the cutscene ignores), so expect the picture to "
+            "hold its frame while you turn - a comfort question for the headset",
+            st ? "stereo" : "quad",
+            st ? "keeps the per-eye projection and the depth, and the HUD panel stays live"
+               : "shows one image on the head-locked quad, both eyes, no depth");
+        return true;
+    }
+    if (!strncmp(args, "hud", 3)) {
+        const char* a = args + 3;
+        while (*a == ' ') ++a;
+        const bool on = !strcmp(a, "on");
+        if (!on && strcmp(a, "off")) { Log("cine: hud wants on or off"); return true; }
+        g_cineHudPanel = on;
+        ConfigWriteKey("Cine", "HudPanel", on ? "1" : "0", "the seam");
+        Log("cine: the HUD panel %s through a cutscene - the subtitles are %s%s",
+            on ? "STAYS live" : "goes down",
+            on ? "on the panel, one image in both eyes" : "in the frame, where each eye is a "
+                 "different game frame and text can double",
+            g_cineStereoMode ? "" : " (moot until `cine stereo`: under quad the panel is down "
+                                    "during a cutscene anyway)");
+        return true;
+    }
+    if (!strncmp(args, "latch", 5)) {
+        const char* a = args + 5;
+        while (*a == ' ') ++a;
+        const bool on = !strcmp(a, "on");
+        if (!on && strcmp(a, "off")) {
+            Log("cine: latch wants on or off");
+            return true;
+        }
+        g_cineNow = on;
+        g_cineOnMs = MaimNowMs();
+        Log("cine: latch forced %s BY HAND - this is the instrument, not the game. The real latch "
+            "follows the OnToggleCinematicMode event and clears itself on a new pawn, a loading "
+            "screen and the main menu", on ? "ON" : "off");
+        return true;
+    }
+    Log("cine: mode=%s hudPanel=%d latch=%d (active=%d) - during a cutscene the verdict %s, so "
+        "the runtime layer shows %s and the subtitles are %s",
+        g_cineStereoMode ? "stereo" : "quad", g_cineHudPanel ? 1 : 0, (int)g_cineNow,
+        (int)CineActive(), g_cineStereoMode ? "HOLDS" : "drops",
+        g_cineStereoMode ? "the per-eye projection" : "its head-locked cinematic quad",
+        (g_cineStereoMode && g_cineHudPanel) ? "on the panel" : "in the frame");
+    return true;
+}
+
 static bool SprintBit(bool clickNow)
 {
     if (!g_sprintHoldCfg) return clickNow;

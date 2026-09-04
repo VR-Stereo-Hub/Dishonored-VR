@@ -164,6 +164,7 @@ static void FpWhy(const char* reason);
 static bool LooksLikeObj(uint8_t* p);
 static void PeLatch(void* obj);
 static uint32_t DvrPostRenderCount();
+static bool DvrCineCommand(const char* args);
 static uint8_t* FpMeshUnder(uint8_t* owner, uint32_t* offOut);
 static void FpCensus();
 static void FpRawDump();
