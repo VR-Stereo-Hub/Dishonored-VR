@@ -30,6 +30,8 @@ OverlayDrawFn g_overlay = nullptr;
 uint64_t g_beatMs = 0;
 uint32_t g_beatOut = 0, g_beatL = 0, g_beatR = 0, g_beatMono = 0, g_beatNone = 0;
 int      g_projOverride = -1;   // -1 auto, 0 off, 1 on
+int      g_holdUntagged = 3;    // 41.1: max CONSECUTIVE untagged presents to suppress (0 = off; 3 ships, headset-judged)
+uint32_t g_holdsDone = 0;       // how many this session
 char     g_configMethod[16] = "";   // [Stereo] Method, applied once the game side is up
 // The SELECTION and whether it RUNS are two things (41.1, the F10 tickbox):
 // `g_wanted` is the method the player chose ([Stereo] Method, `stereo <name>`),
@@ -240,6 +242,21 @@ const char* projection_override_name() {
     return g_projOverride < 0 ? "auto" : g_projOverride ? "on" : "off";
 }
 
+// 41.1 (Dishonored): the untagged hold. The method asks whether it may keep
+// this untagged present off the wire; stereo.cpp owns the count so the beat
+// and status can report it without the method exporting a global.
+int hold_untagged() { return g_holdUntagged; }
+void set_hold_untagged(int n) {
+    const int v = n < 0 ? 0 : n > 30 ? 30 : n;
+    if (v == g_holdUntagged) return;
+    g_holdUntagged = v;
+    DVR_INFO("stereo: hold %d - up to %d consecutive untagged present(s) are held back (the compositor keeps the "
+             "previous pair) before the mono path is used; 0 = off, the untagged present goes out as mono. "
+             "`stereo status` and the beat's holds= say how many were held.", v, v);
+}
+uint32_t holds_done() { return g_holdsDone; }
+void note_hold() { ++g_holdsDone; }   // called by the method when it suppresses one
+
 void status(dvr::status::Writer& w) {
     w.kv("method", active_name());
     w.kv("wanted", g_wanted);
@@ -251,6 +268,8 @@ void status(dvr::status::Writer& w) {
     w.kv("nextEye", g_active ? g_active->eye_for_next_frame() : 0);
     w.kv("projection", wants_projection());
     w.kv("projectionOverride", projection_override_name());
+    w.kv("holdUntagged", g_holdUntagged);
+    w.kv("holds", (unsigned long)g_holdsDone);
     w.kv("camMode", dvr::vr::vr_camera_mode());
     w.kv("cineActive", dvr::vr::cinematic_active());
     {   // the runtime's pair probe as the beat last drained it (cumulative counters)

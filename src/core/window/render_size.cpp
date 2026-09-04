@@ -177,7 +177,7 @@ static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who)
     {   // the ask must survive the relaunch it needs: into the mod's ini now, not
         // only on SAVE AS DEFAULTS (the verdict at the next boot reads it back)
         char ini[MAX_PATH], v[32];
-        _snprintf(ini, MAX_PATH, "%s\dishonored_vr.ini", g_dir);
+        _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
         _snprintf(v, sizeof(v), "%u", w); WritePrivateProfileStringA("Screen", "RenderWidth", v, ini);
         _snprintf(v, sizeof(v), "%u", h); WritePrivateProfileStringA("Screen", "RenderHeight", v, ini);
         WritePrivateProfileStringA("Screen", "RenderFullscreen", full ? "1" : "0", ini);
@@ -247,7 +247,7 @@ static bool ResCommand(const char* args)
         if (n >= 2 && DvrOnOff(b, &on)) {
             g_resVirtual = on;
             char ini[MAX_PATH];
-            _snprintf(ini, MAX_PATH, "%s\dishonored_vr.ini", g_dir);
+            _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
             WritePrivateProfileStringA("Screen", "VirtualMode", on ? "1" : "0", ini);   // survives the relaunch
             if (g_resWantW && g_resWantH) LaunchArgsWrite(g_resWantW, g_resWantH, g_resWantFull);   // the file carries it too
             Log("res: virtual mode %s - the proxy %s the asked size in the adapter's mode list and turns a fullscreen "
