@@ -59,7 +59,8 @@ void set_enabled(bool on);
 void log_summary(const char* why);
 // status.json "draws" object.
 void status(dvr::status::Writer& w);
-// The `draws` seam word: "on", "off", anything else prints the summary now.
+// The `draws` seam word: "on", "off", "kill <key>|hud", "unkill", anything else
+// prints the summary now.
 bool command(const char* args);
 
 } // namespace dvr::draws

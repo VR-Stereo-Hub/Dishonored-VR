@@ -284,6 +284,18 @@ bool     g_tmSeen = false;        // the tonemap boundary has passed
 uint32_t g_tmFirstOrd = 0, g_tmLastOrd = 0;
 bool     g_candSeen = false;
 
+// `draws kill`: the project's rule for identifying a render pass is to make it
+// MOVE. A killed bucket's draws are dropped, so a capture before and after says
+// by PICTURE whether the class is the HUD - which no counter can.
+const int kKills = 8;
+uint32_t g_kill[kKills] = {};
+int      g_killN = 0;
+bool     g_killHud = false;
+uint32_t g_winKilled = 0;
+
+// The short key the table prints and `draws kill` takes.
+inline uint32_t short_key(uint64_t k) { return (uint32_t)(k >> 32); }
+
 // The last verdict, for status.json and `draws status`.
 char     g_verdict[320] = "not measured yet";
 uint32_t g_candBuckets = 0;
@@ -293,7 +305,8 @@ void note_draw() {
     if (g_threadAsking) g_lastDrawTid = GetCurrentThreadId();
 }
 
-void record(uint8_t entry, UINT prims) {
+// Returns true when this draw is to be DROPPED (the kill lever).
+bool record(uint8_t entry, UINT prims) {
     ++g_ord;
     Sig s;
     memset(&s, 0, sizeof(s));
@@ -339,11 +352,19 @@ void record(uint8_t entry, UINT prims) {
     ++g_winDraws;
     ++g_winByEntry[entry & 3];
     Row* r = row_for(s);
-    if (!r) return;
-    ++r->draws;
-    if (r->lastPresent != g_presentNo) { r->lastPresent = g_presentNo; ++r->presents; }
-    if (g_ord < r->minOrd) r->minOrd = g_ord;
-    if (g_ord > r->maxOrd) r->maxOrd = g_ord;
+    if (r) {
+        ++r->draws;
+        if (r->lastPresent != g_presentNo) { r->lastPresent = g_presentNo; ++r->presents; }
+        if (g_ord < r->minOrd) r->minOrd = g_ord;
+        if (g_ord > r->maxOrd) r->maxOrd = g_ord;
+    }
+
+    if (!g_killN && !g_killHud) return false;
+    if (g_killHud && is_candidate(s)) { ++g_winKilled; return true; }
+    const uint32_t sk = short_key(sig_key(s));
+    for (int i = 0; i < g_killN; i++)
+        if (g_kill[i] == sk) { ++g_winKilled; return true; }
+    return false;
 }
 
 // ---- the hooks ------------------------------------------------------------
@@ -352,21 +373,21 @@ void record(uint8_t entry, UINT prims) {
 HRESULT __stdcall hkDrawPrimitive(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,
                                   UINT prims) {
     note_draw();
-    if (g_track) record(0, prims);
+    if (g_track && record(0, prims)) return D3D_OK;   // killed on purpose
     return g_origDp(self, type, start, prims);
 }
 
 HRESULT __stdcall hkDrawIndexedPrimitive(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT base,
                                          UINT minIdx, UINT numVerts, UINT startIdx, UINT prims) {
     note_draw();
-    if (g_track) record(1, prims);
+    if (g_track && record(1, prims)) return D3D_OK;   // killed on purpose
     return g_origDip(self, type, base, minIdx, numVerts, startIdx, prims);
 }
 
 HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT prims,
                                     const void* verts, UINT stride) {
     note_draw();
-    if (g_track) record(2, prims);
+    if (g_track && record(2, prims)) return D3D_OK;   // killed on purpose
     return g_origDpUp(self, type, prims, verts, stride);
 }
 
@@ -375,7 +396,7 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
                                            const void* idxData, D3DFORMAT idxFmt,
                                            const void* verts, UINT stride) {
     note_draw();
-    if (g_track) record(3, prims);
+    if (g_track && record(3, prims)) return D3D_OK;   // killed on purpose
     return g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
 }
 
@@ -468,7 +489,7 @@ void window_reset() {
     g_rowsUsed = 0; g_rowOverflow = 0;
     g_winPresents = 0; g_winDraws = 0; g_winTonemapDraws = 0;
     g_winTmFirstOrdSum = g_winTmLastOrdSum = g_winTmPresents = 0;
-    g_winOrdSum = 0; g_winRtSampleAfterCand = 0;
+    g_winOrdSum = 0; g_winRtSampleAfterCand = 0; g_winKilled = 0;
     memset(g_winByEntry, 0, sizeof(g_winByEntry));
     g_psHash.clear(); g_texIsRt.clear(); g_surfSize.clear();
     g_psDistinct = 0;
@@ -614,6 +635,7 @@ void on_reset() {
 void shutdown() {
     g_threadAsking = false;
     g_track = false;
+    g_killN = 0; g_killHud = false;
 }
 
 bool enabled() { return g_track; }
@@ -638,6 +660,10 @@ void log_summary(const char* why) {
              (unsigned)(g_winTmPresents ? g_winTmFirstOrdSum / g_winTmPresents : 0),
              (unsigned)(g_winTmPresents ? g_winTmLastOrdSum / g_winTmPresents : 0),
              (double)g_winOrdSum / presents);
+    if (g_killN || g_killHud)
+        DVR_INFO("draws: KILLING %s%s%d key(s): %.1f draws/present dropped - the picture is NOT "
+                 "what the game drew", g_killHud ? "the HUD candidates" : "", g_killHud && g_killN ? " and " : "",
+                 g_killN, (double)g_winKilled / presents);
 
     if (!g_winDraws) {
         DVR_INFO("draws: no draws in the window - the census sees nothing (is the game rendering?)");
@@ -659,8 +685,8 @@ void log_summary(const char* why) {
         const Row& r = sorted[i];
         if (!r.draws) break;
         sig_text(r.sig, txt, sizeof(txt));
-        DVR_INFO("draws:   %s %s n=%.1f/present ord %u..%u in %u presents",
-                 is_candidate(r.sig) ? "HUD?" : "    ", txt,
+        DVR_INFO("draws:   %s k=%08x %s n=%.1f/present ord %u..%u in %u presents",
+                 is_candidate(r.sig) ? "HUD?" : "    ", (unsigned)short_key(r.key), txt,
                  (double)r.draws / presents, (unsigned)r.minOrd, (unsigned)r.maxOrd,
                  (unsigned)r.presents);
     }
@@ -732,12 +758,48 @@ void status(dvr::status::Writer& w) {
     w.kv("candBuckets", (unsigned long)g_candBuckets);
     w.kv("candPerPresent", g_candPerPresent);
     w.kv("stateBlocks", (unsigned long)g_stateBlocksCreated);
+    w.kv("killHud", g_killHud);
+    w.kv("killKeys", (int)g_killN);
     w.kv("verdict", g_verdict);
 }
 
 bool command(const char* args) {
     if (!strcmp(args, "on"))  { set_enabled(true);  return true; }
     if (!strcmp(args, "off")) { set_enabled(false); return true; }
+    if (!strcmp(args, "unkill")) {
+        g_killN = 0; g_killHud = false;
+        DVR_INFO("draws: kill list cleared - the game's own draws again");
+        return true;
+    }
+    if (!strncmp(args, "kill", 4)) {
+        const char* a = args + 4;
+        while (*a == ' ') ++a;
+        if (!g_track) {
+            DVR_WARN("draws: kill needs the census on (the buckets are what it kills) - `draws on`");
+            return true;
+        }
+        if (!strcmp(a, "hud")) {
+            g_killHud = true;
+            DVR_INFO("draws: kill HUD armed - every candidate draw is dropped. Take `dump capture` "
+                     "before and after: if exactly the HUD went and the world did not, the rule "
+                     "found the HUD; if any world geometry went, it did not");
+            return true;
+        }
+        const uint32_t k = (uint32_t)strtoul(a, nullptr, 16);
+        if (!k) {
+            DVR_WARN("draws: kill wants a bucket key from the table (`draws kill 1a2b3c4d`) or "
+                     "`draws kill hud`; got '%s'", a);
+            return true;
+        }
+        if (g_killN >= kKills) {
+            DVR_WARN("draws: kill list is full (%d) - `draws unkill` first", kKills);
+            return true;
+        }
+        g_kill[g_killN++] = k;
+        DVR_INFO("draws: kill %08x armed (%d in the list) - dump a capture before and after",
+                 (unsigned)k, g_killN);
+        return true;
+    }
     log_summary("status");
     return true;
 }
