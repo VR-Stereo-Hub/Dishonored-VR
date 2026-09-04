@@ -1,9 +1,10 @@
 # Status
 
-## OPEN BUG (2026-09-03, headset, dev rig): the micro flicker is a STALE RIGHT EYE, and no gate admits to it
+## OPEN BUG (2026-09-03, headset, dev rig): the stale RIGHT eye - DIAGNOSED AND FIXED, unverified in the headset
 
-Branch `swapchain-one-picture-flicker` off `native-stereo-rendering` (0d7eeb24). The build in the
-game folder is that commit, hash-checked against the build output, id `alpha-243-g0d7eeb24`.
+Branch `swapchain-one-picture-flicker` off `native-stereo-rendering` (0d7eeb24). The fix is
+`1507bafc`; **it has not been in a headset**. The build in the game folder is still the
+0d7eeb24 one, id `alpha-243-g0d7eeb24`, until someone installs.
 
 ### What 0d7eeb24 FIXED, measured
 
@@ -11,46 +12,77 @@ game folder is that commit, hash-checked against the build output, id `alpha-243
 frameid trace over one headset run: `side SWAPPED=0`, `picture shift pos=0 (swapped)`, `neg=345
 (true pair)`. The periodic eye REVERSAL is gone - the same rig measured 38 % of pairs reversed
 before it (see the parked branch `native-stereo-rendering-flicker-fix`, whose `pair geom` line
-characterised it). His trace also settles the polarity question independently: it treats
-`-6.18 along right` as `side ok`, which is why a guard built on the opposite assumption pinned
-the tester to the broken state.
+characterised it, now ported here). His trace also settles the polarity question independently:
+it treats `-6.18 along right` as `side ok`, which is why a guard built on the opposite
+assumption pinned the tester to the broken state.
 
-### What is STILL WRONG - the tester feels it as a slight, frequent flicker
+### The fault, and why every gate read zero honestly
 
 ```
 one-picture pairs: bb=0  slot=0  out=0  sc=22 of 563 (3.9 %)   sc-target repeats=23
 stale submits so far L=0 R=20        <- ASYMMETRIC: only ever the RIGHT eye
 STALE R EYE ... ages L=0 R=2 presents (healthy = 1/0)
-```
-
-The frame is correct at the backbuffer, correct in the capture slot, correct at the method
-output, and only wrong at the SWAPCHAIN: the right eye is shown an image two presents old. The
-line names the owner - "a second -1 tag closed the pair (the game side skipped pass 2)".
-
-**The reason nothing explains it is the finding.** On all 9 logged instances, every pass-2 skip
-reason reads ZERO:
-
-```
-pass-2 skips since the last line: foreign=0 state=0 silent=0 stall=0 session=0 test=0 exit=0 forced=0
+pass-2 skips: foreign=0 state=0 silent=0 stall=0 session=0 test=0 exit=0 forced=0
 runtime: acqFail=0 waitFail=0 untaggedProj=0 abortLeft=1 eatenNoFrame=0
 ```
 
-So pass 2 did not run, a second -1 closed the pair, and **not one of the eight gates in
-`SceneDrawDecide` claims responsibility**, nor did the swapchain acquire/wait fail. Either pass 2
-is being skipped somewhere that does not count (the `g_sdPoisoned` / `g_sdForceSkip2` early
-returns in `SceneDrawMaybeSecond` are the obvious unlogged exits), or the pair is being closed by
-a present that never had a pass 2 to begin with. The line itself warns its counters "lag a tick",
-so read that before trusting the zeros.
+**The game side was never at fault, and the zeros were all true.** `SceneDrawMaybeSecond`
+cannot skip pass 2 unlogged: `!doubleIt` means pass 1 pushed no `-1` at all (the `-1` is pushed
+inside `if (g_sdTick.doubleIt)`), the poison is set at one site that logs an `Error` and stands
+the method down, and the forced skip is the `forced=` field. A refused pass-2 eye write does
+not skip the draw either. So both tags were pushed on every one of the 20 instances, and the
+second `-1` was manufactured downstream.
 
-### Where to start
+It was manufactured in `reentry.cpp`'s `end_frame`. The c5 invariant has **two arms and they
+are not equally trustworthy**:
 
-- `src/game/dishonored/scene_draw.cpp` - `SceneDrawMaybeSecond` returns early on `!d.doubleIt`,
-  `g_sdPoisoned` and `g_sdForceSkip2` without incrementing any counter a stale line would print.
-- `src/core/vr/openxr_runtime.cpp:3861` - the swapchain stage; `acqFail`/`waitFail` are already
-  ruled out (both 0), so the copy is fine and the SUBMISSION pairing is what is wrong.
-- `src/core/gfx/frame_id.cpp` - the trace; `stereo: frameid 3s` carries the one-picture counts,
-  and it samples one pair every 8 ticks (`frameid every <n>` to sample harder).
-- It is only ever the RIGHT eye (L=0, R=20 across the run). Anything symmetric is not the cause.
+- `inv=+1` ("pass 2 after pass 1") compares two draws with **no world tick between them**. The
+  step is exactly `-ipd*scale` along the camera's right row by construction. Robust.
+- `inv=-1` ("pass 1 after a still pass 2") is the **only arm that reasons across a world tick**,
+  and holds solely while the player is near still.
+
+A gently moving player - turning in place, decelerating, crouch-walk - parks the tick's travel
+inside the `+-0.35*ipd` window (about `+-2.2 uu` at the measured 6.18), and the fragile arm then
+names a genuine pass-2 present a pass 1. It did so **unconditionally, on a streak of one**. One
+wrong `-1` adds a LEFT and drops a RIGHT: the left swapchain is written twice (`sc-target
+repeats=23`), the right is never written (`ages L=0 R=2`), and the runtime reports `abortLeft`.
+Only the `-1` arm can misfire, which is exactly the observed `L=0 R=20` asymmetry.
+
+**And `method untagged presents=0` was a lie the code told itself.** The old block ended with an
+unconditional `t.eye = inv; tagged = true;`, so a present the ring never filled got an eye
+invented out of nothing and the untagged counter never moved.
+
+### The fix (`1507bafc`, needs a headset run)
+
+- The cross-tick arm **defers to the ring** on a disagreement; a streak of three still earns the
+  override for either arm. The within-tick arm keeps acting alone.
+- Neither arm invents a tag on an empty ring or over the `0` tag a single gameplay draw pushes.
+  That present goes out untagged and honest - which is what `[Stereo] HoldUntagged` (ported from
+  the parked branch, ships `0`/OFF, `stereo hold <n>` live) exists to cover.
+- **The instrument, which can now fail its own hypothesis**: `sameEyePushed` counts the fault
+  itself at the push site, on the present thread, with no lag and no inference - two consecutive
+  presents pushing the same eye. It, `disagree`, `took`, `held`, `realigned` and `refusedInvent`
+  are on the STALE line, which until now carried only the game side's gates and the runtime's
+  failures and so could not see the method that prints it. Also in `status.json` as `c5Took`,
+  `c5Held`, `c5Refused`, `pushSameEye`.
+- The STALE line's owner string no longer asserts "the game side skipped pass 2" from
+  `abortLeft` alone. `abortLeft` only proves two lefts reached the runtime; the line now says
+  that and points at the c5 fields.
+
+### How to judge the next headset run
+
+Install, play normally for a few minutes, then read the log:
+
+- **Fixed**: no `STALE R EYE` lines, `sameEyePushed=0`, `held=` non-zero and climbing (the arm
+  is deferring and that is what removed the flicker), `sc=` near 0 on the frameid line.
+- **Hypothesis wrong**: `STALE R EYE` still prints with `sameEyePushed=0` - then the repeat is
+  NOT this method's push and the runtime's own pairing is next. Read `abortLeft` against
+  `sameEyePushed`: they should move together, and a divergence is the new finding.
+- **Half right**: stale gone but the tester reports one-frame mono flicks - that is the honest
+  untagged present the fix now allows. `stereo hold 3` and re-judge.
+- `reentry c5pair off` remains the A/B for the whole mechanism.
+- Also ported and unverified: the `pair geom` line (separation angle every 2 s), the F2 fault
+  marker, and the `res` seam's separator fix.
 
 ### The rig, and two traps that cost runs
 
@@ -60,7 +92,6 @@ by the `res` seam word, so use `res 2496x2688` and never hand-edit the key. `bPa
 was TRUE in the game ini (now FALSE here): with it on, alt-tabbing to drive the command seam
 pauses the thing being judged. VERIFICATION gotcha 17 bit 1 run in 3: state sticks at MENU in the
 level, `2nd/s=0`, screen stays mono - open and close the pause menu.
-
 
 ## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
@@ -109,13 +140,19 @@ headset, at rate, with the tested configuration shipping as the defaults.
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset)**: nothing is blocking. When you next play, the open comfort questions are
-the ones a correct stereo pair finally lets you judge: (1) JUDDER on fast head or player movement -
-`vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and the `xr: pair
-phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT with
-`[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real frame
-rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
-Say which of the three is worst and the log will carry the numbers.
+**The user (headset)**: ONE run answers the flicker. Install `swapchain-one-picture-flicker`
+(`1507bafc`), play normally for a few minutes - including turning in place and slow crouch-walk,
+which is where the fault lived - and send the log. Judging criteria are in the OPEN BUG section;
+the short form is `sameEyePushed=0` with `held=` climbing means fixed, and `STALE R EYE` still
+printing with `sameEyePushed=0` means the hypothesis was wrong and names the next suspect.
+`reentry c5pair off` is still the A/B for the whole mechanism, and `stereo hold 3` is there if
+the fix trades the stale eye for one-frame mono flicks. After that, the open comfort questions
+are the ones a correct stereo pair finally lets you judge: (1) JUDDER on fast head or player
+movement - `vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and the
+`xr: pair phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT
+with `[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real
+frame rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` /
+`HeightOffsetM=-0.090`. Say which of the three is worst and the log will carry the numbers.
 
 **The next developer session**: the correctness question of S2b is closed, so S3 is open - write
 the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
@@ -138,6 +175,44 @@ without a bump); the pace guard's eaten tag if the headset ever names it.
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 10: the stale RIGHT eye, read out of the code (no runs)
+
+Branch `swapchain-one-picture-flicker`, 5 commits, **no game launched and nothing verified** -
+the whole session is a read of the tag path against session 9's headset log.
+
+The hand-off pointed at `SceneDrawMaybeSecond`'s unlogged early returns. They are a dead end,
+and ruling them out is what found the fault: `!doubleIt` means pass 1 pushed no `-1` at all,
+the poison logs an `Error` at its one site and stands the method down, and the forced skip IS
+the `forced=` field. A refused pass-2 eye write does not skip the draw. So the game side pushed
+both tags on all 20 stale submits, every zero on the line was true, and the second `-1` had to
+be manufactured downstream of it.
+
+It was, in `reentry.cpp`'s c5 pairing block. The invariant's two arms are not equally
+trustworthy - `inv=+1` never crosses a world tick, `inv=-1` always does - and the block trusted
+both unconditionally on a streak of one. Full reasoning in the OPEN BUG section above and two
+entries in ARCHITECTURE's decision log. The asymmetry was the tell: only the `-1` arm can
+misfire, and only a wrong `-1` strands the right eye. `L=0 R=20` is that, arithmetically.
+
+The second finding is about the instrument, and it is the more expensive one. The STALE line
+carried the game side's gates and the runtime's failures but **not one counter from the method
+between them**, and its owner string mapped `abortLeft` straight to "the game side skipped pass
+2" - a cause it never measured. Nine logged instances, three readers, all sent to the wrong
+file. Worse, the block's unconditional `tagged = true` made `method untagged presents` read 0
+*because* a tag had been invented: the counter did not merely miss the fault, it denied it.
+
+| Change | What |
+|---|---|
+| `1507bafc` | the cross-tick arm defers to the ring (streak 3 still overrides); no invented tags on an empty or 0 ring; `sameEyePushed` counted at the push site; the c5 counters and a corrected owner string on the STALE line |
+| `12c23588` | ported: `[Stereo] HoldUntagged`, default 0, `stereo hold <n>` - now relevant, since the fix lets honest untagged presents through |
+| `539b9391` | ported: the `pair geom` separation-angle line, every 2 s |
+| `9620d437` | ported: F2 stamps the fault marker, eyes-free |
+| `00b833a8` | ported: the `res` seam writes its ini path with a real separator |
+
+Builds clean, `lint: clean`, exports OK. **Next: install and one headset run.** The judging
+criteria are in the OPEN BUG section - and the run can falsify this: if `STALE R EYE` still
+prints with `sameEyePushed=0`, the repeat is not this method's push and the runtime's own
+pairing is the next suspect.
 
 ### 2026-09-04 - session 9: the eyes - the trace, the swap, the fix, the proof
 

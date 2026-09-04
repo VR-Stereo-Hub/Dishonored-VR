@@ -382,3 +382,28 @@ is written). `core/util/paths.h` is the one place that knows this.
   quadrant), a dead-ends table and process rules. Their 39.x line was rebased onto 38.72
   because 38.73-38.92 stacked unverified changes; our base is 38.92, so D1 parity compares
   against BOTH 38.72-era behavior and the 39.x fixes, not against 38.92 alone.
+- **The c5 pairing invariant's two arms are not equally trustworthy** (2026-09-04, session 10).
+  `reentry.cpp`'s within-tick invariant names a present's pass from the c5 step against the
+  previous present. `inv=+1` ("pass 2 after pass 1") compares two draws with NO world tick
+  between them: the step is exactly `-ipd*scale` along the camera's right row by construction,
+  so it may override the tag ring on its own. `inv=-1` ("pass 1 after a still pass 2") is the
+  only arm that reasons ACROSS a world tick, and holds solely while the player is near still -
+  a gently moving player (turning in place, decelerating, crouch-walk) parks the tick's travel
+  inside the `+-0.35*ipd` window and the arm then names a genuine pass-2 present a pass 1.
+  Treating the arms alike cost the 2026-09-03 stale RIGHT eye: a wrong `-1` adds a LEFT and
+  drops a RIGHT, the left swapchain is written twice, the right is never written, and the
+  runtime reports `abortLeft` with every game-side gate truthfully zero. The fragile arm now
+  DEFERS to the ring on a disagreement; a streak of three still earns the override for either
+  arm. Neither arm may invent a tag on an empty ring or over the `0` tag a single gameplay draw
+  pushes - that present goes out untagged, which is honest and what `[Stereo] HoldUntagged`
+  exists for. The old unconditional `tagged = true` is why `method untagged presents` read 0
+  while the fault ran: a manufactured tag makes the untagged counter lie.
+- **A diagnostic line must be able to see the subsystem that prints it** (2026-09-04, session
+  10). The `STALE EYE` line carried the game side's eight pass-2 gates and the runtime's
+  swapchain failures, but not one counter from the stereo method between them - and the method
+  was the actor. Every field read a truthful zero for nine logged instances and three readers
+  concluded the game side was at fault, because the line's owner string mapped `abortLeft`
+  straight to "the game side skipped pass 2", a cause it never measured. `abortLeft` only
+  proves two lefts reached the runtime. The line now carries `sameEyePushed` (the fault
+  counted at the push site, no lag, no inference) and the c5 override's own counters, and its
+  owner string says what `abortLeft` proves rather than what it was assumed to mean.
