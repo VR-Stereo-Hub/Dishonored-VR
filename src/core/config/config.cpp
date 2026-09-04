@@ -31,6 +31,16 @@ static void WriteDefaultIni(const char* ini)
         "; screen without forgetting the selection.\n"
         "Method=reentry\n"
         "Armed=1\n"
+        "; HoldUntagged=N (41.1): a tick that fails the second draw gates presents\n"
+        "; UNTAGGED, and an untagged present is the mono path - the same image in BOTH\n"
+        "; eyes - so one stalled tick inside a healthy stereo stream is a one-frame\n"
+        "; flicker in the headset. N holds up to N CONSECUTIVE untagged presents back\n"
+        "; (nothing is submitted; the compositor keeps the previous pair) before letting\n"
+        "; one through as mono, so a real transition (menu, load, cinematic) still\n"
+        "; reaches mono within N presents. 0 = OFF (every untagged present goes out as\n"
+        "; mono, the pre-41.1 behaviour). `stereo hold <n>` live; `stereo status` and\n"
+        "; the beat report how many were held. Try 2-4.\n"
+        "HoldUntagged=0\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -381,6 +391,7 @@ static void LoadConfig()
         GetPrivateProfileStringA("Stereo", "Method", "reentry", sm, sizeof(sm), ini);
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
+        dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 0, ini));
     }
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)
@@ -1349,6 +1360,8 @@ static void OverlaySaveDefaults()
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
+    { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());
+      WritePrivateProfileStringA("Stereo", "HoldUntagged", hv, ini); }
     // 41.1: the [Neck] lever
     WritePrivateProfileStringA("Neck", "Mode", NeckModeName(g_neckMode), ini);
     _snprintf(v, 64, "%.3f", g_neckBelowM);

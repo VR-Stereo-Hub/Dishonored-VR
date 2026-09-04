@@ -237,6 +237,34 @@ public:
                 }
             }
         }
+        // 41.1 (Dishonored): the untagged HOLD. `delivered == 0` means this
+        // present carries no eye, and an untagged present is the mono path -
+        // the same image in BOTH eyes. Inside a healthy stereo stream that is
+        // a one-frame flicker (the present-stall guard in scene_draw.cpp fires
+        // on a tick that outran the present thread). When the lever is on and
+        // the stream was tagged recently, keep this present OFF THE WIRE:
+        // returning false leaves out.tex NULL, the frame path submits nothing,
+        // and the compositor holds the previous pair. Bounded by N so a real
+        // transition (menu, load, cinematic) still reaches mono within N.
+        if (delivered == 0) {
+            const int lim = dvr::stereo::hold_untagged();
+            if (lim > 0 && taggedRecently_ && heldRun_ < lim) {
+                ++heldRun_;
+                dvr::stereo::note_hold();
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                                 "reentry: untagged present HELD (%d of %d in this run; the compositor keeps the "
+                                 "previous pair instead of flipping both eyes to mono). The (N+1)th in a row goes "
+                                 "out as mono - `stereo hold 0` restores that for every one.",
+                                 heldRun_, lim);
+                return false;
+            }
+            // Not held: the mono path, as before. A run that reaches here has
+            // either spent the lever or is a genuine transition.
+            taggedRecently_ = false;
+        } else {
+            taggedRecently_ = true;
+            heldRun_ = 0;
+        }
         out.tex = tex_;
         out.eyeSign = delivered;
         out.w = w; out.h = h;
@@ -259,6 +287,8 @@ public:
         blit_.shutdown();
         drawnOnce_ = false;
         lastLeftOk_ = false;
+        taggedRecently_ = false;
+        heldRun_ = 0;
     }
 
     void status(dvr::status::Writer& w) override {
@@ -315,6 +345,8 @@ private:
     ID3D11RenderTargetView* rtv_ = nullptr;
     uint32_t w_ = 0, h_ = 0;
     bool     drawnOnce_ = false;
+    bool     taggedRecently_ = false;   // 41.1: the stream was stereo just now (the hold's precondition)
+    int      heldRun_ = 0;              // consecutive untagged presents suppressed
     bool     armed_ = false;
     float    lastLeft_[3] = {0, 0, 0};
     bool     lastLeftOk_ = false;

@@ -141,6 +141,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             else Log("stereo: projection on|off|auto");
             return true;
         }
+        if (!strcmp(sub, "hold")) {   // 41.1: the untagged hold (the one-frame mono flicker)
+            int n = -1;
+            if (sscanf(v, "%d", &n) == 1) dvr::stereo::set_hold_untagged(n);
+            else Log("stereo: hold <n> - hold up to n consecutive UNTAGGED presents back so the compositor "
+                     "keeps the previous pair instead of flipping both eyes to mono (now %d, %lu held this "
+                     "run); 0 = off", dvr::stereo::hold_untagged(), (unsigned long)dvr::stereo::holds_done());
+            return true;
+        }
         if (!strcmp(sub, "arm")) {   // 41.1: the tickbox on the seam
             if (DvrOnOff(v, &b)) dvr::stereo::set_armed(b);
             else Log("stereo: arm on|off (now %s, selected '%s')", dvr::stereo::armed() ? "armed" : "parked", dvr::stereo::wanted_name());
