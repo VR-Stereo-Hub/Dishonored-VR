@@ -1,5 +1,84 @@
 # Status
 
+## PARKED BRANCH: `native-stereo-rendering-flicker-fix` (2026-09-03) - almost there, one issue left
+
+Branched off `native-stereo-rendering` (8d09a341), 7 commits, headset-tested on the dev rig
+(Quest 3 via VDXR, 5120x1440@240 desktop, RTX 4070 Ti SUPER). **Not merged. Read this before
+re-deriving any of it.**
+
+### The three faults found, in the order they were peeled off
+
+1. **The render size was never honoured** - the game came up 2560x1440 on a 1440-row ultrawide
+   while the Quest 3 asks 2496x2688. `[Screen] VirtualMode=1` fixes it (the proxy advertises the
+   asked size in the mode list and creates the fullscreen device WINDOWED with the backbuffer
+   kept): `res: HONOURED`, `capture: 2496x2688`, 1.87x the rows. It ships as 0, and a fullscreen
+   ask taller than the desktop cannot be honoured without it on ANY display - worth making the
+   default.
+2. **One-frame flicker to mono** - a tick that fails the second draw gates presents UNTAGGED, and
+   an untagged present is the mono path (the same image in both eyes). Measured `mono/s` 5-17
+   against `out/s` 223. `[Stereo] HoldUntagged=3` holds up to 3 consecutive untagged presents
+   off the wire so the compositor keeps the previous pair: `mono/s` 0 for whole runs after.
+3. **THE EYES ARE PERIODICALLY REVERSED** - the one that reads as "misaligned". See below.
+
+### The eye reversal, measured
+
+`reentry: pair geom` (added on this branch) measures each pair's own separation against the
+camera right row. On this game the dot is **exactly +1 or exactly -1** and it LATCHES:
+63 samples over 124 s read 15 transitions, spells 2-24 s, `|d|` 6.15-6.32 uu against the 6.18
+the ipd and world scale ask for in EVERY sample, and the off-right angle takes no value other
+than 0 or 180 deg. So the geometry is right and the LABEL is wrong: the present tagged +1 is
+carrying the frame drawn from the -1 camera.
+
+**Every pairing counter reads clean through it** - `pairs == stereoSubmits`, `aborts=0`,
+`staleEye=0`, `eaten=0`, `tagMismatch=0`, `ringDropped=0` - because they all count TAGS, and the
+tags are every one of them present and correctly paired. Nothing checked the tag against the
+image. That is why several sessions of counter-reading found nothing.
+
+### The combination that works (headset-judged, dev rig)
+
+```
+[Stereo] ParityGuard=1  ParityPolarity=-1  EyeSwap=0  HoldUntagged=3
+[Capture] Mode=shared  SharedWait=1        [Device] Ex=1  [Screen] VirtualMode=1
+```
+
+**`ParityPolarity=-1`, not +1.** The guard was first written assuming dot>0 is the correct pair
+(the +1 present sits +ipd/2 along the right row). That assumption has two unproven legs - that
+the runtime maps eyeSign -1 to the LEFT eye, and that the right row means what its name says -
+and the headset falsified it: with polarity +1 the tester was misaligned for a whole run.
+`EyeSwap` is NOT part of the fix (it stayed off), so this is not a constant inversion.
+
+### THE ISSUE STILL OPEN
+
+The guard corrects the SYMPTOM one pair late. It measures the parity at the +1 present, so every
+transition costs one visibly wrong pair before it latches: the tester reports "a micro flicker at
+the same intervals the misalignment used to happen", and the count matches exactly (44 flips in
+that run, 44 micro-flickers; `parityFixed=5960` presents corrected).
+
+**What is unfixed is whatever shifts the draw->present tag ring by one.** Pass 1 pushes -1 and
+pass 2 pushes +1; if the ring ever gains or loses exactly one entry against presents, every later
+tag lands on the neighbouring frame and stays shifted until another odd event shifts it back -
+which is precisely a flip-flop with variable dwell. Two candidates, both odd-count events at the
+ring, neither yet tested:
+
+- **the single-draw ticks** - 22 % of ticks failed the gates and pushed no tag at all
+  (`tagUntagged` 2022 of 16044 presents in one run)
+- **`HoldUntagged` itself** - it returns after the ring has already been popped, so a held
+  present consumes a tag and submits nothing. `holds=47` in the run above. Untested: compare
+  `parityFlips` with `stereo hold 0` against `stereo hold 3`, everything else equal.
+
+Fixing the shift removes the micro flicker and makes the guard unnecessary. The counters to do it
+with are on this branch (`parityFlips`, `paritySwappedNow`, `parityFixed`, `holds` in
+status.json, and the `pair geom` line every 2 s).
+
+### Testing it in the headset
+
+`bPauseOnLossOfFocus` is TRUE in the game ini, so the command seam cannot be driven from a second
+window while the game runs - set it FALSE, or use the keys (F2 = fault marker BEGIN/END,
+Shift+F2 = eye swap, Ctrl+F2 = parity guard, Ctrl+Shift+F2 = parity invert; only plain Alt+F2
+belongs to the game). VERIFICATION gotcha 17 bit 1 run in 3 here: the state sticks at MENU in the
+level, `2nd/s=0` for the whole session and the screen stays mono - open and close the pause menu.
+
+
 ## Current state (2026-09-03, session 8: the 9Ex device and the shared capture SHIP; the eyes' disagreement traced to two mechanisms, both fixed on the simulator)
 
 **Branch `claude/dishonored-vr-perf-9f4b10`, 20 commits on `native-stereo-rendering` (6ed1993f).**
