@@ -228,10 +228,34 @@ public:
             if (dvr::camera::render_pos(c5)) {
                 if (delivered > 0 && lastLeftOk_) {
                     const float dx = c5[0] - lastLeft_[0], dy = c5[1] - lastLeft_[1], dz = c5[2] - lastLeft_[2];
+                    const float want = dvr::camera::ipd_m() * dvr::camera::world_scale();
+                    const float mag  = sqrtf(dx * dx + dy * dy + dz * dz);
                     DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 6,
                                     "reentry: pair - the +1 present's c5 sits (%.2f %.2f %.2f) uu from the -1 present's "
                                     "(|d| %.2f; ipd*scale = %.2f expected along right)", dx, dy, dz,
-                                    sqrtf(dx * dx + dy * dy + dz * dz), dvr::camera::ipd_m() * dvr::camera::world_scale());
+                                    mag, want);
+                    // 41.1 (Dishonored): the pair GEOMETRY, continuously. The first-6
+                    // line above only ever sampled the opening second, so a
+                    // misalignment that LATCHES minutes in (reported on the dev rig:
+                    // proper or wrong for ~30 s at a time, standing still, with every
+                    // pairing counter clean) had no measurement at all. The derived
+                    // numbers are the ones that can fail the hypothesis: |d| against
+                    // the ipd*scale it should be, and the ANGLE between the pair's
+                    // separation and the camera right row it is supposed to lie along.
+                    // A healthy pair reads err ~0 % and off-right ~0 deg; a swapped or
+                    // stale eye reads a sign flip or a large angle, and says so here.
+                    float fwd[3], rgt[3], up[3];
+                    if (mag > 0.001f && dvr::camera::last_basis(fwd, rgt, up)) {
+                        const float dot = (dx * rgt[0] + dy * rgt[1] + dz * rgt[2]) / mag;
+                        const float c   = dot > 1.0f ? 1.0f : dot < -1.0f ? -1.0f : dot;
+                        const float deg = acosf(c) * 57.2957795f;
+                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                                         "reentry: pair geom |d|=%.2f uu (want %.2f, err %+.0f%%) off-right %.1f deg "
+                                         "(dot %+.3f; NEGATIVE dot = the eyes are SWAPPED) sep=(%.2f %.2f %.2f) "
+                                         "right=(%.2f %.2f %.2f)",
+                                         mag, want, want > 0.001f ? (mag - want) * 100.0f / want : 0.0f,
+                                         deg, dot, dx, dy, dz, rgt[0], rgt[1], rgt[2]);
+                    }
                 } else if (delivered < 0) {
                     memcpy(lastLeft_, c5, sizeof(c5)); lastLeftOk_ = true;
                 }
