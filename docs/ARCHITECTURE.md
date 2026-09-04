@@ -407,3 +407,14 @@ is written). `core/util/paths.h` is the one place that knows this.
   proves two lefts reached the runtime. The line now carries `sameEyePushed` (the fault
   counted at the push site, no lag, no inference) and the c5 override's own counters, and its
   owner string says what `abortLeft` proves rather than what it was assumed to mean.
+- **A zero-layer `xrEndFrame` is a black frame, not a held one** (2026-09-04, session 10). The
+  layer assembly in `on_present_end` sits inside `if (backbuffer)`, so any present that hands in
+  no texture reaches `xrEndFrame` with `layerCount 0` - and the compositor then has nothing for
+  that display slot, which is black in both eyes for one frame. `[Stereo] HoldUntagged` made the
+  path common by design (it holds a present by returning false from the method), so the lever
+  meant to remove a mono flick installed a black one instead. Holding now means re-submitting the
+  layer the previous present used: nothing is acquired or released on such a present, the
+  swapchain images are untouched, and reprojection to the new display time is the runtime's job -
+  the same snapshot the parked-session keepalive already re-submits. The counters
+  `zeroLayerHeld`/`zeroLayerBlack` and a per-second `Warn` make the case visible either way,
+  because a black frame a tester can see must not be a thing no line mentions.

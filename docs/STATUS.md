@@ -1,75 +1,97 @@
 # Status
 
-## FIXED (2026-09-03, headset, dev rig): the stale RIGHT eye was the c5 cross-tick arm
+## FIXED (2026-09-03, headset, dev rig): all three flickers, in one chain
 
-Branch `swapchain-one-picture-flicker`, fix `1507bafc`, verified in the headset on
-`alpha-250-g3be11106` over a 238 s run (Quest 3 / VDXR, 2496x2688, the tester died and reloaded
-a save mid-run, so the run covers a load as well as gameplay).
+Branch `swapchain-one-picture-flicker`. Installed and judged as `alpha-253-g8441404f`. **The
+tester's verdict after the third fix: every kind of flicker is gone.**
 
-### The measurement
+The three faults were nested - each fix exposed the next - and each was confirmed in the headset
+and in the log before moving on.
 
-| | before (`alpha-243-g0d7eeb24`, 171 s) | after (`alpha-250-g3be11106`, 238 s) |
+### 1. The stale RIGHT eye (`1507bafc`)
+
+`reentry.cpp`'s c5 invariant has two arms and they are **not equally trustworthy**. `inv=+1`
+("pass 2 after pass 1") compares two draws with NO world tick between them: the step is exactly
+`-ipd*scale` along the camera's right row by construction. `inv=-1` ("pass 1 after a still pass
+2") is the **only arm that reasons across a world tick**, and holds solely while the player is
+near still. A gently moving player - turning in place, decelerating, crouch-walk - parks the
+tick's travel inside the `+-0.35*ipd` window (about `+-2.2 uu` at the measured 6.18) and the
+fragile arm then names a genuine pass-2 present a pass 1. It did so **unconditionally, on a
+streak of one**. One wrong `-1` writes the left swapchain twice and never writes the right.
+
+The fragile arm now defers to the ring on a disagreement (a streak of three still earns the
+override for either arm); neither arm invents a tag on an empty ring or over the `0` tag a
+single gameplay draw pushes.
+
+| | before | after |
 |---|---|---|
-| `STALE ? EYE` lines | 36 | **1** (and it is an L, from the stall gate) |
-| one-picture pairs at sc | 14 of 39 (36 %) in the last window; 22 of 563 (3.9 %) baseline | **0-1 of 40** |
-| `sc-target repeats` | 80 | **2** |
-| `stale submits` | L=0 R=20 | L=1 R=0 |
-| beat, steady gameplay | - | `out/s=224 L/s=112 R/s=112 mono/s=0` |
-| `side SWAPPED` / `unknown` | 0 / 6 | **0 / 0**, `c5 |d| mean=6.18`, `picture shift` neg only |
+| `STALE ? EYE` lines | 36 in 171 s | 1 in 238 s |
+| one-picture pairs at sc | 14 of 39 (36 %) | 0-1 of 40 |
+| `sc-target repeats` | 80 | 2 |
+| `out/s` median | 117 | 212 |
 
-Lifetime counters for the run (`status.json`): `c5Agree=29210 c5Disagree=112` - the measurement
-and the ring agree 99.6 % of the time. **`c5Held=36`**: the cross-tick arm deferred to the ring
-36 times, and each of those is an eye flip that would have stranded the right eye under the old
-code. `c5Took=76` (the robust arm overriding a genuinely skewed ring), `c5Realigned=37`,
-`c5Refused=72` (tags no longer invented on an empty or 0 ring), `pushSameEye=117`,
-`ringCleared=0`, `tagNoFrame=0`.
+`c5Held=36` counts the deferrals that did it, against `c5Agree=29210 c5Disagree=112`.
 
-### The reason every gate read zero, restated for the record
+**Why no gate admitted to it**: `SceneDrawMaybeSecond` cannot skip pass 2 unlogged - `!doubleIt`
+means pass 1 pushed no `-1` at all, the poison logs an `Error` at its one site and stands the
+method down, and the forced skip IS the `forced=` field. Both tags were pushed every time; the
+second `-1` was manufactured downstream. Every zero on the line was true.
 
-`SceneDrawMaybeSecond` cannot skip pass 2 unlogged: `!doubleIt` means pass 1 pushed no `-1` at
-all, the poison logs an `Error` at its one site and stands the method down, and the forced skip
-IS the `forced=` field. So both tags were pushed on all 20 stale submits and the second `-1` was
-manufactured in `reentry.cpp`'s c5 block, whose two arms are not equally trustworthy: `inv=+1`
-never crosses a world tick, `inv=-1` always does. The fragile arm overrode the ring on a streak
-of one, and a gently moving player parks the tick's travel inside its `+-0.35*ipd` window. Full
-reasoning in ARCHITECTURE's decision log.
+### 2. The mono flick on the arms and weapon (`[Stereo] HoldUntagged`)
 
-## OPEN (2026-09-03): HoldUntagged=3 removed the mono flick and introduced a BLACK one
+With the stale eye gone the tester saw a different flicker: "both arm models/weapons instead of
+just the left handed crossbow", and it "felt slightly different". It was. `mono/s=1..4` in steady
+gameplay, and a mono present is the same image in BOTH eyes, so its error scales with disparity -
+near zero on distant geometry, **largest on the viewmodel at 30-50 cm**. Symmetric, hence both
+arms, where the stale-eye fault was one-sided. 26 of 29 single-draw spells were the present-stall
+guard; `c5Refused=72` was the rest.
 
-`[Stereo] HoldUntagged=3` on `alpha-250-g3be11106`, 119 s headset run, dev rig:
+`HoldUntagged=3` (ported from the parked branch) took `mono/s` 1-4 -> **0** and every other
+flicker with it.
 
-| | HoldUntagged=0 | HoldUntagged=3 |
-|---|---|---|
-| `mono/s`, steady gameplay | 1-4 | **0** |
-| `none/s` (presents held back) | 0 | 1-3 |
-| `STALE ? EYE` lines | 1 in 238 s | **0 in 119 s** |
-| `out/s` | ~220 | 192-224, `L/s == R/s` |
+### 3. The black frame in both eyes (`8441404f`) - caused by the fix for 2
 
-**The tester: every other kind of flicker is gone.** The mono flick on the arms and weapon is
-fixed, and so is the stale eye.
+The hold immediately produced a new, subtler artifact: one black frame in both eyes, frequent.
+**The whole layer assembly in `on_present_end` sits inside `if (backbuffer)`**, and
+`backbuffer = frame`. A present that hands in no texture therefore reaches `xrEndFrame` with
+`layerCount 0`, and a zero-layer frame gives the compositor nothing for that display slot -
+black, both eyes, one frame. `HoldUntagged` made that path common: it holds a present by
+returning false from the method, and `frame_hooks.cpp:181` passes the null to `on_present_end`
+unconditionally.
 
-**The new symptom, unexplained and NOT present before the hold:** "like 1 black frame in both
-eyes at the same time, super subtle and kind of hard to see, but it happens frequently."
+The ported commit's own message claims "nothing is submitted; the compositor holds the previous
+pair". **That is not true of this runtime**, and the commit was parked without a headset run that
+would have caught it - it was taken as established behaviour instead of checked.
 
-The rate matches `none/s` (1-3 per second against `out/s` ~200), and the suspect is the hold
-itself:
+The guard now re-submits the layer the previous present used. Nothing is acquired or released on
+such a present, so the swapchain images are untouched and the compositor genuinely re-shows the
+previous pair; reprojecting it to the new display time is the runtime's job, and the
+parked-session keepalive already re-submits that same snapshot. Measured over 126 s:
+**`held=25 black=0`**, `STALE` 0, `sc-target repeats=0`, one-picture `sc=0`, `out/s` median 201.
 
-- `reentry::end_frame` returns false on a held present, so `out.tex` stays null.
-- `frame_hooks.cpp:181` calls `dvr::vr::on_present_end(out.tex)` **unconditionally**, with the
-  null. If the runtime still opens and ends an XR frame for that present with no projection
-  layer, the compositor has nothing to show for it - and a frame with zero layers is BLACK in
-  both eyes, which is exactly the reported symptom, symmetric and one frame long.
-- The intended behaviour is the opposite: hold means submit nothing AND end no frame, so the
-  compositor reprojects the previous pair. That is what the ported commit's message claims
-  ("nothing is submitted; the compositor holds the previous pair") and it has never been
-  verified in a headset - it was written and parked on the other branch without a run.
+### Levers and defaults
 
-**Next, and unstarted**: read `on_present_end(nullptr)` in `core/vr/openxr_runtime.cpp` and
-establish whether a held present ends an XR frame with zero layers. If it does, the fix is that
-a held present must not end a frame at all (or must re-submit the previous pair's layer), not a
-change to the hold count. Falsifier: `stereo hold 0` should make the black frames vanish and the
-mono flick on the arms return. If black frames survive `hold 0`, the hold is exonerated and
-something else regressed.
+`[Stereo] HoldUntagged` still ships **0 (OFF)** per the default-OFF rule; the dev rig runs 3.
+It is judged good on ONE rig for a few minutes - promoting it to the shipped default is a
+deliberate call, not something to slip in. `stereo hold <n>` switches it live, `none/s` on the
+beat counts what it held, and `zeroLayerHeld`/`zeroLayerBlack` in status.json say whether the
+guard covered them.
+
+### The rig, and three traps that cost runs
+
+Quest 3 via VDXR, 5120x1440@240 desktop, RTX 4070 Ti SUPER. `[Screen] RenderWidth/Height` in the
+ini CANNOT affect the launch it is set on - DllMain reads only `dishonored_vr_launch.txt`, written
+by the `res` seam word, so use `res 2496x2688` and never hand-edit the key. `bPauseOnLossOfFocus`
+was TRUE in the game ini (now FALSE here): with it on, alt-tabbing to drive the command seam
+pauses the thing being judged. VERIFICATION gotcha 17 bit 1 run in 3: state sticks at MENU in the
+level, `2nd/s=0`, screen stays mono - open and close the pause menu.
+
+**Check the build tag before reading any verdict out of a log.** The first "it's fixed!" here was
+measured on a build that had been compiled but never installed - `build.ps1` had run, `install.ps1`
+had not, so the game folder still held the previous DLL. The log banner names the build
+(`build alpha-NNN-gHASH`) and `Get-FileHash` against `build\src\RelWithDebInfo\d3d9.dll` settles
+it in one command. A `-dirty` tag means the tree had uncommitted changes at build time and the
+log cannot be traced to a commit: rebuild from a clean tree before handing a log to anyone.
 
 ## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
@@ -118,17 +140,16 @@ headset, at rate, with the tested configuration shipping as the defaults.
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset)**: the stale eye and the mono flick are both fixed and measured (see FIXED
-and OPEN above). What is left is the black one-frame flick that `HoldUntagged=3` introduced.
-Nothing to test until the hold's frame handling is read; when there is a build, the falsifier is
-`stereo hold 0` - the black frames should vanish and the mono flick on the arms should return.
-After that, the open comfort questions are the ones a correct stereo pair finally lets you judge:
-(1) JUDDER on fast head or player movement - `vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose
-look-ahead`), ships at 0, and the `xr: pair phase` line says whether pairs close before or after
-their slot; (2) the PITCH PIVOT with `[Neck] Mode=cancel` (the default) against `off` and `add`
-on F10 Comfort, now at a real frame rate; (3) WORLD SCALE and eye height at the shipped
-`[PosTrack] Scale=98` / `HeightOffsetM=-0.090`. Say which of the three is worst and the log will
-carry the numbers.
+**The user (headset)**: nothing is blocking - all three flickers are fixed and measured (see
+FIXED above), running `alpha-253-g8441404f` with `HoldUntagged=3`. The open comfort questions are
+the ones a correct, flicker-free stereo pair finally lets you judge: (1) JUDDER on fast head or
+player movement - `vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and
+the `xr: pair phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT
+with `[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real
+frame rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` /
+`HeightOffsetM=-0.090`. Say which of the three is worst and the log will carry the numbers. One
+open call that is yours, not a bug: whether `HoldUntagged` should ship as 3 instead of 0 - it is
+judged good on this rig only, and `stereo hold 0` is the A/B.
 
 **The next developer session**: the correctness question of S2b is closed, so S3 is open - write
 the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
@@ -189,10 +210,25 @@ that check now leads the rig notes.
 | `9620d437` | ported: F2 stamps the fault marker, eyes-free |
 | `00b833a8` | ported: the `res` seam writes its ini path with a real separator |
 
-**Left open**: `HoldUntagged=3` was judged in a third run - it removed the mono flick
-(`mono/s` 1-4 -> 0) and every other flicker with it, and introduced a new one: a single BLACK
-frame in both eyes, subtle but frequent, at a rate matching `none/s`. The hold's own frame
-handling is the suspect and is unread. See the OPEN section above.
+**All three fixed, each confirmed in the headset before moving on.** The chain: the c5 fix
+exposed a mono flick on the arms (disparity is largest on the viewmodel, so a mono present shows
+there and nowhere else); `HoldUntagged=3` removed that and exposed a black frame in both eyes;
+the black frame was a zero-layer `xrEndFrame`, because the layer assembly sits inside
+`if (backbuffer)` and a held present hands in no texture. Final run: `held=25 black=0`, `STALE`
+0, `sc-target repeats=0`, one-picture `sc=0`, `out/s` median 201.
+
+| Change | What |
+|---|---|
+| `1507bafc` | the cross-tick arm defers to the ring; no invented tags; `sameEyePushed` and the c5 counters on the STALE line, and a corrected owner string |
+| `8441404f` | a zero-layer xrEndFrame re-submits the previous layer; `zeroLayerHeld`/`zeroLayerBlack` counted and logged |
+| `12c23588` | ported: `[Stereo] HoldUntagged`, default 0 - the lever for the mono flick |
+| `539b9391` `9620d437` `00b833a8` | ported: `pair geom`, the F2 fault marker, the `res` seam separator fix |
+
+**Two process lessons, both paid for this session.** A parked commit's message is not evidence:
+`HoldUntagged`'s claim that "the compositor holds the previous pair" was false against this
+runtime and had never been run in a headset, and taking it at face value is what put the black
+flicker in front of the tester. And check the build tag before reading a verdict out of a log -
+the first "it's fixed" here was measured on a build that was compiled but never installed.
 
 ### 2026-09-04 - session 9: the eyes - the trace, the swap, the fix, the proof
 
