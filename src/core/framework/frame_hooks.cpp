@@ -6,6 +6,7 @@
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
 #include "core/gfx/draw_census.h"
+#include "core/gfx/hud_capture.h"
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
 #include "core/util/crash.h"
@@ -114,7 +115,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // PreExit). The session comes down here, on the present thread, once.
     if (InterlockedCompareExchange(&g_exiting, 0, 0)) {
         static bool torn = false;
-        if (!torn) { torn = true; dvr::draws::shutdown(); dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit"); }
+        if (!torn) { torn = true; dvr::draws::shutdown(); dvr::hudcap::shutdown(); dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit"); }
         return g_origPresent(self, src, dst, wnd, dirty);
     }
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
@@ -182,6 +183,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::stereo::FrameOutput out;
     dvr::stereo::end_frame(devs, out);
     dvr::perf::stamp(dvr::perf::kAfterEnd);
+    // 41.2 (session 10): the HUD panel's copy, clear and hand-off. Between the
+    // method and the runtime on purpose: it belongs to no stereo method.
+    dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
     if (out.tex) ++g_submits;
     dvr::vr::on_present_end(out.tex);
     dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
@@ -214,6 +218,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     dvr::perf::on_reset();
     dvr::stereo::on_reset();
     dvr::draws::on_reset();
+    dvr::hudcap::on_reset();
     const HRESULT hr = g_origReset(self, pp);
     if (FAILED(hr))
         DVR_ERROR("device Reset FAILED 0x%08lx (%ux%u windowed=%d) - %s", (unsigned long)hr, pp ? pp->BackBufferWidth : 0,

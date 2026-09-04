@@ -101,6 +101,21 @@ static void WriteDefaultIni(const char* ini)
         "; draw, so leave it off unless you are measuring. `draws on|off|status` live, and\n"
         "; the F10 Display tickbox.\n"
         "Census=0\n"
+        "[Hud]\n"
+        "; The HUD panel (core/gfx/hud_capture), default OFF. Panel=1 redirects the game's own\n"
+        "; Scaleform HUD draws into a private target and shows them on the runtime layer's\n"
+        "; HEAD-LOCKED quad instead of in the world, which is the return of the wrist HUD\n"
+        "; build 38.92 shipped (the wrist anchor itself comes back with the hands). While it\n"
+        "; is on the HUD is NOT in the eye textures and NOT in the desktop window: that is\n"
+        "; what a redirect means. It runs only during stereo gameplay - menus, loading\n"
+        "; screens, cutscenes and the mono screen all leave the HUD in the frame, and the\n"
+        "; pause menu deliberately so, because the menu is drawn by the same class.\n"
+        "; SlotScale is the panel texture's size as a fraction of the render; the quad\n"
+        "; subtends about 50 degrees, so half is already more than the headset resolves.\n"
+        "; `hud on|off|status|scale <f>` live, the F10 Display tickbox, and the quad's\n"
+        "; distance, width and height are the HUD sliders on the F10 Runtime tab.\n"
+        "Panel=0\n"
+        "SlotScale=0.50\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -564,6 +579,10 @@ static void LoadConfig()
     }
     {   // 41.2 (session 10): the draw census - the HUD measurement, default off
         dvr::draws::set_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
+    }
+    {   // 41.2 (session 10): the HUD panel, default off
+        dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
+        dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 0) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
@@ -1401,6 +1420,11 @@ static void OverlaySaveDefaults()
         GetPrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(dvr::d3d9ex::managed_mode()), cur, sizeof(cur), ini);
         WritePrivateProfileStringA("Device", "Managed", cur, ini);
     }
+    // 41.2 (session 10): the HUD panel and the draw census
+    WritePrivateProfileStringA("Hud", "Panel", dvr::hudcap::enabled() ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", dvr::hudcap::slot_scale());
+    WritePrivateProfileStringA("Hud", "SlotScale", v, ini);
+    WritePrivateProfileStringA("Draws", "Census", dvr::draws::enabled() ? "1" : "0", ini);
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);

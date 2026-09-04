@@ -72,6 +72,13 @@ static double g_cineOnMs  = 0.0;
 // draw root runs TWICE per tick, so this against the viewport-draw count says
 // whether the HUD is drawn once or twice. Game thread writes, present reads.
 static volatile LONG g_pePostRender = 0;
+// 41.2 (session 10): the gameplay verdict's last answer, so a second reader
+// (the HUD panel's gate) costs nothing and never logs a second time.
+static bool g_verdictLast = false;
+// 41.2 (session 10): `dump hud` - the panel's own texture, as the runtime
+// would see it. The one instrument that says whether a wrong-looking panel is
+// a bad redirect, a bad copy or a bad quad.
+static int g_dumpReqHud = 0;
 static bool CylTruthLive();              // fwd
 // per-eye frustum + eye offsets, cached by BuildEyeQuads for the panel math
 static float g_eyeFr[2][4];           // l, r, t, b

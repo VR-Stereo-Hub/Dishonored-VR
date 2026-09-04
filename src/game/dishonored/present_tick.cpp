@@ -149,6 +149,7 @@ static bool DvrGameplayVerdict()
     // turning around, cleared by an alt-tab). The runtime's line only says
     // strict=0; this one says WHICH term did it, so a remote log can tell a
     // pause menu from a missed menu-close event from a starved view pipeline.
+    g_verdictLast = verdict;
     static bool said = false, last = false;
     static uint64_t falseSinceMs = 0;
     if (!said || verdict != last) {
@@ -251,6 +252,11 @@ static void DvrGameTick(IDirect3DDevice9* self)
         DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
         ResVerdictTick();  // 41.1: the render size against the picker's ask, once per size
         SceneProbePresentTick();
+        // 41.2 (session 10): the game side's half of the HUD panel's gate. The
+        // panel must never carry a menu (the pause menu is drawn by the same
+        // class the redirect claims - ENGINE_NOTES, "The Scaleform HUD draw
+        // class"), and the power wheel was redirected off the screen in 34.7.
+        dvr::hudcap::set_game_gate(g_verdictLast && !g_wheelHeld);
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
         FrameDumpTick(self);

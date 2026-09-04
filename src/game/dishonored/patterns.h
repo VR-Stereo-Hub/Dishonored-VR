@@ -136,10 +136,27 @@ static const uint32_t kMeshScl3D = 0x1ac;
 // gated on the game state, not on the draw: that is the original's inherited
 // bug (HANDOFF 8.4, the main menu on the wrist), and DvrGameplayVerdict's own
 // !mainMenu / !menuOpen terms are the positive signal it lacked.
+//
+// THE FOURTH TERM, and the reason it exists (run 46-04, found by picture): the
+// backbuffer's population is not all HUD. The SCENE RESOLVE is a draw too - one
+// full-screen textured quad, two primitives, that copies the finished world
+// over - and it is the single draw that would carry the entire world onto the
+// panel. It did: with the first three terms the panel held the whole frame, and
+// with the same class killed the panel was empty, so one of the fifteen was
+// painting the world. ALPHA BLENDING tells them apart, and not arbitrarily:
+// something drawn ONTO a finished frame must blend to sit over it, while the
+// frame itself is written opaquely. The resolve is the only opaque draw in the
+// population; every HUD element blends. 14 draws of the 15 survive.
+//
+// (The fork's samples-rt term would not have caught it here: this game's
+// resolve samples a plain texture copy rather than a surface flagged as a
+// render target, which is also why a tonemap detector keyed on that read 0 for
+// a whole run.)
 static const bool     kHudFingerprintMeasured = true;
 static const uint32_t kHudSceneTargetIsOffscreen = 1;   // the world never draws to the backbuffer
 static const uint32_t kHudRequiresFullViewport   = 1;   // every measured HUD draw covers the target
 static const uint32_t kHudRequiresDepthOff       = 1;   // D3DRS_ZENABLE == D3DZB_FALSE on all of them
+static const uint32_t kHudRequiresAlphaBlend     = 1;   // excludes the opaque scene resolve
 // The tail of the frame the HUD occupied, as a FRACTION of the present's draws.
 // Diagnostic only: nothing gates on it, because a bucket's ordinal moves with
 // what is on screen. 1177/1205 in gameplay, 1126/1221 in the pause menu.

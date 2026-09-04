@@ -622,6 +622,27 @@ static void OverlayFrame()
             ImGui::TextDisabled("the log's `stereo: frameid` line has the same numbers once a second; use the capture mode combo above for deferred -> shared");
             ImGui::Separator();
         }
+        // 41.2 (session 10): the HUD panel and the draw census that measured it.
+        {
+            ImGui::Text("HUD");
+            bool hp = dvr::hudcap::enabled();
+            if (ImGui::Checkbox("HUD panel (the game's HUD on a head-locked quad; off = in the frame)", &hp)) {
+                dvr::hudcap::set_enabled(hp);
+                ConfigWriteKey("Hud", "Panel", dvr::hudcap::enabled() ? "1" : "0", "F10 Display");
+            }
+            if (dvr::hudcap::enabled())
+                ImGui::TextDisabled("while this is on the HUD is NOT in the eye textures or the desktop window; "
+                                    "menus, loading and cutscenes leave it in the frame on purpose. Distance, "
+                                    "width and height are the HUD sliders on the Runtime tab");
+            else
+                ImGui::TextDisabled("off: the game draws its HUD into the frame, as it always has");
+            bool dc = dvr::draws::enabled();
+            if (ImGui::Checkbox("draw census (a table and a VERDICT every 3 s; off = one bool per draw)", &dc)) {
+                dvr::draws::set_enabled(dc);
+                ConfigWriteKey("Draws", "Census", dvr::draws::enabled() ? "1" : "0", "F10 Display");
+            }
+            ImGui::Separator();
+        }
         // 41.1 (session 8): the 9Ex device lever (next launch) - what lets the
         // capture keep the frame in VRAM ([Capture] Mode=shared).
         {

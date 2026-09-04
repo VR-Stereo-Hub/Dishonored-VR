@@ -1863,6 +1863,73 @@ hypothesis is for.
 The constants and their derivation are in `src/game/dishonored/patterns.h`,
 "The Scaleform HUD draw class".
 
+## The HUD panel: the redirect, and the draw that nearly ruined it (2026-09-04, session 10)
+
+The class measured above is redirected into a private A8R8G8B8 target the backbuffer's size,
+copied at Present into a shared surface, opened on the mod's D3D11 device, alpha-repaired and
+handed to the runtime layer's head-locked HUD quad through `set_hud_texture_provider`
+(`core/gfx/hud_capture`, `[Hud] Panel=0`, `hud on|off|status|scale <f>`, the F10 Display tickbox).
+
+### The scene resolve is a draw, and it is the fourth term
+
+The first build of the redirect used the three measured terms - the backbuffer, a full viewport,
+depth off - and the panel came up holding **the whole game frame**, world and all, while the HUD
+also stayed in the eyes. The instrument that settled it in one step was `dump hud`, which writes
+the panel's own texture: it showed the frame. Then `draws kill hud` with the panel on emptied the
+panel completely. So the content was not stale memory and not a bad copy: **one of the fifteen
+redirected draws was painting the world.**
+
+It is the scene resolve. Dishonored copies its offscreen scene target to the backbuffer with a
+full-screen textured quad of two primitives, opaque, depth off, full viewport - which satisfies
+every term the rule had. The discriminator is **alpha blending**, and it is principled rather
+than convenient: something drawn ONTO a finished frame must blend to sit over it, while the frame
+itself is written opaquely. The resolve is the only opaque draw in the backbuffer population and
+every HUD element blends. The rule became four terms and the redirect fell from 15 draws per
+present to 14.
+
+This also explains the census's earlier `tonemap draws/present=0.0`: its detector keyed on the
+fork's `samples-rt` term, and this game's resolve samples a plain texture copy, not a surface
+flagged `D3DUSAGE_RENDERTARGET`. The census now detects the resolve as "the opaque full-frame
+draw to the backbuffer" and says so, and `tex0_class` answers UNKNOWN rather than a guessed
+"plain" when its cache is full.
+
+### What the panel does
+
+| | |
+|---|---|
+| the private target | A8R8G8B8 at the backbuffer's size and multisample type, so its depth-stencil stays legal |
+| per redirected draw | `GetRenderTarget`-free: the game's target comes from the classifier's shadow, `SetRenderTarget` then `SetViewport` (the bind resets it, and a PURE device has no `GetViewport`), the draw, then both back |
+| the clear | after the copy, EVERY present, unconditionally - the fork cleared lazily at the first redirected draw and a dropped body's icon sat on the wrist for minutes |
+| the hand-off | two shared slots, fenced in both directions, delivering the previous slot; `BlitQuad` with alpha = max(r,g,b) into R8G8B8A8 |
+| the gate | the runtime's own (a projection present carrying an eye tag) AND the game side's strict gameplay verdict AND no power wheel |
+
+Two mistakes worth keeping written down. A D3D11 event query does not complete until the context
+is flushed, so the read fence spun and timed out on every present until the flush was added
+(`read waits 31767 timeouts 1033` -> `0 and 0`). And a 10 ms budget measured with `GetTickCount`
+expires on the first read, because that clock's tick is about 15 ms: both waits use the
+performance counter now, like the eye path's.
+
+### Verified (simulator, run 46-05, the sewers, `stereo reentry`, 2496x2688)
+
+- `hud on`: `redirect presents=540 redirected=14.0 draws/present delivered=540`, fences 0
+  timeouts, 0 restore failures; `xr: HUD quad swapchain ready (1248x1344, 3 images)`,
+  `xr: HUD quad live (1248x1344, 1.25 m wide at 1.30 m)`.
+- `dump hud`: the panel texture holds the health indicator and the reticle dot and NOTHING else;
+  everything around them is transparent.
+- The per-eye compositor capture: the world is intact with **no HUD in it**, and the HUD is on the
+  head-locked quad, in the right colour.
+- `reentry.xrs` 11/11, and `perf: tick 11.1 ms (90/s)` - pace-bound, the same as without the
+  panel. About 28 extra `SetRenderTarget` calls per present against a frame of 1205 draws.
+
+### An instrument caveat found on the way
+
+`DumpTexturePng` (`dump eyes`, `dump hud`) writes R8G8B8A8 textures with red and blue swapped:
+the eye dumps come out olive where the compositor shows teal, and the panel's red indicator dumps
+blue. The COMPOSITE is correct, so this is the dump's channel choice and not the render path. It
+predates this session (`dump eyes` shipped in session 9) and it has never been load-bearing,
+because those dumps are read for geometry and for left-against-right differences rather than for
+colour. Worth fixing; do not read a colour verdict off a dump until it is.
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.

@@ -4,6 +4,7 @@
 
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
+#include "core/gfx/hud_capture.h"
 #include "core/hooks/vtable.h"
 #include "core/util/log.h"
 
@@ -139,7 +140,7 @@ uint32_t ps_hash(void* ps) {
 uint8_t tex0_class(void* t) {
     if (!t) return 0;
     uint32_t* slot = g_texIsRt.find_or_add(t);
-    if (!slot) return 1;
+    if (!slot) return 3;   // the cache is full: UNKNOWN, never a guessed "plain"
     if (*slot != 0xffffffffu) return (uint8_t)*slot;
     uint32_t isRt = 0;
     IDirect3DBaseTexture9* b = (IDirect3DBaseTexture9*)t;
@@ -217,17 +218,30 @@ uint64_t sig_key(const Sig& s) {
 //
 // What separates on this path is the RENDER TARGET: the world is drawn to an
 // offscreen 2496x2688 target and the whole HUD to the backbuffer, at the tail
-// of the frame. So a draw is HUD-class when it goes to the whole backbuffer
-// with depth off. Measured run 46-02 and PROVEN BY PICTURE: the backbuffer
-// population is 5 buckets and 15 draws per present of 1205, at ordinals
-// 1177-1221, and killing them removes the HUD and leaves the world untouched.
-enum { kTermRt = 0, kTermVp, kTermZ, kTermCount };
-const char* const kTermName[kTermCount] = { "rt=backbuffer", "viewport=full", "z=off" };
+// of the frame. But the backbuffer's population is not only HUD: the SCENE
+// RESOLVE is a draw too, a full-screen textured quad that copies the scene
+// target over, and it is the one draw that would carry the entire world onto a
+// HUD panel. Run 46-04 caught it by picture: with the redirect on, the panel
+// held the whole frame; with the same class killed, the panel was empty; so one
+// of the fifteen was painting the world.
+//
+// The term that tells them apart is ALPHA BLENDING, and it is not arbitrary:
+// something drawn ONTO a finished frame must blend to sit over it, while the
+// frame itself is written opaquely. The resolve is the only opaque draw in the
+// backbuffer population, and every HUD element blends.
+//
+// (The fork's own samples-rt term would not have caught it here: this game's
+// resolve samples a plain texture copy, not a surface flagged as a render
+// target, which is also why the census's first tonemap detector read 0.)
+enum { kTermRt = 0, kTermVp, kTermZ, kTermBlend, kTermCount };
+const char* const kTermName[kTermCount] = { "rt=backbuffer", "viewport=full", "z=off",
+                                            "blend=on" };
 
 void sig_terms(const Sig& s, bool* t) {
-    t[kTermRt] = (s.rtClass == 0);
-    t[kTermVp] = (s.vpFull != 0);
-    t[kTermZ]  = (s.zEnable == D3DZB_FALSE);
+    t[kTermRt]    = (s.rtClass == 0);
+    t[kTermVp]    = (s.vpFull != 0);
+    t[kTermZ]     = (s.zEnable == D3DZB_FALSE);
+    t[kTermBlend] = (s.alphaBlend != 0);
 }
 
 bool is_candidate(const Sig& s) {
@@ -239,7 +253,7 @@ bool is_candidate(const Sig& s) {
 
 void sig_text(const Sig& s, char* out, size_t n) {
     static const char* kEntry[4] = { "DP", "DIP", "UP", "IUP" };
-    static const char* kTex[3]   = { "tex=none", "tex=plain", "tex=RT" };
+    static const char* kTex[4]   = { "tex=none", "tex=plain", "tex=RT", "tex=?" };
     static const char* kPrim[4]  = { "p<=2", "p<=16", "p<=256", "p>256" };
     char rt[32];
     if (s.rtClass == 0) _snprintf(rt, sizeof(rt), "bb");
@@ -248,7 +262,7 @@ void sig_text(const Sig& s, char* out, size_t n) {
     rt[sizeof(rt) - 1] = 0;
     _snprintf(out, n, "%-3s %-10s %s z%u %s %s %s ps=%08x vd=%08x %s",
               kEntry[s.entry & 3], rt, s.vpFull ? "vpF" : "vpP", (unsigned)s.zEnable,
-              s.alphaBlend ? "blend" : "opaque", kTex[s.tex0 > 2 ? 2 : s.tex0],
+              s.alphaBlend ? "blend" : "opaque", kTex[s.tex0 & 3],
               s.afterTm ? "aTM" : "bTM", (unsigned)s.psHash, (unsigned)s.vdecl,
               kPrim[s.primBand & 3]);
     out[n - 1] = 0;
@@ -336,6 +350,20 @@ void note_draw() {
     if (g_threadAsking) g_lastDrawTid = GetCurrentThreadId();
 }
 
+// The rule, without any of the bookkeeping the census does. This runs on every
+// draw while the panel is armed, so it is four compares and no lookups: the
+// target is the backbuffer, the viewport covers it at the origin, depth is off,
+// and the draw BLENDS - which is what leaves the scene resolve, the one opaque
+// full-frame draw, writing the world where it belongs.
+// (ENGINE_NOTES, "The Scaleform HUD draw class, measured".)
+inline bool hud_class() {
+    if (g_rt0 && g_rt0 != g_bbPtr) return false;
+    if (!g_vpKnown || !g_bbW) return false;
+    if (g_vp.X != 0 || g_vp.Y != 0 || g_vp.Width != g_bbW || g_vp.Height != g_bbH) return false;
+    if (g_zEnable != D3DZB_FALSE) return false;
+    return g_alphaBlend != FALSE;
+}
+
 // Returns true when this draw is to be DROPPED (the kill lever).
 bool record(uint8_t entry, UINT prims) {
     ++g_ord;
@@ -365,11 +393,12 @@ bool record(uint8_t entry, UINT prims) {
     s.vpFull = (g_vpKnown && rw && g_vp.X == 0 && g_vp.Y == 0 &&
                 g_vp.Width == rw && g_vp.Height == rh) ? 1 : 0;
 
-    // The tonemap boundary: a full-frame draw to the backbuffer that SAMPLES a
-    // render target. The HUD is painted over it; the fork could not see this
-    // boundary and had to infer it, and it is the one thing this path has that
-    // the fork's author did not.
-    const bool isTonemap = (s.rtClass == 0 && s.vpFull && s.tex0 == 2);
+    // The scene resolve: the full-frame OPAQUE draw to the backbuffer that puts
+    // the finished world there. The HUD is painted over it, so it is the frame's
+    // real boundary - and the draw a redirect must never take. Keying this on
+    // "samples a render target" (the fork's term) read 0 for a whole run here,
+    // because this game's resolve samples a plain texture copy.
+    const bool isTonemap = (s.rtClass == 0 && s.vpFull && !s.alphaBlend);
     if (isTonemap) {
         ++g_winTonemapDraws;
         if (!g_tmSeen) { g_tmSeen = true; g_tmFirstOrd = g_ord; }
@@ -405,6 +434,15 @@ HRESULT __stdcall hkDrawPrimitive(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
                                   UINT prims) {
     note_draw();
     if (g_track && record(0, prims)) return D3D_OK;   // killed on purpose
+    if (dvr::hudcap::armed() && hud_class()) {
+        IDirect3DSurface9* gameRt = g_rt0;
+        const D3DVIEWPORT9 vp = g_vp;
+        if (dvr::hudcap::begin(self, vp)) {
+            const HRESULT r = g_origDp(self, type, start, prims);
+            dvr::hudcap::end(self, gameRt, vp);
+            return r;
+        }
+    }
     return g_origDp(self, type, start, prims);
 }
 
@@ -412,6 +450,15 @@ HRESULT __stdcall hkDrawIndexedPrimitive(IDirect3DDevice9* self, D3DPRIMITIVETYP
                                          UINT minIdx, UINT numVerts, UINT startIdx, UINT prims) {
     note_draw();
     if (g_track && record(1, prims)) return D3D_OK;   // killed on purpose
+    if (dvr::hudcap::armed() && hud_class()) {
+        IDirect3DSurface9* gameRt = g_rt0;
+        const D3DVIEWPORT9 vp = g_vp;
+        if (dvr::hudcap::begin(self, vp)) {
+            const HRESULT r = g_origDip(self, type, base, minIdx, numVerts, startIdx, prims);
+            dvr::hudcap::end(self, gameRt, vp);
+            return r;
+        }
+    }
     return g_origDip(self, type, base, minIdx, numVerts, startIdx, prims);
 }
 
@@ -419,6 +466,15 @@ HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE typ
                                     const void* verts, UINT stride) {
     note_draw();
     if (g_track && record(2, prims)) return D3D_OK;   // killed on purpose
+    if (dvr::hudcap::armed() && hud_class()) {
+        IDirect3DSurface9* gameRt = g_rt0;
+        const D3DVIEWPORT9 vp = g_vp;
+        if (dvr::hudcap::begin(self, vp)) {
+            const HRESULT r = g_origDpUp(self, type, prims, verts, stride);
+            dvr::hudcap::end(self, gameRt, vp);
+            return r;
+        }
+    }
     return g_origDpUp(self, type, prims, verts, stride);
 }
 
@@ -428,16 +484,25 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
                                            const void* verts, UINT stride) {
     note_draw();
     if (g_track && record(3, prims)) return D3D_OK;   // killed on purpose
+    if (dvr::hudcap::armed() && hud_class()) {
+        IDirect3DSurface9* gameRt = g_rt0;
+        const D3DVIEWPORT9 vp = g_vp;
+        if (dvr::hudcap::begin(self, vp)) {
+            const HRESULT r = g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
+            dvr::hudcap::end(self, gameRt, vp);
+            return r;
+        }
+    }
     return g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
 }
 
 HRESULT __stdcall hkSetViewport(IDirect3DDevice9* self, const D3DVIEWPORT9* vp) {
-    if (g_track && vp) { g_vp = *vp; g_vpKnown = true; }
+    if ((g_track || dvr::hudcap::armed()) && vp) { g_vp = *vp; g_vpKnown = true; }
     return g_origSetVp(self, vp);
 }
 
 HRESULT __stdcall hkSetRenderState(IDirect3DDevice9* self, D3DRENDERSTATETYPE state, DWORD value) {
-    if (g_track) {
+    if (g_track || dvr::hudcap::armed()) {
         if (state == D3DRS_ZENABLE) g_zEnable = value;
         else if (state == D3DRS_ZWRITEENABLE) g_zWrite = value;
         else if (state == D3DRS_ALPHABLENDENABLE) g_alphaBlend = value;
@@ -635,6 +700,18 @@ void present_tick(IDirect3DDevice9* dev) {
     }
     g_drawTid = drew;
 
+    // The backbuffer's identity and the shadowed viewport are what the HUD
+    // redirect classifies on, so they are kept whenever EITHER lever wants them.
+    if (!g_track && !dvr::hudcap::armed()) return;
+    if (dev) {
+        IDirect3DSurface9* bb = nullptr;
+        if (SUCCEEDED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb) {
+            D3DSURFACE_DESC d;
+            if (SUCCEEDED(bb->GetDesc(&d))) { g_bbW = d.Width; g_bbH = d.Height; }
+            g_bbPtr = bb;
+            bb->Release();
+        }
+    }
     if (!g_track) return;
 
     // Close the present that just ended.
@@ -694,7 +771,7 @@ void log_summary(const char* why) {
     const uint32_t presents = g_winPresents ? g_winPresents : 1;
     const double perPresent = (double)g_winDraws / (double)presents;
     DVR_INFO("draws: %s: presents=%u draws/present=%.0f (DP %.0f, DIP %.0f, UP %.0f, IUP %.0f) "
-             "buckets=%u (overflow %u) ps distinct=%u stateBlocks=%u tonemap draws/present=%.1f "
+             "buckets=%u (overflow %u) ps distinct=%u stateBlocks=%u resolve draws/present=%.1f "
              "at ord %u..%u of %.0f",
              why, (unsigned)g_winPresents, perPresent,
              (double)g_winByEntry[0] / presents, (double)g_winByEntry[1] / presents,
@@ -705,9 +782,10 @@ void log_summary(const char* why) {
              (unsigned)(g_winTmPresents ? g_winTmLastOrdSum / g_winTmPresents : 0),
              (double)g_winOrdSum / presents);
     if (!g_winTonemapDraws)
-        DVR_INFO("draws: no tonemap DRAW in the window - this engine resolves its scene target to "
-                 "the backbuffer with StretchRect, not a draw, so the backbuffer's own draws are "
-                 "the boundary (measured run 46-01)");
+        DVR_INFO("draws: NO scene-resolve draw in the window - nothing opaque covered the whole "
+                 "backbuffer, so either the frame arrives there by StretchRect or the classifier "
+                 "is not seeing the resolve. Do not redirect anything until this reads 1 per "
+                 "present");
     {   // PostRender is the event the HUD draws from, and the viewport draw count
         // is one per re-entry pass, so this ratio is dispatches per pass. It is
         // NOT 1 or 2: the name is dispatched on several objects per pass, and the

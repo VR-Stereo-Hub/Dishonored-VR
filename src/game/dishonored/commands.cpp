@@ -217,6 +217,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         dvr::frameid::log_status();
         return true;
     }
+    if (!strcmp(cmd, "hud")) {     // 41.2 (session 10): the HUD panel
+        return dvr::hudcap::command(args);
+    }
     if (!strcmp(cmd, "draws")) {   // 41.2 (session 10): the draw census
         return dvr::draws::command(args);
     }
@@ -346,6 +349,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("frameid"); dvr::frameid::status(w); w.end_obj();   // 41.1 (session 9): the frame-identity trace
     w.obj("draws"); dvr::draws::status(w); w.end_obj();       // 41.2 (session 10): the draw census
+    w.obj("hud"); dvr::hudcap::status(w); w.end_obj();        // 41.2 (session 10): the HUD panel
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
 
     w.obj("head");
