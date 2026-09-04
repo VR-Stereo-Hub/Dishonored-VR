@@ -97,6 +97,81 @@ had not, so the game folder still held the previous DLL. The log banner names th
 it in one command. A `-dirty` tag means the tree had uncommitted changes at build time and the
 log cannot be traced to a commit: rebuild from a clean tree before handing a log to anyone.
 
+## OPEN (2026-09-04): the crouch height rise - NOT REPRODUCED, and the obvious suspect is falsified
+
+The user's report (2026-09-04): crouching then standing raises the player slightly, and spamming
+the two rises far enough to pass through a ceiling. The suspicion was the physical crouch, and
+the mechanical suspect was the deep-crouch capsule write (`PawnSetCollisionHeight`, the only
+height the mod writes at all - it never writes `Actor.Location`).
+
+**The simulator says the capsule write is not it.** Instrumented (`crouch/drift`, below) and run
+on the dev PC's simulator lane, in the sewers, standing still, `[PosTrack] DeepCrouch=1`:
+
+| Test | Cycles | Result |
+|---|---|---|
+| Crouch key `C`, 1.2 s per phase | 20 | standing Z **3446.12 every single cycle**, delta +0.00, cumulative +0.00 |
+| Crouch key `C`, 160 ms spam | 30+ | cumulative **-2.83 uu** (DOWNWARD, and all of it one settle at the start) |
+
+Deep crouch was active throughout (`cylinder 65.0 -> 45.0uu` on every crouch, `-> 87.5` on every
+stand, `ours 45.0` on every line). So the capsule shrink-and-restore cycle is clean: the pawn
+returns to the same Z to two decimals, 20 times running, and spamming it does not accumulate.
+
+**What was NOT tested, and is now the live hypothesis.** The keyboard presses the game's own
+crouch. The user crouches PHYSICALLY - the HMD-height detector in `head_track.cpp` presses the
+crouch button through the pad bridge - and that path could not be driven here: `xrsim-cmd
+"head height 1.25"` never produced a `crouch: DOWN`, so the simulated head height does not reach
+the detector's `m[1][3]`. Driving it is a prerequisite for reproducing this in the simulator and
+is unsolved.
+
+One specific thing to look at there, unproven: the standing reference is a **pure peak-hold with
+no decay**:
+
+```c
+if (!g_crouchRefOk) { g_crouchRef = py2; g_crouchRefOk = true; }
+if (py2 > g_crouchRef) g_crouchRef = py2;      // ratchets up, never down
+float drop = g_crouchRef - py2;
+```
+
+This repo has already been bitten by exactly this shape once - the 32.39 comment in `crouch.cpp`
+records "standing = the highest eye height ever seen was wrong in the same way a peak meter is
+wrong", and that baseline was given a two-stance fix. This one was left a ratchet. It would make
+the crouch TRIGGER easier over time rather than move the pawn, so it does not obviously explain a
+rise, but it is the only un-decayed ratchet in the stance path.
+
+### The instrument that ships (`crouch/drift`)
+
+`CrouchDriftSample()` in `crouch.cpp`, called from the deep-crouch block in `head_track.cpp`. It
+had to be called from there: the crouch signal function it started in lives behind the
+motion-control gate and **does not run at all under `[Mode] GamepadOnly=1`, the shipped default** -
+which is why the first instrumented run logged nothing whatsoever.
+
+It logs one line per crouch->stand transition and splits the two bugs the report cannot
+distinguish:
+
+- **PAWN Z** moved: a physics or capsule fault, and the only one that can put you through a
+  ceiling.
+- **VIEW eye** moved (camera Z above the pawn) while the pawn did not: a tracking-reference
+  drift; the pawn is where it always was and the world appears to sink.
+
+A cycle where the pawn moved more than 5 uu horizontally is **reported and discarded** - stairs,
+slopes and ledges change standing Z honestly - so a drift claim cannot be manufactured out of
+ordinary movement, and a run of `+0.00` lines is the trace failing its own hypothesis out loud
+rather than staying silent.
+
+`[Hands] CrouchDrift=1` ships on (transitions only, no per-frame cost). Live: `crouch status`,
+`crouch drift on|off`, `crouch reset`, and **`crouch deep on|off`** - the A/B that decides it. If
+the rise survives `crouch deep off`, the capsule write is exonerated on the headset too.
+
+### The headset run that would settle it
+
+1. `crouch reset`, then stand still and physically crouch/stand ten times.
+2. Read `crouch/drift`. `PAWN Z ... delta +0.00` with `VIEW eye` climbing = a tracking-reference
+   drift. `PAWN Z` climbing = physics, and the cylinder numbers on the same line say whether our
+   write was in force when it happened.
+3. `crouch deep off`, `crouch reset`, repeat. If the rise persists, it is not the capsule.
+4. Worth trying once: does it need JUMP? The branch is named for it, and a crouch/uncrouch while
+   airborne is a different code path from the one measured here.
+
 ## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
 **Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
@@ -176,6 +251,53 @@ without a bump); the pace guard's eaten tag if the headset ever names it.
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 11: the intro skip, two harness bugs, and a falsified crouch suspect
+
+Branch `jump-fix`. Simulator lane on the dev PC, no headset.
+
+**The startup logos are gone.** `tools\setup-game-ini.ps1 -NoIntro` sets UE3's own
+`[FullScreenMovie] bForceNoStartupMovies=true` after a timestamped backup. Seven movies were
+queued (Black_266ms, ZenimaxLegal, ZenimaxLegalFR, LogoBethesda, LogoArkane, UE3_logo, Legal) and
+none of them is skippable by a keypress - `SkippableMovies` lists only in-game cinematics. No
+movie file is touched, so a Steam file verify has nothing to repair, and `-NoIntro -Off` puts it
+back. Measured: `boot.ps1` reached GAMEPLAY in **2 presses** on the next launch, and 5 on the one
+after.
+
+**`boot.ps1` never worked, and now does.** It called `game-key.ps1 Enter` positionally, but that
+script's first parameter is `-GamePath` - so "Enter" bound to the path, `$Key` stayed empty and
+the script threw `give -Key <name>` on every single press. The header had it right: "UNVERIFIED
+against the real game as of 2026-09-02". One word (`-Key`) fixes it; the other three callers
+(`arming-hammer`, `soak`, `xrsim-run`) already passed `-Key` and were fine.
+
+**The handoff's trap 6 reproduces here after all.** A direct `Dishonored.exe` launch crashed at
+the menu - access violation reading 0 inside `nvd3dum.dll` off the game's own present path, dump
+in `D:\dvr-data\dumps`. VERIFICATION said it "did NOT reproduce here"; it does now. `-ViaSteam`
+launched and ran fine every time. Use it.
+
+**The crouch rise: not reproduced, and the obvious suspect is falsified.** Full write-up in the
+OPEN section above. 20 slow cycles and 30+ of 160 ms spam, standing still with `DeepCrouch=1`:
+standing Z was 3446.12 on every one of the 20, and spam accumulated -2.83 uu (downward, all of it
+one settle). The capsule shrink/restore is clean. What could not be driven is the PHYSICAL crouch
+- `xrsim-cmd "head height"` never reached the HMD-height detector - and that is the path the user
+actually uses, so it is now the live hypothesis rather than a ruled-out one.
+
+The first instrumented run logged **nothing at all**, which is its own finding: the crouch signal
+function sits behind the motion-control gate and does not run under `[Mode] GamepadOnly=1`, the
+shipped default. The trace moved next to the deep-crouch block in `head_track.cpp`, which does
+run, and it now splits PAWN Z from VIEW eye height - the report says "player height raises" and
+those are two different bugs, only one of which can reach a ceiling.
+
+| Change | What |
+|---|---|
+| `tools/setup-game-ini.ps1` | `-NoIntro [-Off]`, backed up, engine flag not file deletion |
+| `tools/boot.ps1` | `-Key Enter` - the walk-in works for the first time |
+| `crouch.cpp` / `head_track.cpp` | `CrouchDriftSample`: per-transition PAWN vs VIEW drift, movement-discard guard |
+| `commands.cpp` | `crouch status\|drift on\|off\|deep on\|off\|reset` - `deep` is the A/B that decides it |
+
+**No fix is shipped for the crouch rise, on purpose.** Nothing was reproduced, so anything called
+a fix would be a guess dressed as a measurement - the one thing the handoff's process rules name
+outright. The instrument ships instead, and one headset run with `crouch reset` names the owner.
 
 ### 2026-09-04 - session 10: the stale RIGHT eye, read out of the code, then confirmed
 

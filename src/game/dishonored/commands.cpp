@@ -15,6 +15,7 @@
 //   stereo <name>|status         the stereo method (mono|aer|reentry): live switch, fails soft
 //   stereo projection on|off|auto  force/pin/follow the projection layer (on = the mono frame in both eyes of a projection layer)
 //   reentry census|stack|probe|status  the scene-draw root instruments (game/dishonored/scene_probe.cpp)
+//   crouch status|drift on|off|deep on|off|reset  the crouch drift trace and the deep-crouch A/B
 //   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
 //   capture sharedwait on|off    shared: deliver this present after its fence (on) or the previous slot (off, default)
 //   device census|status         the creation census (core/gfx/device_census): the table and the 9Ex verdict
@@ -191,6 +192,41 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             if (!strcmp(sub, "managed")) { DeviceSetManaged(v, "seam"); return true; }
         }
         Log("device: usage - device census|status | device ex on|off | device managed none|default|dynamic|shadow");
+        return true;
+    }
+    if (!strcmp(cmd, "crouch")) {   // 41.2: the drift trace and the deep-crouch A/B
+        if (!args[0] || !strcmp(args, "status")) {
+            Log("crouch: drift trace %s, %u cycle(s) seen, cumulative %+.2f uu%s | deep crouch %s "
+                "(target %.1f uu, ours %.1f) | cylinder now %.1f",
+                g_crouchDriftCfg ? "on" : "off", g_cdCycles, g_cdSum,
+                g_cdHaveRef ? "" : " (no baseline yet - stand up once)",
+                g_deepCrouchCfg ? "ON" : "off", g_deepCrouchUU, g_dcOurs, PawnCollisionHeight());
+            return true;
+        }
+        char sub[16] = "", v[16] = "";
+        const int n = sscanf(args, "%15s %15s", sub, v);
+        if (n >= 1 && !strcmp(sub, "reset")) {
+            g_cdHaveRef = false; g_cdCycles = 0; g_cdSum = 0.0f;
+            Log("crouch/drift: baseline cleared - the next stand arms a new one");
+            return true;
+        }
+        if (n == 2 && !strcmp(sub, "drift") && DvrOnOff(v, &b)) {
+            g_crouchDriftCfg = b ? 1 : 0;
+            Log("crouch/drift: trace %s", b ? "on" : "off");
+            return true;
+        }
+        if (n == 2 && !strcmp(sub, "deep") && DvrOnOff(v, &b)) {
+            // The A/B for the drift: if the rise survives `crouch deep off`,
+            // the capsule write is NOT the cause and the trace has falsified
+            // the obvious suspect rather than confirming it.
+            g_deepCrouchCfg = b ? 1 : 0;
+            g_dcOurs = 0.0f;
+            g_cdHaveRef = false; g_cdCycles = 0; g_cdSum = 0.0f;
+            Log("crouch: deep crouch %s - the capsule is left to the game%s; drift baseline cleared",
+                b ? "ON" : "off", b ? " only when standing" : " entirely");
+            return true;
+        }
+        Log("crouch: status | crouch drift on|off | crouch deep on|off | crouch reset");
         return true;
     }
     if (!strcmp(cmd, "reentry")) {

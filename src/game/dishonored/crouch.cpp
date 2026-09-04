@@ -71,6 +71,95 @@ static bool PawnSetCollisionHeight(float v)
 }
 
 
+// 41.2 CROUCH DRIFT TRACE. The user's report (2026-09-04): crouching and then
+// standing raises the pawn slightly, and spamming the two rises far enough to
+// pass through a ceiling. The mod never writes Actor.Location, so if the rise
+// is ours it can only come from PawnSetCollisionHeight (deep crouch) - and if
+// it is NOT ours this has to be able to say so.
+//
+// Called from the deep-crouch block in head_track.cpp, NOT from the crouch
+// signal function: that one lives behind the motion-control gate and does not
+// run at all under [Mode] GamepadOnly=1, which is the shipped default. The
+// stance comes from the cylinder the caller already read, so the trace watches
+// exactly the transition the capsule write reacts to.
+//
+// Only a stand->stand delta with the pawn in one place means anything. A cycle
+// where the pawn moved horizontally is REPORTED AND DISCARDED - stairs, slopes
+// and ledges all change standing Z honestly - so a drift claim can never be
+// manufactured out of ordinary movement, and a run that reads +0.00 every
+// cycle is the trace failing its own hypothesis rather than staying silent.
+static uint32_t g_cdLocOff = 0;
+static int      g_cdLocTried = 0;
+
+static void CrouchDriftSample(float ch)
+{
+    if (!g_crouchDriftCfg || ch <= 0.0f) return;
+    if (!g_cdLocTried) {
+        g_cdLocTried = 1;
+        g_cdLocOff = FindPropOffset("Actor", "Location");
+        Log("crouch/drift: Actor.Location at +0x%x%s", g_cdLocOff,
+            g_cdLocOff ? "" : "  <-- NOT FOUND, the drift trace cannot run");
+    }
+    uint8_t* pawn = g_pePawn;
+    if (!g_cdLocOff || !pawn || !LooksLikeObj(pawn) ||
+        !RangeReadable(pawn + g_cdLocOff, 12)) return;
+    const float* pl = (const float*)(pawn + g_cdLocOff);
+    const float px = pl[0], py = pl[1], pz = pl[2];
+    // The VIEW height as well as the pawn's. The report says "player height
+    // raises", and that is two different bugs: the PAWN rising (a physics or
+    // capsule fault, and the only one that can take you through a ceiling) or
+    // the VIEW rising off a drifting tracking reference (the pawn stays put and
+    // the world appears to sink). Logging both makes the next run name which
+    // one without another round trip. eye = camera Z above the pawn's origin.
+    float eye = 0.0f;
+    if (CamStillValid() && RangeReadable(g_camObj + 0x80, 12))
+        eye = ((const float*)(g_camObj + 0x80))[2] - pz;
+
+    // Standing is the game's own full cylinder; anything shorter is a stance.
+    // The band matches the deep-crouch block's own classification so the two
+    // can never disagree about what a transition is.
+    const bool crouchedNow = (ch <= 76.0f);
+    if (crouchedNow == g_cdWasCrouched) return;
+    g_cdWasCrouched = crouchedNow;
+    if (crouchedNow) { g_cdCrouchZ = pz; g_cdCrouchH = ch; return; }
+
+    ++g_cdCycles;
+    const float moved = g_cdHaveRef
+        ? sqrtf((px - g_cdRefX) * (px - g_cdRefX) + (py - g_cdRefY) * (py - g_cdRefY))
+        : 0.0f;
+    if (!g_cdHaveRef) {
+        g_cdHaveRef = true; g_cdRefX = px; g_cdRefY = py; g_cdRefZ = pz;
+        g_cdRefEye = eye; g_cdSum = 0.0f; g_cdEyeSum = 0.0f;
+        Log("crouch/drift: baseline armed at standing pawn Z=%.2f, eye %.2f uu above it (cylinder %.1f, "
+            "deep crouch %s) - crouch and stand in place; +0.00 on BOTH means no drift, and whichever "
+            "one moves names the fault", pz, eye, ch, g_deepCrouchCfg ? "ON" : "off");
+        return;
+    }
+    if (moved > 5.0f) {
+        Log("crouch/drift: cycle %u DISCARDED - the pawn moved %.1f uu horizontally, so a Z change "
+            "is honest ground, not drift; baseline re-armed at Z=%.2f", g_cdCycles, moved, pz);
+        g_cdRefX = px; g_cdRefY = py; g_cdRefZ = pz; g_cdRefEye = eye;
+        g_cdSum = 0.0f; g_cdEyeSum = 0.0f;
+        return;
+    }
+    const float d = pz - g_cdRefZ;
+    const float de = eye - g_cdRefEye;
+    g_cdSum += d; g_cdEyeSum += de;
+    const bool pawnStill = (d > -0.01f && d < 0.01f);
+    const bool eyeStill  = (de > -0.05f && de < 0.05f);
+    Log("crouch/drift: cycle %u  PAWN Z %.2f -> %.2f delta %+.2f cum %+.2f uu | VIEW eye %.2f -> %.2f "
+        "delta %+.2f cum %+.2f uu  (crouched Z %.2f, cylinder crouch %.1f stand %.1f; deep crouch %s, "
+        "ours %.1f)  %s",
+        g_cdCycles, g_cdRefZ, pz, d, g_cdSum, g_cdRefEye, eye, de, g_cdEyeSum,
+        g_cdCrouchZ, g_cdCrouchH, ch, g_deepCrouchCfg ? "ON" : "off", g_dcOurs,
+        (pawnStill && eyeStill) ? "- NO DRIFT this cycle"
+        : pawnStill ? "<-- the VIEW moved and the PAWN did not: a tracking-reference drift, not physics"
+        : eyeStill  ? "<-- the PAWN moved: this is the one that can reach a ceiling"
+                    : "<-- BOTH moved");
+    g_cdRefZ = pz; g_cdRefEye = eye;
+}
+
+
 // Find Pawn.bIsCrouched by reflection: a BoolProperty UObject named
 // "bIsCrouched" carries its byte offset at +0x5c and its bitmask at +0x6c -
 // the same two fields the SkelControl probe read in 30.94.

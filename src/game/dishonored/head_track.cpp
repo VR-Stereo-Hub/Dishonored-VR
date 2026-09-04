@@ -853,6 +853,9 @@ static void TrackHead(const float (*m)[4])
             // authority; unknown reads decay the drop toward zero.
             {
                 float ch = PawnCollisionHeight();
+                // 41.2: the drift trace, before the capsule write - it reads
+                // the stance the game is in, not the one we are about to make.
+                CrouchDriftSample(ch);
                 // 38.16: deep crouch - shrink the capsule while the GAME
                 // says crouched, never fight its standing or vent writes.
                 if (g_deepCrouchCfg && ch > 0.0f) {

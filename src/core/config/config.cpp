@@ -829,6 +829,7 @@ static void LoadConfig()
     // 32.93: default OFF. It answered its question weeks ago (which crouch
     // signal is real) and has been printing five lines a second ever since.
     g_crouchDiag      = IniFloat(ini, "Hands", "CrouchDiag", 0) != 0.0f;
+    g_crouchDriftCfg  = IniFloat(ini, "Hands", "CrouchDrift", 1) != 0.0f;   // 41.2: stand->stand Z, transitions only
     g_skcRotSignY = IniFloat(ini, "Hands", "RotSignYaw", 1) < 0 ? -1 : 1;
     g_skcRotSignP = IniFloat(ini, "Hands", "RotSignPitch", 1) < 0 ? -1 : 1;
     // 35.8: the donor-graft rotation drive. GraftRotation=1 arms the WISH -

@@ -74,7 +74,10 @@ for ($i = 0; $i -lt $MaxPresses; $i++) {
     $p = Get-Process $proc -ErrorAction SilentlyContinue
     if (-not $p) { "FAIL: game process died"; exit 1 }
     [W]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
-    & (Join-Path $PSScriptRoot "game-key.ps1") Enter | Out-Null
+    # -Key by NAME: game-key.ps1's first positional parameter is -GamePath, so a
+    # bare "Enter" bound to the path and the script threw "give -Key <name>" on
+    # every press. That is why the documented walk-in never worked (41.2).
+    & (Join-Path $PSScriptRoot "game-key.ps1") -Key Enter | Out-Null
     Start-Sleep -Milliseconds 3500
 }
 "FAIL: gameplay never reached (timed out after $MaxPresses presses)"

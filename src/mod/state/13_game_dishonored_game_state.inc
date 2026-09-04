@@ -173,6 +173,15 @@ static float g_crouchDropUU   = 0.0f; // smoothed current drop
 static int   g_deepCrouchCfg = 1;     // [PosTrack] DeepCrouch
 static float g_deepCrouchUU  = 45.0f; // [PosTrack] DeepCrouchUU (half-height)
 static float g_dcOurs        = 0.0f;  // last value WE wrote (0 = not ours)
+// 41.2: the crouch drift trace ([Hands] CrouchDrift, `crouch drift on|off|reset`).
+// Only stand->stand deltas with the pawn in one place are read as drift.
+static int   g_crouchDriftCfg = 1;
+static bool  g_cdWasCrouched  = false;
+static bool  g_cdHaveRef      = false;
+static float g_cdRefX = 0.0f, g_cdRefY = 0.0f, g_cdRefZ = 0.0f;
+static float g_cdCrouchZ = 0.0f, g_cdCrouchH = 0.0f, g_cdSum = 0.0f;
+static float g_cdRefEye = 0.0f, g_cdEyeSum = 0.0f;
+static uint32_t g_cdCycles = 0;
 static float g_cylLast = -1.0f;       // 38.19: last good cylinder read
 static int   g_crouchHideCfg   = 1;      // [Hands] CrouchHideArms
 static float g_crouchHideCyl   = 76.0f;  // [Hands] CrouchHideCyl

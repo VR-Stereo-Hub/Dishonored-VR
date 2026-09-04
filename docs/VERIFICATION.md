@@ -125,6 +125,20 @@ Two confounds worth knowing when driving the sim, neither a defect:
   has reached a rendering state. Check for the process and read the mod log before believing
   the launcher; the handoff's trap 6 (a direct exe launch crashes at the menu) did NOT
   reproduce here - the game reached a level and stayed there.
+- **2026-09-04: trap 6 DOES reproduce now.** A direct `Dishonored.exe` launch died at the menu
+  with an access violation reading 0 inside `nvd3dum.dll`, off the game's own present path (dump
+  in `D:\dvr-data\dumps`). `-ViaSteam` launched and ran every time in the same session. Use
+  `-ViaSteam` on this PC and do not spend a run rediscovering this.
+- **Skip the startup logos before any run-heavy session**: `tools\setup-game-ini.ps1 -NoIntro`
+  (UE3's `bForceNoStartupMovies`, backed up, `-Off` reverts). Seven unskippable movies play
+  otherwise. With it, `boot.ps1 -Attach` reached GAMEPLAY in 2-5 Enter presses.
+- **`boot.ps1` was broken until 2026-09-04** and threw on every keypress: it passed `Enter`
+  positionally to `game-key.ps1`, whose first parameter is `-GamePath`. If a walk-in fails on an
+  older checkout, that is why.
+- **The crouch signal function does not run under `[Mode] GamepadOnly=1`** (the shipped default),
+  so instrumentation added to `crouch.cpp`'s per-frame crouch block logs NOTHING. Anything that
+  must run in the shipped configuration belongs next to the deep-crouch block in
+  `head_track.cpp`. Cost: one whole instrumented run that produced an empty log.
 
 ## 3. The end-to-end agent workflow
 
