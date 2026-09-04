@@ -25,6 +25,7 @@ float g_slotScale = 0.5f;
 bool  g_gameGate = false;
 bool  g_armed = false;          // the per-present verdict the draw path reads
 bool  g_refusedSaid = false;
+bool  g_handoffReady = false;   // slots + blit up: without it, do NOT redirect
 
 // ---- the private D3D9 target ----------------------------------------------
 IDirect3DSurface9* g_hudRt = nullptr;
@@ -328,7 +329,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
     // loading screens and the cinematic quad all drop) and the game side's
     // strict-gameplay verdict.
     const bool xrGate = dvr::hud::gate();
-    const bool wantArm = g_on && xrGate && g_gameGate;
+    const bool wantArm = g_on && xrGate && g_gameGate && g_handoffReady;
 
     if (dev9 && g_on) ensure_rt(dev9);
 
@@ -339,7 +340,8 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
 
     if (g_on && g_hudRt && dev9 && dev11 && ctx11) {
         g_lastCtx = ctx11;
-        if (ensure_slots(dev9, dev11) && g_blit.init(dev11)) {
+        g_handoffReady = ensure_slots(dev9, dev11) && g_blit.init(dev11);
+        if (g_handoffReady) {
             {
                 read_wait(g_cur);
                 RECT src = {0, 0, (LONG)g_rtW, (LONG)g_rtH};
@@ -377,9 +379,17 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             }
             g_cur ^= 1;
         }
-    } else if (g_hudRt && dev9 && !g_on) {
-        dev9->ColorFill(g_hudRt, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
+    } else {
+        g_handoffReady = false;
+        if (g_hudRt && dev9 && !g_on) clear_rt(dev9);
     }
+    if (g_on && !g_handoffReady)
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+                         "hud: the panel is ON but its hand-off to D3D11 is NOT ready, so the "
+                         "redirect stays OFF and the HUD keeps drawing into the frame - losing "
+                         "the HUD entirely would be worse than not having a panel. The lines "
+                         "above say which step refused (a plain device instead of 9Ex, a refused "
+                         "shared surface, or no d3dcompiler for the blit)");
     g_redirected = 0;
     g_armed = wantArm;
 
@@ -387,17 +397,21 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
     if (g_on && GetTickCount() - g_winStartMs >= 3000) {
         DVR_INFO("hud: 3s: presents=%u redirected=%.1f draws/present delivered=%u | slot %ux%u of "
                  "%ux%u (scale %.2f) | fences: blit waits %u timeouts %u, read waits %u timeouts "
-                 "%u | restore failures %u | gate: panel=%d xr=%d game=%d -> %s",
+                 "%u | restore failures %u | gate: panel=%d xr=%d game=%d handoff=%d -> %s",
                  g_winPresents, g_winPresents ? (double)g_winRedirected / g_winPresents : 0.0,
                  g_winDelivered, g_slotW, g_slotH, g_rtW, g_rtH, g_slotScale,
                  g_blitWaits, g_blitTimeouts, g_readWaits, g_readTimeouts, g_restoreFails,
-                 (int)g_on, (int)xrGate, (int)g_gameGate, wantArm ? "ARMED" : "idle");
+                 (int)g_on, (int)xrGate, (int)g_gameGate, (int)g_handoffReady,
+                 wantArm ? "ARMED" : "idle");
         if (!wantArm) {
-            g_offReason = !xrGate ? "the runtime's gate is down (no projection present with an eye "
-                                    "tag: a menu, a loading screen, the cinematic quad, or the mono "
-                                    "screen - the HUD stays in the frame there by design)"
-                                  : "the game side is not in strict gameplay (a menu, no pawn, a "
-                                    "cinematic, or the power wheel is held)";
+            g_offReason = !g_handoffReady
+                              ? "the hand-off to D3D11 is not ready, so the redirect is held off "
+                                "rather than take the HUD away with nowhere to put it"
+                          : !xrGate ? "the runtime's gate is down (no projection present with an "
+                                      "eye tag: a menu, a loading screen, the cinematic quad, or "
+                                      "the mono screen - the HUD stays in the frame there by design)"
+                                    : "the game side is not in strict gameplay (a menu, no pawn, a "
+                                      "cinematic, or the power wheel is held)";
             DVR_INFO("hud: not redirecting - %s", g_offReason);
         } else {
             g_offReason = "armed";
@@ -415,6 +429,7 @@ ID3D11Texture2D* provider_texture(ID3D11DeviceContext*) {
 }
 
 void on_reset() {
+    g_handoffReady = false;
     release_slots();
     release_rt();
     g_rtFailed = false;
@@ -425,6 +440,7 @@ void on_reset() {
 
 void shutdown() {
     g_armed = false;
+    g_handoffReady = false;
     g_on = false;
     g_wanted = false;
     g_blit.shutdown();
@@ -433,11 +449,11 @@ void shutdown() {
 }
 
 void log_status() {
-    DVR_INFO("hud: panel=%s scale=%.2f rt=%ux%u slot=%ux%u | gate: xr=%d game=%d -> %s | "
-             "fingerprint measured=%d | %s",
+    DVR_INFO("hud: panel=%s scale=%.2f rt=%ux%u slot=%ux%u | gate: xr=%d game=%d handoff=%d -> "
+             "%s | fingerprint measured=%d | %s",
              g_on ? "on" : "off", g_slotScale, g_rtW, g_rtH, g_slotW, g_slotH,
-             (int)dvr::hud::gate(), (int)g_gameGate, g_armed ? "ARMED" : "idle",
-             (int)kHudFingerprintMeasured, g_offReason);
+             (int)dvr::hud::gate(), (int)g_gameGate, (int)g_handoffReady,
+             g_armed ? "ARMED" : "idle", (int)kHudFingerprintMeasured, g_offReason);
 }
 
 void status(dvr::status::Writer& w) {
@@ -445,6 +461,7 @@ void status(dvr::status::Writer& w) {
     w.kv("armed", g_armed);
     w.kv("xrGate", dvr::hud::gate());
     w.kv("gameGate", g_gameGate);
+    w.kv("handoff", g_handoffReady);
     w.kv("scale", (double)g_slotScale);
     w.kv("slotW", (int)g_slotW);
     w.kv("slotH", (int)g_slotH);

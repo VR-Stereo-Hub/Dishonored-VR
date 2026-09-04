@@ -119,14 +119,17 @@ static void WriteDefaultIni(const char* ini)
         "; HEAD-LOCKED quad instead of in the world, which is the return of the wrist HUD\n"
         "; build 38.92 shipped (the wrist anchor itself comes back with the hands). While it\n"
         "; is on the HUD is NOT in the eye textures and NOT in the desktop window: that is\n"
-        "; what a redirect means. It runs only during stereo gameplay - menus, loading\n"
+        "; what a redirect means. Panel=0 puts the HUD back in the frame, as the game draws\n"
+        "; it. If the hand-off to D3D11 cannot be built the redirect stays OFF and the HUD\n"
+        "; keeps drawing into the frame, because losing it entirely would be worse.\n"
+        "; It runs only during stereo gameplay - menus, loading\n"
         "; screens, cutscenes and the mono screen all leave the HUD in the frame, and the\n"
         "; pause menu deliberately so, because the menu is drawn by the same class.\n"
         "; SlotScale is the panel texture's size as a fraction of the render; the quad\n"
         "; subtends about 50 degrees, so half is already more than the headset resolves.\n"
         "; `hud on|off|status|scale <f>` live, the F10 Display tickbox, and the quad's\n"
         "; distance, width and height are the HUD sliders on the F10 Runtime tab.\n"
-        "Panel=0\n"
+        "Panel=1\n"
         "SlotScale=0.50\n"
         "[Cine]\n"
         "; What the headset shows during a cutscene. quad (the default, and what has always\n"
@@ -631,7 +634,7 @@ static void LoadConfig()
     }
     {   // 41.2 (session 10): the HUD panel, default off
         dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
-        dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 0) != 0.0f);
+        dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 1) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
