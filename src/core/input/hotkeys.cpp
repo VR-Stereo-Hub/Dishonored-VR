@@ -63,6 +63,36 @@ static void StereoUpdate()
         f10Was = f10;
     }
 
+    // 41.1 (Dishonored): F2 stamps the freeze/fault marker. The F10 overlay
+    // has a MARK button, but a headset tester cannot open a panel that covers
+    // the view to report something they are looking AT - the marker has to be
+    // one key, eyes-free. F2 is the only F-key free on this game: its sole
+    // binding is Alt+F2 (viewmode unlit), and the mod uses F3-F10 already
+    // (F5/F9 are the game's quicksave/quickload, F11/F12 BendTime).
+    // Alternating text so a log reads as spells, not points: each press says
+    // whether it opened or closed one, and how long the last one lasted.
+    {
+        static bool f2Was = false;
+        static bool inSpell = false;
+        static ULONGLONG spellStart = 0;
+        const bool f2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
+        if (f2 && !f2Was) {
+            const ULONGLONG now = GetTickCount64();
+            char text[96];
+            if (!inSpell) {
+                inSpell = true; spellStart = now;
+                _snprintf(text, sizeof(text), "F2 SPELL BEGIN (tester says the fault is visible NOW)");
+            } else {
+                inSpell = false;
+                _snprintf(text, sizeof(text), "F2 SPELL END after %.1f s (the fault is gone NOW)",
+                          (double)(now - spellStart) / 1000.0);
+            }
+            text[sizeof(text) - 1] = 0;
+            dvr::perf::mark(text, "F2");
+        }
+        f2Was = f2;
+    }
+
     // 30.37: live WORLD SCALE (game units per meter). One knob drives both
     // stereo separation and positional parallax, so all depth cues agree.
     // PageUp = world feels bigger (scale down), PageDown = world smaller.
