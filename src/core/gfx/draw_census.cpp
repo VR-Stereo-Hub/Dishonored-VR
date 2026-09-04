@@ -195,20 +195,39 @@ uint64_t sig_key(const Sig& s) {
     return h;
 }
 
-// The candidate rule: the fork's ladder, translated to this render. A draw is
-// HUD-class when it is a user-pointer draw to the whole backbuffer, with depth
-// off, sampling a plain texture, after the frame has been tonemapped.
-enum { kTermEntry = 0, kTermRt, kTermVp, kTermZ, kTermTex, kTermTm, kTermCount };
-const char* const kTermName[kTermCount] = { "entry=UP", "rt=backbuffer", "viewport=full",
-                                            "z=off", "tex0=plain", "afterTonemap" };
+// The candidate rule, as run 46-01 measured this engine rather than as the fork
+// assumed it. Two of the fork's terms are gone because this render is not that
+// render, and the log says so on its own lines:
+//
+//  - "after the tonemap" is dropped. Dishonored resolves its offscreen scene
+//    target to the backbuffer with StretchRect, not a draw, so the tonemap
+//    counter reads 0 for a whole run (run 46-01: `tonemap draws/present=0.0`)
+//    and the term rejected every draw in the frame. The boundary it stood for
+//    is served better by the target itself.
+//  - "the entry point is a user-pointer draw" is dropped from the RULE (it
+//    stays a reported column). The fork could use it because it only ever saw
+//    UP draws; here DrawIndexedPrimitiveUP carries 810 WORLD draws per present.
+//
+//  - "texture stage 0 is a plain texture" is dropped from the RULE too, and
+//    for the same reason: it is a real discriminator on the FORK's frame, where
+//    the HUD shared a target with the world, but here it splits the HUD itself.
+//    Most of Dishonored's HUD draws are untextured Scaleform fills (tex=none);
+//    requiring a texture kept 1 draw per present of 15 and left the rest in the
+//    frame. It stays a reported column.
+//
+// What separates on this path is the RENDER TARGET: the world is drawn to an
+// offscreen 2496x2688 target and the whole HUD to the backbuffer, at the tail
+// of the frame. So a draw is HUD-class when it goes to the whole backbuffer
+// with depth off. Measured run 46-02 and PROVEN BY PICTURE: the backbuffer
+// population is 5 buckets and 15 draws per present of 1205, at ordinals
+// 1177-1221, and killing them removes the HUD and leaves the world untouched.
+enum { kTermRt = 0, kTermVp, kTermZ, kTermCount };
+const char* const kTermName[kTermCount] = { "rt=backbuffer", "viewport=full", "z=off" };
 
 void sig_terms(const Sig& s, bool* t) {
-    t[kTermEntry] = (s.entry == 2 || s.entry == 3);
-    t[kTermRt]    = (s.rtClass == 0);
-    t[kTermVp]    = (s.vpFull != 0);
-    t[kTermZ]     = (s.zEnable == D3DZB_FALSE);
-    t[kTermTex]   = (s.tex0 == 1);
-    t[kTermTm]    = (s.afterTm != 0);
+    t[kTermRt] = (s.rtClass == 0);
+    t[kTermVp] = (s.vpFull != 0);
+    t[kTermZ]  = (s.zEnable == D3DZB_FALSE);
 }
 
 bool is_candidate(const Sig& s) {
@@ -685,23 +704,28 @@ void log_summary(const char* why) {
              (unsigned)(g_winTmPresents ? g_winTmFirstOrdSum / g_winTmPresents : 0),
              (unsigned)(g_winTmPresents ? g_winTmLastOrdSum / g_winTmPresents : 0),
              (double)g_winOrdSum / presents);
-    {   // The HUD is drawn from inside PostRender, so this ratio says how many
-        // times per engine tick the HUD is drawn: 2.0 under `stereo reentry`
-        // (once per eye), 1.0 on the mono screen. A ratio near 0 means the
-        // dispatch was never seen and the column is meaningless, which the line
-        // says rather than printing a silent zero.
+    if (!g_winTonemapDraws)
+        DVR_INFO("draws: no tonemap DRAW in the window - this engine resolves its scene target to "
+                 "the backbuffer with StretchRect, not a draw, so the backbuffer's own draws are "
+                 "the boundary (measured run 46-01)");
+    {   // PostRender is the event the HUD draws from, and the viewport draw count
+        // is one per re-entry pass, so this ratio is dispatches per pass. It is
+        // NOT 1 or 2: the name is dispatched on several objects per pass, and the
+        // measured figure is what the line prints. A zero says the instrument
+        // never saw the event, which is a different thing from the HUD not being
+        // drawn, so it is spelled out rather than left as a silent 0.
         const uint32_t pr = g_postRender ? g_postRender() - g_prAtWinStart : 0;
         const uint32_t vd = g_viewportDraws ? g_viewportDraws() - g_vdAtWinStart : 0;
         if (!g_postRender)
-            DVR_INFO("draws: postRender: no counter registered (the game side did not hand one over)");
+            DVR_INFO("draws: postRender: no counter registered (the game side handed none over)");
         else if (!pr)
-            DVR_INFO("draws: postRender: 0 dispatches in the window - the HUD's own event never "
-                     "fired, so nothing in this table was drawn from it");
+            DVR_INFO("draws: postRender: 0 dispatches in the window - the event never fired, so "
+                     "this column says nothing about whether the HUD was drawn");
         else
-            DVR_INFO("draws: postRender %u dispatches, viewport draws %u -> %.2f per draw "
-                     "(2.00 under reentry = the HUD is drawn once per EYE; 1.00 = once per tick). "
-                     "Last present's delta %u, which is a game-thread count read a frame ahead of "
-                     "these draws and is NOT aligned to this present",
+            DVR_INFO("draws: postRender %u dispatches over %u viewport draws = %.2f per pass "
+                     "(the name is dispatched on several objects per pass; what matters is that "
+                     "it scales with the passes). Last present's delta %u is a game-thread count "
+                     "read a frame ahead of these draws and is NOT aligned to this present",
                      (unsigned)pr, (unsigned)vd, vd ? (double)pr / (double)vd : 0.0,
                      (unsigned)g_prDeltaLast);
     }
@@ -736,6 +760,29 @@ void log_summary(const char* why) {
                  (unsigned)r.presents);
     }
 
+    // The backbuffer population, in full. The table above is sorted by weight
+    // and on this engine that makes it all world, drawn to the offscreen scene
+    // target; everything a HUD redirect could ever touch is here instead, so it
+    // is listed whole rather than by weight.
+    {
+        uint32_t bbBuckets = 0, bbDraws = 0;
+        for (int i = 0; i < kRows; i++)
+            if (g_row[i].draws && g_row[i].sig.rtClass == 0) { ++bbBuckets; bbDraws += g_row[i].draws; }
+        DVR_INFO("draws: the BACKBUFFER population: %u buckets, %.1f draws/present of %.0f (the "
+                 "rest goes to the offscreen scene target)",
+                 (unsigned)bbBuckets, (double)bbDraws / presents, perPresent);
+        for (int i = 0, shown = 0; i < kRows && shown < 16; i++) {
+            const Row& r = sorted[i];
+            if (!r.draws || r.sig.rtClass != 0) continue;
+            ++shown;
+            sig_text(r.sig, txt, sizeof(txt));
+            DVR_INFO("draws:   %s k=%08x %s n=%.1f/present ord %u..%u in %u presents",
+                     is_candidate(r.sig) ? "HUD?" : "    ", (unsigned)short_key(r.key), txt,
+                     (double)r.draws / presents, (unsigned)r.minOrd, (unsigned)r.maxOrd,
+                     (unsigned)r.presents);
+        }
+    }
+
     // The separator search, and the near misses: a bucket that fails the rule
     // in exactly ONE term is what a redirect would mis-route.
     ValSet cand[10], rest[10];
@@ -756,8 +803,8 @@ void log_summary(const char* why) {
 
     if (!candBuckets) {
         _snprintf(g_verdict, sizeof(g_verdict),
-                  "NO HUD-CLASS DRAWS: nothing in %u buckets is a user-pointer draw to the whole "
-                  "backbuffer with depth off sampling a plain texture after the tonemap",
+                  "NO HUD-CLASS DRAWS: nothing in %u buckets draws to the whole backbuffer with "
+                  "depth off sampling a plain texture",
                   (unsigned)g_rowsUsed);
     } else if (!restBuckets) {
         _snprintf(g_verdict, sizeof(g_verdict),
@@ -766,8 +813,9 @@ void log_summary(const char* why) {
                   (unsigned)candBuckets);
     } else if (!seps[0]) {
         _snprintf(g_verdict, sizeof(g_verdict),
-                  "NO CLEAN SEPARATOR: %u candidate buckets, but no single column separates them "
-                  "from the other %u; only the conjunction does, and it is the rule itself",
+                  "NO CLEAN SEPARATOR: %u candidate buckets, and NO column tells them from the "
+                  "other %u - every value a candidate takes, some non-candidate takes too, so any "
+                  "redirect would carry world draws with it",
                   (unsigned)candBuckets, (unsigned)restBuckets);
     } else {
         _snprintf(g_verdict, sizeof(g_verdict),
@@ -790,7 +838,8 @@ void log_summary(const char* why) {
         if (misses != 1) continue;
         ++shown;
         sig_text(r.sig, txt, sizeof(txt));
-        DVR_INFO("draws:   NEAR MISS (fails only %s): %s n=%.1f/present", kTermName[missing], txt,
+        DVR_INFO("draws:   NEAR MISS (fails only %s): k=%08x %s n=%.1f/present",
+                 kTermName[missing], (unsigned)short_key(r.key), txt,
                  (double)r.draws / presents);
     }
     window_reset();

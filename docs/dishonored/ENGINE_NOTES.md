@@ -1777,6 +1777,92 @@ The runtime file stays verbatim, so these are recorded here instead of fixed in 
   the overlay's ini save. In this repo nothing persists them: there are no `[Hud]` ini keys
   (41.0 removed them) and `set_hud_quad`/`get_hud_quad` have no callers.
 
+## The Scaleform HUD draw class, measured (2026-09-04, session 10)
+
+**The answer is yes, and by a simpler discriminator than the fork needed: the render target.**
+Dishonored draws its world into an OFFSCREEN scene target the size of the render and paints the
+whole HUD onto the BACKBUFFER at the tail of the frame. The scene is resolved to the backbuffer
+with `StretchRect`, not a draw. So "this draw goes to the backbuffer" separates HUD from world
+with no overlap at all, where the fork had to run a nine-term ladder because on its frame the two
+shared one target.
+
+The instrument is `core/gfx/draw_census` (`[Draws] Census=0`, `draws on|off|status|kill|unkill`),
+which buckets every draw by entry point, target, viewport, depth, blend, what texture stage 0 is,
+the pixel shader's bytecode hash, the vertex declaration and a primitive-count band, and prints a
+table and a VERDICT every 3 s. Runs 46-01 and 46-02, the sewers, `stereo reentry`, 2496x2688, on
+the simulator lane.
+
+### What a present is made of
+
+| | |
+|---|---|
+| draws per present | 1205 |
+| by entry point | DrawPrimitive 0, DrawIndexedPrimitive 382, DrawPrimitiveUP 13, DrawIndexedPrimitiveUP 810 |
+| distinct buckets | 133 (no overflow) |
+| distinct pixel shaders | 81 |
+| state blocks created | 1 in a whole run |
+| **draws to the backbuffer** | **5 buckets, 15.0 per present, at ordinals 1177..1221** |
+| the same in the pause menu | 10 buckets, 95.9 per present, at ordinals 1126..1223 |
+| tonemap draws | **0** (the resolve is a `StretchRect`) |
+| PostRender dispatches | 6.0 per viewport draw pass |
+
+Every backbuffer bucket, in gameplay and in the menu, carries a **full-viewport draw with
+`D3DRS_ZENABLE == D3DZB_FALSE`**. Nothing else in the frame goes there.
+
+### Proven by picture, not by counter
+
+`draws kill <key>` drops a bucket's draws so the frame says what the bucket was (the project's
+rule: identify a render pass by making it MOVE). Four per-eye simulator captures, head still:
+
+| capture | killed | result |
+|---|---|---|
+| `kill-a-baseline` | nothing | the sewers with the health and blood indicator top left |
+| `kill-b-2065fa4d` | the 11-per-present untextured blend bucket | **the indicator is gone, the world pixel-identical** |
+| `kill-c-57e5c97d` | the 1-per-present textured bucket | the indicator loses its mask and draws unclipped; the world unchanged |
+| `kill-d-allbb` | all five backbuffer buckets | **the HUD is gone; the world is untouched** |
+
+No kill of a backbuffer bucket ever changed the world, and no world bucket was ever needed to draw
+the HUD. That is the separation, in both directions.
+
+### The three things the fork's ladder got right for its frame and wrong for ours
+
+1. **Portrait targets.** The fork rejected them (`rt-portrait`) because its side-by-side frame was
+   always landscape. Our per-eye render is 2496x2688, portrait. Porting that term would have
+   rejected the entire frame. It is deliberately absent from `draw_census`.
+2. **User-pointer draws only.** The fork only ever classified `DrawPrimitiveUP` and
+   `DrawIndexedPrimitiveUP` because on Dishonored-through-DXVK that is what the UI used. On this
+   path `DrawIndexedPrimitiveUP` carries **810 world draws per present**, so the entry point
+   discriminates nothing and is a reported column, not a term.
+3. **`samples-rt` (texture stage 0 is not a render target).** This was the fork's measured UI
+   discriminator and it is sound, but it splits the HUD rather than separating it: most of
+   Dishonored's HUD draws are untextured Scaleform fills, and requiring a texture kept 1 draw per
+   present of 15 and left the other 14 in the frame. Reported, not required.
+
+The first census build carried a fourth term of its own, "after the tonemap", and it rejected
+every draw in the frame for a whole run because this engine's resolve is not a draw. The
+instrument said so on its own line (`tonemap draws/present=0.0`, and the near-miss list naming
+`afterTonemap` as the only failing term), which is what an instrument that can fail its own
+hypothesis is for.
+
+### What this means for a redirect
+
+- **The rule is the target, not a bucket list.** A fifth capture showed one faint element surviving
+  a kill of all five measured keys: the bucket set drifts with what is on screen. A redirect must
+  key on the rule (backbuffer, full viewport, depth off), never on a list of keys.
+- **The menu is drawn by the same class.** A redirect gated only on the draw would sweep the pause
+  menu and the main menu onto the panel, which is exactly the original's inherited bug (HANDOFF
+  8.4). It must be gated on the GAME STATE, and `DvrGameplayVerdict()` already carries the
+  positive signal the original lacked (`!g_mainMenu && !g_menuOpen && !g_inMenu`).
+- **The cost is small.** 15 draws per present means about 30 render-target switches per present,
+  against 1205 draws; the fork paid about 200.
+- **The census is sound to keep unlocked.** The draws arrive on the presenting thread (the census
+  checks this every present and refuses if it ever stops being true), and one state block in a
+  whole run means Scaleform is not restoring device state behind the setters, so no `Apply` hook
+  is needed.
+
+The constants and their derivation are in `src/game/dishonored/patterns.h`,
+"The Scaleform HUD draw class".
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.
