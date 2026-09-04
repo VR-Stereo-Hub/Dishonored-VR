@@ -416,6 +416,10 @@ std::atomic<bool> g_loggedFirstPair{false};
 // cumulative counters cover every break mechanism the code audit named;
 // drained per-minute by the BS2 adapter next to [flick] (pair_probe()).
 std::atomic<uint32_t> g_pmAbortExpired{0}, g_pmAbortLeft{0}, g_pmAbortUntag{0};
+// 41.1 (Dishonored): the zero-layer guard. `held` = presents that handed in no
+// frame and were covered by re-submitting the previous layer; `black` = the
+// ones that could not be (nothing banked yet) and genuinely showed black.
+std::atomic<uint32_t> g_zeroLayerHeld{0}, g_zeroLayerBlack{0};
 std::atomic<uint32_t> g_pmCap[2] = {};       // SR captures per eye
 std::atomic<uint32_t> g_pmAcqFail{0}, g_pmWaitFail{0};
 std::atomic<uint32_t> g_pmUntaggedProj{0};   // untagged present captured in projection mode
@@ -4218,6 +4222,67 @@ void on_present_end(ID3D11Texture2D* frame) {
         }
     }
 
+    // 41.1 (Dishonored): A ZERO-LAYER xrEndFrame IS A BLACK FRAME IN BOTH EYES.
+    // The whole layer assembly above sits inside `if (backbuffer)`, so a present
+    // that hands in no texture reaches here with layerCount 0 and the compositor
+    // is given nothing to show for that display slot. [Stereo] HoldUntagged made
+    // that path common: it holds a present back by returning false from the
+    // method, frame_hooks passes the null to on_present_end unconditionally, and
+    // the frame ends empty. The ported commit's claim - "nothing is submitted;
+    // the compositor holds the previous pair" - is not true of this runtime, and
+    // the tester saw the result as a subtle one-frame black flick in both eyes
+    // at a rate matching the beat's none/s (2026-09-03, dev rig).
+    //
+    // Re-submit the layer the previous present used. The swapchain images are
+    // untouched (nothing acquired or released this present), so the compositor
+    // genuinely re-shows the previous pair - which is what a hold was always
+    // supposed to mean. Reprojection to the new display time is the runtime's
+    // job and is exactly what it does for the parked-session keepalive that
+    // already re-submits this same snapshot.
+    XrCompositionLayerProjection holdProj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    XrCompositionLayerProjectionView holdViews[2] = {
+        {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
+        {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
+    XrCompositionLayerQuad holdQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    if (layerCount == 0 && g_frameState.shouldRender) {
+        bool have = false;
+        {
+            std::lock_guard<std::mutex> lk(g_feedSnapMutex);
+            if (g_feedSnap.valid) {
+                have = true;
+                if (g_feedSnap.isProj) {
+                    holdProj = g_feedSnap.proj;
+                    holdViews[0] = g_feedSnap.views[0];
+                    holdViews[1] = g_feedSnap.views[1];
+                } else {
+                    holdQuad = g_feedSnap.quad;
+                }
+            }
+        }
+        if (have) {
+            if (g_feedSnap.isProj) {
+                holdProj.views = holdViews;   // the snapshot's pointer is not ours
+                layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&holdProj);
+            } else {
+                layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&holdQuad);
+            }
+            layerCount = 1;
+            g_zeroLayerHeld.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            g_zeroLayerBlack.fetch_add(1, std::memory_order_relaxed);
+        }
+        // Never silent either way: a black frame the guard could not prevent is
+        // the thing a tester reports as a flick, and it must be readable.
+        DVR_LOG_EVERY_MS(::dvr::log::Cat::openxr, ::dvr::log::Level::Warn, 1000,
+                "xr: present handed in NO frame - %s (held=%u black=%u since start; the "
+                "method returned no texture: a HoldUntagged hold, or an end_frame that "
+                "produced nothing). A zero-layer xrEndFrame shows BLACK in both eyes.",
+                have ? "re-submitted the previous layer, the pair holds"
+                     : "NO previous layer banked yet, this display slot goes BLACK",
+                g_zeroLayerHeld.load(std::memory_order_relaxed),
+                g_zeroLayerBlack.load(std::memory_order_relaxed));
+    }
+
     XrFrameEndInfo fei{XR_TYPE_FRAME_END_INFO};
     fei.displayTime = g_frameState.predictedDisplayTime;
     fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -4241,9 +4306,13 @@ void on_present_end(ID3D11Texture2D* frame) {
     // Session 54: bank the feed snapshot - the layer set the pace thread will
     // re-submit while the session is parked not-FOCUSED. Projection (g_lastLayer
     // 2) or the screen quad (1); the HUD/laser quads are skipped, a keepalive
-    // does not need them. Gated on the feed lever so BS1/BS2 do no new work.
-    if (g_paceFeed.load(std::memory_order_relaxed) && layerCount &&
-        (g_lastLayer == 2 || g_lastLayer == 1)) {
+    // does not need them.
+    //
+    // 41.1 (Dishonored): banked UNCONDITIONALLY now, because the zero-layer
+    // guard above re-submits it too and that guard is not gated on the feed
+    // lever. Cost is one struct copy under an uncontended mutex per submitted
+    // present.
+    if (layerCount && (g_lastLayer == 2 || g_lastLayer == 1)) {
         std::lock_guard<std::mutex> lk(g_feedSnapMutex);
         g_feedSnap.valid = true;
         g_feedSnap.isProj = (g_lastLayer == 2);
