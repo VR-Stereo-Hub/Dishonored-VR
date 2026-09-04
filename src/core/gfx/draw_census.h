@@ -50,4 +50,16 @@ void shutdown();
 // no reference is ever taken on an engine D3D object inside a detour.
 void on_set_render_target(DWORD idx, IDirect3DSurface9* rt);
 
+// [Draws] Census / `draws on|off`. Refuses (loudly, with the values) when a
+// hook is missing or the draws are not on the presenting thread.
+bool enabled();
+void set_enabled(bool on);
+
+// The window's table and its VERDICT, at Info; `why` names the trigger.
+void log_summary(const char* why);
+// status.json "draws" object.
+void status(dvr::status::Writer& w);
+// The `draws` seam word: "on", "off", anything else prints the summary now.
+bool command(const char* args);
+
 } // namespace dvr::draws

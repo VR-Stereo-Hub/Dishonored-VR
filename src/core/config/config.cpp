@@ -91,6 +91,16 @@ static void WriteDefaultIni(const char* ini)
         "ForceNoVSync=1\n"
         "FrameId=1\n"
         "FrameIdEvery=8\n"
+        "[Draws]\n"
+        "; The draw census (core/gfx/draw_census), default OFF. Census=1 buckets every draw in\n"
+        "; a present by entry point, render target, viewport, depth state, blend, whether\n"
+        "; texture stage 0 is a render target, pixel shader, vertex declaration and primitive\n"
+        "; count, and prints a table and a VERDICT line every 3 s: whether the Scaleform HUD\n"
+        "; draws separate from the world with NO overlap, or that they do not. It is the\n"
+        "; measurement the wrist HUD's return depends on, and it costs a bucket lookup per\n"
+        "; draw, so leave it off unless you are measuring. `draws on|off|status` live, and\n"
+        "; the F10 Display tickbox.\n"
+        "Census=0\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -551,6 +561,9 @@ static void LoadConfig()
         dvr::d3d9ex::Managed m;
         if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
         dvr::d3d9ex::set_config(ex, m);
+    }
+    {   // 41.2 (session 10): the draw census - the HUD measurement, default off
+        dvr::draws::set_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;

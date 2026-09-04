@@ -217,6 +217,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         dvr::frameid::log_status();
         return true;
     }
+    if (!strcmp(cmd, "draws")) {   // 41.2 (session 10): the draw census
+        return dvr::draws::command(args);
+    }
     if (!strcmp(cmd, "cfg") && !strcmp(args, "dump")) {
         Log("cfg: gamepadOnly=%d%s hands=%d handMesh=%d blink=%d fov=%.0f fpsCap=%.1f posTrack=%d melee=%d",
             (int)g_gamepadOnly,
@@ -342,6 +345,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     { uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh); w.kv("eyeW", (int)ew); w.kv("eyeH", (int)eh); }
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("frameid"); dvr::frameid::status(w); w.end_obj();   // 41.1 (session 9): the frame-identity trace
+    w.obj("draws"); dvr::draws::status(w); w.end_obj();       // 41.2 (session 10): the draw census
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
 
     w.obj("head");
