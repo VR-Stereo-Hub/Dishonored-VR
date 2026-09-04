@@ -144,7 +144,9 @@ const char* projection_override_name();
 // submitted, and the compositor holds the previous pair instead of flipping
 // to mono. The (N+1)th in a row falls through to the mono path, so a real
 // transition (a menu, a load, a cinematic) still gets there within N presents.
-// A lever: default 0 (OFF, the pre-41.1 behaviour), `stereo hold <n>` live.
+// A lever: 3 ships (headset-judged on a Quest 3, 2026-09-03 - it took mono/s
+// 1-4 to 0 and the arms stopped flickering); 0 = OFF, the pre-41.1 behaviour
+// and the A/B for it. `stereo hold <n>` live.
 int  hold_untagged();
 void set_hold_untagged(int n);
 uint32_t holds_done();   // presents suppressed this session (the beat/status)

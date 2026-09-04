@@ -30,7 +30,7 @@ OverlayDrawFn g_overlay = nullptr;
 uint64_t g_beatMs = 0;
 uint32_t g_beatOut = 0, g_beatL = 0, g_beatR = 0, g_beatMono = 0, g_beatNone = 0;
 int      g_projOverride = -1;   // -1 auto, 0 off, 1 on
-int      g_holdUntagged = 0;    // 41.1: max CONSECUTIVE untagged presents to suppress (0 = off)
+int      g_holdUntagged = 3;    // 41.1: max CONSECUTIVE untagged presents to suppress (0 = off; 3 ships, headset-judged)
 uint32_t g_holdsDone = 0;       // how many this session
 char     g_configMethod[16] = "";   // [Stereo] Method, applied once the game side is up
 // The SELECTION and whether it RUNS are two things (41.1, the F10 tickbox):

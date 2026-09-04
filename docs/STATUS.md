@@ -71,11 +71,15 @@ parked-session keepalive already re-submits that same snapshot. Measured over 12
 
 ### Levers and defaults
 
-`[Stereo] HoldUntagged` still ships **0 (OFF)** per the default-OFF rule; the dev rig runs 3.
-It is judged good on ONE rig for a few minutes - promoting it to the shipped default is a
-deliberate call, not something to slip in. `stereo hold <n>` switches it live, `none/s` on the
-beat counts what it held, and `zeroLayerHeld`/`zeroLayerBlack` in status.json say whether the
-guard covered them.
+**`[Stereo] HoldUntagged=3` now SHIPS** (the user's call, 2026-09-03), joining the session-9
+precedent of the headset-judged values being the defaults. It is a deliberate exception to the
+default-OFF rule for render levers, made because the artifact it removes is a visible flicker on
+the viewmodel and the black frame it used to expose is fixed at the runtime. `0` is the A/B and
+the pre-41.1 behaviour; `stereo hold <n>` switches it live, `none/s` on the beat counts what it
+held, and `zeroLayerHeld`/`zeroLayerBlack` in status.json say whether the guard covered them.
+
+**Judged on ONE rig, for a few minutes.** A second headset that reports one-frame stalls or a
+smeared weapon should try `stereo hold 1` and then `0`, and say which is better.
 
 ### The rig, and three traps that cost runs
 
