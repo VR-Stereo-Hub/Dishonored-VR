@@ -30,6 +30,8 @@ OverlayDrawFn g_overlay = nullptr;
 uint64_t g_beatMs = 0;
 uint32_t g_beatOut = 0, g_beatL = 0, g_beatR = 0, g_beatMono = 0, g_beatNone = 0;
 int      g_projOverride = -1;   // -1 auto, 0 off, 1 on
+int      g_parityPolarity = 1;   // 41.1: which dot sign is the correct one
+bool     g_eyeSwap = false;      // 41.1: unconditional L/R swap
 bool     g_parityGuard = false;  // 41.1: let the measured pair geometry own the eye sign
 int      g_holdUntagged = 0;    // 41.1: max CONSECUTIVE untagged presents to suppress (0 = off)
 uint32_t g_holdsDone = 0;       // how many this session
@@ -258,6 +260,22 @@ void set_hold_untagged(int n) {
 uint32_t holds_done() { return g_holdsDone; }
 
 bool parity_guard() { return g_parityGuard; }
+int parity_polarity() { return g_parityPolarity; }
+void set_parity_polarity(int p) {
+    const int v = p < 0 ? -1 : 1;
+    if (v == g_parityPolarity) return;
+    g_parityPolarity = v;
+    DVR_INFO("stereo: parity polarity %+d - the guard now treats dot %s 0 as the CORRECT pair and inverts the "
+             "other. Flip this if the guard pinned you to the wrong one.", v, v > 0 ? ">" : "<");
+}
+bool eye_swap() { return g_eyeSwap; }
+void set_eye_swap(bool on) {
+    if (on == g_eyeSwap) return;
+    g_eyeSwap = on;
+    DVR_INFO("stereo: eye swap %s - the eye sign handed to the runtime is %s, unconditionally and with no "
+             "measurement. This is the blunt A/B for a CONSTANT left/right inversion.",
+             on ? "ON" : "off", on ? "INVERTED" : "as measured");
+}
 void set_parity_guard(bool on) {
     if (on == g_parityGuard) return;
     g_parityGuard = on;
@@ -282,6 +300,8 @@ void status(dvr::status::Writer& w) {
     w.kv("holdUntagged", g_holdUntagged);
     w.kv("holds", (unsigned long)g_holdsDone);
     w.kv("parityGuard", g_parityGuard);
+    w.kv("parityPolarity", g_parityPolarity);
+    w.kv("eyeSwap", g_eyeSwap);
     w.kv("camMode", dvr::vr::vr_camera_mode());
     w.kv("cineActive", dvr::vr::cinematic_active());
     {   // the runtime's pair probe as the beat last drained it (cumulative counters)

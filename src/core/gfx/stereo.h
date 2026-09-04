@@ -165,6 +165,20 @@ void note_hold();        // the method reports one suppressed present
 // paritySwappedNow and parityFixed.
 bool parity_guard();
 void set_parity_guard(bool on);
+// Which measured sign is the CORRECT one. The geometry says the +1 present's
+// camera should sit +ipd/2 along the camera right row, so +1 ought to be it -
+// but that assumes the runtime maps eyeSign -1 to the left eye and that the
+// right row means what it says. Neither is proven on this game, and the dev
+// rig reported the dot=+1 majority as the BROKEN state. So the polarity is a
+// knob, not an assumption: +1 keeps dot>0, -1 keeps dot<0.
+// `stereo parity invert` flips it live.
+int  parity_polarity();
+void set_parity_polarity(int p);
+// The blunt instrument next to it: swap the two eyes unconditionally, no
+// measurement involved. `stereo swap on|off`. Together these four states
+// settle in ONE session what the eye mapping actually is.
+bool eye_swap();
+void set_eye_swap(bool on);
 
 // status.json "stereo" object and the log line the `stereo status` word prints.
 void status(dvr::status::Writer& w);

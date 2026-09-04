@@ -52,6 +52,15 @@ static void WriteDefaultIni(const char* ini)
         "; raw tag goes out. `stereo parity on|off` live; the `pair geom` line and\n"
         "; status.json parityFlips report it either way.\n"
         "ParityGuard=0\n"
+        "; ParityPolarity=+1|-1: which measured dot sign the guard treats as CORRECT.\n"
+        "; +1 assumes the +1 present belongs +ipd/2 along the camera right row, which\n"
+        "; is only true if the runtime maps eyeSign -1 to the left eye AND the right\n"
+        "; row means what it says - neither is proven on this game. Flip it with\n"
+        "; `stereo parity invert` if the guard pins you to the wrong state.\n"
+        "ParityPolarity=1\n"
+        "; EyeSwap=1 inverts the eye sign unconditionally, no measurement: the blunt\n"
+        "; A/B for a CONSTANT left/right inversion. `stereo swap on|off` live.\n"
+        "EyeSwap=0\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -404,6 +413,8 @@ static void LoadConfig()
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 0, ini));
         dvr::stereo::set_parity_guard(GetPrivateProfileIntA("Stereo", "ParityGuard", 0, ini) != 0);
+        dvr::stereo::set_parity_polarity(GetPrivateProfileIntA("Stereo", "ParityPolarity", 1, ini));
+        dvr::stereo::set_eye_swap(GetPrivateProfileIntA("Stereo", "EyeSwap", 0, ini) != 0);
     }
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)
@@ -1375,6 +1386,9 @@ static void OverlaySaveDefaults()
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());
       WritePrivateProfileStringA("Stereo", "HoldUntagged", hv, ini); }
     WritePrivateProfileStringA("Stereo", "ParityGuard", dvr::stereo::parity_guard() ? "1" : "0", ini);
+    { char pv[16]; _snprintf(pv, sizeof(pv), "%d", dvr::stereo::parity_polarity());
+      WritePrivateProfileStringA("Stereo", "ParityPolarity", pv, ini); }
+    WritePrivateProfileStringA("Stereo", "EyeSwap", dvr::stereo::eye_swap() ? "1" : "0", ini);
     // 41.1: the [Neck] lever
     WritePrivateProfileStringA("Neck", "Mode", NeckModeName(g_neckMode), ini);
     _snprintf(v, 64, "%.3f", g_neckBelowM);

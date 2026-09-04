@@ -141,7 +141,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             else Log("stereo: projection on|off|auto");
             return true;
         }
+        if (!strcmp(sub, "swap")) {   // 41.1: the blunt unconditional L/R A/B
+            if (DvrOnOff(v, &b)) dvr::stereo::set_eye_swap(b);
+            else Log("stereo: swap on|off (now %s) - inverts the eye sign unconditionally",
+                     dvr::stereo::eye_swap() ? "ON" : "off");
+            return true;
+        }
         if (!strcmp(sub, "parity")) {   // 41.1: the measured pair geometry owns the eye sign
+            if (!strcmp(v, "invert")) { dvr::stereo::set_parity_polarity(-dvr::stereo::parity_polarity()); return true; }
             if (DvrOnOff(v, &b)) dvr::stereo::set_parity_guard(b);
             else Log("stereo: parity on|off (now %s) - inverts the eye sign while the pair geometry "
                      "reports the eyes reversed", dvr::stereo::parity_guard() ? "ON" : "off");

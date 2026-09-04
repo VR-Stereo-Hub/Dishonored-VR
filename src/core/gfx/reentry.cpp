@@ -271,7 +271,7 @@ public:
                         // present, so a flip costs one pair (~12 ms) before it is
                         // corrected, against spells measured at 2-24 s.
                         if (dot < -0.5f || dot > 0.5f) {
-                            const bool swapped = (dot < 0.0f);
+                            const bool swapped = (dvr::stereo::parity_polarity() > 0) ? (dot < 0.0f) : (dot > 0.0f);
                             if (swapped != parityFlip_) {
                                 parityFlip_ = swapped;
                                 ++g_parityFlips;
@@ -327,7 +327,8 @@ public:
         // The parity latch corrects the sign the runtime is handed; the
         // MEASUREMENT above always runs on the raw delivered tag, so the
         // latch keeps tracking ground truth instead of chasing its own tail.
-        const int outEye = (dvr::stereo::parity_guard() && parityFlip_) ? -delivered : delivered;
+        int outEye = (dvr::stereo::parity_guard() && parityFlip_) ? -delivered : delivered;
+        if (dvr::stereo::eye_swap()) outEye = -outEye;   // the unconditional A/B, applied last
         if (outEye != delivered) ++g_parityFixed;
         out.tex = tex_;
         out.eyeSign = outEye;
