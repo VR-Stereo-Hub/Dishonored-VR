@@ -34,54 +34,42 @@ never crosses a world tick, `inv=-1` always does. The fragile arm overrode the r
 of one, and a gently moving player parks the tick's travel inside its `+-0.35*ipd` window. Full
 reasoning in ARCHITECTURE's decision log.
 
-## OPEN (2026-09-03): the residual is a MONO present, felt on the arms and weapon
+## OPEN (2026-09-03): HoldUntagged=3 removed the mono flick and introduced a BLACK one
 
-The tester's words after the fixed run: performance better overall, the flicker much reduced but
-"still a flickering on both arm models/weapons instead of just the left handed crossbow", and it
-"felt slightly different". It is different, and the log says what it is.
+`[Stereo] HoldUntagged=3` on `alpha-250-g3be11106`, 119 s headset run, dev rig:
 
-`mono/s=1..4` in steady gameplay (out/s ~220). A mono present is the same image in BOTH eyes, so
-the parallax error is proportional to disparity - **near zero on distant geometry, and largest on
-the viewmodel at 30-50 cm.** That is why it reads as a flick on the arms and weapon and is
-invisible on the world. It is symmetric, which is why BOTH arms flick now where the old
-asymmetric stale-right-eye fault showed on the left-hand crossbow side.
+| | HoldUntagged=0 | HoldUntagged=3 |
+|---|---|---|
+| `mono/s`, steady gameplay | 1-4 | **0** |
+| `none/s` (presents held back) | 0 | 1-3 |
+| `STALE ? EYE` lines | 1 in 238 s | **0 in 119 s** |
+| `out/s` | ~220 | 192-224, `L/s == R/s` |
 
-Where the mono presents come from, measured:
+**The tester: every other kind of flicker is gone.** The mono flick on the arms and weapon is
+fixed, and so is the stale eye.
 
-- **26 of 29 single-draw spells are the present-stall guard** (`gates -> SINGLE draw (no present
-  since the previous draw)`). 3 are `state not GAMEPLAY`.
-- `c5Refused=72` - presents where the cross-tick arm declined to invent a tag on an empty or 0
-  ring. By design as of `1507bafc`: honest untagged beats a fabricated eye.
+**The new symptom, unexplained and NOT present before the hold:** "like 1 black frame in both
+eyes at the same time, super subtle and kind of hard to see, but it happens frequently."
 
-**The lever for exactly this is already installed and was ported for it**: `[Stereo]
-HoldUntagged=N` suppresses up to N CONSECUTIVE untagged presents (nothing is submitted, the
-compositor holds the previous pair) before letting one through as mono. The stall-gate spells are
-typically one present long, so 2-3 should erase the residual. It ships **0 (OFF)** per the
-default-OFF rule; the dev rig's ini is now `HoldUntagged=3` (backup at `dishonored_vr.ini.bak`).
-`stereo hold <n>` switches it live, `none/s` on the beat counts what it held, and `holds` in
-status.json is the lifetime count.
+The rate matches `none/s` (1-3 per second against `out/s` ~200), and the suspect is the hold
+itself:
 
-### How to judge the next run
+- `reentry::end_frame` returns false on a held present, so `out.tex` stays null.
+- `frame_hooks.cpp:181` calls `dvr::vr::on_present_end(out.tex)` **unconditionally**, with the
+  null. If the runtime still opens and ends an XR frame for that present with no projection
+  layer, the compositor has nothing to show for it - and a frame with zero layers is BLACK in
+  both eyes, which is exactly the reported symptom, symmetric and one frame long.
+- The intended behaviour is the opposite: hold means submit nothing AND end no frame, so the
+  compositor reprojects the previous pair. That is what the ported commit's message claims
+  ("nothing is submitted; the compositor holds the previous pair") and it has never been
+  verified in a headset - it was written and parked on the other branch without a run.
 
-- **Fixed**: `mono/s=0` in gameplay, `none/s` small and non-zero, no flick on the arms.
-- **Still there with `none/s` climbing**: holding is not enough - the flick is something else on
-  the viewmodel, and the per-eye viewmodel draw is the next place to look, not the tag path.
-- **Judder or a smeared weapon**: N is too high; try `stereo hold 1` then `2`.
-
-### The rig, and two traps that cost runs
-
-Quest 3 via VDXR, 5120x1440@240 desktop, RTX 4070 Ti SUPER. `[Screen] RenderWidth/Height` in the
-ini CANNOT affect the launch it is set on - DllMain reads only `dishonored_vr_launch.txt`, written
-by the `res` seam word, so use `res 2496x2688` and never hand-edit the key. `bPauseOnLossOfFocus`
-was TRUE in the game ini (now FALSE here): with it on, alt-tabbing to drive the command seam
-pauses the thing being judged. VERIFICATION gotcha 17 bit 1 run in 3: state sticks at MENU in the
-level, `2nd/s=0`, screen stays mono - open and close the pause menu.
-
-**A verification trap that cost a run here**: the first "it's fixed!" verdict was measured on a
-build that did not contain the fix - `tools\build.ps1` had run but `install.ps1` had not, so the
-game folder still held the previous `RelWithDebInfo` DLL. The log's banner names the build
-(`build alpha-NNN-gHASH`) and `Get-FileHash` against `build\src\RelWithDebInfo\d3d9.dll` settles
-it in one command. Check the banner before reading any verdict out of a log.
+**Next, and unstarted**: read `on_present_end(nullptr)` in `core/vr/openxr_runtime.cpp` and
+establish whether a held present ends an XR frame with zero layers. If it does, the fix is that
+a held present must not end a frame at all (or must re-submit the previous pair's layer), not a
+change to the hold count. Falsifier: `stereo hold 0` should make the black frames vanish and the
+mono flick on the arms return. If black frames survive `hold 0`, the hold is exonerated and
+something else regressed.
 
 ## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
@@ -130,18 +118,17 @@ headset, at rate, with the tested configuration shipping as the defaults.
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset)**: the stale eye is fixed and measured (see FIXED above). What is left is
-the residual mono present felt on the arms and weapon. `[Stereo] HoldUntagged=3` is already set
-in your ini and unjudged - play a few minutes and say whether the arms still flick. `stereo hold
-0|1|2|3` switches it live if 3 feels wrong, and `none/s` on the beat line counts what it held.
-If holding does NOT remove it, the tag path is exonerated and the per-eye viewmodel draw is the
-next place to look. After that, the open comfort questions are the ones a correct stereo pair
-finally lets you judge: (1) JUDDER on fast head or player movement - `vrpace ahead 0|1|2` on the
-F10 Runtime tab (`Pose look-ahead`), ships at 0, and the `xr: pair phase` line says whether pairs
-close before or after their slot; (2) the PITCH PIVOT with `[Neck] Mode=cancel` (the default)
-against `off` and `add` on F10 Comfort, now at a real frame rate; (3) WORLD SCALE and eye height
-at the shipped `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`. Say which of the three is worst
-and the log will carry the numbers.
+**The user (headset)**: the stale eye and the mono flick are both fixed and measured (see FIXED
+and OPEN above). What is left is the black one-frame flick that `HoldUntagged=3` introduced.
+Nothing to test until the hold's frame handling is read; when there is a build, the falsifier is
+`stereo hold 0` - the black frames should vanish and the mono flick on the arms should return.
+After that, the open comfort questions are the ones a correct stereo pair finally lets you judge:
+(1) JUDDER on fast head or player movement - `vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose
+look-ahead`), ships at 0, and the `xr: pair phase` line says whether pairs close before or after
+their slot; (2) the PITCH PIVOT with `[Neck] Mode=cancel` (the default) against `off` and `add`
+on F10 Comfort, now at a real frame rate; (3) WORLD SCALE and eye height at the shipped
+`[PosTrack] Scale=98` / `HeightOffsetM=-0.090`. Say which of the three is worst and the log will
+carry the numbers.
 
 **The next developer session**: the correctness question of S2b is closed, so S3 is open - write
 the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
@@ -202,8 +189,10 @@ that check now leads the rig notes.
 | `9620d437` | ported: F2 stamps the fault marker, eyes-free |
 | `00b833a8` | ported: the `res` seam writes its ini path with a real separator |
 
-**Left open**: the residual mono present at `mono/s=1..4`, felt on the arms and weapon, with
-`HoldUntagged=3` set on the dev rig and unjudged. See the OPEN section above.
+**Left open**: `HoldUntagged=3` was judged in a third run - it removed the mono flick
+(`mono/s` 1-4 -> 0) and every other flicker with it, and introduced a new one: a single BLACK
+frame in both eyes, subtle but frequent, at a rate matching `none/s`. The hold's own frame
+handling is the suspect and is unread. See the OPEN section above.
 
 ### 2026-09-04 - session 9: the eyes - the trace, the swap, the fix, the proof
 
