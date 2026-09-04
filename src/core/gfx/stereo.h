@@ -134,6 +134,22 @@ bool wants_projection();
 void set_projection_override(int mode);   // -1 auto, 0 off, 1 on
 const char* projection_override_name();
 
+// 41.1 (Dishonored): the untagged HOLD. A tick that fails the second draw's
+// gates presents untagged, and an untagged present is the mono path - the
+// same image in both eyes - so one stalled tick inside a healthy stereo
+// stream reads as a one-frame flicker in the headset (measured on the dev
+// rig: `mono/s` 5-17 against `out/s` 223, the present-stall guard firing).
+// HoldUntagged=N suppresses up to N CONSECUTIVE untagged presents while the
+// stream has been tagged recently: end_frame returns false, nothing is
+// submitted, and the compositor holds the previous pair instead of flipping
+// to mono. The (N+1)th in a row falls through to the mono path, so a real
+// transition (a menu, a load, a cinematic) still gets there within N presents.
+// A lever: default 0 (OFF, the pre-41.1 behaviour), `stereo hold <n>` live.
+int  hold_untagged();
+void set_hold_untagged(int n);
+uint32_t holds_done();   // presents suppressed this session (the beat/status)
+void note_hold();        // the method reports one suppressed present
+
 // status.json "stereo" object and the log line the `stereo status` word prints.
 void status(dvr::status::Writer& w);
 void log_status();
