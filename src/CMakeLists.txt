@@ -50,6 +50,8 @@ set(DVR_REAL_SOURCES
     core/gfx/frame_id.cpp      core/gfx/frame_id.h
 
     core/gfx/device_census.cpp core/gfx/device_census.h
+    core/gfx/draw_census.cpp   core/gfx/draw_census.h
+    core/gfx/hud_capture.cpp   core/gfx/hud_capture.h
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
     core/gfx/mono_screen.cpp

@@ -33,6 +33,12 @@ ID3D11ShaderResourceView* srv(ID3D11DeviceContext* ctx);   // always null
 ID3D11Texture2D* texture(ID3D11DeviceContext* ctx);        // always null
 bool redirected_this_interval();                            // always false
 
+// The runtime layer's own gate, remembered rather than discarded (41.2): true
+// while a projection-mode present carries a SequentialReentry eye tag, i.e.
+// while stereo gameplay frames are flowing. Menus, loading screens and the
+// cinematic quad all drop it, because they drop the projection or the tag.
+bool gate();
+
 void set_enabled(bool on);
 bool enabled();
 void set_gate(bool stereoActive);

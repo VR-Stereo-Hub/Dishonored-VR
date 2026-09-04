@@ -107,3 +107,57 @@ static const uint32_t kMeshRot   = 0x19c;
 static const uint32_t kMeshScale = 0x1a8;
 static const uint32_t kMeshScl3D = 0x1ac;
 
+// ---- The Scaleform HUD draw class (41.2, measured live 2026-09-04, session 10;
+// ENGINE_NOTES "The Scaleform HUD draw class, measured") ----
+// Dishonored draws its world into an OFFSCREEN scene target the size of the
+// render (2496x2688 in the shipped configuration) and paints the whole HUD onto
+// the BACKBUFFER at the tail of the frame; the scene is resolved to the
+// backbuffer with StretchRect, not a draw. So the render target alone separates
+// the HUD from the world, with no overlap - a simpler discriminator than the
+// DXVK fork needed, because on the fork's frame the two shared one target.
+//
+// Measured (run 46-02, the sewers, `stereo reentry`, 2496x2688): 1205 draws per
+// present, of which the backbuffer takes 5 buckets and 15.0 draws at ordinals
+// 1177..1221; in the pause menu 10 buckets and 95.9 draws at 1126..1223. EVERY
+// backbuffer bucket carries a full-viewport draw with depth disabled. Proven by
+// picture, not by counter: `draws kill` on those buckets removed the health and
+// blood indicator and left the world pixel-identical, and killing the whole
+// population removed the HUD entirely (captures kill-a..kill-d).
+//
+// The two terms the fork used that do NOT hold here, both measured:
+//   - portrait targets: the fork rejected them because its side-by-side frame
+//     was landscape. Our per-eye render is 2496x2688 and portrait.
+//   - user-pointer draws only: DrawIndexedPrimitiveUP carries 810 WORLD draws
+//     per present on this path, so the entry point discriminates nothing.
+// And one that holds but must not be used as a gate: texture stage 0. Most HUD
+// draws are untextured fills, so requiring a texture keeps 1 draw of 15.
+//
+// The MENU is drawn by the same class (measured above), so a redirect must be
+// gated on the game state, not on the draw: that is the original's inherited
+// bug (HANDOFF 8.4, the main menu on the wrist), and DvrGameplayVerdict's own
+// !mainMenu / !menuOpen terms are the positive signal it lacked.
+//
+// THE FOURTH TERM, and the reason it exists (run 46-04, found by picture): the
+// backbuffer's population is not all HUD. The SCENE RESOLVE is a draw too - one
+// full-screen textured quad, two primitives, that copies the finished world
+// over - and it is the single draw that would carry the entire world onto the
+// panel. It did: with the first three terms the panel held the whole frame, and
+// with the same class killed the panel was empty, so one of the fifteen was
+// painting the world. ALPHA BLENDING tells them apart, and not arbitrarily:
+// something drawn ONTO a finished frame must blend to sit over it, while the
+// frame itself is written opaquely. The resolve is the only opaque draw in the
+// population; every HUD element blends. 14 draws of the 15 survive.
+//
+// (The fork's samples-rt term would not have caught it here: this game's
+// resolve samples a plain texture copy rather than a surface flagged as a
+// render target, which is also why a tonemap detector keyed on that read 0 for
+// a whole run.)
+static const bool     kHudFingerprintMeasured = true;
+static const uint32_t kHudSceneTargetIsOffscreen = 1;   // the world never draws to the backbuffer
+static const uint32_t kHudRequiresFullViewport   = 1;   // every measured HUD draw covers the target
+static const uint32_t kHudRequiresDepthOff       = 1;   // D3DRS_ZENABLE == D3DZB_FALSE on all of them
+static const uint32_t kHudRequiresAlphaBlend     = 1;   // excludes the opaque scene resolve
+// The tail of the frame the HUD occupied, as a FRACTION of the present's draws.
+// Diagnostic only: nothing gates on it, because a bucket's ordinal moves with
+// what is on screen. 1177/1205 in gameplay, 1126/1221 in the pause menu.
+static const float    kHudTailFractionSeen = 0.92f;

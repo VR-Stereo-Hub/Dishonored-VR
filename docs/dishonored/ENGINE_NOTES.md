@@ -1411,6 +1411,525 @@ picture. Every 41.0-era dead end ran the game WINDOWED, where the desktop clamp 
 the fullscreen path. The cost: the sync readback reads 18-20 ms per present at that size
 (25.6 MB each way; `[Capture] Mode=deferred` is the answer, ROADMAP S1).
 
+## The HUD and the cinematics: what the original did (archaeology, 2026-09-04, session 10)
+
+Build 38.92 SHIPPED a working wrist HUD. It was not broken; 41.0 deleted it as collateral when
+the DXVK fork was dropped, because that fork was what separated the HUD pixels from the frame
+(`ad83c466` removed the fork tree at 18:26, `cc2fa936` the proxy's side-by-side pipeline and
+`src/core/gfx/hud_panel.cpp` ten minutes later). This section is the record of how it behaved,
+mined out of this repository's own history, so that a port onto the native D3D9 render can be
+JUDGED against it rather than re-derived by guess. Every claim below carries the ref it was read
+from; nothing here needs fetching. The fork survives under the tags `dxvk-base`,
+`dxvk-m8.2-shipped`, `dxvk-m8.4`, `dxvk-shipped`.
+
+### 1. The producer: what made a draw "HUD"
+
+The classification lived in the fork, at exactly two call sites in
+`dxvk-m8.2-shipped:dxvk/src/d3d9/d3d9_device.cpp`: `D3D9DeviceEx::DrawPrimitiveUP` (line 5083)
+and `D3D9DeviceEx::DrawIndexedPrimitiveUP` (line 5505). **`DrawPrimitive` and
+`DrawIndexedPrimitive` were never candidates**: they run a different verdict ladder
+(`kDpSplice`/`kSplice`, lines 4095-4111 and 4364-4381) with the extra terms `no-vp`,
+`2tri-nodepth`, `ortho`, `mirrored-vp`, and no HUD branch at all. Dishonored draws its UI
+through the user-pointer paths, which is why only those two mattered. **The redirect also ran
+only in the fork's side-by-side stereo mode** (`!dxvk_vr_seq`); in sequential mode the branch is
+deliberately absent, with the comment at line 5066 saying that with no split there is no second
+half to copy the HUD into, so the draw falls through and happens once, as the game intended.
+
+The ladder itself (lines 4815-4826, duplicated at 5243-5256). `kUpDup` is the fall-through: a
+draw is HUD if and only if it survives every reject.
+
+| term | exact condition | what it tested, and why |
+|---|---|---|
+| `no-stereo` | `!stArmed` | the `dxvk_stereo.txt` marker file is absent: the whole fork behaviour is dormant |
+| `in-dup` | `stInDup` | re-entrancy. The fork replays draws itself (dup, splice, redirect); the inner replay must render plainly, so the redirect sets `stInDup` around its own call |
+| `recording` | `ShouldRecord()` | a D3D9 state block is being recorded; replaying a draw would corrupt the block |
+| `no-rt` | `GetCommonTexture(renderTargets[0]) == nullptr` | no bound RT0 to reason about |
+| `vp!=rt` | `rt0.Width != vp.Width \|\| rt0.Height != vp.Height` | the viewport must cover the whole target: excludes tiled and partial passes |
+| `vp-offset` | `vp.X != 0 \|\| vp.Y != 0` | an offset viewport is a sub-region pass, not full-frame UI |
+| `rt-small` | `vp.Width < 1024` | **the threshold is 1024 px**. Excludes shadow maps, bloom and LUT tiles, the 800x800 light tile |
+| `rt-portrait` | `!(vp.Width > vp.Height)` | the SBS frame is always landscape; a square or portrait target is a helper buffer |
+| `SPLICE` | `upWorldFx` (below) | world-space effects take the per-eye splice, never the wrist |
+| `samples-rt` | texture stage 0 has `D3DUSAGE_RENDERTARGET` | **the measured M3.5 gate.** Framemap run 3: 208 full-size UP draws sampled plain textures (fonts and shapes, i.e. UI), 80 sampled the full-size render target (scene blits, bloom, tonemap). Duplicating the blits recursively squeezed the SBS pair and shredded the frame in M3.2/M3.3, so "tex0 is not a render target" is the actual UI discriminator |
+
+`upWorldFx` (line 4808-4814) is `ZENABLE != D3DZB_FALSE` and (alpha blending on, or it samples
+the RT, or the shadow fix is armed with `ZWRITEENABLE` false) and the vertex declaration does NOT
+carry `HasPositionT` and a view-projection is known and it is perspective
+(`|vp[3]|+|vp[7]|+|vp[11]| > 0.5` with a positive 3x3 determinant). The comment records the
+measurement behind it: screen content (HUD, blits, bloom, tonemap) is `zen=0 / zf=ALWAYS` and is
+untouched by the test, while UE3 particle sprites are stride 64 quads at `zen=1 / zf=LESSEQUAL /
+zw=0`.
+
+**So, in one sentence: HUD = a full-viewport, full-size, landscape, at least 1024-wide,
+pre-transformed, non-depth-tested user-pointer draw that samples a plain (non render target)
+texture.** Fonts and shapes.
+
+### 2. The producer: the redirect, the render target, the clear
+
+The redirect at line 5083, with its exclusion list and census in front of it:
+
+```
+if (!dxvk_vr_seq && dxvk_vr_hudwrist && upWhy == kUpDup) {
+  const uint32_t hudPs = m_state.pixelShader ? VrPsFnvOf(m_state.pixelShader.ptr()) : 0;
+  if (!VrHudSkipPs(hudPs)) {
+    VrHudCensus(hudPs, PrimitiveCount);
+    stInDup = true;
+    const bool hudDid = VrHudRedirect(this, upSaved, [&]{ DrawPrimitiveUP(...); });
+    stInDup = false;
+    if (hudDid) { SetViewport(&upSaved); stSpliceAccum += 1; return D3D_OK; }
+  }
+}
+```
+
+Four things in there are load-bearing and every one of them is a rule for the port:
+
+1. **`SetViewport(&upSaved)` after the redirect**, because `SetRenderTarget` resets the viewport
+   to the full render target.
+2. **`stSpliceAccum += 1` on every redirected draw.** The proxy's "is this gameplay" heuristic
+   read the fork's splice counter and treated fewer than 8 as a flat frame. Without this, taking
+   the HUD out of the frame would have made gameplay frames look like menus. Whatever replaces
+   the splice counter, a redirect must still feed the gameplay heuristic.
+3. The redirect sits BEFORE the both-eyes duplication block, so a redirected draw is never also
+   duplicated.
+4. The re-entrancy guard is the reason the inner draw lands on the HUD surface plainly.
+
+`VrHudRedirect` (lines 772-800) creates the target lazily, once, guarded against re-entry
+(`CreateTexture` can re-enter):
+
+```
+dev->CreateTexture(upSaved.Width, upSaved.Height, 1, D3DUSAGE_RENDERTARGET,
+                   D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &t, nullptr);
+```
+
+Size = the viewport of the first redirected draw, i.e. the WHOLE side-by-side frame, both eye
+halves wide, not a small panel buffer. One mip, `POOL_DEFAULT`. On failure it logs and
+self-disables by writing `dxvk_vr_hudwrist = 0` (fail soft). `VrHudRelease()` is called from
+`D3D9DeviceEx::Reset` (line 1296, "POOL_DEFAULT HUD RT must not survive a Reset"), nulling the
+export first, then releasing surface then texture.
+
+**The export is a raw COM pointer, not a shared handle**, because the proxy chain-loads the fork
+in the same process:
+
+```
+extern "C" __declspec(dllexport) volatile uint32_t     dxvk_vr_hudwrist = 0;
+extern "C" __declspec(dllexport) IDirect3DTexture9* volatile dxvk_vr_hudtex = nullptr;
+```
+
+The proxy resolved both by name and logged `hud: wrist exports resolved` or `NOT FOUND (fork
+older than M6.0)`.
+
+**The clear rule has three eras and the third one is the answer.**
+
+1. M6.0 (`c22e63b0`): lazy, inside `VrHudRedirect`, keyed on a frame counter incremented at the
+   end of `PresentEx`. Cleared to transparent black, because the proxy composited additively, so
+   black is invisible.
+2. M8.4 (`9748e9e3`): the staleness bug. Dishonored's HUD is minimalist and hides elements when
+   they are full, so after dropping a carried body there can be ZERO UI draws for minutes: no
+   draw means no lazy clear, so the carry icon's last pixels sit on the wrist forever (the
+   tester: they are not going away even after dropping items). Same after a load. M8.4 cleared
+   the HUD target at `PresentEx` when no redirected draw had arrived.
+3. **Reverted (`0f3dd7d6`)**, because the render-target churn inside the fork's present path was
+   a suspect for the swapchain "chain artifact", and the shipped 38.92 proxy targeted exact M8.2.
+   The cure moved to the PROXY as 38.55: a plain `ColorFill` of the fork's HUD target from our
+   own thread, immediately AFTER reading it. Same staleness cure, no state churn in the present
+   path. **The port takes the 38.55 form: clear after copy, every present, unconditionally.**
+
+**`hudskip`** (M6.1, `7e64dbd3`) is the exclusion list, keyed on the pixel shader's FNV-1a hash
+of its DXBC bytecode, hex, comma separated, at most 8 entries, parsed from `dxvk_stereo.txt`
+alongside `sep=` and `conv=`. A listed shader draws in view as before instead of moving to the
+wrist: the lever for world-anchored UI (quest markers, imposters) tunable without a rebuild.
+Note the M4.5 hazard recorded at the parse site: NO logging inside that static-init lambda, an
+earlier `Logger::info` there stopped the DLL loading entirely. After M7.3 the hash is stamped on
+the shader object at `CreatePixelShader` rather than kept in a bounded map (the earlier maps
+overflowed at 2048 and 8192 entries and silently disabled fixes for late-created shaders).
+
+**The census** (same commit) logs each distinct pixel shader that passes through the redirect
+once per launch, `%08x` plus its primitive count, capped at 32 distinct shaders, running after
+the skip test so skipped shaders are not censused. A wrongly captured element is identified by
+hash from the log and excluded with `hudskip=`, no rebuild. The related bisector is
+`dxvk_vr_killmask` bit 2 ("DUP class"), which kills every UI-class draw outright to prove a
+class is responsible for an artifact.
+
+### 3. The consumer: the gate, the readback, the panel
+
+**The gate**, evaluated once per proxy Present (`4bba213e^:src/core/gfx/present.cpp:662-698`):
+
+```
+dlgNow = (g_dlgHudOff && MaimNowMs() < g_dlgUntilMs);
+want = (g_wristHud && g_handMesh && CylTruthLive() && !dlgNow &&
+        !g_menuOpen && !g_inMenu && !g_sbsMonoNow && !g_wheelHeld) ? 1 : 0;
+```
+
+Every clause is a scar:
+
+- `g_handMesh` (35.6): the hands must actually be driving. At the main menu the attract scene
+  keeps gameplay dispatches flowing and splices high, and the redirect swept the MAIN MENU onto
+  the wrist. The author's phrasing: the sword follows your hand means you are playing.
+- `CylTruthLive()` (38.46): a possessed pawn's collision cylinder was read within the last 3 s.
+- `!g_sbsMonoNow`: the fork's per-frame splice counter under 8 means a mono frame (menus,
+  loading, video).
+- `!g_wheelHeld` (34.7): the power wheel is also a `kUpDup` draw and got redirected right off
+  the screen; the redirect pauses while it is held.
+
+**The readback** (`4bba213e^:src/core/gfx/present.cpp:378-431`), inside the same D3D9-side
+capture as the main frame: fork RT surface -> `StretchRect` (GPU downscale, LINEAR) into a
+`HUDRB_W x HUDRB_H` = **1008x568** `X8R8G8B8` `POOL_DEFAULT` target -> `GetRenderTargetData` into
+a SYSTEMMEM surface -> row `memcpy` into `g_hudPix` -> **`ColorFill` of the fork's surface (the
+38.55 clear)**. 1008x568x4 is about 2.3 MB per frame against the 36 MB main capture, called
+noise at the time. Note the downscale is of the WHOLE side-by-side frame (aspect 1.775), not of
+one eye. Both `POOL_DEFAULT` surfaces are released in the Reset hook: the 38.63 lesson is that
+an unreleased default-pool resource makes Reset fail forever, i.e. a permanent black screen.
+
+**The D3D11 side** (`cc2fa936^:src/core/gfx/hud_panel.cpp:7-48`) lazily built a
+`DXGI_FORMAT_B8G8R8A8_UNORM` texture at the readback size (byte order matching the D3D9
+`X8R8G8B8`, so the bytes upload straight through), a 4-vertex dynamic buffer, and **the additive
+blend state**: `SrcBlend = ONE, DestBlend = ONE, BlendOp = ADD`, alpha the same. The panel's own
+gate (38.50) simply requires the redirect verdict, because when the two disagreed the wrist
+showed the fork target's FROZEN last frame.
+
+**The placement math** (`hud_panel.cpp:53-84`), in head space, x right, y up, -z forward,
+corners in the order TL, TR, BL, BR:
+
+```
+d  = controllerPos - headPos                    // world
+pr = R_head^T * d                               // controller in head axes
+pr.y += g_hudPanelUp                            // float it above the controller
+if (pr.z > -0.06) return false;                 // behind or at the face: hide
+n = normalize(-pr)                              // billboard: face the head exactly
+if (|n| < 0.05) return false;                   // hand at the eye
+rgt = worldUp x n
+if (|rgt| < 0.2) return false;                  // within ~11.5 deg of vertical: hide
+upP = normalize(n x rgt)
+hw = PanelSize * 0.5 ; hh = hw * (568/1008)
+corners = pr -+ rgt*hw +- upP*hh
+```
+
+Three properties worth carrying: the panel takes only the controller's POSITION, never its
+orientation; it keeps world-up as its up axis so it never rolls; and the lift is a pure head
+space +Y, not along the controller's own axis. The three rejects are the behind-the-face guard
+(6 cm in front of the head plane), the degenerate distance (5 cm), and the overhead guard (the
+cross product's magnitude is the sine of the angle to vertical, so 0.2 is about 11.5 deg, where
+`rgt` is numerically garbage and the billboard would spin).
+
+**The draw** (`hud_panel.cpp:86-124`) is per eye, from the eye loop after the game-image quad and
+after the hands, before the ImGui overlay. Clip space is built by hand from the cached per-eye
+frustum with `w = -z` and `z = 0.5w` so it always lands mid-depth, depth test OFF, additive
+blend, the shared quad shader with the HUD's shader resource view. **It drew only in
+projection-layer mode**: on a flat quad layer the comment says the hands and the wrist panel are
+eye-frustum projected 3D content and would be geometrically wrong.
+
+Why additive: the fork clears the target to black each frame, so black is invisible and the HUD
+elements float like a hologram, with no alpha correctness needed.
+
+Ancillary consumers: `dump hud` wrote the D3D11 texture as PNG; `[Screen] MirrorHud=1` (38.64)
+stamped the already-downscaled D3D9 surface into the desktop mirror's bottom left at one fifth
+height, because the panel is drawn into the HEADSET's eye textures and was never in the game
+backbuffer at all.
+
+### 4. The dialogue rule
+
+`cc2fa936^:src/game/dishonored/ue3/process_event.cpp:245-284`. A substring match on
+`PlayerChoice` over the whole event family (never a guessed exact-name list, the 34.4 lesson),
+with two hard-won exclusions:
+
+- **38.47**: the measured members are `Dis_PlayerChoice_RequestSkip`, `..._Released`
+  (DishonoredPlayerInput) and `OnPlayerChoiceConfirm` (DisGFxMoviePlayerHUD). There is NO
+  open/close event anywhere in the vocabulary.
+- **38.48**: a fixed 6 s hold snapped back mid-conversation, because the events are momentary
+  ACTIONS, not a state: one exchange fired `RequestSkip` and `OnPlayerChoiceConfirm` SEVENTEEN
+  seconds apart. So the window is inferred from the pair: a skip means dialogue is running (hold
+  `DialogHoldMs`, 12 s, re-armed by every member), a confirm means the choice is taken and the UI
+  is closing (release after a 1500 ms grace, and only ever SHORTENING the window).
+- **38.51**: `Dis_PlayerChoice_RequestSkip` fired in the same millisecond as `Dis_VersusAlt`. It
+  is an INPUT ALIAS: pressing block in combat fires the skip name, so every block press killed
+  the wrist HUD for the hold duration. Guard: a `RequestSkip` within 150 ms of any Versus event
+  is the combat alias and is ignored.
+- **38.53**: `..._RequestSkip_Released`, the release edge of the block key, fires alone hundreds
+  of ms later and escapes the 150 ms guard. It is input-tail noise; only the guarded press arms.
+
+The tombstone is at `src/game/dishonored/ue3/process_event.cpp:318-319` today.
+
+### 5. The settings, and the shipped values
+
+| key | default | clamp | note |
+|---|---|---|---|
+| `[Hud] WristHud` | 1 | | master switch, live F10 checkbox (34.8) |
+| `[Hud] DialogHudOff` | 1 | | park the panel during conversations (38.47) |
+| `[Hud] DialogHoldMs` | 12000 | 1000-120000 | |
+| `[Hud] PanelHand` | 0 | 0 left, else right | |
+| `[Hud] PanelSize` | 0.16 m | 0.05-0.60 (slider 0.06-0.40) | **shipped tuned: 0.22** |
+| `[Hud] PanelUp` | 0.06 m | | head-space +Y lift |
+| `[Screen] MirrorHud` | 0 | | desktop stream inset |
+| `[Mode] ForceTheater` | 0 | | not a HUD feature, see below |
+
+`tests/golden/f10-tuned-2026-09-02.ini` lines 469-473 carry the tester's own annotation: after a
+full F10 tuning session the ONLY HUD change requested was a bigger panel, 0.22 m instead of 0.16.
+Hand, lift and the dialogue keys were left at their defaults.
+
+**Theater mode** was the stage-1 fallback presentation, not a HUD feature: `[Mode] ForceTheater`
+selected the OpenVR overlay application type instead of scene, created a 4 m wide overlay with
+0.12 curvature at (0, 1.6, -2.4) in the standing universe, and uploaded the whole captured frame
+to it once per present. No eye loop, no head-driven camera, no hands, no wrist panel, no
+reticle. It went with OpenVR in 41.0; the runtime layer's own cinematic quad fallback is its
+replacement.
+
+### 6. The known bug (HANDOFF-GINGASVR 8.4)
+
+> Main menu on the wrist. Going from gameplay to the main menu, the menu gets swept onto the
+> wrist panel and becomes unusable. The gate requires `CylTruthLive()` ("a possessed pawn cannot
+> exist at the main menu"), but the pawn survives the transition long enough. Inherited, not a
+> regression.
+
+Read against the gate: `CylTruthLive()` is a 3 s latch on the last successful pawn cylinder read,
+so the gameplay-to-main-menu transition leaves it true for up to 3 s after the menu appears, and
+`g_menuOpen`/`g_inMenu` miss the MAIN menu in windowed mode (script events are the only signal
+there). The 38.46 fix closed the idle-at-main-menu hole, not the transition. **A port must either
+invalidate the pawn latch on a level or menu transition, or use a positive main-menu signal
+rather than the pawn's absence.** Our `DvrGameplayVerdict()` already carries `!g_mainMenu` as its
+own term, which is that positive signal.
+
+### 7. The cinematics: two bodies of prior art that must not be confused
+
+**(A) The mod's own latch, live today.** `g_cineNow` is a PARITY TOGGLE flipped by the exact
+script event `OnToggleCinematicMode` (`process_event.cpp:320-326`), which is why it needs five
+separate clears: a new pawn (`process_event.cpp:24-27`, a level load inherited CINEMATIC in run
+22), leaving the main menu (`:237`, the title screen's attract scene flips it ON with the
+level's pawn already latched), a loading screen (`commands.cpp:309`), a failed intro skip
+(`console.cpp:102-106`), no live pawn and an 8 minute expiry (both inside the reader,
+`game_state.cpp:5-22`). The state machine's priority is NO_PAWN > MENU > LOADING > CINEMATIC >
+GAMEPLAY, so CINEMATIC is the last discriminator before GAMEPLAY.
+
+Its readers: the state line and status.json; **the gameplay verdict**
+(`present_tick.cpp:143`, `pawn && !menuOpen && !inMenu && !mainMenu && !cineNow && viewLive`),
+which is the ONLY bridge from the latch to the runtime layer; the head path's direct-fallback
+hold-off (`head_track.cpp:364`, reason "cinematic announced") - note this holds only the
+take-the-camera-back-by-force path, the script lane's `ProcessViewRotation` write keeps running
+and the matinee camera simply ignores it; the pad park (`pad_bridge.cpp:267`: every button but
+START dropped, sticks and triggers zeroed, so a stray A or a chair-shuffle B can never eject the
+player from a scripted sequence, and menus take precedence so menu navigation is never eaten);
+and the room-scale walk gate. Note the asymmetry: the verdict and the state line read the raw
+`g_cineNow`, the pad and head read the self-healing `CineActive()`.
+
+**(B) The BioShock runtime layer's subsystem, present but starved.** Almost every input comes
+from `dvr::hud::*`, which is `src/core/vr/hud_stub.cpp` answering "nothing". The decisions:
+
+| decision | site | live here? |
+|---|---|---|
+| `wantCine = stale \|\| !strict` | `openxr_runtime.cpp:3609-3638` | **LIVE**: `strict` is our gameplay verdict, `stale` is a publish older than `kCineStaleMs` 300 ms; 3-present hysteresis, enter/exit/presents counters, the F10 readout at 4583 |
+| `screenOnly` leg | `:3615` | DEAD (`hud::screen_only()` is always false) |
+| `fovMm && !stereoCine` leg | `:3614` | DEAD (`hud::fov_mismatch()` is always false) |
+| the claim-substitution branch | `:3639-3670` | UNREACHABLE (guarded by `fovMm`); its comment documents a BioShock bathysphere bug |
+| the quad head-lock override | `:4101` | DEAD (`screen_only`) |
+| **the HUD quad** | `:4169-4219` | DEAD: no provider is registered and `hud::texture()` is null |
+| bars / effects / postfx / subs / restorert / dumparm | `:4450-4521`, `:5139-5195` | round-trip only; the `vrcine` word is not registered, so all 20+ seam words including the live `on`/`off`/`mode` are unreachable |
+| `CineDrive` (off / authored / authored+look) | `:5113-5137` | `cine_drive()` has ZERO callers: entirely BioShock prior art. Our pad park plus the head hold-off are the game-side equivalent |
+| `set_gate(srFrame)` | `:3687` | the signal is computed correctly (projection mode AND an eye tag popped) and THROWN AWAY by the stub |
+
+`unsqueeze` is retired with a useful engine fact on the tombstone (`:5197-5204`): BioShock's
+cinematic bars are a gameswf draw painted OVER a full-frame tonemap, not an anamorphic squeeze,
+so stretching a band would crop real picture. Whether Dishonored's bars are a Scaleform draw is
+an open measurement, and if they are, they fall out of the same classifier as the HUD and need a
+policy.
+
+**Subtitles**: the runtime layer's documented choice is the PANEL, and its reason is
+stereo-correctness (`:4505-4512`). Off (default) means subtitles ride the head-locked quad, one
+image in both eyes; on means they render into the frame, where each eye is captured from a
+DIFFERENT game frame and the text can double. For Dishonored this is currently dead in the bad
+direction: with no panel to ride, subtitles land in the frame regardless of the setting.
+
+### 8. The HUD quad's texture contract (what a provider must satisfy)
+
+```
+using HudTextureProviderFn = ID3D11Texture2D* (*)(ID3D11DeviceContext* ctx);
+void set_hud_texture_provider(HudTextureProviderFn fn);   // openxr_runtime.h:579
+```
+
+- Submitted only when a base layer exists AND `projectionMode` is true AND the view space is
+  valid. **The panel is projection-only**: under the mono screen, or while the cinematic quad
+  holds, no HUD quad is submitted.
+- The texture must live on the runtime's own D3D11 device (the one the mod provides through
+  `set_device_provider`, created on the LUID OpenXR named), because the copy is a
+  `CopyResource`, not a shader blit: **format and dimensions must match the swapchain exactly**,
+  and the swapchain is created in `g_swapFormat`, the format `create_swapchains` already picked
+  for the eyes (the R8G8B8A8 family).
+- **Premultiplied alpha.** The layer sets `BLEND_TEXTURE_SOURCE_ALPHA_BIT` WITHOUT the
+  unpremultiplied bit; a straight-alpha capture will fringe.
+- Stable dimensions: any change rebuilds the swapchain that present.
+- The consumer never releases the returned texture, and a null RESULT is legal and means "no HUD
+  this frame".
+- Placement: head-locked, no rotation ever, position `(0, g_hudUpM, -g_hudDistM)` =
+  `(0, -0.10, -1.30)` m, width `g_hudWidthM` 1.25 m, height from the texture's aspect, with F10
+  sliders (0.5-3.0, 0.3-3.0, -1.0-1.0).
+
+**Head-locked is not wrist-locked.** The runtime's quad uses view space and the project's rule is
+to keep that file as close to the BioShock copy as the D3D9 host allows, so the head-locked
+panel ships and is judged first; a controller-anchored panel is a second change and section 3's
+billboard math is its reference.
+
+### 9. Two stale doc lines in the adopted layer (noted, not edited)
+
+The runtime file stays verbatim, so these are recorded here instead of fixed in place:
+
+- `openxr_runtime.h:389` calls the stereo cinematic mode an opt-in experiment defaulting to
+  quad; the code initialises `g_cineStereo{true}` at `openxr_runtime.cpp:272` with a comment
+  saying stereo is the default per the user's call of 2026-07-29. The CODE default is stereo.
+  (Moot while the branch is unreachable, but it will mislead a reader.)
+- `openxr_runtime.cpp:174` and `openxr_runtime.h:570-571` say the HUD quad sliders persist via
+  the overlay's ini save. In this repo nothing persists them: there are no `[Hud]` ini keys
+  (41.0 removed them) and `set_hud_quad`/`get_hud_quad` have no callers.
+
+## The Scaleform HUD draw class, measured (2026-09-04, session 10)
+
+**The answer is yes, and by a simpler discriminator than the fork needed: the render target.**
+Dishonored draws its world into an OFFSCREEN scene target the size of the render and paints the
+whole HUD onto the BACKBUFFER at the tail of the frame. The scene is resolved to the backbuffer
+with `StretchRect`, not a draw. So "this draw goes to the backbuffer" separates HUD from world
+with no overlap at all, where the fork had to run a nine-term ladder because on its frame the two
+shared one target.
+
+The instrument is `core/gfx/draw_census` (`[Draws] Census=0`, `draws on|off|status|kill|unkill`),
+which buckets every draw by entry point, target, viewport, depth, blend, what texture stage 0 is,
+the pixel shader's bytecode hash, the vertex declaration and a primitive-count band, and prints a
+table and a VERDICT every 3 s. Runs 46-01 and 46-02, the sewers, `stereo reentry`, 2496x2688, on
+the simulator lane.
+
+### What a present is made of
+
+| | |
+|---|---|
+| draws per present | 1205 |
+| by entry point | DrawPrimitive 0, DrawIndexedPrimitive 382, DrawPrimitiveUP 13, DrawIndexedPrimitiveUP 810 |
+| distinct buckets | 133 (no overflow) |
+| distinct pixel shaders | 81 |
+| state blocks created | 1 in a whole run |
+| **draws to the backbuffer** | **5 buckets, 15.0 per present, at ordinals 1177..1221** |
+| the same in the pause menu | 10 buckets, 95.9 per present, at ordinals 1126..1223 |
+| tonemap draws | **0** (the resolve is a `StretchRect`) |
+| PostRender dispatches | 6.0 per viewport draw pass |
+
+Every backbuffer bucket, in gameplay and in the menu, carries a **full-viewport draw with
+`D3DRS_ZENABLE == D3DZB_FALSE`**. Nothing else in the frame goes there.
+
+### Proven by picture, not by counter
+
+`draws kill <key>` drops a bucket's draws so the frame says what the bucket was (the project's
+rule: identify a render pass by making it MOVE). Four per-eye simulator captures, head still:
+
+| capture | killed | result |
+|---|---|---|
+| `kill-a-baseline` | nothing | the sewers with the health and blood indicator top left |
+| `kill-b-2065fa4d` | the 11-per-present untextured blend bucket | **the indicator is gone, the world pixel-identical** |
+| `kill-c-57e5c97d` | the 1-per-present textured bucket | the indicator loses its mask and draws unclipped; the world unchanged |
+| `kill-d-allbb` | all five backbuffer buckets | **the HUD is gone; the world is untouched** |
+
+No kill of a backbuffer bucket ever changed the world, and no world bucket was ever needed to draw
+the HUD. That is the separation, in both directions.
+
+### The three things the fork's ladder got right for its frame and wrong for ours
+
+1. **Portrait targets.** The fork rejected them (`rt-portrait`) because its side-by-side frame was
+   always landscape. Our per-eye render is 2496x2688, portrait. Porting that term would have
+   rejected the entire frame. It is deliberately absent from `draw_census`.
+2. **User-pointer draws only.** The fork only ever classified `DrawPrimitiveUP` and
+   `DrawIndexedPrimitiveUP` because on Dishonored-through-DXVK that is what the UI used. On this
+   path `DrawIndexedPrimitiveUP` carries **810 world draws per present**, so the entry point
+   discriminates nothing and is a reported column, not a term.
+3. **`samples-rt` (texture stage 0 is not a render target).** This was the fork's measured UI
+   discriminator and it is sound, but it splits the HUD rather than separating it: most of
+   Dishonored's HUD draws are untextured Scaleform fills, and requiring a texture kept 1 draw per
+   present of 15 and left the other 14 in the frame. Reported, not required.
+
+The first census build carried a fourth term of its own, "after the tonemap", and it rejected
+every draw in the frame for a whole run because this engine's resolve is not a draw. The
+instrument said so on its own line (`tonemap draws/present=0.0`, and the near-miss list naming
+`afterTonemap` as the only failing term), which is what an instrument that can fail its own
+hypothesis is for.
+
+### What this means for a redirect
+
+- **The rule is the target, not a bucket list.** A fifth capture showed one faint element surviving
+  a kill of all five measured keys: the bucket set drifts with what is on screen. A redirect must
+  key on the rule (backbuffer, full viewport, depth off), never on a list of keys.
+- **The menu is drawn by the same class.** A redirect gated only on the draw would sweep the pause
+  menu and the main menu onto the panel, which is exactly the original's inherited bug (HANDOFF
+  8.4). It must be gated on the GAME STATE, and `DvrGameplayVerdict()` already carries the
+  positive signal the original lacked (`!g_mainMenu && !g_menuOpen && !g_inMenu`).
+- **The cost is small.** 15 draws per present means about 30 render-target switches per present,
+  against 1205 draws; the fork paid about 200.
+- **The census is sound to keep unlocked.** The draws arrive on the presenting thread (the census
+  checks this every present and refuses if it ever stops being true), and one state block in a
+  whole run means Scaleform is not restoring device state behind the setters, so no `Apply` hook
+  is needed.
+
+The constants and their derivation are in `src/game/dishonored/patterns.h`,
+"The Scaleform HUD draw class".
+
+## The HUD panel: the redirect, and the draw that nearly ruined it (2026-09-04, session 10)
+
+The class measured above is redirected into a private A8R8G8B8 target the backbuffer's size,
+copied at Present into a shared surface, opened on the mod's D3D11 device, alpha-repaired and
+handed to the runtime layer's head-locked HUD quad through `set_hud_texture_provider`
+(`core/gfx/hud_capture`, `[Hud] Panel=0`, `hud on|off|status|scale <f>`, the F10 Display tickbox).
+
+### The scene resolve is a draw, and it is the fourth term
+
+The first build of the redirect used the three measured terms - the backbuffer, a full viewport,
+depth off - and the panel came up holding **the whole game frame**, world and all, while the HUD
+also stayed in the eyes. The instrument that settled it in one step was `dump hud`, which writes
+the panel's own texture: it showed the frame. Then `draws kill hud` with the panel on emptied the
+panel completely. So the content was not stale memory and not a bad copy: **one of the fifteen
+redirected draws was painting the world.**
+
+It is the scene resolve. Dishonored copies its offscreen scene target to the backbuffer with a
+full-screen textured quad of two primitives, opaque, depth off, full viewport - which satisfies
+every term the rule had. The discriminator is **alpha blending**, and it is principled rather
+than convenient: something drawn ONTO a finished frame must blend to sit over it, while the frame
+itself is written opaquely. The resolve is the only opaque draw in the backbuffer population and
+every HUD element blends. The rule became four terms and the redirect fell from 15 draws per
+present to 14.
+
+This also explains the census's earlier `tonemap draws/present=0.0`: its detector keyed on the
+fork's `samples-rt` term, and this game's resolve samples a plain texture copy, not a surface
+flagged `D3DUSAGE_RENDERTARGET`. The census now detects the resolve as "the opaque full-frame
+draw to the backbuffer" and says so, and `tex0_class` answers UNKNOWN rather than a guessed
+"plain" when its cache is full.
+
+### What the panel does
+
+| | |
+|---|---|
+| the private target | A8R8G8B8 at the backbuffer's size and multisample type, so its depth-stencil stays legal |
+| per redirected draw | `GetRenderTarget`-free: the game's target comes from the classifier's shadow, `SetRenderTarget` then `SetViewport` (the bind resets it, and a PURE device has no `GetViewport`), the draw, then both back |
+| the clear | after the copy, EVERY present, unconditionally - the fork cleared lazily at the first redirected draw and a dropped body's icon sat on the wrist for minutes |
+| the hand-off | two shared slots, fenced in both directions, delivering the previous slot; `BlitQuad` with alpha = max(r,g,b) into R8G8B8A8 |
+| the gate | the runtime's own (a projection present carrying an eye tag) AND the game side's strict gameplay verdict AND no power wheel |
+
+Two mistakes worth keeping written down. A D3D11 event query does not complete until the context
+is flushed, so the read fence spun and timed out on every present until the flush was added
+(`read waits 31767 timeouts 1033` -> `0 and 0`). And a 10 ms budget measured with `GetTickCount`
+expires on the first read, because that clock's tick is about 15 ms: both waits use the
+performance counter now, like the eye path's.
+
+### Verified (simulator, run 46-05, the sewers, `stereo reentry`, 2496x2688)
+
+- `hud on`: `redirect presents=540 redirected=14.0 draws/present delivered=540`, fences 0
+  timeouts, 0 restore failures; `xr: HUD quad swapchain ready (1248x1344, 3 images)`,
+  `xr: HUD quad live (1248x1344, 1.25 m wide at 1.30 m)`.
+- `dump hud`: the panel texture holds the health indicator and the reticle dot and NOTHING else;
+  everything around them is transparent.
+- The per-eye compositor capture: the world is intact with **no HUD in it**, and the HUD is on the
+  head-locked quad, in the right colour.
+- `reentry.xrs` 11/11, and `perf: tick 11.1 ms (90/s)` - pace-bound, the same as without the
+  panel. About 28 extra `SetRenderTarget` calls per present against a frame of 1205 draws.
+
+### An instrument caveat found on the way
+
+`DumpTexturePng` (`dump eyes`, `dump hud`) writes R8G8B8A8 textures with red and blue swapped:
+the eye dumps come out olive where the compositor shows teal, and the panel's red indicator dumps
+blue. The COMPOSITE is correct, so this is the dump's channel choice and not the render path. It
+predates this session (`dump eyes` shipped in session 9) and it has never been load-bearing,
+because those dumps are read for geometry and for left-against-right differences rather than for
+colour. Worth fixing; do not read a colour verdict off a dump until it is.
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.

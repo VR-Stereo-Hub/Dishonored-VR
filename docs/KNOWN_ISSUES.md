@@ -66,8 +66,33 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   down your view. Head tracking, positional (lean/peek/crouch) tracking and the FOV lever work.
   The hands come back on the winning stereo method; setting `GamepadOnly=0` re-enables the old
   hand code, which is compiled but untested on this render.
-- **The wrist HUD and the aim reticle are gone** [S3]. The game's own HUD is on the screen with
-  the rest of the frame; the floating panel returns through the runtime layer's HUD quad.
+- **The HUD panel is back, head-locked, and ships OFF** [S3, simulator-verified 2026-09-04,
+  headset verdict pending]. `[Hud] Panel=1` (or `hud on`, or the F10 Display tickbox) takes the
+  game's own Scaleform HUD out of the frame and shows it on the runtime layer's head-locked quad;
+  its distance, width and height are the HUD sliders on the F10 Runtime tab, and `hud scale <f>`
+  sets the panel texture's resolution. It runs only during stereo gameplay: menus, loading
+  screens, cutscenes and the mono screen all leave the HUD in the frame, the pause menu
+  deliberately so, because the menu is drawn by the same class of draws (that is the original
+  build's inherited "main menu on the wrist" bug, and the gate is what closes it). **While the
+  panel is on, the HUD is not in the eye textures and not in the desktop window**: that is what a
+  redirect means. The WRIST anchor itself waits for the hands to come back; head-locked ships
+  first because it is what the runtime layer already knows how to draw. The aim reticle rides the
+  panel with the rest of the HUD.
+- **The cutscene screen used to follow your head; it does not now** [after S3, FIXED
+  2026-09-04 on a headset report]. `[Screen] HeadLocked=1` ships because a gameplay screen should
+  stay in front of your eyes, and the runtime layer applies that flag to EVERY quad it shows -
+  including the one a cutscene lands on, so the cutscene was glued to your face and swung with
+  every head turn. `[Cine] HeadLocked=0` (the default) parks the flag for the length of a
+  cutscene: the screen now stands in the room and you can look around it. `cine headlock on|off`
+  and the F10 Display tickbox are the A/B; menus and loading screens are untouched and stay in
+  front of you.
+- **Cutscenes: `[Cine] Mode=quad` ships** [after S3]. A cutscene arrives as one image on a
+  head-locked quad, which is what has always happened; `cine stereo` keeps the per-eye projection
+  through it instead, so it has depth. Neither makes the camera follow your head - a cutscene owns
+  the camera - so under `stereo` the picture holds its frame while you turn. `[Cine] HudPanel=1`
+  keeps the subtitles on the panel, one image in both eyes, rather than in the frame where each
+  eye is a different game frame and text can double. All three are live seam words (`cine
+  quad|stereo|hud on|off|status`).
 - **The headset image is the game window's resolution, captured once per present** [S1]. A
   bigger window costs a bigger readback on the shipped `deferred` path (10 ms of GPU copy per
   present at the Quest 3 size); `[Device] Ex=1` with `capture mode shared` keeps it in VRAM

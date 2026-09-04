@@ -1,5 +1,35 @@
 # Release notes
 
+## 41.2.0 (unreleased) - the HUD comes back, and cutscenes get a policy
+
+- **The HUD panel, head-locked, default OFF** (`[Hud] Panel=0`, `hud on|off|status|scale <f>`,
+  the F10 Display tickbox). The game's own Scaleform HUD is taken out of the frame and shown on
+  the runtime layer's head-locked quad - the return of the wrist HUD build 38.92 shipped, which
+  41.0 lost with the DXVK fork. The wrist anchor itself comes back with the hands; head-locked is
+  what the runtime already knows how to draw. While the panel is on the HUD is not in the eye
+  textures and not in the desktop window. It runs only during stereo gameplay: menus, loading
+  screens, cutscenes and the mono screen leave the HUD in the frame, the pause menu deliberately.
+- **The draw census, default OFF** (`[Draws] Census=0`, `draws on|off|status|kill <key>|hud`,
+  `draws unkill`, the F10 Display tickbox). The instrument the panel needed: it buckets every draw
+  in a present and prints a table and a VERDICT saying whether the HUD separates from the world
+  with no overlap, or that it does not. `draws kill` drops a class so a capture says by PICTURE
+  what the class was. The answer for this game is in ENGINE_NOTES: the world is drawn to an
+  offscreen target and the whole HUD to the backbuffer, 14 draws per present of 1205.
+- **`dump hud`** writes the panel's own texture, which is the one thing that can tell a bad
+  redirect from a bad copy from a bad quad.
+- **The cutscene screen no longer follows your head** (`[Cine] HeadLocked=0`, new default). A
+  cutscene landed on the same head-locked quad the gameplay mono screen uses, so it swung with
+  every head turn; it stands in the room now, and menus and loading screens are unchanged.
+- **Cutscenes have a policy** (`[Cine] Mode=quad`, `[Cine] HudPanel=1`, `[Cine] HeadLocked=0`,
+  `cine quad|stereo|hud|headlock|latch|status`, and an F10 Display block). `quad` is what has always happened, one image on a head-locked
+  quad; `stereo` holds the per-eye projection through the cutscene so it has depth. Neither makes
+  the camera follow your head. `HudPanel` decides whether the subtitles ride the panel (one image
+  in both eyes) or stay in the frame (where each eye is a different game frame and text can
+  double). The runtime layer's own `vrcine` seam is reachable at last - it had no word in this
+  game, so its whole vocabulary was dead.
+- No key was removed and no default changed. `[Meta] Version` is unchanged, so a tuned ini
+  survives, but the new sections only appear in a freshly generated one.
+
 ## 41.1.0 (unreleased) - native stereo ships, the four headset faults, the resolution picker
 
 - **THE EYES ARE FIXED (session 9, 2026-09-04, headset-confirmed)**: after a level load or a

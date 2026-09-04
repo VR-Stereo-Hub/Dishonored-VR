@@ -67,6 +67,49 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // 8 minutes in case an off-toggle is ever missed.
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
+// 41.2 (session 10): PostRender dispatches, for the draw census. The HUD is
+// drawn from inside this dispatch, and under `stereo reentry` the viewport
+// draw root runs TWICE per tick, so this against the viewport-draw count says
+// whether the HUD is drawn once or twice. Game thread writes, present reads.
+static volatile LONG g_pePostRender = 0;
+// 41.2 (session 10): the gameplay verdict's last answer, so a second reader
+// (the HUD panel's gate) costs nothing and never logs a second time.
+static bool g_verdictLast = false;
+// 41.2 (session 10): `dump hud` - the panel's own texture, as the runtime
+// would see it. The one instrument that says whether a wrong-looking panel is
+// a bad redirect, a bad copy or a bad quad.
+static int g_dumpReqHud = 0;
+// 41.2 (session 10): [Cine] Mode. quad (default, and what has always
+// happened) drops the gameplay verdict while the cinematic latch is up, so
+// the re-entry parks its second draw and the runtime layer falls to its
+// head-locked cinematic quad: one image, both eyes, no stereo. stereo keeps
+// the projection and the eye pair through the cutscene. The engine's matinee
+// camera does not follow the head either way - only the fallback head path is
+// held during a cinematic, and the script-lane write lands on a camera the
+// cutscene ignores - so `stereo` buys depth, not look-around, and whether
+// that is comfortable is a headset question.
+static bool g_cineStereoMode = false;
+// 41.2 (session 10): whether the HUD panel stays live through a cutscene.
+// It only bites under Mode=stereo (under quad the verdict is false anyway, so
+// the panel is down and the subtitles ride the cinematic quad with the rest of
+// the frame). This IS the subtitle decision: on, the subtitles are on the
+// panel, one image in both eyes, which is the runtime layer's own documented
+// stereo-correct choice; off, they stay in each eye's frame, where the two
+// eyes are captured from different game frames and text can double.
+static bool g_cineHudPanel = true;
+// 41.2 (session 10, headset report): whether the cutscene SCREEN follows the
+// head. It must not, and it did. [Screen] HeadLocked=1 ships because a gameplay
+// mono screen wants to stay in front of your eyes, and the runtime layer's quad
+// takes that flag for EVERY quad it shows - including the one a cutscene lands
+// on. So a cutscene was glued to the face and swung with every head turn, which
+// is exactly what a cinema screen must not do. The runtime's own comment says
+// cinematic scenes were meant to keep the world-locked space; our global flag
+// was overriding that intent. The game side now parks the flag for the length
+// of the cutscene and restores whatever the ini asked for afterwards - no edit
+// to the runtime layer, just its existing setter driven at the right moments.
+static bool g_cineHeadLocked = false;      // [Cine] HeadLocked
+static bool g_screenHeadLockedCfg = true;  // [Screen] HeadLocked, as configured
+static int  g_screenHeadLockedNow = -1;    // what the runtime was last told
 static bool CylTruthLive();              // fwd
 // per-eye frustum + eye offsets, cached by BuildEyeQuads for the panel math
 static float g_eyeFr[2][4];           // l, r, t, b

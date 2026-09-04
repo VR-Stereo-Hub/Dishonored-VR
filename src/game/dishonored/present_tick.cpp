@@ -140,7 +140,11 @@ static bool DvrGameplayVerdict()
 {
     const bool pawn = CylTruthLive();
     const bool viewLive = DvrScriptViewLive();
-    const bool verdict = pawn && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow && viewLive;
+    // 41.2 (session 10): [Cine] Mode=stereo keeps the projection through a
+    // cutscene; the default drops it, which is what puts the runtime layer on its
+    // cinematic quad. Everything else in the verdict is unchanged.
+    const bool cineTerm = g_cineStereoMode ? false : g_cineNow;
+    const bool verdict = pawn && !g_menuOpen && !g_inMenu && !g_mainMenu && !cineTerm && viewLive;
 
     // 41.1: name the gate that flipped. A false verdict drops the runtime's
     // layer to the head-locked quad ("xr: cinematic quad ON"), and in the
@@ -149,13 +153,14 @@ static bool DvrGameplayVerdict()
     // turning around, cleared by an alt-tab). The runtime's line only says
     // strict=0; this one says WHICH term did it, so a remote log can tell a
     // pause menu from a missed menu-close event from a starved view pipeline.
+    g_verdictLast = verdict;
     static bool said = false, last = false;
     static uint64_t falseSinceMs = 0;
     if (!said || verdict != last) {
         said = true; last = verdict;
         falseSinceMs = verdict ? 0 : GetTickCount64();
         const char* why = verdict ? "all clear" : !pawn ? "no live pawn" : g_menuOpen ? "menuOpen"
-                        : g_inMenu ? "inMenu" : g_mainMenu ? "mainMenu" : g_cineNow ? "cinematic latch"
+                        : g_inMenu ? "inMenu" : g_mainMenu ? "mainMenu" : cineTerm ? "cinematic latch"
                         : "view pipeline silent (no ProcessViewRotation dispatch)";
         Log("gameplay verdict: %s (%s) pawn=%d menuOpen=%d inMenu=%d mainMenu=%d cine=%d viewLive=%d "
             "lastHeadWrite=%.0f ms ago -> the runtime's layer is %s",
@@ -251,6 +256,26 @@ static void DvrGameTick(IDirect3DDevice9* self)
         DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
         ResVerdictTick();  // 41.1: the render size against the picker's ask, once per size
         SceneProbePresentTick();
+        // 41.2 (session 10): the game side's half of the HUD panel's gate. The
+        // panel must never carry a menu (the pause menu is drawn by the same
+        // class the redirect claims - ENGINE_NOTES, "The Scaleform HUD draw
+        // class"), and the power wheel was redirected off the screen in 34.7.
+        dvr::hudcap::set_game_gate(g_verdictLast && !g_wheelHeld &&
+                                   (!g_cineNow || g_cineHudPanel));
+        // 41.2 (session 10): a cutscene's screen stands in the ROOM, not on your
+        // face. Only the cinematic latch does this - a menu or a loading screen
+        // still wants the head-locked panel in front of you.
+        {
+            const bool want = CineActive() ? g_cineHeadLocked : g_screenHeadLockedCfg;
+            if (g_screenHeadLockedNow != (int)want) {
+                g_screenHeadLockedNow = (int)want;
+                dvr::vr::set_screen_head_locked(want);
+                Log("cine: the screen is %s (%s) - a head-locked screen swings with every head "
+                    "turn, which is right for a gameplay screen and wrong for a cutscene",
+                    want ? "HEAD-LOCKED" : "world-locked, standing where you are looking now",
+                    CineActive() ? "a cutscene is running" : "not a cutscene: [Screen] HeadLocked");
+            }
+        }
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
         FrameDumpTick(self);
@@ -615,4 +640,6 @@ static void DvrInstallFrameHooks()
     rh.gates     = SceneDrawGates;
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
+    // 41.2 (session 10): the two counters the draw census cannot see for itself.
+    dvr::draws::set_game_counters(SceneDrawDraws, DvrPostRenderCount);
 }

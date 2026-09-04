@@ -34,6 +34,8 @@
 #include "core/framework/perf.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/draw_census.h"
+#include "core/gfx/hud_capture.h"
 #include "core/gfx/frame_id.h"
 #include "core/gfx/device_census.h"
 

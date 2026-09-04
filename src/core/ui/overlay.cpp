@@ -622,6 +622,53 @@ static void OverlayFrame()
             ImGui::TextDisabled("the log's `stereo: frameid` line has the same numbers once a second; use the capture mode combo above for deferred -> shared");
             ImGui::Separator();
         }
+        // 41.2 (session 10): the HUD panel and the draw census that measured it.
+        {
+            ImGui::Text("HUD");
+            bool hp = dvr::hudcap::enabled();
+            if (ImGui::Checkbox("HUD panel (the game's HUD on a head-locked quad; off = in the frame)", &hp)) {
+                dvr::hudcap::set_enabled(hp);
+                ConfigWriteKey("Hud", "Panel", dvr::hudcap::enabled() ? "1" : "0", "F10 Display");
+            }
+            if (dvr::hudcap::enabled())
+                ImGui::TextDisabled("while this is on the HUD is NOT in the eye textures or the desktop window; "
+                                    "menus, loading and cutscenes leave it in the frame on purpose. Distance, "
+                                    "width and height are the HUD sliders on the Runtime tab");
+            else
+                ImGui::TextDisabled("off: the game draws its HUD into the frame, as it always has");
+            bool dc = dvr::draws::enabled();
+            if (ImGui::Checkbox("draw census (a table and a VERDICT every 3 s; off = one bool per draw)", &dc)) {
+                dvr::draws::set_enabled(dc);
+                ConfigWriteKey("Draws", "Census", dvr::draws::enabled() ? "1" : "0", "F10 Display");
+            }
+            ImGui::Separator();
+        }
+        // 41.2 (session 10): CINEMATICS. These were seam words only in the first
+        // build and the tester could not find them, which is the same as not
+        // shipping them: every lever gets an F10 control.
+        {
+            ImGui::Text("CINEMATICS (what a cutscene looks like)");
+            int mode = g_cineStereoMode ? 1 : 0;
+            if (ImGui::RadioButton("quad: one image on a screen", &mode, 0) ||
+                ImGui::RadioButton("stereo: keep the per-eye projection (depth)", &mode, 1))
+                DvrCineCommand(mode ? "stereo" : "quad");
+            bool hl = g_cineHeadLocked;
+            if (ImGui::Checkbox("the cutscene screen follows your head", &hl))
+                DvrCineCommand(hl ? "headlock on" : "headlock off");
+            ImGui::SameLine();
+            ImGui::TextDisabled("off = it stands in the room (leave it off)");
+            bool chp = g_cineHudPanel;
+            if (ImGui::Checkbox("keep the HUD panel (and the subtitles) during a cutscene", &chp))
+                DvrCineCommand(chp ? "hud on" : "hud off");
+            if (ImGui::Button("FORCE the cutscene state ON")) DvrCineCommand("latch on");
+            ImGui::SameLine();
+            if (ImGui::Button("FORCE it off")) DvrCineCommand("latch off");
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", CineActive() ? "a cutscene is running now" : "not in a cutscene");
+            ImGui::TextDisabled("the game's own camera runs a cutscene, so the view does not follow "
+                                "your head in either mode");
+            ImGui::Separator();
+        }
         // 41.1 (session 8): the 9Ex device lever (next launch) - what lets the
         // capture keep the frame in VRAM ([Capture] Mode=shared).
         {

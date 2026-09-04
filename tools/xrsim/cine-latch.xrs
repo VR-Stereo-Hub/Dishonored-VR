@@ -1,0 +1,38 @@
+# cine-latch.xrs - what the headset shows during a cutscene (41.2, session 10).
+#
+# No cutscene can be triggered on demand on the simulator, so `cine latch on|off`
+# enters and leaves the state by hand - the instrument, not the game. Run this in
+# GAMEPLAY (walk in first) with stereo reentry armed.
+#
+#   tools\xrsim-run.ps1 -Path tools\xrsim\cine-latch.xrs -Dir D:\dvr-data\xrsim
+reset
+@mod stereo reentry
+@frames 240
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+
+# quad (the default): the latch drops the gameplay verdict, the re-entry parks
+# its second draw and the runtime falls to its head-locked cinematic quad.
+@mod cine quad
+@mod cine latch on
+@frames 240
+@assert projectionViews eq 0
+@assert quadLayers ge 1
+@shot cine_quad
+@mod cine latch off
+@frames 180
+@assert projectionViews eq 2
+
+# stereo: the projection and the eye pair hold through the same latch.
+@mod cine stereo
+@mod cine latch on
+@frames 240
+@assert projectionViews eq 2
+@shot cine_stereo
+@assert capNonBlackL ge 30
+
+# and back to the shipped default, latch cleared
+@mod cine latch off
+@mod cine quad
+@frames 120
+@assert projectionViews eq 2
