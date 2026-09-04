@@ -1,5 +1,67 @@
 # Status
 
+## OPEN BUG (2026-09-03, headset, dev rig): the micro flicker is a STALE RIGHT EYE, and no gate admits to it
+
+Branch `swapchain-one-picture-flicker` off `native-stereo-rendering` (0d7eeb24). The build in the
+game folder is that commit, hash-checked against the build output, id `alpha-243-g0d7eeb24`.
+
+### What 0d7eeb24 FIXED, measured
+
+`c8cfe107` (the eye tags follow the within-tick camera step) **works**. 563 pairs sampled by the
+frameid trace over one headset run: `side SWAPPED=0`, `picture shift pos=0 (swapped)`, `neg=345
+(true pair)`. The periodic eye REVERSAL is gone - the same rig measured 38 % of pairs reversed
+before it (see the parked branch `native-stereo-rendering-flicker-fix`, whose `pair geom` line
+characterised it). His trace also settles the polarity question independently: it treats
+`-6.18 along right` as `side ok`, which is why a guard built on the opposite assumption pinned
+the tester to the broken state.
+
+### What is STILL WRONG - the tester feels it as a slight, frequent flicker
+
+```
+one-picture pairs: bb=0  slot=0  out=0  sc=22 of 563 (3.9 %)   sc-target repeats=23
+stale submits so far L=0 R=20        <- ASYMMETRIC: only ever the RIGHT eye
+STALE R EYE ... ages L=0 R=2 presents (healthy = 1/0)
+```
+
+The frame is correct at the backbuffer, correct in the capture slot, correct at the method
+output, and only wrong at the SWAPCHAIN: the right eye is shown an image two presents old. The
+line names the owner - "a second -1 tag closed the pair (the game side skipped pass 2)".
+
+**The reason nothing explains it is the finding.** On all 9 logged instances, every pass-2 skip
+reason reads ZERO:
+
+```
+pass-2 skips since the last line: foreign=0 state=0 silent=0 stall=0 session=0 test=0 exit=0 forced=0
+runtime: acqFail=0 waitFail=0 untaggedProj=0 abortLeft=1 eatenNoFrame=0
+```
+
+So pass 2 did not run, a second -1 closed the pair, and **not one of the eight gates in
+`SceneDrawDecide` claims responsibility**, nor did the swapchain acquire/wait fail. Either pass 2
+is being skipped somewhere that does not count (the `g_sdPoisoned` / `g_sdForceSkip2` early
+returns in `SceneDrawMaybeSecond` are the obvious unlogged exits), or the pair is being closed by
+a present that never had a pass 2 to begin with. The line itself warns its counters "lag a tick",
+so read that before trusting the zeros.
+
+### Where to start
+
+- `src/game/dishonored/scene_draw.cpp` - `SceneDrawMaybeSecond` returns early on `!d.doubleIt`,
+  `g_sdPoisoned` and `g_sdForceSkip2` without incrementing any counter a stale line would print.
+- `src/core/vr/openxr_runtime.cpp:3861` - the swapchain stage; `acqFail`/`waitFail` are already
+  ruled out (both 0), so the copy is fine and the SUBMISSION pairing is what is wrong.
+- `src/core/gfx/frame_id.cpp` - the trace; `stereo: frameid 3s` carries the one-picture counts,
+  and it samples one pair every 8 ticks (`frameid every <n>` to sample harder).
+- It is only ever the RIGHT eye (L=0, R=20 across the run). Anything symmetric is not the cause.
+
+### The rig, and two traps that cost runs
+
+Quest 3 via VDXR, 5120x1440@240 desktop, RTX 4070 Ti SUPER. `[Screen] RenderWidth/Height` in the
+ini CANNOT affect the launch it is set on - DllMain reads only `dishonored_vr_launch.txt`, written
+by the `res` seam word, so use `res 2496x2688` and never hand-edit the key. `bPauseOnLossOfFocus`
+was TRUE in the game ini (now FALSE here): with it on, alt-tabbing to drive the command seam
+pauses the thing being judged. VERIFICATION gotcha 17 bit 1 run in 3: state sticks at MENU in the
+level, `2nd/s=0`, screen stays mono - open and close the pause menu.
+
+
 ## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
 **Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
