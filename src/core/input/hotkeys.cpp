@@ -77,6 +77,25 @@ static void StereoUpdate()
         static ULONGLONG spellStart = 0;
         const bool f2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
         if (f2 && !f2Was) {
+            // 41.1 (Dishonored): the eye-mapping A/B lives on the MODIFIED F2s.
+            // The game pauses on loss of focus, so the command seam cannot be
+            // driven from another window while a headset tester is wearing the
+            // thing - and the four states that settle the mapping have to be
+            // reachable without taking it off. Only plain Alt+F2 is the game's.
+            const bool ctrl  = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            const bool shift = (GetAsyncKeyState(VK_SHIFT)   & 0x8000) != 0;
+            if (ctrl && shift) {
+                dvr::stereo::set_parity_polarity(-dvr::stereo::parity_polarity());
+                f2Was = f2; return;
+            }
+            if (ctrl) {
+                dvr::stereo::set_parity_guard(!dvr::stereo::parity_guard());
+                f2Was = f2; return;
+            }
+            if (shift) {
+                dvr::stereo::set_eye_swap(!dvr::stereo::eye_swap());
+                f2Was = f2; return;
+            }
             const ULONGLONG now = GetTickCount64();
             char text[96];
             if (!inSpell) {
