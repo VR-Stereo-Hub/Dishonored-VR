@@ -30,6 +30,7 @@ OverlayDrawFn g_overlay = nullptr;
 uint64_t g_beatMs = 0;
 uint32_t g_beatOut = 0, g_beatL = 0, g_beatR = 0, g_beatMono = 0, g_beatNone = 0;
 int      g_projOverride = -1;   // -1 auto, 0 off, 1 on
+bool     g_parityGuard = false;  // 41.1: let the measured pair geometry own the eye sign
 int      g_holdUntagged = 0;    // 41.1: max CONSECUTIVE untagged presents to suppress (0 = off)
 uint32_t g_holdsDone = 0;       // how many this session
 char     g_configMethod[16] = "";   // [Stereo] Method, applied once the game side is up
@@ -255,6 +256,16 @@ void set_hold_untagged(int n) {
              "`stereo status` and the beat's holds= say how many were held.", v, v);
 }
 uint32_t holds_done() { return g_holdsDone; }
+
+bool parity_guard() { return g_parityGuard; }
+void set_parity_guard(bool on) {
+    if (on == g_parityGuard) return;
+    g_parityGuard = on;
+    DVR_INFO("stereo: parity guard %s - the eye sign handed to the runtime %s the pair geometry reports the "
+             "eyes reversed (dot below zero). The `pair geom` line and status.json parityFlips say how often "
+             "that happens whether the guard is on or off.",
+             on ? "ON" : "off", on ? "is INVERTED while" : "follows the raw tag even when");
+}
 void note_hold() { ++g_holdsDone; }   // called by the method when it suppresses one
 
 void status(dvr::status::Writer& w) {
@@ -270,6 +281,7 @@ void status(dvr::status::Writer& w) {
     w.kv("projectionOverride", projection_override_name());
     w.kv("holdUntagged", g_holdUntagged);
     w.kv("holds", (unsigned long)g_holdsDone);
+    w.kv("parityGuard", g_parityGuard);
     w.kv("camMode", dvr::vr::vr_camera_mode());
     w.kv("cineActive", dvr::vr::cinematic_active());
     {   // the runtime's pair probe as the beat last drained it (cumulative counters)

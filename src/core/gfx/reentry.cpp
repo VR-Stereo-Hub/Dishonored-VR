@@ -57,6 +57,8 @@ Tag           g_ring[kRing];
 volatile LONG g_ringHead = 0, g_ringTail = 0;
 uint32_t      g_ringDropped = 0, g_ringCleared = 0, g_tagMismatch = 0, g_tagOk = 0, g_tagUntagged = 0;
 uint32_t      g_tagNoFrame = 0;   // 41.1 (session 8): tagged presents whose grab delivered no frame (no tag pushed)
+uint32_t      g_parityFlips = 0;   // 41.1: measured parity transitions (dot sign changes)
+uint32_t      g_parityFixed = 0;   // 41.1: presents whose eye sign the guard inverted
 
 uint32_t g_tagResynced = 0;
 
@@ -255,6 +257,39 @@ public:
                                          "right=(%.2f %.2f %.2f)",
                                          mag, want, want > 0.001f ? (mag - want) * 100.0f / want : 0.0f,
                                          deg, dot, dx, dy, dz, rgt[0], rgt[1], rgt[2]);
+                        // 41.1 (Dishonored): the PARITY LATCH. dot is measured at
+                        // exactly +1 or -1 on this game (63 samples, 15 transitions
+                        // over 124 s: |d| always 6.18 uu as wanted, off-right only
+                        // ever 0 or 180 deg), so a negative dot is not noise - the
+                        // present tagged +1 is carrying the frame drawn from the -1
+                        // camera and the eyes are reversed until something shifts the
+                        // ring back. Every pairing counter reads clean through it
+                        // because they count TAGS, and the tags are all there and
+                        // correctly paired; only the geometry can tell.
+                        // The measurement is the authority: latch what it says and
+                        // let the output sign follow. The latch is read below, per
+                        // present, so a flip costs one pair (~12 ms) before it is
+                        // corrected, against spells measured at 2-24 s.
+                        if (dot < -0.5f || dot > 0.5f) {
+                            const bool swapped = (dot < 0.0f);
+                            if (swapped != parityFlip_) {
+                                parityFlip_ = swapped;
+                                ++g_parityFlips;
+                                if (dvr::stereo::parity_guard())
+                                    DVR_INFO("reentry: parity %s (dot %+.3f) - the guard is ON, the eye sign "
+                                             "handed to the runtime is %s from here; %lu flip(s) this run",
+                                             swapped ? "SWAPPED" : "restored", dot,
+                                             swapped ? "INVERTED" : "passed through",
+                                             (unsigned long)g_parityFlips);
+                                else
+                                    DVR_WARN("reentry: parity %s (dot %+.3f) - the eyes are %s and the guard "
+                                             "is OFF ([Stereo] ParityGuard=1 or `stereo parity on` corrects "
+                                             "it); %lu flip(s) this run",
+                                             swapped ? "SWAPPED" : "restored", dot,
+                                             swapped ? "REVERSED" : "correct again",
+                                             (unsigned long)g_parityFlips);
+                            }
+                        }
                     }
                 } else if (delivered < 0) {
                     memcpy(lastLeft_, c5, sizeof(c5)); lastLeftOk_ = true;
@@ -289,12 +324,17 @@ public:
             taggedRecently_ = true;
             heldRun_ = 0;
         }
+        // The parity latch corrects the sign the runtime is handed; the
+        // MEASUREMENT above always runs on the raw delivered tag, so the
+        // latch keeps tracking ground truth instead of chasing its own tail.
+        const int outEye = (dvr::stereo::parity_guard() && parityFlip_) ? -delivered : delivered;
+        if (outEye != delivered) ++g_parityFixed;
         out.tex = tex_;
-        out.eyeSign = delivered;
+        out.eyeSign = outEye;
         out.w = w; out.h = h;
         // The runtime pops exactly one tag per present in on_present_end,
         // right after this returns; a 0 pushes nothing (mono path).
-        if (delivered != 0) dvr::vr::sr_push_eye(delivered);
+        if (outEye != 0) dvr::vr::sr_push_eye(outEye);
         return true;
     }
 
@@ -322,6 +362,10 @@ public:
         w.kv("tagResynced", (unsigned long)g_tagResynced);
         w.kv("tagUntagged", (unsigned long)g_tagUntagged);
         w.kv("tagNoFrame", (unsigned long)g_tagNoFrame);
+        w.kv("parityGuard", dvr::stereo::parity_guard());
+        w.kv("parityFlips", (unsigned long)g_parityFlips);
+        w.kv("paritySwappedNow", parityFlip_);
+        w.kv("parityFixed", (unsigned long)g_parityFixed);
         w.kv("ringDropped", (unsigned long)g_ringDropped);
         w.kv("ringCleared", (unsigned long)g_ringCleared);
         if (g_hooks.status) { w.obj("draw"); g_hooks.status(w); w.end_obj(); }
@@ -369,6 +413,7 @@ private:
     ID3D11RenderTargetView* rtv_ = nullptr;
     uint32_t w_ = 0, h_ = 0;
     bool     drawnOnce_ = false;
+    bool     parityFlip_ = false;        // 41.1: the measured parity (true = the raw tags are reversed)
     bool     taggedRecently_ = false;   // 41.1: the stream was stereo just now (the hold's precondition)
     int      heldRun_ = 0;              // consecutive untagged presents suppressed
     bool     armed_ = false;

@@ -41,6 +41,17 @@ static void WriteDefaultIni(const char* ini)
         "; mono, the pre-41.1 behaviour). `stereo hold <n>` live; `stereo status` and\n"
         "; the beat report how many were held. Try 2-4.\n"
         "HoldUntagged=0\n"
+        "; ParityGuard=1 (41.1): reentry measures each pair - the separation between\n"
+        "; the two eyes against the camera right row. On this game that reads exactly\n"
+        "; +1 or -1 and LATCHES for seconds (measured: 15 transitions over 124 s), and\n"
+        "; a -1 means the eyes are REVERSED - the present tagged +1 carries the frame\n"
+        "; drawn from the -1 camera. Every pairing counter reads clean through it,\n"
+        "; because they count tags and the tags are all correct; only the geometry\n"
+        "; sees it. 1 makes the measurement the authority and inverts the eye sign\n"
+        "; while it says swapped (one pair, ~12 ms, before it corrects). 0 = OFF, the\n"
+        "; raw tag goes out. `stereo parity on|off` live; the `pair geom` line and\n"
+        "; status.json parityFlips report it either way.\n"
+        "ParityGuard=0\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -392,6 +403,7 @@ static void LoadConfig()
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 0, ini));
+        dvr::stereo::set_parity_guard(GetPrivateProfileIntA("Stereo", "ParityGuard", 0, ini) != 0);
     }
     {   // [Camera] EyeField: where the per-eye offset is written (measured by
         // `camera eyetest`; empty until then - the seam says so once)
@@ -1362,6 +1374,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());
       WritePrivateProfileStringA("Stereo", "HoldUntagged", hv, ini); }
+    WritePrivateProfileStringA("Stereo", "ParityGuard", dvr::stereo::parity_guard() ? "1" : "0", ini);
     // 41.1: the [Neck] lever
     WritePrivateProfileStringA("Neck", "Mode", NeckModeName(g_neckMode), ini);
     _snprintf(v, 64, "%.3f", g_neckBelowM);

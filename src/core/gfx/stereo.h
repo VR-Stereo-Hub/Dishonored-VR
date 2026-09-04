@@ -150,6 +150,22 @@ void set_hold_untagged(int n);
 uint32_t holds_done();   // presents suppressed this session (the beat/status)
 void note_hold();        // the method reports one suppressed present
 
+// 41.1 (Dishonored): the PARITY GUARD. reentry measures each pair's own
+// geometry - the separation between the two eyes' camera positions against
+// the camera right row. On this game that dot is measured at exactly +1 or
+// -1 and LATCHES for seconds at a time (63 samples, 15 transitions over
+// 124 s; |d| always the wanted ipd*scale, the angle only ever 0 or 180 deg),
+// so a negative dot means the eyes are reversed: the present tagged +1 is
+// carrying the frame drawn from the -1 camera. Every pairing counter reads
+// clean through it because they count TAGS, and the tags are all present and
+// correctly paired - only the geometry can see it.
+// ParityGuard=1 makes that measurement the authority: the eye sign handed to
+// the runtime is inverted while the latch says swapped. A lever, default OFF,
+// `stereo parity on|off` live; status.json carries parityGuard, parityFlips,
+// paritySwappedNow and parityFixed.
+bool parity_guard();
+void set_parity_guard(bool on);
+
 // status.json "stereo" object and the log line the `stereo status` word prints.
 void status(dvr::status::Writer& w);
 void log_status();

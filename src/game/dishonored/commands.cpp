@@ -141,6 +141,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             else Log("stereo: projection on|off|auto");
             return true;
         }
+        if (!strcmp(sub, "parity")) {   // 41.1: the measured pair geometry owns the eye sign
+            if (DvrOnOff(v, &b)) dvr::stereo::set_parity_guard(b);
+            else Log("stereo: parity on|off (now %s) - inverts the eye sign while the pair geometry "
+                     "reports the eyes reversed", dvr::stereo::parity_guard() ? "ON" : "off");
+            return true;
+        }
         if (!strcmp(sub, "hold")) {   // 41.1: the untagged hold (the one-frame mono flicker)
             int n = -1;
             if (sscanf(v, "%d", &n) == 1) dvr::stereo::set_hold_untagged(n);
