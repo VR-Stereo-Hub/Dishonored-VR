@@ -25,6 +25,7 @@
 //   vrcine <args>                the runtime layer's cinematic seam (on|off|mode|bars|...)
 //   cine quad|stereo|status      what the headset shows during a cutscene
 //   cine hud on|off              whether the HUD panel (and the subtitles) survive one
+//   cine headlock on|off         does the cutscene screen follow your head (it should not)
 //   cine latch on|off            flip the cinematic latch by hand (the simulator's A/B)
 //   draws on|off|status|kill|unkill   the draw census (core/gfx/draw_census)
 //   hud on|off|status|scale <f>  the HUD panel (core/gfx/hud_capture)
@@ -366,6 +367,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("cine");                                            // 41.2 (session 10): the cutscene policy
     w.kv("mode", g_cineStereoMode ? "stereo" : "quad");
     w.kv("hudPanel", (bool)g_cineHudPanel);
+    w.kv("headLocked", (bool)g_cineHeadLocked);
     w.kv("latch", (bool)g_cineNow);
     w.kv("active", (bool)CineActive());
     w.end_obj();

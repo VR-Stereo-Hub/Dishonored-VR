@@ -59,6 +59,18 @@ static bool DvrCineCommand(const char* args)
                                     "during a cutscene anyway)");
         return true;
     }
+    if (!strncmp(args, "headlock", 8)) {
+        const char* a = args + 8;
+        while (*a == ' ') ++a;
+        const bool on = !strcmp(a, "on");
+        if (!on && strcmp(a, "off")) { Log("cine: headlock wants on or off"); return true; }
+        g_cineHeadLocked = on;
+        g_screenHeadLockedNow = -1;   // re-apply on the next present
+        ConfigWriteKey("Cine", "HeadLocked", on ? "1" : "0", "the seam");
+        Log("cine: the cutscene screen %s", on ? "FOLLOWS your head (it swings with every turn)"
+                                              : "stands in the room where you are looking");
+        return true;
+    }
     if (!strncmp(args, "latch", 5)) {
         const char* a = args + 5;
         while (*a == ' ') ++a;
@@ -75,11 +87,12 @@ static bool DvrCineCommand(const char* args)
         return true;
     }
     Log("cine: mode=%s hudPanel=%d latch=%d (active=%d) - during a cutscene the verdict %s, so "
-        "the runtime layer shows %s and the subtitles are %s",
+        "the runtime layer shows %s and the subtitles are %s (screen headlock %d)",
         g_cineStereoMode ? "stereo" : "quad", g_cineHudPanel ? 1 : 0, (int)g_cineNow,
         (int)CineActive(), g_cineStereoMode ? "HOLDS" : "drops",
         g_cineStereoMode ? "the per-eye projection" : "its head-locked cinematic quad",
-        (g_cineStereoMode && g_cineHudPanel) ? "on the panel" : "in the frame");
+        (g_cineStereoMode && g_cineHudPanel) ? "on the panel" : "in the frame",
+        g_cineHeadLocked ? 1 : 0);
     return true;
 }
 

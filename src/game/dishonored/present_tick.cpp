@@ -262,6 +262,20 @@ static void DvrGameTick(IDirect3DDevice9* self)
         // class"), and the power wheel was redirected off the screen in 34.7.
         dvr::hudcap::set_game_gate(g_verdictLast && !g_wheelHeld &&
                                    (!g_cineNow || g_cineHudPanel));
+        // 41.2 (session 10): a cutscene's screen stands in the ROOM, not on your
+        // face. Only the cinematic latch does this - a menu or a loading screen
+        // still wants the head-locked panel in front of you.
+        {
+            const bool want = CineActive() ? g_cineHeadLocked : g_screenHeadLockedCfg;
+            if (g_screenHeadLockedNow != (int)want) {
+                g_screenHeadLockedNow = (int)want;
+                dvr::vr::set_screen_head_locked(want);
+                Log("cine: the screen is %s (%s) - a head-locked screen swings with every head "
+                    "turn, which is right for a gameplay screen and wrong for a cutscene",
+                    want ? "HEAD-LOCKED" : "world-locked, standing where you are looking now",
+                    CineActive() ? "a cutscene is running" : "not a cutscene: [Screen] HeadLocked");
+            }
+        }
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         UpdateVirtualPad();
         FrameDumpTick(self);

@@ -643,6 +643,32 @@ static void OverlayFrame()
             }
             ImGui::Separator();
         }
+        // 41.2 (session 10): CINEMATICS. These were seam words only in the first
+        // build and the tester could not find them, which is the same as not
+        // shipping them: every lever gets an F10 control.
+        {
+            ImGui::Text("CINEMATICS (what a cutscene looks like)");
+            int mode = g_cineStereoMode ? 1 : 0;
+            if (ImGui::RadioButton("quad: one image on a screen", &mode, 0) ||
+                ImGui::RadioButton("stereo: keep the per-eye projection (depth)", &mode, 1))
+                DvrCineCommand(mode ? "stereo" : "quad");
+            bool hl = g_cineHeadLocked;
+            if (ImGui::Checkbox("the cutscene screen follows your head", &hl))
+                DvrCineCommand(hl ? "headlock on" : "headlock off");
+            ImGui::SameLine();
+            ImGui::TextDisabled("off = it stands in the room (leave it off)");
+            bool chp = g_cineHudPanel;
+            if (ImGui::Checkbox("keep the HUD panel (and the subtitles) during a cutscene", &chp))
+                DvrCineCommand(chp ? "hud on" : "hud off");
+            if (ImGui::Button("FORCE the cutscene state ON")) DvrCineCommand("latch on");
+            ImGui::SameLine();
+            if (ImGui::Button("FORCE it off")) DvrCineCommand("latch off");
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", CineActive() ? "a cutscene is running now" : "not in a cutscene");
+            ImGui::TextDisabled("the game's own camera runs a cutscene, so the view does not follow "
+                                "your head in either mode");
+            ImGui::Separator();
+        }
         // 41.1 (session 8): the 9Ex device lever (next launch) - what lets the
         // capture keep the frame in VRAM ([Capture] Mode=shared).
         {

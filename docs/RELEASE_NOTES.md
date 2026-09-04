@@ -17,8 +17,11 @@
   offscreen target and the whole HUD to the backbuffer, 14 draws per present of 1205.
 - **`dump hud`** writes the panel's own texture, which is the one thing that can tell a bad
   redirect from a bad copy from a bad quad.
-- **Cutscenes have a policy** (`[Cine] Mode=quad`, `[Cine] HudPanel=1`, `cine
-  quad|stereo|hud|latch|status`). `quad` is what has always happened, one image on a head-locked
+- **The cutscene screen no longer follows your head** (`[Cine] HeadLocked=0`, new default). A
+  cutscene landed on the same head-locked quad the gameplay mono screen uses, so it swung with
+  every head turn; it stands in the room now, and menus and loading screens are unchanged.
+- **Cutscenes have a policy** (`[Cine] Mode=quad`, `[Cine] HudPanel=1`, `[Cine] HeadLocked=0`,
+  `cine quad|stereo|hud|headlock|latch|status`, and an F10 Display block). `quad` is what has always happened, one image on a head-locked
   quad; `stereo` holds the per-eye projection through the cutscene so it has depth. Neither makes
   the camera follow your head. `HudPanel` decides whether the subtitles ride the panel (one image
   in both eyes) or stay in the frame (where each eye is a different game frame and text can

@@ -32,8 +32,18 @@ panel is built, verified on the simulator and ships OFF pending a headset verdic
   (measured), so a draw-only gate would sweep the menu onto the panel, which is the original's
   inherited bug (HANDOFF 8.4). The panel needs the runtime's own gate (a projection present
   carrying an eye tag) AND strict gameplay AND no power wheel.
-- **CUTSCENES HAVE A POLICY** (`[Cine] Mode=quad`, `[Cine] HudPanel=1`, `cine
-  quad|stereo|hud|latch|status`, and the runtime's own `vrcine` seam is reachable at last). `quad`
+- **THE CUTSCENE SCREEN NO LONGER FOLLOWS THE HEAD** (`[Cine] HeadLocked=0`, new default;
+  reported from the headset the same day). A cutscene lands on the runtime layer's quad, and that
+  quad takes `[Screen] HeadLocked=1` - which ships, because a gameplay screen belongs in front of
+  your eyes. So the cutscene was glued to the face and swung with every turn. The game side now
+  parks the flag for the length of the cutscene and restores it afterwards, which needed no edit
+  to the runtime layer: its own comment says cinematic scenes were meant to keep the world-locked
+  space, and our global flag was overriding that intent. Proven by picture on the simulator: at
+  yaw 0 the quad reads 21.1 % of both eyes, at yaw 35 it reads 17.3 % / 24.5 % - it stayed in the
+  room. A head-locked quad gives identical numbers at both yaws (session 5, run 9).
+- **CUTSCENES HAVE A POLICY** (`[Cine] Mode=quad`, `[Cine] HudPanel=1`, `[Cine] HeadLocked=0`,
+  `cine quad|stereo|hud|headlock|latch|status`, an **F10 Display block**, and the runtime's own
+  `vrcine` seam is reachable at last). `quad`
   ships and is what has always happened; `stereo` holds the per-eye projection through the
   cutscene. Neither makes the matinee camera follow your head. `HudPanel` is the subtitle
   decision: on the panel (one image in both eyes) or in the frame (where text can double).
@@ -45,7 +55,9 @@ panel is built, verified on the simulator and ships OFF pending a headset verdic
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset)**: the four things only you can judge, in order. (1) **The HUD panel**:
+**The user (headset)**: the cutscene screen following your head is FIXED (`[Cine] HeadLocked=0`)
+and the cinematic levers now have an F10 Display block, which the first build lacked - that is
+why they could not be found. The things only you can judge, in order. (1) **The HUD panel**:
 `hud on` (or the F10 Display tickbox) in gameplay - is it legible at `SlotScale 0.50`, and is
 1.25 m wide at 1.30 m with a -0.10 m drop the right place? The HUD sliders on the F10 Runtime tab
 move it live. (2) **Head-locked versus the old wrist**: the wrist anchor needs the hands back, so

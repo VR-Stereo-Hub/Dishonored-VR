@@ -97,6 +97,19 @@ static bool g_cineStereoMode = false;
 // stereo-correct choice; off, they stay in each eye's frame, where the two
 // eyes are captured from different game frames and text can double.
 static bool g_cineHudPanel = true;
+// 41.2 (session 10, headset report): whether the cutscene SCREEN follows the
+// head. It must not, and it did. [Screen] HeadLocked=1 ships because a gameplay
+// mono screen wants to stay in front of your eyes, and the runtime layer's quad
+// takes that flag for EVERY quad it shows - including the one a cutscene lands
+// on. So a cutscene was glued to the face and swung with every head turn, which
+// is exactly what a cinema screen must not do. The runtime's own comment says
+// cinematic scenes were meant to keep the world-locked space; our global flag
+// was overriding that intent. The game side now parks the flag for the length
+// of the cutscene and restores whatever the ini asked for afterwards - no edit
+// to the runtime layer, just its existing setter driven at the right moments.
+static bool g_cineHeadLocked = false;      // [Cine] HeadLocked
+static bool g_screenHeadLockedCfg = true;  // [Screen] HeadLocked, as configured
+static int  g_screenHeadLockedNow = -1;    // what the runtime was last told
 static bool CylTruthLive();              // fwd
 // per-eye frustum + eye offsets, cached by BuildEyeQuads for the panel math
 static float g_eyeFr[2][4];           // l, r, t, b

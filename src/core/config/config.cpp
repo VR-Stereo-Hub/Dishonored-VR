@@ -132,6 +132,11 @@ static void WriteDefaultIni(const char* ini)
         "; frame and text can double. Only bites under Mode=stereo (under quad the panel is\n"
         "; down anyway and the subtitles ride the cinematic quad with the rest of the frame).\n"
         "HudPanel=1\n"
+        "; HeadLocked=0 (the default) stands the cutscene screen in the room, so turning your\n"
+        "; head looks around it instead of dragging it with you. 1 glues it to your face,\n"
+        "; which is what [Screen] HeadLocked does for the gameplay screen and what a cutscene\n"
+        "; must NOT do. Only bites under Mode=quad; under stereo there is no screen at all.\n"
+        "HeadLocked=0\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -420,7 +425,9 @@ static void LoadConfig()
     if (g_screenWidth < 0.5f) g_screenWidth = 0.5f;
     if (g_screenWidth > 10.0f) g_screenWidth = 10.0f;
     dvr::vr::set_screen(g_screenDist, g_screenWidth);
-    dvr::vr::set_screen_head_locked(IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f);
+    g_screenHeadLockedCfg = IniFloat(ini, "Screen", "HeadLocked", 1) != 0.0f;
+    g_screenHeadLockedNow = (int)g_screenHeadLockedCfg;
+    dvr::vr::set_screen_head_locked(g_screenHeadLockedCfg);
     {   // 41.1 [Screen] Render*: the picker's ask (core/window/render_size.cpp)
         // 41.1 (session 9): the headset-judged size, and the advertisement that makes the
         // game create it, are the DEFAULTS now (an ini naming neither key gets them);
@@ -601,6 +608,7 @@ static void LoadConfig()
         GetPrivateProfileStringA("Cine", "Mode", "quad", cm, sizeof(cm), ini);
         g_cineStereoMode = !strcmp(cm, "stereo");
         g_cineHudPanel = IniFloat(ini, "Cine", "HudPanel", 1) != 0.0f;
+        g_cineHeadLocked = IniFloat(ini, "Cine", "HeadLocked", 0) != 0.0f;
         Log("config: [Cine] Mode=%s HudPanel=%d (%s during a cutscene; the subtitles are %s)",
             g_cineStereoMode ? "stereo" : "quad", g_cineHudPanel ? 1 : 0,
             g_cineStereoMode ? "the per-eye projection holds"
@@ -1455,6 +1463,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Draws", "Census", dvr::draws::enabled() ? "1" : "0", ini);
     WritePrivateProfileStringA("Cine", "Mode", g_cineStereoMode ? "stereo" : "quad", ini);
     WritePrivateProfileStringA("Cine", "HudPanel", g_cineHudPanel ? "1" : "0", ini);
+    WritePrivateProfileStringA("Cine", "HeadLocked", g_cineHeadLocked ? "1" : "0", ini);
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);

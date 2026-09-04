@@ -78,6 +78,14 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   redirect means. The WRIST anchor itself waits for the hands to come back; head-locked ships
   first because it is what the runtime layer already knows how to draw. The aim reticle rides the
   panel with the rest of the HUD.
+- **The cutscene screen used to follow your head; it does not now** [after S3, FIXED
+  2026-09-04 on a headset report]. `[Screen] HeadLocked=1` ships because a gameplay screen should
+  stay in front of your eyes, and the runtime layer applies that flag to EVERY quad it shows -
+  including the one a cutscene lands on, so the cutscene was glued to your face and swung with
+  every head turn. `[Cine] HeadLocked=0` (the default) parks the flag for the length of a
+  cutscene: the screen now stands in the room and you can look around it. `cine headlock on|off`
+  and the F10 Display tickbox are the A/B; menus and loading screens are untouched and stay in
+  front of you.
 - **Cutscenes: `[Cine] Mode=quad` ships** [after S3]. A cutscene arrives as one image on a
   head-locked quad, which is what has always happened; `cine stereo` keeps the per-eye projection
   through it instead, so it has depth. Neither makes the camera follow your head - a cutscene owns
