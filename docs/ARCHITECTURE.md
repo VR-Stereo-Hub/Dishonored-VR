@@ -382,3 +382,32 @@ is written). `core/util/paths.h` is the one place that knows this.
   quadrant), a dead-ends table and process rules. Their 39.x line was rebased onto 38.72
   because 38.73-38.92 stacked unverified changes; our base is 38.92, so D1 parity compares
   against BOTH 38.72-era behavior and the 39.x fixes, not against 38.92 alone.
+
+### 2026-09-04 (session 10) - the HUD panel and the cutscene policy
+
+- **The HUD redirect is gated on the GAME STATE, not on the draw.** The pause menu is drawn by
+  exactly the class the redirect claims (measured), so a draw-only gate would sweep the menu onto
+  the panel. That is the original build's inherited bug (HANDOFF 8.4, "main menu on the wrist"),
+  and it was never a classifier problem: `DvrGameplayVerdict()` already carries the positive
+  main-menu signal the original lacked.
+- **Head-locked ships before wrist-locked.** The runtime layer's HUD quad is view-space and that
+  file stays as close to the BioShock copy as the D3D9 host allows, so the head-locked panel is
+  the change that costs nothing there. A controller-anchored panel is a second change, it needs
+  the hands back (`[Mode] GamepadOnly=0`), and the original's billboard math is written down for
+  it in ENGINE_NOTES.
+- **`hudcap::end_frame` sits between the stereo method and the runtime**, not inside a method.
+  The HUD belongs to no rung: putting it in `reentry` would tie it to one method and duplicate it
+  in the next.
+- **The shared-slot code is COPIED from `core/gfx/capture`, not factored out.** That code is what
+  the headset judged in session 9 and its fence race was only ever visible on a headset; a
+  refactor of it cannot be validated on the simulator. Factor it into `core/gfx/shared_slot` once
+  the panel has had a headset verdict, and confirm by the `frameid` numbers not moving.
+- **The redirect is per draw, not per run.** Fourteen draws per present means about 28 extra
+  `SetRenderTarget` calls against a frame of 1205 draws, and the measured tick did not move. A
+  "run" mode (bind once at the first HUD draw, restore at the end) would be cheaper but a game
+  `Clear` or state-block Apply mid-run would land on our target; it stays available if a headset
+  ever shows the cost.
+- **`[Cine] Mode=quad` is the default because it is what already shipped and was judged.**
+  `stereo` is the new option, not the new default: it holds the projection through a cutscene the
+  engine's matinee camera controls, and whether that is comfortable is a headset question nobody
+  has answered yet.

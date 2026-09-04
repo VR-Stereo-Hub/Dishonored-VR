@@ -14,6 +14,11 @@ question the simulator could answer is a wasted session.
 | Did the split change a body? | parser | `python tools\split-source.py --check` | "changed 16" = the Phase 0 MSVC edits only (9 exports, 6 `_ReturnAddress` sites, the `.mtl` fix); anything else is a regression |
 | Is the default ini unchanged? | golden | `python tools\ini-golden.py --check` | MATCH (the golden is generated from the working tree's WriteDefaultIni) |
 | Style rules | lint | `tools\lint.ps1` | "lint: clean" |
+| What is a present made of, and can the HUD be separated? | draw census | `game-cmd.ps1 "draws on"` in GAMEPLAY, read the 3 s table | the VERDICT line: the separating columns, or "NO CLEAN SEPARATOR". The BACKBUFFER population is the part a redirect can touch |
+| Is a draw class really the HUD? | kill + picture | `dump capture`, `draws kill hud`, `dump capture` | exactly the HUD changed and the world did not. A counter cannot answer this; only the picture can |
+| What is actually on the HUD panel? | dump | `game-cmd.ps1 "dump hud"` | `dumps\hud_<frame>.png` = the panel texture. HUD elements on transparent black; anything of the WORLD in there is a classifier fault (session 10 caught the scene resolve this way). Red and blue are swapped by the dump, not by the render |
+| Does the HUD panel reach the compositor? | simulator | `xrsim-run.ps1 -Path tools\xrsim\hud-panel.xrs` | 20/20. The panel is a quad LAYER, so it exists only in the compositor: `quadLayers` sees it, a window screenshot never will |
+| What does a cutscene look like? | simulator | `xrsim-run.ps1 -Path tools\xrsim\cine-latch.xrs` | 24/24. `cine latch on` enters the state by hand (no cutscene can be triggered on demand there); quad mode -> `projectionViews 0` + a quad, stereo mode -> `projectionViews 2` held |
 | Is the SIMULATOR healthy? | xr_hello32 | `tools\xrsim-selftest.ps1` | "SELFTEST PASS: dvr-xrsim ran 60 frames"; a failure here is the sim, not the mod |
 | Did the mod load and which runtime answered? | log | `tools\log-parse.ps1`, `tail-log.ps1 -Grep "xr:"` | `proxy loaded`, the runtime layer's instance line, `xr: runtime "<name>" - session live` |
 | Which stereo method runs? | log / status | `game-cmd.ps1 "stereo status"`, `status.json` -> `stereo{}` | `stereo: method=mono framesOut=N`, the `stereo: beat` line every 3 s |

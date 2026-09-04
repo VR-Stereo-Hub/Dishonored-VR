@@ -1,81 +1,99 @@
 # Status
 
-## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
+## Current state (2026-09-04, session 10: the HUD is separable, and it is back on a panel)
 
-**Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
-headset, at rate, with the tested configuration shipping as the defaults.
+**The question this session existed to answer is answered: YES, Dishonored's HUD draws separate
+from the world cleanly on the native path**, and by a simpler rule than the DXVK fork needed. The
+panel is built, verified on the simulator and ships OFF pending a headset verdict.
 
-- **THE ROOT CAUSE, found and fixed and PROVEN**: the eye tags paired draws to presents by
-  push/pop ORDER, and the order breaks wherever the game thread runs ahead of the render thread -
-  a level load, a pause/resume, a re-arm - and spontaneously in gameplay every ~2 s on the
-  tester's rig (131 skews in four minutes). Each break showed each eye the other's draw until the
-  next one. That is the fault this project has chased since run 15 ("the eyes disagree", "90 % of
-  the time, more at the beginning", "never correct after a load"). THE FIX: between a tick's two
-  draws nothing moves the camera but the eye offset, so pass 2's camera sits exactly one IPD along
-  the camera's right row from pass 1's; a present whose camera step reads that IS the second draw
-  whatever the queue claims, and a disagreement streak realigns the queue. `[Stereo] C5Pair=1`.
-  THE PROOF (headset, the user, 2026-09-04): unticking `c5 pairing` on the F10 EYES block and
-  pausing brought the fault straight back (`swapped=24 of 25` pairs, the picture's parallax on the
-  wrong side), ticking it back removed it (`swapped=0` for the rest of the run) - by eye and in the
-  log, three times.
-- **THE INSTRUMENT that found it ships**: the frame-identity trace (`core/gfx/frame_id`, `[Perf]
-  FrameId=1 FrameIdEvery=8`, `frameid on|off|status|every N`, status.json `frameid{}`): one 64x64
-  luma thumbnail per sampled present at the backbuffer as the capture found it, the shared slot,
-  the eye texture and the swapchain image, read three presents later and never waited on, with the
-  draw's camera position and right row on the same record. The `stereo: frameid` line prints, per
-  left/right pair, the L-R difference per stage, the camera step and side check, the picture's own
-  parallax shift and the first stage that reads as one picture. The F10 Display tab's **EYES
-  block** shows the same numbers live and carries DUMP EYES, REARM 2, CAPTURE REINIT, PROJECTION
-  OFF / AUTO, the c5-pairing tickbox and the trace tickbox.
-- **PERFORMANCE: back at the headset's rate.** The trace read every present cost the tester's GPU
-  1.5 ms per present (stage bb's `GetRenderTargetData` is a pipeline sync there) and the tick went
-  13.9 -> 16.7 ms, 60/s under a 72 Hz headset; sampling one pair every 8 ticks removed it
-  ("the fps is perfect now", 2026-09-04). The trace tickbox is off = no cost at all.
-- **THE DEFAULTS ARE THE HEADSET-JUDGED VALUES** (a fresh ini now comes up where the testing left
-  off): `[Stereo] Method=reentry Armed=1 C5Pair=1`, `[Camera] EyeField=0x330`, `[Neck] Mode=cancel`
-  with the measured pivot (0.321 / 0.062 m), `[PosTrack] Scale=98 Lane=auto`, `[Tracking]
-  HeightOffsetM=-0.090`, `[Screen] RenderWidth=2496 RenderHeight=2688 RenderFullscreen=1
-  VirtualMode=1` (the Quest 3 through VDXR per-eye size, advertised so the game creates it - a
-  fresh install used to render the game's own size and look soft), `[Device] Ex=1 Managed=shadow`,
-  `[Capture] Mode=shared`, `[Perf] FrameId=1 FrameIdEvery=8`. Another headset: the F10 Display
-  picker writes its size for the next launch; `res 0x0` asks for none.
-- **Also fixed this session**: `dump eyes` writes a consecutive left/right pair and encodes it on a
-  worker thread (the 640 ms present-thread stall used to re-arm the second draw, so every dump
-  changed what it was taken to judge); the beat line's `presentTid` follows the presenting thread
-  (it was latched at the first present, which at boot is the game thread's - a false lead in run
-  17); pass-2 eye writes the camera seam refuses are counted (`p2write refused=`).
+- **THE MEASUREMENT** (`core/gfx/draw_census`, `[Draws] Census=0`, `draws on|off|status|kill|
+  unkill`, F10 Display): the game draws its world into an OFFSCREEN scene target and paints the
+  whole HUD onto the BACKBUFFER at the tail of the frame - 14 draws per present of 1205, at
+  ordinals 1177-1221, every one full-viewport, depth off, blended. The render target alone
+  separates HUD from world with NO overlap. **Proven by picture, not by counter**: `draws kill`
+  on the class removed the health and blood indicator and left the world pixel-identical; killing
+  the whole population removed the HUD entirely and still left the world untouched.
+- **THE FOURTH TERM, and how it was caught.** The first redirect used the three obvious terms and
+  the panel came up holding the WHOLE FRAME. `dump hud` (new) writes the panel's own texture and
+  showed the frame; `draws kill hud` with the panel on emptied the panel; so one of the fifteen
+  draws was painting the world. It is the SCENE RESOLVE - a full-screen textured quad, opaque,
+  depth off, full viewport, which satisfied every term the rule had. **Alpha blending** tells them
+  apart: something drawn onto a finished frame must blend to sit over it, the frame itself is
+  written opaquely. The rule is four terms and the redirect is 14 draws, not 15.
+- **THE PANEL** (`core/gfx/hud_capture`, `[Hud] Panel=0 SlotScale=0.50`, `hud on|off|status|scale
+  <f>`, F10 Display): the class is redirected into a private A8R8G8B8 target, copied at Present
+  into a shared surface fenced both ways, alpha-repaired (`alpha = max(r,g,b)`, the original's
+  additive look) into R8G8B8A8 and handed to the runtime layer's head-locked quad through
+  `set_hud_texture_provider`, which had sat with zero callers since 41.0. It REFUSES out loud if
+  `patterns.h` carries no measured fingerprint. Verified: the panel texture holds the indicator
+  and the reticle and nothing else, the world is intact with no HUD in it, `reentry.xrs` 11/11 and
+  the tick unchanged at 90/s.
+- **THE GATE IS THE GAME STATE, not the draw** - the pause menu is drawn by the same class
+  (measured), so a draw-only gate would sweep the menu onto the panel, which is the original's
+  inherited bug (HANDOFF 8.4). The panel needs the runtime's own gate (a projection present
+  carrying an eye tag) AND strict gameplay AND no power wheel.
+- **CUTSCENES HAVE A POLICY** (`[Cine] Mode=quad`, `[Cine] HudPanel=1`, `cine
+  quad|stereo|hud|latch|status`, and the runtime's own `vrcine` seam is reachable at last). `quad`
+  ships and is what has always happened; `stereo` holds the per-eye projection through the
+  cutscene. Neither makes the matinee camera follow your head. `HudPanel` is the subtitle
+  decision: on the panel (one image in both eyes) or in the frame (where text can double).
+- **THE ARCHAEOLOGY IS WRITTEN DOWN** (ENGINE_NOTES, "The HUD and the cinematics: what the
+  original did"): the fork's classifier term by term, the panel's placement math and blend, the
+  clear rule's three eras, the dialogue window's four measured fixes, the settings with the
+  tester's shipped values, the known bugs, and the runtime layer's cinematic subsystem with a
+  LIVE/DEAD column per decision. The port was judged against it rather than guessed.
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset)**: nothing is blocking. When you next play, the open comfort questions are
-the ones a correct stereo pair finally lets you judge: (1) JUDDER on fast head or player movement -
-`vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and the `xr: pair
-phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT with
-`[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real frame
-rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
-Say which of the three is worst and the log will carry the numbers.
+**The user (headset)**: the four things only you can judge, in order. (1) **The HUD panel**:
+`hud on` (or the F10 Display tickbox) in gameplay - is it legible at `SlotScale 0.50`, and is
+1.25 m wide at 1.30 m with a -0.10 m drop the right place? The HUD sliders on the F10 Runtime tab
+move it live. (2) **Head-locked versus the old wrist**: the wrist anchor needs the hands back, so
+say whether head-locked is good enough to keep as the default. (3) **The panel's look**: the alpha
+repair is additive, so dark HUD strokes go faint - does anything read wrong against a bright
+scene? (4) **Cutscenes**: `cine stereo` during a cutscene gives depth but the picture holds its
+frame while you turn (the engine owns that camera) - is that better or worse than the shipped
+`cine quad`? Everything ships OFF, so a bad answer costs nothing.
 
-**The next developer session**: the correctness question of S2b is closed, so S3 is open - write
-the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
-correctness, failure modes, the headset verdicts) and bring the features back on the winner: the
-hands (SkelControl drive, hand meshes, `[Mode] GamepadOnly=0`), the wrist HUD through the runtime
-layer's HUD quad and texture-provider seam, Blink and motion aim. `stereo aer` is still a design
-stub and the losing method stays registered as the A/B. Carried: the SteamVR shim has never run
-with this game; the ini version rewrite still wipes a tuned ini (session-8 and -9 keys shipped
-without a bump); the pace guard's eaten tag if the headset ever names it.
+**The next developer session**: the wrist anchor is the natural follow-on and it needs the hands
+(`[Mode] GamepadOnly=0`, `hands`/SkelControl on the winning method); `hud_panel.cpp`'s billboard
+math is quoted in ENGINE_NOTES for it. Then: the letterbox bars during a cutscene were never
+measured (no cutscene was reachable on the simulator lane this session) - run `draws on` through
+one and see whether the bars are in the backbuffer class, because if they are they will land on
+the panel; `[Hud] SkipPs` is the intended answer and is not built yet. Carried from session 9: the
+ini version rewrite still wipes a tuned ini, `stereo aer` is still a design stub, the SteamVR shim
+has never run with this game. New and small: `DumpTexturePng` swaps red and blue for R8G8B8A8
+textures, so `dump eyes` and `dump hud` are wrong on COLOUR (never on geometry) - the compositor
+captures are correct, and nothing has ever depended on it, but it should be fixed before someone
+reads a colour verdict off a dump.
 
 ## Blockers
 
-- **The ini version rewrite wipes a tuned ini** (`config.cpp` carries three keys over): the
-  session-8 and session-9 keys ship without a version bump. A key-preserving rewrite is a
-  separate change.
+- **Nothing blocks the code.** The panel and the cutscene policy both ship off and both are
+  verified on the simulator; what is left is perceptual and needs the headset.
+- **The ini version rewrite wipes a tuned ini** (carried, session 9): the session-8, -9 and -10
+  keys ship without a version bump. A key-preserving rewrite is a separate change.
 - **WM_CLOSE leaves a stuck `Dishonored.exe`** (session 5): close a healthy game with
-  `Stop-Process`; a menu quit is clean on the Quest (run 15).
-- **The walk-in on the simulator is by hand**: Return x4 with 28 s waits reached the level on four
-  of six launches this session; otherwise the mod's menu flag sticks (VERIFICATION gotcha 17) and
-  an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
+  `Stop-Process`; a menu quit is clean on the Quest.
+- **The walk-in on the simulator is by hand**: Return x4 with 25 s waits; look at an
+  `xrsim-shot` before trusting a state line (VERIFICATION gotcha 17).
 
 ## Session log
+
+### 2026-09-04 - session 10: the HUD and the cinematics, ported onto the native render
+
+Branch `claude/dishonored-vr-hud-cinematics-149a8e` -> PR into `VR-Main`. Runs on the dev PC
+(simulator lane, the sewers, `stereo reentry`, 2496x2688, shipped defaults; logs in
+`D:\dvr-data\logs\46-run*.log`):
+
+| Run | What | Result |
+|---|---|---|
+| 01 | the census, first build | 1205 draws/present (DIP 382, UP 13, IUP 810), 133 buckets, 81 shaders, 1 state block; `tonemap draws/present=0.0` and the VERDICT read NO HUD-CLASS DRAWS - the "after the tonemap" term rejected the whole frame, and the near-miss list named it. Two more of the fork's terms fell here: IUP carries 810 WORLD draws, and requiring a texture keeps 1 HUD draw of 15 |
+| 02 | the corrected rule + the backbuffer table | **5 buckets, 15.0 draws/present, ordinals 1177-1221, all full-viewport and depth-off**; the pause menu: 10 buckets, 95.9/present, same shape. `draws kill` by key: the indicator gone, the world pixel-identical; all five killed: the HUD gone, the world untouched. `separators with NO overlap: rt` |
+| 03 | the panel, first build | the quad reaches the compositor (`xr: HUD quad live 1248x1344`) but holds the whole frame; read fences spun every present (`31767 waits, 1033 timeouts` - a D3D11 event query needs a Flush, and a 10 ms budget cannot be measured with GetTickCount) |
+| 04 | `dump hud` + the unconditional clear | the panel texture IS the frame; with `draws kill hud` armed the panel is EMPTY - so a redirected draw was painting the world. It is the scene resolve, the one opaque draw in the population |
+| 05 | the blend term | 14.0 draws/present redirected; the panel texture holds the indicator and the reticle and nothing else; the world intact with no HUD in it; fences 0 timeouts; `reentry.xrs` 11/11; `perf: tick 11.1 ms (90/s)`, pace-bound, unchanged |
+| 06 | the cutscene policy | `hud-panel.xrs` 20/20 and `cine-latch.xrs` 24/24: quad mode drops to one head-locked quad (`projectionViews 0`), stereo mode holds two projection views through the same latch |
 
 ### 2026-09-04 - session 9: the eyes - the trace, the swap, the fix, the proof
 

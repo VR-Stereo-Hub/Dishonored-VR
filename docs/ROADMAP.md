@@ -145,6 +145,13 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 - [ ] The comparison written in ARCHITECTURE (cost per present, per-eye correctness,
       failure modes, the headset verdicts) and the method chosen
+- [x] The HUD panel, head-locked (session 10): the draw class measured and proven by picture
+      (ENGINE_NOTES, "The Scaleform HUD draw class, measured"), redirected into a private
+      target and handed to the runtime layer through `set_hud_texture_provider`.
+      `[Hud] Panel=0` ships off; the headset judges legibility and placement. The WRIST
+      anchor is a second change and waits for the hands.
+- [x] Cutscenes have a policy (session 10): `[Cine] Mode=quad|stereo`, `[Cine] HudPanel`,
+      and the runtime layer's own `vrcine` seam is reachable at last.
 - [ ] Hands (SkelControl drive, hand meshes), the wrist HUD (through the runtime layer's HUD
       quad and texture-provider seam), Blink and motion aim brought back on the winner;
       `[Mode] GamepadOnly=0` default again when they hold
