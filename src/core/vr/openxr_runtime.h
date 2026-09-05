@@ -375,12 +375,32 @@ void set_rendered_hfov(float hfovDeg);
 // compares these against tangents recovered from dumpframe cb0 blocks.
 void fov_audit(float* tanH, float* tanV, int* src, unsigned* swapW, unsigned* swapH);
 
-// Pose-tag audit (default off, log-only): per stereo submission (rate-limited)
-// log the yaw the layer is TAGGED with against the yaw the game thread last
-// CONSUMED from the head-pose funnel. A steady nonzero delta means the image
-// is attributed to a pose generation the game never rendered from - the
-// next-cheapest suspect for a yaw-dependent lateral drift after the fov.
+// Pose-tag audit (default off, log-only, `vrpace poseaudit on`): per stereo
+// submission (rate-limited) log the yaw the layer is TAGGED with against the
+// yaw the SCRIPT LANE actually drove the game camera from for the frame being
+// submitted, per eye. A steady nonzero delta means the image is attributed to
+// a pose generation the game never rendered from, so the compositor reprojects
+// it by the wrong amount every frame - doubled edges under rotation.
+//
+// 41.1 (Dishonored): this used to compare against the pose the present thread
+// had just CONSUMED, which is fresh at submit and therefore never the sample
+// the pixels came from - it could not answer the question it was named for.
+// The game side now publishes the rendered sample through the seam below.
 void set_pose_audit(bool on);
+
+// --- 41.1 (Dishonored): the pose-lane seam ----------------------------------
+// The locate generation, bumped once per xrLocateViews. The game side stamps
+// each head sample with the value current when it was taken, so the audit can
+// count how many generations deep the rendered sample sits.
+uint32_t locate_gen();
+
+// The SCRIPT lane's matched pair, published by the adapter's camera write:
+// the HMD yaw that write was computed from (XR frame, RADIANS, in the runtime
+// layer's own sign convention - see xr_quat_yaw_deg), the locate generation it
+// was sampled from, and a monotonic sequence number (0 = never published).
+// Called from BOTH the script path (game thread) and the direct fallback
+// (present thread), so the storage is atomic and lock-free by construction.
+void publish_script_head(float hmdYawRad, uint32_t locateGen, uint32_t seq);
 
 // --- Session 22: cinematic quad fallback --------------------------------------
 // The adapter publishes the strict gameplay-view verdict once per CalcView.
