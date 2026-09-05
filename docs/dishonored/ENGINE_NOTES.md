@@ -1353,6 +1353,83 @@ pose the game renders with, and the views the layer is tagged with, for `predict
 + ahead x period`; `xrEndFrame`'s displayTime and the tag generation are untouched, so at 0 the
 paths are byte-identical. `vrpace lag` exposes the attribution generation for the measurement.
 
+## THE GHOSTING WAS THE CADENCE BEAT, and the verdict's threshold hid it (2026-09-04, session 15)
+
+**SOLVED, on the headset, by a one-setting A/B.** Same build, same scene, same 2750x2850 render;
+only the headset's refresh changed.
+
+| | 120 Hz | 90 Hz |
+|---|---|---|
+| display period | 8.33 ms | 11.11 ms |
+| `perf: tick` p50 (p90, max) | 9.1 ms (10.8, 12.9) | 11.3 ms (12.0, 15.1) |
+| **display slots per frame** | **1.05 - 1.11** | **1.00 - 1.02** |
+| EVEN / UNEVEN windows | 9 / 20 | **33 / 16** |
+| MATCHED / UNDER-SUBMITTING | 11 / 26 | **38 / 22** |
+| tester's verdict | "still bad" | **"super smooth, pretty much zero ghosting or jittery frames"** |
+
+The mechanism is arithmetic, and the `stereo: rate` line had been printing it all along:
+at `off` slots of drift per frame, **one frame in `1/off` is held for an extra display slot**,
+and consecutive frames shown for different durations is exactly a doubled edge under rotation.
+At 1.11 that is every 9th frame. At 1.01 it is every 100th. The fault was never the resolution
+and never the pose attribution - **it was the tick not dividing into the display period.**
+
+### Session 14's falsification was wrong, and this is why
+
+Session 14 measured 1.03-1.05 slots per frame at 2064x2208/120 Hz, read `EVEN CADENCE`, and
+concluded the cadence hypothesis was dead. **The verdict was lying.** Its threshold was
+`|off| > 0.06`, so it called 1.05 - a beat every twenty frames, plainly visible on a head turn -
+a clean bill of health. The hypothesis was right; the instrument's *threshold* was wrong, which
+is a failure mode worth naming: an instrument can be correctly built, correctly read, and still
+mislead because the line between pass and fail was picked before anything was measured.
+
+The threshold is now **0.02**, drawn at the measured edge (1.02 does not ghost, 1.05 does), and
+both branches print the beat as a number - one frame in N, and the beat in Hz - so a future
+"even" verdict shows the residual it is forgiving instead of hiding it.
+
+### Why the frame rate drops FURTHER at 90 Hz than at 120 Hz
+
+The tester's own observation, and it is not a contradiction:
+
+- At **120 Hz** the tick (9.1 ms) never fit the 8.33 ms slot. The app was never trying to hit a
+  slot - it free-ran and the compositor smeared over the mismatch continuously. There is no
+  cliff to fall off when you are already permanently past the edge, so the rate reads a smooth
+  100-120 and the ghosting is constant. **Smooth, and always wrong.**
+- At **90 Hz** the tick (11.3 ms p50) sits *right at* the 11.11 ms period. Most frames make
+  their slot, which is what removed the ghosting - but a frame that misses waits a whole period,
+  so a single 11.3 ms overrun displays for 22.2 ms (45 fps instantaneous) and a run of them
+  averages toward 60. **Correct, with a cliff directly underneath.**
+
+**And the hitch RATE did not actually change.** Normalised by run length (29 vs 50 three-second
+windows): 27.6 gaps/min at 120 Hz, 28.4 gaps/min at 90 Hz. Identical. They are simply visible
+now, because they stand out against a locked cadence instead of disappearing into a permanently
+smeared one. **54 of the 71 gaps sat in `present-tail (xrEndFrame)`, up to 101 ms** - on a Wi-Fi
+streaming runtime a 101 ms block inside the submit call is the encoder or the link, not the
+frame path. That is the next thing to attack, and it is not ours.
+
+### The cost model, refit with the new point
+
+`perf: tick` against per-eye megapixels, four sizes: **~0.63 ms/MP on a ~5.8 ms fixed floor**
+(2750x2850 = 7.84 MP measured 11.3 ms against 10.8 predicted, so the floor is slightly higher
+than the three-point fit said). Note the 90 Hz tick is PACE-BOUND (8 windows say so), so 11.3 ms
+is partly the slot rather than the work - the render cost alone is lower and the headroom is
+real but unquantified.
+
+**The rule this leaves:** pick the refresh whose period the tick divides into, not the biggest
+resolution. Read `stereo: rate` for `display slots per frame` and drive it to 1.00.
+
+## The content-bbox readback prediction was FALSIFIED (2026-09-04, session 15)
+
+Session 15 gated the 3-second full-frame CPU readback and predicted that if it were behind the
+hitches, the `perf: frame gap` count would fall by roughly the number of 3-second windows in a
+run. **It did not.** Samples fell from one per 3 s to 2-3 per run, and the gap rate was
+unchanged (27.6 and 28.4 per minute across the two runs, against 62-82 per run before). The
+counter-evidence recorded alongside the prediction - that the gaps mostly sat in
+`present-tail (xrEndFrame)`, not the capture phase - was the correct read.
+
+**The gate stays**: it removed a real, unlevered ~30 MB present-thread stall and cost nothing.
+It just was not the hitch cause, and saying so is the point of having written the prediction
+down.
+
 ## The two pose lanes, and why the tag can be a generation wrong (2026-09-04)
 
 The mod samples the head TWICE per frame, on two different lanes, and the compositor only

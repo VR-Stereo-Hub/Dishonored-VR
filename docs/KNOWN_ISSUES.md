@@ -46,6 +46,17 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   slot overwritten while D3D11 was still reading it (fenced; `readWaits` on `capture status`),
   and the 1-1.5 s flat spell after every pause/resume (resumes at once now).
 
+- **Ghosting / doubled edges on a head turn** [S2b, FIXED by a headset setting, 2026-09-04].
+  **Set your headset to 90 Hz.** The render takes about one 90 Hz display slot, so at 90 Hz
+  frames land 1.00-1.02 slots apart and the doubling is gone; at 120 Hz they land 1.05-1.11
+  slots apart, one frame in nine is held an extra slot, and that is the doubled edge. A higher
+  refresh rate is WORSE here. `stereo: rate` prints `EVEN`/`UNEVEN CADENCE` with the beat every
+  3 seconds so you can check it. The shipping size (2750x2850) is chosen to fit a 90 Hz slot.
+- **Dips to ~60 fps at 90 Hz, in bursts** [S2b, OPEN, largely not ours]. Running one frame per
+  display slot means a frame that runs long misses its slot and waits a whole period, so
+  stalls that were invisible at 120 Hz now show as dips. The stall rate itself is unchanged.
+  Measured: 54 of 71 stalls sit inside `xrEndFrame` for up to 101 ms, which on a wireless link
+  is the encoder or the Wi-Fi. See TROUBLESHOOTING.
 - **`stereo reentry`: fast head or player movement judders** [S2b, blocked on performance].
   The `pair phase` line and `vrpace ahead 0|1|2` (F10 Runtime, `Pose look-ahead`) are in;
   the headset run could not judge them at 28 ticks/s. Ships at 0.

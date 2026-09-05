@@ -1,6 +1,85 @@
 # Status
 
-## NEXT RUN (2026-09-04): the pose-lane instrument is built and installed, 2750x2850 is armed
+## SOLVED (2026-09-04): the GHOSTING was the cadence beat. 2750x2850 at 90 Hz is the known-good
+
+**Tester, on 2750x2850 at 90 Hz: "super smooth, pretty much zero ghosting or jittery frames."**
+Same build, same scene, same render size at 120 Hz: "still bad". One setting changed.
+
+| | 120 Hz | 90 Hz |
+|---|---|---|
+| display period | 8.33 ms | 11.11 ms |
+| `perf: tick` p50 (p90, max) | 9.1 ms (10.8, 12.9) | 11.3 ms (12.0, 15.1) |
+| **display slots per frame** | **1.05 - 1.11** | **1.00 - 1.02** |
+| EVEN / UNEVEN windows | 9 / 20 | **33 / 16** |
+| MATCHED / UNDER-SUBMITTING | 11 / 26 | **38 / 22** |
+| ghosting | still bad | **gone** |
+
+At `off` slots of drift per frame, one frame in `1/off` is held for an extra display slot, and
+consecutive frames shown for different durations IS the doubled edge. At 1.11 that is every 9th
+frame; at 1.01 every 100th. **The fault was never the resolution and never the pose
+attribution - it was the tick not dividing into the display period.**
+
+**The defaults now carry it**: `[Screen] RenderWidth=2750 RenderHeight=2850`, with the 90 Hz
+requirement written into the ini text beside it, because the pair is one setting and the refresh
+half lives in Virtual Desktop where no ini can reach it.
+`tests/golden/known-good-2750x2850-90hz.ini` is the byte copy of the machine that was judged.
+
+### Session 14's falsification was WRONG, and the threshold was why
+
+Session 14 measured 1.03-1.05 slots per frame, read `EVEN CADENCE`, and closed the cadence
+hypothesis. The verdict was lying: its threshold was `|off| > 0.06`, so it called 1.05 - a beat
+every twenty frames - clean. **The hypothesis was right and the instrument's threshold was
+wrong.** Now 0.02, drawn at the measured edge (1.02 does not ghost, 1.05 does), and both
+branches print the beat as a number so an "even" verdict shows the residual it forgives.
+
+### Why it drops to 60 at 90 Hz when it never dropped below 90 at 120 Hz
+
+Not a contradiction, and the hitch RATE did not change - normalised by run length it is
+**27.6 gaps/min at 120 Hz and 28.4 at 90 Hz. Identical.**
+
+- At **120 Hz** the tick never fit the 8.33 ms slot, so the app never tried to hit one. It
+  free-ran and the compositor smeared over the mismatch. No cliff to fall off when you are
+  already past the edge: the rate reads a smooth 100-120 and the ghosting is constant.
+  **Smooth, and always wrong.**
+- At **90 Hz** the tick sits right at the 11.11 ms period. Most frames make their slot - which
+  is what removed the ghosting - but one that misses waits a whole period, so an 11.3 ms
+  overrun displays for 22.2 ms (45 fps instantaneous) and a run of them averages toward 60.
+  **Correct, with a cliff directly underneath.**
+
+The stalls were always there; they are just visible now, standing out against a locked cadence
+instead of disappearing into a permanently smeared one.
+
+### What is actually causing the remaining drops, and it is not ours
+
+**54 of the 71 gaps sat in `present-tail (xrEndFrame)`, blocking up to 101 ms.** On a Wi-Fi
+streaming runtime a 101 ms block inside the submit call is the encoder or the link. Next steps,
+cheapest first, all on the Virtual Desktop side: raise the bitrate or change codec, check the
+link speed and channel, try a wired/dedicated AP. Only after that is ruled out is it worth
+looking at our frame path again.
+
+The other lever, if you want margin instead: buy ~1 ms of tick. At ~0.63 ms/MP a step to about
+**2600x2700** (7.02 MP) predicts ~10.3 ms against the 11.11 ms period - real headroom under the
+cliff, at a small sharpness cost. Untested.
+
+### Falsified, honestly: the content-bbox gate was not the hitch cause
+
+Session 15 predicted that gating the 3-second full-frame readback would cut the `perf: frame
+gap` count by roughly the number of 3-second windows. **It did not.** Samples fell from one per
+3 s to 2-3 per run; the gap rate was unchanged. The counter-evidence recorded next to the
+prediction - the gaps sat in `xrEndFrame`, not the capture phase - was the correct read. The
+gate stays because it removed a real ~30 MB present-thread stall for free, but it did not fix
+what it was predicted to fix.
+
+### The pose-lane instrument: validated, still unarmed
+
+`xr: poseaudit SEAM CHECK ok - the script lane's yaw reads 20.67 deg and this file's own
+converter reads 20.67 deg for the same head pose (0.00 apart)` fired in **both** runs. The sign
+calibration is proven correct against live data, so a delta it prints would be a real
+disagreement. **Nobody armed it** (`vrpace poseaudit on`), so the pose-attribution question is
+still open - but it is no longer the ghosting's leading suspect, because the ghosting is
+explained. Keep it for the judder/`ahead` work.
+
+## SUPERSEDED (2026-09-04): the pose-lane instrument was built for a fault the cadence explained
 
 Everything below is **built, linted, installed and unverified at runtime** - nothing has been
 launched. What the next headset session does, in order:
@@ -528,6 +607,45 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 15b: the ghosting is solved, and the verdict that hid it is fixed
+
+Two headset runs, same build, same scene, same 2750x2850 render, only the headset's refresh
+changed. 120 Hz: "still bad". 90 Hz: **"super smooth, pretty much zero ghosting or jittery
+frames"**. Display slots per frame went 1.05-1.11 -> 1.00-1.02.
+
+**The cadence hypothesis was right all along, and session 14 killed it on a lying verdict.**
+The `EVEN CADENCE` threshold was `|off| > 0.06`, so 1.03-1.05 - a beat every twenty frames -
+printed as a clean bill of health, and that clean bill was read as falsification. The
+instrument was correctly built and correctly read; the line between pass and fail had simply
+been picked before anything was measured. Threshold is now 0.02, at the measured edge, and both
+branches print the beat as a number (one frame in N, and its Hz) so an "even" verdict has to
+show the residual it is forgiving.
+
+**The tester's puzzle - why it drops to 60 at 90 Hz when it never went below 90 at 120 Hz -
+has an answer, and the hitch rate is the proof.** Normalised by run length: 27.6 gaps/min at
+120 Hz, 28.4 at 90 Hz. The stalls did not get worse. At 120 Hz the tick never fit the slot, so
+the app free-ran and the compositor smeared over the mismatch - no cliff to fall off when you
+are already past the edge, and that smearing IS the ghosting. At 90 Hz the tick sits right at
+the period: frames make their slots (ghosting gone) but a miss costs a whole period, which is
+22.2 ms, which averages toward 60 in a run. Smooth-and-always-wrong versus correct-with-a-cliff.
+
+**The remaining drops are not ours.** 54 of 71 gaps sat in `present-tail (xrEndFrame)`, up to
+101 ms. On a Wi-Fi streaming runtime that is the encoder or the link.
+
+**The bbox prediction failed and is recorded as failed.** Gating the 3-second readback cut
+samples from one per 3 s to 2-3 per run and changed the gap rate not at all. The
+counter-evidence written down beside the prediction was the correct read. The gate stays - it
+removed a real unlevered stall for free - but it did not fix what it was predicted to fix.
+
+**The pose-lane instrument validated itself and was never armed.** `SEAM CHECK ok ... 20.67 deg
+and 20.67 deg (0.00 apart)` in both runs: the sign calibration is proven against live data, so
+the instrument would not have lied. Nobody ran `vrpace poseaudit on`, so the pose-attribution
+question stays open - it is just no longer the ghosting's suspect.
+
+Defaults now carry the judged values (`[Screen] 2750x2850`, with the 90 Hz half written into
+the ini text beside it because it lives in Virtual Desktop), and
+`tests/golden/known-good-2750x2850-90hz.ini` is the byte copy of the machine that was judged.
 
 ### 2026-09-04 - session 15: the pose lanes get an instrument, and a 3-second stall is found
 
