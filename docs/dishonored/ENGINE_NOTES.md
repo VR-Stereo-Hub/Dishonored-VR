@@ -1356,9 +1356,44 @@ projection off`/`auto` each alone say which half of the user's remedy repairs it
   4032x2268 mode; the window hooks hold it; `[Screen] SpoofDesktopW/H` and `ResX/ResY` must
   match.
 
-## The black texture bug is DISTANCE-DEPENDENT, which makes it a MIP fault (VR-15, 2026-09-05)
+## SOLVED: the black texture bug was sub-level writes never reaching the GPU (VR-15, 2026-09-05)
 
-**The observation, from a headset run on the tester's rig**: an NPC photographed at two
+**Headset-judged fixed.** `[Device] ShadowFullCopy=1` removed the black surfaces on the
+tester's rig, which confirms the mechanism below: `UpdateTexture` was not carrying writes
+to mip levels above 0, so the small mips stayed as created (black) while level 0 was
+correct. The lever now **ships ON** - a deliberate exception to "every render lever ships
+OFF", made for the same reason as `[Stereo] HoldUntagged`: the OFF state is a visible
+rendering bug. `device shadowfullcopy off` restores the fault, which is the A/B.
+
+### What it cost, and what paid for it
+
+The first cut of the fix made the frame rate less stable, and three separate things were
+responsible. Two of them predate the fix and one was self-inflicted:
+
+1. **The push ran on READONLY unlocks.** A READONLY lock writes nothing, so there is
+   nothing to push - and this game takes **12408 READONLY locks on MANAGED textures in one
+   load** (its mip streaming reads the old texture to fill the new one). Every one of them
+   was a whole-texture GPU copy for no change at all, **before this session's work as well
+   as after**. The lock hooks already had to look the twin up, so recording whether the
+   lock was READONLY rides along in the same critical section for free (`roMask`, one bit
+   per level), and the unlock skips entirely. This is pure removal and the largest win.
+2. **A refused `UpdateSurface` was paid for on every single unlock**, because the fallback
+   ran and then the next unlock tried again. A texture whose format refuses is now
+   remembered (`surfaceRefused`) and goes straight to `UpdateTexture` from then on, so a
+   refusal costs once rather than forever.
+3. **The 60-second upload census walked all 32768 twin-map slots under the lock, on the
+   present thread, just to decide whether to print.** Self-inflicted, this session. The
+   decision now reads plain counters; the walk happens only when the line actually prints.
+
+Also folded in: `shadow_unlocked` took the critical section twice per unlock (once for the
+twin, once to bump the counter) and now takes it once, reading the entry pointer and
+writing its counters after the lock is dropped. A texture released concurrently can then
+only make a **counter** wrong - the entries live in a static array, so there is no freed
+memory to touch - and that is a better trade than holding a lock across a D3D call.
+
+### The original observation and the reasoning
+
+**From a headset run on the tester's rig**: an NPC photographed at two
 distances. Far away the model is largely solid black; walking toward it, the black recedes
 and the material resolves correctly. At close range it is right. The fault is not a
 material class and not a lighting path - **it tracks distance**, and distance is what

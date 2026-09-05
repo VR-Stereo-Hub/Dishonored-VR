@@ -1,48 +1,54 @@
 # Status
 
-## THE BLACK TEXTURE BUG IS A MIP FAULT (2026-09-05, VR-15): two ini flips to test it
+## SOLVED (2026-09-05, VR-15): the black texture bug was a MIP fault, and it ships fixed
 
 PRs #14 (the crouch fix) and #15 (the 90 Hz defaults) are **merged to `VR-Main`**. Branch
-`vr-15-black-texture` carries the instrument and two candidate fixes, both default OFF.
+`vr-15-black-texture` carries the fix, headset-judged by the tester.
 
-### The finding that changes the shape of this
+**The fault**: a surface was largely black far away and correct up close, the black
+receding as the player walked in. Distance selects the MIP LEVEL, so the bad data was in
+the small mips and level 0 was fine.
 
-A headset run photographed an NPC at two distances: **largely black far away, correct up
-close, the black receding as the player walks in.** The fault tracks DISTANCE, and distance
-selects the MIP LEVEL. So the bad data is in the small mips and level 0 is fine.
+**The cause**: the managed-pool shadow pushed every write with `UpdateTexture`, which
+**takes no level**, and writes to levels above 0 were not being carried. `shadow_unlocked()`
+was not even given the level - the unlock hook had it in hand and dropped it - so no
+instrument could have seen a per-level fault. The 2026-09-04 log had the corroboration
+sitting in it unread: **`level>0=50189`** locks in one load with **`dirtyRects=0`**.
 
-The 2026-09-04 log already carried the corroboration, unread: **`level>0=50189`** locks on
-MANAGED textures in one load, with **`dirtyRects=0`**. The shadow pushes every write with
-`UpdateTexture`, which **takes no level**, and until this session `shadow_unlocked()` was
-not even given the level - the unlock hook had it and dropped it. A per-level fault had no
-instrument that could see it.
+**The fix**: `[Device] ShadowFullCopy` pushes exactly the level the unlock wrote, with
+`UpdateSurface`, which names its two surfaces and cannot be vague about which level it
+copied. It **ships ON** - a deliberate exception to "every render lever ships OFF", the
+same call as `[Stereo] HoldUntagged`, because OFF is a visible rendering bug.
+`device shadowfullcopy off` restores the fault and is the A/B.
 
-This is a hypothesis with a mechanism, not a measurement. `[Device] ShadowFullCopy=1`
-pushes the exact level with `UpdateSurface` (which cannot be vague about which level it
-copied) and falls back to `UpdateTexture` when that refuses, so it cannot make the picture
-worse. **It clearing black-at-distance is the proof; it not clearing falsifies this.**
+### The frame-rate cost, and what was done about it
 
-### What to run - EDIT THE INI, no scripts needed
+The first cut made the frame rate less stable. Three causes, two of them **older than this
+session's work**:
 
-The tester's harness scripts do not work on their machine, so everything below is an ini
-edit next to `Dishonored.exe` and a plain look at the game. The log now prints the
-`device/upload` verdict **by itself every 60 s** whenever a counter moves, so a run is
-readable from `dishonored_vr.log` alone.
+1. **The push ran on READONLY unlocks** - 12408 of them per load, each a whole-texture GPU
+   copy for a lock that wrote nothing. Now skipped; the lock kind is recorded in the
+   lookup the lock hook already had to do, so it costs nothing to know.
+2. **A refused `UpdateSurface` was re-attempted on every unlock forever**, paying for the
+   failure and the fallback both. A refusing texture is now remembered.
+3. **The 60 s upload census walked all 32768 twin-map slots on the present thread** just to
+   decide whether to print. Self-inflicted this session; the decision now reads counters.
 
-1. **`[Device] ShadowFullCopy=1`** - the candidate fix. Do black surfaces at distance go
-   away? This is the whole experiment.
-2. **`[Device] Ex=0`** - the control, and it needs no code of ours to be right. It turns
-   off the 9Ex device, the translation and the shadow entirely (the frame goes back to the
-   readback capture, so expect it to be slower). **If black-at-distance survives `Ex=0`,
-   the shadow is exonerated completely** and the hunt moves to `stereo arm off`, then the
-   game with no mod at all. This is the cheapest decisive test and it should be run first.
+`shadow_unlocked` also took its critical section twice per unlock and now takes it once.
 
-`ShadowSurfaces=1` is the other lever: it covers the case where the game locks a SURFACE
-taken off the texture rather than the texture, which the shadow's redirect cannot see by
-construction. The `device/upload` line says whether that path is being used at all.
+**Unmeasured**: nobody has put a number on the improvement. `perf: tick` before and after
+is the measurement, and the `device/upload` line's "work skipped" count says whether the
+READONLY skip is firing at all (a 0 on a loaded level means it is not).
 
-Mechanism, the mip reasoning and the vtable slots are in
-`docs/dishonored/ENGINE_NOTES.md`, "The black texture bug".
+### Still open on this branch
+
+`[Device] ShadowSurfaces` (ships OFF) covers a different hole: the game locking a SURFACE
+taken off a texture, which the shadow's redirect cannot see by construction. **Its hooks
+have still never executed** - no run has exercised them. The `device/upload` line says
+whether that path is used at all.
+
+Mechanism and the full reasoning are in `docs/dishonored/ENGINE_NOTES.md`, "SOLVED: the
+black texture bug".
 
 ### What was NOT done, and why
 

@@ -294,7 +294,7 @@ SurfEnt* surf_slot(void* surf, bool create) {
 // the real texture, a dirty rect goes to the twin, the last Release drops it.
 HRESULT __stdcall hkTexLockRect(IDirect3DTexture9* self, UINT level, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags) {
     lock_count(kLcTexture, self, flags, rc != nullptr, level);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
         ++g_shadowLocks;
         const HRESULT hr = ((IDirect3DTexture9*)t)->LockRect(level, lr, rc, flags);
         up_count(kUcTexture, true, false, hr);
@@ -328,7 +328,7 @@ ULONG __stdcall hkTexRelease(IUnknown* self) {
 HRESULT __stdcall hkCubeLockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT* lr,
                                  const RECT* rc, DWORD flags) {
     lock_count(kLcCube, self, flags, rc != nullptr, level);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
         ++g_shadowLocks;
         const HRESULT hr = ((IDirect3DCubeTexture9*)t)->LockRect(face, level, lr, rc, flags);
         up_count(kUcCube, true, false, hr);
@@ -359,7 +359,7 @@ ULONG __stdcall hkCubeRelease(IUnknown* self) {
 }
 HRESULT __stdcall hkVolLockBox(IDirect3DVolumeTexture9* self, UINT level, D3DLOCKED_BOX* lb, const D3DBOX* box, DWORD flags) {
     lock_count(kLcVolume, self, flags, box != nullptr, level);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
         ++g_shadowLocks;
         const HRESULT hr = ((IDirect3DVolumeTexture9*)t)->LockBox(level, lb, box, flags);
         up_count(kUcVolume, true, false, hr);
@@ -375,7 +375,7 @@ HRESULT __stdcall hkVolUnlockBox(IDirect3DVolumeTexture9* self, UINT level) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DVolumeTexture9*)t)->UnlockBox(level);
         // a volume has no per-level SURFACE, so the per-level push cannot apply
-        dvr::d3d9ex::shadow_unlocked(self, -1, -1);
+        dvr::d3d9ex::shadow_unlocked(self, (int)level, dvr::d3d9ex::kNoLevelSurface);
         return hr;
     }
     return g_origVolUnlock(self, level);
@@ -860,10 +860,16 @@ void log_upload(const char* why) {
     dvr::d3d9ex::shadow_levels(&subUnlocks, &maxLevel, &lvlCopies, &lvlFailed, &lvlHr);
     DVR_INFO("device/upload:   mip levels: %u unlocks carried a level > 0 (deepest %d). Those are the levels a surface "
              "is sampled at from a DISTANCE. [Device] ShadowFullCopy=%d: %u levels pushed with UpdateSurface, %u "
-             "refused (first 0x%08lx, those fell back to UpdateTexture). With the lever OFF every one of those %u "
-             "sub-level writes went to an UpdateTexture that takes no level.",
+             "refused (first 0x%08lx; a texture that refuses once is not asked again, it goes straight to "
+             "UpdateTexture). With the lever OFF every one of those %u sub-level writes went to an UpdateTexture that "
+             "takes no level.",
              subUnlocks, maxLevel, dvr::d3d9ex::full_copy() ? 1 : 0, lvlCopies, lvlFailed, (unsigned long)lvlHr,
              subUnlocks);
+    DVR_INFO("device/upload:   work skipped: %u unlocks pushed NOTHING because their lock was READONLY (the twin did "
+             "not change). Before this they were whole-texture GPU copies for no change at all; this game takes 12408 "
+             "READONLY locks on MANAGED textures in one load. A 0 here on a loaded level means the skip is not firing "
+             "and something upstream is not recording the lock kind.",
+             dvr::d3d9ex::skipped_readonly());
     DVR_INFO("device/upload:   surface bypass: %u surfaces handed out off shadowed textures, %u locked (%u of those on "
              "a shadowed texture), %u refused, first 0x%08lx | redirect [Device] ShadowSurfaces=%d: %u redirected, %u "
              "refused | map full %u",
@@ -897,10 +903,12 @@ void log_upload_if_moved(const char* why) {
     for (int c = 0; c < kUcCount; ++c) { twinF += g_upTwinFail[c]; noTwin += g_upNoTwin[c]; passF += g_upPassFail[c]; }
     uint32_t subUnlocks = 0, lvlCopies = 0, lvlFailed = 0; int maxLevel = -1; HRESULT lvlHr = S_OK;
     dvr::d3d9ex::shadow_levels(&subUnlocks, &maxLevel, &lvlCopies, &lvlFailed, &lvlHr);
-    int live = 0, never = 0; uint32_t dropped = 0;
-    dvr::d3d9ex::shadow_population(&live, &never, &dropped);
+    // The signature is COUNTERS ONLY. shadow_population() walks all 32768 map
+    // slots under a lock, and this runs on the present thread: paying for that
+    // walk once a minute just to decide whether to print was a self-inflicted
+    // hitch. The walk now happens only inside log_upload, when it really prints.
     const uint32_t sig = twinF + noTwin + passF + g_surfLockShadowed + g_surfRedirectFail + lvlFailed
-                       + (uint32_t)never + dropped;
+                       + dvr::d3d9ex::dropped_never_updated();
     static uint32_t seen = 0xFFFFFFFFu;
     if (sig == seen) return;
     seen = sig;
