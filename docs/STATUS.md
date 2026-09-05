@@ -1,105 +1,71 @@
 # Status
 
-## OPEN (2026-09-04): the GHOSTING - an uneven cadence, 104 frames/s into a 120 Hz headset
+## OPEN (2026-09-04): the GHOSTING - the cadence was NOT the cause, and that is now measured
 
-**The report** (tester, 2026-09-04, on `alpha-260-g958ab57a`): the frame rate was "maybe more
-consistent... not close to 120 for most of it, but pretty decent", and **the bigger fault is
-ghosting on world geometry when turning the head - duplicated edges, feels jittery.**
+**The report** (tester, on `alpha-264-ge2b84a80` at 2064x2208): "still ghosting flicker when turning
+head and sometimes it hits harder than others".
 
-**Measured on that run** (Quest 3 via VDXR, 2496x2688 per eye, method reentry, 120 Hz headset).
-The rate instrument shipped this session answered the throughput question, and the pair-cadence
-trace answered the ghosting one:
+### The resolution lever WORKS. Proven, because the tester doubted it and was right to
 
-| instrument | reading |
-|---|---|
-| `stereo: rate` hmd | **8.33 ms = 120.0 Hz**, confirmed from the runtime, not assumed |
-| submits/s | **88-115** against 120 slots/s: **UNDER-SUBMITTING 0.73-0.96x** every window but one |
-| `perf: tick` | **9.2-9.9 ms** against an 8.33 ms budget - the game cannot make 120 |
-| `TRACE pairs` interval | mean **8.6-11.8 ms**, **sd 1.3-9.6 ms**, min 5.5 ms, **max 13-96 ms** |
-| `waitGate` | **3-64 ms/s** of 1000 - the runtime is barely gating us at all |
+Every number moved, and the log names the mechanism at each step (`res: handed the game our
+2064x2208@240 mode (slot 112)`, `CreateDevice - the game asked for 2064x2208`, `capture: 2064x2208`):
 
-**The cadence is the fault.** 9.4 ms per frame against an 8.33 ms display slot is **1.13 display
-slots per frame**, and it is not even: sd 1.8-3.8 ms with the interval swinging 5.7-14.2 ms in
-ordinary play. So consecutive frames are held for DIFFERENT numbers of slots - 1, 2, 1, 1, 2 - in an
-irregular pattern. Under a head turn the eye tracks the world smoothly while the world advances in
-uneven steps, and high-contrast edges are seen twice. That is the doubled-edge ghosting, and it is a
-**different fault from the submit stalls** below, which are rare (62 gaps in the run) where this is
-continuous.
-
-### FRAME LIMITING IS NOT THE FIX. The parity answer, from Infinite on the same stack
-
-The first proposal here was `vrpace sync 60` - lock the schedule to a clean submultiple. **The user
-rejected it and was right**: 60 is too low for VR, and BioShock does not need a limiter. It is still
-a usable one-command DIAGNOSTIC (does locking the cadence change the percept at all?), but it is not
-a ship, and it was wrong to offer it as one.
-
-**Why BioShock does not need it, measured, on the SAME runtime** (`bioshock-trilogy-vr`,
-`docs/bioshockinfinite/ENGINE_NOTES.md`, session 42, VDXR via Virtual Desktop, 2026-08-06):
-
-| | BioShock Infinite | Dishonored (this run) |
+| | 2496x2688 | 2064x2208 |
 |---|---|---|
-| runtime-reported period | **12.50 ms = 80 Hz** | **8.33 ms = 120 Hz** |
-| pairs/s | **80 == refresh** | **88-115** against 120 |
-| interval sd | **0.3-1.0 ms** | **1.3-9.6 ms** |
-| verdict in its own notes | "LOCKED AND CLEAN" | UNEVEN, 1.13 slots per frame |
-| per-eye size | 2064x2208 native | **2496x2688** |
+| `perf: tick` | 9.2-9.9 ms | **8.6-8.9 ms** |
+| submits/s (of 120 slots) | 88-115 | **114-117** |
+| supply verdict | UNDER-SUBMITTING 0.73-0.96x | **MATCHED 0.95-0.97x** |
+| slots per frame | 1.13 | **1.03-1.05** |
+| interval sd | 1.3-3.8 ms | **0.75-1.36 ms** |
+| cadence verdict | UNEVEN | **EVEN CADENCE** |
+| capture lock | 0.5 ms | 0.0-0.1 ms |
 
-**It is not an architecture difference.** Infinite runs the same SequentialReentry two-draw method -
-its `DR-I4 native stereo: NEGATIVE, confirmed live. CLOSED.` proves UE3 build 9099 has no usable
-engine-side per-eye path in that game either (`Stereo`, `EyeSeparation`, `StereoDevice`,
-`bStereoEnabled` all absent from a populated GNames of 69,719). Both mods double the scene draw.
+### And the ghosting SURVIVED it. The cadence hypothesis is falsified
 
-**The difference is that Infinite's render cost FIT INSIDE its display period, so VDXR's own
-`xrWaitFrame` gated it 1:1 and no beat could exist.** We are asking for an 8.33 ms period and
-spending 9.4. That is the whole story, and it makes the fix obvious and not a limiter: **close the
-gap between the tick and the period**, from either end.
+This is the point of having written the prediction down. The cadence is now locked - EVEN CADENCE,
+1.03-1.05 slots per frame, sd under 1.4 ms, submits MATCHED to the slot rate - and **the doubled
+edges are still there**. So the interference beat was real, was measured, was fixed, and **was not
+what the tester is seeing.** Do not spend another session on pacing for this symptom.
 
-1. **Lower the render cost. ARMED for the next launch (2026-09-04): 2064x2208.** All four routes
-   the picker writes were set by hand to match what `res 2064x2208f` produces - the launch file
-   `dishonored_vr_launch.txt` (the only one DllMain reads), `[Screen] RenderWidth/Height` in the mod
-   ini, `[SystemSettings] ResX/ResY` in `DishonoredEngine.ini`, and all four `AppCompatBucket*`
-   in `DishonoredCompat.ini` (the bucket AppCompat picks at startup overwrites `[SystemSettings]`).
-   `VirtualMode=1` was left alone - it is REQUIRED to reach the headset eye size. Pre-change copies
-   of the three inis are in `D:\dvr-data\logs\*.bak`. The reasoning:
-   we were at 2496x2688 per eye - **47 % more pixels than Infinite's
-   native**, and 1.46x the Quest 3 panel's own 2064x2208. Infinite's notes already record the same
-   lever working on the same symptom: judder "noticeably better at the `eye` preset 1600x1712" than
-   at its native. `res 2064x2208f` puts us at the panel's native size (a supersample of 1.0, so
-   little visible sharpness cost) and, at ~68 % of the pixels, should take a 9.4 ms tick to roughly
-   6.7 ms - inside 8.33 with room for the sd. **Takes effect on the NEXT launch**, not live.
-2. **Or lower the refresh.** 90 Hz is an 11.1 ms budget against a 9.4 ms mean tick: locked 90, full
-   resolution, no limiter and no lost sharpness. A headset setting, no build.
+What that leaves, cheapest first, all live commands with no relaunch:
 
-Either way the pass condition is the same and the log states it: `perf: tick` mean under the period,
-and `stereo: rate` turning from `UNEVEN CADENCE: 1.13 display slots per frame` into
-`EVEN CADENCE: 1.00`.
+1. **Virtual Desktop's Synchronous Spacewarp.** It manufactures intermediate frames by
+   reprojecting, which is a literal ghost-frame generator, and it engages and disengages on its own
+   - which is what "sometimes it hits harder than others" sounds like. Turn it OFF in the VD
+   streamer settings and repeat the same head turn. **This is the first test and it is not ours.**
+2. **`vrpace lag 0|1|2`** - which locate generation the layer's views are tagged with (ships at 1,
+   "one back"). Infinite recorded the identical open suspect for the identical percept: "camera
+   movement feels 'a bit jumpy' beyond the hitches - candidates: ... **the one-pair-stale
+   content-pose attribution**". If the tag is a generation off the pose the frame was actually
+   rendered from, the compositor reprojects by the wrong amount and the error changes every frame -
+   doubled edges under rotation, worst when turning fastest.
+3. **`vrpace ahead 0|1|2`** - the locate TIME (ships at 0). Already on the carried list as an
+   unjudged judder item. The pair phase reads a steady **-43 ms** (we close ~5 display periods
+   before the slot we asked for; on a Wi-Fi streaming runtime that is VDXR's pipeline depth, not a
+   fault), so the reprojection is doing 40+ ms of extrapolation on every frame and the pose it
+   extrapolates FROM has to be right.
 
-**Not yet judged in a headset. This is a prediction, not a result** - if the cadence locks and the
-doubled edges survive, the cause is not the beat, and Virtual Desktop's own frame synthesis (SSW) is
-the next thing to turn off.
+### Not faults, checked so nobody re-checks them
 
-### Two theories killed on the same log, so nobody re-runs them
+- **The `CROPPED` capture bbox is a menu/loading artifact, not the resolution change.** Both runs
+  show `100% x 52-53% (CROPPED)` early and then `100% x 100% (FULL)` once gameplay starts. Same
+  shape at both sizes.
+- **Not frame duplication or eye desync**: `mono/s=0 none/s=0-1`, `L/s == R/s == out/s / 2`,
+  `ageL=1 ageR=0`, `aborts=0 staleEye 0` throughout gameplay.
+- **Not Infinite's 30-second GC grid**: its spike class was
+  `TimeBetweenPurgingPendingKillObjects=30`, killed A-B-A with 300. Our gaps have no 30 s
+  periodicity - 0-13 s in bursts. Infinite's other signature (the streaming / level-visibility walk,
+  triggered by view change and traversal) is the closer match and matches the head-turn trigger.
+- **The hitches did not improve with resolution**: 62 gaps at 2496x2688, 82 at 2064x2208. They are a
+  separate, later item from the ghosting.
 
-- **Not frame duplication, not eye desync.** The beat reads `mono/s=0 none/s=0-1` and
-  `L/s == R/s == out/s / 2` exactly through the whole of gameplay, with `stereo: eyes ageL=1 ageR=0`
-  and `aborts=0 staleEye 0`. `[Stereo] HoldUntagged=3` is not re-showing frames, and the two eyes
-  are not one tick apart. The pairing is healthy; the ghosting is not made there.
-- **Not Infinite's 30-second GC grid.** Infinite named its spike class as UE3's
-  `TimeBetweenPurgingPendingKillObjects=30` and killed it A-B-A by setting 300. Our 62 gaps were
-  checked against that: the inter-gap spacing is 0-13 s in **bursts**, with no 30 s periodicity, so
-  that is not our spike class. Infinite's other signature - the streaming / level-visibility walk,
-  bound to view change and traversal - is the closer match, and notably it is triggered by head
-  TURNS, which is the trigger reported here.
+### Armed now: 3840x4096, purely to prove the lever to the eye
 
-### What shipped for it this session (session 14)
-
-- **`stereo: rate` now carries the cadence**: `pair interval mean=.. ms sd=.. ms` and a second
-  verdict, `UNEVEN CADENCE: N.NN display slots per frame (not a whole number) with sd X ms` or
-  `EVEN CADENCE`. The numbers existed only in `pacetrace.log` at trace level, which is why nobody
-  had seen them; slots-per-frame is the derived number that names the fault in one glance.
-- **`[Pace] SyncHz=0`** (ships OFF): the same lock as `vrpace sync <hz>`, persisted, so a value the
-  headset likes survives the session. Out of range is REFUSED with the number that was read, so a
-  typo cannot silently pace the game at 3 Hz. `vrpace sync off` then SAVE AS DEFAULTS writes 0.
+The tester asked to see the resolution do something visible, which is the right instinct and the
+repo's own rule (confirm a lever moved something before believing its verdict). 3840x4096 keeps the
+near-square eye aspect (0.9375 against 2064x2208's 0.9348) and is **3.4x the pixels** of the current
+size, so if the lever were inert the tick would not move. Expect it to be slow - that IS the result.
+Revert with `res 2064x2208f` (or `res 2496x2688f`) and relaunch.
 
 ## RESOLVED as a reading (2026-09-04): the submit stalls were NOT the game outrunning the headset
 
