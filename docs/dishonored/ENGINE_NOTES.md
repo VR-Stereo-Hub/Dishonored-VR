@@ -1356,6 +1356,123 @@ projection off`/`auto` each alone say which half of the user's remedy repairs it
   4032x2268 mode; the window hooks hold it; `[Screen] SpoofDesktopW/H` and `ResX/ResY` must
   match.
 
+## SOLVED: the black texture bug was sub-level writes never reaching the GPU (VR-15, 2026-09-05)
+
+**Headset-judged fixed.** `[Device] ShadowFullCopy=1` removed the black surfaces on the
+tester's rig, which confirms the mechanism below: `UpdateTexture` was not carrying writes
+to mip levels above 0, so the small mips stayed as created (black) while level 0 was
+correct. The lever now **ships ON** - a deliberate exception to "every render lever ships
+OFF", made for the same reason as `[Stereo] HoldUntagged`: the OFF state is a visible
+rendering bug. `device shadowfullcopy off` restores the fault, which is the A/B.
+
+### What it cost, and what paid for it
+
+The first cut of the fix made the frame rate less stable, and three separate things were
+responsible. Two of them predate the fix and one was self-inflicted:
+
+1. **The push ran on READONLY unlocks.** A READONLY lock writes nothing, so there is
+   nothing to push - and this game takes **12408 READONLY locks on MANAGED textures in one
+   load** (its mip streaming reads the old texture to fill the new one). Every one of them
+   was a whole-texture GPU copy for no change at all, **before this session's work as well
+   as after**. The lock hooks already had to look the twin up, so recording whether the
+   lock was READONLY rides along in the same critical section for free (`roMask`, one bit
+   per level), and the unlock skips entirely. This is pure removal and the largest win.
+2. **A refused `UpdateSurface` was paid for on every single unlock**, because the fallback
+   ran and then the next unlock tried again. A texture whose format refuses is now
+   remembered (`surfaceRefused`) and goes straight to `UpdateTexture` from then on, so a
+   refusal costs once rather than forever.
+3. **The 60-second upload census walked all 32768 twin-map slots under the lock, on the
+   present thread, just to decide whether to print.** Self-inflicted, this session. The
+   decision now reads plain counters; the walk happens only when the line actually prints.
+
+Also folded in: `shadow_unlocked` took the critical section twice per unlock (once for the
+twin, once to bump the counter) and now takes it once, reading the entry pointer and
+writing its counters after the lock is dropped. A texture released concurrently can then
+only make a **counter** wrong - the entries live in a static array, so there is no freed
+memory to touch - and that is a better trade than holding a lock across a D3D call.
+
+### The original observation and the reasoning
+
+**From a headset run on the tester's rig**: an NPC photographed at two
+distances. Far away the model is largely solid black; walking toward it, the black recedes
+and the material resolves correctly. At close range it is right. The fault is not a
+material class and not a lighting path - **it tracks distance**, and distance is what
+selects the mip level a surface is sampled at. So the black data lives in the SMALL mips
+(level > 0), and level 0 is intact.
+
+That narrows the four candidates below to one lane, and it lines up with a number already
+sitting in the 2026-09-04 headset log, unread:
+
+```
+locks on MANAGED: plain=47899 READONLY=12408 DISCARD=0 NOOVERWRITE=0 partial=2986
+                  level>0=50189 dirtyRects=0
+```
+
+**50189 locks on mip levels above 0, and zero `AddDirtyRect` calls in the whole run.**
+
+Now the mechanism. The shadow pushes a written texture to the GPU with
+`IDirect3DDevice9::UpdateTexture(twin, real)`. That call **takes no level**: it copies what
+D3D9 believes is dirty across the chain. Until this session `shadow_unlocked()` did not
+even receive the level - `hkTexUnlockRect` had it in its hand and dropped it at the door -
+so there was no instrument that could have noticed a per-level fault, and nothing anywhere
+in the mod knew that sub-level writes were 50189 of the traffic.
+
+**This is a hypothesis with a mechanism, not a measurement.** What makes it testable is
+`UpdateSurface`, which names its two surfaces and therefore cannot be vague about which
+level it copied. `[Device] ShadowFullCopy=1` pushes exactly the level the unlock wrote,
+falling back to `UpdateTexture` when `UpdateSurface` refuses (compressed and odd formats
+can), so the lever can never leave the picture worse than it found it. **Black-at-distance
+clearing when that lever goes on is the proof; it not clearing falsifies this cleanly.**
+
+The four ways an upload can be lost, below, all still stand - this section narrows which
+one to look at first, it does not close the others.
+
+### The instrument and what each number means
+
+**No headset run has yet produced a reading from it.**
+
+`[Device] Managed=shadow` is the newest thing in the creation path. A 9Ex device refuses
+`D3DPOOL_MANAGED`, so every MANAGED texture is created `DEFAULT` and given a `SYSTEMMEM`
+twin; `IDirect3DTexture9::LockRect` is redirected to the twin and `UnlockRect` pushes the
+twin's dirty regions to the real texture with `UpdateTexture`. A texture whose write never
+completes that round trip keeps the contents it was created with, and a freshly created
+D3D9 texture is **black**. That is the shape of the reported fault, which is why the
+shadow is the first suspect - not because anything has been measured.
+
+There are exactly four ways the round trip can fail, and until now every one was silent:
+
+| | what happens | why the texture goes black |
+|---|---|---|
+| **twin refused** | the lock reached the twin and the runtime refused it | the write never happened |
+| **no twin** | translated to DEFAULT but `shadow_twin()` came back null (twin creation refused, or the twin map was full) | the lock falls through to a DEFAULT texture, which is not lockable: D3D9 refuses it |
+| **passthrough refused** | an untranslated lock the runtime refused | the write never happened |
+| **surface bypass** | the game took a surface off the texture (`GetSurfaceLevel`) and locked THAT | the surface's `LockRect` is a **different vtable** (`IDirect3DSurface9` slot 13, not `IDirect3DTexture9` slot 19), so the shadow redirect never sees it and the write lands on the DEFAULT texture |
+
+The bypass is the one worth stating plainly, because the existing redirect cannot catch it
+by construction. `IDirect3DTexture9::GetSurfaceLevel` is slot 18; `IDirect3DSurface9` is
+`IUnknown` 0-2, `IDirect3DResource9` 3-10, `GetContainer` 11, `GetDesc` 12, **`LockRect`
+13, `UnlockRect` 14**. The census now patches 18 on textures and cube textures, records
+which texture and which level/face each handed-out surface belongs to, and patches the
+surface class's 13/14 once. `UnlockRect` is patched FIRST and `LockRect` only if that
+succeeded: a `LockRect` hook without its own original cannot fail soft.
+
+The `device/upload` census reports all four with the first `HRESULT` that produced each,
+plus the twin population - **how many live twins have carried no successful
+`UpdateTexture` at all**, which is the population the counters are counts of. Its verdict
+prints the unwelcome answer as readily as the welcome one: four zeros and a clean
+population say the shadow is NOT where black surfaces come from, and name the next A/B
+(`[Device] Ex=0`, then `stereo arm off`, then the game with no mod).
+
+`[Device] ShadowSurfaces` (ships **0**, `device shadowsurfaces on|off` live) is the fix for
+the bypass if the bypass is real: the surface lock goes to the twin's matching surface and
+the unlock pushes it. It is a lever, so it ships off and is judged in a headset.
+
+**The twin map has burned this project once already.** On 2026-09-03 it filled 8192 slots
+with tombstones across repeated quickloads (2400 live), a texture got no twin, its lock was
+refused, and the game died inside D3D9 on it. That is the "no twin" row above, and it is
+why the row exists rather than being assumed impossible: the map is 32768 slots now, which
+made the crash go away without making the mechanism go away.
+
 ## The pause/resume desync: a one-sided tag stream (2026-09-03, session 7)
 
 The run-40 report ("the judder stays in the LEFT eye and stops in the RIGHT") is the

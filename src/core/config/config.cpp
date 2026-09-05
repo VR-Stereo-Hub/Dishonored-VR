@@ -132,6 +132,28 @@ static void WriteDefaultIni(const char* ini)
         "; plain device and the readback capture, the fallback if the 9Ex device misbehaves.\n"
         "Ex=1\n"
         "Managed=shadow\n"
+        "; ShadowSurfaces=0|1 (VR-15, the black texture bug). Managed=shadow redirects a lock\n"
+        "; taken on the TEXTURE to its system-memory twin, but the game can also take a\n"
+        "; SURFACE off the texture (GetSurfaceLevel) and lock that - a different vtable, so\n"
+        "; the redirect never sees it and the write lands on the DEFAULT texture, where D3D9\n"
+        "; refuses it and the texture keeps the contents it was created with: black. 1 sends\n"
+        "; that lock to the twin's matching surface too. Ships OFF (0) until a headset says it\n"
+        "; removes black surfaces; `device shadowsurfaces on|off` is the live A/B, and the\n"
+        "; log's `device/upload` verdict says whether the bypass is happening at all.\n"
+        "ShadowSurfaces=0\n"
+        "; ShadowFullCopy=0|1 (VR-15, the black texture bug). SOLVED and headset-judged\n"
+        "; 2026-09-05: this was the black texture bug. The shadow used to push a written\n"
+        "; texture with UpdateTexture, which takes NO LEVEL, and writes to mip levels above\n"
+        "; 0 were not being carried - so a surface was black at DISTANCE (small mips) and\n"
+        "; correct up close (level 0). The game locks level>0 fifty thousand times in one\n"
+        "; load and never calls AddDirtyRect once. 1 pushes exactly the level the unlock\n"
+        "; wrote, with UpdateSurface, which names its two surfaces and cannot be vague about\n"
+        "; which level it copied; a format that refuses is remembered and goes straight to\n"
+        "; UpdateTexture from then on, so a refusal is paid for once, not every unlock.\n"
+        "; SHIPS ON (1) - a deliberate exception to 'every render lever ships OFF', made\n"
+        "; because 0 is a visible rendering bug, the same call as [Stereo] HoldUntagged.\n"
+        "; `device shadowfullcopy on|off` is the live A/B; 0 restores the fault.\n"
+        "ShadowFullCopy=1\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -631,6 +653,10 @@ static void LoadConfig()
         dvr::d3d9ex::Managed m;
         if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
         dvr::d3d9ex::set_config(ex, m);
+        // VR-15: the surface-bypass redirect, default off, live via `device shadowsurfaces`
+        dvr::census::set_shadow_surfaces(IniFloat(ini, "Device", "ShadowSurfaces", 0) != 0.0f);
+        // VR-15: the per-level push, the candidate fix for black-at-distance
+        dvr::d3d9ex::set_full_copy(IniFloat(ini, "Device", "ShadowFullCopy", 1) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;

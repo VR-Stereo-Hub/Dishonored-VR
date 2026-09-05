@@ -1,5 +1,67 @@
 # Status
 
+## SOLVED (2026-09-05, VR-15): the black texture bug was a MIP fault, and it ships fixed
+
+PRs #14 (the crouch fix) and #15 (the 90 Hz defaults) are **merged to `VR-Main`**. Branch
+`vr-15-black-texture` carries the fix, headset-judged by the tester.
+
+**The fault**: a surface was largely black far away and correct up close, the black
+receding as the player walked in. Distance selects the MIP LEVEL, so the bad data was in
+the small mips and level 0 was fine.
+
+**The cause**: the managed-pool shadow pushed every write with `UpdateTexture`, which
+**takes no level**, and writes to levels above 0 were not being carried. `shadow_unlocked()`
+was not even given the level - the unlock hook had it in hand and dropped it - so no
+instrument could have seen a per-level fault. The 2026-09-04 log had the corroboration
+sitting in it unread: **`level>0=50189`** locks in one load with **`dirtyRects=0`**.
+
+**The fix**: `[Device] ShadowFullCopy` pushes exactly the level the unlock wrote, with
+`UpdateSurface`, which names its two surfaces and cannot be vague about which level it
+copied. It **ships ON** - a deliberate exception to "every render lever ships OFF", the
+same call as `[Stereo] HoldUntagged`, because OFF is a visible rendering bug.
+`device shadowfullcopy off` restores the fault and is the A/B.
+
+### The frame-rate cost, and what was done about it
+
+The first cut made the frame rate less stable. Three causes, two of them **older than this
+session's work**:
+
+1. **The push ran on READONLY unlocks** - 12408 of them per load, each a whole-texture GPU
+   copy for a lock that wrote nothing. Now skipped; the lock kind is recorded in the
+   lookup the lock hook already had to do, so it costs nothing to know.
+2. **A refused `UpdateSurface` was re-attempted on every unlock forever**, paying for the
+   failure and the fallback both. A refusing texture is now remembered.
+3. **The 60 s upload census walked all 32768 twin-map slots on the present thread** just to
+   decide whether to print. Self-inflicted this session; the decision now reads counters.
+
+`shadow_unlocked` also took its critical section twice per unlock and now takes it once.
+
+**Unmeasured**: nobody has put a number on the improvement. `perf: tick` before and after
+is the measurement, and the `device/upload` line's "work skipped" count says whether the
+READONLY skip is firing at all (a 0 on a loaded level means it is not).
+
+### Still open on this branch
+
+`[Device] ShadowSurfaces` (ships OFF) covers a different hole: the game locking a SURFACE
+taken off a texture, which the shadow's redirect cannot see by construction. **Its hooks
+have still never executed** - no run has exercised them. The `device/upload` line says
+whether that path is used at all.
+
+Mechanism and the full reasoning are in `docs/dishonored/ENGINE_NOTES.md`, "SOLVED: the
+black texture bug".
+
+### What was NOT done, and why
+
+**The simulator run did not happen.** Two launch attempts: the first died in a C++ runtime
+error before the D3D9 device was created (the mod fell through to the system's Virtual
+Desktop runtime rather than the simulator, `[VR] XrRuntimeJson` being empty), so none of
+the new hooks executed and the run says nothing about them either way. The second attempt
+was stopped. **So the new vtable patches - `GetSurfaceLevel` 18 on textures and cube
+textures, `LockRect`/`UnlockRect` 13/14 on surfaces - have been compiled and installed but
+never executed.** Treat the first run with this build as a bring-up test: if the game dies
+at its first texture, those slots are the suspect and `device/census` will say whether the
+surface hook installed at all.
+
 ## CONFIRMED ON A THIRD RUN (2026-09-04): 2750x2850 at 90 Hz is the default and it holds up
 
 Third headset run on the shipped defaults: smooth, weapon aligned, no ghosting, and no frame
