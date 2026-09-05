@@ -196,6 +196,43 @@ without a bump); the pace guard's eaten tag if the headset ever names it.
 
 ## Session log
 
+### 2026-09-05 - session 11: the work is on a board, and the flow is written down
+
+Branch `claude/linear-github-integration-9d1a52`, docs and templates only. No code, no build,
+no render lever touched.
+
+Three people are now finding faults and recording them in three private places, and PRs #12,
+#14 and #15 each name real, measured, open defects that appear in no shared list. The
+Linear workspace `vr-stereo-hub` existed but was empty.
+
+**The board now matches the code.** Team `VR`, project **Dishonored VR Mod** with a lead, a
+spec and its doc links; four release-shaped milestones (41.1, 41.2, 42.0, 42.1) kept in sync
+with the GitHub Releases page, each naming the ROADMAP rungs it closes; a `Type` label group,
+ten `area:` labels and five flag labels; **43 tickets** (VR-6 to VR-48) covering every open PR,
+every unticked ROADMAP box, every genuinely open KNOWN_ISSUES entry, the three STATUS blockers,
+and the four defects PRs #14 and #15 handed over. Merged work is recorded as **one catch-up
+project update**, not as retroactive tickets. The four open PRs carry `Fixes VR-<n>` and two
+were retitled to conventional-commit subjects.
+
+**The flow is `docs/LINEAR_AND_GITHUB.md`**: statuses and what each means here, priority,
+labels, the ticket template, the numbered ticket-to-release flow, the PR contract, project
+updates, the release ritual, and what only the Linear UI can do. `CLAUDE.md` carries the hard
+rules and the session protocol now names the ticket step. `.github/` gains a PR template, two
+issue forms and `config.yml`; `CONTRIBUTING.md` is the front door.
+
+**Two rules adopted.** From PR #15: **never quote a chat verbatim** in anything published -
+commit messages, PR bodies, tickets, comments, `docs/`. The observation is evidence; the
+wording never is. And: **an agent never declares a release.** It may report that a milestone is
+clear and ask.
+
+**Not done, and it needs the user.** The `Released` status does not exist yet and the PR
+automation rows are unset: the Linear MCP exposes no tool for either, and both are team
+settings. More importantly **the magic-word link did not fire** - Linear received the PR edits
+(the diff records updated) and created no link, so `linkedIssues` is still empty on all four.
+The ids and magic words are correct, so this is the GitHub integration's issue-linking side
+not being enabled for the repo. Until it is, the PR-to-ticket links are the plain attachments
+created by hand and no status automation will work.
+
 ### 2026-09-04 - session 12: the crouch height rise, solved
 
 - **The answer**: the 38.16 deep-crouch capsule write moves the pawn 20.00 uu on every crouch (the
