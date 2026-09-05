@@ -91,6 +91,12 @@ void  shadow_register_volume(IDirect3DDevice9* dev, IDirect3DVolumeTexture9* rea
 IDirect3DBaseTexture9* shadow_twin(void* real);   // null = not shadowed
 void  shadow_unlocked(void* real);                // UpdateTexture twin -> real
 void  shadow_released(void* real);                // the real texture's last Release
+bool  shadow_active();                            // Ex live, translating, Managed=shadow
+// VR-15: the twin population. `live` twins the map holds, `neverUpdated` how
+// many of those have carried no successful UpdateTexture, `droppedNeverUpdated`
+// how many were released without ever carrying one. A live twin at zero is a
+// texture whose pixels never left system memory. Walks 32768 slots: on demand.
+void  shadow_population(int* live, int* neverUpdated, uint32_t* droppedNeverUpdated);
 
 // Lines and status.json "device" object.
 void log_status();

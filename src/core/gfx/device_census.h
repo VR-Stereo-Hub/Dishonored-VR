@@ -37,6 +37,23 @@ void log_summary(const char* why);
 void log_deltas();
 // One line: creations, MANAGED count and bytes, what 9Ex would refuse.
 void log_status();
+
+// VR-15 (the black texture bug): the UPLOAD census. The creation census says
+// what the game asked for; this says whether what the game WROTE into a
+// texture ever reached the GPU copy it draws from. Under [Device]
+// Managed=shadow a write is lost when the lock is refused, when the texture
+// has no twin, or when the game took a surface off the texture and locked
+// that instead (GetSurfaceLevel bypasses the texture vtable entirely). Each
+// is counted with its first HRESULT and the verdict prints "NO LOST UPLOAD"
+// just as readily - four zeros falsify the shadow as the cause. Rides with
+// log_summary and answers `device upload`.
+void log_upload(const char* why);
+
+// [Device] ShadowSurfaces (default OFF, `device shadowsurfaces on|off` live):
+// redirect a lock taken through GetSurfaceLevel to the twin's matching
+// surface, the way the texture path already is. The A/B for the bypass.
+void set_shadow_surfaces(bool on);
+bool shadow_surfaces();
 // status.json "census" object.
 void status(dvr::status::Writer& w);
 

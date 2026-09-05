@@ -132,6 +132,15 @@ static void WriteDefaultIni(const char* ini)
         "; plain device and the readback capture, the fallback if the 9Ex device misbehaves.\n"
         "Ex=1\n"
         "Managed=shadow\n"
+        "; ShadowSurfaces=0|1 (VR-15, the black texture bug). Managed=shadow redirects a lock\n"
+        "; taken on the TEXTURE to its system-memory twin, but the game can also take a\n"
+        "; SURFACE off the texture (GetSurfaceLevel) and lock that - a different vtable, so\n"
+        "; the redirect never sees it and the write lands on the DEFAULT texture, where D3D9\n"
+        "; refuses it and the texture keeps the contents it was created with: black. 1 sends\n"
+        "; that lock to the twin's matching surface too. Ships OFF (0) until a headset says it\n"
+        "; removes black surfaces; `device shadowsurfaces on|off` is the live A/B, and the\n"
+        "; log's `device/upload` verdict says whether the bypass is happening at all.\n"
+        "ShadowSurfaces=0\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -631,6 +640,8 @@ static void LoadConfig()
         dvr::d3d9ex::Managed m;
         if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
         dvr::d3d9ex::set_config(ex, m);
+        // VR-15: the surface-bypass redirect, default off, live via `device shadowsurfaces`
+        dvr::census::set_shadow_surfaces(IniFloat(ini, "Device", "ShadowSurfaces", 0) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
