@@ -1,5 +1,58 @@
 # Status
 
+## OPEN (2026-09-04): the submit stalls - 48 hitches of 44-156 ms, two thirds in xrEndFrame
+
+**The report** (tester, 2026-09-04): "super laggy", and separately "this game is old enough that
+it should run at hardlocked 120 fps, especially on a 4070 Ti Super". The headset is set to
+**120 Hz**, so the budget is **8.33 ms** per frame.
+
+**Throughput is NOT the problem, and that is the whole point of this item.** Measured on
+`alpha-267-g4b9a0f3c-dirty`, Quest 3 via VDXR, 2496x2688 per eye, method reentry:
+
+- **mean present interval 4.3-6.6 ms** (the heartbeat read GAME=138-233 fps across the run).
+  That is comfortably inside the 8.33 ms budget, with 25-50 % headroom.
+- **48 `perf: frame gap` lines**, gaps of **44-156 ms**. The worst is **36.3x the 4.3 ms mean** -
+  at 120 Hz a 156 ms stall is 19 dropped frames in a row.
+
+**Where the stalls sit**, from the `sat in:` field of those same 48 lines:
+
+| phase | count |
+|---|---|
+| **`present-tail (xrEndFrame)`** | **31** |
+| `out/idle (waiting for the game thread)` | 9 |
+| `out/R (executing the frame)` | 3 |
+| `game_tick` | 3 |
+| the game's `Present` | 1 |
+| `present-head (wait)` | 1 |
+
+`flags:` on those lines read `reset=0 load=0 paceTimeouts=+0` almost throughout (one `+1`, one
+`pairOpen=1`), so the pace lane is not timing out and the method is not re-arming. `vrpace ahead`
+was at its shipped 0.
+
+**Two thirds of the stalls are in the submit call.** So this is a pacing/submit problem, not a
+rendering-cost one - which is the good news, because the fix is scheduling rather than cutting
+quality.
+
+### The gap that has to close first
+
+**The runtime's display period is not in the log.** `dvr::vr::display_period_ns()` exists in the
+runtime layer and nothing prints it. So "the game is producing frames faster than the headset can
+show them, and the runtime absorbs the mismatch by blocking at submit" is an INFERENCE from the
+phase attribution, not a measurement - and this project has spent whole sessions on inferences that
+read well and were wrong.
+
+**First step, therefore: print the display period** (the beat line and `status.json`), so the
+headset's real rate and the present rate can be compared on one line. Everything after that becomes
+falsifiable: if presents outnumber display slots, the throttle reading is confirmed and the lever is
+to stop producing frames nobody sees; if they do not, the 31 xrEndFrame stalls are genuine hitches
+and the cause is elsewhere.
+
+### Not a fault, for the record
+
+Stereo reads mono for roughly the first 6 seconds of a run (`2nd/s=0`), then latches to 103-108 and
+holds - confirmed by the tester ("it is mono at the very beginning but it latches on and stays good
+after a few seconds"). The `2nd/s=0` at the very END of a log is leaving gameplay, not a regression.
+
 ## FIXED (2026-09-03, headset, dev rig): all three flickers, in one chain
 
 Branch `swapchain-one-picture-flicker`. Installed and judged as `alpha-253-g8441404f`. **The
@@ -97,7 +150,36 @@ had not, so the game folder still held the previous DLL. The log banner names th
 it in one command. A `-dirty` tag means the tree had uncommitted changes at build time and the
 log cannot be traced to a commit: rebuild from a clean tree before handing a log to anyone.
 
-## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
+## Current state (2026-09-04, session 13 opens: performance - the submit stalls)
+
+**This branch (`performance-fix`) carries no code yet.** It is cut from `VR-Main` and holds this
+handoff only. The work it is for is the OPEN section at the top: 48 hitches of 44-156 ms with 31 of
+them in `present-tail (xrEndFrame)`, on a rig with 25-50 % frame-time headroom at 120 Hz.
+
+**The crouch height rise is FIXED and headset-judged** (previous session): the 38.16 deep-crouch
+capsule write moved the pawn 20.00 uu on every crouch and the camera's rate-limited catch-up
+integrated the remainder. `[PosTrack] DeepCrouch` now defaults to 0. That work is on `crouch-fix`
+and is **open as PR #14, not merged**. Its derivation and the five falsified suspects are in
+`docs/dishonored/ENGINE_NOTES.md` on that branch.
+
+**The DLL in the game folder is `alpha-259-g865f1bcd`** - the tip of `crouch-fix`, built
+RelWithDebInfo, installed and hash-checked against `build\src\RelWithDebInfo\d3d9.dll`. So the
+deployed build carries the crouch fix and nothing diagnostic: `[Hands] CrouchAB`, `CrouchBurst` and
+`[PosTrack] DeepCrouch` are all default OFF. The tester's `dishonored_vr.ini` and the game's
+`DishonoredCamera.ini` were both restored from backups after the investigation; no diagnostic keys
+remain in either.
+
+**Two findings from that session are deliberately unbundled and unfixed**, because neither has been
+judged in a headset:
+
+1. `LocPropFind` and `CrouchPropFind` sit below `if (!g_handMesh) return` in `ApplyHandToMesh`, and
+   `[Mode] GamepadOnly=1` (the shipped default) clears `g_handMesh` - so **they have never run on a
+   shipped build**, and the 38.24 eye clamp, which needs `g_actorLocFound`, has never run either.
+   Reviving it is a real behaviour change and needs a headset verdict of its own.
+2. The config line reporting physical crouch as "armed" when `[Mode] GamepadOnly=1` has already
+   vetoed it. Cost a session's hypothesis once already.
+
+## Previous state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
 **Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
 headset, at rate, with the tested configuration shipping as the defaults.
@@ -144,25 +226,23 @@ headset, at rate, with the tested configuration shipping as the defaults.
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset)**: nothing is blocking - all three flickers are fixed and measured (see
-FIXED above), running `alpha-253-g8441404f` with `HoldUntagged=3`. The open comfort questions are
-the ones a correct, flicker-free stereo pair finally lets you judge: (1) JUDDER on fast head or
-player movement - `vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and
-the `xr: pair phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT
-with `[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real
-frame rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` /
-`HeightOffsetM=-0.090`. Say which of the three is worst and the log will carry the numbers. One
-open call that is yours, not a bug: whether `HoldUntagged` should ship as 3 instead of 0 - it is
-judged good on this rig only, and `stereo hold 0` is the A/B.
+**The next developer session (performance)**: do not reach for a lever first. The single most
+valuable thing is to **print the runtime's display period** - `dvr::vr::display_period_ns()` is
+already in the runtime layer and nothing logs it - on the `stereo: beat` line and in `status.json`,
+next to the present rate. That converts the central claim ("the game outruns the headset and the
+runtime absorbs it by blocking in `xrEndFrame`") from an inference into a measurement, and it is
+about ten lines. Only then attribute the 31 submit stalls: a blocking throttle and a genuine
+compositor hitch look identical in the current log and want opposite fixes. The levers that exist
+already, none of them yet judged for this: `vrpace ahead 0|1|2` (F10 Runtime tab, ships at 0),
+`[Stereo] HoldUntagged` (ships at 3), and the capture mode. Remember the rule the crouch item paid
+for five times over - when a lever comes back null, confirm the lever actually moved something
+before believing the verdict.
 
-**The next developer session**: the correctness question of S2b is closed, so S3 is open - write
-the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
-correctness, failure modes, the headset verdicts) and bring the features back on the winner: the
-hands (SkelControl drive, hand meshes, `[Mode] GamepadOnly=0`), the wrist HUD through the runtime
-layer's HUD quad and texture-provider seam, Blink and motion aim. `stereo aer` is still a design
-stub and the losing method stays registered as the A/B. Carried: the SteamVR shim has never run
-with this game; the ini version rewrite still wipes a tuned ini (session-8 and -9 keys shipped
-without a bump); the pace guard's eaten tag if the headset ever names it.
+**The user (headset)**: nothing is waiting on you for performance until the display-period line
+exists. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it. Still open from
+earlier sessions and worth judging when you have the time: (1) JUDDER - `vrpace ahead 0|1|2`; (2)
+the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and `add`; (3) WORLD SCALE and eye height at
+`[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
 
 ## Blockers
 
@@ -176,6 +256,19 @@ without a bump); the pace guard's eaten tag if the headset ever names it.
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 13 (opening): performance, the submit stalls
+
+Branch cut, nothing built yet. What is already measured and should not be re-derived:
+
+- The rig has **headroom**: mean present interval 4.3-6.6 ms against an 8.33 ms budget at 120 Hz.
+  The complaint is not framerate.
+- **48 hitches of 44-156 ms**, and **31 of 48 sat in `present-tail (xrEndFrame)`** - the submit
+  call. `paceTimeouts` and `reset` were 0 throughout, so the pace lane is not timing out.
+- **The display period is not logged**, so the obvious reading (the game outruns the headset and
+  blocks at submit) is an inference. Measuring it is step one.
+- Mono for the first ~6 s of a run then latching to 103-108 `2nd/s` is NORMAL and tester-confirmed;
+  do not chase it.
 
 ### 2026-09-04 - session 10: the stale RIGHT eye, read out of the code, then confirmed
 
