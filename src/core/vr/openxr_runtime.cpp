@@ -481,6 +481,20 @@ std::atomic<int64_t>  g_pairPhaseLastUs{0};
 std::atomic<int64_t>  g_pairPhaseSumUs{0};
 std::atomic<int64_t>  g_pairPhaseMaxUs{-1000000};
 std::atomic<uint32_t> g_pairPhaseCount{0}, g_pairPhaseMissed{0};
+// 41.1 (Dishonored, session 13): the SUBMIT itself, counted and timed. The
+// 2026-09-04 report put 31 of its 48 hitches in present-tail (xrEndFrame), and
+// the reading offered for that - "the game outruns the headset, and the runtime
+// absorbs the mismatch by blocking at submit" - was an inference from a phase
+// NAME. These three, against g_displayPeriodNs, make it a measurement: how many
+// submits the present path issued, what one costs on average, the worst one in
+// the window, and how many display slots the headset actually offered to fill.
+// The instrument can print the unwelcome answer both ways - a submit rate BELOW
+// the headset's rate falsifies the throttle reading outright, and a small mean
+// under a large max says these are hitches, not pacing. Present thread writes at
+// the one xrEndFrame site; the stereo beat reads once per 3 s.
+std::atomic<uint32_t> g_endFrames{0};      // xrEndFrame calls from the present path (cumulative)
+std::atomic<uint64_t> g_endFrameSumUs{0};  // their total cost (cumulative)
+std::atomic<uint32_t> g_endFrameMaxUs{0};  // worst since the last probe read - DRAINED on read
 
 // Session 43 (Infinite stutter hunt): SPIKE-TRIGGERED EVIDENCE CAPTURE.
 // The s42 headset run named the judder as 39-113 ms pair intervals in bursts;
@@ -4295,6 +4309,14 @@ void on_present_end(ID3D11Texture2D* frame) {
         r = xrEndFrame(g_session, &fei);
     }
     phase_record(kPhEndFrame, tEnd);
+    {   // The submit's own cost, for the beat's rate line (see g_endFrames).
+        const uint32_t efUs = g_phaseLastUs[kPhEndFrame].load(std::memory_order_relaxed);
+        g_endFrames.fetch_add(1, std::memory_order_relaxed);
+        g_endFrameSumUs.fetch_add(efUs, std::memory_order_relaxed);
+        uint32_t efMax = g_endFrameMaxUs.load(std::memory_order_relaxed);
+        while (efUs > efMax &&
+               !g_endFrameMaxUs.compare_exchange_weak(efMax, efUs, std::memory_order_relaxed)) {}
+    }
     if (XR_FAILED(r)) {
         XRLOG("xr: xrEndFrame failed: %s", res_str(r));
         teardown_session("endframe failed");
@@ -5526,6 +5548,15 @@ static void pair_probe_fill(PairProbe* out, bool drain) {
     out->ringDropped = g_srDropped.load(std::memory_order_relaxed);
     out->ringCleared = g_srCleared.load(std::memory_order_relaxed);
     out->mirrorOn = g_mirror.load(std::memory_order_relaxed);
+    // Session 13: the headset's own cadence and our submit rate, so the two can
+    // be compared on one line. The period is whatever the last xrWaitFrame filled
+    // in - 0 means the runtime does not say, and a consumer must print that as
+    // unknown rather than assume a refresh rate.
+    out->displayPeriodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
+    out->endFrames = g_endFrames.load(std::memory_order_relaxed);
+    out->endFrameSumUs = g_endFrameSumUs.load(std::memory_order_relaxed);
+    out->endFrameMaxUs = drain ? g_endFrameMaxUs.exchange(0, std::memory_order_relaxed)
+                               : g_endFrameMaxUs.load(std::memory_order_relaxed);
 }
 
 // 41.1 (Dishonored): cumulative, NOT drained - a per-present reader must not eat

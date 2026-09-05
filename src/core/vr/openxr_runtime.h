@@ -478,6 +478,15 @@ struct PairProbe {
     int64_t  phaseLastUs = 0, phaseSumUs = 0, phaseMaxUs = 0;
     uint32_t phaseCount = 0, phaseMissed = 0;   // pairs sampled, pairs that missed their slot
     uint32_t ringPushed = 0, ringPopped = 0, ringDropped = 0, ringCleared = 0;
+    // 41.1 (Dishonored, session 13): the headset's cadence and our submit rate,
+    // the pair the "submit stalls" item needs on one line. displayPeriodNs is
+    // the runtime's own predictedDisplayPeriod (0 = it does not say: unknown,
+    // never a guessed refresh); endFrames counts xrEndFrame from the PRESENT
+    // path, which is ONE per stereo pair and not one per present.
+    int64_t  displayPeriodNs = 0;
+    uint32_t endFrames = 0;      // cumulative
+    uint64_t endFrameSumUs = 0;  // cumulative
+    uint32_t endFrameMaxUs = 0;  // worst submit - DRAINED on read (window = the caller's cadence)
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };
 void pair_probe(PairProbe* out);

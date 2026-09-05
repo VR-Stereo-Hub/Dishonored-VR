@@ -33,19 +33,49 @@ was at its shipped 0.
 rendering-cost one - which is the good news, because the fix is scheduling rather than cutting
 quality.
 
-### The gap that has to close first
+### The gap that had to close first: the display period is now printed (session 13)
 
-**The runtime's display period is not in the log.** `dvr::vr::display_period_ns()` exists in the
-runtime layer and nothing prints it. So "the game is producing frames faster than the headset can
-show them, and the runtime absorbs the mismatch by blocking at submit" is an INFERENCE from the
-phase attribution, not a measurement - and this project has spent whole sessions on inferences that
-read well and were wrong.
+**It was not in the log.** `dvr::vr::display_period_ns()` existed in the runtime layer, was read by
+the pace sync, and was PRINTED only inside the `PACE-BOUND` clause of the `perf: tick` line - so the
+one run that most needed it (48 hitches, the wait at ~0, no `PACE-BOUND` line anywhere) is exactly
+the run where it stayed invisible. "The game produces frames faster than the headset can show them,
+and the runtime absorbs the mismatch by blocking at submit" was therefore an INFERENCE from a phase
+NAME, and this project has spent whole sessions on inferences that read well and were wrong.
 
-**First step, therefore: print the display period** (the beat line and `status.json`), so the
-headset's real rate and the present rate can be compared on one line. Everything after that becomes
-falsifiable: if presents outnumber display slots, the throttle reading is confirmed and the lever is
-to stop producing frames nobody sees; if they do not, the 31 xrEndFrame stalls are genuine hitches
-and the cause is elsewhere.
+**What now prints** (built and lint-clean on `performance-fix`, **not yet run** - see below):
+
+- **`stereo: rate`**, a new line on the 3 s stereo beat:
+  `hmd=8.33 ms (120.0 Hz) slots/s=120.0 | presents/s=233 submits/s=116 (one xrEndFrame per pair) |
+  endFrame mean=6.41 ms max=41.2 ms over 349 submits | <verdict>`.
+  `submits/s` is a NEW counter: `xrEndFrame` calls from the present path, which under reentry is
+  **one per PAIR** - it is the tick rate, not `out/s`. The endFrame mean and max are the submit's
+  own cost, drained per window.
+- **the verdict on that same line**, which is the whole point and can print the unwelcome answer:
+  **OVER-SUBMITTING** (> 1.05x the slots) confirms the throttle reading and the lever becomes "stop
+  producing frames nobody sees"; **MATCHED** (0.95-1.05x) means the endFrame MEAN is the pacing wait
+  and is not a hitch, only its max is; **UNDER-SUBMITTING** (< 0.95x) says display slots are going
+  unfilled, which falsifies the throttle reading outright and puts the cause upstream of the
+  headset's cadence. A runtime that leaves `predictedDisplayPeriod` at 0 prints `hmd=UNKNOWN` and
+  gets NO verdict - never read that as 0 Hz.
+- **`perf: tick`** now opens with `[hmd 8.33 ms = 120.0 Hz, budget 8.33 ms/tick]` unconditionally,
+  not only when pace-bound.
+- **`perf: frame gap`** now ends its phase attribution with `= 19.0 display slots at 8.33 ms`. The
+  "156 ms is 19 dropped frames" arithmetic in the table above was done by hand off the log; it is in
+  the line now.
+- **`status.json`**: `stereo.pair{displayPeriodMs, displayHz, endFrames, endFrameMeanMs,
+  endFrameMaxMs}` and `perf{displayPeriodMs, displayHz}`. `game-cmd.ps1 "stereo status"` prints the
+  same numbers live, without waiting for a beat.
+
+**A prediction worth writing down before the run, because the arithmetic already argues against the
+inference.** The report's own numbers are 4.3-6.6 ms mean PRESENT interval, and reentry submits one
+frame per two presents - so submits/s should land at **76-116**, BELOW 120. If that holds, the line
+reads UNDER-SUBMITTING and the "game outruns the headset" reading is dead: the headset would be
+going hungry, not being over-fed, and the 31 present-tail stalls are genuine hitches inside
+`xrEndFrame` rather than a throttle. The measurement is what settles it either way.
+
+**Next step: a headset run on `performance-fix` with nothing else changed**, and the three lines
+above out of the log. Nothing has been installed or launched for this change - the build is verified
+only as compiling, linting clean and exporting the nine names.
 
 ### Not a fault, for the record
 
@@ -152,9 +182,19 @@ log cannot be traced to a commit: rebuild from a clean tree before handing a log
 
 ## Current state (2026-09-04, session 13 opens: performance - the submit stalls)
 
-**This branch (`performance-fix`) carries no code yet.** It is cut from `VR-Main` and holds this
-handoff only. The work it is for is the OPEN section at the top: 48 hitches of 44-156 ms with 31 of
-them in `present-tail (xrEndFrame)`, on a rig with 25-50 % frame-time headroom at 120 Hz.
+**This branch (`performance-fix`) now carries the INSTRUMENT, and nothing else.** No lever was
+touched, no default moved, no render path changed - the only behaviour difference is lines in the
+log and keys in `status.json`. The work it is for is the OPEN section at the top: 48 hitches of
+44-156 ms with 31 of them in `present-tail (xrEndFrame)`, on a rig with 25-50 % frame-time headroom
+at 120 Hz, and the first step there was to stop inferring the headset's rate and measure it.
+
+What shipped: the `stereo: rate` beat line (hmd period and Hz, slots/s, presents/s, submits/s, the
+submit's own mean and max cost, and a verdict that can print the unwelcome answer), the display
+period unconditionally on `perf: tick`, the gap converted to display slots on `perf: frame gap`, and
+all of it in `status.json` and `stereo status`. Full detail in the OPEN section.
+
+**Built, lint-clean, exports OK. NOT installed, NOT launched, NOT run** - in the simulator or a
+headset. Treat every number it prints as unseen until a run produces one.
 
 **The crouch height rise is FIXED and headset-judged** (previous session): the 38.16 deep-crouch
 capsule write moved the pawn 20.00 uu on every crouch and the camera's rate-limited catch-up
@@ -226,23 +266,27 @@ headset, at rate, with the tested configuration shipping as the defaults.
 
 ## Next steps (one paragraph per developer)
 
-**The next developer session (performance)**: do not reach for a lever first. The single most
-valuable thing is to **print the runtime's display period** - `dvr::vr::display_period_ns()` is
-already in the runtime layer and nothing logs it - on the `stereo: beat` line and in `status.json`,
-next to the present rate. That converts the central claim ("the game outruns the headset and the
-runtime absorbs it by blocking in `xrEndFrame`") from an inference into a measurement, and it is
-about ten lines. Only then attribute the 31 submit stalls: a blocking throttle and a genuine
-compositor hitch look identical in the current log and want opposite fixes. The levers that exist
-already, none of them yet judged for this: `vrpace ahead 0|1|2` (F10 Runtime tab, ships at 0),
-`[Stereo] HoldUntagged` (ships at 3), and the capture mode. Remember the rule the crouch item paid
-for five times over - when a lever comes back null, confirm the lever actually moved something
-before believing the verdict.
+**The next developer session (performance)**: the instrument exists now; the next thing is a RUN,
+not another lever. Read the `stereo: rate` verdict first and let it pick the branch - it is written
+so that all three answers are actionable and one of them kills the current hypothesis. If it reads
+OVER-SUBMITTING the throttle is confirmed and the lever is to stop producing frames nobody sees; if
+it reads UNDER-SUBMITTING (which is what the report's own 4.3-6.6 ms present interval predicts under
+reentry's two-presents-per-submit) the throttle reading is dead and the 31 present-tail stalls are
+genuine hitches inside `xrEndFrame` - at which point the questions are what else touches the D3D11
+device on that path and whether VDXR is the one hitching. Only then reach for the levers, none of
+them yet judged for this: `vrpace ahead 0|1|2` (F10 Runtime tab, ships at 0), `[Stereo] HoldUntagged`
+(ships at 3), and the capture mode. Remember the rule the crouch item paid for five times over -
+when a lever comes back null, confirm the lever actually moved something before believing the
+verdict.
 
-**The user (headset)**: nothing is waiting on you for performance until the display-period line
-exists. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it. Still open from
-earlier sessions and worth judging when you have the time: (1) JUDDER - `vrpace ahead 0|1|2`; (2)
-the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and `add`; (3) WORLD SCALE and eye height at
-`[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
+**The user (headset)**: this branch is now worth one run. Install it, play the same few minutes that
+produced the 48 hitches, and send the log; the three lines to look for are `stereo: rate`,
+`perf: tick` (it opens with `[hmd .. ms = .. Hz ..]` now) and `perf: frame gap` (it ends its phase
+attribution with `= N display slots`). Nothing else in the build changed, so a comparison against
+the last log is clean. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it.
+Still open from earlier sessions and worth judging when you have the time: (1) JUDDER -
+`vrpace ahead 0|1|2`; (2) the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and `add`;
+(3) WORLD SCALE and eye height at `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
 
 ## Blockers
 
@@ -257,9 +301,29 @@ the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and `add`; (3) WORLD SCA
 
 ## Session log
 
-### 2026-09-04 - session 13 (opening): performance, the submit stalls
+### 2026-09-04 - session 13: the display period is measured, not inferred
 
-Branch cut, nothing built yet. What is already measured and should not be re-derived:
+The branch's first code. **One commit, instrument only** - no lever, no default, no render path.
+`dvr::vr::display_period_ns()` had existed since session 42 of the BioShock lineage and printed in
+exactly one place, inside the `PACE-BOUND` clause of `perf: tick`, which is a clause the hitching
+run never triggered. So the headset's rate was absent from the one log that needed it.
+
+Added: an `xrEndFrame` counter with its own cost (count, cumulative sum, per-window max) at the
+single present-path submit site, and the display period, both published through `PairProbe`; the
+`stereo: rate` beat line built on them, with a three-way verdict (OVER-SUBMITTING / MATCHED /
+UNDER-SUBMITTING, plus UNKNOWN when the runtime leaves the period at 0); the period unconditionally
+on `perf: tick`; the gap in display slots on `perf: frame gap`; the same numbers in `status.json`
+and in `stereo status`.
+
+**A prediction is on the record before the run** (OPEN section): the report's 4.3-6.6 ms present
+interval, halved by reentry's one-submit-per-pair, puts submits at 76-116/s against 120 slots/s -
+UNDER-SUBMITTING, which would falsify the throttle reading outright. The line was written so it can
+say that.
+
+**Verified only as: builds, `lint: clean`, `exports OK: 9 names`.** Not installed, not launched, not
+run in the simulator or a headset.
+
+What was already measured before this session and should not be re-derived:
 
 - The rig has **headroom**: mean present interval 4.3-6.6 ms against an 8.33 ms budget at 120 Hz.
   The complaint is not framerate.
@@ -270,7 +334,7 @@ Branch cut, nothing built yet. What is already measured and should not be re-der
 - Mono for the first ~6 s of a run then latching to 103-108 `2nd/s` is NORMAL and tester-confirmed;
   do not chase it.
 
-### 2026-09-04 - session 10: the stale RIGHT eye, read out of the code, then confirmed
+### 2026-09-04 - session 13: the stale RIGHT eye, read out of the code, then confirmed
 
 Branch `swapchain-one-picture-flicker`, 6 commits, one headset run at the end.
 

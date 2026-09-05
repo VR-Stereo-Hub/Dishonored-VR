@@ -101,7 +101,7 @@ void note(Flag f);
 struct Gap {
     float    ms = 0, medianMs = 0;
     uint32_t present = 0;
-    char     where[400] = "";
+    char     where[480] = "";
 };
 bool take_gap(Gap* out);      // true once per detected gap (present thread)
 void log_gap_ring();          // the ring's tail at Info, at most once per second
@@ -130,6 +130,10 @@ struct Window {
     uint32_t gpuResolved = 0, gpuLate = 0, gpuDisjoint = 0, gpuUnmarked = 0;
     char  gpu[8] = "";           // "ok", "n/a", "off"
     uint32_t marks = 0;          // `mark` calls so far
+    // Session 13: the runtime's own display period (ms; 0 = the runtime does not
+    // say, which is UNKNOWN and never "0 Hz"). The budget every number above is
+    // being judged against, so it belongs on the same line as them.
+    float displayPeriodMs = 0;
     bool  paceBound = false;
     bool  stereo = false;     // two presents per tick this window
 };
