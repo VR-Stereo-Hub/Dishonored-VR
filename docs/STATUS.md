@@ -408,27 +408,30 @@ headset, at rate, with the tested configuration shipping as the defaults.
 
 ## Next steps (one paragraph per developer)
 
-**The next developer session (performance)**: the ghosting A/B comes first and it needs no build -
-`vrpace sync 60` against `vrpace sync off`, judged in the headset, with the `stereo: rate` line read
-before and after (`UNEVEN CADENCE` should become `EVEN CADENCE: 2.00 display slots per frame`). Then
-apply the rule the crouch item paid for five times over: confirm the lever actually MOVED the
-cadence before believing either verdict - `vrpace sync` with no argument prints the delays it
-imposed, and a null result with 0 delays means the gate never ran. If the cadence locks and the
-ghosting stays, the cause is not ours and Virtual Desktop's own frame synthesis is next. Only after
-that is the "make it 120" work worth starting, and it is a render-cost problem, not a pacing one:
-9.2-9.9 ms per tick, almost all of it the game's two scene renders, with the per-eye size the dial.
-The rare submit stalls are a separate, later item.
+**The next developer session (the ghosting)**: build the POSE-LANE instrument and stop guessing.
+Three suspects have now been killed by measurement - the submit throttle, the uneven cadence, and
+Virtual Desktop's SSW - and the one the tester named has never been measured at all: the camera is
+driven from a head sample on the SCRIPT lane while the compositor reprojects using a pose located on
+the PRESENT lane, and nothing anywhere compares the two. `head_track.cpp` already keeps the matched
+pair (`g_viewYawRad` beside the `g_injHmdYawSnap` it was computed from, its own comment says so);
+publish that snap to the runtime and, at submit, print the delta in degrees against the yaw of the
+pose the layer is tagged with. It must be able to print 0.0 and kill the hypothesis. Then
+`vrpace lag 0|1|2` and `vrpace ahead 0|1|2` are the live A/Bs that move it, and neither has ever
+been judged. The corroborating detail worth keeping in mind: the tester says the ghosting **grows
+when frames drop**, which is what a lane-disagreement does and what a locked cadence does not.
+Second job, small and separable: the game-settings profile (the real keys and what is already at
+maximum are tabulated in the OPEN section - `iType_AntiAlias` 1 -> 2 is the only clear win, `UseVsync`
+wants an A/B, model detail is already high, and no killcam key exists in any of the 23 game inis).
+Anything written to `[SystemSettings]` must also go to all four `AppCompatBucket*`, or the bucket
+AppCompat picks at startup overwrites it - the same trap the resolution picker already handles.
 
-**The user (headset)**: installed as `alpha-264-ge2b84a80`, **and the render size is already set to
-2064x2208** - it is armed for the next launch, so just start the game. The ghosting A/B, in this
-order, and none of it is a frame limiter. **(1) Play and read the log.** Pass condition:
-`perf: tick` mean under 8.33 ms and `stereo: rate` reading `EVEN CADENCE: 1.00 display slots per
-frame`; `res status` says whether the engine honoured the ask. To go back, `res 2496x2688f` and
-relaunch. **(2) If the tick still will not fit**, put the
-headset at 90 Hz and go back to 2496x2688 - an 11.1 ms budget against a 9.4 ms tick locks with room,
-at full sharpness. **(3) If the cadence locks and the doubled edges survive**, the beat was not the
-cause: turn off Virtual Desktop's Synchronous Spacewarp and repeat, because that is the other thing
-manufacturing frames. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it.
+**The user (headset)**: installed as `alpha-264-ge2b84a80`, with **3840x4096 armed for the next
+launch** (your call - you judged 4K much better looking). Know the trade: it measures 15.6-15.8 ms
+per tick = 64 fps into a 120 Hz headset, against 8.6-8.9 ms at 2064x2208, so if the ghosting really
+does track frame drops, 4K is the worst case for it and the sharpest picture at the same time. If
+you want the middle, `res 2496x2688f` or `res 2064x2208f` in-game then relaunch. Nothing else is
+waiting on you until the pose instrument exists - the three cheap A/Bs are spent. `crouch-fix`
+(PR #14) is still ready for your merge decision, and note that the installed build does NOT carry it.
 Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and
 `add`; (2) WORLD SCALE and eye height at `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
 
