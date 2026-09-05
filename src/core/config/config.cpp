@@ -71,8 +71,14 @@ static void WriteDefaultIni(const char* ini)
         "; SharedWait=0 delivers the previous present's slot (no wait in the common case),\n"
         "; 1 delivers this present's after its fence (zero latency, the CPU waits for the frame\n"
         "; in flight). `capture sharedwait on|off` live.\n"
+        "; BboxMs: how often the content-bbox instrument (the FULL/CROPPED line) resamples.\n"
+        "; Each sample is a full-frame GetRenderTargetData + LockRect + row copy on the\n"
+        "; present thread - the same round trip that makes Mode=sync cost 17-21 ms/present -\n"
+        "; so this is a frame-time setting, not a logging one. 0 = only after a size change,\n"
+        "; which is the sample that decides FULL vs CROPPED. `capture bbox off|<ms>` live.\n"
         "Mode=shared\n"
         "SharedWait=0\n"
+        "BboxMs=30000\n"
         "[Pace]\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
         "; the `vrpace` seam word and the F10 Runtime panel; SAVE AS DEFAULTS writes them.\n"
@@ -447,6 +453,15 @@ static void LoadConfig()
         }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
         dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
+        {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
+            // Each sample is a full-frame CPU readback on the present thread even
+            // in shared mode (capture.h says why), so this is a frame-time knob,
+            // not a logging knob. 0 = only after a size change.
+            float bb = IniFloat(ini, "Capture", "BboxMs", 30000);
+            if (bb < 0.0f) bb = 0.0f;
+            if (bb > 600000.0f) bb = 600000.0f;
+            dvr::capture::set_bbox_ms((uint32_t)bb);
+        }
     }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
