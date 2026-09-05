@@ -283,18 +283,41 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
             if (icnt && periodMs > 0.0) {
                 const double nearest = floor(spf + 0.5);
                 const double off = spf - nearest;
-                const bool uneven = (off > 0.06 || off < -0.06) || iSdMs > periodMs * 0.25;
+                // The beat, stated as a number instead of left as a verdict: at
+                // `off` slots of drift per frame, one frame in 1/|off| is held
+                // for an extra slot, which is the doubled edge. Printing it on
+                // BOTH branches is the point - a verdict that only says "even"
+                // hides how much residual it is forgiving.
+                const double beatFrames = (off > 1e-4 || off < -1e-4) ? 1.0 / (off < 0 ? -off : off) : 0.0;
+                const double beatHz = beatFrames > 0.0 && periodMs > 0.0 ? 1000.0 / (beatFrames * periodMs) : 0.0;
+                // 0.02, not the 0.06 this shipped with. MEASURED 2026-09-04 at
+                // 2750x2850 on a Quest 3 over VDXR, same build, same scene, only
+                // the headset's refresh changed:
+                //   120 Hz -> 1.05-1.11 slots/frame, tester "still bad"
+                //    90 Hz -> 1.00-1.02 slots/frame, tester "pretty much zero
+                //             ghosting or jittery frames"
+                // 0.06 called 1.05 EVEN, and session 14 read that clean bill of
+                // health as falsifying the cadence hypothesis when the beat was
+                // still there once every 20 frames. The hypothesis was right and
+                // the THRESHOLD was wrong. The band between the two runs is
+                // 0.02..0.05, so the line is drawn at the measured edge.
+                const bool uneven = (off > 0.02 || off < -0.02) || iSdMs > periodMs * 0.25;
                 if (uneven)
                     _snprintf(even, sizeof(even),
                               " | UNEVEN CADENCE: %.2f display slots per frame (not a whole number) with sd %.2f ms - "
-                              "consecutive frames are held for DIFFERENT numbers of slots, which is the interference "
-                              "beat seen as doubled edges on a head turn. `vrpace sync <hz>` locks the pair schedule; "
-                              "the clean targets at this period are %.0f/%.0f/%.0f Hz",
-                              spf, iSdMs, slots, slots / 2.0, slots / 3.0);
+                              "one frame in %.0f is held an extra slot (a %.1f Hz beat), which is the doubled edge on "
+                              "a head turn. Measured: 1.05-1.11 ghosts, 1.00-1.02 does not. The cheapest fix is a "
+                              "headset refresh whose period matches the tick; `vrpace sync <hz>` locks the pair "
+                              "schedule; the clean targets at this period are %.0f/%.0f/%.0f Hz",
+                              spf, iSdMs, beatFrames, beatHz, slots, slots / 2.0, slots / 3.0);
                 else
                     _snprintf(even, sizeof(even),
                               " | EVEN CADENCE: %.2f display slots per frame, sd %.2f ms - the pair schedule lands on "
-                              "slot boundaries and no beat is expected", spf, iSdMs);
+                              "slot boundaries%s", spf, iSdMs,
+                              beatFrames > 0.0 && beatFrames < 400.0
+                                  ? " (residual beat: one frame in that many is still held over, but under the "
+                                    "0.02 the headset run could not see)"
+                                  : " and no beat is expected");
             } else if (periodMs > 0.0) {
                 strcpy_s(even, sizeof(even), " | cadence n/a (no pair intervals this window)");
             }
