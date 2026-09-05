@@ -59,6 +59,52 @@ What that leaves, cheapest first, all live commands with no relaunch:
 - **The hitches did not improve with resolution**: 62 gaps at 2496x2688, 82 at 2064x2208. They are a
   separate, later item from the ghosting.
 
+### The 4K run: the lever is proven twice over, and SSW is OUT
+
+**3840x4096 ran.** `perf: tick` **15.6-15.8 ms, 64 ticks/s** against 8.6-8.9 ms at 2064x2208 - the
+lever moves the cost by 1.8x, exactly as pixels predict, so it is not inert and never was. Tester:
+"4k does look way better". The capture lock also scales (0.0-0.1 ms -> 1.4-1.7 ms), which is the
+readback and is ours.
+
+**Virtual Desktop's SSW was already OFF** (tester confirmed), so suspect 1 of 3 is dead without a
+run. The ghosting persists at every size tried, and the tester adds: **"it seems to get worse when
+frame drops happen"**, and their own read is "some kind of eye submit desync, or the world geometry
+isn't tracking the head tracking correctly".
+
+**That read is now the leading hypothesis and it is testable.** The mod drives the game camera from
+the head pose on the SCRIPT lane, and the compositor reprojects the submitted image using the pose
+in the projection layer's views, located on the PRESENT lane. Those are two different samples of the
+same head. If they disagree, the compositor's warp is wrong by the difference, and the error changes
+every frame - which is doubled edges under rotation, and it grows when a frame is slow, which is
+exactly "worse when frame drops happen". Nobody has ever measured that disagreement.
+
+**The matched pair to measure it already exists in the code**: `head_track.cpp` records
+`g_viewYawRad` (the yaw actually written to the engine) next to `g_injHmdYawSnap` (the HMD yaw it was
+computed from) - its own comment says "Matched pair: this rotation was computed from THIS
+g_hmdYaw". The instrument to build is: at submit, compare `g_injHmdYawSnap` for the frame that was
+RENDERED against the yaw of the pose the layer is tagged with, and print the delta in degrees. It
+can print the unwelcome answer - 0.0 deg means the two lanes agree and this hypothesis dies too.
+`vrpace lag 0|1|2` and `vrpace ahead 0|1|2` are the live A/Bs that move it, and neither has been
+judged.
+
+### The tester's settings requests, with the REAL keys found (not guessed)
+
+Asked for: killcam off, antialiasing FXAA, models high, maybe vsync on ("I just tried it and it was
+maybe more smooth, but I'm not sure"). What the game's own config actually carries, in
+`Documents\My Games\Dishonored\DishonoredGame\Config\`:
+
+| ask | key | now | note |
+|---|---|---|---|
+| FXAA | `DishonoredEngine.ini [SystemSettings] iType_AntiAlias` | **1** (MLAA) | **2 = FXAA**, and the enum is documented in the file itself by the original devs (`EPpAa_None=0, EPpAa_Mlaa=1, EPpAa_Fxaa=2`) - measured, not guessed |
+| vsync | same section, `UseVsync` | **False** | `True` is the ask; the tester is unsure it helped, so this one wants an A/B, not a default |
+| models high | `SkeletalMeshLODBias`, `TextureForcedLODBias`, `DetailMode`, `Skeletal/StaticLODDistanceFactorMultiplier` | 0, 0, 2, 1, 1 | **already at the high end** (bias 0 = no reduction, DetailMode 2 = high). Nothing to change without inventing a value - do NOT write a guessed multiplier |
+| killcam off | **NOT FOUND** | - | no killcam-shaped key in any of the 23 game inis (searched `Kill/Death/Assass/Slow/Cam` boolean keys). It may live in the save profile rather than an ini. Needs finding before it can be defaulted |
+
+The AppCompat trap applies to all of these the same way it applies to the resolution: the bucket
+AppCompat picks at startup overwrites `[SystemSettings]`, so anything written there must be written
+to all four `AppCompatBucket*` sections too - `iType_AntiAlias` and `UseVsync` both already appear
+in `DishonoredCompat.ini` with per-bucket values.
+
 ### Armed now: 3840x4096, purely to prove the lever to the eye
 
 The tester asked to see the resolution do something visible, which is the right instinct and the
