@@ -193,8 +193,14 @@ submit's own mean and max cost, and a verdict that can print the unwelcome answe
 period unconditionally on `perf: tick`, the gap converted to display slots on `perf: frame gap`, and
 all of it in `status.json` and `stereo status`. Full detail in the OPEN section.
 
-**Built, lint-clean, exports OK. NOT installed, NOT launched, NOT run** - in the simulator or a
+**Built, lint-clean, exports OK, and INSTALLED as `alpha-260-g958ab57a`** (RelWithDebInfo,
+hash-checked against `build\src\RelWithDebInfo\d3d9.dll`, clean tag - no `-dirty`). It replaces
+`alpha-259-g865f1bcd`, so the game folder no longer carries the crouch fix: `crouch-fix` is still
+only PR #14 and this branch is cut from `VR-Main`. **Not launched, not run** - in the simulator or a
 headset. Treat every number it prints as unseen until a run produces one.
+
+The two logs that were in the game folder are archived to `D:\dvr-data\logs\s13-pre-install-*.log`
+before the run overwrites them (rotation is one deep and there were already two).
 
 **The crouch height rise is FIXED and headset-judged** (previous session): the 38.16 deep-crouch
 capsule write moved the pawn 20.00 uu on every crouch and the camera's rate-limited catch-up
@@ -202,12 +208,13 @@ integrated the remainder. `[PosTrack] DeepCrouch` now defaults to 0. That work i
 and is **open as PR #14, not merged**. Its derivation and the five falsified suspects are in
 `docs/dishonored/ENGINE_NOTES.md` on that branch.
 
-**The DLL in the game folder is `alpha-259-g865f1bcd`** - the tip of `crouch-fix`, built
-RelWithDebInfo, installed and hash-checked against `build\src\RelWithDebInfo\d3d9.dll`. So the
-deployed build carries the crouch fix and nothing diagnostic: `[Hands] CrouchAB`, `CrouchBurst` and
-`[PosTrack] DeepCrouch` are all default OFF. The tester's `dishonored_vr.ini` and the game's
-`DishonoredCamera.ini` were both restored from backups after the investigation; no diagnostic keys
-remain in either.
+**The DLL in the game folder is now `alpha-260-g958ab57a`** - the tip of THIS branch, built
+RelWithDebInfo, installed and hash-checked against `build\src\RelWithDebInfo\d3d9.dll`. It
+replaced `alpha-259-g865f1bcd` (the tip of `crouch-fix`), so **the deployed build no longer carries
+the crouch fix** - `performance-fix` is cut from `VR-Main` and PR #14 is still unmerged. Nothing
+diagnostic is armed either way: `[Hands] CrouchAB`, `CrouchBurst` and `[PosTrack] DeepCrouch` are
+all default OFF, and the tester's `dishonored_vr.ini` and the game's `DishonoredCamera.ini` were
+restored from backups after the crouch investigation; no diagnostic keys remain in either.
 
 **Two findings from that session are deliberately unbundled and unfixed**, because neither has been
 judged in a headset:
@@ -279,8 +286,8 @@ them yet judged for this: `vrpace ahead 0|1|2` (F10 Runtime tab, ships at 0), `[
 when a lever comes back null, confirm the lever actually moved something before believing the
 verdict.
 
-**The user (headset)**: this branch is now worth one run. Install it, play the same few minutes that
-produced the 48 hitches, and send the log; the three lines to look for are `stereo: rate`,
+**The user (headset)**: this branch is installed and worth one run. Play the same few minutes that
+produced the 48 hitches and send the log; the three lines to look for are `stereo: rate`,
 `perf: tick` (it opens with `[hmd .. ms = .. Hz ..]` now) and `perf: frame gap` (it ends its phase
 attribution with `= N display slots`). Nothing else in the build changed, so a comparison against
 the last log is clean. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it.
@@ -320,8 +327,9 @@ interval, halved by reentry's one-submit-per-pair, puts submits at 76-116/s agai
 UNDER-SUBMITTING, which would falsify the throttle reading outright. The line was written so it can
 say that.
 
-**Verified only as: builds, `lint: clean`, `exports OK: 9 names`.** Not installed, not launched, not
-run in the simulator or a headset.
+**Verified as: builds, `lint: clean`, `exports OK: 9 names`, installed and hash-checked
+(`alpha-260-g958ab57a`).** Not launched, not run in the simulator or a headset - every number the
+new lines print is still unseen.
 
 What was already measured before this session and should not be re-derived:
 
