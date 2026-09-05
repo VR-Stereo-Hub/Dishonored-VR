@@ -155,8 +155,15 @@ static void WriteDefaultIni(const char* ini)
         "; game falls back to a display mode and the picture is soft). Another headset wants its\n"
         "; own size: the F10 Display picker writes these three for the next launch, and\n"
         "; RenderWidth=0 RenderHeight=0 asks for nothing at all (the game's own size).\n"
-        "RenderWidth=2496\n"
-        "RenderHeight=2688\n"
+        "; 41.1 (session 15, 2026-09-04): 2750x2850 with the HEADSET AT 90 Hz. This pair is one\n"
+        "; setting, not two. The tick at this size is ~11.3 ms and the 90 Hz display period is\n"
+        "; 11.11 ms, so the pair schedule lands 1.00-1.02 display slots per frame and the\n"
+        "; ghosting on a head turn is gone (tester, Quest 3 over VDXR: \"super smooth, pretty\n"
+        "; much zero ghosting\"). The SAME size at 120 Hz beats at 1.05-1.11 slots per frame and\n"
+        "; ghosts badly - the fault was never the resolution, it was the tick not dividing into\n"
+        "; the display period. If you change one, check `stereo: rate` for the other.\n"
+        "RenderWidth=2750\n"
+        "RenderHeight=2850\n"
         "RenderFullscreen=1\n"
         "VirtualMode=1\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
@@ -411,8 +418,13 @@ static void LoadConfig()
         // 41.1 (session 9): the headset-judged size, and the advertisement that makes the
         // game create it, are the DEFAULTS now (an ini naming neither key gets them);
         // `res 0x0` writes an explicit 0 and still means "the game's own size".
-        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2496, ini);
-        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2688, ini);
+        // 41.1 (session 15, 2026-09-04): 2750x2850, judged on the headset. It is
+        // NOT simply "bigger is better" - it is the size whose tick lands one
+        // display period at 90 Hz, which is what killed the ghosting (see
+        // ENGINE_NOTES, "The ghosting was the cadence beat"). At 120 Hz the same
+        // size beats at 1.05-1.11 slots per frame and ghosts.
+        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2750, ini);
+        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2850, ini);
         g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
         g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 1, ini) != 0 || g_launchVirtual;
         if (!g_resWantW && g_launchW && g_launchH) {   // the launch file carried an ask the ini lost
