@@ -89,7 +89,20 @@ void  shadow_register_texture(IDirect3DDevice9* dev, IDirect3DTexture9* real, UI
 void  shadow_register_cube(IDirect3DDevice9* dev, IDirect3DCubeTexture9* real, UINT edge, UINT levels, D3DFORMAT fmt);
 void  shadow_register_volume(IDirect3DDevice9* dev, IDirect3DVolumeTexture9* real, UINT w, UINT h, UINT d, UINT levels, D3DFORMAT fmt);
 IDirect3DBaseTexture9* shadow_twin(void* real);   // null = not shadowed
-void  shadow_unlocked(void* real);                // UpdateTexture twin -> real
+// VR-15: `level` is the mip level the unlock wrote and `face` the cube face
+// (-1 for a plain or volume texture). The level used to be discarded here,
+// which is why a distance-dependent (mip-dependent) fault had no instrument.
+void  shadow_unlocked(void* real, int level, int face);
+
+// [Device] ShadowFullCopy (ships OFF, `device shadowfullcopy on|off` live):
+// push the ONE level the unlock wrote with UpdateSurface instead of handing
+// the whole texture to UpdateTexture, which takes no level. Fails soft - a
+// refused UpdateSurface falls back to UpdateTexture, so the lever cannot make
+// the picture worse. Black-at-distance clearing when it goes on is the proof
+// that sub-level writes were not reaching the GPU.
+void  set_full_copy(bool on);
+bool  full_copy();
+void  shadow_levels(uint32_t* subLevelUnlocks, int* maxLevel, uint32_t* copies, uint32_t* copyFailed, HRESULT* firstHr);
 void  shadow_released(void* real);                // the real texture's last Release
 bool  shadow_active();                            // Ex live, translating, Managed=shadow
 // VR-15: the twin population. `live` twins the map holds, `neverUpdated` how

@@ -1,31 +1,47 @@
 # Status
 
-## NEEDS A HEADSET RUN (2026-09-05, VR-15): the black texture instrument is installed, unread
+## THE BLACK TEXTURE BUG IS A MIP FAULT (2026-09-05, VR-15): two ini flips to test it
 
 PRs #14 (the crouch fix) and #15 (the 90 Hz defaults) are **merged to `VR-Main`**. Branch
-`vr-15-black-texture` is cut from that merge and carries one thing: an instrument for the
-black texture bug, and one candidate fix behind a default-OFF lever. **Nothing is
-diagnosed. No run has produced a reading.**
+`vr-15-black-texture` carries the instrument and two candidate fixes, both default OFF.
 
-### What to run, and what each answer means
+### The finding that changes the shape of this
 
-The build is installed. `device upload` prints the verdict at any time, and it also rides
-with the creation census at the first GAMEPLAY. Read the verdict line first.
+A headset run photographed an NPC at two distances: **largely black far away, correct up
+close, the black receding as the player walks in.** The fault tracks DISTANCE, and distance
+selects the MIP LEVEL. So the bad data is in the small mips and level 0 is fine.
 
-1. **Play until black surfaces appear, then `device upload`.** The verdict either names
-   lost uploads (twin refused / no twin / passthrough refused / surface bypass) with the
-   first `HRESULT`, or it prints **NO LOST UPLOAD**, which falsifies the shadow and sends
-   the hunt to `[Device] Ex=0`, then `stereo arm off`, then the game with no mod at all.
-2. **If the `surface bypass` count carries it**, `device shadowsurfaces on` is the live A/B
-   and the candidate fix - it sends a lock taken through `GetSurfaceLevel` to the twin the
-   way the texture path already goes. It ships OFF and needs a headset verdict before it
-   can become a default.
-3. **The twin population line is the one that cannot lie by omission**: live twins that
-   have carried no successful `UpdateTexture`, and twins released having carried none. A
-   counter of failures is not evidence until the population is known, and that line is the
-   population.
+The 2026-09-04 log already carried the corroboration, unread: **`level>0=50189`** locks on
+MANAGED textures in one load, with **`dirtyRects=0`**. The shadow pushes every write with
+`UpdateTexture`, which **takes no level**, and until this session `shadow_unlocked()` was
+not even given the level - the unlock hook had it and dropped it. A per-level fault had no
+instrument that could see it.
 
-Mechanism, the four failure modes and the vtable slots are in
+This is a hypothesis with a mechanism, not a measurement. `[Device] ShadowFullCopy=1`
+pushes the exact level with `UpdateSurface` (which cannot be vague about which level it
+copied) and falls back to `UpdateTexture` when that refuses, so it cannot make the picture
+worse. **It clearing black-at-distance is the proof; it not clearing falsifies this.**
+
+### What to run - EDIT THE INI, no scripts needed
+
+The tester's harness scripts do not work on their machine, so everything below is an ini
+edit next to `Dishonored.exe` and a plain look at the game. The log now prints the
+`device/upload` verdict **by itself every 60 s** whenever a counter moves, so a run is
+readable from `dishonored_vr.log` alone.
+
+1. **`[Device] ShadowFullCopy=1`** - the candidate fix. Do black surfaces at distance go
+   away? This is the whole experiment.
+2. **`[Device] Ex=0`** - the control, and it needs no code of ours to be right. It turns
+   off the 9Ex device, the translation and the shadow entirely (the frame goes back to the
+   readback capture, so expect it to be slower). **If black-at-distance survives `Ex=0`,
+   the shadow is exonerated completely** and the hunt moves to `stereo arm off`, then the
+   game with no mod at all. This is the cheapest decisive test and it should be run first.
+
+`ShadowSurfaces=1` is the other lever: it covers the case where the game locks a SURFACE
+taken off the texture rather than the texture, which the shadow's redirect cannot see by
+construction. The `device/upload` line says whether that path is being used at all.
+
+Mechanism, the mip reasoning and the vtable slots are in
 `docs/dishonored/ENGINE_NOTES.md`, "The black texture bug".
 
 ### What was NOT done, and why

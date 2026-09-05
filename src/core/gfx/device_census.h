@@ -48,6 +48,10 @@ void log_status();
 // just as readily - four zeros falsify the shadow as the cause. Rides with
 // log_summary and answers `device upload`.
 void log_upload(const char* why);
+// The same report, printed only when a counter moved since the last one, so a
+// run can be read from the log alone without the command seam. Driven every
+// 60 s from the present tick.
+void log_upload_if_moved(const char* why);
 
 // [Device] ShadowSurfaces (default OFF, `device shadowsurfaces on|off` live):
 // redirect a lock taken through GetSurfaceLevel to the twin's matching

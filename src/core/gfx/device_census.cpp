@@ -309,7 +309,7 @@ HRESULT __stdcall hkTexUnlockRect(IDirect3DTexture9* self, UINT level) {
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DTexture9*)t)->UnlockRect(level);
-        dvr::d3d9ex::shadow_unlocked(self);
+        dvr::d3d9ex::shadow_unlocked(self, (int)level, -1);
         return hr;
     }
     return g_origTexUnlock(self, level);
@@ -343,7 +343,7 @@ HRESULT __stdcall hkCubeUnlockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DCubeTexture9*)t)->UnlockRect(face, level);
-        dvr::d3d9ex::shadow_unlocked(self);
+        dvr::d3d9ex::shadow_unlocked(self, (int)level, (int)face);
         return hr;
     }
     return g_origCubeUnlock(self, face, level);
@@ -374,7 +374,8 @@ HRESULT __stdcall hkVolUnlockBox(IDirect3DVolumeTexture9* self, UINT level) {
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DVolumeTexture9*)t)->UnlockBox(level);
-        dvr::d3d9ex::shadow_unlocked(self);
+        // a volume has no per-level SURFACE, so the per-level push cannot apply
+        dvr::d3d9ex::shadow_unlocked(self, -1, -1);
         return hr;
     }
     return g_origVolUnlock(self, level);
@@ -471,7 +472,7 @@ HRESULT __stdcall hkSurfUnlockRect(IDirect3DSurface9* self) {
         surf_set_locked(self, nullptr);
         const HRESULT hr = e.lockedTwin->UnlockRect();
         e.lockedTwin->Release();
-        dvr::d3d9ex::shadow_unlocked(e.parent);   // push the twin's dirty regions
+        dvr::d3d9ex::shadow_unlocked(e.parent, (int)e.level, e.face);   // the level this surface IS
         return hr;
     }
     return g_origSurfUnlock ? g_origSurfUnlock(self) : D3DERR_INVALIDCALL;
@@ -853,6 +854,16 @@ void log_upload(const char* why) {
     DVR_INFO("device/upload:   twins: %d live, %d of them have carried NO successful UpdateTexture; %u more were "
              "released having carried none. A live twin at 0 uploads is a texture whose pixels never left system "
              "memory - it draws as it was created, which is black.", live, never, dropped);
+    // VR-15: the mip lane. The reported fault is black at distance, correct up
+    // close, and distance selects the level - so this is the line that matters.
+    uint32_t subUnlocks = 0, lvlCopies = 0, lvlFailed = 0; int maxLevel = -1; HRESULT lvlHr = S_OK;
+    dvr::d3d9ex::shadow_levels(&subUnlocks, &maxLevel, &lvlCopies, &lvlFailed, &lvlHr);
+    DVR_INFO("device/upload:   mip levels: %u unlocks carried a level > 0 (deepest %d). Those are the levels a surface "
+             "is sampled at from a DISTANCE. [Device] ShadowFullCopy=%d: %u levels pushed with UpdateSurface, %u "
+             "refused (first 0x%08lx, those fell back to UpdateTexture). With the lever OFF every one of those %u "
+             "sub-level writes went to an UpdateTexture that takes no level.",
+             subUnlocks, maxLevel, dvr::d3d9ex::full_copy() ? 1 : 0, lvlCopies, lvlFailed, (unsigned long)lvlHr,
+             subUnlocks);
     DVR_INFO("device/upload:   surface bypass: %u surfaces handed out off shadowed textures, %u locked (%u of those on "
              "a shadowed texture), %u refused, first 0x%08lx | redirect [Device] ShadowSurfaces=%d: %u redirected, %u "
              "refused | map full %u",
@@ -874,6 +885,26 @@ void log_upload(const char* why) {
                  "game filled and the GPU never received. Re-run with `device shadowsurfaces on` if the bypass count "
                  "carries it; with [Device] Ex=0 if it does not.",
                  why ? why : "?", lost, twinF, noTwin, passF, bypassLost, never, dropped);
+}
+
+// VR-15: the same report, but only when something has actually changed since
+// the last one. A run where every upload lands stays silent; the first lost
+// upload prints immediately and then only on further movement. This is what
+// makes the log readable without the command seam.
+void log_upload_if_moved(const char* why) {
+    if (!dvr::d3d9ex::shadow_active()) return;
+    uint32_t twinF = 0, noTwin = 0, passF = 0;
+    for (int c = 0; c < kUcCount; ++c) { twinF += g_upTwinFail[c]; noTwin += g_upNoTwin[c]; passF += g_upPassFail[c]; }
+    uint32_t subUnlocks = 0, lvlCopies = 0, lvlFailed = 0; int maxLevel = -1; HRESULT lvlHr = S_OK;
+    dvr::d3d9ex::shadow_levels(&subUnlocks, &maxLevel, &lvlCopies, &lvlFailed, &lvlHr);
+    int live = 0, never = 0; uint32_t dropped = 0;
+    dvr::d3d9ex::shadow_population(&live, &never, &dropped);
+    const uint32_t sig = twinF + noTwin + passF + g_surfLockShadowed + g_surfRedirectFail + lvlFailed
+                       + (uint32_t)never + dropped;
+    static uint32_t seen = 0xFFFFFFFFu;
+    if (sig == seen) return;
+    seen = sig;
+    log_upload(why);
 }
 
 void set_shadow_surfaces(bool on) {

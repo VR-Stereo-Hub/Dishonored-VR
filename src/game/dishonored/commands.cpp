@@ -206,9 +206,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             if (!strcmp(sub, "managed")) { DeviceSetManaged(v, "seam"); return true; }
             // VR-15: the surface-bypass redirect, live A/B (no relaunch)
             if (!strcmp(sub, "shadowsurfaces") && DvrOnOff(v, &b)) { dvr::census::set_shadow_surfaces(b); return true; }
+            // VR-15: the per-level push, the candidate fix for black-at-distance
+            if (!strcmp(sub, "shadowfullcopy") && DvrOnOff(v, &b)) { dvr::d3d9ex::set_full_copy(b); return true; }
         }
         Log("device: usage - device census|status|upload | device ex on|off | device managed none|default|dynamic|shadow "
-            "| device shadowsurfaces on|off");
+            "| device shadowsurfaces on|off | device shadowfullcopy on|off");
         return true;
     }
     if (!strcmp(cmd, "reentry")) {

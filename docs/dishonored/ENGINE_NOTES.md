@@ -1356,10 +1356,45 @@ projection off`/`auto` each alone say which half of the user's remedy repairs it
   4032x2268 mode; the window hooks hold it; `[Screen] SpoofDesktopW/H` and `ResX/ResY` must
   match.
 
-## The black texture bug: the four ways a texture upload can be lost (VR-15, 2026-09-05)
+## The black texture bug is DISTANCE-DEPENDENT, which makes it a MIP fault (VR-15, 2026-09-05)
 
-Nothing here is a diagnosis yet. This is the instrument, why it exists, and what each of
-its numbers would mean. **No headset run has produced a reading.**
+**The observation, from a headset run on the tester's rig**: an NPC photographed at two
+distances. Far away the model is largely solid black; walking toward it, the black recedes
+and the material resolves correctly. At close range it is right. The fault is not a
+material class and not a lighting path - **it tracks distance**, and distance is what
+selects the mip level a surface is sampled at. So the black data lives in the SMALL mips
+(level > 0), and level 0 is intact.
+
+That narrows the four candidates below to one lane, and it lines up with a number already
+sitting in the 2026-09-04 headset log, unread:
+
+```
+locks on MANAGED: plain=47899 READONLY=12408 DISCARD=0 NOOVERWRITE=0 partial=2986
+                  level>0=50189 dirtyRects=0
+```
+
+**50189 locks on mip levels above 0, and zero `AddDirtyRect` calls in the whole run.**
+
+Now the mechanism. The shadow pushes a written texture to the GPU with
+`IDirect3DDevice9::UpdateTexture(twin, real)`. That call **takes no level**: it copies what
+D3D9 believes is dirty across the chain. Until this session `shadow_unlocked()` did not
+even receive the level - `hkTexUnlockRect` had it in its hand and dropped it at the door -
+so there was no instrument that could have noticed a per-level fault, and nothing anywhere
+in the mod knew that sub-level writes were 50189 of the traffic.
+
+**This is a hypothesis with a mechanism, not a measurement.** What makes it testable is
+`UpdateSurface`, which names its two surfaces and therefore cannot be vague about which
+level it copied. `[Device] ShadowFullCopy=1` pushes exactly the level the unlock wrote,
+falling back to `UpdateTexture` when `UpdateSurface` refuses (compressed and odd formats
+can), so the lever can never leave the picture worse than it found it. **Black-at-distance
+clearing when that lever goes on is the proof; it not clearing falsifies this cleanly.**
+
+The four ways an upload can be lost, below, all still stand - this section narrows which
+one to look at first, it does not close the others.
+
+### The instrument and what each number means
+
+**No headset run has yet produced a reading from it.**
 
 `[Device] Managed=shadow` is the newest thing in the creation path. A 9Ex device refuses
 `D3DPOOL_MANAGED`, so every MANAGED texture is created `DEFAULT` and given a `SYSTEMMEM`

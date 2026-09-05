@@ -35,6 +35,14 @@ uint32_t g_shadowMade = 0, g_shadowFailed = 0, g_shadowUpdates = 0, g_shadowUpda
 // with zero uploads never reached the GPU at all - it draws as its created
 // contents, which is black. Counted at Release, so the population is closed.
 uint32_t g_shadowDroppedNeverUpdated = 0;
+// VR-15: the mip-level lane. The reported fault is distance-dependent, so
+// which LEVEL an unlock carried is the question, and until now it was thrown
+// away at the door: shadow_unlocked took only the texture.
+bool     g_fullCopy = false;              // [Device] ShadowFullCopy, default OFF
+uint32_t g_shadowSubLevelUnlocks = 0;     // unlocks that carried a level > 0
+int      g_shadowMaxLevelSeen = -1;
+uint32_t g_shadowLevelCopies = 0, g_shadowLevelCopyFailed = 0;
+HRESULT  g_shadowLevelFirstHr = S_OK;
 uint64_t g_shadowBytes = 0;
 
 // the twin map: real -> twin, open addressing. Removal leaves a tombstone
@@ -295,9 +303,56 @@ IDirect3DBaseTexture9* shadow_twin(void* real) {
     return t;
 }
 
-void shadow_unlocked(void* real) {
+// VR-15: the per-level push. UpdateTexture takes no level and copies what
+// D3D9 believes is dirty; the reported fault is distance-dependent (black far
+// away, correct up close), which is a MIP-LEVEL fault, and the census counts
+// 50189 locks on level>0 against 0 AddDirtyRect calls. UpdateSurface is the
+// operation that cannot be vague about which level it copied: it names the
+// two surfaces. It fails soft - on a refusal the whole-texture UpdateTexture
+// still runs, so the lever can never make the picture worse than it is.
+bool update_one_level(void* real, IDirect3DBaseTexture9* twin, int level, int face) {
+    if (level < 0) return false;
+    IDirect3DSurface9 *src = nullptr, *dst = nullptr;
+    if (face < 0) {
+        ((IDirect3DTexture9*)twin)->GetSurfaceLevel((UINT)level, &src);
+        ((IDirect3DTexture9*)real)->GetSurfaceLevel((UINT)level, &dst);
+    } else {
+        ((IDirect3DCubeTexture9*)twin)->GetCubeMapSurface((D3DCUBEMAP_FACES)face, (UINT)level, &src);
+        ((IDirect3DCubeTexture9*)real)->GetCubeMapSurface((D3DCUBEMAP_FACES)face, (UINT)level, &dst);
+    }
+    bool ok = false;
+    if (src && dst) {
+        const HRESULT hr = g_dev->UpdateSurface(src, nullptr, dst, nullptr);
+        if (SUCCEEDED(hr)) { ++g_shadowLevelCopies; ok = true; }
+        else {
+            ++g_shadowLevelCopyFailed;
+            if (g_shadowLevelFirstHr == S_OK) g_shadowLevelFirstHr = hr;
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Warn, 5,
+                            "device/shadow: UpdateSurface level %d of twin %p -> real %p refused 0x%08lx - falling back "
+                            "to the whole-texture UpdateTexture for this unlock", level, (void*)twin, real,
+                            (unsigned long)hr);
+        }
+    }
+    if (src) src->Release();
+    if (dst) dst->Release();
+    return ok;
+}
+
+void shadow_unlocked(void* real, int level, int face) {
     IDirect3DBaseTexture9* twin = shadow_twin(real);
     if (!twin || !g_dev) return;
+    if (level > g_shadowMaxLevelSeen) g_shadowMaxLevelSeen = level;
+    if (level > 0) ++g_shadowSubLevelUnlocks;
+    // The lever: push exactly the level that was written, then fall through to
+    // UpdateTexture only if that refused.
+    if (g_fullCopy && update_one_level(real, twin, level, face)) {
+        if (g_csInit) {
+            EnterCriticalSection(&g_cs);
+            if (Ent* e = map_find(real)) ++e->updates;
+            LeaveCriticalSection(&g_cs);
+        }
+        return;
+    }
     // The dirty regions the lock marked on the twin go to the real texture.
     const HRESULT hr = g_dev->UpdateTexture(twin, (IDirect3DBaseTexture9*)real);
     if (FAILED(hr)) {
@@ -352,6 +407,26 @@ void shadow_population(int* live, int* neverUpdated, uint32_t* droppedNeverUpdat
 }
 
 bool shadow_active() { return translating() && g_managed == Managed::Shadow; }
+
+// VR-15: the per-level push lever.
+void set_full_copy(bool on) {
+    g_fullCopy = on;
+    DVR_INFO("device/shadow: [Device] ShadowFullCopy=%d - an unlock now pushes %s. The reported black-at-distance "
+             "fault is a MIP fault, and %u unlocks so far have carried a level > 0 (deepest level %d). If this "
+             "removes black surfaces at distance, UpdateTexture was not carrying sub-level writes.",
+             on ? 1 : 0,
+             on ? "exactly the level it wrote, with UpdateSurface (UpdateTexture is the fallback if that refuses)"
+                : "the whole texture with UpdateTexture, which takes no level",
+             g_shadowSubLevelUnlocks, g_shadowMaxLevelSeen);
+}
+bool full_copy() { return g_fullCopy; }
+void shadow_levels(uint32_t* subLevelUnlocks, int* maxLevel, uint32_t* copies, uint32_t* copyFailed, HRESULT* firstHr) {
+    if (subLevelUnlocks) *subLevelUnlocks = g_shadowSubLevelUnlocks;
+    if (maxLevel) *maxLevel = g_shadowMaxLevelSeen;
+    if (copies) *copies = g_shadowLevelCopies;
+    if (copyFailed) *copyFailed = g_shadowLevelCopyFailed;
+    if (firstHr) *firstHr = g_shadowLevelFirstHr;
+}
 
 void log_status() {
     DVR_INFO("device: [Device] Ex=%d Managed=%s | Direct3DCreate9 calls %d (Ex objects %d) | device %s (%s) | "

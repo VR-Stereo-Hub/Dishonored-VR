@@ -141,6 +141,18 @@ static void WriteDefaultIni(const char* ini)
         "; removes black surfaces; `device shadowsurfaces on|off` is the live A/B, and the\n"
         "; log's `device/upload` verdict says whether the bypass is happening at all.\n"
         "ShadowSurfaces=0\n"
+        "; ShadowFullCopy=0|1 (VR-15, the black texture bug). The shadow pushes a written\n"
+        "; texture to the GPU with UpdateTexture, which takes NO LEVEL and copies whatever\n"
+        "; D3D9 believes is dirty. The reported fault is distance-dependent - a surface is\n"
+        "; black far away and correct up close - and distance selects the MIP LEVEL, so the\n"
+        "; suspect is that writes to levels above 0 are not being carried. This game locks\n"
+        "; level>0 fifty thousand times in one load and never calls AddDirtyRect once.\n"
+        "; 1 pushes exactly the level the unlock wrote, with UpdateSurface, which cannot be\n"
+        "; vague about which level it copied. It fails soft: a refused UpdateSurface falls\n"
+        "; back to UpdateTexture, so this can never make the picture worse than 0 does.\n"
+        "; If black-at-distance clears with this on, that is the proof. `device shadowfullcopy\n"
+        "; on|off` is the live A/B; the log's `device/upload` line carries the level counts.\n"
+        "ShadowFullCopy=0\n"
         "[Screen]\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
@@ -642,6 +654,8 @@ static void LoadConfig()
         dvr::d3d9ex::set_config(ex, m);
         // VR-15: the surface-bypass redirect, default off, live via `device shadowsurfaces`
         dvr::census::set_shadow_surfaces(IniFloat(ini, "Device", "ShadowSurfaces", 0) != 0.0f);
+        // VR-15: the per-level push, the candidate fix for black-at-distance
+        dvr::d3d9ex::set_full_copy(IniFloat(ini, "Device", "ShadowFullCopy", 0) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
