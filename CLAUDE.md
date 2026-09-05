@@ -38,8 +38,9 @@ permission. Single game, one branch: `VR-Main`.
   project, milestone, priority and a `Type` label filled in. Branch `<owner>/vr-<n>-<slug>`
   off `VR-Main`; the PR body's FIRST line is `Fixes VR-<n>` (or `Ref VR-<n>` when the base is
   a working branch, so only the PR reaching `VR-Main` closes the ticket).
-  **An agent never declares a release** - it may report that a milestone's tickets are all
-  Done and ask. The whole flow is `docs/LINEAR_AND_GITHUB.md`.
+  **An agent never declares a release and never creates a milestone** - it may report that a
+  milestone is full or that its tickets are all Done, and ask. How the work is carved into
+  shippable pieces is the user's call. The whole flow is `docs/LINEAR_AND_GITHUB.md`.
 - **32-bit only.** The CMake guard stops a 64-bit configure; don't fight it.
 - **The DXVK fork is gone** (removed in 41.0; git history keeps it under the `dxvk-*` tags).
   Do not bring back a Vulkan translation layer: the game renders natively through D3D9.

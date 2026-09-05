@@ -29,14 +29,24 @@ never cite a ticket as their source of record.
 |---|---|
 | Team | **VR** - one team for every mod in the org |
 | Project | **Dishonored VR Mod** - one project per repository |
-| Milestone | **A version.** `41.1`, `41.2`, `42.0`, `42.1`. Kept in sync with the repo's GitHub Releases page |
+| Milestone | **A version the user has decided to ship.** One right now: `Stable - 6DOF, motion controls and alpha parity`. Kept in sync with the repo's GitHub Releases page |
 | Cycles | **Not used.** Two developers working in evening sessions; milestones carry the schedule |
 | Estimates | **Not used.** If a ticket is too big to judge at a glance, split it |
 
+**Only the user creates a milestone.** An agent never invents one, never splits the board into
+a ladder of versions nobody asked for, and never files a ticket against a milestone that does
+not exist yet. If work does not fit the current milestone, say so and ask; the answer is
+usually that it fits after all, and sometimes it is a new milestone the user then creates.
+
+This is the same rule as the release ritual below, for the same reason: how the work is carved
+into shippable pieces is a product decision, and an agent guessing at it produces a board that
+looks organised and describes a plan nobody agreed to.
+
 A milestone is a version because that is the only boundary this project actually has. There is
 no sprint and no quarter; there is "the build a tester installs". `docs/ROADMAP.md` keeps the
-engineering ladder (S0 to S3) and each milestone's description names the rungs it closes, so
-the two views agree without either being a copy of the other.
+engineering ladder (S0 to S3), and the milestone's description names what it closes, so the two
+views agree without either being a copy of the other: **the milestone is the destination, the
+roadmap is the route.**
 
 ## Statuses
 
@@ -262,31 +272,37 @@ Two kinds, both on the project in Linear. Health is one of three values: **On tr
 **At risk**, **Off track**. Post honestly; a permanently green project is one whose updates
 nobody reads.
 
+**Keep them short.** An update is a scan, not a report. One line per item, the number that
+makes it credible, and nothing else. If it takes more than about thirty seconds to read, the
+detail belongs on a ticket or in `docs/` and the update should link there instead. Prose
+paragraphs, restated mechanisms and background nobody asked for are what make updates go
+unread, and an unread update is worse than none because it looks like communication happened.
+
 ### The batch update
 
 Posted when a group of work lands, or roughly weekly while work is active. It is what a person
 reads to catch up without reading fifteen PRs.
 
 ```markdown
-**Window**: <dates>, <n> sessions, PRs #<a> to #<b>.
+**<dates>, <n> sessions, PRs #<a> to #<b>.**
 
-## What landed
-<Prose, not a changelog. What changed for a player, and what the mechanism was.
- Numbers where they exist.>
+**Shipped**
+- <what changed, and the number that proves it>
+- <one line each, six at most>
 
-## What was measured
-<The findings worth carrying: what turned out to be true, and what was falsified.
- A falsified hypothesis is a result and belongs here.>
+**Open**
+<count> tickets. Next up: <three or four things, named>.
 
-## What is open
-<Named, with the ticket. Faults found and deliberately not fixed go here, not nowhere.>
+**Risks**
+- <what the work rests on that might not hold>
 
-## Risks
-<What the work rests on that might not hold. "Judged on one rig" is a risk.>
-
-## Next
-<The next milestone's shape, in a sentence or two.>
+**Blocked**
+- <only if something is, with who or what it waits on>
 ```
+
+Rules for the bullets: lead with what changed for a player, not the mechanism. Carry the
+number (`36 in 171 s became 1 in 238 s`), never the derivation. A falsified hypothesis is a
+result and earns a line. Reference tickets by id rather than re-explaining them.
 
 ### The release update
 
@@ -296,17 +312,17 @@ people who do not read the board.
 ```markdown
 **Release <version>** - tag `<tag>`, <date>, <n> tickets.
 
-## For players
-<What is new and what is fixed, in plain language. No internal names.>
+**New**
+- <in plain language, no internal names>
 
-## Known issues
-<What is still wrong, and the workaround. Points at KNOWN_ISSUES.md.>
+**Fixed**
+- <same>
 
-## Upgrading
-<Ini keys removed or renamed, settings that must change, anything that breaks a tuned setup.>
+**Known issues**
+- <what is still wrong and the workaround; link KNOWN_ISSUES.md>
 
-## What went in
-<The ticket list, grouped by Type.>
+**Upgrading**
+- <settings removed or renamed, anything that breaks a tuned ini>
 ```
 
 ## The release ritual
@@ -330,16 +346,18 @@ When the user names the version:
    goes into `docs/RELEASE_NOTES.md`.
 5. **Post the release update** on the Linear project.
 6. **Move every ticket in the milestone from `Done` to `Released`.**
-7. **Close the milestone and open the next one.**
+7. **Close the milestone.** The next one is the user's to create, if they want one.
 
 Step 6 is the one that gets skipped and it is the one that makes `Released` worth having. A
 ticket sitting in `Done` after its version shipped is a lie about what a player can install.
 
 ## Working with agents
 
-Agents (Claude Code sessions, Linear's own agent) follow the same flow with three additions:
+Agents (Claude Code sessions, Linear's own agent) follow the same flow with four additions:
 
 - **An agent never declares a release**, per above.
+- **An agent never creates a milestone.** It may report that the current one is full, or that
+  something does not fit, and ask.
 - **An agent creates the ticket if it is missing**, from the template, rather than doing
   untracked work. A change with no ticket is a change nobody else can see coming.
 - **Delegation is not assignment.** In Linear, delegating an issue to an agent keeps the human
@@ -491,6 +509,8 @@ close its ticket, because the change has not reached `VR-Main` yet.
 6. Review, then merge to VR-Main. Linear marks it Done.
 7. STATUS, ROADMAP boxes, decision log, push. Batch project update if several closed.
 8. Release only when the user says so. Then Done -> Released, milestone closed.
+
+Never invent a milestone or a release. Both are the user's call.
 ```
 
 ## Related documents
