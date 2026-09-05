@@ -284,7 +284,7 @@ integrated the remainder. `[PosTrack] DeepCrouch` now defaults to 0. That work i
 and is **open as PR #14, not merged**. Its derivation and the five falsified suspects are in
 `docs/dishonored/ENGINE_NOTES.md` on that branch.
 
-**The DLL in the game folder is `alpha-261`** (session 14's build - the cadence instrument and
+**The DLL in the game folder is `alpha-262-g61130855`** (session 14's build - the cadence instrument and
 `[Pace] SyncHz`), replacing the session-13 `alpha-260-g958ab57a` that produced the run above. Both
 are the tip of THIS branch, built
 RelWithDebInfo, installed and hash-checked against `build\src\RelWithDebInfo\d3d9.dll`. It
@@ -362,7 +362,7 @@ that is the "make it 120" work worth starting, and it is a render-cost problem, 
 9.2-9.9 ms per tick, almost all of it the game's two scene renders, with the per-eye size the dial.
 The rare submit stalls are a separate, later item.
 
-**The user (headset)**: installed as `alpha-261`. Two things, in this order. **(1) The ghosting
+**The user (headset)**: installed as `alpha-262-g61130855`. Two things, in this order. **(1) The ghosting
 A/B** - in gameplay run `tools\game-cmd.ps1 "vrpace sync 60"`, turn your head the way that shows the
 doubled edges, then `"vrpace sync off"` and do it again; say which is better, and try
 `"vrpace sync 40"` if 60 feels too slow. Send the log either way, the `stereo: rate` line now says
@@ -410,7 +410,7 @@ level, which is why no one had seen them), and `[Pace] SyncHz` - the persisted f
 display slots; nobody has judged it in a headset yet. If it does not remove the doubled edges the
 cadence was not the cause, and Virtual Desktop's own frame synthesis is the next suspect.
 
-Installed as `alpha-261`; builds, lint clean, exports OK.
+Installed as `alpha-262-g61130855` (clean tag); builds, lint clean, exports OK.
 
 ### 2026-09-04 - session 13: the display period is measured, not inferred
 
