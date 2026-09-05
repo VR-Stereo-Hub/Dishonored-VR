@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Read the known issues first
+    url: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/VR-Main/docs/KNOWN_ISSUES.md
+    about: Most reports are already here, several with a workaround. Check before filing.
+  - name: Setup and troubleshooting
+    url: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/VR-Main/docs/TROUBLESHOOTING.md
+    about: The mod will not load, the headset shows nothing, SteamVR headsets, Virtual Desktop.
+  - name: Team members - file in Linear, not here
+    url: https://linear.app/vr-stereo-hub/team/VR/all
+    about: If you are on the team, the board is the source of truth. See docs/LINEAR_AND_GITHUB.md.
