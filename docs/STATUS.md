@@ -54,7 +54,14 @@ engine-side per-eye path in that game either (`Stereo`, `EyeSeparation`, `Stereo
 spending 9.4. That is the whole story, and it makes the fix obvious and not a limiter: **close the
 gap between the tick and the period**, from either end.
 
-1. **Lower the render cost.** We are at 2496x2688 per eye - **47 % more pixels than Infinite's
+1. **Lower the render cost. ARMED for the next launch (2026-09-04): 2064x2208.** All four routes
+   the picker writes were set by hand to match what `res 2064x2208f` produces - the launch file
+   `dishonored_vr_launch.txt` (the only one DllMain reads), `[Screen] RenderWidth/Height` in the mod
+   ini, `[SystemSettings] ResX/ResY` in `DishonoredEngine.ini`, and all four `AppCompatBucket*`
+   in `DishonoredCompat.ini` (the bucket AppCompat picks at startup overwrites `[SystemSettings]`).
+   `VirtualMode=1` was left alone - it is REQUIRED to reach the headset eye size. Pre-change copies
+   of the three inis are in `D:\dvr-data\logs\*.bak`. The reasoning:
+   we were at 2496x2688 per eye - **47 % more pixels than Infinite's
    native**, and 1.46x the Quest 3 panel's own 2064x2208. Infinite's notes already record the same
    lever working on the same symptom: judder "noticeably better at the `eye` preset 1600x1712" than
    at its native. `res 2064x2208f` puts us at the panel's native size (a supersample of 1.0, so
@@ -400,11 +407,12 @@ that is the "make it 120" work worth starting, and it is a render-cost problem, 
 9.2-9.9 ms per tick, almost all of it the game's two scene renders, with the per-eye size the dial.
 The rare submit stalls are a separate, later item.
 
-**The user (headset)**: installed as `alpha-262-g61130855`. The ghosting A/B, in this order, and
-none of it is a frame limiter. **(1) Drop the render size to the panel's native**:
-`tools\game-cmd.ps1 "res 2064x2208f"`, then RELAUNCH (the size only takes effect on the next launch)
-and play. Pass condition in the log: `perf: tick` mean under 8.33 ms and `stereo: rate` reading
-`EVEN CADENCE: 1.00 display slots per frame`. **(2) If the tick still will not fit**, put the
+**The user (headset)**: installed as `alpha-264-ge2b84a80`, **and the render size is already set to
+2064x2208** - it is armed for the next launch, so just start the game. The ghosting A/B, in this
+order, and none of it is a frame limiter. **(1) Play and read the log.** Pass condition:
+`perf: tick` mean under 8.33 ms and `stereo: rate` reading `EVEN CADENCE: 1.00 display slots per
+frame`; `res status` says whether the engine honoured the ask. To go back, `res 2496x2688f` and
+relaunch. **(2) If the tick still will not fit**, put the
 headset at 90 Hz and go back to 2496x2688 - an 11.1 ms budget against a 9.4 ms tick locks with room,
 at full sharpness. **(3) If the cadence locks and the doubled edges survive**, the beat was not the
 cause: turn off Virtual Desktop's Synchronous Spacewarp and repeat, because that is the other thing
