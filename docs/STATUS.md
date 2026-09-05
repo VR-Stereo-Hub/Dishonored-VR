@@ -622,6 +622,25 @@ judged in a headset:
 2. The config line reporting physical crouch as "armed" when `[Mode] GamepadOnly=1` has already
    vetoed it. Cost a session's hypothesis once already.
 
+## FIXED (2026-09-04, headset, dev rig): the crouch height rise
+
+**The report**: crouching then standing raises the player slightly, and spamming it rises far
+enough to pass through the ceiling. Also, from the same run, "almost like noclip, I could float
+around".
+
+**The cause is ours**: the 38.16 deep-crouch write. Shrinking the crouched collision cylinder
+(65 -> 45) under a grounded pawn moves the pawn's origin down by exactly the shrink, 20.00 uu,
+because the engine keeps the feet planted - and sometimes leaves the pawn airborne. The camera
+chases that with a rate-limited convergence that cannot finish before the next crouch, so the
+remainder accumulates: ~20 uu of view per cycle, 2184 uu (22 m) in one run. Measured, filmed frame
+by frame, and confirmed by an A-B-A A/B (+20.35 uu/cycle with the write on, -0.26 with it off).
+Full derivation and the five falsified suspects in ENGINE_NOTES.
+
+**The fix**: `[PosTrack] DeepCrouch` defaults to **0**. Judged in the headset by the tester: the
+climb and the floating are both gone. The cost is that the player no longer fits under low
+furniture; `DeepCrouch=1` restores the old behaviour and the bug with it. It cannot be made safe as
+written without writing `Actor.Location`, which this mod deliberately never does.
+
 ## Previous state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
 **Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
@@ -875,6 +894,62 @@ What was already measured before this session and should not be re-derived:
   blocks at submit) is an inference. Measuring it is step one.
 - Mono for the first ~6 s of a run then latching to 103-108 `2nd/s` is NORMAL and tester-confirmed;
   do not chase it.
+
+### 2026-09-05 - session 11: the work is on a board, and the flow is written down
+
+Branch `claude/linear-github-integration-9d1a52`, docs and templates only. No code, no build,
+no render lever touched.
+
+Three people are now finding faults and recording them in three private places, and PRs #12,
+#14 and #15 each name real, measured, open defects that appear in no shared list. The
+Linear workspace `vr-stereo-hub` existed but was empty.
+
+**The board now matches the code.** Team `VR`, project **Dishonored VR Mod** with a lead, a
+spec and its doc links; four release-shaped milestones (41.1, 41.2, 42.0, 42.1) kept in sync
+with the GitHub Releases page, each naming the ROADMAP rungs it closes; a `Type` label group,
+ten `area:` labels and five flag labels; **43 tickets** (VR-6 to VR-48) covering every open PR,
+every unticked ROADMAP box, every genuinely open KNOWN_ISSUES entry, the three STATUS blockers,
+and the four defects PRs #14 and #15 handed over. Merged work is recorded as **one catch-up
+project update**, not as retroactive tickets. The four open PRs carry `Fixes VR-<n>` and two
+were retitled to conventional-commit subjects.
+
+**The flow is `docs/LINEAR_AND_GITHUB.md`**: statuses and what each means here, priority,
+labels, the ticket template, the numbered ticket-to-release flow, the PR contract, project
+updates, the release ritual, and what only the Linear UI can do. `CLAUDE.md` carries the hard
+rules and the session protocol now names the ticket step. `.github/` gains a PR template, two
+issue forms and `config.yml`; `CONTRIBUTING.md` is the front door.
+
+**Two rules adopted.** From PR #15: **never quote a chat verbatim** in anything published -
+commit messages, PR bodies, tickets, comments, `docs/`. The observation is evidence; the
+wording never is. And: **an agent never declares a release.** It may report that a milestone is
+clear and ask.
+
+**Not done, and it needs the user.** The `Released` status does not exist yet and the PR
+automation rows are unset: the Linear MCP exposes no tool for either, and both are team
+settings. More importantly **the magic-word link did not fire** - Linear received the PR edits
+(the diff records updated) and created no link, so `linkedIssues` is still empty on all four.
+The ids and magic words are correct, so this is the GitHub integration's issue-linking side
+not being enabled for the repo. Until it is, the PR-to-ticket links are the plain attachments
+created by hand and no status automation will work.
+
+### 2026-09-04 - session 12: the crouch height rise, solved
+
+- **The answer**: the 38.16 deep-crouch capsule write moves the pawn 20.00 uu on every crouch (the
+  engine keeps the feet planted, so a shorter capsule means a lower origin), and the camera's
+  rate-limited catch-up never converges before the next crouch. `[PosTrack] DeepCrouch` now
+  defaults to 0. Headset-judged: fixed.
+- **The method lesson**: naming a mechanism and flipping its lever failed FIVE times running
+  (physical crouch, the engine's uncrouch arithmetic, our eye clamp, the game's bump smoother, our
+  own crouch eye-drop). What worked was filming the pawn and the camera one line per frame across
+  the transition and letting the shape of the curve name the moment. When levers keep coming back
+  null, stop naming suspects.
+- **Two A/B traps paid for**: an interleaved A/B measures a system with memory BACKWARDS (the eased
+  eye clamp redistributed the effect across the cycle boundary and the per-cycle median reported
+  the sawtooth, not the climb - blocks with settling cycles fixed it); and a lever that was never
+  connected reads as a clean FALSIFIED (the eye clamp had never executed at all). Confirm a lever
+  moved something before believing its verdict.
+- **A symptom mentioned in passing was the mechanism speaking**: "I could float around" turned out
+  to be the pawn genuinely airborne, filmed rising 34 uu and falling 128 uu back to the floor.
 
 ### 2026-09-04 - session 13: the stale RIGHT eye, read out of the code, then confirmed
 

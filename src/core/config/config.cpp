@@ -488,7 +488,38 @@ static void LoadConfig()
     g_crouchEyeScale = IniFloat(ini, "PosTrack", "CrouchEyeScale", 1.0f);
     if (g_crouchEyeScale < 0.0f) g_crouchEyeScale = 0.0f;
     if (g_crouchEyeScale > 2.0f) g_crouchEyeScale = 2.0f;
-    g_deepCrouchCfg = IniFloat(ini, "PosTrack", "DeepCrouch", 1) != 0.0f;    // 38.16
+    // 41.2 DEEP CROUCH NOW DEFAULTS OFF - it is the crouch height rise, and the
+    // "I could float around" with it.
+    //
+    // 38.16 shrinks the crouched collision cylinder (65 -> DeepCrouchUU, 45) so
+    // the player fits under more. MEASURED on the headset 2026-09-04, filmed one
+    // line per frame across the transition: that write TELEPORTS THE PAWN DOWN
+    // BY EXACTLY OUR SHRINK, 20.00 uu, on every crouch -
+    //
+    //     cyl 45.0  pawnZ 3405.73     the crouch, cylinder 65 -> 45
+    //     cyl 45.0  pawnZ 3385.73     dropped exactly 20.00, then holds
+    //
+    // - because the engine keeps the feet planted, so a shorter capsule means a
+    // lower origin. In the worst case it leaves the pawn AIRBORNE: one burst
+    // filmed it rising 34 uu and then falling 128 uu back to the floor, which is
+    // what the tester independently described as "almost like noclip, I could
+    // float around". The body really was off the ground.
+    //
+    // The camera then chases that displacement with a RATE-LIMITED convergence
+    // (~4-8 uu per frame ramping up after an uncrouch, filmed with the pawn
+    // provably stationary; a slow decay on the way down). It cannot finish
+    // before the next crouch, so the unconverged remainder is retained and the
+    // view climbs ~20 uu per cycle without bound - 2184 uu, 22 m, in one run.
+    //
+    // An A-B-A block A/B agrees to the decimal: write ON +20.35 uu of view per
+    // cycle (blocks 1 and 3: +19.42, +21.28), write off -0.26 (six consecutive
+    // cycles flat within +-2.6), difference +20.61 over 18 measured cycles.
+    //
+    // It cannot be made safe as written: resizing a grounded pawn's capsule from
+    // outside the engine moves the pawn, and keeping the feet planted would mean
+    // writing Actor.Location, which this mod deliberately never does. DeepCrouch=1
+    // restores the old behaviour and the bug with it.
+    g_deepCrouchCfg = IniFloat(ini, "PosTrack", "DeepCrouch", 0) != 0.0f;    // 38.16, default off since 41.2
     g_deepCrouchUU  = IniFloat(ini, "PosTrack", "DeepCrouchUU", 45.0f);
     if (g_deepCrouchUU < 33.0f) g_deepCrouchUU = 33.0f;   // never below vents
     if (g_deepCrouchUU > 64.0f) g_deepCrouchUU = 64.0f;
