@@ -26,25 +26,63 @@ uneven steps, and high-contrast edges are seen twice. That is the doubled-edge g
 **different fault from the submit stalls** below, which are rare (62 gaps in the run) where this is
 continuous.
 
-**The lever already exists and is one live command.** `pace_sync_gate()` was built in the BioShock
-lineage for exactly this - its own comment names "77-80 pairs/s against a 72 Hz display is a ~5 Hz
-interference beat, the first suspect for judder-with-good-frames". It delays each pair OPEN to a
-monotonic schedule. Locking to a clean SUBMULTIPLE of 120 gives every frame the same whole number of
-slots:
+### FRAME LIMITING IS NOT THE FIX. The parity answer, from Infinite on the same stack
 
-```powershell
-tools\game-cmd.ps1 "vrpace sync 60"    # 2 slots per frame, 16.67 ms of budget for a 9.4 ms tick
-tools\game-cmd.ps1 "vrpace sync off"   # the A/B
-tools\game-cmd.ps1 "vrpace sync 40"    # 3 slots per frame, if 60 cannot be held evenly
-```
+The first proposal here was `vrpace sync 60` - lock the schedule to a clean submultiple. **The user
+rejected it and was right**: 60 is too low for VR, and BioShock does not need a limiter. It is still
+a usable one-command DIAGNOSTIC (does locking the cadence change the percept at all?), but it is not
+a ship, and it was wrong to offer it as one.
 
-60 is the recommended first try: the measured tick is 9.4 ms mean / 14.2 ms worst non-hitch, so a
-16.67 ms schedule absorbs nearly all the variance. It trades ~104 uneven frames for 60 even ones,
-and an even 60 on a 120 Hz panel is a stable 2-slot cadence with no beat.
+**Why BioShock does not need it, measured, on the SAME runtime** (`bioshock-trilogy-vr`,
+`docs/bioshockinfinite/ENGINE_NOTES.md`, session 42, VDXR via Virtual Desktop, 2026-08-06):
 
-**Not yet judged in a headset. This is a prediction, not a result** - if `sync 60` does not remove
-the doubled edges, the cadence was not the cause and the next suspect is Virtual Desktop's own
-frame synthesis (SSW), which should be turned off for the same A/B.
+| | BioShock Infinite | Dishonored (this run) |
+|---|---|---|
+| runtime-reported period | **12.50 ms = 80 Hz** | **8.33 ms = 120 Hz** |
+| pairs/s | **80 == refresh** | **88-115** against 120 |
+| interval sd | **0.3-1.0 ms** | **1.3-9.6 ms** |
+| verdict in its own notes | "LOCKED AND CLEAN" | UNEVEN, 1.13 slots per frame |
+| per-eye size | 2064x2208 native | **2496x2688** |
+
+**It is not an architecture difference.** Infinite runs the same SequentialReentry two-draw method -
+its `DR-I4 native stereo: NEGATIVE, confirmed live. CLOSED.` proves UE3 build 9099 has no usable
+engine-side per-eye path in that game either (`Stereo`, `EyeSeparation`, `StereoDevice`,
+`bStereoEnabled` all absent from a populated GNames of 69,719). Both mods double the scene draw.
+
+**The difference is that Infinite's render cost FIT INSIDE its display period, so VDXR's own
+`xrWaitFrame` gated it 1:1 and no beat could exist.** We are asking for an 8.33 ms period and
+spending 9.4. That is the whole story, and it makes the fix obvious and not a limiter: **close the
+gap between the tick and the period**, from either end.
+
+1. **Lower the render cost.** We are at 2496x2688 per eye - **47 % more pixels than Infinite's
+   native**, and 1.46x the Quest 3 panel's own 2064x2208. Infinite's notes already record the same
+   lever working on the same symptom: judder "noticeably better at the `eye` preset 1600x1712" than
+   at its native. `res 2064x2208f` puts us at the panel's native size (a supersample of 1.0, so
+   little visible sharpness cost) and, at ~68 % of the pixels, should take a 9.4 ms tick to roughly
+   6.7 ms - inside 8.33 with room for the sd. **Takes effect on the NEXT launch**, not live.
+2. **Or lower the refresh.** 90 Hz is an 11.1 ms budget against a 9.4 ms mean tick: locked 90, full
+   resolution, no limiter and no lost sharpness. A headset setting, no build.
+
+Either way the pass condition is the same and the log states it: `perf: tick` mean under the period,
+and `stereo: rate` turning from `UNEVEN CADENCE: 1.13 display slots per frame` into
+`EVEN CADENCE: 1.00`.
+
+**Not yet judged in a headset. This is a prediction, not a result** - if the cadence locks and the
+doubled edges survive, the cause is not the beat, and Virtual Desktop's own frame synthesis (SSW) is
+the next thing to turn off.
+
+### Two theories killed on the same log, so nobody re-runs them
+
+- **Not frame duplication, not eye desync.** The beat reads `mono/s=0 none/s=0-1` and
+  `L/s == R/s == out/s / 2` exactly through the whole of gameplay, with `stereo: eyes ageL=1 ageR=0`
+  and `aborts=0 staleEye 0`. `[Stereo] HoldUntagged=3` is not re-showing frames, and the two eyes
+  are not one tick apart. The pairing is healthy; the ghosting is not made there.
+- **Not Infinite's 30-second GC grid.** Infinite named its spike class as UE3's
+  `TimeBetweenPurgingPendingKillObjects=30` and killed it A-B-A by setting 300. Our 62 gaps were
+  checked against that: the inter-gap spacing is 0-13 s in **bursts**, with no 30 s periodicity, so
+  that is not our spike class. Infinite's other signature - the streaming / level-visibility walk,
+  bound to view change and traversal - is the closer match, and notably it is triggered by head
+  TURNS, which is the trigger reported here.
 
 ### What shipped for it this session (session 14)
 
@@ -362,13 +400,15 @@ that is the "make it 120" work worth starting, and it is a render-cost problem, 
 9.2-9.9 ms per tick, almost all of it the game's two scene renders, with the per-eye size the dial.
 The rare submit stalls are a separate, later item.
 
-**The user (headset)**: installed as `alpha-262-g61130855`. Two things, in this order. **(1) The ghosting
-A/B** - in gameplay run `tools\game-cmd.ps1 "vrpace sync 60"`, turn your head the way that shows the
-doubled edges, then `"vrpace sync off"` and do it again; say which is better, and try
-`"vrpace sync 40"` if 60 feels too slow. Send the log either way, the `stereo: rate` line now says
-whether the cadence actually locked. **(2)** If the ghosting survives a locked cadence, turn off
-Virtual Desktop's Synchronous Spacewarp and repeat, because that is the other thing that
-manufactures frames. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it.
+**The user (headset)**: installed as `alpha-262-g61130855`. The ghosting A/B, in this order, and
+none of it is a frame limiter. **(1) Drop the render size to the panel's native**:
+`tools\game-cmd.ps1 "res 2064x2208f"`, then RELAUNCH (the size only takes effect on the next launch)
+and play. Pass condition in the log: `perf: tick` mean under 8.33 ms and `stereo: rate` reading
+`EVEN CADENCE: 1.00 display slots per frame`. **(2) If the tick still will not fit**, put the
+headset at 90 Hz and go back to 2496x2688 - an 11.1 ms budget against a 9.4 ms tick locks with room,
+at full sharpness. **(3) If the cadence locks and the doubled edges survive**, the beat was not the
+cause: turn off Virtual Desktop's Synchronous Spacewarp and repeat, because that is the other thing
+manufacturing frames. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it.
 Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and
 `add`; (2) WORLD SCALE and eye height at `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
 
@@ -406,9 +446,13 @@ slots-per-frame on the `stereo: rate` line (the numbers existed only in `pacetra
 level, which is why no one had seen them), and `[Pace] SyncHz` - the persisted form of
 `vrpace sync <hz>`, shipping OFF, refusing an out-of-range value with the number it read.
 
-**The fix is a prediction, not a result.** `vrpace sync 60` should give every frame exactly two
-display slots; nobody has judged it in a headset yet. If it does not remove the doubled edges the
-cadence was not the cause, and Virtual Desktop's own frame synthesis is the next suspect.
+**The proposed fix was wrong and was corrected in the same session.** `vrpace sync 60` locks the
+cadence but 60 is too low for VR, and the user said so. Infinite's own numbers on the same runtime
+say why no limiter is needed: it ran 80 pairs/s == its 80 Hz refresh with sd 0.3-1.0 ms, LOCKED, on
+the same two-draw method - because its render cost fit inside its period. Ours does not (9.4 ms into
+8.33), and we are also at 47 % more pixels per eye than Infinite's native. So the lever is the gap
+between tick and period, from either end: `res 2064x2208f` (the Quest 3 panel's own size) or a 90 Hz
+headset. Still a prediction; nobody has judged either in a headset.
 
 Installed as `alpha-262-g61130855` (clean tag); builds, lint clean, exports OK.
 
