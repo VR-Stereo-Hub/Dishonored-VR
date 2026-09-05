@@ -26,7 +26,21 @@ permission. Single game, one branch: `VR-Main`.
   PowerShell 5.1 parse errors and log/UI mojibake. `tools\lint.ps1` enforces it.
 - **Commit messages**: plain conventional commits (`feat:`/`fix:`/`docs:`/`build:`/`tools:`/
   `chore:`/`refactor:`), imperative, subject <= 72 chars, no trailers, no AI
-  attribution.
+  attribution. Never put `Fixes VR-<n>` in a commit message: the PR body is the single
+  Linear link, and a magic word in a commit double-fires against it.
+- **Never quote a chat verbatim in anything published**: commit messages, PR bodies, Linear
+  tickets and comments, code comments, `docs/`. A perceptual report is evidence and belongs
+  in the record; its exact wording never is, and reporting the observation instead carries
+  every fact without putting someone's casual sentence in front of strangers permanently.
+  Numbers, log lines, ini keys and the game's own shipped comments stay quotable.
+- **Every change starts from a Linear ticket** in the "Dishonored VR Mod" project (team `VR`,
+  workspace `vr-stereo-hub`). Search first; create from the template if it is not there, with
+  project, milestone, priority and a `Type` label filled in. Branch `<owner>/vr-<n>-<slug>`
+  off `VR-Main`; the PR body's FIRST line is `Fixes VR-<n>` (or `Ref VR-<n>` when the base is
+  a working branch, so only the PR reaching `VR-Main` closes the ticket).
+  **An agent never declares a release and never creates a milestone** - it may report that a
+  milestone is full or that its tickets are all Done, and ask. How the work is carved into
+  shippable pieces is the user's call. The whole flow is `docs/LINEAR_AND_GITHUB.md`.
 - **32-bit only.** The CMake guard stops a 64-bit configure; don't fight it.
 - **The DXVK fork is gone** (removed in 41.0; git history keeps it under the `dxvk-*` tags).
   Do not bring back a Vulkan translation layer: the game renders natively through D3D9.
@@ -115,8 +129,11 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 ## Session protocol
 
 - **START**: read `docs/STATUS.md`, the current milestone in `docs/ROADMAP.md`, then
-  `git log --oneline -10`. Branch off `VR-Main`. Touching engine internals? Read
-  `docs/dishonored/ENGINE_NOTES.md` first; new findings go there in the same commit as the code.
+  `git log --oneline -10`. **Find the Linear ticket** for the work (search before creating;
+  create from the template if absent, with project, milestone, priority and a `Type` label),
+  move it to In Progress and branch `<owner>/vr-<n>-<slug>` off `VR-Main`. Touching engine
+  internals? Read `docs/dishonored/ENGINE_NOTES.md` first; new findings go there in the same
+  commit as the code.
 - **Validate in the SIMULATOR before asking for a headset.** `tools\xrsim-launch.ps1` runs the
   game against `dvr_xrsim32.dll`, a simulated 32-bit OpenXR runtime that presents as a Quest 3:
   head/hand poses, every controller button, deterministic frame stepping and per-eye compositor
@@ -128,7 +145,12 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 - **END**: rewrite "Current state" and "Next steps" in `docs/STATUS.md`, append a dated session
   log entry, tick `docs/ROADMAP.md` boxes, commit, push. A session that ends without pushing
   STATUS.md is a failed handoff. Copy the headset log out before every relaunch (rotation is
-  one deep).
+  one deep). Open the PR with `Fixes VR-<n>` as the body's first line and fill in
+  `.github/PULL_REQUEST_TEMPLATE.md`; merging to `VR-Main` moves the ticket to Done. Put
+  measurements and verdicts on the TICKET, not only the PR - the ticket outlives the branch.
+  File a ticket for every fault found and deliberately not fixed, and name it in the PR's
+  "what is deliberately not here". If a group of tickets closed, post one batch project
+  update on Linear, not one per ticket.
 
 ## Build / install / test
 
@@ -197,6 +219,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/ARCHITECTURE.md` | The frame path, the stereo ladder, the runtime layer, the camera seam, thread contracts, the unity build and how modules leave it, decision log |
 | `docs/RESEARCH.md` | Engine facts, prior art, VR runtime facts, legal posture, all with sources |
 | `docs/VERIFICATION.md` | **Verification catalog**: intent -> tool -> command -> how to read the result; the simulator and its instruments, the seam, captures, what still needs a human |
+| `docs/LINEAR_AND_GITHUB.md` | **The dev flow**: ticket -> branch -> PR -> review -> merge -> release. Statuses and what each means here, priority, labels, the ticket and PR templates, project updates, the release ritual, and what only the Linear UI can do |
 | `docs/CODE_REVIEW.md` | Every finding from the review of the original single file, with disposition |
 | `docs/KNOWN_ISSUES.md` | User-facing known issues (ships in the zip), each linked to a milestone |
 | `docs/TROUBLESHOOTING.md` | User-facing troubleshooting (ships in the zip) |
