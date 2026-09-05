@@ -1353,6 +1353,81 @@ pose the game renders with, and the views the layer is tagged with, for `predict
 + ahead x period`; `xrEndFrame`'s displayTime and the tag generation are untouched, so at 0 the
 paths are byte-identical. `vrpace lag` exposes the attribution generation for the measurement.
 
+## The two pose lanes, and why the tag can be a generation wrong (2026-09-04)
+
+The mod samples the head TWICE per frame, on two different lanes, and the compositor only
+ever sees one of them:
+
+- **SCRIPT lane.** `on_present_begin` locates the head (`xrLocateSpace`, `openxr_runtime.cpp`),
+  `DvrConsumePoses` -> `TrackHead` turns it into `g_hmdYaw` on the present thread, and the
+  GAME thread's world tick reads that in `ApplyHeadToViewRotation` and writes the engine
+  camera. `head_track.cpp` publishes the matched pair at that instant: `g_viewYawRad` (what
+  was written) beside `g_injHmdYawSnap` (the HMD yaw it was computed from). **This is the pose
+  the pixels are drawn with.**
+- **PRESENT lane.** The same `on_present_begin` calls `xrLocateViews` for the same
+  `locateTime`, and the projection layer's `XrCompositionLayerProjectionView.pose` is filled
+  from one of three kept generations - `g_views` (N), `g_viewsContent` (N-1), `g_viewsPrev2`
+  (N-2), selected by `g_poseLag`, shipping at 1. **This is the pose the compositor reprojects
+  FROM.**
+
+If those two are not the same sample, the reprojection is wrong by the difference on every
+frame, the error tracks head speed, and it grows when a frame is slow. That is a doubled-edge
+percept under rotation - and until 2026-09-04 nothing measured it.
+
+**The tag is predicted to be one generation too fresh, and the game's own config says so.**
+The attribution comment assumes "locate N feeds the tick that presents at N+1" - one
+generation, hence `lag=1`. But `DishonoredEngine.ini [SystemSettings]` carries
+**`OneFrameThreadLag=True`**: UE3's render thread runs a frame behind the game thread, so the
+pixels in present N were drawn by a tick that read the head at locate **N-2**. The prediction
+is therefore that the instrument reads a one-generation gap at `lag 1` and that
+`vrpace lag 2` nulls it. `OneFrameThreadLag=False` is the independent second test - it removes
+the skew at the source instead of compensating for it, at a throughput cost. Neither has been
+run yet.
+
+**Both eyes of a pair share ONE locate - do not go hunting a per-eye asymmetry.** Under
+`reentry` the LEFT present holds the XR frame open (`pairHold`) and the RIGHT completes it;
+`on_present_begin` returns at the top while a pair is open, so there is no second
+`xrWaitFrame` and no re-locate between them. `g_viewsContent` is identical for both eyes. The
+instrument prints per eye anyway, cheaply, so the invariant is checked rather than assumed.
+
+**THE SIGN TRAP.** The two lanes read yaw out of the SAME rotation matrix with opposite
+conventions:
+
+| | reduces to |
+|---|---|
+| `xr_quat_yaw_deg` (`openxr_runtime.cpp`) | `atan2( m02, m22)` |
+| `TrackHead` (`head_track.cpp`) | `atan2(-m02, m22)` |
+
+so `g_hmdYaw == -xr_quat_yaw_deg / 57.29578` for any pose, and a naive subtraction reads about
+TWICE the yaw. That would look like a catastrophic disagreement that is purely convention -
+the most convincing possible way for this instrument to lie. `publish_script_head` negates
+once, on the way in, and then PROVES it against live data: at the first publish it reads the
+same `g_headPose` back through this file's own converter and logs
+`xr: poseaudit SEAM CHECK ok|FAILED`. Do not read a delta until that line says ok.
+
+Note also that `g_viewYawRad` is the absolute UE **rotator** yaw and composes stick turn with
+head delta (`ue_math.cpp` differences the two deliberately). It is never the right thing to
+compare against the tag; `g_injHmdYawSnap` is.
+
+## The content-bbox readback: a full CPU round trip in the VRAM path (2026-09-04)
+
+`capture.cpp`'s bbox instrument - the `100% x 100% (FULL)` / `(CROPPED)` line - needs CPU
+pixels. In `shared` mode, whose entire purpose is that nothing goes to the CPU (the frame is a
+VRAM-to-VRAM `StretchRect`), sampling it costs a full `GetRenderTargetData` + `LockRect` +
+per-row `memcpy` of the whole frame, **on the present thread**. That is the same round trip
+measured at 17-21 ms/present in `sync` mode at 2496x2688 ("The capture cost, measured"), and
+it ran unconditionally every 3 seconds with no lever - about 31 MB per sample at 2750x2850.
+
+`[Capture] BboxMs` (default 30000, `capture bbox off|<ms>` live) is the gate. A size change
+still resamples immediately and unconditionally, because that is the sample that decides
+CROPPED vs FULL and it must not wait for an interval.
+
+**Falsifiable prediction, recorded before the run:** if this is behind the hitches, the
+`perf: frame gap` count should fall by roughly the number of 3-second windows in a run (62-82
+gaps over the last two runs is close to one per window). **The counter-evidence is already on
+record**: those gaps mostly reported `sat in: present-tail (xrEndFrame)`, not the capture
+phase. If the count does not move, this removed a real cost and was not the hitch cause.
+
 ## The pitch pivot: the engine's neck, measured (2026-09-03, session 7)
 
 `camera pitchtest 30` (e374a6a2) takes three buckets of c5 (LEVEL, looking UP, looking DOWN,

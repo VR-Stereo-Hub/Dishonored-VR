@@ -137,8 +137,18 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
       C5Pair=1`, `[Camera] EyeField=0x330`, `[Neck] Mode=cancel` with the measured pivot,
       `[PosTrack] Scale=98`, `[Tracking] HeightOffsetM=-0.090`, `[Screen] RenderWidth=2496
       RenderHeight=2688 VirtualMode=1`, `[Device] Ex=1 Managed=shadow`, `[Capture] Mode=shared`
+- [x] THE GHOSTING, instrumented (session 15, 2026-09-04): the SCRIPT lane's rendered head
+      sample against the PRESENT lane's layer tag, per eye, in degrees and in locate
+      GENERATIONS, with a self-checking sign calibration (`vrpace poseaudit on`). Built and
+      installed, not yet run. Written prediction: gap +1 at `lag 1`, nulled by `vrpace lag 2`,
+      because the game's `OneFrameThreadLag=True` puts the render thread a frame behind
+- [x] The content-bbox readback gated (session 15): a full-frame CPU round trip every 3 s on
+      the present thread in the shipping `shared` mode, with no lever. `[Capture] BboxMs=30000`,
+      `capture bbox off|<ms>` live
 - [ ] Then `ahead`, the desync on load with the new owner line, and the pivot re-judged at a
       real frame rate (STATUS "Next steps")
+- [ ] The pose-lane verdict read in the headset at 2750x2850 / 90 Hz, and `lag` A/B'd on the
+      ghosting directly (STATUS "NEXT RUN")
 
 
 ## S3 - Compare and choose; the features come back on the winner

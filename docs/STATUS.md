@@ -1,5 +1,86 @@
 # Status
 
+## NEXT RUN (2026-09-04): the pose-lane instrument is built and installed, 2750x2850 is armed
+
+Everything below is **built, linted, installed and unverified at runtime** - nothing has been
+launched. What the next headset session does, in order:
+
+1. **Set Virtual Desktop to 90 Hz.** This is not optional decoration, it is the arithmetic.
+   Fitting the three measured ticks against megapixels (4.56 MP -> 8.75 ms, 6.71 -> 9.55,
+   15.73 -> 15.7) gives **~0.64 ms per megapixel on a ~5.6 ms fixed floor**. The floor is the
+   game's own CPU tick plus two presents and resolution does not touch it, so at 120 Hz the
+   entire 8.33 ms budget leaves 2.7 ms of GPU for two full-frame scene draws - unreachable at
+   any VR-useful size. **90 Hz (11.1 ms) is the honest target.** 2750x2850 is 7.84 MP and
+   predicts a **~10.6 ms tick**; if it lands far off that, the fit is wrong and say so.
+2. **Launch.** 2750x2850 is already armed in all four places (`tools\arm-res.ps1 -Status`
+   shows them). The log must read, in order: `res: launch: command line extended ...
+   -ResX=2750 -ResY=2850`, `res: handed the game our 2750x2850@<hz> mode`, `CreateDevice - the
+   game asked for 2750x2850`, `capture: 2750x2850`, `res: HONOURED`, `xr: swapchain pair
+   2750x2850`.
+3. **Reach gameplay under `stereo reentry`, then `vrpace poseaudit on`, and turn the head.**
+
+### The pose-lane instrument - what it answers and how to read it
+
+The mod samples the head twice: the SCRIPT lane drives the game camera (the pose the pixels
+are DRAWN with), and the PRESENT lane tags the projection layer (the pose the compositor
+reprojects FROM). If they disagree the warp is wrong by the difference every frame, worst when
+turning fastest and worse when a frame is slow - which is the reported percept exactly. Nobody
+had ever measured it. Now:
+
+```
+xr: poseaudit SEAM CHECK ok - ...                      <- must appear FIRST
+xr: poseaudit L tag .. R tag .. vs SCRIPT-lane .. -> delta L +x.xx R +x.xx deg
+    | rendered sample is N locate(s) back, tag is lag=1 -> GENERATION GAP +N
+    | one generation costs X.XX deg at this head speed | sample age .. ms ..
+```
+
+- **SEAM CHECK first.** The two lanes read yaw out of the same matrix with opposite sign
+  conventions (`atan2(m02,m22)` vs `atan2(-m02,m22)`), so a naive comparison would read twice
+  the yaw and look like a catastrophic fault that is purely convention. The seam negates once
+  and then proves it against live data. **If that line says FAILED, every delta after it is
+  meaningless - stop and report it.**
+- **`GENERATION GAP 0` with a delta near 0.00 kills the hypothesis** and that is a real result,
+  written down here in advance so it cannot be explained away later.
+- **A steady nonzero gap names the fault in whole generations**, and `vrpace lag 0|1|2` is the
+  live A/B: one of the three must null it.
+
+**The written prediction: the gap is +1 and `vrpace lag 2` nulls it.** The tagging code assumes
+"locate N feeds the tick that presents at N+1", one generation, which is why `lag` ships at 1.
+But the game's own `DishonoredEngine.ini` carries **`OneFrameThreadLag=True`** - UE3's render
+thread runs a frame behind the game thread, so the pixels in present N were drawn from locate
+**N-2**. If `lag 2` fixes the ghosting, `OneFrameThreadLag=False` is the independent second
+test: it removes the skew at the source instead of compensating for it, at a throughput cost.
+
+### Also shipped: the 3-second stall nobody had looked at
+
+`capture.cpp`'s content-bbox instrument (the `FULL`/`CROPPED` line) needs CPU pixels, and in
+the shipping `shared` mode - whose whole purpose is that nothing goes to the CPU - each sample
+is a full `GetRenderTargetData` + `LockRect` + row copy of the entire frame **on the present
+thread**. That is the same round trip that costs 17-21 ms/present in `sync` mode, it ran every
+3 seconds, and there was no lever. `[Capture] BboxMs` now defaults to 30000 with
+`capture bbox off|<ms>` live; a size change still resamples immediately.
+
+**Falsifiable prediction:** if this is behind the hitches, the `perf: frame gap` count should
+fall by roughly the number of 3-second windows in the run (62-82 gaps over the last two runs is
+close to one per window). **Counter-evidence already on record:** those gaps mostly reported
+`sat in: present-tail (xrEndFrame)`, not the capture phase. If the count does not move, this
+removed a real cost and was not the hitch cause - say that.
+
+### Two more suspects died without a run
+
+- **Motion blur.** Already off: `MotionBlur=False` and `MotionBlurPause=False`, with Arkane's
+  own comment in the file - "Motion blur is unwanted". Not the ghosting.
+- **A per-eye tag asymmetry.** Under `reentry` the LEFT present holds the XR frame open and the
+  RIGHT completes it; `on_present_begin` returns at the top while a pair is open, so there is
+  no second waitFrame and no re-locate between the eyes. **Both eyes of a pair share one locate
+  generation.** The instrument prints per eye anyway so the invariant is checked, but do not go
+  hunting this.
+
+### Still not done from the tester's list
+
+FXAA (`iType_AntiAlias` 1 -> 2) and the vsync A/B are **not** wired - the real keys and the
+AppCompat requirement are recorded below and unchanged. Killcam is still not found in any ini.
+
 ## OPEN (2026-09-04): the GHOSTING - the cadence was NOT the cause, and that is now measured
 
 **The report** (tester, on `alpha-264-ge2b84a80` at 2064x2208): "still ghosting flicker when turning
@@ -447,6 +528,69 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 15: the pose lanes get an instrument, and a 3-second stall is found
+
+Session 14 falsified the cadence hypothesis and left three suspects. Two of them died at the
+desk, from files already on disk, before anything was written:
+
+- **Virtual Desktop's SSW** - the tester confirmed it was already off.
+- **Motion blur** - `MotionBlur=False` in `DishonoredEngine.ini`, with the Arkane developers'
+  own comment beside it: "Motion blur is unwanted".
+
+That left the tester's own read - "eye submit desync, or the world geometry isn't tracking the
+head tracking correctly" - and it turned out the instrument for it was **half-built and
+unreachable**. The pose audit already sat at the right line (immediately after the projection
+views are filled, before they are attached), already wrapped to +-180, already rate-limited at
+500 ms. Two things were wrong: it compared the tag against the pose the present thread had just
+CONSUMED, which is fresh at submit and therefore never the sample the pixels came from - so it
+could not answer the question it was named for - and **`set_pose_audit` had no caller at all**.
+The `fovaudit pose on` command its comment named does not exist in this repo. It was dead code
+that would have printed a confidently wrong number if anyone had reached it.
+
+**What was built.** A locate generation counter bumped once per `xrLocateViews`; the game side
+stamps every head sample with the generation it came from and publishes it, with the yaw the
+camera write actually used, through a new `dvr::vr::publish_script_head` seam (needed because
+`g_injHmdYawSnap` is static inside the unity TU and the runtime layer is a real module). The
+audit now reports, per eye, the tagged yaw against the rendered yaw, the gap in GENERATIONS
+against the active `lag`, and what one generation costs in degrees at the current head speed.
+`vrpace poseaudit on|off` arms it.
+
+**The sign trap, and why it is self-checking.** The two lanes read yaw out of the same matrix
+with opposite conventions - `atan2(m02,m22)` against `atan2(-m02,m22)` - so a naive subtraction
+reads about twice the yaw. That is the most convincing possible way for an instrument to lie:
+a large, stable, entirely fake disagreement. The seam negates once and then PROVES it against
+live data, reading the same pose back through the runtime's own converter at the first publish
+and logging `SEAM CHECK ok` or `FAILED`. An instrument whose calibration is only asserted in a
+comment is not evidence.
+
+**The prediction, written before the run.** `DishonoredEngine.ini` carries
+`OneFrameThreadLag=True`. The tagging code assumes one generation of skew (`lag=1`); with UE3's
+render thread a frame behind the game thread it should be two. So: gap +1 at `lag 1`, nulled by
+`vrpace lag 2`. If the delta reads 0.00 at `lag 1`, the hypothesis is dead and that is the
+result.
+
+**Found on the way: a full-frame CPU readback every 3 seconds, on the present thread, in the
+shipping capture mode, with no lever.** The content-bbox instrument needs CPU pixels, and
+`shared` mode exists precisely so that nothing goes to the CPU. Each sample is the same
+`GetRenderTargetData` + `LockRect` + row copy that makes `sync` mode cost 17-21 ms/present -
+about 31 MB at 2750x2850. `[Capture] BboxMs` (default 30000) and `capture bbox off|<ms>` gate
+it; a size change still resamples at once. The prediction and the counter-evidence are both
+recorded at the top of this file.
+
+**Performance, answered with arithmetic instead of another run.** Fitting the three tick
+measurements against megapixels gives ~0.64 ms/MP on a **~5.6 ms fixed floor**. The floor is
+what makes 120 Hz unreachable - it leaves 2.7 ms of GPU for two full-frame scene draws - so the
+resolution question is really a refresh-rate question. 2750x2850 at 90 Hz is the coherent
+combination and is what is armed. There is no render-scale, no foveation and no per-eye
+resolution anywhere in the codebase; resolution is the only pixel lever that exists.
+
+**New tool:** `tools\arm-res.ps1` arms a size with the game not running, writing the same four
+places `ResRequest` does. Arming used to cost two launches (the seam command only exists while
+the game is up, and its write takes effect the launch after).
+
+**Nothing was launched.** Everything here is built, linted, exports-checked and installed, with
+the format strings audited by hand; no runtime behaviour is verified.
 
 ### 2026-09-04 - session 14: the throttle reading dies, the cadence is named
 
