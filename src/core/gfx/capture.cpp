@@ -38,6 +38,7 @@
 #include <windows.h>
 #include <d3d9.h>
 #include <d3d11.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -108,6 +109,8 @@ int                       g_sharedDelivered = -1;   // the slot texture()/srv() 
 bool                      g_sharedWait = false;
 uint32_t                  g_fenceWaits = 0, g_fenceTimeouts = 0, g_fenceWaitsWindow = 0;
 uint64_t                  g_sharedBboxMs = 0;
+uint32_t                  g_bboxIntervalMs = 30000;   // see capture.h; 0 = size changes only
+uint32_t                  g_bboxSamples = 0;
 D3DFORMAT                 g_sharedFmt = D3DFMT_UNKNOWN;
 ID3D11DeviceContext*      g_lastCtx = nullptr;
 
@@ -683,9 +686,18 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         g_sharedDelivered = slot;
         g_deliveredTag = g_sharedTag[slot]; g_deliveredSerial = g_sharedSerial[slot];
         delivered = true;
+        // The bbox readback (see set_bbox_ms in capture.h): a full-frame CPU
+        // round trip on the present thread, in the mode whose whole purpose is
+        // not to make one. !g_bboxSaidForSize is kept unconditional so a size
+        // change still resamples at once - that is the sample that decides
+        // CROPPED vs FULL and it must not wait for an interval.
         const uint64_t now = GetTickCount64();
-        if (g_sharedBboxMs == 0 || now - g_sharedBboxMs >= 3000 || !g_bboxSaidForSize) {
+        const bool due = !g_bboxSaidForSize ||
+                         (g_bboxIntervalMs != 0 &&
+                          (g_sharedBboxMs == 0 || now - g_sharedBboxMs >= g_bboxIntervalMs));
+        if (due) {
             g_sharedBboxMs = now;
+            ++g_bboxSamples;
             if (read_back(dev, g_sharedRt[slot], &rtdUs, &lockUs, &copyUs)) sample_bbox();
         }
     }
@@ -699,6 +711,23 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     cost_tick();
     return delivered;
 }
+
+void set_bbox_ms(uint32_t ms) {
+    const uint32_t was = g_bboxIntervalMs;
+    g_bboxIntervalMs = ms;
+    if (was == ms) return;
+    char nowTxt[48], wasTxt[48];
+    if (ms) sprintf(nowTxt, "every %u ms", ms); else strcpy(nowTxt, "OFF (size changes only)");
+    if (was) sprintf(wasTxt, "every %u ms", was); else strcpy(wasTxt, "off");
+    DVR_INFO("capture: content-bbox resample %s, was %s - in shared mode each sample is a full-frame "
+             "GetRenderTargetData + LockRect + row copy ON THE PRESENT THREAD (%ux%u = %.1f MB), the same "
+             "operation that makes sync mode cost 17-21 ms/present, so every interval is a real stall. "
+             "%u sample(s) taken so far",
+             nowTxt, wasTxt, g_w, g_h, (double)g_w * g_h * 4.0 / (1024.0 * 1024.0), g_bboxSamples);
+}
+
+uint32_t bbox_ms() { return g_bboxIntervalMs; }
+uint32_t bbox_samples() { return g_bboxSamples; }
 
 ID3D11Texture2D* texture() {
     if (g_mode == Mode::Shared && g_sharedDelivered >= 0 && g_sharedTex[g_sharedDelivered]) return g_sharedTex[g_sharedDelivered];

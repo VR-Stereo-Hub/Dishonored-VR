@@ -9,6 +9,8 @@
 #include "core/vr/openxr_runtime.h"
 
 #include <windows.h>
+#include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 namespace dvr::stereo {
@@ -206,6 +208,124 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
                      submits == 0 ? " (stereoSubmits 0 this window: the quad screen or an untagged stream - "
                                     "the ages read 0 by design)" : "");
         }
+        // The RATE line (41.1, session 13): the headset's own cadence next to
+        // ours, on one line, because "the game outruns the headset and the
+        // runtime absorbs it by blocking at xrEndFrame" was an inference from a
+        // phase name and this project has paid for inferences that read well.
+        //   slots/s  the headset, from the runtime's predictedDisplayPeriod
+        //   submits/s  xrEndFrame from the present path - ONE PER STEREO PAIR,
+        //              so it is the tick rate and NOT out/s (which counts
+        //              presents, two per tick under reentry)
+        //   endFrame   what one submit costs: the mean is the pacing wait if
+        //              there is one, the max is the hitch a player feels
+        // What would make it move, and what each answer means: more ticks raise
+        // submits/s (over a slot rate that does not move, the runtime has to
+        // block somewhere, and the throttle reading is confirmed); a headset set
+        // to another refresh moves slots/s; a runtime that leaves the period at 0
+        // prints UNKNOWN and gets no verdict at all. Submits BELOW the slot rate
+        // is the unwelcome answer and it falsifies the throttle reading outright.
+        // The verdict needs branches, so it cannot live inside the DVR_INFO
+        // arguments: the whole block takes the category gate itself.
+        if (::dvr::log::enabled(DVR_CAT, ::dvr::log::Level::Info)) {
+            const dvr::vr::PairProbe& p = g_pairBeat;
+            const dvr::vr::PairProbe& q = g_pairPrev;
+            const double periodMs = (double)p.displayPeriodNs / 1.0e6;
+            const double slots = periodMs > 0.0 ? 1000.0 / periodMs : 0.0;
+            const uint32_t subs = p.endFrames - q.endFrames;
+            const double subsPerS = subs / s;
+            const double efMean = subs ? (double)(p.endFrameSumUs - q.endFrameSumUs) / 1000.0 / subs : 0.0;
+            const double ratio = slots > 0.0 ? subsPerS / slots : 0.0;
+            char hmd[64], verdict[320];
+            if (periodMs > 0.0) _snprintf(hmd, sizeof(hmd), "%.2f ms (%.1f Hz)", periodMs, slots);
+            else strcpy_s(hmd, sizeof(hmd), "UNKNOWN (the runtime left predictedDisplayPeriod at 0)");
+            if (periodMs <= 0.0)
+                strcpy_s(verdict, sizeof(verdict),
+                         "no slot comparison is possible on this runtime - the submit-throttle reading stays "
+                         "an inference, and only the endFrame cost above is evidence");
+            else if (subs == 0)
+                strcpy_s(verdict, sizeof(verdict),
+                         "NO SUBMITS this window (the session is not submitting: parked, unfocused, or the "
+                         "pace guard is skipping) - the rates on this line read 0 BY DESIGN, not by fault");
+            else if (ratio > 1.05)
+                _snprintf(verdict, sizeof(verdict),
+                          "OVER-SUBMITTING %.2fx: more submits than the headset has slots, so the runtime MUST "
+                          "block somewhere to absorb the surplus - the submit-throttle reading is confirmed and "
+                          "the lever is to stop producing frames nobody sees", ratio);
+            else if (ratio >= 0.95)
+                _snprintf(verdict, sizeof(verdict),
+                          "MATCHED %.2fx: one submit per display slot - the endFrame MEAN is the pacing wait and "
+                          "is not a hitch; only the max is", ratio);
+            else
+                _snprintf(verdict, sizeof(verdict),
+                          "UNDER-SUBMITTING %.2fx: display slots are going UNFILLED, so xrEndFrame is not "
+                          "throttling a surplus - the present-tail stalls are genuine hitches and their cause is "
+                          "upstream of the headset's cadence", ratio);
+            // The EVENNESS half (session 14). Rate alone cannot tell "104 pairs
+            // per second evenly spaced" from "104 free-running with a beat
+            // against the display", and those are the same number and a
+            // completely different image: when the interval is not a whole
+            // number of display slots, consecutive frames are held for
+            // different numbers of slots, and under a head turn that irregular
+            // step is seen as doubled edges on high-contrast geometry. So print
+            // the interval's mean and standard deviation, and the derived
+            // number that decides it - SLOTS PER FRAME. This can print the
+            // welcome answer too: a locked cadence reads x.00 with a small sd
+            // and says EVEN.
+            const uint32_t icnt = p.intervalCount - q.intervalCount;
+            const double isum = (double)(p.intervalSumUs - q.intervalSumUs);
+            const double isumSq = (double)(p.intervalSumSqUs - q.intervalSumSqUs);
+            const double iMeanUs = icnt ? isum / icnt : 0.0;
+            const double ivar = icnt ? isumSq / icnt - iMeanUs * iMeanUs : 0.0;
+            const double iSdMs = (ivar > 0.0 ? sqrt(ivar) : 0.0) / 1000.0;
+            const double iMeanMs = iMeanUs / 1000.0;
+            const double spf = periodMs > 0.0 ? iMeanMs / periodMs : 0.0;
+            char even[340] = "";
+            if (icnt && periodMs > 0.0) {
+                const double nearest = floor(spf + 0.5);
+                const double off = spf - nearest;
+                // The beat, stated as a number instead of left as a verdict: at
+                // `off` slots of drift per frame, one frame in 1/|off| is held
+                // for an extra slot, which is the doubled edge. Printing it on
+                // BOTH branches is the point - a verdict that only says "even"
+                // hides how much residual it is forgiving.
+                const double beatFrames = (off > 1e-4 || off < -1e-4) ? 1.0 / (off < 0 ? -off : off) : 0.0;
+                const double beatHz = beatFrames > 0.0 && periodMs > 0.0 ? 1000.0 / (beatFrames * periodMs) : 0.0;
+                // 0.02, not the 0.06 this shipped with. MEASURED 2026-09-04 at
+                // 2750x2850 on a Quest 3 over VDXR, same build, same scene, only
+                // the headset's refresh changed:
+                //   120 Hz -> 1.05-1.11 slots/frame, ghosting reported
+                //    90 Hz -> 1.00-1.02 slots/frame, no ghosting reported
+                // 0.06 called 1.05 EVEN, and session 14 read that clean bill of
+                // health as falsifying the cadence hypothesis when the beat was
+                // still there once every 20 frames. The hypothesis was right and
+                // the THRESHOLD was wrong. The band between the two runs is
+                // 0.02..0.05, so the line is drawn at the measured edge.
+                const bool uneven = (off > 0.02 || off < -0.02) || iSdMs > periodMs * 0.25;
+                if (uneven)
+                    _snprintf(even, sizeof(even),
+                              " | UNEVEN CADENCE: %.2f display slots per frame (not a whole number) with sd %.2f ms - "
+                              "one frame in %.0f is held an extra slot (a %.1f Hz beat), which is the doubled edge on "
+                              "a head turn. Measured: 1.05-1.11 ghosts, 1.00-1.02 does not. The cheapest fix is a "
+                              "headset refresh whose period matches the tick; `vrpace sync <hz>` locks the pair "
+                              "schedule; the clean targets at this period are %.0f/%.0f/%.0f Hz",
+                              spf, iSdMs, beatFrames, beatHz, slots, slots / 2.0, slots / 3.0);
+                else
+                    _snprintf(even, sizeof(even),
+                              " | EVEN CADENCE: %.2f display slots per frame, sd %.2f ms - the pair schedule lands on "
+                              "slot boundaries%s", spf, iSdMs,
+                              beatFrames > 0.0 && beatFrames < 400.0
+                                  ? " (residual beat: one frame in that many is still held over, but under the "
+                                    "0.02 the headset run could not see)"
+                                  : " and no beat is expected");
+            } else if (periodMs > 0.0) {
+                strcpy_s(even, sizeof(even), " | cadence n/a (no pair intervals this window)");
+            }
+            DVR_INFO("stereo: rate hmd=%s slots/s=%.1f | presents/s=%.0f submits/s=%.0f (one xrEndFrame per pair) "
+                     "| pair interval mean=%.2f ms sd=%.2f ms | endFrame mean=%.2f ms max=%.1f ms over %u submits "
+                     "| %s%s",
+                     hmd, slots, (g_beatOut + g_beatNone) / s, subsPerS, iMeanMs, iSdMs, efMean,
+                     p.endFrameMaxUs / 1000.0, subs, verdict, even);
+        }
         g_beatMs = now;
         g_beatOut = g_beatL = g_beatR = g_beatMono = g_beatNone = 0;
     }
@@ -294,6 +414,15 @@ void status(dvr::status::Writer& w) {
         w.kv("phaseMaxMs", (double)p.phaseMaxUs / 1000.0);
         w.kv("phaseMissedPct", p.phaseCount ? 100.0 * p.phaseMissed / p.phaseCount : 0.0);
         w.kv("phasePairs", (unsigned long)p.phaseCount);
+        // Session 13: the headset's cadence and the submit rate. displayHz is 0
+        // when the runtime does not fill predictedDisplayPeriod - unknown, not
+        // "0 Hz". endFrameMaxMs is the LAST BEAT WINDOW's worst submit (the beat
+        // drains it); the mean is over the whole session.
+        w.kv("displayPeriodMs", (double)p.displayPeriodNs / 1.0e6);
+        w.kv("displayHz", p.displayPeriodNs > 0 ? 1.0e9 / (double)p.displayPeriodNs : 0.0);
+        w.kv("endFrames", (unsigned long)p.endFrames);
+        w.kv("endFrameMeanMs", p.endFrames ? (double)p.endFrameSumUs / 1000.0 / p.endFrames : 0.0);
+        w.kv("endFrameMaxMs", (double)p.endFrameMaxUs / 1000.0);
         w.end_obj();
     }
     if (g_active) g_active->status(w);
@@ -329,6 +458,21 @@ void log_status() {
                      p.phaseCount ? 100.0 * p.phaseMissed / p.phaseCount : 0.0);
         else
             DVR_INFO("stereo: pair phase n/a (the runtime offers no XR_KHR_win32_convert_performance_counter_time)");
+        // The rate, live rather than as of the last beat: the period can change
+        // under us (the headset's refresh setting) and this word is what a
+        // tester runs when they want an answer now.
+        const int64_t periodNs = dvr::vr::display_period_ns();
+        if (periodNs > 0)
+            DVR_INFO("stereo: rate hmd=%.2f ms (%.1f Hz) slots/s=%.1f | submits=%lu since start, endFrame mean=%.2f ms "
+                     "(max %.1f ms in the last beat window) - one xrEndFrame per pair, so submits track the TICK rate",
+                     (double)periodNs / 1.0e6, 1.0e9 / (double)periodNs, 1.0e9 / (double)periodNs,
+                     (unsigned long)p.endFrames, p.endFrames ? (double)p.endFrameSumUs / 1000.0 / p.endFrames : 0.0,
+                     (double)p.endFrameMaxUs / 1000.0);
+        else
+            DVR_INFO("stereo: rate hmd=UNKNOWN - this runtime leaves xrWaitFrame's predictedDisplayPeriod at 0, so "
+                     "there is no slot rate to compare against | submits=%lu since start, endFrame mean=%.2f ms",
+                     (unsigned long)p.endFrames,
+                     p.endFrames ? (double)p.endFrameSumUs / 1000.0 / p.endFrames : 0.0);
     }
 }
 

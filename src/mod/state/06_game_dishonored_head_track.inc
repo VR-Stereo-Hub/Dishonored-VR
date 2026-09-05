@@ -28,6 +28,17 @@ static float g_hmdYaw = 0, g_hmdPitch = 0, g_hmdRoll = 0;
 static bool  g_blkProbeForce = false;   // [Blink] BlinkProbe=1: 2 Hz aim log
 static float g_injHmdYawSnap = 0, g_injHmdPitchSnap = 0;
 static bool  g_injSnapOk = false;
+// 41.1: the POSE-LANE instrument's game side. g_hmdGen is the runtime layer's
+// locate generation as of the sample in g_hmdYaw (stamped in TrackHead, on the
+// present thread); g_injHmdGen carries it forward with g_injHmdYawSnap so the
+// submission site can say how many locates back the sample the camera write
+// actually used sits. g_injHmdSeq only ever increments, and a 0 at the audit
+// means the adapter has never published a camera write at all - which the
+// instrument prints instead of a delta, because "no sample" and "no
+// disagreement" must never read the same. See openxr_runtime.h's pose-lane
+// seam for the sign convention (published negated, once, at the seam).
+static uint32_t g_hmdGen = 0;
+static uint32_t g_injHmdGen = 0, g_injHmdSeq = 0;
 // The camera frame blink recomposes against. 32.92: THIS WAS THE WHOLE BUG.
 // Only the script-event camera writer published these; the direct-rotator
 // fallback (viewinject) drove the camera without publishing, so on launches

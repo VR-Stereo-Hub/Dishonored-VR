@@ -1399,6 +1399,222 @@ pose the game renders with, and the views the layer is tagged with, for `predict
 + ahead x period`; `xrEndFrame`'s displayTime and the tag generation are untouched, so at 0 the
 paths are byte-identical. `vrpace lag` exposes the attribution generation for the measurement.
 
+## THE GHOSTING WAS THE CADENCE BEAT, and the verdict's threshold hid it (2026-09-04, session 15)
+
+**SOLVED, on the headset, by a one-setting A/B.** Same build, same scene, same 2750x2850 render;
+only the headset's refresh changed.
+
+| | 120 Hz | 90 Hz |
+|---|---|---|
+| display period | 8.33 ms | 11.11 ms |
+| `perf: tick` p50 (p90, max) | 9.1 ms (10.8, 12.9) | 11.3 ms (12.0, 15.1) |
+| **display slots per frame** | **1.05 - 1.11** | **1.00 - 1.02** |
+| EVEN / UNEVEN windows | 9 / 20 | **33 / 16** |
+| MATCHED / UNDER-SUBMITTING | 11 / 26 | **38 / 22** |
+| ghosting reported | yes | **no** |
+
+The mechanism is arithmetic, and the `stereo: rate` line had been printing it all along:
+at `off` slots of drift per frame, **one frame in `1/off` is held for an extra display slot**,
+and consecutive frames shown for different durations is exactly a doubled edge under rotation.
+At 1.11 that is every 9th frame. At 1.01 it is every 100th. The fault was never the resolution
+and never the pose attribution - **it was the tick not dividing into the display period.**
+
+### Session 14's falsification was wrong, and this is why
+
+Session 14 measured 1.03-1.05 slots per frame at 2064x2208/120 Hz, read `EVEN CADENCE`, and
+concluded the cadence hypothesis was dead. **The verdict was lying.** Its threshold was
+`|off| > 0.06`, so it called 1.05 - a beat every twenty frames, plainly visible on a head turn -
+a clean bill of health. The hypothesis was right; the instrument's *threshold* was wrong, which
+is a failure mode worth naming: an instrument can be correctly built, correctly read, and still
+mislead because the line between pass and fail was picked before anything was measured.
+
+The threshold is now **0.02**, drawn at the measured edge (1.02 does not ghost, 1.05 does), and
+both branches print the beat as a number - one frame in N, and the beat in Hz - so a future
+"even" verdict shows the residual it is forgiving instead of hiding it.
+
+### Why the frame rate drops FURTHER at 90 Hz than at 120 Hz
+
+The tester's own observation, and it is not a contradiction:
+
+- At **120 Hz** the tick (9.1 ms) never fit the 8.33 ms slot. The app was never trying to hit a
+  slot - it free-ran and the compositor smeared over the mismatch continuously. There is no
+  cliff to fall off when you are already permanently past the edge, so the rate reads a smooth
+  100-120 and the ghosting is constant. **Smooth, and always wrong.**
+- At **90 Hz** the tick (11.3 ms p50) sits *right at* the 11.11 ms period. Most frames make
+  their slot, which is what removed the ghosting - but a frame that misses waits a whole period,
+  so a single 11.3 ms overrun displays for 22.2 ms (45 fps instantaneous) and a run of them
+  averages toward 60. **Correct, with a cliff directly underneath.**
+
+**And the hitch RATE did not actually change.** Normalised by run length (29 vs 50 three-second
+windows): 27.6 gaps/min at 120 Hz, 28.4 gaps/min at 90 Hz. Identical. They are simply visible
+now, because they stand out against a locked cadence instead of disappearing into a permanently
+smeared one. **54 of the 71 gaps sat in `present-tail (xrEndFrame)`, up to 101 ms** - on a Wi-Fi
+streaming runtime a 101 ms block inside the submit call is the encoder or the link, not the
+frame path. That is the next thing to attack, and it is not ours.
+
+### The cost model, refit with the new point
+
+`perf: tick` against per-eye megapixels, four sizes: **~0.63 ms/MP on a ~5.8 ms fixed floor**
+(2750x2850 = 7.84 MP measured 11.3 ms against 10.8 predicted, so the floor is slightly higher
+than the three-point fit said). Note the 90 Hz tick is PACE-BOUND (8 windows say so), so 11.3 ms
+is partly the slot rather than the work - the render cost alone is lower and the headroom is
+real but unquantified.
+
+**The rule this leaves:** pick the refresh whose period the tick divides into, not the biggest
+resolution. Read `stereo: rate` for `display slots per frame` and drive it to 1.00.
+
+## The startup eye-starvation flicker, measured at last (2026-09-04, session 15c)
+
+**Not new.** It normally lasts a few seconds at the start of a session; on this run it lasted
+much longer, which is what finally made it measurable. The reported percept: heavy flickering
+for roughly 30 seconds that looked like alternate-eye rendering viewed flat, with the weapon
+taking that long to settle into alignment. It then stopped, the weapon stayed aligned, and the
+rest of the session was smooth.
+
+**What the log shows, `stereo: beat` L/s and R/s across one run** (2750x2850, 90 Hz, Quest 3
+over VDXR, `alpha-272-g65ac9bd2`):
+
+| t (s from proxy load) | out/s | L/s | R/s | none/s | draws/s | state |
+|---|---|---|---|---|---|---|
+| 8.5 - 17.5 | 21 - 85 | 0 | 0 | 0 | - | menu/loading, mono by design |
+| **20.5** | 89 | **12** | **52** | 10 | 66 | GAMEPLAY starts; starved |
+| **23.5 - 38.5** | 87 - 91 | **16 - 19** | **71 - 73** | 16 - 17 | 51 - 72 | starved |
+| **44.5 onward** | 180 | **90** | **90** | **0** | **90** | **locked, and stays locked** |
+| 77.5 - 83.5 | 155 - 234 | 0 | 0 | 0 | - | pause screen, mono by design |
+
+**The cause is the tick, and the numbers say so directly.** During the starved window
+`perf: tick` reads **17.5 ms against the 11.11 ms budget** and its per-class split is
+`P1[-1] n=36` against `P2[+1] n=156` with `untagged 107` - the LEFT-tagged presents are a
+quarter of the RIGHT ones. `reentry: beat` confirms pass 2 is running the whole time
+(`2nd/s == draws/s`, skips all zero), so the second draw is NOT missing; the game is simply
+producing 51-72 ticks/s against 90 display slots/s. With the tick below the display rate the
+pair schedule cannot land one pair per slot, the tag stream goes lopsided, and 1016 same-eye
+pushes accumulate (`reentry: pushed eye +1 TWICE in a row`, always +1, LEFT starving).
+
+**One eye taking fresh frames at ~18 Hz while the other runs at ~73 Hz is not subtle - it is a
+hard flicker, and it looks like alternate-eye rendering seen flat because that is structurally
+what it has become.** It self-heals the instant `draws/s` reaches 90: L/s = R/s = 90, zero
+untagged, zero stale, for the rest of the run.
+
+The usual reason the tick is slow for the first seconds of gameplay is UE3 level streaming -
+`call2` max spikes to 1836-2029 us in that window against 614-777 us once locked, and the
+device census logs 14058 creations at first GAMEPLAY.
+
+**Same root as the ghosting, at a different ratio.** When the tick is slightly longer than the
+display period you get the beat (doubled edges); when it is far longer you get eye starvation
+(flicker). Both are the tick not fitting the slot.
+
+### Fix theory - NOT implemented, and the cheap test comes first
+
+1. **`vrpace strict on` is the existing lever and has never been judged.** It already does the
+   right thing in principle: a stereo submit with an eye older than one present shows the fresh
+   eye to BOTH eyes instead. That converts the starved window from alternating eyes into a
+   briefly flat picture, which is a far milder artifact, and it costs nothing to try - it ships
+   off and toggles live. **Do this before writing any code.** The risk is that it also fires on
+   the rare mid-gameplay stale eye and drops depth for a frame there, so it wants an A/B, not a
+   blind default flip.
+2. **If strict is not enough, the shape of a real fix** is to refuse to submit a pair at all
+   while the tick cannot fill the slots, rather than submitting a lopsided one - i.e. extend
+   the `HoldUntagged` idea from untagged presents to unbalanced pairs, holding the previous
+   good pair until `draws/s` recovers. Bounded, because a permanent hold is a frozen image.
+3. **The cheapest mitigation is not ours at all**: the window ends when streaming does, so it
+   scales with load time. An SSD, and not turning the head for the first few seconds after a
+   load, both shorten what the player sees.
+
+Unresolved and worth measuring first: **why LEFT specifically.** The pushes are always `+1`
+(RIGHT) doubled. A plausible mechanism is the shared-capture deferred delivery
+(`SharedWait=0` delivers the PREVIOUS slot) repeating a tag when presents arrive irregularly,
+but that is a hypothesis, not a measurement, and `capture sharedwait on` is the A/B that would
+test it.
+
+## The content-bbox readback prediction was FALSIFIED (2026-09-04, session 15)
+
+Session 15 gated the 3-second full-frame CPU readback and predicted that if it were behind the
+hitches, the `perf: frame gap` count would fall by roughly the number of 3-second windows in a
+run. **It did not.** Samples fell from one per 3 s to 2-3 per run, and the gap rate was
+unchanged (27.6 and 28.4 per minute across the two runs, against 62-82 per run before). The
+counter-evidence recorded alongside the prediction - that the gaps mostly sat in
+`present-tail (xrEndFrame)`, not the capture phase - was the correct read.
+
+**The gate stays**: it removed a real, unlevered ~30 MB present-thread stall and cost nothing.
+It just was not the hitch cause, and saying so is the point of having written the prediction
+down.
+
+## The two pose lanes, and why the tag can be a generation wrong (2026-09-04)
+
+The mod samples the head TWICE per frame, on two different lanes, and the compositor only
+ever sees one of them:
+
+- **SCRIPT lane.** `on_present_begin` locates the head (`xrLocateSpace`, `openxr_runtime.cpp`),
+  `DvrConsumePoses` -> `TrackHead` turns it into `g_hmdYaw` on the present thread, and the
+  GAME thread's world tick reads that in `ApplyHeadToViewRotation` and writes the engine
+  camera. `head_track.cpp` publishes the matched pair at that instant: `g_viewYawRad` (what
+  was written) beside `g_injHmdYawSnap` (the HMD yaw it was computed from). **This is the pose
+  the pixels are drawn with.**
+- **PRESENT lane.** The same `on_present_begin` calls `xrLocateViews` for the same
+  `locateTime`, and the projection layer's `XrCompositionLayerProjectionView.pose` is filled
+  from one of three kept generations - `g_views` (N), `g_viewsContent` (N-1), `g_viewsPrev2`
+  (N-2), selected by `g_poseLag`, shipping at 1. **This is the pose the compositor reprojects
+  FROM.**
+
+If those two are not the same sample, the reprojection is wrong by the difference on every
+frame, the error tracks head speed, and it grows when a frame is slow. That is a doubled-edge
+percept under rotation - and until 2026-09-04 nothing measured it.
+
+**The tag is predicted to be one generation too fresh, and the game's own config says so.**
+The attribution comment assumes "locate N feeds the tick that presents at N+1" - one
+generation, hence `lag=1`. But `DishonoredEngine.ini [SystemSettings]` carries
+**`OneFrameThreadLag=True`**: UE3's render thread runs a frame behind the game thread, so the
+pixels in present N were drawn by a tick that read the head at locate **N-2**. The prediction
+is therefore that the instrument reads a one-generation gap at `lag 1` and that
+`vrpace lag 2` nulls it. `OneFrameThreadLag=False` is the independent second test - it removes
+the skew at the source instead of compensating for it, at a throughput cost. Neither has been
+run yet.
+
+**Both eyes of a pair share ONE locate - do not go hunting a per-eye asymmetry.** Under
+`reentry` the LEFT present holds the XR frame open (`pairHold`) and the RIGHT completes it;
+`on_present_begin` returns at the top while a pair is open, so there is no second
+`xrWaitFrame` and no re-locate between them. `g_viewsContent` is identical for both eyes. The
+instrument prints per eye anyway, cheaply, so the invariant is checked rather than assumed.
+
+**THE SIGN TRAP.** The two lanes read yaw out of the SAME rotation matrix with opposite
+conventions:
+
+| | reduces to |
+|---|---|
+| `xr_quat_yaw_deg` (`openxr_runtime.cpp`) | `atan2( m02, m22)` |
+| `TrackHead` (`head_track.cpp`) | `atan2(-m02, m22)` |
+
+so `g_hmdYaw == -xr_quat_yaw_deg / 57.29578` for any pose, and a naive subtraction reads about
+TWICE the yaw. That would look like a catastrophic disagreement that is purely convention -
+the most convincing possible way for this instrument to lie. `publish_script_head` negates
+once, on the way in, and then PROVES it against live data: at the first publish it reads the
+same `g_headPose` back through this file's own converter and logs
+`xr: poseaudit SEAM CHECK ok|FAILED`. Do not read a delta until that line says ok.
+
+Note also that `g_viewYawRad` is the absolute UE **rotator** yaw and composes stick turn with
+head delta (`ue_math.cpp` differences the two deliberately). It is never the right thing to
+compare against the tag; `g_injHmdYawSnap` is.
+
+## The content-bbox readback: a full CPU round trip in the VRAM path (2026-09-04)
+
+`capture.cpp`'s bbox instrument - the `100% x 100% (FULL)` / `(CROPPED)` line - needs CPU
+pixels. In `shared` mode, whose entire purpose is that nothing goes to the CPU (the frame is a
+VRAM-to-VRAM `StretchRect`), sampling it costs a full `GetRenderTargetData` + `LockRect` +
+per-row `memcpy` of the whole frame, **on the present thread**. That is the same round trip
+measured at 17-21 ms/present in `sync` mode at 2496x2688 ("The capture cost, measured"), and
+it ran unconditionally every 3 seconds with no lever - about 31 MB per sample at 2750x2850.
+
+`[Capture] BboxMs` (default 30000, `capture bbox off|<ms>` live) is the gate. A size change
+still resamples immediately and unconditionally, because that is the sample that decides
+CROPPED vs FULL and it must not wait for an interval.
+
+**Falsifiable prediction, recorded before the run:** if this is behind the hitches, the
+`perf: frame gap` count should fall by roughly the number of 3-second windows in a run (62-82
+gaps over the last two runs is close to one per window). **The counter-evidence is already on
+record**: those gaps mostly reported `sat in: present-tail (xrEndFrame)`, not the capture
+phase. If the count does not move, this removed a real cost and was not the hitch cause.
+
 ## The pitch pivot: the engine's neck, measured (2026-09-03, session 7)
 
 `camera pitchtest 30` (e374a6a2) takes three buckets of c5 (LEVEL, looking UP, looking DOWN,

@@ -1,5 +1,481 @@
 # Status
 
+## CONFIRMED ON A THIRD RUN (2026-09-04): 2750x2850 at 90 Hz is the default and it holds up
+
+Third headset run on the shipped defaults: smooth, weapon aligned, no ghosting, and no frame
+rate below 80 observed. The 90 Hz result reproduces. The defaults now
+carry it (`[Screen] RenderWidth=2750 RenderHeight=2850` plus the 90 Hz note beside them).
+
+**One open issue on that run, and it is NOT new**: the session flickered for roughly 25 seconds
+at the start before locking. It normally lasts a few seconds; this run it ran long, which is
+what made it measurable for the first time. Diagnosed below, **not fixed** -
+the first thing to try is a lever that already exists and has never been judged.
+
+### The startup flicker: one eye starving while the level streams
+
+`stereo: beat` across the run tells the whole story:
+
+| t (s) | out/s | L/s | R/s | none/s | draws/s | |
+|---|---|---|---|---|---|---|
+| 8.5 - 17.5 | 21 - 85 | 0 | 0 | 0 | - | menu/loading, mono by design |
+| **20.5 - 38.5** | 87 - 91 | **12 - 19** | **52 - 73** | 10 - 17 | **51 - 72** | **starved: the flicker** |
+| **44.5 onward** | 180 | **90** | **90** | **0** | **90** | **locked, stays locked** |
+| 77.5+ | 155 - 234 | 0 | 0 | 0 | - | pause screen, mono by design |
+
+`perf: tick` in the starved window reads **17.5 ms against the 11.11 ms budget**, split
+`P1[-1] n=36` against `P2[+1] n=156` with `untagged 107`. `reentry: beat` shows pass 2 running
+throughout (`2nd/s == draws/s`, all skip counters zero), so the second draw is not missing -
+**the game is simply producing 51-72 ticks/s against 90 display slots/s.** Below the display
+rate the pair schedule cannot land one pair per slot, the tag stream goes lopsided, and 1016
+same-eye pushes accumulate (always `+1`, so LEFT is the eye that starves). One eye refreshing
+at ~18 Hz beside one at ~73 Hz is the flicker, and it looks like alternate-eye rendering
+because structurally that is what it is.
+
+**Same root as the ghosting, at a different ratio.** Tick slightly over the period gives the
+beat (doubled edges); tick far over gives eye starvation (flicker).
+
+### The fix theory, in order, and NOTHING here is implemented
+
+1. **`vrpace strict on` first.** It already shows the fresh eye to BOTH eyes when one is stale,
+   which converts the starved window from alternating eyes into a briefly flat picture. It
+   ships off, toggles live, and has never been judged. **Try this before any code is written.**
+   It wants an A/B rather than a default flip, because it will also fire on the rare
+   mid-gameplay stale eye and cost depth for that frame.
+2. **If that is not enough**, the shape of a real fix is to extend the `HoldUntagged` idea from
+   untagged presents to unbalanced pairs: hold the previous good pair rather than submit a
+   lopsided one, bounded so a permanent hold cannot freeze the image.
+3. **Measure before either**: why LEFT specifically. Hypothesis - the shared-capture deferred
+   delivery (`SharedWait=0` hands over the PREVIOUS slot) repeats a tag when presents arrive
+   irregularly. `capture sharedwait on` is the A/B that tests it. This is a hypothesis, not a
+   measurement.
+
+## NEXT SESSION (2026-09-05): make the startup phases hook instantly
+
+**The goal**: a load should come up in stereo, aligned, immediately. Today it walks through
+mono, then the arms hook and reposition, then stereo hooks, then the weapon and hands flicker
+until they lock - **15-25 seconds of settling, every load.** The 2026-09-04 run measured 26 s.
+
+### The measured startup timeline (from the s15c log, times from proxy load)
+
+| t | what happens |
+|---|---|
+| 0.00 s | pad IAT hook; the engine command line is extended (`-ResX/-ResY`) |
+| 0.6 s | config read: hands, hand render drive, crouch, crash handler |
+| 0.86 s | `res` adapter-mode hooks installed |
+| **3.11 s** | **device hooks** (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene) + the creation census hooks |
+| 4.86 s | `[game] state: NO_PAWN` |
+| **5.08 s** | XR session live; `reentry: ARMED` (call site patches at the next script dispatch); **`blockhunt: walking 65821 objects`** |
+| 17.1 s | `[game] state: MENU` |
+| **18.4 s** | `[game] state: GAMEPLAY`; 14058 D3D creations logged at first GAMEPLAY |
+| **20.5 s** | stereo tags start - but **starved** (L/s 12-19 against R/s 52-73) |
+| **44.5 s** | **locked**: L/s = R/s = 90, nothing untagged, and it stays that way |
+
+**So the settle is two separate problems and they should not be conflated:**
+
+1. **0 -> 18.4 s is mostly the GAME loading**, not us. Our own hooks are all in by 5.1 s. The
+   only clearly-ours cost in that stretch is `blockhunt` walking **65821 UObjects** at 5.08 s -
+   worth timing before assuming it is free, and an obvious candidate for caching its results
+   (the offsets it finds are build-constant) or deferring it off the critical path.
+2. **18.4 -> 44.5 s is the eye starvation, and it is OURS to handle.** Diagnosed in the section
+   above: while the level streams the tick runs 51-72/s against 90 display slots/s, so the pair
+   schedule cannot land one pair per slot and one eye starves. **This is the 26 seconds the
+   player actually sees**, and it is where the work is.
+
+### Where to start, cheapest first
+
+1. **`vrpace strict on`** - already exists, never judged, one command. It should turn the
+   starved window from alternating eyes into a briefly flat picture. **Do this before writing
+   any code.**
+2. **Measure why LEFT starves specifically.** Every doubled push is `+1`. Hypothesis: the
+   shared-capture deferred delivery (`SharedWait=0` hands over the PREVIOUS slot) repeats a tag
+   when presents arrive irregularly. `capture sharedwait on` is the A/B that tests it. This is a
+   hypothesis, not a measurement.
+3. **Then consider holding unbalanced pairs**, extending the `HoldUntagged` idea: hold the last
+   good pair rather than submit a lopsided one, bounded so it cannot freeze the image.
+4. **Separately, time the startup hooks themselves.** There is no instrument that says how long
+   each phase took - `blockhunt`, the census hooks, the reentry call-site patch, the first
+   GAMEPLAY transition. Without that, "make startup instant" has no scoreboard. A phase-timing
+   line is probably the first thing to build.
+
+**Do not re-open**: the ghosting (solved, cadence, 90 Hz), the bbox readback (gated, prediction
+falsified), motion blur (already off), a per-eye tag asymmetry (impossible - the pair shares one
+locate). The 60 fps dips are the Wi-Fi encoder, not the frame path.
+
+## SOLVED (2026-09-04): the GHOSTING was the cadence beat, and 90 Hz is the fix
+
+**No ghosting reported at 2750x2850 on a 90 Hz headset.** Same build, same scene, same render
+size at 120 Hz: ghosting still reported. One setting changed.
+
+| | 120 Hz | 90 Hz |
+|---|---|---|
+| display period | 8.33 ms | 11.11 ms |
+| `perf: tick` p50 (p90, max) | 9.1 ms (10.8, 12.9) | 11.3 ms (12.0, 15.1) |
+| **display slots per frame** | **1.05 - 1.11** | **1.00 - 1.02** |
+| EVEN / UNEVEN windows | 9 / 20 | **33 / 16** |
+| MATCHED / UNDER-SUBMITTING | 11 / 26 | **38 / 22** |
+| ghosting reported | yes | **no** |
+
+At `off` slots of drift per frame, one frame in `1/off` is held for an extra display slot, and
+consecutive frames shown for different durations IS the doubled edge. At 1.11 that is every 9th
+frame; at 1.01 every 100th. **The fault was never the resolution and never the pose
+attribution - it was the tick not dividing into the display period.**
+
+**The defaults now carry it**: `[Screen] RenderWidth=2750 RenderHeight=2850`, with the 90 Hz
+requirement written into the ini text beside it, because the pair is one setting and the refresh
+half lives in Virtual Desktop where no ini can reach it.
+`tests/golden/known-good-2750x2850-90hz.ini` is the byte copy of the machine that was judged.
+
+### Session 14's falsification was WRONG, and the threshold was why
+
+Session 14 measured 1.03-1.05 slots per frame, read `EVEN CADENCE`, and closed the cadence
+hypothesis. The verdict was lying: its threshold was `|off| > 0.06`, so it called 1.05 - a beat
+every twenty frames - clean. **The hypothesis was right and the instrument's threshold was
+wrong.** Now 0.02, drawn at the measured edge (1.02 does not ghost, 1.05 does), and both
+branches print the beat as a number so an "even" verdict shows the residual it forgives.
+
+### Why it drops to 60 at 90 Hz when it never dropped below 90 at 120 Hz
+
+Not a contradiction, and the hitch RATE did not change - normalised by run length it is
+**27.6 gaps/min at 120 Hz and 28.4 at 90 Hz. Identical.**
+
+- At **120 Hz** the tick never fit the 8.33 ms slot, so the app never tried to hit one. It
+  free-ran and the compositor smeared over the mismatch. No cliff to fall off when you are
+  already past the edge: the rate reads a smooth 100-120 and the ghosting is constant.
+  **Smooth, and always wrong.**
+- At **90 Hz** the tick sits right at the 11.11 ms period. Most frames make their slot - which
+  is what removed the ghosting - but one that misses waits a whole period, so an 11.3 ms
+  overrun displays for 22.2 ms (45 fps instantaneous) and a run of them averages toward 60.
+  **Correct, with a cliff directly underneath.**
+
+The stalls were always there; they are just visible now, standing out against a locked cadence
+instead of disappearing into a permanently smeared one.
+
+### What is actually causing the remaining drops, and it is not ours
+
+**54 of the 71 gaps sat in `present-tail (xrEndFrame)`, blocking up to 101 ms.** On a Wi-Fi
+streaming runtime a 101 ms block inside the submit call is the encoder or the link. Next steps,
+cheapest first, all on the Virtual Desktop side: raise the bitrate or change codec, check the
+link speed and channel, try a wired/dedicated AP. Only after that is ruled out is it worth
+looking at our frame path again.
+
+The other lever, if you want margin instead: buy ~1 ms of tick. At ~0.63 ms/MP a step to about
+**2600x2700** (7.02 MP) predicts ~10.3 ms against the 11.11 ms period - real headroom under the
+cliff, at a small sharpness cost. Untested.
+
+### Falsified, honestly: the content-bbox gate was not the hitch cause
+
+Session 15 predicted that gating the 3-second full-frame readback would cut the `perf: frame
+gap` count by roughly the number of 3-second windows. **It did not.** Samples fell from one per
+3 s to 2-3 per run; the gap rate was unchanged. The counter-evidence recorded next to the
+prediction - the gaps sat in `xrEndFrame`, not the capture phase - was the correct read. The
+gate stays because it removed a real ~30 MB present-thread stall for free, but it did not fix
+what it was predicted to fix.
+
+### The pose-lane instrument: validated, still unarmed
+
+`xr: poseaudit SEAM CHECK ok - the script lane's yaw reads 20.67 deg and this file's own
+converter reads 20.67 deg for the same head pose (0.00 apart)` fired in **both** runs. The sign
+calibration is proven correct against live data, so a delta it prints would be a real
+disagreement. **Nobody armed it** (`vrpace poseaudit on`), so the pose-attribution question is
+still open - but it is no longer the ghosting's leading suspect, because the ghosting is
+explained. Keep it for the judder/`ahead` work.
+
+## SUPERSEDED (2026-09-04): the pose-lane instrument was built for a fault the cadence explained
+
+Everything below is **built, linted, installed and unverified at runtime** - nothing has been
+launched. What the next headset session does, in order:
+
+1. **Set Virtual Desktop to 90 Hz.** This is not optional decoration, it is the arithmetic.
+   Fitting the three measured ticks against megapixels (4.56 MP -> 8.75 ms, 6.71 -> 9.55,
+   15.73 -> 15.7) gives **~0.64 ms per megapixel on a ~5.6 ms fixed floor**. The floor is the
+   game's own CPU tick plus two presents and resolution does not touch it, so at 120 Hz the
+   entire 8.33 ms budget leaves 2.7 ms of GPU for two full-frame scene draws - unreachable at
+   any VR-useful size. **90 Hz (11.1 ms) is the honest target.** 2750x2850 is 7.84 MP and
+   predicts a **~10.6 ms tick**; if it lands far off that, the fit is wrong and say so.
+2. **Launch.** 2750x2850 is already armed in all four places (`tools\arm-res.ps1 -Status`
+   shows them). The log must read, in order: `res: launch: command line extended ...
+   -ResX=2750 -ResY=2850`, `res: handed the game our 2750x2850@<hz> mode`, `CreateDevice - the
+   game asked for 2750x2850`, `capture: 2750x2850`, `res: HONOURED`, `xr: swapchain pair
+   2750x2850`.
+3. **Reach gameplay under `stereo reentry`, then `vrpace poseaudit on`, and turn the head.**
+
+### The pose-lane instrument - what it answers and how to read it
+
+The mod samples the head twice: the SCRIPT lane drives the game camera (the pose the pixels
+are DRAWN with), and the PRESENT lane tags the projection layer (the pose the compositor
+reprojects FROM). If they disagree the warp is wrong by the difference every frame, worst when
+turning fastest and worse when a frame is slow - which is the reported percept exactly. Nobody
+had ever measured it. Now:
+
+```
+xr: poseaudit SEAM CHECK ok - ...                      <- must appear FIRST
+xr: poseaudit L tag .. R tag .. vs SCRIPT-lane .. -> delta L +x.xx R +x.xx deg
+    | rendered sample is N locate(s) back, tag is lag=1 -> GENERATION GAP +N
+    | one generation costs X.XX deg at this head speed | sample age .. ms ..
+```
+
+- **SEAM CHECK first.** The two lanes read yaw out of the same matrix with opposite sign
+  conventions (`atan2(m02,m22)` vs `atan2(-m02,m22)`), so a naive comparison would read twice
+  the yaw and look like a catastrophic fault that is purely convention. The seam negates once
+  and then proves it against live data. **If that line says FAILED, every delta after it is
+  meaningless - stop and report it.**
+- **`GENERATION GAP 0` with a delta near 0.00 kills the hypothesis** and that is a real result,
+  written down here in advance so it cannot be explained away later.
+- **A steady nonzero gap names the fault in whole generations**, and `vrpace lag 0|1|2` is the
+  live A/B: one of the three must null it.
+
+**The written prediction: the gap is +1 and `vrpace lag 2` nulls it.** The tagging code assumes
+"locate N feeds the tick that presents at N+1", one generation, which is why `lag` ships at 1.
+But the game's own `DishonoredEngine.ini` carries **`OneFrameThreadLag=True`** - UE3's render
+thread runs a frame behind the game thread, so the pixels in present N were drawn from locate
+**N-2**. If `lag 2` fixes the ghosting, `OneFrameThreadLag=False` is the independent second
+test: it removes the skew at the source instead of compensating for it, at a throughput cost.
+
+### Also shipped: the 3-second stall nobody had looked at
+
+`capture.cpp`'s content-bbox instrument (the `FULL`/`CROPPED` line) needs CPU pixels, and in
+the shipping `shared` mode - whose whole purpose is that nothing goes to the CPU - each sample
+is a full `GetRenderTargetData` + `LockRect` + row copy of the entire frame **on the present
+thread**. That is the same round trip that costs 17-21 ms/present in `sync` mode, it ran every
+3 seconds, and there was no lever. `[Capture] BboxMs` now defaults to 30000 with
+`capture bbox off|<ms>` live; a size change still resamples immediately.
+
+**Falsifiable prediction:** if this is behind the hitches, the `perf: frame gap` count should
+fall by roughly the number of 3-second windows in the run (62-82 gaps over the last two runs is
+close to one per window). **Counter-evidence already on record:** those gaps mostly reported
+`sat in: present-tail (xrEndFrame)`, not the capture phase. If the count does not move, this
+removed a real cost and was not the hitch cause - say that.
+
+### Two more suspects died without a run
+
+- **Motion blur.** Already off: `MotionBlur=False` and `MotionBlurPause=False`, with Arkane's
+  own comment in the file - "Motion blur is unwanted". Not the ghosting.
+- **A per-eye tag asymmetry.** Under `reentry` the LEFT present holds the XR frame open and the
+  RIGHT completes it; `on_present_begin` returns at the top while a pair is open, so there is
+  no second waitFrame and no re-locate between the eyes. **Both eyes of a pair share one locate
+  generation.** The instrument prints per eye anyway so the invariant is checked, but do not go
+  hunting this.
+
+### Still not done from the tester's list
+
+FXAA (`iType_AntiAlias` 1 -> 2) and the vsync A/B are **not** wired - the real keys and the
+AppCompat requirement are recorded below and unchanged. Killcam is still not found in any ini.
+
+## OPEN (2026-09-04): the GHOSTING - the cadence was NOT the cause, and that is now measured
+
+**The report** (tester, on `alpha-264-ge2b84a80` at 2064x2208): "still ghosting flicker when turning
+head and sometimes it hits harder than others".
+
+### The resolution lever WORKS. Proven, because the tester doubted it and was right to
+
+Every number moved, and the log names the mechanism at each step (`res: handed the game our
+2064x2208@240 mode (slot 112)`, `CreateDevice - the game asked for 2064x2208`, `capture: 2064x2208`):
+
+| | 2496x2688 | 2064x2208 |
+|---|---|---|
+| `perf: tick` | 9.2-9.9 ms | **8.6-8.9 ms** |
+| submits/s (of 120 slots) | 88-115 | **114-117** |
+| supply verdict | UNDER-SUBMITTING 0.73-0.96x | **MATCHED 0.95-0.97x** |
+| slots per frame | 1.13 | **1.03-1.05** |
+| interval sd | 1.3-3.8 ms | **0.75-1.36 ms** |
+| cadence verdict | UNEVEN | **EVEN CADENCE** |
+| capture lock | 0.5 ms | 0.0-0.1 ms |
+
+### And the ghosting SURVIVED it. The cadence hypothesis is falsified
+
+This is the point of having written the prediction down. The cadence is now locked - EVEN CADENCE,
+1.03-1.05 slots per frame, sd under 1.4 ms, submits MATCHED to the slot rate - and **the doubled
+edges are still there**. So the interference beat was real, was measured, was fixed, and **was not
+what the tester is seeing.** Do not spend another session on pacing for this symptom.
+
+What that leaves, cheapest first, all live commands with no relaunch:
+
+1. **Virtual Desktop's Synchronous Spacewarp.** It manufactures intermediate frames by
+   reprojecting, which is a literal ghost-frame generator, and it engages and disengages on its own
+   - which is what "sometimes it hits harder than others" sounds like. Turn it OFF in the VD
+   streamer settings and repeat the same head turn. **This is the first test and it is not ours.**
+2. **`vrpace lag 0|1|2`** - which locate generation the layer's views are tagged with (ships at 1,
+   "one back"). Infinite recorded the identical open suspect for the identical percept: "camera
+   movement feels 'a bit jumpy' beyond the hitches - candidates: ... **the one-pair-stale
+   content-pose attribution**". If the tag is a generation off the pose the frame was actually
+   rendered from, the compositor reprojects by the wrong amount and the error changes every frame -
+   doubled edges under rotation, worst when turning fastest.
+3. **`vrpace ahead 0|1|2`** - the locate TIME (ships at 0). Already on the carried list as an
+   unjudged judder item. The pair phase reads a steady **-43 ms** (we close ~5 display periods
+   before the slot we asked for; on a Wi-Fi streaming runtime that is VDXR's pipeline depth, not a
+   fault), so the reprojection is doing 40+ ms of extrapolation on every frame and the pose it
+   extrapolates FROM has to be right.
+
+### Not faults, checked so nobody re-checks them
+
+- **The `CROPPED` capture bbox is a menu/loading artifact, not the resolution change.** Both runs
+  show `100% x 52-53% (CROPPED)` early and then `100% x 100% (FULL)` once gameplay starts. Same
+  shape at both sizes.
+- **Not frame duplication or eye desync**: `mono/s=0 none/s=0-1`, `L/s == R/s == out/s / 2`,
+  `ageL=1 ageR=0`, `aborts=0 staleEye 0` throughout gameplay.
+- **Not Infinite's 30-second GC grid**: its spike class was
+  `TimeBetweenPurgingPendingKillObjects=30`, killed A-B-A with 300. Our gaps have no 30 s
+  periodicity - 0-13 s in bursts. Infinite's other signature (the streaming / level-visibility walk,
+  triggered by view change and traversal) is the closer match and matches the head-turn trigger.
+- **The hitches did not improve with resolution**: 62 gaps at 2496x2688, 82 at 2064x2208. They are a
+  separate, later item from the ghosting.
+
+### The 4K run: the lever is proven twice over, and SSW is OUT
+
+**3840x4096 ran.** `perf: tick` **15.6-15.8 ms, 64 ticks/s** against 8.6-8.9 ms at 2064x2208 - the
+lever moves the cost by 1.8x, exactly as pixels predict, so it is not inert and never was. Tester:
+"4k does look way better". The capture lock also scales (0.0-0.1 ms -> 1.4-1.7 ms), which is the
+readback and is ours.
+
+**Virtual Desktop's SSW was already OFF** (tester confirmed), so suspect 1 of 3 is dead without a
+run. The ghosting persists at every size tried, and the tester adds: **"it seems to get worse when
+frame drops happen"**, and their own read is "some kind of eye submit desync, or the world geometry
+isn't tracking the head tracking correctly".
+
+**That read is now the leading hypothesis and it is testable.** The mod drives the game camera from
+the head pose on the SCRIPT lane, and the compositor reprojects the submitted image using the pose
+in the projection layer's views, located on the PRESENT lane. Those are two different samples of the
+same head. If they disagree, the compositor's warp is wrong by the difference, and the error changes
+every frame - which is doubled edges under rotation, and it grows when a frame is slow, which is
+exactly "worse when frame drops happen". Nobody has ever measured that disagreement.
+
+**The matched pair to measure it already exists in the code**: `head_track.cpp` records
+`g_viewYawRad` (the yaw actually written to the engine) next to `g_injHmdYawSnap` (the HMD yaw it was
+computed from) - its own comment says "Matched pair: this rotation was computed from THIS
+g_hmdYaw". The instrument to build is: at submit, compare `g_injHmdYawSnap` for the frame that was
+RENDERED against the yaw of the pose the layer is tagged with, and print the delta in degrees. It
+can print the unwelcome answer - 0.0 deg means the two lanes agree and this hypothesis dies too.
+`vrpace lag 0|1|2` and `vrpace ahead 0|1|2` are the live A/Bs that move it, and neither has been
+judged.
+
+### The tester's settings requests, with the REAL keys found (not guessed)
+
+Asked for: killcam off, antialiasing FXAA, models high, maybe vsync on ("I just tried it and it was
+maybe more smooth, but I'm not sure"). What the game's own config actually carries, in
+`Documents\My Games\Dishonored\DishonoredGame\Config\`:
+
+| ask | key | now | note |
+|---|---|---|---|
+| FXAA | `DishonoredEngine.ini [SystemSettings] iType_AntiAlias` | **1** (MLAA) | **2 = FXAA**, and the enum is documented in the file itself by the original devs (`EPpAa_None=0, EPpAa_Mlaa=1, EPpAa_Fxaa=2`) - measured, not guessed |
+| vsync | same section, `UseVsync` | **False** | `True` is the ask; the tester is unsure it helped, so this one wants an A/B, not a default |
+| models high | `SkeletalMeshLODBias`, `TextureForcedLODBias`, `DetailMode`, `Skeletal/StaticLODDistanceFactorMultiplier` | 0, 0, 2, 1, 1 | **already at the high end** (bias 0 = no reduction, DetailMode 2 = high). Nothing to change without inventing a value - do NOT write a guessed multiplier |
+| killcam off | **NOT FOUND** | - | no killcam-shaped key in any of the 23 game inis (searched `Kill/Death/Assass/Slow/Cam` boolean keys). It may live in the save profile rather than an ini. Needs finding before it can be defaulted |
+
+The AppCompat trap applies to all of these the same way it applies to the resolution: the bucket
+AppCompat picks at startup overwrites `[SystemSettings]`, so anything written there must be written
+to all four `AppCompatBucket*` sections too - `iType_AntiAlias` and `UseVsync` both already appear
+in `DishonoredCompat.ini` with per-bucket values.
+
+### Armed now: 3840x4096, purely to prove the lever to the eye
+
+The tester asked to see the resolution do something visible, which is the right instinct and the
+repo's own rule (confirm a lever moved something before believing its verdict). 3840x4096 keeps the
+near-square eye aspect (0.9375 against 2064x2208's 0.9348) and is **3.4x the pixels** of the current
+size, so if the lever were inert the tick would not move. Expect it to be slow - that IS the result.
+Revert with `res 2064x2208f` (or `res 2496x2688f`) and relaunch.
+
+## RESOLVED as a reading (2026-09-04): the submit stalls were NOT the game outrunning the headset
+
+**The prediction written before the run held.** Submits landed at 88-115/s against 120 slots/s -
+UNDER-SUBMITTING in 23 of 24 windows - and `endFrame mean` measured **0.08-1.99 ms**. xrEndFrame is
+not blocking and is not throttling anything; the display slots are going unfilled. The reading that
+opened this item ("the game produces frames faster than the headset can show them, and the runtime
+absorbs the mismatch by blocking at submit") is **dead**, and it would still be alive if the period
+had not been printed.
+
+**What remains real:** 62 `perf: frame gap` lines, most still in `present-tail (xrEndFrame)` with
+36-96 ms inside the submit call. Those are genuine, rare hitches, not pacing - and on a Wi-Fi
+streaming runtime an 85 ms block in xrEndFrame is the encoder or the link, not our frame path. They
+are worth a separate look AFTER the ghosting, because the ghosting is continuous and these are not.
+
+**The tick, for whoever picks up "make it 120":** 9.2-9.9 ms, split almost evenly between the two
+scene renders reentry needs - per pass roughly `present 1.8 ms + out/R 2.0 ms`, with our own capture
+lock at 0.2-0.5 ms and endFrame at 0.0-0.6 ms. The mod is not the cost. Reaching 8.33 ms means
+taking ~12 % off the game's own render, and the obvious dial is the 2496x2688 per-eye size.
+
+## OPEN (2026-09-04): the submit stalls - 48 hitches of 44-156 ms, two thirds in xrEndFrame
+
+**The report** (tester, 2026-09-04): "super laggy", and separately "this game is old enough that
+it should run at hardlocked 120 fps, especially on a 4070 Ti Super". The headset is set to
+**120 Hz**, so the budget is **8.33 ms** per frame.
+
+**Throughput is NOT the problem, and that is the whole point of this item.** Measured on
+`alpha-267-g4b9a0f3c-dirty`, Quest 3 via VDXR, 2496x2688 per eye, method reentry:
+
+- **mean present interval 4.3-6.6 ms** (the heartbeat read GAME=138-233 fps across the run).
+  That is comfortably inside the 8.33 ms budget, with 25-50 % headroom.
+- **48 `perf: frame gap` lines**, gaps of **44-156 ms**. The worst is **36.3x the 4.3 ms mean** -
+  at 120 Hz a 156 ms stall is 19 dropped frames in a row.
+
+**Where the stalls sit**, from the `sat in:` field of those same 48 lines:
+
+| phase | count |
+|---|---|
+| **`present-tail (xrEndFrame)`** | **31** |
+| `out/idle (waiting for the game thread)` | 9 |
+| `out/R (executing the frame)` | 3 |
+| `game_tick` | 3 |
+| the game's `Present` | 1 |
+| `present-head (wait)` | 1 |
+
+`flags:` on those lines read `reset=0 load=0 paceTimeouts=+0` almost throughout (one `+1`, one
+`pairOpen=1`), so the pace lane is not timing out and the method is not re-arming. `vrpace ahead`
+was at its shipped 0.
+
+**Two thirds of the stalls are in the submit call.** So this is a pacing/submit problem, not a
+rendering-cost one - which is the good news, because the fix is scheduling rather than cutting
+quality.
+
+### The gap that had to close first: the display period is now printed (session 13)
+
+**It was not in the log.** `dvr::vr::display_period_ns()` existed in the runtime layer, was read by
+the pace sync, and was PRINTED only inside the `PACE-BOUND` clause of the `perf: tick` line - so the
+one run that most needed it (48 hitches, the wait at ~0, no `PACE-BOUND` line anywhere) is exactly
+the run where it stayed invisible. "The game produces frames faster than the headset can show them,
+and the runtime absorbs the mismatch by blocking at submit" was therefore an INFERENCE from a phase
+NAME, and this project has spent whole sessions on inferences that read well and were wrong.
+
+**What now prints** (built and lint-clean on `performance-fix`, **not yet run** - see below):
+
+- **`stereo: rate`**, a new line on the 3 s stereo beat:
+  `hmd=8.33 ms (120.0 Hz) slots/s=120.0 | presents/s=233 submits/s=116 (one xrEndFrame per pair) |
+  endFrame mean=6.41 ms max=41.2 ms over 349 submits | <verdict>`.
+  `submits/s` is a NEW counter: `xrEndFrame` calls from the present path, which under reentry is
+  **one per PAIR** - it is the tick rate, not `out/s`. The endFrame mean and max are the submit's
+  own cost, drained per window.
+- **the verdict on that same line**, which is the whole point and can print the unwelcome answer:
+  **OVER-SUBMITTING** (> 1.05x the slots) confirms the throttle reading and the lever becomes "stop
+  producing frames nobody sees"; **MATCHED** (0.95-1.05x) means the endFrame MEAN is the pacing wait
+  and is not a hitch, only its max is; **UNDER-SUBMITTING** (< 0.95x) says display slots are going
+  unfilled, which falsifies the throttle reading outright and puts the cause upstream of the
+  headset's cadence. A runtime that leaves `predictedDisplayPeriod` at 0 prints `hmd=UNKNOWN` and
+  gets NO verdict - never read that as 0 Hz.
+- **`perf: tick`** now opens with `[hmd 8.33 ms = 120.0 Hz, budget 8.33 ms/tick]` unconditionally,
+  not only when pace-bound.
+- **`perf: frame gap`** now ends its phase attribution with `= 19.0 display slots at 8.33 ms`. The
+  "156 ms is 19 dropped frames" arithmetic in the table above was done by hand off the log; it is in
+  the line now.
+- **`status.json`**: `stereo.pair{displayPeriodMs, displayHz, endFrames, endFrameMeanMs,
+  endFrameMaxMs}` and `perf{displayPeriodMs, displayHz}`. `game-cmd.ps1 "stereo status"` prints the
+  same numbers live, without waiting for a beat.
+
+**A prediction worth writing down before the run, because the arithmetic already argues against the
+inference.** The report's own numbers are 4.3-6.6 ms mean PRESENT interval, and reentry submits one
+frame per two presents - so submits/s should land at **76-116**, BELOW 120. If that holds, the line
+reads UNDER-SUBMITTING and the "game outruns the headset" reading is dead: the headset would be
+going hungry, not being over-fed, and the 31 present-tail stalls are genuine hitches inside
+`xrEndFrame` rather than a throttle. The measurement is what settles it either way.
+
+**Next step: a headset run on `performance-fix` with nothing else changed**, and the three lines
+above out of the log. Nothing has been installed or launched for this change - the build is verified
+only as compiling, linting clean and exporting the nine names.
+
+### Not a fault, for the record
+
+Stereo reads mono for roughly the first 6 seconds of a run (`2nd/s=0`), then latches to 103-108 and
+holds - confirmed by the tester ("it is mono at the very beginning but it latches on and stays good
+after a few seconds"). The `2nd/s=0` at the very END of a log is leaving gameplay, not a regression.
+
 ## FIXED (2026-09-03, headset, dev rig): all three flickers, in one chain
 
 Branch `swapchain-one-picture-flicker`. Installed and judged as `alpha-253-g8441404f`. **The
@@ -97,6 +573,55 @@ had not, so the game folder still held the previous DLL. The log banner names th
 it in one command. A `-dirty` tag means the tree had uncommitted changes at build time and the
 log cannot be traced to a commit: rebuild from a clean tree before handing a log to anyone.
 
+## Current state (2026-09-04, session 14: the throttle reading is dead, the cadence is the suspect)
+
+**This branch (`performance-fix`) carries two instruments and one lever, all default OFF or
+log-only.** No render path changed. Session 13 added the rate measurement, it was run, and it killed
+the hypothesis the branch was opened for - the submit was never throttling. Session 14 added the
+cadence measurement, which points at the ghosting instead, and `[Pace] SyncHz`, which ships at 0.
+
+What shipped: the `stereo: rate` beat line (hmd period and Hz, slots/s, presents/s, submits/s, the
+pair interval's mean and sd, the submit's own mean and max cost, and TWO verdicts - supply and
+evenness - either of which can print the unwelcome answer); the display period unconditionally on
+`perf: tick`; the gap converted to display slots on `perf: frame gap`; `[Pace] SyncHz` as the
+persisted form of `vrpace sync <hz>`; and all of it in `status.json` and `stereo status`. The two
+OPEN sections at the top carry the readings and what they mean.
+
+**Built, lint-clean, exports OK, and INSTALLED as `alpha-260-g958ab57a`** (RelWithDebInfo,
+hash-checked against `build\src\RelWithDebInfo\d3d9.dll`, clean tag - no `-dirty`). It replaces
+`alpha-259-g865f1bcd`, so the game folder no longer carries the crouch fix: `crouch-fix` is still
+only PR #14 and this branch is cut from `VR-Main`. **Not launched, not run** - in the simulator or a
+headset. Treat every number it prints as unseen until a run produces one.
+
+The two logs that were in the game folder are archived to `D:\dvr-data\logs\s13-pre-install-*.log`
+before the run overwrites them (rotation is one deep and there were already two).
+
+**The crouch height rise is FIXED and headset-judged** (previous session): the 38.16 deep-crouch
+capsule write moved the pawn 20.00 uu on every crouch and the camera's rate-limited catch-up
+integrated the remainder. `[PosTrack] DeepCrouch` now defaults to 0. That work is on `crouch-fix`
+and is **open as PR #14, not merged**. Its derivation and the five falsified suspects are in
+`docs/dishonored/ENGINE_NOTES.md` on that branch.
+
+**The DLL in the game folder is `alpha-262-g61130855`** (session 14's build - the cadence instrument and
+`[Pace] SyncHz`), replacing the session-13 `alpha-260-g958ab57a` that produced the run above. Both
+are the tip of THIS branch, built
+RelWithDebInfo, installed and hash-checked against `build\src\RelWithDebInfo\d3d9.dll`. It
+replaced `alpha-259-g865f1bcd` (the tip of `crouch-fix`), so **the deployed build no longer carries
+the crouch fix** - `performance-fix` is cut from `VR-Main` and PR #14 is still unmerged. Nothing
+diagnostic is armed either way: `[Hands] CrouchAB`, `CrouchBurst` and `[PosTrack] DeepCrouch` are
+all default OFF, and the tester's `dishonored_vr.ini` and the game's `DishonoredCamera.ini` were
+restored from backups after the crouch investigation; no diagnostic keys remain in either.
+
+**Two findings from that session are deliberately unbundled and unfixed**, because neither has been
+judged in a headset:
+
+1. `LocPropFind` and `CrouchPropFind` sit below `if (!g_handMesh) return` in `ApplyHandToMesh`, and
+   `[Mode] GamepadOnly=1` (the shipped default) clears `g_handMesh` - so **they have never run on a
+   shipped build**, and the 38.24 eye clamp, which needs `g_actorLocFound`, has never run either.
+   Reviving it is a real behaviour change and needs a headset verdict of its own.
+2. The config line reporting physical crouch as "armed" when `[Mode] GamepadOnly=1` has already
+   vetoed it. Cost a session's hypothesis once already.
+
 ## FIXED (2026-09-04, headset, dev rig): the crouch height rise
 
 **The report**: crouching then standing raises the player slightly, and spamming it rises far
@@ -116,7 +641,7 @@ climb and the floating are both gone. The cost is that the player no longer fits
 furniture; `DeepCrouch=1` restores the old behaviour and the bug with it. It cannot be made safe as
 written without writing `Actor.Location`, which this mod deliberately never does.
 
-## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
+## Previous state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
 **Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
 headset, at rate, with the tested configuration shipping as the defaults.
@@ -163,25 +688,32 @@ headset, at rate, with the tested configuration shipping as the defaults.
 
 ## Next steps (one paragraph per developer)
 
-**The user (headset)**: nothing is blocking - all three flickers are fixed and measured (see
-FIXED above), running `alpha-253-g8441404f` with `HoldUntagged=3`. The open comfort questions are
-the ones a correct, flicker-free stereo pair finally lets you judge: (1) JUDDER on fast head or
-player movement - `vrpace ahead 0|1|2` on the F10 Runtime tab (`Pose look-ahead`), ships at 0, and
-the `xr: pair phase` line says whether pairs close before or after their slot; (2) the PITCH PIVOT
-with `[Neck] Mode=cancel` (the default) against `off` and `add` on F10 Comfort, now at a real
-frame rate; (3) WORLD SCALE and eye height at the shipped `[PosTrack] Scale=98` /
-`HeightOffsetM=-0.090`. Say which of the three is worst and the log will carry the numbers. One
-open call that is yours, not a bug: whether `HoldUntagged` should ship as 3 instead of 0 - it is
-judged good on this rig only, and `stereo hold 0` is the A/B.
+**The next developer session (the ghosting)**: build the POSE-LANE instrument and stop guessing.
+Three suspects have now been killed by measurement - the submit throttle, the uneven cadence, and
+Virtual Desktop's SSW - and the one the tester named has never been measured at all: the camera is
+driven from a head sample on the SCRIPT lane while the compositor reprojects using a pose located on
+the PRESENT lane, and nothing anywhere compares the two. `head_track.cpp` already keeps the matched
+pair (`g_viewYawRad` beside the `g_injHmdYawSnap` it was computed from, its own comment says so);
+publish that snap to the runtime and, at submit, print the delta in degrees against the yaw of the
+pose the layer is tagged with. It must be able to print 0.0 and kill the hypothesis. Then
+`vrpace lag 0|1|2` and `vrpace ahead 0|1|2` are the live A/Bs that move it, and neither has ever
+been judged. The corroborating detail worth keeping in mind: the tester says the ghosting **grows
+when frames drop**, which is what a lane-disagreement does and what a locked cadence does not.
+Second job, small and separable: the game-settings profile (the real keys and what is already at
+maximum are tabulated in the OPEN section - `iType_AntiAlias` 1 -> 2 is the only clear win, `UseVsync`
+wants an A/B, model detail is already high, and no killcam key exists in any of the 23 game inis).
+Anything written to `[SystemSettings]` must also go to all four `AppCompatBucket*`, or the bucket
+AppCompat picks at startup overwrites it - the same trap the resolution picker already handles.
 
-**The next developer session**: the correctness question of S2b is closed, so S3 is open - write
-the comparison in ARCHITECTURE (reentry against the mono screen: cost per present, per-eye
-correctness, failure modes, the headset verdicts) and bring the features back on the winner: the
-hands (SkelControl drive, hand meshes, `[Mode] GamepadOnly=0`), the wrist HUD through the runtime
-layer's HUD quad and texture-provider seam, Blink and motion aim. `stereo aer` is still a design
-stub and the losing method stays registered as the A/B. Carried: the SteamVR shim has never run
-with this game; the ini version rewrite still wipes a tuned ini (session-8 and -9 keys shipped
-without a bump); the pace guard's eaten tag if the headset ever names it.
+**The user (headset)**: installed as `alpha-264-ge2b84a80`, with **3840x4096 armed for the next
+launch** (your call - you judged 4K much better looking). Know the trade: it measures 15.6-15.8 ms
+per tick = 64 fps into a 120 Hz headset, against 8.6-8.9 ms at 2064x2208, so if the ghosting really
+does track frame drops, 4K is the worst case for it and the sharpest picture at the same time. If
+you want the middle, `res 2496x2688f` or `res 2064x2208f` in-game then relaunch. Nothing else is
+waiting on you until the pose instrument exists - the three cheap A/Bs are spent. `crouch-fix`
+(PR #14) is still ready for your merge decision, and note that the installed build does NOT carry it.
+Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and
+`add`; (2) WORLD SCALE and eye height at `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
 
 ## Blockers
 
@@ -195,6 +727,173 @@ without a bump); the pace guard's eaten tag if the headset ever names it.
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 15b: the ghosting is solved, and the verdict that hid it is fixed
+
+Two headset runs, same build, same scene, same 2750x2850 render, only the headset's refresh
+changed. 120 Hz: ghosting still reported. 90 Hz: **none reported, and no jitter**. Display
+slots per frame went 1.05-1.11 -> 1.00-1.02.
+
+**The cadence hypothesis was right all along, and session 14 killed it on a lying verdict.**
+The `EVEN CADENCE` threshold was `|off| > 0.06`, so 1.03-1.05 - a beat every twenty frames -
+printed as a clean bill of health, and that clean bill was read as falsification. The
+instrument was correctly built and correctly read; the line between pass and fail had simply
+been picked before anything was measured. Threshold is now 0.02, at the measured edge, and both
+branches print the beat as a number (one frame in N, and its Hz) so an "even" verdict has to
+show the residual it is forgiving.
+
+**The tester's puzzle - why it drops to 60 at 90 Hz when it never went below 90 at 120 Hz -
+has an answer, and the hitch rate is the proof.** Normalised by run length: 27.6 gaps/min at
+120 Hz, 28.4 at 90 Hz. The stalls did not get worse. At 120 Hz the tick never fit the slot, so
+the app free-ran and the compositor smeared over the mismatch - no cliff to fall off when you
+are already past the edge, and that smearing IS the ghosting. At 90 Hz the tick sits right at
+the period: frames make their slots (ghosting gone) but a miss costs a whole period, which is
+22.2 ms, which averages toward 60 in a run. Smooth-and-always-wrong versus correct-with-a-cliff.
+
+**The remaining drops are not ours.** 54 of 71 gaps sat in `present-tail (xrEndFrame)`, up to
+101 ms. On a Wi-Fi streaming runtime that is the encoder or the link.
+
+**The bbox prediction failed and is recorded as failed.** Gating the 3-second readback cut
+samples from one per 3 s to 2-3 per run and changed the gap rate not at all. The
+counter-evidence written down beside the prediction was the correct read. The gate stays - it
+removed a real unlevered stall for free - but it did not fix what it was predicted to fix.
+
+**The pose-lane instrument validated itself and was never armed.** `SEAM CHECK ok ... 20.67 deg
+and 20.67 deg (0.00 apart)` in both runs: the sign calibration is proven against live data, so
+the instrument would not have lied. Nobody ran `vrpace poseaudit on`, so the pose-attribution
+question stays open - it is just no longer the ghosting's suspect.
+
+Defaults now carry the judged values (`[Screen] 2750x2850`, with the 90 Hz half written into
+the ini text beside it because it lives in Virtual Desktop), and
+`tests/golden/known-good-2750x2850-90hz.ini` is the byte copy of the machine that was judged.
+
+### 2026-09-04 - session 15: the pose lanes get an instrument, and a 3-second stall is found
+
+Session 14 falsified the cadence hypothesis and left three suspects. Two of them died at the
+desk, from files already on disk, before anything was written:
+
+- **Virtual Desktop's SSW** - the tester confirmed it was already off.
+- **Motion blur** - `MotionBlur=False` in `DishonoredEngine.ini`, with the Arkane developers'
+  own comment beside it: "Motion blur is unwanted".
+
+That left the tester's own read - "eye submit desync, or the world geometry isn't tracking the
+head tracking correctly" - and it turned out the instrument for it was **half-built and
+unreachable**. The pose audit already sat at the right line (immediately after the projection
+views are filled, before they are attached), already wrapped to +-180, already rate-limited at
+500 ms. Two things were wrong: it compared the tag against the pose the present thread had just
+CONSUMED, which is fresh at submit and therefore never the sample the pixels came from - so it
+could not answer the question it was named for - and **`set_pose_audit` had no caller at all**.
+The `fovaudit pose on` command its comment named does not exist in this repo. It was dead code
+that would have printed a confidently wrong number if anyone had reached it.
+
+**What was built.** A locate generation counter bumped once per `xrLocateViews`; the game side
+stamps every head sample with the generation it came from and publishes it, with the yaw the
+camera write actually used, through a new `dvr::vr::publish_script_head` seam (needed because
+`g_injHmdYawSnap` is static inside the unity TU and the runtime layer is a real module). The
+audit now reports, per eye, the tagged yaw against the rendered yaw, the gap in GENERATIONS
+against the active `lag`, and what one generation costs in degrees at the current head speed.
+`vrpace poseaudit on|off` arms it.
+
+**The sign trap, and why it is self-checking.** The two lanes read yaw out of the same matrix
+with opposite conventions - `atan2(m02,m22)` against `atan2(-m02,m22)` - so a naive subtraction
+reads about twice the yaw. That is the most convincing possible way for an instrument to lie:
+a large, stable, entirely fake disagreement. The seam negates once and then PROVES it against
+live data, reading the same pose back through the runtime's own converter at the first publish
+and logging `SEAM CHECK ok` or `FAILED`. An instrument whose calibration is only asserted in a
+comment is not evidence.
+
+**The prediction, written before the run.** `DishonoredEngine.ini` carries
+`OneFrameThreadLag=True`. The tagging code assumes one generation of skew (`lag=1`); with UE3's
+render thread a frame behind the game thread it should be two. So: gap +1 at `lag 1`, nulled by
+`vrpace lag 2`. If the delta reads 0.00 at `lag 1`, the hypothesis is dead and that is the
+result.
+
+**Found on the way: a full-frame CPU readback every 3 seconds, on the present thread, in the
+shipping capture mode, with no lever.** The content-bbox instrument needs CPU pixels, and
+`shared` mode exists precisely so that nothing goes to the CPU. Each sample is the same
+`GetRenderTargetData` + `LockRect` + row copy that makes `sync` mode cost 17-21 ms/present -
+about 31 MB at 2750x2850. `[Capture] BboxMs` (default 30000) and `capture bbox off|<ms>` gate
+it; a size change still resamples at once. The prediction and the counter-evidence are both
+recorded at the top of this file.
+
+**Performance, answered with arithmetic instead of another run.** Fitting the three tick
+measurements against megapixels gives ~0.64 ms/MP on a **~5.6 ms fixed floor**. The floor is
+what makes 120 Hz unreachable - it leaves 2.7 ms of GPU for two full-frame scene draws - so the
+resolution question is really a refresh-rate question. 2750x2850 at 90 Hz is the coherent
+combination and is what is armed. There is no render-scale, no foveation and no per-eye
+resolution anywhere in the codebase; resolution is the only pixel lever that exists.
+
+**New tool:** `tools\arm-res.ps1` arms a size with the game not running, writing the same four
+places `ResRequest` does. Arming used to cost two launches (the seam command only exists while
+the game is up, and its write takes effect the launch after).
+
+**Nothing was launched.** Everything here is built, linted, exports-checked and installed, with
+the format strings audited by hand; no runtime behaviour is verified.
+
+### 2026-09-04 - session 14: the throttle reading dies, the cadence is named
+
+The session-13 instrument was installed and run (`alpha-260-g958ab57a`, Quest 3 / VDXR, 120 Hz) and
+it did its job in both directions.
+
+**It killed the hypothesis it was built to test.** submits/s 88-115 against 120 slots/s -
+UNDER-SUBMITTING in 23 of 24 windows - with `endFrame mean` at 0.08-1.99 ms. The submit is not
+blocking and never was; the display slots were going unfilled. Written prediction, held.
+
+**It pointed at the real one.** The tester's bigger complaint on that run was ghosting - doubled
+edges on world geometry when turning the head. `perf: tick` reads 9.2-9.9 ms against an 8.33 ms
+slot, and `pacetrace.log`'s `TRACE pairs` reads interval mean 8.6-11.8 ms with **sd 1.3-9.6 ms** and
+`waitGate 3-64 ms/s` - the game free-runs at ~1.13 display slots per frame, unevenly, so consecutive
+frames are held for different numbers of slots. That is the interference beat `pace_sync_gate()` was
+written for in the BioShock lineage, and its own comment predicted this shape of fault.
+
+Shipped: the pair interval mean/sd and an `UNEVEN CADENCE` / `EVEN CADENCE` verdict with
+slots-per-frame on the `stereo: rate` line (the numbers existed only in `pacetrace.log` at trace
+level, which is why no one had seen them), and `[Pace] SyncHz` - the persisted form of
+`vrpace sync <hz>`, shipping OFF, refusing an out-of-range value with the number it read.
+
+**The proposed fix was wrong and was corrected in the same session.** `vrpace sync 60` locks the
+cadence but 60 is too low for VR, and the user said so. Infinite's own numbers on the same runtime
+say why no limiter is needed: it ran 80 pairs/s == its 80 Hz refresh with sd 0.3-1.0 ms, LOCKED, on
+the same two-draw method - because its render cost fit inside its period. Ours does not (9.4 ms into
+8.33), and we are also at 47 % more pixels per eye than Infinite's native. So the lever is the gap
+between tick and period, from either end: `res 2064x2208f` (the Quest 3 panel's own size) or a 90 Hz
+headset. Still a prediction; nobody has judged either in a headset.
+
+Installed as `alpha-262-g61130855` (clean tag); builds, lint clean, exports OK.
+
+### 2026-09-04 - session 13: the display period is measured, not inferred
+
+The branch's first code. **One commit, instrument only** - no lever, no default, no render path.
+`dvr::vr::display_period_ns()` had existed since session 42 of the BioShock lineage and printed in
+exactly one place, inside the `PACE-BOUND` clause of `perf: tick`, which is a clause the hitching
+run never triggered. So the headset's rate was absent from the one log that needed it.
+
+Added: an `xrEndFrame` counter with its own cost (count, cumulative sum, per-window max) at the
+single present-path submit site, and the display period, both published through `PairProbe`; the
+`stereo: rate` beat line built on them, with a three-way verdict (OVER-SUBMITTING / MATCHED /
+UNDER-SUBMITTING, plus UNKNOWN when the runtime leaves the period at 0); the period unconditionally
+on `perf: tick`; the gap in display slots on `perf: frame gap`; the same numbers in `status.json`
+and in `stereo status`.
+
+**A prediction is on the record before the run** (OPEN section): the report's 4.3-6.6 ms present
+interval, halved by reentry's one-submit-per-pair, puts submits at 76-116/s against 120 slots/s -
+UNDER-SUBMITTING, which would falsify the throttle reading outright. The line was written so it can
+say that.
+
+**Verified as: builds, `lint: clean`, `exports OK: 9 names`, installed and hash-checked
+(`alpha-260-g958ab57a`).** Not launched, not run in the simulator or a headset - every number the
+new lines print is still unseen.
+
+What was already measured before this session and should not be re-derived:
+
+- The rig has **headroom**: mean present interval 4.3-6.6 ms against an 8.33 ms budget at 120 Hz.
+  The complaint is not framerate.
+- **48 hitches of 44-156 ms**, and **31 of 48 sat in `present-tail (xrEndFrame)`** - the submit
+  call. `paceTimeouts` and `reset` were 0 throughout, so the pace lane is not timing out.
+- **The display period is not logged**, so the obvious reading (the game outruns the headset and
+  blocks at submit) is an inference. Measuring it is step one.
+- Mono for the first ~6 s of a run then latching to 103-108 `2nd/s` is NORMAL and tester-confirmed;
+  do not chase it.
 
 ### 2026-09-05 - session 11: the work is on a board, and the flow is written down
 
@@ -252,7 +951,7 @@ created by hand and no status automation will work.
 - **A symptom mentioned in passing was the mechanism speaking**: "I could float around" turned out
   to be the pawn genuinely airborne, filmed rising 34 uu and falling 128 uu back to the floor.
 
-### 2026-09-04 - session 10: the stale RIGHT eye, read out of the code, then confirmed
+### 2026-09-04 - session 13: the stale RIGHT eye, read out of the code, then confirmed
 
 Branch `swapchain-one-picture-flicker`, 6 commits, one headset run at the end.
 

@@ -71,8 +71,14 @@ static void WriteDefaultIni(const char* ini)
         "; SharedWait=0 delivers the previous present's slot (no wait in the common case),\n"
         "; 1 delivers this present's after its fence (zero latency, the CPU waits for the frame\n"
         "; in flight). `capture sharedwait on|off` live.\n"
+        "; BboxMs: how often the content-bbox instrument (the FULL/CROPPED line) resamples.\n"
+        "; Each sample is a full-frame GetRenderTargetData + LockRect + row copy on the\n"
+        "; present thread - the same round trip that makes Mode=sync cost 17-21 ms/present -\n"
+        "; so this is a frame-time setting, not a logging one. 0 = only after a size change,\n"
+        "; which is the sample that decides FULL vs CROPPED. `capture bbox off|<ms>` live.\n"
         "Mode=shared\n"
         "SharedWait=0\n"
+        "BboxMs=30000\n"
         "[Pace]\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
         "; the `vrpace` seam word and the F10 Runtime panel; SAVE AS DEFAULTS writes them.\n"
@@ -83,9 +89,18 @@ static void WriteDefaultIni(const char* ini)
         "; fresh eye to both eyes for that frame instead of a held eye (the pause/resume\n"
         "; desync fail-soft). Lag=0|1|2: which locate generation the layer is tagged with\n"
         "; (1 = one back, the measured default). All ship at today's behaviour.\n"
+        "; SyncHz=0|10..500: lock the pair schedule to this rate instead of letting it\n"
+        "; free-run at whatever the game produces. 0 = off (ships). This is the JUDDER\n"
+        "; lever: a game that cannot hold the headset's rate wants a clean SUBMULTIPLE of\n"
+        "; it, so every frame is held for the same whole number of display slots - 60 or\n"
+        "; 40 on a 120 Hz headset, 45 on 90. An uneven cadence is seen as doubled edges on\n"
+        "; world geometry during a head turn, and the log's `stereo: rate` line says\n"
+        "; UNEVEN CADENCE with the slots-per-frame that names it. `vrpace sync <hz>` and\n"
+        "; `vrpace sync off` are the live A/B; judge it in the headset before saving.\n"
         "Ahead=0\n"
         "Strict=0\n"
         "Lag=1\n"
+        "SyncHz=0\n"
         "[Perf]\n"
         "; The tick budget (core/framework/perf): Instruments=1 keeps one record per present\n"
         "; (eight clock stamps) and prints the `perf: tick` line every 3 s; GpuQueries=1 adds\n"
@@ -140,8 +155,15 @@ static void WriteDefaultIni(const char* ini)
         "; game falls back to a display mode and the picture is soft). Another headset wants its\n"
         "; own size: the F10 Display picker writes these three for the next launch, and\n"
         "; RenderWidth=0 RenderHeight=0 asks for nothing at all (the game's own size).\n"
-        "RenderWidth=2496\n"
-        "RenderHeight=2688\n"
+        "; 41.1 (session 15, 2026-09-04): 2750x2850 with the HEADSET AT 90 Hz. This pair is one\n"
+        "; setting, not two. The tick at this size is ~11.3 ms and the 90 Hz display period is\n"
+        "; 11.11 ms, so the pair schedule lands 1.00-1.02 display slots per frame and the\n"
+        "; ghosting on a head turn is gone (judged on a Quest 3 over VDXR: none reported at\n"
+        "; 90 Hz, still reported at 120). The SAME size at 120 Hz beats at 1.05-1.11 slots and\n"
+        "; ghosts badly - the fault was never the resolution, it was the tick not dividing into\n"
+        "; the display period. If you change one, check `stereo: rate` for the other.\n"
+        "RenderWidth=2750\n"
+        "RenderHeight=2850\n"
         "RenderFullscreen=1\n"
         "VirtualMode=1\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
@@ -396,8 +418,13 @@ static void LoadConfig()
         // 41.1 (session 9): the headset-judged size, and the advertisement that makes the
         // game create it, are the DEFAULTS now (an ini naming neither key gets them);
         // `res 0x0` writes an explicit 0 and still means "the game's own size".
-        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2496, ini);
-        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2688, ini);
+        // 41.1 (session 15, 2026-09-04): 2750x2850, judged on the headset. It is
+        // NOT simply "bigger is better" - it is the size whose tick lands one
+        // display period at 90 Hz, which is what killed the ghosting (see
+        // ENGINE_NOTES, "The ghosting was the cadence beat"). At 120 Hz the same
+        // size beats at 1.05-1.11 slots per frame and ghosts.
+        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2750, ini);
+        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2850, ini);
         g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
         g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 1, ini) != 0 || g_launchVirtual;
         if (!g_resWantW && g_launchW && g_launchH) {   // the launch file carried an ask the ini lost
@@ -438,6 +465,15 @@ static void LoadConfig()
         }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
         dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
+        {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
+            // Each sample is a full-frame CPU readback on the present thread even
+            // in shared mode (capture.h says why), so this is a frame-time knob,
+            // not a logging knob. 0 = only after a size change.
+            float bb = IniFloat(ini, "Capture", "BboxMs", 30000);
+            if (bb < 0.0f) bb = 0.0f;
+            if (bb > 600000.0f) bb = 600000.0f;
+            dvr::capture::set_bbox_ms((uint32_t)bb);
+        }
     }
     g_flipYaw   = IniFloat(ini, "HeadInject", "FlipYaw",   1) < 0 ? -1 : 1;
     g_flipPitch = IniFloat(ini, "HeadInject", "FlipPitch", 1) < 0 ? -1 : 1;
@@ -1065,11 +1101,24 @@ static void LoadConfig()
             const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
             const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
             const int lag = GetPrivateProfileIntA("Pace", "Lag", 1, ini);
+            int syncHz = GetPrivateProfileIntA("Pace", "SyncHz", 0, ini);
             dvr::vr::set_pace_ahead(ahead);
             dvr::vr::set_pair_strict(strict != 0);
             dvr::vr::set_pose_lag(lag);
-            if (ahead || strict || lag != 1)
-                Log("config: [Pace] Ahead=%d Strict=%d Lag=%d (levers off today's behaviour)", ahead, strict, lag);
+            // The gate REFUSES a value it cannot honour rather than half-arming
+            // it: the number that was read is logged and sync stays off, so a
+            // typo cannot silently pace the game at 3 Hz.
+            if (syncHz != 0 && (syncHz < 10 || syncHz > 500)) {
+                Log("config: [Pace] SyncHz=%d is out of range (10..500, or 0 for off) - REFUSED, the pair "
+                    "schedule free-runs", syncHz);
+                syncHz = 0;
+            }
+            dvr::vr::set_pace_sync_hz((unsigned)syncHz);
+            dvr::vr::set_pace_sync(syncHz != 0);
+            if (ahead || strict || lag != 1 || syncHz)
+                Log("config: [Pace] Ahead=%d Strict=%d Lag=%d SyncHz=%d%s", ahead, strict, lag, syncHz,
+                    syncHz ? " (the pair schedule is LOCKED to that rate; `vrpace sync off` is the live A/B)"
+                           : " (levers off today's behaviour)");
         }
         // 37.5: SAFE mode - rendering + head tracking only, every game-memory
         // writer held back. The crash bisector: if XR-safe holds stable, one
@@ -1449,6 +1498,10 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Pace", "Strict", dvr::vr::pair_strict() ? "1" : "0", ini);
     _snprintf(v, 64, "%d", dvr::vr::get_pose_lag());
     WritePrivateProfileStringA("Pace", "Lag", v, ini);
+    // Sync OFF saves as 0 whatever the target was, so a SAVE AS DEFAULTS taken
+    // after an A/B that ended on `off` does not resurrect the rate next launch.
+    _snprintf(v, 64, "%u", dvr::vr::pace_sync() ? dvr::vr::pace_sync_hz() : 0u);
+    WritePrivateProfileStringA("Pace", "SyncHz", v, ini);
 
     Log("overlay: saved defaults (scale %.1f dist %.2f)", g_posScaleUU, g_screenDist);
 }
