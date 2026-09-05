@@ -1,5 +1,45 @@
 # Status
 
+## NEEDS A HEADSET RUN (2026-09-05, VR-15): the black texture instrument is installed, unread
+
+PRs #14 (the crouch fix) and #15 (the 90 Hz defaults) are **merged to `VR-Main`**. Branch
+`vr-15-black-texture` is cut from that merge and carries one thing: an instrument for the
+black texture bug, and one candidate fix behind a default-OFF lever. **Nothing is
+diagnosed. No run has produced a reading.**
+
+### What to run, and what each answer means
+
+The build is installed. `device upload` prints the verdict at any time, and it also rides
+with the creation census at the first GAMEPLAY. Read the verdict line first.
+
+1. **Play until black surfaces appear, then `device upload`.** The verdict either names
+   lost uploads (twin refused / no twin / passthrough refused / surface bypass) with the
+   first `HRESULT`, or it prints **NO LOST UPLOAD**, which falsifies the shadow and sends
+   the hunt to `[Device] Ex=0`, then `stereo arm off`, then the game with no mod at all.
+2. **If the `surface bypass` count carries it**, `device shadowsurfaces on` is the live A/B
+   and the candidate fix - it sends a lock taken through `GetSurfaceLevel` to the twin the
+   way the texture path already goes. It ships OFF and needs a headset verdict before it
+   can become a default.
+3. **The twin population line is the one that cannot lie by omission**: live twins that
+   have carried no successful `UpdateTexture`, and twins released having carried none. A
+   counter of failures is not evidence until the population is known, and that line is the
+   population.
+
+Mechanism, the four failure modes and the vtable slots are in
+`docs/dishonored/ENGINE_NOTES.md`, "The black texture bug".
+
+### What was NOT done, and why
+
+**The simulator run did not happen.** Two launch attempts: the first died in a C++ runtime
+error before the D3D9 device was created (the mod fell through to the system's Virtual
+Desktop runtime rather than the simulator, `[VR] XrRuntimeJson` being empty), so none of
+the new hooks executed and the run says nothing about them either way. The second attempt
+was stopped. **So the new vtable patches - `GetSurfaceLevel` 18 on textures and cube
+textures, `LockRect`/`UnlockRect` 13/14 on surfaces - have been compiled and installed but
+never executed.** Treat the first run with this build as a bring-up test: if the game dies
+at its first texture, those slots are the suspect and `device/census` will say whether the
+surface hook installed at all.
+
 ## CONFIRMED ON A THIRD RUN (2026-09-04): 2750x2850 at 90 Hz is the default and it holds up
 
 Third headset run on the shipped defaults: smooth, weapon aligned, no ghosting, and no frame

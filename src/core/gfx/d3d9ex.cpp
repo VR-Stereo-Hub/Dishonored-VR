@@ -30,6 +30,11 @@ char g_route[96] = "no device yet";
 // counts
 uint32_t g_texTranslated = 0, g_bufTranslated = 0, g_texDynamic = 0;
 uint32_t g_shadowMade = 0, g_shadowFailed = 0, g_shadowUpdates = 0, g_shadowUpdateFailed = 0, g_shadowReleased = 0;
+// VR-15: twins released while they had never carried one successful
+// UpdateTexture. A texture the game filled through its twin and dropped
+// with zero uploads never reached the GPU at all - it draws as its created
+// contents, which is black. Counted at Release, so the population is closed.
+uint32_t g_shadowDroppedNeverUpdated = 0;
 uint64_t g_shadowBytes = 0;
 
 // the twin map: real -> twin, open addressing. Removal leaves a tombstone
@@ -40,7 +45,7 @@ uint64_t g_shadowBytes = 0;
 // hold two levels' textures during a transition.
 constexpr int kMap = 32768;
 constexpr int kProbe = 512;
-struct Ent { void* real; IDirect3DBaseTexture9* twin; };
+struct Ent { void* real; IDirect3DBaseTexture9* twin; uint32_t updates; };
 Ent g_map[kMap];
 int g_mapCount = 0;
 int g_mapTombs = 0;
@@ -58,17 +63,17 @@ bool map_put(void* real, IDirect3DBaseTexture9* twin) {
     Ent* tomb = nullptr;
     for (int i = 0; i < kProbe; ++i) {
         Ent& e = g_map[(h + i) % kMap];
-        if (e.real == real) { e.twin = twin; return true; }
+        if (e.real == real) { e.twin = twin; e.updates = 0; return true; }
         if (e.real == kTomb) { if (!tomb) tomb = &e; continue; }
         if (e.real == nullptr) {
             Ent& slot = tomb ? *tomb : e;
             if (tomb) --g_mapTombs;
-            slot.real = real; slot.twin = twin;
+            slot.real = real; slot.twin = twin; slot.updates = 0;
             ++g_mapCount;
             return true;
         }
     }
-    if (tomb) { tomb->real = real; tomb->twin = twin; --g_mapTombs; ++g_mapCount; return true; }
+    if (tomb) { tomb->real = real; tomb->twin = twin; tomb->updates = 0; --g_mapTombs; ++g_mapCount; return true; }
     ++g_mapFull;
     return false;
 }
@@ -81,7 +86,7 @@ Ent* map_find(void* real) {
     }
     return nullptr;
 }
-void map_remove(Ent* e) { e->real = kTomb; e->twin = nullptr; --g_mapCount; ++g_mapTombs; }
+void map_remove(Ent* e) { e->real = kTomb; e->twin = nullptr; e->updates = 0; --g_mapCount; ++g_mapTombs; }
 
 } // namespace
 
@@ -300,7 +305,17 @@ void shadow_unlocked(void* real) {
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 5,
                         "device/shadow: UpdateTexture twin %p -> real %p refused 0x%08lx - the write did not reach the "
                         "GPU (a corrupt or stale texture follows)", (void*)twin, real, (unsigned long)hr);
-    } else ++g_shadowUpdates;
+    } else {
+        ++g_shadowUpdates;
+        // VR-15: mark THIS twin as having carried a real upload. The count of
+        // twins still at zero is the population of candidate black textures -
+        // and it is a number that can come back zero and falsify the shadow.
+        if (g_csInit) {
+            EnterCriticalSection(&g_cs);
+            if (Ent* e = map_find(real)) ++e->updates;
+            LeaveCriticalSection(&g_cs);
+        }
+    }
 }
 
 void shadow_released(void* real) {
@@ -308,10 +323,35 @@ void shadow_released(void* real) {
     EnterCriticalSection(&g_cs);
     Ent* e = map_find(real);
     IDirect3DBaseTexture9* twin = e ? e->twin : nullptr;
+    if (e && e->updates == 0) ++g_shadowDroppedNeverUpdated;
     if (e) map_remove(e);
     LeaveCriticalSection(&g_cs);
     if (twin) { twin->Release(); ++g_shadowReleased; }
 }
+
+// VR-15: the twin population, walked on demand only (32768 slots is one
+// pass and this is never on a per-frame path). `live` is every twin the map
+// still holds; `neverUpdated` is how many of those have carried no
+// successful UpdateTexture since they were made. A live twin at zero is a
+// texture whose pixels are still only in system memory.
+void shadow_population(int* live, int* neverUpdated, uint32_t* droppedNeverUpdated) {
+    int l = 0, n = 0;
+    if (g_csInit) {
+        EnterCriticalSection(&g_cs);
+        for (int i = 0; i < kMap; ++i) {
+            const Ent& e = g_map[i];
+            if (!e.real || e.real == kTomb) continue;
+            ++l;
+            if (e.updates == 0) ++n;
+        }
+        LeaveCriticalSection(&g_cs);
+    }
+    if (live) *live = l;
+    if (neverUpdated) *neverUpdated = n;
+    if (droppedNeverUpdated) *droppedNeverUpdated = g_shadowDroppedNeverUpdated;
+}
+
+bool shadow_active() { return translating() && g_managed == Managed::Shadow; }
 
 void log_status() {
     DVR_INFO("device: [Device] Ex=%d Managed=%s | Direct3DCreate9 calls %d (Ex objects %d) | device %s (%s) | "
@@ -337,6 +377,10 @@ void status(dvr::status::Writer& w) {
     w.kv("shadowUpdates", (unsigned long)g_shadowUpdates);
     w.kv("shadowUpdateFailed", (unsigned long)g_shadowUpdateFailed);
     w.kv("shadowFailed", (unsigned long)g_shadowFailed);
+    int live = 0, never = 0; uint32_t dropped = 0;
+    shadow_population(&live, &never, &dropped);
+    w.kv("shadowLiveNeverUpdated", never);
+    w.kv("shadowDroppedNeverUpdated", (unsigned long)dropped);
 }
 
 } // namespace dvr::d3d9ex

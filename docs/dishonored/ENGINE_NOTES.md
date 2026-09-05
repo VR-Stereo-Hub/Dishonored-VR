@@ -1356,6 +1356,53 @@ projection off`/`auto` each alone say which half of the user's remedy repairs it
   4032x2268 mode; the window hooks hold it; `[Screen] SpoofDesktopW/H` and `ResX/ResY` must
   match.
 
+## The black texture bug: the four ways a texture upload can be lost (VR-15, 2026-09-05)
+
+Nothing here is a diagnosis yet. This is the instrument, why it exists, and what each of
+its numbers would mean. **No headset run has produced a reading.**
+
+`[Device] Managed=shadow` is the newest thing in the creation path. A 9Ex device refuses
+`D3DPOOL_MANAGED`, so every MANAGED texture is created `DEFAULT` and given a `SYSTEMMEM`
+twin; `IDirect3DTexture9::LockRect` is redirected to the twin and `UnlockRect` pushes the
+twin's dirty regions to the real texture with `UpdateTexture`. A texture whose write never
+completes that round trip keeps the contents it was created with, and a freshly created
+D3D9 texture is **black**. That is the shape of the reported fault, which is why the
+shadow is the first suspect - not because anything has been measured.
+
+There are exactly four ways the round trip can fail, and until now every one was silent:
+
+| | what happens | why the texture goes black |
+|---|---|---|
+| **twin refused** | the lock reached the twin and the runtime refused it | the write never happened |
+| **no twin** | translated to DEFAULT but `shadow_twin()` came back null (twin creation refused, or the twin map was full) | the lock falls through to a DEFAULT texture, which is not lockable: D3D9 refuses it |
+| **passthrough refused** | an untranslated lock the runtime refused | the write never happened |
+| **surface bypass** | the game took a surface off the texture (`GetSurfaceLevel`) and locked THAT | the surface's `LockRect` is a **different vtable** (`IDirect3DSurface9` slot 13, not `IDirect3DTexture9` slot 19), so the shadow redirect never sees it and the write lands on the DEFAULT texture |
+
+The bypass is the one worth stating plainly, because the existing redirect cannot catch it
+by construction. `IDirect3DTexture9::GetSurfaceLevel` is slot 18; `IDirect3DSurface9` is
+`IUnknown` 0-2, `IDirect3DResource9` 3-10, `GetContainer` 11, `GetDesc` 12, **`LockRect`
+13, `UnlockRect` 14**. The census now patches 18 on textures and cube textures, records
+which texture and which level/face each handed-out surface belongs to, and patches the
+surface class's 13/14 once. `UnlockRect` is patched FIRST and `LockRect` only if that
+succeeded: a `LockRect` hook without its own original cannot fail soft.
+
+The `device/upload` census reports all four with the first `HRESULT` that produced each,
+plus the twin population - **how many live twins have carried no successful
+`UpdateTexture` at all**, which is the population the counters are counts of. Its verdict
+prints the unwelcome answer as readily as the welcome one: four zeros and a clean
+population say the shadow is NOT where black surfaces come from, and name the next A/B
+(`[Device] Ex=0`, then `stereo arm off`, then the game with no mod).
+
+`[Device] ShadowSurfaces` (ships **0**, `device shadowsurfaces on|off` live) is the fix for
+the bypass if the bypass is real: the surface lock goes to the twin's matching surface and
+the unlock pushes it. It is a lever, so it ships off and is judged in a headset.
+
+**The twin map has burned this project once already.** On 2026-09-03 it filled 8192 slots
+with tombstones across repeated quickloads (2400 live), a texture got no twin, its lock was
+refused, and the game died inside D3D9 on it. That is the "no twin" row above, and it is
+why the row exists rather than being assumed impossible: the map is 32768 slots now, which
+made the crash go away without making the mechanism go away.
+
 ## The pause/resume desync: a one-sided tag stream (2026-09-03, session 7)
 
 The run-40 report ("the judder stays in the LEFT eye and stops in the RIGHT") is the

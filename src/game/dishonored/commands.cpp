@@ -18,6 +18,8 @@
 //   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
 //   capture sharedwait on|off    shared: deliver this present after its fence (on) or the previous slot (off, default)
 //   device census|status         the creation census (core/gfx/device_census): the table and the 9Ex verdict
+//   device upload                VR-15: the upload census - did the game's texture writes reach the GPU?
+//   device shadowsurfaces on|off VR-15: redirect a GetSurfaceLevel lock to the twin (live A/B, ships off)
 //   device ex on|off             [Device] Ex for the NEXT launch (the 9Ex device, core/gfx/d3d9ex)
 //   device managed <m>           [Device] Managed=none|default|dynamic|shadow for the NEXT launch
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
@@ -196,12 +198,17 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census and the 9Ex levers
         if (!args[0] || !strcmp(args, "status")) { dvr::census::log_status(); dvr::d3d9ex::log_status(); return true; }
         if (!strcmp(args, "census")) { dvr::census::log_summary("device census"); return true; }
+        // VR-15: did what the game wrote into a texture ever reach the GPU?
+        if (!strcmp(args, "upload")) { dvr::census::log_upload("device upload"); return true; }
         char sub[16] = "", v[16] = "";
         if (sscanf(args, "%15s %15s", sub, v) == 2) {
             if (!strcmp(sub, "ex") && DvrOnOff(v, &b)) { DeviceSetEx(b, "seam"); return true; }
             if (!strcmp(sub, "managed")) { DeviceSetManaged(v, "seam"); return true; }
+            // VR-15: the surface-bypass redirect, live A/B (no relaunch)
+            if (!strcmp(sub, "shadowsurfaces") && DvrOnOff(v, &b)) { dvr::census::set_shadow_surfaces(b); return true; }
         }
-        Log("device: usage - device census|status | device ex on|off | device managed none|default|dynamic|shadow");
+        Log("device: usage - device census|status|upload | device ex on|off | device managed none|default|dynamic|shadow "
+            "| device shadowsurfaces on|off");
         return true;
     }
     if (!strcmp(cmd, "reentry")) {
