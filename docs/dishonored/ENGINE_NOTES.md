@@ -1417,6 +1417,71 @@ real but unquantified.
 **The rule this leaves:** pick the refresh whose period the tick divides into, not the biggest
 resolution. Read `stereo: rate` for `display slots per frame` and drive it to 1.00.
 
+## The startup eye-starvation flicker, measured at last (2026-09-04, session 15c)
+
+**Not new.** The tester reports it normally lasts a few seconds at the start of a session; on
+this run it lasted much longer, which is what finally made it measurable. Percept: "flickering
+a ton for like 30 seconds ... it looked like what AER looks like on a monitor but I could see
+it in the headset", and "it took a long time at the start for the weapon to sync". Then it
+stopped and stayed stopped: "once the weapon aligned properly it stayed aligned perfectly and
+it was smooth like butter".
+
+**What the log shows, `stereo: beat` L/s and R/s across one run** (2750x2850, 90 Hz, Quest 3
+over VDXR, `alpha-272-g65ac9bd2`):
+
+| t (s from proxy load) | out/s | L/s | R/s | none/s | draws/s | state |
+|---|---|---|---|---|---|---|
+| 8.5 - 17.5 | 21 - 85 | 0 | 0 | 0 | - | menu/loading, mono by design |
+| **20.5** | 89 | **12** | **52** | 10 | 66 | GAMEPLAY starts; starved |
+| **23.5 - 38.5** | 87 - 91 | **16 - 19** | **71 - 73** | 16 - 17 | 51 - 72 | starved |
+| **44.5 onward** | 180 | **90** | **90** | **0** | **90** | **locked, and stays locked** |
+| 77.5 - 83.5 | 155 - 234 | 0 | 0 | 0 | - | pause screen, mono by design |
+
+**The cause is the tick, and the numbers say so directly.** During the starved window
+`perf: tick` reads **17.5 ms against the 11.11 ms budget** and its per-class split is
+`P1[-1] n=36` against `P2[+1] n=156` with `untagged 107` - the LEFT-tagged presents are a
+quarter of the RIGHT ones. `reentry: beat` confirms pass 2 is running the whole time
+(`2nd/s == draws/s`, skips all zero), so the second draw is NOT missing; the game is simply
+producing 51-72 ticks/s against 90 display slots/s. With the tick below the display rate the
+pair schedule cannot land one pair per slot, the tag stream goes lopsided, and 1016 same-eye
+pushes accumulate (`reentry: pushed eye +1 TWICE in a row`, always +1, LEFT starving).
+
+**One eye taking fresh frames at ~18 Hz while the other runs at ~73 Hz is not subtle - it is a
+hard flicker, and it looks like alternate-eye rendering seen flat because that is structurally
+what it has become.** It self-heals the instant `draws/s` reaches 90: L/s = R/s = 90, zero
+untagged, zero stale, for the rest of the run.
+
+The usual reason the tick is slow for the first seconds of gameplay is UE3 level streaming -
+`call2` max spikes to 1836-2029 us in that window against 614-777 us once locked, and the
+device census logs 14058 creations at first GAMEPLAY.
+
+**Same root as the ghosting, at a different ratio.** When the tick is slightly longer than the
+display period you get the beat (doubled edges); when it is far longer you get eye starvation
+(flicker). Both are the tick not fitting the slot.
+
+### Fix theory - NOT implemented, and the cheap test comes first
+
+1. **`vrpace strict on` is the existing lever and has never been judged.** It already does the
+   right thing in principle: a stereo submit with an eye older than one present shows the fresh
+   eye to BOTH eyes instead. That converts the starved window from alternating eyes into a
+   briefly flat picture, which is a far milder artifact, and it costs nothing to try - it ships
+   off and toggles live. **Do this before writing any code.** The risk is that it also fires on
+   the rare mid-gameplay stale eye and drops depth for a frame there, so it wants an A/B, not a
+   blind default flip.
+2. **If strict is not enough, the shape of a real fix** is to refuse to submit a pair at all
+   while the tick cannot fill the slots, rather than submitting a lopsided one - i.e. extend
+   the `HoldUntagged` idea from untagged presents to unbalanced pairs, holding the previous
+   good pair until `draws/s` recovers. Bounded, because a permanent hold is a frozen image.
+3. **The cheapest mitigation is not ours at all**: the window ends when streaming does, so it
+   scales with load time. An SSD, and not turning the head for the first few seconds after a
+   load, both shorten what the player sees.
+
+Unresolved and worth measuring first: **why LEFT specifically.** The pushes are always `+1`
+(RIGHT) doubled. A plausible mechanism is the shared-capture deferred delivery
+(`SharedWait=0` delivers the PREVIOUS slot) repeating a tag when presents arrive irregularly,
+but that is a hypothesis, not a measurement, and `capture sharedwait on` is the A/B that would
+test it.
+
 ## The content-bbox readback prediction was FALSIFIED (2026-09-04, session 15)
 
 Session 15 gated the 3-second full-frame CPU readback and predicted that if it were behind the

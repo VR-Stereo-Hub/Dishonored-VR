@@ -9,6 +9,15 @@ report; the first lines say which build you run and which OpenXR runtime answere
 Steam version. Delete `d3d9.dll` to get the stock game back (or rename it and keep the rest).
 An older release's `dxvk_d3d9.dll` next to it is ignored; delete it too.
 
+**It flickers for the first few seconds after a level loads, like the two eyes are
+alternating.** Known, and it clears itself. While the level streams in, the game cannot keep up
+with the headset's refresh, so one eye gets fresh frames far more often than the other - which
+is exactly what alternating eyes look like. The moment the frame rate reaches the display rate
+it locks and stays locked for the session. It is usually a few seconds; once it has been seen
+to last around 25. If you want to try a workaround, `vrpace strict on` on the command seam
+should trade the flicker for a briefly flat (non-stereo) picture while it lasts - it is
+untested, so please say whether it helps.
+
 **Doubled edges / ghosting when you turn your head. SET YOUR HEADSET TO 90 Hz.** This is the
 single most effective setting in the mod and it is not in the mod - it is in your streaming
 app (Virtual Desktop's refresh rate, or your runtime's). The mod renders a frame in roughly

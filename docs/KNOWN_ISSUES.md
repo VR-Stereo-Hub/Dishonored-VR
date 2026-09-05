@@ -46,6 +46,14 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   slot overwritten while D3D11 was still reading it (fenced; `readWaits` on `capture status`),
   and the 1-1.5 s flat spell after every pause/resume (resumes at once now).
 
+- **Flickering for the first seconds after a level loads** [S2b, OPEN, measured 2026-09-04].
+  Usually a few seconds; occasionally much longer (~25 s measured once). It looks like the two
+  eyes alternating. It is: while the level streams in, the game runs 51-72 frames/s against 90
+  display slots/s, the eye pairing goes lopsided (one eye updating ~18 times/s, the other ~73),
+  and that is the flicker. **It clears on its own the moment the frame rate reaches the display
+  rate, and then stays clear for the rest of the session.** Nothing to do but wait it out; a
+  faster drive shortens it. `vrpace strict on` is an untested lever that should trade the
+  flicker for a briefly flat picture - try it and report.
 - **Ghosting / doubled edges on a head turn** [S2b, FIXED by a headset setting, 2026-09-04].
   **Set your headset to 90 Hz.** The render takes about one 90 Hz display slot, so at 90 Hz
   frames land 1.00-1.02 slots apart and the doubling is gone; at 120 Hz they land 1.05-1.11

@@ -155,6 +155,13 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] The headset-judged size is the default (session 15b): `[Screen] RenderWidth=2750
       RenderHeight=2850`, with the 90 Hz requirement in the ini text beside it, and
       `tests/golden/known-good-2750x2850-90hz.ini` as the byte copy of the judged machine
+- [ ] THE STARTUP FLICKER, measured (session 15c, 2026-09-04) and NOT fixed: while the level
+      streams the tick runs 51-72/s against 90 slots/s, the tag stream goes lopsided (L/s 18 vs
+      R/s 73, 1016 same-eye pushes) and one eye starves - which is the flicker. Self-heals when
+      draws/s reaches the display rate. **First test is `vrpace strict on`, which already
+      exists and has never been judged**; only if that fails is code warranted. Open question
+      first: why LEFT specifically (hypothesis: shared-capture deferred delivery repeating a
+      tag; `capture sharedwait on` is the A/B)
 - [ ] The remaining drops to ~60: 54 of 71 gaps sit in `present-tail (xrEndFrame)` up to 101 ms.
       Virtual Desktop side first (bitrate, codec, link, channel, wired AP), then ours
 - [ ] Optional headroom under the 90 Hz cliff: ~2600x2700 predicts ~10.3 ms against 11.11 ms.

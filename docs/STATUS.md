@@ -1,6 +1,55 @@
 # Status
 
-## SOLVED (2026-09-04): the GHOSTING was the cadence beat. 2750x2850 at 90 Hz is the known-good
+## CONFIRMED ON A THIRD RUN (2026-09-04): 2750x2850 at 90 Hz is the default and it holds up
+
+Third headset run on the shipped defaults: **"smooth like butter with very few frame drops with
+nothing below 80"**, weapon aligned, no ghosting. The 90 Hz result reproduces. The defaults now
+carry it (`[Screen] RenderWidth=2750 RenderHeight=2850` plus the 90 Hz note beside them).
+
+**One open issue on that run, and it is NOT new**: the session flickered for roughly 25 seconds
+at the start before locking. The tester reports this normally lasts a few seconds; this run it
+ran long, which is what made it measurable for the first time. Diagnosed below, **not fixed** -
+the first thing to try is a lever that already exists and has never been judged.
+
+### The startup flicker: one eye starving while the level streams
+
+`stereo: beat` across the run tells the whole story:
+
+| t (s) | out/s | L/s | R/s | none/s | draws/s | |
+|---|---|---|---|---|---|---|
+| 8.5 - 17.5 | 21 - 85 | 0 | 0 | 0 | - | menu/loading, mono by design |
+| **20.5 - 38.5** | 87 - 91 | **12 - 19** | **52 - 73** | 10 - 17 | **51 - 72** | **starved: the flicker** |
+| **44.5 onward** | 180 | **90** | **90** | **0** | **90** | **locked, stays locked** |
+| 77.5+ | 155 - 234 | 0 | 0 | 0 | - | pause screen, mono by design |
+
+`perf: tick` in the starved window reads **17.5 ms against the 11.11 ms budget**, split
+`P1[-1] n=36` against `P2[+1] n=156` with `untagged 107`. `reentry: beat` shows pass 2 running
+throughout (`2nd/s == draws/s`, all skip counters zero), so the second draw is not missing -
+**the game is simply producing 51-72 ticks/s against 90 display slots/s.** Below the display
+rate the pair schedule cannot land one pair per slot, the tag stream goes lopsided, and 1016
+same-eye pushes accumulate (always `+1`, so LEFT is the eye that starves). One eye refreshing
+at ~18 Hz beside one at ~73 Hz is the flicker, and it looks like alternate-eye rendering
+because structurally that is what it is.
+
+**Same root as the ghosting, at a different ratio.** Tick slightly over the period gives the
+beat (doubled edges); tick far over gives eye starvation (flicker).
+
+### The fix theory, in order, and NOTHING here is implemented
+
+1. **`vrpace strict on` first.** It already shows the fresh eye to BOTH eyes when one is stale,
+   which converts the starved window from alternating eyes into a briefly flat picture. It
+   ships off, toggles live, and has never been judged. **Try this before any code is written.**
+   It wants an A/B rather than a default flip, because it will also fire on the rare
+   mid-gameplay stale eye and cost depth for that frame.
+2. **If that is not enough**, the shape of a real fix is to extend the `HoldUntagged` idea from
+   untagged presents to unbalanced pairs: hold the previous good pair rather than submit a
+   lopsided one, bounded so a permanent hold cannot freeze the image.
+3. **Measure before either**: why LEFT specifically. Hypothesis - the shared-capture deferred
+   delivery (`SharedWait=0` hands over the PREVIOUS slot) repeats a tag when presents arrive
+   irregularly. `capture sharedwait on` is the A/B that tests it. This is a hypothesis, not a
+   measurement.
+
+## SOLVED (2026-09-04): the GHOSTING was the cadence beat, and 90 Hz is the fix
 
 **Tester, on 2750x2850 at 90 Hz: "super smooth, pretty much zero ghosting or jittery frames."**
 Same build, same scene, same render size at 120 Hz: "still bad". One setting changed.
