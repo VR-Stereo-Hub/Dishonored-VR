@@ -49,6 +49,58 @@ beat (doubled edges); tick far over gives eye starvation (flicker).
    irregularly. `capture sharedwait on` is the A/B that tests it. This is a hypothesis, not a
    measurement.
 
+## NEXT SESSION (2026-09-05): make the startup phases hook instantly
+
+**The goal**: a load should come up in stereo, aligned, immediately. Today it walks through
+mono, then the arms hook and reposition, then stereo hooks, then the weapon and hands flicker
+until they lock - **15-25 seconds of settling, every load.** The 2026-09-04 run measured 26 s.
+
+### The measured startup timeline (from the s15c log, times from proxy load)
+
+| t | what happens |
+|---|---|
+| 0.00 s | pad IAT hook; the engine command line is extended (`-ResX/-ResY`) |
+| 0.6 s | config read: hands, hand render drive, crouch, crash handler |
+| 0.86 s | `res` adapter-mode hooks installed |
+| **3.11 s** | **device hooks** (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene) + the creation census hooks |
+| 4.86 s | `[game] state: NO_PAWN` |
+| **5.08 s** | XR session live; `reentry: ARMED` (call site patches at the next script dispatch); **`blockhunt: walking 65821 objects`** |
+| 17.1 s | `[game] state: MENU` |
+| **18.4 s** | `[game] state: GAMEPLAY`; 14058 D3D creations logged at first GAMEPLAY |
+| **20.5 s** | stereo tags start - but **starved** (L/s 12-19 against R/s 52-73) |
+| **44.5 s** | **locked**: L/s = R/s = 90, nothing untagged, and it stays that way |
+
+**So the settle is two separate problems and they should not be conflated:**
+
+1. **0 -> 18.4 s is mostly the GAME loading**, not us. Our own hooks are all in by 5.1 s. The
+   only clearly-ours cost in that stretch is `blockhunt` walking **65821 UObjects** at 5.08 s -
+   worth timing before assuming it is free, and an obvious candidate for caching its results
+   (the offsets it finds are build-constant) or deferring it off the critical path.
+2. **18.4 -> 44.5 s is the eye starvation, and it is OURS to handle.** Diagnosed in the section
+   above: while the level streams the tick runs 51-72/s against 90 display slots/s, so the pair
+   schedule cannot land one pair per slot and one eye starves. **This is the 26 seconds the
+   player actually sees**, and it is where the work is.
+
+### Where to start, cheapest first
+
+1. **`vrpace strict on`** - already exists, never judged, one command. It should turn the
+   starved window from alternating eyes into a briefly flat picture. **Do this before writing
+   any code.**
+2. **Measure why LEFT starves specifically.** Every doubled push is `+1`. Hypothesis: the
+   shared-capture deferred delivery (`SharedWait=0` hands over the PREVIOUS slot) repeats a tag
+   when presents arrive irregularly. `capture sharedwait on` is the A/B that tests it. This is a
+   hypothesis, not a measurement.
+3. **Then consider holding unbalanced pairs**, extending the `HoldUntagged` idea: hold the last
+   good pair rather than submit a lopsided one, bounded so it cannot freeze the image.
+4. **Separately, time the startup hooks themselves.** There is no instrument that says how long
+   each phase took - `blockhunt`, the census hooks, the reentry call-site patch, the first
+   GAMEPLAY transition. Without that, "make startup instant" has no scoreboard. A phase-timing
+   line is probably the first thing to build.
+
+**Do not re-open**: the ghosting (solved, cadence, 90 Hz), the bbox readback (gated, prediction
+falsified), motion blur (already off), a per-eye tag asymmetry (impossible - the pair shares one
+locate). The 60 fps dips are the Wi-Fi encoder, not the frame path.
+
 ## SOLVED (2026-09-04): the GHOSTING was the cadence beat, and 90 Hz is the fix
 
 **No ghosting reported at 2750x2850 on a 90 Hz headset.** Same build, same scene, same render
