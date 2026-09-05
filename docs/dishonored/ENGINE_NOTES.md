@@ -108,6 +108,52 @@ Positional tracking (`TrackHead`): body anchor EMA, physical crouch with a self-
 standing reference, lean/peek with a safety clamp, roomscale with deadzone bleed and
 auto-recenter, deep-crouch collision-cylinder shrink (`PawnCollisionHeight`, 87.5/65/33).
 
+## The deep-crouch capsule write moves the PAWN (2026-09-04, headset, filmed)
+
+38.16 shrinks the crouched collision cylinder (65 -> `DeepCrouchUU`, 45) so the player fits under
+more. It is the crouch height rise, and it is now default OFF.
+
+Filmed one line per frame across the transition, two bursts of identical shape:
+
+```
+cyl 45.0  pawnZ 3405.73     the crouch, cylinder 65 -> 45
+cyl 45.0  pawnZ 3385.73     dropped exactly 20.00 uu, then holds
+```
+
+**Writing `CollisionHeight` under a grounded pawn moves the pawn's origin down by exactly the
+shrink**, because the engine keeps the feet planted: the origin is the capsule centre, so a shorter
+capsule means a lower centre. In the worst case the pawn is left AIRBORNE - one burst filmed it
+rising 34 uu and then falling 128 uu back to the floor, which the tester independently described as
+"almost like noclip, I could float around".
+
+The camera then chases that displacement with a **rate-limited convergence** - ~4-8 uu per frame
+ramping up after an uncrouch (filmed with the pawn provably stationary, `pawnZ 3444.93` unchanged
+across the whole ramp), a slow decay on the way down. It cannot finish before the next crouch, so
+the unconverged remainder is retained and the view climbs ~20 uu per cycle without bound: 2184 uu
+(22 m) in one measured run, which is why the report was "spamming crouch puts me through the
+ceiling".
+
+An A-B-A block A/B agrees to the decimal: write ON **+20.35 uu of view per cycle** (blocks 1 and 3:
++19.42, +21.28), write off **-0.26** (six consecutive cycles flat within +-2.6), difference +20.61
+over 18 measured cycles.
+
+**Nothing in the game's camera is at fault, and no eye-height field is involved.** `Pawn.EyeHeight`
+(+0x32c) and `Pawn.BaseEyeHeight` (+0x328) read 85.00 unchanged across 27 cycles while the camera
+climbed. The chain is: our capsule write -> the pawn's origin moves 20 uu -> the camera's catch-up
+never converges -> the residue accumulates.
+
+**Falsified along the way**, recorded so nobody re-walks them: the physical crouch detector (off
+under `[Mode] GamepadOnly=1`); the engine's uncrouch arithmetic (both eye fields flat); the 38.24
+eye clamp (flipping it changed nothing, `-0.05 uu`); the game's own
+`DishonoredCamera_BumpSmoother` camera influence (weight forced to 0 in the game's ini, climb
+continued); and our own crouch eye-drop (its `50 < ch < 86` guard means a 45 cylinder switches the
+drop OFF rather than deepening it). Five mechanisms named and tested by their levers, five wrong.
+What found it was filming the pawn and the camera per frame instead of naming a sixth.
+
+The feature cannot be made safe as written: resizing a grounded pawn's capsule from outside the
+engine moves the pawn, and keeping the feet planted would mean writing `Actor.Location`, which this
+mod deliberately never does.
+
 ## The per-eye camera seam: write points (2026-09-02, 41.0)
 
 The stereo methods drive the camera through `game/dishonored/camera` (a real module) on

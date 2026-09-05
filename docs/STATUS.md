@@ -97,6 +97,25 @@ had not, so the game folder still held the previous DLL. The log banner names th
 it in one command. A `-dirty` tag means the tree had uncommitted changes at build time and the
 log cannot be traced to a commit: rebuild from a clean tree before handing a log to anyone.
 
+## FIXED (2026-09-04, headset, dev rig): the crouch height rise
+
+**The report**: crouching then standing raises the player slightly, and spamming it rises far
+enough to pass through the ceiling. Also, from the same run, "almost like noclip, I could float
+around".
+
+**The cause is ours**: the 38.16 deep-crouch write. Shrinking the crouched collision cylinder
+(65 -> 45) under a grounded pawn moves the pawn's origin down by exactly the shrink, 20.00 uu,
+because the engine keeps the feet planted - and sometimes leaves the pawn airborne. The camera
+chases that with a rate-limited convergence that cannot finish before the next crouch, so the
+remainder accumulates: ~20 uu of view per cycle, 2184 uu (22 m) in one run. Measured, filmed frame
+by frame, and confirmed by an A-B-A A/B (+20.35 uu/cycle with the write on, -0.26 with it off).
+Full derivation and the five falsified suspects in ENGINE_NOTES.
+
+**The fix**: `[PosTrack] DeepCrouch` defaults to **0**. Judged in the headset by the tester: the
+climb and the floating are both gone. The cost is that the player no longer fits under low
+furniture; `DeepCrouch=1` restores the old behaviour and the bug with it. It cannot be made safe as
+written without writing `Actor.Location`, which this mod deliberately never does.
+
 ## Current state (2026-09-04, session 9: THE EYES ARE FIXED, root cause proven in the headset; the headset-judged values are the defaults)
 
 **Merged to `native-stereo-rendering` (PR #7, 13 commits).** The per-eye render is correct on the
@@ -176,6 +195,25 @@ without a bump); the pace guard's eaten tag if the headset ever names it.
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 12: the crouch height rise, solved
+
+- **The answer**: the 38.16 deep-crouch capsule write moves the pawn 20.00 uu on every crouch (the
+  engine keeps the feet planted, so a shorter capsule means a lower origin), and the camera's
+  rate-limited catch-up never converges before the next crouch. `[PosTrack] DeepCrouch` now
+  defaults to 0. Headset-judged: fixed.
+- **The method lesson**: naming a mechanism and flipping its lever failed FIVE times running
+  (physical crouch, the engine's uncrouch arithmetic, our eye clamp, the game's bump smoother, our
+  own crouch eye-drop). What worked was filming the pawn and the camera one line per frame across
+  the transition and letting the shape of the curve name the moment. When levers keep coming back
+  null, stop naming suspects.
+- **Two A/B traps paid for**: an interleaved A/B measures a system with memory BACKWARDS (the eased
+  eye clamp redistributed the effect across the cycle boundary and the per-cycle median reported
+  the sawtooth, not the climb - blocks with settling cycles fixed it); and a lever that was never
+  connected reads as a clean FALSIFIED (the eye clamp had never executed at all). Confirm a lever
+  moved something before believing its verdict.
+- **A symptom mentioned in passing was the mechanism speaking**: "I could float around" turned out
+  to be the pawn genuinely airborne, filmed rising 34 uu and falling 128 uu back to the floor.
 
 ### 2026-09-04 - session 10: the stale RIGHT eye, read out of the code, then confirmed
 
