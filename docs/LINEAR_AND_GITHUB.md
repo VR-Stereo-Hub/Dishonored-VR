@@ -141,6 +141,11 @@ Small tickets may drop `Why now`, `Blast radius` and `Non-goals`. **No ticket sh
 `Summary` and `Pass criteria`.** A ticket with no pass criteria cannot be finished, only
 abandoned.
 
+**This file is the template's home.** It is deliberately not installed as a Linear issue
+template: a template makes every ticket open with a wall of empty headings, including the
+one-line ones, and a form nobody fills in is worse than a convention people follow. Copy the
+block above when you need it, and drop the sections that do not earn their place.
+
 ### What makes pass criteria good here
 
 This project's own rules, applied to acceptance:
@@ -347,6 +352,64 @@ not to touch, and `Pass criteria` giving something falsifiable to aim at. A tick
 says the code is compiled but untested on this render, and asks for a picture at two yaws
 produces a change.
 
+### The workspace agent guidance
+
+Linear can hand every agent a block of markdown before it starts (Settings > Agents >
+Additional guidance, workspace-wide, with per-team guidance taking priority). Linear names
+"how to reference issues in commits or pull requests" as exactly what belongs there.
+
+This is the text that is pasted into it. It is kept here so it is version-controlled, and it
+is deliberately short: it is org-wide, so it carries only what is true of every mod repo, and
+points at each repo's own `CLAUDE.md` for the rest.
+
+```markdown
+# VR Stereo Hub - agent guidance
+
+Every repo in this org is a single-player VR mod for a game we own, running locally on our
+own machines: stereo rendering, head tracking, motion controls, renderer and input work.
+Write about them that way, in code, comments, commits, PRs and issues.
+
+## Referencing issues in commits and pull requests
+
+- Branch: `<owner>/<team>-<number>-<slug>`, which is Linear's own copy-branch-name format.
+  Copy it from the issue.
+- The FIRST line of the PR body is the link: `Fixes VR-123` when the PR targets the repo's
+  default branch, `Ref VR-123` when it targets a working branch, so that only the PR which
+  actually reaches the default branch closes the issue.
+- Never put a magic word in a commit message. The PR body is the single link; a magic word
+  in a commit fires independently and produces duplicate transitions.
+- PR title: a conventional-commit subject (feat: / fix: / docs: / build: / tools: / chore: /
+  refactor:), imperative, 72 characters or less.
+
+## Before writing any code
+
+Read the repo's `CLAUDE.md` and its docs index. They carry hard rules that were paid for, and
+they override anything assumed from experience with other codebases. Never copy a constant,
+an address or an offset from another game.
+
+## How work is judged here
+
+- Acceptance is a MEASURED effect, not landed code. A verified write is not an honoured one.
+- Validate in the simulator before asking a human for a headset run. A headset run costs a
+  person their evening.
+- Every new render lever ships default OFF with a live A/B toggle.
+- Every refused guard logs why, with the values that produced the refusal.
+- An instrument that cannot fail its own hypothesis is not evidence, and a counter is not
+  evidence until you know its population.
+- A falsified hypothesis is a result. Write it down so nobody re-walks it.
+
+## Hard rules
+
+- Never commit game-derived content: no decompiled script, no extracted assets, no frame
+  dumps, captures or crash dumps.
+- No em dashes anywhere, in code, strings, docs, scripts or commits. Use "-".
+- Never quote a chat verbatim in anything published. Report the observation instead;
+  numbers, log lines and config keys stay quotable.
+- An agent NEVER declares a release. It may report that a milestone's issues are all Done
+  and ask.
+- File an issue for any fault found and deliberately not fixed, and name it in the PR.
+```
+
 ## Never quote a chat verbatim
 
 Adopted as a hard rule in PR #15, and it applies to everything published: commit messages, PR
@@ -367,9 +430,40 @@ a bug in a script.
 | Create or reorder workflow statuses | Settings > Team > Issue statuses and automations |
 | PR automation rows and branch-specific rules | same page |
 | Branch name format | Settings > Integrations > GitHub > Branch format |
-| Issue templates, and setting a team default template | Settings > Team > Templates |
 | "On git branch copy, move issue to started status" | Settings > Account > Code and reviews |
 | Agent guidance, workspace and per-team | Settings > Agents > Additional guidance |
+
+Issue templates are also UI-only, but this project does not use one on purpose: the ticket
+template above is the version of record and lives here.
+
+### Linear installs two separate GitHub Apps, and you need both
+
+This cost a session's worth of confusion, so it is written down. Linear has:
+
+- **`linear-code`** - code access. Powers the Reviews surface, diffs, file contents, title and
+  state sync, and coding sessions.
+- **`linear`** - the issue integration. Magic-word linking, linkback comments on the PR, and
+  every PR automation row above.
+
+**They install separately and neither implies the other.** With only `linear-code` installed,
+everything looks healthy from inside Linear - PRs appear in Reviews, titles and diffs sync
+within seconds of a push - while `Fixes VR-<n>` does nothing at all, on a freshly opened PR as
+well as an edited one, and no linkback comment ever appears.
+
+The check that settles it, from a machine with `gh` authenticated to the org:
+
+```bash
+gh api orgs/<org>/installations --jq '.installations[] | "\(.app_slug)  selection=\(.repository_selection)"'
+```
+
+Both `linear` and `linear-code` must be listed. If only `linear-code` is, the issue
+integration is not installed, no amount of toggling inside Linear will help, and the fix is to
+connect GitHub from Linear's own GitHub integration settings and accept the app install on the
+org.
+
+Note that enabling linking does **not** retroactively scan existing PRs. After fixing the
+install, re-save one PR description (adding and removing a character is enough) to fire a
+fresh webhook, then confirm the link appears on the issue.
 
 The automation rows this project wants:
 
