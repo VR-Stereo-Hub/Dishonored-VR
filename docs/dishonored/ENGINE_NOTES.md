@@ -1365,7 +1365,7 @@ only the headset's refresh changed.
 | **display slots per frame** | **1.05 - 1.11** | **1.00 - 1.02** |
 | EVEN / UNEVEN windows | 9 / 20 | **33 / 16** |
 | MATCHED / UNDER-SUBMITTING | 11 / 26 | **38 / 22** |
-| tester's verdict | "still bad" | **"super smooth, pretty much zero ghosting or jittery frames"** |
+| ghosting reported | yes | **no** |
 
 The mechanism is arithmetic, and the `stereo: rate` line had been printing it all along:
 at `off` slots of drift per frame, **one frame in `1/off` is held for an extra display slot**,
@@ -1419,12 +1419,11 @@ resolution. Read `stereo: rate` for `display slots per frame` and drive it to 1.
 
 ## The startup eye-starvation flicker, measured at last (2026-09-04, session 15c)
 
-**Not new.** The tester reports it normally lasts a few seconds at the start of a session; on
-this run it lasted much longer, which is what finally made it measurable. Percept: "flickering
-a ton for like 30 seconds ... it looked like what AER looks like on a monitor but I could see
-it in the headset", and "it took a long time at the start for the weapon to sync". Then it
-stopped and stayed stopped: "once the weapon aligned properly it stayed aligned perfectly and
-it was smooth like butter".
+**Not new.** It normally lasts a few seconds at the start of a session; on this run it lasted
+much longer, which is what finally made it measurable. The reported percept: heavy flickering
+for roughly 30 seconds that looked like alternate-eye rendering viewed flat, with the weapon
+taking that long to settle into alignment. It then stopped, the weapon stayed aligned, and the
+rest of the session was smooth.
 
 **What the log shows, `stereo: beat` L/s and R/s across one run** (2750x2850, 90 Hz, Quest 3
 over VDXR, `alpha-272-g65ac9bd2`):

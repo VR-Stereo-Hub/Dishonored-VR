@@ -25,8 +25,8 @@ app (Virtual Desktop's refresh rate, or your runtime's). The mod renders a frame
 slot. At 120 Hz a slot is 8.33 ms, so frames land 1.05-1.11 slots apart, one frame in nine is
 held on screen for an extra slot, and consecutive frames shown for different durations is
 exactly what a doubled edge looks like when you turn. Measured on a Quest 3 over Virtual
-Desktop: 120 Hz "still bad", 90 Hz "super smooth, pretty much zero ghosting". **A higher
-refresh rate is worse here, not better.**
+Desktop, ghosting was still reported at 120 Hz and none was reported at 90. **A higher refresh
+rate is worse here, not better.**
 
 Check it yourself in the log - `stereo: rate` prints a line every 3 seconds:
 

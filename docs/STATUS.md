@@ -2,13 +2,13 @@
 
 ## CONFIRMED ON A THIRD RUN (2026-09-04): 2750x2850 at 90 Hz is the default and it holds up
 
-Third headset run on the shipped defaults: **"smooth like butter with very few frame drops with
-nothing below 80"**, weapon aligned, no ghosting. The 90 Hz result reproduces. The defaults now
+Third headset run on the shipped defaults: smooth, weapon aligned, no ghosting, and no frame
+rate below 80 observed. The 90 Hz result reproduces. The defaults now
 carry it (`[Screen] RenderWidth=2750 RenderHeight=2850` plus the 90 Hz note beside them).
 
 **One open issue on that run, and it is NOT new**: the session flickered for roughly 25 seconds
-at the start before locking. The tester reports this normally lasts a few seconds; this run it
-ran long, which is what made it measurable for the first time. Diagnosed below, **not fixed** -
+at the start before locking. It normally lasts a few seconds; this run it ran long, which is
+what made it measurable for the first time. Diagnosed below, **not fixed** -
 the first thing to try is a lever that already exists and has never been judged.
 
 ### The startup flicker: one eye starving while the level streams
@@ -51,8 +51,8 @@ beat (doubled edges); tick far over gives eye starvation (flicker).
 
 ## SOLVED (2026-09-04): the GHOSTING was the cadence beat, and 90 Hz is the fix
 
-**Tester, on 2750x2850 at 90 Hz: "super smooth, pretty much zero ghosting or jittery frames."**
-Same build, same scene, same render size at 120 Hz: "still bad". One setting changed.
+**No ghosting reported at 2750x2850 on a 90 Hz headset.** Same build, same scene, same render
+size at 120 Hz: ghosting still reported. One setting changed.
 
 | | 120 Hz | 90 Hz |
 |---|---|---|
@@ -61,7 +61,7 @@ Same build, same scene, same render size at 120 Hz: "still bad". One setting cha
 | **display slots per frame** | **1.05 - 1.11** | **1.00 - 1.02** |
 | EVEN / UNEVEN windows | 9 / 20 | **33 / 16** |
 | MATCHED / UNDER-SUBMITTING | 11 / 26 | **38 / 22** |
-| ghosting | still bad | **gone** |
+| ghosting reported | yes | **no** |
 
 At `off` slots of drift per frame, one frame in `1/off` is held for an extra display slot, and
 consecutive frames shown for different durations IS the doubled edge. At 1.11 that is every 9th
@@ -660,8 +660,8 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
 ### 2026-09-04 - session 15b: the ghosting is solved, and the verdict that hid it is fixed
 
 Two headset runs, same build, same scene, same 2750x2850 render, only the headset's refresh
-changed. 120 Hz: "still bad". 90 Hz: **"super smooth, pretty much zero ghosting or jittery
-frames"**. Display slots per frame went 1.05-1.11 -> 1.00-1.02.
+changed. 120 Hz: ghosting still reported. 90 Hz: **none reported, and no jitter**. Display
+slots per frame went 1.05-1.11 -> 1.00-1.02.
 
 **The cadence hypothesis was right all along, and session 14 killed it on a lying verdict.**
 The `EVEN CADENCE` threshold was `|off| > 0.06`, so 1.03-1.05 - a beat every twenty frames -

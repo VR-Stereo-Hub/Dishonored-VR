@@ -293,9 +293,8 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
                 // 0.02, not the 0.06 this shipped with. MEASURED 2026-09-04 at
                 // 2750x2850 on a Quest 3 over VDXR, same build, same scene, only
                 // the headset's refresh changed:
-                //   120 Hz -> 1.05-1.11 slots/frame, tester "still bad"
-                //    90 Hz -> 1.00-1.02 slots/frame, tester "pretty much zero
-                //             ghosting or jittery frames"
+                //   120 Hz -> 1.05-1.11 slots/frame, ghosting reported
+                //    90 Hz -> 1.00-1.02 slots/frame, no ghosting reported
                 // 0.06 called 1.05 EVEN, and session 14 read that clean bill of
                 // health as falsifying the cadence hypothesis when the beat was
                 // still there once every 20 frames. The hypothesis was right and

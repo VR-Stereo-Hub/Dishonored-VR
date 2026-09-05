@@ -22,6 +22,14 @@ permission. Single game, one branch: `VR-Main`.
   `src/game/dishonored/patterns.h`** and is documented in ENGINE_NOTES with how it was derived.
   The exe has no ASLR (base 0x400000), so absolute addresses are fine, but every code hook
   byte-verifies its target and refuses on a mismatch. Never copy a number from another game.
+- **NEVER quote a chat verbatim in anything published to GitHub.** Not in commit messages, PR
+  titles or bodies, issues, comments, code comments, or any file under `docs/`. This covers
+  the tester's words, the maintainers' words and any other conversation the work came from.
+  **Report the OBSERVATION, not the sentence**: "no ghosting reported at 90 Hz, still reported
+  at 120" carries every fact "it was still bad" does, survives being read by a stranger, and
+  cannot embarrass the person who said it. A perceptual report is evidence and belongs in the
+  record - its exact wording never is. Numbers, log lines, ini keys and the game's own shipped
+  comments are not chat and stay quotable.
 - **No em dashes anywhere** (code, strings, ini text, docs, scripts, commits): use `-`.
   PowerShell 5.1 parse errors and log/UI mojibake. `tools\lint.ps1` enforces it.
 - **Commit messages**: plain conventional commits (`feat:`/`fix:`/`docs:`/`build:`/`tools:`/
