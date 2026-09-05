@@ -83,9 +83,18 @@ static void WriteDefaultIni(const char* ini)
         "; fresh eye to both eyes for that frame instead of a held eye (the pause/resume\n"
         "; desync fail-soft). Lag=0|1|2: which locate generation the layer is tagged with\n"
         "; (1 = one back, the measured default). All ship at today's behaviour.\n"
+        "; SyncHz=0|10..500: lock the pair schedule to this rate instead of letting it\n"
+        "; free-run at whatever the game produces. 0 = off (ships). This is the JUDDER\n"
+        "; lever: a game that cannot hold the headset's rate wants a clean SUBMULTIPLE of\n"
+        "; it, so every frame is held for the same whole number of display slots - 60 or\n"
+        "; 40 on a 120 Hz headset, 45 on 90. An uneven cadence is seen as doubled edges on\n"
+        "; world geometry during a head turn, and the log's `stereo: rate` line says\n"
+        "; UNEVEN CADENCE with the slots-per-frame that names it. `vrpace sync <hz>` and\n"
+        "; `vrpace sync off` are the live A/B; judge it in the headset before saving.\n"
         "Ahead=0\n"
         "Strict=0\n"
         "Lag=1\n"
+        "SyncHz=0\n"
         "[Perf]\n"
         "; The tick budget (core/framework/perf): Instruments=1 keeps one record per present\n"
         "; (eight clock stamps) and prints the `perf: tick` line every 3 s; GpuQueries=1 adds\n"
@@ -1034,11 +1043,24 @@ static void LoadConfig()
             const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
             const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
             const int lag = GetPrivateProfileIntA("Pace", "Lag", 1, ini);
+            int syncHz = GetPrivateProfileIntA("Pace", "SyncHz", 0, ini);
             dvr::vr::set_pace_ahead(ahead);
             dvr::vr::set_pair_strict(strict != 0);
             dvr::vr::set_pose_lag(lag);
-            if (ahead || strict || lag != 1)
-                Log("config: [Pace] Ahead=%d Strict=%d Lag=%d (levers off today's behaviour)", ahead, strict, lag);
+            // The gate REFUSES a value it cannot honour rather than half-arming
+            // it: the number that was read is logged and sync stays off, so a
+            // typo cannot silently pace the game at 3 Hz.
+            if (syncHz != 0 && (syncHz < 10 || syncHz > 500)) {
+                Log("config: [Pace] SyncHz=%d is out of range (10..500, or 0 for off) - REFUSED, the pair "
+                    "schedule free-runs", syncHz);
+                syncHz = 0;
+            }
+            dvr::vr::set_pace_sync_hz((unsigned)syncHz);
+            dvr::vr::set_pace_sync(syncHz != 0);
+            if (ahead || strict || lag != 1 || syncHz)
+                Log("config: [Pace] Ahead=%d Strict=%d Lag=%d SyncHz=%d%s", ahead, strict, lag, syncHz,
+                    syncHz ? " (the pair schedule is LOCKED to that rate; `vrpace sync off` is the live A/B)"
+                           : " (levers off today's behaviour)");
         }
         // 37.5: SAFE mode - rendering + head tracking only, every game-memory
         // writer held back. The crash bisector: if XR-safe holds stable, one
@@ -1418,6 +1440,10 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Pace", "Strict", dvr::vr::pair_strict() ? "1" : "0", ini);
     _snprintf(v, 64, "%d", dvr::vr::get_pose_lag());
     WritePrivateProfileStringA("Pace", "Lag", v, ini);
+    // Sync OFF saves as 0 whatever the target was, so a SAVE AS DEFAULTS taken
+    // after an A/B that ended on `off` does not resurrect the rate next launch.
+    _snprintf(v, 64, "%u", dvr::vr::pace_sync() ? dvr::vr::pace_sync_hz() : 0u);
+    WritePrivateProfileStringA("Pace", "SyncHz", v, ini);
 
     Log("overlay: saved defaults (scale %.1f dist %.2f)", g_posScaleUU, g_screenDist);
 }

@@ -284,6 +284,13 @@ void set_pace_feed(bool on);
 // game - BS1/BS2 never call this and take no new branch. `vrpace sync` is the
 // live A/B; the overlay checkbox rides under SR pair pacing.
 void set_pace_sync(bool on);
+// 41.1 (Dishonored, session 14): the sync TARGET. 0 = the runtime's own
+// predictedDisplayPeriod; any other value is a commanded Hz that overrides it,
+// which is the useful case - a game that cannot hold the display rate wants a
+// clean SUBMULTIPLE of it (60 or 40 on a 120 Hz headset), not the rate itself.
+void set_pace_sync_hz(unsigned hz);
+unsigned pace_sync_hz();
+bool pace_sync();
 
 // 41.1 (Dishonored): strict pairs - a stereo submit whose eye is older than one
 // present (the held-eye case: pass 1 tagged, pass 2 skipped in the resume
@@ -487,6 +494,15 @@ struct PairProbe {
     uint32_t endFrames = 0;      // cumulative
     uint64_t endFrameSumUs = 0;  // cumulative
     uint32_t endFrameMaxUs = 0;  // worst submit - DRAINED on read (window = the caller's cadence)
+    // 41.1 (Dishonored, session 14): the pair INTERVAL, cumulative and never
+    // drained - the trace thread owns the min/max window and a second drainer
+    // would steal it, but mean and standard deviation come out of these three
+    // and a caller's own deltas. Evenness is the judder question: 104 pairs/s
+    // evenly spaced and 104 free-running with a beat against the display are
+    // the same rate and a completely different image.
+    uint32_t intervalCount = 0;
+    uint64_t intervalSumUs = 0;
+    uint64_t intervalSumSqUs = 0;
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };
 void pair_probe(PairProbe* out);

@@ -1,5 +1,80 @@
 # Status
 
+## OPEN (2026-09-04): the GHOSTING - an uneven cadence, 104 frames/s into a 120 Hz headset
+
+**The report** (tester, 2026-09-04, on `alpha-260-g958ab57a`): the frame rate was "maybe more
+consistent... not close to 120 for most of it, but pretty decent", and **the bigger fault is
+ghosting on world geometry when turning the head - duplicated edges, feels jittery.**
+
+**Measured on that run** (Quest 3 via VDXR, 2496x2688 per eye, method reentry, 120 Hz headset).
+The rate instrument shipped this session answered the throughput question, and the pair-cadence
+trace answered the ghosting one:
+
+| instrument | reading |
+|---|---|
+| `stereo: rate` hmd | **8.33 ms = 120.0 Hz**, confirmed from the runtime, not assumed |
+| submits/s | **88-115** against 120 slots/s: **UNDER-SUBMITTING 0.73-0.96x** every window but one |
+| `perf: tick` | **9.2-9.9 ms** against an 8.33 ms budget - the game cannot make 120 |
+| `TRACE pairs` interval | mean **8.6-11.8 ms**, **sd 1.3-9.6 ms**, min 5.5 ms, **max 13-96 ms** |
+| `waitGate` | **3-64 ms/s** of 1000 - the runtime is barely gating us at all |
+
+**The cadence is the fault.** 9.4 ms per frame against an 8.33 ms display slot is **1.13 display
+slots per frame**, and it is not even: sd 1.8-3.8 ms with the interval swinging 5.7-14.2 ms in
+ordinary play. So consecutive frames are held for DIFFERENT numbers of slots - 1, 2, 1, 1, 2 - in an
+irregular pattern. Under a head turn the eye tracks the world smoothly while the world advances in
+uneven steps, and high-contrast edges are seen twice. That is the doubled-edge ghosting, and it is a
+**different fault from the submit stalls** below, which are rare (62 gaps in the run) where this is
+continuous.
+
+**The lever already exists and is one live command.** `pace_sync_gate()` was built in the BioShock
+lineage for exactly this - its own comment names "77-80 pairs/s against a 72 Hz display is a ~5 Hz
+interference beat, the first suspect for judder-with-good-frames". It delays each pair OPEN to a
+monotonic schedule. Locking to a clean SUBMULTIPLE of 120 gives every frame the same whole number of
+slots:
+
+```powershell
+tools\game-cmd.ps1 "vrpace sync 60"    # 2 slots per frame, 16.67 ms of budget for a 9.4 ms tick
+tools\game-cmd.ps1 "vrpace sync off"   # the A/B
+tools\game-cmd.ps1 "vrpace sync 40"    # 3 slots per frame, if 60 cannot be held evenly
+```
+
+60 is the recommended first try: the measured tick is 9.4 ms mean / 14.2 ms worst non-hitch, so a
+16.67 ms schedule absorbs nearly all the variance. It trades ~104 uneven frames for 60 even ones,
+and an even 60 on a 120 Hz panel is a stable 2-slot cadence with no beat.
+
+**Not yet judged in a headset. This is a prediction, not a result** - if `sync 60` does not remove
+the doubled edges, the cadence was not the cause and the next suspect is Virtual Desktop's own
+frame synthesis (SSW), which should be turned off for the same A/B.
+
+### What shipped for it this session (session 14)
+
+- **`stereo: rate` now carries the cadence**: `pair interval mean=.. ms sd=.. ms` and a second
+  verdict, `UNEVEN CADENCE: N.NN display slots per frame (not a whole number) with sd X ms` or
+  `EVEN CADENCE`. The numbers existed only in `pacetrace.log` at trace level, which is why nobody
+  had seen them; slots-per-frame is the derived number that names the fault in one glance.
+- **`[Pace] SyncHz=0`** (ships OFF): the same lock as `vrpace sync <hz>`, persisted, so a value the
+  headset likes survives the session. Out of range is REFUSED with the number that was read, so a
+  typo cannot silently pace the game at 3 Hz. `vrpace sync off` then SAVE AS DEFAULTS writes 0.
+
+## RESOLVED as a reading (2026-09-04): the submit stalls were NOT the game outrunning the headset
+
+**The prediction written before the run held.** Submits landed at 88-115/s against 120 slots/s -
+UNDER-SUBMITTING in 23 of 24 windows - and `endFrame mean` measured **0.08-1.99 ms**. xrEndFrame is
+not blocking and is not throttling anything; the display slots are going unfilled. The reading that
+opened this item ("the game produces frames faster than the headset can show them, and the runtime
+absorbs the mismatch by blocking at submit") is **dead**, and it would still be alive if the period
+had not been printed.
+
+**What remains real:** 62 `perf: frame gap` lines, most still in `present-tail (xrEndFrame)` with
+36-96 ms inside the submit call. Those are genuine, rare hitches, not pacing - and on a Wi-Fi
+streaming runtime an 85 ms block in xrEndFrame is the encoder or the link, not our frame path. They
+are worth a separate look AFTER the ghosting, because the ghosting is continuous and these are not.
+
+**The tick, for whoever picks up "make it 120":** 9.2-9.9 ms, split almost evenly between the two
+scene renders reentry needs - per pass roughly `present 1.8 ms + out/R 2.0 ms`, with our own capture
+lock at 0.2-0.5 ms and endFrame at 0.0-0.6 ms. The mod is not the cost. Reaching 8.33 ms means
+taking ~12 % off the game's own render, and the obvious dial is the 2496x2688 per-eye size.
+
 ## OPEN (2026-09-04): the submit stalls - 48 hitches of 44-156 ms, two thirds in xrEndFrame
 
 **The report** (tester, 2026-09-04): "super laggy", and separately "this game is old enough that
@@ -180,18 +255,19 @@ had not, so the game folder still held the previous DLL. The log banner names th
 it in one command. A `-dirty` tag means the tree had uncommitted changes at build time and the
 log cannot be traced to a commit: rebuild from a clean tree before handing a log to anyone.
 
-## Current state (2026-09-04, session 13 opens: performance - the submit stalls)
+## Current state (2026-09-04, session 14: the throttle reading is dead, the cadence is the suspect)
 
-**This branch (`performance-fix`) now carries the INSTRUMENT, and nothing else.** No lever was
-touched, no default moved, no render path changed - the only behaviour difference is lines in the
-log and keys in `status.json`. The work it is for is the OPEN section at the top: 48 hitches of
-44-156 ms with 31 of them in `present-tail (xrEndFrame)`, on a rig with 25-50 % frame-time headroom
-at 120 Hz, and the first step there was to stop inferring the headset's rate and measure it.
+**This branch (`performance-fix`) carries two instruments and one lever, all default OFF or
+log-only.** No render path changed. Session 13 added the rate measurement, it was run, and it killed
+the hypothesis the branch was opened for - the submit was never throttling. Session 14 added the
+cadence measurement, which points at the ghosting instead, and `[Pace] SyncHz`, which ships at 0.
 
 What shipped: the `stereo: rate` beat line (hmd period and Hz, slots/s, presents/s, submits/s, the
-submit's own mean and max cost, and a verdict that can print the unwelcome answer), the display
-period unconditionally on `perf: tick`, the gap converted to display slots on `perf: frame gap`, and
-all of it in `status.json` and `stereo status`. Full detail in the OPEN section.
+pair interval's mean and sd, the submit's own mean and max cost, and TWO verdicts - supply and
+evenness - either of which can print the unwelcome answer); the display period unconditionally on
+`perf: tick`; the gap converted to display slots on `perf: frame gap`; `[Pace] SyncHz` as the
+persisted form of `vrpace sync <hz>`; and all of it in `status.json` and `stereo status`. The two
+OPEN sections at the top carry the readings and what they mean.
 
 **Built, lint-clean, exports OK, and INSTALLED as `alpha-260-g958ab57a`** (RelWithDebInfo,
 hash-checked against `build\src\RelWithDebInfo\d3d9.dll`, clean tag - no `-dirty`). It replaces
@@ -208,7 +284,9 @@ integrated the remainder. `[PosTrack] DeepCrouch` now defaults to 0. That work i
 and is **open as PR #14, not merged**. Its derivation and the five falsified suspects are in
 `docs/dishonored/ENGINE_NOTES.md` on that branch.
 
-**The DLL in the game folder is now `alpha-260-g958ab57a`** - the tip of THIS branch, built
+**The DLL in the game folder is `alpha-261`** (session 14's build - the cadence instrument and
+`[Pace] SyncHz`), replacing the session-13 `alpha-260-g958ab57a` that produced the run above. Both
+are the tip of THIS branch, built
 RelWithDebInfo, installed and hash-checked against `build\src\RelWithDebInfo\d3d9.dll`. It
 replaced `alpha-259-g865f1bcd` (the tip of `crouch-fix`), so **the deployed build no longer carries
 the crouch fix** - `performance-fix` is cut from `VR-Main` and PR #14 is still unmerged. Nothing
@@ -273,27 +351,26 @@ headset, at rate, with the tested configuration shipping as the defaults.
 
 ## Next steps (one paragraph per developer)
 
-**The next developer session (performance)**: the instrument exists now; the next thing is a RUN,
-not another lever. Read the `stereo: rate` verdict first and let it pick the branch - it is written
-so that all three answers are actionable and one of them kills the current hypothesis. If it reads
-OVER-SUBMITTING the throttle is confirmed and the lever is to stop producing frames nobody sees; if
-it reads UNDER-SUBMITTING (which is what the report's own 4.3-6.6 ms present interval predicts under
-reentry's two-presents-per-submit) the throttle reading is dead and the 31 present-tail stalls are
-genuine hitches inside `xrEndFrame` - at which point the questions are what else touches the D3D11
-device on that path and whether VDXR is the one hitching. Only then reach for the levers, none of
-them yet judged for this: `vrpace ahead 0|1|2` (F10 Runtime tab, ships at 0), `[Stereo] HoldUntagged`
-(ships at 3), and the capture mode. Remember the rule the crouch item paid for five times over -
-when a lever comes back null, confirm the lever actually moved something before believing the
-verdict.
+**The next developer session (performance)**: the ghosting A/B comes first and it needs no build -
+`vrpace sync 60` against `vrpace sync off`, judged in the headset, with the `stereo: rate` line read
+before and after (`UNEVEN CADENCE` should become `EVEN CADENCE: 2.00 display slots per frame`). Then
+apply the rule the crouch item paid for five times over: confirm the lever actually MOVED the
+cadence before believing either verdict - `vrpace sync` with no argument prints the delays it
+imposed, and a null result with 0 delays means the gate never ran. If the cadence locks and the
+ghosting stays, the cause is not ours and Virtual Desktop's own frame synthesis is next. Only after
+that is the "make it 120" work worth starting, and it is a render-cost problem, not a pacing one:
+9.2-9.9 ms per tick, almost all of it the game's two scene renders, with the per-eye size the dial.
+The rare submit stalls are a separate, later item.
 
-**The user (headset)**: this branch is installed and worth one run. Play the same few minutes that
-produced the 48 hitches and send the log; the three lines to look for are `stereo: rate`,
-`perf: tick` (it opens with `[hmd .. ms = .. Hz ..]` now) and `perf: frame gap` (it ends its phase
-attribution with `= N display slots`). Nothing else in the build changed, so a comparison against
-the last log is clean. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it.
-Still open from earlier sessions and worth judging when you have the time: (1) JUDDER -
-`vrpace ahead 0|1|2`; (2) the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and `add`;
-(3) WORLD SCALE and eye height at `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
+**The user (headset)**: installed as `alpha-261`. Two things, in this order. **(1) The ghosting
+A/B** - in gameplay run `tools\game-cmd.ps1 "vrpace sync 60"`, turn your head the way that shows the
+doubled edges, then `"vrpace sync off"` and do it again; say which is better, and try
+`"vrpace sync 40"` if 60 feels too slow. Send the log either way, the `stereo: rate` line now says
+whether the cadence actually locked. **(2)** If the ghosting survives a locked cadence, turn off
+Virtual Desktop's Synchronous Spacewarp and repeat, because that is the other thing that
+manufactures frames. `crouch-fix` (PR #14) is ready for your merge decision whenever you want it.
+Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` against `off` and
+`add`; (2) WORLD SCALE and eye height at `[PosTrack] Scale=98` / `HeightOffsetM=-0.090`.
 
 ## Blockers
 
@@ -307,6 +384,33 @@ Still open from earlier sessions and worth judging when you have the time: (1) J
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-04 - session 14: the throttle reading dies, the cadence is named
+
+The session-13 instrument was installed and run (`alpha-260-g958ab57a`, Quest 3 / VDXR, 120 Hz) and
+it did its job in both directions.
+
+**It killed the hypothesis it was built to test.** submits/s 88-115 against 120 slots/s -
+UNDER-SUBMITTING in 23 of 24 windows - with `endFrame mean` at 0.08-1.99 ms. The submit is not
+blocking and never was; the display slots were going unfilled. Written prediction, held.
+
+**It pointed at the real one.** The tester's bigger complaint on that run was ghosting - doubled
+edges on world geometry when turning the head. `perf: tick` reads 9.2-9.9 ms against an 8.33 ms
+slot, and `pacetrace.log`'s `TRACE pairs` reads interval mean 8.6-11.8 ms with **sd 1.3-9.6 ms** and
+`waitGate 3-64 ms/s` - the game free-runs at ~1.13 display slots per frame, unevenly, so consecutive
+frames are held for different numbers of slots. That is the interference beat `pace_sync_gate()` was
+written for in the BioShock lineage, and its own comment predicted this shape of fault.
+
+Shipped: the pair interval mean/sd and an `UNEVEN CADENCE` / `EVEN CADENCE` verdict with
+slots-per-frame on the `stereo: rate` line (the numbers existed only in `pacetrace.log` at trace
+level, which is why no one had seen them), and `[Pace] SyncHz` - the persisted form of
+`vrpace sync <hz>`, shipping OFF, refusing an out-of-range value with the number it read.
+
+**The fix is a prediction, not a result.** `vrpace sync 60` should give every frame exactly two
+display slots; nobody has judged it in a headset yet. If it does not remove the doubled edges the
+cadence was not the cause, and Virtual Desktop's own frame synthesis is the next suspect.
+
+Installed as `alpha-261`; builds, lint clean, exports OK.
 
 ### 2026-09-04 - session 13: the display period is measured, not inferred
 

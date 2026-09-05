@@ -4867,6 +4867,17 @@ void set_pace_sync(bool on) {
                 on ? "ON" : "off");
 }
 
+void set_pace_sync_hz(unsigned hz) {
+    const unsigned was = g_paceSyncHz.exchange(hz, std::memory_order_relaxed);
+    if (was != hz)
+        XRLOG("xr: pair-rate sync target %u -> %u Hz (0 = the runtime's own period, currently %.2f ms); "
+                "the gate only runs while sync is ON",
+                was, hz, g_displayPeriodNs.load(std::memory_order_relaxed) / 1.0e6);
+}
+
+unsigned pace_sync_hz() { return g_paceSyncHz.load(std::memory_order_relaxed); }
+bool pace_sync() { return g_paceSync.load(std::memory_order_relaxed); }
+
 void set_pace_ahead(int periods) {
     if (periods < 0) periods = 0;
     if (periods > 2) periods = 2;
@@ -5557,6 +5568,12 @@ static void pair_probe_fill(PairProbe* out, bool drain) {
     out->endFrameSumUs = g_endFrameSumUs.load(std::memory_order_relaxed);
     out->endFrameMaxUs = drain ? g_endFrameMaxUs.exchange(0, std::memory_order_relaxed)
                                : g_endFrameMaxUs.load(std::memory_order_relaxed);
+    // Session 14: cumulative on purpose - the 1 Hz trace thread window-resets
+    // g_pairIntMinUs/MaxUs by exchange, so this reader takes only the three
+    // that survive a second consumer and derives mean/sd from its own deltas.
+    out->intervalCount = g_pairIntCount.load(std::memory_order_relaxed);
+    out->intervalSumUs = g_pairIntSumUs.load(std::memory_order_relaxed);
+    out->intervalSumSqUs = g_pairIntSumSqUs.load(std::memory_order_relaxed);
 }
 
 // 41.1 (Dishonored): cumulative, NOT drained - a per-present reader must not eat
@@ -5675,6 +5692,9 @@ bool pair_strict() { return false; }
 void handle_pace_command(const char*) {}
 void set_pace_detach(bool) {}
 void set_pace_sync(bool) {}
+void set_pace_sync_hz(unsigned) {}
+unsigned pace_sync_hz() { return 0; }
+bool pace_sync() { return false; }
 void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }

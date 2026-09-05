@@ -9,6 +9,7 @@
 #include "core/vr/openxr_runtime.h"
 
 #include <windows.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -259,10 +260,49 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
                           "UNDER-SUBMITTING %.2fx: display slots are going UNFILLED, so xrEndFrame is not "
                           "throttling a surplus - the present-tail stalls are genuine hitches and their cause is "
                           "upstream of the headset's cadence", ratio);
+            // The EVENNESS half (session 14). Rate alone cannot tell "104 pairs
+            // per second evenly spaced" from "104 free-running with a beat
+            // against the display", and those are the same number and a
+            // completely different image: when the interval is not a whole
+            // number of display slots, consecutive frames are held for
+            // different numbers of slots, and under a head turn that irregular
+            // step is seen as doubled edges on high-contrast geometry. So print
+            // the interval's mean and standard deviation, and the derived
+            // number that decides it - SLOTS PER FRAME. This can print the
+            // welcome answer too: a locked cadence reads x.00 with a small sd
+            // and says EVEN.
+            const uint32_t icnt = p.intervalCount - q.intervalCount;
+            const double isum = (double)(p.intervalSumUs - q.intervalSumUs);
+            const double isumSq = (double)(p.intervalSumSqUs - q.intervalSumSqUs);
+            const double iMeanUs = icnt ? isum / icnt : 0.0;
+            const double ivar = icnt ? isumSq / icnt - iMeanUs * iMeanUs : 0.0;
+            const double iSdMs = (ivar > 0.0 ? sqrt(ivar) : 0.0) / 1000.0;
+            const double iMeanMs = iMeanUs / 1000.0;
+            const double spf = periodMs > 0.0 ? iMeanMs / periodMs : 0.0;
+            char even[340] = "";
+            if (icnt && periodMs > 0.0) {
+                const double nearest = floor(spf + 0.5);
+                const double off = spf - nearest;
+                const bool uneven = (off > 0.06 || off < -0.06) || iSdMs > periodMs * 0.25;
+                if (uneven)
+                    _snprintf(even, sizeof(even),
+                              " | UNEVEN CADENCE: %.2f display slots per frame (not a whole number) with sd %.2f ms - "
+                              "consecutive frames are held for DIFFERENT numbers of slots, which is the interference "
+                              "beat seen as doubled edges on a head turn. `vrpace sync <hz>` locks the pair schedule; "
+                              "the clean targets at this period are %.0f/%.0f/%.0f Hz",
+                              spf, iSdMs, slots, slots / 2.0, slots / 3.0);
+                else
+                    _snprintf(even, sizeof(even),
+                              " | EVEN CADENCE: %.2f display slots per frame, sd %.2f ms - the pair schedule lands on "
+                              "slot boundaries and no beat is expected", spf, iSdMs);
+            } else if (periodMs > 0.0) {
+                strcpy_s(even, sizeof(even), " | cadence n/a (no pair intervals this window)");
+            }
             DVR_INFO("stereo: rate hmd=%s slots/s=%.1f | presents/s=%.0f submits/s=%.0f (one xrEndFrame per pair) "
-                     "| endFrame mean=%.2f ms max=%.1f ms over %u submits | %s",
-                     hmd, slots, (g_beatOut + g_beatNone) / s, subsPerS, efMean,
-                     p.endFrameMaxUs / 1000.0, subs, verdict);
+                     "| pair interval mean=%.2f ms sd=%.2f ms | endFrame mean=%.2f ms max=%.1f ms over %u submits "
+                     "| %s%s",
+                     hmd, slots, (g_beatOut + g_beatNone) / s, subsPerS, iMeanMs, iSdMs, efMean,
+                     p.endFrameMaxUs / 1000.0, subs, verdict, even);
         }
         g_beatMs = now;
         g_beatOut = g_beatL = g_beatR = g_beatMono = g_beatNone = 0;
