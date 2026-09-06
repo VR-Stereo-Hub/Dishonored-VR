@@ -101,6 +101,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
         if (g_camObj && !CamAlive()) g_camObj = NULL;
         if (!g_camObj && (InterlockedIncrement(&camReval) & 31) == 0) FindLiveCamera();
     }
+    ArmFollowTick();                              // VR-30: the arm-follow probe (read-only, finds its own camera)
     dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
     dvr::camera::apply_offsets(g_camObj);         // the eye offset (aer/reentry) + the lean on the camera lane
     BlinkTestApply();  // 32.14: same lane, same reason
@@ -148,6 +149,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // camera under the world-locking layer). Ungated again; the
             // order-proofing lives inside ApplyHeadToViewRotation now.
             if (g_rotInject) ApplyHeadToViewRotation(a2);
+            // The head writer applies the matching body target only after a
+            // successful fresh write or replay, never after a refused event.
             ApplyHandToMesh();
             return;
         }

@@ -418,3 +418,27 @@ is written). `core/util/paths.h` is the one place that knows this.
   the same snapshot the parked-session keepalive already re-submits. The counters
   `zeroLayerHeld`/`zeroLayerBlack` and a per-second `Warn` make the case visible either way,
   because a black frame a tester can see must not be a thing no line mentions.
+
+### 2026-09-05 - VR-30: change the request, not the result
+
+The arms follow the head because the engine faces the BODY to the view, and the
+arms are bones of the body. Ten attempts wrote a value the engine recomputes
+every tick from the controller - the one input the mod must modify for the
+player to look around - and none held. `BodyYawLock`, the last of them, was
+measured surviving **4 of 186 writes**.
+
+The choice made instead: **hook the engine's own body-facing operation and
+change the yaw it is ASKED for, rather than assigning the result afterwards.**
+`FaceRotation` is virtual at vtable slot 252; the intercept replaces its Yaw
+argument with `view - our own injected head contribution` and lets the engine's
+function run normally, so its dependent bookkeeping still happens.
+
+The general rule this is an instance of, and the one worth carrying to the next
+engine write: **when the engine recomputes a value every tick, do not race the
+recompute - change its input.** And measure write survival before tuning what a
+write contains; that instrument did not exist here until it settled VR-30 in one
+run.
+
+Identity for such a write comes from the event stream (`g_peCtrl`/`g_pePawn`),
+validated as a possession pair, never from a camera-pointer scan: the scan held
+the previous scene's controller for an entire gameplay window.

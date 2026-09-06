@@ -285,6 +285,17 @@ static void ApplyHandToMesh();
 static void ApplyHeadToViewRotation(void* parms);
 static inline void LevWrite(uint8_t* p, float t);
 static inline void FovLeverApply();
+// VR-30: the arm-follow probe (game/dishonored/arm_follow.cpp), read-only
+static void ArmFollowTick();
+static void ArmFollowReport(const char* why);
+static bool ArmFollowCommand(const char* args);
+static void ArmFollowSetForce(float v, const char* who);
+static void ArmFollowSetInfluence(float v, const char* who);
+static void ArmFollowSetLookAt(float v, const char* who);
+static void ArmFollowSetCounterYaw(float v, const char* who);
+static void ArmFovTick();
+static void ArmLookFind();
+static inline bool ArmLookAlive();
 static bool NameHas(const char* s, const char* frag);
 static void BoneWigBuildMask();
 static void SbApply(const char* where);
@@ -311,3 +322,8 @@ static void InstallPadHook();
 static void RtdMarkerTick();
 static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where);
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved);
+
+// VR-30: yaw ownership (head_track.cpp)
+static void ArmFollowSetStripRot(float v, const char* who);
+static void ArmFollowSetFacing(float v, const char* who);
+bool YawSelfTest();
