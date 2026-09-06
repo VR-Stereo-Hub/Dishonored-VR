@@ -234,5 +234,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/RELEASE_NOTES.md` | Per-version notes; 41.0 "Upgrading" lists every removed key |
 | `docs/dishonored/ENGINE_NOTES.md` | The reverse-engineering knowledge base: addresses with derivation, class layouts, hook points, the per-eye camera seam's write points, the head-coupling chronology, dead ends |
 | `docs/dishonored/TESTING.md` | Install/launch loop, flat and simulator checks, headset checklist, crash triage |
+| `docs/dishonored/DESKTOP_MIRROR.md` | **The desktop mirror's eye policy** (VR-53/VR-54): why the game window alternated eyes, where the pin lives and why it is not in the runtime layer, the pause-menu session loss, and the counter reading that was retracted |
+| `docs/dishonored/BRIEF-eye-flicker.md` | The eye-flicker investigation: four hypotheses argued and killed. ANSWERED - kept as the graveyard |
 | `docs/dishonored/XR_HANDOFF.md` | The pre-41.0 OpenXR/Quest presentation bug (historical; the pipeline it describes is gone) |
 | `docs/dishonored/HANDOFF-GINGASVR.md` | **The original author's handoff** (their build 39.4): what was measured, disproved, the traps, the process rules, the 39.x fixes our base lacks |

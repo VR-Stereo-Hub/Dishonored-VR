@@ -1,9 +1,20 @@
 # Brief: the game's own frame alternates between eye positions
 
-**Status:** diagnosis converged, fix NOT yet written. This document is the
-handoff for a second reviewer. **Research the renderer before proposing a
-revision** - the specific request at the end is not "sanity check my plan", it
-is "read the frame path end to end and tell me where I am wrong".
+**Status: ANSWERED, 2026-09-06. The fix is written.** Keep this document as the
+record of the four hypotheses that were argued and killed on the way, three of
+them from counters that could not see the fault - that is the part worth
+re-reading before anyone proposes something new in this area.
+
+**The answer was not in the headset path.** `hkPresent` calls the game's
+original `Present` for every eye draw, and `mirror_present()` had never
+implemented the D3D9 copy, so the game WINDOW had no eye policy and showed
+L, R, L, R while the headset received correct pairs the whole time. What a
+recording of the window shows is not what the headset was doing.
+
+The fix, the pause-menu session loss found in the same review, and the reading
+that was retracted alongside them are all in
+**`docs/dishonored/DESKTOP_MIRROR.md`**. Everything below this line is the
+state of the investigation BEFORE that was known, preserved unedited.
 
 Four hypotheses have already been argued and killed by measurement. Three of
 them were argued from counters that could not see the fault. Do not add a fifth

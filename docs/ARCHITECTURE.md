@@ -418,3 +418,37 @@ is written). `core/util/paths.h` is the one place that knows this.
   the same snapshot the parked-session keepalive already re-submits. The counters
   `zeroLayerHeld`/`zeroLayerBlack` and a per-second `Warn` make the case visible either way,
   because a black frame a tester can see must not be a thing no line mentions.
+
+### The desktop mirror gets its own module, not a seam in the runtime layer (VR-53, 2026-09-06)
+
+The game window had no eye policy: `hkPresent` calls the game's original
+`Present` for every eye draw and `mirror_present()` had never implemented the
+D3D9 copy, so the window alternated L, R, L, R while the headset received
+correct pairs. The obvious place to fix that is `mirror_present()` itself, and
+that is not where it went.
+
+**The runtime layer owns the WHEN; a new module owns the HOW.**
+`core/vr/openxr_runtime.cpp` is a 5k-line proven layer that this project keeps
+as close to the BioShock copy as the D3D9 host allows, on the rule that fixes
+port between the two projects only while the rest stays verbatim. Its call
+sites already sit on the correct side of each eye's XR capture, which is the
+only thing about the pin that needs the layer's knowledge. So it gains a hook
+pointer and nothing else, and `core/gfx/desktop_eye.cpp` holds the surface, the
+snapshot, the re-blit and the Reset discipline.
+
+The ordering is load-bearing and belongs in the layer for the same reason: the
+re-blit must land strictly AFTER the right eye's capture, or the headset loses
+that eye's pixels to a copy meant for the window.
+
+### A counter is not evidence until you know its population (2026-09-06)
+
+Recorded as a reasoning failure, because the fix is less useful than the
+mistake. A "30 % of ticks double" reading produced a stand-down guard for the
+second draw. The window that reading came from straddled a pause menu, an
+`xrEndFrame` failure and session teardown; the windows either side read 78/78,
+86/86, 87/87 and 81/81, and the refusals inside the bad window were "no XR
+session" counted after the session had already gone.
+
+The guard was removed rather than tuned. It would have disarmed a healthy
+renderer every time a session dropped - a fault indistinguishable from the one
+it was built to prevent.
