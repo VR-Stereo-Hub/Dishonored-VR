@@ -1,120 +1,59 @@
 # Status
 
-## CURRENT (2026-09-06, session 20f): the cut end is CAPPED
+## CURRENT (2026-09-06): VR-31 - the hands are cut from the arms, clipped and capped
 
-VR-31. The clip gives a clean circular boundary and leaves it OPEN, because the
-arm is a shell with nothing inside it - so at every position of the ring you
-look down the inside of the sleeve and out through its far wall. The clip
-already produces exactly the ring that has to be closed, one boundary segment
-per straddling triangle, and a fan from that ring's centre to those segments is
-the disc that fills it.
+This branch is the arm/hand split and nothing else. The desktop mirror eye pin
+and the pause-menu session loss found in the same sessions were split out onto
+their own branch and are VR-53 and VR-54.
 
-Both stumps are closed, into their own class, so hands-only closes the hand and
-the inverse view closes the sleeve; in `all` the two caps are coincident, face
-away from each other and sit inside a closed mesh, so the A/B still rebuilds
-what the game drew.
+**The full reference for everything below is `docs/dishonored/ARM_HAND_SPLIT.md`**
+- the derivation, every ini key and hotkey, how to read the log, the traps, and
+what is still unverified. This section is the handoff summary only.
 
-**The colour is the ring's own.** Every cap vertex is given the SAME texture
-coordinate - the MODE of the ring's UVs, counted by how many ring vertices sit
-within a sixth of the ring's UV spread of each candidate. A mode and not a mean,
-because a mean lands between two islands of an atlas and samples whatever is
-parked there. One UV on every vertex means the disc interpolates to a single
-texel, so the cap is flat in the colour that dominates the cut: sleeve on the
-sleeve, skin past the cuff. It re-derives on every knob press, so it tracks the
-ring by construction. Position and SKINNING come from the ring vertex instead,
-so the cap deforms with the arm and cannot part from the rim.
+### Where it stands
 
-**Two-sided by default**, and not as insurance: in hands-only mode the arm is
-not drawn, so nothing stands between the eye and the BACK of the hand's cap. A
-one-sided disc would be culled from precisely the angle the hole was visible
-from. `[Hands] CutCapTwoSided=0` halves it and is the check for a cap that is
-present but facing away; `[Hands] CutCap=0` removes it entirely and restores the
-pre-cap look.
+The arms and hands are one skinned triangle list with one material, so the
+geometry is cut by us. The cut is derived per arm from BONE INFLUENCE, shaped
+as a plane perpendicular to the forearm, with the triangles that straddle that
+plane CLIPPED at it so the boundary is the plane itself rather than a row of
+triangle edges. The open end that leaves is CAPPED with a two-sided disc
+coloured from the mode of the boundary ring's own texture coordinates.
 
-Both keys default ON with no ini edit needed. The `ms: cut end CAPPED` line
-says the triangle count, which ring vertex each side took its colour from, and
-whether a declaration without TEXCOORD0 forced the fallback.
+The ring ships at the tester's measured position: `[Hands] WristCutA` /
+`WristCutB` = **-4.9**, read off the `ms/wrist` line at the end of the
+2026-09-06 headset walk. It is asset-relative, so it survives a level load.
 
-Built, lint clean, installed. Untested in the headset.
+### Verified in the headset
 
-## PREVIOUS (2026-09-06, session 20e): the desktop had NO eye policy, and a hold corrupted its own snapshot
+* The split itself: the hands draw, the arms do not.
+* The plane, the clip, and the ring walk with Numpad + / -.
+* The cap, at the point where it was still falling back to ring vertex 0 for
+  its colour.
 
-Two source defects, both found in a second review of the frame path, both
-fixed here. Untested.
+### NOT verified
 
-### The "alternate-eye" flicker: the game window was never pinned to an eye
-
-`hkPresent` calls the game's original `Present` for EVERY eye draw, and
-`mirror_present()` in the runtime layer had **never implemented the D3D9 copy**
-- its own comment said so and it only incremented counters. So under a healthy
-sequential-stereo stream the window shows
-
-    L(k), R(k), L(k+1), R(k+1), ...
-
-while the headset correctly receives the pairs. A recording of the window
-therefore alternates between two camera positions one IPD apart, frame by
-frame, which is exactly what alternate-eye rendering looks like. The headset was
-never doing AER; the desktop had no eye policy at all.
-
-`core/gfx/desktop_eye.cpp` implements the pin: snapshot the backbuffer on the
-left eye's present, re-blit it over the right eye's present **after** that eye's
-XR capture. The runtime layer owns the WHEN (its call sites already sit on the
-right side of each capture); the new module owns the HOW, so
-`openxr_runtime.cpp` stays as close to the BioShock copy as the host allows -
-it gains a hook pointer and nothing else. `D3DPOOL_DEFAULT` surface, released in
-`on_reset` before the game's Reset (the hkReset LAW).
-
-### The pause-transition session loss: a hold banked the wrong structures
-
-On a hold-only present, `proj` / `projViews` / `quad` are the EMPTY locals - the
-copies actually submitted are `holdProj` / `holdViews` / `holdQuad`. The hold
-sets `layerCount = 1`, and the snapshot bank keyed off `layerCount`, so it
-overwrote a good snapshot with zeroed structures and left it marked valid. The
-next hold submitted null handles and a zero view count, `xrEndFrame` answered
-`XR_ERROR_HANDLE_INVALID`, and the session stood down. Both logs from this date
-show exactly that at the pause menu. Now banked on `builtNewLayer`.
-
-Still open and tracked separately: a saved layer holds swapchain HANDLES, not
-pixels, and OpenXR composites the most recently RELEASED image - so preserving a
-completed PAIR needs retained images, not a retained structure.
-
-### Retracted: the "30 % of ticks double" reading, and the guard built on it
-
-The window that reading came from straddled a pause menu, an `xrEndFrame`
-failure and session teardown. The windows either side read `draws/s=78
-2nd/s=78`, `86/86`, `87/87`, `81/81` - the renderer doubles essentially every
-gameplay tick, and the refusals in the bad window were "no XR session", after
-the session was already gone. The stand-down guard built on that premise is
-REMOVED, not tuned: it would have disarmed a healthy renderer every time a
-session dropped.
-
-The `camera/eyetrace` line is corrected too - its ring is appended in
-`note_render_pos`, so it samples CONSTANT UPLOADS, not presents, and a full
-eye-to-eye span is also what healthy sequential stereo produces. It said
-otherwise and that was wrong.
-
-### Build state - read this before trusting a log's build id
-
-The DLL installed in the game folder **contains everything below**, but it was
-built before the commit, so it stamps itself `alpha-325-g30359c05-dirty` while
-HEAD is `63c1f62f` (`alpha-326`). The `-dirty` and the parent sha are the
-session's uncommitted-at-build-time state, not a stale build. Rebuild before the
-next headset run if an exact sha match matters.
-
-Nothing diagnostic is armed that is not meant to ship: the draw census, the
-mesh split and the eye trace are all deliberate and default ON for the test
-sessions (`[Hands] DrawCensus/ArmSplit/ArmSplitAuto`, `[VR] DesktopEye`).
+* The cap since the UV decode was widened. The log had been answering `NO
+  TEXCOORD0` because this asset packs its texture coordinate as `FLOAT16_2` and
+  the check demanded a `FLOAT2`, so the colour MODE never ran and every cap took
+  ring vertex 0 - an arbitrary choice that happened to look right. The mode now
+  runs, so **the cap's colour may differ from the one that was approved**. That
+  is the first thing to look at on the next run.
+* Whether the ring's shape changes with the POSE. The cut is computed in the
+  bind pose and seen in the animated one. If the ring's shape changes as the arm
+  moves, a slant has a different cause and a different fix than the axis; if the
+  slant is fixed relative to the arm whatever the pose, it is the axis. One run
+  settles it and nothing else can.
 
 ### The run this needs
 
-Look at the game window: **one view, no alternation**, while the headset keeps
-correct stereo depth. `desktopeye:` in the log every 15 s should show snapshot
-and re-blit counts EQUAL and non-zero. Then open and close the pause menu
-several times - no `XR_ERROR_HANDLE_INVALID`, no session teardown.
+Look at your hands. The wrist ends in a solid disc, no see-through, from every
+angle including down the arm from the elbow end. Walk the ring with Numpad
++ / - and watch the colour track it - sleeve on the cuff, skin past it. Then
+say whether the colour is the same one as before, because the decode fix could
+have changed it.
 
-Performance is NOT addressed here and is the next subject: ~78 complete pairs/s
-against a 90 Hz headset, ~9.7 ms of D3D9 GPU span per tick, 15.7 Mpixel per
-pair at 2750x2850.
+In the log: `ms: cut end CAPPED` names the colour path that ran and the winning
+ring vertex; `ms: triangles by class` carries the whole result in one line.
 
 ## PREVIOUS (2026-09-06, session 20d): VR-31 - a reversed winding was eating a third of the cut
 

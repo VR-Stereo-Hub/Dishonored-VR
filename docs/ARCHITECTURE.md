@@ -474,3 +474,39 @@ derives the layer's own half-angles) instead of the headset's raw half-angles.
 Composing overlay geometry through a different frustum than the layer claims is
 a slide against the world that grows with the disagreement, and the disagreement
 was 108.1 deg against the headset's own numbers on the last measured run.
+
+### The arm/hand split cuts geometry, and does it on the render thread (VR-31, 2026-09-06)
+
+Four routes to hiding the arms while keeping the hands were opened and three
+were closed on instruments - the per-bone visibility array, and two forms of
+hiding by material section. The arms and the hands are ONE skinned triangle
+list, drawn by one call with one material, so nothing the engine already
+exposes separates them. The decision is therefore to **cut the geometry
+ourselves**, which is a bigger commitment than any of the closed routes and was
+taken only after each of them had an instrument that could have said otherwise.
+
+**The classification is by BONE INFLUENCE, not by a range of the index list.**
+An eyeballed percentage mask worked on one arm and took too much of the other,
+and the reason is structural: the two arms occupy different, non-aligned regions
+of the one list, so no single set of ranges can be right for both. Bone
+influence is the mesh's own answer to "which arm, and hand or forearm", it is
+per-arm by construction, and it is exact rather than approximate.
+
+**The cut SHAPE went sphere -> plane -> clipped plane, each for a measured
+reason**, and each earlier shape is still one ini key away because a free
+fallback costs nothing. The sphere moves in whole bones; the plane moves
+continuously but leaves a sawtooth boundary one triangle high; clipping the
+straddling triangles makes the boundary the plane itself. Only the third is a
+circle.
+
+**Reading the game's buffers is validated, not trusted.** `D3DUSAGE_WRITEONLY`
+lets a driver return an uninitialised staging copy from a read lock, so every
+copy is checked against facts the data must satisfy and a failure refuses with
+the numbers rather than drawing a mesh carved out of noise. A mesh built from
+noise looks like a geometry bug, not like a read bug, and would have cost a
+session to diagnose.
+
+**All of it runs on the render thread inside the draw detour**, because that is
+the only place the right buffers are bound. The hotkeys post requests and
+nothing acts on them off-lane, which is the same lane discipline the rest of the
+mod uses for present-thread work.

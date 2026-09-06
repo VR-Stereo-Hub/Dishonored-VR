@@ -3109,3 +3109,57 @@ Blink detours, 33-36 graft and calibration, 37.x OpenXR bring-up (XR-1 bench, XR
 XR-3 pace thread), 38.x the Quest convergence attempts, 38.92 shipped. The fork: M2 frame
 map, M3 splice, M4 twins, M5 sequential + shafts, M6 wrist HUD + shadows, M7 pixel-shader
 shear, M8 quarter-res light passes (M8.2 shipped).
+
+## The arm mesh, measured (VR-31, 2026-09-06)
+
+Everything here was read from the running game and is quoted from the log, not
+derived. The full account of what the split does with it is
+`docs/dishonored/ARM_HAND_SPLIT.md`.
+
+**The mesh signature**, used to arm the lock by identity rather than by a key
+press: **4448 primitives, 2771 vertices**. `[Hands] ArmMeshPrims` /
+`ArmMeshVerts`.
+
+**The vertex declaration**, stream 0, **32 bytes a vertex, 9 elements**:
+
+```
+POSITION      off=16  type=2  (D3DDECLTYPE_FLOAT3)
+BLENDWEIGHT   off=12  type=8  (D3DDECLTYPE_UBYTE4N)
+BLENDINDICES  off=8   type=5  (D3DDECLTYPE_UBYTE4)
+TEXCOORD0             FLOAT16_2   - packed, see below
+```
+
+Stream 0 is the ONLY stream, which is what makes the clip possible at all: the
+index list can be re-based onto a vertex buffer of ours without desynchronising
+a second stream addressed by the same index.
+
+**The buffers are readable.** `vb usage=0x0 pool=0 size=88672 stride=32` - not
+`D3DUSAGE_WRITEONLY`, so the read lock returns real data on this asset and this
+driver. That is a fact about this build, not a guarantee: the validation that
+would catch an uninitialised page is still in place and still runs.
+
+**TEXCOORD0 is FLOAT16_2, and that cost a silent fallback.** A check that
+demanded a `FLOAT2` answered "NO TEXCOORD0", so the cap's colour mode never ran
+and every cap took ring vertex 0 instead - which looked correct, because vertex
+0 is still a vertex on the boundary ring. It would not have looked correct on a
+ring that landed on a texture seam. **A refusal that produces a plausible
+picture is the worst kind of refusal**, and this one is the example to cite:
+the fix was to widen the decode, and to make the log line name the offset and
+type it found and say which of the two paths actually ran.
+
+**NORMAL is not a FLOAT3 here**, so cap vertices inherit the donor's normal
+rather than having one forced flat to the cut plane. Re-encoding a packed normal
+without knowing the asset's bias and scale would be a guessed constant shipped
+as a measured one.
+
+**The palette measures 48 bones**; the module's ceiling is 128.
+
+### The measured cut position
+
+`[Hands] WristCutA` / `WristCutB` = **-4.9**, mesh units from the hand bone
+along the limb axis, positive toward the fingers. This is where the ring was
+left after a headset walk on 2026-09-06 and it is read straight off the
+`ms/wrist` line that the last press printed. It is asset-relative, so it
+survives a level load and does not depend on the pawn's position. It is not
+derived and it is not a guess; the derived seed it replaced was
+`WristScale`=0.70.
