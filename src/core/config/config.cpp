@@ -1367,13 +1367,23 @@ static void LoadConfig()
                 "writers OFF (crash bisector)");
         }
     }
-    // 40.3 GAMEPAD-ONLY. The rendering is not converged (world scale, the
-    // frame aspect and the FOV lever are still being fitted against each
-    // other), and motion controls make that harder to judge: hand meshes and
-    // a weapon that follow a mis-scaled world give the eye a second, wrong
-    // reference for how big things are, and every hand calibration is one
-    // more variable in a run that is supposed to be measuring one. So the
-    // controllers stay a plain gamepad until the render is settled.
+    // 40.3 GAMEPAD-ONLY, and 2026-09-06: THE DEFAULT IS NOW 0 (VR-40).
+    //
+    // This shipped as 1 with a stated condition - "the controllers stay a
+    // plain gamepad UNTIL THE RENDER IS SETTLED" - and that condition is met.
+    // Stereo is converged on the reentry method, the ghosting was solved at
+    // 90 Hz, world scale and eye height were judged (VR-20), and the desktop
+    // mirror has an eye policy (VR-53). Leaving the gate closed now costs the
+    // thing it was protecting: VR-33 cannot be worked on at all, because the
+    // whole hands subsystem - SkelControl, the hand meshes, motion aim, motion
+    // melee, motion crouch and hand-aimed Blink - is vetoed here, and a
+    // controller drive that never executes reads exactly like a controller
+    // drive that does not work.
+    //
+    // The original reason to close it is still true in one respect: motion
+    // controls add variables to a run that is measuring the render. So this is
+    // one ini key, it logs loudly either way, and GamepadOnly=1 puts every one
+    // of them back to sleep for a run that needs to measure the render alone.
     //
     // What stays ON deliberately: head tracking and its rotation writes,
     // positional head tracking, the FOV lever, and the virtual gamepad. This
@@ -1382,7 +1392,7 @@ static void LoadConfig()
     // The author's process rules say motion crouch and hands "must never stop
     // working". This does not retire them: it is one key, it logs loudly, and
     // the code is untouched. Set GamepadOnly=0 to get them all back.
-    g_gamepadOnly = IniFloat(ini, "Mode", "GamepadOnly", 1) != 0.0f;
+    g_gamepadOnly = IniFloat(ini, "Mode", "GamepadOnly", 0) != 0.0f;
     if (g_gamepadOnly) {
         g_skcDrive     = false;    // no SkelControl hand writes
         g_handMesh     = false;    // no hand mesh collect/drive
