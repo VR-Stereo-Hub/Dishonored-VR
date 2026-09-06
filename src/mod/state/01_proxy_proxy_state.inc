@@ -40,3 +40,11 @@ static UINT g_curRTw = 0, g_curRTh = 0;
 // (camera responsiveness). No game memory is written; we only observe.
 // ----------------------------------------------------------------------------
 #define VS_REGS 256
+
+// [VR] DisableBadApiLayers. An implicit OpenXR API layer whose library is
+// 64-bit only cannot load into this 32-bit game and fails xrCreateInstance for
+// every runtime; ON, the guard switches such a layer off for this process using
+// the opt-out its own manifest declares. OFF, they are reported and left alone -
+// which means no VR, and is only useful for confirming that a layer really is
+// the cause. See core/vr/apilayer_guard.cpp.
+static bool g_algGuard = true;

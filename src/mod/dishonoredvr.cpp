@@ -94,6 +94,9 @@
 #if !DVR_WITH_LEGACY
 #include "legacy/legacy_stubs.inc"
 #endif
+#define DVR_CAT ::dvr::log::Cat::openxr
+#include "core/vr/apilayer_guard.cpp"
+#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::cfg
 #include "core/config/config.cpp"
 #undef DVR_CAT

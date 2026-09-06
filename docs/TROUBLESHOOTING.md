@@ -112,3 +112,42 @@ send the log: the `STALE R EYE` line in it names which side dropped the sibling 
 press `cancel`. The engine moves its camera on its own neck arc (measured 32 cm below the
 eyes); the cancel keeps the eye where the headset says it is.
 
+## The game launches flat and the log says `xrCreateInstance failed: XrResult(-32)`
+
+`-32` is `XR_ERROR_FILE_ACCESS_ERROR` and it comes from the OpenXR **loader**,
+before a runtime is even chosen. That is why it takes down the native runtime
+and the SteamVR shim with the same error, and why the shim's "is SteamVR
+installed?" line is misleading when it appears - SteamVR is not the problem.
+
+The usual cause is an **implicit OpenXR API layer whose library is 64-bit only**.
+Dishonored is a 32-bit game, so a 64-bit layer cannot load into it, and one
+unloadable layer fails instance creation for everything.
+
+Implicit layers are opt-out by design: nothing you configured asks for them.
+They are registered under
+
+    HKCU\SOFTWARE\Khronos\OpenXR\1\ApiLayers\Implicit
+    HKLM\SOFTWARE\Khronos\OpenXR\1\ApiLayers\Implicit
+    HKLM\SOFTWARE\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit
+
+with a value of **0 meaning enabled** and non-zero meaning disabled. `HKCU` is
+not subject to WOW64 redirection, so a layer registered there reaches a 32-bit
+process even when 64-bit software installed it.
+
+**The mod handles this itself.** On startup it reads those keys, checks each
+enabled layer's library for its PE machine type, and for any layer that cannot
+load here it sets the `disable_environment` variable that layer's own manifest
+declares - in this process only. It never writes the registry, so the layer
+keeps working for your 64-bit applications. The `apilayer:` lines in the log say
+what was found and what was switched off.
+
+Two cases it cannot fix on its own, both named in the log:
+
+- a layer whose manifest declares no `disable_environment`: there is no
+  supported way to opt one process out of it, so it has to be disabled in the
+  registry (set its value to 1) or uninstalled;
+- a layer whose manifest will not read at all.
+
+Known example: OBS mirror-capture layers such as OpenXR-Layer-OBSMirror install
+a 64-bit-only library under `HKCU` and will stop this game reaching VR until
+they are disabled.

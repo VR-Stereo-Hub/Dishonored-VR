@@ -1117,6 +1117,9 @@ static void LoadConfig()
         g_vrKeepAlive = GetPrivateProfileIntA("Screen", "KeepAliveUnfocused", 1, ini) != 0; // 38.78
         g_chainStamp = GetPrivateProfileIntA("HeadTrack", "ChainStamp", 1, ini) != 0; // 38.88
         g_fpsCap = IniFloat(ini, "VR", "FpsCap", 0.0f);                  // 38.14
+        // ApiLayerGuard runs before LoadConfig and reads this key itself; the
+        // read here only keeps the global in step for the ini rewrite.
+        g_algGuard = IniFloat(ini, "VR", "DisableBadApiLayers", 1) != 0.0f;
         if (g_fpsCap < 0.0f) g_fpsCap = 0.0f;
         if (g_fpsCap > 0.0f && g_fpsCap < 20.0f)  g_fpsCap = 20.0f;
         if (g_fpsCap > 144.0f) g_fpsCap = 144.0f;
@@ -1212,6 +1215,13 @@ static void EnsureConfig()
 {
     if (g_configLoaded || g_disabled) return;
     g_configLoaded = true;
+    // BEFORE anything else can reach the OpenXR loader. An implicit API layer
+    // that cannot load in a 32-bit process fails xrCreateInstance for the native
+    // runtime AND the shim with the same error, which reads as "no VR at all"
+    // and sends the diagnosis at the runtime instead of at the layer. Measured
+    // on 2026-09-06: an OBS mirror layer, x64 only, registered under HKCU (which
+    // WOW64 does not redirect), XrResult(-32).
+    ApiLayerGuard();
     LoadConfig();
         {   // [Log] Level=info  Cats=blink:debug,openxr:trace - env DVR_LOG / DVR_LOG_CATS win
             char ini[MAX_PATH], lv[32] = "", cats[512] = "";
@@ -1343,6 +1353,7 @@ static void OverlaySaveDefaults()
     // headset was silently discarded on exit. Everything the panel can change
     // is written here now.
     WritePrivateProfileStringA("Hands", "Enabled", g_skcDrive ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "DisableBadApiLayers", g_algGuard ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);
