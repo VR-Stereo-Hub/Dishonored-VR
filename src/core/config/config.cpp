@@ -774,12 +774,13 @@ static void LoadConfig()
 
     // 30.77: our own VR hands
     {
-        // 41.2 (VR-31): Enabled ships ON for the test sessions - a deliberate
-        // exception to "every new render lever ships OFF", the same call as
-        // [Device] ShadowFullCopy and [Hands] BoneVisHide, so a run shows the
-        // hands without anyone sending a seam word first. It reverts to OFF
-        // when the verdict is recorded. `vrhands off` is the live A/B.
-        g_hmEnable   = IniFloat(ini, "VRHands", "Enabled", 1) != 0.0f;
+        // 41.2 (VR-31): back OFF. Its verdict is recorded - the renderer works
+        // (the uninitialised-matrix fix) and tracks the controllers - but the
+        // requirement moved to the game's OWN hands, because the powers animate
+        // them, and the built-in box primitives were a distraction on screen
+        // during the route (b) diagnosis. This is the FALLBACK now: `vrhands
+        // on`, and real art in vrhands\*.obj, if route (b) dead-ends.
+        g_hmEnable   = IniFloat(ini, "VRHands", "Enabled", 0) != 0.0f;
         // HideGameArms ships OFF with it, and that is NOT an oversight. It
         // collapses the game's own view-model rigs by upload size (30.77, the
         // vs-const path) - a second behavioural change, in the same build as
@@ -1102,6 +1103,10 @@ static void LoadConfig()
     // itself; MatAuto=0 leaves the census read-only.
     g_matAutoCfg      = IniFloat(ini, "Hands", "MatAuto", 0) != 0.0f;
     g_matCycleCfg     = IniFloat(ini, "Hands", "MatCycle", 1) != 0.0f;
+    // 41.2 (VR-31) route (b) step 1. ON for the test sessions: read-only until
+    // a numpad key is pressed, and a run that shows nothing is itself the
+    // answer. Reverts to OFF when the arm/hand split is settled.
+    g_dcOn            = IniFloat(ini, "Hands", "DrawCensus", 1) != 0.0f;
     g_matStepMs       = IniFloat(ini, "Hands", "MatStepMs", 5000.0f);
     if (g_matStepMs < 1500.0f)  g_matStepMs = 1500.0f;
     if (g_matStepMs > 20000.0f) g_matStepMs = 20000.0f;
@@ -1457,6 +1462,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "MatCensus", g_matCensusCfg ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "MatAuto", g_matAutoCfg ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "MatCycle", g_matCycleCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "DrawCensus", g_dcOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);

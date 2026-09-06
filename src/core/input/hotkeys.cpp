@@ -126,6 +126,30 @@ static void StereoUpdate()
         n1Was = n1; n2Was = n2; n3Was = n3;
     }
 
+    // VR-31 route (b): step through the censused DRAWS. Same split as the
+    // material cycler - the hotkey only posts a request, and DcCycleTick acts
+    // on it from the tick, never from here.
+    if (g_dcOn) {
+        static bool n4Was = false, n5Was = false, n6Was = false;
+        const bool n4 = (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
+        const bool n5 = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
+        const bool n6 = (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) != 0;
+        if (n4 && !n4Was) g_dcCycleReq = -1;
+        if (n5 && !n5Was) g_dcCycleReq =  2;
+        if (n6 && !n6Was) g_dcCycleReq =  1;
+        n4Was = n4; n5Was = n5; n6Was = n6;
+        // 7/8/9 cut the LOCKED mesh into eighths and hide one at a time, which
+        // is how we find where the hands sit in the triangle order.
+        static bool n7Was = false, n8Was = false, n9Was = false;
+        const bool n7 = (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) != 0;
+        const bool n8 = (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) != 0;
+        const bool n9 = (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) != 0;
+        if (n7 && !n7Was) g_dcSliceReq = -1;
+        if (n8 && !n8Was) g_dcSliceReq =  2;
+        if (n9 && !n9Was) g_dcSliceReq =  1;
+        n7Was = n7; n8Was = n8; n9Was = n9;
+    }
+
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
     (void)kCamRight; (void)kCamLoc0; (void)kCamLoc1; (void)kCamLoc2;
     (void)&FindLiveCamera; (void)&CamStillValid;

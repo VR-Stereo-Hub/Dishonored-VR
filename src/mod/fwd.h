@@ -276,6 +276,21 @@ static bool MatHiddenArray(uint8_t* comp, int lod, uint8_t** dOut, int32_t* nOut
 static int  MatHiddenFlag(uint8_t* comp, int id, int lod);
 static const char* MatFName(uint8_t* p);
 static void BoneDump();
+static bool DcSame(const DcDraw* a, const DcDraw* b);
+static bool DcSameGeom(const DcDraw* a, const DcDraw* b);
+static void DcReadDecl(DcDraw* r);
+static void DcNotePalette(UINT count);
+static void DcReport(const char* why);
+static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
+                                       INT baseVertex, UINT minIndex, UINT numVertices,
+                                       UINT startIndex, UINT primCount);
+static bool DcIsLocked(IDirect3DDevice9* self, bool needIb);
+static HRESULT __stdcall DcDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
+                                    UINT startVertex, UINT primCount);
+static void DcSliceTick();
+static void DcCycleTick();
+static void DcTick();
+static bool DcCommand(const char* args);
 static void HmPickModels();
 static void GraftTestSet(bool on);
 static void SkcRotZeroNeutral(const char* why);

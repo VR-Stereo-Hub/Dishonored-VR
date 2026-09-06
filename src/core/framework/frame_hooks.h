@@ -29,6 +29,15 @@ namespace dvr::frame {
 
 typedef HRESULT (__stdcall *SetVsConstFn)(IDirect3DDevice9*, UINT, const float*, UINT);
 typedef HRESULT (__stdcall *SetRenderTargetFn)(IDirect3DDevice9*, DWORD, IDirect3DSurface9*);
+// 41.2 (VR-31): DrawIndexedPrimitive, so a bone-palette upload can be tied to
+// the DRAW that consumes it. Upload SIZE alone cannot answer whether the arms
+// and the hands are separate geometry: two chunks can share a palette size, and
+// several draws can reuse one upload.
+typedef HRESULT (__stdcall *DrawIndexedFn)(IDirect3DDevice9*, D3DPRIMITIVETYPE,
+                                           INT, UINT, UINT, UINT, UINT);
+// 41.2: and the non-indexed one. A mesh suppressed on DrawIndexedPrimitive
+// alone is only suppressed for the passes that happen to be indexed.
+typedef HRESULT (__stdcall *DrawPrimFn)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT, UINT);
 
 struct Callbacks {
     void (*before_create_device)(D3DPRESENT_PARAMETERS* pp) = nullptr;   // may edit pp
@@ -39,6 +48,8 @@ struct Callbacks {
     // Optional detours (they forward through orig_* below).
     SetVsConstFn      set_vs_const = nullptr;
     SetRenderTargetFn set_render_target = nullptr;
+    DrawIndexedFn     draw_indexed = nullptr;
+    DrawPrimFn        draw_prim = nullptr;
     // The mod's D3D11 device for the stereo methods (null = none; flat game).
     ID3D11Device* (*d3d11)(ID3D11DeviceContext** ctx) = nullptr;
     // The game side's verdict "this present is strict gameplay" (a live pawn,
@@ -56,6 +67,10 @@ bool hook_d3d9(IDirect3D9* d3d);
 // The originals, for the registered detours.
 HRESULT orig_set_vs_const(IDirect3DDevice9* dev, UINT startReg, const float* data, UINT count);
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt);
+HRESULT orig_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                          UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
+HRESULT orig_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
+                       UINT primCount);
 
 uint32_t count();              // presents so far (the frame number everything stamps)
 uint32_t submit_count();       // presents that handed a texture to the runtime

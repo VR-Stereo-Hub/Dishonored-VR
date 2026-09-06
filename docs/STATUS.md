@@ -1,6 +1,79 @@
 # Status
 
-## CURRENT (2026-09-06, session 19): VR-31 - the cycler is WALKED, the hands had an uninitialised matrix
+## CURRENT (2026-09-06, session 19): VR-31 - FLOATING HANDS WORK, the cut needs per-arm ranges
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open). Installed
+`alpha-316`. **No PR opened - the user asked for commit and push only.**
+
+### The result: the game's OWN hands, floating, with their own animation
+
+Headset-confirmed twice with screenshots: Corvo's real hand holding the sword,
+and the real hand holding the crossbow, with the arm gone from the cuff. This is
+Arkane's geometry, Arkane's skinning and Arkane's animation - nothing is
+replaced - so the powers animate the fingers exactly as they always did, which
+was the whole requirement.
+
+### How it works, and why it needs no index buffer
+
+The first-person arms and hands are ONE skinned mesh (`bones=48 skin=IW`, 4448
+triangles, 2771 vertices) drawn by three vertex shaders. The mesh is a triangle
+LIST, so any contiguous run of its triangles can be drawn on its own by shifting
+`startIndex` and shrinking `primCount`. **Nothing is read, captured or
+replaced** - the game's own buffers stay bound and we ask for part of the list.
+
+The target is identified by BUFFER PAIR (stream-0 VB + IB), not by bone-palette
+size, so every pass over it is caught including ones the palette-gated census
+never saw. `DrawPrimitive` is hooked as well as `DrawIndexedPrimitive`.
+
+### THE MEASURED CUT, and its limitation
+
+The tester's mask, 12 of 32 slices: **`0x3001D237`**
+
+    slices  1,2,3   triangles  0%.. 9%
+    slices  5,6     triangles 12%..18%
+    slice  10       triangles 28%..31%
+    slice  13       triangles 37%..40%
+    slices 15,16,17 triangles 43%..53%
+    slices 29,30    triangles 87%..93%
+
+Restore it with **`dc mask s19`** instead of repeating twelve headset presses.
+
+**It is NOT the default and must not become one yet.** It was tuned for the
+LEFT hand and takes too much of the right. The reason is structural and is the
+next problem to solve: **the two arms occupy different, non-aligned regions of
+the one triangle list**, so a single set of slices tuned by eye on one hand
+cannot be correct for the other. The slices are also PERCENTAGES of this mesh's
+primCount, so the mask means nothing on a different asset or LOD.
+
+### Next steps
+
+1. **Two independent masks, one per hand.** The cut has to be chosen per arm,
+   because the arms are not symmetric in the triangle order. Either two masks
+   the tester tunes separately, or - better - classify triangles by BONE
+   INFLUENCE so the cut is derived rather than eyeballed.
+2. **Finer than 32 slices** where a slice straddles hand and arm. 32 was enough
+   for the left hand and not obviously enough for the right.
+3. **Sleeve shards.** Small black triangles survive the cut (visible in the
+   session screenshots); they are weighted to arm bones and sit outside the
+   marked runs.
+4. **Then the acceptance list** from review: Blink, Devouring Swarm, Windblast,
+   weapons, head and stick turns, crouch, reload, checkpoint reload. Power
+   effects are socket-driven, so verify the sockets follow, not just the
+   fingers.
+5. **Controller wrist placement is still a separate gate** and untouched;
+   `[Hands] Enabled=0`.
+
+### Known weaknesses in the instrument, deliberately not fixed
+
+- The mesh lock is armed from a censused row, so a level load that recreates the
+  buffers leaves it stale and silently drawing everything. Needs a re-arm path
+  before this is a shipping lever rather than a diagnostic.
+- `HmDrawIntoEye` asks the METHOD whether it wants a projection layer, not
+  whether the RUNTIME submitted one.
+- `FindRefSkel` does not enforce the validation its comment claims.
+
+## PREVIOUS (2026-09-06, session 19): VR-31 - the cycler is WALKED, the hands had an uninitialised matrix
 
 Branch `claude/vr-31-arm-hiding-floating-hands`, based on
 `claude/vr-30-decouple-arm-hand-movement` (PR #18 still open, so this PR takes
@@ -72,9 +145,41 @@ gates every read on that. The other 21 are void no-ops, as intended.
   flag's upload-size filters also target weapons and carry static-geometry
   heuristics, so it is not equivalent.
 
+### The requirement changed: the REAL hands, because the powers animate them
+
+Custom meshes cannot carry Arkane's power animations, so the working custom
+renderer is now the FALLBACK and route (b) is the goal. Full plan and the nine
+review corrections are in ENGINE_NOTES, "route (b) starts at the DRAW".
+
+**Step 1 is built and installed: the DRAW census** (`hands/draw_census.cpp`,
+`[Hands] DrawCensus`, ships ON). Upload SIZE cannot settle an arm/hand split -
+two chunks can share a size, several draws can reuse one upload, and `HideSizes`
+only contains what someone already saw. So `DrawIndexedPrimitive` is hooked
+(vtable 82) and every palette-fed draw is identified by what the renderer held:
+stream-0 VB and stride, IB, vertex declaration, vertex shader, index range,
+primitive count. **Numpad 6** next, **4** back, **5** all visible - one row
+hidden per press, the log names it. `dc report|status|hide <n>|show` on the seam.
+
+Two rules it observes: no engine D3D reference survives the detour (each `Get*`
+AddRefs and is released on the next line, pointer kept as an identity token
+only), and the hotkey posts a request that the tick acts on - the detour itself
+runs on the RENDER thread.
+
 ### Next steps
 
-1. Read the new beat line. `ON-SCREEN=0` with `submitted>0` is a geometry fault
+1. Walk the draw cycler (Numpad 6). Two rows sharing a bone count but differing
+   in VB/IB or index range are separate geometry a size-based hide cannot tell
+   apart - that is the question. If one row is arms-without-hands, route (b) is
+   a draw skip and it is nearly done.
+2. If arms and hands share one draw: collapse-to-wrist as a cheap prototype -
+   with the wrist point derived in the palette's OUTPUT space, NOT read off a
+   translation column (skinning matrices fold in the inverse bind pose), and a
+   ZERO 3x3 linear part, not identity.
+3. If that seams: the index-buffer filter - a replacement index list of hand and
+   cuff triangles only, original vertices, weights and animated palette kept.
+   Survives arms and hands sharing both material and chunk.
+4. Controller wrist placement is a SEPARATE gate; `[Hands] Enabled=0` today.
+5. Read the hands beat line. `ON-SCREEN=0` with `submitted>0` is a geometry fault
    and the NDC box names the axis; `nonFinite>0` means the transform is still
    producing NaN; healthy counters with a blank screen means arm the calibration
    triangle.
@@ -364,6 +469,17 @@ it on demand, `arms vis chain` prints the arm chain.
    is the VR-30 branch.
 
 ### Session log
+
+**2026-09-06, session 19 (part 3)**: floating hands WORK, using the game's own
+hands. Built the draw census, then the mesh lock (buffer-pair identity, both
+draw entry points), then live triangle-range slicing - the mesh is a triangle
+list, so sub-ranges of the game's own index buffer can be drawn without reading
+or replacing anything. Two headset screenshots confirm real hands with the arms
+gone. The tester's cut is `0x3001D237`, restorable with `dc mask s19`; it is not
+a default because the two arms sit in non-aligned regions and it was tuned on
+the left. Also found and fixed: single-matrix draws were saturating the census
+table, and a full table silently disabled suppression - which was the whole
+explanation for the faint arm that survived earlier hides.
 
 **2026-09-06, session 19 (part 2)**: the cycler walk came back and matches the
 engine's plan exactly - arms+hands together, then sword, crossbow, bolt. VR-31's

@@ -289,6 +289,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         // callback does not run. An instrument that cannot report its own
         // worst answer is not an instrument.
         HmBeat();
+        DcTick();        // VR-31 route (b): the draw census and its cycler
         // 41.0: the camera seam learns the eye the active method wants next,
         // the IPD and the world scale; the eyetest reads c5 back here.
         dvr::camera::set_eye(dvr::stereo::active() ? dvr::stereo::active()->eye_for_next_frame() : 0);
@@ -653,6 +654,8 @@ static void DvrInstallFrameHooks()
     cb.game_tick            = DvrGameTick;
     cb.set_vs_const         = hkSetVSConstF;
     cb.set_render_target    = hkSetRenderTarget;
+    cb.draw_indexed         = DcDrawIndexed;   // VR-31 route (b): the draw census
+    cb.draw_prim            = DcDrawPrim;      // ...and the non-indexed entry point
     cb.d3d11                = DvrFrameD3D11;
     cb.gameplay_verdict     = DvrGameplayVerdict;
     dvr::frame::set_callbacks(cb);

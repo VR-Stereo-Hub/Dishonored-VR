@@ -2946,6 +2946,99 @@ delivered untagged was wrong. It was read off the first three beats, which are b
 Across the whole run gameplay reads `method=reentry out/s=160 L/s=80 R/s=80 mono/s=0` -
 properly tagged stereo. The untagged beats are the non-gameplay states.
 
+### VR-31: the real hands are the requirement, and route (b) starts at the DRAW (2026-09-06)
+
+The requirement changed on tester feedback: the game's OWN hands are needed, because the
+powers animate them. Replacement meshes cannot carry Arkane's power animations, so the
+custom renderer (now working - see the uninitialised-matrix entry) becomes the fallback
+rather than the goal.
+
+**What is closed, and what that does NOT close.** Route (a) is closed (no
+`BoneVisibilityStates` on any class). Route (d) is closed FOR HANDS (`Skm_Player` has one
+material section; the headset walk removed both arms and both hands on one press). But
+one shared material section rules out a MATERIAL split only. It says nothing about
+whether the renderer submits the arms and the hands as separate geometry, because UE3
+chunks a skeletal mesh by BONE INFLUENCE, not by material. That is route (b), it is
+untouched, and it is where the work goes.
+
+**Upload SIZE cannot answer it.** The inherited knowledge is "c6, 3 registers per bone,
+x144 = arms, x36 = sword, x204 = NPC", and `[VRHands] HideGameArms` hides by matching
+those sizes. Three reasons that cannot settle a split, all raised in review and all
+correct:
+
+- two chunks can carry the same bone count, hence the same upload size;
+- several draws can reuse one upload, so one palette is not one draw;
+- `HideSizes` is a list of what someone happened to observe, so discovery limited to it
+  can only rediscover it.
+
+The existing hook does record separate ARM draws by ordinal (`myOrd`, 30.72), but that
+distinguishes left arm from right arm - it is not an arm/hand split.
+
+**So the instrument censuses the DRAW** (`hands/draw_census.cpp`, `[Hands] DrawCensus`,
+ships ON). `DrawIndexedPrimitive` is hooked (vtable **82**; the index is corroborated by
+the two this file already patches, 29 `CreateDepthStencilSurface` and 94
+`SetVertexShaderConstantF`, which fix the standard layout). Every draw that consumes a c6
+palette is identified by what the renderer was actually holding - stream-0 vertex buffer
+and stride, index buffer, vertex declaration, vertex shader, index range and primitive
+count. Two draws differing in any of those are different geometry whatever their palette
+sizes agree on. Numpad 6 / 4 / 5 hide one row at a time.
+
+Two rules it observes, both from CLAUDE.md and both easy to get wrong here:
+
+- **never take a reference to an engine D3D object inside a detour** - the four `Get*`
+  calls each AddRef, so each is released on the next line and only the pointer VALUE is
+  kept, as an identity token, never dereferenced;
+- the hotkey posts a request and the tick acts on it. The detour itself runs on the
+  RENDER thread, so the row table is filled completely before its count is published.
+
+**Corrections to the first version of this plan, from review, recorded so they are not
+re-derived:**
+
+1. **A palette matrix's translation column is NOT the joint's position.** Skinning
+   matrices normally fold in the inverse bind pose, so in bind pose they can be identity
+   while the joint sits far from the mesh origin. Any "collapse the arm bones onto the
+   wrist" experiment must derive the wrist point in the palette's OUTPUT space - e.g. by
+   transforming the wrist's bind-pose position through its verified skinning matrix - not
+   by reading a translation column. Dishonored's convention has to be confirmed first.
+2. **Collapsing means a ZERO 3x3 linear part**, not an identity rotation. Identity leaves
+   the geometry extended and merely moves it.
+3. **Zeroing a matrix sends its contribution to the skinning OUTPUT-space origin**, not
+   necessarily the world origin.
+4. **Collapse does not guarantee a clean wrist.** Arm-only vertices converge only if all
+   their influences receive the same point; mixed arm/hand vertices still deform, and
+   triangles crossing the boundary can fan into a visible cuff. Treat collapse as a cheap
+   prototype - if it seams, move to triangle filtering rather than tuning the target.
+5. **The cleaner geometry answer is an INDEX-BUFFER filter**: for a verified player draw,
+   submit a replacement index list containing only the hand and chosen cuff triangles,
+   keeping the original vertices, weights, materials, shaders and animated palette. That
+   removes arm triangles while preserving the retained triangles' original deformation,
+   so finger and power animation survive without reimplementing any of it. It works even
+   when arms and hands share both material and chunk. Cost: choosing the wrist boundary
+   from bind-pose geometry and skin weights (topology and position, not a weight
+   threshold alone, which makes holes), caching per mesh/LOD, and restoring draw state.
+6. **Bisection is discovery, not a bone map.** It cannot establish every hand/finger
+   influence, cannot assume a contiguous hand block, and does not prove the mapping
+   survives LOD or asset changes.
+7. **`FindRefSkel` is weaker than its comment claims.** The comment in `arms_hide.cpp`
+   says the weapon view model must report exactly its 14 bones; the function does not
+   enforce that. It accepts the first TArray in a 0x28..0x300 window whose first six
+   entries resolve as names (`num` merely 8..256), so it can latch onto an unrelated FName
+   array. Strengthen the structural checks before treating its output as authoritative.
+8. **Controller placement is a SEPARATE acceptance gate.** `[Hands] Enabled=1` is not
+   proof of 6DoF control. The target behaviour is to place and orient the WRIST from the
+   controller while preserving the engine's finger transforms relative to it, tested first
+   on one wrist with the arms visible and the custom hands off. Prefer an engine-side
+   control, because attachments, particle origins and gameplay aim follow it; a
+   render-only transform preserves visible finger animation but moves none of those.
+9. The retired RTD experiments failed to decouple PLACEMENT with the transforms they
+   tried. They did not falsify selective geometry FILTERING, and the distinction must stay
+   explicit.
+
+**Sequence:** identify draws -> collapse with a correct wrist target -> index-buffer
+filter if the seam fails -> validate controller wrist placement -> combine, then test
+Blink, Devouring Swarm, Windblast, weapons, head and stick turns, crouch, reload and
+checkpoint reload.
+
 ### The alpha-303 review: four probe faults, and the rule they all share
 
 A second review of the material probe found four faults before another run was spent on it.

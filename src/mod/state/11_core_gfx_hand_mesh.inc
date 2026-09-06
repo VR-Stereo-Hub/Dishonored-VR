@@ -22,7 +22,7 @@ static const char* kHandShaderSrc =
 // hands are one material section on Skm_Player and no finer cut exists in the
 // asset - so our own hands are the path being tested, and the lever ships ON
 // for the test sessions. Reverts to OFF once the verdict is recorded.
-static bool   g_hmEnable = true;         // [VRHands] Enabled
+static bool   g_hmEnable = false;        // [VRHands] Enabled - the fallback
 // OFF with it on purpose: collapsing the game's arms in the same build as the
 // first draw of ours would be two changes at once, and the game's arms are the
 // reference our hands get judged against on the first run.
