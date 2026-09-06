@@ -68,6 +68,7 @@ typedef void (__fastcall* DvrViewportDrawFn)(void* self, void* edx, int bShouldP
 static bool           g_sdInstalled = false;   // the site is patched
 static volatile LONG  g_sdWant = 0;            // 1 = patch requested, 0 = restore requested
 static volatile LONG  g_sdArmed = 0;           // the doubling runs per gameplay tick
+static uint32_t       g_sdLastPairsTotal = 0;
 static volatile LONG  g_sdPoisoned = 0;
 static volatile LONG  g_sdPulse = 0;           // one-shot doubles for the A/B
 // `reentry skip2 <n>`: skip pass 2 for n ticks AFTER pass 1 pushed its tag -
@@ -202,6 +203,22 @@ static void SceneDrawBeat()
         g_sdCall1MaxUs >= 5000 ? " (call1 large: the game thread blocks INSIDE its own draw - render-command "
                                  "back-pressure)" : "");
     g_sdBeatMs = now;
+    // 41.2: THE STAND-DOWN IS GONE, and the reason is worth keeping.
+    //
+    // Two versions of a guard here tried to disarm the doubling on the theory
+    // that it ran on only ~30 % of gameplay ticks and that the singles were
+    // going out as left-offset mono frames. Review of the surrounding log
+    // killed that: the window it was built from straddled a pause menu, an
+    // xrEndFrame failure and session teardown. The windows either side of it
+    // read draws/s=78 2nd/s=78, 86/86, 87/87, 81/81 - the renderer doubles
+    // essentially every gameplay tick, and the refusals in the bad window were
+    // "no XR session", after the session had already gone.
+    //
+    // The desktop alternation those guards were chasing had a different cause
+    // entirely: every eye draw reaches the game's own Present and nothing
+    // pinned the window to one eye (core/gfx/desktop_eye.cpp). A guard that
+    // disarms a healthy renderer whenever a session drops would have been a
+    // booby trap, so it is removed rather than tuned.
     g_sdBeatDraws = g_sdBeatSecond = 0;
     g_sdBeatP2Refused = 0;
     g_sdBeatPresents = presents;

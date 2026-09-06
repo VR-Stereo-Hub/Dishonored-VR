@@ -52,6 +52,7 @@ set(DVR_REAL_SOURCES
     core/gfx/device_census.cpp core/gfx/device_census.h
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
+    core/gfx/desktop_eye.cpp   core/gfx/desktop_eye.h
     core/gfx/mono_screen.cpp
     core/gfx/aer.cpp
     core/gfx/reentry.cpp

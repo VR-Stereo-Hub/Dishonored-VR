@@ -343,6 +343,34 @@ float fov_deg() { return g_fovDeg; }
 void  note_rendered_fov(float deg) { g_renderedFov = deg; }
 float rendered_fov_deg() { return g_renderedFov; }
 
+// ---- the EYE TRACE -----------------------------------------------------------
+//
+// The tester reports the game's own backbuffer alternating between two eye
+// positions frame by frame - it looks exactly like alternate-eye rendering -
+// while every counter says otherwise: the method tags mono (L/s=0 R/s=0), the
+// re-entry's second pass never runs (2nd/s=0), and with the second-pass latch
+// clear the writer should put the SAME -1 offset in every tick.
+//
+// Two hypotheses were argued from those counters and neither survived contact.
+// So stop arguing and record what the RENDER actually used: c5 is the view
+// constant the game drew with, captured per present by the constant hook, and
+// it is the only number here that is downstream of every write, every restore
+// and every recompute. If it alternates, the camera really is moving and the
+// two values name the amplitude; if it is flat while the picture flickers, the
+// camera is innocent and the fault is in the capture or the present.
+//
+// The ring holds the along-right component (the axis an eye offset moves) of
+// the last presents, so the pattern is visible directly rather than as a mean.
+// Costs one float and a modulo per present.
+#define kEyeTraceN 24
+float g_etrRing[kEyeTraceN] = {0};
+int   g_etrAt = 0, g_etrHave = 0;
+double g_etrNext = 0.0;
+uint32_t g_etrEyeCount[3] = {0, 0, 0};   // writes with eyeNow -1, 0, +1
+uint32_t g_etrSkips = 0;                 // apply_offsets returning without a write
+uint32_t g_etrSecondPass = 0;            // writes that took the +1 second-pass branch
+bool     g_etrOn = true;                 // [Camera] EyeTrace
+
 // ---- render truth -----------------------------------------------------------------------
 volatile LONG g_c5Serial = 0;
 void note_render_pos(const float pos[3]) {
@@ -350,6 +378,17 @@ void note_render_pos(const float pos[3]) {
     g_c5[0] = pos[0]; g_c5[1] = pos[1]; g_c5[2] = pos[2];
     g_c5Ok = true;
     InterlockedIncrement(&g_c5Serial);
+    if (g_etrOn) {
+        // The along-right component if a basis has been measured, the raw X
+        // otherwise. Either way it is the same quantity every sample, which is
+        // all an alternation needs.
+        const float v = g_lastBasisOk
+            ? (pos[0] * g_lastBasisR[0] + pos[1] * g_lastBasisR[1] + pos[2] * g_lastBasisR[2])
+            : pos[0];
+        g_etrRing[g_etrAt] = v;
+        g_etrAt = (g_etrAt + 1) % kEyeTraceN;
+        if (g_etrHave < kEyeTraceN) ++g_etrHave;
+    }
 }
 uint32_t render_pos_serial() { return (uint32_t)InterlockedCompareExchange(&g_c5Serial, 0, 0); }
 
@@ -431,10 +470,16 @@ bool apply_offsets(uint8_t* camObj) {
     const bool posWanted = pos_lane() == PosLane::Camera || (g_pt.active && g_pt.lane == PosLane::Camera);
     const bool posLive = posWanted && (pos[0] != 0.0f || pos[1] != 0.0f || pos[2] != 0.0f);
     // The eye: the seam's, or +1 inside SequentialReentry's second draw.
-    const int eyeNow = second_pass_for_current_thread() ? 1 : g_eye;
+    const bool secondPass = second_pass_for_current_thread();
+    const int eyeNow = secondPass ? 1 : g_eye;
     const float eyeUu = (float)eyeNow * 0.5f * g_ipdM * g_scale;
+    if (g_etrOn) {
+        ++g_etrEyeCount[eyeNow < 0 ? 0 : eyeNow > 0 ? 2 : 1];
+        if (secondPass) ++g_etrSecondPass;
+    }
     if (eyeNow == 0 && !posLive) {
         if (g_eyeWriter.lastOk && g_field >= 0) restore(camObj, kFields[g_field].off, g_eyeWriter);
+        ++g_etrSkips;
         return false;
     }
     if (g_field < 0) {
@@ -846,7 +891,68 @@ void eyetest_script_tick(uint8_t* camObj) {
     g_et.wrote = true;
 }
 
+// Every 3 s, on the present thread. Always on: this is a handful of counters
+// and a 24-float ring, and the question it answers - "is the picture really
+// alternating between two camera positions" - has now cost two wrong answers
+// argued from counters that could not see it.
+void eye_trace_tick() {
+    if (!g_etrOn) return;
+    // GetTickCount64 rather than the shared clock: this file is its own
+    // translation unit and a 3 s beat needs nothing better than millisecond
+    // wall time.
+    const double now = (double)GetTickCount64();
+    if (g_etrNext == 0.0) { g_etrNext = now + 3000.0; return; }
+    if (now < g_etrNext) return;
+    g_etrNext = now + 3000.0;
+
+    float lo = 1e30f, hi = -1e30f, prev = 0.0f;
+    int flips = 0;
+    for (int i = 0; i < g_etrHave; ++i) {
+        const float v = g_etrRing[(g_etrAt - g_etrHave + i + kEyeTraceN * 2) % kEyeTraceN];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+        if (i >= 2) {
+            const float a = g_etrRing[(g_etrAt - g_etrHave + i - 2 + kEyeTraceN * 2) % kEyeTraceN];
+            const float b = prev;
+            if ((b - a) * (v - b) < 0.0f) ++flips;   // direction reversed
+        }
+        prev = v;
+    }
+    if (g_etrHave < 4) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 15000,
+                         "camera/eyetrace: no c5 readback yet - the constant hook is "
+                         "not seeing the view constant, so what the RENDER used cannot "
+                         "be reported and this line proves nothing either way");
+        return;
+    }
+    const float expect = fabsf((float)g_eye * g_ipdM * g_scale);   // a full eye-to-eye step
+    DVR_INFO("camera/eyetrace: writer branches eye-1=%u eye0=%u eye+1=%u (second-pass %u, "
+             "early-out %u) | c5 along right over the last %d CONSTANT UPLOAD(s) "
+             "(NOT presents - this ring is appended in note_render_pos, which runs "
+             "on every c5 upload, so several samples can belong to one present and "
+             "no filter separates the world view from other passes): span %.2f uu "
+             "(%.2f .. %.2f), %d reversal(s). A full eye-to-eye step would be %.2f uu. "
+             "Healthy sequential stereo ALSO spans a full step, so this "
+             "number alone does not distinguish correct stereo from a fault - read "
+             "it with the pair counters, and remember the branch counts above are "
+             "branches taken, not writes that succeeded.",
+             g_etrEyeCount[0], g_etrEyeCount[1], g_etrEyeCount[2], g_etrSecondPass,
+             g_etrSkips, g_etrHave, hi - lo, lo, hi, flips, expect);
+    {
+        char buf[512]; int n = 0;
+        for (int i = 0; i < g_etrHave && n < (int)sizeof(buf) - 12; ++i)
+            n += _snprintf(buf + n, sizeof(buf) - n, "%s%.2f", i ? " " : "",
+                           g_etrRing[(g_etrAt - g_etrHave + i + kEyeTraceN * 2) % kEyeTraceN]);
+        buf[sizeof(buf) - 1] = 0;
+        DVR_INFO("camera/eyetrace:   samples (oldest first): %s", buf);
+    }
+    g_etrEyeCount[0] = g_etrEyeCount[1] = g_etrEyeCount[2] = 0;
+    g_etrSecondPass = 0; g_etrSkips = 0;
+}
+
+
 void eyetest_present_tick() {
+    eye_trace_tick();
     if (!g_et.active) return;
     if (!g_et.writing) {
         // Baseline: c5 while nothing is written. The player stands still, so

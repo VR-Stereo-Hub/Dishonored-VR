@@ -46,6 +46,16 @@ static WORD SlideAssist(WORD b, bool userB, float mx, float my);
 static void WriteDefaultIni(const char* ini);
 static void LoadConfig();
 static void EnsureConfig();
+// core/vr/apilayer_guard.cpp - a 64-bit implicit OpenXR API layer fails
+// xrCreateInstance for every runtime in this 32-bit process.
+static WORD AlgMachine(const char* path);
+static bool AlgJsonStr(const char* json, const char* key, char* out, size_t cap);
+static bool AlgReadFile(const char* path, char* buf, size_t cap);
+static void AlgCheckLayer(const char* manifest, DWORD disabled, const char* where,
+                          int* bad, int* stuck);
+static void AlgScanKey(HKEY root, const char* subkey, REGSAM view, const char* where,
+                       int* seen, int* bad, int* stuck);
+static void ApiLayerGuard();
 static bool EnsureRealD3D9();
 static bool EnsureD3D11();
 static ID3D11Device* DvrProvideD3D11Device(const LUID* want);
