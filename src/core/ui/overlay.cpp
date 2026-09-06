@@ -89,6 +89,18 @@ static void OverlayFrame()
         if (ImGui::SmallButton(g_afCounterYaw >= 0.0f ? "off" : "on"))
             ArmFollowSetCounterYaw(g_afCounterYaw >= 0.0f ? -1.0f : 1.0f, "F10");
     }
+    // VR-30: THE fix. Head yaw stops turning the body; the stick still does.
+    {
+        bool on = g_frWant >= 0.0f;
+        if (ImGui::Checkbox("arms: head yaw does not turn the body", &on))
+            ArmFollowSetFacing(on ? 1.0f : -1.0f, "F10");
+        ImGui::TextDisabled("intercepts FaceRotation; the stick still turns you");
+    }
+    {
+        bool sr = g_asrWant >= 0.0f;
+        if (ImGui::Checkbox("arms: strip mesh rotation (dead end, kept as A/B)", &sr))
+            ArmFollowSetStripRot(sr ? 1.0f : -1.0f, "F10");
+    }
     ImGui::TextDisabled("smaller = world feels bigger; life-size door test");
 
     if (ImGui::SliderFloat("screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f"))
