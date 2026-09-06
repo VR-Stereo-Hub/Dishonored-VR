@@ -1894,20 +1894,28 @@ void release_mirror() {
     g_mirrorFmt = DXGI_FORMAT_UNKNOWN;
 }
 
+// The D3D9 pin, installed by the host (see set_mirror_hook).
+MirrorHook g_mirrorHook = nullptr;
+
 // The eye pin for one present (see the block comment at the globals). Uses
 // the game device straight off the backbuffer, so it works with or without a
 // live XR session. eyeSign: -1 = this backbuffer is the LEFT eye (snapshot),
 // +1 = RIGHT eye (re-blit the held left over it - call only AFTER the right
 // eye's XR capture), 0 = mono (nothing to pin).
 void mirror_present(int eyeSign) {
-    // 41.0 (Dishonored): the desktop window shows the game's own D3D9
-    // backbuffer; pinning it to one eye needs a D3D9 StretchRect from the
-    // stereo method, not a DXGI copy. Counted (vrmirror status), never blitted,
-    // until a method needs it.
+    // 41.2 (Dishonored): IMPLEMENTED. The pin is a D3D9 StretchRect and this
+    // file has no D3D9 device, so the host installs the hook and
+    // core/gfx/desktop_eye.cpp does the copy - which keeps this file as close to
+    // the BioShock copy as the D3D9 host allows. Until 41.2 this function only
+    // counted, and its own comment said so; the consequence was that the game
+    // window showed L,R,L,R under a working sequential stereo stream and a
+    // recording of it looked exactly like alternate-eye rendering.
     if (eyeSign == 0 || !g_mirror.load(std::memory_order_relaxed)) return;
     if (eyeSign < 0) g_mirrorHolds.fetch_add(1, std::memory_order_relaxed);
     else g_mirrorBlits.fetch_add(1, std::memory_order_relaxed);
+    if (g_mirrorHook) g_mirrorHook(eyeSign);
 }
+
 
 void reset_aer() {
     g_eyeValid[0] = g_eyeValid[1] = false;
@@ -4318,6 +4326,11 @@ void on_present_end(ID3D11Texture2D* frame) {
     // supposed to mean. Reprojection to the new display time is the runtime's
     // job and is exactly what it does for the parked-session keepalive that
     // already re-submits this same snapshot.
+    // Did THIS present build a layer of its own? The hold below sets
+    // layerCount = 1 for a re-submission, and the bank at the end of this
+    // function used to read that as "a new layer was built" - see the bank for
+    // what that cost.
+    const bool builtNewLayer = (layerCount != 0);
     XrCompositionLayerProjection holdProj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     XrCompositionLayerProjectionView holdViews[2] = {
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
@@ -4399,7 +4412,30 @@ void on_present_end(ID3D11Texture2D* frame) {
     // guard above re-submits it too and that guard is not gated on the feed
     // lever. Cost is one struct copy under an uncontended mutex per submitted
     // present.
-    if (layerCount && (g_lastLayer == 2 || g_lastLayer == 1)) {
+    // 41.2: `builtNewLayer`, NOT `layerCount`.
+    //
+    // THE BUG THIS FIXES. On a hold-only present, `proj` / `projViews` / `quad`
+    // are the EMPTY locals declared at the top of this function - the held
+    // copies that were actually submitted live in holdProj / holdViews /
+    // holdQuad. The hold sets layerCount = 1, so this bank fired and overwrote a
+    // perfectly good snapshot with zeroed structures while leaving it marked
+    // valid. The NEXT hold then submitted null handles and a zero view count,
+    // and xrEndFrame answered XR_ERROR_HANDLE_INVALID - which stands the session
+    // down. Both logs from 2026-09-06 show exactly that at the pause-menu
+    // transition, and it is why a window that straddled the pause read as "the
+    // renderer stopped doubling" when what had happened was that the session
+    // was gone.
+    //
+    // A hold re-submits the snapshot unchanged, so leaving the bank untouched is
+    // both correct and sufficient.
+    //
+    // What this does NOT fix, and is tracked separately: a saved layer holds
+    // swapchain HANDLES, not pixels, and OpenXR composites the most recently
+    // RELEASED image of a swapchain. If a new left image was released and its
+    // right sibling never arrived, re-submitting this snapshot pairs the new
+    // left with the old right. Preserving a completed PAIR needs retained
+    // images, not a retained structure.
+    if (builtNewLayer && (g_lastLayer == 2 || g_lastLayer == 1)) {
         std::lock_guard<std::mutex> lk(g_feedSnapMutex);
         g_feedSnap.valid = true;
         g_feedSnap.isProj = (g_lastLayer == 2);
@@ -5664,6 +5700,16 @@ bool pair_open() { return g_srPairOpen; }
 uint32_t pace_timeouts() { return g_paceTimeouts.load(std::memory_order_relaxed); }
 
 static void pair_probe_fill(PairProbe* out, bool drain);
+// 41.2 (Dishonored): the desktop eye pin's implementation, installed by the
+// D3D9 host. Public scope on purpose - mirror_present lives in the anonymous
+// namespace and the host cannot reach it.
+void set_mirror_hook(MirrorHook fn) {
+    g_mirrorHook = fn;
+    DVR_INFO("xr: desktop eye pin %s", fn ? "installed - the game window will "
+             "hold ONE eye instead of showing whichever eye each present carried"
+             : "removed");
+}
+
 void pair_probe(PairProbe* out) { pair_probe_fill(out, true); }
 // 41.1 (Dishonored): the same snapshot WITHOUT draining the maxima, for a
 // per-present reader (the method's stale-eye line) that must not eat the

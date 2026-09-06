@@ -1,6 +1,110 @@
 # Status
 
-## CURRENT (2026-09-06): VR-31 - the hands are cut from the arms, clipped and capped
+## CURRENT (2026-09-06): VR-33 - hands and weapons where the controllers are
+
+This is the working branch for VR-33 and it is the CONTINUATION OF BOTH open
+PRs: the arm/hand split (VR-31, PR #19) and the desktop mirror eye pin plus the
+pause-menu session fix (VR-53 / VR-54, PR #20). Both are merged in here, and
+neither has been merged to `VR-Main`.
+
+### Read this before installing anything
+
+**The two PR branches do not work on their own.** Branch VR-31 has no API layer
+guard, and without it `xrCreateInstance` fails with `XrResult(-32)` on both the
+native runtime and the SteamVR shim, so the game runs flat with no VR at all.
+The guard is on the VR-53 branch. That was found by installing the VR-31 branch
+alone on 2026-09-06 and losing VR entirely.
+
+**So install from THIS branch**, not from either PR branch, for as long as both
+PRs are open. The PR branches are for review; this one is what runs.
+
+### What VR-33 is
+
+The hands and the weapons go where the VR controllers are. VR-30 took the head's
+yaw out of the pawn's facing, which is what lets a hand sit still in the world
+while the head moves; VR-31 decided the presentation and cut the hands free of
+the arms. This branch is the transform work that follows from both.
+
+Nothing has been written for it yet.
+
+### Open questions carried in from the two PRs
+
+* **The cap's colour has not been re-confirmed** since the UV decode was
+  widened. The mode had never run - this asset packs TEXCOORD0 as `FLOAT16_2`
+  and the check demanded a `FLOAT2` - so every cap took ring vertex 0, an
+  arbitrary choice that happened to look right.
+* **Whether the ring's shape changes with the POSE** is unanswered. The cut is
+  computed in the bind pose and seen in the animated one.
+* **The desktop eye pin and the pause-menu fix are unverified in the headset.**
+  Section 7 of `docs/dishonored/DESKTOP_MIRROR.md` has the three checks.
+
+### References
+
+* `docs/dishonored/ARM_HAND_SPLIT.md` - the split, every key and hotkey, the traps
+* `docs/dishonored/DESKTOP_MIRROR.md` - the eye policy and the hold fix
+* `docs/dishonored/BRIEF-eye-flicker.md` - the hypothesis graveyard, ANSWERED
+
+## MERGED IN (VR-53 / VR-54, PR #20) (2026-09-06): VR-53 / VR-54 - the desktop had no eye policy, and a hold banked empty layers
+
+This branch is the frame path and nothing else. The arm/hand split worked on in
+the same sessions was split out onto its own branch and is VR-31.
+
+**The full reference is `docs/dishonored/DESKTOP_MIRROR.md`**; the hypothesis
+graveyard that led to it is `docs/dishonored/BRIEF-eye-flicker.md`, now marked
+answered. This section is the handoff summary only.
+
+### What was actually wrong
+
+`hkPresent` calls the game's original `Present` for EVERY eye draw, and
+`mirror_present()` in the runtime layer had never implemented the D3D9 copy -
+its own comment said so. So the game WINDOW showed L(k), R(k), L(k+1), R(k+1)
+while the headset received correct pairs the whole time. A recording of the
+window alternates between two camera positions one IPD apart, which is exactly
+what alternate-eye rendering looks like, and the diagnosis had been aimed at
+the headset path for several sessions on the strength of it.
+
+The headset was never doing AER. The desktop had no eye policy at all.
+
+`core/gfx/desktop_eye.cpp` pins it: snapshot on the left eye's present, re-blit
+over the right eye's present AFTER that eye's XR capture. The runtime layer
+owns the WHEN and the new module owns the HOW, so `openxr_runtime.cpp` gains a
+hook pointer and nothing else.
+
+### The pause-menu session loss (VR-54)
+
+On a hold-only present the submitted copies are `holdProj` / `holdViews` /
+`holdQuad`, not the empty `proj` / `projViews` / `quad` locals - but the hold
+sets `layerCount = 1` and the snapshot bank keyed off `layerCount`, so it
+overwrote a good snapshot with zeroed structures and left it marked valid. The
+next hold submitted null handles and a zero view count, `xrEndFrame` answered
+`XR_ERROR_HANDLE_INVALID`, and the session stood down. Banked on
+`builtNewLayer` now.
+
+Still open and tracked separately: a saved layer holds swapchain HANDLES, not
+pixels, and OpenXR composites the most recently RELEASED image, so preserving a
+completed PAIR needs retained images rather than a retained structure.
+
+### Retracted, not tuned
+
+The "30 % of ticks double" reading and the stand-down guard built on it are
+REMOVED. That window straddled a pause menu, an `xrEndFrame` failure and
+session teardown; the windows either side read 78/78, 86/86, 87/87, 81/81. The
+guard would have disarmed a healthy renderer every time a session dropped. The
+`camera/eyetrace` line is corrected too - its ring samples constant uploads,
+not presents.
+
+### The run this needs
+
+Look at the game window: one view, no alternation, while the headset keeps
+correct stereo depth. `desktopeye:` in the log every 15 s should show snapshot
+and re-blit counts EQUAL and non-zero. Then open and close the pause menu
+several times: no `XR_ERROR_HANDLE_INVALID`, no session teardown.
+
+### Not addressed here
+
+Performance: ~78 complete pairs/s against a 90 Hz headset, ~9.7 ms of D3D9 GPU
+span per tick, 15.7 Mpixel per pair at 2750x2850. That is the next subject.
+## MERGED IN (VR-31, PR #19) (2026-09-06): VR-31 - the hands are cut from the arms, clipped and capped
 
 This branch is the arm/hand split and nothing else. The desktop mirror eye pin
 and the pause-menu session loss found in the same sessions were split out onto
