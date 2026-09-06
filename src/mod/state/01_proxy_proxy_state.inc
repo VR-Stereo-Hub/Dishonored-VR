@@ -48,3 +48,13 @@ static UINT g_curRTw = 0, g_curRTh = 0;
 // which means no VR, and is only useful for confirming that a layer really is
 // the cause. See core/vr/apilayer_guard.cpp.
 static bool g_algGuard = true;
+
+// [Stereo] ReentryStandDown. A second scene draw that never becomes a second
+// PRESENT cannot pair; it can only overwrite pass 1 in the same backbuffer, and
+// the one untagged present then carries whichever draw finished last - so the
+// frame alternates between the eyes. ON, the re-entry beat stands the doubling
+// down when it measures that; OFF, it is left running for work on the rung.
+// Lives here rather than in scene_draw.cpp because config.cpp is compiled
+// before it in the unity build. See SceneDrawBeat.
+static bool g_sdStandDown = true;
+static uint32_t g_sdLastSubmits = 0;   // the runtime's stereo submit total at the last beat

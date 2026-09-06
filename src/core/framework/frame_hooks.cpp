@@ -3,6 +3,7 @@
 #include "core/framework/frame_hooks.h"
 
 #include "core/framework/perf.h"
+#include "core/gfx/desktop_eye.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
 #include "core/gfx/stereo.h"
@@ -119,6 +120,15 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
     // present's record (its OUT = the render thread's time outside this hook).
     dvr::perf::set_device(self);
+    // The desktop eye pin needs the game's device; the runtime layer calls into
+    // it from its own eye-pin call sites, which already sit on the right side
+    // of each eye's XR capture.
+    dvr::desktop_eye::set_device(self);
+    {   // Install the D3D9 pin once. The runtime layer owns the WHEN (its eye
+        // call sites already sit after each eye's XR capture); this owns the HOW.
+        static bool hooked = false;
+        if (!hooked) { hooked = true; dvr::vr::set_mirror_hook(&dvr::desktop_eye::on_present); }
+    }
     dvr::perf::stamp(dvr::perf::kEntry);
     if (g_cb.pre_tick) g_cb.pre_tick(self);
     // 41.1: a method that presents twice per tick is paced by the runtime's
@@ -209,6 +219,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     // (38.63: a forgotten one made the game's Reset fail forever).
     dvr::perf::on_reset();
     dvr::stereo::on_reset();
+    dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
     const HRESULT hr = g_origReset(self, pp);
     if (FAILED(hr))
         DVR_ERROR("device Reset FAILED 0x%08lx (%ux%u windowed=%d) - %s", (unsigned long)hr, pp ? pp->BackBufferWidth : 0,

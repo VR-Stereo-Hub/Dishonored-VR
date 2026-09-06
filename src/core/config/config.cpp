@@ -465,6 +465,10 @@ static void LoadConfig()
         // boot - the scene-draw hooks did not exist yet).
         char sm[16] = "";
         GetPrivateProfileStringA("Stereo", "Method", "reentry", sm, sizeof(sm), ini);
+        // The second draw stands itself down when it is not producing presents
+        // of its own - it can only overwrite pass 1 in the same backbuffer then,
+        // which makes the frame alternate between the eyes. See SceneDrawBeat.
+        g_sdStandDown = IniFloat(ini, "Stereo", "ReentryStandDown", 1) != 0.0f;
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
