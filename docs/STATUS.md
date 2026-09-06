@@ -1,6 +1,6 @@
 # Status
 
-## CURRENT (2026-09-06): VR-53 / VR-54 - the desktop had no eye policy, and a hold banked empty layers
+## CURRENT (2026-09-06): VR-53 / VR-51 - the desktop had no eye policy, and a hold banked empty layers
 
 This branch is the frame path and nothing else. The arm/hand split worked on in
 the same sessions was split out onto its own branch and is VR-31.
@@ -26,7 +26,7 @@ over the right eye's present AFTER that eye's XR capture. The runtime layer
 owns the WHEN and the new module owns the HOW, so `openxr_runtime.cpp` gains a
 hook pointer and nothing else.
 
-### The pause-menu session loss (VR-54)
+### The pause-menu session loss - which is VR-51
 
 On a hold-only present the submitted copies are `holdProj` / `holdViews` /
 `holdQuad`, not the empty `proj` / `projViews` / `quad` locals - but the hold

@@ -1,7 +1,7 @@
 # The desktop mirror, and the eye policy the game window never had
 
-Reference for `VR-53` (the alternating game window) and `VR-54` (the pause-menu
-session loss). The hypothesis graveyard that led here is
+Reference for `VR-53` (the alternating game window) and `VR-51` (the Quest menu
+button dropping focus to Virtual Desktop). The hypothesis graveyard that led here is
 `docs/dishonored/BRIEF-eye-flicker.md`, and it is worth reading before
 proposing anything new in this area: four hypotheses were argued and killed
 before the actual cause was found, three of them from counters that could not
@@ -59,7 +59,7 @@ makes the game's Reset fail forever.
 
 `[VR] DesktopEye` is the lever, default ON.
 
-## 3. The pause-menu session loss (VR-54)
+## 3. The pause-menu session loss - which is VR-51 (the VD focus drop)
 
 Found in the same review, in the same file, and fixed in the same change
 because they are one reading of the frame path.
@@ -76,6 +76,24 @@ answered `XR_ERROR_HANDLE_INVALID`, and the session stood down. Both logs from
 
 The bank is now keyed on `builtNewLayer` - whether a layer was actually built
 this frame - rather than on a count that a hold also sets.
+
+### Why this is VR-51, and not an input bug
+
+VR-51 was reported as an INPUT fault: one press of the Quest left menu button
+drops focus to the Virtual Desktop menu, the left Y button does it too, and it
+takes four or five taps before a press reaches the game as pause. Four
+candidates were listed, all of them in the action layer.
+
+None of them was the cause. With the game's XR session gone, Virtual Desktop is
+the only thing left holding focus, so **its** menu is what comes up. Y did it
+too because Y is also a pause binding - it is the pause MENU that killed the
+session, not the button. The four or five taps are not a swallowed press; the
+session has to come back between attempts, and taps landing while it is down go
+nowhere.
+
+`src/core/vr/openxr_input.cpp` was not touched. A latched action, an unclaimed
+binding, a sampling rate that misses short presses and a focus fault in the
+action layer are all **ruled out**, and should not be re-opened.
 
 ### What this does NOT fix, and why it cannot
 
@@ -134,7 +152,7 @@ mono screen** - the line says so on the line, because two heartbeat counters
 reading zero by design were read as "the hands are dead" by three separate
 readers including the original author.
 
-**`XR_ERROR_HANDLE_INVALID` from `xrEndFrame`** is the VR-54 signature. It
+**`XR_ERROR_HANDLE_INVALID` from `xrEndFrame`** is the VR-51 signature. It
 should no longer appear at a pause menu.
 
 ## 7. What still needs a headset
