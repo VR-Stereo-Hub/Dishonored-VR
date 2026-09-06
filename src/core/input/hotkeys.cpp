@@ -194,6 +194,40 @@ static void StereoUpdate()
         n0Was = n0; adWas = ad; sbWas = sb; mlWas = ml; dvWas = dv; dcWas = dc;
     }
 
+    // VR-33, the grip pivot knob. NOT on the numpad - the mesh split owns all
+    // of it - and not on the arrow keys, which the game moves with.
+    //   Home    which axis INSERT / DELETE move: forward -> right -> up
+    //   Insert  the pivot moves BACK along that axis
+    //   Delete  the pivot moves OUT along that axis
+    //   End     the whole compensation on / off - the live A/B
+    //   Pause   which hand the knob moves: both -> left -> right
+    {
+        static bool hmWas = false, inWas = false, deWas = false,
+                    enWas = false, paWas = false;
+        const bool hm = (GetAsyncKeyState(VK_HOME)   & 0x8000) != 0;
+        const bool in = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
+        const bool de = (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0;
+        const bool en = (GetAsyncKeyState(VK_END)    & 0x8000) != 0;
+        const bool pa = (GetAsyncKeyState(VK_PAUSE)  & 0x8000) != 0;
+        if (hm && !hmWas) g_gripAxisReq   = 1;
+        if (in && !inWas) g_gripNudgeReq  = -1;
+        if (de && !deWas) g_gripNudgeReq  = 1;
+        if (en && !enWas) g_gripToggleReq = 1;
+        if (pa && !paWas) g_gripSideReq   = 1;
+        // Same auto-repeat as the ring: half a unit a press is a lot of taps.
+        {
+            static double heldG = 0.0, nextG = 0.0;
+            const double now = MaimNowMs();
+            const int dir = de ? 1 : (in ? -1 : 0);
+            if (!dir) { heldG = 0.0; }
+            else {
+                if (heldG == 0.0) { heldG = now; nextG = now + 400.0; }
+                else if (now >= nextG) { g_gripNudgeReq = dir; nextG = now + 80.0; }
+            }
+        }
+        hmWas = hm; inWas = in; deWas = de; enWas = en; paWas = pa;
+    }
+
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
     (void)kCamRight; (void)kCamLoc0; (void)kCamLoc1; (void)kCamLoc2;
     (void)&FindLiveCamera; (void)&CamStillValid;

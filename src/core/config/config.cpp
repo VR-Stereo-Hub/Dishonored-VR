@@ -1137,6 +1137,25 @@ static void LoadConfig()
     g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
     g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
     g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
+    // VR-33: the grip pivot. ON is the fix - the hand turns about the grip
+    // point instead of about the bone's origin at the wrist. OFF reproduces
+    // the pre-VR-33 behaviour exactly and is the live A/B for whether the
+    // pivot is the fault at all. The -1e9 sentinel on each component means
+    // "use the seed the mesh derived"; any other value pins it.
+    g_gripOn          = IniFloat(ini, "Hands", "GripPivot", 1) != 0.0f;
+    {
+        static const char* kGk[2][3] = {
+            { "GripPivotLF", "GripPivotLR", "GripPivotLU" },
+            { "GripPivotRF", "GripPivotRR", "GripPivotRU" } };
+        for (int s2 = 0; s2 < 2; s2++) {
+            int any = 0;
+            for (int a2 = 0; a2 < 3; a2++) {
+                const float c2 = IniFloat(ini, "Hands", kGk[s2][a2], -1e9f);
+                if (c2 > -1e8f) { g_gripP[s2][a2] = c2; any = 1; }
+            }
+            g_gripSet[s2] = (uint8_t)any;
+        }
+    }
     // 3 = CLIP the triangles that straddle the plane, which is the only rule
     // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
     // triangles and leave a sawtooth one triangle high - on the coarse cuff
@@ -1553,6 +1572,18 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "WristPlane", g_msPlane ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "GripPivot", g_gripOn ? "1" : "0", ini);
+    {
+        static const char* kGk2[2][3] = {
+            { "GripPivotLF", "GripPivotLR", "GripPivotLU" },
+            { "GripPivotRF", "GripPivotRR", "GripPivotRU" } };
+        for (int s3 = 0; s3 < 2; s3++)
+            if (g_gripSet[s3])
+                for (int a3 = 0; a3 < 3; a3++) {
+                    _snprintf(v, 64, "%.2f", g_gripP[s3][a3]);
+                    WritePrivateProfileStringA("Hands", kGk2[s3][a3], v, ini);
+                }
+    }
     _snprintf(v, 64, "%d", g_msEdge);
     WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
     _snprintf(v, 64, "%d", g_msStepMode);
