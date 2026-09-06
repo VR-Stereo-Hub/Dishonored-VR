@@ -291,6 +291,49 @@ static void DcSliceTick();
 static void DcCycleTick();
 static void DcTick();
 static bool DcCommand(const char* args);
+// VR-31 step 2: the per-arm split derived from bone influence (mesh_split.cpp)
+struct MsElem;
+static bool MsDecl(IDirect3DVertexDeclaration9* d, MsElem* pos, MsElem* wt, MsElem* idx);
+static bool MsReadWeights(const uint8_t* v, const MsElem* e, float* w);
+static bool MsReadIndices(const uint8_t* v, const MsElem* e, uint8_t* b);
+static bool MsValidate(uint32_t bones);
+static bool MsRead(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
+                   UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
+static void MsBones(uint32_t bones);
+static int  MsComponents(int* comp);
+static bool MsSides(void);
+static bool MsWrist(int side);
+static void MsTriCentroid(int t, float* c);
+static void MsTriSides(void);
+static void MsPca(int side, const float* prevAxis, float lo, float hi, float* out);
+static int  MsSphereCount(int side);
+static float MsCutForCount(int side, const float* axis, int want);
+static bool MsBoneAxis(int side, float* out);
+static bool MsPlaneDerive(int side);
+static void MsLerpVertex(const uint8_t* va, const uint8_t* vb, float t, uint8_t* out);
+static void MsEmit(uint32_t a, uint32_t b, uint32_t c, int cls);
+static uint32_t MsClipVertex(uint32_t a, uint32_t b, float t);
+static void MsClipTri(const uint32_t* v, const float* d, int handCls, int armCls,
+                      int sd);
+static int  MsElemFind(int usage, int usageIndex);
+static const uint8_t* MsRawOf(uint32_t v);
+static uint32_t MsCapVertex(uint32_t skin, const uint8_t* look, const float* p,
+                            const float* n, int posOff, int nrmOff);
+static float MsHalf(uint16_t h);
+static bool MsReadUv(const uint8_t* v, int off, int type, float* uv);
+static int  MsTypeSize(int type);
+static int  MsRingUvMode(const uint32_t* ring, int n, int uvOff, int uvType);
+static void MsCaps(void);
+static void MsClassify(void);
+static bool MsUpload(IDirect3DDevice9* dev);
+static bool MsReclassify(IDirect3DDevice9* dev);
+static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
+                    UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
+static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                   UINT minIndex, UINT numVertices, UINT primCount);
+static const char* MsModeName(int m);
+static void MsTick(void);
+static bool MsCommand(const char* args);
 static void HmPickModels();
 static void GraftTestSet(bool on);
 static void SkcRotZeroNeutral(const char* why);

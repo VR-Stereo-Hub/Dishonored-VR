@@ -1,6 +1,369 @@
 # Status
 
-## CURRENT (2026-09-06, session 19): VR-31 - FLOATING HANDS WORK, the cut needs per-arm ranges
+## CURRENT (2026-09-06, session 20f): the cut end is CAPPED
+
+VR-31. The clip gives a clean circular boundary and leaves it OPEN, because the
+arm is a shell with nothing inside it - so at every position of the ring you
+look down the inside of the sleeve and out through its far wall. The clip
+already produces exactly the ring that has to be closed, one boundary segment
+per straddling triangle, and a fan from that ring's centre to those segments is
+the disc that fills it.
+
+Both stumps are closed, into their own class, so hands-only closes the hand and
+the inverse view closes the sleeve; in `all` the two caps are coincident, face
+away from each other and sit inside a closed mesh, so the A/B still rebuilds
+what the game drew.
+
+**The colour is the ring's own.** Every cap vertex is given the SAME texture
+coordinate - the MODE of the ring's UVs, counted by how many ring vertices sit
+within a sixth of the ring's UV spread of each candidate. A mode and not a mean,
+because a mean lands between two islands of an atlas and samples whatever is
+parked there. One UV on every vertex means the disc interpolates to a single
+texel, so the cap is flat in the colour that dominates the cut: sleeve on the
+sleeve, skin past the cuff. It re-derives on every knob press, so it tracks the
+ring by construction. Position and SKINNING come from the ring vertex instead,
+so the cap deforms with the arm and cannot part from the rim.
+
+**Two-sided by default**, and not as insurance: in hands-only mode the arm is
+not drawn, so nothing stands between the eye and the BACK of the hand's cap. A
+one-sided disc would be culled from precisely the angle the hole was visible
+from. `[Hands] CutCapTwoSided=0` halves it and is the check for a cap that is
+present but facing away; `[Hands] CutCap=0` removes it entirely and restores the
+pre-cap look.
+
+Both keys default ON with no ini edit needed. The `ms: cut end CAPPED` line
+says the triangle count, which ring vertex each side took its colour from, and
+whether a declaration without TEXCOORD0 forced the fallback.
+
+Built, lint clean, installed. Untested in the headset.
+
+## PREVIOUS (2026-09-06, session 20e): the desktop had NO eye policy, and a hold corrupted its own snapshot
+
+Two source defects, both found in a second review of the frame path, both
+fixed here. Untested.
+
+### The "alternate-eye" flicker: the game window was never pinned to an eye
+
+`hkPresent` calls the game's original `Present` for EVERY eye draw, and
+`mirror_present()` in the runtime layer had **never implemented the D3D9 copy**
+- its own comment said so and it only incremented counters. So under a healthy
+sequential-stereo stream the window shows
+
+    L(k), R(k), L(k+1), R(k+1), ...
+
+while the headset correctly receives the pairs. A recording of the window
+therefore alternates between two camera positions one IPD apart, frame by
+frame, which is exactly what alternate-eye rendering looks like. The headset was
+never doing AER; the desktop had no eye policy at all.
+
+`core/gfx/desktop_eye.cpp` implements the pin: snapshot the backbuffer on the
+left eye's present, re-blit it over the right eye's present **after** that eye's
+XR capture. The runtime layer owns the WHEN (its call sites already sit on the
+right side of each capture); the new module owns the HOW, so
+`openxr_runtime.cpp` stays as close to the BioShock copy as the host allows -
+it gains a hook pointer and nothing else. `D3DPOOL_DEFAULT` surface, released in
+`on_reset` before the game's Reset (the hkReset LAW).
+
+### The pause-transition session loss: a hold banked the wrong structures
+
+On a hold-only present, `proj` / `projViews` / `quad` are the EMPTY locals - the
+copies actually submitted are `holdProj` / `holdViews` / `holdQuad`. The hold
+sets `layerCount = 1`, and the snapshot bank keyed off `layerCount`, so it
+overwrote a good snapshot with zeroed structures and left it marked valid. The
+next hold submitted null handles and a zero view count, `xrEndFrame` answered
+`XR_ERROR_HANDLE_INVALID`, and the session stood down. Both logs from this date
+show exactly that at the pause menu. Now banked on `builtNewLayer`.
+
+Still open and tracked separately: a saved layer holds swapchain HANDLES, not
+pixels, and OpenXR composites the most recently RELEASED image - so preserving a
+completed PAIR needs retained images, not a retained structure.
+
+### Retracted: the "30 % of ticks double" reading, and the guard built on it
+
+The window that reading came from straddled a pause menu, an `xrEndFrame`
+failure and session teardown. The windows either side read `draws/s=78
+2nd/s=78`, `86/86`, `87/87`, `81/81` - the renderer doubles essentially every
+gameplay tick, and the refusals in the bad window were "no XR session", after
+the session was already gone. The stand-down guard built on that premise is
+REMOVED, not tuned: it would have disarmed a healthy renderer every time a
+session dropped.
+
+The `camera/eyetrace` line is corrected too - its ring is appended in
+`note_render_pos`, so it samples CONSTANT UPLOADS, not presents, and a full
+eye-to-eye span is also what healthy sequential stereo produces. It said
+otherwise and that was wrong.
+
+### Build state - read this before trusting a log's build id
+
+The DLL installed in the game folder **contains everything below**, but it was
+built before the commit, so it stamps itself `alpha-325-g30359c05-dirty` while
+HEAD is `63c1f62f` (`alpha-326`). The `-dirty` and the parent sha are the
+session's uncommitted-at-build-time state, not a stale build. Rebuild before the
+next headset run if an exact sha match matters.
+
+Nothing diagnostic is armed that is not meant to ship: the draw census, the
+mesh split and the eye trace are all deliberate and default ON for the test
+sessions (`[Hands] DrawCensus/ArmSplit/ArmSplitAuto`, `[VR] DesktopEye`).
+
+### The run this needs
+
+Look at the game window: **one view, no alternation**, while the headset keeps
+correct stereo depth. `desktopeye:` in the log every 15 s should show snapshot
+and re-blit counts EQUAL and non-zero. Then open and close the pause menu
+several times - no `XR_ERROR_HANDLE_INVALID`, no session teardown.
+
+Performance is NOT addressed here and is the next subject: ~78 complete pairs/s
+against a 90 Hz headset, ~9.7 ms of D3D9 GPU span per tick, 15.7 Mpixel per
+pair at 2750x2850.
+
+## PREVIOUS (2026-09-06, session 20d): VR-31 - a reversed winding was eating a third of the cut
+
+The clip RAN - the log says 54 triangles cut into 108 new vertices, stream 0
+ours - and the result was still ragged, with some of the boundary on one clean
+line and the rest missing or floating loose. That pattern named the bug.
+
+### The bug: one third of every clip was wound backwards
+
+`MsClipTri` picked the three corners by ASCENDING INDEX (`in[0], out[0],
+out[1]`) instead of in cyclic order. When the odd vertex out is the MIDDLE one
+of the three - one case in three - that reverses the triangle, and a reversed
+triangle is culled. Two thirds of the cut came out on a clean line and one
+third vanished, which is exactly what was reported.
+
+Fixed by taking the odd vertex `i` and its neighbours as `(i+1)%3` and
+`(i+2)%3`, so both halves keep the source triangle's winding.
+
+### The slant: the ring may be square to the wrong direction
+
+"Taking too many on the other side of the forearm" is a ring that is not
+perpendicular to the arm. The axis was the longest direction of the arm's
+triangle cloud (PCA), which a tapered sleeve can lean off the bone.
+
+`MsBoneAxis` derives it from the SKELETON instead: the hand bone minus the bone
+it hangs off, that bone being the hand's graph neighbour whose centroid is
+farthest away. No names, no hierarchy, same as everything else here. Both axes
+are computed, the angle between them is logged per side, and `ms axis
+bone|pca` switches live - which one is right is a question about this asset, not
+about geometry, and one press settles it. Default is the bone.
+
+### Also
+
+`+` / `-` auto-repeat after 400 ms, because at the ultrafine step the ring moves
+0.1% of the arm per press and placing it by hand would be a hundred taps.
+
+### Still unruled-out, and the check for it
+
+The cut is computed in the mesh's BIND pose and seen in the ANIMATED one. If
+the ring's shape CHANGES as the arm moves, that is the cause and the fix is a
+different one; if the slant is fixed relative to the arm whatever the pose, it
+is the axis. That is a thing the tester can see in one run and nothing else can
+answer.
+
+## PREVIOUS (2026-09-06, session 20c): VR-31 - the straddling triangles are CLIPPED
+
+Headset run on the plane cut: the steps were much better, the edge was still
+jagged - spikes hanging off the cuff in the screenshot. Diagnosed and fixed
+here, untested.
+
+### Why a plane was not enough
+
+The plane fixed the JUMPS but not the OUTLINE. A triangle straddling the cut
+was still kept or dropped whole, so the boundary was a sawtooth one triangle
+high; on the coarse cuff geometry that is a set of spikes. No edge RULE fixes
+that - keeping only triangles entirely past the plane trades spikes for
+notches. The boundary has to stop being made of original triangle edges.
+
+### The clip
+
+A triangle crossing the plane is split into the part on each side, with new
+vertices interpolated along the two crossing edges. Both halves are emitted
+into their own class, so `arms` stays the exact inverse of `hands` and `all`
+still rebuilds the original mesh. The boundary is then the plane itself.
+
+That needs a VERTEX buffer of ours as well as an index buffer, because the new
+vertices do not exist in the game's. Every stream-0 element is interpolated by
+its declared type; blend INDICES come whole from the nearer parent vertex,
+because a bone index is a name and not a quantity, and the weights go with them
+so they cannot end up naming the wrong bones. Both buffers are `D3DPOOL_MANAGED`
+with room to grow, so moving the ring does not recreate them and `hkReset` has
+nothing to release.
+
+**The one precondition, checked and logged**: stream 0 must be the only stream,
+because re-basing the index list onto a buffer of ours would desynchronise any
+second stream the game had bound. A mesh with more streams falls back to whole
+triangles with the reason named.
+
+### Smaller steps
+
+`Numpad .` cycles the knob's step: 2% of the arm, 0.5%, 0.1%. Default 0.5%
+(`[Hands] WristStep`).
+
+### New defaults
+
+`WristEdge=3` (clip), `WristStep=1` (fine). `ms edge 0|1|2|3` still selects the
+whole-triangle rules for comparison - 3 is the only one whose boundary is the
+plane rather than a row of triangle edges.
+
+### The run this needs
+
+The wrist should end in a clean ring with no spikes. `ms status` says how many
+triangles were cut and how many vertices were made; if `stream 0 belongs to the
+game` appears, the clip was vetoed and the reason is in the read lines. Then
+`Numpad .` for finer steps, `+` / `-` to place it, and the `ms/wrist` numbers
+become `WristCutA` / `WristCutB`.
+
+Compare against `ms edge 1` to see what the clip is worth - that is the best of
+the whole-triangle rules and should still show a notched edge.
+
+## PREVIOUS (2026-09-06, session 20b): VR-31 - the cut is a PLANE across the forearm
+
+The bone-influence split works and was confirmed in the headset: both hands
+present, both arms gone, at `WristScale` 0.70 on both sides (radius 21.7,
+2109 hand triangles per arm). Two faults in the SHAPE of the cut, both fixed
+here and neither yet tested.
+
+### The sphere moved in whole bones
+
+The tester's walk is in the log and it is unambiguous: from scale 0.50 to 0.67
+the triangle counts did not change AT ALL, then one press flipped 156 triangles
+per arm at once. A bone is inside the sphere or outside it, so every triangle
+that bone dominates changes class together. What is left is the outline of a
+bone's influence region, which is why moving the knob made the edge jagged
+rather than moving it.
+
+### A plane cuts a cylinder in a circle
+
+`MsPlaneDerive` per arm:
+
+1. **The limb axis** by power iteration on the covariance of the arm's triangle
+   centroids. Two passes - a rough axis over the whole arm, then a refined one
+   over a band around the rough cut, so the ring is perpendicular to the
+   FOREARM and not to the whole limb with the hand's mass pulling on it. The
+   refinement logs how many degrees it moved, and refuses past 40.
+2. **The starting position** keeps exactly the number of triangles the sphere
+   was keeping at the tester's 0.70. Changing the shape of the cut does not
+   move it: the look that was settled on survives, it just stops being blobby.
+3. **The knob moves the plane in LENGTH** - 2% of the arm per press - so the
+   ring travels smoothly instead of waiting for a bone to flip.
+
+The sphere is kept, not deleted: it is the seed, the fallback
+(`ms shape sphere`), and the thing that proved the classification works.
+
+### New keys and defaults
+
+`[Hands] WristPlane=1` (plane), `WristScaleA/B=0.70` (the tester's measured
+seed), `WristEdge=0`, `WristCutA/B` unset (derive). Setting `WristCutA/B` pins
+the ring in mesh units from the hand bone and survives a level load - the knob
+and `ms cut` both print exactly that number, so a good look becomes the default
+without another walk.
+
+`ms cut <a> [b]` places the ring, `ms shape plane|sphere`, `ms edge 0|1|2`
+(kept when the centroid / all three vertices / any vertex is past the plane).
+
+### The run this needs
+
+Look at the hands: the starting picture should be the SAME amount of forearm as
+the tester left it, but ending in a clean ring instead of a jagged edge. Then
+`Numpad +` / `-`: the ring should slide smoothly, a small step each press, with
+no chunk of triangles vanishing at once. When it looks right, read the
+`ms/wrist` line for the two numbers and they become `WristCutA` / `WristCutB`.
+
+If the ring comes out slanted rather than square across the forearm, the
+`forearm axis refined N degree(s)` line says how far the second pass moved and
+is where to look. `ms edge 1` is the alternative if the one-triangle sawtooth
+is visible up close.
+
+## PREVIOUS (2026-09-06, session 20): VR-31 - the cut is DERIVED from bone influence, per arm
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open). Installed
+Release. **Untested - built and installed, not run.**
+
+### What replaced the eyeballed mask
+
+The 32-slice mask cut by PERCENTAGE of the triangle order, and the two arms sit
+in different, non-aligned regions of that order, so a mask tuned on the left
+hand took too much of the right. No amount of further eyeballing fixes a cut
+that cannot express the shape.
+
+`src/game/dishonored/hands/mesh_split.cpp` classifies each TRIANGLE by the
+bones that actually move it, which is per-arm by construction:
+
+1. **Read once.** The draw's index range and vertex window are copied out of
+   the game's own buffers - the first time this project has read them - and
+   VALIDATED against facts the data must satisfy (indices inside the draw's own
+   vertex window, bone indices below the palette size, weights summing to 1,
+   finite positions, a non-degenerate bbox). A `D3DUSAGE_WRITEONLY` buffer may
+   legally hand back an uninitialised page on a read lock; that is why the
+   descriptors are logged BEFORE the lock and why a failed validation refuses
+   instead of carving the mesh up from noise.
+2. **Two arms from the SKINNING GRAPH.** Two bones are adjacent when some vertex
+   is meaningfully moved by both. Separate limbs share no vertex, so the graph
+   falls into two components - no bone names, no hierarchy, no engine
+   structures. A geometric widest-gap split is the fallback and says so in the
+   log when it is used.
+3. **The wrist from the bone SPACING.** The hand bone is the one with the most
+   neighbours (a forearm joins two things; a hand joins the forearm and every
+   finger). Sort the side's bones by distance from it and the biggest gap in
+   that list is the wrist. Derived, not eyeballed.
+4. **Per triangle**, the class holding most of its influence weight wins, so a
+   triangle straddling the wrist follows the bones that move it. Stray sleeve
+   shards go with the arm bones they are weighted to, which is why they should
+   disappear without a special case.
+5. **One index buffer of our own** (`D3DPOOL_MANAGED`, so `hkReset` has nothing
+   to release), classes emitted contiguously with both hands adjacent - so
+   "both hands, no arms" is ONE draw call, not a run per fragment.
+
+### Also fixed: the stale-lock weakness
+
+The mesh lock is now **auto-armed by the mesh's measured signature** (prims
+4448, verts 2771, skinned declaration, triangle list - all ini keys), and
+`DcTick` releases an automatic lock that has not been drawn for 300 frames so a
+level load that recreated the buffers re-arms on the new pair. An automatic lock
+**fails soft**: a mesh it cannot split is drawn exactly as the game asked, on
+both the indexed and non-indexed paths. A hand-armed lock (Numpad 6) is
+unchanged and still drops what it is told to.
+
+### Defaults and controls (everything ships ON)
+
+`[Hands] ArmSplit=1 ArmSplitAuto=1 ArmSplitMode=1` (mode 1 = HANDS).
+
+    Numpad 0   next mode: hands -> all -> arms -> other -> off -> hands
+    Numpad +   keep MORE as hand (the cut moves up the arm)
+    Numpad -   keep LESS as hand (the cut moves toward the fingers)
+    Numpad *   which arm + / - moves: both -> side A -> side B
+    Numpad /   re-derive the whole split from the buffers
+    Numpad 5   release everything, and stop the automatic re-arm
+
+Seam: `ms status | off | hands | arms | all | other | rebuild | wrist <n> |
+side <n>`. The 32-slice mask and `dc mask s19` are untouched and remain the
+fallback if a driver refuses the read.
+
+### The run this needs
+
+Load a save with the sword and crossbow out and read `dishonored_vr.log` for
+`ms:`. Expected: `ms: ib fmt=... usage=...`, then a validation line with zeros,
+then two graph components, two wrist radii, and a class count with BOTH hand
+classes non-zero. In the headset both hands should be present and both arms
+gone, with no percentage tuning at all. `Numpad 0` once shows the whole mesh
+through our buffer (the A/B - it must look exactly like stock); a second press
+shows the inverse cut, arms with no hands, which is the cheapest proof the
+classification is real and not a coincidence.
+
+If a hand is too short or too long, `Numpad +` / `-` moves that wrist and the
+log prints the radius - ONE number per arm instead of 32 slice bits.
+
+### Still not done
+
+- The acceptance list: Blink, Devouring Swarm, Windblast, weapons, head and
+  stick turns, crouch, reload, checkpoint reload. Power effects are
+  socket-driven, so verify the SOCKETS follow, not just the fingers.
+- `HmDrawIntoEye` asks the METHOD whether it wants a projection layer, not
+  whether the RUNTIME submitted one.
+- `FindRefSkel` does not enforce the validation its comment claims.
+- Controller wrist placement is still a separate gate; `[Hands] Enabled=0`.
+
+## PREVIOUS (2026-09-06, session 19): VR-31 - FLOATING HANDS WORK, the cut needs per-arm ranges
 
 Branch `claude/vr-31-arm-hiding-floating-hands`, based on
 `claude/vr-30-decouple-arm-hand-movement` (PR #18 still open). Installed

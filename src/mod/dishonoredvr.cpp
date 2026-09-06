@@ -87,6 +87,7 @@
 #include "mod/state/52_game_dishonored_head_track.inc"
 #include "mod/state/53_core_input_pad_bridge.inc"
 #include "mod/state/54_game_dishonored_arm_follow.inc"
+#include "mod/state/55_game_dishonored_hands_mesh_split.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
@@ -151,6 +152,7 @@
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/arms_hide.cpp"
 #include "game/dishonored/hands/mat_hide.cpp"
+#include "game/dishonored/hands/mesh_split.cpp"
 #include "game/dishonored/hands/draw_census.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands

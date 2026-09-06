@@ -150,6 +150,50 @@ static void StereoUpdate()
         n7Was = n7; n8Was = n8; n9Was = n9;
     }
 
+    // VR-31 step 2: the split derived from BONE INFLUENCE (mesh_split.cpp).
+    // Separate keys from the slice walk on purpose - the slice mask is still
+    // the fallback if a driver refuses to let the buffers be read, and losing
+    // the muscle memory for it would cost a headset session.
+    //
+    //   Numpad 0  next mode: hands -> all -> arms -> other -> off -> hands
+    //   Numpad +  keep MORE as hand (the cut moves up the arm)
+    //   Numpad -  keep LESS as hand (the cut moves toward the fingers)
+    //   Numpad *  which arm + / - moves: both -> side A -> side B
+    //   Numpad .  step size for + / -: coarse -> fine -> ultrafine
+    //   Numpad /  re-derive the whole split from the buffers
+    if (g_msOn) {
+        static bool n0Was = false, adWas = false, sbWas = false,
+                    mlWas = false, dvWas = false, dcWas = false;
+        const bool n0 = (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
+        const bool ad = (GetAsyncKeyState(VK_ADD)      & 0x8000) != 0;
+        const bool sb = (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0;
+        const bool ml = (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0;
+        const bool dv = (GetAsyncKeyState(VK_DIVIDE)   & 0x8000) != 0;
+        const bool dc = (GetAsyncKeyState(VK_DECIMAL)  & 0x8000) != 0;
+        if (n0 && !n0Was) g_msModeReq   =  1;
+        if (ad && !adWas) g_msWristReq  =  1;
+        if (sb && !sbWas) g_msWristReq  = -1;
+        if (ml && !mlWas) g_msSideReq   =  1;
+        if (dv && !dvWas) g_msRebuildReq = 1;
+        if (dc && !dcWas) g_msStepReq    = 1;
+
+        // AUTO-REPEAT on + / - only. At the ultrafine step the ring moves a
+        // tenth of a percent of the arm per press, so placing it by hand would
+        // be a hundred taps in a headset. Held down, it repeats after a pause,
+        // like any key that has to travel a distance.
+        {
+            static double heldSince = 0.0, nextRep = 0.0;
+            const double now = MaimNowMs();
+            const int dir = ad ? 1 : (sb ? -1 : 0);
+            if (!dir) { heldSince = 0.0; }
+            else {
+                if (heldSince == 0.0) { heldSince = now; nextRep = now + 400.0; }
+                else if (now >= nextRep) { g_msWristReq = dir; nextRep = now + 60.0; }
+            }
+        }
+        n0Was = n0; adWas = ad; sbWas = sb; mlWas = ml; dvWas = dv; dcWas = dc;
+    }
+
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
     (void)kCamRight; (void)kCamLoc0; (void)kCamLoc1; (void)kCamLoc2;
     (void)&FindLiveCamera; (void)&CamStillValid;

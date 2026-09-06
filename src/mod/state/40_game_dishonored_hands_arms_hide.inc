@@ -63,6 +63,10 @@ static volatile uint32_t g_dcDropIdx = 0;    // indexed draws dropped
 static volatile uint32_t g_dcDropPrim = 0;   // NON-indexed draws dropped
 static volatile uint32_t g_dcUnseen = 0;     // dropped while no palette was current
 static volatile uint32_t g_dcSkippedFlat = 0; // bones==1 draws kept out of the table
+// Did THIS code arm the lock, or did the tester? An automatic lock fails soft
+// (a mesh it cannot split is drawn exactly as the game asked) and releases
+// itself when it goes stale; a hand-armed one drops what it is told to drop.
+static volatile int      g_dcAutoArmed = 0;
 // SLICE MODE. The mesh is one triangle list, so a sub-range of it can be drawn
 // by calling the original with a shifted startIndex and a smaller primCount -
 // no index data has to be read, captured or replaced to find out WHICH

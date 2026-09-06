@@ -201,6 +201,14 @@ static HRESULT __stdcall DcDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE typ
                                     UINT startVertex, UINT primCount)
 {
     if (g_dcOn && self && g_dcHideVb && DcIsLocked(self, false)) {
+        // The same fail-soft as the indexed path. An AUTOMATIC lock must never
+        // remove geometry it has not managed to classify - the split is a
+        // shipping lever now, not only a diagnostic, and a mesh that silently
+        // vanishes because a read failed is the worst outcome available.
+        if (g_msAutoArmed && (!g_msReady || g_msMode == MS_MODE_OFF)) {
+            g_msFallback++;
+            return dvr::frame::orig_draw_prim(self, type, startVertex, primCount);
+        }
         g_dcDropPrim++;
         return D3D_OK;
     }
@@ -226,6 +234,51 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     // direct measure of what the census was blind to, and if it is 0 the
     // residual arm is not this mesh at all and the hunt moves elsewhere.
     if (g_dcOn && self && g_dcHideVb && DcIsLocked(self, true)) {
+        g_msLockFrame = dvr::frame::count();
+
+        // VR-31 STEP 2, ahead of the slice mask because it supersedes it.
+        //
+        // The slice mask cuts by PERCENTAGE of the triangle order, and the two
+        // arms sit in different, non-aligned regions of that order - so a mask
+        // eyeballed on one hand takes too much of the other, and no amount of
+        // further eyeballing fixes a cut that cannot express the shape. The
+        // split reads the mesh's own blend indices and weights and classifies
+        // each TRIANGLE by the bones that move it, which is per-arm by
+        // construction. See mesh_split.cpp.
+        //
+        // It is tried once. A refusal is remembered, so a mesh whose buffers
+        // will not read does not re-lock them every frame; `ms rebuild` or
+        // Numpad / clears it.
+        if (g_msOn && !g_msReady && !g_msRefused && g_dcPendingBones >= 2 &&
+            g_dcSinceUpload < DC_REUSE_WINDOW) {
+            if (!MsBuild(self, baseVertex, minIndex, numVertices, startIndex,
+                         primCount, g_dcPendingBones))
+                g_msRefused = 1;
+        }
+        // The wrist knob's refill happens HERE, on the render thread, because
+        // this is the lane that draws from the buffer being refilled.
+        if (g_msRederiveReq && g_msReady) {
+            g_msRederiveReq = 0;
+            MsPlaneDerive(1); MsPlaneDerive(2);
+            g_msReclassReq = 1;
+        }
+        if (g_msReclassReq && g_msReady) { g_msReclassReq = 0; MsReclassify(self); }
+        if (g_msOn && MsDraw(self, type, baseVertex, minIndex, numVertices, primCount)) {
+            g_dcDropIdx++;
+            return D3D_OK;
+        }
+
+        // FAIL SOFT for the automatic lock. A lock the tester armed by hand is
+        // an instrument and drops what it is told to drop; a lock this code
+        // armed by itself must never make the arms vanish because a read
+        // failed, so with no usable split it draws exactly what the game asked
+        // for and says so in the beat.
+        if (g_msAutoArmed && (!g_msReady || g_msMode == MS_MODE_OFF)) {
+            g_msFallback++;
+            return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex,
+                                                 numVertices, startIndex, primCount);
+        }
+
         g_dcDropIdx++;
         if (g_dcSinceUpload >= DC_REUSE_WINDOW || !g_dcPendingBones) g_dcUnseen++;
         const int hs = g_dcHideSlice;
@@ -337,6 +390,30 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     if (slot >= 0) {
         DcDraw* r = &g_dcDraw[slot];
         r->hits++;
+        // AUTO-ARM. The lock used to exist only after a key press, which is why
+        // a level load that recreates the buffers left it stale and silently
+        // drawing everything. Arming from the mesh's own measured SHAPE removes
+        // both problems: it comes up armed, and DcTick releases a lock that
+        // stops being drawn so the next matching draw re-arms it on the new
+        // buffers. The signature is exact on purpose - a different asset does
+        // not match and is left alone - and the log names what it locked onto,
+        // so a wrong match is visible rather than mysterious.
+        if (g_msAuto && g_msOn && !g_dcHideVb && r->hasBlendIdx && r->hasBlendWt &&
+            r->prims == g_msWantPrims && r->numVerts == g_msWantVerts &&
+            r->primType == D3DPT_TRIANGLELIST) {
+            g_dcHideVb = r->vb; g_dcHideIb = r->ib;
+            g_dcHideAt = slot; g_dcAutoArmed = 1; g_msAutoArmed = 1;
+            g_dcHideSlice = -1; g_dcSliceMask = 0;
+            g_dcDropIdx = g_dcDropPrim = g_dcUnseen = 0;
+            g_msReady = 0; g_msRefused = 0;
+            g_msLockFrame = dvr::frame::count();
+            Log("dc/auto: LOCKED onto the arm mesh by signature - prims=%u "
+                "verts=%u bones=%u skin=IW vb=%p ib=%p (row %d). This is the "
+                "shape measured for Corvo's first-person arms; [Hands] "
+                "ArmMeshPrims / ArmMeshVerts change what is looked for, and "
+                "ArmSplitAuto=0 turns this off and restores Numpad 6.",
+                r->prims, r->numVerts, r->bones, r->vb, r->ib, slot);
+        }
         const uint32_t f = dvr::frame::count();
         if (r->lastFrame != f) { r->lastFrame = f; r->frames++; }
         const int hide = g_dcHideAt;
@@ -417,7 +494,11 @@ static void DcCycleTick()
     if (req == 2) {
         g_dcHideAt = -1;
         g_dcHideVb = NULL; g_dcHideIb = NULL; g_dcHideSlice = -1; g_dcSliceMask = 0;
-        Log("dc/cycle: ALL VISIBLE - nothing hidden, mesh lock released");
+        g_dcAutoArmed = 0; g_msAutoArmed = 0; g_msAuto = false;
+        g_msReady = 0; g_msRefused = 0;
+        Log("dc/cycle: ALL VISIBLE - nothing hidden, mesh lock released, and "
+            "the automatic re-arm is OFF for the rest of this run so it does "
+            "not take the lock straight back. `ms rebuild` re-enables it.");
         return;
     }
     // Only walk rows that are LIVE - drawn in the last window. Sixty stale
@@ -447,6 +528,11 @@ static void DcCycleTick()
     g_dcHideAt = at;
     g_dcHideVb = g_dcDraw[at].vb;      // arm the MESH LOCK on this buffer pair
     g_dcHideIb = g_dcDraw[at].ib;
+    // A hand-armed lock is an instrument and drops what it is told to drop.
+    // Clearing the auto flag is what takes the fail-soft away, so Numpad 6
+    // still behaves exactly as it did when the tester walked the slices.
+    g_dcAutoArmed = 0; g_msAutoArmed = 0;
+    g_msReady = 0; g_msRefused = 0;
     g_dcDropIdx = g_dcDropPrim = g_dcUnseen = 0;
     g_dcHideSlice = -1; g_dcSliceMask = 0;   // a fresh lock starts on the whole mesh
     g_dcHidden = 0;
@@ -466,6 +552,24 @@ static void DcTick()
 {
     if (!g_dcOn) return;
     DcCycleTick();
+    MsTick();
+    // STALE LOCK. A level load recreates the buffers, and the old lock then
+    // names freed pointers that no draw will ever match again - the mesh comes
+    // back whole with nothing in the log to say why. Releasing an automatic
+    // lock that has stopped being drawn lets the next matching draw re-arm on
+    // the new buffers, which is the re-arm path the instrument was missing.
+    if (g_dcAutoArmed && g_dcHideVb) {
+        const uint32_t f = dvr::frame::count();
+        if (f > g_msLockFrame + 300) {
+            Log("dc/auto: the locked mesh has not been drawn for %u frames - "
+                "releasing the lock so a level load that recreated the buffers "
+                "can re-arm on the new pair. If the arms are on screen right "
+                "now, this line is the reason.", f - g_msLockFrame);
+            g_dcHideVb = NULL; g_dcHideIb = NULL; g_dcHideAt = -1;
+            g_dcAutoArmed = 0; g_msAutoArmed = 0;
+            g_msReady = 0; g_msRefused = 0;
+        }
+    }
     const double now = MaimNowMs();
     if (now < g_dcNextReport) return;
     const bool first = (g_dcNextReport == 0.0);
