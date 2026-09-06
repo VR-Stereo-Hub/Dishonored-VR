@@ -1,5 +1,14 @@
-// Host integration tests for the real ownership, publication and body-write code.
+// Host integration tests for the real ownership and publication code.
 // Only engine memory/services and logging are mocked by yawtest-slice.py.
+//
+// These once drove YawApplyBody, the raw pawn-yaw writer. That writer is gone:
+// it was measured futile (4 of 186 writes survived to the next dispatch,
+// because the engine re-derives the pawn heading from the controller every
+// tick) and is superseded by the FaceRotation intercept, which changes the
+// heading the engine is ASKED for. So the assertions now check the SNAPSHOT -
+// validity, generation, body target and head contribution - which is exactly
+// what the intercept consumes, and is the half of the old tests that was ever
+// about ownership rather than about the write.
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -44,17 +53,16 @@ int main() {
     objectTable[1200] = controllerA; objectTable[1300] = pawnA;
     Possess(controllerA, pawnA);
     YawPublish(1000, 100);
-    YawApplyBody(1.0f);
-    Check("new gameplay objects bind without BuildLiveSet", g_yawValid && g_yawGen == 1 && PawnYaw(pawnA) == 1000 && g_yawApplied == 1);
+    Check("new gameplay objects bind without BuildLiveSet",
+          g_yawValid && g_yawGen == 1 && g_yawBodyTarget == 1000 && g_yawHeadContrib == 100);
     unsigned scans = fullTableReads;
-    YawApplyBody(1.0f);
+    YawPublish(1100, 0);
     Check("unchanged pair uses live slot checks without rescanning", fullTableReads == scans);
 
     // A removed object still has a perfectly readable header and old contents.
     objectTable[1300] = NULL;
-    PawnYaw(pawnA) = 777;
-    YawApplyBody(1.0f);
-    Check("removed pawn releases snapshot before any write", !g_yawValid && PawnYaw(pawnA) == 777);
+    YawPublish(1200, 0);
+    Check("removed pawn releases the snapshot", !g_yawValid);
     objectTable[1300] = pawnA;
     testMs += 501;
     Possess(controllerA, pawnB);
@@ -64,27 +72,26 @@ int main() {
     YawPublish(2000, 0);
     Check("valid possession recovers", g_yawValid);
 
-    // Publish for A, then change scene before Apply: the new pawn must not get A's target.
+    // A scene change must not carry the previous owner's contribution.
     objectTable[1400] = controllerB; objectTable[1500] = pawnB;
     Possess(controllerB, pawnB);
     g_peCtrl = controllerB; g_pePawn = pawnB;
-    PawnYaw(pawnB) = 888;
     testMs += 501;
-    YawApplyBody(1.0f);
-    Check("owner change between publish and apply rejects old target", !g_yawValid && g_yawGen == 2 && PawnYaw(pawnB) == 888);
     YawPublish(3000, 50);
-    YawApplyBody(1.0f);
-    Check("new scene publishes a fresh reference", PawnYaw(pawnB) == 3000 && g_yawHeadContrib == 50);
+    Check("owner change bumps the generation and resets the contribution",
+          g_yawGen == 2 && g_yawHeadContrib == 50 && g_yawBodyTarget == 3000);
 
-    uint32_t seq = g_yawSeq, applied = g_yawApplied;
-    secondPass = true;
-    YawApplyBody(1.0f);
-    Check("second pass cannot lead a body write", g_yawSeq == seq && g_yawApplied == applied);
-    secondPass = false;
-    g_yawValid = false;
-    PawnYaw(pawnB) = 999;
-    YawApplyBody(1.0f);
-    Check("missing snapshot leaves pawn untouched", PawnYaw(pawnB) == 999);
+    // Head-only: the view moves, the body target does not.
+    const int32_t bodyBefore = g_yawBodyTarget;
+    YawPublish(g_yawViewOut, 400);
+    Check("head-only publication leaves the body target alone",
+          g_yawBodyTarget == bodyBefore && g_yawViewOut == 3050 + 400);
+
+    // Stick-only: the engine turned us; body and view move together.
+    const int32_t view0 = g_yawViewOut, body0 = g_yawBodyTarget;
+    YawPublish(view0 + 700, 0);
+    Check("stick-only publication moves body and view together",
+          g_yawViewOut - view0 == 700 && g_yawBodyTarget - body0 == 700);
 
     g_yawTriedOff = false; offsetsReady = false; testMs += 3001;
     YawPublish(4000, 0);
