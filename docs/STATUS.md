@@ -1,5 +1,66 @@
 # Status
 
+## CURRENT (2026-09-05, session 17): VR-30 IS SOLVED - FaceRotation is the seam
+
+Branch **`claude/vr-30-decouple-arm-hand-movement`**, cut from `VR-Main`.
+
+**Headset-judged fixed.** Head yaw leaves the arms and weapon alone, the right
+stick turns view and body together, and both at once works. That is VR-30's full
+acceptance, both halves.
+
+### The fix, in one paragraph
+
+`FaceRotation` is what faces the body to the view. It is **virtual at vtable slot
+252** and resolves to **`0x00AB0D40`** on this build. The mod hooks it and
+replaces the **Yaw it is asked for** with a separated body heading
+(`view - our own injected head contribution`), then lets the engine's own
+function run so its dependent bookkeeping still happens. Pitch, roll, delta time
+and every other actor pass through untouched. `[Camera] ArmBodyFacing`, ships
+**OFF**, `arms facing 1|off` is the live A/B. Measured: **3365 replacements, 0
+stale**, 1014 calls on other pawns untouched.
+
+Full derivation, the falsified attempts with their numbers, and the identity bug
+are in `docs/dishonored/ENGINE_NOTES.md`, "SOLVED: VR-30".
+
+### What was removed, and why
+
+- **`[Camera] BodyYawLock` is gone.** It wrote the pawn's `Rotation.Yaw` every
+  dispatch and was measured futile: **4 of 186 writes survived** to the next
+  dispatch. Its target was correct; the engine simply re-derives the pawn's
+  heading from the controller every tick. Users with the key in their ini can
+  delete the line; it is ignored.
+- **The per-dispatch `FaceRotation` name match is gone** from `PeHandler`. Its
+  question is answered (0 dispatches across a full run - the route is
+  native-to-native) and the answer is in ENGINE_NOTES.
+
+### What is kept as instruments
+
+- `armfollow/yaw:` - the four-way yaw census (head, controller, pawn, view with
+  per-second deltas). It found the stale-controller bug and the write-survival
+  number. Now on the 1-in-128 slow path.
+- `armfollow/nfp:` - the one-shot native-facing probe that derived the vtable
+  slot. Costs nothing after it fires.
+- `[Camera] ArmStripMeshRot` - ships OFF, kept as the reproducible A/B for a
+  documented dead end (304,244 writes, no effect).
+- `tools/yawtest-host.ps1` - compiles the yaw bookkeeping out of `head_track.cpp`
+  **verbatim** and runs its seven cases on the host. No game, no headset.
+
+### Performance
+
+`perf: tick` on the winning run reads 11.3-11.8 ms against an 11.11 ms budget at
+90 Hz, unchanged from before the branch. The hook adds a handful of integer
+compares to a function that runs about once per frame per pawn. The census's
+clock read was moved to the slow path (c5ecea34's rule); the answered
+per-dispatch name match was deleted.
+
+### Next
+
+VR-30 is done. The hands are still placed by the engine - **absolute controller
+placement is a separate ticket**, and `ENGINE_NOTES` records that SkelControl
+world-space translation is absolute (attempt 5's pin test) and that the world
+block's anchor is wrong: `camera+0x80` is not a position (DISCARDED 120/120),
+`camera+0x330` is.
+
 ## SOLVED (2026-09-05, VR-15): the black texture bug was a MIP fault, and it ships fixed
 
 PRs #14 (the crouch fix) and #15 (the 90 Hz defaults) are **merged to `VR-Main`**. Branch
