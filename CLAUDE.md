@@ -15,6 +15,14 @@ permission. Single game, one branch: `VR-Main`.
 
 ## Hard rules
 
+- **NEVER MERGE TO `VR-Main` WITHOUT EXPLICIT PERMISSION.** Committing, pushing a feature
+  branch and opening a PR are all fine on your own judgement - none of them touch `VR-Main`.
+  **The merge is the gate**, and it is the one irreversible step. Ask, show exactly what is
+  about to land, and wait for a yes. A passing build is not permission. A finished feature is
+  not permission. **"This branch is good to go", "looks great", "nice work" and "close the
+  ticket" are NOT permission** - they are approval of the work, not of the merge; the only
+  thing that counts is the user saying to merge it. If in doubt, do not merge and ask.
+
 - **NEVER commit game-derived content**: no decompiled UnrealScript, no extracted assets, no
   frame dumps, captures or crash dumps. `tools/uscript/` and `*.png/*.bmp/*.dmp` are gitignored
   for a reason. Findings go to `docs/dishonored/ENGINE_NOTES.md`, never game code.

@@ -39,7 +39,14 @@ static const uint32_t  kCamUp    = 0x70;   // basis Z (up) row
 static const uint32_t  kCamLoc0  = 0x80;   // matrix translation row
 static const uint32_t  kCamLoc1  = 0x90;   // cached POV loc
 static const uint32_t  kCamLoc2  = 0xC4;   // cached POV loc 2
-static const uint32_t kPcRotBase[]  = { 0x9c, 0xd0 };   // controller: the source
+// DO NOT USE kPcRotBase ON A PlayerController. Measured 2026-09-05: 0x9c on the
+// controller is a FLOAT (0xbcc8cea0 = -0.0245), not a rotator - it was copied from
+// kCamRotBase below, which is the CAMERA's, and the two being one literal is the
+// tell. Reading it fed -1127690592 into the body-yaw hold, which then pinned the
+// pawn's yaw to that constant: the arms froze and the stick could not turn. The
+// controller's rotation is Actor.Rotation, resolved by FindPropOffset like the
+// pawn's. Left here only because the camera entry below still needs the values.
+static const uint32_t kPcRotBase[]  = { 0x9c, 0xd0 };   // RETIRED - see above
 static const uint32_t kCamRotBase[] = { 0x9c, 0xd0 };   // camera POV + its cache
 static const uint32_t kPovOffs[3] = {0x330, 0x350, 0x374};
 static const uint32_t kFovCands[4] = {0x53c, 0x540, 0x564, 0x254};
@@ -47,6 +54,22 @@ static const uint32_t kLevCtrl[3] = {0x3ac, 0x3b0, 0x3b4};   // FOVAngle/Desired
 static const uint32_t kLevCam[7]  = {0x254, 0x348, 0x368, 0x38c, 0x53c, 0x540, 0x564};
 
 // ---- Engine code hooks (byte-verified before patching) ----
+// UDishonoredPlayerPawn::FaceRotation - the operation that faces the body.
+// DERIVED 2026-09-05, statically, from a runtime-resolved starting point:
+//   1. armfollow/nfp resolved the FaceRotation UFunction and reported its exec
+//      thunk at RVA 0x1DAF30 - the SAME thunk for Pawn and DishonoredPlayerPawn.
+//   2. The thunk ends `mov edx,[edi]; mov edx,[edx+0x3f0]; mov ecx,edi; call edx`,
+//      so FaceRotation is VIRTUAL at vtable offset +0x3F0 (slot 252).
+//   3. The live pawn's vtable (RVA 0xD1A3B0) slot 252 holds this address.
+//   4. It ends in `ret 0x10` - 16 bytes of stack args - and has ZERO static
+//      E8/E9 callers, i.e. it is only ever reached through the vtable, which is
+//      why gameplay never dispatched it through ProcessEvent (measured: 0 hits
+//      across a whole run) and why hooking the script exec wrapper catches
+//      nothing.
+// __thiscall: this in ecx; stack +0 Pitch, +4 Yaw, +8 Roll, +0xC DeltaTime.
+static const uintptr_t kFaceRotation = 0x00AB0D40;
+static const uint8_t   kFaceRotationBytes[5] = { 0x55, 0x8B, 0xEC, 0x51, 0x53 };
+
 static const uintptr_t kProcessEvent = 0x00470640;
 static const uintptr_t kCamHookAt = 0x56dd36; // epilogue (5 bytes: 5E 8B E5 5D C3)
 static const uintptr_t kBlkAimHook = 0x00bf595f;   // the first movss, 5 bytes
