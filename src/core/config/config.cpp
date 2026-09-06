@@ -774,8 +774,21 @@ static void LoadConfig()
 
     // 30.77: our own VR hands
     {
-        g_hmEnable   = IniFloat(ini, "VRHands", "Enabled", 0) != 0.0f;
-        g_hmHideGame = IniFloat(ini, "VRHands", "HideGameArms", 1) != 0.0f;
+        // 41.2 (VR-31): Enabled ships ON for the test sessions - a deliberate
+        // exception to "every new render lever ships OFF", the same call as
+        // [Device] ShadowFullCopy and [Hands] BoneVisHide, so a run shows the
+        // hands without anyone sending a seam word first. It reverts to OFF
+        // when the verdict is recorded. `vrhands off` is the live A/B.
+        g_hmEnable   = IniFloat(ini, "VRHands", "Enabled", 1) != 0.0f;
+        // HideGameArms ships OFF with it, and that is NOT an oversight. It
+        // collapses the game's own view-model rigs by upload size (30.77, the
+        // vs-const path) - a second behavioural change, in the same build as
+        // the first, and the author's own process rule is one per build. It
+        // also makes the first run diagnostic instead of pass/fail: with the
+        // game's arms still drawn, they are the reference our hands are judged
+        // against. If our hands land right, this flag is the whole remaining
+        // step to floating hands.
+        g_hmHideGame = IniFloat(ini, "VRHands", "HideGameArms", 0) != 0.0f;
         g_hmScale    = IniFloat(ini, "VRHands", "Scale", 1.0f);
         if (g_hmScale < 0.2f) g_hmScale = 0.2f;
         if (g_hmScale > 4.0f) g_hmScale = 4.0f;
@@ -784,6 +797,9 @@ static void LoadConfig()
         g_hmAuto = IniFloat(ini, "VRHands", "FollowEquipped", 1) != 0.0f;
         g_hmObjScale = IniFloat(ini, "VRHands", "ObjScale", 0.01f);
         g_hmHotReload = IniFloat(ini, "VRHands", "HotReload", 1) != 0.0f;
+        // 41.2 (VR-31): the fallback instrument, OFF. Only worth arming if the
+        // hands are still invisible once the beat says they are on-screen.
+        g_hmCalib = IniFloat(ini, "VRHands", "CalibTriangle", 0) != 0.0f;
         if (g_hmObjScale < 0.0001f) g_hmObjScale = 0.0001f;
         if (g_hmObjScale > 1.0f)    g_hmObjScale = 1.0f;
         g_hmHideStatic   = IniFloat(ini, "VRHands", "HideStaticParts", 1) != 0.0f;
@@ -1076,6 +1092,19 @@ static void LoadConfig()
     if (g_sprintPulseMs < 60.0f)  g_sprintPulseMs = 60.0f;
     if (g_sprintPulseMs > 400.0f) g_sprintPulseMs = 400.0f;
     g_crouchHideCfg   = IniFloat(ini, "Hands", "CrouchHideArms", 1) != 0.0f; // 38.29
+    // VR-31 route (a). Back to OFF now the verdict is in: `arms vis status`
+    // runs the diagnostic on demand, and there is no array left to write to.
+    g_boneVisCfg      = IniFloat(ini, "Hands", "BoneVisHide", 0) != 0.0f;
+    // VR-31 route (d). Read-only census, ships ON: it costs one walk per run
+    // and it is what the route decision is waiting on.
+    g_matCensusCfg    = IniFloat(ini, "Hands", "MatCensus", 1) != 0.0f;
+    // VR-31 route (d): the automatic hide/restore A/B. Ships ON and undoes
+    // itself; MatAuto=0 leaves the census read-only.
+    g_matAutoCfg      = IniFloat(ini, "Hands", "MatAuto", 0) != 0.0f;
+    g_matCycleCfg     = IniFloat(ini, "Hands", "MatCycle", 1) != 0.0f;
+    g_matStepMs       = IniFloat(ini, "Hands", "MatStepMs", 5000.0f);
+    if (g_matStepMs < 1500.0f)  g_matStepMs = 1500.0f;
+    if (g_matStepMs > 20000.0f) g_matStepMs = 20000.0f;
     g_crouchHideCyl   = IniFloat(ini, "Hands", "CrouchHideCyl", 76.0f);
     if (g_crouchHideCyl < 20.0f) g_crouchHideCyl = 20.0f;
     if (g_crouchHideCyl > 87.0f) g_crouchHideCyl = 87.0f;
@@ -1424,6 +1453,10 @@ static void OverlaySaveDefaults()
     // headset was silently discarded on exit. Everything the panel can change
     // is written here now.
     WritePrivateProfileStringA("Hands", "Enabled", g_skcDrive ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "BoneVisHide", g_boneVisCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatCensus", g_matCensusCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatAuto", g_matAutoCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatCycle", g_matCycleCfg ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);
@@ -1533,6 +1566,7 @@ static void OverlaySaveDefaults()
         } }
     WritePrivateProfileStringA("Overlay", "DevTools", g_ovlDev ? "1" : "0", ini);
     WritePrivateProfileStringA("VRHands", "Enabled", g_hmEnable ? "1" : "0", ini);
+    WritePrivateProfileStringA("VRHands", "CalibTriangle", g_hmCalib ? "1" : "0", ini);
     WritePrivateProfileStringA("VRHands", "HideGameArms", g_hmHideGame ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", g_hmScale);
     WritePrivateProfileStringA("VRHands", "Scale", v, ini);

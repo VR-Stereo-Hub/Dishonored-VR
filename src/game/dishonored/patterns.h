@@ -29,6 +29,13 @@ static const uint32_t  kNameOff  = 0x28;
 static const uint32_t  kClassOff = 0x30;
 static const uint32_t  kOuterOff = 0x24;
 
+// ---- SkeletalMeshComponent layout (VR-31, resolved from UE3 reflection at
+// runtime; these are the values measured on this build 2026-09-06, kept here so
+// a log line can be read without a live game). This build declares NO
+// BoneVisibilityStates, which is why per-bone hiding has nothing to drive.
+static const uint32_t  kSkcIndexOff = 0x288;  // SkelControlIndex (0xFF = none)
+static const uint32_t  kReqBonesOff = 0x23c;  // RequiredBones
+
 // ---- Camera object ----
 // A row-major basis at +0x50..+0x7F: forward, right, up (the original
 // author's FindPovRotators matched +0x50 against the POV rotator's forward;

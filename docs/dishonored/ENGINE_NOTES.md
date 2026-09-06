@@ -984,8 +984,10 @@ change land the same frame.
 ### Corrections to the 2026-09-02 entry
 
 - `m_UsedMaterials` is **not** beside `m_Offset`. It is one class up on
-  `DisSkeletalMeshComponent` and it is a body-part material show/hide table, not a viewmodel
-  transform. It is not a suppression route for the arms - do not chase it.
+  `DisSkeletalMeshComponent`, with material indices and shown flags, not a viewmodel
+  transform. The earlier dismissal as an arm-suppression route was unsupported:
+  see the VR-31 research review below. Suitability depends on the player mesh's
+  actual section layout and native behavior.
 - Nothing in the corpus ever **writes** `m_Offset`, `m_bUseFOV` or `m_FOV`, and none appears
   in any `defaultproperties`. So the coordinate space of `m_Offset` **cannot** be derived from
   script and must be measured the way `camera postest` measures.
@@ -2325,6 +2327,662 @@ picture. Every 41.0-era dead end ran the game WINDOWED, where the desktop clamp 
 the fullscreen path. The cost: the sync readback reads 18-20 ms per present at that size
 (25.6 MB each way; `[Capture] Mode=deferred` is the answer, ROADMAP S1).
 
+## The 30.13 bone-visibility result was recorded all along, and it names +0x288 (VR-31, 2026-09-06, session 18)
+
+Two sessions of planning treated "write 0x02 into the per-bone visibility array at
+component +0x288" as an open experiment whose result was **never recorded**. It is
+recorded. The original author wrote it down in a code comment, in the state chunk that
+sits beside the experiment rather than in this file, which is why three passes over the
+corpus missed it. It survives verbatim in `src/mod/state/40_game_dishonored_hands_arms_hide.inc`
+and in the original single file (`git show 824e08d8:src/dllmain.cpp`, line 11119):
+
+    30.14: the +0x288 byte poke was wrong - that array turned out to be some
+    per-bone animation control (arms froze to the view and rode the head).
+
+So the write was made, and it had a **visible effect that was not hiding**. That is a
+stronger result than a null one: the bytes at +0x288 are read by something, and what
+they drive is animation, not visibility.
+
+### What +0x288 most likely is
+
+UE3's `USkeletalMeshComponent` carries two per-bone byte arrays, and the probe found the
+wrong one:
+
+| array | default value | what a 2 there means |
+|---|---|---|
+| `BoneVisibilityStates` | 1 (`BVS_Visible`) | 2 = `BVS_ExplicitlyHidden` |
+| `SkelControlIndex` | **255** (no control on this bone) | 2 = this bone is driven by SkelControl #2 |
+
+30.12's probe reported the array as **`0xFF` everywhere except `0x02` on `spine_3_jnt`**.
+`0xFF` is not a legal `BoneVisibilityStates` value at all; it is exactly
+`SkelControlIndex`'s "none". On that reading, 30.13 did not hide the arm bones, it
+**attached them to SkelControl #2**, and "froze to the view and rode the head" is what an
+attached control does. A hidden bone does not ride anything.
+
+That is why the mismatch matters beyond bookkeeping: the existence proof the whole route
+rested on ("the game hides `spine_3_jnt` this way in first person") is probably not a
+hiding at all - it is the game pointing the chest bone at a bone controller.
+
+### The instrument that settles it without another guess
+
+This build ships full UE3 reflection: `FindPropOffset(class, property)` reads
+`UProperty::Offset` out of GObjects, the same technique the crouch cylinder (`CylinderComponent::CollisionHeight`)
+and the graft (`SkelControlBase::*`) already use. So the offsets do not have to be
+pattern-matched at all. `BoneVisResolve()` in `hands/arms_hide.cpp` asks the engine for
+`SkeletalMeshComponent::BoneVisibilityStates`, `::SkelControlIndex` and `::RequiredBones`,
+prints all three against `0x288`, and names which one the 30.12 probe actually found. A
+`0` from any of them is itself an answer: this build does not declare that property.
+
+**Do not re-derive a per-bone array by pattern-matching a byte range. Ask the reflection.**
+
+### The lever, and what it can prove
+
+`arms vis on|off|status|chain` (ini `[Hands] BoneVisHide`, **ships ON for the VR-31
+test sessions**, back to off once the verdict is recorded) writes
+`BVS_ExplicitlyHidden` into the arm-chain bones - collarbone, shoulder, upper arm, lower
+arm, sleeve; never hands or fingers - at the offset the engine named, saving and
+restoring the exact bytes. Three guards refuse before writing, each logging its numbers:
+
+- the property does not exist on this build;
+- the array is **empty** (`num=0`), which means the engine never allocated it and there is
+  nothing per-bone hiding can drive. That would close route (a) with a reason rather than a
+  failed write, and it is the same fact 30.17 saw when `HideBoneByName` allocated nothing;
+- the array's length does not equal the rig's ref-skeleton bone count, so it is not
+  per-bone for this mesh and our indices would land somewhere else.
+
+While it is on, a census runs on the script lane and reads back what it wrote, classifying
+every byte `held` / `reverted` / `other` against the value the engine had. This is VR-30's
+method note applied: **measure write survival before tuning what the write contains**. It
+separates two outcomes that look identical in a headset:
+
+- `reverted` climbing: the engine puts the bytes back, and the write needs a later lane.
+- all `held` and the arms still on screen: the write survives and **the renderer does not
+  read this array**, which closes route (a) properly and hands the question to route (b),
+  the c6 bone palette.
+
+A warning that must ride along, ported from BioShock and not yet paid for here: UE3 gives
+a hidden bone a zero transform, and the attachment path inverse-decomposes bone scale. If
+the weapon's attach bone is in the chain, the weapon goes through the near plane. `arms vis
+chain` prints the exact bone list so a report identifies the culprit rather than describing
+it.
+
+### MEASURED (2026-09-06, run 1, build `alpha-298-g5809b088`): both answers at once
+
+One gameplay run, lever armed from the ini, nothing sent by hand:
+
+    bonevis: reflection (prep) - BoneVisibilityStates +0x000, SkelControlIndex +0x288,
+             RequiredBones +0x23c (0 = the engine does not declare that property on this class)
+    bonevis: +0x288 - the array 30.12 found and 30.13 wrote 0x02 into - is SkelControlIndex.
+    bonevis: no BoneVisibilityStates property - route (a) is CLOSED on this build,
+             and not because a write failed
+
+**1. `+0x288` is `SkelControlIndex`. Confirmed, not inferred.** The prediction made from
+30.14's symptom was right: 30.13 pointed the arm bones at SkelControl #2 rather than hiding
+them, which is why they froze to the view and rode the head. The `0xFF` default was never a
+visibility value. `RequiredBones` resolving at `+0x23c` proves the resolver was working on
+the right class, so the `0` for `BoneVisibilityStates` is a real absence and not a lookup
+that failed.
+
+**2. Route (a) has nothing to write into.** This build's `SkeletalMeshComponent` does not
+declare `BoneVisibilityStates`. That is **consistent with** 30.17 and is the likeliest
+reading of it, but it is not a proof of it - nothing here inspects the native's
+implementation, and a native is free to keep state somewhere the script layer never names.
+Say "no script-visible array to drive", not "this is why the native did nothing":
+`HideBoneByName`
+dispatching and allocating nothing is the same fact seen from the other side - there is no
+array for it to allocate.
+
+**The existence proof the route rested on is gone with it.** "The game hides `spine_3_jnt`
+this way in first person" was the whole reason to try route (a), and the game is not hiding
+it - it is pointing that one bone at a bone controller. Nothing in the corpus now says
+Dishonored has per-bone hiding at all.
+
+**Run 2 (2026-09-06, `alpha-299-ge4343852`) closed the subclass reading:**
+
+    bonevis: no UProperty named BoneVisibilityStates on ANY class in GObjects,
+             so it is not merely on a subclass
+
+So the property is absent from the whole reflection corpus, not hidden on a subclass the
+first lookup constrained itself out of. One reading is left - the array existing in C++
+without script exposure - and run 2 did **not** answer it, through an instrument bug worth
+recording because it is a repeat of a shape this project keeps paying for: **the two
+cross-checks have different preconditions and were run at the same moment.** The name search
+needs only GObjects and answered on the first tick; the scan needs a prepped rig, and the
+first tick is about ten seconds before the pawn is latched (measured: close-out at 37135781,
+`handmesh: latched pawn` at 37145234). It logged `could not prep the rig`, and the one-shot
+flag then stopped it from ever trying again. The scan now retries until `g_fpCandN` and
+`FpPawn()` say there is a rig, and the precondition is checked at the call site because
+`ArmsPrep` logs its own failure and would otherwise bury the run.
+
+**Run 3 (`alpha-299-g8f556300`) then found the SECOND precondition, and it is a fact worth
+keeping: the first-person candidate list does not exist unless the hand-mesh drive is on.**
+Both of `FpCollect`'s callers (`FpCycle`, and the collect inside `ApplyHandToMeshInner`) sit
+behind that drive, and the tester runs `[Hands] Enabled=0` - so `g_fpCandN` was 0 for the
+whole run, the pawn latched fine, and the scan waited for a list nobody was ever going to
+build. **Anything that needs the component graph must serve its own `FpCollect`, or say in
+its refusal that it is waiting on a subsystem the config has switched off.** The scan now
+calls `FpCollect` itself, at most five times at 2 s apart, and names why in the log.
+
+### VERDICT (2026-09-06, run 4, `alpha-299-g54d45a04`): route (a) is closed on evidence
+
+The scan ran. Five per-bone byte arrays of length 79 exist on the rig, and **not one has its
+values confined to 0..2**, which is what a `BoneVisibilityStates` must look like:
+
+    bonevis: rig prepped for the scan - 10 arm-chain bone(s) of 79
+    bonevis: scan +0x208 num=79 zeros=37 ones=0 twos=0 other=42 range 0..243 -> not a visibility array
+    bonevis: scan +0x214 num=79 zeros=43 ones=0 twos=1 other=35 range 0..243 -> not a visibility array
+    bonevis: scan +0x23c num=79 zeros=1  ones=1 twos=1 other=76 range 0..78  -> not a visibility array
+    bonevis: scan +0x248 num=79 zeros=1  ones=1 twos=1 other=76 range 0..78  -> not a visibility array
+    bonevis: scan +0x288 num=79 zeros=1  ones=1 twos=1 other=76 range 0..255 -> not a visibility array
+    bonevis: scan done - 5 per-bone byte array(s) of length 79 on the rig
+
+**Route (a) is closed**, on three independent instruments rather than one lookup returning
+zero: the property does not resolve on `SkeletalMeshComponent`, no `UProperty` of that name
+exists on **any** class in GObjects, and no byte array on the component is shaped like one.
+
+Read the scan's rows with its limitation in mind, because two of them are old friends: the
+scan matches any `TArray` whose `ArrayNum` is the bone count, **regardless of element size**,
+then judges by the first `num` bytes. `+0x208` and `+0x214` are attempt 1's `SpaceBases` and
+`LocalAtoms` (arrays of `FMatrix`), so their "bytes" are matrix data read sideways;
+`+0x23c` / `+0x248` range 0..78, which is bone indices, and `+0x23c` is the `RequiredBones`
+reflection already named. The value test rejected all five correctly, and a genuine byte
+array of visibility states would have passed it, so the conclusion holds - but do not read
+those rows as five candidate visibility arrays.
+
+### What the same run found instead: route (c) has somewhere to point
+
+`SkelControlIndex` on the arm chain, the array this build actually has:
+
+| bone | index | state |
+|---|---|---|
+| 20 `Collarbone_R_Jnt` | **0** | the game drives it |
+| 21 `shoulder_R_jnt`, 22 `upper_arm_R_jnt`, 23 `lower_arm_R_jnt`, 48 `sleeve_R_jnt` | 255 | free |
+| 49 `Collarbone_L_Jnt` | **1** | the game drives it |
+| 50 `shoulder_L_jnt`, 51 `upper_arm_L_jnt`, 52 `lower_arm_L_jnt`, 77 `sleeve_L_jnt` | 255 | free |
+
+**8 of 10 free, and the 2 that are taken are exactly the two collarbones** - the roots of the
+chain, driven by controls 0 and 1. Those two controls are not yet identified; the mod's own
+control enumeration was off this run (`[Hands] Enabled=0`), so naming them is one cheap run
+with the hand drive on.
+
+This also finishes explaining 30.13. It wrote `2` onto the whole chain, which pointed the
+free bones at **SkelControl #2** - a control the game owns and that 30.14 recorded as making
+the arms "ride the head". The project has a name on file for a camera-tracking bone control
+on this rig (`LookAtControl_Camera`, a7b18b6f, "the camera's bone control - do not zero it").
+Whether #2 is that control is unverified and worth one run to settle, but the mechanism no
+longer has any mystery in it: 30.13 attached arm bones to a camera-following control.
+
+### Where the VR-31 verdict stands
+
+- **(a) per-bone visibility: CLOSED.** No array, on three instruments.
+- **(b) the c6 bone palette: OPEN and proven writable.** Sizes separate the uploads
+  (**x36 = sword, x144 = arms, x204 = NPC**); zero the x144 block, leave x36, and that is
+  "hide the arms, keep the weapon". Machinery in `src/legacy/rtd_drive.cpp`. Cost: it sits on
+  the hottest D3D9 entry point.
+- **(c) SkelControlIndex: OPEN and new.** One byte per bone, 8 of 10 free, and the mod
+  already drives SkelControls (`hands/skelcontrol.cpp`, `hands/graft.cpp`). Cheaper per frame
+  than (b) by a wide margin. The unknown is what a free bone can be pointed AT: the index
+  selects from the AnimTree's control lists, so this needs the control list understood before
+  a byte is written, and 30.13 is the standing warning about pointing bones at a control
+  somebody else owns.
+
+
+## VR-31 research review: geometry visibility before bone controls (2026-09-06)
+
+Scope: source and recorded-evidence review at `7d8b602e`, including the locally
+decompiled `tools/uscript/dishonored` corpus. No runtime changes or new gameplay
+measurements. The goal is to remove arm geometry while retaining animated hands
+and weapon attachments; absolute controller placement remains VR-52.
+
+### Recommended first experiment: material-section visibility
+
+These are declarations in this game's own corpus, not offsets borrowed from UDK:
+
+| local source under `tools/uscript/dishonored/` | finding |
+|---|---|
+| `Engine/SkeletalMeshComponent.uc:415` | native `ShowMaterialSection(MaterialID, bShow, LODIndex)` |
+| `Engine/SkeletalMeshComponent.uc:85` and `:203` | per-component LOD records contain `HiddenMaterials`; component owns `LODInfo` |
+| `Engine/SkeletalMesh.uc:56` and `:146` | `BodyPart` associates owner/cut bone names and a show-if-cut flag; asset has `m_MaterialsToBodyParts` |
+| `Engine/SkeletalMesh.uc:145` and `:114` | asset material array and per-LOD `LODMaterialMap` |
+| `DishonoredGame/DisSkeletalMeshComponent.uc:6` | `UsedMaterial` contains material index and shown flag; transient array at `:18` |
+| `DishonoredGame/DishonoredPlayerSkeletalComponent.uc:1` | player component inherits that Arkane component |
+| `DishonoredGame/DishonoredPlayerPawn.uc:1191` | player `pMesh` is foreground, owner-only, and forces attachment updates in tick |
+
+**Inference:** the shipped material visibility machinery could suppress sleeves
+without changing bone transforms, if hands and sleeves use separate sections.
+That would preserve the engine's authored animation and attachment inputs and
+avoid a new per-upload matrix rewrite. No script body or asset material inventory
+in this review proves that split exists. Material names alone cannot prove it:
+one material can cover both sleeve and hand geometry or several sections.
+
+The previous blanket dismissal of `m_UsedMaterials` confused its irrelevance to
+arm rotation with its possible relevance to geometry visibility. Its native
+writers are not available in these scripts; treat it as census evidence first,
+not a raw-write target. Prefer the native section API, after resolving and
+checking its reflected parameter layout, to editing an internal array directly.
+The previous inert HideBone calls are also a reason to demand a visible result
+from this native, not just successful ProcessEvent dispatch.
+
+### Route (c): usable topology, but not selective visibility
+
+`Engine/AnimTree.uc:25` defines each `SkelControlListHead` as a bone name,
+`ControlHead`, and editor coordinate; `SkelControlLists` is declared at `:136`.
+`Engine/SkelControlBase.uc:40` supplies `NextControl`. Read the live tree reached
+through the component's `Animations`, not its shared `AnimTreeTemplate`.
+
+The proposed identification run is insufficient as written. In
+`src/game/dishonored/hands/skelcontrol.cpp`, `SkelControlProbe` walks GObjects and
+appends matches to `g_skcPlayer[]`. Its printed control number is that buffer's
+slot, not the index of an AnimTree list. It never reads `SkelControlLists`.
+It also filters to `SkelControlSingleBone` after caching that class, so it is
+not a complete census of all control types. Name discovery cannot establish
+that list 2 is `LookAtControl_Camera`. Walk the actual lists and chains, then
+cross-check their bone names against both pre- and post-physics index arrays.
+
+`Engine/SkelControlBase.uc:37` declares `BoneScale`; `SkelControlSingleBone`
+adds translation/rotation fields, not a flag to hide only that bone's geometry.
+Epic's UE3 documentation states that scaling includes child bones and describes
+ordered chains and sharing a control among bones. Thus a free index is useful
+plumbing, but does not solve the arm/hand boundary.
+[Epic: Using Skeletal Controllers](https://docs.unrealengine.com/udk/Three/UsingSkeletalControllers.html)
+
+The repository already warns of this in
+`src/mod/state/12_game_dishonored_hands_skelcontrol.inc:310`: hand scaling affects
+descendants and the weapon. Its drive also excludes scale values at or below
+0.05 (`hands/skelcontrol.cpp:910`); the existing size slider is not a zero-scale
+hiding test. The later graft has its own scale writer (`:1231`), so a test must
+account for both writers rather than assume one field has sole authority.
+
+An arm scale of zero normally collapses descendants too. Restoring the hand
+would require a measured later transform/scale override; a finite reciprocal
+cannot undo a zero scale. A small nonzero scale with compensated descendants
+is an experiment with wrist deformation, transform order, and numerical issues,
+not a proven shortcut. A leaf sleeve bone could be a cheaper special case if
+its hierarchy and influenced vertices confirm it has no required descendants.
+
+Introducing an owned control also means object allocation/lifetime, list and
+tick registration, rebuild handling, and restoration. The existing template
+donor graft explicitly records template contamination across reloads in
+`hands/graft.cpp`; do not promote that prototype to a clean ownership solution.
+There is no measured basis for claiming route (c)'s total frame cost is lower
+by a wide margin solely from the number of bytes patched.
+
+### Route (b): distinguish whole-draw hiding from floating hands
+
+The previous x36/x144/x204 observations remain useful signatures for those
+recorded draws. They are not unique mesh IDs across every weapon, LOD, NPC,
+render pass, or DLC. The active upload interception is in
+`src/core/framework/vs_const_hook.cpp:210`; `src/legacy/rtd_drive.cpp` computes
+drive transforms, and `src/legacy/fp_mesh.cpp:552` contains the older whole-block
+and per-bone collapse routines.
+
+Zeroing a whole x144 palette removes all geometry using that palette, including
+hands in that draw. That supports floating weapons, not retained native hands.
+For selective bone collapse, the mapping is still unknown: 144 registers at
+three per bone represent 48 entries, while the rig census has 79 reference
+bones. Reference index 52 cannot be used as slot 52 in that upload. The hook
+also records separate arm draws (`vs_const_hook.cpp:223`). Establish each
+draw's palette-to-reference mapping, rather than reusing skeleton indices or
+assuming upload order stays fixed.
+
+Even a correct mapping does not make skinning a per-triangle visibility mask.
+A wrist vertex blended between a retained hand matrix and a collapsed forearm
+matrix receives both contributions. Collapsing selected bones can stretch or
+distort those triangles instead of removing them. Changing only basis entries
+also leaves bone translations apart, so it does not necessarily degenerate
+the whole arm. Inspect the vertex weights and test the wrist boundary.
+
+The constant hook already exists. A narrowly gated patch does not imply another
+hook installation, allocation, GObjects walk, or synchronous readback per call.
+Only matched draws need a bounded copy and edits. Measure incremental cost;
+being in a frequently called function alone does not establish unacceptable
+overhead. Geometry correctness is the first unresolved question.
+
+### Other alternatives and the next discriminating test
+
+1. **Read-only census, independent of `[Hands] Enabled`.** Start at the live
+   pawn's reflected mesh pointer, stamp component/asset/tree identities, resolve
+   material and LOD tables, and print body-part associations and actual control
+   list indices/chains. Validate reflected field sizes, bool masks, array lengths,
+   and struct strides. This also avoids interpreting native mirror declarations
+   such as `RefSkeleton`'s `array<int>` as their actual C++ element layout.
+2. **Section A/B if there is a plausible sleeve/hand split.** Save existing
+   visibility, hide one identified section through the native, verify geometry
+   and visibility readback, then restore exactly. Cover applicable LODs and
+   check whether Arkane's material bookkeeping overwrites the change. Prove
+   hands/fingers, sword, offhand item and power effects remain; verify VR-30
+   yaw behavior, crouch, reload, checkpoint reload and both eyes. One behavioral
+   change per build; run the simulator before requesting headset judgment.
+3. **If sections are mixed, prefer a render-only geometry mask experiment.**
+   A draw/section-specific triangle filter or wrist mask can preserve the full
+   skeleton and remove actual arm geometry without inherited scale. This needs
+   local mesh/UV/weight inspection and reliable draw identity, plus resource-reset
+   handling if using a filtered index buffer. It is more implementation work,
+   but has a clearer geometry boundary than bone collapse. A compatible hands-only
+   replacement mesh is another option, with asset compatibility and packaging
+   work; no game assets or decompiled sources belong in the repository.
+4. **Simpler fallback: floating weapons.** Hide player skin through validated
+   sections or a positively identified whole draw while preserving the animated
+   rig. Whole-component `SetHidden`, `bHideSkin`, and body-mode changes are
+   broader candidates with attachment/update consequences to measure. Do not
+   disable the skeleton or camera carrier. Showing native hands only during
+   powers is a separate state-driven visibility policy and does not by itself
+   remove sleeves during those powers.
+
+The existing array experiment stays retired. Its scan was limited to inline
+TArray-shaped headers in the first 0x1000 component bytes with length equal to
+the bone count. No reflected property plus no matching live header is strong
+evidence against that specific poke, not proof against every lazy, indirect,
+or differently encoded native implementation. In particular, lack of allocation
+does not establish why `HideBoneByName` did nothing. Do not spend another tester
+run repeating it without new native-code evidence.
+
+**Verdict:** material-section hiding is the best next test, conditional on the
+asset split. Route (b) remains a rendering fallback with mapping and seam
+questions; route (c) is lower priority for this visibility goal. No floating-hand
+implementation is proven by this review.
+
+### Run 5 (`alpha-302-gd939b9de`): the census read nothing, and it was the probe
+
+Every column came back 0 and the experiment refused. The reflection line is where the fault
+is, and it is mine, not the engine's:
+
+    mat: reflection (auto) - LODInfo +0x318, Materials +0x000, m_UsedMaterials +0x440,
+         m_MaterialsToBodyParts +0x078
+
+**`Materials` is declared on `MeshComponent`, not `SkeletalMeshComponent`.** The lookup
+constrained `Outer` to the wrong class, returned 0, and the census printed `materials=0` as
+though the mesh had no sections at all. Second fault on the same line: **a component's
+`Materials` is an OVERRIDE list and is normally empty** - the authoritative section count is
+`SkeletalMesh::Materials` on the ASSET. So even a correct component lookup would have read 0.
+
+**The rule this pays for, and it is the same shape as the `+0x288` misidentification:
+resolve a property by NAME and let the class be a hint, never a constraint.** `MatProp` now
+tries the expected class, falls back to a name-anywhere search across GObjects, and logs
+which class actually declares it. A `0` after that is a real absence.
+
+Two things the run did establish, both real:
+
+- **`ShowMaterialSection` exists and resolved** (`UFunction @ 10207020`), so the native is
+  there to dispatch if there is anything to dispatch it at.
+- **`LODInfo` (+0x318), `m_UsedMaterials` (+0x440) and `m_MaterialsToBodyParts` (+0x078) all
+  resolved**, and `m_MaterialsToBodyParts` read 0 entries on the player asset. That is the
+  expected answer rather than a fault: Arkane built the body-part table for dismemberment,
+  which is an NPC feature, so **the player rig has no owner-bone names to pick from** and the
+  NAMED path was never going to have targets. The SWEEP path is what settles route (d) on
+  this rig, and it needs the asset's section count, which is exactly what was misread.
+
+A third fact the log could not distinguish and now can: `FpAssetObj` returning NULL and an
+asset with an empty table printed identically. The census names which it was.
+
+### Route (d) is built and ships the census ON (2026-09-06, session 18)
+
+The review's recommended order is implemented, and its correction to my own next step is
+accepted: **turning the hand drive on cannot name SkelControl list indices.** The existing
+probe fills `g_skcPlayer[slot]` in GObjects iteration order, filtered to
+`SkelControlSingleBone` and capped at 8 (`hands/skelcontrol.cpp`, the discovery loop). Those
+slot numbers have no relationship to the values in `SkelControlIndex`, which index the
+component's own AnimTree control lists. The suggestion to "run once with `[Hands] Enabled=1`
+to name controls 0 and 1" was wrong and is withdrawn; naming them needs a walk of the real
+control lists, and `SkelControlLists` is a C++ member this build does not declare to script,
+so it is an offset derivation rather than a reflection lookup.
+
+`hands/mat_hide.cpp` does two things, both aimed at one launch rather than two:
+
+**The census, `[Hands] MatCensus=1`, read-only, automatic once per run.** For every
+first-person component it prints the material count, `LODInfo[0].HiddenMaterials`,
+`DisSkeletalMeshComponent::m_UsedMaterials`, and - the row that decides the route - the mesh
+asset's `SkeletalMesh::m_MaterialsToBodyParts`, with the `m_OwnerBone` and `m_CutBone` FNames
+resolved to strings. All four offsets come from reflection, and a `0` for any of them drops
+that column and says so. It serves its own `FpCollect`, so it does not depend on the
+hand-mesh drive being on - the precondition that cost run 3.
+
+**The hide, manual.** `arms mat hide <id>` dispatches the engine's own
+`ShowMaterialSection(MaterialID, bShow, LODIndex)` through ProcessEvent, exactly as
+`console.cpp` dispatches `ConsoleCommand`. It is never a raw write into `HiddenMaterials`:
+the native is what notifies the render thread, and a value verified in memory but never
+honoured downstream is this project's oldest trap. The call reads the flag back and prints
+whether it moved, so the dispatch has an acceptance test rather than a return code.
+`arms mat show <id>` and `arms mat restore` undo it.
+
+**How to read the census.** One row per material index. A row whose `owner` is a sleeve or
+arm bone, with the hand on a DIFFERENT row, is route (d) working: hide the first, keep the
+second, and no bone is touched. Every row sharing one owner bone means the asset has no
+arm/hand split and the route is closed on the same day it opened.
+
+**Why this is worth a run before (b) or (c).** Both of those fight the skeleton and inherit
+its problems - `BoneScale` propagates to child bones, so shrinking a forearm takes the hand
+and whatever is attached to it, and the c6 palette holds 48 entries against 79 reference
+bones with wrist vertices weighted to both sides of any cut. Route (d) removes geometry from
+a draw and leaves every transform alone, which is the property the other two have to buy.
+
+**Not established**: that the player asset has the split, that the native works on this
+component, or that the sections divide where the body parts do. Only the run says.
+
+### SOLVED: route (d) WORKS - ShowMaterialSection hides first-person geometry (2026-09-06)
+
+Headset-judged on `alpha-304-ge1135d25`. The sweep ran four steps and the tester reported
+geometry disappearing and coming back on each one. **`ShowMaterialSection` dispatched through
+ProcessEvent removes first-person geometry and the game keeps running normally.** That is
+route (d) proven and the first thing in VR-31 that actually hides anything.
+
+The plan the engine's own `GetNumElements` produced, and what it means:
+
+| step | component | sections | LODs |
+|---|---|---|---|
+| 1 | `Skm_Player` (DishonoredPlayerSkeletalComponent) | 1 | 1 |
+| 2 | `Wpn_PlySword01` (DishonoredItemSkeletalComponent) | 1 | 1 |
+| 3 | `crossbow_01` (DishonoredItemSkeletalComponent) | 1 | 1 |
+| 4 | `bolt_01` (DishonoredItemSkeletalComponent) | 1 | 1 |
+
+Two components reported 0 sections and were skipped (`asset=NOT FOUND` on both), and the
+material names came back as `MaterialInstanceConstant` for the body and the sword, with
+`crossbow_01_Mat` and `Bolt_01_Mat` for the other two.
+
+**The structural finding, and it is the one that shapes what comes next: EVERY component has
+exactly ONE material section.** So route (d) hides per COMPONENT, not per body part. There is
+no arm section and hand section to separate, because the whole first-person body is one
+section on `Skm_Player`. The tester's step-by-step recollection was approximate and the
+mapping of which step removed which limb is **not yet established** - that is what the numpad
+cycler is for, and until it has been walked deliberately the per-step attribution above
+should be read as the PLAN, not as what was seen.
+
+**What this gives immediately**: floating weapons. Hide `Skm_Player` and the sword, crossbow
+and bolt keep drawing, because they are separate components with their own sections.
+
+**What it does not give**: hands. Arms and hands share one section, so hiding the arms hides
+the hands with them. Route (d) cannot split them, and no amount of material work will - the
+split does not exist in the asset.
+
+**So floating HANDS needs a different source for the hands, not a finer cut of this mesh.**
+The mod already has one: `core/gfx/hand_mesh.cpp` draws its own hand geometry, and the
+SkelControl drive already places hands from the controllers. Hiding `Skm_Player` and drawing
+our own hands is the BioShock shape, arrived at from the opposite direction - and it also
+answers the powers requirement, since our own hands can be shown for powers and hidden
+otherwise without touching the game's mesh at all. Untested here, and it is the next thing.
+
+The cycler (`[Hands] MatCycle=1`, Numpad 3 next / Numpad 1 back / Numpad 2 all visible) walks
+the same plan at a human pace so each section can be identified deliberately. **The hotkey
+only posts a request; every dispatch happens on the script lane** in `MatCycleTick`, because
+ProcessEvent from the present thread is the lane error this project has a rule about. The
+timed sweep is back OFF now that the route is proven, so the two cannot fight.
+
+### What the cycler can still settle, and what the census already settled (2026-09-06)
+
+Worth stating before the walk, so the run is not spent proving something already on the log.
+The census read the component list off the engine, and there is **exactly one component with
+first-person body geometry**: `Skm_Player`. The other two that report sections are named
+weapons, and the two that report none report `GetNumElements=0` from the engine itself. So
+the arms, the hands and whatever else the body carries **cannot** be on separate steps -
+there is nowhere else for them to be.
+
+That leaves the walk one real question, not four:
+
+- **step 1 (`Skm_Player`)**: does hiding it remove BOTH arms and BOTH hands, and do the
+  weapons keep drawing? That is the floating-weapons verdict, and it is a yes/no on one step.
+- **steps 2-4** confirm the named weapons come off individually - useful, cheap, but they
+  only corroborate names the engine already gave.
+
+The cycler still earns its walk (a component's NAME is not proof of what it draws on screen),
+but the outcome that would change the plan is a surprise on step 1 - hands surviving it, or
+geometry the census did not account for.
+
+### VR-31: the hand renderer had no caller, and the frustum it wanted was the wrong one (2026-09-06)
+
+Route (d) sends floating hands to a different SOURCE for the hands: `core/gfx/hand_mesh.cpp`,
+which the mod has carried since 30.77. Reading it before wiring it turned up two things worth
+recording, because neither is visible from the config or the ini.
+
+**1. The renderer has been dead code since 41.0, and nothing said so.** `HmRenderEye` drew
+into the per-eye render targets of the side-by-side present pipeline, and that pipeline was
+deleted in `cc2fa936` ("remove the side-by-side present pipeline"). Since then:
+
+- `HmRenderEye` has had **no call site at all** (`git log -S` names `cc2fa936` as the commit
+  that took the last one);
+- `HmEnsurePipeline` has had none either, so the shaders were never compiled;
+- `[VRHands] Enabled=1` therefore changed **nothing on screen** and produced **no log line
+  saying so**. A lever that silently does nothing is the fault class this project's logging
+  rules exist for, and it survived because the config block, the ini keys and the model
+  auto-pick (`HmPickModels`, called every tick from `skelcontrol.cpp`) all still ran.
+
+The removal was correct at the time - the deleted code's own comment says hands "return with
+the projection-layer mode" - and the projection-layer mode has been live since S2b. The
+caller is what was never rebuilt.
+
+**2. The hand pass must be composed through the LAYER'S CLAIM, not the headset's FOV.** The
+frustum the hand pass reads (`g_eyeFr`, filled in `DvrPresentPoses`) was built from
+`headset_half_fov_deg`. But while a projection layer is up the compositor shows the eye
+texture across the fov the **layer claims**, and that claim is the engine's own rendered hfov
+(`camera+0x53c` -> `DvrFovHandoff` -> `set_rendered_hfov`), not the headset's half-angles -
+on the run that proved route (d) the claim was **108.1 deg**. Hands composed through the
+headset's frustum would be drawn at a different angle from the world they are meant to stand
+in, and would slide against it whenever the claim moved.
+
+The derivation now matches the runtime's own, so the two cannot drift apart:
+
+    tan(halfH) = tan(claimedHfov / 2)
+    tan(halfV) = tan(halfH) * h / w        (h, w = the method's output texture)
+
+which is exactly `openxr_runtime.cpp`'s `halfV = atan(tan(halfH) * g_swapH / g_swapW)` for
+the projection views it submits. The numbers print on change (`vrhands: eye frustum from ...`)
+so "the hands sit at the wrong angle" is arithmetic rather than opinion.
+
+**3. Three other things the deleted pipeline supplied.** A **depth buffer** (the pass batches
+by skin and depth-tests; the painter's sort is gone, and with no DSV bound the depth state is
+inert and the back of a hand paints over its front); the **eye tag of the pixels already in
+the target**, which is not the eye the next game draw will render; and a **refusal on the
+quad screen**, because a head-locked quad is a picture at `[Screen] DistanceMeters`, not a
+world, and eye-frustum hands have no depth there to occupy.
+
+**Status: wired, built, UNVERIFIED.** Nothing here has been seen in a headset. `[VRHands]
+Enabled` ships OFF, `vrhands on|off|status` is the live A/B, and the 3 s beat line prints
+calls / draws / triangles and **names the reason for any zero** rather than leaving one.
+
+### SOLVED (cause): the hands drew 252 triangles a present through an UNINITIALISED matrix (2026-09-06)
+
+Run on `alpha-307-gf297df53`, first headset run of the rebuilt hand pass. The tester saw
+no hands. The log said everything was healthy:
+
+    vrhands: pipeline ready
+    vrhands: depth buffer 2750x2850 D32 (29.9 MB)
+    vrhands: beat calls=480 draws=480 tris=120960 last=drew
+
+480 calls per 3 s, 252 triangles each - 132 + 120, both models complete, every present.
+
+**The cause, found by review of the code rather than by another run.** The transform did:
+
+    float B[9]; RtdBuildYPR(rad, B);
+
+`RtdBuildYPR` lives in `src/legacy/rtd_drive.cpp` and is compiled **only** under
+`-DDVR_WITH_LEGACY=ON`. Every shipped build takes the stub in
+`src/legacy/legacy_stubs.inc` instead:
+
+    static void RtdBuildYPR(const float* ypr, float* out) {}
+
+So `B` was never written, and every hand vertex was rotated by nine floats of whatever
+was on the stack. Undefined behaviour with a very specific signature: the counters stay
+healthy because the geometry IS built and submitted, and nothing is visible because the
+vertices are scattered or non-finite.
+
+**The reason it survived the first instrument.** The near-plane reject is
+`if (es[k][2] > -0.03f) bad = true;`, and `NaN > -0.03f` is **false**, so a non-finite
+vertex passes it and is counted as a good triangle. The counter measured "built", the
+question was "visible", and nothing in between was measured. The fix separates them:
+`submitted` and `ON-SCREEN` are now different numbers, with `nonFinite`, `nearPlane`,
+`degenerate` and an NDC bounding box beside them.
+
+**How far the class extends, measured.** Of the 23 stubs in `legacy_stubs.inc`, exactly
+**one** had an out-parameter that a live caller read unconditionally, and it is this one.
+The only other stub with out-parameters is
+`RtdSnapshot(float* R, float* T, ...) { return false; }`, and its caller
+(`vs_const_hook.cpp`) gates every read on that return (`if (ok[0] || ok[1])`, then
+`if (!ok[h]) continue;`), so `R`/`T` are never touched - safe by construction. The
+remaining 21 are `void f(...)` with no out-parameters and are genuine no-ops, which is
+what the design intends.
+
+**The rule.** A stub that returns void and writes nothing is a no-op; a stub with an
+OUT-PARAMETER is a landmine, because the caller cannot tell a value it never received
+from a value it did. If a retired experiment must keep a stub with an out-parameter,
+the stub has to initialise it - and a live path should not depend on a retired
+experiment at all. The math this one needed is twelve lines and now lives beside its
+caller as `HmBuildYPR`.
+
+**A second defect in the same function, found reading it.** The vertex depth was
+`pos.z = 0.5f * (-z)` with `pos.w = -z`, which divides to **exactly 0.5** at every
+distance. The depth buffer therefore could not order anything - the first fragment to
+reach a pixel won and every later one failed `LESS`. The painter's sort had been deleted
+on the assumption depth replaced it. Now a standard mapping, 0 at the near plane and 1
+at the far.
+
+**Convention note.** `RtdBuildYPR` is commented "Z yaw, Y pitch, X roll" - the UE3 world
+frame. The hand meshes are built in the CONTROLLER's frame, which is Y-up (+X right,
++Y up, -Z along the grip), so `HmBuildYPR` is Ry(yaw) * Rx(pitch) * Rz(roll) and the ini
+keys mean what they say. Verified numerically: exact identity at zero trim, and equal to
+`Ry*Rx*Rz` to 2.2e-16 over 64 angle combinations. Inert in the current configuration -
+every trim value in the shipped ini is 0.0.
+
+**Corrected from the first write-up of this run:** the claim that every present was
+delivered untagged was wrong. It was read off the first three beats, which are bring-up.
+Across the whole run gameplay reads `method=reentry out/s=160 L/s=80 R/s=80 mono/s=0` -
+properly tagged stereo. The untagged beats are the non-gameplay states.
+
+### The alpha-303 review: four probe faults, and the rule they all share
+
+A second review of the material probe found four faults before another run was spent on it.
+All four were real, all four were mine, and three of them would have produced a confident
+wrong answer rather than an obvious failure - which is the expensive kind.
+
+1. **The visibility readback could never work.** The array helper refused an offset of 0,
+   and `HiddenMaterials` is member **0** of the `LODInfo` struct, so both reads always
+   failed. The census reported 0 entries and the post-call readback said "unreadable"
+   whether or not hiding worked. Split into `MatArrayAt` (any offset, for reads INSIDE a
+   struct) and `MatArrayProp` (requires a resolved property offset, for reads off an object).
+2. **The name-anywhere fallback was unsound.** `Materials` and `LODInfo` are declared on
+   several unrelated types; an offset found on `SkeletalMesh` is meaningless applied to a
+   component, and logging which class it came from does not make the number valid. **A
+   fallback that returns the wrong offset is worse than no offset.** Removed: every field
+   names its verified declaring class and a miss is a logged refusal.
+3. **The sweep could not prove what it changed.** It took `g_armComp` or candidate 0, and
+   the run-5 log carries **two** player skeletal components with no evidence which draws the
+   arms; it also only touched LOD 0. It now sweeps every component that reports sections and
+   every LOD each declares, LOD-major so LOD 0 of everything comes first, naming component,
+   section and LOD at each step.
+4. **"Restore" was show-everything-it-touched.** Nothing saved the prior visibility, so a
+   section the game had already hidden could be left visible afterwards. Each hide now
+   records the prior flag per (component, section, LOD) and puts that exact value back.
+
+**The rule underneath all four, and it is the same one `+0x288` and `Materials +0x000`
+already paid for: a probe must be able to tell a FAILED READ from an EMPTY ANSWER.** Every
+one of these faults collapsed those two into the same output. `sections=0, asset=found` is
+not a closed route; it is a probe that cannot distinguish them.
+
+The review also supplied the independent check the probe was missing:
+`MeshComponent::GetNumElements()` and `GetMaterial(int)` are native and dispatchable, so the
+section count and the material NAMES now come from the engine itself rather than from
+another memory-layout guess. Where the dispatch and the array read disagree the log says so
+and the dispatch wins. On this rig the material name is the only handle available, because
+`m_MaterialsToBodyParts` is an NPC dismemberment feature and the player asset carries none.
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.
@@ -2332,7 +2990,19 @@ the fullscreen path. The cost: the sync readback reads 18-20 ms per present at t
 - "Any constant upload of 9+ registers is a bone palette" is false; writing into them corrupts
   world geometry.
 - `HideBoneByName` on the arms does nothing (no visuals, no allocation); hiding is by
-  render-size masks (`WeaponHideBones`, `ArmsHideTick`).
+  render-size masks (`WeaponHideBones`, `ArmsHideTick`). **Narrower than it reads**: that
+  measured the SCRIPT FUNCTION dispatching to nothing, which is a fact about
+  `HideBoneByName`, not about any array. The array question is above, "The 30.13
+  bone-visibility result was recorded all along".
+- **`+0x288` is `SkelControlIndex`, MEASURED** (2026-09-06, reflection, run 1), not
+  `BoneVisibilityStates`. Writing `0x02` there attaches the bone to SkelControl #2; 30.13
+  did it and 30.14 recorded the arms freezing to the view and riding the head. Resolve an
+  offset from UE3 reflection instead of pattern-matching a byte range.
+- **This build declares no `BoneVisibilityStates` on `SkeletalMeshComponent`** (measured
+  the same run; `RequiredBones` resolved at `+0x23c`, so the resolver was working). Per-bone
+  hiding has no script-visible array to drive. That is consistent with 30.17's
+  `HideBoneByName` allocating nothing and is the likeliest reading, but the native's own
+  implementation was never inspected, so it is not established as the cause.
 - Window-route resolution changes (work area, max tracking size, self-resize, fullscreen
   escape, client-rect spoof, mode list): six builds, the game still chose its own size; the
   engine's own setres is INERT on this build (measured 2026-09-03: it dispatches and does nothing); the command line is the way, and the fullscreen path takes a proxy-advertised mode ("The render size", session 7).

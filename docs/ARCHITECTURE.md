@@ -442,3 +442,35 @@ run.
 Identity for such a write comes from the event stream (`g_peCtrl`/`g_pePawn`),
 validated as a possession pair, never from a camera-pointer scan: the scan held
 the previous scene's controller for an entire gameplay window.
+
+### 2026-09-06 - VR-31: a renderer is not wired just because it compiles
+
+`core/gfx/hand_mesh.cpp` had been in the tree, in the config, in the ini and in
+the model auto-pick since 30.77, and had drawn nothing since 41.0: the pipeline
+that called it was deleted in `cc2fa936` and no caller replaced it. Nothing
+failed, nothing logged, and `[VRHands] Enabled=1` was a switch wired to nothing.
+
+Two decisions came out of rebuilding the caller.
+
+**The hand pass hangs off the stereo seam, not off the runtime layer.** It is a
+`HandDrawFn` registered exactly like `OverlayDrawFn`: the active method calls
+it between the game image and the F10 panel, with the target it just composited
+into and **the eye tag of the pixels already in that target**. The alternative -
+a second composition layer submitted by the runtime, the way the laser and the
+aim dot are - was rejected because the runtime layer is the file this project
+keeps as close to the BioShock copy as the D3D9 host allows, and hands are not
+a seam it already has. Drawing into the method's own output keeps the coupling
+on our side of the line and costs one callback.
+
+**A method that cannot show world content refuses, out loud.** On the mono
+screen the pass is still CALLED and declines with a line naming the rung, because
+a silent skip and broken hands look identical in a log. The quad is a picture at
+`[Screen] DistanceMeters`; eye-frustum hands would sit at a depth it does not
+have.
+
+The related correction: the hand pass's frustum now comes from the **projection
+layer's claim** (the engine's rendered hfov, derived the same way the runtime
+derives the layer's own half-angles) instead of the headset's raw half-angles.
+Composing overlay geometry through a different frustum than the layer claims is
+a slide against the world that grows with the disagreement, and the disagreement
+was 108.1 deg against the headset's own numbers on the last measured run.

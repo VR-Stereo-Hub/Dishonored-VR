@@ -369,6 +369,13 @@ public:
         if (!ensure_target(d.dev11, w, h)) return false;
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
+            // 41.2 (VR-31): our own hands, over the game image and under the
+            // F10 panel. The eye is the tag of the pixels JUST blitted, which
+            // is NOT `eye` (the eye the next game draw will render) - one line
+            // apart, and confusing them is the stale-eye fault in miniature.
+            if (HandDrawFn hd = hand_draw())
+                hd(d.dev11, d.ctx11, rtv_, w, h,
+                   fresh ? dvr::capture::delivered_tag() : 0);
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
             // 41.1 (session 9): the frame-identity trace's stages slot and out,
             // inside the read fence (the slot thumbnail is a read of the slot).

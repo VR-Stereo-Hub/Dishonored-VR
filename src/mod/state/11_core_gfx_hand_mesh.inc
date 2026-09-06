@@ -18,9 +18,15 @@ static const char* kHandShaderSrc =
     "    return float4(t.rgb * i.col.rgb * 2.0, 1.0);\n"
     "}\n";
 
-static bool   g_hmEnable = false;        // [VRHands] Enabled - OFF until the
-                                         // engine-side path is properly ruled out
-static bool   g_hmHideGame = true;       // collapse the game's own arms
+// 41.2 (VR-31): route (d) ruled the engine-side path out for HANDS - arms and
+// hands are one material section on Skm_Player and no finer cut exists in the
+// asset - so our own hands are the path being tested, and the lever ships ON
+// for the test sessions. Reverts to OFF once the verdict is recorded.
+static bool   g_hmEnable = true;         // [VRHands] Enabled
+// OFF with it on purpose: collapsing the game's arms in the same build as the
+// first draw of ours would be two changes at once, and the game's arms are the
+// reference our hands get judged against on the first run.
+static bool   g_hmHideGame = false;      // [VRHands] HideGameArms
 static float  g_hmScale = 1.0f;
 static float  g_hmPos[2][3] = { {0,0,0}, {0,0,0} };      // metres, extra per-hand nudge
 static float  g_hmRot[2][3] = { {0,0,0}, {0,0,0} };      // deg: yaw, pitch, roll

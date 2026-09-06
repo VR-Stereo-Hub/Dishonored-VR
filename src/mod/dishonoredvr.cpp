@@ -150,6 +150,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/arms_hide.cpp"
+#include "game/dishonored/hands/mat_hide.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/fp_mesh.cpp"

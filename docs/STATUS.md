@@ -1,6 +1,417 @@
 # Status
 
-## CURRENT (2026-09-05, session 17): VR-30 IS SOLVED - FaceRotation is the seam
+## CURRENT (2026-09-06, session 19): VR-31 - the cycler is WALKED, the hands had an uninitialised matrix
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open, so this PR takes
+`Ref VR-31`). Installed build `alpha-308`.
+
+### VR-31's question is ANSWERED: route (d) cannot give hands
+
+The cycler was walked in the headset on `alpha-307`. Four presses of Numpad 3
+removed, in order: **both arms and hands together**, sword, crossbow, bolt -
+exactly the plan the engine's own `GetNumElements` produced. Attribution is now
+MEASURED, not recalled.
+
+So `Skm_Player` carries arms and hands as ONE material section, route (d) gives
+**floating weapons**, and it can never give floating hands.
+
+**Note the limit of that conclusion** (raised in review, and it is right): one
+shared material section rules out a MATERIAL-only split. It does not prove our
+own hands are the only possible route - preserving Dishonored's original
+animated hands would need a different geometry-FILTERING approach (route (b),
+the c6 bone palette, x144 = arms, is untouched and is where that would start).
+Custom hands are the route being taken, not the only one that exists.
+
+### The hands drew every triangle and showed nothing - the cause is found
+
+First run of the rebuilt hand pass: `calls=480 draws=480 tris=120960 last=drew`,
+252 triangles per present (both models, complete), nothing on screen.
+
+**Cause, found by code review rather than another run:** the transform did
+`float B[9]; RtdBuildYPR(rad, B);` and `RtdBuildYPR` is compiled ONLY under
+`-DDVR_WITH_LEGACY=ON`. Every shipped build takes the empty stub in
+`src/legacy/legacy_stubs.inc`, so `B` was never written and every hand vertex
+was rotated by nine floats of stack garbage. The counters stayed healthy because
+the geometry really was built and submitted; and a NaN passes the near-plane
+reject, because `NaN > -0.03f` is false.
+
+Fixed in this build:
+
+- **`HmBuildYPR`, local to `hand_mesh.cpp`** - the twelve lines needed, not the
+  legacy subsystem. Y-up controller convention (yaw about Y, pitch about X, roll
+  about Z), so the ini keys mean what they say. Verified numerically: exact
+  identity at zero trim, equal to `Ry*Rx*Rz` to 2.2e-16 over 64 combinations.
+  Inert in the current configuration - every shipped trim value is 0.0.
+- **`submitted` and `ON-SCREEN` are different numbers now.** The beat also counts
+  `nonFinite`, `nearPlane` and `degenerate` (zero projected area draws no pixel
+  and has a perfectly ordinary bounding box) and prints the NDC bounding box, so
+  "invisible" resolves to an axis and a magnitude.
+- **Real depth.** `pos.z = 0.5f * (-z)` over `w = -z` divides to exactly 0.5 at
+  every distance, so the depth buffer could order nothing. Standard mapping now.
+- **The calibration triangle** (`[VRHands] CalibTriangle`, `vrhands calib on`),
+  default OFF: one fixed-NDC triangle through the same shader, buffer, states
+  and target. The FALLBACK if the hands are still invisible once the geometry is
+  sound - and its outcomes are not fully exclusive, so the beat's counters, not
+  it, are the first read.
+
+**How far the bug class extends, measured:** of 23 stubs in `legacy_stubs.inc`,
+exactly one had an out-parameter a live caller read unconditionally, and it is
+this one. `RtdSnapshot` also has out-parameters but returns false and its caller
+gates every read on that. The other 21 are void no-ops, as intended.
+
+### Still open, deliberately not fixed in this build
+
+- **The projection guard reads the wrong thing.** `HmDrawIntoEye` asks the
+  METHOD whether it wants a projection layer, not whether the RUNTIME submitted
+  one. It did not misfire on this run. Fixing it means adding an accessor to
+  `openxr_runtime.cpp`, the file this project keeps closest to the BioShock
+  copy, so it is not being done mid-diagnosis.
+- Hiding the game's arms once ours are visible should use the **proven
+  material-section hide on `Skm_Player`**, not `[VRHands] HideGameArms` - that
+  flag's upload-size filters also target weapons and carry static-geometry
+  heuristics, so it is not equivalent.
+
+### Next steps
+
+1. Read the new beat line. `ON-SCREEN=0` with `submitted>0` is a geometry fault
+   and the NDC box names the axis; `nonFinite>0` means the transform is still
+   producing NaN; healthy counters with a blank screen means arm the calibration
+   triangle.
+2. Then hide `Skm_Player` by material section for the floating-hands verdict.
+3. Floating weapons as a shipping lever (hide `Skm_Player`, default OFF, live
+   A/B); check the shadow and Blink's aim.
+
+## PREVIOUS (2026-09-06, session 19): VR-31 - our own hands are WIRED (unverified)
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open, so this PR takes
+`Ref VR-31`, not `Fixes VR-31`). Installed build carries the hand wiring.
+
+### The cycler is installed and has NEVER been run
+
+`alpha-305-g23ef0ae5` (the cycler commit) is the installed proxy - verified by
+reading the build tag out of the installed `d3d9.dll`. The newest log on disk is
+`alpha-304-ge1135d25`, the run that proved route (d) with the timed sweep. So
+**the walk needs no build; it needs a headset session.**
+
+The plan the cycler builds is deterministic and already on that log, so the
+recording sheet can be written now. Four positions, Numpad 3 stepping forward:
+
+| position | component | what the engine calls it |
+|---|---|---|
+| 1 | `Skm_Player` | the first-person body, section 0, LOD 0 |
+| 2 | `Wpn_PlySword01` | the sword |
+| 3 | `crossbow_01` | the crossbow |
+| 4 | `bolt_01` | the loaded bolt |
+
+Numpad 1 steps back, Numpad 2 restores everything. Each press logs its position
+and component, so the walk only needs the tester to say what vanished at each
+one.
+
+**One thing the census already settles, so the run is not spent on it:**
+`Skm_Player` is the ONLY component carrying first-person body geometry. Arms and
+hands cannot be on separate positions - there is nowhere else for them to be.
+The question the walk actually answers is position 1: do both arms AND both
+hands go, and do the weapons keep drawing? (ENGINE_NOTES, "What the cycler can
+still settle".)
+
+### Our own hands: the caller was the missing piece, and it is back
+
+`core/gfx/hand_mesh.cpp` has drawn nothing since 41.0. `HmRenderEye` and
+`HmEnsurePipeline` lost their only call site when the side-by-side pipeline was
+deleted (`cc2fa936`), so `[VRHands] Enabled=1` changed nothing on screen and
+logged nothing about it. Rebuilt this session:
+
+- a `HandDrawFn` seam beside `OverlayDrawFn` in `core/gfx/stereo.h`; the active
+  method calls it between the game image and the F10 panel, passing **the eye
+  tag of the pixels already in the target** (not the eye the next game draw
+  renders - one line apart in `reentry::end_frame`);
+- the pass's own D32 depth buffer, sized to the method's output and cleared per
+  draw. The painter's sort is gone; without a bound DSV the depth state is inert
+  and the back of a hand paints over its front;
+- **the frustum corrected to the projection layer's CLAIM** (the engine's
+  rendered hfov, derived the way the runtime derives its own half-angles)
+  instead of the headset's raw half-angles - 108.1 deg against the headset's
+  numbers on the last measured run, and a slide against the world that grows
+  with the gap;
+- a refusal on the mono screen that says which rung would work, because a silent
+  skip and broken hands look identical in a log;
+- a 3 s beat printing calls / draws / triangles that **names the reason for any
+  zero**, and `handModelTris` / `handModelWhy` in `status.json`.
+
+**Ships ON** (`[VRHands] Enabled=1`) for the test sessions - the same deliberate
+exception as `[Device] ShadowFullCopy` and `[Hands] BoneVisHide`, so a run shows
+the hands without anyone sending a seam word first; it reverts to OFF when the
+verdict is recorded. `vrhands on|off|status` is the live A/B.
+
+**`[VRHands] HideGameArms` ships OFF with it, on purpose.** It collapses the
+game's own view-model rigs by upload size (the 30.77 vs-const path) - a SECOND
+behavioural change in the same build as the first draw of ours, against the
+author's one-change-per-build rule. It also makes run 1 diagnostic instead of
+pass/fail: with the game's arms still drawn, they are the reference our hands
+are judged against. If our hands land right, that flag is the whole remaining
+step to floating hands.
+
+**UNVERIFIED - nothing here has been seen in a headset or on the simulator.**
+
+### Next steps
+
+1. Walk the cycler (4 positions above) and record position 1's answer.
+2. Run 1 of the hands: nothing to switch on. Read the beat line. Expect
+   the first run to need trim: `[VRHands] Scale`, the per-hand `PosX/Y/Z` and
+   `Yaw/Pitch/Roll`, all already in the ini, none of them exercised since 30.x.
+   The overlay panel for them was deleted in 31.5 and would have to come back if
+   trimming by ini proves too slow.
+3. Floating weapons as a shipping lever: hide `Skm_Player`, default OFF, live
+   A/B, and check what it does to the shadow and to Blink's aim.
+4. Routes (b) and (c) are not needed for either. (a) is closed.
+
+## PREVIOUS (2026-09-06, session 18): VR-31 - route (d) WORKS, floating weapons are in reach
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open, so this PR takes
+`Ref VR-31`, not `Fixes VR-31`). Installed build `alpha-305`.
+
+### PROVEN, headset-judged: ShowMaterialSection hides first-person geometry
+
+Four automatic steps, geometry disappeared and returned on each. **Route (d)
+works.** Full record in `ENGINE_NOTES.md`, "SOLVED: route (d) WORKS".
+
+The plan the engine's own `GetNumElements` produced:
+
+| step | component | sections |
+|---|---|---|
+| 1 | `Skm_Player` (the first-person body) | 1 |
+| 2 | `Wpn_PlySword01` | 1 |
+| 3 | `crossbow_01` | 1 |
+| 4 | `bolt_01` | 1 |
+
+**Every component has exactly ONE material section.** Route (d) therefore hides
+per COMPONENT, not per body part.
+
+- **This gives floating weapons now**: hide `Skm_Player`, and the sword,
+  crossbow and bolt keep drawing as separate components.
+- **It cannot give floating hands**: arms and hands share one section, so
+  hiding the arms hides the hands too. No finer material cut exists in the
+  asset, and none can be made from outside it.
+
+**The tester's per-step attribution is NOT yet established.** The recollection
+of which step removed which limb was approximate. The table above is the PLAN,
+not what was seen. The numpad cycler exists to settle it deliberately.
+
+### The cycler
+
+`[Hands] MatCycle=1`, ships ON. **Numpad 3** next, **Numpad 1** back,
+**Numpad 2** everything visible. Each press logs the component, section and LOD
+it hid. The hotkey only posts a request; every dispatch runs on the SCRIPT
+lane in `MatCycleTick`, because ProcessEvent from the present thread is the
+lane error this project has a rule about. The timed sweep (`[Hands] MatAuto`)
+is back OFF now the route is proven, so the two cannot fight.
+
+### Next: floating hands needs a different SOURCE for the hands
+
+Not a finer cut of the game's mesh - that split does not exist. The mod already
+has its own: `core/gfx/hand_mesh.cpp` draws hand geometry and the SkelControl
+drive already places hands from the controllers. Hide `Skm_Player`, draw our
+own hands. That is the BioShock shape reached from the opposite direction, and
+it also answers the powers requirement - our own hands can be shown for powers
+and hidden otherwise without touching the game's mesh at all. Untested.
+
+### Next steps
+
+1. Walk the cycler and write down which component is which limb, so the
+   attribution is measured instead of remembered.
+2. Floating weapons as a shipping lever: hide `Skm_Player`, default OFF, live
+   A/B, and check what it does to the shadow and to Blink's aim.
+3. Floating hands: `hand_mesh.cpp` + the SkelControl placement, with a
+   visibility policy that shows hands for powers.
+4. Routes (b) and (c) are not needed for either of the above. (a) is closed.
+
+## PREVIOUS (2026-09-06, session 18): VR-31 - route (a) closed, route (c) found
+
+Branch **`claude/vr-31-arm-hiding-floating-hands`**, now cut from
+**`claude/vr-30-decouple-arm-hand-movement`** (rebased 2026-09-06, session 18).
+Linear **VR-31** is In Progress.
+
+### The base, and what that means for the PR
+
+This branch **carries the VR-30 fix** and is safe to build and install from. It
+is based on the VR-30 branch, not on `VR-Main`, because VR-30 is still open in
+**PR #18**. So:
+
+- the PR body's first line is `Ref VR-31`, not `Fixes VR-31` - only the PR that
+  reaches `VR-Main` closes the ticket, and this one will not until #18 lands;
+- **PR #18 merges first.** After it does, this branch rebases onto `VR-Main` and
+  its PR retargets there.
+- The tester's ini carries `[Camera] ArmBodyFacing=1` (the VR-30 fix, on),
+  `ArmStripMeshRot=-1` and a leftover `BodyYawLock=-1` whose key no longer
+  exists in this code and is ignored.
+
+### VR-30 is DONE (2026-09-05, session 17)
+
+Headset-judged: head yaw leaves the arms and weapon alone, the right stick turns
+view and body together, both at once works. `FaceRotation` is virtual at vtable
+slot 252 (`0x00AB0D40`); the mod replaces the **Yaw it is asked for** with
+`view - our own injected head contribution` and lets the engine's own function
+run. Measured 3365 replacements, 0 stale, `perf: tick` unchanged at 11.3-11.8 ms
+against an 11.11 ms budget. Full record in `ENGINE_NOTES.md`, "SOLVED: VR-30".
+
+### VR-31: the question, and where the research already is
+
+**The deliverable is a verdict, not a feature**: floating hands via the
+bone-density trick, or floating weapons with hands only for the powers.
+
+**The 30.13 result is NOT missing.** Session 18 found it. The original author
+recorded it in a code comment in the state chunk beside the experiment
+(`src/mod/state/40_game_dishonored_hands_arms_hide.inc`, and in the original
+single file at `git show 824e08d8:src/dllmain.cpp` line 11119), which is why
+three passes over the corpus called it unrecorded:
+
+    30.14: the +0x288 byte poke was wrong - that array turned out to be some
+    per-bone animation control (arms froze to the view and rode the head).
+
+So the write was made, and it had a visible effect that was not hiding. The
+probable reason: `0xFF` is not a legal `BoneVisibilityStates` value, but it is
+exactly `SkelControlIndex`'s "no control on this bone", so 30.13 most likely
+attached the arm bones to SkelControl #2 rather than hiding them. That also
+weakens the existence proof route (a) rested on - the game may not be hiding
+`spine_3_jnt` at all, it may be pointing it at a controller. Full record in
+`ENGINE_NOTES.md`, "The 30.13 bone-visibility result was recorded all along".
+
+**What session 18 built instead of repeating it.** The offsets do not have to
+be guessed: this build ships UE3 reflection (`FindPropOffset` reads
+`UProperty::Offset` out of GObjects, as the crouch cylinder and the graft
+already do). `arms vis on|off|status|chain`, ini `[Hands] BoneVisHide`, **ships
+ON for the test sessions** (a deliberate exception to "every lever ships OFF",
+the same call as `[Device] ShadowFullCopy`, so a run prints the census without
+anyone sending a seam word; it reverts to OFF when the verdict is recorded):
+
+- asks the engine where `BoneVisibilityStates`, `SkelControlIndex` and
+  `RequiredBones` really live and prints all three against `0x288`, naming
+  which array 30.12 actually found;
+- writes `BVS_ExplicitlyHidden` into the arm chain at the offset the engine
+  named (never hands or fingers), saving and restoring the exact bytes;
+- refuses, with numbers, if the property does not exist, if the array is empty
+  (`num=0` - the engine never allocated it, which closes route (a) with a
+  reason and is the same fact 30.17 saw), or if its length is not the rig's
+  bone count;
+- runs a write-survival census every 2 s while on - `held` / `reverted` /
+  `other` - so "the write did not survive" and "the write survived and the
+  renderer ignores this array" stop looking identical in a headset.
+
+Route (b), the c6 bone palette (**x36 = sword, x144 = arms, x204 = NPC**,
+machinery in `src/legacy/rtd_drive.cpp`), is untouched and is where an all-held
+census sends the question next.
+
+### VERDICT (2026-09-06, runs 1-4): route (a) is CLOSED, and route (c) is new
+
+Four runs, all read-only, all with the arms staying visible - which was the
+correct result each time: the lever refused to write and said why.
+
+**Route (a), per-bone visibility, is closed on three independent instruments:**
+
+1. `BoneVisibilityStates` does not resolve on `SkeletalMeshComponent`
+   (`RequiredBones` resolved at `+0x23c` in the same call, so the resolver was
+   working and the `0` is a real absence);
+2. no `UProperty` of that name exists on **any** class in GObjects, so it is
+   not hiding on a subclass;
+3. of the five per-bone byte arrays on the rig, none has its values confined
+   to `0..2`, which is what a visibility array must look like.
+
+**`+0x288` is `SkelControlIndex`, measured.** 30.13 pointed the arm bones at
+SkelControl #2 rather than hiding them, which is exactly the symptom 30.14
+recorded. The existence proof route (a) rested on is gone with it: the game is
+not hiding `spine_3_jnt`, it is pointing that bone at a controller. And 30.17
+is consistent with it - `HideBoneByName` allocating nothing is what a missing
+array would produce - but the native's implementation was never inspected, so
+that is the likeliest reading and not a demonstrated cause.
+
+**Route (c) appeared in the same run.** `SkelControlIndex` on the arm chain:
+**8 of 10 bones read `255` (free)**, and the 2 that are taken are exactly the
+two collarbones, driven by controls **0** and **1**. One byte per bone, and the
+mod already drives SkelControls. What those two controls are is not yet known -
+the mod's own control enumeration was off this run (`[Hands] Enabled=0`), so
+naming them is one cheap run with the hand drive on.
+
+Full record, including the scan's element-size caveat, in `ENGINE_NOTES.md`,
+"VERDICT (2026-09-06, run 4)".
+
+### The three routes, as they now stand
+
+| route | state | cost | unknown |
+|---|---|---|---|
+| (a) per-bone visibility | **CLOSED**, three instruments | - | none, it is finished |
+| (b) c6 bone palette | **OPEN**, proven writable | the hottest D3D9 entry point | none material: x36 = sword, x144 = arms, x204 = NPC, machinery in `src/legacy/rtd_drive.cpp` |
+| (c) `SkelControlIndex` | **OPEN**, new | one byte per bone | what a free bone can be pointed AT - the index selects from the AnimTree's control lists |
+
+**The lever is back to default OFF** now the verdict is recorded. What is kept
+is the diagnostic that closed the route: `arms vis status` re-runs the whole of
+it on demand, `arms vis chain` prints the arm chain.
+
+### Next steps
+
+1. **The route decision is the user's**, and it is the real open question. (b)
+   is the safe one - proven writes, mesh separation already measured, and the
+   only doubt is frame cost on the D3D9 hot path. (c) is the cheap one and the
+   more interesting one, but it needs the AnimTree control list understood
+   before a single byte is written, and 30.13 is the standing warning about
+   pointing bones at a control somebody else owns.
+2. Either way, one cheap run with `[Hands] Enabled=1` names SkelControls 0 and
+   1 (and settles whether #2 is `LookAtControl_Camera`, which would close the
+   30.13 story completely).
+3. PR is not open yet. It takes `Ref VR-31`, not `Fixes VR-31`, while the base
+   is the VR-30 branch.
+
+### Session log
+
+**2026-09-06, session 19 (part 2)**: the cycler walk came back and matches the
+engine's plan exactly - arms+hands together, then sword, crossbow, bolt. VR-31's
+route (d) question is answered. The hands showed nothing despite healthy
+counters; review found `RtdBuildYPR` is a legacy-only symbol that resolves to an
+empty stub in every shipped build, so the hand transform ran on an uninitialised
+matrix. Replaced with a local `HmBuildYPR` (verified identity at zero and equal
+to Ry*Rx*Rz to 2.2e-16), separated `submitted` from `ON-SCREEN` in the beat,
+fixed the constant-0.5 depth, and added a calibration triangle as the fallback.
+Swept all 23 legacy stubs: exactly one was unsafe. Corrected an error in part 1's
+write-up - the stereo tagging claim was read off bring-up beats and gameplay is
+properly tagged.
+
+**2026-09-06, session 19**: no headset run. Established that the cycler build
+(`alpha-305-g23ef0ae5`) is the INSTALLED proxy and has never been run - the
+newest log on disk is `alpha-304`, the timed-sweep run - so the walk needs a
+session, not a build, and wrote the 4-position recording sheet from the census
+already on that log. Then found that `core/gfx/hand_mesh.cpp` has been dead code
+since 41.0: `HmRenderEye` and `HmEnsurePipeline` lost their only call site when
+the side-by-side pipeline was deleted in `cc2fa936`, so `[VRHands] Enabled=1`
+changed nothing and said nothing. Rebuilt the caller as a `HandDrawFn` on the
+stereo seam, gave the pass its own depth buffer, corrected its frustum to the
+projection layer's CLAIM rather than the headset's half-angles, made the mono
+screen refuse out loud, and added a beat that names the reason for a zero.
+Builds clean, lint clean, exports OK, installed Release. **Nothing verified** -
+no headset, no simulator run.
+
+**2026-09-06, session 18**: opened. Branch cut, VR-31 moved to In Progress,
+research located and extracted. Found that the 30.13 experiment's result was
+recorded after all and that `+0x288` is very likely `SkelControlIndex`, not
+`BoneVisibilityStates`; corrected two dead-end entries in `ENGINE_NOTES.md` and
+added the record. Built the reflection-resolved route (a) lever and its
+write-survival census, default off. Builds clean, lint clean, exports OK.
+Rebased onto the VR-30 branch and installed Release. **Four tester runs**:
+route (a) is closed on three instruments, `+0x288` is `SkelControlIndex` by
+measurement, this build has no `BoneVisibilityStates` anywhere, and the arm
+chain is 8-of-10 free in `SkelControlIndex` - which is route (c). Two of the
+four runs were spent on instrument preconditions I got wrong (the scan needs a
+live rig, and the candidate list does not exist unless the hand drive is on);
+both are recorded in ENGINE_NOTES so the next instrument does not repeat them.
+Lever back to default OFF, diagnostic kept behind `arms vis status`.
+
+**2026-09-05, session 17**: VR-30 solved and closed. PR #18 open against
+`VR-Main`, unmerged. Also filed **VR-52** (place the hands absolutely from the
+controllers) with the anchor bug and the acceptance direction recorded, since
+that is a separate problem from this one.
+
+## PREVIOUS (2026-09-05, session 17): VR-30 IS SOLVED - FaceRotation is the seam
 
 Branch **`claude/vr-30-decouple-arm-hand-movement`**, cut from `VR-Main`.
 

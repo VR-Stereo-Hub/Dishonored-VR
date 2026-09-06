@@ -111,6 +111,21 @@ static void StereoUpdate()
         puWas = pu; pdWas = pd;
     }
 
+    // VR-31 route (d): step through the hideable sections at a human pace.
+    // These only SET A REQUEST - every ShowMaterialSection dispatch happens on
+    // the script lane in MatCycleTick, because ProcessEvent does not belong on
+    // the present thread.
+    if (g_matCycleCfg) {
+        static bool n1Was = false, n2Was = false, n3Was = false;
+        const bool n1 = (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
+        const bool n2 = (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
+        const bool n3 = (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) != 0;
+        if (n1 && !n1Was) g_matCycleReq = -1;
+        if (n2 && !n2Was) g_matCycleReq =  2;
+        if (n3 && !n3Was) g_matCycleReq =  1;
+        n1Was = n1; n2Was = n2; n3Was = n3;
+    }
+
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
     (void)kCamRight; (void)kCamLoc0; (void)kCamLoc1; (void)kCamLoc2;
     (void)&FindLiveCamera; (void)&CamStillValid;
