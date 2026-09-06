@@ -20,10 +20,13 @@ static void WriteDefaultIni(const char* ini)
         "YawCountsPerDegree=11.5\n"
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
-        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). -0.090 is the\n"
-        "; value the 2026-09-03/04 headset runs were judged at (it was the code default and\n"
-        "; unwritten before); F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
-        "HeightOffsetM=-0.090\n"
+        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). +0.060 is\n"
+        "; headset-judged 2026-09-05, arrived at by ear across the arm-decoupling runs\n"
+        "; (-0.090 -> -0.050 -> +0.060 as the arms stopped moving and the scale settled).\n"
+        "; It pairs with [PosTrack] Scale=108 from the same session - eye height and world\n"
+        "; scale are judged together, so moving one alone will read as wrong.\n"
+        "; F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
+        "HeightOffsetM=0.060\n"
         "[Stereo]\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
@@ -57,6 +60,51 @@ static void WriteDefaultIni(const char* ini)
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
         "; the per-eye camera seam); none disables the write.\n"
         "EyeField=0x330\n"
+        "; ArmFollowWeight (VR-30): how hard the arms and weapon follow where you LOOK.\n"
+        "; -1 = off, the game's own value stands (ships). 0..1 forces it: 0 should stop the\n"
+        "; arms following the view entirely, 1 is the shipped behaviour written by us instead\n"
+        "; of by the engine (a control - if 1 looks stock, the write is landing).\n"
+        "; Measured 2026-09-05: the engine RECOMPUTES these weights every frame (they ride\n"
+        "; 0.982..1.000 and never leave it), so this is written on every script dispatch, the\n"
+        "; same cadence the FOV lever uses to outrun the same recompute. The game's own\n"
+        "; DishonoredCamera.ini m_fDefaultWeight was tried first and does nothing.\n"
+        "; This is ROTATION only; the position channel belongs to a separate ticket.\n"
+        "; `arms follow <0..1>` and `arms follow off` are the live A/B.\n"
+        "ArmFollowWeight=-1\n"
+        "; ArmDisableWeight (VR-30): the OTHER way at the same thing, and the better one.\n"
+        "; Rather than pasting a weight over the engine's recompute (which measured as a\n"
+        "; 1.000<->0.000 fight between dispatches, seen as the arms TRAILING the view), this\n"
+        "; forces the game's own DisableArmFollow influences, so the recompute derives an arm\n"
+        "; follow of 0 by itself and holds it. -1 = off (ships), 1 = full decoupling.\n"
+        "; m_Weight, m_TargetWeight and m_bActive are all written every dispatch, because the\n"
+        "; game pulls the target back to 0 about 60 ms after raising it on its own.\n"
+        "; `arms disable <0..1>` and `arms disable off` are the live A/B.\n"
+        "ArmDisableWeight=-1\n"
+        "; ArmLookAtStrength (VR-30): the YAW candidate. ArmDisableWeight above took the\n"
+        "; arms' VERTICAL follow and left the horizontal alone, and forcing the settings\n"
+        "; weights on top of it added nothing - so both of those act on one channel and\n"
+        "; neither reaches yaw. LookAtControl_Camera is the Arkane look-at that aims the\n"
+        "; arms at the view; 0 stops it. -1 = off (ships), 0..1 forces its ControlStrength.\n"
+        "; This one finds the node itself, so it works on a stock install - the mod's older\n"
+        "; [Hands] CameraLookAtStrength writes the same field but is dead behind the\n"
+        "; hand-mesh gate that [Mode] GamepadOnly=1 closes.\n"
+        "; `arms lookat <0..1>` and `arms lookat off` are the live A/B.\n"
+        "ArmLookAtStrength=-1\n"
+        "; ArmCounterYaw (VR-30): THE YAW LEVER, and it ships ON at 1.0.\n"
+        "; Reading the scripts end to end says there is no yaw driver for the arms at all -\n"
+        "; every arm/aim/look mechanism the game exposes is pitch-only or NPC-only. The arms\n"
+        "; yaw because the PAWN yaws: they are bones of its mesh, and the pawn's native\n"
+        "; FaceRotation sets its yaw from the controller every frame. There is nothing to\n"
+        "; switch off. So this SUBTRACTS instead: m_ArmFollowOffset_Rot_Primary/_Secondary\n"
+        "; are the game's own authored arm rotation offsets (Rotators, already scaled by a\n"
+        "; weight the engine respects), and they get a yaw equal and opposite to how far your\n"
+        "; head has turned since the reference. The arms then hold still in the world while\n"
+        "; the view turns, and attachments follow for free because the engine applies it.\n"
+        "; Stick turning moves the BODY yaw, not the head's, so it is untouched - the body\n"
+        "; comes round and the arms come with it, which is what you want.\n"
+        "; 1.0 = hold still, 0.5 = follow at half rate (tune by feel), 0 = write a zero offset\n"
+        "; as a control, -1 = off. `arms yaw <0..2>` and `arms yaw off` are the live A/B.\n"
+        "ArmCounterYaw=-1\n"
         "[Capture]\n"
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
@@ -253,7 +301,8 @@ static void WriteDefaultIni(const char* ini)
         "; how far it will follow.\n"
         "; If leaning LEFT moves the world the wrong way set FlipX=1.\n"
         "Enabled=1\n"
-        "Scale=98\n"
+        "; 108 uu/m: headset-judged 2026-09-05, tuned live with PgDn from 98 and kept.\n"
+        "Scale=108\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
         "[Neck]\n"
@@ -477,6 +526,38 @@ static void LoadConfig()
         GetPrivateProfileStringA("Camera", "EyeField", "0x330", ef, sizeof(ef), ini);
         dvr::camera::set_eye_field(ef);
     }
+    {   // VR-30: [Camera] ArmFollowWeight. -1 = off (ships). Read here rather
+        // than under [Hands] on purpose: the GamepadOnly block near the end of
+        // this function clears the hand switches, and this must survive it.
+        const float afw = IniFloat(ini, "Camera", "ArmFollowWeight", -1.0f);
+        if (afw > 1.0f)
+            Log("config: [Camera] ArmFollowWeight=%.2f is out of range (-1 = off, 0..1) - left OFF", afw);
+        else if (afw >= 0.0f)
+            ArmFollowSetForce(afw, "ini");
+        const float adw = IniFloat(ini, "Camera", "ArmDisableWeight", -1.0f);
+        if (adw > 1.0f)
+            Log("config: [Camera] ArmDisableWeight=%.2f is out of range (-1 = off, 0..1) - left OFF", adw);
+        else if (adw >= 0.0f)
+            ArmFollowSetInfluence(adw, "ini");
+        const float als = IniFloat(ini, "Camera", "ArmLookAtStrength", -1.0f);
+        if (als > 1.0f)
+            Log("config: [Camera] ArmLookAtStrength=%.2f is out of range (-1 = off, 0..1) - left OFF", als);
+        else if (als >= 0.0f)
+            ArmFollowSetLookAt(als, "ini");
+        // VR-30: the yaw lever. Ships ON at 1.0 - a deliberate exception to
+        // "every render lever ships OFF", made on the user's direction because
+        // the arms following the view is the fault the whole ticket is about.
+        const float acy = IniFloat(ini, "Camera", "ArmCounterYaw", -1.0f);
+        if (acy > 2.0f)
+            Log("config: [Camera] ArmCounterYaw=%.2f is out of range (-1 = off, 0..2) - left OFF", acy);
+        else if (acy >= 0.0f)
+            ArmFollowSetCounterYaw(acy, "ini");
+        // VR-30: the core fix - hold the body instead of correcting the arms
+        const float fac = IniFloat(ini, "Camera", "ArmBodyFacing", -1.0f);
+        if (fac >= 0.0f) ArmFollowSetFacing(fac, "ini");
+        const float asr = IniFloat(ini, "Camera", "ArmStripMeshRot", -1.0f);
+        if (asr >= 0.0f) ArmFollowSetStripRot(asr, "ini");
+    }
     {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
         // mode is refused with the reason and sync keeps running)
         char cm[16] = "";
@@ -576,7 +657,7 @@ static void LoadConfig()
     // its own UE3 build from three agreeing movement constants.
     // Corroborated by eye height: 78.1 uu above the pawn origin plus a typical
     // ~88 uu human collision half-height puts the eye at 1.66 m.
-    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 98.0f);
+    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 108.0f);
     if (g_posScaleUU < 1.0f)    g_posScaleUU = 1.0f;
     if (g_posScaleUU > 400.0f)  g_posScaleUU = 400.0f;
     g_roomScaleCfg = IniFloat(ini, "PosTrack", "RoomScale", 1) != 0.0f;  // 38.46
@@ -693,8 +774,22 @@ static void LoadConfig()
 
     // 30.77: our own VR hands
     {
+        // 41.2 (VR-31): back OFF. Its verdict is recorded - the renderer works
+        // (the uninitialised-matrix fix) and tracks the controllers - but the
+        // requirement moved to the game's OWN hands, because the powers animate
+        // them, and the built-in box primitives were a distraction on screen
+        // during the route (b) diagnosis. This is the FALLBACK now: `vrhands
+        // on`, and real art in vrhands\*.obj, if route (b) dead-ends.
         g_hmEnable   = IniFloat(ini, "VRHands", "Enabled", 0) != 0.0f;
-        g_hmHideGame = IniFloat(ini, "VRHands", "HideGameArms", 1) != 0.0f;
+        // HideGameArms ships OFF with it, and that is NOT an oversight. It
+        // collapses the game's own view-model rigs by upload size (30.77, the
+        // vs-const path) - a second behavioural change, in the same build as
+        // the first, and the author's own process rule is one per build. It
+        // also makes the first run diagnostic instead of pass/fail: with the
+        // game's arms still drawn, they are the reference our hands are judged
+        // against. If our hands land right, this flag is the whole remaining
+        // step to floating hands.
+        g_hmHideGame = IniFloat(ini, "VRHands", "HideGameArms", 0) != 0.0f;
         g_hmScale    = IniFloat(ini, "VRHands", "Scale", 1.0f);
         if (g_hmScale < 0.2f) g_hmScale = 0.2f;
         if (g_hmScale > 4.0f) g_hmScale = 4.0f;
@@ -703,6 +798,9 @@ static void LoadConfig()
         g_hmAuto = IniFloat(ini, "VRHands", "FollowEquipped", 1) != 0.0f;
         g_hmObjScale = IniFloat(ini, "VRHands", "ObjScale", 0.01f);
         g_hmHotReload = IniFloat(ini, "VRHands", "HotReload", 1) != 0.0f;
+        // 41.2 (VR-31): the fallback instrument, OFF. Only worth arming if the
+        // hands are still invisible once the beat says they are on-screen.
+        g_hmCalib = IniFloat(ini, "VRHands", "CalibTriangle", 0) != 0.0f;
         if (g_hmObjScale < 0.0001f) g_hmObjScale = 0.0001f;
         if (g_hmObjScale > 1.0f)    g_hmObjScale = 1.0f;
         g_hmHideStatic   = IniFloat(ini, "VRHands", "HideStaticParts", 1) != 0.0f;
@@ -995,6 +1093,84 @@ static void LoadConfig()
     if (g_sprintPulseMs < 60.0f)  g_sprintPulseMs = 60.0f;
     if (g_sprintPulseMs > 400.0f) g_sprintPulseMs = 400.0f;
     g_crouchHideCfg   = IniFloat(ini, "Hands", "CrouchHideArms", 1) != 0.0f; // 38.29
+    // VR-31 route (a). Back to OFF now the verdict is in: `arms vis status`
+    // runs the diagnostic on demand, and there is no array left to write to.
+    g_boneVisCfg      = IniFloat(ini, "Hands", "BoneVisHide", 0) != 0.0f;
+    // VR-31 route (d). Read-only census, ships ON: it costs one walk per run
+    // and it is what the route decision is waiting on.
+    g_matCensusCfg    = IniFloat(ini, "Hands", "MatCensus", 1) != 0.0f;
+    // VR-31 route (d): the automatic hide/restore A/B. Ships ON and undoes
+    // itself; MatAuto=0 leaves the census read-only.
+    g_matAutoCfg      = IniFloat(ini, "Hands", "MatAuto", 0) != 0.0f;
+    g_matCycleCfg     = IniFloat(ini, "Hands", "MatCycle", 1) != 0.0f;
+    // 41.2 (VR-31) route (b) step 1. ON for the test sessions: read-only until
+    // a numpad key is pressed, and a run that shows nothing is itself the
+    // answer. Reverts to OFF when the arm/hand split is settled.
+    g_dcOn            = IniFloat(ini, "Hands", "DrawCensus", 1) != 0.0f;
+    // VR-31 step 2: the arm/hand split derived from bone influence. ON by
+    // default and auto-arming, because the eyeballed slice mask it replaces was
+    // tuned on one hand and took too much of the other - a cut derived from the
+    // mesh's own skinning is per-arm by construction. It fails soft: a mesh it
+    // cannot read is drawn exactly as the game asked, and the log says why.
+    g_msOn            = IniFloat(ini, "Hands", "ArmSplit", 1) != 0.0f;
+    g_msAuto          = IniFloat(ini, "Hands", "ArmSplitAuto", 1) != 0.0f;
+    g_msMode          = (int)IniFloat(ini, "Hands", "ArmSplitMode", (float)MS_MODE_HANDS);
+    if (g_msMode < 0 || g_msMode >= MS_MODE_N) g_msMode = MS_MODE_HANDS;
+    // The measured shape of Corvo's first-person arm mesh. The auto-arm matches
+    // on it exactly, so a different asset is left alone; change these two if the
+    // log says the signature never matched.
+    g_msWantPrims     = (uint32_t)IniFloat(ini, "Hands", "ArmMeshPrims", 4448.0f);
+    g_msWantVerts     = (uint32_t)IniFloat(ini, "Hands", "ArmMeshVerts", 2771.0f);
+    // 0.70 is the tester's measured cut from the 2026-09-06 headset run. It is
+    // the SEED for the plane's starting position, not the cut itself.
+    g_msWristScale[1] = IniFloat(ini, "Hands", "WristScaleA", 0.70f);
+    g_msWristScale[2] = IniFloat(ini, "Hands", "WristScaleB", 0.70f);
+    // The cut is a PLANE across the forearm, not a sphere around the hand bone.
+    // The sphere moves in whole bones - a press changed nothing at all from
+    // scale 0.50 to 0.67, then flipped 156 triangles per arm at once - and its
+    // edge is the outline of a bone's influence region rather than a cut. A
+    // plane perpendicular to the forearm cuts it in a circle and moves smoothly.
+    g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
+    g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
+    g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
+    // 3 = CLIP the triangles that straddle the plane, which is the only rule
+    // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
+    // triangles and leave a sawtooth one triangle high - on the coarse cuff
+    // geometry that reads as spikes hanging off the wrist.
+    g_msEdge          = (int)IniFloat(ini, "Hands", "WristEdge", 3);
+    if (g_msEdge < 0 || g_msEdge > 3) g_msEdge = 3;
+    g_msStepMode      = (int)IniFloat(ini, "Hands", "WristStep", 1);
+    if (g_msStepMode < 0 || g_msStepMode > 2) g_msStepMode = 1;
+    // 0 = square to the forearm BONE, 1 = square to the longest direction of
+    // the arm's triangles. The bone is the anatomical answer and the default; a
+    // tapered sleeve can lean the triangle answer off it, and a ring square to
+    // the wrong one is slanted across the forearm.
+    g_msAxisMode      = (int)IniFloat(ini, "Hands", "WristAxis", 0);
+    if (g_msAxisMode < 0 || g_msAxisMode > 1) g_msAxisMode = 0;
+    // Where the ring sits, in mesh units from the hand bone, positive toward
+    // the fingers. -4.9 on both arms is the tester's MEASURED position from the
+    // 2026-09-06 headset run - the place the ring was left after walking it up
+    // and down the forearm with the knob, read straight off the `ms/wrist` line
+    // that press printed. It is not a derived number and not a guess, and it is
+    // asset-relative (a distance from the hand bone along the limb axis), so it
+    // survives a level load and does not depend on where the pawn is standing.
+    //
+    // The -1e9 sentinel still means "derive it", which places the ring where
+    // the seeded sphere was; that is what a user gets by deleting the key, and
+    // it is the escape hatch if a future asset makes -4.9 wrong.
+    for (int s = 1; s <= 2; s++) {
+        const float c = IniFloat(ini, "Hands", s == 1 ? "WristCutA" : "WristCutB",
+                                 -4.9f);
+        g_msCutSet[s] = (c > -1e8f) ? 1 : 0;
+        if (g_msCutSet[s]) g_msCutRel[s] = c;
+    }
+    for (int s = 1; s <= 2; s++) {
+        if (g_msWristScale[s] < 0.2f) g_msWristScale[s] = 0.2f;
+        if (g_msWristScale[s] > 5.0f) g_msWristScale[s] = 5.0f;
+    }
+    g_matStepMs       = IniFloat(ini, "Hands", "MatStepMs", 5000.0f);
+    if (g_matStepMs < 1500.0f)  g_matStepMs = 1500.0f;
+    if (g_matStepMs > 20000.0f) g_matStepMs = 20000.0f;
     g_crouchHideCyl   = IniFloat(ini, "Hands", "CrouchHideCyl", 76.0f);
     if (g_crouchHideCyl < 20.0f) g_crouchHideCyl = 20.0f;
     if (g_crouchHideCyl > 87.0f) g_crouchHideCyl = 87.0f;
@@ -1038,7 +1214,7 @@ static void LoadConfig()
         "scale %.0f uu/m)", g_skcDrive ? "ON" : "off", (int)g_skcLive,
         (int)g_skcWorld, (int)g_skcDoTrans, (int)g_skcDoRot, (int)g_skcAddMode,
         g_skcScaleUU);
-    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", -0.09f);
+    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", 0.06f);
     if (g_heightOffsetM < -1.5f) g_heightOffsetM = -1.5f;
     if (g_heightOffsetM >  1.5f) g_heightOffsetM =  1.5f;
     g_crouchOn     = IniFloat(ini, "Tracking", "PhysicalCrouch", 1) != 0.0f;
@@ -1343,6 +1519,36 @@ static void OverlaySaveDefaults()
     // headset was silently discarded on exit. Everything the panel can change
     // is written here now.
     WritePrivateProfileStringA("Hands", "Enabled", g_skcDrive ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "BoneVisHide", g_boneVisCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatCensus", g_matCensusCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatAuto", g_matAutoCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatCycle", g_matCycleCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "DrawCensus", g_dcOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "ArmSplit", g_msOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "ArmSplitAuto", g_msAuto ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_msMode);
+    WritePrivateProfileStringA("Hands", "ArmSplitMode", v, ini);
+    _snprintf(v, 64, "%u", g_msWantPrims);
+    WritePrivateProfileStringA("Hands", "ArmMeshPrims", v, ini);
+    _snprintf(v, 64, "%u", g_msWantVerts);
+    WritePrivateProfileStringA("Hands", "ArmMeshVerts", v, ini);
+    _snprintf(v, 64, "%.2f", g_msWristScale[1]);
+    WritePrivateProfileStringA("Hands", "WristScaleA", v, ini);
+    _snprintf(v, 64, "%.2f", g_msWristScale[2]);
+    WritePrivateProfileStringA("Hands", "WristScaleB", v, ini);
+    WritePrivateProfileStringA("Hands", "WristPlane", g_msPlane ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_msEdge);
+    WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
+    _snprintf(v, 64, "%d", g_msStepMode);
+    WritePrivateProfileStringA("Hands", "WristStep", v, ini);
+    _snprintf(v, 64, "%d", g_msAxisMode);
+    WritePrivateProfileStringA("Hands", "WristAxis", v, ini);
+    if (g_msCutSet[1]) { _snprintf(v, 64, "%.2f", g_msCutRel[1]);
+                         WritePrivateProfileStringA("Hands", "WristCutA", v, ini); }
+    if (g_msCutSet[2]) { _snprintf(v, 64, "%.2f", g_msCutRel[2]);
+                         WritePrivateProfileStringA("Hands", "WristCutB", v, ini); }
     WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);
@@ -1452,6 +1658,7 @@ static void OverlaySaveDefaults()
         } }
     WritePrivateProfileStringA("Overlay", "DevTools", g_ovlDev ? "1" : "0", ini);
     WritePrivateProfileStringA("VRHands", "Enabled", g_hmEnable ? "1" : "0", ini);
+    WritePrivateProfileStringA("VRHands", "CalibTriangle", g_hmCalib ? "1" : "0", ini);
     WritePrivateProfileStringA("VRHands", "HideGameArms", g_hmHideGame ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", g_hmScale);
     WritePrivateProfileStringA("VRHands", "Scale", v, ini);

@@ -15,6 +15,14 @@ permission. Single game, one branch: `VR-Main`.
 
 ## Hard rules
 
+- **NEVER MERGE TO `VR-Main` WITHOUT EXPLICIT PERMISSION.** Committing, pushing a feature
+  branch and opening a PR are all fine on your own judgement - none of them touch `VR-Main`.
+  **The merge is the gate**, and it is the one irreversible step. Ask, show exactly what is
+  about to land, and wait for a yes. A passing build is not permission. A finished feature is
+  not permission. **"This branch is good to go", "looks great", "nice work" and "close the
+  ticket" are NOT permission** - they are approval of the work, not of the merge; the only
+  thing that counts is the user saying to merge it. If in doubt, do not merge and ask.
+
 - **NEVER commit game-derived content**: no decompiled UnrealScript, no extracted assets, no
   frame dumps, captures or crash dumps. `tools/uscript/` and `*.png/*.bmp/*.dmp` are gitignored
   for a reason. Findings go to `docs/dishonored/ENGINE_NOTES.md`, never game code.
@@ -233,6 +241,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/TROUBLESHOOTING.md` | User-facing troubleshooting (ships in the zip) |
 | `docs/RELEASE_NOTES.md` | Per-version notes; 41.0 "Upgrading" lists every removed key |
 | `docs/dishonored/ENGINE_NOTES.md` | The reverse-engineering knowledge base: addresses with derivation, class layouts, hook points, the per-eye camera seam's write points, the head-coupling chronology, dead ends |
+| `docs/dishonored/ARM_HAND_SPLIT.md` | **The arm/hand split** (VR-31): how the hands are cut from the arms, the three cut shapes and why, the clip and the cap, every ini key and hotkey, how to read the log, the traps |
 | `docs/dishonored/TESTING.md` | Install/launch loop, flat and simulator checks, headset checklist, crash triage |
 | `docs/dishonored/XR_HANDOFF.md` | The pre-41.0 OpenXR/Quest presentation bug (historical; the pipeline it describes is gone) |
 | `docs/dishonored/HANDOFF-GINGASVR.md` | **The original author's handoff** (their build 39.4): what was measured, disproved, the traps, the process rules, the 39.x fixes our base lacks |

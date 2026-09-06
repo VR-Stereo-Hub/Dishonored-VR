@@ -27,6 +27,7 @@ question the simulator could answer is a wasted session.
 | Is the session live on the sim? | log + state.json | `xrsim-launch.ps1` | `xr: runtime "dvr-xrsim"`, `xr: pipeline READY`, `frame` advancing |
 | Is the mono screen in BOTH eyes? | capture | `xrsim-run.ps1 -Path tools\xrsim\mono.xrs` | `quadLayers >= 1`, `capNonBlackL/R >= 10` (the default head-locked quad is ~16% of a Quest 3 eye; its `src` reads ~97%), `stats.bboxL == bboxR` within the ~12 px eye parallax; a black eye is attributed in `xrsim.log` (COMPOSITOR vs APP fault) |
 | Are two eyes submitted? (stereo methods, S2) | capture | `xrsim-shot.ps1` -> `ProjViews`, `EyeSeparationM` | 2, ~0.063 |
+| Can the arms be hidden per bone? (VR-31 route a) | log | `game-cmd.ps1 "arms vis status"` for the offsets, `arms vis on` in gameplay, `arms vis chain` for the bone list, `arms vis off` for the A/B | `bonevis: reflection ... BoneVisibilityStates +0xNNN, SkelControlIndex +0xNNN, RequiredBones +0xNNN` names which array the 30.12 probe found at `0x288`. Then either a `REFUSED` line with its numbers (no such property / `num=0`, meaning the engine never allocated it / length is not the bone count) or `bonevis: ON`, followed every 2 s by `bonevis: census held=.. reverted=.. other=..`. **Read the census with the picture**: all held plus arms still on screen = the write survives and the renderer does not read this array (route (a) closed, go to route (b), the c6 palette); `reverted` climbing = the engine puts the bytes back and the write needs a later lane. **Answered 2026-09-06**: route (a) is closed, this build has no `BoneVisibilityStates` and `+0x288` is `SkelControlIndex` (8 of 10 arm bones free). Lever ships off; the diagnostic is kept because it is what closed the route. Note the scan matches any `TArray` whose `ArrayNum` is the bone count REGARDLESS of element size, so `+0x208`/`+0x214` show up as `SpaceBases`/`LocalAtoms` read sideways - judge the rows by the value range, not by their presence |
 | Which camera field does the renderer honour? | log | `game-cmd.ps1 "camera eyetest 100"` in gameplay, standing still | `camera/eyetest: <field> ... HONOURED|DISCARDED|INCONCLUSIVE`, then `DONE` with the field for `[Camera] EyeField` (ENGINE_NOTES, the per-eye camera seam) |
 | Are the two eyes paired? (S2) | log | `tools\eye-check.ps1` leg 0 | `stereo: beat ... L/s=N R/s=N`, both flowing and within 80% |
 | Does head rotation move the camera? | capture | `headlook.xrs` | `img-diff` of left eye at yaw 0 vs 35 rises well above the ~0.4 noise floor |
@@ -53,6 +54,20 @@ question the simulator could answer is a wasted session.
 | Are the eye tags on the right draws? (session 9) | log | the same line: `c5 |d| 6.17 uu, -6.17 along right: side ok` and `picture shift -N px` | `side ok` and a NEGATIVE shift (the right eye's content sits left of the left eye's) on every pair; `side SWAPPED` / a positive shift = the tags rode the other draw; `reentry: the tag ring skewed against the draws ... realigned` (Info) counts the ring's skews the invariant absorbed; `reentry c5pair off` is the A/B (expect the side to flip on its own within a minute) |
 | Which half of a remedy repairs the eyes? (session 9) | seam | `reentry rearm [n]` (n single ticks, the capture untouched), `capture reinit` (the slots rebuilt, the mode unchanged), `stereo projection off` then `auto` (the runtime's quad -> projection transition) | `gates -> SINGLE draw (rearm by request)` then `DOUBLE draw after n single tick(s)`; `capture: shared slots REBUILT by request`; `projection layer released` / `CLAIMED`; then the `frameid` line and the eyes |
 | Comfort, judder, world scale, warp | headset | F10 overlay + the user | the verdict; write it in STATUS |
+
+## VR-30: the yaw instruments (2026-09-05)
+
+| Intent | Tool | Command | How to read it |
+|---|---|---|---|
+| Is the yaw bookkeeping correct? | host test, no game | `tools/yawtest-host.ps1` | Seven cases sliced VERBATIM out of `head_track.cpp` and compiled against a `Log()` shim: head-only leaves the body alone, stick-only moves both equally, simultaneous keeps both, replays add nothing twice, five revolutions stay continuous, a new owner discards stale state, a pawn write is not subtracted twice. `HOST RESULT: PASS`. |
+| Same cases against the live build | seam | `game-cmd.ps1 "arms yawtest"` | Same seven lines in `dishonored_vr.log`. |
+| Where is head/stick yaw going? | log | `armfollow/yaw:` | head, controller, pawn and view yaw with per-second deltas, one coherent sample. **A /s that reads ~0 while you are moving that input is the finding.** It caught the stale controller and the 2.2% write-survival number. |
+| Is the body-facing intercept working? | log | `armfollow/facing:` | `asked -> faced (body target) | seen N ours N replaced N stale N`. `replaced` climbing with `stale` at 0 is healthy. `seen` > `ours` is other actors passing through, which is correct. |
+| Where does the engine face the body? | log, one shot | `armfollow/nfp:` | Resolves the FaceRotation UFunction, prints `.text` RVAs to disassemble offline, dumps the pawn vtable head, and counts ProcessEvent dispatches of FaceRotation. **A count that stays at 0 proves the route is native-to-native.** |
+| Does a write actually survive? | pattern | any write instrument | Read the field back at the *next* write and classify it ours / engine / third party. This is the measurement that settled VR-30 after ten attempts had not, and it belongs on any new engine write.
+
+**Gotcha 21**: `tools/ini-golden.py --check` needs a FILE argument. Without one
+the script regenerates the golden instead of checking it, and reports success.
 
 ## 2. The simulated runtime (`dvr_xrsim32.dll`)
 

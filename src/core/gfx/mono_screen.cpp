@@ -48,6 +48,13 @@ public:
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
             dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
+            // 41.2 (VR-31): the hand pass is CALLED here and expected to
+            // refuse - this rung's output is a head-locked quad and eye-frustum
+            // hands have no world to sit in. Calling it anyway is deliberate:
+            // the refusal names the rung on the log, where a silent skip would
+            // look identical to the hands being broken.
+            if (HandDrawFn hd = hand_draw())
+                hd(d.dev11, d.ctx11, rtv_, w, h, 0);
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
             drawnOnce_ = true;
             ++frames_;

@@ -418,3 +418,95 @@ is written). `core/util/paths.h` is the one place that knows this.
   the same snapshot the parked-session keepalive already re-submits. The counters
   `zeroLayerHeld`/`zeroLayerBlack` and a per-second `Warn` make the case visible either way,
   because a black frame a tester can see must not be a thing no line mentions.
+
+### 2026-09-05 - VR-30: change the request, not the result
+
+The arms follow the head because the engine faces the BODY to the view, and the
+arms are bones of the body. Ten attempts wrote a value the engine recomputes
+every tick from the controller - the one input the mod must modify for the
+player to look around - and none held. `BodyYawLock`, the last of them, was
+measured surviving **4 of 186 writes**.
+
+The choice made instead: **hook the engine's own body-facing operation and
+change the yaw it is ASKED for, rather than assigning the result afterwards.**
+`FaceRotation` is virtual at vtable slot 252; the intercept replaces its Yaw
+argument with `view - our own injected head contribution` and lets the engine's
+function run normally, so its dependent bookkeeping still happens.
+
+The general rule this is an instance of, and the one worth carrying to the next
+engine write: **when the engine recomputes a value every tick, do not race the
+recompute - change its input.** And measure write survival before tuning what a
+write contains; that instrument did not exist here until it settled VR-30 in one
+run.
+
+Identity for such a write comes from the event stream (`g_peCtrl`/`g_pePawn`),
+validated as a possession pair, never from a camera-pointer scan: the scan held
+the previous scene's controller for an entire gameplay window.
+
+### 2026-09-06 - VR-31: a renderer is not wired just because it compiles
+
+`core/gfx/hand_mesh.cpp` had been in the tree, in the config, in the ini and in
+the model auto-pick since 30.77, and had drawn nothing since 41.0: the pipeline
+that called it was deleted in `cc2fa936` and no caller replaced it. Nothing
+failed, nothing logged, and `[VRHands] Enabled=1` was a switch wired to nothing.
+
+Two decisions came out of rebuilding the caller.
+
+**The hand pass hangs off the stereo seam, not off the runtime layer.** It is a
+`HandDrawFn` registered exactly like `OverlayDrawFn`: the active method calls
+it between the game image and the F10 panel, with the target it just composited
+into and **the eye tag of the pixels already in that target**. The alternative -
+a second composition layer submitted by the runtime, the way the laser and the
+aim dot are - was rejected because the runtime layer is the file this project
+keeps as close to the BioShock copy as the D3D9 host allows, and hands are not
+a seam it already has. Drawing into the method's own output keeps the coupling
+on our side of the line and costs one callback.
+
+**A method that cannot show world content refuses, out loud.** On the mono
+screen the pass is still CALLED and declines with a line naming the rung, because
+a silent skip and broken hands look identical in a log. The quad is a picture at
+`[Screen] DistanceMeters`; eye-frustum hands would sit at a depth it does not
+have.
+
+The related correction: the hand pass's frustum now comes from the **projection
+layer's claim** (the engine's rendered hfov, derived the same way the runtime
+derives the layer's own half-angles) instead of the headset's raw half-angles.
+Composing overlay geometry through a different frustum than the layer claims is
+a slide against the world that grows with the disagreement, and the disagreement
+was 108.1 deg against the headset's own numbers on the last measured run.
+
+### The arm/hand split cuts geometry, and does it on the render thread (VR-31, 2026-09-06)
+
+Four routes to hiding the arms while keeping the hands were opened and three
+were closed on instruments - the per-bone visibility array, and two forms of
+hiding by material section. The arms and the hands are ONE skinned triangle
+list, drawn by one call with one material, so nothing the engine already
+exposes separates them. The decision is therefore to **cut the geometry
+ourselves**, which is a bigger commitment than any of the closed routes and was
+taken only after each of them had an instrument that could have said otherwise.
+
+**The classification is by BONE INFLUENCE, not by a range of the index list.**
+An eyeballed percentage mask worked on one arm and took too much of the other,
+and the reason is structural: the two arms occupy different, non-aligned regions
+of the one list, so no single set of ranges can be right for both. Bone
+influence is the mesh's own answer to "which arm, and hand or forearm", it is
+per-arm by construction, and it is exact rather than approximate.
+
+**The cut SHAPE went sphere -> plane -> clipped plane, each for a measured
+reason**, and each earlier shape is still one ini key away because a free
+fallback costs nothing. The sphere moves in whole bones; the plane moves
+continuously but leaves a sawtooth boundary one triangle high; clipping the
+straddling triangles makes the boundary the plane itself. Only the third is a
+circle.
+
+**Reading the game's buffers is validated, not trusted.** `D3DUSAGE_WRITEONLY`
+lets a driver return an uninitialised staging copy from a read lock, so every
+copy is checked against facts the data must satisfy and a failure refuses with
+the numbers rather than drawing a mesh carved out of noise. A mesh built from
+noise looks like a geometry bug, not like a read bug, and would have cost a
+session to diagnose.
+
+**All of it runs on the render thread inside the draw detour**, because that is
+the only place the right buffers are bound. The hotkeys post requests and
+nothing acts on them off-lane, which is the same lane discipline the rest of the
+mod uses for present-thread work.

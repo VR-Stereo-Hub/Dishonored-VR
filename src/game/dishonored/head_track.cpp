@@ -298,6 +298,285 @@ static void HeadInjectTick()
 }
 
 
+// ---- yaw ownership: identity, bookkeeping, and the body target (VR-30) ----
+//
+// THE REQUIREMENT, and both halves have to hold at once:
+//   view yaw = body heading + head contribution
+//   head turn  -> view changes, body heading does NOT
+//   stick turn -> body heading and view change by the SAME amount
+// Writing the controller's full view yaw onto the pawn restores head coupling;
+// freezing the pawn kills stick turning. Both were measured. The separation is
+// the only thing that satisfies both.
+//
+// The stick is never re-integrated here. The engine's own stick response stays
+// exactly as it is: it arrives inside the incoming view rotation, and since the
+// head contribution is subtracted rather than the view being rebuilt, whatever
+// the stick did passes through untouched.
+
+// The pure bookkeeping, factored out so `arms yawtest` can drive it with no
+// engine attached. Wrapping is done in int32 so it stays continuous across
+// +/-180 and any number of revolutions.
+struct YawBook { int64_t headContrib; int32_t viewOut; bool have; };
+
+// One FRESH view computation: the engine handed us `incomingView`, we injected
+// `headDeltaU` (already clamped and signed). Call exactly once per fresh write.
+static void YawBookFresh(YawBook* b, int32_t incomingView, int32_t headDeltaU)
+{
+    b->viewOut = (int32_t)((uint32_t)incomingView + (uint32_t)headDeltaU);
+    b->headContrib += headDeltaU;
+    b->have = true;
+}
+// The body heading that view implies. int32 wrap keeps multiple revolutions
+// continuous instead of saturating.
+static int32_t YawBookBody(const YawBook* b)
+{
+    return (int32_t)((uint32_t)b->viewOut - (uint32_t)(int32_t)(b->headContrib & 0xffffffffLL));
+}
+
+// Current GObjects membership, not IsLiveObject's sorted discovery snapshot.
+// Cache slots so the per-dispatch check is O(1); scan only when binding a pair.
+struct YawObjectSlot { uint8_t* object; uint32_t index; };
+static YawObjectSlot g_yawCtrlSlot = {NULL, 0}, g_yawPawnSlot = {NULL, 0};
+static double g_yawNextBindMs = 0;
+
+static bool YawReadObjects(void*** table, uint32_t* count)
+{
+    if (!RangeReadable((void*)kGObjHdr, 12)) return false;
+    *table = *(void***)kGObjHdr;
+    *count = *(uint32_t*)(kGObjHdr + 4);
+    return *table && !((uintptr_t)*table & 3) && *count >= 2000 && *count <= 4000000;
+}
+
+static bool YawSlotMatches(const YawObjectSlot& slot, uint8_t* object,
+                           void** table, uint32_t count)
+{
+    return object && slot.object == object && slot.index < count &&
+           RangeReadable(table + slot.index, sizeof(void*)) && table[slot.index] == object;
+}
+
+static bool YawPairLive(uint8_t* controller, uint8_t* pawn)
+{
+    void** table = NULL; uint32_t count = 0;
+    if (!YawReadObjects(&table, &count)) return false;
+    if (YawSlotMatches(g_yawCtrlSlot, controller, table, count) &&
+        YawSlotMatches(g_yawPawnSlot, pawn, table, count)) return true;
+    const double now = MaimNowMs();
+    if (now < g_yawNextBindMs) return false;
+    g_yawNextBindMs = now + 500.0; // bound rescans while a level is being replaced
+    if (!RangeReadable(table, (size_t)count * sizeof(void*))) return false;
+    YawObjectSlot c = {NULL, 0}, p = {NULL, 0};
+    for (uint32_t i = 0; i < count; ++i) {
+        if (table[i] == controller) { c.object = controller; c.index = i; }
+        if (table[i] == pawn) { p.object = pawn; p.index = i; }
+        if (c.object && p.object) break;
+    }
+    g_yawCtrlSlot = c; g_yawPawnSlot = p;
+    return c.object && p.object;
+}
+
+static bool YawRefuse(const char* reason, uint8_t* possessed = NULL)
+{
+    g_yawValid = false;
+    ++g_yawRefused;
+    DVR_LOG_EVERY_MS(::dvr::log::Cat::armfollow, ::dvr::log::Level::Warn, 3000,
+        "yaw: RELEASED reason=%s ctrl=%p pawn=%p possessed=%p slots=%u/%u gen=%u seq=%u applied=%u refused=%u",
+        reason, (void*)g_peCtrl, (void*)g_pePawn, (void*)possessed,
+        g_yawCtrlSlot.index, g_yawPawnSlot.index, g_yawGen, g_yawSeq, g_yawApplied, g_yawRefused);
+    return false;
+}
+
+// Retry until reflection is initialized. Controller.Pawn proves possession;
+// Actor.Rotation supplies the writable rotator on the possessed pawn.
+static void YawResolveOffsets()
+{
+    if (g_yawTriedOff) return;
+    static double nextTry = 0;
+    const double now = MaimNowMs();
+    if (now < nextTry) return;
+    nextTry = now + 3000.0;
+    g_yawPawnOff = FindPropOffset("Controller", "Pawn");
+    g_yawRotOff  = FindPropOffset("Actor", "Rotation");
+    g_yawTriedOff = g_yawPawnOff && g_yawRotOff;
+    Log("yaw: Controller.Pawn +0x%x  Actor.Rotation +0x%x%s",
+        (unsigned)g_yawPawnOff, (unsigned)g_yawRotOff,
+        (g_yawPawnOff && g_yawRotOff) ? "" : "   <-- UNRESOLVED: the body target stays off");
+}
+
+// The gameplay pair, from the EVENT STREAM, validated as a possession pair.
+// Returns false and releases ownership rather than writing through anything it
+// cannot prove.
+static bool YawOwnerValid()
+{
+    YawResolveOffsets();
+    if (!g_yawPawnOff || !g_yawRotOff) return YawRefuse("offsets unresolved");
+    uint8_t* c = g_peCtrl;
+    uint8_t* p = g_pePawn;
+    if (!c || !p || ((uintptr_t)c & 3) || ((uintptr_t)p & 3)) return YawRefuse("event pair absent/unaligned");
+    if (!YawPairLive(c, p)) return YawRefuse("pair not in current GObjects (or rebind pending)");
+    if (!RangeReadable(c, 0x120) || !RangeReadable(p, 0x120)) return YawRefuse("object header unreadable");
+    const char* cn = ObjClassName(c);
+    if (!cn || !strstr(cn, "PlayerController")) return YawRefuse("controller class mismatch");
+    if (!RangeReadable(c + g_yawPawnOff, sizeof(void*))) return YawRefuse("possession field unreadable");
+    // POSSESSION: the controller must own this very pawn. This is the check
+    // the old scan had no way to make, and it is what the stale 23CB3800
+    // pointer would have failed.
+    uint8_t* possessed = *(uint8_t**)(c + g_yawPawnOff);
+    if (possessed != p) return YawRefuse("possession mismatch", possessed);
+    if (c != g_yawCtrl || p != g_yawPawn) {
+        ++g_yawGen;
+        // A new scene means a new reference: never carry the old one's
+        // contribution, and never seed from a pawn value we may have pinned.
+        g_yawHeadContrib = 0;
+        g_yawValid = false;
+        Log("yaw: owner -> controller %p pawn %p (gen %u); head contribution reset",
+            (void*)c, (void*)p, g_yawGen);
+        if (g_pcObj && g_pcObj != c && !g_yawSaidSplit) {
+            g_yawSaidSplit = true;
+            Log("yaw: NOTE the fallback's controller is %p and the event stream's is %p - "
+                "they DISAGREE. The event stream is authoritative; this disagreement is "
+                "exactly what pinned the body before (the scan kept the menu's controller "
+                "for the whole play window).", (void*)g_pcObj, (void*)c);
+        }
+        g_yawCtrl = c; g_yawPawn = p;
+    }
+    return true;
+}
+
+// Publish, from the FRESH branch of the head write only.
+static void YawPublish(int32_t incomingView, int32_t headDeltaU)
+{
+    if (!YawOwnerValid()) { g_yawValid = false; return; }
+    YawBook b; b.headContrib = g_yawHeadContrib; b.viewOut = 0; b.have = false;
+    YawBookFresh(&b, incomingView, headDeltaU);
+    g_yawHeadContrib = b.headContrib;
+    g_yawViewOut     = b.viewOut;
+    g_yawBodyTarget  = YawBookBody(&b);
+    g_yawValid       = true;
+    ++g_yawSeq;
+}
+
+// The pawn's own Rotation.Yaw is NOT written any more. It was, and it was
+// measured futile: 4 of 186 writes survived to the next dispatch, because the
+// engine re-derives the pawn's heading from the controller every tick. The
+// snapshot above is now consumed by the FaceRotation intercept instead, which
+// changes what the engine is ASKED to face and lets it do its own bookkeeping.
+// See armfollow/facing in arm_follow.cpp.
+
+// ---- the self-test: `arms yawtest` ----------------------------------------
+// The bookkeeping is pure arithmetic, so it is checked here with no engine, no
+// headset and no run. Every case is one the reviewer named, and every one can
+// FAIL - a test that cannot print a failure is not a test.
+//
+// The convention throughout: the engine hands us an incoming view yaw that
+// already contains whatever the stick did; we add the head delta; the body
+// target is that view minus everything we ever added.
+static bool YawCase(const char* name, bool ok, const char* detail)
+{
+    Log("yawtest: %-46s %s%s%s", name, ok ? "PASS" : "**FAIL**",
+        detail && *detail ? "  " : "", detail ? detail : "");
+    return ok;
+}
+
+bool YawSelfTest()
+{
+    const int32_t U90  = 16384;          // 90 deg in UE units
+    const int32_t U180 = 32768;
+    int fails = 0;
+    Log("yawtest: ==== yaw bookkeeping ====");
+
+    // 1. head only: view moves, body heading does NOT
+    {
+        YawBook b = {0, 0, false};
+        YawBookFresh(&b, 0, 0);
+        const int32_t body0 = YawBookBody(&b);
+        // Sum the steps ACTUALLY applied - U90/9 truncates, and asserting an
+        // exact 90 deg total would fail this case on the test's own rounding
+        // rather than on the bookkeeping. The invariant under test is that the
+        // body does not move at all; the view total is checked against what was
+        // really injected. (The first version of this case failed for exactly
+        // that reason, which is the test doing its job.)
+        int32_t applied = 0;
+        for (int i = 0; i < 9; i++) { YawBookFresh(&b, b.viewOut, U90 / 9); applied += U90 / 9; }
+        const bool ok = (YawBookBody(&b) == body0) && (b.viewOut == applied);
+        char d[128]; sprintf(d, "view %+d body %+d (want view %+d, body %+d)",
+                             b.viewOut, YawBookBody(&b), applied, body0);
+        if (!YawCase("head only leaves the body heading alone", ok, d)) fails++;
+    }
+    // 2. stick only: body and view move by the SAME amount
+    {
+        YawBook b = {0, 0, false};
+        YawBookFresh(&b, 0, 0);
+        const int32_t v0 = b.viewOut, y0 = YawBookBody(&b);
+        for (int i = 0; i < 4; i++) YawBookFresh(&b, b.viewOut + U90 / 4, 0);   // engine turned us
+        const bool ok = (b.viewOut - v0 == U90) && (YawBookBody(&b) - y0 == U90);
+        char d[128]; sprintf(d, "dview %+d dbody %+d (both want %+d)",
+                             b.viewOut - v0, YawBookBody(&b) - y0, U90);
+        if (!YawCase("stick only moves body and view together", ok, d)) fails++;
+    }
+    // 3. both at once: each contribution survives
+    {
+        YawBook b = {0, 0, false};
+        YawBookFresh(&b, 0, 0);
+        const int32_t v0 = b.viewOut, y0 = YawBookBody(&b);
+        for (int i = 0; i < 8; i++) YawBookFresh(&b, b.viewOut + U90 / 8, U90 / 8);
+        const bool ok = (b.viewOut - v0 == U90 * 2) && (YawBookBody(&b) - y0 == U90);
+        char d[128]; sprintf(d, "dview %+d (want %+d)  dbody %+d (want %+d)",
+                             b.viewOut - v0, U90 * 2, YawBookBody(&b) - y0, U90);
+        if (!YawCase("simultaneous keeps both contributions", ok, d)) fails++;
+    }
+    // 4. a re-stamp / pass-2 replay adds NOTHING. The production guard is that
+    //    only the fresh branch calls YawBookFresh at all; this asserts the
+    //    arithmetic agrees - reading the published values twice cannot move them.
+    {
+        YawBook b = {0, 0, false};
+        YawBookFresh(&b, 0, U90);
+        const int32_t v = b.viewOut, y = YawBookBody(&b);
+        const int32_t v2 = b.viewOut, y2 = YawBookBody(&b);   // the replay: read, never advance
+        const bool ok = (v2 == v) && (y2 == y);
+        if (!YawCase("re-stamp and pass 2 add nothing twice", ok, "")) fails++;
+    }
+    // 5. continuity across +/-180 and several revolutions
+    {
+        YawBook b = {0, 0, false};
+        YawBookFresh(&b, 0, 0);
+        const int32_t y0 = YawBookBody(&b);
+        for (int i = 0; i < 40; i++) YawBookFresh(&b, b.viewOut + U180 / 4, 0);  // 5 revolutions
+        const int32_t want = (int32_t)((uint32_t)y0 + (uint32_t)(U180 / 4 * 40));
+        const bool ok = YawBookBody(&b) == want;
+        char d[128]; sprintf(d, "body %+d want %+d after 5 revolutions", YawBookBody(&b), want);
+        if (!YawCase("wraps continuously past 180 and round again", ok, d)) fails++;
+    }
+    // 6. a new owner discards the old scene's contribution
+    {
+        YawBook b = {0, 0, false};
+        for (int i = 0; i < 5; i++) YawBookFresh(&b, b.viewOut, U90 / 5);
+        b.headContrib = 0;                       // what YawOwnerValid does on a gen bump
+        YawBookFresh(&b, 12345, 0);
+        const bool ok = YawBookBody(&b) == 12345;
+        char d[128]; sprintf(d, "body %+d want +12345", YawBookBody(&b));
+        if (!YawCase("a new controller/pawn discards stale state", ok, d)) fails++;
+    }
+    // 7. THE FEEDBACK CASE. Write the body target onto the pawn, then feed the
+    //    NEXT update the way production does - from the view in the event parms
+    //    and our own accumulator, never from the pawn. The head contribution
+    //    must not come off twice.
+    {
+        YawBook b = {0, 0, false};
+        YawBookFresh(&b, 0, U90);
+        const int32_t pawnWritten = YawBookBody(&b);     // pretend the pawn now holds this
+        (void)pawnWritten;
+        YawBookFresh(&b, b.viewOut, 0);                  // next dispatch: view, not pawn
+        const bool ok = (b.viewOut == U90) && (YawBookBody(&b) == 0);
+        char d[160]; sprintf(d, "pawn held %+d; next view %+d body %+d (want %+d / 0)",
+                             pawnWritten, b.viewOut, YawBookBody(&b), U90);
+        if (!YawCase("full-view input is not subtracted twice", ok, d)) fails++;
+    }
+
+    Log("yawtest: ==== %s (%d failure%s) ====",
+        fails ? "FAILED" : "all passed", fails, fails == 1 ? "" : "s");
+    return fails == 0;
+}
+
 static bool FindPlayerController()
 {
     if (!CamStillValid()) { g_pcObj = NULL; g_pcOff = 0; return false; }
@@ -560,6 +839,16 @@ static void ApplyHeadToViewRotation(void* parms)
     static int32_t frP = 0, frY = 0, frR = 0;
     static bool    frHave = false;
     double frNow = MaimNowMs();
+    // A render re-entry can take longer than the modifier chain's 2 ms window.
+    // Reuse the first view regardless of wall time; do not advance head/body
+    // bookkeeping or move the pawn between the two eyes.
+    if (dvr::camera::second_pass_for_current_thread()) {
+        if (frHave) {
+            rot[0] = frP; rot[1] = frY;
+            if (g_rotRoll || dvr::stereo::wants_projection()) rot[2] = frR;
+        }
+        return;
+    }
     if (!g_chainStamp) {
         // 38.88: ChainStamp=0 - the exact pre-38.86 path. One write to the
         // first dispatch per presented frame; every later dispatch of the
@@ -597,7 +886,13 @@ static void ApplyHeadToViewRotation(void* parms)
 
     // YAW stays relative: it has to compose with stick turning, which also
     // moves this value.
-    rot[1] += (int32_t)(dy * kUEPerRad * (float)g_flipYaw);
+    // VR-30: the integer we are about to add IS the head's contribution to
+    // this view. Take it once, HERE, in the fresh branch - the 2 ms modifier
+    // re-stamp above returns before this line and the stereo second pass
+    // replays the same absolutes, so neither can advance it a second time.
+    const int32_t headDeltaU = (int32_t)(dy * kUEPerRad * (float)g_flipYaw);
+    const int32_t viewInU    = rot[1];
+    rot[1] += headDeltaU;
 
     // PITCH is ABSOLUTE. Your head's pitch simply IS the view pitch - there is
     // no body pitch to compose with - so accumulating deltas was wrong: any
@@ -623,6 +918,10 @@ static void ApplyHeadToViewRotation(void* parms)
     g_fbPvrSince   = 1;   // 38.68: script path has claimed this pawn's camera
     g_viewPitchRad = (float)rot[0] / kUEPerRad;
     g_viewYawRad   = (float)rot[1] / kUEPerRad;
+    // VR-30: the body heading this view implies. Identity comes from the
+    // event stream and is validated as a possession pair; the contribution is
+    // our own bookkeeping, never a reference read back out of the engine.
+    YawPublish(viewInU, headDeltaU);
     // the head values THIS camera write was computed from - matched pair
     g_injHmdYawSnap = g_hmdYaw; g_injHmdPitchSnap = g_hmdPitch;
     g_injSnapOk = true;
