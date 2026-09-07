@@ -776,7 +776,13 @@ Comfort), and WORLD SCALE and eye height at `[PosTrack] Scale=98` / `HeightOffse
 open call that is yours, not a bug: whether `HoldUntagged` should stay at 3 - judged good on one
 rig, and `stereo hold 0` is the A/B.
 
-**The next developer session**: the wrist anchor is the natural follow-on and it needs the hands
+**The next developer session**: two leads from the headset run 47-04 first. (1) The new AV at
+`Dishonored.exe+0xaf6a73` (reading address 1, thread "other", state NO_PAWN) appeared on the
+one build that kept the projection through in-game menus; that build is reverted - if the EIP
+recurs on the shipped build it is a separate lead, if it does not the menu change owned it.
+(2) The tester reported intermittent stereo flicker on that build; the same run had the render
+falling back to 2560x1440 fullscreen exclusive and the menu change live, both now fixed - judge
+again before opening a ticket. Then: the wrist anchor is the natural follow-on and it needs the hands
 (`[Mode] GamepadOnly=0`, `hands`/SkelControl on the winning method); `hud_panel.cpp`'s billboard
 math is quoted in ENGINE_NOTES for it. Then: the letterbox bars during a cutscene were never
 measured (no cutscene was reachable on the simulator lane this session) - run `draws on` through
@@ -1066,6 +1072,7 @@ Branch `claude/dishonored-vr-hud-cinematics-149a8e` -> PR into `VR-Main`. Runs o
 | 03 | the panel, first build | the quad reaches the compositor (`xr: HUD quad live 1248x1344`) but holds the whole frame; read fences spun every present (`31767 waits, 1033 timeouts` - a D3D11 event query needs a Flush, and a 10 ms budget cannot be measured with GetTickCount) |
 | 04 | `dump hud` + the unconditional clear | the panel texture IS the frame; with `draws kill hud` armed the panel is EMPTY - so a redirected draw was painting the world. It is the scene resolve, the one opaque draw in the population |
 | 05 | the blend term | 14.0 draws/present redirected; the panel texture holds the indicator and the reticle and nothing else; the world intact with no HUD in it; fences 0 timeouts; `reentry.xrs` 11/11; `perf: tick 11.1 ms (90/s)`, pace-bound, unchanged |
+| 47-04 | **HEADSET (the user)**, build 201 with in-game menus on the panel | navigating the pause menu broke VR; a NEW AV in game code (`Dishonored.exe+0xaf6a73`, state NO_PAWN, never logged before); `res: NOT HONOURED` - the mod ini had been hand-edited to 2750x2850 while the launch file and both game inis still said 2496x2688, so the game fell back to 2560x1440 FULLSCREEN, which is what read as "the resolution reset". Menus-on-panel REVERTED; the size re-armed in all four places with `arm-res.ps1 2496x2688`; verified `res: HONOURED`, panel armed, pause menu on the screen as before, 0 exceptions, `reentry.xrs` 11/11 (run 47-05) |
 | 06 | the cutscene policy | `hud-panel.xrs` 20/20 and `cine-latch.xrs` 24/24: quad mode drops to one head-locked quad (`projectionViews 0`), stereo mode holds two projection views through the same latch |
 
 This ran in parallel with the flicker branch below and merged after it; the two touch different files.

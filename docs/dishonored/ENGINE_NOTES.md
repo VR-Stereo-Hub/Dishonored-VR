@@ -2311,6 +2311,16 @@ colour. Worth fixing; do not read a colour verdict off a dump until it is.
 
 ## Dead ends (do not re-hunt)
 
+- **In-game menus on the HUD panel with the projection kept** (2026-09-07, reverted the same
+  night). It worked on the simulator - the pause menu is the same draw class as the HUD, the
+  camera upload keeps flowing while paused so the re-entry kept doubling (`L/s=60 R/s=60 mono/s=0`
+  with the menu open), and the paused world stayed a live stereo pair behind the menu. The headset
+  said otherwise: navigating the menu broke VR, and the run carried a NEW access violation in game
+  code, `Dishonored.exe+0xaf6a73` reading address 1 on thread "other", in state NO_PAWN, an EIP no
+  earlier log has ever shown (`47-run04-HEADSET-*.log`). Two facts stay useful: a paused menu drops
+  the gameplay verdict on `viewLive`, not on the menu flags; and the camera upload continues
+  while paused. The menu stays on the screen, as before.
+
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.
 - Mouse-count head injection: swims, lags, no roll.
 - "Any constant upload of 9+ registers is a bone palette" is false; writing into them corrupts
