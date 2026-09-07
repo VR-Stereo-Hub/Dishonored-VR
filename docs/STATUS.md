@@ -1,6 +1,66 @@
 # Status
 
-## CURRENT (2026-09-06): VR-33 - hands and weapons where the controllers are
+## CURRENT (2026-09-07): VR-33 - the SkelControl lane is closed, the palette route is next
+
+### Where this branch is
+
+The arm/hand split is healthy and confirmed in the headset: hands cut at the
+wrist, arms hidden, caps present, cap colour approved, ring at the measured
+-4.9. Two PRs are open and unmerged - #19 (VR-31, the split) and #20 (VR-53 and
+VR-51, the desktop mirror eye pin and the pause-menu session loss).
+
+**VR-33's native route is closed.** Zero of 64 SkelControl objects advance
+their `ControlTickTag` over repeated one-second samples, so no control on any
+component is being evaluated and a write to one cannot move anything. See
+ENGINE_NOTES, "SkelControls are NOT evaluated on this build". That also retires
+the 38.x "9,000 writes a second outrun the recompute" reading - no race was
+being lost.
+
+### What IS established, and is worth keeping
+
+* `handAttachment_L/R_jnt` are children of `hand_L/R_jnt`, from validated
+  engine parent walks. If anything ever does move a hand joint, the weapon
+  attachment is beneath it.
+* The camera is on the spine/head branch; the two arms meet only at `Root_jnt`.
+  A per-side edit at or below a hand cannot disturb the view or the other hand.
+* Skeleton indices are NOT palette slots: `hand_L_jnt` is 54 and
+  `handAttachment_L_jnt` 56, against a 48-entry palette.
+* The arm mesh's declaration uses streams 0 and 1; a stale stream-2 binding was
+  what kept costing the wrist caps. Bound is not used.
+* Full bone table, class Super offset (+0x44), socket table with parent bones,
+  and the control field offsets - all in ENGINE_NOTES.
+
+### The next step
+
+**The draw-scoped palette backend, hands only.** Build a private palette per
+hand by applying one common rigid delta D to every skinning matrix that draw
+consumes, and draw each hand under its own palette. Finger animation survives
+because `sum_i w_i (D M_i) v = D (sum_i w_i M_i v)`, so this is not a static
+hand. The two hand classes already have independent index ranges in `MsDraw`,
+which is where it goes.
+
+Its honest cost: it moves pixels only. Weapons, muzzle effects and firing aim
+stay on the engine's transform, which a GPU edit does not touch, so the weapon
+half of VR-33 needs a separate mechanism. The tester has already accepted that
+the crosshair can be faked separately.
+
+Before committing to it, one cheap check would close the native door properly:
+run the tick scan once with `[Hands] Enabled=1` and `GamepadOnly=0`, since
+every measurement so far was taken with the mod's hand subsystem disabled.
+
+### Traps this session paid for
+
+* A too-narrow grep produced two confident false claims ("the codebase has
+  never called a UE3 function", "g_peReentry is read nowhere"). Both were
+  wrong; grep the tree, not one file.
+* An instrument that cannot fail its own hypothesis is worse than none: a
+  function-local `static` made a false negative read as a measurement, and a
+  walk that printed ROOT for three different endings made a broken chain look
+  complete.
+* The GObjects-wide tick scan is heavy enough to be felt in the headset. It
+  ships OFF and should stay off.
+
+## PREVIOUS (2026-09-06): VR-33 - hands and weapons where the controllers are
 
 This is the working branch for VR-33 and it is the CONTINUATION OF BOTH open
 PRs: the arm/hand split (VR-31, PR #19) and the desktop mirror eye pin plus the
