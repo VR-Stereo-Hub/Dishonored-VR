@@ -445,8 +445,14 @@ static void BqItems(uint8_t* pawnMesh)
             if (ad && !((uintptr_t)ad & 3) && an > 0 && an <= 256 && ac >= an &&
                 RangeReadable(ad, (size_t)an * 64)) {
                 int hit = -1;
-                // Derive the stride: find our pointer, then require the FName
-                // just past it to be a bone this parent actually has.
+                // THIS DOES NOT DERIVE A STRIDE, and an earlier comment here
+                // said it did. It finds this child's pointer somewhere in the
+                // array's bytes and reads the FName four bytes past it. That
+                // establishes neither the record size nor that the pointer is
+                // a Component field of a real element rather than something in
+                // adjacent memory. The bone cross-check makes a false positive
+                // unlikely, not impossible, so the result is labelled
+                // UNVALIDATED and must not be built on.
                 for (int b = 0; b + 12 <= an * 64; b += 4) {
                     if (*(uint8_t**)(ad + b) != o) continue;
                     BqName bn;
@@ -458,9 +464,11 @@ static void BqItems(uint8_t* pawnMesh)
                     float loc[3] = { 0, 0, 0 };
                     if (RangeReadable(ad + b + 12, 12)) memcpy(loc, ad + b + 12, 12);
                     _snprintf(where, sizeof(where),
-                              "bone '%s'[%d] (record at +%d, num %u) local "
-                              "(%.2f %.2f %.2f)",
-                              nm ? nm : "?", bi, b, bn.num, loc[0], loc[1], loc[2]);
+                              "bone '%s'[%d] local (%.2f %.2f %.2f) [UNVALIDATED "
+                              "LAYOUT: pointer found at byte +%d, name read at "
+                              "+4 from it, num %u - the record size is NOT "
+                              "established]",
+                              nm ? nm : "?", bi, loc[0], loc[1], loc[2], b, bn.num);
                     hit = b;
                     break;
                 }
@@ -486,10 +494,11 @@ static void BqItems(uint8_t* pawnMesh)
         // item-ish component classes DO exist, rather than leaving the reader
         // to assume the first.
         Log("bq/item: no DishonoredItemSkeletalComponent carrying an m_pItem "
-            "was found. Listing the component classes that DO exist, because "
-            "'nothing equipped' and 'the runtime class has another name' look "
-            "identical from a zero:");
-        int shown = 0;
+            "was found. That is UNKNOWN, not empty: this matched the class name "
+            "EXACTLY, so a derived component class would have been missed, and "
+            "the report fires once early when the inventory may not be "
+            "populated. Listing component classes with 'Item' in the name:");
+        uint32_t seen[16]; int seenN = 0; int shown = 0;
         for (uint32_t i = 0; i < onum && shown < 12; i++) {
             if ((i & 1023) == 0) {
                 uint32_t left = onum - i; if (left > 1024) left = 1024;
@@ -499,7 +508,11 @@ static void BqItems(uint8_t* pawnMesh)
             if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x40)) continue;
             const char* cn = ObjClassName(o);
             if (!cn || !strstr(cn, "Item")) continue;
-            static uint32_t seen[16]; static int seenN = 0;
+            // NOT static: a function-local static survives the call, so a
+            // second run found no NEW classes and printed "none at all",
+            // which reads as an empty inventory. That is a false negative
+            // dressed as a measurement - the exact thing this scan exists to
+            // avoid. Per-snapshot, declared by the caller.
             const uint32_t ci = *(uint32_t*)(*(uint8_t**)(o + kClassOff) + kNameOff);
             int dup = 0;
             for (int k = 0; k < seenN; k++) if (seen[k] == ci) dup = 1;
@@ -509,13 +522,14 @@ static void BqItems(uint8_t* pawnMesh)
             shown++;
         }
         if (!shown)
-            Log("bq/item:   none at all with 'Item' in the class name, so the "
-                "inventory is genuinely empty of item components right now");
+            Log("bq/item:   none found with 'Item' in the class name. This does "
+                "NOT establish an empty inventory - it is one scan, of one "
+                "moment, matching on a substring.");
     }
-    Log("bq/item: the bone above is where the item IS attached, read from the "
-        "parent's own record. It is NOT the authored socket default, which for "
-        "the pistol is LeftHandWpn - a report built on defaults would name the "
-        "wrong hand for at least one weapon.");
+    Log("bq/item: any bone above is read through an UNVALIDATED record layout "
+        "and is a candidate, not a measurement. Nothing here has yet agreed or "
+        "disagreed with the authored socket defaults - the pistol's default is "
+        "LeftHandWpn, and no live result has contradicted it.");
 }
 
 

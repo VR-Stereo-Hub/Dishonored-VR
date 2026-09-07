@@ -39,8 +39,11 @@ static bool MsDecl(IDirect3DVertexDeclaration9* d, MsElem* pos, MsElem* wt, MsEl
     // cannot interpolate is copied from the nearer parent, which is right for a
     // bone index and close enough on a ring one triangle wide.
     g_msNel = 0;
+    g_msDeclStreams = 0;
     for (UINT i = 0; i < n; i++) {
-        if (el[i].Stream != 0 || el[i].Type == D3DDECLTYPE_UNUSED) continue;
+        if (el[i].Type == D3DDECLTYPE_UNUSED) continue;
+        if (el[i].Stream < 32) g_msDeclStreams |= (1u << el[i].Stream);
+        if (el[i].Stream != 0) continue;
         if (g_msNel < MAXD3DDECLLENGTH) g_msEl[g_msNel++] = el[i];
     }
     for (UINT i = 0; i < n; i++) {
@@ -285,14 +288,25 @@ static bool MsRead(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
         // vertices are addressed by the same index. So look, and say what was
         // found - a veto here is the difference between a clipped edge and a
         // sawtooth one, and it must not be silent.
+        // BOUND IS NOT USED. A stream left bound by an earlier draw is not
+        // data this one consumes: the declaration decides what the shader
+        // reads. The first version vetoed on any bound stream, which can throw
+        // away the clip - and the caps with it - over leftover state. Only a
+        // stream the declaration NAMES is allowed to veto.
         g_msExtraStream = -1;
         for (UINT si = 1; si < 8; si++) {
+            if (!(g_msDeclStreams & (1u << si))) continue;   // decl ignores it
             IDirect3DVertexBuffer9* ex = NULL; UINT eo = 0, es = 0;
             if (SUCCEEDED(dev->GetStreamSource(si, &ex, &eo, &es)) && ex) {
                 ex->Release();
                 if (es) { g_msExtraStream = (int)si; break; }
             }
         }
+        if (g_msDeclStreams & ~1u)
+            Log("ms: the declaration references stream mask 0x%X; only a stream "
+                "it actually names can veto the clip, because a stream merely "
+                "left bound by an earlier draw is not data this one reads",
+                g_msDeclStreams);
         g_msOwnVb = (g_msExtraStream < 0) && (stride <= MS_MAX_STRIDE);
         if (!g_msOwnVb)
             Log("ms: stream %d is also bound (or the %u byte vertex is past this "
@@ -1544,6 +1558,26 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     if (!MsReclassify(dev)) return false;
     g_msReady = 1;
     if (g_msOwnVb) g_msStreamSkips = 0;   // a good pass clears the tally
+
+    // The draw contract this split describes. Every later draw that wants to
+    // use it must match, or the re-based indices address the wrong vertices.
+    g_msBuiltBaseVertex = baseVertex;
+    g_msBuiltMinIndex   = minIndex;
+    g_msBuiltNumVerts   = numVertices;
+    g_msBuiltStartIndex = startIndex;
+    {
+        IDirect3DVertexDeclaration9* d = NULL;
+        if (SUCCEEDED(dev->GetVertexDeclaration(&d)) && d) { g_msBuiltDecl = d; d->Release(); }
+        IDirect3DVertexBuffer9* vb0 = NULL; UINT o0 = 0, s0 = 0;
+        if (SUCCEEDED(dev->GetStreamSource(0, &vb0, &o0, &s0)) && vb0) {
+            g_msBuiltStream0Off = o0; vb0->Release();
+        }
+    }
+    Log("ms: built from base %d, min %u, %u verts, start %u, stream0 offset %u, "
+        "decl %p. A draw that does not match this contract cannot use this "
+        "split - its indices are re-based onto our own vertex buffer.",
+        g_msBuiltBaseVertex, g_msBuiltMinIndex, g_msBuiltNumVerts,
+        g_msBuiltStartIndex, g_msBuiltStream0Off, g_msBuiltDecl);
     Log("ms: ==== READY - mode %s. Numpad 0 cycles the mode, + / - move the "
         "wrist, * picks which arm the wrist knob moves, / re-derives. ====",
         MsModeName(g_msMode));
@@ -1560,9 +1594,39 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT primCount)
 {
+    g_msPassThrough = false;
     if (!g_msReady || !g_msIb || g_msMode == MS_MODE_OFF) return false;
     if (type != D3DPT_TRIANGLELIST) return false;
     if ((int)primCount != g_msTris) return false;   // a different draw of this pair
+
+    // THE DRAW CONTRACT. A matching primitive count is not a matching draw:
+    // our index list is re-based onto our own vertex buffer, so a different
+    // vertex window, base vertex or stream-0 offset makes those indices
+    // address the wrong data. Refuse, and tell the caller to draw it NORMALLY -
+    // otherwise it falls through to suppression and the mesh vanishes, because
+    // the auto-arm fail-soft only covers the case where no split exists.
+    {
+        UINT curOff = 0; IDirect3DVertexBuffer9* vb0 = NULL; UINT s0 = 0;
+        if (SUCCEEDED(dev->GetStreamSource(0, &vb0, &curOff, &s0)) && vb0) vb0->Release();
+        IDirect3DVertexDeclaration9* d = NULL; void* dp = NULL;
+        if (SUCCEEDED(dev->GetVertexDeclaration(&d)) && d) { dp = d; d->Release(); }
+        if (baseVertex != g_msBuiltBaseVertex || minIndex != g_msBuiltMinIndex ||
+            numVertices != g_msBuiltNumVerts || curOff != g_msBuiltStream0Off ||
+            (g_msBuiltDecl && dp && dp != g_msBuiltDecl)) {
+            g_msIncompat++;
+            g_msPassThrough = true;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                "ms: a draw of this geometry does NOT match the contract the "
+                "split was built from (base %d vs %d, min %u vs %u, verts %u vs "
+                "%u, stream0 off %u vs %u, decl %p vs %p). Drawing it normally "
+                "rather than replacing or dropping it - our indices are re-based "
+                "and would address the wrong vertices.",
+                baseVertex, g_msBuiltBaseVertex, minIndex, g_msBuiltMinIndex,
+                numVertices, g_msBuiltNumVerts, curOff, g_msBuiltStream0Off,
+                dp, g_msBuiltDecl);
+            return false;
+        }
+    }
 
     int lo, hi;
     switch (g_msMode) {

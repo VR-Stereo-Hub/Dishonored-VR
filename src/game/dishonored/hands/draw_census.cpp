@@ -273,6 +273,16 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
         // armed by itself must never make the arms vanish because a read
         // failed, so with no usable split it draws exactly what the game asked
         // for and says so in the beat.
+        // Our geometry, but a draw whose contract the split does not
+        // describe. It must be DRAWN, not dropped: suppressing it loses
+        // whatever pass it was - depth, shadow, a second material - and the
+        // arms come back or a contribution silently vanishes. The fail-soft
+        // below only covers the case where NO split exists.
+        if (g_msPassThrough) {
+            g_msFallback++;
+            return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex,
+                                                 numVertices, startIndex, primCount);
+        }
         if (g_msAutoArmed && (!g_msReady || g_msMode == MS_MODE_OFF)) {
             g_msFallback++;
             return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex,

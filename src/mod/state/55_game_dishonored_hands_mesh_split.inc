@@ -153,6 +153,11 @@ static int      g_msCapUv[3] = { -1, -1, -1 };// the ring vertex each cap took i
 static IDirect3DVertexBuffer9* g_msVb = NULL;
 static bool     g_msOwnVb = false;            // stream 0 is the only stream
 static int      g_msExtraStream = -1;         // which stream vetoed the clip
+// A stream can be BOUND without the declaration referencing it. Leftover state
+// from an earlier draw is not data this draw consumes, and vetoing the clip on
+// it costs the clipped edge and the caps for no reason. Only a stream the
+// declaration actually names counts.
+static uint32_t g_msDeclStreams = 0;          // bitmask of streams the decl uses
 
 // THE SAME MESH IS DRAWN BY MORE THAN ONE PASS, AND ONLY SOME OF THEM CAN BE
 // CLIPPED. Measured 2026-09-07: one run locked the arm mesh twice, from the
@@ -169,6 +174,28 @@ static int      g_msExtraStream = -1;         // which stream vetoed the clip
 // which the first build proves exists. The skips are bounded: after enough of
 // them the degraded split is taken anyway, loudly, because no hands at all is
 // worse than hands with a rougher edge.
+// WHAT THE SPLIT WAS BUILT FROM, checked again on every draw that tries to
+// use it.
+//
+// Choosing a better BUILD pass does not make later draws compatible. MsDraw
+// used to accept any draw with a matching primitive count and then bind our
+// re-based index buffer and generated vertices to it. A draw of the same
+// buffer pair with a different vertex window, start index, base vertex, stream
+// offset or declaration would consume a split that does not describe it, and
+// re-based indices with generated vertices are meaningless against another
+// stream's data. Nothing about waiting for a clippable pass fixes that.
+//
+// Worse, the caller drops what MsDraw declines once a split is ready
+// (draw_census.cpp:276) - the auto-arm fail-soft only covers !g_msReady - so
+// an incompatible draw was being SUPPRESSED rather than passed through. So
+// MsDraw now says WHICH of three things happened, and the caller acts on it.
+static INT      g_msBuiltBaseVertex = 0;
+static UINT     g_msBuiltMinIndex = 0, g_msBuiltNumVerts = 0;
+static UINT     g_msBuiltStartIndex = 0, g_msBuiltStream0Off = 0;
+static void*    g_msBuiltDecl = NULL;
+static volatile uint32_t g_msIncompat = 0;    // our geometry, wrong draw contract
+static bool     g_msPassThrough = false;      // MsDraw declined: DRAW IT NORMALLY
+
 static int      g_msStreamSkips = 0;
 static bool     g_msRetryLater = false;       // declined, but not refused
 #define MS_MAX_STREAM_SKIPS 120
