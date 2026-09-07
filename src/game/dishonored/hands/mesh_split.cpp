@@ -2111,6 +2111,30 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         g_msPassThrough = true;
         return false;
     }
+    // The depth-range lever. The game draws this mesh with MaxZ 0.001 so it can
+    // never be occluded; restore the full range for our draws only, and put the
+    // game's own back on every exit path below.
+    D3DVIEWPORT9 savedVp; bool vpSaved = false;
+    if (g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp))) {
+        g_mpDepthSeen[0] = savedVp.MinZ; g_mpDepthSeen[1] = savedVp.MaxZ;
+        if (savedVp.MaxZ < 0.5f) {          // only when it really is crushed
+            D3DVIEWPORT9 full = savedVp;
+            full.MinZ = 0.0f; full.MaxZ = 1.0f;
+            if (SUCCEEDED(dev->SetViewport(&full))) {
+                vpSaved = true;
+                InterlockedIncrement(&g_mpDepthUsed);
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                    "ms/palette/depth: the game draws these hands with MinZ "
+                    "%.4f MaxZ %.4f - the nearest thousandth of the depth "
+                    "buffer, which is what makes them draw over everything. "
+                    "Restoring 0..1 for our draws only. If they still composite "
+                    "on top, the pass runs after a depth clear and there is "
+                    "nothing to occlude against.",
+                    savedVp.MinZ, savedVp.MaxZ);
+            }
+        }
+    }
+
     if (SUCCEEDED(dev->SetIndices(g_msIb))) {
         for (int r = 0; r < nrng; r++) {
             // The palette this range draws under. The delta is applied to the
@@ -2318,6 +2342,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             g_mpCacheN, g_mpCacheN / 3,
             g_mpDraws, g_mpNoCache);
     }
+    if (vpSaved) dev->SetViewport(&savedVp);   // the game's own range, always
     dev->SetIndices(savedIb);
     if (savedIb) savedIb->Release();
     if (boundVb) {

@@ -441,6 +441,25 @@ static bool     g_mpOriginOk[2] = { false, false };
 static bool     g_mpWorld     = false;  // [Hands] PaletteWorld
 static float    g_mpCtlRUF[2][3];       // controller offset from head: right/up/fwd, metres
 static bool     g_mpCtlRUFOk[2] = { false, false };
+// THE VIEW MODEL IS DEPTH-CRUSHED, measured not guessed: the hand draw runs
+// with viewport MinZ 0.0 / MaxZ 0.001, the nearest thousandth of the depth
+// buffer, while other draws in the same frame use the full 0..1. That is the
+// standard first-person trick which guarantees the weapon and hands can never
+// be occluded by world geometry - and it is exactly why correctly placed hands
+// still composite on top of everything.
+//
+// Placement cannot fix it. The draw's depth range can, and we own the draw:
+// restore the full range for the hand draws only, and put the game's own back
+// immediately after. Whether that actually yields occlusion depends on the
+// depth buffer still holding world depths at that point, which is NOT known -
+// if the pass runs after a depth clear there is nothing to occlude against and
+// the hands will look identical. That is the experiment.
+//
+// A render lever, so it ships default OFF with a live A/B.
+static bool     g_mpDepth     = false;  // [Hands] PaletteDepthRange
+static LONG     g_mpDepthUsed = 0;
+static float    g_mpDepthSeen[2] = { 0.0f, 0.0f };   // the game's MinZ/MaxZ
+
 static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
 static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason
