@@ -347,6 +347,25 @@ static float    g_mpDeltaUU[2][3];      // present thread writes, draw reads
 static bool     g_mpDeltaOk[2] = { false, false };
 static LONG     g_mpDriveBeat = 0;
 
+// THE YAW RESIDUAL, and why rung 2 needed one more turn.
+//
+// Rung 2 took the offset in HEAD space on the assumption that the game
+// camera's rotation IS the head's. It is not: the camera also carries the
+// body/stick yaw, so a residual phi = camera yaw - head yaw sits between the
+// frame the offset was computed in and the frame the palette applies it in.
+// That single error produced BOTH reported symptoms - a constant rotation of
+// the mapping (whatever phi was when the neutral was captured) and hands
+// counter-rotating under head movement (phi changing as the head turns).
+// Vertical was unaffected, which is exactly what a yaw-only error predicts.
+//
+// phi is measured, not guessed: g_viewYawRad is the yaw actually written to
+// the camera, published as a matched pair with the head yaw it came from.
+// What is NOT known is the sign convention between the two, so the two hands
+// take OPPOSITE signs for one run and the stable hand names the correct one.
+// The other hand is the control, which is the same A/B that measured the basis.
+static int      g_mpYawMode   = 2;      // [Hands] PaletteYawFix 0=off 1=+ 2=A/B 3=-
+static float    g_mpPhiRad    = 0.0f;   // the residual, for the log
+
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing
 // says the wrist is"; the knob exists because a derived number still has to

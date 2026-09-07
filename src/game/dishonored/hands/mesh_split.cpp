@@ -1916,6 +1916,8 @@ static void MpDriveTick(void)
 {
     if (!g_mpDrive) return;
     const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
+    // The residual, once per tick so both hands use the same number.
+    g_mpPhiRad = g_viewYawRad - g_hmdYaw;
     for (int h = 0; h < 2; h++) {
         if (!g_devPoseOk[0] || !g_devPoseOk[3 + h]) {
             // Losing tracking must not freeze a stale delta on the hand: drop
@@ -1951,9 +1953,26 @@ static void MpDriveTick(void)
         const float d1 = v[1] - g_mpNeutral[h][1];
         const float d2 = v[2] - g_mpNeutral[h][2];
         // The measured basis: left = -x, down = -y, forward = -z.
-        g_mpDeltaUU[h][0] = -k * d0;
-        g_mpDeltaUU[h][1] = -k * d1;
-        g_mpDeltaUU[h][2] = -k * d2;
+        float t0 = -k * d0, t1 = -k * d1, t2 = -k * d2;
+
+        // Take out the residual between the head frame this was computed in
+        // and the camera frame the palette applies it in. Rotation about the
+        // vertical (axis 1, down), so only left and forward move - which is
+        // why the vertical axis was already correct and is left alone.
+        if (g_mpYawMode) {
+            float sgn = 0.0f;
+            if (g_mpYawMode == 1) sgn =  1.0f;
+            else if (g_mpYawMode == 3) sgn = -1.0f;
+            else sgn = (h == 0) ? 1.0f : -1.0f;   // A/B: left +, right -
+            const float th = sgn * g_mpPhiRad;
+            const float c = cosf(th), sn = sinf(th);
+            const float n0 = t0 * c - t2 * sn;
+            const float n2 = t0 * sn + t2 * c;
+            t0 = n0; t2 = n2;
+        }
+        g_mpDeltaUU[h][0] = t0;
+        g_mpDeltaUU[h][1] = t1;
+        g_mpDeltaUU[h][2] = t2;
         g_mpDeltaOk[h] = true;
     }
 
@@ -1964,12 +1983,18 @@ static void MpDriveTick(void)
         "in the first column and one moved UP reads negative in the second. "
         "Both rows at zero while the controllers move is a neutral being "
         "recaptured every frame, NOT the drive being off - the neutral line "
-        "prints once per capture and would be repeating.",
+        "prints once per capture and would be repeating. yawFix=%s phi=%.1f "
+        "deg (camera %.1f - head %.1f): in A/B the LEFT hand carries +phi and "
+        "the RIGHT -phi, so the hand that stays put in the world while the "
+        "head turns names the sign, and the other one is the control.",
         g_mpDeltaOk[0] ? "ok" : "--",
         g_mpDeltaUU[0][0], g_mpDeltaUU[0][1], g_mpDeltaUU[0][2],
         g_mpDeltaOk[1] ? "ok" : "--",
         g_mpDeltaUU[1][0], g_mpDeltaUU[1][1], g_mpDeltaUU[1][2],
-        (double)g_skcWorldScale, (double)g_mpDriveGain);
+        (double)g_skcWorldScale, (double)g_mpDriveGain,
+        g_mpYawMode == 0 ? "off" : g_mpYawMode == 1 ? "+phi both" :
+        g_mpYawMode == 3 ? "-phi both" : "A/B (L +phi, R -phi)",
+        g_mpPhiRad * 57.2958f, g_viewYawRad * 57.2958f, g_hmdYaw * 57.2958f);
 }
 
 
