@@ -48,6 +48,24 @@ Before committing to it, one cheap check would close the native door properly:
 run the tick scan once with `[Hands] Enabled=1` and `GamepadOnly=0`, since
 every measurement so far was taken with the mod's hand subsystem disabled.
 
+### Build and deploy state
+
+The installed `d3d9.dll` is code-current with this branch - built and installed
+2026-09-07 12:55, three DOCS-ONLY commits behind HEAD. Its last run stamped
+`alpha-334-g88eefb61-dirty`; HEAD is `alpha-337-g220c5a28`, and the difference
+is ENGINE_NOTES and STATUS only. Rebuild anyway before trusting a build id.
+
+**Verified in the headset:** the split, the clip, the caps and cap colour, the
+ring at -4.9, the arms staying hidden, and the SkelControl lane being inert.
+**Built but NOT headset-verified:** the desktop mirror eye pin and the
+pause-menu session fix on PR #20 - both still need the run in
+`docs/dishonored/DESKTOP_MIRROR.md` section 7.
+
+**All diagnostics are now disarmed on the dev rig**: `[Hands] BoneQuery=0`,
+`HandMoveTest=0`. `PoseReport` has no key and defaults on; it is read-only and
+prints once. The GObjects tick scan is gated behind `HandMoveTest` and is the
+thing that cost frame rate - leave it off.
+
 ### Traps this session paid for
 
 * A too-narrow grep produced two confident false claims ("the codebase has
