@@ -72,10 +72,10 @@ static void PrDumpSockets(void)
 {
     if (!g_pePawn) { Log("pose/dump: no live pawn yet"); return; }
 
-    const uint32_t meshOff = PrOff("DishonoredPawn", "Mesh");
+    const uint32_t meshOff = PrOff("Pawn", "Mesh");
     if (!meshOff) {
-        Log("pose/dump: DishonoredPawn.Mesh did not resolve, so the skeletal "
-            "component cannot be reached from here. UNKNOWN, not assumed.");
+        Log("pose/dump: Pawn.Mesh did not resolve, so the skeletal component "
+            "cannot be reached from here. UNKNOWN, not assumed.");
         return;
     }
     if (!RangeReadable(g_pePawn + meshOff, 4)) {
@@ -90,21 +90,37 @@ static void PrDumpSockets(void)
     }
     Log("pose/dump: pawn %p -> SkeletalMeshComponent %p", (void*)g_pePawn, (void*)mesh);
 
-    // The component's socket array. A UE3 dynamic array is { void* data;
-    // int count; int max; }, so the count is read before anything is walked
-    // and an absurd count refuses instead of walking off into memory.
-    const uint32_t sockOff = PrOff("SkeletalMeshComponent", "Sockets");
-    if (!sockOff) {
-        Log("pose/dump: SkeletalMeshComponent.Sockets did not resolve - the "
-            "socket list is UNKNOWN on this build");
+    // SOCKETS LIVE ON THE ASSET, not on the component: component ->
+    // SkeletalMesh -> Sockets. The component declares socket QUERIES, which are
+    // functions and which property reflection will never find.
+    const uint32_t assetOff = PrOff("SkeletalMeshComponent", "SkeletalMesh");
+    const uint32_t sockOff  = PrOff("SkeletalMesh", "Sockets");
+    if (!assetOff || !sockOff) {
+        Log("pose/dump: SkeletalMeshComponent.SkeletalMesh (+0x%X) or "
+            "SkeletalMesh.Sockets (+0x%X) did not resolve - the socket list is "
+            "UNKNOWN on this build", assetOff, sockOff);
         return;
     }
-    if (!RangeReadable(mesh + sockOff, 12)) {
+    if (!RangeReadable(mesh + assetOff, 4)) {
+        Log("pose/dump: the SkeletalMesh slot at +0x%X is unreadable", assetOff);
+        return;
+    }
+    uint8_t* asset = *(uint8_t**)(mesh + assetOff);
+    if (!asset || ((uintptr_t)asset & 3) || !RangeReadable(asset, 0x200)) {
+        Log("pose/dump: the SkeletalMesh pointer is %p, not a readable asset",
+            (void*)asset);
+        return;
+    }
+    Log("pose/dump: component %p -> SkeletalMesh asset %p", (void*)mesh, (void*)asset);
+    // A UE3 dynamic array is { void* data; int count; int max; }, so the count
+    // is read before anything is walked and an absurd count refuses instead of
+    // walking off into memory.
+    if (!RangeReadable(asset + sockOff, 12)) {
         Log("pose/dump: the socket array header at +0x%X is unreadable", sockOff);
         return;
     }
-    uint8_t** data = *(uint8_t***)(mesh + sockOff);
-    const int n     = *(int*)(mesh + sockOff + 4);
+    uint8_t** data = *(uint8_t***)(asset + sockOff);
+    const int n     = *(int*)(asset + sockOff + 4);
     if (n < 0 || n > 512 || (n && (!data || ((uintptr_t)data & 3)))) {
         Log("pose/dump: the socket array reads count=%d data=%p, which is not "
             "credible - refusing to walk it", n, (void*)data);
@@ -142,6 +158,13 @@ static void PrTick(void)
 {
     if (!g_prOn) return;
     PrResolve();
+    // Dump ONCE automatically as soon as a pawn is live. The tester cannot
+    // reliably reach the command seam, so an instrument that has to be asked
+    // for is an instrument that does not run.
+    if (!g_prDumped && g_prTried && g_pePawn) {
+        g_prDumped = true;
+        PrDumpSockets();
+    }
     if (g_prDumpReq) { g_prDumpReq = 0; PrDumpSockets(); }
     if (g_prTried && g_prMissing) {
         const double now = MaimNowMs();

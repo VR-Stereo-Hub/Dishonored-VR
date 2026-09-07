@@ -68,14 +68,19 @@ static PrField g_prFields[PR_MAX_FIELDS] = {
     { "SkeletalMeshSocket",      "RelativeLocation",          0 },
     { "SkeletalMeshSocket",      "RelativeRotation",          0 },
     { "SkeletalMeshSocket",      "RelativeScale",             0 },
-    { "SkeletalMeshComponent",   "Sockets",                   0 },
+    // Sockets live on the ASSET, not the component. The component only
+    // declares socket QUERIES (functions), which reflection over properties
+    // will never find - the first run reported it UNKNOWN and that was this
+    // module looking in the wrong place, not the build differing.
     { "SkeletalMeshComponent",   "SkeletalMesh",              0 },
     { "SkeletalMesh",            "Sockets",                   0 },
     { "SkeletalMesh",            "RefSkeleton",               0 },
     { "DishonoredPlayerPawn",    "m_pLookAtControl_LeftHand", 0 },
     { "DishonoredPlayerPawn",    "m_pLookAtControl_RightHand",0 },
     { "DishonoredPlayerPawn",    "m_pLookAtControl_Camera",   0 },
-    { "DishonoredPawn",          "Mesh",                      0 },
+    // Mesh is declared on Engine.Pawn (Pawn.uc:187), and FindPropOffset
+    // matches on the OUTER's name, so asking DishonoredPawn for it misses.
+    { "Pawn",                    "Mesh",                      0 },
     { NULL, NULL, 0 },
 };
 
@@ -85,3 +90,4 @@ static uint32_t g_prNextTryMs = 0;
 static int      g_prFound = 0, g_prMissing = 0;
 static volatile int g_prDumpReq = 0;    // one full dump on request
 static double   g_prNextReport = 0.0;
+static bool     g_prDumped = false;    // the one automatic socket dump
