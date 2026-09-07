@@ -1985,22 +1985,40 @@ static void MpDriveTick(void)
         // rotation is R, so R transpose takes a world vector to head-local.
         float w[3];
         for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - g_devPose[0][r][3];
-        float v[3];
-        for (int c = 0; c < 3; c++)
-            v[c] = g_devPose[0][0][c] * w[0] + g_devPose[0][1][c] * w[1] +
-                   g_devPose[0][2][c] * w[2];
 
+        // THE NEUTRAL IS STORED IN WORLD SPACE, not head space. Storing it
+        // head-relative was the whole of the drift: the zero point then
+        // rotated with the head, so a still controller produced a moving
+        // difference and the hand swung to chase it - and the neutral's own
+        // head yaw at capture became a fixed rotation of the mapping. Both
+        // reported symptoms, one cause.
+        //
+        // Subtract in WORLD, then rotate the difference into the head frame,
+        // which is the palette's (measured 2026-09-07: a 20 uu offset stayed
+        // on the same side of the face through a head turn). World effect is
+        // then R_head * R_head^T * (w - w0) = w - w0, constant while the
+        // controller is still however the head moves. A stick turn rotates the
+        // frame without rotating the head, so the hand rides round with the
+        // body - which is what it should do.
         if (!g_mpNeutralOk[h]) {
-            memcpy(g_mpNeutral[h], v, sizeof(v));
+            memcpy(g_mpNeutral[h], w, sizeof(w));
             g_mpNeutralOk[h] = true;
-            Log("ms/palette/drive: hand %d NEUTRAL captured at head-relative "
-                "(%.3f %.3f %.3f) m. Every delta from here is travel from THIS "
-                "pose, so the hand starts exactly where the engine put it.",
-                h, v[0], v[1], v[2]);
+            Log("ms/palette/drive: hand %d NEUTRAL captured at WORLD-relative "
+                "(%.3f %.3f %.3f) m (hand minus head, XR axes). Every delta "
+                "from here is travel from THIS world offset, so the hand "
+                "starts where the engine put it and a head turn alone cannot "
+                "move it.",
+                h, w[0], w[1], w[2]);
         }
-        const float d0 = v[0] - g_mpNeutral[h][0];
-        const float d1 = v[1] - g_mpNeutral[h][1];
-        const float d2 = v[2] - g_mpNeutral[h][2];
+        // World-space travel since the neutral, then into the head frame.
+        const float ww[3] = { w[0] - g_mpNeutral[h][0],
+                              w[1] - g_mpNeutral[h][1],
+                              w[2] - g_mpNeutral[h][2] };
+        float d[3];
+        for (int c = 0; c < 3; c++)
+            d[c] = g_devPose[0][0][c] * ww[0] + g_devPose[0][1][c] * ww[1] +
+                   g_devPose[0][2][c] * ww[2];
+        const float d0 = d[0], d1 = d[1], d2 = d[2];
         // The measured basis: left = -x, down = -y, forward = -z.
         float t0 = -k * d0, t1 = -k * d1, t2 = -k * d2;
 
