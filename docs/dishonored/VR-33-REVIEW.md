@@ -1,5 +1,37 @@
 # VR-33 review brief: putting the hands and weapons on the VR controllers
 
+> **SUPERSEDED 2026-09-06 by `VR-33-REVISED-PLAN.md`, and four of this
+> document's claims are WRONG. They are listed here rather than edited away,
+> because the reasoning that produced them is the useful part.**
+>
+> 1. **"The pivot is at the shoulder" is NOT established.** The 66/108 uu
+>    figures are distances between skinning-matrix TRANSLATIONS. A skinning
+>    matrix commonly folds in the inverse bind transform, so its translation
+>    places the bind mesh origin, not the anatomical joint. The measurement is
+>    real; the anatomical reading of it was unfounded.
+> 2. **`g_msBoneHand` and `g_msHandBone` are two different heuristics, not
+>    one.** `MsClassify` builds `g_msBoneHand` from the sphere, but `MsWrist`
+>    picks `g_msHandBone` by maximum degree in the vertex co-influence graph
+>    (`mesh_split.cpp:499`), tie-broken on lowest weight. Neither is verified
+>    anatomy, and `g_msBoneCen` is an influence-weighted vertex centroid
+>    (`:337`), not a joint position. "Replace the sphere with the plane" would
+>    not have found the wrist, and changing the wrist candidate can move the
+>    cut's own axis and origin - invalidating the tuned -4.9.
+> 3. **210 uu/m is an estimate, derived from where a resting hand ought to be,
+>    which is circular.** The first-person meshes carry their own FOV handling
+>    (`DishonoredPlayerSkeletalComponent`), so an apparent scale mismatch may be
+>    projection, not units.
+> 4. **The transposed-basis claim needs the SHADER, not a headset vote.** D3D9
+>    uploads float4s; the shader decides what they mean. Also missing from the
+>    old transform: the inverse of the hand's CURRENT animated orientation, so
+>    native wrist rotation stayed multiplied into the result.
+>
+> A fifth point is a correction in our favour: **a common rigid delta applied
+> to every skinning matrix PRESERVES finger animation**, because
+> `sum_i w_i (D M_i) v = D (sum_i w_i M_i v)`. The "static hand" framing was
+> never necessary.
+
+
 **Status: four approaches attempted, none shipped. Reverted to the branch's
 starting tree. Seeking review before a fifth.**
 
