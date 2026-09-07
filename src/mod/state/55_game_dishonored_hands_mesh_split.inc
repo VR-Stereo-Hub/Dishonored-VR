@@ -469,9 +469,17 @@ static LONG     g_mpEyeSeen[2] = { 0, 0 };   // draws attributed to pass 1 / pas
 static float    g_mpLastEyeSign = 0.0f;
 static float    g_mpLastHalfIpd = 0.0f;
 static LONG     g_mpEyeUnclassified = 0;
-static bool     g_mpEyeSeeded = false;
-static float    g_mpEyeLo = 0.0f, g_mpEyeHi = 0.0f, g_mpEyeSpread = 0.0f;
+static float    g_mpEyeSpread = 0.0f;
 static float    g_mpLastEyeProj = 0.0f;
+// The eye is the draw's ordinal within the frame - head-invariant, unlike a
+// learned midpoint. Which ordinal is which eye is voted from same-frame pairs.
+static uint32_t g_mpEyeFrame  = 0xFFFFFFFFu;
+static int      g_mpEyeOrd    = 0;
+static bool     g_mpEyeOrd0Ok = false;
+static float    g_mpEyeOrd0Proj = 0.0f;
+static int      g_mpEyeVote   = 0;
+static bool     g_mpEyeOrd0IsLeft = true;
+static LONG     g_mpEyePairs = 0, g_mpEyeBadPairs = 0;
 
 static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain

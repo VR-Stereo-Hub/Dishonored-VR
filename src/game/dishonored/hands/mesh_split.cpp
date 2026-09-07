@@ -1837,63 +1837,61 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
     // itself uses to decide what to write, so the hands cannot disagree with
     // the view they are drawn into.
     if (g_mpEyeOffset) {
-        // WHICH EYE, FROM THE DRAW'S OWN CONSTANTS.
+        // WHICH EYE: ORDINAL WITHIN THE FRAME, NOT A LEARNED MIDPOINT.
         //
-        // The first attempt asked dvr::camera::second_pass_for_current_thread,
-        // which is the signal the camera seam itself uses. It is set on the
-        // GAME thread; UE3 queues render commands, so by the time this draw
-        // executes on the render thread the flag is false and BOTH eyes took
-        // the left offset. The counter said so plainly - pass2 read 0 draws
-        // against pass1's 92,800 - which is the whole reason that line
-        // insisted both counters must move.
+        // The first version classified by comparing LocalToWorld's projection
+        // on the right axis against a midpoint learned from the draws. The
+        // classifier was real - the measured separation came out 6.8-6.9 uu
+        // against a predicted IPD of 6.31 uu - but the midpoint is not
+        // head-invariant: turning the head moves the whole mesh relative to the
+        // camera, so the projection drifts for reasons that have nothing to do
+        // with which eye is being drawn, and draws start landing on the wrong
+        // side of a stale midpoint. A misclassified draw takes a full IPD of
+        // error, which is why it read as the hands TELEPORTING rather than
+        // sliding, and why the scale appeared to slip while it happened.
         //
-        // The constants know, though. The engine renders camera-relative, so
-        // when the camera steps to each eye every object's position shifts by
-        // the opposite of the eye offset - and LocalToWorld's translation is
-        // exactly that position. Projected onto the camera's right axis, the
-        // two eyes' draws sit on either side of a midpoint, one IPD apart.
-        //
-        // So classify against a midpoint learned from the draws themselves.
-        // Self-calibrating, needs no cross-thread signal, and it can fail its
-        // own hypothesis: if the spread is not about IPD * scale then these
-        // are not two eyes and the line says so.
-        // LocalToWorld's translation is the fourth register; the rigid
-        // decomposition below has not run yet, so read it straight.
+        // The pose is identical between the two passes of one frame; only the
+        // eye differs. So use the draw's ORDINAL within the frame, which no
+        // head movement can perturb, and learn once which ordinal is which eye
+        // by comparing the two projections WITHIN a frame - the only comparison
+        // where everything except the eye is held equal.
         const float proj = l2w[3][0]*r[0] + l2w[3][1]*r[1] + l2w[3][2]*r[2];
         const float halfIpdUU = 0.5f * g_ipdM * k;
+        const float ipdUU = g_ipdM * k;
 
-        if (!g_mpEyeSeeded) {
-            g_mpEyeLo = g_mpEyeHi = proj;
-            g_mpEyeSeeded = true;
-        } else {
-            // Track the extremes with a slow decay so a head turn cannot leave
-            // a stale bound behind.
-            if (proj < g_mpEyeLo) g_mpEyeLo = proj;
-            if (proj > g_mpEyeHi) g_mpEyeHi = proj;
-            g_mpEyeLo += (proj - g_mpEyeLo) * 0.0005f;
-            g_mpEyeHi += (proj - g_mpEyeHi) * 0.0005f;
+        const uint32_t fr = (uint32_t)dvr::frame::count();
+        if (fr != g_mpEyeFrame) { g_mpEyeFrame = fr; g_mpEyeOrd = 0; g_mpEyeOrd0Ok = false; }
+        const int ord = g_mpEyeOrd++;
+
+        float sign = 0.0f;
+        if (ord == 0) {
+            g_mpEyeOrd0Proj = proj; g_mpEyeOrd0Ok = true;
+            sign = g_mpEyeOrd0IsLeft ? -1.0f : +1.0f;
+        } else if (ord == 1 && g_mpEyeOrd0Ok) {
+            // The vote. A pair only counts when the two projections differ by
+            // something close to an IPD; anything else is not two eyes and
+            // must not be allowed to flip the mapping.
+            const float d = g_mpEyeOrd0Proj - proj;
+            g_mpEyeSpread = fabsf(d);
+            if (g_mpEyeSpread > 0.4f * ipdUU && g_mpEyeSpread < 2.5f * ipdUU) {
+                // Camera-relative: a position is world - camera, and the right
+                // eye's camera sits further right, so ITS projection is the
+                // SMALLER one. The larger projection is the left eye.
+                g_mpEyeVote += (d > 0.0f) ? 1 : -1;
+                if (g_mpEyeVote > 64) g_mpEyeVote = 64;
+                if (g_mpEyeVote < -64) g_mpEyeVote = -64;
+                if (g_mpEyeVote > 4)  g_mpEyeOrd0IsLeft = true;
+                if (g_mpEyeVote < -4) g_mpEyeOrd0IsLeft = false;
+                g_mpEyePairs++;
+            } else {
+                g_mpEyeBadPairs++;
+            }
+            sign = g_mpEyeOrd0IsLeft ? +1.0f : -1.0f;
         }
-        g_mpEyeSpread = g_mpEyeHi - g_mpEyeLo;
-        const float mid = 0.5f * (g_mpEyeLo + g_mpEyeHi);
+        // ord >= 2 leaves sign at 0: an unexpected extra draw of this mesh in
+        // one frame is not a third eye, and guessing would put a full IPD of
+        // error on it.
 
-        // Only classify once the spread looks like an IPD. Below that the two
-        // passes are indistinguishable and guessing would put a wrong offset
-        // on every draw, which is worse than the head-centre placement.
-        const bool usable = g_mpEyeSpread > halfIpdUU;
-        // THE SIGN, derived rather than tried. Camera-relative rendering means
-        // a position is `world - camera`. The right eye's camera sits at
-        // `head + (IPD/2) * right`, so every object's camera-relative position
-        // shifts by MINUS that - the projection onto the right axis gets
-        // SMALLER for the right eye, not larger.
-        //
-        // The first version had this backwards and the tester reported the
-        // hands further apart, which is what an inverted eye assignment does:
-        // it applies a full IPD of error instead of correcting one. The
-        // classifier itself was sound - the measured spread came out
-        // 6.8-6.9 uu against a predicted IPD of 6.31 uu, with both eyes taking
-        // near-equal draw counts - so only the mapping from side to eye was
-        // wrong.
-        const float sign = usable ? ((proj > mid) ? -1.0f : +1.0f) : 0.0f;
         for (int i = 0; i < 3; i++) dcam[i] -= sign * halfIpdUU * r[i];
         if (sign > 0.0f) g_mpEyeSeen[1]++; else if (sign < 0.0f) g_mpEyeSeen[0]++;
         else g_mpEyeUnclassified++;
@@ -2660,19 +2658,20 @@ static void MpDriveTick(void)
             g_pcLayVp, g_pcLayL2W,
             (double)g_skcWorldScale, (double)g_mpDriveGain);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "ms/palette/eye: offset %s | L %ld draws, R %ld draws, "
-            "unclassified %ld | spread %.2f uu against an expected IPD of %.2f "
-            "uu (%.1f mm at %.0f uu/m) | last proj %.2f sign %+.0f. The eye is "
-            "read from LocalToWorld's translation projected on the camera's "
-            "right axis, because the game-thread second-pass flag is false by "
-            "the time this draw runs on the render thread. BOTH counters must "
-            "move, and the spread must be about one IPD: if it is far smaller "
-            "these are not two eyes and no offset should be trusted.",
+            "ms/palette/eye: offset %s | L %ld R %ld unclassified %ld | "
+            "in-frame pair separation %.2f uu against an expected IPD of %.2f "
+            "uu | good pairs %ld, rejected %ld | vote %+d, ordinal 0 is the %s "
+            "eye. The eye is the draw's ORDINAL within the frame, which head "
+            "movement cannot perturb; the ordinal-to-eye mapping is voted from "
+            "same-frame pairs, the only comparison where everything but the "
+            "eye is equal. Rising 'unclassified' means a frame drew this mesh "
+            "more than twice; rising 'rejected' means pairs are not separating "
+            "by an IPD and the mapping is not being learned from them.",
             g_mpEyeOffset ? "ON" : "off",
             g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
             (double)g_mpEyeSpread, (double)(g_ipdM * g_skcWorldScale),
-            (double)(g_ipdM * 1000.0f), (double)g_skcWorldScale,
-            (double)g_mpLastEyeProj, (double)g_mpLastEyeSign);
+            g_mpEyePairs, g_mpEyeBadPairs, g_mpEyeVote,
+            g_mpEyeOrd0IsLeft ? "LEFT" : "RIGHT");
         return;
     }
     if (g_mpAbs) {
