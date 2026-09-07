@@ -460,6 +460,15 @@ static bool     g_mpDepth     = false;  // [Hands] PaletteDepthRange
 static LONG     g_mpDepthUsed = 0;
 static float    g_mpDepthSeen[2] = { 0.0f, 0.0f };   // the game's MinZ/MaxZ
 
+// The stereo eye offset. A render lever, so it ships default OFF with an A/B -
+// but it is the difference between hands that read as hand-sized and hands that
+// read as giants, so the A/B is what proves the diagnosis rather than a
+// preference.
+static bool     g_mpEyeOffset = false;  // [Hands] PaletteEyeOffset
+static LONG     g_mpEyeSeen[2] = { 0, 0 };   // draws attributed to pass 1 / pass 2
+static float    g_mpLastEyeSign = 0.0f;
+static float    g_mpLastHalfIpd = 0.0f;
+
 static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
 static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason

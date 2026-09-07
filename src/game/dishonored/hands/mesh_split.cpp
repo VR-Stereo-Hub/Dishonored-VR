@@ -1819,6 +1819,33 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
     float dcam[3];
     for (int i = 0; i < 3; i++) dcam[i] = k * (a * r[i] + b * u[i] + c * f[i]);
 
+    // THE EYE OFFSET. d_cam so far is the controller relative to the HEAD
+    // CENTRE, and using it unchanged for both eyes is what made correctly
+    // placed hands read as enormous: the same camera-relative offset in each
+    // eye puts the two hand images an IPD apart in world terms, which is the
+    // disparity of an object at INFINITY. A hand-sized object at infinite
+    // disparity is seen as a giant hand far away - "fine in each eye, huge
+    // with both", exactly as reported.
+    //
+    // The world does not have this problem because the engine moves the CAMERA
+    // between passes; our target was the only thing still measured from the
+    // head. So subtract this eye's own offset along the camera's right axis.
+    //
+    // WHICH EYE: the re-entry method draws pass 1 from the game's camera and
+    // pass 2 from the second-pass camera, and the camera seam already publishes
+    // which of those this thread is inside. That is the same signal the seam
+    // itself uses to decide what to write, so the hands cannot disagree with
+    // the view they are drawn into.
+    if (g_mpEyeOffset) {
+        const bool second = dvr::camera::second_pass_for_current_thread();
+        const float sign = second ? +1.0f : -1.0f;   // matches reentry's tags
+        const float halfIpdUU = 0.5f * g_ipdM * k;
+        for (int i = 0; i < 3; i++) dcam[i] -= sign * halfIpdUU * r[i];
+        g_mpEyeSeen[second ? 1 : 0]++;
+        g_mpLastEyeSign = sign;
+        g_mpLastHalfIpd = halfIpdUU;
+    }
+
     // LocalToWorld is [Rl | t] with Rl's COLUMNS in the first three registers.
     // Rigid, so its inverse is Rl^T applied to (p - t) - checked, not assumed.
     float col[3][3], t[3];
@@ -2576,6 +2603,16 @@ static void MpDriveTick(void)
             g_mpWorldOk, g_mpWorldRefused, g_mpWorldWhy,
             g_pcLayVp, g_pcLayL2W,
             (double)g_skcWorldScale, (double)g_mpDriveGain);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette/eye: offset %s | pass1(-1) %ld draws, pass2(+1) %ld "
+            "draws | last sign %+.0f, half-IPD %.1f uu (IPD %.1f mm at %.0f "
+            "uu/m). BOTH counters must move: if one reads 0 the hands are being "
+            "placed for a single eye in both, which is the infinite-disparity "
+            "case that makes a correctly sized hand look enormous.",
+            g_mpEyeOffset ? "ON" : "off",
+            g_mpEyeSeen[0], g_mpEyeSeen[1], (double)g_mpLastEyeSign,
+            (double)g_mpLastHalfIpd, (double)(g_ipdM * 1000.0f),
+            (double)g_skcWorldScale);
         return;
     }
     if (g_mpAbs) {
