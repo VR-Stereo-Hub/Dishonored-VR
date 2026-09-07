@@ -1783,7 +1783,21 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 const bool hit = (g_mpHand == 2) ||
                                  (g_mpHand == 0 && rng[r].cls == MS_CLS_HAND_A) ||
                                  (g_mpHand == 1 && rng[r].cls == MS_CLS_HAND_B);
-                if (hit) {
+                // WHAT DELTA THIS RANGE CARRIES. The drive owns it when
+                // armed and feeds BOTH classes; otherwise the axis probe does,
+                // and that only touches the selected class so the other stays
+                // as the reference.
+                float T[3] = { 0.0f, 0.0f, 0.0f };
+                bool  useT = false;
+                if (g_mpDrive) {
+                    const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
+                    if (g_mpDeltaOk[hIdx]) {
+                        T[0] = g_mpDeltaUU[hIdx][0];
+                        T[1] = g_mpDeltaUU[hIdx][1];
+                        T[2] = g_mpDeltaUU[hIdx][2];
+                        useT = true;
+                    }
+                } else if (hit) {
                     // Which axis is live. The sweep walks 0,1,2 on a timer so
                     // one run reports the whole basis; without it the ini's
                     // fixed axis is used, which is the A/B.
@@ -1818,17 +1832,15 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                                 axis);
                         }
                     }
-                    if (axis < 0 || axis > 2) {
-                        // Resting: this class draws under the game's own block,
-                        // exactly like the reference hand.
-                        dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
-                    } else {
-                        float T[3] = { 0.0f, 0.0f, 0.0f };
-                        T[axis] = g_mpAmount;
-                        static float buf[4 * 256];
-                        MpBuild(buf, g_mpCache, g_mpCacheN, T);
-                        dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
-                    }
+                    // axis < 0 is the probe RESTING: no delta, so this
+                    // class draws under the game's own block exactly like the
+                    // reference hand.
+                    if (axis >= 0 && axis < 3) { T[axis] = g_mpAmount; useT = true; }
+                }
+                if (useT) {
+                    static float buf[4 * 256];
+                    MpBuild(buf, g_mpCache, g_mpCacheN, T);
+                    dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
                 } else {
                     dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
                 }
@@ -1896,11 +1908,89 @@ static const char* MsModeName(int m)
 // render thread, next to the draw it affects. Locking our own index buffer from
 // this lane while the renderer was drawing from it would be a race with no
 // symptom until the frame it corrupted.
+// Rung 2. Present thread, from MsTick: turn each controller's travel since its
+// neutral into a palette delta. It reads the pose slots present_tick has
+// already filled (head = 0, hands = 3 and 4), so it makes no runtime call of
+// its own and cannot race the thread that owns them.
+static void MpDriveTick(void)
+{
+    if (!g_mpDrive) return;
+    const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
+    for (int h = 0; h < 2; h++) {
+        if (!g_devPoseOk[0] || !g_devPoseOk[3 + h]) {
+            // Losing tracking must not freeze a stale delta on the hand: drop
+            // it, so the hand returns to where the engine put it and the log
+            // says which pose went missing.
+            if (g_mpDeltaOk[h]) {
+                g_mpDeltaOk[h] = false;
+                Log("ms/palette/drive: hand %d lost its pose (head ok=%d hand "
+                    "ok=%d) - dropping its delta, so the hand goes back to the "
+                    "engine's own position instead of sticking where it was.",
+                    h, g_devPoseOk[0] ? 1 : 0, g_devPoseOk[3 + h] ? 1 : 0);
+            }
+            continue;
+        }
+        // Hand minus head in XR world metres, then into HEAD space: the head's
+        // rotation is R, so R transpose takes a world vector to head-local.
+        float w[3];
+        for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - g_devPose[0][r][3];
+        float v[3];
+        for (int c = 0; c < 3; c++)
+            v[c] = g_devPose[0][0][c] * w[0] + g_devPose[0][1][c] * w[1] +
+                   g_devPose[0][2][c] * w[2];
+
+        if (!g_mpNeutralOk[h]) {
+            memcpy(g_mpNeutral[h], v, sizeof(v));
+            g_mpNeutralOk[h] = true;
+            Log("ms/palette/drive: hand %d NEUTRAL captured at head-relative "
+                "(%.3f %.3f %.3f) m. Every delta from here is travel from THIS "
+                "pose, so the hand starts exactly where the engine put it.",
+                h, v[0], v[1], v[2]);
+        }
+        const float d0 = v[0] - g_mpNeutral[h][0];
+        const float d1 = v[1] - g_mpNeutral[h][1];
+        const float d2 = v[2] - g_mpNeutral[h][2];
+        // The measured basis: left = -x, down = -y, forward = -z.
+        g_mpDeltaUU[h][0] = -k * d0;
+        g_mpDeltaUU[h][1] = -k * d1;
+        g_mpDeltaUU[h][2] = -k * d2;
+        g_mpDeltaOk[h] = true;
+    }
+
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/drive: L %s (%+.1f %+.1f %+.1f) uu | R %s (%+.1f %+.1f "
+        "%+.1f) uu | %.0f uu/m x gain %.2f. The columns are the MEASURED "
+        "palette basis left/down/forward, so a hand moved RIGHT reads negative "
+        "in the first column and one moved UP reads negative in the second. "
+        "Both rows at zero while the controllers move is a neutral being "
+        "recaptured every frame, NOT the drive being off - the neutral line "
+        "prints once per capture and would be repeating.",
+        g_mpDeltaOk[0] ? "ok" : "--",
+        g_mpDeltaUU[0][0], g_mpDeltaUU[0][1], g_mpDeltaUU[0][2],
+        g_mpDeltaOk[1] ? "ok" : "--",
+        g_mpDeltaUU[1][0], g_mpDeltaUU[1][1], g_mpDeltaUU[1][2],
+        (double)g_skcWorldScale, (double)g_mpDriveGain);
+}
+
+
 static void MsTick(void)
 {
+    MpDriveTick();
     // The palette's stepped axis probe. Present thread, no D3D touched - the
     // draw detour reads g_mpStepAxis next time it runs.
     if (InterlockedExchange(&g_mpStepReq, 0)) {
+        if (g_mpDrive) {
+            // With the drive armed F6 means RECENTRE - the same key doing the
+            // same job it did for the probe, "start from here". Whatever pose
+            // the hands are in becomes the new zero.
+            g_mpNeutralOk[0] = g_mpNeutralOk[1] = false;
+            g_mpDeltaOk[0]   = g_mpDeltaOk[1]   = false;
+            memset(g_mpDeltaUU, 0, sizeof(g_mpDeltaUU));
+            Log("ms/palette/drive: >>> RECENTRED <<< - both hands are back at "
+                "the engine's own position, and the next frame captures a "
+                "fresh neutral from wherever the controllers are now.");
+            return;
+        }
         g_mpStepAxis = (g_mpStepAxis >= 2) ? -1 : (g_mpStepAxis + 1);
         if (g_mpStepAxis < 0)
             Log("ms/palette/step: >>> REST <<< - no delta on either hand. Both "

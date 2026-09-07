@@ -3261,6 +3261,59 @@ A mismatch is passed through to the original draw - NOT dropped: once a split
 is ready the caller's auto-arm fail-soft no longer applies, so declining used
 to suppress the mesh entirely.
 
+## The bone palette's basis, measured (VR-33 rung 1, 2026-09-07)
+
+The skinning matrices the game uploads to `c6` (48 bones, `c6 x144`, 3 float4
+rows each, row-major 3x4 with the translation in `.w`) are expressed in a frame
+whose axes are:
+
+| axis | direction |
+|---|---|
+| 0 | LEFT |
+| 1 | DOWN |
+| 2 | FORWARD |
+
+`left x down = -forward`, so the frame is LEFT-handed, which is what UE3 should
+give and is the main reason to believe the reading rather than an artifact.
+
+**The frame rotates with the GAME CAMERA.** A stick turn carried the three
+directions round with it while the head yaw stayed at about -15 deg, which is
+what separates camera-relative from world-aligned: a world-aligned frame would
+have left the directions where they were. This is also the coupling behind
+hands that drift with head movement - a world-space offset pushed into this
+frame without composing the camera's yaw counter-rotates exactly that way.
+
+Against OpenXR (x right, y up, z BACKWARD, so forward = -z) the map is a plain
+componentwise negation: `left = -x`, `down = -y`, `forward = -z`, i.e.
+`T_palette = -k * v_xr`.
+
+### How it was measured, and the two readings that were not evidence
+
+A delta of 15 uu on one hand class with the other class untouched as the
+reference. The first two runs used a TIMER, and returned `left/down/forward`
+and `down/forward/left` - the same cycle entered one step in, but nothing in
+either run could prove that rather than a changed basis, and the tester said so
+before it was acted on. The third run was STEPPED BY THE TESTER (F6: rest ->
+axis 0 -> axis 1 -> axis 2 -> rest), which has no phase to infer: the log shows
+`REST, AXIS 0, AXIS 1, AXIS 2` at a steady `hmdYaw` of about -35 deg, and the
+answer was `left, down, forward`, agreeing with the first reading.
+
+Class A is the LEFT hand and class B the RIGHT: with the delta on class A the
+left hand left the crossbow while the right stayed on the sword hilt.
+
+### Traps this cost
+
+* `MsTick` was called from inside `DcTick`, BELOW its `if (!g_dcOn) return;`.
+  Switching the draw census off therefore killed the mesh split's whole tick -
+  mode cycling, the wrist knob, the palette step - and the split stopped being
+  maintained, putting the arms back on screen with nothing in the log naming
+  the cause. The split does not belong to the census and now ticks either way.
+* The bare-numpad hotkey blocks did not check their modifier, so a
+  CTRL+Numpad5 press meant for the palette probe ALSO cycled the draw census.
+  One press did two things and read as "the probe did nothing".
+* CTRL is the game's block. A diagnostic on a CTRL chord makes the character
+  act while it is being pressed. The probe is on F6, unmodified.
+
 ## SkelControls are NOT evaluated on this build (VR-33 phase 1, 2026-09-07)
 
 This heading was briefly withdrawn on 2026-09-07 when the scan behind it turned

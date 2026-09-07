@@ -1158,12 +1158,25 @@ static void LoadConfig()
     if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
     g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
     if (g_mpHand < 0 || g_mpHand > 2) g_mpHand = 0;
+    g_mpDrive         = IniFloat(ini, "Hands", "PaletteDrive", 0) != 0.0f;
+    g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
+    if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
+    if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
     g_mpStep          = IniFloat(ini, "Hands", "PaletteStep", 0) != 0.0f;
     g_mpSweep         = IniFloat(ini, "Hands", "PaletteSweep", 0) != 0.0f;
     g_mpSweepSec      = IniFloat(ini, "Hands", "PaletteSweepSeconds", 3.0f);
     if (g_mpSweepSec < 0.5f)  g_mpSweepSec = 0.5f;
     if (g_mpSweepSec > 30.0f) g_mpSweepSec = 30.0f;
-    if (g_mpOn && g_mpStep)
+    if (g_mpOn && g_mpDrive)
+        Log("config: [Hands] Palette=1 PaletteDrive=1 - the CONTROLLERS drive "
+            "the palette delta, at %.0f uu/m x gain %.2f, through the basis "
+            "measured 2026-09-07 (axis 0 left, 1 down, 2 forward, camera "
+            "relative). It is a RELATIVE drive: each hand starts where the "
+            "engine put it and moves by the controller's travel from a "
+            "captured neutral, so it does not place the hand AT the "
+            "controller. F6 recentres both hands.",
+            (double)g_skcWorldScale, (double)g_mpDriveGain);
+    else if (g_mpOn && g_mpStep)
         Log("config: [Hands] Palette=1 PaletteStep=1 - the palette's STEPPED "
             "axis probe is armed and starts at REST, so nothing moves until "
             "you ask. F6 advances rest -> axis 0 -> axis 1 -> axis 2 "
@@ -1614,6 +1627,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteAxis", v, ini);
     _snprintf(v, 64, "%d", g_mpHand);
     WritePrivateProfileStringA("Hands", "PaletteHand", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteDrive", g_mpDrive ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", g_mpDriveGain);
+    WritePrivateProfileStringA("Hands", "PaletteDriveGain", v, ini);
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteSweep", g_mpSweep ? "1" : "0", ini);
     _snprintf(v, 64, "%.1f", g_mpSweepSec);

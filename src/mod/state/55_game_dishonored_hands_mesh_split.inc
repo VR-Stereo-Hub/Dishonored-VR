@@ -314,6 +314,39 @@ static bool     g_mpStep      = false;  // [Hands] PaletteStep
 static int      g_mpStepAxis  = -1;     // -1 = resting, 0/1/2 = that axis
 static volatile LONG g_mpStepReq = 0;   // hotkey -> MsTick, present thread
 
+// ---- rung 2: the controller drives the delta ---------------------------------
+//
+// THE BASIS, MEASURED 2026-09-07 with the stepped probe (tester-started, so no
+// phase was inferred): palette axis 0 = LEFT, axis 1 = DOWN, axis 2 = FORWARD,
+// and the frame rotates with the GAME CAMERA - a stick turn carried the
+// directions round with it while the head yaw stayed put, which is what tells
+// camera-relative apart from world-aligned. Left/down/forward is left-handed,
+// which is what UE3 should give and is the reason to believe it.
+//
+// Against OpenXR (x right, y up, z BACKWARD, so forward = -z) the map is a
+// componentwise negation: left = -x, down = -y, forward = -z. T = -k * v.
+//
+// WHY THE OFFSET IS TAKEN RELATIVE TO THE HEAD. The delta lands in a
+// camera-relative frame, so a head-relative offset is the one thing that
+// composes correctly without knowing the game's camera yaw at all: turning the
+// head rotates the offset and the frame together and they cancel, leaving the
+// hand world-stable; a stick turn rotates only the frame, and the hand rides
+// round with the body, which is what it should do. Reaching for the game's own
+// camera yaw would re-import the coupling that made hands drift with the head.
+//
+// It is a RELATIVE drive. D = 0 means "wherever the game put the hand", so
+// this moves the hand BY the controller's travel from a captured neutral - it
+// does not place the hand AT the controller. Absolute placement needs the
+// hand's current position in palette space, and a skinning matrix's
+// translation column is not the bone's position, so that is its own rung.
+static bool     g_mpDrive     = false;  // [Hands] PaletteDrive
+static float    g_mpDriveGain = 1.0f;   // [Hands] PaletteDriveGain
+static float    g_mpNeutral[2][3];      // head-relative offset at the capture
+static bool     g_mpNeutralOk[2] = { false, false };
+static float    g_mpDeltaUU[2][3];      // present thread writes, draw reads
+static bool     g_mpDeltaOk[2] = { false, false };
+static LONG     g_mpDriveBeat = 0;
+
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing
 // says the wrist is"; the knob exists because a derived number still has to
