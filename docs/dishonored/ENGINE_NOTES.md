@@ -3260,3 +3260,37 @@ The build now records that contract and every replacement draw re-checks it.
 A mismatch is passed through to the original draw - NOT dropped: once a split
 is ready the caller's auto-arm fail-soft no longer applies, so declining used
 to suppress the mesh entirely.
+
+## SkelControls are NOT evaluated on this build (VR-33 phase 1, 2026-09-07)
+
+Measured, twice, two ways.
+
+**The three named controls are inert.** `m_pLookAtControl_LeftHand`,
+`_RightHand` and `_Camera` are distinct live `SkelControlSingleBone` objects
+with `ControlStrength` 1.000 - and `ControlTickTag` frozen at 10 for an entire
+session while the mod wrote to one of them about 8,500 times a second. Its own
+apply flags were clear (`bools 0xA`, apply=0 add=0) and its saved translation
+was zero. UE3 stamps that tag when a control is EVALUATED.
+
+**And it is not a case of the wrong object.** A scan of every SkelControl in
+GObjects - 64 of them - sampling `ControlTickTag` one second apart found
+**zero** advancing, repeatedly. Not on the pawn's mesh, not on any other
+component.
+
+So a write to a SkelControl cannot move anything on this build, at any cadence,
+with any flags, in any space. **This retires the "9,000 writes a second outrun
+the recompute" reading from 38.x**: that was never a race being lost. Two
+separate sessions have now spent effort tuning the timing of writes to controls
+that are never evaluated.
+
+Note the state this was measured in: `[Mode] GamepadOnly=1` and
+`[Hands] Enabled=0`, so the mod's own hand subsystem was not driving anything.
+Confirming the controls stay inert with the hands subsystem ENABLED is the one
+cheap check that would close this door completely, and it has not been run.
+
+### Cost note
+
+The GObjects-wide tick scan runs on the script lane and walks every object once
+a second, calling `ObjClassName` on each. That is heavy enough to be felt as a
+frame-rate drop in the headset. It is a diagnostic, ships OFF, and should not
+be left enabled.
