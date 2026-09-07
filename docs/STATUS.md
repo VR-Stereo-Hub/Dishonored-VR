@@ -1,6 +1,70 @@
 # Status
 
-## CURRENT (2026-09-07): VR-33 - the SkelControl lane is closed, the palette route is next
+## CURRENT (2026-09-07): VR-33 - the hands are at the controllers; the stereo eye offset is the last placement fault
+
+### Where this is
+
+**Placement through the measured chain WORKS.** The hands track the
+controllers, hold position through head turns, and now occlude correctly
+against world geometry. The tester rates it the best result of the session.
+
+The path is measured, not inferred. Read from the shaders' own disassembly:
+
+```
+p_local = ( sum_i w_i * BoneMatrix[idx_i] ) * ( v0 * MeshExtension + MeshOrigin )
+p_cam   = LocalToWorld * p_local            (camera-relative world, uu)
+clip    = ViewProjectionMatrix * p_cam
+```
+
+Placement is `target_local = Rl^T * (d_cam - t)`, `T = target_local - q_local`,
+with `LocalToWorld` and `ViewProjectionMatrix` read from the device at each
+draw through the register indices that shader's own constant table declares.
+`ENGINE_NOTES.md` carries the full finding.
+
+### The remaining fault: the eye offset is not applied
+
+**Symptom:** correct in each eye individually, far too large with both open.
+
+**Diagnosis:** `method=reentry` is live and the scene is genuinely drawn twice
+(`L/s=88 R/s=88 mono/s=0`), so the world has correct stereo. But `d_cam` is
+computed from the HEAD CENTRE and used unchanged for both eyes. Placing the
+hand at the same camera-relative offset in each eye puts the two hand images an
+IPD apart in world terms - the disparity of an object at infinity. A hand-sized
+object at infinite disparity reads as a giant hand far away, which is exactly
+what is reported.
+
+**The fix** is to subtract that eye's offset: for each eye,
+`d_cam_eye = d_cam_head -/+ (IPD/2) * right_axis`, with the right axis already
+recovered from the ViewProjectionMatrix. IPD is known (63.0-63.1 mm measured).
+
+**The blocker** is that the draw does not yet know which eye it is drawing.
+The capture records the eye as `-2`, "not identified", which was flagged as a
+known gap when the mono method made it harmless. Under `reentry` it is not
+harmless and is now the last thing between this and correct hands.
+
+### What is measured and settled
+
+* Three shaders draw this mesh. Only one is depth-crushed (`MaxZ 0.001`); the
+  other two use the full range. Placement currently applies to all three.
+* Register layouts differ per shader and are parsed from each shader's CTAB.
+  One shader defines c4 as an immediate that disagrees with the device.
+* The shader does NOT normalise skin weights, but the anchor's weights sum to
+  exactly 1.0000, so it is harmless here.
+* The depth-range lever works: restoring `MaxZ` 1.0 for our draws gives correct
+  occlusion against world geometry.
+* Scale is still formally unmeasured, but the "huge" report is now attributed
+  to the eye offset rather than to scale, and should be re-judged after it.
+
+### Next steps
+
+1. Identify the eye at the hand draw under `reentry`, and apply the eye offset.
+2. Re-judge apparent scale once stereo is correct.
+3. Then Build B: controller orientation and a grip-to-palm transform.
+4. Outstanding and deliberately not done: pose timing (head look-ahead vs
+   hand), the harness case for the feature-gate regression, render states in
+   the capture, and a rigorous uu/m measurement.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the SkelControl lane is closed, the palette route is next
 
 ### Where this branch is
 
