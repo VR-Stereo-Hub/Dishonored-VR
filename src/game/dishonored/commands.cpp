@@ -31,6 +31,7 @@
 //   cine latch on|off            flip the cinematic latch by hand (the simulator's A/B)
 //   draws on|off|status|kill|unkill   the draw census (core/gfx/draw_census)
 //   hud on|off|status|scale <f>  the HUD panel (core/gfx/hud_capture)
+//   hud menu on|off              in-game menus on the panel with the projection kept
 //   vrinput on|off|status        the virtual gamepad
 //   console <text>               run a game console command on the script lane
 //   dump frame|capture|eyes
@@ -260,6 +261,17 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "hud")) {     // 41.2 (session 10): the HUD panel
+        if (!strncmp(args, "menu", 4)) {
+            const char* a = args + 4;
+            while (*a == ' ') ++a;
+            const bool on = !strcmp(a, "on");
+            if (!on && strcmp(a, "off")) { Log("hud: menu wants on or off"); return true; }
+            g_hudMenuOnPanel = on;
+            ConfigWriteKey("Hud", "MenuOnPanel", on ? "1" : "0", "the seam");
+            Log("hud: in-game menus %s", on ? "ride the PANEL with the projection kept"
+                                        : "drop the frame to the head-locked screen (the old way)");
+            return true;
+        }
         return dvr::hudcap::command(args);
     }
     if (!strcmp(cmd, "draws")) {   // 41.2 (session 10): the draw census
@@ -395,6 +407,9 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("cine");                                            // 41.2 (session 10): the cutscene policy
     w.kv("mode", g_cineStereoMode ? "stereo" : "quad");
     w.kv("hudPanel", (bool)g_cineHudPanel);
+    w.end_obj();
+    w.obj("hudMenu");
+    w.kv("onPanel", (bool)g_hudMenuOnPanel);
     w.kv("headLocked", (bool)g_cineHeadLocked);
     w.kv("latch", (bool)g_cineNow);
     w.kv("active", (bool)CineActive());

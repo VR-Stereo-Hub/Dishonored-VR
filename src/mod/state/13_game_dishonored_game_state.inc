@@ -108,6 +108,17 @@ static bool g_cineHudPanel = true;
 // of the cutscene and restores whatever the ini asked for afterwards - no edit
 // to the runtime layer, just its existing setter driven at the right moments.
 static bool g_cineHeadLocked = false;      // [Cine] HeadLocked
+// 41.2 (session 10, the tester's ask): in-game menus (pause, journal, shop) on
+// the HUD panel with the projection kept, instead of dropping the whole frame
+// to the head-locked mono screen. The menu is drawn by exactly the class the
+// redirect claims (measured, run 46-02: 10 buckets, all blended, all to the
+// backbuffer), so no classifier change is needed - only the gate has to stop
+// treating an in-game menu as "not gameplay". The MAIN menu is untouched: it
+// has no live pawn and carries its own positive signal, and it keeps the
+// screen. What the WORLD does behind a paused menu is the stereo method's
+// business (a frozen camera may fall to single draws); the panel gate has its
+// own fallback for that so the menu never disappears.
+static bool g_hudMenuOnPanel = true;
 static bool g_screenHeadLockedCfg = true;  // [Screen] HeadLocked, as configured
 static int  g_screenHeadLockedNow = -1;    // what the runtime was last told
 static bool CylTruthLive();              // fwd
