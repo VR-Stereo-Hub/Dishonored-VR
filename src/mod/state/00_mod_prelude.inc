@@ -65,17 +65,3 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 // Globals: proxy plumbing
 // ----------------------------------------------------------------------------
 static HMODULE g_realD3D9 = NULL;
-
-// What the INI asked for, captured before any mode veto (GamepadOnly, XR SAFE)
-// overwrites the live flags. The ini writer persists THESE, so a temporary mode
-// can never bake itself into the config file - which is exactly what happened
-// on 2026-09-06: one run under GamepadOnly=1 wrote [Hands] Enabled=0, and from
-// then on clearing GamepadOnly changed nothing.
-static bool g_cfgWantSaved    = false;
-static bool g_cfgWantSkcDrive = true;
-static bool g_cfgWantHandMesh = false;
-static bool g_cfgWantBlkAim   = false;
-static bool g_cfgWantBlkUI    = false;
-static bool g_cfgWantMelee    = false;
-static bool g_cfgWantMaim     = false;
-static bool g_cfgWantCrouch   = false;

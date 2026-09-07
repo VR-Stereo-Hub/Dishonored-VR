@@ -1137,26 +1137,6 @@ static void LoadConfig()
     g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
     g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
     g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
-    // VR-33: the static hand, placed by rewriting the bone palette at the
-    // constant upload - the last word before the GPU, and the reason this lane
-    // is not the three that are closed. PaletteSpace is a QUESTION: 0 is the
-    // ENGINE_NOTES answer (the FP view model is drawn in camera space) and 1 is
-    // world; a wrong choice reads as a hand that swings with the head.
-    g_pdOn       = IniFloat(ini, "Hands", "PaletteDrive", 0) != 0.0f;
-    g_pdSpace    = (int)IniFloat(ini, "Hands", "PaletteSpace", 0);
-    g_pdTranspose = IniFloat(ini, "Hands", "PaletteTranspose", 1) != 0.0f;
-    if (g_pdSpace < 0 || g_pdSpace > 1) g_pdSpace = 0;
-    g_pdScaleUU  = IniFloat(ini, "Hands", "PaletteScaleUU", 210.0f);
-    if (g_pdScaleUU < 1.0f) g_pdScaleUU = 108.0f;
-    {
-        static const char* kPg[2][3] = {
-            { "GripLR", "GripLU", "GripLF" }, { "GripRR", "GripRU", "GripRF" } };
-        for (int s4 = 0; s4 < 2; s4++)
-            for (int a4 = 0; a4 < 3; a4++) {
-                const float c4 = IniFloat(ini, "Hands", kPg[s4][a4], -1e9f);
-                if (c4 > -1e8f) { g_pdGrip[s4][a4] = c4; g_pdGripSet[s4] = 1; }
-            }
-    }
     // 3 = CLIP the triangles that straddle the plane, which is the only rule
     // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
     // triangles and leave a sawtooth one triangle high - on the coarse cuff
@@ -1368,23 +1348,13 @@ static void LoadConfig()
                 "writers OFF (crash bisector)");
         }
     }
-    // 40.3 GAMEPAD-ONLY, and 2026-09-06: THE DEFAULT IS NOW 0 (VR-40).
-    //
-    // This shipped as 1 with a stated condition - "the controllers stay a
-    // plain gamepad UNTIL THE RENDER IS SETTLED" - and that condition is met.
-    // Stereo is converged on the reentry method, the ghosting was solved at
-    // 90 Hz, world scale and eye height were judged (VR-20), and the desktop
-    // mirror has an eye policy (VR-53). Leaving the gate closed now costs the
-    // thing it was protecting: VR-33 cannot be worked on at all, because the
-    // whole hands subsystem - SkelControl, the hand meshes, motion aim, motion
-    // melee, motion crouch and hand-aimed Blink - is vetoed here, and a
-    // controller drive that never executes reads exactly like a controller
-    // drive that does not work.
-    //
-    // The original reason to close it is still true in one respect: motion
-    // controls add variables to a run that is measuring the render. So this is
-    // one ini key, it logs loudly either way, and GamepadOnly=1 puts every one
-    // of them back to sleep for a run that needs to measure the render alone.
+    // 40.3 GAMEPAD-ONLY. The rendering is not converged (world scale, the
+    // frame aspect and the FOV lever are still being fitted against each
+    // other), and motion controls make that harder to judge: hand meshes and
+    // a weapon that follow a mis-scaled world give the eye a second, wrong
+    // reference for how big things are, and every hand calibration is one
+    // more variable in a run that is supposed to be measuring one. So the
+    // controllers stay a plain gamepad until the render is settled.
     //
     // What stays ON deliberately: head tracking and its rotation writes,
     // positional head tracking, the FOV lever, and the virtual gamepad. This
@@ -1393,30 +1363,7 @@ static void LoadConfig()
     // The author's process rules say motion crouch and hands "must never stop
     // working". This does not retire them: it is one key, it logs loudly, and
     // the code is untouched. Set GamepadOnly=0 to get them all back.
-    g_gamepadOnly = IniFloat(ini, "Mode", "GamepadOnly", 0) != 0.0f;
-    // THE VETO MUST NOT BE ABLE TO WRITE ITSELF INTO THE INI.
-    //
-    // Everything below is a MODE, applied on top of what the user configured.
-    // The ini writer runs later and used to write the post-veto values, so one
-    // run with GamepadOnly=1 baked `[Hands] Enabled=0` and `[VRHands]
-    // Enabled=0` into the file - and from then on clearing GamepadOnly did
-    // nothing at all, because the ini itself now said the hands were off. A
-    // temporary gate had turned into a permanent setting, silently, and it
-    // took a session to find because every symptom pointed at the hand drive
-    // rather than at the config.
-    //
-    // So snapshot the CONFIGURED values here, and let the writer save these
-    // rather than whatever the vetoes left behind. The effective values still
-    // drive the run; only what gets persisted changes.
-    g_cfgWantSkcDrive = g_skcDrive;
-    g_cfgWantHandMesh = g_handMesh;
-    g_cfgWantBlkAim   = g_blkAimOnCfg;
-    g_cfgWantBlkUI    = g_blkDriveUI;
-    g_cfgWantMelee    = g_meleeOn;
-    g_cfgWantMaim     = g_maimEnabled;
-    g_cfgWantCrouch   = g_crouchOn;
-    g_cfgWantSaved    = true;
-
+    g_gamepadOnly = IniFloat(ini, "Mode", "GamepadOnly", 1) != 0.0f;
     if (g_gamepadOnly) {
         g_skcDrive     = false;    // no SkelControl hand writes
         g_handMesh     = false;    // no hand mesh collect/drive
@@ -1585,10 +1532,7 @@ static void OverlaySaveDefaults()
     // reader and forgot the writer, so every trim and toggle tuned in the
     // headset was silently discarded on exit. Everything the panel can change
     // is written here now.
-    // The CONFIGURED value, never the vetoed one - see the snapshot in
-    // LoadConfig for what writing the vetoed one cost.
-    WritePrivateProfileStringA("Hands", "Enabled",
-        (g_cfgWantSaved ? g_cfgWantSkcDrive : g_skcDrive) ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "Enabled", g_skcDrive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "BoneVisHide", g_boneVisCfg ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "MatCensus", g_matCensusCfg ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "MatAuto", g_matAutoCfg ? "1" : "0", ini);
@@ -1609,22 +1553,6 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "WristPlane", g_msPlane ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
-    WritePrivateProfileStringA("Hands", "PaletteDrive", g_pdOn ? "1" : "0", ini);
-    _snprintf(v, 64, "%d", g_pdSpace);
-    WritePrivateProfileStringA("Hands", "PaletteSpace", v, ini);
-    WritePrivateProfileStringA("Hands", "PaletteTranspose", g_pdTranspose ? "1" : "0", ini);
-    _snprintf(v, 64, "%.1f", g_pdScaleUU);
-    WritePrivateProfileStringA("Hands", "PaletteScaleUU", v, ini);
-    {
-        static const char* kPg2[2][3] = {
-            { "GripLR", "GripLU", "GripLF" }, { "GripRR", "GripRU", "GripRF" } };
-        for (int s5 = 0; s5 < 2; s5++)
-            if (g_pdGripSet[s5])
-                for (int a5 = 0; a5 < 3; a5++) {
-                    _snprintf(v, 64, "%.2f", g_pdGrip[s5][a5]);
-                    WritePrivateProfileStringA("Hands", kPg2[s5][a5], v, ini);
-                }
-    }
     _snprintf(v, 64, "%d", g_msEdge);
     WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
     _snprintf(v, 64, "%d", g_msStepMode);

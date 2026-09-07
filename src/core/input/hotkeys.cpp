@@ -115,14 +115,7 @@ static void StereoUpdate()
     // These only SET A REQUEST - every ShowMaterialSection dispatch happens on
     // the script lane in MatCycleTick, because ProcessEvent does not belong on
     // the present thread.
-    // CTRL + numpad is the palette drive's, exclusively. Every bare-numpad
-    // block below takes itself out of the way when CTRL is held, because one
-    // press firing two features is how Ctrl+Num5 ended up cycling the draw
-    // census - which unhid the arms AND knocked the split out of ready, so the
-    // palette drive then refused every upload for want of a split. One key,
-    // two owners, three symptoms.
-    const bool npCtl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    if (g_matCycleCfg && !npCtl) {
+    if (g_matCycleCfg) {
         static bool n1Was = false, n2Was = false, n3Was = false;
         const bool n1 = (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
         const bool n2 = (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
@@ -136,7 +129,7 @@ static void StereoUpdate()
     // VR-31 route (b): step through the censused DRAWS. Same split as the
     // material cycler - the hotkey only posts a request, and DcCycleTick acts
     // on it from the tick, never from here.
-    if (g_dcOn && !npCtl) {
+    if (g_dcOn) {
         static bool n4Was = false, n5Was = false, n6Was = false;
         const bool n4 = (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
         const bool n5 = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
@@ -171,13 +164,10 @@ static void StereoUpdate()
     if (g_msOn) {
         static bool n0Was = false, adWas = false, sbWas = false,
                     mlWas = false, dvWas = false, dcWas = false;
-        // CTRL + numpad belongs to the palette drive; a held CTRL takes the
-        // split's knob out of the way rather than both firing on one press.
-        const bool msCtl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool n0 = !msCtl && (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
-        const bool ad = !msCtl && (GetAsyncKeyState(VK_ADD)      & 0x8000) != 0;
-        const bool sb = !msCtl && (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0;
-        const bool ml = !msCtl && (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0;
+        const bool n0 = (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
+        const bool ad = (GetAsyncKeyState(VK_ADD)      & 0x8000) != 0;
+        const bool sb = (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0;
+        const bool ml = (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0;
         const bool dv = (GetAsyncKeyState(VK_DIVIDE)   & 0x8000) != 0;
         const bool dc = (GetAsyncKeyState(VK_DECIMAL)  & 0x8000) != 0;
         if (n0 && !n0Was) g_msModeReq   =  1;
@@ -202,54 +192,6 @@ static void StereoUpdate()
             }
         }
         n0Was = n0; adWas = ad; sbWas = sb; mlWas = ml; dvWas = dv; dcWas = dc;
-    }
-
-    // VR-33, the palette hand drive. NOT on the numpad - the mesh split owns
-    // every key of it - and not on the arrows, which the game moves with.
-    //   End     the drive on / off. The A/B against the head-locked hand.
-    //   Home    which grip axis Insert / Delete move
-    //   Insert  the grip moves BACK along that axis
-    //   Delete  the grip moves OUT along that axis
-    //   Pause   which hand the grip knob moves
-    //   PgUp    camera-relative palette or world. One press settles it.
-    {
-        static bool hmWas = false, inWas = false, deWas = false,
-                    enWas = false, paWas = false, puWas = false;
-        // CTRL + numpad. The tester's board is a 96% with no Home, End,
-        // Insert or Pause at all, so the first set was unreachable on the only
-        // keyboard this is tested on. The numpad is there and the mesh split
-        // owns it BARE, so this takes it with CTRL held - the split's ring is
-        // a shipped default now and needs the plain keys far less.
-        const bool ctl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool hm = ctl && (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) != 0;
-        const bool in = ctl && (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
-        const bool de = ctl && (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) != 0;
-        const bool en = ctl && (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
-        const bool pa = ctl && (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) != 0;
-        const bool pu = ctl && (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) != 0;
-        if (hm && !hmWas) g_pdAxisReq   = 1;
-        if (in && !inWas) g_pdNudgeReq  = -1;
-        if (de && !deWas) g_pdNudgeReq  = 1;
-        if (en && !enWas) g_pdToggleReq = 1;
-        if (pa && !paWas) g_pdSideReq   = 1;
-        if (pu && !puWas) g_pdSpaceReq  = 1;
-        // Ctrl+Num1: how a bone's three rows are read. The one switch
-        // that separates a wrong basis from a wrong reference bone.
-        static bool trWas = false;
-        const bool tr = ctl && (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
-        if (tr && !trWas) g_pdTransReq = 1;
-        trWas = tr;
-        {
-            static double heldP = 0.0, nextP = 0.0;
-            const double now = MaimNowMs();
-            const int dir = de ? 1 : (in ? -1 : 0);
-            if (!dir) { heldP = 0.0; }
-            else {
-                if (heldP == 0.0) { heldP = now; nextP = now + 400.0; }
-                else if (now >= nextP) { g_pdNudgeReq = dir; nextP = now + 80.0; }
-            }
-        }
-        hmWas = hm; inWas = in; deWas = de; enWas = en; paWas = pa; puWas = pu;
     }
 
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
