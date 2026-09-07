@@ -363,6 +363,52 @@ static LONG     g_mpDriveBeat = 0;
 // What is NOT known is the sign convention between the two, so the two hands
 // take OPPOSITE signs for one run and the stable hand names the correct one.
 // The other hand is the control, which is the same A/B that measured the basis.
+// ---- BUILD A: ABSOLUTE PALM PLACEMENT ---------------------------------------
+//
+// The relative drive was refuted on paper before it was ever run again. Its
+// cancellation argument covered the ADDED displacement and silently omitted the
+// hand that was already there: with
+//
+//     p_out = h + R*(b(t) + d)  and  d = R^-1 (w - w0),
+//     p_out = h + R*b(t) + (w - w0)
+//
+// a still controller and a still head give d = 0 for every head ORIENTATION,
+// so the original camera-following hand b(t) keeps following the camera
+// underneath the correction. MpBuild adds to the existing matrices rather than
+// replacing their placement, so b(t) is genuinely still in there. No headset
+// run was needed to see it, and none should have been spent.
+//
+// Absolute placement removes b(t) instead of hoping it cancels: find where the
+// visible palm actually IS this frame by skinning real vertices with the
+// unmodified palette, and translate by the difference to where it should be.
+//
+//     translation = target - q(t),  q(t) = sum_j a_j sum_i w_ji M[idx_ji] v_j
+//
+// q is computed from the ORIGINAL cached palette every frame, never from a
+// palette we already moved, or the correction would compound.
+//
+// The anchor is a fixed set of vertex identities chosen once at build time, not
+// a centroid of whatever is currently classified as hand: a moving anchor makes
+// the residual meaningless. It is an explicit visual reference point and is NOT
+// a claim to have located an anatomical joint - the deliberate advantage of
+// skinning vertices is that it never needs one.
+enum { MP_ANCHOR_N = 12 };
+static uint32_t g_mpAnchorIdx[MS_CLS_N][MP_ANCHOR_N];
+static int      g_mpAnchorN[MS_CLS_N] = { 0, 0, 0, 0, 0 };
+static bool     g_mpAbs       = false;  // [Hands] PaletteAbsolute
+// Controller position converted into palette units/axes, published once per
+// present and read by the draw. Head-relative, which is the palette's own
+// frame, so no separate origin convention is smuggled in here.
+static float    g_mpCtlPal[2][3];
+static bool     g_mpCtlOk[2]  = { false, false };
+// The constant palette-space offset between the controller point and the palm
+// anchor, calibrated on the first draw after arming so the hand does not jump.
+// Constant in a frame that is itself head-attached, which is what makes it a
+// genuine constant rather than a hidden head coupling.
+static float    g_mpOrigin[2][3];
+static bool     g_mpOriginOk[2] = { false, false };
+static float    g_mpResid[2][3];        // target - corrected anchor, for the log
+
 static int      g_mpYawMode   = 0;      // [Hands] PaletteYawFix 0=off 1=+ 2=A/B 3=-
 static bool     g_mpFrameProbe = false; // [Hands] PaletteFrameProbe
 static float    g_mpPhiRad    = 0.0f;   // the residual, for the log

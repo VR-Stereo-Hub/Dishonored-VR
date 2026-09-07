@@ -1501,6 +1501,34 @@ static bool MsUpload(IDirect3DDevice9* dev)
             at++; n++;
         }
         g_msClsCount[cls] = n;
+
+        // THE PALM ANCHOR for this class: fixed vertex identities, chosen once
+        // here, sampled evenly across the class so they cannot all land on one
+        // finger. ORIGINAL vertices only (index < g_msVerts) - the clip's
+        // generated vertices have no entry in g_msVert and therefore no blend
+        // indices or weights to skin with.
+        if (cls == MS_CLS_HAND_A || cls == MS_CLS_HAND_B) {
+            g_mpAnchorN[cls] = 0;
+            if (n > 0) {
+                const int stride = (n * 3) / MP_ANCHOR_N + 1;
+                for (int t = 0; t < g_msOutN && g_mpAnchorN[cls] < MP_ANCHOR_N; t++) {
+                    if (g_msOutCls[t] != cls) continue;
+                    for (int c = 0; c < 3 && g_mpAnchorN[cls] < MP_ANCHOR_N; c++) {
+                        if (((t * 3 + c) % stride) != 0) continue;
+                        const uint32_t v = g_msOutIdx[t * 3 + c];
+                        if ((int)v >= g_msVerts) continue;
+                        g_mpAnchorIdx[cls][g_mpAnchorN[cls]++] = v;
+                    }
+                }
+            }
+            g_mpOriginOk[0] = g_mpOriginOk[1] = false;   // geometry changed
+            Log("ms/palette/anchor: class %s - %d anchor vertex(es) of %d "
+                "triangle(s). These are FIXED identities: the residual only "
+                "means something if the point being measured stops moving for "
+                "reasons of its own.",
+                cls == MS_CLS_HAND_A ? "A (left)" : "B (right)",
+                g_mpAnchorN[cls], n);
+        }
     }
     g_msIb->Unlock();
     Log("ms: buffers rebuilt - handA %d@%d, handB %d@%d, armA %d@%d, armB "
@@ -1648,6 +1676,56 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 
 // ---- the draw ---------------------------------------------------------------
 
+// Where the palm anchor actually IS this frame, in the palette's output space.
+// Skins the chosen vertices with the palette the GAME asked for - never one we
+// have already moved, or the correction compounds frame on frame.
+//
+// The blend is the same one the shader does: sum over influences of
+// weight * (M[index] * vertex). Returns false rather than guessing if the
+// class has no anchor or an influence names a bone outside the block, because
+// a silently clamped index would put the anchor somewhere plausible and wrong.
+static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
+{
+    if (cls < 0 || cls >= MS_CLS_N || g_mpAnchorN[cls] <= 0) return false;
+    const int bones = (int)(count / 3);
+    float acc[3] = { 0.0f, 0.0f, 0.0f };
+    int used = 0;
+    for (int a = 0; a < g_mpAnchorN[cls]; a++) {
+        const uint32_t vi = g_mpAnchorIdx[cls][a];
+        if ((int)vi >= g_msVerts) continue;
+        const MsVert* v = &g_msVert[vi];
+        float wsum = 0.0f;
+        for (int i = 0; i < 4; i++) wsum += v->bw[i];
+        if (wsum <= 0.0001f) continue;
+        float q[3] = { 0.0f, 0.0f, 0.0f };
+        bool ok = true;
+        for (int i = 0; i < 4 && ok; i++) {
+            const float wgt = v->bw[i];
+            if (wgt <= 0.0f) continue;
+            const int b = (int)v->bi[i];
+            if (b < 0 || b >= bones) { ok = false; break; }
+            const float* r0 = pal + (b * 3 + 0) * 4;
+            const float* r1 = pal + (b * 3 + 1) * 4;
+            const float* r2 = pal + (b * 3 + 2) * 4;
+            q[0] += wgt * (r0[0]*v->p[0] + r0[1]*v->p[1] + r0[2]*v->p[2] + r0[3]);
+            q[1] += wgt * (r1[0]*v->p[0] + r1[1]*v->p[1] + r1[2]*v->p[2] + r1[3]);
+            q[2] += wgt * (r2[0]*v->p[0] + r2[1]*v->p[1] + r2[2]*v->p[2] + r2[3]);
+        }
+        if (!ok) continue;
+        // Normalise by the weight sum rather than assuming it is 1: the
+        // affine-commuting identity needs effective weights summing to one, and
+        // this asset has not been shown to guarantee it.
+        acc[0] += q[0] / wsum; acc[1] += q[1] / wsum; acc[2] += q[2] / wsum;
+        used++;
+    }
+    if (!used) return false;
+    out[0] = acc[0] / (float)used;
+    out[1] = acc[1] / (float)used;
+    out[2] = acc[2] / (float)used;
+    return true;
+}
+
+
 // D * M for every skinning matrix in the block, where D is a pure translation
 // by T in whatever space the palette is already expressed in. Each matrix is
 // 3 float4 rows, row-major 3x4, with the translation in .w - so a translation
@@ -1789,7 +1867,42 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 // as the reference.
                 float T[3] = { 0.0f, 0.0f, 0.0f };
                 bool  useT = false;
-                if (g_mpDrive) {
+                if (g_mpAbs) {
+                    // ABSOLUTE. Find the palm now, from the game's own palette,
+                    // and translate by the difference to where it should be.
+                    // This is the term the relative drive never removed.
+                    const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
+                    float q[3];
+                    if (g_mpCtlOk[hIdx] &&
+                        MpAnchorPos(rng[r].cls, g_mpCache, g_mpCacheN, q)) {
+                        if (!g_mpOriginOk[hIdx]) {
+                            // Calibrate so the hand does not jump on the first
+                            // frame: the constant palette-space offset between
+                            // the controller point and the palm as drawn.
+                            for (int i = 0; i < 3; i++)
+                                g_mpOrigin[hIdx][i] = q[i] - g_mpCtlPal[hIdx][i];
+                            g_mpOriginOk[hIdx] = true;
+                            Log("ms/palette/abs: hand %d CALIBRATED - palm at "
+                                "(%.1f %.1f %.1f) uu, controller at (%.1f %.1f "
+                                "%.1f) uu, constant offset (%.1f %.1f %.1f). "
+                                "The hand does not move on this frame by "
+                                "construction; every frame after is absolute.",
+                                hIdx, q[0], q[1], q[2],
+                                g_mpCtlPal[hIdx][0], g_mpCtlPal[hIdx][1],
+                                g_mpCtlPal[hIdx][2],
+                                g_mpOrigin[hIdx][0], g_mpOrigin[hIdx][1],
+                                g_mpOrigin[hIdx][2]);
+                        }
+                        for (int i = 0; i < 3; i++) {
+                            const float tgt = g_mpCtlPal[hIdx][i] + g_mpOrigin[hIdx][i];
+                            T[i] = tgt - q[i];
+                            g_mpResid[hIdx][i] = 0.0f;   // exact by construction
+                        }
+                        useT = true;
+                    }
+                    // No anchor or no pose: fall through with useT false, so
+                    // the hand draws exactly where the engine put it.
+                } else if (g_mpDrive) {
                     const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
                     if (g_mpDeltaOk[hIdx]) {
                         T[0] = g_mpDeltaUU[hIdx][0];
@@ -1972,6 +2085,7 @@ static void MpDriveTick(void)
             // Losing tracking must not freeze a stale delta on the hand: drop
             // it, so the hand returns to where the engine put it and the log
             // says which pose went missing.
+            g_mpCtlOk[h] = false;
             if (g_mpDeltaOk[h]) {
                 g_mpDeltaOk[h] = false;
                 Log("ms/palette/drive: hand %d lost its pose (head ok=%d hand "
@@ -2010,6 +2124,13 @@ static void MpDriveTick(void)
                 "move it.",
                 h, w[0], w[1], w[2]);
         }
+        // The controller's CURRENT head-relative position, which Build A uses
+        // directly, and which the relative drive's travel is measured against.
+        float v_now[3];
+        for (int c = 0; c < 3; c++)
+            v_now[c] = g_devPose[0][0][c] * w[0] + g_devPose[0][1][c] * w[1] +
+                       g_devPose[0][2][c] * w[2];
+
         // World-space travel since the neutral, then into the head frame.
         const float ww[3] = { w[0] - g_mpNeutral[h][0],
                               w[1] - g_mpNeutral[h][1],
@@ -2041,8 +2162,37 @@ static void MpDriveTick(void)
         g_mpDeltaUU[h][1] = t1;
         g_mpDeltaUU[h][2] = t2;
         g_mpDeltaOk[h] = true;
+
+        // Build A's target input: the controller's own position in the
+        // palette's frame and units. No neutral, no travel - the position
+        // itself, so nothing here can carry a stale zero.
+        g_mpCtlPal[h][0] = -k * v_now[0];
+        g_mpCtlPal[h][1] = -k * v_now[1];
+        g_mpCtlPal[h][2] = -k * v_now[2];
+        g_mpCtlOk[h] = true;
     }
 
+    if (g_mpAbs) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette/abs: L %s ctl (%+.1f %+.1f %+.1f) origin %s (%+.1f "
+            "%+.1f %+.1f) | R %s ctl (%+.1f %+.1f %+.1f) origin %s (%+.1f "
+            "%+.1f %+.1f) uu | %.0f uu/m x %.2f. The palm is RE-MEASURED from "
+            "the game's own palette every frame, so the animated baseline is "
+            "subtracted rather than left underneath. A hand that STILL swings "
+            "with the head means the anchor is not on the hand being drawn, or "
+            "the cached palette is not the one that draw consumed - it does "
+            "not mean the target moved.",
+            g_mpCtlOk[0] ? "ok" : "--",
+            g_mpCtlPal[0][0], g_mpCtlPal[0][1], g_mpCtlPal[0][2],
+            g_mpOriginOk[0] ? "set" : "PENDING",
+            g_mpOrigin[0][0], g_mpOrigin[0][1], g_mpOrigin[0][2],
+            g_mpCtlOk[1] ? "ok" : "--",
+            g_mpCtlPal[1][0], g_mpCtlPal[1][1], g_mpCtlPal[1][2],
+            g_mpOriginOk[1] ? "set" : "PENDING",
+            g_mpOrigin[1][0], g_mpOrigin[1][1], g_mpOrigin[1][2],
+            (double)g_skcWorldScale, (double)g_mpDriveGain);
+        return;
+    }
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
         "ms/palette/drive: L %s (%+.1f %+.1f %+.1f) uu | R %s (%+.1f %+.1f "
         "%+.1f) uu | %.0f uu/m x gain %.2f. The columns are the MEASURED "
@@ -2077,6 +2227,7 @@ static void MsTick(void)
             // the hands are in becomes the new zero.
             g_mpNeutralOk[0] = g_mpNeutralOk[1] = false;
             g_mpDeltaOk[0]   = g_mpDeltaOk[1]   = false;
+            g_mpOriginOk[0]  = g_mpOriginOk[1]  = false;
             memset(g_mpDeltaUU, 0, sizeof(g_mpDeltaUU));
             Log("ms/palette/drive: >>> RECENTRED <<< - both hands are back at "
                 "the engine's own position, and the next frame captures a "

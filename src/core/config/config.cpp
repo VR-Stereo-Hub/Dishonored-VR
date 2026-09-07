@@ -1162,6 +1162,7 @@ static void LoadConfig()
     g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
     if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
     if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
+    g_mpAbs           = IniFloat(ini, "Hands", "PaletteAbsolute", 0) != 0.0f;
     g_mpFrameProbe    = IniFloat(ini, "Hands", "PaletteFrameProbe", 0) != 0.0f;
     g_mpYawMode       = (int)IniFloat(ini, "Hands", "PaletteYawFix", 0);
     if (g_mpYawMode < 0 || g_mpYawMode > 3) g_mpYawMode = 2;
@@ -1170,7 +1171,16 @@ static void LoadConfig()
     g_mpSweepSec      = IniFloat(ini, "Hands", "PaletteSweepSeconds", 3.0f);
     if (g_mpSweepSec < 0.5f)  g_mpSweepSec = 0.5f;
     if (g_mpSweepSec > 30.0f) g_mpSweepSec = 30.0f;
-    if (g_mpOn && g_mpDrive)
+    if (g_mpOn && g_mpAbs)
+        Log("config: [Hands] PaletteAbsolute=1 - the palm anchor is placed "
+            "ABSOLUTELY. Each frame the visible palm's position is skinned from "
+            "the game's OWN palette and the delta is target minus that, so the "
+            "animated baseline is removed instead of being left underneath the "
+            "correction - which is the term the relative drive never cancelled. "
+            "%.0f uu/m x gain %.2f. F6 re-calibrates the constant "
+            "controller-to-palm offset.",
+            (double)g_skcWorldScale, (double)g_mpDriveGain);
+    else if (g_mpOn && g_mpDrive)
         Log("config: [Hands] Palette=1 PaletteDrive=1 - the CONTROLLERS drive "
             "the palette delta, at %.0f uu/m x gain %.2f, through the basis "
             "measured 2026-09-07 (axis 0 left, 1 down, 2 forward, camera "
@@ -1635,6 +1645,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteDriveGain", v, ini);
     _snprintf(v, 64, "%d", g_mpYawMode);
     WritePrivateProfileStringA("Hands", "PaletteYawFix", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteAbsolute", g_mpAbs ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteFrameProbe", g_mpFrameProbe ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteSweep", g_mpSweep ? "1" : "0", ini);
