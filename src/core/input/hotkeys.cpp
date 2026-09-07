@@ -210,13 +210,14 @@ static void StereoUpdate()
         hmWas = hmk;
     }
 
-    // VR-33: CTRL + Numpad5 steps the palette's axis probe. Bare numpad
-    // belongs to the mesh split, so this follows CTRL+Numpad2's precedent.
-    // rest -> axis 0 -> axis 1 -> axis 2 -> rest, one press each, so the
-    // tester starts the cycle and there is no phase to misread.
+    // VR-33: F6 steps the palette's axis probe. NOT a numpad key - every one
+    // of them is already claimed by a bare-key block above - and NOT a CTRL
+    // chord: CTRL is the game's block, so holding it to press a diagnostic
+    // makes the character do something and reads back as interference.
+    // rest -> axis 0 -> axis 1 -> axis 2 -> rest, one press each.
     {
         static bool mpWas = false;
-        const bool mpk = kCtrl && (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
+        const bool mpk = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
         if (mpk && !mpWas) InterlockedExchange(&g_mpStepReq, 1);
         mpWas = mpk;
     }

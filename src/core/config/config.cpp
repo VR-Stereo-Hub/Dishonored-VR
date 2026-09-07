@@ -1166,7 +1166,7 @@ static void LoadConfig()
     if (g_mpOn && g_mpStep)
         Log("config: [Hands] Palette=1 PaletteStep=1 - the palette's STEPPED "
             "axis probe is armed and starts at REST, so nothing moves until "
-            "you ask. CTRL+Numpad5 advances rest -> axis 0 -> axis 1 -> axis 2 "
+            "you ask. F6 advances rest -> axis 0 -> axis 1 -> axis 2 "
             "-> rest, %+.1f uu on hand class %s each time, with the other class "
             "never moving as the reference. Every press prints an "
             "ms/palette/step: line, so which axis was live is never inferred.",

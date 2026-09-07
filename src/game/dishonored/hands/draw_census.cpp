@@ -564,9 +564,15 @@ static void DcCycleTick()
 
 static void DcTick()
 {
+    // MsTick used to be called BELOW the g_dcOn gate, so switching the draw
+    // census off silently killed the mesh split's whole tick - mode cycling,
+    // the wrist knob and the palette step all stopped, and the split stopped
+    // being maintained, which put the arms back on screen with nothing in the
+    // log to say why. The split does not belong to the census; it ticks either
+    // way now.
+    MsTick();
     if (!g_dcOn) return;
     DcCycleTick();
-    MsTick();
     // STALE LOCK. A level load recreates the buffers, and the old lock then
     // names freed pointers that no draw will ever match again - the mesh comes
     // back whole with nothing in the log to say why. Releasing an automatic
