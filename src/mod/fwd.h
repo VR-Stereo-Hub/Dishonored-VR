@@ -342,6 +342,7 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 struct MsContract;
 static bool PcCapture(IDirect3DDevice9* dev, const MsContract* con, UINT primCount,
                       int cls, const float* ourQ);
+static void PcRefreshLayout(IDirect3DDevice9* dev);
 static void PcTick(void);
 static void PcStart(void);
 static void PcStop(void);

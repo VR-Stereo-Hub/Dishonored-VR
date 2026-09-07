@@ -1162,6 +1162,7 @@ static void LoadConfig()
     g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
     if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
     if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
+    g_mpWorld         = IniFloat(ini, "Hands", "PaletteWorld", 0) != 0.0f;
     g_mpAbs           = IniFloat(ini, "Hands", "PaletteAbsolute", 0) != 0.0f;
     g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
     g_mpWsumTol       = IniFloat(ini, "Hands", "PaletteWeightTol", 0.02f);
@@ -1174,7 +1175,17 @@ static void LoadConfig()
     g_mpSweepSec      = IniFloat(ini, "Hands", "PaletteSweepSeconds", 3.0f);
     if (g_mpSweepSec < 0.5f)  g_mpSweepSec = 0.5f;
     if (g_mpSweepSec > 30.0f) g_mpSweepSec = 30.0f;
-    if (g_mpOn && g_mpAbs)
+    if (g_mpOn && g_mpWorld)
+        Log("config: [Hands] PaletteWorld=1 - the palm is placed through the "
+            "MEASURED chain. LocalToWorld and ViewProjectionMatrix are read "
+            "from the device at each draw, through the register indices that "
+            "shader's own constant table declares, and the palm's current "
+            "position is re-skinned from the game's palette every frame. No "
+            "calibration and no neutral. The one number still assumed is the "
+            "scale: %.0f uu/m x gain %.2f, against [PosTrack] Scale=%.0f - a "
+            "scale error shows as a GAIN error, not as drift.",
+            (double)g_skcWorldScale, (double)g_mpDriveGain, (double)g_posScaleUU);
+    else if (g_mpOn && g_mpAbs)
         Log("config: [Hands] PaletteAbsolute=1 - the palm anchor is placed "
             "ABSOLUTELY. Each frame the visible palm's position is skinned from "
             "the game's OWN palette and the delta is target minus that, so the "
@@ -1648,6 +1659,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteDriveGain", v, ini);
     _snprintf(v, 64, "%d", g_mpYawMode);
     WritePrivateProfileStringA("Hands", "PaletteYawFix", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteWorld", g_mpWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteAbsolute", g_mpAbs ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.4f", g_mpWsumTol);

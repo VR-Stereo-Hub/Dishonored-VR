@@ -116,5 +116,18 @@ static volatile LONG g_pcDropped = 0;       // queue-full: reported, never silen
 static volatile LONG g_pcFailed = 0;        // a capture that could not complete
 static volatile LONG g_pcDone = 0;
 
+// THE LIVE LAYOUT, for placement rather than capture. Keyed on the shader
+// pointer, which is cheap to compare per draw, and re-reflected whenever it
+// changes. A recycled pointer could in principle hand back a stale layout;
+// that is caught downstream, where the placement validates that LocalToWorld
+// is rigid and the camera basis orthonormal with a unit forward row. A wrong
+// layout does not satisfy those by accident, so it refuses rather than placing
+// a hand on numbers from the wrong registers.
+static void*    g_pcLayShader = NULL;
+static int      g_pcLayVp   = -1;
+static int      g_pcLayL2W  = -1;
+static int      g_pcLayBones = -1;
+static LONG     g_pcLayFail = 0;
+
 static HANDLE   g_pcThread = NULL;
 static volatile LONG g_pcQuit = 0;

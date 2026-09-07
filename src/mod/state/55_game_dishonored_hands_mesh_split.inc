@@ -407,6 +407,46 @@ static bool     g_mpCtlOk[2]  = { false, false };
 // genuine constant rather than a hidden head coupling.
 static float    g_mpOrigin[2][3];
 static bool     g_mpOriginOk[2] = { false, false };
+// ---- BUILD A2: PLACEMENT THROUGH THE MEASURED CHAIN --------------------------
+//
+// The shader capture ended the guessing. The vertex path is
+//
+//     p_local = (sum_i w_i M_i) * (v0 * MeshExtension + MeshOrigin)
+//     p_cam   = LocalToWorld * p_local          (camera-relative world, uu)
+//     clip    = ViewProjectionMatrix * p_cam
+//
+// so the palette's output is the component's LOCAL space and LocalToWorld -
+// present in the constants, not conjecturable - takes it to a camera-relative
+// world frame. To put the palm at the controller:
+//
+//     target_local = Rl^T * (d_cam - t),   T = target_local - q_local
+//
+// where [Rl | t] is LocalToWorld and d_cam is the controller's position
+// relative to the camera in that frame. No calibrated offset, no neutral, and
+// nothing left underneath: q_local is re-measured every frame from the game's
+// own palette, so the animated baseline is subtracted rather than hoped away.
+//
+// d_cam is built from the camera's own basis, recovered from the
+// ViewProjectionMatrix: rows 0 and 1 normalised give right and up (their
+// lengths are the focal scales), and the w row is the forward axis and is
+// exactly unit for a standard perspective. Checked against a captured packet
+// before any of this was written: the left palm came out 15.3 uu left, 26.1 uu
+// below and 44.1 uu in front of the camera, which is where a left hand is.
+//
+// WHAT IS STILL ASSUMED, and is the one number not measured here: the metres
+// to unreal-units scale. [Hands] WorldScaleUU and [PosTrack] Scale disagree
+// (100 vs 108) and neither has been validated for THIS conversion at two
+// depths. A scale error shows up as the hand tracking with a gain error, not
+// as drift, so it is distinguishable from a frame error in the next run.
+static bool     g_mpWorld     = false;  // [Hands] PaletteWorld
+static float    g_mpCtlRUF[2][3];       // controller offset from head: right/up/fwd, metres
+static bool     g_mpCtlRUFOk[2] = { false, false };
+static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
+static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason
+static const char* g_mpWorldWhy = "not run yet";
+static float    g_mpLastTargetLocal[2][3];
+static float    g_mpLastPCam[2][3];
+
 static float    g_mpResid[2][3];        // target - corrected anchor, MEASURED
 static LONG     g_mpResidTick[2] = { 0, 0 };  // PER HAND - a shared counter only ever
                                               // sampled the right hand in the normal

@@ -1751,6 +1751,90 @@ static inline bool MpFinite(float x)
 }
 
 
+// PLACEMENT THROUGH THE MEASURED CHAIN.
+//
+// Reads ViewProjectionMatrix and LocalToWorld from the DEVICE, at this draw,
+// through the register indices this shader's own constant table declares -
+// never assumed, because the three shaders that draw this mesh disagree about
+// their layout and one def's a register the device reports differently.
+//
+// Refuses loudly rather than placing a hand on numbers it could not verify.
+// The validations are the point: an orthonormal LocalToWorld rotation and a
+// unit w row are what make "this is a rigid transform into a camera-relative
+// frame, viewed through a standard perspective" a checked claim instead of an
+// assumption. A wrong layout fails them, which is the safety net that makes
+// the pointer-keyed layout cache safe.
+static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
+                          float* outT, const char** why)
+{
+    const char* dummy = NULL; if (!why) why = &dummy;
+    if (hand < 0 || hand > 1)        { *why = "bad hand";        return false; }
+    if (!g_mpCtlRUFOk[hand])         { *why = "no controller pose"; return false; }
+    if (g_pcLayVp < 0 || g_pcLayL2W < 0) { *why = "no shader layout"; return false; }
+
+    float vp[4][4], l2w[4][4];
+    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayVp, &vp[0][0], 4)))
+        { *why = "VP read failed"; return false; }
+    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayL2W, &l2w[0][0], 4)))
+        { *why = "LocalToWorld read failed"; return false; }
+
+    // The camera's basis, from the rows of the ViewProjection. The shader
+    // computes clip = c[vp+0]*x + c[vp+1]*y + c[vp+2]*z + c[vp+3]*w, so the
+    // row for a clip component is that component taken across the columns.
+    float r[3] = { vp[0][0], vp[1][0], vp[2][0] };
+    float u[3] = { vp[0][1], vp[1][1], vp[2][1] };
+    float f[3] = { vp[0][3], vp[1][3], vp[2][3] };
+    const float rn = sqrtf(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]);
+    const float un = sqrtf(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
+    const float fn = sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]);
+    if (!(rn > 1e-4f) || !(un > 1e-4f)) { *why = "degenerate focal scales"; return false; }
+    // The w row is the forward axis and is UNIT for a standard perspective.
+    // An orthographic or non-standard path will not satisfy this, and must be
+    // refused rather than forced into a plausible-looking answer.
+    if (fabsf(fn - 1.0f) > 0.01f) { *why = "w row is not unit - not a standard perspective"; return false; }
+    for (int i = 0; i < 3; i++) { r[i] /= rn; u[i] /= un; }
+
+    // Orthonormality, which a wrong layout will not accidentally satisfy.
+    const float ru = r[0]*u[0] + r[1]*u[1] + r[2]*u[2];
+    const float rf = r[0]*f[0] + r[1]*f[1] + r[2]*f[2];
+    const float uf = u[0]*f[0] + u[1]*f[1] + u[2]*f[2];
+    if (fabsf(ru) > 0.02f || fabsf(rf) > 0.02f || fabsf(uf) > 0.02f)
+        { *why = "camera basis is not orthonormal"; return false; }
+
+    // The controller, in the camera-relative world frame. The scale is the one
+    // number here that is still assumed rather than measured.
+    const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
+    const float a = g_mpCtlRUF[hand][0], b = g_mpCtlRUF[hand][1], c = g_mpCtlRUF[hand][2];
+    float dcam[3];
+    for (int i = 0; i < 3; i++) dcam[i] = k * (a * r[i] + b * u[i] + c * f[i]);
+
+    // LocalToWorld is [Rl | t] with Rl's COLUMNS in the first three registers.
+    // Rigid, so its inverse is Rl^T applied to (p - t) - checked, not assumed.
+    float col[3][3], t[3];
+    for (int j = 0; j < 3; j++)
+        for (int i = 0; i < 3; i++) col[j][i] = l2w[j][i];
+    for (int i = 0; i < 3; i++) t[i] = l2w[3][i];
+    for (int j = 0; j < 3; j++) {
+        const float n = sqrtf(col[j][0]*col[j][0] + col[j][1]*col[j][1] + col[j][2]*col[j][2]);
+        if (fabsf(n - 1.0f) > 0.02f) { *why = "LocalToWorld is not rigid"; return false; }
+    }
+
+    float d[3];
+    for (int i = 0; i < 3; i++) d[i] = dcam[i] - t[i];
+    float targetLocal[3];
+    for (int j = 0; j < 3; j++)
+        targetLocal[j] = col[j][0]*d[0] + col[j][1]*d[1] + col[j][2]*d[2];
+
+    for (int i = 0; i < 3; i++) {
+        outT[i] = targetLocal[i] - qLocal[i];
+        if (!MpFinite(outT[i])) { *why = "non-finite target"; return false; }
+    }
+    memcpy(g_mpLastTargetLocal[hand], targetLocal, sizeof(targetLocal));
+    memcpy(g_mpLastPCam[hand], dcam, sizeof(dcam));
+    return true;
+}
+
+
 // Where the palm anchor actually IS this frame, in the palette's output space.
 // Skins the chosen vertices with the palette the GAME asked for - never one we
 // have already moved, or the correction compounds frame on frame.
@@ -1934,6 +2018,10 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     for (int c = lo; c <= hi; c++) count += g_msClsCount[c];
     if (count <= 0) { g_msDraws++; return true; }   // drawing nothing IS the answer
 
+    // Keep the live register layout current for placement. Cheap: it compares
+    // the shader pointer and only re-reads when it changes.
+    if (g_mpWorld || (g_pcOn && g_pcWant > 0)) PcRefreshLayout(dev);
+
     // VR-33 step 2: capture this qualified draw BEFORE any per-hand palette
     // modification, so the packet records the state the GAME asked for. The
     // qualifier above has already run and its contract is in `con` - the
@@ -2028,7 +2116,30 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 // as the reference.
                 float T[3] = { 0.0f, 0.0f, 0.0f };
                 bool  useT = false;
-                if (g_mpAbs) {
+                if (g_mpWorld) {
+                    // BUILD A2: placement through the measured chain. No
+                    // calibration, no neutral - the palm's current position is
+                    // re-measured from the game's own palette every frame and
+                    // the delta is target minus that, so the animated baseline
+                    // is subtracted rather than left underneath.
+                    const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
+                    float q[3];
+                    const char* why = "anchor refused";
+                    if (MpAnchorPos(rng[r].cls, g_mpCache, g_mpCacheN, q) &&
+                        MpWorldTarget(dev, hIdx, q, T, &why)) {
+                        useT = true;
+                        InterlockedIncrement(&g_mpWorldOk);
+                    } else {
+                        // Refusing draws the engine's own hand. That is the
+                        // fail-soft, and the reason is named so it can never
+                        // read as "the feature does not work".
+                        g_mpWorldWhy = why;
+                        InterlockedIncrement(&g_mpWorldRefused);
+                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                            "ms/palette/world: hand %d NOT placed - %s. The "
+                            "engine's own hand is drawn instead.", hIdx, why);
+                    }
+                } else if (g_mpAbs) {
                     // ABSOLUTE. Find the palm now, from the game's own palette,
                     // and translate by the difference to where it should be.
                     // This is the term the relative drive never removed.
@@ -2297,6 +2408,7 @@ static void MpDriveTick(void)
             // it, so the hand returns to where the engine put it and the log
             // says which pose went missing.
             g_mpCtlOk[h] = false;
+            g_mpCtlRUFOk[h] = false;
             if (g_mpDeltaOk[h]) {
                 g_mpDeltaOk[h] = false;
                 Log("ms/palette/drive: hand %d lost its pose (head ok=%d hand "
@@ -2374,6 +2486,24 @@ static void MpDriveTick(void)
         g_mpDeltaUU[h][2] = t2;
         g_mpDeltaOk[h] = true;
 
+        // BUILD A2's target input: the controller's offset from the head,
+        // resolved into the HEAD's own right/up/forward, in metres. These are
+        // frame-free scalars - the draw turns them into a camera-relative
+        // world vector using the camera basis it reads from that draw's own
+        // ViewProjectionMatrix, so no assumption about the game's axes is made
+        // on this side at all.
+        {
+            // Head axes in XR world: the rotation's columns.
+            const float rx = g_devPose[0][0][0], ry = g_devPose[0][1][0], rz = g_devPose[0][2][0];
+            const float ux = g_devPose[0][0][1], uy = g_devPose[0][1][1], uz = g_devPose[0][2][1];
+            // XR forward is -Z of the head frame.
+            const float fx = -g_devPose[0][0][2], fy = -g_devPose[0][1][2], fz = -g_devPose[0][2][2];
+            g_mpCtlRUF[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
+            g_mpCtlRUF[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
+            g_mpCtlRUF[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
+            g_mpCtlRUFOk[h] = true;
+        }
+
         // Build A's target input: the controller's own position in the
         // palette's frame and units. No neutral, no travel - the position
         // itself, so nothing here can carry a stale zero.
@@ -2383,6 +2513,26 @@ static void MpDriveTick(void)
         g_mpCtlOk[h] = true;
     }
 
+    if (g_mpWorld) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette/world: L ctl r/u/f (%+.3f %+.3f %+.3f) m -> pcam "
+            "(%+.1f %+.1f %+.1f) uu, targetLocal (%+.1f %+.1f %+.1f) | R ctl "
+            "(%+.3f %+.3f %+.3f) m -> pcam (%+.1f %+.1f %+.1f) uu | placed "
+            "%ld refused %ld (%s) | layout vp c%d l2w c%d | %.0f uu/m x %.2f. "
+            "pcam is the controller in the camera-relative world frame the "
+            "shader itself uses; a LEFT hand should read negative right, "
+            "negative up and positive forward, which is what the captured "
+            "packet showed before any of this ran.",
+            g_mpCtlRUF[0][0], g_mpCtlRUF[0][1], g_mpCtlRUF[0][2],
+            g_mpLastPCam[0][0], g_mpLastPCam[0][1], g_mpLastPCam[0][2],
+            g_mpLastTargetLocal[0][0], g_mpLastTargetLocal[0][1], g_mpLastTargetLocal[0][2],
+            g_mpCtlRUF[1][0], g_mpCtlRUF[1][1], g_mpCtlRUF[1][2],
+            g_mpLastPCam[1][0], g_mpLastPCam[1][1], g_mpLastPCam[1][2],
+            g_mpWorldOk, g_mpWorldRefused, g_mpWorldWhy,
+            g_pcLayVp, g_pcLayL2W,
+            (double)g_skcWorldScale, (double)g_mpDriveGain);
+        return;
+    }
     if (g_mpAbs) {
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
             "ms/palette/abs: L %s ctl (%+.1f %+.1f %+.1f) origin %s (%+.1f "

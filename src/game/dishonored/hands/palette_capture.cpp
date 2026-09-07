@@ -92,6 +92,46 @@ static bool PcReflect(const uint8_t* code, UINT len, PcLayout* out)
 }
 
 
+// Keep the live layout current for the placement path. Called from the draw
+// when the shader pointer changes; re-reads the bytecode and re-reflects, so
+// the registers always come from the shader actually bound.
+static void PcRefreshLayout(IDirect3DDevice9* dev)
+{
+    IDirect3DVertexShader9* vs = NULL;
+    if (FAILED(dev->GetVertexShader(&vs)) || !vs) {
+        if (vs) vs->Release();
+        g_pcLayShader = NULL; g_pcLayVp = g_pcLayL2W = g_pcLayBones = -1;
+        return;
+    }
+    if ((void*)vs == g_pcLayShader) { vs->Release(); return; }
+
+    UINT len = 0;
+    static uint8_t code[PC_MAX_BYTECODE];
+    bool ok = SUCCEEDED(vs->GetFunction(NULL, &len)) && len > 0 && len <= PC_MAX_BYTECODE;
+    if (ok) ok = SUCCEEDED(vs->GetFunction(code, &len));
+    void* key = (void*)vs;
+    vs->Release();                        // released before anything can return
+
+    PcLayout lay;
+    if (!ok || !PcReflect(code, len, &lay) || !lay.ok) {
+        g_pcLayShader = key;              // remember the refusal, do not re-read every draw
+        g_pcLayVp = g_pcLayL2W = g_pcLayBones = -1;
+        InterlockedIncrement(&g_pcLayFail);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+            "pcap/layout: this shader declares no readable constant table, so "
+            "placement has no register numbers and refuses. Guessing them is "
+            "how a hand ends up positioned from the wrong constants.");
+        return;
+    }
+    g_pcLayShader = key;
+    g_pcLayVp = lay.vp; g_pcLayL2W = lay.localToWorld; g_pcLayBones = lay.bones;
+    Log("pcap/layout: shader %p declares ViewProjectionMatrix c%d, BoneMatrices "
+        "c%d, LocalToWorld c%d. Read from its own constant table - three "
+        "shaders draw this mesh and they do not agree.",
+        key, lay.vp, lay.bones, lay.localToWorld);
+}
+
+
 // ---- the worker -------------------------------------------------------------
 //
 // Owns bytes, never D3D objects. Hashing, disassembly and file writing all
