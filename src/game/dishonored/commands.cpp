@@ -18,6 +18,8 @@
 //   capture mode <m>|status      the capture path (sync|deferred|shared|off): live switch, fails soft; off = the A/B control (frozen image)
 //   capture sharedwait on|off    shared: deliver this present after its fence (on) or the previous slot (off, default)
 //   device census|status         the creation census (core/gfx/device_census): the table and the 9Ex verdict
+//   device upload                VR-15: the upload census - did the game's texture writes reach the GPU?
+//   device shadowsurfaces on|off VR-15: redirect a GetSurfaceLevel lock to the twin (live A/B, ships off)
 //   device ex on|off             [Device] Ex for the NEXT launch (the 9Ex device, core/gfx/d3d9ex)
 //   device managed <m>           [Device] Managed=none|default|dynamic|shadow for the NEXT launch
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
@@ -175,29 +177,47 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             return true;
         }
         if (!strcmp(args, "reinit")) { dvr::capture::request_reinit(); return true; }   // 41.1 (session 9)
+        // 41.1: the content-bbox cadence. Each sample is a full-frame CPU
+        // readback on the present thread even in shared mode - see capture.h.
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "bbox")) {
+            if (!strcmp(m, "off")) { dvr::capture::set_bbox_ms(0); return true; }
+            unsigned ms = 0;
+            if (sscanf(m, "%u", &ms) == 1) { dvr::capture::set_bbox_ms(ms); return true; }
+            Log("capture: bbox wants off or an interval in ms (capture bbox off|<ms>) - got '%s'", m);
+            return true;
+        }
         const dvr::capture::Cost c = dvr::capture::cost();
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
             "(%u grabs) delivered serial %lu of %lu tag=%d slot=%d sharedWait=%d fenceWaits=%u timeouts=%u readWaits=%u "
-            "readTimeouts=%u reinits=%u (capture mode sync|deferred|shared|off, capture sharedwait on|off, capture reinit)",
+            "readTimeouts=%u reinits=%u bboxEvery=%ums(%u samples, each a full-frame CPU readback) "
+            "(capture mode sync|deferred|shared|off, capture sharedwait on|off, capture bbox off|<ms>, capture reinit)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
             (unsigned long)dvr::capture::delivered_serial(), (unsigned long)dvr::capture::serial(),
             dvr::capture::delivered_tag(), dvr::capture::delivered_slot(), dvr::capture::shared_wait() ? 1 : 0,
             dvr::capture::fence_waits(), dvr::capture::fence_timeouts(), dvr::capture::read_waits(),
-            dvr::capture::read_timeouts(), dvr::capture::reinits());
+            dvr::capture::read_timeouts(), dvr::capture::reinits(), dvr::capture::bbox_ms(),
+            dvr::capture::bbox_samples());
         return true;
 
     }
     if (!strcmp(cmd, "device")) {   // 41.1 (session 8): the creation census and the 9Ex levers
         if (!args[0] || !strcmp(args, "status")) { dvr::census::log_status(); dvr::d3d9ex::log_status(); return true; }
         if (!strcmp(args, "census")) { dvr::census::log_summary("device census"); return true; }
+        // VR-15: did what the game wrote into a texture ever reach the GPU?
+        if (!strcmp(args, "upload")) { dvr::census::log_upload("device upload"); return true; }
         char sub[16] = "", v[16] = "";
         if (sscanf(args, "%15s %15s", sub, v) == 2) {
             if (!strcmp(sub, "ex") && DvrOnOff(v, &b)) { DeviceSetEx(b, "seam"); return true; }
             if (!strcmp(sub, "managed")) { DeviceSetManaged(v, "seam"); return true; }
+            // VR-15: the surface-bypass redirect, live A/B (no relaunch)
+            if (!strcmp(sub, "shadowsurfaces") && DvrOnOff(v, &b)) { dvr::census::set_shadow_surfaces(b); return true; }
+            // VR-15: the per-level push, the candidate fix for black-at-distance
+            if (!strcmp(sub, "shadowfullcopy") && DvrOnOff(v, &b)) { dvr::d3d9ex::set_full_copy(b); return true; }
         }
-        Log("device: usage - device census|status | device ex on|off | device managed none|default|dynamic|shadow");
+        Log("device: usage - device census|status|upload | device ex on|off | device managed none|default|dynamic|shadow "
+            "| device shadowsurfaces on|off | device shadowfullcopy on|off");
         return true;
     }
     if (!strcmp(cmd, "reentry")) {

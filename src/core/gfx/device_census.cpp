@@ -217,6 +217,76 @@ PFN_VbLock           g_origVbLock = nullptr;
 PFN_IbLock           g_origIbLock = nullptr;
 uint32_t g_shadowLocks = 0, g_shadowUnlocks = 0, g_shadowDirty = 0;
 
+// ---- VR-15: the upload census ---------------------------------------------------
+// The black-texture question is "did the pixels the game wrote ever reach the
+// GPU copy the game draws from". Under [Device] Managed=shadow there are four
+// ways they can fail to, and until now every one of them was silent:
+//
+//   twin-fail   the lock reached the twin and the RUNTIME refused it
+//   no-twin     the game asked MANAGED, the pool was translated to DEFAULT, and
+//               shadow_twin() came back null (twin creation refused, or the map
+//               was full). The lock then falls through to a DEFAULT texture,
+//               which is not lockable: it is refused and the upload is lost.
+//   pass-fail   an untranslated lock the runtime refused
+//   bypass      the game took a SURFACE off the texture (GetSurfaceLevel) and
+//               locked THAT. The surface's vtable is not the texture's, so the
+//               shadow never sees the write and it lands on the DEFAULT texture.
+//
+// Each is counted with the first HRESULT that produced it, and the verdict
+// prints the unwelcome answer too: all four at zero says the shadow is NOT
+// where the black textures come from and the next suspect is elsewhere.
+enum UpClass { kUcTexture = 0, kUcCube, kUcVolume, kUcCount };
+const char* const kUpClassNames[kUcCount] = {"Texture", "CubeTexture", "VolumeTexture"};
+uint32_t g_upTwin[kUcCount], g_upTwinFail[kUcCount];
+uint32_t g_upNoTwin[kUcCount], g_upNoTwinFail[kUcCount];
+uint32_t g_upPass[kUcCount], g_upPassFail[kUcCount];
+HRESULT  g_upFirstHr[kUcCount];
+
+// the surface bypass
+uint32_t g_surfHandout = 0;        // GetSurfaceLevel/GetCubeMapSurface off a shadowed texture
+uint32_t g_surfLock = 0;           // locks on any surface we tracked
+uint32_t g_surfLockShadowed = 0;   // ... of those, on a surface of a shadowed texture
+uint32_t g_surfLockFail = 0;
+uint32_t g_surfRedirect = 0;       // redirected to the twin's surface (the lever)
+uint32_t g_surfRedirectFail = 0;
+HRESULT  g_surfFirstHr = S_OK;
+bool     g_surfLever = false;      // [Device] ShadowSurfaces, default OFF
+
+void up_count(int cls, bool twin, bool noTwin, HRESULT hr) {
+    if (cls < 0 || cls >= kUcCount) return;
+    uint32_t* ok  = twin ? &g_upTwin[cls]     : noTwin ? &g_upNoTwin[cls]     : &g_upPass[cls];
+    uint32_t* bad = twin ? &g_upTwinFail[cls] : noTwin ? &g_upNoTwinFail[cls] : &g_upPassFail[cls];
+    ++*ok;
+    if (FAILED(hr)) { ++*bad; if (g_upFirstHr[cls] == S_OK) g_upFirstHr[cls] = hr; }
+}
+
+// Was this object created as MANAGED and is the shadow live? Then a null twin
+// is a lost upload rather than an ordinary passthrough.
+inline bool translated_managed(void* obj) {
+    return dvr::d3d9ex::shadow_active() && map_pool(obj) == (int)D3DPOOL_MANAGED;
+}
+
+// surface -> the texture it came off, and where on it. Small and open-addressed;
+// a full map degrades to "not tracked", which the census reports rather than hides.
+constexpr int kSurfMap = 8192;
+struct SurfEnt { void* surf; void* parent; UINT level; int face; IDirect3DSurface9* lockedTwin; };
+SurfEnt g_surf[kSurfMap];
+uint32_t g_surfMapFull = 0;
+SurfEnt* surf_slot(void* surf, bool create) {
+    const uint32_t h = (uint32_t)((uintptr_t)surf >> 4) * 2654435761u;
+    for (int i = 0; i < 64; ++i) {
+        SurfEnt& e = g_surf[(h + i) % kSurfMap];
+        if (e.surf == surf) return &e;
+        if (e.surf == nullptr) {
+            if (!create) return nullptr;
+            e.surf = surf; e.parent = nullptr; e.level = 0; e.face = -1; e.lockedTwin = nullptr;
+            return &e;
+        }
+    }
+    if (create) ++g_surfMapFull;
+    return nullptr;
+}
+
 // The shadow redirect (core/gfx/d3d9ex, [Device] Managed=shadow): a lock on
 // a translated texture lands on its SYSTEMMEM twin (the twin shares this
 // class vtable, so its own lock arrives here too and falls through to the
@@ -224,14 +294,22 @@ uint32_t g_shadowLocks = 0, g_shadowUnlocks = 0, g_shadowDirty = 0;
 // the real texture, a dirty rect goes to the twin, the last Release drops it.
 HRESULT __stdcall hkTexLockRect(IDirect3DTexture9* self, UINT level, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags) {
     lock_count(kLcTexture, self, flags, rc != nullptr, level);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowLocks; return ((IDirect3DTexture9*)t)->LockRect(level, lr, rc, flags); }
-    return g_origTexLock(self, level, lr, rc, flags);
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
+        ++g_shadowLocks;
+        const HRESULT hr = ((IDirect3DTexture9*)t)->LockRect(level, lr, rc, flags);
+        up_count(kUcTexture, true, false, hr);
+        return hr;
+    }
+    const bool lost = translated_managed(self);   // VR-15: no twin on a translated texture
+    const HRESULT hr = g_origTexLock(self, level, lr, rc, flags);
+    up_count(kUcTexture, false, lost, hr);
+    return hr;
 }
 HRESULT __stdcall hkTexUnlockRect(IDirect3DTexture9* self, UINT level) {
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DTexture9*)t)->UnlockRect(level);
-        dvr::d3d9ex::shadow_unlocked(self);
+        dvr::d3d9ex::shadow_unlocked(self, (int)level, -1);
         return hr;
     }
     return g_origTexUnlock(self, level);
@@ -250,14 +328,22 @@ ULONG __stdcall hkTexRelease(IUnknown* self) {
 HRESULT __stdcall hkCubeLockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT* lr,
                                  const RECT* rc, DWORD flags) {
     lock_count(kLcCube, self, flags, rc != nullptr, level);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowLocks; return ((IDirect3DCubeTexture9*)t)->LockRect(face, level, lr, rc, flags); }
-    return g_origCubeLock(self, face, level, lr, rc, flags);
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
+        ++g_shadowLocks;
+        const HRESULT hr = ((IDirect3DCubeTexture9*)t)->LockRect(face, level, lr, rc, flags);
+        up_count(kUcCube, true, false, hr);
+        return hr;
+    }
+    const bool lost = translated_managed(self);
+    const HRESULT hr = g_origCubeLock(self, face, level, lr, rc, flags);
+    up_count(kUcCube, false, lost, hr);
+    return hr;
 }
 HRESULT __stdcall hkCubeUnlockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level) {
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DCubeTexture9*)t)->UnlockRect(face, level);
-        dvr::d3d9ex::shadow_unlocked(self);
+        dvr::d3d9ex::shadow_unlocked(self, (int)level, (int)face);
         return hr;
     }
     return g_origCubeUnlock(self, face, level);
@@ -273,14 +359,23 @@ ULONG __stdcall hkCubeRelease(IUnknown* self) {
 }
 HRESULT __stdcall hkVolLockBox(IDirect3DVolumeTexture9* self, UINT level, D3DLOCKED_BOX* lb, const D3DBOX* box, DWORD flags) {
     lock_count(kLcVolume, self, flags, box != nullptr, level);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowLocks; return ((IDirect3DVolumeTexture9*)t)->LockBox(level, lb, box, flags); }
-    return g_origVolLock(self, level, lb, box, flags);
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
+        ++g_shadowLocks;
+        const HRESULT hr = ((IDirect3DVolumeTexture9*)t)->LockBox(level, lb, box, flags);
+        up_count(kUcVolume, true, false, hr);
+        return hr;
+    }
+    const bool lost = translated_managed(self);
+    const HRESULT hr = g_origVolLock(self, level, lb, box, flags);
+    up_count(kUcVolume, false, lost, hr);
+    return hr;
 }
 HRESULT __stdcall hkVolUnlockBox(IDirect3DVolumeTexture9* self, UINT level) {
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DVolumeTexture9*)t)->UnlockBox(level);
-        dvr::d3d9ex::shadow_unlocked(self);
+        // a volume has no per-level SURFACE, so the per-level push cannot apply
+        dvr::d3d9ex::shadow_unlocked(self, (int)level, dvr::d3d9ex::kNoLevelSurface);
         return hr;
     }
     return g_origVolUnlock(self, level);
@@ -303,6 +398,124 @@ HRESULT __stdcall hkIbLock(IDirect3DIndexBuffer9* self, UINT off, UINT size, voi
     return g_origIbLock(self, off, size, data, flags);
 }
 
+// ---- VR-15: the surface bypass -------------------------------------------------
+// A texture's LockRect is not the only way into it. GetSurfaceLevel hands out
+// an IDirect3DSurface9 whose LockRect lives on a DIFFERENT vtable, so the
+// shadow redirect above never sees it and the write goes to the DEFAULT
+// texture, which refuses it. These hooks first MEASURE that path (how many
+// surfaces come off shadowed textures, how many are locked, how many are
+// refused) and, when [Device] ShadowSurfaces=1, redirect it to the twin's
+// matching surface the way the texture path already is.
+typedef HRESULT (__stdcall *PFN_TexGetSurfaceLevel)(IDirect3DTexture9*, UINT, IDirect3DSurface9**);
+typedef HRESULT (__stdcall *PFN_CubeGetSurface)(IDirect3DCubeTexture9*, D3DCUBEMAP_FACES, UINT, IDirect3DSurface9**);
+typedef HRESULT (__stdcall *PFN_SurfLockRect)(IDirect3DSurface9*, D3DLOCKED_RECT*, const RECT*, DWORD);
+typedef HRESULT (__stdcall *PFN_SurfUnlockRect)(IDirect3DSurface9*);
+PFN_TexGetSurfaceLevel g_origTexGetSurface = nullptr;
+PFN_CubeGetSurface     g_origCubeGetSurface = nullptr;
+PFN_SurfLockRect       g_origSurfLock = nullptr;
+PFN_SurfUnlockRect     g_origSurfUnlock = nullptr;
+
+void patch_surface_class(void* obj);
+
+// The twin surface matching a tracked surface, or null.
+IDirect3DSurface9* twin_surface(const SurfEnt& e) {
+    IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(e.parent);
+    if (!t) return nullptr;
+    IDirect3DSurface9* ts = nullptr;
+    if (e.face < 0) ((IDirect3DTexture9*)t)->GetSurfaceLevel(e.level, &ts);
+    else            ((IDirect3DCubeTexture9*)t)->GetCubeMapSurface((D3DCUBEMAP_FACES)e.face, e.level, &ts);
+    return ts;
+}
+
+// The map entry is read into a LOCAL under the census lock and the lock is
+// dropped before any call into d3d9ex (which takes a critical section of its
+// own): census -> d3d9ex is the only nesting order in this file, and this
+// keeps it that way.
+bool surf_read(void* surf, SurfEnt* out) {
+    bool found = false;
+    if (g_csInit) EnterCriticalSection(&g_cs);
+    if (SurfEnt* e = surf_slot(surf, false)) { *out = *e; found = e->parent != nullptr; }
+    if (g_csInit) LeaveCriticalSection(&g_cs);
+    return found;
+}
+void surf_set_locked(void* surf, IDirect3DSurface9* ts) {
+    if (g_csInit) EnterCriticalSection(&g_cs);
+    if (SurfEnt* e = surf_slot(surf, false)) e->lockedTwin = ts;
+    if (g_csInit) LeaveCriticalSection(&g_cs);
+}
+
+HRESULT __stdcall hkSurfLockRect(IDirect3DSurface9* self, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags) {
+    if (!g_origSurfLock) return D3DERR_INVALIDCALL;   // never installed without its original
+    SurfEnt e = {};
+    if (!surf_read(self, &e)) return g_origSurfLock(self, lr, rc, flags);
+    ++g_surfLock;
+    const bool shadowed = dvr::d3d9ex::shadow_twin(e.parent) != nullptr;
+    if (shadowed) ++g_surfLockShadowed;
+    if (shadowed && g_surfLever) {
+        if (IDirect3DSurface9* ts = twin_surface(e)) {
+            const HRESULT hr = ts->LockRect(lr, rc, flags);
+            if (SUCCEEDED(hr)) { ++g_surfRedirect; surf_set_locked(self, ts); return hr; }
+            ++g_surfRedirectFail;
+            ts->Release();
+            if (g_surfFirstHr == S_OK) g_surfFirstHr = hr;
+            return hr;
+        }
+    }
+    const HRESULT hr = g_origSurfLock(self, lr, rc, flags);
+    if (FAILED(hr)) { ++g_surfLockFail; if (g_surfFirstHr == S_OK) g_surfFirstHr = hr; }
+    return hr;
+}
+HRESULT __stdcall hkSurfUnlockRect(IDirect3DSurface9* self) {
+    SurfEnt e = {};
+    surf_read(self, &e);
+    if (e.lockedTwin) {
+        surf_set_locked(self, nullptr);
+        const HRESULT hr = e.lockedTwin->UnlockRect();
+        e.lockedTwin->Release();
+        dvr::d3d9ex::shadow_unlocked(e.parent, (int)e.level, e.face);   // the level this surface IS
+        return hr;
+    }
+    return g_origSurfUnlock ? g_origSurfUnlock(self) : D3DERR_INVALIDCALL;
+}
+HRESULT __stdcall hkTexGetSurfaceLevel(IDirect3DTexture9* self, UINT level, IDirect3DSurface9** out) {
+    const HRESULT hr = g_origTexGetSurface(self, level, out);
+    if (SUCCEEDED(hr) && out && *out && dvr::d3d9ex::shadow_twin(self)) {
+        ++g_surfHandout;
+        patch_surface_class(*out);
+        if (g_csInit) EnterCriticalSection(&g_cs);
+        if (SurfEnt* e = surf_slot(*out, true)) { e->parent = self; e->level = level; e->face = -1; }
+        if (g_csInit) LeaveCriticalSection(&g_cs);
+    }
+    return hr;
+}
+HRESULT __stdcall hkCubeGetSurface(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level, IDirect3DSurface9** out) {
+    const HRESULT hr = g_origCubeGetSurface(self, face, level, out);
+    if (SUCCEEDED(hr) && out && *out && dvr::d3d9ex::shadow_twin(self)) {
+        ++g_surfHandout;
+        patch_surface_class(*out);
+        if (g_csInit) EnterCriticalSection(&g_cs);
+        if (SurfEnt* e = surf_slot(*out, true)) { e->parent = self; e->level = level; e->face = (int)face; }
+        if (g_csInit) LeaveCriticalSection(&g_cs);
+    }
+    return hr;
+}
+// IDirect3DSurface9: LockRect is slot 13, UnlockRect 14 (counted from the SDK
+// header: IUnknown 0-2, IDirect3DResource9 3-10, GetContainer 11, GetDesc 12).
+void patch_surface_class(void* obj) {
+    static bool done = false;
+    if (done || !obj) return;
+    done = true;
+    // UnlockRect first: a LockRect hook without its own original cannot fail
+    // soft, so it is only installed once the pair is certain.
+    void* un = PatchVtable(obj, 14, (void*)hkSurfUnlockRect);
+    if (un) g_origSurfUnlock = (PFN_SurfUnlockRect)un;
+    void* lk = un ? PatchVtable(obj, 13, (void*)hkSurfLockRect) : nullptr;
+    if (lk) g_origSurfLock = (PFN_SurfLockRect)lk;
+    DVR_INFO("device/census: Surface lock hook %s (the GetSurfaceLevel bypass is %s)",
+             (un && lk) ? "installed" : "NOT installed (slot already patched or VirtualProtect refused)",
+             (un && lk) ? "measured" : "NOT measured - the bypass count below reads 0 for that reason, not because it is absent");
+}
+
 // Patch a class's Lock once, on the first object of that class we see. The
 // slot numbers are counted from the SDK header (IDirect3DTexture9 /
 // CubeTexture9 LockRect 19, AddDirtyRect 21; VolumeTexture9 LockBox 19;
@@ -318,12 +531,14 @@ void patch_lock_class(int cls, void* obj) {
         old = PatchVtable(obj, 20, (void*)hkTexUnlockRect); if (old) g_origTexUnlock = (PFN_TexUnlockRect)old;
         old = PatchVtable(obj, 21, (void*)hkTexAddDirtyRect); if (old) g_origTexDirty = (PFN_TexAddDirtyRect)old;
         old = PatchVtable(obj, 2, (void*)hkTexRelease); if (old) g_origTexRelease = (PFN_Release)old;
+        { void* g = PatchVtable(obj, 18, (void*)hkTexGetSurfaceLevel); if (g) g_origTexGetSurface = (PFN_TexGetSurfaceLevel)g; }
         break;
     case kLcCube:
         old = PatchVtable(obj, 19, (void*)hkCubeLockRect); if (old) g_origCubeLock = (PFN_CubeLockRect)old;
         old = PatchVtable(obj, 20, (void*)hkCubeUnlockRect); if (old) g_origCubeUnlock = (PFN_CubeUnlockRect)old;
         old = PatchVtable(obj, 21, (void*)hkCubeAddDirtyRect); if (old) g_origCubeDirty = (PFN_CubeAddDirtyRect)old;
         old = PatchVtable(obj, 2, (void*)hkCubeRelease); if (old) g_origCubeRelease = (PFN_Release)old;
+        { void* g = PatchVtable(obj, 18, (void*)hkCubeGetSurface); if (g) g_origCubeGetSurface = (PFN_CubeGetSurface)g; }
         break;
     case kLcVolume:
         old = PatchVtable(obj, 19, (void*)hkVolLockBox); if (old) g_origVolLock = (PFN_VolLockBox)old;
@@ -579,6 +794,7 @@ void log_summary(const char* why) {
     for (int i = 0; i < kRows; ++i) g_rows[i].seenCount = g_rows[i].count;
     memcpy(g_locksSeen, g_locks, sizeof(g_locks));
     LeaveCriticalSection(&g_cs);
+    log_upload(why);   // VR-15: the upload census rides with the creation census
 }
 
 void log_deltas() {
@@ -610,6 +826,104 @@ void log_status() {
         DVR_INFO("device/census: shadow redirects: locks=%u unlocks=%u dirtyRects=%u", g_shadowLocks, g_shadowUnlocks, g_shadowDirty);
 }
 
+// ---- VR-15: the upload census's own report ---------------------------------------
+// Every line here says what would make it move, and the verdict prints the
+// unwelcome answer as readily as the welcome one: four zeros mean the shadow
+// is NOT losing uploads and the black textures come from somewhere else.
+void log_upload(const char* why) {
+    if (!dvr::d3d9ex::shadow_active()) {
+        DVR_INFO("device/upload: %s - the shadow is not live ([Device] Ex=%d Managed=%s), so there is no upload path to "
+                 "lose a texture on. Every count below would be 0 by design; the black textures, if any, are not this.",
+                 why ? why : "?", dvr::d3d9ex::ex_wanted() ? 1 : 0,
+                 dvr::d3d9ex::managed_name(dvr::d3d9ex::managed_mode()));
+        return;
+    }
+    uint32_t twin = 0, twinF = 0, noTwin = 0, noTwinF = 0, pass = 0, passF = 0;
+    for (int c = 0; c < kUcCount; ++c) {
+        twin += g_upTwin[c]; twinF += g_upTwinFail[c];
+        noTwin += g_upNoTwin[c]; noTwinF += g_upNoTwinFail[c];
+        pass += g_upPass[c]; passF += g_upPassFail[c];
+        if (!(g_upTwin[c] || g_upNoTwin[c] || g_upPass[c])) continue;
+        DVR_INFO("device/upload:   %-14s twin=%u (failed %u) NO-TWIN=%u (refused %u) passthrough=%u (failed %u) | "
+                 "first failure %s0x%08lx",
+                 kUpClassNames[c], g_upTwin[c], g_upTwinFail[c], g_upNoTwin[c], g_upNoTwinFail[c], g_upPass[c],
+                 g_upPassFail[c], g_upFirstHr[c] == S_OK ? "none, " : "", (unsigned long)g_upFirstHr[c]);
+    }
+    int live = 0, never = 0; uint32_t dropped = 0;
+    dvr::d3d9ex::shadow_population(&live, &never, &dropped);
+    DVR_INFO("device/upload:   twins: %d live, %d of them have carried NO successful UpdateTexture; %u more were "
+             "released having carried none. A live twin at 0 uploads is a texture whose pixels never left system "
+             "memory - it draws as it was created, which is black.", live, never, dropped);
+    // VR-15: the mip lane. The reported fault is black at distance, correct up
+    // close, and distance selects the level - so this is the line that matters.
+    uint32_t subUnlocks = 0, lvlCopies = 0, lvlFailed = 0; int maxLevel = -1; HRESULT lvlHr = S_OK;
+    dvr::d3d9ex::shadow_levels(&subUnlocks, &maxLevel, &lvlCopies, &lvlFailed, &lvlHr);
+    DVR_INFO("device/upload:   mip levels: %u unlocks carried a level > 0 (deepest %d). Those are the levels a surface "
+             "is sampled at from a DISTANCE. [Device] ShadowFullCopy=%d: %u levels pushed with UpdateSurface, %u "
+             "refused (first 0x%08lx; a texture that refuses once is not asked again, it goes straight to "
+             "UpdateTexture). With the lever OFF every one of those %u sub-level writes went to an UpdateTexture that "
+             "takes no level.",
+             subUnlocks, maxLevel, dvr::d3d9ex::full_copy() ? 1 : 0, lvlCopies, lvlFailed, (unsigned long)lvlHr,
+             subUnlocks);
+    DVR_INFO("device/upload:   work skipped: %u unlocks pushed NOTHING because their lock was READONLY (the twin did "
+             "not change). Before this they were whole-texture GPU copies for no change at all; this game takes 12408 "
+             "READONLY locks on MANAGED textures in one load. A 0 here on a loaded level means the skip is not firing "
+             "and something upstream is not recording the lock kind.",
+             dvr::d3d9ex::skipped_readonly());
+    DVR_INFO("device/upload:   surface bypass: %u surfaces handed out off shadowed textures, %u locked (%u of those on "
+             "a shadowed texture), %u refused, first 0x%08lx | redirect [Device] ShadowSurfaces=%d: %u redirected, %u "
+             "refused | map full %u",
+             g_surfHandout, g_surfLock, g_surfLockShadowed, g_surfLockFail, (unsigned long)g_surfFirstHr,
+             g_surfLever ? 1 : 0, g_surfRedirect, g_surfRedirectFail, g_surfMapFull);
+
+    // The verdict. `lost` is every write that provably did not reach the GPU
+    // copy; `suspect` is the bypass, which is a lost write only when the
+    // redirect is off.
+    const uint32_t bypassLost = g_surfLever ? g_surfRedirectFail : g_surfLockShadowed;
+    const uint32_t lost = twinF + noTwin + passF + bypassLost;
+    if (lost == 0 && never == 0 && dropped == 0)
+        DVR_INFO("device/upload: %s - VERDICT NO LOST UPLOAD. Every lock on a shadowed texture reached its twin and "
+                 "every twin has carried at least one UpdateTexture. The shadow is NOT where black surfaces come from: "
+                 "test [Device] Ex=0 next, then `stereo arm off`, then the game with no mod at all.", why ? why : "?");
+    else
+        DVR_INFO("device/upload: %s - VERDICT %u LOST UPLOADS (twin refused %u, no twin %u, passthrough refused %u, "
+                 "surface bypass %u) and %d live twins + %u released ones never uploaded at all. Each is a texture the "
+                 "game filled and the GPU never received. Re-run with `device shadowsurfaces on` if the bypass count "
+                 "carries it; with [Device] Ex=0 if it does not.",
+                 why ? why : "?", lost, twinF, noTwin, passF, bypassLost, never, dropped);
+}
+
+// VR-15: the same report, but only when something has actually changed since
+// the last one. A run where every upload lands stays silent; the first lost
+// upload prints immediately and then only on further movement. This is what
+// makes the log readable without the command seam.
+void log_upload_if_moved(const char* why) {
+    if (!dvr::d3d9ex::shadow_active()) return;
+    uint32_t twinF = 0, noTwin = 0, passF = 0;
+    for (int c = 0; c < kUcCount; ++c) { twinF += g_upTwinFail[c]; noTwin += g_upNoTwin[c]; passF += g_upPassFail[c]; }
+    uint32_t subUnlocks = 0, lvlCopies = 0, lvlFailed = 0; int maxLevel = -1; HRESULT lvlHr = S_OK;
+    dvr::d3d9ex::shadow_levels(&subUnlocks, &maxLevel, &lvlCopies, &lvlFailed, &lvlHr);
+    // The signature is COUNTERS ONLY. shadow_population() walks all 32768 map
+    // slots under a lock, and this runs on the present thread: paying for that
+    // walk once a minute just to decide whether to print was a self-inflicted
+    // hitch. The walk now happens only inside log_upload, when it really prints.
+    const uint32_t sig = twinF + noTwin + passF + g_surfLockShadowed + g_surfRedirectFail + lvlFailed
+                       + dvr::d3d9ex::dropped_never_updated();
+    static uint32_t seen = 0xFFFFFFFFu;
+    if (sig == seen) return;
+    seen = sig;
+    log_upload(why);
+}
+
+void set_shadow_surfaces(bool on) {
+    g_surfLever = on;
+    DVR_INFO("device/upload: [Device] ShadowSurfaces=%d - a lock taken through GetSurfaceLevel on a shadowed texture "
+             "now %s. This is live and it is the A/B for the surface bypass; %u such locks have been seen so far.",
+             on ? 1 : 0, on ? "goes to the twin and is pushed to the GPU on unlock"
+                            : "goes to the DEFAULT texture (where D3D9 refuses it)", g_surfLockShadowed);
+}
+bool shadow_surfaces() { return g_surfLever; }
+
 void status(dvr::status::Writer& w) {
     w.kv("creations", (unsigned long)g_creations);
     w.kv("failures", (unsigned long)g_failures);
@@ -619,6 +933,21 @@ void status(dvr::status::Writer& w) {
     w.kv("managedAutoMip", (unsigned long)g_managedAutoMip);
     w.kv("readonlyLocksOnManaged", (unsigned long)readonly_locks_on_managed());
     w.kv("shapes", g_rowCount);
+    // VR-15: the upload census, so a status.json from a tester carries it too
+    uint32_t twinF = 0, noTwin = 0, passF = 0;
+    for (int c = 0; c < kUcCount; ++c) { twinF += g_upTwinFail[c]; noTwin += g_upNoTwin[c]; passF += g_upPassFail[c]; }
+    int live = 0, never = 0; uint32_t dropped = 0;
+    dvr::d3d9ex::shadow_population(&live, &never, &dropped);
+    w.kv("uploadTwinFailed", (unsigned long)twinF);
+    w.kv("uploadNoTwin", (unsigned long)noTwin);
+    w.kv("uploadPassthroughFailed", (unsigned long)passF);
+    w.kv("uploadSurfaceHandouts", (unsigned long)g_surfHandout);
+    w.kv("uploadSurfaceLocksShadowed", (unsigned long)g_surfLockShadowed);
+    w.kv("uploadSurfaceRedirects", (unsigned long)g_surfRedirect);
+    w.kv("shadowSurfaces", g_surfLever);
+    w.kv("twinsLive", live);
+    w.kv("twinsNeverUpdated", never);
+    w.kv("twinsDroppedNeverUpdated", (unsigned long)dropped);
 }
 
 uint32_t creations() { return g_creations; }

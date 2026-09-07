@@ -116,6 +116,22 @@ int      delivered_slot();
 // counted: there is no cross-API GPU fence in D3D9, so this IS the fence.
 void     set_shared_wait(bool on);
 bool     shared_wait();
+
+// 41.1 (Dishonored): the content-bbox cadence, and why it is a lever at all.
+//
+// The bbox instrument ("100% x 100% (FULL)" / "(CROPPED)") needs CPU pixels.
+// In shared mode the whole point is that NOTHING goes to the CPU - the frame
+// is a VRAM-to-VRAM StretchRect - so sampling the bbox costs a full
+// GetRenderTargetData + LockRect + row copy of the entire frame, on the
+// present thread, which is exactly the ~17-21 ms/present operation that makes
+// sync mode unusable. It ran every 3 seconds with no way to turn it off.
+//
+// bbox_ms: 0 = only after a size change (the first successful sample, which is
+// when the CROPPED/FULL verdict actually matters); otherwise the minimum
+// milliseconds between resamples. `capture bbox off|<ms>` is the live A/B.
+void     set_bbox_ms(uint32_t ms);
+uint32_t bbox_ms();
+uint32_t bbox_samples();   // lifetime readbacks the bbox instrument has cost
 uint32_t fence_waits();      // deliveries that had to spin on the fence (window)
 uint32_t fence_timeouts();   // deliveries whose fence had not signalled at the bound (lifetime)
 // The OTHER direction of the shared hand-off (41.1, session 8): the consumer

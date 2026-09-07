@@ -23,6 +23,15 @@ static void DvrPreTick(IDirect3DDevice9*)
             if (censusMs == 0) censusMs = now;
             else if (now - censusMs >= 60000) { censusMs = now; dvr::census::log_deltas(); }
         }
+        {   // VR-15: the upload census at Info every 60 s, so a black-texture run
+            // is readable from the log alone - no seam command, no script. It
+            // prints only while the shadow is live, and only when a counter has
+            // actually moved since the last one, so a healthy run stays quiet.
+            static uint64_t upMs = 0;
+            const uint64_t now = GetTickCount64();
+            if (upMs == 0) upMs = now;
+            else if (now - upMs >= 60000) { upMs = now; dvr::census::log_upload_if_moved("60 s"); }
+        }
     }
 
     // 38.17: the crash fingerprinter now guards BOTH backends. Tonight's

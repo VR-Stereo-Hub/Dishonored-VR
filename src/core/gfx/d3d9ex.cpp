@@ -30,6 +30,22 @@ char g_route[96] = "no device yet";
 // counts
 uint32_t g_texTranslated = 0, g_bufTranslated = 0, g_texDynamic = 0;
 uint32_t g_shadowMade = 0, g_shadowFailed = 0, g_shadowUpdates = 0, g_shadowUpdateFailed = 0, g_shadowReleased = 0;
+// VR-15: twins released while they had never carried one successful
+// UpdateTexture. A texture the game filled through its twin and dropped
+// with zero uploads never reached the GPU at all - it draws as its created
+// contents, which is black. Counted at Release, so the population is closed.
+uint32_t g_shadowDroppedNeverUpdated = 0;
+// VR-15: the mip-level lane. The reported fault is distance-dependent, so
+// which LEVEL an unlock carried is the question, and until now it was thrown
+// away at the door: shadow_unlocked took only the texture.
+bool     g_fullCopy = false;              // [Device] ShadowFullCopy, default OFF
+uint32_t g_shadowSubLevelUnlocks = 0;     // unlocks that carried a level > 0
+int      g_shadowMaxLevelSeen = -1;
+uint32_t g_shadowLevelCopies = 0, g_shadowLevelCopyFailed = 0;
+HRESULT  g_shadowLevelFirstHr = S_OK;
+// Unlocks whose lock was READONLY, so the twin did not change and there was
+// nothing to push. Pure saved work - this game takes 12408 of them per load.
+uint32_t g_shadowSkippedReadOnly = 0;
 uint64_t g_shadowBytes = 0;
 
 // the twin map: real -> twin, open addressing. Removal leaves a tombstone
@@ -40,7 +56,10 @@ uint64_t g_shadowBytes = 0;
 // hold two levels' textures during a transition.
 constexpr int kMap = 32768;
 constexpr int kProbe = 512;
-struct Ent { void* real; IDirect3DBaseTexture9* twin; };
+// roMask: bit N set = level N's most recent lock was READONLY, so its unlock
+// has nothing to push. surfaceRefused: this texture's format already refused
+// UpdateSurface once; do not pay for the attempt again.
+struct Ent { void* real; IDirect3DBaseTexture9* twin; uint32_t updates; uint16_t roMask; uint8_t surfaceRefused; };
 Ent g_map[kMap];
 int g_mapCount = 0;
 int g_mapTombs = 0;
@@ -58,17 +77,17 @@ bool map_put(void* real, IDirect3DBaseTexture9* twin) {
     Ent* tomb = nullptr;
     for (int i = 0; i < kProbe; ++i) {
         Ent& e = g_map[(h + i) % kMap];
-        if (e.real == real) { e.twin = twin; return true; }
+        if (e.real == real) { e.twin = twin; e.updates = 0; e.roMask = 0; e.surfaceRefused = 0; return true; }
         if (e.real == kTomb) { if (!tomb) tomb = &e; continue; }
         if (e.real == nullptr) {
             Ent& slot = tomb ? *tomb : e;
             if (tomb) --g_mapTombs;
-            slot.real = real; slot.twin = twin;
+            slot.real = real; slot.twin = twin; slot.updates = 0; slot.roMask = 0; slot.surfaceRefused = 0;
             ++g_mapCount;
             return true;
         }
     }
-    if (tomb) { tomb->real = real; tomb->twin = twin; --g_mapTombs; ++g_mapCount; return true; }
+    if (tomb) { tomb->real = real; tomb->twin = twin; tomb->updates = 0; tomb->roMask = 0; tomb->surfaceRefused = 0; --g_mapTombs; ++g_mapCount; return true; }
     ++g_mapFull;
     return false;
 }
@@ -81,7 +100,7 @@ Ent* map_find(void* real) {
     }
     return nullptr;
 }
-void map_remove(Ent* e) { e->real = kTomb; e->twin = nullptr; --g_mapCount; ++g_mapTombs; }
+void map_remove(Ent* e) { e->real = kTomb; e->twin = nullptr; e->updates = 0; e->roMask = 0; e->surfaceRefused = 0; --g_mapCount; ++g_mapTombs; }
 
 } // namespace
 
@@ -281,6 +300,25 @@ void shadow_register_volume(IDirect3DDevice9* dev, IDirect3DVolumeTexture9* real
     shadow_put(real, twin, (uint64_t)w * h * d * 4);
 }
 
+// VR-15: the lock hooks already had to look the twin up, so recording what
+// KIND of lock this is rides along for free - no extra critical section and no
+// extra hash probe on a path this game takes 60000 times a load. bit N of
+// roMask says level N's most recent lock was READONLY.
+IDirect3DBaseTexture9* shadow_twin_for_lock(void* real, int level, DWORD flags) {
+    if (!g_csInit || g_mapCount == 0) return nullptr;
+    EnterCriticalSection(&g_cs);
+    Ent* e = map_find(real);
+    IDirect3DBaseTexture9* t = nullptr;
+    if (e) {
+        t = e->twin;
+        const uint16_t bit = (uint16_t)(1u << ((level >= 0 && level < 16) ? level : 15));
+        if (flags & D3DLOCK_READONLY) e->roMask |= bit;
+        else                          e->roMask = (uint16_t)(e->roMask & ~bit);
+    }
+    LeaveCriticalSection(&g_cs);
+    return t;
+}
+
 IDirect3DBaseTexture9* shadow_twin(void* real) {
     if (!g_csInit || g_mapCount == 0) return nullptr;
     EnterCriticalSection(&g_cs);
@@ -290,9 +328,81 @@ IDirect3DBaseTexture9* shadow_twin(void* real) {
     return t;
 }
 
-void shadow_unlocked(void* real) {
-    IDirect3DBaseTexture9* twin = shadow_twin(real);
+// VR-15: the per-level push. UpdateTexture takes no level and copies what
+// D3D9 believes is dirty; the reported fault is distance-dependent (black far
+// away, correct up close), which is a MIP-LEVEL fault, and the census counts
+// 50189 locks on level>0 against 0 AddDirtyRect calls. UpdateSurface is the
+// operation that cannot be vague about which level it copied: it names the
+// two surfaces. It fails soft - on a refusal the whole-texture UpdateTexture
+// still runs, so the lever can never make the picture worse than it is.
+bool update_one_level(void* real, IDirect3DBaseTexture9* twin, int level, int face) {
+    if (level < 0 || face == kNoLevelSurface) return false;
+    IDirect3DSurface9 *src = nullptr, *dst = nullptr;
+    if (face < 0) {
+        ((IDirect3DTexture9*)twin)->GetSurfaceLevel((UINT)level, &src);
+        ((IDirect3DTexture9*)real)->GetSurfaceLevel((UINT)level, &dst);
+    } else {
+        ((IDirect3DCubeTexture9*)twin)->GetCubeMapSurface((D3DCUBEMAP_FACES)face, (UINT)level, &src);
+        ((IDirect3DCubeTexture9*)real)->GetCubeMapSurface((D3DCUBEMAP_FACES)face, (UINT)level, &dst);
+    }
+    bool ok = false;
+    if (src && dst) {
+        const HRESULT hr = g_dev->UpdateSurface(src, nullptr, dst, nullptr);
+        if (SUCCEEDED(hr)) { ++g_shadowLevelCopies; ok = true; }
+        else {
+            ++g_shadowLevelCopyFailed;
+            if (g_shadowLevelFirstHr == S_OK) g_shadowLevelFirstHr = hr;
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Warn, 5,
+                            "device/shadow: UpdateSurface level %d of twin %p -> real %p refused 0x%08lx - falling back "
+                            "to the whole-texture UpdateTexture for this unlock", level, (void*)twin, real,
+                            (unsigned long)hr);
+        }
+    }
+    if (src) src->Release();
+    if (dst) dst->Release();
+    return ok;
+}
+
+void shadow_unlocked(void* real, int level, int face) {
+    // ONE critical section for the whole lookup: the twin, whether this level's
+    // last lock was READONLY, and whether this texture has already had an
+    // UpdateSurface refused. The Ent pointer is kept and its counters are
+    // written after the lock is dropped - a texture released concurrently can
+    // only make a COUNTER wrong, never touch freed memory (the entries live in
+    // a static array), and holding a lock across a D3D call is worse.
+    Ent* e = nullptr;
+    IDirect3DBaseTexture9* twin = nullptr;
+    bool readOnly = false, surfaceRefused = false;
+    if (g_csInit && g_mapCount) {
+        EnterCriticalSection(&g_cs);
+        e = map_find(real);
+        if (e) {
+            twin = e->twin;
+            const int b = (level >= 0 && level < 16) ? level : 15;
+            readOnly = (e->roMask & (uint16_t)(1u << b)) != 0;
+            surfaceRefused = e->surfaceRefused != 0;
+        }
+        LeaveCriticalSection(&g_cs);
+    }
     if (!twin || !g_dev) return;
+    if (level > g_shadowMaxLevelSeen) g_shadowMaxLevelSeen = level;
+    if (level > 0) ++g_shadowSubLevelUnlocks;
+
+    // A READONLY lock did not write anything, so there is nothing to push. The
+    // old code pushed on EVERY unlock, and this game takes 12408 READONLY locks
+    // on MANAGED textures in one load (its mip streaming reads the old texture
+    // to fill the new one). Every one of those was a whole-texture GPU copy for
+    // no change at all. This is a pure removal, independent of the lever.
+    if (readOnly) { ++g_shadowSkippedReadOnly; return; }
+
+    // The lever: push exactly the level that was written. A texture whose
+    // format has already refused UpdateSurface once is not asked again - that
+    // refusal is a property of the format, and retrying it every unlock means
+    // paying for the failure AND the fallback, forever.
+    if (g_fullCopy && !surfaceRefused) {
+        if (update_one_level(real, twin, level, face)) { if (e) ++e->updates; return; }
+        if (level >= 0 && face != kNoLevelSurface && e) e->surfaceRefused = 1;
+    }
     // The dirty regions the lock marked on the twin go to the real texture.
     const HRESULT hr = g_dev->UpdateTexture(twin, (IDirect3DBaseTexture9*)real);
     if (FAILED(hr)) {
@@ -300,7 +410,13 @@ void shadow_unlocked(void* real) {
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 5,
                         "device/shadow: UpdateTexture twin %p -> real %p refused 0x%08lx - the write did not reach the "
                         "GPU (a corrupt or stale texture follows)", (void*)twin, real, (unsigned long)hr);
-    } else ++g_shadowUpdates;
+    } else {
+        ++g_shadowUpdates;
+        // VR-15: mark THIS twin as having carried a real upload. The count of
+        // twins still at zero is the population of candidate black textures -
+        // and it is a number that can come back zero and falsify the shadow.
+        if (e) ++e->updates;
+    }
 }
 
 void shadow_released(void* real) {
@@ -308,9 +424,58 @@ void shadow_released(void* real) {
     EnterCriticalSection(&g_cs);
     Ent* e = map_find(real);
     IDirect3DBaseTexture9* twin = e ? e->twin : nullptr;
+    if (e && e->updates == 0) ++g_shadowDroppedNeverUpdated;
     if (e) map_remove(e);
     LeaveCriticalSection(&g_cs);
     if (twin) { twin->Release(); ++g_shadowReleased; }
+}
+
+// VR-15: the twin population, walked on demand only (32768 slots is one
+// pass and this is never on a per-frame path). `live` is every twin the map
+// still holds; `neverUpdated` is how many of those have carried no
+// successful UpdateTexture since they were made. A live twin at zero is a
+// texture whose pixels are still only in system memory.
+void shadow_population(int* live, int* neverUpdated, uint32_t* droppedNeverUpdated) {
+    int l = 0, n = 0;
+    if (g_csInit) {
+        EnterCriticalSection(&g_cs);
+        for (int i = 0; i < kMap; ++i) {
+            const Ent& e = g_map[i];
+            if (!e.real || e.real == kTomb) continue;
+            ++l;
+            if (e.updates == 0) ++n;
+        }
+        LeaveCriticalSection(&g_cs);
+    }
+    if (live) *live = l;
+    if (neverUpdated) *neverUpdated = n;
+    if (droppedNeverUpdated) *droppedNeverUpdated = g_shadowDroppedNeverUpdated;
+}
+
+bool shadow_active() { return translating() && g_managed == Managed::Shadow; }
+
+// VR-15: the per-level push lever.
+void set_full_copy(bool on) {
+    g_fullCopy = on;
+    DVR_INFO("device/shadow: [Device] ShadowFullCopy=%d - an unlock now pushes %s. The reported black-at-distance "
+             "fault is a MIP fault, and %u unlocks so far have carried a level > 0 (deepest level %d). If this "
+             "removes black surfaces at distance, UpdateTexture was not carrying sub-level writes.",
+             on ? 1 : 0,
+             on ? "exactly the level it wrote, with UpdateSurface (UpdateTexture is the fallback if that refuses)"
+                : "the whole texture with UpdateTexture, which takes no level",
+             g_shadowSubLevelUnlocks, g_shadowMaxLevelSeen);
+}
+bool full_copy() { return g_fullCopy; }
+// A plain counter read - no map walk, so a caller on the present thread can
+// poll it. shadow_population() is the one that costs 32768 slots.
+uint32_t dropped_never_updated() { return g_shadowDroppedNeverUpdated; }
+uint32_t skipped_readonly() { return g_shadowSkippedReadOnly; }
+void shadow_levels(uint32_t* subLevelUnlocks, int* maxLevel, uint32_t* copies, uint32_t* copyFailed, HRESULT* firstHr) {
+    if (subLevelUnlocks) *subLevelUnlocks = g_shadowSubLevelUnlocks;
+    if (maxLevel) *maxLevel = g_shadowMaxLevelSeen;
+    if (copies) *copies = g_shadowLevelCopies;
+    if (copyFailed) *copyFailed = g_shadowLevelCopyFailed;
+    if (firstHr) *firstHr = g_shadowLevelFirstHr;
 }
 
 void log_status() {
@@ -337,6 +502,10 @@ void status(dvr::status::Writer& w) {
     w.kv("shadowUpdates", (unsigned long)g_shadowUpdates);
     w.kv("shadowUpdateFailed", (unsigned long)g_shadowUpdateFailed);
     w.kv("shadowFailed", (unsigned long)g_shadowFailed);
+    int live = 0, never = 0; uint32_t dropped = 0;
+    shadow_population(&live, &never, &dropped);
+    w.kv("shadowLiveNeverUpdated", never);
+    w.kv("shadowDroppedNeverUpdated", (unsigned long)dropped);
 }
 
 } // namespace dvr::d3d9ex

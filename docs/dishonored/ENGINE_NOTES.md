@@ -108,6 +108,52 @@ Positional tracking (`TrackHead`): body anchor EMA, physical crouch with a self-
 standing reference, lean/peek with a safety clamp, roomscale with deadzone bleed and
 auto-recenter, deep-crouch collision-cylinder shrink (`PawnCollisionHeight`, 87.5/65/33).
 
+## The deep-crouch capsule write moves the PAWN (2026-09-04, headset, filmed)
+
+38.16 shrinks the crouched collision cylinder (65 -> `DeepCrouchUU`, 45) so the player fits under
+more. It is the crouch height rise, and it is now default OFF.
+
+Filmed one line per frame across the transition, two bursts of identical shape:
+
+```
+cyl 45.0  pawnZ 3405.73     the crouch, cylinder 65 -> 45
+cyl 45.0  pawnZ 3385.73     dropped exactly 20.00 uu, then holds
+```
+
+**Writing `CollisionHeight` under a grounded pawn moves the pawn's origin down by exactly the
+shrink**, because the engine keeps the feet planted: the origin is the capsule centre, so a shorter
+capsule means a lower centre. In the worst case the pawn is left AIRBORNE - one burst filmed it
+rising 34 uu and then falling 128 uu back to the floor, which the tester independently described as
+"almost like noclip, I could float around".
+
+The camera then chases that displacement with a **rate-limited convergence** - ~4-8 uu per frame
+ramping up after an uncrouch (filmed with the pawn provably stationary, `pawnZ 3444.93` unchanged
+across the whole ramp), a slow decay on the way down. It cannot finish before the next crouch, so
+the unconverged remainder is retained and the view climbs ~20 uu per cycle without bound: 2184 uu
+(22 m) in one measured run, which is why the report was "spamming crouch puts me through the
+ceiling".
+
+An A-B-A block A/B agrees to the decimal: write ON **+20.35 uu of view per cycle** (blocks 1 and 3:
++19.42, +21.28), write off **-0.26** (six consecutive cycles flat within +-2.6), difference +20.61
+over 18 measured cycles.
+
+**Nothing in the game's camera is at fault, and no eye-height field is involved.** `Pawn.EyeHeight`
+(+0x32c) and `Pawn.BaseEyeHeight` (+0x328) read 85.00 unchanged across 27 cycles while the camera
+climbed. The chain is: our capsule write -> the pawn's origin moves 20 uu -> the camera's catch-up
+never converges -> the residue accumulates.
+
+**Falsified along the way**, recorded so nobody re-walks them: the physical crouch detector (off
+under `[Mode] GamepadOnly=1`); the engine's uncrouch arithmetic (both eye fields flat); the 38.24
+eye clamp (flipping it changed nothing, `-0.05 uu`); the game's own
+`DishonoredCamera_BumpSmoother` camera influence (weight forced to 0 in the game's ini, climb
+continued); and our own crouch eye-drop (its `50 < ch < 86` guard means a 45 cylinder switches the
+drop OFF rather than deepening it). Five mechanisms named and tested by their levers, five wrong.
+What found it was filming the pawn and the camera per frame instead of naming a sixth.
+
+The feature cannot be made safe as written: resizing a grounded pawn's capsule from outside the
+engine moves the pawn, and keeping the feet planted would mean writing `Actor.Location`, which this
+mod deliberately never does.
+
 ## The per-eye camera seam: write points (2026-09-02, 41.0)
 
 The stereo methods drive the camera through `game/dishonored/camera` (a real module) on
@@ -1310,6 +1356,123 @@ projection off`/`auto` each alone say which half of the user's remedy repairs it
   4032x2268 mode; the window hooks hold it; `[Screen] SpoofDesktopW/H` and `ResX/ResY` must
   match.
 
+## SOLVED: the black texture bug was sub-level writes never reaching the GPU (VR-15, 2026-09-05)
+
+**Headset-judged fixed.** `[Device] ShadowFullCopy=1` removed the black surfaces on the
+tester's rig, which confirms the mechanism below: `UpdateTexture` was not carrying writes
+to mip levels above 0, so the small mips stayed as created (black) while level 0 was
+correct. The lever now **ships ON** - a deliberate exception to "every render lever ships
+OFF", made for the same reason as `[Stereo] HoldUntagged`: the OFF state is a visible
+rendering bug. `device shadowfullcopy off` restores the fault, which is the A/B.
+
+### What it cost, and what paid for it
+
+The first cut of the fix made the frame rate less stable, and three separate things were
+responsible. Two of them predate the fix and one was self-inflicted:
+
+1. **The push ran on READONLY unlocks.** A READONLY lock writes nothing, so there is
+   nothing to push - and this game takes **12408 READONLY locks on MANAGED textures in one
+   load** (its mip streaming reads the old texture to fill the new one). Every one of them
+   was a whole-texture GPU copy for no change at all, **before this session's work as well
+   as after**. The lock hooks already had to look the twin up, so recording whether the
+   lock was READONLY rides along in the same critical section for free (`roMask`, one bit
+   per level), and the unlock skips entirely. This is pure removal and the largest win.
+2. **A refused `UpdateSurface` was paid for on every single unlock**, because the fallback
+   ran and then the next unlock tried again. A texture whose format refuses is now
+   remembered (`surfaceRefused`) and goes straight to `UpdateTexture` from then on, so a
+   refusal costs once rather than forever.
+3. **The 60-second upload census walked all 32768 twin-map slots under the lock, on the
+   present thread, just to decide whether to print.** Self-inflicted, this session. The
+   decision now reads plain counters; the walk happens only when the line actually prints.
+
+Also folded in: `shadow_unlocked` took the critical section twice per unlock (once for the
+twin, once to bump the counter) and now takes it once, reading the entry pointer and
+writing its counters after the lock is dropped. A texture released concurrently can then
+only make a **counter** wrong - the entries live in a static array, so there is no freed
+memory to touch - and that is a better trade than holding a lock across a D3D call.
+
+### The original observation and the reasoning
+
+**From a headset run on the tester's rig**: an NPC photographed at two
+distances. Far away the model is largely solid black; walking toward it, the black recedes
+and the material resolves correctly. At close range it is right. The fault is not a
+material class and not a lighting path - **it tracks distance**, and distance is what
+selects the mip level a surface is sampled at. So the black data lives in the SMALL mips
+(level > 0), and level 0 is intact.
+
+That narrows the four candidates below to one lane, and it lines up with a number already
+sitting in the 2026-09-04 headset log, unread:
+
+```
+locks on MANAGED: plain=47899 READONLY=12408 DISCARD=0 NOOVERWRITE=0 partial=2986
+                  level>0=50189 dirtyRects=0
+```
+
+**50189 locks on mip levels above 0, and zero `AddDirtyRect` calls in the whole run.**
+
+Now the mechanism. The shadow pushes a written texture to the GPU with
+`IDirect3DDevice9::UpdateTexture(twin, real)`. That call **takes no level**: it copies what
+D3D9 believes is dirty across the chain. Until this session `shadow_unlocked()` did not
+even receive the level - `hkTexUnlockRect` had it in its hand and dropped it at the door -
+so there was no instrument that could have noticed a per-level fault, and nothing anywhere
+in the mod knew that sub-level writes were 50189 of the traffic.
+
+**This is a hypothesis with a mechanism, not a measurement.** What makes it testable is
+`UpdateSurface`, which names its two surfaces and therefore cannot be vague about which
+level it copied. `[Device] ShadowFullCopy=1` pushes exactly the level the unlock wrote,
+falling back to `UpdateTexture` when `UpdateSurface` refuses (compressed and odd formats
+can), so the lever can never leave the picture worse than it found it. **Black-at-distance
+clearing when that lever goes on is the proof; it not clearing falsifies this cleanly.**
+
+The four ways an upload can be lost, below, all still stand - this section narrows which
+one to look at first, it does not close the others.
+
+### The instrument and what each number means
+
+**No headset run has yet produced a reading from it.**
+
+`[Device] Managed=shadow` is the newest thing in the creation path. A 9Ex device refuses
+`D3DPOOL_MANAGED`, so every MANAGED texture is created `DEFAULT` and given a `SYSTEMMEM`
+twin; `IDirect3DTexture9::LockRect` is redirected to the twin and `UnlockRect` pushes the
+twin's dirty regions to the real texture with `UpdateTexture`. A texture whose write never
+completes that round trip keeps the contents it was created with, and a freshly created
+D3D9 texture is **black**. That is the shape of the reported fault, which is why the
+shadow is the first suspect - not because anything has been measured.
+
+There are exactly four ways the round trip can fail, and until now every one was silent:
+
+| | what happens | why the texture goes black |
+|---|---|---|
+| **twin refused** | the lock reached the twin and the runtime refused it | the write never happened |
+| **no twin** | translated to DEFAULT but `shadow_twin()` came back null (twin creation refused, or the twin map was full) | the lock falls through to a DEFAULT texture, which is not lockable: D3D9 refuses it |
+| **passthrough refused** | an untranslated lock the runtime refused | the write never happened |
+| **surface bypass** | the game took a surface off the texture (`GetSurfaceLevel`) and locked THAT | the surface's `LockRect` is a **different vtable** (`IDirect3DSurface9` slot 13, not `IDirect3DTexture9` slot 19), so the shadow redirect never sees it and the write lands on the DEFAULT texture |
+
+The bypass is the one worth stating plainly, because the existing redirect cannot catch it
+by construction. `IDirect3DTexture9::GetSurfaceLevel` is slot 18; `IDirect3DSurface9` is
+`IUnknown` 0-2, `IDirect3DResource9` 3-10, `GetContainer` 11, `GetDesc` 12, **`LockRect`
+13, `UnlockRect` 14**. The census now patches 18 on textures and cube textures, records
+which texture and which level/face each handed-out surface belongs to, and patches the
+surface class's 13/14 once. `UnlockRect` is patched FIRST and `LockRect` only if that
+succeeded: a `LockRect` hook without its own original cannot fail soft.
+
+The `device/upload` census reports all four with the first `HRESULT` that produced each,
+plus the twin population - **how many live twins have carried no successful
+`UpdateTexture` at all**, which is the population the counters are counts of. Its verdict
+prints the unwelcome answer as readily as the welcome one: four zeros and a clean
+population say the shadow is NOT where black surfaces come from, and name the next A/B
+(`[Device] Ex=0`, then `stereo arm off`, then the game with no mod).
+
+`[Device] ShadowSurfaces` (ships **0**, `device shadowsurfaces on|off` live) is the fix for
+the bypass if the bypass is real: the surface lock goes to the twin's matching surface and
+the unlock pushes it. It is a lever, so it ships off and is judged in a headset.
+
+**The twin map has burned this project once already.** On 2026-09-03 it filled 8192 slots
+with tombstones across repeated quickloads (2400 live), a texture got no twin, its lock was
+refused, and the game died inside D3D9 on it. That is the "no twin" row above, and it is
+why the row exists rather than being assumed impossible: the map is 32768 slots now, which
+made the crash go away without making the mechanism go away.
+
 ## The pause/resume desync: a one-sided tag stream (2026-09-03, session 7)
 
 The run-40 report ("the judder stays in the LEFT eye and stops in the RIGHT") is the
@@ -1352,6 +1515,222 @@ number the judder question is decided on. `vrpace ahead 0|1|2` (7f569463) locate
 pose the game renders with, and the views the layer is tagged with, for `predictedDisplayTime
 + ahead x period`; `xrEndFrame`'s displayTime and the tag generation are untouched, so at 0 the
 paths are byte-identical. `vrpace lag` exposes the attribution generation for the measurement.
+
+## THE GHOSTING WAS THE CADENCE BEAT, and the verdict's threshold hid it (2026-09-04, session 15)
+
+**SOLVED, on the headset, by a one-setting A/B.** Same build, same scene, same 2750x2850 render;
+only the headset's refresh changed.
+
+| | 120 Hz | 90 Hz |
+|---|---|---|
+| display period | 8.33 ms | 11.11 ms |
+| `perf: tick` p50 (p90, max) | 9.1 ms (10.8, 12.9) | 11.3 ms (12.0, 15.1) |
+| **display slots per frame** | **1.05 - 1.11** | **1.00 - 1.02** |
+| EVEN / UNEVEN windows | 9 / 20 | **33 / 16** |
+| MATCHED / UNDER-SUBMITTING | 11 / 26 | **38 / 22** |
+| ghosting reported | yes | **no** |
+
+The mechanism is arithmetic, and the `stereo: rate` line had been printing it all along:
+at `off` slots of drift per frame, **one frame in `1/off` is held for an extra display slot**,
+and consecutive frames shown for different durations is exactly a doubled edge under rotation.
+At 1.11 that is every 9th frame. At 1.01 it is every 100th. The fault was never the resolution
+and never the pose attribution - **it was the tick not dividing into the display period.**
+
+### Session 14's falsification was wrong, and this is why
+
+Session 14 measured 1.03-1.05 slots per frame at 2064x2208/120 Hz, read `EVEN CADENCE`, and
+concluded the cadence hypothesis was dead. **The verdict was lying.** Its threshold was
+`|off| > 0.06`, so it called 1.05 - a beat every twenty frames, plainly visible on a head turn -
+a clean bill of health. The hypothesis was right; the instrument's *threshold* was wrong, which
+is a failure mode worth naming: an instrument can be correctly built, correctly read, and still
+mislead because the line between pass and fail was picked before anything was measured.
+
+The threshold is now **0.02**, drawn at the measured edge (1.02 does not ghost, 1.05 does), and
+both branches print the beat as a number - one frame in N, and the beat in Hz - so a future
+"even" verdict shows the residual it is forgiving instead of hiding it.
+
+### Why the frame rate drops FURTHER at 90 Hz than at 120 Hz
+
+The tester's own observation, and it is not a contradiction:
+
+- At **120 Hz** the tick (9.1 ms) never fit the 8.33 ms slot. The app was never trying to hit a
+  slot - it free-ran and the compositor smeared over the mismatch continuously. There is no
+  cliff to fall off when you are already permanently past the edge, so the rate reads a smooth
+  100-120 and the ghosting is constant. **Smooth, and always wrong.**
+- At **90 Hz** the tick (11.3 ms p50) sits *right at* the 11.11 ms period. Most frames make
+  their slot, which is what removed the ghosting - but a frame that misses waits a whole period,
+  so a single 11.3 ms overrun displays for 22.2 ms (45 fps instantaneous) and a run of them
+  averages toward 60. **Correct, with a cliff directly underneath.**
+
+**And the hitch RATE did not actually change.** Normalised by run length (29 vs 50 three-second
+windows): 27.6 gaps/min at 120 Hz, 28.4 gaps/min at 90 Hz. Identical. They are simply visible
+now, because they stand out against a locked cadence instead of disappearing into a permanently
+smeared one. **54 of the 71 gaps sat in `present-tail (xrEndFrame)`, up to 101 ms** - on a Wi-Fi
+streaming runtime a 101 ms block inside the submit call is the encoder or the link, not the
+frame path. That is the next thing to attack, and it is not ours.
+
+### The cost model, refit with the new point
+
+`perf: tick` against per-eye megapixels, four sizes: **~0.63 ms/MP on a ~5.8 ms fixed floor**
+(2750x2850 = 7.84 MP measured 11.3 ms against 10.8 predicted, so the floor is slightly higher
+than the three-point fit said). Note the 90 Hz tick is PACE-BOUND (8 windows say so), so 11.3 ms
+is partly the slot rather than the work - the render cost alone is lower and the headroom is
+real but unquantified.
+
+**The rule this leaves:** pick the refresh whose period the tick divides into, not the biggest
+resolution. Read `stereo: rate` for `display slots per frame` and drive it to 1.00.
+
+## The startup eye-starvation flicker, measured at last (2026-09-04, session 15c)
+
+**Not new.** It normally lasts a few seconds at the start of a session; on this run it lasted
+much longer, which is what finally made it measurable. The reported percept: heavy flickering
+for roughly 30 seconds that looked like alternate-eye rendering viewed flat, with the weapon
+taking that long to settle into alignment. It then stopped, the weapon stayed aligned, and the
+rest of the session was smooth.
+
+**What the log shows, `stereo: beat` L/s and R/s across one run** (2750x2850, 90 Hz, Quest 3
+over VDXR, `alpha-272-g65ac9bd2`):
+
+| t (s from proxy load) | out/s | L/s | R/s | none/s | draws/s | state |
+|---|---|---|---|---|---|---|
+| 8.5 - 17.5 | 21 - 85 | 0 | 0 | 0 | - | menu/loading, mono by design |
+| **20.5** | 89 | **12** | **52** | 10 | 66 | GAMEPLAY starts; starved |
+| **23.5 - 38.5** | 87 - 91 | **16 - 19** | **71 - 73** | 16 - 17 | 51 - 72 | starved |
+| **44.5 onward** | 180 | **90** | **90** | **0** | **90** | **locked, and stays locked** |
+| 77.5 - 83.5 | 155 - 234 | 0 | 0 | 0 | - | pause screen, mono by design |
+
+**The cause is the tick, and the numbers say so directly.** During the starved window
+`perf: tick` reads **17.5 ms against the 11.11 ms budget** and its per-class split is
+`P1[-1] n=36` against `P2[+1] n=156` with `untagged 107` - the LEFT-tagged presents are a
+quarter of the RIGHT ones. `reentry: beat` confirms pass 2 is running the whole time
+(`2nd/s == draws/s`, skips all zero), so the second draw is NOT missing; the game is simply
+producing 51-72 ticks/s against 90 display slots/s. With the tick below the display rate the
+pair schedule cannot land one pair per slot, the tag stream goes lopsided, and 1016 same-eye
+pushes accumulate (`reentry: pushed eye +1 TWICE in a row`, always +1, LEFT starving).
+
+**One eye taking fresh frames at ~18 Hz while the other runs at ~73 Hz is not subtle - it is a
+hard flicker, and it looks like alternate-eye rendering seen flat because that is structurally
+what it has become.** It self-heals the instant `draws/s` reaches 90: L/s = R/s = 90, zero
+untagged, zero stale, for the rest of the run.
+
+The usual reason the tick is slow for the first seconds of gameplay is UE3 level streaming -
+`call2` max spikes to 1836-2029 us in that window against 614-777 us once locked, and the
+device census logs 14058 creations at first GAMEPLAY.
+
+**Same root as the ghosting, at a different ratio.** When the tick is slightly longer than the
+display period you get the beat (doubled edges); when it is far longer you get eye starvation
+(flicker). Both are the tick not fitting the slot.
+
+### Fix theory - NOT implemented, and the cheap test comes first
+
+1. **`vrpace strict on` is the existing lever and has never been judged.** It already does the
+   right thing in principle: a stereo submit with an eye older than one present shows the fresh
+   eye to BOTH eyes instead. That converts the starved window from alternating eyes into a
+   briefly flat picture, which is a far milder artifact, and it costs nothing to try - it ships
+   off and toggles live. **Do this before writing any code.** The risk is that it also fires on
+   the rare mid-gameplay stale eye and drops depth for a frame there, so it wants an A/B, not a
+   blind default flip.
+2. **If strict is not enough, the shape of a real fix** is to refuse to submit a pair at all
+   while the tick cannot fill the slots, rather than submitting a lopsided one - i.e. extend
+   the `HoldUntagged` idea from untagged presents to unbalanced pairs, holding the previous
+   good pair until `draws/s` recovers. Bounded, because a permanent hold is a frozen image.
+3. **The cheapest mitigation is not ours at all**: the window ends when streaming does, so it
+   scales with load time. An SSD, and not turning the head for the first few seconds after a
+   load, both shorten what the player sees.
+
+Unresolved and worth measuring first: **why LEFT specifically.** The pushes are always `+1`
+(RIGHT) doubled. A plausible mechanism is the shared-capture deferred delivery
+(`SharedWait=0` delivers the PREVIOUS slot) repeating a tag when presents arrive irregularly,
+but that is a hypothesis, not a measurement, and `capture sharedwait on` is the A/B that would
+test it.
+
+## The content-bbox readback prediction was FALSIFIED (2026-09-04, session 15)
+
+Session 15 gated the 3-second full-frame CPU readback and predicted that if it were behind the
+hitches, the `perf: frame gap` count would fall by roughly the number of 3-second windows in a
+run. **It did not.** Samples fell from one per 3 s to 2-3 per run, and the gap rate was
+unchanged (27.6 and 28.4 per minute across the two runs, against 62-82 per run before). The
+counter-evidence recorded alongside the prediction - that the gaps mostly sat in
+`present-tail (xrEndFrame)`, not the capture phase - was the correct read.
+
+**The gate stays**: it removed a real, unlevered ~30 MB present-thread stall and cost nothing.
+It just was not the hitch cause, and saying so is the point of having written the prediction
+down.
+
+## The two pose lanes, and why the tag can be a generation wrong (2026-09-04)
+
+The mod samples the head TWICE per frame, on two different lanes, and the compositor only
+ever sees one of them:
+
+- **SCRIPT lane.** `on_present_begin` locates the head (`xrLocateSpace`, `openxr_runtime.cpp`),
+  `DvrConsumePoses` -> `TrackHead` turns it into `g_hmdYaw` on the present thread, and the
+  GAME thread's world tick reads that in `ApplyHeadToViewRotation` and writes the engine
+  camera. `head_track.cpp` publishes the matched pair at that instant: `g_viewYawRad` (what
+  was written) beside `g_injHmdYawSnap` (the HMD yaw it was computed from). **This is the pose
+  the pixels are drawn with.**
+- **PRESENT lane.** The same `on_present_begin` calls `xrLocateViews` for the same
+  `locateTime`, and the projection layer's `XrCompositionLayerProjectionView.pose` is filled
+  from one of three kept generations - `g_views` (N), `g_viewsContent` (N-1), `g_viewsPrev2`
+  (N-2), selected by `g_poseLag`, shipping at 1. **This is the pose the compositor reprojects
+  FROM.**
+
+If those two are not the same sample, the reprojection is wrong by the difference on every
+frame, the error tracks head speed, and it grows when a frame is slow. That is a doubled-edge
+percept under rotation - and until 2026-09-04 nothing measured it.
+
+**The tag is predicted to be one generation too fresh, and the game's own config says so.**
+The attribution comment assumes "locate N feeds the tick that presents at N+1" - one
+generation, hence `lag=1`. But `DishonoredEngine.ini [SystemSettings]` carries
+**`OneFrameThreadLag=True`**: UE3's render thread runs a frame behind the game thread, so the
+pixels in present N were drawn by a tick that read the head at locate **N-2**. The prediction
+is therefore that the instrument reads a one-generation gap at `lag 1` and that
+`vrpace lag 2` nulls it. `OneFrameThreadLag=False` is the independent second test - it removes
+the skew at the source instead of compensating for it, at a throughput cost. Neither has been
+run yet.
+
+**Both eyes of a pair share ONE locate - do not go hunting a per-eye asymmetry.** Under
+`reentry` the LEFT present holds the XR frame open (`pairHold`) and the RIGHT completes it;
+`on_present_begin` returns at the top while a pair is open, so there is no second
+`xrWaitFrame` and no re-locate between them. `g_viewsContent` is identical for both eyes. The
+instrument prints per eye anyway, cheaply, so the invariant is checked rather than assumed.
+
+**THE SIGN TRAP.** The two lanes read yaw out of the SAME rotation matrix with opposite
+conventions:
+
+| | reduces to |
+|---|---|
+| `xr_quat_yaw_deg` (`openxr_runtime.cpp`) | `atan2( m02, m22)` |
+| `TrackHead` (`head_track.cpp`) | `atan2(-m02, m22)` |
+
+so `g_hmdYaw == -xr_quat_yaw_deg / 57.29578` for any pose, and a naive subtraction reads about
+TWICE the yaw. That would look like a catastrophic disagreement that is purely convention -
+the most convincing possible way for this instrument to lie. `publish_script_head` negates
+once, on the way in, and then PROVES it against live data: at the first publish it reads the
+same `g_headPose` back through this file's own converter and logs
+`xr: poseaudit SEAM CHECK ok|FAILED`. Do not read a delta until that line says ok.
+
+Note also that `g_viewYawRad` is the absolute UE **rotator** yaw and composes stick turn with
+head delta (`ue_math.cpp` differences the two deliberately). It is never the right thing to
+compare against the tag; `g_injHmdYawSnap` is.
+
+## The content-bbox readback: a full CPU round trip in the VRAM path (2026-09-04)
+
+`capture.cpp`'s bbox instrument - the `100% x 100% (FULL)` / `(CROPPED)` line - needs CPU
+pixels. In `shared` mode, whose entire purpose is that nothing goes to the CPU (the frame is a
+VRAM-to-VRAM `StretchRect`), sampling it costs a full `GetRenderTargetData` + `LockRect` +
+per-row `memcpy` of the whole frame, **on the present thread**. That is the same round trip
+measured at 17-21 ms/present in `sync` mode at 2496x2688 ("The capture cost, measured"), and
+it ran unconditionally every 3 seconds with no lever - about 31 MB per sample at 2750x2850.
+
+`[Capture] BboxMs` (default 30000, `capture bbox off|<ms>` live) is the gate. A size change
+still resamples immediately and unconditionally, because that is the sample that decides
+CROPPED vs FULL and it must not wait for an interval.
+
+**Falsifiable prediction, recorded before the run:** if this is behind the hitches, the
+`perf: frame gap` count should fall by roughly the number of 3-second windows in a run (62-82
+gaps over the last two runs is close to one per window). **The counter-evidence is already on
+record**: those gaps mostly reported `sat in: present-tail (xrEndFrame)`, not the capture
+phase. If the count does not move, this removed a real cost and was not the hitch cause.
 
 ## The pitch pivot: the engine's neck, measured (2026-09-03, session 7)
 

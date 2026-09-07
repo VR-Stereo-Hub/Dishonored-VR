@@ -1,0 +1,116 @@
+name: Bug report
+description: Something in the mod behaves wrongly. Please attach the log.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **The single most useful thing you can attach is
+        `dishonored_vr.log`**, which sits next to `Dishonored.exe` in
+        `<game>\Binaries\Win32`. The previous run is kept as `dishonored_vr.prev.log`,
+        one deep, so copy the log out before you relaunch.
+
+        Please check [KNOWN_ISSUES.md](https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/VR-Main/docs/KNOWN_ISSUES.md)
+        first. Several faults there already have a workaround.
+
+  - type: input
+    id: build
+    attributes:
+      label: Build tag
+      description: >-
+        The first lines of dishonored_vr.log name it, for example
+        "build alpha-253-g8441404f". A verdict cannot be traced to a commit without it.
+      placeholder: alpha-253-g8441404f
+    validations:
+      required: true
+
+  - type: input
+    id: headset
+    attributes:
+      label: Headset and how it connects
+      description: Which headset, and over what. Wireless or cable matters for anything timing-related.
+      placeholder: Quest 3 over Virtual Desktop (VDXR), wireless
+    validations:
+      required: true
+
+  - type: input
+    id: refresh
+    attributes:
+      label: Headset refresh rate and render size
+      description: >-
+        90 Hz is the tested configuration. A higher refresh rate is measurably worse for
+        ghosting on this mod. The render size is in the log and on the F10 Display tab.
+      placeholder: 90 Hz, 2750x2850
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      placeholder: RTX 4070 Ti SUPER, 566.36
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: >-
+        What you saw, and what you expected instead. If it is visual, say where in the
+        view it appeared: the whole world, one eye, the weapon and hands, the HUD.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to make it happen again
+      description: >-
+        Step by step from launching the game. If it is intermittent, say roughly how
+        often and whether anything makes it more likely (a level load, a pause and
+        resume, turning fast, a particular area).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: fresh-ini
+    attributes:
+      label: Does it happen with a fresh ini?
+      description: >-
+        Delete or rename dishonored_vr.ini and relaunch; the mod writes a new one with the
+        tested defaults. This separates a fault in the mod from a tuned setting.
+      options:
+        - "Yes, it still happens with a fresh ini"
+        - "No, a fresh ini fixes it"
+        - "Have not tried"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gamepad-only
+    attributes:
+      label: Does it happen with motion controls off?
+      description: "[Mode] GamepadOnly=1 is the shipping default. Say if you changed it."
+      options:
+        - "Running the default, GamepadOnly=1"
+        - "Running GamepadOnly=0, and it happens"
+        - "Running GamepadOnly=0, and GamepadOnly=1 fixes it"
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The log
+      description: >-
+        Attach dishonored_vr.log by dragging it into this box. If the game crashed,
+        attach dishonored_vr_crash.txt too. Please attach the file rather than pasting
+        an excerpt: the useful line is often not the one that looks useful.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        **Please do not attach screenshots that contain game footage, frame dumps or
+        captures.** A description of what you saw plus the log is what we can act on,
+        and this repository does not carry game-derived content.

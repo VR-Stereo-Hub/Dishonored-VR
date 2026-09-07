@@ -1,0 +1,43 @@
+name: Feature or improvement
+description: Something the mod should do, or should do better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please check [ROADMAP.md](https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/VR-Main/docs/ROADMAP.md).
+        A lot is already planned, including motion controls, the wrist HUD, hand-aimed
+        powers and the cutscene work, and knowing it is coming may be the answer.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What should the mod do
+      description: Describe it from the player's side first. The mechanism, if you have one, comes after.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters in play
+      description: >-
+        What is worse without it. Comfort, immersion, being able to aim, being able to
+        finish a level. This is what decides whether it gets picked up.
+    validations:
+      required: true
+
+  - type: input
+    id: headset
+    attributes:
+      label: Your headset
+      description: Some requests only make sense on some hardware.
+      placeholder: Quest 3 over Virtual Desktop
+
+  - type: textarea
+    id: prior
+    attributes:
+      label: Has this existed before, here or elsewhere?
+      description: >-
+        If GingasVR's original alpha did it, or another VR mod does, say so. Knowing
+        something has already been made to work is worth a lot.

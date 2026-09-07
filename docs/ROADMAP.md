@@ -137,8 +137,38 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
       C5Pair=1`, `[Camera] EyeField=0x330`, `[Neck] Mode=cancel` with the measured pivot,
       `[PosTrack] Scale=98`, `[Tracking] HeightOffsetM=-0.090`, `[Screen] RenderWidth=2496
       RenderHeight=2688 VirtualMode=1`, `[Device] Ex=1 Managed=shadow`, `[Capture] Mode=shared`
+- [x] THE GHOSTING, instrumented (session 15, 2026-09-04): the SCRIPT lane's rendered head
+      sample against the PRESENT lane's layer tag, per eye, in degrees and in locate
+      GENERATIONS, with a self-checking sign calibration (`vrpace poseaudit on`). Built and
+      installed, not yet run. Written prediction: gap +1 at `lag 1`, nulled by `vrpace lag 2`,
+      because the game's `OneFrameThreadLag=True` puts the render thread a frame behind
+- [x] The content-bbox readback gated (session 15): a full-frame CPU round trip every 3 s on
+      the present thread in the shipping `shared` mode, with no lever. `[Capture] BboxMs=30000`,
+      `capture bbox off|<ms>` live
 - [ ] Then `ahead`, the desync on load with the new owner line, and the pivot re-judged at a
       real frame rate (STATUS "Next steps")
+- [x] THE GHOSTING, SOLVED (session 15b, 2026-09-04, the tester on a Quest 3 over VDXR): it was
+      the cadence beat. 2750x2850 at **90 Hz** puts the tick one display period long, 1.00-1.02
+      slots per frame, and the doubled edges are gone; the same size at 120 Hz beats at
+      1.05-1.11 and ghosts. The `EVEN CADENCE` threshold that hid this in session 14 is fixed
+      (0.06 -> 0.02) and now prints the beat as a number
+- [x] The headset-judged size is the default (session 15b): `[Screen] RenderWidth=2750
+      RenderHeight=2850`, with the 90 Hz requirement in the ini text beside it, and
+      `tests/golden/known-good-2750x2850-90hz.ini` as the byte copy of the judged machine
+- [ ] THE STARTUP FLICKER, measured (session 15c, 2026-09-04) and NOT fixed: while the level
+      streams the tick runs 51-72/s against 90 slots/s, the tag stream goes lopsided (L/s 18 vs
+      R/s 73, 1016 same-eye pushes) and one eye starves - which is the flicker. Self-heals when
+      draws/s reaches the display rate. **First test is `vrpace strict on`, which already
+      exists and has never been judged**; only if that fails is code warranted. Open question
+      first: why LEFT specifically (hypothesis: shared-capture deferred delivery repeating a
+      tag; `capture sharedwait on` is the A/B)
+- [ ] The remaining drops to ~60: 54 of 71 gaps sit in `present-tail (xrEndFrame)` up to 101 ms.
+      Virtual Desktop side first (bitrate, codec, link, channel, wired AP), then ours
+- [ ] Optional headroom under the 90 Hz cliff: ~2600x2700 predicts ~10.3 ms against 11.11 ms.
+      Untested
+- [ ] The pose-lane verdict (`vrpace poseaudit on`) read in the headset - the seam check passed
+      in both session 15b runs but nobody armed the audit. No longer a ghosting suspect; keep it
+      for the judder / `ahead` work
 
 
 ## S3 - Compare and choose; the features come back on the winner

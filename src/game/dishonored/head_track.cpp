@@ -451,6 +451,12 @@ static void RotInjectTick()
     g_injHmdYawSnap = g_hmdYaw;
     g_injHmdPitchSnap = g_hmdPitch;
     g_injSnapOk = true;
+    // 41.1: the pose lane. Same publication as the script path below - the
+    // fallback drives the camera too, so a run that has fallen back must still
+    // be measurable or the instrument would silently go quiet exactly when
+    // something is already wrong.
+    g_injHmdGen = g_hmdGen;
+    dvr::vr::publish_script_head(g_injHmdYawSnap, g_injHmdGen, ++g_injHmdSeq);
 
     // Watchdog: last time this "worked then froze". If our writes stop moving
     // the view - the head turns but the engine's yaw sits still - hand control
@@ -620,6 +626,12 @@ static void ApplyHeadToViewRotation(void* parms)
     // the head values THIS camera write was computed from - matched pair
     g_injHmdYawSnap = g_hmdYaw; g_injHmdPitchSnap = g_hmdPitch;
     g_injSnapOk = true;
+    // 41.1: the pose lane. THIS is the write the rendered frame comes from on
+    // a healthy run - the world tick's camera write - so this is the sample the
+    // submitted pixels were drawn with, and the one the layer's tag has to
+    // match. Game thread; the seam's storage is atomic.
+    g_injHmdGen = g_hmdGen;
+    dvr::vr::publish_script_head(g_injHmdYawSnap, g_injHmdGen, ++g_injHmdSeq);
     (void)dp;
 
     static int hb = 0;
@@ -697,6 +709,10 @@ static void TrackHead(const float (*m)[4])
     float fyc   = fy < -1.f ? -1.f : (fy > 1.f ? 1.f : fy);
     float pitch = asinf(fyc);
     g_hmdYaw = yaw; g_hmdPitch = pitch;
+    // 41.1: which locate produced this sample. TrackHead runs from
+    // DvrConsumePoses inside the Present hook, so the generation read here is
+    // the one whose xrLocateSpace filled the pose being converted.
+    g_hmdGen = dvr::vr::locate_gen();
     // Roll in UE3's rotator sense: positive = right ear DOWN. atan2(right.y,
     // up.y) is positive for right ear UP, so it is negated here, once, and
     // every consumer (the ProcessViewRotation write, the matrix injection,

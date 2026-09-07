@@ -289,10 +289,21 @@ void window_close(uint64_t nowMs) {
     w.waitMs = total ? (float)waitSum / (float)total / 1000.0f : 0.0f;
     w.paceBound = total > 0 && w.waitMs > waitThreshMs;
     w.stereo = (g_p1.n + g_p2.n) > 0;
-    char paced[160] = "";
-    if (w.paceBound)
-        _snprintf(paced, sizeof(paced), "PACE-BOUND (wait %.1f ms/present = the headset's cadence at %.2f ms; the "
-                  "split is a budget, not a bottleneck) ", w.waitMs, periodMs);
+    w.displayPeriodMs = periodMs;
+    // Session 13: the period prints UNCONDITIONALLY now. It was read here from
+    // the first version of this file and printed only inside the PACE-BOUND
+    // clause, so the one run that most needed it - 48 hitches with the wait at
+    // ~0 and no PACE-BOUND line anywhere - is exactly the run where it stayed
+    // invisible, and "the game outruns the headset" had to be argued from a
+    // phase name. 0 prints as unknown; it is never rendered as a refresh rate.
+    char paced[240] = "";
+    int pacedN = periodMs > 0.0f
+        ? _snprintf(paced, sizeof(paced), "[hmd %.2f ms = %.1f Hz, budget %.2f ms/tick] ", periodMs,
+                    1000.0f / periodMs, periodMs)
+        : _snprintf(paced, sizeof(paced), "[hmd period UNKNOWN - the runtime leaves predictedDisplayPeriod at 0] ");
+    if (w.paceBound && pacedN > 0)
+        _snprintf(paced + pacedN, sizeof(paced) - pacedN, "PACE-BOUND (wait %.1f ms/present = the headset's "
+                  "cadence at %.2f ms; the split is a budget, not a bottleneck) ", w.waitMs, periodMs);
     char c1[400], c2[400], cm[400], mk[240];
     marker_text(mk, sizeof(mk), g_p1, g_p2, g_m, w);
     if (w.stereo) {
@@ -399,11 +410,22 @@ void gap_check(const Rec& prev, int64_t tEntry) {
     const uint32_t timeouts = dvr::vr::pace_timeouts();
     const uint32_t dTimeouts = timeouts - g_gapPaceTimeoutsSeen;
     g_gapPaceTimeoutsSeen = timeouts;
+    // Session 13: the gap in the unit the player felt it in. "156 ms" only
+    // becomes "19 display slots the headset had nothing new for" once the
+    // period is known, and that arithmetic was being done by hand off the log.
+    // Read live, not from the last window: a gap can precede the first close.
+    const int64_t gapPeriodNs = dvr::vr::display_period_ns();
+    char slots[96];
+    if (gapPeriodNs > 0)
+        _snprintf(slots, sizeof(slots), "%.1f display slots at %.2f ms", ms / ((float)gapPeriodNs / 1.0e6f),
+                  (float)gapPeriodNs / 1.0e6f);
+    else
+        strcpy_s(slots, sizeof(slots), "slots unknown (the runtime gives no display period)");
     _snprintf(g_gap.where, sizeof(g_gap.where),
-              "sat in: %s of #%u tag %+d (%.1f ms of in %.1f / out %.1f; wait %.1f lock %.1f endFrame %.1f) | that "
-              "present: gpu %s span %.1f dma %.1f | flags: reset=%d load=%d pairOpen=%d paceTimeouts=+%u",
+              "sat in: %s of #%u tag %+d (%.1f ms of in %.1f / out %.1f; wait %.1f lock %.1f endFrame %.1f) = %s | "
+              "that present: gpu %s span %.1f dma %.1f | flags: reset=%d load=%d pairOpen=%d paceTimeouts=+%u",
               ph[best].name, prev.present, prev.tag, ph[best].us / 1000.0, prev.inUs / 1000.0, prev.outUs / 1000.0,
-              prev.waitUs / 1000.0, prev.lockUs / 1000.0, prev.endFrameUs / 1000.0,
+              prev.waitUs / 1000.0, prev.lockUs / 1000.0, prev.endFrameUs / 1000.0, slots,
               prev.gpuState == 1 ? "resolved" : prev.gpuState == 0 ? "pending" : "n/a", prev.gpuSpanUs / 1000.0,
               prev.gpuDmaUs / 1000.0, g_flagReset ? 1 : 0, g_flagLoad ? 1 : 0, dvr::vr::pair_open() ? 1 : 0,
               dTimeouts);
@@ -713,6 +735,8 @@ void status(dvr::status::Writer& w) {
     w.kv("gaps", (unsigned long)g_gaps);
     w.kv("lastGapMs", (double)g_lastGapValMs);
     w.kv("lastGapPresent", (unsigned long)g_lastGapPresent);
+    w.kv("displayPeriodMs", (double)g_last.displayPeriodMs);
+    w.kv("displayHz", g_last.displayPeriodMs > 0.0f ? 1000.0 / g_last.displayPeriodMs : 0.0);
     w.kv("paceBound", g_last.paceBound);
     w.kv("stereo", g_last.stereo);
     w.kv("incomplete", (unsigned long)g_incomplete);

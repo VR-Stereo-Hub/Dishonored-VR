@@ -297,6 +297,30 @@ std::atomic<float> g_consumedHeadQuat[4] = {}; // x,y,z,w - game-thread stamp
 std::atomic<uint32_t> g_consumedHeadCount{0};
 uint64_t g_lastPoseAuditLogMs = 0; // render thread only
 
+// 41.1 (Dishonored): THE POSE-LANE INSTRUMENT.
+//
+// Two lanes sample the same head. The SCRIPT lane writes the game camera from
+// g_hmdYaw (head_track.cpp, game thread); the PRESENT lane tags the projection
+// layer with a located view pose (this file, present thread). The compositor
+// reprojects the submitted pixels FROM THE TAG to display time, so if the tag
+// is not the pose the pixels were rendered from, the warp is wrong by the
+// difference - and that difference changes every frame, which is doubled edges
+// under rotation, worst when turning fastest and worse when a frame is slow.
+// Nothing had ever measured the disagreement; this is the instrument that does.
+//
+// It is only meaningful PER LOCATE GENERATION, so g_locateGen is bumped once
+// per locate and the game side stamps every head sample with the generation it
+// came from. publish_script_head carries that stamp back with the yaw the
+// camera write actually used, so the audit at the submission site can say how
+// many generations deep the RENDERED sample sits against the generation the
+// layer is TAGGED with (g_poseLag) - and what that gap costs in degrees.
+std::atomic<uint32_t> g_locateGen{0};
+std::atomic<float>    g_scriptHeadYawDeg{0.0f}; // XR-frame yaw, sign-corrected at the seam
+std::atomic<uint32_t> g_scriptHeadGen{0};       // the locate generation it was sampled from
+std::atomic<uint32_t> g_scriptHeadSeq{0};       // monotonic; 0 = the game has never published
+std::atomic<uint64_t> g_scriptHeadMsAt{0};      // GetTickCount64 at publication
+std::atomic<bool>     g_seamChecked{false};    // the sign calibration prints once
+
 // M4 rung 1: AlternateEye stereo (AER). The render thread owns everything here
 // except g_aerEyeSign, which CalcView on the game thread reads through
 // current_eye_sign() to pick the per-frame eye offset. The sign also encodes
@@ -481,6 +505,20 @@ std::atomic<int64_t>  g_pairPhaseLastUs{0};
 std::atomic<int64_t>  g_pairPhaseSumUs{0};
 std::atomic<int64_t>  g_pairPhaseMaxUs{-1000000};
 std::atomic<uint32_t> g_pairPhaseCount{0}, g_pairPhaseMissed{0};
+// 41.1 (Dishonored, session 13): the SUBMIT itself, counted and timed. The
+// 2026-09-04 report put 31 of its 48 hitches in present-tail (xrEndFrame), and
+// the reading offered for that - "the game outruns the headset, and the runtime
+// absorbs the mismatch by blocking at submit" - was an inference from a phase
+// NAME. These three, against g_displayPeriodNs, make it a measurement: how many
+// submits the present path issued, what one costs on average, the worst one in
+// the window, and how many display slots the headset actually offered to fill.
+// The instrument can print the unwelcome answer both ways - a submit rate BELOW
+// the headset's rate falsifies the throttle reading outright, and a small mean
+// under a large max says these are hitches, not pacing. Present thread writes at
+// the one xrEndFrame site; the stereo beat reads once per 3 s.
+std::atomic<uint32_t> g_endFrames{0};      // xrEndFrame calls from the present path (cumulative)
+std::atomic<uint64_t> g_endFrameSumUs{0};  // their total cost (cumulative)
+std::atomic<uint32_t> g_endFrameMaxUs{0};  // worst since the last probe read - DRAINED on read
 
 // Session 43 (Infinite stutter hunt): SPIKE-TRIGGERED EVIDENCE CAPTURE.
 // The s42 headset run named the judder as 39-113 ms pair intervals in bursts;
@@ -3044,6 +3082,11 @@ void on_present_begin() {
     g_viewsContent[0] = g_views[0];
     g_viewsContent[1] = g_views[1];
     g_viewsContentValid = g_viewsValid;
+    // 41.1 (Dishonored): the generation counter the pose-lane instrument keys
+    // on, bumped HERE with the rotation so one number names one set of located
+    // views - after this, g_views is generation N, g_viewsContent is N-1 and
+    // g_viewsPrev2 is N-2, which is exactly the indexing g_poseLag selects on.
+    g_locateGen.fetch_add(1, std::memory_order_relaxed);
 
     XrViewLocateInfo vli{XR_TYPE_VIEW_LOCATE_INFO};
     vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -4058,27 +4101,63 @@ void on_present_end(ID3D11Texture2D* frame) {
                         g_edgeSnap.claimTanH = tanf(halfH);
                         g_edgeSnap.claimTanV = tanf(halfV);
                     }
-                    // Pose-tag audit (session 21, armed by `fovaudit pose on`):
-                    // tagged-vs-consumed yaw, rate-limited. In-headset only.
+                    // THE POSE-LANE INSTRUMENT (41.1, armed by `vrpace poseaudit on`).
+                    //
+                    // This is the submission site: projViews is filled and not
+                    // yet attached, so the yaw printed here is literally the
+                    // one the compositor will reproject from. Compare it, per
+                    // eye, against the yaw the SCRIPT lane drove the camera
+                    // from, and report the gap in GENERATIONS as well as in
+                    // degrees - the generation count is the diagnosis and the
+                    // degrees are what it costs the picture right now.
+                    //
+                    // Rate-limited to 500 ms and stereo-only; the mono screen
+                    // is head-locked and has no projection pose to be wrong
+                    // about, so a zero there would mean nothing.
                     if (stereo && g_poseAudit.load(std::memory_order_relaxed)) {
                         uint64_t now = GetTickCount64();
                         if (now - g_lastPoseAuditLogMs >= 500) {
                             g_lastPoseAuditLogMs = now;
-                            float yawTag = xr_quat_yaw_deg(
-                                projViews[0].pose.orientation.x, projViews[0].pose.orientation.y,
-                                projViews[0].pose.orientation.z, projViews[0].pose.orientation.w);
-                            float yawUse = xr_quat_yaw_deg(
-                                g_consumedHeadQuat[0].load(std::memory_order_relaxed),
-                                g_consumedHeadQuat[1].load(std::memory_order_relaxed),
-                                g_consumedHeadQuat[2].load(std::memory_order_relaxed),
-                                g_consumedHeadQuat[3].load(std::memory_order_relaxed));
-                            float d = yawTag - yawUse;
-                            while (d > 180.0f) d -= 360.0f;
-                            while (d < -180.0f) d += 360.0f;
-                            XRLOG("xr: poseaudit tagged yaw %.2f vs consumed %.2f "
-                                    "(delta %.2f deg, samples %u)",
-                                    yawTag, yawUse, d,
-                                    g_consumedHeadCount.load(std::memory_order_relaxed));
+                            const uint32_t seq = g_scriptHeadSeq.load(std::memory_order_acquire);
+                            if (seq == 0) {
+                                XRLOG("xr: poseaudit NO SCRIPT SAMPLE yet (the adapter has never published a "
+                                        "camera write; head tracking off, a menu, or the rotation inject is "
+                                        "refused) - nothing to compare the tag against, so this says nothing "
+                                        "about the tag");
+                            } else {
+                                const uint32_t genNow = g_locateGen.load(std::memory_order_relaxed);
+                                const uint32_t genRen = g_scriptHeadGen.load(std::memory_order_relaxed);
+                                const float yawScript = g_scriptHeadYawDeg.load(std::memory_order_relaxed);
+                                const uint64_t sampleMs = g_scriptHeadMsAt.load(std::memory_order_relaxed);
+                                const int lag = g_poseLag.load(std::memory_order_relaxed);
+                                // How many locates back the RENDERED sample sits, against how many
+                                // back the TAG sits. If these differ, the tag is the wrong pose and
+                                // the difference is what the compositor gets wrong.
+                                const int genBackRendered = (int)(genNow - genRen);
+                                const int genGap = genBackRendered - lag;
+                                float dEye[2];
+                                float tagEye[2];
+                                for (int e = 0; e < 2; ++e) {
+                                    tagEye[e] = xr_quat_yaw_deg(
+                                        projViews[e].pose.orientation.x, projViews[e].pose.orientation.y,
+                                        projViews[e].pose.orientation.z, projViews[e].pose.orientation.w);
+                                    float d = tagEye[e] - yawScript;
+                                    while (d > 180.0f) d -= 360.0f;
+                                    while (d < -180.0f) d += 360.0f;
+                                    dEye[e] = d;
+                                }
+                                XRLOG("xr: poseaudit L tag %.2f R tag %.2f vs SCRIPT-lane %.2f deg -> delta "
+                                        "L %+.2f R %+.2f deg | rendered sample is %d locate(s) back, tag is "
+                                        "lag=%d -> GENERATION GAP %+d | one generation costs %.2f deg at this "
+                                        "head speed | sample age %llu ms, seq %u, ahead=%d | a delta that "
+                                        "stays near 0.00 means the lanes AGREE and pose attribution is not "
+                                        "the ghosting; L and R must match (one locate per pair)",
+                                        tagEye[0], tagEye[1], yawScript, dEye[0], dEye[1],
+                                        genBackRendered, lag, genGap,
+                                        g_poseGenDeltaDeg.load(std::memory_order_relaxed),
+                                        (unsigned long long)(now - sampleMs), seq,
+                                        g_paceAhead.load(std::memory_order_relaxed));
+                            }
                         }
                     }
                     proj.space = g_space;
@@ -4295,6 +4374,14 @@ void on_present_end(ID3D11Texture2D* frame) {
         r = xrEndFrame(g_session, &fei);
     }
     phase_record(kPhEndFrame, tEnd);
+    {   // The submit's own cost, for the beat's rate line (see g_endFrames).
+        const uint32_t efUs = g_phaseLastUs[kPhEndFrame].load(std::memory_order_relaxed);
+        g_endFrames.fetch_add(1, std::memory_order_relaxed);
+        g_endFrameSumUs.fetch_add(efUs, std::memory_order_relaxed);
+        uint32_t efMax = g_endFrameMaxUs.load(std::memory_order_relaxed);
+        while (efUs > efMax &&
+               !g_endFrameMaxUs.compare_exchange_weak(efMax, efUs, std::memory_order_relaxed)) {}
+    }
     if (XR_FAILED(r)) {
         XRLOG("xr: xrEndFrame failed: %s", res_str(r));
         teardown_session("endframe failed");
@@ -4845,6 +4932,17 @@ void set_pace_sync(bool on) {
                 on ? "ON" : "off");
 }
 
+void set_pace_sync_hz(unsigned hz) {
+    const unsigned was = g_paceSyncHz.exchange(hz, std::memory_order_relaxed);
+    if (was != hz)
+        XRLOG("xr: pair-rate sync target %u -> %u Hz (0 = the runtime's own period, currently %.2f ms); "
+                "the gate only runs while sync is ON",
+                was, hz, g_displayPeriodNs.load(std::memory_order_relaxed) / 1.0e6);
+}
+
+unsigned pace_sync_hz() { return g_paceSyncHz.load(std::memory_order_relaxed); }
+bool pace_sync() { return g_paceSync.load(std::memory_order_relaxed); }
+
 void set_pace_ahead(int periods) {
     if (periods < 0) periods = 0;
     if (periods > 2) periods = 2;
@@ -5009,6 +5107,22 @@ void handle_pace_command(const char* args) {
                     "shows the fresh eye to both eyes instead) | usage: vrpace strict on|off",
                     g_pairStrict.load(std::memory_order_relaxed) ? "ON" : "off",
                     g_strictFallbacks.load(std::memory_order_relaxed));
+    } else if (strcmp(verb, "poseaudit") == 0) {
+        // 41.1 (Dishonored): the pose-lane instrument. It lives in this
+        // vocabulary because `lag` and `ahead` are the two levers it
+        // arbitrates - read the delta, then move them and watch it null.
+        if (strncmp(rest, "on", 2) == 0) set_pose_audit(true);
+        else if (strncmp(rest, "off", 3) == 0) set_pose_audit(false);
+        else
+            XRLOG("xr: pose audit %s | script sample seq %u, %u locate(s) back at last read; tag lag=%d "
+                    "ahead=%d; one generation costs %.2f deg right now | usage: vrpace poseaudit on|off",
+                    g_poseAudit.load(std::memory_order_relaxed) ? "ON" : "off",
+                    g_scriptHeadSeq.load(std::memory_order_acquire),
+                    g_locateGen.load(std::memory_order_relaxed) -
+                        g_scriptHeadGen.load(std::memory_order_relaxed),
+                    g_poseLag.load(std::memory_order_relaxed),
+                    g_paceAhead.load(std::memory_order_relaxed),
+                    g_poseGenDeltaDeg.load(std::memory_order_relaxed));
     } else if (strcmp(verb, "simidle") == 0) {
         bool on = strncmp(rest, "on", 2) == 0;
         g_simIdle.store(on, std::memory_order_relaxed);
@@ -5019,7 +5133,8 @@ void handle_pace_command(const char* args) {
     } else {
         XRLOG("xr: pace guard %s | wait %s | session %s everFocused=%d | skips %u "
                 "lastWait %u ms | handoffs %u timeouts %u | simidle %s "
-                "(vrpace on|off|thread on|off|detach on|off|sync|spike|strict|ahead|lag|simidle on|off|status)",
+                "(vrpace on|off|thread on|off|detach on|off|sync|spike|strict|ahead|lag|poseaudit|"
+                "simidle on|off|status)",
                 g_paceGuard.load(std::memory_order_relaxed) ? "ON" : "off",
                 g_paceOffThread.load(std::memory_order_relaxed) ? "off-thread" : "inline",
                 state_str(g_state), g_everFocused.load(std::memory_order_relaxed) ? 1 : 0,
@@ -5057,6 +5172,19 @@ void handle_pace_command(const char* args) {
                         g_pairPhaseMissed.load(std::memory_order_relaxed),
                         phN ? 100.0 * g_pairPhaseMissed.load(std::memory_order_relaxed) / phN : 0.0,
                         g_paceAhead.load(std::memory_order_relaxed), g_poseLag.load(std::memory_order_relaxed));
+            // 41.1 (Dishonored): the pose-lane instrument's standing state, so
+            // `vrpace status` says whether it is armed and whether the game
+            // side is publishing at all (seq 0 = never - the audit would have
+            // nothing to compare against and says so on its own line too).
+            const uint32_t shSeq = g_scriptHeadSeq.load(std::memory_order_acquire);
+            XRLOG("xr: poseaudit %s | script-lane samples %u%s | rendered sample %u locate(s) back vs tag "
+                    "lag=%d | one generation costs %.2f deg at the current head speed | `vrpace poseaudit on`",
+                    g_poseAudit.load(std::memory_order_relaxed) ? "ARMED" : "off", shSeq,
+                    shSeq ? "" : " (the adapter has NEVER published a camera write)",
+                    g_locateGen.load(std::memory_order_relaxed) -
+                        g_scriptHeadGen.load(std::memory_order_relaxed),
+                    g_poseLag.load(std::memory_order_relaxed),
+                    g_poseGenDeltaDeg.load(std::memory_order_relaxed));
         }
         XRLOG("xr: detach %s (keepalive every %u ms) | detachedNow=%d | episodes %u "
                 "| unpaced presents %u, keepalive frames %u",
@@ -5170,8 +5298,67 @@ void fov_audit(float* tanH, float* tanV, int* src, unsigned* swapW, unsigned* sw
 
 void set_pose_audit(bool on) {
     bool was = g_poseAudit.exchange(on, std::memory_order_relaxed);
-    if (was != on) XRLOG("xr: pose audit %s (tagged-vs-consumed yaw, stereo only)",
-                           on ? "ON" : "off");
+    if (was != on)
+        XRLOG("xr: pose audit %s - per stereo submit, the yaw the layer is TAGGED with against the yaw the "
+                "SCRIPT LANE rendered from, per eye, every 500 ms. Stereo only (the mono screen has no "
+                "projection pose to be wrong about). A delta that stays near 0.00 deg means the two lanes "
+                "agree and pose attribution is NOT the ghosting.",
+                on ? "ON" : "off");
+}
+
+uint32_t locate_gen() { return g_locateGen.load(std::memory_order_relaxed); }
+
+void publish_script_head(float hmdYawRad, uint32_t locateGen, uint32_t seq) {
+    // THE SIGN TRAP, handled once, here, so no caller has to know about it.
+    // Both lanes build the SAME rotation matrix from the SAME pose, and then
+    // read yaw out of it with opposite conventions:
+    //   xr_quat_yaw_deg (this file) reduces to atan2( m02, m22)
+    //   TrackHead (head_track.cpp)  reduces to atan2(-m02, m22)
+    // so g_hmdYaw == -xr_quat_yaw_deg/57.29578 for any pose. Subtracting them
+    // raw reads about TWICE the yaw and looks like a catastrophic disagreement
+    // that is purely convention - which would have made this instrument lie in
+    // the most convincing possible way. Negate once, on the way in, and every
+    // number downstream is in the runtime layer's frame.
+    const float yawDeg = -hmdYawRad * 57.29578f;
+    g_scriptHeadYawDeg.store(yawDeg, std::memory_order_relaxed);
+    g_scriptHeadGen.store(locateGen, std::memory_order_relaxed);
+    g_scriptHeadMsAt.store(GetTickCount64(), std::memory_order_relaxed);
+    g_scriptHeadSeq.store(seq, std::memory_order_release);   // publishes the rest
+
+    // ...and PROVE the negation above, once, against live data, because an
+    // instrument whose calibration is only asserted in a comment is not
+    // evidence. The game built its yaw from g_headPose; read the same pose
+    // back through this file's own converter and the two must agree to within
+    // the sampling skew. If they do not, every delta this instrument prints is
+    // measuring a convention instead of a fault - so say so, loudly, once.
+    // Both publish sites can call this (script path on the game thread, the
+    // direct fallback on the present thread), so the once-only guard is an
+    // atomic exchange - the same idiom as g_loggedFirstSr and friends.
+    if (!g_seamChecked.load(std::memory_order_relaxed)) {
+        float qx, qy, qz, qw;
+        {
+            std::lock_guard<std::mutex> lock(g_poseMutex);
+            if (!g_poseValid) return;   // no pose located yet: check at the next publish
+            qx = g_headPose.qx; qy = g_headPose.qy; qz = g_headPose.qz; qw = g_headPose.qw;
+        }
+        if (g_seamChecked.exchange(true, std::memory_order_relaxed)) return;   // another thread won
+        const float mine = xr_quat_yaw_deg(qx, qy, qz, qw);
+        float d = yawDeg - mine;
+        while (d > 180.0f) d -= 360.0f;
+        while (d < -180.0f) d += 360.0f;
+        if (fabsf(d) <= 5.0f)
+            XRLOG("xr: poseaudit SEAM CHECK ok - the script lane's yaw reads %.2f deg and this file's own "
+                    "converter reads %.2f deg for the same head pose (%.2f apart, within sampling skew). "
+                    "The two lanes use opposite yaw conventions and the seam negates once; that negation is "
+                    "correct, so a nonzero poseaudit delta is a real disagreement and not a sign error.",
+                    yawDeg, mine, d);
+        else
+            XRLOG("xr: poseaudit SEAM CHECK FAILED - script lane %.2f deg vs this file's converter %.2f deg "
+                    "for the same head pose, %.2f apart. The sign/frame assumption in publish_script_head is "
+                    "WRONG, so every poseaudit delta is measuring a convention mismatch, not the pose "
+                    "attribution. Do not read the audit until this line reads ok.",
+                    yawDeg, mine, d);
+    }
 }
 
 void publish_gameplay_view(bool strictGameplay) {
@@ -5526,6 +5713,21 @@ static void pair_probe_fill(PairProbe* out, bool drain) {
     out->ringDropped = g_srDropped.load(std::memory_order_relaxed);
     out->ringCleared = g_srCleared.load(std::memory_order_relaxed);
     out->mirrorOn = g_mirror.load(std::memory_order_relaxed);
+    // Session 13: the headset's own cadence and our submit rate, so the two can
+    // be compared on one line. The period is whatever the last xrWaitFrame filled
+    // in - 0 means the runtime does not say, and a consumer must print that as
+    // unknown rather than assume a refresh rate.
+    out->displayPeriodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
+    out->endFrames = g_endFrames.load(std::memory_order_relaxed);
+    out->endFrameSumUs = g_endFrameSumUs.load(std::memory_order_relaxed);
+    out->endFrameMaxUs = drain ? g_endFrameMaxUs.exchange(0, std::memory_order_relaxed)
+                               : g_endFrameMaxUs.load(std::memory_order_relaxed);
+    // Session 14: cumulative on purpose - the 1 Hz trace thread window-resets
+    // g_pairIntMinUs/MaxUs by exchange, so this reader takes only the three
+    // that survive a second consumer and derives mean/sd from its own deltas.
+    out->intervalCount = g_pairIntCount.load(std::memory_order_relaxed);
+    out->intervalSumUs = g_pairIntSumUs.load(std::memory_order_relaxed);
+    out->intervalSumSqUs = g_pairIntSumSqUs.load(std::memory_order_relaxed);
 }
 
 // 41.1 (Dishonored): cumulative, NOT drained - a per-present reader must not eat
@@ -5644,6 +5846,9 @@ bool pair_strict() { return false; }
 void handle_pace_command(const char*) {}
 void set_pace_detach(bool) {}
 void set_pace_sync(bool) {}
+void set_pace_sync_hz(unsigned) {}
+unsigned pace_sync_hz() { return 0; }
+bool pace_sync() { return false; }
 void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }
@@ -5674,6 +5879,8 @@ void fov_audit(float* tanH, float* tanV, int* src, unsigned* swapW, unsigned* sw
     if (swapH) *swapH = 0;
 }
 void set_pose_audit(bool) {}
+uint32_t locate_gen() { return 0; }
+void publish_script_head(float, uint32_t, uint32_t) {}
 void publish_gameplay_view(bool) {}
 void handle_cine_command(const char*) {}
 bool cinematic_active() { return false; }

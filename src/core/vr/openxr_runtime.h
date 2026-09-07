@@ -284,6 +284,13 @@ void set_pace_feed(bool on);
 // game - BS1/BS2 never call this and take no new branch. `vrpace sync` is the
 // live A/B; the overlay checkbox rides under SR pair pacing.
 void set_pace_sync(bool on);
+// 41.1 (Dishonored, session 14): the sync TARGET. 0 = the runtime's own
+// predictedDisplayPeriod; any other value is a commanded Hz that overrides it,
+// which is the useful case - a game that cannot hold the display rate wants a
+// clean SUBMULTIPLE of it (60 or 40 on a 120 Hz headset), not the rate itself.
+void set_pace_sync_hz(unsigned hz);
+unsigned pace_sync_hz();
+bool pace_sync();
 
 // 41.1 (Dishonored): strict pairs - a stereo submit whose eye is older than one
 // present (the held-eye case: pass 1 tagged, pass 2 skipped in the resume
@@ -368,12 +375,32 @@ void set_rendered_hfov(float hfovDeg);
 // compares these against tangents recovered from dumpframe cb0 blocks.
 void fov_audit(float* tanH, float* tanV, int* src, unsigned* swapW, unsigned* swapH);
 
-// Pose-tag audit (default off, log-only): per stereo submission (rate-limited)
-// log the yaw the layer is TAGGED with against the yaw the game thread last
-// CONSUMED from the head-pose funnel. A steady nonzero delta means the image
-// is attributed to a pose generation the game never rendered from - the
-// next-cheapest suspect for a yaw-dependent lateral drift after the fov.
+// Pose-tag audit (default off, log-only, `vrpace poseaudit on`): per stereo
+// submission (rate-limited) log the yaw the layer is TAGGED with against the
+// yaw the SCRIPT LANE actually drove the game camera from for the frame being
+// submitted, per eye. A steady nonzero delta means the image is attributed to
+// a pose generation the game never rendered from, so the compositor reprojects
+// it by the wrong amount every frame - doubled edges under rotation.
+//
+// 41.1 (Dishonored): this used to compare against the pose the present thread
+// had just CONSUMED, which is fresh at submit and therefore never the sample
+// the pixels came from - it could not answer the question it was named for.
+// The game side now publishes the rendered sample through the seam below.
 void set_pose_audit(bool on);
+
+// --- 41.1 (Dishonored): the pose-lane seam ----------------------------------
+// The locate generation, bumped once per xrLocateViews. The game side stamps
+// each head sample with the value current when it was taken, so the audit can
+// count how many generations deep the rendered sample sits.
+uint32_t locate_gen();
+
+// The SCRIPT lane's matched pair, published by the adapter's camera write:
+// the HMD yaw that write was computed from (XR frame, RADIANS, in the runtime
+// layer's own sign convention - see xr_quat_yaw_deg), the locate generation it
+// was sampled from, and a monotonic sequence number (0 = never published).
+// Called from BOTH the script path (game thread) and the direct fallback
+// (present thread), so the storage is atomic and lock-free by construction.
+void publish_script_head(float hmdYawRad, uint32_t locateGen, uint32_t seq);
 
 // --- Session 22: cinematic quad fallback --------------------------------------
 // The adapter publishes the strict gameplay-view verdict once per CalcView.
@@ -478,6 +505,24 @@ struct PairProbe {
     int64_t  phaseLastUs = 0, phaseSumUs = 0, phaseMaxUs = 0;
     uint32_t phaseCount = 0, phaseMissed = 0;   // pairs sampled, pairs that missed their slot
     uint32_t ringPushed = 0, ringPopped = 0, ringDropped = 0, ringCleared = 0;
+    // 41.1 (Dishonored, session 13): the headset's cadence and our submit rate,
+    // the pair the "submit stalls" item needs on one line. displayPeriodNs is
+    // the runtime's own predictedDisplayPeriod (0 = it does not say: unknown,
+    // never a guessed refresh); endFrames counts xrEndFrame from the PRESENT
+    // path, which is ONE per stereo pair and not one per present.
+    int64_t  displayPeriodNs = 0;
+    uint32_t endFrames = 0;      // cumulative
+    uint64_t endFrameSumUs = 0;  // cumulative
+    uint32_t endFrameMaxUs = 0;  // worst submit - DRAINED on read (window = the caller's cadence)
+    // 41.1 (Dishonored, session 14): the pair INTERVAL, cumulative and never
+    // drained - the trace thread owns the min/max window and a second drainer
+    // would steal it, but mean and standard deviation come out of these three
+    // and a caller's own deltas. Evenness is the judder question: 104 pairs/s
+    // evenly spaced and 104 free-running with a beat against the display are
+    // the same rate and a completely different image.
+    uint32_t intervalCount = 0;
+    uint64_t intervalSumUs = 0;
+    uint64_t intervalSumSqUs = 0;
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };
 void pair_probe(PairProbe* out);
