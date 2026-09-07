@@ -88,22 +88,28 @@ static volatile int g_pdToggleReq = 0;
 static int  g_pdSpace = 0;
 static volatile int g_pdSpaceReq = 0;
 
-// The grip offset in the hand's own frame, unreal units: forward along the
-// limb, right across the palm, up out of the back of the hand. Seeded from the
-// mesh - the distance from the wrist ring to the hand's centroid measured
-// 12.26 uu on this asset - because the split owns the geometry and can say.
-static float g_pdGrip[2][3] = { { 12.26f, 0.0f, 0.0f }, { 12.26f, 0.0f, 0.0f } };
+// The grip offset in the PALETTE's axis order - right, up, forward - because
+// everything in this module now uses that one order and a second convention is
+// how the first build put the hands under the floor. Forward is seeded from
+// the mesh: the split measured 12.26 uu from the wrist ring to the hand's
+// centroid, and the grip sits along that line.
+static float g_pdGrip[2][3] = { { 0.0f, 0.0f, 12.26f }, { 0.0f, 0.0f, 12.26f } };
 static uint8_t g_pdGripSet[2] = { 0, 0 };
 static volatile int g_pdAxis = 0;          // which axis the knob moves
 static volatile int g_pdSide = 0;          // 0 both, 1 left, 2 right
 static volatile int g_pdAxisReq = 0, g_pdNudgeReq = 0, g_pdSideReq = 0;
 static const float kPdStep = 0.5f;
 
-// Scale from metres of controller travel to unreal units. The world measured
-// 108 uu/m on this build; it is a key because a hand that moves too far is a
-// scale error and not a tracking error, and telling those apart by eye is
-// impossible.
-static float g_pdScaleUU = 108.0f;
+// Scale from metres of controller travel to the palette's units.
+//
+// NOT the world's 108 uu/m. The first-person rig is drawn at its own scale and
+// the probe says so: at rest the right hand bone sits at (+65, -85, +76) from
+// the eye, which at 108 uu/m would put a resting hand 0.6 m to the right, 0.8 m
+// down and 0.7 m forward - arms straight out and splayed. At about 210 it is
+// 0.3 m right, 0.4 m down, 0.35 m forward, which is where a hand actually
+// rests. 210 is therefore a MEASUREMENT off one run and not a tuned constant,
+// and the knob exists because one run is one posture.
+static float g_pdScaleUU = 210.0f;
 
 // What actually happened, per 15 s. Every one of these can print the unwelcome
 // answer: a draw that never matched, a split that never armed, a pose that was

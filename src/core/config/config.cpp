@@ -1145,11 +1145,11 @@ static void LoadConfig()
     g_pdOn       = IniFloat(ini, "Hands", "PaletteDrive", 0) != 0.0f;
     g_pdSpace    = (int)IniFloat(ini, "Hands", "PaletteSpace", 0);
     if (g_pdSpace < 0 || g_pdSpace > 1) g_pdSpace = 0;
-    g_pdScaleUU  = IniFloat(ini, "Hands", "PaletteScaleUU", 108.0f);
+    g_pdScaleUU  = IniFloat(ini, "Hands", "PaletteScaleUU", 210.0f);
     if (g_pdScaleUU < 1.0f) g_pdScaleUU = 108.0f;
     {
         static const char* kPg[2][3] = {
-            { "GripLF", "GripLR", "GripLU" }, { "GripRF", "GripRR", "GripRU" } };
+            { "GripLR", "GripLU", "GripLF" }, { "GripRR", "GripRU", "GripRF" } };
         for (int s4 = 0; s4 < 2; s4++)
             for (int a4 = 0; a4 < 3; a4++) {
                 const float c4 = IniFloat(ini, "Hands", kPg[s4][a4], -1e9f);
@@ -1615,7 +1615,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteScaleUU", v, ini);
     {
         static const char* kPg2[2][3] = {
-            { "GripLF", "GripLR", "GripLU" }, { "GripRF", "GripRR", "GripRU" } };
+            { "GripLR", "GripLU", "GripLF" }, { "GripRR", "GripRU", "GripRF" } };
         for (int s5 = 0; s5 < 2; s5++)
             if (g_pdGripSet[s5])
                 for (int a5 = 0; a5 < 3; a5++) {

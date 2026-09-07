@@ -56,25 +56,39 @@ static bool PdControllerInRig(int hand, float (*R)[3], float* P)
     V3Cross(fl, up, r); if (V3Norm(r) < 0.2f) return false;
     float u[3]; V3Cross(r, fl, u); V3Norm(u);
 
-    // Position: the controller's offset from the LIVE head, in that basis,
-    // then into the rig's axes (X forward, Y right, Z up) and into uu.
+    // Position: the controller's offset from the LIVE head, in that basis, and
+    // then straight into the palette's axes - which are the SAME order, so
+    // there is no re-ordering at all.
+    //
+    // MEASURED 2026-09-06, not assumed. The first build mapped this as though
+    // the palette were UE3 world axes (X forward, Y right, Z up) and the hands
+    // went under the floor. The probe says otherwise: at rest the two hand
+    // bones sit at L (-76, -122, +101) and R (+65, -85, +76), and in a menu
+    // they are exactly symmetric at (+-31.07, 8.99, -12.50). The component
+    // that SEPARATES the two hands is the first one, so palette X is LATERAL,
+    // not forward. Both hands share a large negative second component and a
+    // large positive third, which for hands held in front of and below the eye
+    // makes the second UP and the third FORWARD.
+    //
+    // So the palette is (X right, Y up, Z forward) and the head basis is
+    // (right, up, forward). Identity.
     const float d[3] = { hc[0][3] - hm[0][3],
                          hc[1][3] - hm[1][3],
                          hc[2][3] - hm[2][3] };
     const float ph[3] = { V3Dot(d, r), V3Dot(d, u), V3Dot(d, fl) };
-    P[0] = ph[2] * g_pdScaleUU;
-    P[1] = ph[0] * g_pdScaleUU;
-    P[2] = ph[1] * g_pdScaleUU;
+    P[0] = ph[0] * g_pdScaleUU;      // right
+    P[1] = ph[1] * g_pdScaleUU;      // up
+    P[2] = ph[2] * g_pdScaleUU;      // forward
 
-    // Rotation: the controller's own axes expressed in the same head basis,
-    // then re-ordered into the rig's. Column k of R is where rig axis k points.
+    // Rotation, in the same order. R[i][j] is how far the controller's j-th
+    // axis lies along the palette's i-th, with both listed (right, up,
+    // forward), so a controller at rest gives the identity.
     const float cf[3] = { -hc[0][2], -hc[1][2], -hc[2][2] };   // controller forward
     const float cr[3] = {  hc[0][0],  hc[1][0],  hc[2][0] };   // right
     const float cu[3] = {  hc[0][1],  hc[1][1],  hc[2][1] };   // up
-    const float F[3] = { V3Dot(cf, fl), V3Dot(cf, r), V3Dot(cf, u) };
-    const float G[3] = { V3Dot(cr, fl), V3Dot(cr, r), V3Dot(cr, u) };
-    const float H[3] = { V3Dot(cu, fl), V3Dot(cu, r), V3Dot(cu, u) };
-    for (int k = 0; k < 3; k++) { R[k][0] = F[k]; R[k][1] = G[k]; R[k][2] = H[k]; }
+    R[0][0] = V3Dot(cr, r);  R[0][1] = V3Dot(cu, r);  R[0][2] = V3Dot(cf, r);
+    R[1][0] = V3Dot(cr, u);  R[1][1] = V3Dot(cu, u);  R[1][2] = V3Dot(cf, u);
+    R[2][0] = V3Dot(cr, fl); R[2][1] = V3Dot(cu, fl); R[2][2] = V3Dot(cf, fl);
 
     for (int a = 0; a < 3; a++)
         if (!(P[a] == P[a])) return false;
@@ -108,7 +122,9 @@ static int PdRewrite(float* pal, UINT count)
         PdBoneOrigin(pal, href, ref);
 
         // Rotate about the GRIP, not about the bone origin at the wrist:
-        // place the result so the grip point lands on the controller.
+        // place the result so the grip point lands on the controller. The grip
+        // is in the palette's own order - right, up, forward - like everything
+        // else here, so the knob and this arithmetic cannot disagree.
         const float* G = g_pdGrip[hand];
         float RG[3];
         for (int k = 0; k < 3; k++)
@@ -209,9 +225,9 @@ static void PdTick(void)
         g_pdAxisReq = 0;
         g_pdAxis = (g_pdAxis + 1) % 3;
         Log("pd: the grip knob now moves %s, %.2f uu a press",
-            g_pdAxis == 0 ? "FORWARD (out the arm)" :
-            g_pdAxis == 1 ? "RIGHT (across the palm)"
-                          : "UP (out of the back of the hand)", kPdStep);
+            g_pdAxis == 0 ? "RIGHT (across the palm)" :
+            g_pdAxis == 1 ? "UP (out of the back of the hand)"
+                          : "FORWARD (out along the arm)", kPdStep);
     }
     if (g_pdNudgeReq) {
         const int d = g_pdNudgeReq; g_pdNudgeReq = 0;
@@ -222,8 +238,8 @@ static void PdTick(void)
             if (g_pdGrip[s][g_pdAxis] < -60.0f) g_pdGrip[s][g_pdAxis] = -60.0f;
             g_pdGripSet[s] = 1;
         }
-        Log("pd: grip now L (F %.2f R %.2f U %.2f) R (F %.2f R %.2f U %.2f) uu "
-            "- those six are what [Hands] GripLF/LR/LU and GripRF/RR/RU take",
+        Log("pd: grip now L (R %.2f U %.2f F %.2f) R (R %.2f U %.2f F %.2f) uu "
+            "- those six are what [Hands] GripLR/LU/LF and GripRR/RU/RF take",
             g_pdGrip[0][0], g_pdGrip[0][1], g_pdGrip[0][2],
             g_pdGrip[1][0], g_pdGrip[1][1], g_pdGrip[1][2]);
     }
@@ -283,8 +299,8 @@ static bool PdCommand(const char* args)
                 g_pdScaleUU = v;
         }
     }
-    Log("pd: status - drive %s, space %s, scale %.1f uu/m. Grip L (F %.2f R "
-        "%.2f U %.2f) R (F %.2f R %.2f U %.2f). Split %s, palette wants x%d, "
+    Log("pd: status - drive %s, space %s, scale %.1f uu/m. Grip L (R %.2f U "
+        "%.2f F %.2f) R (R %.2f U %.2f F %.2f). Split %s, palette wants x%d, "
         "last c6 x%u. Home cycles the grip axis, Insert/Delete nudge it, End "
         "toggles the drive, Pause picks the hand, PgUp swaps the space.",
         g_pdOn ? "ON" : "off", g_pdSpace ? "world" : "camera", g_pdScaleUU,
