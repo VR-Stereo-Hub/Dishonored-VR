@@ -955,6 +955,11 @@ static void LoadConfig()
     g_skcDrive   = IniFloat(ini, "Hands", "Enabled", 1) != 0.0f;
     g_skcLive    = IniFloat(ini, "Hands", "FromControllers", 1) != 0.0f;
     g_skcWorld   = IniFloat(ini, "Hands", "WorldSpace", 0) != 0.0f;
+    // The controller offset is taken from the LIVE head and de-rotated by the
+    // head's yaw before the game camera basis is applied. 0 restores the old
+    // path: a fixed captured neutral in raw tracking space, which double-counts
+    // the head yaw and accumulates every step as error.
+    g_skcHeadRel = IniFloat(ini, "Hands", "HeadRelative", 1) != 0.0f;
     g_skcDoTrans = IniFloat(ini, "Hands", "Position", 1) != 0.0f;
     g_skcDoRot   = IniFloat(ini, "Hands", "Rotation", 0) != 0.0f;
     g_skcWorldRot= IniFloat(ini, "Hands", "WorldRotation", 0) != 0.0f;
@@ -1633,6 +1638,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("VR", "DisableBadApiLayers", g_algGuard ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "HeadRelative", g_skcHeadRel ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "Position", g_skcDoTrans ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "Rotation", g_skcDoRot ? "1" : "0", ini);
