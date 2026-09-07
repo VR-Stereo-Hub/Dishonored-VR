@@ -57,7 +57,7 @@
 // It reads engine memory through RangeReadable guards and never writes.
 // ===========================================================================
 
-#define PR_MAX_FIELDS 24
+#define PR_MAX_FIELDS 32
 
 struct PrField {
     const char* cls;
@@ -94,6 +94,11 @@ static PrField g_prFields[PR_MAX_FIELDS] = {
     // Mesh is declared on Engine.Pawn (Pawn.uc:187), and FindPropOffset
     // matches on the OUTER's name, so asking DishonoredPawn for it misses.
     { "Pawn",                    "Mesh",                      0 },
+    // VR-33 step 1b.3, the live attachment path.
+    { "DishonoredPawn",          "m_pInventory",              0 },
+    { "DishonoredItemSkeletalComponent", "m_pItem",           0 },
+    { "SkeletalMeshComponent",   "AttachedToSkelComponent",   0 },
+    { "SkeletalMeshComponent",   "Attachments",               0 },
     { NULL, NULL, 0 },
 };
 

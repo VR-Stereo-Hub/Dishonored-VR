@@ -347,10 +347,146 @@ static void BqRun(void)
                 kBqTargets[ai], handName, kBqEndName[chainEnd[ai]], chainN[ai]);
         }
     }
+    BqItems(comp);
+
     Log("bq: what this still does NOT establish: whether any later writer "
         "overwrites a pose we set, where the attachment update sits relative "
         "to composition, and whether the item's own mesh is parented where the "
         "socket says. Those are step 2.");
+}
+
+
+// ---- step 1b.3: the LIVE equipped item and its ACTUAL attachment -----------
+//
+// Taken from the INVERSE link, not from the inventory's slot array.
+//
+// DishonoredInventory.m_Slots is an array of native PawnInventorySlot records
+// and m_EquipUsageInfo is a fixed array of native structs. Neither is a
+// pointer array, and decoding a native element layout is exactly the class of
+// guess this ticket has been burned by twice. So the walk starts from the
+// other end: every DishonoredItemSkeletalComponent carries m_pItem back to
+// the item that owns it, and AttachedToSkelComponent to the component it is
+// actually attached to. Those are plain object pointers.
+//
+// That answers the question the socket defaults cannot: not where an item is
+// SUPPOSED to attach, but where this live one IS attached. The pistol's own
+// tweaks default it to LeftHandWpn (DisTweaks_WepPistol.uc:28), so a report
+// built on defaults would have said the wrong hand for at least one weapon.
+//
+// The attachment RECORD's layout is derived rather than assumed. UE3's
+// Attachment struct is { ActorComponent* Component; name BoneName; Vector
+// RelativeLocation; Rotator RelativeRotation; Vector RelativeScale }, but
+// rather than trusting that stride, the array bytes are searched for this
+// child's exact pointer and the FName that follows it is accepted only if
+// MatchRefBone recognises it as a bone on the parent. A name that is a real
+// bone on the very component the item hangs off is independent evidence; a
+// stride that merely looks plausible is not.
+static void BqItems(uint8_t* pawnMesh)
+{
+    const uint32_t oItem   = PrOff("DishonoredItemSkeletalComponent", "m_pItem");
+    const uint32_t oAttTo  = PrOff("SkeletalMeshComponent", "AttachedToSkelComponent");
+    const uint32_t oAtts   = PrOff("SkeletalMeshComponent", "Attachments");
+    const uint32_t oInv    = PrOff("DishonoredPawn", "m_pInventory");
+    const uint32_t oInvOwn = PrOff("DishonoredInventory", "m_pOwner");
+    if (!oItem || !oAttTo) {
+        Log("bq/item: m_pItem (+0x%X) or AttachedToSkelComponent (+0x%X) did "
+            "not resolve - the live attachment path is UNKNOWN on this build",
+            oItem, oAttTo);
+        return;
+    }
+
+    // The forward link, as a cheap ownership cross-check. Pointers only.
+    if (oInv && oInvOwn && RangeReadable(g_pePawn + oInv, 4)) {
+        uint8_t* inv = *(uint8_t**)(g_pePawn + oInv);
+        if (inv && !((uintptr_t)inv & 3) && RangeReadable(inv + oInvOwn, 4)) {
+            uint8_t* own = *(uint8_t**)(inv + oInvOwn);
+            Log("bq/item: pawn %p -> inventory %p, whose m_pOwner is %p (%s)",
+                (void*)g_pePawn, (void*)inv, (void*)own,
+                own == g_pePawn ? "AGREES with the pawn"
+                                : "DISAGREES - ownership is not what it claims");
+        }
+    }
+
+    if (!RangeReadable((void*)kGObjHdr, 12)) return;
+    void**   objs = *(void***)kGObjHdr;
+    uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || onum < 1000 || onum > 4000000) return;
+
+    int found = 0;
+    for (uint32_t i = 0; i < onum; i++) {
+        if ((i & 1023) == 0) {
+            uint32_t left = onum - i; if (left > 1024) left = 1024;
+            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
+        }
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x200)) continue;
+        const char* cn = ObjClassName(o);
+        if (!cn || strcmp(cn, "DishonoredItemSkeletalComponent")) continue;
+        if (!RangeReadable(o + oItem, 4)) continue;
+        uint8_t* item = *(uint8_t**)(o + oItem);
+        if (!item || ((uintptr_t)item & 3) || !RangeReadable(item, 0x80)) continue;
+
+        uint8_t* parent = NULL;
+        if (RangeReadable(o + oAttTo, 4)) parent = *(uint8_t**)(o + oAttTo);
+        const char* itemCls = ObjClassName(item);
+        const bool ours = (parent == pawnMesh);
+
+        // Where is it ACTUALLY attached? Search the parent's Attachments bytes
+        // for this exact child pointer, then validate the FName that follows.
+        char where[192];
+        _snprintf(where, sizeof(where), "%s",
+                  parent ? "parent has no readable Attachments array"
+                         : "NOT ATTACHED (AttachedToSkelComponent is null)");
+        if (parent && !((uintptr_t)parent & 3) && oAtts &&
+            RangeReadable(parent + oAtts, 12)) {
+            uint8_t* ad = *(uint8_t**)(parent + oAtts);
+            const int  an = *(int*)(parent + oAtts + 4);
+            const int  ac = *(int*)(parent + oAtts + 8);
+            if (ad && !((uintptr_t)ad & 3) && an > 0 && an <= 256 && ac >= an &&
+                RangeReadable(ad, (size_t)an * 64)) {
+                int hit = -1;
+                // Derive the stride: find our pointer, then require the FName
+                // just past it to be a bone this parent actually has.
+                for (int b = 0; b + 12 <= an * 64; b += 4) {
+                    if (*(uint8_t**)(ad + b) != o) continue;
+                    BqName bn;
+                    bn.idx = *(uint32_t*)(ad + b + 4);
+                    bn.num = *(uint32_t*)(ad + b + 8);
+                    const int bi = BqMatchRefBone(parent, bn);
+                    if (bi < 0) continue;          // not a bone: wrong offset
+                    const char* nm = RealName(bn.idx);
+                    float loc[3] = { 0, 0, 0 };
+                    if (RangeReadable(ad + b + 12, 12)) memcpy(loc, ad + b + 12, 12);
+                    _snprintf(where, sizeof(where),
+                              "bone '%s'[%d] (record at +%d, num %u) local "
+                              "(%.2f %.2f %.2f)",
+                              nm ? nm : "?", bi, b, bn.num, loc[0], loc[1], loc[2]);
+                    hit = b;
+                    break;
+                }
+                if (hit < 0)
+                    _snprintf(where, sizeof(where),
+                              "NOT FOUND in the parent's %d attachment record(s) "
+                              "- either the child is attached another way or the "
+                              "record layout is not what was searched for", an);
+            }
+        }
+
+        Log("bq/item: %s component %p, item %p (%s) -> parent %p %s | attached at %s",
+            ours ? "OURS:" : "other", (void*)o, (void*)item,
+            itemCls ? itemCls : "?", (void*)parent,
+            ours ? "= the player's mesh" : "(not the player's mesh)", where);
+        found++;
+        if (found >= 16) { Log("bq/item: stopping at 16"); break; }
+    }
+    if (!found)
+        Log("bq/item: no DishonoredItemSkeletalComponent with an m_pItem was "
+            "found at all. That is a finding, not an error - it means nothing "
+            "is equipped through that component right now.");
+    Log("bq/item: the bone above is where the item IS attached, read from the "
+        "parent's own record. It is NOT the authored socket default, which for "
+        "the pistol is LeftHandWpn - a report built on defaults would name the "
+        "wrong hand for at least one weapon.");
 }
 
 
