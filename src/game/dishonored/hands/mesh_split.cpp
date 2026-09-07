@@ -1728,6 +1728,29 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 
 // ---- the draw ---------------------------------------------------------------
 
+// The palette does not survive a device reset: the constants are gone and any
+// register we still believe in describes a device that no longer exists. There
+// was no invalidation at all before - the cache simply kept its last contents.
+static void MpOnReset(void)
+{
+    memset(g_mpValid, 0, sizeof(g_mpValid));
+    g_mpValidN = 0;
+    g_mpCacheN = 0;
+    g_mpPalN   = 0;
+    g_mpOriginOk[0] = g_mpOriginOk[1] = false;
+    g_mpResidOk[0]  = g_mpResidOk[1]  = false;
+    Log("ms/palette: device reset - the palette cache, the calibrated origins "
+        "and the residuals are all dropped. Constants do not survive a reset "
+        "and a register we still believed in would describe a dead device.");
+}
+
+
+static inline bool MpFinite(float x)
+{
+    return x == x && x < 3.4e38f && x > -3.4e38f;
+}
+
+
 // Where the palm anchor actually IS this frame, in the palette's output space.
 // Skins the chosen vertices with the palette the GAME asked for - never one we
 // have already moved, or the correction compounds frame on frame.
@@ -1784,8 +1807,11 @@ static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
     }
     const float inv = 1.0f / (float)g_mpAnchorN[cls];
     out[0] = acc[0] * inv; out[1] = acc[1] * inv; out[2] = acc[2] * inv;
-    if (!(out[0] == out[0]) || !(out[1] == out[1]) || !(out[2] == out[2]))
-        return false;                                    // non-finite
+    // A real finite test. `x == x` rejects NaN and cheerfully accepts
+    // infinity, and an infinite anchor would propagate into the submitted
+    // transform as a plausible-looking huge number.
+    for (int i = 0; i < 3; i++)
+        if (!MpFinite(out[i])) return false;
     return true;
 }
 
@@ -1824,10 +1850,26 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // otherwise it falls through to suppression and the mesh vanishes, because
     // the auto-arm fail-soft only covers the case where no split exists.
     {
+        // A FAILED QUERY MUST NOT CERTIFY THE CONTRACT. These used to leave
+        // their outputs at zero/NULL on failure, and the comparisons below
+        // then skipped the very fields that could not be read - so an
+        // unreadable device state passed as compatible.
         UINT curOff = 0; IDirect3DVertexBuffer9* vb0 = NULL; UINT s0 = 0;
-        if (SUCCEEDED(dev->GetStreamSource(0, &vb0, &curOff, &s0)) && vb0) vb0->Release();
+        const bool ssOk = SUCCEEDED(dev->GetStreamSource(0, &vb0, &curOff, &s0)) && vb0 != NULL;
+        if (vb0) vb0->Release();
         IDirect3DVertexDeclaration9* d = NULL; void* dp = NULL;
-        if (SUCCEEDED(dev->GetVertexDeclaration(&d)) && d) { dp = d; d->Release(); }
+        const bool dclOk = SUCCEEDED(dev->GetVertexDeclaration(&d)) && d != NULL;
+        if (d) { dp = d; d->Release(); }
+        if (!ssOk || !dclOk) {
+            g_msIncompat++;
+            g_msPassThrough = true;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                "ms: REFUSED - could not read the device state the contract is "
+                "checked against (stream source %s, declaration %s). Drawing "
+                "normally: an unreadable state is not a matching one.",
+                ssOk ? "ok" : "FAILED", dclOk ? "ok" : "FAILED");
+            return false;
+        }
         // startIndex and the stream STRIDE are part of the contract the split
         // was built from and were stored but never compared - a draw could
         // differ in either and still be accepted, and both change which bytes
@@ -1835,8 +1877,8 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         if (baseVertex != g_msBuiltBaseVertex || minIndex != g_msBuiltMinIndex ||
             numVertices != g_msBuiltNumVerts || curOff != g_msBuiltStream0Off ||
             (int)startIndex != g_msBuiltStartIndex ||
-            (g_msStride && s0 && s0 != g_msStride) ||
-            (g_msBuiltDecl && dp && dp != g_msBuiltDecl)) {
+            (g_msStride && s0 != g_msStride) ||
+            (g_msBuiltDecl && dp != g_msBuiltDecl)) {
             g_msIncompat++;
             g_msPassThrough = true;
             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
@@ -1878,7 +1920,11 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     struct MpRange { int cls, start, count; };
     MpRange rng[2];
     int nrng = 0;
-    bool perClass = g_mpOn && g_msMode == MS_MODE_HANDS && g_mpCacheN >= 3;
+    // The palette must be the COMPLETE verified interval for this split, not
+    // merely three registers of something. g_mpCacheN is 0 until every
+    // register in the interval is valid, so this is a state test.
+    bool perClass = g_mpOn && g_msMode == MS_MODE_HANDS &&
+                    g_mpPalN > 0 && g_mpCacheN == g_mpPalN;
     if (perClass) {
         for (int c = MS_CLS_HAND_A; c <= MS_CLS_HAND_B; c++)
             if (g_msClsCount[c] > 0) {
@@ -1889,7 +1935,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             }
         if (!nrng) perClass = false;
     }
-    if (g_mpOn && g_msMode == MS_MODE_HANDS && g_mpCacheN < 3)
+    if (g_mpOn && g_msMode == MS_MODE_HANDS && !perClass)
         InterlockedIncrement(&g_mpNoCache);
     if (!perClass) {
         rng[0].cls = -1; rng[0].start = start; rng[0].count = count; nrng = 1;
@@ -1982,13 +2028,24 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         // the shader's effective weights do not sum to one, in
                         // which case a translation T moves the vertex by
                         // wsum*T and not by T.
-                        if ((++g_mpResidEvery & 0xFF) == 0) {
+                        // PER HAND. One shared counter meant that in the
+                        // normal left-then-right draw order every 256th call
+                        // was always the right hand, so the LEFT residual never
+                        // sampled once - the instrument reported on half of
+                        // what it claimed to cover.
+                        if ((++g_mpResidTick[hIdx] & 0xFF) == 0) {
                             static float chk[4 * 256];
                             MpBuild(chk, g_mpCache, g_mpCacheN, T);
                             float q2[3];
-                            if (MpAnchorPos(rng[r].cls, chk, g_mpCacheN, q2))
+                            if (MpAnchorPos(rng[r].cls, chk, g_mpCacheN, q2)) {
                                 for (int i = 0; i < 3; i++)
                                     g_mpResid[hIdx][i] = tgt[i] - q2[i];
+                                g_mpResidOk[hIdx]  = true;
+                                g_mpResidGen[hIdx] = g_mpCacheGen;
+                            } else {
+                                // A failed sample is NOT a zero residual.
+                                g_mpResidOk[hIdx] = false;
+                            }
                         }
                     }
                     else {

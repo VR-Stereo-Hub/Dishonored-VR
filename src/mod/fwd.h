@@ -339,6 +339,7 @@ static bool MsUpload(IDirect3DDevice9* dev);
 static bool MsReclassify(IDirect3DDevice9* dev);
 static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
                     UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
+static void MpOnReset(void);
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
 static const char* MsModeName(int m);

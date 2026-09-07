@@ -620,6 +620,11 @@ static void DvrAfterCreateDevice(HRESULT hr, HWND wnd, D3DPRESENT_PARAMETERS* pp
 
 static void DvrBeforeReset(D3DPRESENT_PARAMETERS* pp)
 {
+    // The bone palette is device state and does not survive a reset. This
+    // lives here rather than in frame_hooks.cpp because the palette's globals
+    // belong to the unity translation unit, and before_reset is the callback
+    // that unit already owns.
+    MpOnReset();
     ResBeforePresentParams(pp, "Reset");   // 41.1
     UncapPresent(pp, "Reset");
     if (pp) g_gameWindowed = pp->Windowed != FALSE;      // 32.9

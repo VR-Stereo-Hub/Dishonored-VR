@@ -408,8 +408,30 @@ static bool     g_mpCtlOk[2]  = { false, false };
 static float    g_mpOrigin[2][3];
 static bool     g_mpOriginOk[2] = { false, false };
 static float    g_mpResid[2][3];        // target - corrected anchor, MEASURED
-static LONG     g_mpResidEvery = 0;     // the residual re-skin is sampled, not per draw
+static LONG     g_mpResidTick[2] = { 0, 0 };  // PER HAND - a shared counter only ever
+                                              // sampled the right hand in the normal
+                                              // left-then-right draw order
+static bool     g_mpResidOk[2]  = { false, false };
+static uint32_t g_mpResidGen[2] = { 0, 0 };
 static uint32_t g_mpCacheGen  = 0;      // bumped on every accepted palette write
+
+// THE PALETTE IS AN INTERVAL WITH PER-REGISTER VALIDITY, not a length.
+//
+// Tracking only a count could not express what the engine actually does. An
+// update starting INSIDE the block (c9 x3) failed the outer test entirely; a
+// wide block covering c6 could top up an existing cache but never bootstrap an
+// empty one; a short c6 x4 left the previous claimed length standing; and an
+// over-long upload was copied whole, after which MpBuild happily treated every
+// following triplet as another bone.
+//
+// So: a fixed register interval [MP_PAL_LO, MP_PAL_LO + 3*bones), a valid flag
+// per register, and every upload contributing its INTERSECTION with that
+// interval. The palette is usable only when every register in it is valid,
+// which is a statement about state rather than about the last write's size.
+enum { MP_PAL_LO = 6, MP_PAL_MAX = 256 };
+static uint8_t  g_mpValid[MP_PAL_MAX];  // per-register, indexed from MP_PAL_LO
+static UINT     g_mpPalN      = 0;      // registers in the interval (3 * bones)
+static UINT     g_mpValidN    = 0;      // how many of them are currently valid
 // How far the anchor's skin weights may stray from summing to 1 before the
 // anchor is refused outright. The shader's own weight arithmetic has NOT been
 // read yet; until it has, a sum far from 1 means the CPU point and the point

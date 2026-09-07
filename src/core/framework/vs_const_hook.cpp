@@ -221,6 +221,94 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
     // hand class at draw time, so it needs the block the GAME asked for -
     // cached here, ahead of every rewriting path below, for the same reason
     // the census sits here: what we leave behind is not what was requested.
+    // THE PALETTE CACHE. Every upload contributes its INTERSECTION with the
+    // palette's register interval, whatever it starts at or how far it runs.
+    //
+    // The previous version demanded startReg <= 6, so an update beginning
+    // inside the block was dropped; could only top up a cache that already
+    // existed; kept a stale length after a short write; and copied an
+    // over-long upload whole, after which every trailing triplet was treated
+    // as another bone. All four are state questions and none of them can be
+    // answered by a length.
+    if (g_mpOn && data && g_msBones > 0) {
+        const UINT palN = (UINT)(g_msBones * 3);
+        if (palN && palN <= MP_PAL_MAX) {
+            if (g_mpPalN != palN) {            // the split changed shape
+                g_mpPalN = palN;
+                memset(g_mpValid, 0, sizeof(g_mpValid));
+                g_mpValidN = 0;
+            }
+            const UINT palLo = MP_PAL_LO, palHi = MP_PAL_LO + palN;
+            const UINT lo = (startReg > palLo) ? startReg : palLo;
+            const UINT hi = (startReg + count < palHi) ? (startReg + count) : palHi;
+            if (lo < hi) {
+                for (UINT r = lo; r < hi; r++) {
+                    memcpy(g_mpCache + (r - palLo) * 4, data + (r - startReg) * 4,
+                           sizeof(float) * 4);
+                    if (!g_mpValid[r - palLo]) { g_mpValid[r - palLo] = 1; g_mpValidN++; }
+                }
+                g_mpCacheGen++;
+                // Usable only when the WHOLE interval is valid. g_mpCacheN is
+                // the consumer's gate and stays 0 until then, so a partially
+                // filled palette can never be drawn through.
+                g_mpCacheN = (g_mpValidN >= palN) ? palN : 0;
+                if (startReg != palLo || count != palN)
+                    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 4,
+                        "ms/palette: c%u x%u contributes registers %u..%u to "
+                        "the palette interval c%u..c%u; %u of %u valid. An "
+                        "upload that starts inside the block, or covers it as "
+                        "part of a wider one, counts the same as an exact "
+                        "write - only the interval being COMPLETE makes it "
+                        "usable.",
+                        startReg, count, lo, hi - 1, palLo, palHi - 1,
+                        g_mpValidN, palN);
+            }
+        }
+    }
+
+    // ---- 30.77: hide the game's view model ---------------------------------
+    // We could never PLACE these rigs, but we can certainly collapse them: zero
+    // the bone matrices and every vertex lands on one point, so the mesh has no
+    // area and draws nothing. Cheaper and far more reliable than the draw-
+    // distance cull, and it needs no game state at all.
+    if (g_hmEnable && g_hmHideGame && data && startReg == 6 && !g_rtdIdGo) {
+        if (count >= 3 && count <= 250) {
+            for (int q = 0; q < 12 && g_hmHideSize[q]; q++)
+                if (count == g_hmHideSize[q]) {
+                    static float zero[4 * 256] = { 0 };
+                    g_hmStaticWindow = g_hmStaticDraws;   // its attachments follow
+                    return dvr::frame::orig_set_vs_const(self, startReg, zero, count);
+                }
+        }
+        // static attachments (the crossbow's body): world position in .w, and
+        // ONLY while we are still inside the view-model cluster
+        if (g_hmHideStatic && count == 4 && g_haveC5 && g_hmStaticWindow > 0) {
+            InterlockedDecrement(&g_hmStaticWindow);
+            float dx = data[3] - g_camPosC5[0];
+            float dy = data[7] - g_camPosC5[1];
+            float dz = data[11] - g_camPosC5[2];
+            if (dx*dx + dy*dy + dz*dz < g_hmHideStaticUU * g_hmHideStaticUU) {
+                static float zero4[16] = { 0 };
+                return dvr::frame::orig_set_vs_const(self, startReg, zero4, count);
+            }
+        }
+    }
+
+    // ---- 30.70/71: THE HAND/WEAPON DRIVE -----------------------------------
+    // The measured write point. 3 registers per bone from c6, rig-local, and
+    // the draw consumes them immediately - nothing downstream can undo this,
+    // which is the entire reason the old component drive could not win.
+    //
+    // Routing: each rig is assigned to a controller, and the ARMS rig can be
+    // 41.2 (VR-31): the draw census sees every c6 upload BEFORE any of the
+    // rewriting paths below, so it records what the game asked for rather than
+    // what we left behind. Read-only and gated on g_dcOn.
+    if (startReg == 6) DcNotePalette(count);
+
+    // 41.2 (VR-33): the draw-scoped palette. MsDraw rebuilds this block per
+    // hand class at draw time, so it needs the block the GAME asked for -
+    // cached here, ahead of every rewriting path below, for the same reason
+    // the census sits here: what we leave behind is not what was requested.
     // A block that COVERS c6 counts, not only one that starts there. The c5
     // handling above already had to learn this: after a device reset the engine
     // batches its uploads differently and a seam that demanded an exact start
