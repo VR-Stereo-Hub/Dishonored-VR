@@ -1158,11 +1158,21 @@ static void LoadConfig()
     if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
     g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
     if (g_mpHand < 0 || g_mpHand > 2) g_mpHand = 0;
+    g_mpStep          = IniFloat(ini, "Hands", "PaletteStep", 0) != 0.0f;
     g_mpSweep         = IniFloat(ini, "Hands", "PaletteSweep", 0) != 0.0f;
     g_mpSweepSec      = IniFloat(ini, "Hands", "PaletteSweepSeconds", 3.0f);
     if (g_mpSweepSec < 0.5f)  g_mpSweepSec = 0.5f;
     if (g_mpSweepSec > 30.0f) g_mpSweepSec = 30.0f;
-    if (g_mpOn && g_mpSweep)
+    if (g_mpOn && g_mpStep)
+        Log("config: [Hands] Palette=1 PaletteStep=1 - the palette's STEPPED "
+            "axis probe is armed and starts at REST, so nothing moves until "
+            "you ask. CTRL+Numpad5 advances rest -> axis 0 -> axis 1 -> axis 2 "
+            "-> rest, %+.1f uu on hand class %s each time, with the other class "
+            "never moving as the reference. Every press prints an "
+            "ms/palette/step: line, so which axis was live is never inferred.",
+            g_mpAmount,
+            g_mpHand == 0 ? "A (left)" : g_mpHand == 1 ? "B (right)" : "BOTH");
+    else if (g_mpOn && g_mpSweep)
         Log("config: [Hands] Palette=1 PaletteSweep=1 - the palette's AXIS "
             "SWEEP is armed. Hand class %s takes a %+.1f uu delta that moves "
             "to the next axis every %.1f s (0 -> 1 -> 2, repeating); the other "
@@ -1604,6 +1614,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteAxis", v, ini);
     _snprintf(v, 64, "%d", g_mpHand);
     WritePrivateProfileStringA("Hands", "PaletteHand", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteSweep", g_mpSweep ? "1" : "0", ini);
     _snprintf(v, 64, "%.1f", g_mpSweepSec);
     WritePrivateProfileStringA("Hands", "PaletteSweepSeconds", v, ini);

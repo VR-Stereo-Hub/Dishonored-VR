@@ -300,9 +300,19 @@ static LONG     g_mpNoCache = 0;       // per-class draw wanted, no c6 seen yet
 // It is deliberately self-labelling: the log says which axis is live at the
 // moment the hand is somewhere, so a report of "first it went up, then toward
 // me" maps onto axes without either of us reconstructing a timeline.
-static bool     g_mpSweep     = false;  // [Hands] PaletteSweep
+static bool     g_mpSweep     = false;  // [Hands] PaletteSweep - on a timer
 static float    g_mpSweepSec  = 3.0f;   // [Hands] PaletteSweepSeconds
 static int      g_mpSweepAxis = -1;     // the axis live right now (render thread)
+
+// STEPPED, because a free-running timer makes the tester guess which step they
+// caught. The first reading came back left/down/forward and the second
+// down/forward/left - the same cycle entered one step in, but nothing in the
+// run could prove that rather than a changed basis. A step the tester STARTS
+// has no phase to mistake: press once, the delta is axis 0, and the log and
+// the hand agree by construction.
+static bool     g_mpStep      = false;  // [Hands] PaletteStep
+static int      g_mpStepAxis  = -1;     // -1 = resting, 0/1/2 = that axis
+static volatile LONG g_mpStepReq = 0;   // hotkey -> MsTick, present thread
 
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing

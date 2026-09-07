@@ -1788,7 +1788,9 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                     // one run reports the whole basis; without it the ini's
                     // fixed axis is used, which is the A/B.
                     int axis = g_mpAxis;
-                    if (g_mpSweep) {
+                    if (g_mpStep) {
+                        axis = g_mpStepAxis;      // -1 while resting
+                    } else if (g_mpSweep) {
                         const double per = (g_mpSweepSec > 0.2f) ? g_mpSweepSec * 1000.0 : 3000.0;
                         axis = (int)(fmod(MaimNowMs() / per, 3.0));
                         if (axis < 0 || axis > 2) axis = 0;
@@ -1816,11 +1818,17 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                                 axis);
                         }
                     }
-                    float T[3] = { 0.0f, 0.0f, 0.0f };
-                    if (axis >= 0 && axis < 3) T[axis] = g_mpAmount;
-                    static float buf[4 * 256];
-                    MpBuild(buf, g_mpCache, g_mpCacheN, T);
-                    dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
+                    if (axis < 0 || axis > 2) {
+                        // Resting: this class draws under the game's own block,
+                        // exactly like the reference hand.
+                        dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
+                    } else {
+                        float T[3] = { 0.0f, 0.0f, 0.0f };
+                        T[axis] = g_mpAmount;
+                        static float buf[4 * 256];
+                        MpBuild(buf, g_mpCache, g_mpCacheN, T);
+                        dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
+                    }
                 } else {
                     dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
                 }
@@ -1890,6 +1898,24 @@ static const char* MsModeName(int m)
 // symptom until the frame it corrupted.
 static void MsTick(void)
 {
+    // The palette's stepped axis probe. Present thread, no D3D touched - the
+    // draw detour reads g_mpStepAxis next time it runs.
+    if (InterlockedExchange(&g_mpStepReq, 0)) {
+        g_mpStepAxis = (g_mpStepAxis >= 2) ? -1 : (g_mpStepAxis + 1);
+        if (g_mpStepAxis < 0)
+            Log("ms/palette/step: >>> REST <<< - no delta on either hand. Both "
+                "hands are where the game put them; this is the reference "
+                "position. Press CTRL+Numpad5 for axis 0.");
+        else
+            Log("ms/palette/step: >>> AXIS %d <<< - hand class %s now carries "
+                "%+.1f uu on palette axis %d, the other class carries nothing. "
+                "hmdYaw=%.1f deg. Whichever way THIS hand moved from rest is "
+                "what axis %d means. Press CTRL+Numpad5 for %s.",
+                g_mpStepAxis,
+                g_mpHand == 0 ? "A (left)" : g_mpHand == 1 ? "B (right)" : "BOTH",
+                g_mpAmount, g_mpStepAxis, g_hmdYaw * 57.2958f, g_mpStepAxis,
+                g_mpStepAxis >= 2 ? "rest" : "the next axis");
+    }
     if (!g_msOn) return;
     if (g_msModeReq) {
         const int r = g_msModeReq; g_msModeReq = 0;

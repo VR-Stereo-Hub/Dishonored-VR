@@ -205,6 +205,18 @@ static void StereoUpdate()
         hmWas = hmk;
     }
 
+    // VR-33: CTRL + Numpad5 steps the palette's axis probe. Bare numpad
+    // belongs to the mesh split, so this follows CTRL+Numpad2's precedent.
+    // rest -> axis 0 -> axis 1 -> axis 2 -> rest, one press each, so the
+    // tester starts the cycle and there is no phase to misread.
+    {
+        static bool mpWas = false;
+        const bool mpCtl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool mpk = mpCtl && (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
+        if (mpk && !mpWas) InterlockedExchange(&g_mpStepReq, 1);
+        mpWas = mpk;
+    }
+
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
     (void)kCamRight; (void)kCamLoc0; (void)kCamLoc1; (void)kCamLoc2;
     (void)&FindLiveCamera; (void)&CamStillValid;
