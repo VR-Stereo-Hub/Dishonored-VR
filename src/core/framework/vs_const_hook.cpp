@@ -112,6 +112,17 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
             g_sbC6w[0] = data[3]; g_sbC6w[1] = data[7]; g_sbC6w[2] = data[11];
         }
     }
+    // VR-33: the static hand. The palette is the LAST word before the GPU -
+    // the draw consumes it immediately and nothing recomputes after it - so
+    // this is where the hand's placement is replaced outright rather than
+    // corrected. Our copy goes up; the game's data is never modified. A
+    // refusal at any step uploads exactly what the game asked for.
+    {
+        static float pdBuf[4 * PD_MAX_REG];
+        if (PdIntercept(startReg, data, count, pdBuf))
+            return dvr::frame::orig_set_vs_const(self, startReg, pdBuf, count);
+    }
+
     UINT myOrd = 0xffffffffu;
     if (data && startReg == 6 && count >= 3 && count <= 255) {
         g_rtdCensus[count / 3]++;

@@ -1137,6 +1137,25 @@ static void LoadConfig()
     g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
     g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
     g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
+    // VR-33: the static hand, placed by rewriting the bone palette at the
+    // constant upload - the last word before the GPU, and the reason this lane
+    // is not the three that are closed. PaletteSpace is a QUESTION: 0 is the
+    // ENGINE_NOTES answer (the FP view model is drawn in camera space) and 1 is
+    // world; a wrong choice reads as a hand that swings with the head.
+    g_pdOn       = IniFloat(ini, "Hands", "PaletteDrive", 1) != 0.0f;
+    g_pdSpace    = (int)IniFloat(ini, "Hands", "PaletteSpace", 0);
+    if (g_pdSpace < 0 || g_pdSpace > 1) g_pdSpace = 0;
+    g_pdScaleUU  = IniFloat(ini, "Hands", "PaletteScaleUU", 108.0f);
+    if (g_pdScaleUU < 1.0f) g_pdScaleUU = 108.0f;
+    {
+        static const char* kPg[2][3] = {
+            { "GripLF", "GripLR", "GripLU" }, { "GripRF", "GripRR", "GripRU" } };
+        for (int s4 = 0; s4 < 2; s4++)
+            for (int a4 = 0; a4 < 3; a4++) {
+                const float c4 = IniFloat(ini, "Hands", kPg[s4][a4], -1e9f);
+                if (c4 > -1e8f) { g_pdGrip[s4][a4] = c4; g_pdGripSet[s4] = 1; }
+            }
+    }
     // 3 = CLIP the triangles that straddle the plane, which is the only rule
     // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
     // triangles and leave a sawtooth one triangle high - on the coarse cuff
@@ -1589,6 +1608,21 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "WristPlane", g_msPlane ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteDrive", g_pdOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_pdSpace);
+    WritePrivateProfileStringA("Hands", "PaletteSpace", v, ini);
+    _snprintf(v, 64, "%.1f", g_pdScaleUU);
+    WritePrivateProfileStringA("Hands", "PaletteScaleUU", v, ini);
+    {
+        static const char* kPg2[2][3] = {
+            { "GripLF", "GripLR", "GripLU" }, { "GripRF", "GripRR", "GripRU" } };
+        for (int s5 = 0; s5 < 2; s5++)
+            if (g_pdGripSet[s5])
+                for (int a5 = 0; a5 < 3; a5++) {
+                    _snprintf(v, 64, "%.2f", g_pdGrip[s5][a5]);
+                    WritePrivateProfileStringA("Hands", kPg2[s5][a5], v, ini);
+                }
+    }
     _snprintf(v, 64, "%d", g_msEdge);
     WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
     _snprintf(v, 64, "%d", g_msStepMode);

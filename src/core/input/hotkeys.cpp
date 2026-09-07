@@ -194,6 +194,42 @@ static void StereoUpdate()
         n0Was = n0; adWas = ad; sbWas = sb; mlWas = ml; dvWas = dv; dcWas = dc;
     }
 
+    // VR-33, the palette hand drive. NOT on the numpad - the mesh split owns
+    // every key of it - and not on the arrows, which the game moves with.
+    //   End     the drive on / off. The A/B against the head-locked hand.
+    //   Home    which grip axis Insert / Delete move
+    //   Insert  the grip moves BACK along that axis
+    //   Delete  the grip moves OUT along that axis
+    //   Pause   which hand the grip knob moves
+    //   PgUp    camera-relative palette or world. One press settles it.
+    {
+        static bool hmWas = false, inWas = false, deWas = false,
+                    enWas = false, paWas = false, puWas = false;
+        const bool hm = (GetAsyncKeyState(VK_HOME)   & 0x8000) != 0;
+        const bool in = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
+        const bool de = (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0;
+        const bool en = (GetAsyncKeyState(VK_END)    & 0x8000) != 0;
+        const bool pa = (GetAsyncKeyState(VK_PAUSE)  & 0x8000) != 0;
+        const bool pu = (GetAsyncKeyState(VK_PRIOR)  & 0x8000) != 0;
+        if (hm && !hmWas) g_pdAxisReq   = 1;
+        if (in && !inWas) g_pdNudgeReq  = -1;
+        if (de && !deWas) g_pdNudgeReq  = 1;
+        if (en && !enWas) g_pdToggleReq = 1;
+        if (pa && !paWas) g_pdSideReq   = 1;
+        if (pu && !puWas) g_pdSpaceReq  = 1;
+        {
+            static double heldP = 0.0, nextP = 0.0;
+            const double now = MaimNowMs();
+            const int dir = de ? 1 : (in ? -1 : 0);
+            if (!dir) { heldP = 0.0; }
+            else {
+                if (heldP == 0.0) { heldP = now; nextP = now + 400.0; }
+                else if (now >= nextP) { g_pdNudgeReq = dir; nextP = now + 80.0; }
+            }
+        }
+        hmWas = hm; inWas = in; deWas = de; enWas = en; paWas = pa; puWas = pu;
+    }
+
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
     (void)kCamRight; (void)kCamLoc0; (void)kCamLoc1; (void)kCamLoc2;
     (void)&FindLiveCamera; (void)&CamStillValid;

@@ -344,6 +344,13 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
 static const char* MsModeName(int m);
 static void MsTick(void);
 static bool MsCommand(const char* args);
+static inline void PdBoneOrigin(const float* pal, int bone, float* out);
+static void PdApplyDelta(float* pal, int bone, const float (*R)[3], const float* T);
+static bool PdControllerInRig(int hand, float (*R)[3], float* P);
+static int  PdRewrite(float* pal, UINT count);
+static bool PdIntercept(UINT startReg, const float* data, UINT count, float* out);
+static void PdTick(void);
+static bool PdCommand(const char* args);
 static void HmPickModels();
 static void GraftTestSet(bool on);
 static void SkcRotZeroNeutral(const char* why);
