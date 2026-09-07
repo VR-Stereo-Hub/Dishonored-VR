@@ -39,6 +39,7 @@ static void HmRestore(void)
 
 static void HmTick(void)
 {
+    if (g_hmOn) HmScanTicks();
     if (g_hmStepReq) {
         g_hmStepReq = 0;
         const int next = (g_hmState + 1) % HM_STATES;
@@ -110,6 +111,81 @@ static void HmTick(void)
         g_hmWrites = 0;
         g_hmLastTag = tag;
     }
+}
+
+
+// WHICH CONTROLS ACTUALLY TICK?
+//
+// Phase 1 answered its question and the answer was not the expected one.
+// LookAtControl_LeftHand has ControlStrength 1.0, but its ControlTickTag sat
+// at 10 for an entire session while we wrote to it 8,500 times a second, and
+// its own apply flags were clear. UE3 stamps that tag when a control is
+// EVALUATED, so a tag that never advances means the control is never
+// evaluated - and a write to a control nobody evaluates cannot move anything,
+// at any cadence, with any flags.
+//
+// That also retires the reframing this phase was built on. The old finding
+// that 9,000 writes a second "outrun the recompute" was not a race being lost.
+// The control is inert.
+//
+// So find the ones that are not. Every SkelControl in GObjects, sampled a
+// second apart: the ones whose tag ADVANCES are the controls the engine is
+// actually evaluating, and they are the only ones worth writing to. Read-only.
+static void HmScanTicks(void)
+{
+    static uint8_t* prevObj[64];
+    static int      prevTag[64];
+    static int      prevN = 0;
+    static double   next = 0.0;
+
+    const double now = MaimNowMs();
+    if (now < next) return;
+    next = now + 1000.0;
+
+    const uint32_t oName = PrOff("SkelControlBase", "ControlName");
+    const uint32_t oStr  = PrOff("SkelControlBase", "ControlStrength");
+    const uint32_t oTag  = PrOff("SkelControlBase", "ControlTickTag");
+    if (!oTag || !RangeReadable((void*)kGObjHdr, 12)) return;
+    void**   objs = *(void***)kGObjHdr;
+    uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || onum < 1000 || onum > 4000000) return;
+
+    uint8_t* curObj[64]; int curTag[64]; int curN = 0;
+    int live = 0, total = 0;
+    for (uint32_t i = 0; i < onum && curN < 64; i++) {
+        if ((i & 1023) == 0) {
+            uint32_t left = onum - i; if (left > 1024) left = 1024;
+            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
+        }
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x120)) continue;
+        const char* cn = ObjClassName(o);
+        if (!cn || !strstr(cn, "SkelControl")) continue;
+        total++;
+        const int tag = *(int*)(o + oTag);
+        curObj[curN] = o; curTag[curN] = tag; curN++;
+
+        for (int k = 0; k < prevN; k++) {
+            if (prevObj[k] != o || prevTag[k] == tag) continue;
+            float str = -1.0f;
+            if (oStr && RangeReadable(o + oStr, 4)) memcpy(&str, o + oStr, 4);
+            const char* nm = (oName && RangeReadable(o + oName, 4))
+                             ? RealName(*(uint32_t*)(o + oName)) : NULL;
+            Log("handmove/ticks: LIVE  %p '%s' class '%s' tag %d -> %d, "
+                "strength %.3f - this control IS being evaluated",
+                (void*)o, nm ? nm : "?", cn, prevTag[k], tag, str);
+            live++;
+            break;
+        }
+    }
+    Log("handmove/ticks: %d SkelControl object(s), %d advanced their tick tag "
+        "in the last second. A control whose tag does NOT advance is not "
+        "evaluated, and writing to it cannot move anything - which is what the "
+        "three LookAtControls did while we wrote to them 8500 times a second.",
+        total, live);
+    memcpy(prevObj, curObj, sizeof(uint8_t*) * curN);
+    memcpy(prevTag, curTag, sizeof(int) * curN);
+    prevN = curN;
 }
 
 

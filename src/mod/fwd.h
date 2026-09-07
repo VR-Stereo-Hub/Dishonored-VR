@@ -364,6 +364,7 @@ static void BqTick(void);
 static bool BqCommand(const char* args);
 static uint8_t* HmControl(void);
 static void HmRestore(void);
+static void HmScanTicks(void);
 static void HmTick(void);
 static bool HmCommand(const char* args);
 static void HmPickModels();
