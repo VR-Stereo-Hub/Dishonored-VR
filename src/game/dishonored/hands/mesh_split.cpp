@@ -1919,7 +1919,20 @@ static void MpDriveTick(void)
     // The residual, once per tick so both hands use the same number.
     g_mpPhiRad = g_viewYawRad - g_hmdYaw;
 
-    // WHICH FRAME IS THE PALETTE'S? Decided from numbers, not from perception.
+    // WITHDRAWN 2026-09-07: THIS PROBE COULD NOT FAIL. With the controller
+    // physically still, w = hand - head is constant by construction - a head
+    // that rotates barely translates - so "WORLD is the flat one" was decided
+    // by the arithmetic before the run started, and the other two candidates
+    // move only because they are w rotated by the head yaw. The measured
+    // spreads say exactly that and nothing else: WORLD 0.28 m across a 158 deg
+    // swing, which is about what a neck-pivot translation gives, against HEAD
+    // 1.19 m and YAWONLY 1.07 m.
+    //
+    // The question needs the PALETTE in the loop. Which frame the delta lands
+    // in can only be seen by applying a known delta and watching where the
+    // hand goes as the head turns - which is the axis probe with a head turn
+    // added, and is what the next run does. Kept, disarmed, as the record of
+    // an instrument that was built to agree with itself.
     //
     // The camera tracks the head 1:1 - phi held 144.0-145.6 deg over a 145 deg
     // head swing - so phi is the UE/XR yaw-origin offset, not a body yaw, and
