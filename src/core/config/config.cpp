@@ -1162,7 +1162,8 @@ static void LoadConfig()
     g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
     if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
     if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
-    g_mpYawMode       = (int)IniFloat(ini, "Hands", "PaletteYawFix", 2);
+    g_mpFrameProbe    = IniFloat(ini, "Hands", "PaletteFrameProbe", 0) != 0.0f;
+    g_mpYawMode       = (int)IniFloat(ini, "Hands", "PaletteYawFix", 0);
     if (g_mpYawMode < 0 || g_mpYawMode > 3) g_mpYawMode = 2;
     g_mpStep          = IniFloat(ini, "Hands", "PaletteStep", 0) != 0.0f;
     g_mpSweep         = IniFloat(ini, "Hands", "PaletteSweep", 0) != 0.0f;
@@ -1634,6 +1635,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteDriveGain", v, ini);
     _snprintf(v, 64, "%d", g_mpYawMode);
     WritePrivateProfileStringA("Hands", "PaletteYawFix", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteFrameProbe", g_mpFrameProbe ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteSweep", g_mpSweep ? "1" : "0", ini);
     _snprintf(v, 64, "%.1f", g_mpSweepSec);

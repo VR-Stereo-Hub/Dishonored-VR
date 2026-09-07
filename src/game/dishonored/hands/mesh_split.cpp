@@ -1918,6 +1918,42 @@ static void MpDriveTick(void)
     const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
     // The residual, once per tick so both hands use the same number.
     g_mpPhiRad = g_viewYawRad - g_hmdYaw;
+
+    // WHICH FRAME IS THE PALETTE'S? Decided from numbers, not from perception.
+    //
+    // The camera tracks the head 1:1 - phi held 144.0-145.6 deg over a 145 deg
+    // head swing - so phi is the UE/XR yaw-origin offset, not a body yaw, and
+    // rotating by it was wrong. What is still open is which frame the offset
+    // must be expressed in, and that cannot be settled by asking whether a
+    // hand "looks stable".
+    //
+    // So compute all three candidates and print them. With the CONTROLLER HELD
+    // STILL and the head turning, the correct frame is the one whose numbers
+    // do not move: a candidate that drifts as the head yaw drifts is
+    // head-coupled and is the wrong frame, and that is readable off the log
+    // without anyone judging a hand by eye.
+    if (g_mpFrameProbe && g_devPoseOk[0] && g_devPoseOk[3]) {
+        float w[3];
+        for (int r = 0; r < 3; r++) w[r] = g_devPose[3][r][3] - g_devPose[0][r][3];
+        // HEAD: full head rotation removed (what rung 2 does).
+        float vh[3];
+        for (int c = 0; c < 3; c++)
+            vh[c] = g_devPose[0][0][c] * w[0] + g_devPose[0][1][c] * w[1] +
+                    g_devPose[0][2][c] * w[2];
+        // YAW: only the head's yaw removed, pitch and roll left in.
+        const float cy = cosf(-g_hmdYaw), sy = sinf(-g_hmdYaw);
+        const float vy0 =  w[0] * cy + w[2] * sy;
+        const float vy2 = -w[0] * sy + w[2] * cy;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+            "ms/palette/frame: hmdYaw=%+7.1f | WORLD (%+.3f %+.3f %+.3f) | "
+            "HEAD (%+.3f %+.3f %+.3f) | YAWONLY (%+.3f %+.3f %+.3f) m. "
+            "Left controller minus head, XR metres. HOLD THE CONTROLLER STILL "
+            "AND TURN THE HEAD: the frame whose three numbers STAY PUT while "
+            "hmdYaw moves is the palette's frame. One that tracks hmdYaw is "
+            "head-coupled and is the wrong answer, whatever it looks like.",
+            g_hmdYaw * 57.2958f,
+            w[0], w[1], w[2], vh[0], vh[1], vh[2], vy0, w[1], vy2);
+    }
     for (int h = 0; h < 2; h++) {
         if (!g_devPoseOk[0] || !g_devPoseOk[3 + h]) {
             // Losing tracking must not freeze a stale delta on the hand: drop

@@ -363,7 +363,8 @@ static LONG     g_mpDriveBeat = 0;
 // What is NOT known is the sign convention between the two, so the two hands
 // take OPPOSITE signs for one run and the stable hand names the correct one.
 // The other hand is the control, which is the same A/B that measured the basis.
-static int      g_mpYawMode   = 2;      // [Hands] PaletteYawFix 0=off 1=+ 2=A/B 3=-
+static int      g_mpYawMode   = 0;      // [Hands] PaletteYawFix 0=off 1=+ 2=A/B 3=-
+static bool     g_mpFrameProbe = false; // [Hands] PaletteFrameProbe
 static float    g_mpPhiRad    = 0.0f;   // the residual, for the log
 
 // The derived wrist: distance from the hand bone's centroid, per side, and the
