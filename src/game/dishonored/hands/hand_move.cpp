@@ -171,9 +171,35 @@ static void HmScanTicks(void)
             if (oStr && RangeReadable(o + oStr, 4)) memcpy(&str, o + oStr, 4);
             const char* nm = (oName && RangeReadable(o + oName, 4))
                              ? RealName(*(uint32_t*)(o + oName)) : NULL;
+            // WHOSE control is it? A control's Outer is its AnimTree and
+            // that tree's Outer is the SkeletalMeshComponent it belongs to.
+            // This is the walk the WORKING 38.x drive used to decide a
+            // control was the player's (skelcontrol.cpp:210-226) - and it is
+            // the step this phase skipped by reading the pawn's named
+            // m_pLookAtControl_* pointers instead. Those hang off the PAWN's
+            // Mesh, which need not be the first-person view model the split
+            // actually cuts: same skeleton asset, so every socket matched and
+            // nothing looked wrong.
+            uint8_t* tree = NULL; uint8_t* comp = NULL;
+            if (RangeReadable(o + kOuterOff, 4)) tree = *(uint8_t**)(o + kOuterOff);
+            if (tree && !((uintptr_t)tree & 3) && RangeReadable(tree + kOuterOff, 4))
+                comp = *(uint8_t**)(tree + kOuterOff);
+            const char* compCls = (comp && !((uintptr_t)comp & 3) &&
+                                   RangeReadable(comp, 0x40)) ? ObjClassName(comp) : NULL;
+            uint8_t* pawnMesh = NULL;
+            {
+                const uint32_t mo = PrOff("Pawn", "Mesh");
+                if (mo && g_pePawn && RangeReadable(g_pePawn + mo, 4))
+                    pawnMesh = *(uint8_t**)(g_pePawn + mo);
+            }
             Log("handmove/ticks: LIVE  %p '%s' class '%s' tag %d -> %d, "
-                "strength %.3f - this control IS being evaluated",
-                (void*)o, nm ? nm : "?", cn, prevTag[k], tag, str);
+                "strength %.3f | owner component %p '%s' - %s",
+                (void*)o, nm ? nm : "?", cn, prevTag[k], tag, str,
+                (void*)comp, compCls ? compCls : "?",
+                (comp && comp == pawnMesh)
+                    ? "the SAME component as the pawn's Mesh"
+                    : "a DIFFERENT component from the pawn's Mesh - which is "
+                      "where the named LookAtControls came from");
             live++;
             break;
         }
@@ -181,7 +207,9 @@ static void HmScanTicks(void)
     Log("handmove/ticks: %d SkelControl object(s), %d advanced their tick tag "
         "in the last second. A control whose tag does NOT advance is not "
         "evaluated, and writing to it cannot move anything - which is what the "
-        "three LookAtControls did while we wrote to them 8500 times a second.",
+        "three named LookAtControls did while we wrote to them 8500 times a "
+        "second. If the live ones belong to a DIFFERENT component, then this "
+        "phase was writing to the wrong object and the native lane is alive.",
         total, live);
     memcpy(prevObj, curObj, sizeof(uint8_t*) * curN);
     memcpy(prevTag, curTag, sizeof(int) * curN);
