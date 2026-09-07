@@ -3163,3 +3163,65 @@ left after a headset walk on 2026-09-06 and it is read straight off the
 survives a level load and does not depend on the pawn's position. It is not
 derived and it is not a guess; the derived seed it replaced was
 `WristScale`=0.70.
+
+## The player rig's skeleton, from the engine (VR-33, 2026-09-07)
+
+Returned by `MatchRefBone` / `GetBoneName` / `GetParentBone` on the live
+`DishonoredPlayerSkeletalComponent`, not derived from geometry. Reproduce with
+`[Hands] BoneQuery=1`.
+
+**Reference-skeleton indices:** `camera_jnt` 8, `hand_R_jnt` 25,
+`handAttachment_R_jnt` 27, `hand_L_jnt` 54, `handAttachment_L_jnt` 56.
+
+**The chains:**
+
+```
+hand_*_jnt           -> lower_arm_*_jnt -> upper_arm_*_jnt -> shoulder_*_jnt
+                        -> Collarbone_*_Jnt -> Root_jnt -> root0_jnt -> ROOT
+handAttachment_*_jnt -> hand_*_jnt -> (as above)
+camera_jnt           -> head_jnt -> neck_jnt -> spine_3_jnt -> spine_2_jnt
+                        -> spine_1_jnt -> spine_0_jnt -> Root_jnt -> root0_jnt -> ROOT
+```
+
+Three facts that matter and were previously assumed:
+
+**The weapon attachment joints are CHILDREN of the hand joints.** A pose
+applied at a hand carries its attachment beneath it. Necessary for the
+engine-side route; not sufficient, since it says nothing about whether a later
+writer or the attachment update honours the change.
+
+**The camera is on the spine/head branch, not either arm.** The nearest common
+ancestor of `camera_jnt` and either hand is `Root_jnt`, and the two arms also
+only meet at `Root_jnt`. So a per-side edit at or below a hand joint cannot
+disturb the view or the opposite hand.
+
+**SKELETON INDICES ARE NOT PALETTE INDICES.** `hand_L_jnt` is bone 54 and
+`handAttachment_L_jnt` is bone 56, while the arm draw's GPU palette is 48
+entries (144 registers at c6). Both exceed it. The palette subsets or reorders
+the skeleton, so the two orderings cannot be used interchangeably, and any
+statement of the form "bone N of the palette" is about a render slot rather
+than about anatomy.
+
+### UStruct::SuperField is at +0x44
+
+Derived rather than guessed: it is the offset at which
+`DishonoredPlayerPawn` -> `Pawn` -> `Actor` -> `Object` all resolve by name.
+Three correctly ordered named links is the evidence; a single plausible pointer
+would not be.
+
+### The pawn's Mesh is a DishonoredPlayerSkeletalComponent
+
+Not a plain `SkeletalMeshComponent`. A receiver check by name equality would
+refuse a valid receiver; ancestry through the Super chain is required. This was
+load-bearing on the first run, not ceremony.
+
+### The mod's outbound ProcessEvent path
+
+`hands/mat_hide.cpp` has called `GetNumElements` and `GetMaterial` on live
+components since the material route, through
+`PFN_ProcessEventCall` (`__thiscall`, four arguments, parameter frame with a
+NULL Result), and `console.cpp` uses the same path. `g_peReentry` is set around
+those calls and **is read nowhere** - it guards nothing. `PeHandler` runs
+`PeLatch` and the scene-draw call-site patch before any event filtering, so a
+mod-originated call needs a depth guard checked at the top of the handler, or
+it fires real side effects and enters the census as a game event.
