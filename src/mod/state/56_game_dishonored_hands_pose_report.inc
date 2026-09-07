@@ -57,7 +57,7 @@
 // It reads engine memory through RangeReadable guards and never writes.
 // ===========================================================================
 
-#define PR_MAX_FIELDS 32
+#define PR_MAX_FIELDS 40
 
 struct PrField {
     const char* cls;
@@ -99,6 +99,12 @@ static PrField g_prFields[PR_MAX_FIELDS] = {
     { "DishonoredItemSkeletalComponent", "m_pItem",           0 },
     { "SkeletalMeshComponent",   "AttachedToSkelComponent",   0 },
     { "SkeletalMeshComponent",   "Attachments",               0 },
+    // VR-33 step 2a-part-1, the three hand controls.
+    { "SkelControlBase",         "ControlName",               0 },
+    { "SkelControlBase",         "ControlStrength",           0 },
+    { "SkelControlBase",         "NextControl",               0 },
+    { "SkelControlBase",         "ControlTickTag",            0 },
+    { "SkelControlBase",         "BoneScale",                 0 },
     { NULL, NULL, 0 },
 };
 

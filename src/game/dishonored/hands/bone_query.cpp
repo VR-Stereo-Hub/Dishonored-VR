@@ -347,6 +347,7 @@ static void BqRun(void)
                 kBqTargets[ai], handName, kBqEndName[chainEnd[ai]], chainN[ai]);
         }
     }
+    BqControls();
     BqItems(comp);
 
     Log("bq: what this still does NOT establish: whether any later writer "
@@ -530,6 +531,119 @@ static void BqItems(uint8_t* pawnMesh)
         "and is a candidate, not a measurement. Nothing here has yet agreed or "
         "disagreed with the authored socket defaults - the pistol's default is "
         "LeftHandWpn, and no live result has contradicted it.");
+}
+
+
+// ---- step 2a part 1: the three hand controls ------------------------------
+//
+// Read-only. Nothing is enabled, re-flagged, grafted or ticked - the point is
+// to observe what is there, and changing a control to make it observable
+// changes the thing being measured.
+//
+// WHAT THIS REPORT REFUSES TO CLAIM. A control's variable name does not
+// establish which bone it drives. ENGINE_NOTES already records that the CAMERA
+// control aims the arms at the view and went untouched for a dozen builds
+// while people looked at the hand controls - so on this asset the naming has
+// demonstrably misled before. Where a control's own fields do not name a
+// target, this prints UNKNOWN.
+//
+// Sharing is the first question and it is cheap: if two of the three pointers
+// are the same object, then anything done to one is done to the other, and
+// every later plan that treats them as independent is wrong from the start.
+static void BqControls(void)
+{
+    static const char* const kName[3] = {
+        "m_pLookAtControl_LeftHand", "m_pLookAtControl_RightHand",
+        "m_pLookAtControl_Camera"
+    };
+    const uint32_t oCtl[3] = {
+        PrOff("DishonoredPlayerPawn", "m_pLookAtControl_LeftHand"),
+        PrOff("DishonoredPlayerPawn", "m_pLookAtControl_RightHand"),
+        PrOff("DishonoredPlayerPawn", "m_pLookAtControl_Camera")
+    };
+    const uint32_t oCName = PrOff("SkelControlBase", "ControlName");
+    const uint32_t oCStr  = PrOff("SkelControlBase", "ControlStrength");
+    const uint32_t oCNext = PrOff("SkelControlBase", "NextControl");
+    const uint32_t oCTag  = PrOff("SkelControlBase", "ControlTickTag");
+    const uint32_t oCScale= PrOff("SkelControlBase", "BoneScale");
+
+    Log("bq/ctl: ==== the three hand controls ==== (offsets: name +0x%X, "
+        "strength +0x%X, next +0x%X, ticktag +0x%X, bonescale +0x%X)",
+        oCName, oCStr, oCNext, oCTag, oCScale);
+
+    uint8_t* obj[3] = { NULL, NULL, NULL };
+    for (int i = 0; i < 3; i++) {
+        if (!oCtl[i]) { Log("bq/ctl: %s did not resolve - UNKNOWN", kName[i]); continue; }
+        if (!RangeReadable(g_pePawn + oCtl[i], 4)) continue;
+        obj[i] = *(uint8_t**)(g_pePawn + oCtl[i]);
+    }
+
+    // SHARING FIRST. Two names for one object changes every plan downstream.
+    for (int a = 0; a < 3; a++)
+        for (int b = a + 1; b < 3; b++)
+            if (obj[a] && obj[a] == obj[b])
+                Log("bq/ctl: *** %s AND %s ARE THE SAME OBJECT (%p) *** - they "
+                    "cannot be driven independently, and any plan that treats "
+                    "them as two controls is wrong.",
+                    kName[a], kName[b], (void*)obj[a]);
+
+    for (int i = 0; i < 3; i++) {
+        if (!obj[i]) { Log("bq/ctl: %s is null", kName[i]); continue; }
+        if (((uintptr_t)obj[i] & 3) || !RangeReadable(obj[i], 0x120)) {
+            Log("bq/ctl: %s = %p, not a readable object", kName[i], (void*)obj[i]);
+            continue;
+        }
+        const char* cls = ObjClassName(obj[i]);
+        const bool isSingle = BqReceiverIsA(obj[i], "SkelControlSingleBone");
+        const bool isBase   = BqReceiverIsA(obj[i], "SkelControlBase");
+
+        char nm[64] = "UNKNOWN";
+        if (oCName && RangeReadable(obj[i] + oCName, 8)) {
+            const uint32_t ni = *(uint32_t*)(obj[i] + oCName);
+            const uint32_t nn = *(uint32_t*)(obj[i] + oCName + 4);
+            const char* rn = RealName(ni);
+            _snprintf(nm, sizeof(nm), "%s (num %u)", rn ? rn : "None/invalid", nn);
+        }
+        float str = -1.0f, scale = -1.0f; int tag = -1;
+        if (oCStr && RangeReadable(obj[i] + oCStr, 4)) memcpy(&str, obj[i] + oCStr, 4);
+        if (oCScale && RangeReadable(obj[i] + oCScale, 4)) memcpy(&scale, obj[i] + oCScale, 4);
+        if (oCTag && RangeReadable(obj[i] + oCTag, 4)) memcpy(&tag, obj[i] + oCTag, 4);
+
+        Log("bq/ctl: %s = %p, class '%s' (SkelControlSingleBone: %s, "
+            "SkelControlBase: %s) | ControlName %s | strength %.3f | boneScale "
+            "%.3f | tickTag %d",
+            kName[i], (void*)obj[i], cls ? cls : "?",
+            isSingle ? "yes" : "NO", isBase ? "yes" : "NO",
+            nm, str, scale, tag);
+
+        // The chain. Bounded and visited-checked, like every other walk here.
+        if (oCNext) {
+            uint8_t* c = obj[i]; char line[256]; int at = 0; int n = 0;
+            uint8_t* seen[16]; int seenN = 0;
+            while (c && n < 16) {
+                if (((uintptr_t)c & 3) || !RangeReadable(c + oCNext, 4)) break;
+                int dup = 0;
+                for (int k = 0; k < seenN; k++) if (seen[k] == c) dup = 1;
+                if (dup) { at += _snprintf(line + at, sizeof(line) - at, " -> CYCLE"); break; }
+                if (seenN < 16) seen[seenN++] = c;
+                const char* cn2 = ObjClassName(c);
+                if (at < (int)sizeof(line) - 48)
+                    at += _snprintf(line + at, sizeof(line) - at, "%s%s",
+                                    n ? " -> " : "", cn2 ? cn2 : "?");
+                c = *(uint8_t**)(c + oCNext);
+                n++;
+            }
+            Log("bq/ctl:   NextControl chain: %s%s", n ? line : "(empty)",
+                (n >= 16) ? " -> TRUNCATED" : "");
+        }
+    }
+
+    Log("bq/ctl: WHICH BONE each control drives is NOT reported, because "
+        "nothing read above names one. A control's variable name is not that "
+        "evidence - ENGINE_NOTES records the CAMERA control aiming the arms at "
+        "the view while the hand controls were being studied. Establishing the "
+        "target needs the control's own bone field or a native consumer, and "
+        "that is step 2a part 2.");
 }
 
 
