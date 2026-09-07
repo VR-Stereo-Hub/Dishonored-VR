@@ -3261,11 +3261,12 @@ A mismatch is passed through to the original draw - NOT dropped: once a split
 is ready the caller's auto-arm fail-soft no longer applies, so declining used
 to suppress the mesh entirely.
 
-## The three named LookAtControls are not evaluated (VR-33 phase 1, 2026-09-07)
+## SkelControls are NOT evaluated on this build (VR-33 phase 1, 2026-09-07)
 
-The stronger heading this section used to carry - "SkelControls are NOT
-evaluated on this build" - was withdrawn the same day: it rested on a scan that
-turned out not to have swept GObjects. See the retraction below.
+This heading was briefly withdrawn on 2026-09-07 when the scan behind it turned
+out not to have swept GObjects, and restored the same day once the fixed sweep
+measured the whole population and agreed. The retraction is kept below, because
+the reasoning error is the reusable part.
 
 **The three named controls are inert.** `m_pLookAtControl_LeftHand`,
 `_RightHand` and `_Camera` are distinct live `SkelControlSingleBone` objects
@@ -3296,17 +3297,39 @@ for the second-apart comparison, and prints the population it ran over -
 objects walked, objects tracked, objects past the table - on the same line as
 the live count, so a zero cannot be read as a census again.
 
-Note the state the retracted measurement was taken in: `[Mode] GamepadOnly=1`
-and `[Hands] Enabled=0`, so the mod's own hand subsystem was not driving
-anything either. The one cheap run that would close this door needs BOTH: the
-full sweep and `[Hands] Enabled=1` with `GamepadOnly=0`. It has not been run.
+### CONFIRMED with the fixed sweep (2026-09-07, same day)
 
-**Until it is, the 38.x "9,000 writes a second outrun the recompute" reading
-is NOT retired.** The retirement rested on the scan.
+The run was made in the state the retracted one lacked: `[Hands] Enabled=1`,
+`[Mode] GamepadOnly=0`, so the mod's own hand subsystem WAS driving. Every one
+of 34 consecutive one-second samples read identically:
+
+```
+66 SkelControl object(s) out of 103117 GObjects entries walked (FULL sweep),
+66 tracked for comparison, 0 NOT tracked, 0 advanced their tick tag in the
+last second. hands=1 gamepadOnly=0
+```
+
+Full sweep, whole population tracked, nothing past the table, zero advancing,
+with the hands subsystem live. **No SkelControl is evaluated on this build.**
+A write to one cannot move anything, at any cadence, with any flags, in any
+space - and this time the population is known.
+
+The old 64-entry table had missed exactly two objects out of 66, so the
+retracted reading happened to be right. It was still not evidence; it is now.
+
+**This does retire the 38.x "9,000 writes a second outrun the recompute"
+reading.** No race was being lost - there was nothing to race.
+
+### Cost, measured
+
+The sweep stalls the game thread for **505-520 ms once per second** - the perf
+line attributes it to `out/idle (waiting for the game thread)`, 30x the mean
+present interval, ~46 display slots at 90 Hz. It is unplayable while armed and
+must be switched off after any run.
 
 ### Cost note
 
 The GObjects-wide tick scan runs on the script lane and walks every object once
-a second, calling `ObjClassName` on each. That is heavy enough to be felt as a
-frame-rate drop in the headset. It is a diagnostic, ships OFF, and should not
-be left enabled.
+a second, calling `ObjClassName` on each. Measured cost: a 505-520 ms stall of
+the game thread every second (see above). It is a diagnostic, ships OFF, and
+must not be left enabled.

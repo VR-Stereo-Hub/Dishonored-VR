@@ -9,20 +9,22 @@ wrist, arms hidden, caps present, cap colour approved, ring at the measured
 -4.9. Two PRs are open and unmerged - #19 (VR-31, the split) and #20 (VR-53 and
 VR-51, the desktop mirror eye pin and the pause-menu session loss).
 
-**VR-33's native route is NOT closed yet - the claim that it was has been
-retracted.** The "zero of 64 SkelControl objects advance their tick tag"
-reading was a truncated scan: the sweep stopped as soon as its 64-entry
-comparison table filled, so 64 was the array's capacity, not a population, and
-the rest of GObjects was never visited. What still stands is the narrower
-first measurement - the three named `m_pLookAtControl_*` controls held their
-`ControlTickTag` frozen under ~8,500 writes a second, so THOSE THREE are inert.
-The 38.x "9,000 writes a second outrun the recompute" reading is therefore not
-retired either; that retirement rested on the scan. See ENGINE_NOTES, "The
-three named LookAtControls are not evaluated".
+**VR-33's native route is closed, and it is now evidence rather than an
+artifact.** The earlier "zero of 64 SkelControl objects advance" reading was a
+truncated scan - the sweep stopped when its 64-entry comparison table filled,
+so 64 was the array's capacity, not a population. Fixed and re-run the same
+day with the hands subsystem LIVE (`[Hands] Enabled=1`, `[Mode] GamepadOnly=0`,
+the state every earlier measurement lacked), 34 consecutive samples read:
+**103,117 GObjects entries walked, 66 SkelControls, all 66 tracked, 0
+untracked, 0 advancing.** No SkelControl is evaluated on this build, so a write
+to one cannot move anything. The old table had missed exactly two objects, so
+the retracted reading was right by luck; it is measured now. This also does
+retire the 38.x "9,000 writes a second outrun the recompute" reading. See
+ENGINE_NOTES, "SkelControls are NOT evaluated on this build".
 
-The scan is fixed (full sweep, 1024-entry table, population printed on the
-line) and armed on the dev rig. **The cheap run now answers a real question**,
-where before it would have repeated the truncated one.
+The scan's cost is measured too: **505-520 ms of game-thread stall once per
+second**, attributed by the perf line to `out/idle`, ~46 display slots at
+90 Hz. It is unplayable while armed. It is back OFF in the installed ini.
 
 ### What IS established, and is worth keeping
 
@@ -52,22 +54,33 @@ stay on the engine's transform, which a GPU edit does not touch, so the weapon
 half of VR-33 needs a separate mechanism. The tester has already accepted that
 the crosshair can be faked separately.
 
-Before committing to it, the fixed tick scan needs one run. It is already
-armed in the installed ini: `[Hands] Enabled=1`, `[Hands] HandMoveTest=1`,
-`[Mode] GamepadOnly=0` (the previous ini is saved beside it as
-`dishonored_vr.ini.bak-preVR33scan`). Load a save, stand still for about ten
-seconds, quit, and read the `handmove/ticks:` lines.
+The gate is passed - the tick scan has been run and the native lane is shut.
+The palette backend is the route, and it is the work in front of this branch.
 
-* `live=0` with `untracked=0` and a walked count in the millions closes the
-  native lane for real, and the palette backend is the route.
-* Any LIVE control reopens it, and the line names the owning component and
-  whether it is the pawn's Mesh - a live control on a DIFFERENT component is
-  the case where phase 1 was simply writing to the wrong object.
-* `untracked>0` means even the fixed table saturated and `HM_SCAN_CAP` needs
-  raising before the answer counts.
+**What it is not**: it moves pixels only. Weapons, muzzle effects and firing
+aim stay on the engine's transform, which a GPU-side edit does not touch, so
+the weapon half of VR-33 needs a separate mechanism. The crosshair can be
+faked separately and that has been accepted.
 
-The scan is heavy (it walks GObjects once a second calling `ObjClassName`);
-expect a frame-rate drop, and it goes back to `HandMoveTest=0` afterwards.
+### How the pieces already on disk fit
+
+The backend is a join of two things that exist, not new machinery.
+
+* `hkSetVSConstF` already carries a whole-palette rewrite - the 30.70/71 hand
+  drive in `core/framework/vs_const_hook.cpp` applies a per-hand rotation and
+  translation to every bone matrix in a `c6` upload. That is exactly the
+  `D * M_i` the finger-animation argument needs.
+* What it lacks is DRAW SCOPE: it identifies a rig by upload `count` and
+  ordinal, so it cannot give the two hands different deltas when they share
+  one upload.
+* The missing half is on the other side. `MsDraw` in
+  `game/dishonored/hands/mesh_split.cpp` already has independent per-class
+  index ranges (`MS_CLS_HAND_A` / `MS_CLS_HAND_B`).
+
+So: cache the game's last `c6` block, and have `MsDraw` upload `D_L * M`
+before the hand-A range and `D_R * M` before hand-B, restoring the original
+block afterwards. D3D9 constants are current state, not one-shot - the trap is
+already recorded at `hands/draw_census.cpp:334`.
 
 ### Build and deploy state
 
