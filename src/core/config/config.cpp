@@ -1393,6 +1393,29 @@ static void LoadConfig()
     // working". This does not retire them: it is one key, it logs loudly, and
     // the code is untouched. Set GamepadOnly=0 to get them all back.
     g_gamepadOnly = IniFloat(ini, "Mode", "GamepadOnly", 0) != 0.0f;
+    // THE VETO MUST NOT BE ABLE TO WRITE ITSELF INTO THE INI.
+    //
+    // Everything below is a MODE, applied on top of what the user configured.
+    // The ini writer runs later and used to write the post-veto values, so one
+    // run with GamepadOnly=1 baked `[Hands] Enabled=0` and `[VRHands]
+    // Enabled=0` into the file - and from then on clearing GamepadOnly did
+    // nothing at all, because the ini itself now said the hands were off. A
+    // temporary gate had turned into a permanent setting, silently, and it
+    // took a session to find because every symptom pointed at the hand drive
+    // rather than at the config.
+    //
+    // So snapshot the CONFIGURED values here, and let the writer save these
+    // rather than whatever the vetoes left behind. The effective values still
+    // drive the run; only what gets persisted changes.
+    g_cfgWantSkcDrive = g_skcDrive;
+    g_cfgWantHandMesh = g_handMesh;
+    g_cfgWantBlkAim   = g_blkAimOnCfg;
+    g_cfgWantBlkUI    = g_blkDriveUI;
+    g_cfgWantMelee    = g_meleeOn;
+    g_cfgWantMaim     = g_maimEnabled;
+    g_cfgWantCrouch   = g_crouchOn;
+    g_cfgWantSaved    = true;
+
     if (g_gamepadOnly) {
         g_skcDrive     = false;    // no SkelControl hand writes
         g_handMesh     = false;    // no hand mesh collect/drive
@@ -1561,7 +1584,10 @@ static void OverlaySaveDefaults()
     // reader and forgot the writer, so every trim and toggle tuned in the
     // headset was silently discarded on exit. Everything the panel can change
     // is written here now.
-    WritePrivateProfileStringA("Hands", "Enabled", g_skcDrive ? "1" : "0", ini);
+    // The CONFIGURED value, never the vetoed one - see the snapshot in
+    // LoadConfig for what writing the vetoed one cost.
+    WritePrivateProfileStringA("Hands", "Enabled",
+        (g_cfgWantSaved ? g_cfgWantSkcDrive : g_skcDrive) ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "BoneVisHide", g_boneVisCfg ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "MatCensus", g_matCensusCfg ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "MatAuto", g_matAutoCfg ? "1" : "0", ini);
