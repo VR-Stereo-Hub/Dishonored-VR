@@ -468,6 +468,10 @@ static bool     g_mpEyeOffset = false;  // [Hands] PaletteEyeOffset
 static LONG     g_mpEyeSeen[2] = { 0, 0 };   // draws attributed to pass 1 / pass 2
 static float    g_mpLastEyeSign = 0.0f;
 static float    g_mpLastHalfIpd = 0.0f;
+static LONG     g_mpEyeUnclassified = 0;
+static bool     g_mpEyeSeeded = false;
+static float    g_mpEyeLo = 0.0f, g_mpEyeHi = 0.0f, g_mpEyeSpread = 0.0f;
+static float    g_mpLastEyeProj = 0.0f;
 
 static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
