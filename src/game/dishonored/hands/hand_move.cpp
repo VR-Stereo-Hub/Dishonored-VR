@@ -133,10 +133,19 @@ static void HmTick(void)
 // actually evaluating, and they are the only ones worth writing to. Read-only.
 static void HmScanTicks(void)
 {
-    static uint8_t* prevObj[64];
-    static int      prevTag[64];
+    // HM_SCAN_CAP is the size of the COMPARISON TABLE, not a limit on the
+    // walk. The 2026-09-07 reading "64 SkelControl objects in GObjects" was
+    // this array's old capacity of 64 reported as a population: the loop
+    // stopped as soon as the table filled, so it never reached the rest of
+    // GObjects and the census was the cap. The walk below now always runs to
+    // the end of the array, and a saturated table is stated on the line.
+    enum { HM_SCAN_CAP = 1024 };
+    static uint8_t* prevObj[HM_SCAN_CAP];
+    static int      prevTag[HM_SCAN_CAP];
     static int      prevN = 0;
     static double   next = 0.0;
+    static uint8_t* curObj[HM_SCAN_CAP];
+    static int      curTag[HM_SCAN_CAP];
 
     const double now = MaimNowMs();
     if (now < next) return;
@@ -150,9 +159,9 @@ static void HmScanTicks(void)
     uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
     if (!objs || onum < 1000 || onum > 4000000) return;
 
-    uint8_t* curObj[64]; int curTag[64]; int curN = 0;
-    int live = 0, total = 0;
-    for (uint32_t i = 0; i < onum && curN < 64; i++) {
+    int curN = 0;
+    int live = 0, total = 0, untracked = 0;
+    for (uint32_t i = 0; i < onum; i++) {
         if ((i & 1023) == 0) {
             uint32_t left = onum - i; if (left > 1024) left = 1024;
             if (!RangeReadable(objs + i, left * sizeof(void*))) break;
@@ -163,7 +172,11 @@ static void HmScanTicks(void)
         if (!cn || !strstr(cn, "SkelControl")) continue;
         total++;
         const int tag = *(int*)(o + oTag);
-        curObj[curN] = o; curTag[curN] = tag; curN++;
+        // Past the table's end the object is still COUNTED - the census is
+        // the whole array - but it cannot be compared next second, and the
+        // summary says how many are in that state.
+        if (curN < HM_SCAN_CAP) { curObj[curN] = o; curTag[curN] = tag; curN++; }
+        else                    { untracked++; }
 
         for (int k = 0; k < prevN; k++) {
             if (prevObj[k] != o || prevTag[k] == tag) continue;
@@ -204,13 +217,20 @@ static void HmScanTicks(void)
             break;
         }
     }
-    Log("handmove/ticks: %d SkelControl object(s), %d advanced their tick tag "
-        "in the last second. A control whose tag does NOT advance is not "
-        "evaluated, and writing to it cannot move anything - which is what the "
-        "three named LookAtControls did while we wrote to them 8500 times a "
-        "second. If the live ones belong to a DIFFERENT component, then this "
-        "phase was writing to the wrong object and the native lane is alive.",
-        total, live);
+    // The population this counter ran over is on the line with it: %u objects
+    // walked out of the %u GObjects claims, and how many SkelControls were
+    // past the comparison table. A zero live count means nothing without them.
+    Log("handmove/ticks: %d SkelControl object(s) out of %u GObjects entries "
+        "walked (FULL sweep), %d tracked for comparison, %d NOT tracked "
+        "(table full - raise HM_SCAN_CAP), %d advanced their tick tag in the "
+        "last second. hands=%d gamepadOnly=%d. A control whose tag does NOT "
+        "advance is not evaluated, and writing to it cannot move anything - "
+        "which is what the three named LookAtControls did while we wrote to "
+        "them 8500 times a second. A live one on a DIFFERENT component from "
+        "the pawn's Mesh means this phase wrote to the wrong object and the "
+        "native lane is alive; live=0 with untracked=0 closes it.",
+        total, onum, curN, untracked, live,
+        g_skcDrive ? 1 : 0, g_gamepadOnly ? 1 : 0);
     memcpy(prevObj, curObj, sizeof(uint8_t*) * curN);
     memcpy(prevTag, curTag, sizeof(int) * curN);
     prevN = curN;

@@ -9,12 +9,20 @@ wrist, arms hidden, caps present, cap colour approved, ring at the measured
 -4.9. Two PRs are open and unmerged - #19 (VR-31, the split) and #20 (VR-53 and
 VR-51, the desktop mirror eye pin and the pause-menu session loss).
 
-**VR-33's native route is closed.** Zero of 64 SkelControl objects advance
-their `ControlTickTag` over repeated one-second samples, so no control on any
-component is being evaluated and a write to one cannot move anything. See
-ENGINE_NOTES, "SkelControls are NOT evaluated on this build". That also retires
-the 38.x "9,000 writes a second outrun the recompute" reading - no race was
-being lost.
+**VR-33's native route is NOT closed yet - the claim that it was has been
+retracted.** The "zero of 64 SkelControl objects advance their tick tag"
+reading was a truncated scan: the sweep stopped as soon as its 64-entry
+comparison table filled, so 64 was the array's capacity, not a population, and
+the rest of GObjects was never visited. What still stands is the narrower
+first measurement - the three named `m_pLookAtControl_*` controls held their
+`ControlTickTag` frozen under ~8,500 writes a second, so THOSE THREE are inert.
+The 38.x "9,000 writes a second outrun the recompute" reading is therefore not
+retired either; that retirement rested on the scan. See ENGINE_NOTES, "The
+three named LookAtControls are not evaluated".
+
+The scan is fixed (full sweep, 1024-entry table, population printed on the
+line) and armed on the dev rig. **The cheap run now answers a real question**,
+where before it would have repeated the truncated one.
 
 ### What IS established, and is worth keeping
 
@@ -44,9 +52,22 @@ stay on the engine's transform, which a GPU edit does not touch, so the weapon
 half of VR-33 needs a separate mechanism. The tester has already accepted that
 the crosshair can be faked separately.
 
-Before committing to it, one cheap check would close the native door properly:
-run the tick scan once with `[Hands] Enabled=1` and `GamepadOnly=0`, since
-every measurement so far was taken with the mod's hand subsystem disabled.
+Before committing to it, the fixed tick scan needs one run. It is already
+armed in the installed ini: `[Hands] Enabled=1`, `[Hands] HandMoveTest=1`,
+`[Mode] GamepadOnly=0` (the previous ini is saved beside it as
+`dishonored_vr.ini.bak-preVR33scan`). Load a save, stand still for about ten
+seconds, quit, and read the `handmove/ticks:` lines.
+
+* `live=0` with `untracked=0` and a walked count in the millions closes the
+  native lane for real, and the palette backend is the route.
+* Any LIVE control reopens it, and the line names the owning component and
+  whether it is the pawn's Mesh - a live control on a DIFFERENT component is
+  the case where phase 1 was simply writing to the wrong object.
+* `untracked>0` means even the fixed table saturated and `HM_SCAN_CAP` needs
+  raising before the answer counts.
+
+The scan is heavy (it walks GObjects once a second calling `ObjClassName`);
+expect a frame-rate drop, and it goes back to `HandMoveTest=0` afterwards.
 
 ### Build and deploy state
 

@@ -3261,9 +3261,11 @@ A mismatch is passed through to the original draw - NOT dropped: once a split
 is ready the caller's auto-arm fail-soft no longer applies, so declining used
 to suppress the mesh entirely.
 
-## SkelControls are NOT evaluated on this build (VR-33 phase 1, 2026-09-07)
+## The three named LookAtControls are not evaluated (VR-33 phase 1, 2026-09-07)
 
-Measured, twice, two ways.
+The stronger heading this section used to carry - "SkelControls are NOT
+evaluated on this build" - was withdrawn the same day: it rested on a scan that
+turned out not to have swept GObjects. See the retraction below.
 
 **The three named controls are inert.** `m_pLookAtControl_LeftHand`,
 `_RightHand` and `_Camera` are distinct live `SkelControlSingleBone` objects
@@ -3272,21 +3274,35 @@ session while the mod wrote to one of them about 8,500 times a second. Its own
 apply flags were clear (`bools 0xA`, apply=0 add=0) and its saved translation
 was zero. UE3 stamps that tag when a control is EVALUATED.
 
-**And it is not a case of the wrong object.** A scan of every SkelControl in
-GObjects - 64 of them - sampling `ControlTickTag` one second apart found
-**zero** advancing, repeatedly. Not on the pawn's mesh, not on any other
-component.
+**RETRACTED 2026-09-07: the "every SkelControl in GObjects - 64 of them" scan
+did not walk GObjects.** Its comparison table held 64 entries and its loop
+condition was `curN < 64`, so the sweep STOPPED the moment the table filled.
+The "64" that was read as a population is the array's capacity, and every
+object after the 64th SkelControl in the array was never visited. The scan
+therefore says "none of the first 64 advanced", not "none advanced" - and the
+first N entries of GObjects are the earliest-constructed objects, which is the
+least representative slice available for a question about the player's live
+view model. This is the project's own rule biting again: a counter is not
+evidence until you know its population.
 
-So a write to a SkelControl cannot move anything on this build, at any cadence,
-with any flags, in any space. **This retires the "9,000 writes a second outrun
-the recompute" reading from 38.x**: that was never a race being lost. Two
-separate sessions have now spent effort tuning the timing of writes to controls
-that are never evaluated.
+What survives the retraction is the FIRST measurement, which did not depend on
+the scan: the three named `m_pLookAtControl_*` controls held `ControlTickTag`
+at 10 for an entire session under ~8,500 writes a second, with their own apply
+flags clear. Those three specific controls are inert. Whether ANY SkelControl
+on this build is evaluated is once again open.
 
-Note the state this was measured in: `[Mode] GamepadOnly=1` and
-`[Hands] Enabled=0`, so the mod's own hand subsystem was not driving anything.
-Confirming the controls stay inert with the hands subsystem ENABLED is the one
-cheap check that would close this door completely, and it has not been run.
+The scan now sweeps the whole array, tracks up to `HM_SCAN_CAP` (1024) objects
+for the second-apart comparison, and prints the population it ran over -
+objects walked, objects tracked, objects past the table - on the same line as
+the live count, so a zero cannot be read as a census again.
+
+Note the state the retracted measurement was taken in: `[Mode] GamepadOnly=1`
+and `[Hands] Enabled=0`, so the mod's own hand subsystem was not driving
+anything either. The one cheap run that would close this door needs BOTH: the
+full sweep and `[Hands] Enabled=1` with `GamepadOnly=0`. It has not been run.
+
+**Until it is, the 38.x "9,000 writes a second outrun the recompute" reading
+is NOT retired.** The retirement rested on the scan.
 
 ### Cost note
 
