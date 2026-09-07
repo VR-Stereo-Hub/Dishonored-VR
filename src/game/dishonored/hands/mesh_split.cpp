@@ -1880,7 +1880,20 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
         // passes are indistinguishable and guessing would put a wrong offset
         // on every draw, which is worse than the head-centre placement.
         const bool usable = g_mpEyeSpread > halfIpdUU;
-        const float sign = usable ? ((proj > mid) ? +1.0f : -1.0f) : 0.0f;
+        // THE SIGN, derived rather than tried. Camera-relative rendering means
+        // a position is `world - camera`. The right eye's camera sits at
+        // `head + (IPD/2) * right`, so every object's camera-relative position
+        // shifts by MINUS that - the projection onto the right axis gets
+        // SMALLER for the right eye, not larger.
+        //
+        // The first version had this backwards and the tester reported the
+        // hands further apart, which is what an inverted eye assignment does:
+        // it applies a full IPD of error instead of correcting one. The
+        // classifier itself was sound - the measured spread came out
+        // 6.8-6.9 uu against a predicted IPD of 6.31 uu, with both eyes taking
+        // near-equal draw counts - so only the mapping from side to eye was
+        // wrong.
+        const float sign = usable ? ((proj > mid) ? -1.0f : +1.0f) : 0.0f;
         for (int i = 0; i < 3; i++) dcam[i] -= sign * halfIpdUU * r[i];
         if (sign > 0.0f) g_mpEyeSeen[1]++; else if (sign < 0.0f) g_mpEyeSeen[0]++;
         else g_mpEyeUnclassified++;
