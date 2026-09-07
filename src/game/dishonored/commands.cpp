@@ -96,6 +96,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "dc")) return DcCommand(args);
     if (!strcmp(cmd, "ms")) return MsCommand(args);
     if (!strcmp(cmd, "pose")) return PrCommand(args);
+    if (!strcmp(cmd, "bq")) return BqCommand(args);
     if (!strcmp(cmd, "blink")) {
         if (!strcmp(args, "probe")) { BlinkProbeArm(); return true; }
         if (DvrOnOff(args, &b)) { g_blkAimOnCfg = b; g_blkDriveUI = b; Log("blink: hand aim %s (seam)", b ? "ON" : "off"); return true; }

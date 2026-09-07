@@ -228,7 +228,12 @@ static bool PrCommand(const char* args)
 {
     if (args) {
         while (*args == ' ') args++;
-        if (!strncmp(args, "dump", 4)) { PrDumpSockets(); return true; }
+        // POST, never call. This command seam runs on the PRESENT thread
+        // (DvrPreTick -> command::poll), so invoking the dump here would read
+        // engine objects off-lane - the exact fault the automatic path was
+        // just corrected for. The request is consumed by PrTick on the script
+        // lane, which already has a branch for it.
+        if (!strncmp(args, "dump", 4)) { g_prDumpReq = 1; Log("pose: dump requested - the script lane will run it"); return true; }
         if (!strncmp(args, "again", 5)) { g_prTried = false; g_prNextTryMs = 0; }
     }
     Log("pose: status - %s, %d resolved, %d unknown. `pose dump` walks the "

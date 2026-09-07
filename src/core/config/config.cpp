@@ -1140,6 +1140,9 @@ static void LoadConfig()
     // VR-33 step 1. READ-ONLY, so it ships ON: it resolves engine names and
     // reports what it could not find, and writes nothing anywhere.
     g_prOn            = IniFloat(ini, "Hands", "PoseReport", 1) != 0.0f;
+    // VR-33 step 1b. This one MAKES ENGINE CALLS, so it ships OFF and is
+    // separate from the read-only report, which keeps working either way.
+    g_bqOn            = IniFloat(ini, "Hands", "BoneQuery", 0) != 0.0f;
     // 3 = CLIP the triangles that straddle the plane, which is the only rule
     // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
     // triangles and leave a sawtooth one triangle high - on the coarse cuff
@@ -1557,6 +1560,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "BoneQuery", g_bqOn ? "1" : "0", ini);
     _snprintf(v, 64, "%d", g_msEdge);
     WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
     _snprintf(v, 64, "%d", g_msStepMode);

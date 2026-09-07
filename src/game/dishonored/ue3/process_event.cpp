@@ -50,6 +50,24 @@ static void PeLatch(void* obj)
 
 extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
 {
+    // OUR OWN CALLS ARE NOT THE GAME'S EVENTS. A ProcessEvent call the mod
+    // makes re-enters this hook, and everything below - PeLatch, the scene
+    // draw's call-site patch, the blink candidate watch, the per-event mod
+    // actions - would then run on a synthetic event. Worse, it would enter the
+    // EVIDENCE: the census and the ordering traces would count events the game
+    // never fired.
+    //
+    // g_peReentry does not do this job. It is set around the material calls in
+    // hands/mat_hide.cpp and is READ NOWHERE, so it guards nothing; a grep for
+    // it in this file returns no check at all. g_bqDepth is a scoped counter
+    // incremented across our own dispatch and restored with nesting preserved,
+    // and it is checked HERE, before any side effect, which is the only place
+    // that helps.
+    //
+    // Returning is safe: the stub calls the original engine function after
+    // this observer returns, so the query still executes.
+    if (g_bqDepth > 0) return;
+
     InterlockedIncrement(&g_peCalls);
 
     // 41.1: the ProcessEvent CALLER's return address, for the scene probe.
@@ -103,6 +121,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     }
     ArmFollowTick();                              // VR-30: the arm-follow probe (read-only, finds its own camera)
     PrTick();                                     // VR-33: the pose/socket report - SCRIPT LANE, where the objects are coherent
+    BqTick();                                     // VR-33 step 1b: the bone queries, consumed on this lane only
     dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
     dvr::camera::apply_offsets(g_camObj);         // the eye offset (aer/reentry) + the lean on the camera lane
     BlinkTestApply();  // 32.14: same lane, same reason
