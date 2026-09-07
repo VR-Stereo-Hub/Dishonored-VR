@@ -115,7 +115,14 @@ static void StereoUpdate()
     // These only SET A REQUEST - every ShowMaterialSection dispatch happens on
     // the script lane in MatCycleTick, because ProcessEvent does not belong on
     // the present thread.
-    if (g_matCycleCfg) {
+    // CTRL + numpad is the palette drive's, exclusively. Every bare-numpad
+    // block below takes itself out of the way when CTRL is held, because one
+    // press firing two features is how Ctrl+Num5 ended up cycling the draw
+    // census - which unhid the arms AND knocked the split out of ready, so the
+    // palette drive then refused every upload for want of a split. One key,
+    // two owners, three symptoms.
+    const bool npCtl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    if (g_matCycleCfg && !npCtl) {
         static bool n1Was = false, n2Was = false, n3Was = false;
         const bool n1 = (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
         const bool n2 = (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
@@ -129,7 +136,7 @@ static void StereoUpdate()
     // VR-31 route (b): step through the censused DRAWS. Same split as the
     // material cycler - the hotkey only posts a request, and DcCycleTick acts
     // on it from the tick, never from here.
-    if (g_dcOn) {
+    if (g_dcOn && !npCtl) {
         static bool n4Was = false, n5Was = false, n6Was = false;
         const bool n4 = (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
         const bool n5 = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;

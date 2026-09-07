@@ -277,9 +277,10 @@ static void PdTick(void)
             "wants x%d. Refusals: %u no split, %u no controller pose, %u no "
             "hand bone on a side. ALL ZERO with a live split means the arms "
             "draw never matched the size the split was built from, which is a "
-            "different fault from the drive not working. Drive %s, space %s.",
+            "different fault from the drive not working. Split ready=%d "
+            "(bones %d). Drive %s, space %s.",
             g_pdDraws, g_pdBonesHit, g_pdSeen, g_pdLastCount, g_msBones * 3,
-            g_pdNoSplit, g_pdNoPose, g_pdNoBones,
+            g_pdNoSplit, g_pdNoPose, g_pdNoBones, (int)g_msReady, g_msBones,
             g_pdOn ? "ON" : "off", g_pdSpace ? "world" : "camera");
         g_pdDraws = g_pdSeen = g_pdBonesHit = 0;
         g_pdNoSplit = g_pdNoPose = g_pdNoBones = 0;
