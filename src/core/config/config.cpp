@@ -1143,6 +1143,12 @@ static void LoadConfig()
     // VR-33 step 1b. This one MAKES ENGINE CALLS, so it ships OFF and is
     // separate from the read-only report, which keeps working either way.
     g_bqOn            = IniFloat(ini, "Hands", "BoneQuery", 0) != 0.0f;
+    // VR-33 phase 1. This one WRITES to the skeleton, so it ships OFF and
+    // restores every field it touched when it is switched off.
+    g_hmOn            = IniFloat(ini, "Hands", "HandMoveTest", 0) != 0.0f;
+    g_hmAmount        = IniFloat(ini, "Hands", "HandMoveUU", 10.0f);
+    g_hmAxis          = (int)IniFloat(ini, "Hands", "HandMoveAxis", 0);
+    if (g_hmAxis < 0 || g_hmAxis > 2) g_hmAxis = 0;
     // 3 = CLIP the triangles that straddle the plane, which is the only rule
     // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
     // triangles and leave a sawtooth one triangle high - on the coarse cuff
@@ -1561,6 +1567,11 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "BoneQuery", g_bqOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "HandMoveTest", g_hmOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.1f", g_hmAmount);
+    WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);
+    _snprintf(v, 64, "%d", g_hmAxis);
+    WritePrivateProfileStringA("Hands", "HandMoveAxis", v, ini);
     _snprintf(v, 64, "%d", g_msEdge);
     WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
     _snprintf(v, 64, "%d", g_msStepMode);
