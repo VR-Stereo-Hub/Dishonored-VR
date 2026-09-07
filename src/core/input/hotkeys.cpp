@@ -115,7 +115,13 @@ static void StereoUpdate()
     // These only SET A REQUEST - every ShowMaterialSection dispatch happens on
     // the script lane in MatCycleTick, because ProcessEvent does not belong on
     // the present thread.
-    if (g_matCycleCfg) {
+    // CTRL is the VR-33 modifier and must NOT leak in here. It used to: a
+    // CTRL+Numpad5 press meant for the palette probe also cycled the draw
+    // census below and put the arms back, which read as "the probe did
+    // nothing". A bare-numpad block has to check that the bare key is what
+    // was pressed.
+    const bool kCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    if (g_matCycleCfg && !kCtrl) {
         static bool n1Was = false, n2Was = false, n3Was = false;
         const bool n1 = (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
         const bool n2 = (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
@@ -129,7 +135,7 @@ static void StereoUpdate()
     // VR-31 route (b): step through the censused DRAWS. Same split as the
     // material cycler - the hotkey only posts a request, and DcCycleTick acts
     // on it from the tick, never from here.
-    if (g_dcOn) {
+    if (g_dcOn && !kCtrl) {
         static bool n4Was = false, n5Was = false, n6Was = false;
         const bool n4 = (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
         const bool n5 = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
@@ -161,7 +167,7 @@ static void StereoUpdate()
     //   Numpad *  which arm + / - moves: both -> side A -> side B
     //   Numpad .  step size for + / -: coarse -> fine -> ultrafine
     //   Numpad /  re-derive the whole split from the buffers
-    if (g_msOn) {
+    if (g_msOn && !kCtrl) {
         static bool n0Was = false, adWas = false, sbWas = false,
                     mlWas = false, dvWas = false, dcWas = false;
         const bool n0 = (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
@@ -199,8 +205,7 @@ static void StereoUpdate()
     // numpad belongs to the mesh split and the draw census.
     {
         static bool hmWas = false;
-        const bool hmCtl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool hmk = hmCtl && (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
+        const bool hmk = kCtrl && (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
         if (hmk && !hmWas) g_hmStepReq = 1;
         hmWas = hmk;
     }
@@ -211,8 +216,7 @@ static void StereoUpdate()
     // tester starts the cycle and there is no phase to misread.
     {
         static bool mpWas = false;
-        const bool mpCtl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool mpk = mpCtl && (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
+        const bool mpk = kCtrl && (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
         if (mpk && !mpWas) InterlockedExchange(&g_mpStepReq, 1);
         mpWas = mpk;
     }
