@@ -344,10 +344,6 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
 static const char* MsModeName(int m);
 static void MsTick(void);
 static bool MsCommand(const char* args);
-static void GripSeedFromMesh(void);
-static bool GripOffsetWorld(int hand, float (*m)[4], float* out);
-static void GripTick(void);
-static bool GripCommand(const char* args);
 static void HmPickModels();
 static void GraftTestSet(bool on);
 static void SkcRotZeroNeutral(const char* why);

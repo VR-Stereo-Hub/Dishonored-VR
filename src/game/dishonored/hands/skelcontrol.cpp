@@ -738,24 +738,6 @@ static void ApplyHandToMeshInner()
                         w[2] = fz;
                     }
                 }
-                // VR-33: ROTATE ABOUT THE GRIP, NOT THE WRIST. Everything
-                // above places the bone's ORIGIN on the controller, and a UE3
-                // hand bone's origin is at the wrist - so the hand swings
-                // through an arc every time the controller turns, and an
-                // attached weapon swings further because it is further out
-                // the lever. Subtracting the grip vector, expressed in the
-                // controller's own basis, puts the GRIP where the controller
-                // is instead. It is exact, not a correction factor: rotating
-                // about P is rotating about O and placing the result so P
-                // lands right. See hands/grip_pivot.cpp and state chunk 56.
-                {
-                    const int devT = (hand >= 0 && hand < 2) ? g_ctrlIdx[hand] : -1;
-                    float go[3];
-                    if (devT >= 0 && devT < 16 && g_devPoseOk[devT] &&
-                        GripOffsetWorld(hand, g_devPose[devT], go)) {
-                        w[0] -= go[0]; w[1] -= go[1]; w[2] -= go[2];
-                    }
-                }
                 if (w[0] == w[0] && w[1] == w[1] && w[2] == w[2]) {
                     v[0] = w[0]; v[1] = w[1]; v[2] = w[2];
                     useSpace = 0;                                  // BCS_WorldSpace

@@ -1517,10 +1517,6 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     }
     if (!MsReclassify(dev)) return false;
     g_msReady = 1;
-    // VR-33: the wrist ring is a measured landmark, so hand it to the grip
-    // pivot before anyone needs it. This is the good use of owning the
-    // geometry - the split cut it, so the split knows where the wrist is.
-    GripSeedFromMesh();
     Log("ms: ==== READY - mode %s. Numpad 0 cycles the mode, + / - move the "
         "wrist, * picks which arm the wrist knob moves, / re-derives. ====",
         MsModeName(g_msMode));
