@@ -1149,6 +1149,22 @@ static void LoadConfig()
     g_hmAmount        = IniFloat(ini, "Hands", "HandMoveUU", 10.0f);
     g_hmAxis          = (int)IniFloat(ini, "Hands", "HandMoveAxis", 0);
     if (g_hmAxis < 0 || g_hmAxis > 2) g_hmAxis = 0;
+    // VR-33: the draw-scoped bone palette. A RENDER LEVER, so it ships OFF
+    // with a live A/B - Palette=0 leaves MsDraw issuing the single merged draw
+    // it always did, and nothing in the frame path changes.
+    g_mpOn            = IniFloat(ini, "Hands", "Palette", 0) != 0.0f;
+    g_mpAmount        = IniFloat(ini, "Hands", "PaletteAmount", 12.0f);
+    g_mpAxis          = (int)IniFloat(ini, "Hands", "PaletteAxis", 1);
+    if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
+    g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
+    if (g_mpHand < 0 || g_mpHand > 2) g_mpHand = 0;
+    if (g_mpOn)
+        Log("config: [Hands] Palette=1 - the draw-scoped bone palette is ARMED. "
+            "Hand class %s takes a %.1f uu delta on axis %d and the other class "
+            "takes none, so the OTHER HAND IS THE CONTROL. Read the "
+            "ms/palette: lines.",
+            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH (no control)",
+            g_mpAmount, g_mpAxis);
     // 3 = CLIP the triangles that straddle the plane, which is the only rule
     // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
     // triangles and leave a sawtooth one triangle high - on the coarse cuff
@@ -1568,6 +1584,13 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "BoneQuery", g_bqOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "HandMoveTest", g_hmOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "Palette", g_mpOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.1f", g_mpAmount);
+    WritePrivateProfileStringA("Hands", "PaletteAmount", v, ini);
+    _snprintf(v, 64, "%d", g_mpAxis);
+    WritePrivateProfileStringA("Hands", "PaletteAxis", v, ini);
+    _snprintf(v, 64, "%d", g_mpHand);
+    WritePrivateProfileStringA("Hands", "PaletteHand", v, ini);
     _snprintf(v, 64, "%.1f", g_hmAmount);
     WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);
     _snprintf(v, 64, "%d", g_hmAxis);

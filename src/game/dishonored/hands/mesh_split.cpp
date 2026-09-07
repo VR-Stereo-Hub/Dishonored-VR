@@ -1648,6 +1648,21 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 
 // ---- the draw ---------------------------------------------------------------
 
+// D * M for every skinning matrix in the block, where D is a pure translation
+// by T in whatever space the palette is already expressed in. Each matrix is
+// 3 float4 rows, row-major 3x4, with the translation in .w - so a translation
+// composed on the LEFT is exactly "add T to the .w column", and the rotation
+// rows are untouched. Every bone gets the SAME D, which is what keeps the
+// animation: the weighted blend commutes with a common rigid transform.
+static void MpBuild(float* out, const float* src, UINT count, const float* T)
+{
+    memcpy(out, src, sizeof(float) * 4 * count);
+    for (UINT b = 0; b + 3 <= count; b += 3)
+        for (int i = 0; i < 3; i++)
+            out[(b + i) * 4 + 3] = src[(b + i) * 4 + 3] + T[i];
+}
+
+
 // Emit the classes this mode wants, through OUR index buffer. Returns false if
 // it drew nothing, and the caller then does whatever it would have done - which
 // is the fail-soft: an auto-armed lock with no usable split draws the mesh
@@ -1702,6 +1717,34 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     for (int c = lo; c <= hi; c++) count += g_msClsCount[c];
     if (count <= 0) { g_msDraws++; return true; }   // drawing nothing IS the answer
 
+    // WHAT GETS DRAWN, AND IN HOW MANY DRAWS.
+    //
+    // Normally one merged draw over the whole class span, exactly as before.
+    // With the draw-scoped palette armed, one draw PER HAND CLASS instead, so
+    // each can carry its own c6 block - which is the entire point: the two
+    // hands share one upload from the engine and cannot otherwise be given
+    // different deltas. Off, or with no c6 block seen yet, this falls back to
+    // the merged draw and the backend costs nothing.
+    struct MpRange { int cls, start, count; };
+    MpRange rng[2];
+    int nrng = 0;
+    bool perClass = g_mpOn && g_msMode == MS_MODE_HANDS && g_mpCacheN >= 3;
+    if (perClass) {
+        for (int c = MS_CLS_HAND_A; c <= MS_CLS_HAND_B; c++)
+            if (g_msClsCount[c] > 0) {
+                rng[nrng].cls   = c;
+                rng[nrng].start = g_msClsStart[c];
+                rng[nrng].count = g_msClsCount[c];
+                nrng++;
+            }
+        if (!nrng) perClass = false;
+    }
+    if (g_mpOn && g_msMode == MS_MODE_HANDS && g_mpCacheN < 3)
+        InterlockedIncrement(&g_mpNoCache);
+    if (!perClass) {
+        rng[0].cls = -1; rng[0].start = start; rng[0].count = count; nrng = 1;
+    }
+
     // The engine's buffers are put back before returning, on every path. Every
     // reference is taken and released inside this one call, so nothing outlives
     // the detour.
@@ -1731,15 +1774,58 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         return false;
     }
     if (SUCCEEDED(dev->SetIndices(g_msIb))) {
-        if (boundVb)
-            dvr::frame::orig_draw_indexed(dev, type, 0, 0,
-                                          (UINT)(g_msVerts + g_msClipN),
-                                          (UINT)start * 3u, (UINT)count);
-        else
-            dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex,
-                                          numVertices, (UINT)start * 3u,
-                                          (UINT)count);
-        g_msDraws++;
+        for (int r = 0; r < nrng; r++) {
+            // The palette this range draws under. The delta is applied to the
+            // class the tester selected and to no other, so the OTHER hand is
+            // the control: if both move, the per-class scoping is not working
+            // and the reading means nothing.
+            if (perClass) {
+                const bool hit = (g_mpHand == 2) ||
+                                 (g_mpHand == 0 && rng[r].cls == MS_CLS_HAND_A) ||
+                                 (g_mpHand == 1 && rng[r].cls == MS_CLS_HAND_B);
+                if (hit) {
+                    float T[3] = { 0.0f, 0.0f, 0.0f };
+                    if (g_mpAxis >= 0 && g_mpAxis < 3) T[g_mpAxis] = g_mpAmount;
+                    static float buf[4 * 256];
+                    MpBuild(buf, g_mpCache, g_mpCacheN, T);
+                    dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
+                } else {
+                    dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
+                }
+                InterlockedIncrement(&g_mpDraws);
+            }
+            if (boundVb)
+                dvr::frame::orig_draw_indexed(dev, type, 0, 0,
+                                              (UINT)(g_msVerts + g_msClipN),
+                                              (UINT)rng[r].start * 3u,
+                                              (UINT)rng[r].count);
+            else
+                dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex,
+                                              numVertices,
+                                              (UINT)rng[r].start * 3u,
+                                              (UINT)rng[r].count);
+            g_msDraws++;
+        }
+        // A D3D9 constant is CURRENT STATE, not a one-shot (draw_census.cpp:334
+        // paid for that once already). Put the game's own block back, or every
+        // draw after this one inherits our delta.
+        if (perClass)
+            dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
+
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette: %s | %d range(s) | delta (%.1f %.1f %.1f) uu on class "
+            "%s | c6 x%u (%u bones) | %ld per-class draw(s), %ld wanted with no "
+            "c6 cached. If BOTH hands move, the per-class scoping failed and "
+            "the delta is reaching the shared upload; if NEITHER moves, the "
+            "palette is not what skins this mesh.",
+            perClass ? "PER-CLASS" : "merged (backend off, wrong mode, or no c6 yet)",
+            nrng,
+            (g_mpAxis == 0) ? g_mpAmount : 0.0f,
+            (g_mpAxis == 1) ? g_mpAmount : 0.0f,
+            (g_mpAxis == 2) ? g_mpAmount : 0.0f,
+            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH",
+            g_mpCacheN, g_mpCacheN / 3,
+            g_mpDraws, g_mpNoCache);
     }
     dev->SetIndices(savedIb);
     if (savedIb) savedIb->Release();

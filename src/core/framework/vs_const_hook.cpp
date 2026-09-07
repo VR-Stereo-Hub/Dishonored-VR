@@ -217,6 +217,15 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
     // what we left behind. Read-only and gated on g_dcOn.
     if (startReg == 6) DcNotePalette(count);
 
+    // 41.2 (VR-33): the draw-scoped palette. MsDraw rebuilds this block per
+    // hand class at draw time, so it needs the block the GAME asked for -
+    // cached here, ahead of every rewriting path below, for the same reason
+    // the census sits here: what we leave behind is not what was requested.
+    if (g_mpOn && data && startReg == 6 && count >= 3 && count <= 256) {
+        memcpy(g_mpCache, data, sizeof(float) * 4 * count);
+        g_mpCacheN = count;
+    }
+
     // split by bone index so the right arm follows the right hand and the left
     // arm the left. Held off while a diagnostic owns the same uploads.
     if (data && startReg == 6 && g_rtdOn && !g_boneRtGo && !g_rtdIdGo &&

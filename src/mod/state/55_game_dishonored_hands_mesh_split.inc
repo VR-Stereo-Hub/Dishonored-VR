@@ -259,6 +259,38 @@ static uint32_t g_msMinIndex = 0;              // the draw's vertex window
 static int      g_msClsStart[MS_CLS_N];        // triangle offsets in OUR buffer
 static int      g_msClsCount[MS_CLS_N];
 
+// ---- VR-33: the draw-scoped bone palette ------------------------------------
+//
+// The native lane is shut (ENGINE_NOTES: no SkelControl on this build is ever
+// evaluated), so the hands are moved where the draw consumes them: the skinning
+// matrices uploaded to c6. One common rigid delta D is applied to EVERY matrix
+// of one hand class, and that class is drawn under its own palette.
+//
+// Finger animation survives, which is the whole reason this is not a static
+// hand: sum_i w_i (D M_i) v = D (sum_i w_i M_i v). The engine keeps animating
+// M_i; D only moves the result.
+//
+// What it CANNOT do, stated here so it is not rediscovered: this is a GPU-side
+// edit. The engine's own transform is untouched, so weapons, muzzle effects and
+// firing aim do not follow. The weapon half of VR-33 needs its own mechanism.
+//
+// Rung 1, which is what ships here, is a pure TRANSLATION on one hand class
+// with the other class as the control. The rotation half needs the controller
+// pose resolved into this palette's space, and putting an unverified delta and
+// an unverified space in the same build is how a null result becomes
+// unreadable.
+static bool     g_mpOn      = false;   // [Hands] Palette
+static int      g_mpAxis    = 1;       // [Hands] PaletteAxis  0/1/2
+static float    g_mpAmount  = 12.0f;   // [Hands] PaletteAmount, unreal units
+static int      g_mpHand    = 0;       // [Hands] PaletteHand  0=A 1=B 2=both
+// The block the game last uploaded to c6. Cached at the upload rather than read
+// back from the device: a D3D9 constant read-back is a pipeline stall, and the
+// data is already in our hands for free.
+static float    g_mpCache[4 * 256];
+static UINT     g_mpCacheN  = 0;
+static LONG     g_mpDraws   = 0;       // per-class draws issued under a palette
+static LONG     g_mpNoCache = 0;       // per-class draw wanted, no c6 seen yet
+
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing
 // says the wrist is"; the knob exists because a derived number still has to
