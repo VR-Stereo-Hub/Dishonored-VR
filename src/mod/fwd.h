@@ -344,6 +344,12 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
 static const char* MsModeName(int m);
 static void MsTick(void);
 static bool MsCommand(const char* args);
+struct PrField;
+static void PrResolve(void);
+static uint32_t PrOff(const char* cls, const char* prop);
+static void PrDumpSockets(void);
+static void PrTick(void);
+static bool PrCommand(const char* args);
 static void HmPickModels();
 static void GraftTestSet(bool on);
 static void SkcRotZeroNeutral(const char* why);
