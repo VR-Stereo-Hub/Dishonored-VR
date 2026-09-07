@@ -1142,7 +1142,7 @@ static void LoadConfig()
     // is not the three that are closed. PaletteSpace is a QUESTION: 0 is the
     // ENGINE_NOTES answer (the FP view model is drawn in camera space) and 1 is
     // world; a wrong choice reads as a hand that swings with the head.
-    g_pdOn       = IniFloat(ini, "Hands", "PaletteDrive", 1) != 0.0f;
+    g_pdOn       = IniFloat(ini, "Hands", "PaletteDrive", 0) != 0.0f;
     g_pdSpace    = (int)IniFloat(ini, "Hands", "PaletteSpace", 0);
     if (g_pdSpace < 0 || g_pdSpace > 1) g_pdSpace = 0;
     g_pdScaleUU  = IniFloat(ini, "Hands", "PaletteScaleUU", 108.0f);

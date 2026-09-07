@@ -69,12 +69,16 @@
 
 #define PD_MAX_REG 256          // 3 registers a bone, the arms measured 144
 
-// [Hands] PaletteDrive. ON, which is the stated exception to default-OFF: this
-// IS the experiment the test sessions run, exactly like the arm split. It
-// fails soft in every direction - an unrecognised draw, a split that is not
-// ready, a missing controller pose all pass the game's own constants through
-// untouched.
-static bool g_pdOn = true;
+// [Hands] PaletteDrive. It fails soft in every direction - an unrecognised
+// draw, a split that is not ready, a missing controller pose all pass the
+// game's own constants through untouched.
+//
+// DEFAULT OFF, deliberately, and this is a correction. It shipped ON once with
+// its space, its scale and its axis order all ASSUMED, and it put both hands
+// under the floor on a lever several feet long. A lever that ships on and is
+// wrong costs a headset run and teaches nothing; the probe below costs the same
+// run and answers all three questions at once. On is one key away.
+static bool g_pdOn = false;
 static volatile int g_pdToggleReq = 0;
 
 // 0 = the palette is camera-relative (ENGINE_NOTES: Arkane draws the FP view
@@ -112,3 +116,26 @@ static volatile uint32_t g_pdNoBones  = 0;   // matched, but no hand bone on a s
 static volatile uint32_t g_pdBonesHit = 0;   // bone matrices actually replaced
 static double g_pdNextReport = 0.0;
 static uint32_t g_pdLastCount = 0;           // the last c6 size we saw
+
+// THE PROBE. Read-only, and it exists because three things were assumed and all
+// three can be measured from one run:
+//
+//   SPACE  - is the palette camera-relative or world? A camera-relative bone's
+//            origin does NOT move as you turn on the spot; a world one swings
+//            with your yaw. The line prints the origin next to the head yaw, so
+//            turning in place answers it.
+//   SCALE  - the hand bone's origin and the camera position are both printed,
+//            so the distance from the eye to the hand in the palette's own
+//            units can be compared against the 108 uu/m the world measured.
+//   AXES   - the origin's three components are printed with the controller
+//            offset we would have written. Move one controller along one real
+//            axis and read which component follows it.
+//
+// It prints on a timer, not per draw, and it prints the UNWELCOME answer: if
+// the arms palette never arrives, the line says the sizes it did see.
+static bool     g_pdProbe = true;
+static double   g_pdProbeNext = 0.0;
+static float    g_pdProbeOrigin[2][3] = { { 0, 0, 0 }, { 0, 0, 0 } };
+static float    g_pdProbeWant[2][3]   = { { 0, 0, 0 }, { 0, 0, 0 } };
+static uint8_t  g_pdProbeOk[2] = { 0, 0 };
+static uint32_t g_pdProbeCount = 0;

@@ -134,6 +134,26 @@ static int PdRewrite(float* pal, UINT count)
 }
 
 
+// Capture what the palette actually says, so the space, the scale and the axis
+// order stop being assumptions. Read-only: nothing here modifies the upload.
+static void PdProbeCapture(const float* pal, UINT count)
+{
+    g_pdProbeCount = count;
+    const int nb = (int)(count / 3);
+    for (int sd = 1; sd <= 2; sd++) {
+        const int href = g_msHandBone[sd];
+        g_pdProbeOk[sd - 1] = 0;
+        if (href < 0 || href >= nb) continue;
+        PdBoneOrigin(pal, href, g_pdProbeOrigin[sd - 1]);
+        float R[3][3], P[3];
+        if (PdControllerInRig(sd - 1, R, P)) {
+            memcpy(g_pdProbeWant[sd - 1], P, sizeof(P));
+            g_pdProbeOk[sd - 1] = 1;
+        }
+    }
+}
+
+
 // The seam into the constant upload. Returns true when `out` holds a rewritten
 // copy the caller should upload instead of the game's own.
 static bool PdIntercept(UINT startReg, const float* data, UINT count, float* out)
@@ -141,13 +161,15 @@ static bool PdIntercept(UINT startReg, const float* data, UINT count, float* out
     if (startReg != 6 || !data || count < 3 || count > PD_MAX_REG) return false;
     g_pdSeen++;
     g_pdLastCount = count;
-    if (!g_pdOn) return false;
     // The arms draw is the one whose palette is the size the split validated.
     // Anything else is a weapon, an NPC or a static prop and is left alone.
     if (!g_msReady) { g_pdNoSplit++; return false; }
     // Anything that is not the arms is a weapon, an NPC or a static prop.
     // Counted as nothing rather than as a refusal: it is not this draw.
     if ((int)(count / 3) != g_msBones) return false;
+
+    if (g_pdProbe) PdProbeCapture(data, count);
+    if (!g_pdOn) return false;
 
     memcpy(out, data, sizeof(float) * 4 * count);
     const int hit = PdRewrite(out, count);
@@ -207,6 +229,31 @@ static void PdTick(void)
     }
 
     const double now = MaimNowMs();
+    if (g_pdProbe && now >= g_pdProbeNext) {
+        g_pdProbeNext = now + 1000.0;
+        if (!g_pdProbeCount) {
+            Log("pd/probe: the arms palette has not arrived yet - last c6 was "
+                "x%u and the split wants x%d. Until those agree nothing here "
+                "can be measured, and that is a DIFFERENT fault from the "
+                "transform being wrong.", g_pdLastCount, g_msBones * 3);
+        } else {
+            Log("pd/probe: c6 x%u | hmdYaw %+7.1f deg | cam c5 (%8.1f %8.1f "
+                "%8.1f) | L bone origin (%8.2f %8.2f %8.2f) want (%8.2f %8.2f "
+                "%8.2f)%s | R bone origin (%8.2f %8.2f %8.2f) want (%8.2f "
+                "%8.2f %8.2f)%s. TURN ON THE SPOT: an origin that holds still "
+                "is a CAMERA-relative palette, one that swings with the yaw is "
+                "WORLD. MOVE ONE CONTROLLER along one real axis: whichever "
+                "component of `want` follows it names the axis order.",
+                g_pdProbeCount, g_hmdYaw * 57.2958f,
+                g_camPosC5[0], g_camPosC5[1], g_camPosC5[2],
+                g_pdProbeOrigin[0][0], g_pdProbeOrigin[0][1], g_pdProbeOrigin[0][2],
+                g_pdProbeWant[0][0], g_pdProbeWant[0][1], g_pdProbeWant[0][2],
+                g_pdProbeOk[0] ? "" : " (NO CONTROLLER POSE)",
+                g_pdProbeOrigin[1][0], g_pdProbeOrigin[1][1], g_pdProbeOrigin[1][2],
+                g_pdProbeWant[1][0], g_pdProbeWant[1][1], g_pdProbeWant[1][2],
+                g_pdProbeOk[1] ? "" : " (NO CONTROLLER POSE)");
+        }
+    }
     if (now >= g_pdNextReport) {
         g_pdNextReport = now + 15000.0;
         Log("pd: beat - %u palette upload(s) rewritten (%u bone matrices), out "

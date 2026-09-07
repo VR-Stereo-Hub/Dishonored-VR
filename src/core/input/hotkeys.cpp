@@ -164,10 +164,13 @@ static void StereoUpdate()
     if (g_msOn) {
         static bool n0Was = false, adWas = false, sbWas = false,
                     mlWas = false, dvWas = false, dcWas = false;
-        const bool n0 = (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
-        const bool ad = (GetAsyncKeyState(VK_ADD)      & 0x8000) != 0;
-        const bool sb = (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0;
-        const bool ml = (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0;
+        // CTRL + numpad belongs to the palette drive; a held CTRL takes the
+        // split's knob out of the way rather than both firing on one press.
+        const bool msCtl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool n0 = !msCtl && (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
+        const bool ad = !msCtl && (GetAsyncKeyState(VK_ADD)      & 0x8000) != 0;
+        const bool sb = !msCtl && (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0;
+        const bool ml = !msCtl && (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0;
         const bool dv = (GetAsyncKeyState(VK_DIVIDE)   & 0x8000) != 0;
         const bool dc = (GetAsyncKeyState(VK_DECIMAL)  & 0x8000) != 0;
         if (n0 && !n0Was) g_msModeReq   =  1;
@@ -205,12 +208,18 @@ static void StereoUpdate()
     {
         static bool hmWas = false, inWas = false, deWas = false,
                     enWas = false, paWas = false, puWas = false;
-        const bool hm = (GetAsyncKeyState(VK_HOME)   & 0x8000) != 0;
-        const bool in = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
-        const bool de = (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0;
-        const bool en = (GetAsyncKeyState(VK_END)    & 0x8000) != 0;
-        const bool pa = (GetAsyncKeyState(VK_PAUSE)  & 0x8000) != 0;
-        const bool pu = (GetAsyncKeyState(VK_PRIOR)  & 0x8000) != 0;
+        // CTRL + numpad. The tester's board is a 96% with no Home, End,
+        // Insert or Pause at all, so the first set was unreachable on the only
+        // keyboard this is tested on. The numpad is there and the mesh split
+        // owns it BARE, so this takes it with CTRL held - the split's ring is
+        // a shipped default now and needs the plain keys far less.
+        const bool ctl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool hm = ctl && (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) != 0;
+        const bool in = ctl && (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
+        const bool de = ctl && (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) != 0;
+        const bool en = ctl && (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
+        const bool pa = ctl && (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) != 0;
+        const bool pu = ctl && (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) != 0;
         if (hm && !hmWas) g_pdAxisReq   = 1;
         if (in && !inWas) g_pdNudgeReq  = -1;
         if (de && !deWas) g_pdNudgeReq  = 1;
