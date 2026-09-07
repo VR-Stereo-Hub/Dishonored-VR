@@ -1794,14 +1794,26 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         if (axis < 0 || axis > 2) axis = 0;
                         if (axis != g_mpSweepAxis) {
                             g_mpSweepAxis = axis;
+                            // The yaw at the switch is the half that makes the
+                            // reading survive a turn. Axis 1 came back "down",
+                            // which is yaw-invariant and therefore trustworthy
+                            // on its own; "left" and "forward" were reported
+                            // from one facing and cannot yet be told apart from
+                            // world-aligned axes that only LOOKED view-aligned.
+                            // Two cycles at different yaws settle it: same
+                            // directions = view-aligned, rotated = world.
                             Log("ms/palette/sweep: >>> AXIS %d <<< now carrying "
-                                "%+.1f uu on hand class %s, for the next %.1f s. "
+                                "%+.1f uu on hand class %s, for the next %.1f s "
+                                "| hmdYaw=%.1f deg cam=(%.0f %.0f %.0f). "
                                 "Whichever way the hand JUMPS is what palette "
-                                "axis %d means in the world. The other hand is "
+                                "axis %d means AT THIS YAW. The other hand is "
                                 "not moving and is the reference.",
                                 axis, g_mpAmount,
                                 g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH",
-                                (double)g_mpSweepSec, axis);
+                                (double)g_mpSweepSec,
+                                g_hmdYaw * 57.2958f,
+                                g_camPosC5[0], g_camPosC5[1], g_camPosC5[2],
+                                axis);
                         }
                     }
                     float T[3] = { 0.0f, 0.0f, 0.0f };
