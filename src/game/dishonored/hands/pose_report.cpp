@@ -30,10 +30,13 @@ static void PrResolve(void)
     }
 
     Log("pose: ==== VR-33 step 1, the read-only correspondence report ====");
-    Log("pose: %d of %d name(s) resolved. Every one below is quoted from the "
-        "decompiled scripts, so a MISS means the running build's layout "
-        "differs from the corpus - which is a finding, not a failure, and "
-        "nothing is inferred from it.",
+    Log("pose: %d of %d name(s) resolved. A MISS has several possible causes "
+        "and this line must not pick one: the property may be declared on a "
+        "DIFFERENT owner class than the one asked (Mesh is on Engine.Pawn, not "
+        "DishonoredPawn), it may be a FUNCTION rather than a property (the "
+        "component's socket queries are), the owner class may not be loaded "
+        "yet, or the build may genuinely differ from the corpus. The first two "
+        "were the actual cause of both misses on the first run.",
         g_prFound, g_prFound + g_prMissing);
     for (int i = 0; i < PR_MAX_FIELDS && g_prFields[i].cls; i++) {
         if (g_prFields[i].off)
@@ -68,25 +71,25 @@ static uint32_t PrOff(const char* cls, const char* prop)
 // socket names its bone, and the engine states both. It is read entirely
 // through RangeReadable guards, and any pointer that does not survive one is
 // reported rather than followed.
-static void PrDumpSockets(void)
+static bool PrDumpSockets(void)
 {
-    if (!g_pePawn) { Log("pose/dump: no live pawn yet"); return; }
+    if (!g_pePawn) { Log("pose/dump: no live pawn yet"); return false; }
 
     const uint32_t meshOff = PrOff("Pawn", "Mesh");
     if (!meshOff) {
         Log("pose/dump: Pawn.Mesh did not resolve, so the skeletal component "
             "cannot be reached from here. UNKNOWN, not assumed.");
-        return;
+        return false;
     }
     if (!RangeReadable(g_pePawn + meshOff, 4)) {
         Log("pose/dump: the pawn's Mesh slot at +0x%X is not readable", meshOff);
-        return;
+        return false;
     }
     uint8_t* mesh = *(uint8_t**)(g_pePawn + meshOff);
     if (!mesh || ((uintptr_t)mesh & 3) || !RangeReadable(mesh, 0x80)) {
         Log("pose/dump: the pawn's Mesh pointer is %p, which is not a readable "
             "object - reported rather than followed", (void*)mesh);
-        return;
+        return false;
     }
     Log("pose/dump: pawn %p -> SkeletalMeshComponent %p", (void*)g_pePawn, (void*)mesh);
 
@@ -99,17 +102,17 @@ static void PrDumpSockets(void)
         Log("pose/dump: SkeletalMeshComponent.SkeletalMesh (+0x%X) or "
             "SkeletalMesh.Sockets (+0x%X) did not resolve - the socket list is "
             "UNKNOWN on this build", assetOff, sockOff);
-        return;
+        return false;
     }
     if (!RangeReadable(mesh + assetOff, 4)) {
         Log("pose/dump: the SkeletalMesh slot at +0x%X is unreadable", assetOff);
-        return;
+        return false;
     }
     uint8_t* asset = *(uint8_t**)(mesh + assetOff);
     if (!asset || ((uintptr_t)asset & 3) || !RangeReadable(asset, 0x200)) {
         Log("pose/dump: the SkeletalMesh pointer is %p, not a readable asset",
             (void*)asset);
-        return;
+        return false;
     }
     Log("pose/dump: component %p -> SkeletalMesh asset %p", (void*)mesh, (void*)asset);
     // A UE3 dynamic array is { void* data; int count; int max; }, so the count
@@ -117,16 +120,18 @@ static void PrDumpSockets(void)
     // walking off into memory.
     if (!RangeReadable(asset + sockOff, 12)) {
         Log("pose/dump: the socket array header at +0x%X is unreadable", sockOff);
-        return;
+        return false;
     }
     uint8_t** data = *(uint8_t***)(asset + sockOff);
     const int n     = *(int*)(asset + sockOff + 4);
-    if (n < 0 || n > 512 || (n && (!data || ((uintptr_t)data & 3)))) {
-        Log("pose/dump: the socket array reads count=%d data=%p, which is not "
-            "credible - refusing to walk it", n, (void*)data);
-        return;
+    const int cap = *(int*)(asset + sockOff + 8);
+    if (n < 0 || n > 512 || cap < n || (n && (!data || ((uintptr_t)data & 3)))) {
+        Log("pose/dump: the socket array reads count=%d capacity=%d data=%p, "
+            "which is not a credible dynamic array - refusing to walk it",
+            n, cap, (void*)data);
+        return false;
     }
-    Log("pose/dump: %d socket(s) declared on this component", n);
+    Log("pose/dump: %d socket(s) declared (capacity %d)", n, cap);
 
     const uint32_t sn = PrOff("SkeletalMeshSocket", "SocketName");
     const uint32_t bn = PrOff("SkeletalMeshSocket", "BoneName");
@@ -134,23 +139,57 @@ static void PrDumpSockets(void)
     if (!sn || !bn) {
         Log("pose/dump: SocketName/BoneName did not resolve, so the sockets "
             "cannot be named. UNKNOWN.");
-        return;
+        return false;
     }
+    const uint32_t rr = PrOff("SkeletalMeshSocket", "RelativeRotation");
+    const uint32_t rs = PrOff("SkeletalMeshSocket", "RelativeScale");
+    // RelativeScale begins at +0x60 on this build, so a flat 0x60 guard would
+    // not cover it. Guard to the end of the last field actually read.
+    uint32_t need = 0x40;
+    if (rl > need) need = rl; if (rr > need) need = rr; if (rs > need) need = rs;
+    need += 12;
+    int nRead = 0, nSkip = 0;
     for (int i = 0; i < n && i < 64; i++) {
-        if (!RangeReadable((uint8_t*)&data[i], 4)) break;
+        if (!RangeReadable((uint8_t*)&data[i], 4)) { nSkip++; break; }
         uint8_t* so = data[i];
-        if (!so || ((uintptr_t)so & 3) || !RangeReadable(so, 0x60)) continue;
+        if (!so || ((uintptr_t)so & 3) || !RangeReadable(so, need)) { nSkip++; continue; }
         const char* socketName = NameFromIndex(*(uint32_t*)(so + sn));
         const char* boneName   = NameFromIndex(*(uint32_t*)(so + bn));
-        float loc[3] = { 0.0f, 0.0f, 0.0f };
-        if (rl && RangeReadable(so + rl, 12)) memcpy(loc, so + rl, 12);
-        Log("pose/dump:   socket '%s' -> bone '%s'  local (%.2f, %.2f, %.2f)",
+        // A field that cannot be read is UNKNOWN. The first build initialised
+        // the location to zero and printed it either way, so an unreadable
+        // field and a genuine origin looked identical - and a zero TRANSLATION
+        // does not mean an identity frame in any case, which is why the
+        // rotation and scale are printed beside it now.
+        char loc[64] = "UNKNOWN", rot[64] = "UNKNOWN", scl[64] = "UNKNOWN";
+        if (rl && RangeReadable(so + rl, 12)) {
+            float v[3]; memcpy(v, so + rl, 12);
+            _snprintf(loc, sizeof(loc), "%.2f %.2f %.2f", v[0], v[1], v[2]);
+        }
+        if (rr && RangeReadable(so + rr, 12)) {
+            int32_t v[3]; memcpy(v, so + rr, 12);
+            const float k = 180.0f / 32768.0f;
+            _snprintf(rot, sizeof(rot), "%.2f %.2f %.2f deg",
+                      v[0] * k, v[1] * k, v[2] * k);
+        }
+        if (rs && RangeReadable(so + rs, 12)) {
+            float v[3]; memcpy(v, so + rs, 12);
+            _snprintf(scl, sizeof(scl), "%.2f %.2f %.2f", v[0], v[1], v[2]);
+        }
+        Log("pose/dump:   socket '%s' -> owning bone '%s' | loc (%s) rot (%s) "
+            "scale (%s)",
             socketName ? socketName : "?", boneName ? boneName : "?",
-            loc[0], loc[1], loc[2]);
+            loc, rot, scl);
+        nRead++;
     }
-    Log("pose/dump: a socket names an ATTACHMENT frame. It is not yet a grip "
-        "pose for a controller, and the offset between the two is a separate "
-        "calibration that no part of this report measures.");
+    Log("pose/dump: %d socket(s) declared, %d read, %d skipped as unreadable%s. "
+        "A socket names an ATTACHMENT frame and gives its OWNING bone - it does "
+        "NOT give that bone's parent, so nothing here establishes whether an "
+        "attachment joint is a child of the hand. It is also not a grip pose "
+        "for a controller; that offset is a separate calibration this report "
+        "does not measure.",
+        n, nRead, nSkip,
+        (n > 64) ? " and the walk was TRUNCATED at 64" : "");
+    return true;
 }
 
 
@@ -161,9 +200,16 @@ static void PrTick(void)
     // Dump ONCE automatically as soon as a pawn is live. The tester cannot
     // reliably reach the command seam, so an instrument that has to be asked
     // for is an instrument that does not run.
+    // RETRY UNTIL IT ACTUALLY SUCCEEDS. The first build set the done flag
+    // before calling the dump, so a pawn whose mesh or asset was not ready yet
+    // consumed the one automatic attempt and never tried again - a failure
+    // that looked exactly like a completed measurement.
     if (!g_prDumped && g_prTried && g_pePawn) {
-        g_prDumped = true;
-        PrDumpSockets();
+        const double now = MaimNowMs();
+        if (now >= g_prDumpNext) {
+            g_prDumpNext = now + 2000.0;
+            g_prDumped = PrDumpSockets();
+        }
     }
     if (g_prDumpReq) { g_prDumpReq = 0; PrDumpSockets(); }
     if (g_prTried && g_prMissing) {

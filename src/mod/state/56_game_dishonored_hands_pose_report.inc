@@ -39,9 +39,22 @@
 // unknown", and a report that quietly substitutes a guess for a missing field
 // is worse than no report.
 //
-// LANE: the script lane, from the same place arm_follow's probe runs, where
-// the pawn is already proven live. It reads engine memory through the same
-// RangeReadable guards and never writes.
+// LANE: the SCRIPT lane, called from PeHandler beside ArmFollowTick.
+//
+// It did not start there, and the correction is worth recording. The first
+// build said "the script lane, from the same place arm_follow's probe runs"
+// and was called from DcTick, which runs from DvrGameTick - "every enabled
+// present" - so it was reading UE3 objects from the PRESENT THREAD while its
+// own comment claimed otherwise. RangeReadable proves a page is mapped; it
+// does not make a multi-field read of a live object coherent, nor protect
+// against that object being freed between two of those fields. A probe that
+// is wrong about its own lane is worse than one with no comment at all.
+//
+// It was also gated behind g_dcOn, because DcTick returns early when the draw
+// census is off - so turning the census off silently took this report with it.
+// It now runs on its own.
+//
+// It reads engine memory through RangeReadable guards and never writes.
 // ===========================================================================
 
 #define PR_MAX_FIELDS 24
@@ -91,3 +104,4 @@ static int      g_prFound = 0, g_prMissing = 0;
 static volatile int g_prDumpReq = 0;    // one full dump on request
 static double   g_prNextReport = 0.0;
 static bool     g_prDumped = false;    // the one automatic socket dump
+static double   g_prDumpNext = 0.0;    // the automatic dump retries until it works

@@ -102,6 +102,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
         if (!g_camObj && (InterlockedIncrement(&camReval) & 31) == 0) FindLiveCamera();
     }
     ArmFollowTick();                              // VR-30: the arm-follow probe (read-only, finds its own camera)
+    PrTick();                                     // VR-33: the pose/socket report - SCRIPT LANE, where the objects are coherent
     dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
     dvr::camera::apply_offsets(g_camObj);         // the eye offset (aer/reentry) + the lean on the camera lane
     BlinkTestApply();  // 32.14: same lane, same reason

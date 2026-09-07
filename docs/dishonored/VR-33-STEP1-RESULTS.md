@@ -1,5 +1,32 @@
 # VR-33 step 1 results, and the plan for steps 1b-2
 
+> **CORRECTED 2026-09-06 after review. Three of section 2's "established"
+> claims overreached and are withdrawn:**
+>
+> * **Handedness is NOT "right carries the weapon".** The pistol's own tweaks
+>   set `m_Sockets[1]="LeftHandWpn"` (`DisTweaks_WepPistol.uc:28`). The asset
+>   declares left and right weapon sockets; which one a given item uses must be
+>   read per item, live. Verified in the corpus.
+> * **`handAttachment_*_jnt` being a CHILD of the hand chain is not measured.**
+>   A socket's `BoneName` names the bone that OWNS the socket. It says nothing
+>   about that bone's parent. The attachment joints could be descendants,
+>   siblings, or separately driven - and the whole "weapons follow for free"
+>   argument rests on an ancestry nobody has queried.
+> * **`hand_R_jnt` is an inferred spelling.** Only `hand_L_jnt` appears in the
+>   dump. The right-hand bone must be resolved by lookup before it is used.
+>
+> Also withdrawn: a zero *translation* does not establish an identity socket
+> frame - rotation and scale were resolved but never printed. And `camera_jnt`
+> having a socket does not prove the viewmodel's rendering frame; that was
+> already recorded in ENGINE_NOTES:840 and :977 and is not new evidence.
+>
+> The `RefSkeleton`-against-48-bones check in section 3 is also wrong: 48 is
+> the observed GPU palette size for one draw, not a skeleton count. Requiring
+> them to match could reject valid data, and matching counts would not prove
+> matching indices anyway.
+>
+> The plan of record is now `VR-33-STEP1B-PLAN.md`.
+
 **For review before execution.** Everything in section 1 is log output from a
 running build on 2026-09-06. Everything in sections 3 and 4 is a proposal.
 Nothing has been written to game memory; the module that produced this is

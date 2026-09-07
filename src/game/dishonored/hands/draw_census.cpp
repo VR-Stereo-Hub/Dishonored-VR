@@ -553,7 +553,6 @@ static void DcTick()
     if (!g_dcOn) return;
     DcCycleTick();
     MsTick();
-    PrTick();       // VR-33 step 1: the read-only correspondence report
     // STALE LOCK. A level load recreates the buffers, and the old lock then
     // names freed pointers that no draw will ever match again - the mesh comes
     // back whole with nothing in the log to say why. Releasing an automatic

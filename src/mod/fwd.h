@@ -347,7 +347,7 @@ static bool MsCommand(const char* args);
 struct PrField;
 static void PrResolve(void);
 static uint32_t PrOff(const char* cls, const char* prop);
-static void PrDumpSockets(void);
+static bool PrDumpSockets(void);
 static void PrTick(void);
 static bool PrCommand(const char* args);
 static void HmPickModels();
