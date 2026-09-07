@@ -252,8 +252,8 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
         if (g_msOn && !g_msReady && !g_msRefused && g_dcPendingBones >= 2 &&
             g_dcSinceUpload < DC_REUSE_WINDOW) {
             if (!MsBuild(self, baseVertex, minIndex, numVertices, startIndex,
-                         primCount, g_dcPendingBones))
-                g_msRefused = 1;
+                         primCount, g_dcPendingBones) && !g_msRetryLater)
+                g_msRefused = 1;   // a DECLINE is not a refusal - see MsBuild
         }
         // The wrist knob's refill happens HERE, on the render thread, because
         // this is the lane that draws from the buffer being refilled.

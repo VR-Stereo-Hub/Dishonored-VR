@@ -154,6 +154,25 @@ static IDirect3DVertexBuffer9* g_msVb = NULL;
 static bool     g_msOwnVb = false;            // stream 0 is the only stream
 static int      g_msExtraStream = -1;         // which stream vetoed the clip
 
+// THE SAME MESH IS DRAWN BY MORE THAN ONE PASS, AND ONLY SOME OF THEM CAN BE
+// CLIPPED. Measured 2026-09-07: one run locked the arm mesh twice, from the
+// identical vertex and index buffers, and got different answers. The first
+// draw reported "stream 0 is the only stream" and produced 78 clipped
+// triangles and 312 cap triangles; the second reported "stream 2 is also
+// bound", which vetoes owning stream 0, so the clip fell back to whole
+// triangles and the caps vanished. The tester saw the wrist caps disappear
+// between runs with no config change, twice, and this is why.
+//
+// A lock released after the mesh stops being drawn re-arms on whichever pass
+// draws it next, and that is a coin toss. So a draw that cannot be clipped is
+// SKIPPED rather than accepted, and the split waits for a pass it can own -
+// which the first build proves exists. The skips are bounded: after enough of
+// them the degraded split is taken anyway, loudly, because no hands at all is
+// worse than hands with a rougher edge.
+static int      g_msStreamSkips = 0;
+static bool     g_msRetryLater = false;       // declined, but not refused
+#define MS_MAX_STREAM_SKIPS 120
+
 // The knob's step, as a fraction of the arm's length. Three sizes because the
 // right one is not knowable in advance: coarse to find the region, fine to
 // place the ring, ultrafine to settle a boundary a millimetre wide in the

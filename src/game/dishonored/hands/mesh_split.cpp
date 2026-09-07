@@ -1500,8 +1500,34 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     Log("ms: ==== deriving the hand/arm split from bone influence ==== "
         "(draw: base %d, min %u, %u verts, start %u, %u tris, palette %u bones)",
         baseVertex, minIndex, numVertices, startIndex, primCount, bones);
+    g_msRetryLater = false;
     if (!MsRead(dev, baseVertex, minIndex, numVertices, startIndex, primCount, bones))
         return false;
+
+    // WAIT FOR A PASS WE CAN CLIP ON. This mesh is drawn by more than one
+    // pass and only some bind stream 0 alone; accepting a multi-stream one
+    // silently costs the clipped edge and the caps with it. Decline and let
+    // the next matching draw try - this is NOT a refusal, so the lock is not
+    // burned and the good pass still gets its chance.
+    if (!g_msOwnVb && g_msEdge == 3 && g_msStreamSkips < MS_MAX_STREAM_SKIPS) {
+        g_msStreamSkips++;
+        g_msRetryLater = true;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+            "ms: this draw of the mesh binds stream %d as well, so the clip "
+            "cannot run on it - DECLINING and waiting for a pass that binds "
+            "stream 0 alone (skip %d of %d). The same mesh is drawn by several "
+            "passes and only some can be clipped; taking this one is how the "
+            "wrist caps go missing.",
+            g_msExtraStream, g_msStreamSkips, MS_MAX_STREAM_SKIPS);
+        return false;
+    }
+    if (!g_msOwnVb && g_msEdge == 3) {
+        Log("ms: WARNING - %d draws in a row bound a second stream, so no "
+            "clippable pass was found. Taking the whole-triangle cut instead: "
+            "the edge will be a sawtooth and there will be NO caps. That is a "
+            "worse picture than usual and it is deliberate - hands with a rough "
+            "edge beat no hands at all.", g_msStreamSkips);
+    }
     MsBones(bones);
     if (!MsSides()) return false;
     if (!MsWrist(1) || !MsWrist(2)) {
@@ -1517,6 +1543,7 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     }
     if (!MsReclassify(dev)) return false;
     g_msReady = 1;
+    if (g_msOwnVb) g_msStreamSkips = 0;   // a good pass clears the tally
     Log("ms: ==== READY - mode %s. Numpad 0 cycles the mode, + / - move the "
         "wrist, * picks which arm the wrist knob moves, / re-derives. ====",
         MsModeName(g_msMode));

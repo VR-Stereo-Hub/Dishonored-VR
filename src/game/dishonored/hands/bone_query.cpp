@@ -479,10 +479,39 @@ static void BqItems(uint8_t* pawnMesh)
         found++;
         if (found >= 16) { Log("bq/item: stopping at 16"); break; }
     }
-    if (!found)
-        Log("bq/item: no DishonoredItemSkeletalComponent with an m_pItem was "
-            "found at all. That is a finding, not an error - it means nothing "
-            "is equipped through that component right now.");
+    if (!found) {
+        // Nothing matched, and there are two very different reasons for that:
+        // nothing is equipped through this component type, or the runtime
+        // class is not the one the corpus names. Say which by listing what
+        // item-ish component classes DO exist, rather than leaving the reader
+        // to assume the first.
+        Log("bq/item: no DishonoredItemSkeletalComponent carrying an m_pItem "
+            "was found. Listing the component classes that DO exist, because "
+            "'nothing equipped' and 'the runtime class has another name' look "
+            "identical from a zero:");
+        int shown = 0;
+        for (uint32_t i = 0; i < onum && shown < 12; i++) {
+            if ((i & 1023) == 0) {
+                uint32_t left = onum - i; if (left > 1024) left = 1024;
+                if (!RangeReadable(objs + i, left * sizeof(void*))) break;
+            }
+            uint8_t* o = (uint8_t*)objs[i];
+            if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x40)) continue;
+            const char* cn = ObjClassName(o);
+            if (!cn || !strstr(cn, "Item")) continue;
+            static uint32_t seen[16]; static int seenN = 0;
+            const uint32_t ci = *(uint32_t*)(*(uint8_t**)(o + kClassOff) + kNameOff);
+            int dup = 0;
+            for (int k = 0; k < seenN; k++) if (seen[k] == ci) dup = 1;
+            if (dup) continue;
+            if (seenN < 16) seen[seenN++] = ci;
+            Log("bq/item:   class present: %s", cn);
+            shown++;
+        }
+        if (!shown)
+            Log("bq/item:   none at all with 'Item' in the class name, so the "
+                "inventory is genuinely empty of item components right now");
+    }
     Log("bq/item: the bone above is where the item IS attached, read from the "
         "parent's own record. It is NOT the authored socket default, which for "
         "the pistol is LeftHandWpn - a report built on defaults would name the "
