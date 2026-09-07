@@ -339,6 +339,13 @@ static bool MsUpload(IDirect3DDevice9* dev);
 static bool MsReclassify(IDirect3DDevice9* dev);
 static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
                     UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
+struct MsContract;
+static bool PcCapture(IDirect3DDevice9* dev, const MsContract* con, UINT primCount,
+                      int cls, const float* ourQ);
+static void PcTick(void);
+static void PcStart(void);
+static void PcStop(void);
+static bool PcCommand(const char* args);
 static void MpOnReset(void);
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);

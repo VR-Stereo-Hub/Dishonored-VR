@@ -1835,67 +1835,92 @@ static void MpBuild(float* out, const float* src, UINT count, const float* T)
 // it drew nothing, and the caller then does whatever it would have done - which
 // is the fail-soft: an auto-armed lock with no usable split draws the mesh
 // exactly as the game asked for it.
+// THE GEOMETRY QUALIFIER, shared by the draw and the capture.
+//
+// Pulled out of MsDraw so the capture can ask "is this the hand draw, and does
+// it match the contract the split was built from?" WITHOUT calling MsDraw,
+// which actually draws and changes device state. A qualifier that has to draw
+// to answer is not a qualifier.
+//
+// Read-only: it takes no reference it does not release, and it writes only the
+// out-parameters. `why` gets a short reason on refusal so a capture that never
+// fires can say which field disagreed.
+struct MsContract {
+    UINT stream0Off, stride, startIndex, minIndex, numVertices;
+    INT  baseVertex;
+    void* decl;
+};
+
+static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                      UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount,
+                      MsContract* out, const char** why)
+{
+    const char* dummy = NULL;
+    if (!why) why = &dummy;
+    *why = NULL;
+    if (!dev)                        { *why = "no device";        return false; }
+    if (!g_msReady || !g_msIb)       { *why = "no split built";   return false; }
+    if (type != D3DPT_TRIANGLELIST)  { *why = "not a triangle list"; return false; }
+    if ((int)primCount != g_msTris)  { *why = "primitive count";  return false; }
+
+    // A FAILED QUERY MUST NOT CERTIFY THE CONTRACT. These used to leave their
+    // outputs at zero/NULL on failure, and the comparisons then skipped the
+    // very fields that could not be read - an unreadable device state passed
+    // as compatible.
+    UINT curOff = 0; IDirect3DVertexBuffer9* vb0 = NULL; UINT s0 = 0;
+    const bool ssOk = SUCCEEDED(dev->GetStreamSource(0, &vb0, &curOff, &s0)) && vb0 != NULL;
+    if (vb0) vb0->Release();
+    IDirect3DVertexDeclaration9* d = NULL; void* dp = NULL;
+    const bool dclOk = SUCCEEDED(dev->GetVertexDeclaration(&d)) && d != NULL;
+    if (d) { dp = d; d->Release(); }
+    if (!ssOk || !dclOk) { *why = "device state unreadable"; return false; }
+
+    if (baseVertex != g_msBuiltBaseVertex)      { *why = "base vertex";   return false; }
+    if (minIndex != g_msBuiltMinIndex)          { *why = "min index";     return false; }
+    if (numVertices != g_msBuiltNumVerts)       { *why = "vertex count";  return false; }
+    if (curOff != g_msBuiltStream0Off)          { *why = "stream0 offset"; return false; }
+    if ((int)startIndex != g_msBuiltStartIndex) { *why = "start index";   return false; }
+    if (g_msStride && s0 != g_msStride)         { *why = "stream stride"; return false; }
+    if (g_msBuiltDecl && dp != g_msBuiltDecl)   { *why = "declaration";   return false; }
+
+    if (out) {
+        out->stream0Off = curOff; out->stride = s0; out->startIndex = startIndex;
+        out->minIndex = minIndex; out->numVertices = numVertices;
+        out->baseVertex = baseVertex; out->decl = dp;
+    }
+    return true;
+}
+
+
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
 {
     g_msPassThrough = false;
-    if (!g_msReady || !g_msIb || g_msMode == MS_MODE_OFF) return false;
-    if (type != D3DPT_TRIANGLELIST) return false;
-    if ((int)primCount != g_msTris) return false;   // a different draw of this pair
-
-    // THE DRAW CONTRACT. A matching primitive count is not a matching draw:
-    // our index list is re-based onto our own vertex buffer, so a different
-    // vertex window, base vertex or stream-0 offset makes those indices
-    // address the wrong data. Refuse, and tell the caller to draw it NORMALLY -
-    // otherwise it falls through to suppression and the mesh vanishes, because
-    // the auto-arm fail-soft only covers the case where no split exists.
+    if (g_msMode == MS_MODE_OFF) return false;
+    MsContract con;
     {
-        // A FAILED QUERY MUST NOT CERTIFY THE CONTRACT. These used to leave
-        // their outputs at zero/NULL on failure, and the comparisons below
-        // then skipped the very fields that could not be read - so an
-        // unreadable device state passed as compatible.
-        UINT curOff = 0; IDirect3DVertexBuffer9* vb0 = NULL; UINT s0 = 0;
-        const bool ssOk = SUCCEEDED(dev->GetStreamSource(0, &vb0, &curOff, &s0)) && vb0 != NULL;
-        if (vb0) vb0->Release();
-        IDirect3DVertexDeclaration9* d = NULL; void* dp = NULL;
-        const bool dclOk = SUCCEEDED(dev->GetVertexDeclaration(&d)) && d != NULL;
-        if (d) { dp = d; d->Release(); }
-        if (!ssOk || !dclOk) {
-            g_msIncompat++;
-            g_msPassThrough = true;
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
-                "ms: REFUSED - could not read the device state the contract is "
-                "checked against (stream source %s, declaration %s). Drawing "
-                "normally: an unreadable state is not a matching one.",
-                ssOk ? "ok" : "FAILED", dclOk ? "ok" : "FAILED");
-            return false;
-        }
-        // startIndex and the stream STRIDE are part of the contract the split
-        // was built from and were stored but never compared - a draw could
-        // differ in either and still be accepted, and both change which bytes
-        // our re-based indices address. They are compared now.
-        if (baseVertex != g_msBuiltBaseVertex || minIndex != g_msBuiltMinIndex ||
-            numVertices != g_msBuiltNumVerts || curOff != g_msBuiltStream0Off ||
-            (int)startIndex != g_msBuiltStartIndex ||
-            (g_msStride && s0 != g_msStride) ||
-            (g_msBuiltDecl && dp != g_msBuiltDecl)) {
+        const char* why = NULL;
+        if (!MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex,
+                       primCount, &con, &why)) {
+            // Not this geometry at all: stay silent and let the caller decide.
+            if (!g_msReady || !g_msIb || type != D3DPT_TRIANGLELIST ||
+                (int)primCount != g_msTris)
+                return false;
+            // It IS this geometry but the contract disagrees. Draw it NORMALLY
+            // rather than replacing or dropping it - our indices are re-based
+            // and would address the wrong vertices, and the auto-arm fail-soft
+            // only covers the case where no split exists.
             g_msIncompat++;
             g_msPassThrough = true;
             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
                 "ms: a draw of this geometry does NOT match the contract the "
-                "split was built from (base %d vs %d, min %u vs %u, verts %u vs "
-                "%u, stream0 off %u vs %u, startIndex %u vs %d, stride %u vs "
-                "%u, decl %p vs %p). Drawing it normally rather than replacing "
-                "or dropping it - our indices are re-based and would address "
-                "the wrong vertices.",
-                baseVertex, g_msBuiltBaseVertex, minIndex, g_msBuiltMinIndex,
-                numVertices, g_msBuiltNumVerts, curOff, g_msBuiltStream0Off,
-                startIndex, g_msBuiltStartIndex, s0, g_msStride,
-                dp, g_msBuiltDecl);
+                "split was built from - %s disagrees (base %d vs %d, min %u vs "
+                "%u, verts %u vs %u, startIndex %u vs %d). Drawing it normally.",
+                why, baseVertex, g_msBuiltBaseVertex, minIndex, g_msBuiltMinIndex,
+                numVertices, g_msBuiltNumVerts, startIndex, g_msBuiltStartIndex);
             return false;
         }
     }
-
     int lo, hi;
     switch (g_msMode) {
     case MS_MODE_HANDS: lo = MS_CLS_HAND_A; hi = MS_CLS_HAND_B; break;
@@ -1908,6 +1933,24 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     int count = 0;
     for (int c = lo; c <= hi; c++) count += g_msClsCount[c];
     if (count <= 0) { g_msDraws++; return true; }   // drawing nothing IS the answer
+
+    // VR-33 step 2: capture this qualified draw BEFORE any per-hand palette
+    // modification, so the packet records the state the GAME asked for. The
+    // qualifier above has already run and its contract is in `con` - the
+    // capture never calls MsDraw to find out whether it should fire, because
+    // MsDraw draws.
+    if (g_pcOn && g_pcWant > 0 && g_mpPalN && g_mpCacheN == g_mpPalN) {
+        float ourQ[3];
+        const int cls = MS_CLS_HAND_A;
+        if (MpAnchorPos(cls, g_mpCache, g_mpCacheN, ourQ)) {
+            if (PcCapture(dev, &con, primCount, cls, ourQ)) g_pcWant--;
+        } else {
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                "pcap: the anchor REFUSED at a qualified draw, so no packet was "
+                "taken - a capture whose own claimed palm position could not be "
+                "computed would be constants with nothing to check them against.");
+        }
+    }
 
     // WHAT GETS DRAWN, AND IN HOW MANY DRAWS.
     //
@@ -2401,6 +2444,7 @@ static void MpDriveTick(void)
 static void MsTick(void)
 {
     MpDriveTick();
+    PcTick();
     // The palette's stepped axis probe. Present thread, no D3D touched - the
     // draw detour reads g_mpStepAxis next time it runs.
     if (InterlockedExchange(&g_mpStepReq, 0)) {

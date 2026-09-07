@@ -1163,6 +1163,7 @@ static void LoadConfig()
     if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
     if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
     g_mpAbs           = IniFloat(ini, "Hands", "PaletteAbsolute", 0) != 0.0f;
+    g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
     g_mpWsumTol       = IniFloat(ini, "Hands", "PaletteWeightTol", 0.02f);
     if (g_mpWsumTol < 0.0001f) g_mpWsumTol = 0.0001f;
     g_mpFrameProbe    = IniFloat(ini, "Hands", "PaletteFrameProbe", 0) != 0.0f;
@@ -1648,6 +1649,7 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%d", g_mpYawMode);
     WritePrivateProfileStringA("Hands", "PaletteYawFix", v, ini);
     WritePrivateProfileStringA("Hands", "PaletteAbsolute", g_mpAbs ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.4f", g_mpWsumTol);
     WritePrivateProfileStringA("Hands", "PaletteWeightTol", v, ini);
     WritePrivateProfileStringA("Hands", "PaletteFrameProbe", g_mpFrameProbe ? "1" : "0", ini);
