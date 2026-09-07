@@ -441,6 +441,7 @@ static bool     g_mpOriginOk[2] = { false, false };
 static bool     g_mpWorld     = false;  // [Hands] PaletteWorld
 static float    g_mpCtlRUF[2][3];       // controller offset from head: right/up/fwd, metres
 static bool     g_mpCtlRUFOk[2] = { false, false };
+static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
 static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason
 static const char* g_mpWorldWhy = "not run yet";

@@ -1769,7 +1769,18 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
 {
     const char* dummy = NULL; if (!why) why = &dummy;
     if (hand < 0 || hand > 1)        { *why = "bad hand";        return false; }
-    if (!g_mpCtlRUFOk[hand])         { *why = "no controller pose"; return false; }
+    if (!g_mpCtlRUFOk[hand]) {
+        // Name the CAUSE, not the symptom. A pose that was never published
+        // because the publishing tick did not run looks identical downstream
+        // to a controller that lost tracking, and that ambiguity has now cost
+        // three runs.
+        *why = (g_mpTickRan == 0)
+             ? "the pose tick has NEVER RUN - the palette backend is off, or "
+               "this build gated the tick on a flag that is not set"
+             : "the controller pose is invalid (tracking lost or not yet "
+               "acquired); the pose tick is running";
+        return false;
+    }
     if (g_pcLayVp < 0 || g_pcLayL2W < 0) { *why = "no shader layout"; return false; }
 
     float vp[4][4], l2w[4][4];
@@ -2342,14 +2353,20 @@ static const char* MsModeName(int m)
 // its own and cannot race the thread that owns them.
 static void MpDriveTick(void)
 {
-    // EITHER consumer needs the poses. Gating this on g_mpDrive alone meant
-    // PaletteAbsolute=1 with PaletteDrive=0 published no controller position
-    // at all, so the draw had nothing to place the palm at and silently drew
-    // the engine's own hands - which look like hands, so it read as "they do
-    // not respond" rather than as a dead lane. Second time this session a
-    // tick has been hidden behind another feature's flag (MsTick behind
-    // g_dcOn); the pattern is worth watching for.
-    if (!g_mpDrive && !g_mpAbs) return;
+    // GATED ON THE BACKEND, NOT ON ITS CONSUMERS. This has now gone wrong
+    // three times, each time the same shape: MsTick hidden behind g_dcOn,
+    // then the poses behind g_mpDrive when PaletteAbsolute needed them, then
+    // behind g_mpDrive||g_mpAbs when PaletteWorld needed them. Every time the
+    // engine's own hands were drawn instead, and every time that read as "the
+    // feature does not work" rather than as a lane that never ran.
+    //
+    // Listing consumers in a gate means the gate must be edited whenever one
+    // is added, and it will be forgotten again. So the condition is the
+    // BACKEND being on. All three modes require g_mpOn, the work is a handful
+    // of dot products per hand per present, and a mode added tomorrow gets its
+    // poses without anyone remembering to come back here.
+    if (!g_mpOn) return;
+    InterlockedIncrement(&g_mpTickRan);
     const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
     // The residual, once per tick so both hands use the same number.
     g_mpPhiRad = g_viewYawRad - g_hmdYaw;
@@ -2437,7 +2454,10 @@ static void MpDriveTick(void)
         // controller is still however the head moves. A stick turn rotates the
         // frame without rotating the head, so the hand rides round with the
         // body - which is what it should do.
-        if (!g_mpNeutralOk[h]) {
+        // The relative drive's neutral is only meaningful to the relative
+        // drive. Capturing and announcing it in world mode would put a line in
+        // the log about a mechanism that mode does not use.
+        if (!g_mpNeutralOk[h] && (g_mpDrive || g_mpAbs)) {
             memcpy(g_mpNeutral[h], w, sizeof(w));
             g_mpNeutralOk[h] = true;
             Log("ms/palette/drive: hand %d NEUTRAL captured at WORLD-relative "
