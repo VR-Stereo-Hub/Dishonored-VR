@@ -420,30 +420,3 @@ static int      g_skcProbeFails = 0;
 static uint32_t g_skcObjIdx[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 static void*    g_skcObjCls[8] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 static volatile LONG g_skcStale = 0;
-
-// VR-33 / the VR-30 regression: THE HAND OFFSET MUST BE HEAD-RELATIVE.
-//
-// The world placement is "camera position + the controller's offset from your
-// head, rotated by the GAME's camera basis". The second half is right. The
-// first half was not: the offset was the controller's position minus a FIXED
-// captured neutral point, in RAW TRACKING SPACE, and it was never expressed in
-// the head's own frame.
-//
-// The mod injects the head's yaw into the game camera, so that camera basis
-// has already turned with your head. Rotating an offset that still carries the
-// head's yaw by a basis that also carries it applies the yaw TWICE, and the
-// hands swing the wrong way when you look around - which is the fault VR-30
-// exists to kill, arriving from a second direction.
-//
-// Measuring from a fixed neutral instead of from the LIVE head is the other
-// half: every step the player takes and every time they lean is baked in as
-// error that never decays, which is why the hands sat far from where they
-// belong rather than merely rotating wrongly.
-//
-// So: take the offset from the LIVE head pose, de-rotate it by the HMD yaw the
-// injector matched this frame (g_injHmdYawSnap - the same quantity the rotation
-// drive uses, so the two lanes cannot disagree), and only then hand it to the
-// camera basis. [Hands] HeadRelative=0 restores the old path exactly.
-static bool g_skcHeadRel = true;
-static volatile uint32_t g_skcHeadRelOk = 0;    // frames the live head was used
-static volatile uint32_t g_skcHeadRelNo = 0;    // frames it fell back

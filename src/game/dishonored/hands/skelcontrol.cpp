@@ -601,33 +601,6 @@ static void ApplyHandToMeshInner()
                 float dp[3] = { ph[0]-g_skcNeutral[hand][0],
                                 ph[1]-g_skcNeutral[hand][1],
                                 ph[2]-g_skcNeutral[hand][2] };
-                // HEAD-RELATIVE, and de-rotated by the head's own yaw. See the
-                // note in state chunk 12: the offset below is about to be
-                // rotated by the game camera basis, and that basis already
-                // carries the head yaw this mod injected. An offset that still
-                // carries it too gets the yaw applied twice, and the hands
-                // swing the wrong way on every look - the VR-30 fault by
-                // another road. Measuring from the LIVE head rather than a
-                // captured neutral also stops every step and lean the player
-                // has taken since capture from accumulating as position error.
-                if (g_skcHeadRel && g_devPoseOk[0]) {
-                    float (*hp)[4] = g_devPose[0];
-                    const float hx = hp[0][3], hy = hp[1][3], hz = hp[2][3];
-                    float d2[3] = { ph[0] - hx, ph[1] - hy, ph[2] - hz };
-                    const float cy = cosf(-g_injHmdYawSnap);
-                    const float sy = sinf(-g_injHmdYawSnap);
-                    // Yaw is about tracking-space Y (up), so X and Z turn.
-                    const float rx =  d2[0] * cy + d2[2] * sy;
-                    const float rz = -d2[0] * sy + d2[2] * cy;
-                    if (rx == rx && rz == rz && d2[1] == d2[1]) {
-                        dp[0] = rx; dp[1] = d2[1]; dp[2] = rz;
-                        g_skcHeadRelOk++;
-                    } else {
-                        g_skcHeadRelNo++;
-                    }
-                } else if (g_skcHeadRel) {
-                    g_skcHeadRelNo++;
-                }
                 // UE3 bone space: X forward, Y right, Z up
                 float sc = g_skcWorld ? g_skcWorldScale : g_skcScaleUU;
                 v[0] = dp[2] * sc;
