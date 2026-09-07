@@ -24,6 +24,74 @@ static bool PcHashSeen(uint32_t h)
 }
 
 
+// ---- shader reflection ------------------------------------------------------
+//
+// THE REGISTER NUMBERS ARE READ FROM THE SHADER, NEVER ASSUMED. Three shaders
+// draw this mesh and they do NOT agree: MeshOrigin sits at c235 in one and
+// c238 in the others, and one of them defines c4 as an immediate (3,1,0,0)
+// while the device reports (0,0,0,1) for the same register. A layout guessed
+// from one shader would be silently wrong on the next, and a device read of a
+// def'd register is wrong by construction - the shader's own value wins.
+//
+// Shader Model 3 bytecode carries a CTAB comment block naming every constant
+// and its register. Parsing it makes the capture self-describing.
+struct PcLayout {
+    int vp, bones, bonesN, localToWorld, worldToLocal, meshOrigin, meshExtension;
+    bool ok;
+};
+
+static bool PcReflect(const uint8_t* code, UINT len, PcLayout* out)
+{
+    if (!code || len < 8 || !out) return false;
+    memset(out, 0, sizeof(*out));
+    out->vp = out->bones = out->localToWorld = out->worldToLocal = -1;
+    out->meshOrigin = out->meshExtension = -1;
+
+    UINT off = 4;                            // past the version token
+    while (off + 4 <= len) {
+        uint32_t tok;
+        memcpy(&tok, code + off, 4);
+        if ((tok & 0xFFFF) != 0xFFFE) { off += 4; continue; }
+        const UINT n = (tok >> 16) & 0x7FFF;
+        if (off + 8 > len) break;
+        if (memcmp(code + off + 4, "CTAB", 4) != 0) { off += 4 * (n + 1); continue; }
+
+        const UINT base = off + 8;
+        if (base + 28 > len) return false;
+        uint32_t hdr[7];
+        memcpy(hdr, code + base, 28);
+        const uint32_t nconst = hdr[3], cinfo = hdr[4];
+        if (nconst > 256) return false;      // not a table we understand
+        for (uint32_t k = 0; k < nconst; k++) {
+            const UINT o = base + cinfo + k * 20;
+            if (o + 20 > len) return false;
+            uint32_t nameOff; uint16_t rset, ridx, rcnt;
+            memcpy(&nameOff, code + o, 4);
+            memcpy(&rset, code + o + 4, 2);
+            memcpy(&ridx, code + o + 6, 2);
+            memcpy(&rcnt, code + o + 8, 2);
+            const UINT no = base + nameOff;
+            if (no >= len) return false;
+            const char* nm = (const char*)(code + no);
+            UINT maxn = len - no, sl = 0;
+            while (sl < maxn && nm[sl]) sl++;
+            if (sl >= maxn) return false;     // unterminated
+            if (rset != 2) continue;          // float bank only
+            if (!strcmp(nm, "ViewProjectionMatrix")) out->vp = ridx;
+            else if (!strcmp(nm, "BoneMatrices"))    { out->bones = ridx; out->bonesN = rcnt; }
+            else if (!strcmp(nm, "LocalToWorld"))    out->localToWorld = ridx;
+            else if (!strcmp(nm, "WorldToLocal"))    out->worldToLocal = ridx;
+            else if (!strcmp(nm, "MeshOrigin"))      out->meshOrigin = ridx;
+            else if (!strcmp(nm, "MeshExtension"))   out->meshExtension = ridx;
+        }
+        // The three that placement cannot proceed without.
+        out->ok = (out->vp >= 0 && out->bones >= 0 && out->localToWorld >= 0);
+        return true;
+    }
+    return false;
+}
+
+
 // ---- the worker -------------------------------------------------------------
 //
 // Owns bytes, never D3D objects. Hashing, disassembly and file writing all
@@ -101,6 +169,10 @@ static void PcWritePacket(const PcPacket* k)
     fprintf(f, "# Game-derived. Local only: dumps/ is gitignored.\n");
     fprintf(f, "id %u\nbytecode %08X\nresetEpoch %u\nframe %u\neye %d\npaletteGen %u\n",
             k->id, k->bytecodeHash, k->resetEpoch, k->frame, k->eye, k->paletteGen);
+    fprintf(f, "layout vp %d bones %d bonesN %d localToWorld %d worldToLocal %d "
+               "meshOrigin %d meshExtension %d\n",
+            k->layVp, k->layBones, k->layBonesN, k->layL2W, k->layW2L,
+            k->layOrigin, k->layExtension);
     fprintf(f, "draw baseVertex %d minIndex %u numVertices %u startIndex %u "
                "primCount %u stream0Off %u stride %u\n",
             k->baseVertex, k->minIndex, k->numVertices, k->startIndex,
@@ -206,6 +278,22 @@ static bool PcCapture(IDirect3DDevice9* dev, const MsContract* con, UINT primCou
         return false;
     }
     k->bytecodeHash = PcHash(code, codeLen);
+
+    // The layout THIS shader declares. A packet without it is constants with
+    // no key, so the capture refuses rather than saving one.
+    PcLayout lay;
+    if (!PcReflect(code, codeLen, &lay) || !lay.ok) {
+        InterlockedIncrement(&g_pcFailed);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+            "pcap: FAILED - shader %08X has no readable constant table, or it "
+            "names no ViewProjectionMatrix/BoneMatrices/LocalToWorld. Register "
+            "numbers are never assumed: three shaders draw this mesh and they "
+            "disagree about where MeshOrigin lives.", k->bytecodeHash);
+        return false;
+    }
+    k->layVp = lay.vp; k->layBones = lay.bones; k->layBonesN = lay.bonesN;
+    k->layL2W = lay.localToWorld; k->layW2L = lay.worldToLocal;
+    k->layOrigin = lay.meshOrigin; k->layExtension = lay.meshExtension;
 
     // --- the constants actually in force ------------------------------------
     //

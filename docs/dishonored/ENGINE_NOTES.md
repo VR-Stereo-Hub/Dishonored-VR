@@ -3261,6 +3261,65 @@ A mismatch is passed through to the original draw - NOT dropped: once a split
 is ready the caller's auto-arm fail-soft no longer applies, so declining used
 to suppress the mesh entirely.
 
+## The view-model's vertex path, read from the shader (VR-33 step 2, 2026-09-07)
+
+Captured from a qualified hand draw and read out of the shader's own
+disassembly and constant table. This replaces every inferred answer about the
+palette's origin, including the "pawn root" conjecture, which was wrong.
+
+### The chain
+
+```
+p_local = ( sum_i w_i * BoneMatrix[idx_i] ) * ( v0 * MeshExtension + MeshOrigin )
+p_cam   = LocalToWorld * p_local
+clip    = ViewProjectionMatrix * p_cam
+```
+
+`BoneMatrices` is declared `float4x3[75]` - three registers per bone, bone `b`
+at `base + 3b`, `base + 3b + 1`, `base + 3b + 2`. The observed uploads carry 48
+matrices (144 registers), well inside the declared 75.
+
+**Weights are NOT normalised by the shader.** It sums `w_i * M_i` into one
+blended matrix and applies it once. So if the effective weights do not sum to
+one, a palette translation `T` moves the vertex by `wsum * T` and not by `T` -
+the hazard the review raised is real, and the anchor's tolerance check is the
+right guard.
+
+**The blend index order is swizzled.** The shader computes `a0` from
+`3 * blendindices` and then reads `.yxzw`, pairing weight `.y` with index `.y`
+and `.x` with `.x`. The pairing is correct; only the evaluation order differs.
+
+### Where the palette's output actually lives
+
+`p_local` is in the COMPONENT'S LOCAL SPACE, and `LocalToWorld` maps it to a
+**camera-relative** world frame - positions relative to the camera, world axes.
+Checked numerically on a captured packet: the anchor at local
+`(24.5, -142.5, 58.0)` maps to `(-46.2, 11.3, -24.6)`, about 53 uu from the
+origin, which is where a hand sits relative to a head. The ~138 uu vertical
+term in the old calibrated offset was simply the component's local origin.
+
+**`LocalToWorld`'s rotation does not follow the head.** Across captures with
+head yaw from -0.79 to +0.66 rad its rotation columns are identical to six
+decimal places and only its translation moves. This CONTRADICTS the earlier
+perceptual reading that the palette frame rotates with the head, and the
+constants are the stronger evidence. Both readings are kept here because the
+disagreement is the useful part.
+
+### Register numbers are per shader and must never be hard-coded
+
+Three shaders draw this mesh in one run. They agree on `ViewProjectionMatrix`
+at c0, `BoneMatrices` at c6 and `LocalToWorld` at c231, and they DISAGREE
+elsewhere: `MeshOrigin`/`MeshExtension` at c235/c236 in one and c238/c239 in
+the others, with `WorldToLocal` at c235 present only in two.
+
+Worse, one shader defines c4 as an immediate `(3, 1, 0, 0)` while the device
+reports `(0, 0, 0, 1)` for that register. A shader immediate overrides what the
+API supplied, so reading that register from the device would have been wrong by
+construction.
+
+The proxy therefore parses each shader's CTAB constant table at capture time
+and uses the register indices it declares. Nothing about the layout is assumed.
+
 ## The bone palette's basis, measured (VR-33 rung 1, 2026-09-07)
 
 The skinning matrices the game uploads to `c6` (48 bones, `c6 x144`, 3 float4

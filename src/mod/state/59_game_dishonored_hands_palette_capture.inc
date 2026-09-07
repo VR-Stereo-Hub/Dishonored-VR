@@ -59,6 +59,12 @@ struct PcPacket {
     UINT     constBCount;
     BOOL     constB[PC_MAX_CONSTB];
 
+    // The register layout THIS shader declares, read from its own constant
+    // table. Never assumed: the three shaders that draw this mesh disagree
+    // about where MeshOrigin lives, and one def's a register the device
+    // reports differently.
+    int      layVp, layBones, layBonesN, layL2W, layW2L, layOrigin, layExtension;
+
     // The draw's own contract, so the offline side can reproduce the inputs.
     INT      baseVertex;
     UINT     minIndex, numVertices, startIndex, primCount, stream0Off, stride;
