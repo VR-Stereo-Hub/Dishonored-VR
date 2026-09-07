@@ -233,6 +233,12 @@ static void StereoUpdate()
         if (en && !enWas) g_pdToggleReq = 1;
         if (pa && !paWas) g_pdSideReq   = 1;
         if (pu && !puWas) g_pdSpaceReq  = 1;
+        // Ctrl+Num1: how a bone's three rows are read. The one switch
+        // that separates a wrong basis from a wrong reference bone.
+        static bool trWas = false;
+        const bool tr = ctl && (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
+        if (tr && !trWas) g_pdTransReq = 1;
+        trWas = tr;
         {
             static double heldP = 0.0, nextP = 0.0;
             const double now = MaimNowMs();

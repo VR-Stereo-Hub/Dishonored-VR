@@ -24,13 +24,38 @@ static void PdApplyDelta(float* pal, int bone, const float (*R)[3], const float*
     for (int r = 0; r < 3; r++)
         for (int c = 0; c < 4; c++) m[r][c] = pal[(b + r) * 4 + c];
 
+    // THE STORAGE IS TRANSPOSED, and getting that wrong is what put the hand
+    // on a lever feet long while its POSITION still landed correctly.
+    //
+    // A D3D skinning palette holds each bone as three float4s that are the
+    // transpose of a 4x3: row r is matrix COLUMN r, and the w of each row is
+    // that component of the translation. So for the stored S,
+    //
+    //     S[r][c] = M[c][r]  for c < 3,     S[r][3] = T_r
+    //
+    // The translation therefore reads and transforms like an ordinary vector,
+    // which is why the probe's bone origins were sensible and why there is one
+    // controller angle where the hand sits exactly right. The basis does not.
+    // Applying M' = R.M to the stored form gives
+    //
+    //     S'[r][c] = M'[c][r] = sum_k R[c][k].M[k][r] = sum_k S[r][k].R[c][k]
+    //
+    // so the basis multiplies by R TRANSPOSED and along the row, while the
+    // translation column multiplies by R the ordinary way down the rows. The
+    // two halves genuinely use different index patterns; that asymmetry IS the
+    // transpose, and the first build applied the translation's pattern to both.
     for (int r = 0; r < 3; r++) {
-        for (int c = 0; c < 4; c++) {
+        float t = 0.0f;
+        for (int k = 0; k < 3; k++) t += R[r][k] * m[k][3];
+        for (int c = 0; c < 3; c++) {
             float v = 0.0f;
-            for (int k = 0; k < 3; k++) v += R[r][k] * m[k][c];
+            if (g_pdTranspose)
+                for (int k = 0; k < 3; k++) v += m[r][k] * R[c][k];
+            else
+                for (int k = 0; k < 3; k++) v += R[r][k] * m[k][c];
             pal[(b + r) * 4 + c] = v;
         }
-        pal[(b + r) * 4 + 3] += T[r];
+        pal[(b + r) * 4 + 3] = t + T[r];
     }
 }
 
@@ -161,6 +186,42 @@ static void PdProbeCapture(const float* pal, UINT count)
         g_pdProbeOk[sd - 1] = 0;
         if (href < 0 || href >= nb) continue;
         PdBoneOrigin(pal, href, g_pdProbeOrigin[sd - 1]);
+        // IS THE PIVOT AT THE SHOULDER? The whole hand turns about this bone's
+        // origin, so measure how far that sits from the hand bones it turns,
+        // in the palette's own units. Inside the cluster means the reference IS
+        // the wrist and a long lever is the basis convention; far outside means
+        // a bone up the arm was named and the lever is real geometry.
+        {
+            float cen[3] = { 0.0f, 0.0f, 0.0f }; int n = 0;
+            for (int b = 0; b < nb && b < MS_MAX_BONES; b++) {
+                if (g_msBoneSide[b] != sd || !g_msBoneHand[b]) continue;
+                float o[3]; PdBoneOrigin(pal, b, o);
+                for (int a = 0; a < 3; a++) cen[a] += o[a];
+                n++;
+            }
+            g_pdProbeHandN[sd - 1] = n;
+            g_pdProbeLever[sd - 1] = 0.0f;
+            g_pdProbeSpread[sd - 1] = 0.0f;
+            if (n) {
+                float e2 = 0.0f, far2 = 0.0f;
+                for (int a = 0; a < 3; a++) {
+                    cen[a] /= (float)n;
+                    const float e = cen[a] - g_pdProbeOrigin[sd - 1][a];
+                    e2 += e * e;
+                }
+                g_pdProbeLever[sd - 1] = sqrtf(e2);
+                for (int b = 0; b < nb && b < MS_MAX_BONES; b++) {
+                    if (g_msBoneSide[b] != sd || !g_msBoneHand[b]) continue;
+                    float o[3], d2 = 0.0f; PdBoneOrigin(pal, b, o);
+                    for (int a = 0; a < 3; a++) {
+                        const float e = o[a] - g_pdProbeOrigin[sd - 1][a];
+                        d2 += e * e;
+                    }
+                    if (d2 > far2) far2 = d2;
+                }
+                g_pdProbeSpread[sd - 1] = sqrtf(far2);
+            }
+        }
         float R[3][3], P[3];
         if (PdControllerInRig(sd - 1, R, P)) {
             memcpy(g_pdProbeWant[sd - 1], P, sizeof(P));
@@ -206,6 +267,16 @@ static void PdTick(void)
                      "bone matrices at the constant upload"
                    : "the game's own palette goes through untouched, which is "
                      "the head-locked hand");
+    }
+    if (g_pdTransReq) {
+        g_pdTransReq = 0;
+        g_pdTranspose = !g_pdTranspose;
+        Log("pd: >>> basis convention -> %s <<< (a bone's row r is matrix %s). "
+            "If the hand turns on a lever feet long while its POSITION is "
+            "right, this is the switch - the translation reads correctly under "
+            "both conventions and the basis does not.",
+            g_pdTranspose ? "TRANSPOSED, the D3D palette convention" : "straight rows",
+            g_pdTranspose ? "COLUMN r" : "row r");
     }
     if (g_pdSpaceReq) {
         g_pdSpaceReq = 0;
@@ -256,7 +327,13 @@ static void PdTick(void)
             Log("pd/probe: c6 x%u | hmdYaw %+7.1f deg | cam c5 (%8.1f %8.1f "
                 "%8.1f) | L bone origin (%8.2f %8.2f %8.2f) want (%8.2f %8.2f "
                 "%8.2f)%s | R bone origin (%8.2f %8.2f %8.2f) want (%8.2f "
-                "%8.2f %8.2f)%s. TURN ON THE SPOT: an origin that holds still "
+                "%8.2f %8.2f)%s | LEVER L %.1f uu (spread %.1f over %d bone(s)) "
+                "R %.1f uu (spread %.1f over %d bone(s)) - how far the rotation "
+                "reference sits from the hand bones it turns. Tens of uu means "
+                "the reference IS the wrist and a long lever is the basis "
+                "convention; a couple of hundred means a bone up the arm was "
+                "named and the lever is real geometry. "
+                "TURN ON THE SPOT: an origin that holds still "
                 "is a CAMERA-relative palette, one that swings with the yaw is "
                 "WORLD. MOVE ONE CONTROLLER along one real axis: whichever "
                 "component of `want` follows it names the axis order.",
@@ -267,7 +344,9 @@ static void PdTick(void)
                 g_pdProbeOk[0] ? "" : " (NO CONTROLLER POSE)",
                 g_pdProbeOrigin[1][0], g_pdProbeOrigin[1][1], g_pdProbeOrigin[1][2],
                 g_pdProbeWant[1][0], g_pdProbeWant[1][1], g_pdProbeWant[1][2],
-                g_pdProbeOk[1] ? "" : " (NO CONTROLLER POSE)");
+                g_pdProbeOk[1] ? "" : " (NO CONTROLLER POSE)",
+                g_pdProbeLever[0], g_pdProbeSpread[0], g_pdProbeHandN[0],
+                g_pdProbeLever[1], g_pdProbeSpread[1], g_pdProbeHandN[1]);
         }
     }
     if (now >= g_pdNextReport) {
@@ -295,18 +374,21 @@ static bool PdCommand(const char* args)
         if (!strncmp(args, "on", 2))         g_pdOn = true;
         else if (!strncmp(args, "off", 3))   g_pdOn = false;
         else if (!strncmp(args, "space", 5)) g_pdSpaceReq = 1;
+        else if (!strncmp(args, "basis", 5)) g_pdTransReq = 1;
         else if (!strncmp(args, "scale", 5)) {
             float v = 0; if (sscanf(args + 5, "%f", &v) == 1 && v > 1.0f)
                 g_pdScaleUU = v;
         }
     }
     Log("pd: status - drive %s, space %s, scale %.1f uu/m. Grip L (R %.2f U "
-        "%.2f F %.2f) R (R %.2f U %.2f F %.2f). Split %s, palette wants x%d, "
+        "%.2f F %.2f) R (R %.2f U %.2f F %.2f). Basis %s. Split %s, palette "
+        "wants x%d, "
         "last c6 x%u. Home cycles the grip axis, Insert/Delete nudge it, End "
         "toggles the drive, Pause picks the hand, PgUp swaps the space.",
         g_pdOn ? "ON" : "off", g_pdSpace ? "world" : "camera", g_pdScaleUU,
         g_pdGrip[0][0], g_pdGrip[0][1], g_pdGrip[0][2],
         g_pdGrip[1][0], g_pdGrip[1][1], g_pdGrip[1][2],
+        g_pdTranspose ? "transposed" : "straight",
         g_msReady ? "ready" : "NOT READY - no bones are named yet",
         g_msBones * 3, g_pdLastCount);
     return true;

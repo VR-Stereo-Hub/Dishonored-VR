@@ -1144,6 +1144,7 @@ static void LoadConfig()
     // world; a wrong choice reads as a hand that swings with the head.
     g_pdOn       = IniFloat(ini, "Hands", "PaletteDrive", 0) != 0.0f;
     g_pdSpace    = (int)IniFloat(ini, "Hands", "PaletteSpace", 0);
+    g_pdTranspose = IniFloat(ini, "Hands", "PaletteTranspose", 1) != 0.0f;
     if (g_pdSpace < 0 || g_pdSpace > 1) g_pdSpace = 0;
     g_pdScaleUU  = IniFloat(ini, "Hands", "PaletteScaleUU", 210.0f);
     if (g_pdScaleUU < 1.0f) g_pdScaleUU = 108.0f;
@@ -1611,6 +1612,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteDrive", g_pdOn ? "1" : "0", ini);
     _snprintf(v, 64, "%d", g_pdSpace);
     WritePrivateProfileStringA("Hands", "PaletteSpace", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteTranspose", g_pdTranspose ? "1" : "0", ini);
     _snprintf(v, 64, "%.1f", g_pdScaleUU);
     WritePrivateProfileStringA("Hands", "PaletteScaleUU", v, ini);
     {

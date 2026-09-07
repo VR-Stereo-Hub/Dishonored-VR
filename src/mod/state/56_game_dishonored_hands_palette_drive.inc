@@ -88,6 +88,23 @@ static volatile int g_pdToggleReq = 0;
 static int  g_pdSpace = 0;
 static volatile int g_pdSpaceReq = 0;
 
+// How the three float4 rows of a bone are read. A D3D skinning palette stores
+// the TRANSPOSE of a 4x3 - row r is matrix COLUMN r, with the translation in
+// each row's w. That is the default because it is the convention, and because
+// it is the only reading consistent with what the run showed: the hand's
+// POSITION landing correctly, with one controller angle where it sat exactly
+// right, while the whole hand turned on a lever feet long. The translation
+// reads correctly under either convention. The basis does not.
+static bool g_pdTranspose = true;
+static volatile int g_pdTransReq = 0;
+
+// Is the rotation reference actually at the wrist? Measured against the hand
+// bones themselves, in the palette's own units, so the "it pivots at the
+// shoulder" reading can be confirmed or killed from the log instead of by eye.
+static float g_pdProbeLever[2]  = { 0.0f, 0.0f };   // reference to hand centroid
+static float g_pdProbeSpread[2] = { 0.0f, 0.0f };   // reference to farthest hand bone
+static int   g_pdProbeHandN[2]  = { 0, 0 };
+
 // The grip offset in the PALETTE's axis order - right, up, forward - because
 // everything in this module now uses that one order and a second convention is
 // how the first build put the hands under the floor. Forward is seeded from
