@@ -267,7 +267,7 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
             g_msReclassReq = 1;
         }
         if (g_msReclassReq && g_msReady) { g_msReclassReq = 0; MsReclassify(self); }
-        if (g_msOn && MsDraw(self, type, baseVertex, minIndex, numVertices, primCount)) {
+        if (g_msOn && MsDraw(self, type, baseVertex, minIndex, numVertices, startIndex, primCount)) {
             g_dcDropIdx++;
             return D3D_OK;
         }

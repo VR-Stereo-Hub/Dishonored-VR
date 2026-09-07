@@ -340,7 +340,7 @@ static bool MsReclassify(IDirect3DDevice9* dev);
 static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
                     UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
-                   UINT minIndex, UINT numVertices, UINT primCount);
+                   UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
 static const char* MsModeName(int m);
 static void MsTick(void);
 static bool MsCommand(const char* args);

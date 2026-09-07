@@ -407,7 +407,16 @@ static bool     g_mpCtlOk[2]  = { false, false };
 // genuine constant rather than a hidden head coupling.
 static float    g_mpOrigin[2][3];
 static bool     g_mpOriginOk[2] = { false, false };
-static float    g_mpResid[2][3];        // target - corrected anchor, for the log
+static float    g_mpResid[2][3];        // target - corrected anchor, MEASURED
+static LONG     g_mpResidEvery = 0;     // the residual re-skin is sampled, not per draw
+static uint32_t g_mpCacheGen  = 0;      // bumped on every accepted palette write
+// How far the anchor's skin weights may stray from summing to 1 before the
+// anchor is refused outright. The shader's own weight arithmetic has NOT been
+// read yet; until it has, a sum far from 1 means the CPU point and the point
+// the GPU renders are different points, and the placement would be built on
+// the difference.
+static float    g_mpWsumTol   = 0.02f;  // [Hands] PaletteWeightTol
+static float    g_mpWsumWorst = 0.0f;   // the sum that last caused a refusal
 
 static int      g_mpYawMode   = 0;      // [Hands] PaletteYawFix 0=off 1=+ 2=A/B 3=-
 static bool     g_mpFrameProbe = false; // [Hands] PaletteFrameProbe

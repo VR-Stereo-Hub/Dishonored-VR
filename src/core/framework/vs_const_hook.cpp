@@ -221,9 +221,47 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
     // hand class at draw time, so it needs the block the GAME asked for -
     // cached here, ahead of every rewriting path below, for the same reason
     // the census sits here: what we leave behind is not what was requested.
-    if (g_mpOn && data && startReg == 6 && count >= 3 && count <= 256) {
-        memcpy(g_mpCache, data, sizeof(float) * 4 * count);
-        g_mpCacheN = count;
+    // A block that COVERS c6 counts, not only one that starts there. The c5
+    // handling above already had to learn this: after a device reset the engine
+    // batches its uploads differently and a seam that demanded an exact start
+    // register saw nothing for a whole run. An update landing INSIDE the
+    // palette is taken as a partial write into the block we hold, rather than
+    // being dropped or mistaken for a new palette.
+    //
+    // The count is qualified too. `count >= 3` accepted a static mesh's c6 x4
+    // as if it were a bone palette; the anchor's own bone indices are the test
+    // that matters, so the block must be at least as long as the split's bone
+    // count says it needs to be.
+    if (g_mpOn && data && startReg <= 6 && startReg + count > 6) {
+        const UINT skip  = 6 - startReg;
+        const UINT avail = count - skip;
+        if (startReg == 6 && avail >= (UINT)(g_msBones * 3) && avail <= 256) {
+            memcpy(g_mpCache, data, sizeof(float) * 4 * avail);
+            g_mpCacheN = avail;
+            g_mpCacheGen++;
+        } else if (g_mpCacheN && startReg == 6 && avail < g_mpCacheN) {
+            // A partial refresh of the head of the block we already hold.
+            memcpy(g_mpCache, data, sizeof(float) * 4 * avail);
+            g_mpCacheGen++;
+        } else if (g_mpCacheN && startReg < 6) {
+            // A wider block that happens to cover c6: take the palette-sized
+            // window out of it rather than losing the update entirely.
+            const UINT take = (avail > g_mpCacheN) ? g_mpCacheN : avail;
+            memcpy(g_mpCache, data + skip * 4, sizeof(float) * 4 * take);
+            g_mpCacheGen++;
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 3,
+                "ms/palette: the palette arrived inside a c%u x%u block - "
+                "taking %u register(s) from offset %u. A seam that demanded "
+                "an exact start register would have seen no palette at all.",
+                startReg, count, take, skip);
+        } else {
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                "ms/palette: REFUSED a c%u x%u upload as a palette - %u "
+                "register(s) at c6 against the %d bone(s) (%d registers) this "
+                "split needs. A static mesh's own c6 upload is not a bone "
+                "palette and must not become the cache.",
+                startReg, count, avail, g_msBones, g_msBones * 3);
+        }
     }
 
     // split by bone index so the right arm follows the right hand and the left

@@ -1502,32 +1502,84 @@ static bool MsUpload(IDirect3DDevice9* dev)
         }
         g_msClsCount[cls] = n;
 
-        // THE PALM ANCHOR for this class: fixed vertex identities, chosen once
-        // here, sampled evenly across the class so they cannot all land on one
-        // finger. ORIGINAL vertices only (index < g_msVerts) - the clip's
-        // generated vertices have no entry in g_msVert and therefore no blend
-        // indices or weights to skin with.
+        // THE PALM ANCHOR for this class.
+        //
+        // The first version walked triangle corners on an index-modulo rule.
+        // Triangle order is not spatial order, so that sampled the WHOLE hand,
+        // fingers included, and could take the same vertex twice. An anchor
+        // containing finger vertices moves when the fingers animate, and
+        // pinning that average then drags the palm in response to finger
+        // motion - the correction would fight the animation it is supposed to
+        // ride on top of.
+        //
+        // So take a spatially COMPACT patch: the vertices nearest the hand
+        // class's own bind-pose centroid. Fingers are the extremities of that
+        // cloud and fall out naturally, without needing to identify a joint.
+        // Deduplicated, ORIGINAL vertices only (the clip's generated vertices
+        // have no blend data to skin with), and fixed from here on.
         if (cls == MS_CLS_HAND_A || cls == MS_CLS_HAND_B) {
             g_mpAnchorN[cls] = 0;
-            if (n > 0) {
-                const int stride = (n * 3) / MP_ANCHOR_N + 1;
-                for (int t = 0; t < g_msOutN && g_mpAnchorN[cls] < MP_ANCHOR_N; t++) {
+            float cen[3] = { 0.0f, 0.0f, 0.0f };
+            int cn = 0;
+            for (int t = 0; t < g_msOutN; t++) {
+                if (g_msOutCls[t] != cls) continue;
+                for (int c = 0; c < 3; c++) {
+                    const uint32_t v = g_msOutIdx[t * 3 + c];
+                    if ((int)v >= g_msVerts) continue;
+                    cen[0] += g_msVert[v].p[0]; cen[1] += g_msVert[v].p[1];
+                    cen[2] += g_msVert[v].p[2]; cn++;
+                }
+            }
+            if (cn > 0) {
+                cen[0] /= (float)cn; cen[1] /= (float)cn; cen[2] /= (float)cn;
+                // Selection sort of the nearest MP_ANCHOR_N, deduplicated.
+                float best[MP_ANCHOR_N];
+                for (int k = 0; k < MP_ANCHOR_N; k++) best[k] = 3.4e38f;
+                for (int t = 0; t < g_msOutN; t++) {
                     if (g_msOutCls[t] != cls) continue;
-                    for (int c = 0; c < 3 && g_mpAnchorN[cls] < MP_ANCHOR_N; c++) {
-                        if (((t * 3 + c) % stride) != 0) continue;
+                    for (int c = 0; c < 3; c++) {
                         const uint32_t v = g_msOutIdx[t * 3 + c];
                         if ((int)v >= g_msVerts) continue;
-                        g_mpAnchorIdx[cls][g_mpAnchorN[cls]++] = v;
+                        bool dup = false;
+                        for (int k = 0; k < g_mpAnchorN[cls] && !dup; k++)
+                            if (g_mpAnchorIdx[cls][k] == v) dup = true;
+                        if (dup) continue;
+                        const float dx = g_msVert[v].p[0] - cen[0];
+                        const float dy = g_msVert[v].p[1] - cen[1];
+                        const float dz = g_msVert[v].p[2] - cen[2];
+                        const float d2 = dx*dx + dy*dy + dz*dz;
+                        int at = -1;
+                        for (int k = 0; k < MP_ANCHOR_N; k++)
+                            if (d2 < best[k]) { at = k; break; }
+                        if (at < 0) continue;
+                        for (int k = MP_ANCHOR_N - 1; k > at; k--) {
+                            best[k] = best[k - 1];
+                            g_mpAnchorIdx[cls][k] = g_mpAnchorIdx[cls][k - 1];
+                        }
+                        best[at] = d2;
+                        g_mpAnchorIdx[cls][at] = v;
+                        if (g_mpAnchorN[cls] < MP_ANCHOR_N) g_mpAnchorN[cls]++;
                     }
                 }
             }
+            // How tight the patch actually is, so "compact" is a number rather
+            // than an intention: a wide radius means fingers are still in it.
+            float rad = 0.0f;
+            for (int k = 0; k < g_mpAnchorN[cls]; k++) {
+                const MsVert* v = &g_msVert[g_mpAnchorIdx[cls][k]];
+                const float dx = v->p[0] - cen[0], dy = v->p[1] - cen[1],
+                            dz = v->p[2] - cen[2];
+                const float d = sqrtf(dx*dx + dy*dy + dz*dz);
+                if (d > rad) rad = d;
+            }
             g_mpOriginOk[0] = g_mpOriginOk[1] = false;   // geometry changed
-            Log("ms/palette/anchor: class %s - %d anchor vertex(es) of %d "
-                "triangle(s). These are FIXED identities: the residual only "
-                "means something if the point being measured stops moving for "
-                "reasons of its own.",
+            Log("ms/palette/anchor: class %s - %d vertex(es) within %.2f uu of "
+                "the class centroid (%.1f %.1f %.1f), from %d triangle(s). "
+                "FIXED identities, deduplicated, bind-pose compact. A radius "
+                "approaching the hand's own size would mean fingers are in the "
+                "patch and their animation would drag the anchor.",
                 cls == MS_CLS_HAND_A ? "A (left)" : "B (right)",
-                g_mpAnchorN[cls], n);
+                g_mpAnchorN[cls], rad, cen[0], cen[1], cen[2], n);
         }
     }
     g_msIb->Unlock();
@@ -1689,21 +1741,26 @@ static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
     if (cls < 0 || cls >= MS_CLS_N || g_mpAnchorN[cls] <= 0) return false;
     const int bones = (int)(count / 3);
     float acc[3] = { 0.0f, 0.0f, 0.0f };
-    int used = 0;
+
+    // EVERY anchor vertex must be valid or the whole anchor is refused. The
+    // previous version skipped a bad vertex and averaged the rest, returning
+    // success if ANY vertex worked - so a short or wrong palette silently
+    // changed WHICH point was being measured while the code's own comment
+    // promised refusal. A moved anchor and a moved hand are indistinguishable
+    // downstream, which is the one thing this measurement cannot afford.
     for (int a = 0; a < g_mpAnchorN[cls]; a++) {
         const uint32_t vi = g_mpAnchorIdx[cls][a];
-        if ((int)vi >= g_msVerts) continue;
+        if ((int)vi >= g_msVerts) return false;
         const MsVert* v = &g_msVert[vi];
         float wsum = 0.0f;
         for (int i = 0; i < 4; i++) wsum += v->bw[i];
-        if (wsum <= 0.0001f) continue;
+        if (!(wsum > 0.0001f)) return false;             // also catches NaN
         float q[3] = { 0.0f, 0.0f, 0.0f };
-        bool ok = true;
-        for (int i = 0; i < 4 && ok; i++) {
+        for (int i = 0; i < 4; i++) {
             const float wgt = v->bw[i];
             if (wgt <= 0.0f) continue;
             const int b = (int)v->bi[i];
-            if (b < 0 || b >= bones) { ok = false; break; }
+            if (b < 0 || b >= bones) return false;
             const float* r0 = pal + (b * 3 + 0) * 4;
             const float* r1 = pal + (b * 3 + 1) * 4;
             const float* r2 = pal + (b * 3 + 2) * 4;
@@ -1711,17 +1768,24 @@ static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
             q[1] += wgt * (r1[0]*v->p[0] + r1[1]*v->p[1] + r1[2]*v->p[2] + r1[3]);
             q[2] += wgt * (r2[0]*v->p[0] + r2[1]*v->p[1] + r2[2]*v->p[2] + r2[3]);
         }
-        if (!ok) continue;
-        // Normalise by the weight sum rather than assuming it is 1: the
-        // affine-commuting identity needs effective weights summing to one, and
-        // this asset has not been shown to guarantee it.
-        acc[0] += q[0] / wsum; acc[1] += q[1] / wsum; acc[2] += q[2] / wsum;
-        used++;
+        // THE WEIGHT SUM IS REPORTED, NOT REPAIRED. Dividing by it here was
+        // fixing the CPU copy of an arithmetic the GPU may not perform, which
+        // would make this point something the shader never renders. Worse, if
+        // the shader really does use unnormalised weights then a palette
+        // translation T moves the vertex by wsum*T, so `target - q` would not
+        // even produce the displacement it claims. The shader has not been
+        // read yet, so this records the deviation and leaves the arithmetic
+        // alone; sums far from 1 make the whole anchor untrustworthy.
+        if (fabsf(wsum - 1.0f) > g_mpWsumTol) {
+            g_mpWsumWorst = wsum;
+            return false;
+        }
+        acc[0] += q[0]; acc[1] += q[1]; acc[2] += q[2];
     }
-    if (!used) return false;
-    out[0] = acc[0] / (float)used;
-    out[1] = acc[1] / (float)used;
-    out[2] = acc[2] / (float)used;
+    const float inv = 1.0f / (float)g_mpAnchorN[cls];
+    out[0] = acc[0] * inv; out[1] = acc[1] * inv; out[2] = acc[2] * inv;
+    if (!(out[0] == out[0]) || !(out[1] == out[1]) || !(out[2] == out[2]))
+        return false;                                    // non-finite
     return true;
 }
 
@@ -1746,7 +1810,7 @@ static void MpBuild(float* out, const float* src, UINT count, const float* T)
 // is the fail-soft: an auto-armed lock with no usable split draws the mesh
 // exactly as the game asked for it.
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
-                   UINT minIndex, UINT numVertices, UINT primCount)
+                   UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
 {
     g_msPassThrough = false;
     if (!g_msReady || !g_msIb || g_msMode == MS_MODE_OFF) return false;
@@ -1764,19 +1828,27 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         if (SUCCEEDED(dev->GetStreamSource(0, &vb0, &curOff, &s0)) && vb0) vb0->Release();
         IDirect3DVertexDeclaration9* d = NULL; void* dp = NULL;
         if (SUCCEEDED(dev->GetVertexDeclaration(&d)) && d) { dp = d; d->Release(); }
+        // startIndex and the stream STRIDE are part of the contract the split
+        // was built from and were stored but never compared - a draw could
+        // differ in either and still be accepted, and both change which bytes
+        // our re-based indices address. They are compared now.
         if (baseVertex != g_msBuiltBaseVertex || minIndex != g_msBuiltMinIndex ||
             numVertices != g_msBuiltNumVerts || curOff != g_msBuiltStream0Off ||
+            (int)startIndex != g_msBuiltStartIndex ||
+            (g_msStride && s0 && s0 != g_msStride) ||
             (g_msBuiltDecl && dp && dp != g_msBuiltDecl)) {
             g_msIncompat++;
             g_msPassThrough = true;
             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
                 "ms: a draw of this geometry does NOT match the contract the "
                 "split was built from (base %d vs %d, min %u vs %u, verts %u vs "
-                "%u, stream0 off %u vs %u, decl %p vs %p). Drawing it normally "
-                "rather than replacing or dropping it - our indices are re-based "
-                "and would address the wrong vertices.",
+                "%u, stream0 off %u vs %u, startIndex %u vs %d, stride %u vs "
+                "%u, decl %p vs %p). Drawing it normally rather than replacing "
+                "or dropping it - our indices are re-based and would address "
+                "the wrong vertices.",
                 baseVertex, g_msBuiltBaseVertex, minIndex, g_msBuiltMinIndex,
                 numVertices, g_msBuiltNumVerts, curOff, g_msBuiltStream0Off,
+                startIndex, g_msBuiltStartIndex, s0, g_msStride,
                 dp, g_msBuiltDecl);
             return false;
         }
@@ -1893,12 +1965,31 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                                 g_mpOrigin[hIdx][0], g_mpOrigin[hIdx][1],
                                 g_mpOrigin[hIdx][2]);
                         }
+                        float tgt[3];
                         for (int i = 0; i < 3; i++) {
-                            const float tgt = g_mpCtlPal[hIdx][i] + g_mpOrigin[hIdx][i];
-                            T[i] = tgt - q[i];
-                            g_mpResid[hIdx][i] = 0.0f;   // exact by construction
+                            tgt[i] = g_mpCtlPal[hIdx][i] + g_mpOrigin[hIdx][i];
+                            T[i] = tgt[i] - q[i];
                         }
                         useT = true;
+                        // MEASURE the result instead of asserting it. This
+                        // used to write zero and call it "exact by
+                        // construction", which is not verification of
+                        // anything: it restates the line above it. Re-skin the
+                        // anchor from the palette we are actually about to
+                        // submit and report where the anchor really lands.
+                        // A non-zero residual means the transform does not
+                        // compose the way this code assumes - for instance if
+                        // the shader's effective weights do not sum to one, in
+                        // which case a translation T moves the vertex by
+                        // wsum*T and not by T.
+                        if ((++g_mpResidEvery & 0xFF) == 0) {
+                            static float chk[4 * 256];
+                            MpBuild(chk, g_mpCache, g_mpCacheN, T);
+                            float q2[3];
+                            if (MpAnchorPos(rng[r].cls, chk, g_mpCacheN, q2))
+                                for (int i = 0; i < 3; i++)
+                                    g_mpResid[hIdx][i] = tgt[i] - q2[i];
+                        }
                     }
                     else {
                         // A silent fall-through here is exactly how the last
@@ -2211,6 +2302,21 @@ static void MpDriveTick(void)
             g_mpOriginOk[1] ? "set" : "PENDING",
             g_mpOrigin[1][0], g_mpOrigin[1][1], g_mpOrigin[1][2],
             (double)g_skcWorldScale, (double)g_mpDriveGain);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette/abs: MEASURED residual L (%+.2f %+.2f %+.2f) R (%+.2f "
+            "%+.2f %+.2f) uu, gen %u, worst refused weight sum %.3f (tol "
+            "%.3f). The residual is re-skinned from the palette actually "
+            "submitted, NOT asserted: non-zero means the transform does not "
+            "compose the way this code assumes - the shader's effective "
+            "weights not summing to one would do it, since a translation T "
+            "then moves a vertex by wsum*T. Scale note: this target uses "
+            "[Hands] WorldScaleUU=%.0f while camera positional tracking uses "
+            "[PosTrack] Scale=%.0f - they are DIFFERENT numbers and at most "
+            "one of them can be right for this conversion.",
+            g_mpResid[0][0], g_mpResid[0][1], g_mpResid[0][2],
+            g_mpResid[1][0], g_mpResid[1][1], g_mpResid[1][2],
+            g_mpCacheGen, (double)g_mpWsumWorst, (double)g_mpWsumTol,
+            (double)g_skcWorldScale, (double)g_posScaleUU);
         return;
     }
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
