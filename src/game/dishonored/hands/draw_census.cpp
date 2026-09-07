@@ -249,7 +249,11 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
         // It is tried once. A refusal is remembered, so a mesh whose buffers
         // will not read does not re-lock them every frame; `ms rebuild` or
         // Numpad / clears it.
-        if (g_msOn && !g_msReady && !g_msRefused && g_dcPendingBones >= 2 &&
+        // A DEGRADED split may be upgraded. g_msReady alone would make the
+        // first uncapped build permanent, so a split that wanted the clip and
+        // did not get it stays eligible for a later pass that can be clipped.
+        if (g_msOn && (!g_msReady || g_msDegraded) && !g_msRefused &&
+            g_dcPendingBones >= 2 &&
             g_dcSinceUpload < DC_REUSE_WINDOW) {
             if (!MsBuild(self, baseVertex, minIndex, numVertices, startIndex,
                          primCount, g_dcPendingBones) && !g_msRetryLater)

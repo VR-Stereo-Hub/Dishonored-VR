@@ -196,6 +196,13 @@ static void*    g_msBuiltDecl = NULL;
 static volatile uint32_t g_msIncompat = 0;    // our geometry, wrong draw contract
 static bool     g_msPassThrough = false;      // MsDraw declined: DRAW IT NORMALLY
 
+// A split that WANTED the clip and did not get it. It still draws - a
+// sawtooth edge and no caps - but it is a degraded result, not a finished one,
+// so a later pass that can be clipped is allowed to replace it. Without this
+// the first degraded build was permanent: g_msReady gates the build path, so
+// nothing could ever upgrade it.
+static bool     g_msDegraded = false;
+
 static int      g_msStreamSkips = 0;
 static bool     g_msRetryLater = false;       // declined, but not refused
 #define MS_MAX_STREAM_SKIPS 120

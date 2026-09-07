@@ -1418,9 +1418,27 @@ static bool MsUpload(IDirect3DDevice9* dev)
             if (FAILED(dev->CreateVertexBuffer(room, D3DUSAGE_WRITEONLY, 0,
                                                D3DPOOL_MANAGED, &g_msVb, NULL)) ||
                 !g_msVb) {
-                Log("ms: REFUSED - could not create a %u byte vertex buffer; "
-                    "falling back to the game's, which means no clipping", room);
+                // NEVER SUBMIT GENERATED-VERTEX INDICES WITHOUT THE VERTICES.
+                // The clip has already run by the time we get here, so
+                // g_msOutIdx contains indices at or past g_msVerts that exist
+                // ONLY in the buffer we just failed to create. Clearing the
+                // flag would send those indices to the GAME's vertex buffer,
+                // where they address whatever happens to be there. Falling
+                // back is not free once vertices have been invented.
+                Log("ms: REFUSED - could not create a %u byte vertex buffer "
+                    "(%d clipped vertex(es) already generated). Re-deriving "
+                    "WITHOUT the clip rather than pointing generated indices at "
+                    "the game's vertices, which would draw garbage.",
+                    room, g_msClipN);
                 g_msOwnVb = false;
+                g_msDegraded = true;
+                MsClassify();          // whole triangles, no invented vertices
+                if (g_msClipN) {
+                    Log("ms: REFUSED - the reclassify still produced %d clipped "
+                        "vertex(es) with no buffer to hold them. Standing the "
+                        "split down entirely.", g_msClipN);
+                    return false;
+                }
             }
         }
     }
@@ -1515,6 +1533,45 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
         "(draw: base %d, min %u, %u verts, start %u, %u tris, palette %u bones)",
         baseVertex, minIndex, numVertices, startIndex, primCount, bones);
     g_msRetryLater = false;
+
+    // CHEAP FIRST. Ask whether this draw can be clipped BEFORE locking and
+    // copying its buffers - the first version declined only after the full
+    // readback, so every skipped candidate paid for two buffer locks and a
+    // 2771-vertex copy it then threw away.
+    if (g_msEdge == 3 && g_msStreamSkips < MS_MAX_STREAM_SKIPS) {
+        IDirect3DVertexDeclaration9* d0 = NULL;
+        uint32_t mask = 0;
+        if (SUCCEEDED(dev->GetVertexDeclaration(&d0)) && d0) {
+            D3DVERTEXELEMENT9 el0[MAXD3DDECLLENGTH]; UINT n0 = 0;
+            if (SUCCEEDED(d0->GetDeclaration(el0, &n0))) {
+                if (n0 > MAXD3DDECLLENGTH) n0 = MAXD3DDECLLENGTH;
+                for (UINT i = 0; i < n0; i++)
+                    if (el0[i].Type != D3DDECLTYPE_UNUSED && el0[i].Stream < 32)
+                        mask |= (1u << el0[i].Stream);
+            }
+            d0->Release();
+        }
+        int veto = -1;
+        for (UINT si = 1; si < 8 && mask; si++) {
+            if (!(mask & (1u << si))) continue;
+            IDirect3DVertexBuffer9* ex = NULL; UINT eo = 0, es = 0;
+            if (SUCCEEDED(dev->GetStreamSource(si, &ex, &eo, &es)) && ex) {
+                ex->Release();
+                if (es) { veto = (int)si; break; }
+            }
+        }
+        if (veto >= 0) {
+            g_msStreamSkips++;
+            g_msRetryLater = true;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                "ms: this draw declares AND binds stream %d, so the clip cannot "
+                "run on it - declining before the readback (skip %d of %d). "
+                "Nothing was locked or copied.",
+                veto, g_msStreamSkips, MS_MAX_STREAM_SKIPS);
+            return false;
+        }
+    }
+
     if (!MsRead(dev, baseVertex, minIndex, numVertices, startIndex, primCount, bones))
         return false;
 
@@ -1524,6 +1581,8 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     // the next matching draw try - this is NOT a refusal, so the lock is not
     // burned and the good pass still gets its chance.
     if (!g_msOwnVb && g_msEdge == 3 && g_msStreamSkips < MS_MAX_STREAM_SKIPS) {
+        // Backstop: the cheap check above should have caught this, so reaching
+        // here means the two disagree - worth knowing.
         g_msStreamSkips++;
         g_msRetryLater = true;
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
@@ -1536,11 +1595,13 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
         return false;
     }
     if (!g_msOwnVb && g_msEdge == 3) {
-        Log("ms: WARNING - %d draws in a row bound a second stream, so no "
-            "clippable pass was found. Taking the whole-triangle cut instead: "
-            "the edge will be a sawtooth and there will be NO caps. That is a "
-            "worse picture than usual and it is deliberate - hands with a rough "
-            "edge beat no hands at all.", g_msStreamSkips);
+        g_msDegraded = true;
+        Log("ms: WARNING - %d build candidates in a row declared and bound a "
+            "second stream, so no clippable pass was found. Taking the "
+            "whole-triangle cut: a sawtooth edge and NO caps. This is DEGRADED, "
+            "not settled - a later clippable pass is allowed to replace it, and "
+            "the pending path draws the game's own mesh meanwhile, so the "
+            "alternative was never no hands.", g_msStreamSkips);
     }
     MsBones(bones);
     if (!MsSides()) return false;
@@ -1557,7 +1618,7 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     }
     if (!MsReclassify(dev)) return false;
     g_msReady = 1;
-    if (g_msOwnVb) g_msStreamSkips = 0;   // a good pass clears the tally
+    if (g_msOwnVb) { g_msStreamSkips = 0; g_msDegraded = false; }   // a good pass clears it
 
     // The draw contract this split describes. Every later draw that wants to
     // use it must match, or the re-based indices address the wrong vertices.
@@ -1653,6 +1714,21 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         if (FAILED(dev->GetStreamSource(0, &savedVb, &savedOff, &savedStride)))
             savedVb = NULL;
         boundVb = SUCCEEDED(dev->SetStreamSource(0, g_msVb, 0, g_msStride));
+    }
+    // THE SAME RULE AT DRAW TIME. If binding our vertex buffer failed but the
+    // split contains generated vertices, our index list cannot be drawn
+    // against the game's vertices - the re-based indices address our buffer,
+    // not theirs. Abort the replacement and let the caller draw the original,
+    // rather than submitting a draw that reads the wrong memory.
+    if (!boundVb && g_msClipN > 0) {
+        Log("ms: REFUSED at draw time - our vertex buffer would not bind and "
+            "the split holds %d generated vertex(es), so its indices have no "
+            "matching data in the game's buffer. Passing the draw through "
+            "untouched.", g_msClipN);
+        if (savedIb) savedIb->Release();
+        if (savedVb) savedVb->Release();
+        g_msPassThrough = true;
+        return false;
     }
     if (SUCCEEDED(dev->SetIndices(g_msIb))) {
         if (boundVb)
