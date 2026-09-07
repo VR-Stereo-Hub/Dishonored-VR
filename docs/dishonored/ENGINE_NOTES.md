@@ -3221,7 +3221,9 @@ load-bearing on the first run, not ceremony.
 components since the material route, through
 `PFN_ProcessEventCall` (`__thiscall`, four arguments, parameter frame with a
 NULL Result), and `console.cpp` uses the same path. `g_peReentry` is set around
-those calls and **is read nowhere** - it guards nothing. `PeHandler` runs
+those calls and **is read by `console.cpp:72` and `commands.cpp:319`** - so it
+guards those two callers, and nothing in `PeHandler` tests it, so it does not
+guard the hook. `PeHandler` runs
 `PeLatch` and the scene-draw call-site patch before any event filtering, so a
 mod-originated call needs a depth guard checked at the top of the handler, or
 it fires real side effects and enters the census as a game event.

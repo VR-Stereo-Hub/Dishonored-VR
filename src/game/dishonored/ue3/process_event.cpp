@@ -57,12 +57,17 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // EVIDENCE: the census and the ordering traces would count events the game
     // never fired.
     //
-    // g_peReentry does not do this job. It is set around the material calls in
-    // hands/mat_hide.cpp and is READ NOWHERE, so it guards nothing; a grep for
-    // it in this file returns no check at all. g_bqDepth is a scoped counter
-    // incremented across our own dispatch and restored with nesting preserved,
-    // and it is checked HERE, before any side effect, which is the only place
-    // that helps.
+    // g_peReentry does not do this job. It IS read - console.cpp:72 and
+    // commands.cpp:319 both test it - but nothing in THIS file does, so it
+    // guards those two callers and not the hook. (An earlier version of this
+    // comment said it was read nowhere; that came from grepping only this
+    // file, and it was wrong.) g_bqDepth is a per-thread counter incremented
+    // across our own dispatch and restored with nesting preserved, checked
+    // HERE, before any side effect, which is the only place that helps.
+    //
+    // It covers the bone queries. It does NOT cover the older mod-originated
+    // calls in mat_hide.cpp and console.cpp, so a ProcessEvent trace is not
+    // purely game-generated until those are accounted for too.
     //
     // Returning is safe: the stub calls the original engine function after
     // this observer returns, so the query still executes.

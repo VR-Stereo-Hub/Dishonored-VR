@@ -58,13 +58,39 @@
 // An FName, both words. Never reduced to its index.
 struct BqName { uint32_t idx; uint32_t num; };
 
+// How a parent walk ENDED. The first build had one bit - a length - and
+// printed "ROOT" for three different things: a real root, a name that failed
+// to resolve, and a bone that is its own parent. RealName returns NULL for
+// index-zero None AND for an invalid name (ue3/uobject.cpp:30-36), so the
+// check that produced that text could not tell a finished chain from a broken
+// one. A negative ancestry verdict drawn from a broken chain is a wrong answer
+// delivered confidently, which is the exact failure this whole ticket keeps
+// paying for.
+enum BqEnd {
+    BQ_ROOT = 0,     // reached the verified full-FName root sentinel
+    BQ_CALLFAIL,     // GetParentBone did not return
+    BQ_BADNAME,      // a parent name that is neither the sentinel nor resolvable
+    BQ_SELF,         // a bone that is its own parent
+    BQ_CYCLE,        // revisited a bone
+    BQ_TRUNC,        // hit the depth bound
+    BQ_NOBONE,       // MatchRefBone says this component has no such bone
+    BQ_ROUNDTRIP     // an FName failed to survive index -> name -> index
+};
+static const char* const kBqEndName[] = {
+    "ROOT", "CALL FAILED", "UNRESOLVABLE PARENT NAME", "SELF-PARENT",
+    "CYCLE", "TRUNCATED AT THE BOUND", "NO SUCH BONE", "ROUND TRIP FAILED"
+};
+
 #define BQ_MAX_CHAIN 64          // a parent walk longer than this is a cycle
 #define BQ_MAX_TARGETS 8
 
 static bool     g_bqOn = false;          // [Hands] BoneQuery - makes engine calls
 static volatile int g_bqRunReq = 0;      // posted by the command, consumed on-lane
 static bool     g_bqDone = false;
-static int      g_bqDepth = 0;           // our own calls, in flight
+// THREAD-LOCAL. A global would let a query on one thread suppress PeHandler's
+// observations on another, which is a way to lose real events while looking
+// like a guard.
+static __declspec(thread) int g_bqDepth = 0;   // our own calls, in flight, per thread
 static uint32_t g_bqThread = 0;          // the lane we were called on
 
 // The UFunctions, resolved with an OWNER check - FindFunctionObj returns the

@@ -26,10 +26,27 @@ static uint32_t BqDeriveSuperOffset(uint8_t* cls)
             c = sup;
         }
         if (hit == 3) {
-            Log("bq: UStruct::SuperField derived at +0x%X - "
-                "DishonoredPlayerPawn -> Pawn -> Actor -> Object all resolve "
-                "by name at that offset. Three named links in the right order, "
-                "not one plausible pointer.", off);
+            // Print the WHOLE chain, not the three milestones. The decompiled
+            // hierarchy is DishonoredPlayerPawn -> DishonoredPawn -> GamePawn
+            // -> Pawn -> Actor -> Object, so these are landmarks passed in
+            // order with intermediates between them - calling them three
+            // direct links, as the first build's line did, overstates it.
+            char chain[384]; int at = 0; uint8_t* c = cls;
+            for (int step = 0; step < 12; step++) {
+                if (!RangeReadable(c + kNameOff, 4)) break;
+                const char* nm = RealName(*(uint32_t*)(c + kNameOff));
+                if (at < (int)sizeof(chain) - 48)
+                    at += _snprintf(chain + at, sizeof(chain) - at, "%s%s",
+                                    step ? " -> " : "", nm ? nm : "?");
+                if (!RangeReadable(c + off, 4)) break;
+                uint8_t* sup = *(uint8_t**)(c + off);
+                if (!sup || ((uintptr_t)sup & 3) || !RangeReadable(sup, kNameOff + 8)) break;
+                c = sup;
+            }
+            Log("bq: UStruct::SuperField derived at +0x%X. The full chain from "
+                "DishonoredPlayerPawn reads: %s - Pawn, Actor and Object are "
+                "reached in order, with intermediates between them.",
+                off, chain);
             return off;
         }
     }
@@ -89,15 +106,22 @@ static uint8_t* BqFindFunc(const char* cls, const char* fname)
 
 
 // One call, with our own scoped depth guard. Ours re-enters ProcessEvent and
-// therefore re-enters PeHandler, and g_peReentry does not guard the whole
-// hook - so the depth is what PeHandler checks to keep mod-originated calls
-// out of both its side effects and its evidence.
+// therefore re-enters PeHandler. g_peReentry IS read - console.cpp:72 and
+// commands.cpp:319 both test it - but nothing in PeHandler does, so it does
+// not guard the hook. The depth is what PeHandler checks, to keep
+// mod-originated calls out of both its side effects and its evidence.
 static void BqCall(uint8_t* obj, uint8_t* fn, void* parms)
 {
+    // RESTORE, do not force. g_peReentry is read by console.cpp:72 and
+    // commands.cpp:319 - an earlier note in this file claimed it was read
+    // nowhere, from a grep that only covered process_event.cpp. Clearing it
+    // unconditionally would hand those two callers a false answer if we were
+    // ever called with it already set.
+    const bool prevReentry = g_peReentry;
     g_bqDepth++;
     g_peReentry = true;
     ((PFN_ProcessEventCall)kProcessEvent)(obj, fn, parms, NULL);
-    g_peReentry = false;
+    g_peReentry = prevReentry;
     g_bqDepth--;
 }
 
@@ -146,7 +170,7 @@ static const char* BqStr(BqName n)
 // Walk one bone to the root, by NAME, printing the chain. A visited set and a
 // hard bound, because a cycle in a chain we do not control would otherwise
 // hang the game inside our own diagnostic.
-static void BqWalk(uint8_t* comp, const char* startName, BqName* outChain, int* outN)
+static BqEnd BqWalk(uint8_t* comp, const char* startName, BqName* outChain, int* outN)
 {
     *outN = 0;
     const uint32_t si = FindNameIdx(startName);
@@ -154,7 +178,7 @@ static void BqWalk(uint8_t* comp, const char* startName, BqName* outChain, int* 
         Log("bq/chain: '%s' is not in GNames at all - the name does not exist "
             "on this build, which is a different thing from the bone being "
             "absent from the skeleton", startName);
-        return;
+        return BQ_NOBONE;
     }
     BqName cur; cur.idx = si; cur.num = 0;
     const int idx0 = BqMatchRefBone(comp, cur);
@@ -162,7 +186,7 @@ static void BqWalk(uint8_t* comp, const char* startName, BqName* outChain, int* 
         Log("bq/chain: '%s' - MatchRefBone returned %d, so this component's "
             "skeleton has no such bone. Reported, not worked around.",
             startName, idx0);
-        return;
+        return BQ_NOBONE;
     }
     // Round-trip before trusting anything: both FName words must come back.
     const BqName back = BqGetBoneName(comp, idx0);
@@ -172,33 +196,42 @@ static void BqWalk(uint8_t* comp, const char* startName, BqName* outChain, int* 
             "contract is wrong and nothing further is trustworthy.",
             startName, idx0, idx0, BqStr(back), back.idx, back.num,
             cur.idx, cur.num);
-        return;
+        return BQ_ROUNDTRIP;
     }
 
     char line[512]; int at = 0;
     at += _snprintf(line + at, sizeof(line) - at, "%s[%d]", startName, idx0);
     outChain[(*outN)++] = cur;
+    BqEnd end = BQ_TRUNC;
     for (int step = 0; step < BQ_MAX_CHAIN; step++) {
         const BqName par = BqGetParentBone(comp, cur);
-        if (par.idx == 0xffffffffu) { at += _snprintf(line + at, sizeof(line) - at, " -> <call failed>"); break; }
+        if (par.idx == 0xffffffffu) { end = BQ_CALLFAIL; break; }
+        // THE ROOT SENTINEL IS THE FULL FNAME, checked before any display
+        // name. Index 0 with number 0 is None, and that - and only that -
+        // ends a chain successfully.
+        if (par.idx == 0 && par.num == 0) { end = BQ_ROOT; break; }
+        if (par.idx == cur.idx && par.num == cur.num) { end = BQ_SELF; break; }
         const char* pn = RealName(par.idx);
-        if (!pn || !strcmp(pn, "None") || par.idx == cur.idx) {
-            at += _snprintf(line + at, sizeof(line) - at, " -> ROOT");
-            break;
-        }
+        if (!pn) { end = BQ_BADNAME; break; }
         int seen = 0;
         for (int k = 0; k < *outN; k++)
             if (outChain[k].idx == par.idx && outChain[k].num == par.num) seen = 1;
-        if (seen) {
-            at += _snprintf(line + at, sizeof(line) - at, " -> %s (CYCLE)", pn);
-            break;
-        }
+        if (seen) { end = BQ_CYCLE; break; }
+        // Every non-terminal parent is round-tripped too, not just the seed.
+        // A chain is only as trustworthy as its weakest link, and the first
+        // build validated exactly one of them.
+        const int pidx = BqMatchRefBone(comp, par);
+        if (pidx < 0) { end = BQ_NOBONE; break; }
+        const BqName pback = BqGetBoneName(comp, pidx);
+        if (pback.idx != par.idx || pback.num != par.num) { end = BQ_ROUNDTRIP; break; }
         if (*outN < BQ_MAX_CHAIN) outChain[(*outN)++] = par;
         if (at < (int)sizeof(line) - 64)
-            at += _snprintf(line + at, sizeof(line) - at, " -> %s", pn);
+            at += _snprintf(line + at, sizeof(line) - at, " -> %s[%d]", pn, pidx);
         cur = par;
     }
-    Log("bq/chain: %s   (%d link(s))", line, *outN);
+    Log("bq/chain: %s -> %s   (%d validated link(s), ended: %s)",
+        line, end == BQ_ROOT ? "ROOT" : "<incomplete>", *outN, kBqEndName[end]);
+    return end;
 }
 
 
@@ -275,32 +308,44 @@ static void BqRun(void)
     // THE QUESTION. Every target's chain to the root, by name.
     BqName chain[BQ_MAX_TARGETS][BQ_MAX_CHAIN];
     int    chainN[BQ_MAX_TARGETS] = { 0 };
+    BqEnd  chainEnd[BQ_MAX_TARGETS];
+    for (int t = 0; t < BQ_MAX_TARGETS; t++) chainEnd[t] = BQ_NOBONE;
     for (int t = 0; t < BQ_MAX_TARGETS && kBqTargets[t]; t++)
-        BqWalk(comp, kBqTargets[t], chain[t], &chainN[t]);
+        chainEnd[t] = BqWalk(comp, kBqTargets[t], chain[t], &chainN[t]);
 
     // The verdict the architecture turns on, stated from the chains rather
     // than asserted: is each attachment joint anywhere in its hand's chain?
     for (int side = 0; side < 2; side++) {
         const char* handName = kBqTargets[side];        // hand_L_jnt / hand_R_jnt
         const int   ai = 2 + side;                      // handAttachment_L/R_jnt
-        if (!chainN[ai]) {
-            Log("bq/VERDICT: %s - no chain, so its relationship to %s is "
-                "UNKNOWN", kBqTargets[ai], handName);
-            continue;
-        }
         const uint32_t hi = FindNameIdx(handName);
         int found = 0;
         for (int k = 1; k < chainN[ai]; k++)
             if (chain[ai][k].idx == hi) found = 1;
-        Log("bq/VERDICT: %s is %s of %s. %s",
-            kBqTargets[ai], found ? "a DESCENDANT" : "NOT a descendant", handName,
-            found ? "Moving the wrist can carry the weapon through the engine's "
-                    "own attachment path - which is the case for the native "
-                    "route and against a GPU palette edit."
-                  : "A wrist-only edit CANNOT carry the weapon automatically. "
-                    "That does not kill the native route - separate targets can "
-                    "take a coordinated transform - but it does kill the "
-                    "follow-for-free argument as stated.");
+
+        // A POSITIVE verdict needs only the edge, and the edge is validated.
+        // A NEGATIVE verdict needs the WHOLE chain to have terminated at the
+        // root: "I did not see the hand" and "I did not finish looking" are
+        // different statements, and the first build could not tell them apart.
+        if (found) {
+            Log("bq/VERDICT: %s IS a descendant of %s (edge validated at link "
+                "%d of a walk that ended: %s). Moving the wrist can carry the "
+                "weapon through the engine's own attachment path - the case for "
+                "the native route.",
+                kBqTargets[ai], handName, 1, kBqEndName[chainEnd[ai]]);
+        } else if (chainEnd[ai] == BQ_ROOT) {
+            Log("bq/VERDICT: %s is NOT a descendant of %s - the chain was "
+                "walked to the root and the hand is not in it. A wrist-only "
+                "edit cannot carry the weapon automatically. That does not kill "
+                "the native route (separate targets can take a coordinated "
+                "transform) but it does kill the follow-for-free argument.",
+                kBqTargets[ai], handName);
+        } else {
+            Log("bq/VERDICT: %s vs %s is UNKNOWN. The walk did not reach the "
+                "root - it ended: %s after %d link(s) - so the hand's absence "
+                "from a PARTIAL chain proves nothing.",
+                kBqTargets[ai], handName, kBqEndName[chainEnd[ai]], chainN[ai]);
+        }
     }
     Log("bq: what this still does NOT establish: whether any later writer "
         "overwrites a pose we set, where the attachment update sits relative "

@@ -1,5 +1,25 @@
 # VR-33 step 1b results: the skeleton, from the engine
 
+> **QUALIFIED after review.** "Every gate passed" overstated what the probe
+> could verify at the time. Three limits, since corrected in the instrument but
+> present when these numbers were produced:
+>
+> * The walk printed `ROOT` for a genuine root, an unresolvable parent name AND
+>   a self-parent. `RealName` returns NULL for index-zero None and for an
+>   invalid name alike (`ue3/uobject.cpp:30-36`), so the terminating check could
+>   not tell a finished chain from a broken one.
+> * A "NOT a descendant" verdict could be issued after an incomplete walk. The
+>   hand's absence from a partial chain proves nothing.
+> * Only the STARTING bone was round-tripped; the parents that followed were
+>   not, so a chain was only as trustworthy as its first link.
+>
+> The recorded parent edges below remain useful positive evidence - a validated
+> edge is a validated edge - but the run should be repeated on the corrected
+> probe before the chains are treated as complete. Also corrected: the Super
+> offset line described three landmarks passed IN ORDER as three direct links;
+> the real hierarchy has intermediates (`DishonoredPlayerPawn -> DishonoredPawn
+> -> GamePawn -> Pawn -> Actor -> Object`).
+
 Log output from a running build, 2026-09-07. Every number below was returned by
 an engine call, not derived from geometry. No placement code exists.
 
