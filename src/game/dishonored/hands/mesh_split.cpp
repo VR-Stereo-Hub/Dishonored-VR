@@ -1900,8 +1900,21 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         }
                         useT = true;
                     }
-                    // No anchor or no pose: fall through with useT false, so
-                    // the hand draws exactly where the engine put it.
+                    else {
+                        // A silent fall-through here is exactly how the last
+                        // run wasted itself: the engine's own hands are still
+                        // hands, so "nothing applied" looks like "it does not
+                        // work" instead of naming which input was missing.
+                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                            "ms/palette/abs: hand %d NOT PLACED - controller "
+                            "pose %s, palm anchor %s (%d anchor vertex(es), "
+                            "c6 x%u). The engine's own hand is being drawn, so "
+                            "this looks like a hand that ignores the "
+                            "controller rather than a lane that never ran.",
+                            hIdx, g_mpCtlOk[hIdx] ? "ok" : "MISSING",
+                            g_mpAnchorN[rng[r].cls] > 0 ? "present" : "MISSING",
+                            g_mpAnchorN[rng[r].cls], g_mpCacheN);
+                    }
                 } else if (g_mpDrive) {
                     const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
                     if (g_mpDeltaOk[hIdx]) {
@@ -2027,7 +2040,14 @@ static const char* MsModeName(int m)
 // its own and cannot race the thread that owns them.
 static void MpDriveTick(void)
 {
-    if (!g_mpDrive) return;
+    // EITHER consumer needs the poses. Gating this on g_mpDrive alone meant
+    // PaletteAbsolute=1 with PaletteDrive=0 published no controller position
+    // at all, so the draw had nothing to place the palm at and silently drew
+    // the engine's own hands - which look like hands, so it read as "they do
+    // not respond" rather than as a dead lane. Second time this session a
+    // tick has been hidden behind another feature's flag (MsTick behind
+    // g_dcOn); the pattern is worth watching for.
+    if (!g_mpDrive && !g_mpAbs) return;
     const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
     // The residual, once per tick so both hands use the same number.
     g_mpPhiRad = g_viewYawRad - g_hmdYaw;
