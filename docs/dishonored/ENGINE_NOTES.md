@@ -3227,3 +3227,36 @@ guard the hook. `PeHandler` runs
 `PeLatch` and the scene-draw call-site patch before any event filtering, so a
 mod-originated call needs a depth guard checked at the top of the handler, or
 it fires real side effects and enters the census as a game event.
+
+### The arm mesh's declaration uses streams 0 and 1, and a stale binding cost the caps
+
+Measured 2026-09-07. The vertex declaration for the first-person arm mesh
+references **stream mask 0x3** - streams 0 and 1 - and the draw binds only
+stream 0.
+
+The split needs to own stream 0 to re-base its index list onto its own vertex
+buffer, which is what the plane clip and therefore the wrist caps depend on. It
+used to veto that whenever ANY of streams 1-7 had a buffer bound, and a stream
+left bound by an earlier draw satisfied it. The wrist caps disappeared between
+runs with no configuration change, twice, and the log blamed "stream 2 is also
+bound" - a stream the declaration never references.
+
+**A bound stream is not a used stream.** The declaration decides what a draw
+reads. Only a stream the declaration names may veto.
+
+Note for later: the declaration DOES name stream 1, and no observed draw binds
+it. If one ever does, the veto fires legitimately and the clip is genuinely
+unavailable on that pass.
+
+### MsDraw must check the draw contract, not the primitive count
+
+The split's index list is re-based onto our own vertex buffer, so it is only
+valid for the exact draw it was built from. `MsDraw` used to accept any draw
+with a matching primitive type and count. A different vertex window, base
+vertex, start index, stream-0 offset or declaration on the same buffer pair
+would consume a split that does not describe it.
+
+The build now records that contract and every replacement draw re-checks it.
+A mismatch is passed through to the original draw - NOT dropped: once a split
+is ready the caller's auto-arm fail-soft no longer applies, so declining used
+to suppress the mesh entirely.

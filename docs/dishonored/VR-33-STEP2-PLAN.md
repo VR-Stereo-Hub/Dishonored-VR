@@ -61,6 +61,38 @@ confirmed or refuted where a live item actually hangs.
 
 ## 3. A shipped-code bug found while reading these logs
 
+> **CORRECTED 2026-09-07 by the next run. The mechanism below is right and my
+> explanation of it was wrong.**
+>
+> The declaration references **stream mask 0x3** - streams 0 and 1. It does NOT
+> reference stream 2. So the stream-2 binding that vetoed the clip was
+> **leftover state from an earlier draw**, not data this draw consumes, and the
+> pass was clippable all along.
+>
+> "The same mesh is drawn by more than one pass and only some of them can be
+> clipped" is therefore NOT what the evidence showed. It showed one pass being
+> vetoed by a binding it never reads. The review's warning - that a bound
+> stream is not necessarily a used stream, and that two log excerpts do not
+> identify separate passes - was correct and my reading was not.
+>
+> With the veto restricted to streams the declaration actually names, both
+> rebuilds in the next run produced 78 clipped triangles and the caps, and the
+> tester confirmed caps present with the arms still hidden.
+>
+> Two things survive the correction. The decline-and-wait is still sound as
+> candidate selection even if it was not what fixed this. And the **draw
+> contract** check is the important half regardless: `MsDraw` was binding
+> re-based indices to any draw with a matching primitive count, which is a real
+> hazard whether or not it fired here. It logged **zero** mismatches in the
+> confirming run, so it is protection rather than a fix for an active fault.
+>
+> One thing to watch: the declaration names **stream 1** and this draw does not
+> bind it. If a pass ever does, the veto will fire legitimately and the caps
+> will go with it - that would be the multi-pass situation I claimed to have
+> found here, and it has not been observed yet.
+
+
+
 The tester reported the wrist caps missing again. The logs name the cause, and
 it is not in any of the new code.
 
