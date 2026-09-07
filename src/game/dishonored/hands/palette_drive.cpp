@@ -132,6 +132,30 @@ static int PdRewrite(float* pal, UINT count)
         const int href = g_msHandBone[sd];
         if (href < 0 || href >= nb) { g_pdNoBones++; continue; }
 
+        // THE REFERENCE IS THE HAND CLUSTER, NOT g_msHandBone. Measured: that
+        // bone sits 66 uu from the hand bones on one side and 108 on the other,
+        // which at this asset's ~210 uu/m is a third to half a metre - the
+        // elbow or the shoulder, not the wrist. It is the bone the SPHERE test
+        // in MsClassify happens to name, and the sphere is the fallback shape
+        // the plane replaced. Rotating about it is the lever the tester
+        // described as feet long, and their reading of it was right.
+        //
+        // The centroid of the bones that actually carry hand geometry is a
+        // far better pivot, it costs one pass, and the grip knob still moves
+        // it by hand from there.
+        float ref[3] = { 0.0f, 0.0f, 0.0f };
+        {
+            int n = 0;
+            for (int b = 0; b < nb && b < MS_MAX_BONES; b++) {
+                if (g_msBoneSide[b] != sd || !g_msBoneHand[b]) continue;
+                float o[3]; PdBoneOrigin(pal, b, o);
+                for (int a = 0; a < 3; a++) ref[a] += o[a];
+                n++;
+            }
+            if (n) { for (int a = 0; a < 3; a++) ref[a] /= (float)n; }
+            else PdBoneOrigin(pal, href, ref);
+        }
+
         // Side A is the LEFT hand by the split's own ordering; the knob can
         // swap them if the asset disagrees, which is a question about the
         // asset and not about this arithmetic.
@@ -139,12 +163,6 @@ static int PdRewrite(float* pal, UINT count)
 
         float R[3][3], P[3];
         if (!PdControllerInRig(hand, R, P)) { g_pdNoPose++; continue; }
-
-        // The reference the whole hand is moved FROM: the hand bone's own
-        // origin, read out of the palette this very frame, so a level load or
-        // an animation cannot leave it stale.
-        float ref[3];
-        PdBoneOrigin(pal, href, ref);
 
         // Rotate about the GRIP, not about the bone origin at the wrist:
         // place the result so the grip point lands on the controller. The grip
@@ -162,11 +180,20 @@ static int PdRewrite(float* pal, UINT count)
         float T[3];
         for (int k = 0; k < 3; k++) T[k] = P[k] - RG[k] - Rref[k];
 
-        // One delta, every hand bone on this side, so the hand keeps its shape
-        // and moves as one piece.
+        // EVERY BONE ON THIS SIDE, not only the ones called hand bones.
+        //
+        // A skinned vertex is blended across several bones. Moving the hand's
+        // bones while leaving the forearm's where they were stretches every
+        // vertex on the boundary between the two, which is the mangled, spiked
+        // mesh the tester photographed - not a bad transform, a NON-RIGID one.
+        // Half a limb cannot be moved rigidly on its own.
+        //
+        // Moving the whole arm costs nothing visible, because the arm is cut
+        // away by the split and never drawn. So the delta goes to the entire
+        // side and the geometry that survives - the hand - travels rigidly.
         for (int b = 0; b < nb; b++) {
             if (b >= MS_MAX_BONES) break;
-            if (g_msBoneSide[b] != sd || !g_msBoneHand[b]) continue;
+            if (g_msBoneSide[b] != sd) continue;
             PdApplyDelta(pal, b, R, T);
             hit++;
         }
