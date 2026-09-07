@@ -53,12 +53,6 @@ float slot_scale();
 // no power wheel held. The other half is the runtime's own gate (dvr::hud::gate).
 void set_game_gate(bool on);
 
-// An in-game menu under [Hud] MenuOnPanel: the runtime's own gate wants an eye
-// tag, and a paused camera may not produce one, but the projection layer is
-// up and the panel is shown - so the menu must reach it. The game side sets
-// this while such a menu is open; it stands in for the runtime's gate only.
-void set_menu_override(bool on);
-
 // True while the redirect should run. The draw path tests this first.
 bool armed();
 

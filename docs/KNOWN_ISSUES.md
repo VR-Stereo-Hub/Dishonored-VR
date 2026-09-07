@@ -94,12 +94,7 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   deliberately so, because the menu is drawn by the same class of draws (that is the original
   build's inherited "main menu on the wrist" bug, and the gate is what closes it). **While the
   panel is on, the HUD is not in the eye textures and not in the desktop window**: that is what a
-  redirect means. **In-game menus (pause, journal, shop) ride the panel too** (`[Hud]
-  MenuOnPanel=1`): the stereo projection stays up while they are open and the paused world stays
-  in stereo behind them, blurred by the game's own pause effect (simulator-measured: `L/s=60
-  R/s=60 mono/s=0` with the pause menu open). The MAIN menu always takes the screen. `hud menu
-  off` restores the old behaviour, where any menu dropped the whole frame to the head-locked mono
-  screen. The WRIST anchor itself waits for the hands to come back; head-locked ships
+  redirect means. The WRIST anchor itself waits for the hands to come back; head-locked ships
   first because it is what the runtime layer already knows how to draw. The aim reticle rides the
   panel with the rest of the HUD.
 - **The cutscene screen used to follow your head; it does not now** [after S3, FIXED

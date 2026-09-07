@@ -17,10 +17,6 @@
   offscreen target and the whole HUD to the backbuffer, 14 draws per present of 1205.
 - **`dump hud`** writes the panel's own texture, which is the one thing that can tell a bad
   redirect from a bad copy from a bad quad.
-- **In-game menus on the panel, with the world in stereo behind them** (`[Hud] MenuOnPanel=1`,
-  `hud menu on|off`, F10 Display). The pause menu used to drop the whole frame to the head-locked
-  mono screen; now the projection stays up, the paused world stays in stereo (blurred by the
-  game's own pause effect) and the menu is on the panel. The main menu still takes the screen.
 - **The cutscene screen no longer follows your head** (`[Cine] HeadLocked=0`, new default). A
   cutscene landed on the same head-locked quad the gameplay mono screen uses, so it swung with
   every head turn; it stands in the room now, and menus and loading screens are unchanged.

@@ -146,12 +146,6 @@ static void WriteDefaultIni(const char* ini)
         "; distance, width and height are the HUD sliders on the F10 Runtime tab.\n"
         "Panel=1\n"
         "SlotScale=0.50\n"
-        "; MenuOnPanel=1 keeps the stereo projection up while an in-game menu (pause, journal,\n"
-        "; shop) is open and puts the MENU on the panel too - it is drawn by the same class as\n"
-        "; the HUD. 0 is the old behaviour: any menu drops the whole frame to the head-locked\n"
-        "; mono screen. The MAIN menu always uses the screen. What the world does behind a\n"
-        "; paused menu is the stereo method's call (a frozen camera can leave it mono).\n"
-        "MenuOnPanel=1\n"
         "[Cine]\n"
         "; What the headset shows during a cutscene. quad (the default, and what has always\n"
         "; happened) drops the gameplay verdict while the cinematic latch is up: the scene\n"
@@ -734,7 +728,6 @@ static void LoadConfig()
     {   // 41.2 (session 10): the HUD panel, default off
         dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
         dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 1) != 0.0f);
-        g_hudMenuOnPanel = IniFloat(ini, "Hud", "MenuOnPanel", 1) != 0.0f;
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
@@ -1589,7 +1582,6 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hud", "Panel", dvr::hudcap::enabled() ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", dvr::hudcap::slot_scale());
     WritePrivateProfileStringA("Hud", "SlotScale", v, ini);
-    WritePrivateProfileStringA("Hud", "MenuOnPanel", g_hudMenuOnPanel ? "1" : "0", ini);
     WritePrivateProfileStringA("Draws", "Census", dvr::draws::enabled() ? "1" : "0", ini);
     WritePrivateProfileStringA("Cine", "Mode", g_cineStereoMode ? "stereo" : "quad", ini);
     WritePrivateProfileStringA("Cine", "HudPanel", g_cineHudPanel ? "1" : "0", ini);

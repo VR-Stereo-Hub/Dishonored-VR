@@ -26,7 +26,6 @@ bool  g_gameGate = false;
 bool  g_armed = false;          // the per-present verdict the draw path reads
 bool  g_refusedSaid = false;
 bool  g_handoffReady = false;   // slots + blit up: without it, do NOT redirect
-bool  g_menuOverride = false;   // an in-game menu on the panel: stand in for the xr gate
 
 // ---- the private D3D9 target ----------------------------------------------
 IDirect3DSurface9* g_hudRt = nullptr;
@@ -281,7 +280,6 @@ void set_slot_scale(float s) {
 float slot_scale() { return g_slotScale; }
 
 void set_game_gate(bool on) { g_gameGate = on; }
-void set_menu_override(bool on) { g_menuOverride = on; }
 
 bool armed() { return g_armed; }
 
@@ -330,7 +328,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
     // the runtime's own (a projection present carrying an eye tag, which menus,
     // loading screens and the cinematic quad all drop) and the game side's
     // strict-gameplay verdict.
-    const bool xrGate = dvr::hud::gate() || g_menuOverride;
+    const bool xrGate = dvr::hud::gate();
     const bool wantArm = g_on && xrGate && g_gameGate && g_handoffReady;
 
     if (dev9 && g_on) ensure_rt(dev9);

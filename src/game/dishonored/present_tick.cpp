@@ -153,17 +153,7 @@ static bool DvrGameplayVerdict()
     // cutscene; the default drops it, which is what puts the runtime layer on its
     // cinematic quad. Everything else in the verdict is unchanged.
     const bool cineTerm = g_cineStereoMode ? false : g_cineNow;
-    // 41.2 (session 10): [Hud] MenuOnPanel keeps the projection through an
-    // in-game menu so the menu rides the HUD panel; the main menu still drops.
-    const bool inGameMenu = (g_menuOpen || g_inMenu) && !g_mainMenu;
-    const bool menuTerm = inGameMenu && !g_hudMenuOnPanel;
-    // A PAUSED menu silences the view pipeline (measured run 47-02: the verdict
-    // fell on viewLive=0, not on the menu flags), and that silence is the
-    // menu's, not a starved pipeline's or a loading screen's - a loading screen
-    // has no menu flag up. So under the lever an in-game menu stands in for
-    // the view term; the first fresh dispatch after it is live at once anyway.
-    const bool viewTerm = viewLive || (g_hudMenuOnPanel && inGameMenu);
-    const bool verdict = pawn && !menuTerm && !g_mainMenu && !cineTerm && viewTerm;
+    const bool verdict = pawn && !g_menuOpen && !g_inMenu && !g_mainMenu && !cineTerm && viewLive;
 
     // 41.1: name the gate that flipped. A false verdict drops the runtime's
     // layer to the head-locked quad ("xr: cinematic quad ON"), and in the
@@ -178,9 +168,8 @@ static bool DvrGameplayVerdict()
     if (!said || verdict != last) {
         said = true; last = verdict;
         falseSinceMs = verdict ? 0 : GetTickCount64();
-        const char* why = verdict ? "all clear" : !pawn ? "no live pawn"
-                        : (menuTerm && g_menuOpen) ? "menuOpen" : (menuTerm && g_inMenu) ? "inMenu"
-                        : g_mainMenu ? "mainMenu" : cineTerm ? "cinematic latch"
+        const char* why = verdict ? "all clear" : !pawn ? "no live pawn" : g_menuOpen ? "menuOpen"
+                        : g_inMenu ? "inMenu" : g_mainMenu ? "mainMenu" : cineTerm ? "cinematic latch"
                         : "view pipeline silent (no ProcessViewRotation dispatch)";
         Log("gameplay verdict: %s (%s) pawn=%d menuOpen=%d inMenu=%d mainMenu=%d cine=%d viewLive=%d "
             "lastHeadWrite=%.0f ms ago -> the runtime's layer is %s",
@@ -282,12 +271,6 @@ static void DvrGameTick(IDirect3DDevice9* self)
         // class"), and the power wheel was redirected off the screen in 34.7.
         dvr::hudcap::set_game_gate(g_verdictLast && !g_wheelHeld &&
                                    (!g_cineNow || g_cineHudPanel));
-        // An in-game menu on the panel: the paused camera can leave presents
-        // untagged, which drops the runtime's own gate; the projection layer
-        // is still up, so the panel is still shown, and the menu must be on it.
-        dvr::hudcap::set_menu_override(g_hudMenuOnPanel && (g_menuOpen || g_inMenu) &&
-                                       !g_mainMenu && g_verdictLast &&
-                                       dvr::stereo::wants_projection());
         // 41.2 (session 10): a cutscene's screen stands in the ROOM, not on your
         // face. Only the cinematic latch does this - a menu or a loading screen
         // still wants the head-locked panel in front of you.

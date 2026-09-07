@@ -2300,26 +2300,6 @@ performance counter now, like the eye path's.
 - `reentry.xrs` 11/11, and `perf: tick 11.1 ms (90/s)` - pace-bound, the same as without the
   panel. About 28 extra `SetRenderTarget` calls per present against a frame of 1205 draws.
 
-### The pause menu, measured (run 47-02, 47-03)
-
-Two facts, both against expectation, both from the log rather than reasoning:
-
-1. **A paused menu drops the gameplay verdict on `viewLive`, not on the menu flags.** The pause
-   silences `ProcessViewRotation`, and the view-pipeline term read the silence as a starved
-   pipeline (`gameplay verdict: FALSE (view pipeline silent ...) menuOpen=1 viewLive=0`). Removing
-   the menu term alone changed nothing. Under `[Hud] MenuOnPanel` an in-game menu now stands in
-   for the view term; a loading screen has no menu flag up, so it still drops.
-2. **The camera upload keeps flowing while the game is paused, so stereo keeps working.** The
-   expectation was that a frozen camera would fail the re-entry's "camera silent" gate and the
-   eyes would fall to mono. They did not: with the pause menu open the beat read `out/s=120 L/s=60
-   R/s=60 mono/s=0`, the doubling ran and both eyes were tagged. The paused world is a live stereo
-   pair, not a held one, and the compositor keeps it world-locked while the head turns. The menu
-   (93 draws per present, the whole class) rode the panel; the game's own pause blur is a
-   post-process on the scene target and stayed in the world, which is where it belongs.
-
-The main menu is untouched by any of this: it has no live pawn and carries its own positive
-signal (`g_mainMenu`), so it keeps the screen.
-
 ### An instrument caveat found on the way
 
 `DumpTexturePng` (`dump eyes`, `dump hud`) writes R8G8B8A8 textures with red and blue swapped:
