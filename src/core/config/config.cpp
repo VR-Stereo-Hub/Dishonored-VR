@@ -1158,7 +1158,20 @@ static void LoadConfig()
     if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
     g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
     if (g_mpHand < 0 || g_mpHand > 2) g_mpHand = 0;
-    if (g_mpOn)
+    g_mpSweep         = IniFloat(ini, "Hands", "PaletteSweep", 0) != 0.0f;
+    g_mpSweepSec      = IniFloat(ini, "Hands", "PaletteSweepSeconds", 3.0f);
+    if (g_mpSweepSec < 0.5f)  g_mpSweepSec = 0.5f;
+    if (g_mpSweepSec > 30.0f) g_mpSweepSec = 30.0f;
+    if (g_mpOn && g_mpSweep)
+        Log("config: [Hands] Palette=1 PaletteSweep=1 - the palette's AXIS "
+            "SWEEP is armed. Hand class %s takes a %+.1f uu delta that moves "
+            "to the next axis every %.1f s (0 -> 1 -> 2, repeating); the other "
+            "class never moves and is the reference. Each switch prints an "
+            "ms/palette/sweep: line naming the live axis, so the basis is read "
+            "off one run.",
+            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH (no reference)",
+            g_mpAmount, (double)g_mpSweepSec);
+    else if (g_mpOn)
         Log("config: [Hands] Palette=1 - the draw-scoped bone palette is ARMED. "
             "Hand class %s takes a %.1f uu delta on axis %d and the other class "
             "takes none, so the OTHER HAND IS THE CONTROL. Read the "
@@ -1591,6 +1604,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteAxis", v, ini);
     _snprintf(v, 64, "%d", g_mpHand);
     WritePrivateProfileStringA("Hands", "PaletteHand", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteSweep", g_mpSweep ? "1" : "0", ini);
+    _snprintf(v, 64, "%.1f", g_mpSweepSec);
+    WritePrivateProfileStringA("Hands", "PaletteSweepSeconds", v, ini);
     _snprintf(v, 64, "%.1f", g_hmAmount);
     WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);
     _snprintf(v, 64, "%d", g_hmAxis);

@@ -1784,8 +1784,28 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                                  (g_mpHand == 0 && rng[r].cls == MS_CLS_HAND_A) ||
                                  (g_mpHand == 1 && rng[r].cls == MS_CLS_HAND_B);
                 if (hit) {
+                    // Which axis is live. The sweep walks 0,1,2 on a timer so
+                    // one run reports the whole basis; without it the ini's
+                    // fixed axis is used, which is the A/B.
+                    int axis = g_mpAxis;
+                    if (g_mpSweep) {
+                        const double per = (g_mpSweepSec > 0.2f) ? g_mpSweepSec * 1000.0 : 3000.0;
+                        axis = (int)(fmod(MaimNowMs() / per, 3.0));
+                        if (axis < 0 || axis > 2) axis = 0;
+                        if (axis != g_mpSweepAxis) {
+                            g_mpSweepAxis = axis;
+                            Log("ms/palette/sweep: >>> AXIS %d <<< now carrying "
+                                "%+.1f uu on hand class %s, for the next %.1f s. "
+                                "Whichever way the hand JUMPS is what palette "
+                                "axis %d means in the world. The other hand is "
+                                "not moving and is the reference.",
+                                axis, g_mpAmount,
+                                g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH",
+                                (double)g_mpSweepSec, axis);
+                        }
+                    }
                     float T[3] = { 0.0f, 0.0f, 0.0f };
-                    if (g_mpAxis >= 0 && g_mpAxis < 3) T[g_mpAxis] = g_mpAmount;
+                    if (axis >= 0 && axis < 3) T[axis] = g_mpAmount;
                     static float buf[4 * 256];
                     MpBuild(buf, g_mpCache, g_mpCacheN, T);
                     dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);

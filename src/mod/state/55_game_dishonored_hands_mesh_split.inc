@@ -291,6 +291,19 @@ static UINT     g_mpCacheN  = 0;
 static LONG     g_mpDraws   = 0;       // per-class draws issued under a palette
 static LONG     g_mpNoCache = 0;       // per-class draw wanted, no c6 seen yet
 
+// THE AXIS SWEEP. The palette's three axes are a basis we have never measured,
+// and guessing it is how a wrong sign gets shipped as a fix. So walk them:
+// hold the delta on axis 0 for a few seconds, then 1, then 2, and say on the
+// line which one is live. The tester reports three DIRECTIONS and that is the
+// whole basis, from one run, with nothing to press.
+//
+// It is deliberately self-labelling: the log says which axis is live at the
+// moment the hand is somewhere, so a report of "first it went up, then toward
+// me" maps onto axes without either of us reconstructing a timeline.
+static bool     g_mpSweep     = false;  // [Hands] PaletteSweep
+static float    g_mpSweepSec  = 3.0f;   // [Hands] PaletteSweepSeconds
+static int      g_mpSweepAxis = -1;     // the axis live right now (render thread)
+
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing
 // says the wrist is"; the knob exists because a derived number still has to
