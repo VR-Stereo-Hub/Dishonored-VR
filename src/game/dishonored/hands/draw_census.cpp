@@ -125,7 +125,11 @@ static void DcNotePalette(UINT count)
 {
     // VR-33 W1 needs the same 'this draw is skinned' gate the census uses,
     // so the weapon identifier keeps it open too.
+#if DVR_WITH_LEGACY
     if (!g_dcOn && !g_wiOn) return;
+#else
+    if (!g_dcOn) return;
+#endif
     if (count < 3 || count > 250) return;
     g_dcPendingBones = count / 3;
     g_dcPendingSerial = 1;
@@ -249,8 +253,10 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     // here. The sweep now sees every indexed draw and records whether a fresh
     // palette was pending, so a static attachment is a value rather than an
     // absence.
+#if DVR_WITH_LEGACY
     if (g_wiOn)
         WiNoteDraw(self, baseVertex, minIndex, numVertices, startIndex, primCount);
+#endif
 
     // VR-33 W2/W3: THE WEAPON ATTACHMENT. Ahead of everything else, because a
     // weapon mesh is not the locked hand mesh and must not fall through into

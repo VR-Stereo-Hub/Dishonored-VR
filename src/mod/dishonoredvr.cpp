@@ -91,7 +91,9 @@
 #include "mod/state/53_core_input_pad_bridge.inc"
 #include "mod/state/54_game_dishonored_arm_follow.inc"
 #include "mod/state/55_game_dishonored_hands_mesh_split.inc"
-#include "mod/state/57_game_dishonored_hands_weapon_id.inc"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/57_game_dishonored_hands_weapon_id.inc"
+#endif
 #include "mod/state/57b_game_dishonored_hands_weapon_attach.inc"
 #include "mod/state/56_game_dishonored_hands_pose_report.inc"
 #include "mod/state/57_game_dishonored_hands_bone_query.inc"
@@ -169,7 +171,9 @@
 #include "game/dishonored/hands/bone_query.cpp"
 #include "game/dishonored/hands/palette_capture.cpp"
 #include "game/dishonored/hands/hand_move.cpp"
-#include "game/dishonored/hands/weapon_id.cpp"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_id.cpp"
+#endif
 #include "game/dishonored/hands/weapon_attach.cpp"
 #include "game/dishonored/hands/draw_census.cpp"
 #undef DVR_CAT

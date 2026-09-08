@@ -3219,7 +3219,9 @@ static void MsTick(void)
     MpDriveTick();
     MpCalibTick();
     PcTick();
+#if DVR_WITH_LEGACY
     WiFinishTick();     // VR-33 W1: the report, from whichever lane gets there
+#endif
     WaBeat();           // VR-33 W2/W3: prints even when nothing ever matched
     // The palette's stepped axis probe. Present thread, no D3D touched - the
     // draw detour reads g_mpStepAxis next time it runs.

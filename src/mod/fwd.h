@@ -281,9 +281,6 @@ static bool MatShowSection(uint8_t* comp, int id, bool show, int lod);
 static void MatRestoreAll(const char* why);
 static int  MatNumElements(uint8_t* comp);
 // VR-33 W1: the weapon identifier (weapon_id.cpp)
-static void WiTick(void);
-static bool WiOwns(int sig, int comp, uint32_t* h0, uint32_t* s0,
-                   uint32_t* h1, uint32_t* s1);
 // VR-33 W2/W3: the weapon attachment (weapon_attach.cpp).
 // MpDrawCtx is defined beside the palette path in mesh_split.cpp; the weapon
 // consumes it by pointer, so the incomplete type is all this needs.
@@ -305,10 +302,6 @@ static void WaPublishCommon(int hand, const MpDrawCtx* c,
 static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
                    UINT primCount, HRESULT* hr);
-static void WiFinish(void);
-static void WiFinishTick(void);
-static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
-                       UINT numVertices, UINT startIndex, UINT primCount);
 static const char* MatMaterialName(uint8_t* comp, int i);
 static int  MatNumLods(uint8_t* comp);
 static bool MatHiddenArray(uint8_t* comp, int lod, uint8_t** dOut, int32_t* nOut);
@@ -503,3 +496,7 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved);
 static void ArmFollowSetStripRot(float v, const char* who);
 static void ArmFollowSetFacing(float v, const char* who);
 bool YawSelfTest();
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_id_fwd.inc"
+#endif
