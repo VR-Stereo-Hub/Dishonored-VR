@@ -1859,15 +1859,41 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
         const float halfIpdUU = 0.5f * g_ipdM * k;
         const float ipdUU = g_ipdM * k;
 
+        // THE ORDINAL IS PER SHADER, not per frame.
+        //
+        // Three shaders draw this mesh and each draws it once per eye, so a
+        // frame carries up to six draws. Counting them together made ordinals
+        // 0 and 1 the first shader's two eyes and left everything from 2 on
+        // unclassified - and unclassified means NO offset, so those passes
+        // rendered at the head-centre position. That is the black duplicate
+        // hand behind each one in the tester's screenshot, and two overlapping
+        // images with different disparity is why the scale broke again.
+        //
+        // Each shader is its own stream of eye pairs, so each gets its own
+        // ordinal. The ordinal-to-eye VOTE stays shared: pass order is a
+        // property of the frame, not of the shader.
         const uint32_t fr = (uint32_t)dvr::frame::count();
-        if (fr != g_mpEyeFrame) { g_mpEyeFrame = fr; g_mpEyeOrd = 0; g_mpEyeOrd0Ok = false; }
-        const int ord = g_mpEyeOrd++;
+        if (fr != g_mpEyeFrame) {
+            g_mpEyeFrame = fr;
+            for (int i = 0; i < MP_EYE_SHADERS; i++) {
+                g_mpEyeShader[i] = NULL; g_mpEyeShaderOrd[i] = 0;
+            }
+            g_mpEyeOrd0Ok = false;
+        }
+        void* const sh = g_pcLayShader;
+        int slot = -1;
+        for (int i = 0; i < MP_EYE_SHADERS; i++) {
+            if (g_mpEyeShader[i] == sh) { slot = i; break; }
+            if (!g_mpEyeShader[i]) { g_mpEyeShader[i] = sh; slot = i; break; }
+        }
+        if (slot < 0) { g_mpEyeOverflow++; slot = 0; }   // more shaders than slots
+        const int ord = g_mpEyeShaderOrd[slot]++;
 
         float sign = 0.0f;
         if (ord == 0) {
-            g_mpEyeOrd0Proj = proj; g_mpEyeOrd0Ok = true;
+            g_mpEyeOrd0Proj = proj; g_mpEyeOrd0Ok = true; g_mpEyeOrd0Slot = slot;
             sign = g_mpEyeOrd0IsLeft ? -1.0f : +1.0f;
-        } else if (ord == 1 && g_mpEyeOrd0Ok) {
+        } else if (ord == 1 && g_mpEyeOrd0Ok && g_mpEyeOrd0Slot == slot) {
             // The vote. A pair only counts when the two projections differ by
             // something close to an IPD; anything else is not two eyes and
             // must not be allowed to flip the mapping.
@@ -1888,9 +1914,12 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
             }
             sign = g_mpEyeOrd0IsLeft ? +1.0f : -1.0f;
         }
-        // ord >= 2 leaves sign at 0: an unexpected extra draw of this mesh in
-        // one frame is not a third eye, and guessing would put a full IPD of
-        // error on it.
+        // ord >= 2 FOR ONE SHADER leaves sign at 0. Two eyes is two draws; a
+        // third from the same shader in one frame is not a third eye, and
+        // guessing would put a full IPD of error on it. This is now genuinely
+        // unexpected rather than routine - it was routine only because the
+        // ordinal used to be shared across shaders.
+        if (ord >= 2) g_mpEyeThirds++;
 
         for (int i = 0; i < 3; i++) dcam[i] -= sign * halfIpdUU * r[i];
         if (sign > 0.0f) g_mpEyeSeen[1]++; else if (sign < 0.0f) g_mpEyeSeen[0]++;
@@ -2660,8 +2689,8 @@ static void MpDriveTick(void)
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
             "ms/palette/eye: offset %s | L %ld R %ld unclassified %ld | "
             "in-frame pair separation %.2f uu against an expected IPD of %.2f "
-            "uu | good pairs %ld, rejected %ld | vote %+d, ordinal 0 is the %s "
-            "eye. The eye is the draw's ORDINAL within the frame, which head "
+            "uu | good pairs %ld, rejected %ld, third-draws %ld, shader "
+            "overflow %ld | vote %+d, ordinal 0 is the %s eye. The eye is the draw's ORDINAL within the frame, which head "
             "movement cannot perturb; the ordinal-to-eye mapping is voted from "
             "same-frame pairs, the only comparison where everything but the "
             "eye is equal. Rising 'unclassified' means a frame drew this mesh "
@@ -2670,8 +2699,8 @@ static void MpDriveTick(void)
             g_mpEyeOffset ? "ON" : "off",
             g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
             (double)g_mpEyeSpread, (double)(g_ipdM * g_skcWorldScale),
-            g_mpEyePairs, g_mpEyeBadPairs, g_mpEyeVote,
-            g_mpEyeOrd0IsLeft ? "LEFT" : "RIGHT");
+            g_mpEyePairs, g_mpEyeBadPairs, g_mpEyeThirds, g_mpEyeOverflow,
+            g_mpEyeVote, g_mpEyeOrd0IsLeft ? "LEFT" : "RIGHT");
         return;
     }
     if (g_mpAbs) {

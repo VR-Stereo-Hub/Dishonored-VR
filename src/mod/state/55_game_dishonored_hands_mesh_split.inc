@@ -474,7 +474,13 @@ static float    g_mpLastEyeProj = 0.0f;
 // The eye is the draw's ordinal within the frame - head-invariant, unlike a
 // learned midpoint. Which ordinal is which eye is voted from same-frame pairs.
 static uint32_t g_mpEyeFrame  = 0xFFFFFFFFu;
-static int      g_mpEyeOrd    = 0;
+// Per-shader ordinals: three shaders draw this mesh and each draws it once per
+// eye, so a shared counter left the later passes uncorrected.
+enum { MP_EYE_SHADERS = 8 };
+static void*    g_mpEyeShader[MP_EYE_SHADERS] = { 0 };
+static int      g_mpEyeShaderOrd[MP_EYE_SHADERS] = { 0 };
+static int      g_mpEyeOrd0Slot = -1;
+static LONG     g_mpEyeThirds = 0, g_mpEyeOverflow = 0;
 static bool     g_mpEyeOrd0Ok = false;
 static float    g_mpEyeOrd0Proj = 0.0f;
 static int      g_mpEyeVote   = 0;
