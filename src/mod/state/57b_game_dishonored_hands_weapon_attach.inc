@@ -133,6 +133,12 @@ struct WaMesh {
     dvr::hf::Xform dm;
     uint32_t dmPresent;
     bool     dmOk;
+    // WHICH PREDICTION WON when this contract was identified. A member is
+    // offered twice - once in the reference draw's rebased space and once in
+    // world space - and the two take different corrections. A sibling pass of
+    // the same geometry belongs to the same one, and guessing would put it
+    // somewhere new rather than where its twin went.
+    bool     useNative;
     LONG     ghosts;           // sibling passes corrected through this contract
 };
 static WaMesh   g_waMesh[WA_MAX_MESH];

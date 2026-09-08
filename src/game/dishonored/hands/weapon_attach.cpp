@@ -533,12 +533,34 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                     (ib0 && g_waMesh[i].ib == ib0)) { known = &g_waMesh[i]; break; }
             if (known) {
                 PcRefreshLayout(dev);
+                // THE SHADER IS PART OF THE KEY, and leaving it out is what hid
+                // the copy for five builds. The census showed two rows with the
+                // SAME vertex buffer, index buffer, range and primitive count,
+                // differing only in the vertex shader: one corrected, one left
+                // where the engine drew it. Without `vs` here the second looked
+                // like the contract's own draw, fell through to the transform
+                // match, missed by 9.5 degrees and was counted as an ordinary
+                // miss - which is why "other passes on known buffers" read 0
+                // while a whole uncorrected pass was on screen.
+                IDirect3DVertexShader9* vso0 = NULL; void* vs0 = NULL;
+                if (SUCCEEDED(dev->GetVertexShader(&vso0)) && vso0)
+                    { vs0 = vso0; vso0->Release(); }
                 const bool sameContract =
-                    known->vb == vb0 && known->ib == ib0 &&
+                    known->vb == vb0 && known->ib == ib0 && known->vs == vs0 &&
                     known->stride == str0 && known->streamOffset == off0 &&
                     known->type == type && known->baseVertex == baseVertex &&
                     known->minIndex == minIndex && known->startIndex == startIndex &&
                     known->numVerts == numVertices && known->primCount == primCount;
+                // The same GEOMETRY under a different shader is another pass of
+                // an identified member. It does not need identifying again and
+                // it must not be re-matched: its twin already answered the
+                // question, and a transform match that disagrees is the bug,
+                // not new information.
+                const bool sameGeometry =
+                    known->vb == vb0 && known->ib == ib0 &&
+                    known->startIndex == startIndex &&
+                    known->numVerts == numVertices &&
+                    known->primCount == primCount;
                 // A draw on known buffers that is NOT the contract's own draw is
                 // another pass of it - the copy left at the native position.
                 if (!sameContract) {
@@ -555,15 +577,71 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         startIndex, known->startIndex, str0, known->stride,
                         (g_pcLayBones >= 0 || g_pcLayBonesPartial >= 0)
                             ? "declared" : "NOT declared");
-                    if (g_pcLayBones < 0 && g_pcLayBonesPartial < 0)
+                    if (g_pcLayBones < 0 && g_pcLayBonesPartial < 0) {
                         InterlockedIncrement(&g_waIdNoBone);
-                    else if (!known->dmOk ||
-                             known->dmPresent != (uint32_t)dvr::frame::count())
-                        InterlockedIncrement(&g_waIdNoDelta);
-                    else if (g_waGhostFix &&
-                             WaPatchAndDraw(dev, known, known->dm, true, type,
-                                            baseVertex, minIndex, numVertices,
-                                            startIndex, 0, primCount, hr)) {
+                        return false;
+                    }
+                    // Build the correction from THIS view and THIS draw's own
+                    // transform rather than waiting for the twin. The copy
+                    // draws FIRST in the frame - the census order shows it - so
+                    // a sibling delta from this Present does not exist yet, and
+                    // that is precisely why the earlier sibling-only attempt
+                    // corrected nothing.
+                    dvr::hf::Xform corr;
+                    bool haveCorr = false;
+                    if (sameGeometry && g_pcLayL2W >= 0 && g_pcLayL2W <= 252) {
+                        MpDrawCtx c2 = {};
+                        if (SUCCEEDED(dev->GetVertexShaderConstantF(g_pcLayL2W, c2.l2w, 4))) {
+                            for (int r = 0; r < 3; ++r) {
+                                c2.t[r] = c2.l2w[12+r];
+                                for (int cc = 0; cc < 3; ++cc)
+                                    c2.R_L.m[r*3+cc] = c2.l2w[cc*4+r];
+                            }
+                            const WaCommon* v2 = &g_waCommon[known->hand];
+                            if (v2->ok &&
+                                v2->present == (uint32_t)dvr::frame::count()) {
+                                dvr::hf::Xform space = v2->D;
+                                if (known->useNative) {
+                                    const WaComp* ref2 = NULL;
+                                    for (int q = 0; q < v2->componentCount; ++q)
+                                        if (v2->components[q].ok &&
+                                            v2->components[q].isRef)
+                                            { ref2 = &v2->components[q]; break; }
+                                    dvr::hf::Xform br, ibr;
+                                    if (ref2) {
+                                        dvr::hf::Xform nr = {ref2->R,
+                                            {ref2->t[0], ref2->t[1], ref2->t[2]}};
+                                        if (dvr::wf::bridge(nr, v2->L_hand, &br) &&
+                                            dvr::wf::inverse(br, &ibr))
+                                            space = dvr::hf::xform_mul(
+                                                dvr::hf::xform_mul(ibr, v2->D), br);
+                                        else ref2 = NULL;
+                                    }
+                                    if (!ref2) { InterlockedIncrement(&g_waNoBridge); return false; }
+                                }
+                                dvr::hf::Xform L2 = {c2.R_L,
+                                    {c2.t[0], c2.t[1], c2.t[2]}}, iL2;
+                                if (dvr::wf::inverse(L2, &iL2)) {
+                                    corr = dvr::hf::xform_mul(
+                                        dvr::hf::xform_mul(iL2, space), L2);
+                                    haveCorr = true;
+                                }
+                            }
+                        }
+                    }
+                    if (!haveCorr && known->dmOk &&
+                        known->dmPresent == (uint32_t)dvr::frame::count()) {
+                        corr = known->dm; haveCorr = true;
+                    }
+                    if (!haveCorr) { InterlockedIncrement(&g_waIdNoDelta); return false; }
+                    for (int q = 0; q < 9; ++q)
+                        if (!MpFinite(corr.r.m[q])) return false;
+                    for (int q = 0; q < 3; ++q)
+                        if (!MpFinite(corr.t[q])) return false;
+                    if (g_waGhostFix &&
+                        WaPatchAndDraw(dev, known, corr, true, type, baseVertex,
+                                       minIndex, numVertices, startIndex, 0,
+                                       primCount, hr)) {
                         InterlockedIncrement(&g_waIdCorrected);
                         InterlockedIncrement(&known->ghosts);
                         return true;
@@ -758,6 +836,8 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     }
     WaCensusNote(dev, &ctx, baseVertex, numVertices, startIndex, primCount,
                  member->asset, match.angle, match.position, true);
+    // Odd candidates are the world-space prediction, even the rebased one.
+    w->useNative = ((match.best & 1) != 0);
     w->lastVerifyMs = MaimNowMs();
     w->boneReg = g_pcLayBones; w->regs = (UINT)g_pcLayBonesN;
     dvr::hf::Xform inverse;
