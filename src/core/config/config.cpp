@@ -1191,6 +1191,7 @@ static void LoadConfig()
     g_waNearAngDeg    = IniFloat(ini, "Hands", "AttachNearAngle", 20.0f);
     g_waNearPosUU     = IniFloat(ini, "Hands", "AttachNearPos", 30.0f);
     g_waNearMargin    = IniFloat(ini, "Hands", "AttachNearMargin", 1.5f);
+    g_waDropUncorrected = IniFloat(ini, "Hands", "AttachDropUncorrected", 1) != 0.0f;
     if (g_waNearMargin < 1.05f) g_waNearMargin = 1.05f;
     if (g_waNearMargin > 8.0f)  g_waNearMargin = 8.0f;
     if (g_waViewModelUU < 10.0f)   g_waViewModelUU = 10.0f;
@@ -1941,6 +1942,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachNearPos", v, ini);
     _snprintf(v, 64, "%.2f", g_waNearMargin);
     WritePrivateProfileStringA("Hands", "AttachNearMargin", v, ini);
+    WritePrivateProfileStringA("Hands", "AttachDropUncorrected",
+                               g_waDropUncorrected ? "1" : "0", ini);
     _snprintf(v, 64, "%.0f", g_waRigRadiusUU);
     WritePrivateProfileStringA("Hands", "AttachRigRadius", v, ini);
     _snprintf(v, 64, "%.0f", g_waPassRadiusUU);

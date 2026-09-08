@@ -674,10 +674,32 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         known->dmPresent == (uint32_t)dvr::frame::count()) {
                         corr = known->dm; haveCorr = true;
                     }
-                    // Nothing usable for this pass: fall through and let the
-                    // ordinary identification path have it, instead of dropping
-                    // a draw that might still match on its own.
-                    if (!haveCorr) { InterlockedIncrement(&g_waIdNoDelta); }
+                    // NOTHING USABLE FOR THIS PASS. Two choices, and drawing it
+                    // untouched is the worse one: this is another pass of a mesh
+                    // the frame will also draw correctly, so leaving it alone
+                    // puts a copy at the native position - which is the whole
+                    // defect. The arm split faced this and dropped what it could
+                    // not place rather than drawing it wrong.
+                    //
+                    // Suppressing costs at most a depth or shadow contribution
+                    // for one pass of one mesh; drawing it costs a duplicate
+                    // weapon standing in the room. The copies return when the
+                    // tester MOVES, which is when a correction for this exact
+                    // view is most often missing, and that is exactly this case.
+                    if (!haveCorr) {
+                        InterlockedIncrement(&g_waIdNoDelta);
+                        if (g_waDropUncorrected) {
+                            InterlockedIncrement(&g_waIdDropped);
+                            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                                "wa/id: DROPPING an uncorrectable pass of '%s' - "
+                                "no correction exists for this view, and drawing "
+                                "it untouched would put a copy at the native "
+                                "position. The corrected pass of this mesh still "
+                                "draws this frame.", known->asset);
+                            if (hr) *hr = D3D_OK;
+                            return true;
+                        }
+                    }
                     else {
                     for (int q = 0; q < 9; ++q)
                         if (!MpFinite(corr.r.m[q])) return false;
@@ -1020,7 +1042,7 @@ static void WaBeat(void)
         "no-layout %ld no-source %ld no-view %ld no-bridge %ld stale-snapshot %ld over-budget %ld | "
         "ghost passes seen %ld fixed %ld (no bone decl %ld, no sibling delta %ld, bad range %ld) | "
         "probe ran %ld: shares our vertex buffer %ld (same index buffer %ld), not ours %ld, "
-        "over budget %ld | off-rig members %ld, other-instance draws %ld | "
+        "over budget %ld | "
         "contract table %d of %d | off-rig members %ld, other-instance draws %ld, view-model accepts %ld "
         "refusals %ld | "
         "other passes on known buffers %ld: corrected %ld "
@@ -1037,7 +1059,6 @@ static void WaBeat(void)
         g_waProbeIbHit, g_waProbeMiss, g_waProbeCapped,
         g_waMeshN, (int)WA_MAX_MESH,
         g_waOffRig, g_waOffPass, g_waNearAccepted, g_waNearRejected,
-        g_waOffRig, g_waOffPass,
         g_waIdSeen, g_waIdCorrected, g_waIdNoBone, g_waIdNoDelta,
         g_waNonIndexed, g_waPrimSeen, g_waPrimVbHit, g_waPrimFixed,
         g_waPrimNoBone, g_waPrimNoDelta,

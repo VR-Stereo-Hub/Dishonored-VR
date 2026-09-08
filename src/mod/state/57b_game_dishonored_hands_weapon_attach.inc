@@ -414,6 +414,12 @@ static float g_waViewModelUU  = 500.0f;  // [Hands] AttachViewModelUU
 static float g_waNearAngDeg   = 20.0f;   // [Hands] AttachNearAngle
 static float g_waNearPosUU    = 30.0f;   // [Hands] AttachNearPos
 static LONG  g_waNearAccepted = 0;   // accepted on the relaxed band
+// A pass we RECOGNISE but cannot place is suppressed rather than drawn where
+// the engine put it. It is a duplicate of geometry the same frame draws
+// correctly, so the cost is at most one pass of depth or shadow and the saving
+// is the copy itself.
+static bool  g_waDropUncorrected = true;  // [Hands] AttachDropUncorrected
+static LONG  g_waIdDropped    = 0;
 static float g_waNearMargin   = 1.5f;    // [Hands] AttachNearMargin
 static LONG  g_waNearRejected = 0;   // on the view model and still refused
 
