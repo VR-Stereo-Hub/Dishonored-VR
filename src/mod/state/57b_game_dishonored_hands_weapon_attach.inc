@@ -274,6 +274,33 @@ static LONG g_waPrimFixed   = 0;
 static LONG g_waPrimNoBone  = 0;
 static LONG g_waPrimNoDelta = 0;
 static LONG g_waProbeIbOnly = 0;
+
+// ---- THE NEAREST MISS -------------------------------------------------------
+//
+// The copy stays at the native position AND ANIMATES CORRECTLY - the bow fires,
+// the sword flips on crouch. A copy that animates is being skinned by the
+// game's own animated palette, so it IS the weapon mesh, drawn from buffers
+// nothing here has ever seen: every draw touching a contract's buffers is one
+// of the twelve contracts, and the probe found no other.
+//
+// It must therefore be among the draws that WERE compared and matched nothing
+// - tens of thousands a run. The existing 'interval nearest' cannot show it,
+// because that statistic is saturated by the exact matches at 0.0000 deg and
+// 0.0005 uu; the winner drowns out everything behind it.
+//
+// This records the best residual among draws that MISSED, with the geometry
+// that produced it. If the copy is the same mesh at the same animated pose, it
+// will sit at a small, characteristic residual and these buffers name it - and
+// naming its buffers is all the correction needs, because recognition by
+// buffer identity is already built.
+struct WaMiss {
+    float angle, position, scale, score;
+    void* vb, *ib, *vs;
+    UINT  primCount, numVerts, startIndex, stride;
+    char  asset[64];
+    bool  ok;
+};
+static WaMiss g_waMiss[2];        // per hand, reset each reporting interval
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
 static LONG g_waNoLayout    = 0;   // the bound shader has no usable layout
 static LONG g_waNoSource    = 0;   // palette unreadable or not skinned

@@ -624,7 +624,39 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     InterlockedIncrement(&g_waCandChecked);
     const dvr::wf::Result match = dvr::wf::match(draw, candidates, count,
         g_waAngTolDeg, g_waPosTolUU, g_waMarginX);
-    if (match.best < 0) { InterlockedIncrement(&g_waNoCandidate); return false; }
+    if (match.best < 0) {
+        InterlockedIncrement(&g_waNoCandidate);
+        // CHARACTERISE THE MISS. The copy that stays behind animates correctly,
+        // so it is this mesh under the game's own palette and it has to be in
+        // here somewhere. Keep the closest one and the geometry that drew it:
+        // its buffers are what the correction needs, and nothing else in this
+        // build reports them.
+        for (int h = 0; h < 2; ++h) {
+            if (!views[h]) continue;
+            dvr::wf::Result near_ = dvr::wf::match(draw, candidates, count,
+                                                   1.0e9f, 1.0e9f, 1.0f);
+            if (near_.best < 0) continue;
+            if (candidates[near_.best].hand != h) continue;
+            if (g_waMiss[h].ok && near_.score >= g_waMiss[h].score) continue;
+            IDirect3DVertexBuffer9* mvb = NULL; UINT moff = 0, mstr = 0;
+            IDirect3DIndexBuffer9* mib = NULL;
+            IDirect3DVertexShader9* mvs = NULL;
+            dev->GetStreamSource(0, &mvb, &moff, &mstr);
+            dev->GetIndices(&mib); dev->GetVertexShader(&mvs);
+            WaMiss m;
+            m.angle = near_.angle; m.position = near_.position;
+            m.scale = near_.scale; m.score = near_.score;
+            m.vb = mvb; m.ib = mib; m.vs = mvs;
+            m.primCount = primCount; m.numVerts = numVertices;
+            m.startIndex = startIndex; m.stride = mstr; m.ok = true;
+            strcpy_s(m.asset, members[near_.best]->asset);
+            if (mvb) mvb->Release();
+            if (mib) mib->Release();
+            if (mvs) mvs->Release();
+            g_waMiss[h] = m;
+        }
+        return false;
+    }
     if (match.ambiguous) { InterlockedIncrement(&g_waAmbiguous); return false; }
     const WaComp* member = members[match.best];
     const int hand = candidates[match.best].hand;
@@ -755,6 +787,22 @@ static void WaBeat(void)
                 h, g_waNearestName[h], g_waNearestAngle[h], g_waNearestPos[h],
                 g_waNearestScale[h], g_waAngTolDeg, g_waPosTolUU);
         g_waNearestScore[h] = FLT_MAX;
+    }
+    for (int h = 0; h < 2; ++h) {
+        if (!g_waMiss[h].ok) continue;
+        Log("wa: NEAREST MISS hand %d, closest to '%s': %.3f deg / %.2f uu / "
+            "scale %.5f | vb %p ib %p vs %p prim %u verts %u start %u stride %u. "
+            "This is the best a NON-matching draw managed this interval. The "
+            "copy that stays behind animates correctly, so it is this mesh under "
+            "the game's own palette; if these buffers are stable across "
+            "intervals they are what it is drawn from, and buffer identity can "
+            "then correct it without ever matching a transform.",
+            h, g_waMiss[h].asset, (double)g_waMiss[h].angle,
+            (double)g_waMiss[h].position, (double)g_waMiss[h].scale,
+            g_waMiss[h].vb, g_waMiss[h].ib, g_waMiss[h].vs,
+            g_waMiss[h].primCount, g_waMiss[h].numVerts,
+            g_waMiss[h].startIndex, g_waMiss[h].stride);
+        g_waMiss[h].ok = false;
     }
     for (int i = 0; i < g_waMeshN; ++i) {
         const WaMesh* w = &g_waMesh[i];
