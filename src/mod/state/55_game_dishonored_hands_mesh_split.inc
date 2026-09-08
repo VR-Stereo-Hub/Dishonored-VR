@@ -428,6 +428,10 @@ static LONG     g_mpEyeUnclassified = 0;
 // against 6.31 predicted. The eye is constant within a Present and changes
 // between them, so it is decided once per Present and the SIGN of the jump
 // gives left or right absolutely. No vote, no ordinal, no hand side.
+// The draw-to-draw comparison that found the eye, kept as the instrument that
+// would find it again if the engine path changed.
+static bool     g_mpEyeHunt = false;    // [Hands] PaletteEyeHunt
+
 // The corrected sampling: one context per ORIGINAL draw, and counts that say
 // what was sampled rather than only what was found.
 static uint32_t g_mpDrawSeq = 0;
