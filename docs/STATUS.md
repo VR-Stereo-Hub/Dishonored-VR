@@ -1,6 +1,85 @@
 # Status
 
-## CURRENT (2026-09-08): VR-33 weapon attachment direct repair, test pending
+## CURRENT (2026-09-08): VR-33 is DONE and in review
+
+The hands and the held weapons are on the tracked controllers, headset-confirmed
+and stable. The branch is `claude/vr-33-rotation-grip-and-weapons`, twelve
+commits, and the PR is open against `VR-Main`. **Nothing here is merged.**
+
+### What a player sees now
+
+* Hands track position and rotation, and hold still when the head moves.
+* The crossbow, the loaded bolt and the sword follow their controllers, keeping
+  the game's own hand-to-weapon and weapon-to-bolt relationships and their
+  internal animation.
+* No duplicate weapon standing at the position the engine drew it.
+* A rare single-frame blink on the weapons, and a fired bolt close to the player
+  can still be picked up. Both are ticketed, neither reads as broken.
+
+### The three things worth knowing before touching this
+
+**The grip transform is a REFLECTION.** The draw's camera basis is right-handed
+and the engine is left-handed, so the pose mapping is a mirror. Three Euler
+angles cannot carry one; the saved record stores a parity sign beside a proper
+rotation and refuses a pre-version record rather than loading a hand inside out.
+A build that demands a proper rotation refuses every draw.
+
+**A weapon mesh is drawn by several passes, and any pass we do not place draws
+itself at the native position.** That is what the duplicate copies were. The
+contract key must include the VERTEX SHADER; without it an uncorrected pass
+looks like the contract's own draw.
+
+**Suppressing a pass is only safe when it would otherwise draw a second copy.**
+Several of a weapon's passes are its colour and lighting contributions.
+Suppressing those leaves the ambient term alone: a translucent weapon that
+vanishes in shadow. That was measured, not guessed.
+
+### The blink, and the shared gate behind it
+
+The two weapons share no contract, buffers, component or match - only their
+inputs. **They blink together, which is what identified the cause**: a shared
+gate, not two independent failures. The gate was the component-snapshot
+freshness bound, tightened from 100 ms to 20 ms while chasing a view-model sway
+theory the headset then falsified. The theory was dropped and the bound was not.
+Back at 100 ms the blink is rare.
+
+`AttachSnapshotMaxMs` is the lever. **Tightening it blinks both weapons.**
+
+### Next steps
+
+1. **Merge VR-33** when the reviewer is satisfied - the user's call, not an
+   agent's.
+2. **VR-59, the fired bolt** (High). A bolt fired into something close by is
+   inside every distance gate and is the same mesh drawn from the same buffers.
+   The gates cannot close it; the fix is an instance identity read from the
+   engine. This is the next session's focus.
+3. **VR-49, the 20-90 s settle** (Urgent). The weapon lock is now part of it.
+   The asset-to-hand and asset-to-space decisions do not change between runs
+   even though the buffers do, so they are cacheable.
+4. **VR-57, the crosshair** (Urgent). It is still head-locked while the weapon
+   points where the hand points. One ray.
+5. **VR-58**, the numpad adjust and ModelScale, neither ever exercised in a
+   headset. Both default to the identity, so the build that was tested is the
+   build that ships.
+6. **VR-56**, the weapon models have no back faces. The asset was authored to be
+   seen from one side.
+
+### Verified on the desk
+
+49 host cases (28 hand, 21 weapon), `tools\lint.ps1` clean, nine exports
+undecorated, the installed DLL matching the build. The simulator was not used
+for this work: every question on it was perceptual.
+
+### The record
+
+`docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the one durable document -
+mechanism, levers, and a graveyard of every approach that cost a headset run.
+Section 8 is worth reading before any similar work: five separate filters in
+this investigation each produced a confident zero while excluding the thing they
+were built to find, and an enumeration solved in one run what they had hidden
+for eight builds.
+
+## PREVIOUS CURRENT (2026-09-08): VR-33 weapon attachment direct repair, test pending
 
 Release fix installed; 28 hand tests and 21 weapon tests pass. The first headset run confirmed weapon
 motion, but wrong hands, a large offset and flickering old-position silhouettes.
