@@ -597,6 +597,30 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                                 for (int cc = 0; cc < 3; ++cc)
                                     c2.R_L.m[r*3+cc] = c2.l2w[cc*4+r];
                             }
+                            // SAME BUFFERS IS NOT SAME INSTANCE. Another pass of
+                            // this contract is drawn where the contract is - the
+                            // census measured 0.3 uu between the uncorrected
+                            // crossbow pass and its corrected twin - while a
+                            // world copy of the same mesh is metres away. The
+                            // twin's own position is used only to decide that,
+                            // never to place anything.
+                            if (known->lastL2WOk) {
+                                float d = 0.0f;
+                                for (int q = 0; q < 3; ++q) {
+                                    const float e = c2.t[q] - known->lastL2W[q];
+                                    d += e * e;
+                                }
+                                if (sqrtf(d) > g_waPassRadiusUU) {
+                                    InterlockedIncrement(&g_waOffPass);
+                                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                                        "wa/id: a draw on '%s' buffers is %.0f uu "
+                                        "from where that mesh is drawn on the rig "
+                                        "- a different INSTANCE of the same mesh, "
+                                        "not another pass of it. Left alone.",
+                                        known->asset, (double)sqrtf(d));
+                                    return false;
+                                }
+                            }
                             const WaCommon* v2 = &g_waCommon[known->hand];
                             if (v2->ok &&
                                 v2->present == (uint32_t)dvr::frame::count()) {
@@ -731,6 +755,28 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         for (int i = 0; i < v->componentCount && count + 1 < 64; ++i) {
             const WaComp* k = &v->components[i];
             if (!k->ok || !k->isMember || k->hand != h) continue;
+            // ON THE RIG, OR NOT A MEMBER. A fired bolt keeps its name and its
+            // mesh but leaves the view model, and nothing else here would tell
+            // the difference - the tester found one attached to the hand and
+            // hanging in the sky. Rig components sit together; this one is
+            // measured against the bridge anchor we already trust.
+            {
+                float d = 0.0f;
+                for (int q = 0; q < 3; ++q) {
+                    const float e = k->t[q] - ref->t[q];
+                    d += e * e;
+                }
+                if (sqrtf(d) > g_waRigRadiusUU) {
+                    InterlockedIncrement(&g_waOffRig);
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                        "wa: '%s' is %.0f uu from the body mesh, past the %.0f uu "
+                        "rig radius - it is not on the view model any more (a "
+                        "fired bolt keeps its name and its mesh), so it is not a "
+                        "member and will not be moved to the hand.",
+                        k->asset, (double)sqrtf(d), (double)g_waRigRadiusUU);
+                    continue;
+                }
+            }
             dvr::hf::Xform native = {k->R, {k->t[0], k->t[1], k->t[2]}};
             dvr::wf::Candidate c;
             c.predicted = dvr::hf::xform_mul(bridge, native);
@@ -838,6 +884,9 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                  member->asset, match.angle, match.position, true);
     // Odd candidates are the world-space prediction, even the rebased one.
     w->useNative = ((match.best & 1) != 0);
+    for (int q = 0; q < 3; ++q) w->lastL2W[q] = ctx.t[q];
+    w->lastL2WPresent = (uint32_t)dvr::frame::count();
+    w->lastL2WOk = true;
     w->lastVerifyMs = MaimNowMs();
     w->boneReg = g_pcLayBones; w->regs = (UINT)g_pcLayBonesN;
     dvr::hf::Xform inverse;
@@ -891,7 +940,9 @@ static void WaBeat(void)
         "no-layout %ld no-source %ld no-view %ld no-bridge %ld stale-snapshot %ld over-budget %ld | "
         "ghost passes seen %ld fixed %ld (no bone decl %ld, no sibling delta %ld, bad range %ld) | "
         "probe ran %ld: shares our vertex buffer %ld (same index buffer %ld), not ours %ld, "
-        "over budget %ld | other passes on known buffers %ld: corrected %ld "
+        "over budget %ld | off-rig members %ld, other-instance draws %ld | "
+        "off-rig members %ld, other-instance draws %ld | "
+        "other passes on known buffers %ld: corrected %ld "
         "(no bone decl %ld, no sibling delta %ld) | non-indexed %ld examined %ld: "
         "on known buffers %ld corrected %ld (no bone decl %ld, no delta %ld) | "
         "components: %d bridge anchor(s), "
@@ -903,6 +954,8 @@ static void WaBeat(void)
         g_waBudgetSkip, g_waGhostSeen, g_waGhostFixed, g_waGhostNoBone,
         g_waGhostNoDelta, g_waGhostRange, g_waProbeRan, g_waProbeVbHit,
         g_waProbeIbHit, g_waProbeMiss, g_waProbeCapped,
+        g_waOffRig, g_waOffPass,
+        g_waOffRig, g_waOffPass,
         g_waIdSeen, g_waIdCorrected, g_waIdNoBone, g_waIdNoDelta,
         g_waNonIndexed, g_waPrimSeen, g_waPrimVbHit, g_waPrimFixed,
         g_waPrimNoBone, g_waPrimNoDelta,

@@ -139,6 +139,13 @@ struct WaMesh {
     // the same geometry belongs to the same one, and guessing would put it
     // somewhere new rather than where its twin went.
     bool     useNative;
+    // WHERE THIS CONTRACT WAS LAST DRAWN, and when. Used only to decide
+    // IDENTITY for another pass of the same geometry, never to position
+    // anything: a world instance of the same mesh - a bolt standing in the
+    // ground - shares these buffers and must not be swept into the hand.
+    float    lastL2W[3];
+    uint32_t lastL2WPresent;
+    bool     lastL2WOk;
     LONG     ghosts;           // sibling passes corrected through this contract
 };
 static WaMesh   g_waMesh[WA_MAX_MESH];
@@ -344,6 +351,27 @@ struct WaCensus {
 static WaCensus g_waCensus[WA_MAX_CENSUS];
 static int      g_waCensusN = 0;
 static bool     g_waCensusOn = true;   // [Hands] AttachCensus
+
+// ---- KEEPING WORLD INSTANCES OUT OF THE HAND --------------------------------
+//
+// A fired bolt standing in the ground is the SAME MESH as the loaded one and is
+// drawn from the same buffers, so both of this build's identity routes can
+// reach it: the component snapshot will happily hold a bolt_01 that is no
+// longer in the crossbow, and buffer identity does not distinguish instances
+// at all. The tester found one attached to the hand and hanging in the sky.
+//
+// Two gates, both measured rather than tuned. A view-model rig's components sit
+// together - in the reference run the body, sword, crossbow and bolt spanned
+// about sixty units - so a member far from the bridge anchor is not on the rig
+// and is not a member. And another pass of a contract is drawn at the same
+// place as the contract itself: the census measured the uncorrected crossbow
+// pass 0.3 units from its corrected twin, while a world instance is metres
+// away.
+static float g_waRigRadiusUU = 200.0f;   // [Hands] AttachRigRadius
+static float g_waPassRadiusUU = 60.0f;   // [Hands] AttachPassRadius
+static LONG  g_waOffRig      = 0;   // members rejected as not on the rig
+static LONG  g_waOffPass     = 0;   // same-geometry draws rejected as elsewhere
+
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
 static LONG g_waNoLayout    = 0;   // the bound shader has no usable layout
 static LONG g_waNoSource    = 0;   // palette unreadable or not skinned
