@@ -1,6 +1,120 @@
 # Status
 
-## CURRENT (2026-09-07): VR-33 - rotation and grip are BUILT and INSTALLED, unverified in the headset
+## CURRENT (2026-09-07): VR-33 - hands CONFIRMED, weapons are next
+
+### Headset-confirmed this session
+
+**The hands track position AND rotation correctly.** After one SHIFT+F7 grip
+capture they snapped to almost exactly the right pose, tracked both position and
+rotation, and stayed still when the head moved. The tester asked for this to be
+kept. Recoverable tag: commit `82abe020`.
+
+Before the capture they were mirrored and inside out. That is the same
+arithmetic as the restart bug and both are fixed in `9d55ccde`: the solved grip
+is a REFLECTION (det -1), three Euler angles cannot carry one, and identity was
+therefore the wrong uncalibrated default. The record now stores a parity sign
+beside a proper rotation, is versioned, refuses pre-version records, and saves
+itself so a calibration survives a restart with no key press.
+
+### FEEDBACK FROM THE HEADSET RUN - START HERE
+
+Three things the tester reported, none of them yet addressed:
+
+1. **F5 is already bound.** The hand trim added in `9d55ccde` uses F5, and
+   `head_track.cpp:620` and `head_track.cpp:1064` already read it. One press
+   fires both. The trim is therefore unusable as shipped and must be rebound.
+2. **The weapon identifier's sweep was not seen.** No component blinked. It is
+   armed (`[Hands] WeaponId=1`, `MatCycle=0` in the installed ini) but either it
+   never ran or it refused. **Read the `wid:` lines and the refusal reason in
+   the log before changing anything** - it prints why it declined, and the
+   `MatCycle` guard is the most likely cause if that key was still 1 at launch.
+3. **The alignment needs small tweaks**, position and rotation, per hand.
+
+### What the tester asked for next, specifically
+
+**Adopt BioShock Remastered VR's numpad adjust scheme, per hand.** Four modes
+cycled with **Numpad 9**, in this order:
+
+```
+  0  LEFT hand POSITION
+  1  LEFT hand ROTATION
+  2  RIGHT hand POSITION
+  3  RIGHT hand ROTATION
+```
+
+BRVR's implementation is `BioshockVR/Hands/HandsProbe.cpp:295-395` in the live
+tree at `C:\dev\Bioshock-Remastered-VR` (read it, do not re-derive it). Its
+axis keys, which the tester already has in his fingers:
+
+| Key | Position mode | Rotation mode |
+|---|---|---|
+| Numpad 8 / 2 | forward / back (cm) | pitch (deg) |
+| Numpad 6 / 4 | right / left (cm) | yaw (deg) |
+| Numpad 0 / 5 | up / down (cm) | roll (deg) |
+| Numpad 7 | cycles the step: 0.5 / 2 / 5 cm | 0.1 / 0.25 / 0.5 / 1 / 2 / 5 / 15 deg |
+| Numpad 9 | cycles the mode, and the log line NAMES the mode and hand | |
+
+Every change is logged and written back to the ini, as BRVR does.
+
+**THE COLLISION, measured, and it must be handled before this ships.** Every
+numpad key in this repo is already claimed, each behind a feature gate:
+
+| Keys | Owner | Gate | Free right now? |
+|---|---|---|---|
+| 1 / 2 / 3 | the material cycler | `g_matCycleCfg` | yes - `MatCycle=0` in the installed ini |
+| 4 / 5 / 6 / 7 / 8 / 9 | the draw census and its eighth-cutter | `g_dcOn` | only while the census is off |
+| 0 and `/` | the mesh split | `g_msOn` | **NO - the split is what draws the hands** |
+| CTRL+2 | hand move | `kCtrl` | n/a |
+
+So Numpad 0 and 5 (up/down in BRVR's scheme) collide with the live mesh split.
+**Do not just add another reader.** Give the adjust mode an explicit claim: when
+`[Hands] Adjust=1` the adjust block takes the numpad and the split, census and
+cycler blocks are suppressed for those keys, with one log line saying the numpad
+is claimed and by what. One key firing two features has cost this project a
+session already (`7099c3b0`, `0e1ccbb0`).
+
+The existing hand trim (`g_mpTrimT` / `g_mpTrimR`, palm-frame, saved on every
+press) is the right backing store for the two LEFT/RIGHT modes - but it is
+currently ONE shared trim for both hands and needs splitting per side. It is
+already applied through `palm_target`, so a per-hand version needs no new maths.
+
+### Then: actually attach the weapons
+
+The identification instrument is built and armed but has produced nothing yet.
+Its output is the input to placement, and placement was deliberately NOT written
+blind. `docs/dishonored/VR-33-WEAPON-IMPLEMENTATION-PLAN.md` is the full spec;
+the short form is:
+
+* one stable grip/root frame on the crossbow;
+* `D_assembly_C = WeaponGripTarget_C * inverse(S_C)`, and every member takes it
+  through its own `LocalToWorld`: `D_j_local = inverse(L_j) * D_assembly_C * L_j`;
+* the loaded bolt keeps its animated relationship to the root - independently
+  pinning each part to a controller offset would cancel its animation;
+* the weapon target comes from the SHARED `palm_target` helper, which is already
+  extracted and tested, so a weapon can be placed before either hand draws;
+* weapon draws must CONSUME the eye decision, never feed the hand classifier.
+
+### The levers as installed
+
+`Palette=1 PaletteWorld=1 PaletteEyeOffset=1 PaletteDepthRange=1
+PaletteRotate=1 WeaponId=1 WeaponIdMs=1500 MatCycle=0`, grip calibration saved
+under `GripLVersion`/`GripLParity`/`GripLX..Z` and the right-hand equivalents.
+`PaletteRotate=0` returns to the translation-only build.
+
+### Verified on the desk, not in the headset
+
+27 frame-maths cases pass (`build\src\RelWithDebInforame_test.exe`, and the
+same suite runs from `DllMain` into every log). The 28 saved packets replay
+through the shipped decomposition: dominant slot 10 left / 35 right, uniform
+scale 0.9995117 to 0.9995123, worst anisotropy 6.0e-07.
+
+Measured this session and in ENGINE_NOTES: the XR-to-game pose mapping is a
+MIRROR (`det(B*F) = -1`); the pose tick and the hand draws are ONE thread
+(14224), 0 stale snapshots over 11,881 publications; and two of the three hand
+shaders run normals and tangents through the same palette rows, so a rigid
+correction carries the tangent frame and `WorldToLocal` must be left alone.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - rotation and grip built, then confirmed
 
 ### Run 1 found the fault, and the instrument named it
 
