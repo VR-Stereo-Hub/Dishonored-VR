@@ -1,6 +1,130 @@
 # Status
 
-## CURRENT (2026-09-07): VR-33 - hands CONFIRMED, weapons are next
+## CURRENT (2026-09-07, later): VR-33 - the numpad adjust and a weapon identifier that can fail
+
+### WHAT TO TEST, in order. Everything is installed and armed; just launch.
+
+The build is Release, installed, and the ini is set. Nothing needs typing and
+no key needs pressing to arm anything.
+
+**Test 1 - the calibration survives a restart.** Launch and look at your hands
+before touching any key. The grip was solved and saved last session
+(`GripLVersion=2 GripLParity=-1`, `GripRVersion=2 GripRParity=-1`).
+
+* EXPECTED: the hands are at the right angle immediately, the same as they
+  were after SHIFT+F7 last time. The log says
+  `config: the <side> hand's grip calibration LOADED - version 2, parity -1`
+  for both hands, and NOT the "NO CALIBRATION" warning.
+* IF THEY ARE MIRRORED OR INSIDE OUT: the saved record is not being applied.
+  Say so; the log line above is the one that matters.
+* IF THEY ARE AT A WRONG ANGLE BUT NOT MIRRORED: the record loaded but is
+  wrong. SHIFT+F7 will re-solve it.
+
+**Test 2 - the numpad adjust.** Press **Numpad 9** four times, slowly.
+
+* EXPECTED: four log lines naming `LEFT hand POSITION`, `LEFT hand ROTATION`,
+  `RIGHT hand POSITION`, `RIGHT hand ROTATION` in that order, each printing
+  that hand's current trim.
+* Then in `LEFT hand POSITION`, press **Numpad 8** a few times. EXPECTED: the
+  LEFT hand moves along its own fingers, 2 cm per press, and the right hand
+  does not move at all. Numpad 6/4 move it across the palm, 0/5 out of it.
+* **Numpad 7** cycles the step (0.5 / 2 / 5 cm). In a rotation mode it cycles
+  0.1 / 0.25 / 0.5 / 1 / 2 / 5 / 15 degrees.
+* Every press writes to the ini, so stop wherever it looks right and it will
+  be there next launch. No key press is needed to save.
+* IF A KEY DOES NOTHING: check the log for that press. The build prints a line
+  for every press, including a CLAMPED line at the limits and a warning if the
+  press is saved but cannot move the hand yet. A press with NO line at all is
+  the interesting failure - that means the key is not reaching us.
+
+**Test 3 - the weapon identifier.** Nothing to press. Draw the crossbow, stand
+still somewhere quiet facing a wall, and keep it in view.
+
+* EXPECTED, before you draw anything: `wid: WAITING - N component(s) resolved
+  and none of them is a weapon`, listing what it has. This is the fix: last
+  run it swept anyway and produced a confident wrong answer.
+* EXPECTED, a few seconds after the crossbow is out: `wid: sweep planned -
+  baseline plus N component(s) x 4 phases`, then the crossbow BLINKING off and
+  on twice per component, about 1.5 s each. **Stand still for the whole
+  sweep** - the test is "this draw stops and comes back with the hide", and a
+  view that changes under it produces the same signal.
+* EXPECTED at the end: a report. The three outcomes and what each means:
+  * `'crossbow_01' OWNS signature ...` - this is the answer, and it is what
+    the weapon attachment needs.
+  * `*** THIS REPORT IS VOID ***` - the signature table filled up. Not a
+    failure to report; it means try again somewhere emptier.
+  * `'crossbow_01' owns NO signature` - hiding it stopped nothing that came
+    back. Also an answer, and a different problem.
+* The report also prints how many signatures vanished on ONE hide but not the
+  other and were REJECTED. A nonzero number there is the instrument working:
+  those are exactly what the previous build called owned.
+
+### What changed this session
+
+**The hand trim moved to BioShock Remastered VR's numpad scheme, per hand**
+(`7c621cc2`). F5 could never have worked: it is the game's quicksave and
+`head_track.cpp` reads it at two more places, so one press fired three
+features. The scheme is adopted key for key because those are the keys the
+tester already has in his fingers.
+
+The trim is now per hand. One shared value assumed the residual after
+calibration is common to both palms; it is not, since the two grips are solved
+from two separate poses. The old shared keys seed both sides once so nothing
+already dialled in is lost, and the migration is logged.
+
+Every numpad key was already claimed behind a feature gate, so `[Hands]
+Adjust=1` makes an EXPLICIT claim rather than adding another reader: the
+census gives up Numpad 4-9 entirely, the material cycler gives up 2, and the
+mesh split gives up Numpad 0 with its mode cycle moving to Numpad 1. One
+startup line names what took what. Numpad + - * / . are untouched.
+
+**The weapon identifier was rebuilt so it can fail its own hypothesis**
+(`7bfa2675`). All three defects named in the previous entry are fixed:
+
+1. it refuses to plan until a component that is not the player body has
+   resolved AND the candidate list has been unchanged for three seconds;
+2. a table overflow VOIDS the report instead of footnoting it, and the table
+   is sixteen times larger;
+3. each component gets HIDE, SHOW, HIDE, SHOW, and a signature is attributed
+   only if it vanishes on both hides and returns on both shows. The report
+   counts the single-cycle near-misses it rejected, which is the number that
+   shows the old sweep was measuring noise.
+
+A fourth thing turned up on the way: `MatShowSection` returns true when the
+native was CALLED, not when the section actually hid - it logs `[DID NOT
+TAKE]` separately and still returns true. Phases are now judged by reading
+`HiddenMaterials` back, and a phase whose flags disagree with what it asked
+for is poisoned and its component reported UNTESTED.
+
+### The levers as installed
+
+`Adjust=1 AdjStepT=1 AdjStepR=3 Palette=1 PaletteWorld=1 PaletteEyeOffset=1
+PaletteDepthRange=1 PaletteRotate=1 WeaponId=1 WeaponIdMs=1500 MatCycle=0`,
+per-hand trim under `TrimLTX..TrimRRZ`, grip calibration under
+`GripLVersion`/`GripLParity`/`GripLX..Z` and the right-hand equivalents.
+`MatCycle` must stay 0: the identifier drives the same hide/restore calls and
+refuses outright while the cycler is armed. `PaletteRotate=0` returns to the
+headset-confirmed translation-only build.
+
+### Verified on the desk, not in the headset
+
+27 frame-maths cases pass (`build\src\RelWithDebInfo\frame_test.exe`),
+including `hand_trim_is_in_the_palm_frame` and `hand_trim_carries_the_weapon`
+which pin the trim the numpad now drives. `tools\lint.ps1` clean, exports
+clean. **Nothing here has been in a headset** - the numpad bindings, the
+per-hand split, the restart path and the whole identifier are unverified.
+
+### Next steps
+
+1. The three tests above.
+2. If the identifier names the crossbow's draws, weapon placement is unblocked:
+   `docs/dishonored/VR-33-WEAPON-IMPLEMENTATION-PLAN.md` is the full spec, and
+   the weapon target comes from the SHARED `palm_target` helper the hands
+   already use, so a weapon can be placed before either hand draws.
+3. The hand adjust has no auto-repeat, deliberately - BRVR has none and an
+   unrequested one overshoots. If the tester wants it, it is four lines.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - hands CONFIRMED, weapons are next
 
 ### Headset-confirmed this session
 
