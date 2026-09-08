@@ -1174,6 +1174,20 @@ static void LoadConfig()
     // that is testing it, and the previous stage stays reachable by turning it
     // back off.
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 0) != 0.0f;
+    // VR-33 W1: the weapon identifier. One automatic sweep that hides each
+    // first-person component in turn and records which draws stop arriving.
+    g_wiOn            = IniFloat(ini, "Hands", "WeaponId", 0) != 0.0f;
+    g_wiPhaseMs       = IniFloat(ini, "Hands", "WeaponIdMs", 1500.0f);
+    if (g_wiPhaseMs < 300.0f)  g_wiPhaseMs = 300.0f;
+    if (g_wiPhaseMs > 8000.0f) g_wiPhaseMs = 8000.0f;
+    if (g_wiOn)
+        Log("config: [Hands] WeaponId=1 - the weapon identifier will run ONE "
+            "sweep, %.1f s per component, hiding each first-person component "
+            "in turn and recording which skinned draws stop being submitted. "
+            "A draw present in the baseline and absent exactly while a named "
+            "component is hidden BELONGS to it. Equip the weapon you care "
+            "about first: a component that is not drawn in the baseline "
+            "cannot be identified. Read the wid: lines.", g_wiPhaseMs / 1000.0);
     g_mpFrameTolOrtho = IniFloat(ini, "Hands", "PaletteFrameTol", 0.02f);
     if (g_mpFrameTolOrtho < 0.0005f) g_mpFrameTolOrtho = 0.0005f;
     if (g_mpFrameTolOrtho > 0.25f)   g_mpFrameTolOrtho = 0.25f;
@@ -1726,6 +1740,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteWeightTol", v, ini);
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteRotate", g_mpRotate ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "WeaponId", g_wiOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.0f", g_wiPhaseMs);
+    WritePrivateProfileStringA("Hands", "WeaponIdMs", v, ini);
     _snprintf(v, 64, "%.4f", g_mpFrameTolOrtho);
     WritePrivateProfileStringA("Hands", "PaletteFrameTol", v, ini);
     {

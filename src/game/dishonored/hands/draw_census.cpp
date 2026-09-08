@@ -123,7 +123,9 @@ static void DcReadDecl(DcDraw* r)
 // is to find sizes nobody has written down.
 static void DcNotePalette(UINT count)
 {
-    if (!g_dcOn) return;
+    // VR-33 W1 needs the same 'this draw is skinned' gate the census uses,
+    // so the weapon identifier keeps it open too.
+    if (!g_dcOn && !g_wiOn) return;
     if (count < 3 || count > 250) return;
     g_dcPendingBones = count / 3;
     g_dcPendingSerial = 1;
@@ -221,6 +223,13 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
                                        INT baseVertex, UINT minIndex, UINT numVertices,
                                        UINT startIndex, UINT primCount)
 {
+    // VR-33 W1. Records the draw's identity against the phase the component
+    // sweep is currently in. Behind its own flag AND the skinned-draw gate, so
+    // it costs one branch when off. Read-only: it takes no reference it does
+    // not release inside the call and changes no device state.
+    if (g_wiOn && g_dcPendingBones && g_dcSinceUpload < DC_REUSE_WINDOW)
+        WiNoteDraw(self, baseVertex, minIndex, numVertices, startIndex, primCount);
+
     // MESH LOCK, ahead of the palette gate on purpose.
     //
     // Dropping the three palette-fed passes over the arm mesh left a faint arm

@@ -280,6 +280,10 @@ static bool MatArrayProp(uint8_t* base, uint32_t off, uint8_t** dOut, int32_t* n
 static bool MatShowSection(uint8_t* comp, int id, bool show, int lod);
 static void MatRestoreAll(const char* why);
 static int  MatNumElements(uint8_t* comp);
+// VR-33 W1: the weapon identifier (weapon_id.cpp)
+static void WiTick(void);
+static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
+                       UINT numVertices, UINT startIndex, UINT primCount);
 static const char* MatMaterialName(uint8_t* comp, int i);
 static int  MatNumLods(uint8_t* comp);
 static bool MatHiddenArray(uint8_t* comp, int lod, uint8_t** dOut, int32_t* nOut);
