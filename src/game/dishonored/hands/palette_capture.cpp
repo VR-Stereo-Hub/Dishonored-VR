@@ -125,10 +125,28 @@ static void PcRefreshLayout(IDirect3DDevice9* dev)
     }
     g_pcLayShader = key;
     g_pcLayVp = lay.vp; g_pcLayL2W = lay.localToWorld; g_pcLayBones = lay.bones;
-    Log("pcap/layout: shader %p declares ViewProjectionMatrix c%d, BoneMatrices "
-        "c%d, LocalToWorld c%d. Read from its own constant table - three "
-        "shaders draw this mesh and they do not agree.",
-        key, lay.vp, lay.bones, lay.localToWorld);
+    // ONCE PER SHADER, not once per draw. Three or four shaders alternate
+    // across the hand draws, so g_pcLayShader changes on nearly every one and
+    // this line was re-reflecting and re-printing at draw rate: it produced a
+    // 25 MB log in a single short run and buried the twenty lines that
+    // mattered. The layout is identical every time it is read, so only a
+    // shader nobody has reported yet earns a line. Nothing unbounded in a
+    // per-draw path (CLAUDE.md).
+    {
+        static void* said[16];
+        static int   saidN = 0;
+        bool seen = false;
+        for (int i = 0; i < saidN; i++) if (said[i] == key) { seen = true; break; }
+        if (!seen) {
+            if (saidN < 16) said[saidN++] = key;
+            Log("pcap/layout: shader %p declares ViewProjectionMatrix c%d, "
+                "BoneMatrices c%d, LocalToWorld c%d. Read from its own constant "
+                "table - several shaders draw this mesh and they do not agree. "
+                "Printed once per shader (%d distinct so far); the layout does "
+                "not change between reads.",
+                key, lay.vp, lay.bones, lay.localToWorld, saidN);
+        }
+    }
 }
 
 

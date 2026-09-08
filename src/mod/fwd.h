@@ -282,6 +282,8 @@ static void MatRestoreAll(const char* why);
 static int  MatNumElements(uint8_t* comp);
 // VR-33 W1: the weapon identifier (weapon_id.cpp)
 static void WiTick(void);
+static void WiFinish(void);
+static void WiFinishTick(void);
 static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
                        UINT numVertices, UINT startIndex, UINT primCount);
 static const char* MatMaterialName(uint8_t* comp, int i);

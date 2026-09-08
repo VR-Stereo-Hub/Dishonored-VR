@@ -301,6 +301,47 @@ static bool WiAssetsReady(double now)
 }
 
 
+// THE REPORT MUST NOT NEED ONE MORE SCRIPT TICK.
+//
+// The 2026-09-07 run swept perfectly - all sixteen phases, every hide and
+// every restore verified against HiddenMaterials - and then printed NOTHING.
+// WiTick runs on the script lane (ApplyHandToMesh), the final phase ends by
+// its deadline passing, and the report therefore needed one more tick of that
+// lane. The lane went quiet half a second later ("viewinject: script camera
+// writes went stale") and the whole 26-second sweep was lost.
+//
+// So the terminal step is split out and driven from BOTH lanes. It touches no
+// engine object and calls no native - it reads counters and logs - so the
+// present thread may run it. The last phase is a SHOW phase by construction,
+// which is why there is nothing here to restore: only the script lane calls
+// ProcessEvent, and it still does. The interlock makes whichever lane arrives
+// first the one that prints, once.
+static volatile LONG g_wiReported = 0;
+
+static void WiFinish(void)
+{
+    if (InterlockedExchange(&g_wiReported, 1)) return;
+    g_wiPhase = -1;
+    g_wiDone  = true;
+    WiReport();
+}
+
+// The present lane's half. Fires on the same deadline the script lane would
+// have used, so a report is produced even if the script lane never ticks
+// again.
+static void WiFinishTick(void)
+{
+    if (!g_wiOn || g_wiDone || g_wiReported) return;
+    if (g_wiStep < 0 || g_wiStep < g_wiPhaseN - 1) return;
+    if (MaimNowMs() < g_wiUntil) return;
+    Log("wid: the sweep's last phase is over and the report is being printed "
+        "from the PRESENT thread. The script lane owns the hides, but it can "
+        "stop between the last phase and the report - which is exactly how the "
+        "2026-09-07 sweep was lost after running correctly end to end.");
+    WiFinish();
+}
+
+
 static void WiTick(void)
 {
     if (!g_wiOn || g_wiDone) return;
@@ -357,9 +398,7 @@ static void WiTick(void)
 
     g_wiStep++;
     if (g_wiStep >= g_wiPhaseN) {
-        g_wiPhase = -1;
-        g_wiDone  = true;
-        WiReport();
+        WiFinish();
         return;
     }
 
