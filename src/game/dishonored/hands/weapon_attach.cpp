@@ -604,23 +604,39 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                             // world copy of the same mesh is metres away. The
                             // twin's own position is used only to decide that,
                             // never to place anything.
-                            if (known->lastL2WOk) {
+                            // ONLY AGAINST A FRESH REFERENCE, AND NEVER A DEAD
+                            // END. This gate rejected 43,651 draws in one run
+                            // and collapsed the contract table from twelve to
+                            // three: it was comparing against a twin position
+                            // recorded frames earlier, and a draw it refused
+                            // never reached the normal matcher, so new contracts
+                            // could not form. A stale reference must be ignored
+                            // rather than trusted, and a refusal here means
+                            // "not another pass of this contract", which is a
+                            // reason to fall through to identification - not a
+                            // reason to abandon the draw.
+                            const uint32_t nowPres = (uint32_t)dvr::frame::count();
+                            bool instanceOk = true;
+                            if (known->lastL2WOk &&
+                                nowPres - known->lastL2WPresent <= 2u) {
                                 float d = 0.0f;
                                 for (int q = 0; q < 3; ++q) {
                                     const float e = c2.t[q] - known->lastL2W[q];
                                     d += e * e;
                                 }
                                 if (sqrtf(d) > g_waPassRadiusUU) {
+                                    instanceOk = false;
                                     InterlockedIncrement(&g_waOffPass);
                                     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
                                         "wa/id: a draw on '%s' buffers is %.0f uu "
-                                        "from where that mesh is drawn on the rig "
-                                        "- a different INSTANCE of the same mesh, "
-                                        "not another pass of it. Left alone.",
+                                        "from where that mesh was drawn this "
+                                        "frame - a different INSTANCE, not another "
+                                        "pass. Falling through to identification "
+                                        "rather than dropping it.",
                                         known->asset, (double)sqrtf(d));
-                                    return false;
                                 }
                             }
+                            if (instanceOk) {
                             const WaCommon* v2 = &g_waCommon[known->hand];
                             if (v2->ok &&
                                 v2->present == (uint32_t)dvr::frame::count()) {
@@ -651,18 +667,28 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                                     haveCorr = true;
                                 }
                             }
+                            }
                         }
                     }
                     if (!haveCorr && known->dmOk &&
                         known->dmPresent == (uint32_t)dvr::frame::count()) {
                         corr = known->dm; haveCorr = true;
                     }
-                    if (!haveCorr) { InterlockedIncrement(&g_waIdNoDelta); return false; }
+                    // Nothing usable for this pass: fall through and let the
+                    // ordinary identification path have it, instead of dropping
+                    // a draw that might still match on its own.
+                    if (!haveCorr) { InterlockedIncrement(&g_waIdNoDelta); }
+                    else {
                     for (int q = 0; q < 9; ++q)
                         if (!MpFinite(corr.r.m[q])) return false;
                     for (int q = 0; q < 3; ++q)
                         if (!MpFinite(corr.t[q])) return false;
-                    if (g_waGhostFix &&
+                    bool ok = true;
+                    for (int q = 0; q < 9 && ok; ++q)
+                        if (!MpFinite(corr.r.m[q])) ok = false;
+                    for (int q = 0; q < 3 && ok; ++q)
+                        if (!MpFinite(corr.t[q])) ok = false;
+                    if (ok && g_waGhostFix &&
                         WaPatchAndDraw(dev, known, corr, true, type, baseVertex,
                                        minIndex, numVertices, startIndex, 0,
                                        primCount, hr)) {
@@ -670,7 +696,7 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         InterlockedIncrement(&known->ghosts);
                         return true;
                     }
-                    return false;
+                    }
                 }
             }
         }
@@ -812,9 +838,15 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         const float distCam = sqrtf(draw.t[0]*draw.t[0] + draw.t[1]*draw.t[1] +
                                     draw.t[2]*draw.t[2]);
         if (distCam <= g_waViewModelUU) {
+            // THE MARGIN HAS TO SHRINK WHEN THE BAND WIDENS. At 20 degrees
+            // several members qualify at once, and a margin of 4x calls
+            // anything within four times the winner's score a tie - so the
+            // relaxed path accepted NOTHING and refused 1146 draws while the
+            // census showed the winner was correct every time. A near-tie is
+            // still a tie; four-to-one is not.
             const dvr::wf::Result near2 = dvr::wf::match(
                 draw, candidates, count, g_waNearAngDeg, g_waNearPosUU,
-                g_waMarginX);
+                g_waNearMargin);
             if (near2.best >= 0 && !near2.ambiguous) {
                 InterlockedIncrement(&g_waNearAccepted);
                 DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,

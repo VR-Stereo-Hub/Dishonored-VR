@@ -401,6 +401,7 @@ static float g_waViewModelUU  = 500.0f;  // [Hands] AttachViewModelUU
 static float g_waNearAngDeg   = 20.0f;   // [Hands] AttachNearAngle
 static float g_waNearPosUU    = 30.0f;   // [Hands] AttachNearPos
 static LONG  g_waNearAccepted = 0;   // accepted on the relaxed band
+static float g_waNearMargin   = 1.5f;    // [Hands] AttachNearMargin
 static LONG  g_waNearRejected = 0;   // on the view model and still refused
 
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
