@@ -1890,9 +1890,14 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
         const int ord = g_mpEyeShaderOrd[slot]++;
 
         float sign = 0.0f;
+        // NOTHING IS OFFSET UNTIL THE MAPPING HAS ACTUALLY BEEN LEARNED.
+        // Applying an offset on an unlearned vote is applying a full IPD on a
+        // coin flip, which is worse than the head-centre placement it replaces.
+        // The default "ordinal 0 is LEFT" is a placeholder, not a finding.
+        const bool learned = (g_mpEyePairs > 8);
         if (ord == 0) {
             g_mpEyeOrd0Proj = proj; g_mpEyeOrd0Ok = true; g_mpEyeOrd0Slot = slot;
-            sign = g_mpEyeOrd0IsLeft ? -1.0f : +1.0f;
+            sign = learned ? (g_mpEyeOrd0IsLeft ? -1.0f : +1.0f) : 0.0f;
         } else if (ord == 1 && g_mpEyeOrd0Ok && g_mpEyeOrd0Slot == slot) {
             // The vote. A pair only counts when the two projections differ by
             // something close to an IPD; anything else is not two eyes and
@@ -1912,7 +1917,7 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
             } else {
                 g_mpEyeBadPairs++;
             }
-            sign = g_mpEyeOrd0IsLeft ? +1.0f : -1.0f;
+            sign = learned ? (g_mpEyeOrd0IsLeft ? +1.0f : -1.0f) : 0.0f;
         }
         // ord >= 2 FOR ONE SHADER leaves sign at 0. Two eyes is two draws; a
         // third from the same shader in one frame is not a third eye, and
@@ -1920,6 +1925,50 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
         // unexpected rather than routine - it was routine only because the
         // ordinal used to be shared across shaders.
         if (ord >= 2) g_mpEyeThirds++;
+
+        // WHERE DOES THE EYE ACTUALLY LIVE? LocalToWorld's translation was the
+        // premise and the measurement refuted it: the in-frame pair separation
+        // reads 0.00 uu against an expected 6.31, so L is IDENTICAL between the
+        // draws of a frame and carries no eye offset. The earlier "spread
+        // 6.8 uu" that seemed to confirm it was the midpoint version measuring
+        // head motion over time, not the eye - which is exactly why it fell
+        // apart on head turns.
+        //
+        // So find it rather than guess again. Keep each draw's VP and L, and
+        // when the ordinals of one frame are in hand, print which registers
+        // differ and by how much. Whatever carries the eye will show a
+        // difference of about one IPD in the right place; everything else will
+        // read zero.
+        if (g_mpEyeHunt) {
+            if (ord == 0) {
+                memcpy(g_mpHuntVp0, vp, sizeof(g_mpHuntVp0));
+                memcpy(g_mpHuntL0, l2w, sizeof(g_mpHuntL0));
+                g_mpHuntOk = true;
+            } else if (ord == 1 && g_mpHuntOk) {
+                float dv = 0.0f, dl = 0.0f;
+                int dvIdx = -1, dlIdx = -1;
+                for (int i = 0; i < 16; i++) {
+                    const float d = fabsf(((const float*)vp)[i] - g_mpHuntVp0[i]);
+                    if (d > dv) { dv = d; dvIdx = i; }
+                }
+                for (int i = 0; i < 16; i++) {
+                    const float d = fabsf(((const float*)l2w)[i] - g_mpHuntL0[i]);
+                    if (d > dl) { dl = d; dlIdx = i; }
+                }
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                    "ms/palette/hunt: between ordinal 0 and 1 of one frame - "
+                    "ViewProjection differs most at element %d by %.6f (c%d.%c), "
+                    "LocalToWorld at element %d by %.6f. Expected IPD %.2f uu. "
+                    "The matrix carrying the eye shows a difference of that "
+                    "order; a matrix reading ~0 everywhere does not separate "
+                    "the eyes and cannot classify them. If BOTH read ~0 these "
+                    "two draws are the same eye and the pass structure is not "
+                    "two-eyes-per-shader at all.",
+                    dvIdx, (double)dv, dvIdx >= 0 ? g_pcLayVp + dvIdx / 4 : -1,
+                    dvIdx >= 0 ? "xyzw"[dvIdx % 4] : '?',
+                    dlIdx, (double)dl, (double)(g_ipdM * k));
+            }
+        }
 
         for (int i = 0; i < 3; i++) dcam[i] -= sign * halfIpdUU * r[i];
         if (sign > 0.0f) g_mpEyeSeen[1]++; else if (sign < 0.0f) g_mpEyeSeen[0]++;

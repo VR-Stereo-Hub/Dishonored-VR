@@ -481,6 +481,11 @@ static void*    g_mpEyeShader[MP_EYE_SHADERS] = { 0 };
 static int      g_mpEyeShaderOrd[MP_EYE_SHADERS] = { 0 };
 static int      g_mpEyeOrd0Slot = -1;
 static LONG     g_mpEyeThirds = 0, g_mpEyeOverflow = 0;
+// The discriminator hunt: which matrix actually differs between the draws of
+// one frame. LocalToWorld was the premise and measured 0.00 separation.
+static bool     g_mpEyeHunt = false;    // [Hands] PaletteEyeHunt
+static float    g_mpHuntVp0[16], g_mpHuntL0[16];
+static bool     g_mpHuntOk = false;
 static bool     g_mpEyeOrd0Ok = false;
 static float    g_mpEyeOrd0Proj = 0.0f;
 static int      g_mpEyeVote   = 0;
