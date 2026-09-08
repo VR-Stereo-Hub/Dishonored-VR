@@ -174,8 +174,15 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // tracked palm, and because every bone of the palette gets the same D the
     // loaded bolt keeps its animated relationship to the stock instead of
     // being pinned separately and having its animation cancelled.
-    const dvr::hf::Xform D =
-        dvr::hf::delta_from_target(ctx.R_L, ctx.t, g_mpPalmTarget[hand], R_src, q);
+    float palmLocal[3];
+    dvr::hf::Xform D =
+        dvr::hf::delta_from_target(ctx.R_L, ctx.t, g_mpPalmTarget[hand], R_src, q,
+                                   palmLocal);
+    // THE SAME FACTOR ABOUT THE SAME PALM as the hand. That is what keeps the
+    // weapon in the hand at any size: both are scaled about the grip point, so
+    // neither can drift out of the other.
+    if (g_mpModelScale != 1.0f)
+        D = dvr::hf::scale_about(D, palmLocal, g_mpModelScale);
     for (int i = 0; i < 3; i++)
         if (!MpFinite(D.t[i])) { g_waWhy = "non-finite weapon target"; InterlockedIncrement(&w->refused); return false; }
     for (int i = 0; i < 9; i++)

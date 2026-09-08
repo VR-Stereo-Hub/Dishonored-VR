@@ -610,6 +610,25 @@ static int      g_mpGripSaveParity[2] = { 0, 0 };
 // It moves the hand AND anything held in it by the same common transform, so a
 // later hand adjustment never invalidates a weapon profile. A weapon-only trim
 // is separate and belongs to the weapon stage.
+// THE MODEL SCALE. One uniform factor on the hand AND anything held in it,
+// applied about the target palm so the grip stays where tracking put it and
+// the model shrinks around the controller rather than sliding off it.
+//
+// This is NOT the world scale. PageUp/PageDown drive g_posScaleUU, which sets
+// the stereo separation - a property of the projection, so it changes the
+// apparent size of everything in the frame at once and can never make the
+// hands smaller relative to the room. Only the geometry can do that, which is
+// what this is.
+//
+// It is also not the hand TRAVEL (WorldScaleUU / PaletteDriveGain): those set
+// how far the hand moves per metre of controller, and the tester reports that
+// as already correct.
+//
+// One lever for both hands and both weapons on purpose. The weapon path takes
+// the same palm target and the same factor, so the two cannot drift apart the
+// way two independent knobs would.
+static float    g_mpModelScale = 1.0f;      // [Hands] ModelScale
+
 static float    g_mpTrimT[2][3] = { { 0.0f, 0.0f, 0.0f },   // metres, palm frame
                                     { 0.0f, 0.0f, 0.0f } };
 static float    g_mpTrimR[2][3] = { { 0.0f, 0.0f, 0.0f },   // degrees, XYZ

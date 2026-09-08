@@ -2338,7 +2338,14 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
                                                            trimR, trimUU);
         g_mpPalmTarget[hand] = target;
         g_mpPalmTargetOk[hand] = true;
-        D = dvr::hf::delta_from_target(c->R_L, c->t, target, R_src, qLocal);
+        float palmLocal[3];
+        D = dvr::hf::delta_from_target(c->R_L, c->t, target, R_src, qLocal,
+                                       palmLocal);
+        // The model scale, about the palm. At 1.0 this is exactly the identity
+        // it replaces, so a build with the lever at its default is the build
+        // that was measured without it.
+        if (g_mpModelScale != 1.0f)
+            D = dvr::hf::scale_about(D, palmLocal, g_mpModelScale);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
                                  false);
@@ -2469,8 +2476,11 @@ static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
 // constant converts view and light vectors INTO component space and is not a
 // second skinning matrix - it must NOT be touched.
 //
-// D's scale is 1 by construction (the frame it came from was normalised), so
-// the palette's own uniform scale survives in M and is not quietly removed.
+// D's rotation is normalised by construction, so the palette's own uniform
+// scale survives in M and is not quietly removed. The ONE exception is the
+// model scale ([Hands] ModelScale), which multiplies D deliberately to resize
+// the hand and anything held in it - see scale_about in hand_frame.h for why
+// that is uniform and why the tangent frame survives it.
 static void MpBuild(float* out, const float* src, UINT count,
                     const dvr::hf::Xform* D)
 {

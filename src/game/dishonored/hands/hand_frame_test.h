@@ -497,6 +497,70 @@ static inline int run_all(ReportFn fn, void* ctx)
             "hand alignment instead of needing recalibration", sqrtf(dh));
     }
 
+    // ---- 11b. the model scale ----------------------------------------------
+    {
+        Mat3 R_L = rot_axis_deg(1, 40.0f);
+        float tL[3] = { 3.0f, -1.0f, 2.0f };
+        Mat3 Rsrc = rot_axis_deg(0, 15.0f);
+        float q[3] = { 0.2f, -0.1f, 0.4f };
+        Xform tgt; tgt.r = rot_axis_deg(2, 20.0f);
+        tgt.t[0] = 5.0f; tgt.t[1] = 1.0f; tgt.t[2] = -2.0f;
+
+        float palm[3];
+        const Xform D = delta_from_target(R_L, tL, tgt, Rsrc, q, palm);
+
+        // The palm this returns must be the target, carried into local space.
+        float back[3];
+        mulv3(R_L, palm, back);
+        float ep = 0.0f;
+        for (int i = 0; i < 3; i++) {
+            const float w = back[i] + tL[i];
+            ep += (w - tgt.t[i]) * (w - tgt.t[i]);
+        }
+
+        // THE PALM IS A POINT IN THE OUTPUT SPACE, not an input vertex: D is
+        // built so that the SOURCE ANCHOR lands exactly on it. So the fixed
+        // point to check is "the anchor still maps to the palm", and distances
+        // are measured from the palm itself. Measuring them from D(palm)
+        // instead is what this case caught on its first run.
+        const Xform H = scale_about(D, palm, 0.5f);
+        float movedPalm = 0.0f;
+        for (int i = 0; i < 3; i++) {
+            const float b = H.r.m[i*3+0]*q[0] + H.r.m[i*3+1]*q[1] +
+                            H.r.m[i*3+2]*q[2] + H.t[i];
+            movedPalm += (b - palm[i]) * (b - palm[i]);
+        }
+        float v[3] = { 1.3f, -0.7f, 2.1f }, d0 = 0.0f, d1 = 0.0f;
+        for (int i = 0; i < 3; i++) {
+            const float a = D.r.m[i*3+0]*v[0] + D.r.m[i*3+1]*v[1] +
+                            D.r.m[i*3+2]*v[2] + D.t[i];
+            const float b = H.r.m[i*3+0]*v[0] + H.r.m[i*3+1]*v[1] +
+                            H.r.m[i*3+2]*v[2] + H.t[i];
+            d0 += (a - palm[i]) * (a - palm[i]);
+            d1 += (b - palm[i]) * (b - palm[i]);
+        }
+        d0 = sqrtf(d0); d1 = sqrtf(d1);
+        // A uniform scale leaves the rotation's DIRECTION alone: normalising
+        // the scaled basis must give the original back.
+        Mat3 Hn = H.r;
+        for (int c = 0; c < 3; c++) {
+            float n = 0.0f;
+            for (int rr = 0; rr < 3; rr++) n += Hn.m[rr*3+c] * Hn.m[rr*3+c];
+            n = sqrtf(n);
+            for (int rr = 0; rr < 3; rr++) Hn.m[rr*3+c] /= n;
+        }
+        rec(&r, "model_scale_about_the_palm",
+            sqrtf(ep) < 1e-3f && sqrtf(movedPalm) < 1e-4f &&
+            fabsf(d1 - 0.5f * d0) < 1e-3f &&
+            rotation_diff_deg(Hn, D.r) < 1e-2f,
+            "the palm comes back exactly (%.5f), the source anchor still lands "
+            "on it under a half scale (%.5f off) and a %.4f distance from it "
+            "halves to %.4f, and the basis still points the same way (%.4f "
+            "deg) - so the grip stays where tracking put it and the tangent "
+            "frame is not sheared",
+            sqrtf(ep), sqrtf(movedPalm), d0, d1, rotation_diff_deg(Hn, D.r));
+    }
+
     // ---- 12. the reported error metric -------------------------------------
     {
         const float a = rotation_angle_deg(rot_axis_deg(1, 90.0f));

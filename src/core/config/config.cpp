@@ -1321,6 +1321,38 @@ static void LoadConfig()
             (double)g_mpTrimR[1][0], (double)g_mpTrimR[1][1], (double)g_mpTrimR[1][2]);
     }
 
+    // THE MODEL SCALE. Hands and held weapons, one uniform factor.
+    g_mpModelScale = IniFloat(ini, "Hands", "ModelScale", 1.0f);
+    if (g_mpModelScale < 0.3f) g_mpModelScale = 0.3f;
+    if (g_mpModelScale > 2.0f) g_mpModelScale = 2.0f;
+    if (g_mpModelScale != 1.0f)
+        Log("config: [Hands] ModelScale=%.2f - the hands and anything held in "
+            "them are drawn at %.0f%% size, scaled about the tracked palm so "
+            "the grip stays where tracking put it. This is NOT the world scale: "
+            "PageUp/PageDown set the stereo separation and change the apparent "
+            "size of the whole frame, which can never make the hands smaller "
+            "relative to the room. It is not the hand travel either "
+            "(WorldScaleUU=%.0f, PaletteDriveGain=%.2f), which is how far the "
+            "hand moves per metre of controller.",
+            (double)g_mpModelScale, (double)(g_mpModelScale * 100.0f),
+            (double)g_skcWorldScale, (double)g_mpDriveGain);
+    else
+        Log("config: [Hands] ModelScale=1.00 - hands and weapons at their own "
+            "size, which is the geometry the previous builds were measured "
+            "with. Lower it to about 0.75 to shrink both together; the F10 "
+            "'hand / weapon size' slider drives the same value live.");
+    // THE DOUBLE-APPLY, named rather than left to be discovered. HandSize
+    // writes SkelControlBase.BoneScale engine-side, which lands in the palette
+    // BEFORE this correction and therefore multiplies with it.
+    if (g_mpModelScale != 1.0f && g_skcHandSize != 1.0f)
+        Log("config: WARNING - [Hands] ModelScale=%.2f AND HandSize=%.2f are "
+            "BOTH away from 1.0, so the hand is scaled TWICE, to about %.0f%%. "
+            "HandSize is the older engine-side BoneScale write and it does not "
+            "reach a separately-componented weapon, so the two also disagree "
+            "about the crossbow. Set HandSize=1.00 and use ModelScale alone.",
+            (double)g_mpModelScale, (double)g_skcHandSize,
+            (double)(g_mpModelScale * g_skcHandSize * 100.0f));
+
     // THE NUMPAD ADJUST and its explicit claim. Defaults ON: it is the only
     // way to correct a hand in the headset, and a lever the tester has to
     // switch on before he can report anything costs a whole run.
@@ -1876,6 +1908,8 @@ static void OverlaySaveDefaults()
                 WritePrivateProfileStringA("Hands", key, v, ini);
             }
         }
+        _snprintf(v, 64, "%.2f", g_mpModelScale);
+        WritePrivateProfileStringA("Hands", "ModelScale", v, ini);
         WritePrivateProfileStringA("Hands", "Adjust", g_mpAdjOn ? "1" : "0", ini);
         _snprintf(v, 64, "%d", g_mpAdjStepT);
         WritePrivateProfileStringA("Hands", "AdjStepT", v, ini);

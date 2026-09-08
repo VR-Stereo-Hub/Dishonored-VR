@@ -388,22 +388,51 @@ static inline Xform palm_target(const Mat3& O_C, const Mat3& G,
 // [R_src_local | q_local]. This is `delta_local` with the target supplied
 // rather than derived, and the two agree by construction - `palm_target_matches
 // _delta` in the self-test pins that.
+//
+// `palm_local`, when given, receives the target palm expressed in the SAME
+// component-local space D acts in. It was always computed here and thrown away
+// into D.t; the model scale needs it as a pivot, and recomputing it at the call
+// site would be a second copy of this arithmetic that could drift from it.
 static inline Xform delta_from_target(const Mat3& R_L, const float* t_L,
                                       const Xform& target_C,
                                       const Mat3& R_src_local,
-                                      const float* q_local)
+                                      const float* q_local,
+                                      float* palm_local = 0)
 {
     const Mat3 R_Lt = transpose3(R_L);
     float d[3];
     for (int i = 0; i < 3; i++) d[i] = target_C.t[i] - t_L[i];
     float tgt[3];
     mulv3(R_Lt, d, tgt);
+    if (palm_local) for (int i = 0; i < 3; i++) palm_local[i] = tgt[i];
     Xform D;
     D.r = mul3(mul3(R_Lt, target_C.r), transpose3(R_src_local));
     float Rq[3];
     mulv3(D.r, q_local, Rq);
     for (int i = 0; i < 3; i++) D.t[i] = tgt[i] - Rq[i];
     return D;
+}
+
+// UNIFORM MODEL SCALE about a pivot, in whatever space `D` already acts in.
+//
+// A point that D placed at x ends up at s*(x - pivot) + pivot, so the pivot
+// itself does not move. The pivot is the target PALM, which is why the grip
+// stays where tracking put it and the model shrinks around the controller
+// rather than sliding off it. Passing the same pivot for the held weapon is
+// what keeps the two in sync by construction instead of by two knobs kept in
+// agreement.
+//
+// The scale is UNIFORM on purpose. These rows also carry normals and tangents
+// in two of the three hand shaders; a uniform factor leaves their DIRECTION
+// untouched and changes only their length, which a shader that renormalises
+// ignores entirely. A per-axis scale would shear the tangent frame and is not
+// offered here.
+static inline Xform scale_about(const Xform& D, const float* pivot, float s)
+{
+    Xform o;
+    for (int i = 0; i < 9; i++) o.r.m[i] = D.r.m[i] * s;
+    for (int i = 0; i < 3; i++) o.t[i] = s * D.t[i] + (1.0f - s) * pivot[i];
+    return o;
 }
 
 // Compose two Xforms: `a * b`.

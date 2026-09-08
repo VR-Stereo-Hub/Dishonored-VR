@@ -286,7 +286,15 @@ static void OverlayFrame()
         if (ImGui::Checkbox("add to anim", &am)) g_skcAddMode = am;
         ImGui::SliderFloat("hand travel (uu/m)", &g_skcScaleUU, 0.0f, 200.0f, "%.0f");
         }
-    ImGui::SliderFloat("hand / weapon size", &g_skcHandSize, 0.4f, 1.6f, "%.2f");
+    // VR-33: this slider now drives the PALETTE model scale, not the engine
+    // BoneScale it used to. BoneScale only reaches bones the SkelControl
+    // drives, so it could never resize a separately-componented crossbow and
+    // the weapon would desync from the hand at any setting but 1.0. The
+    // palette scale is applied about the same palm the weapon is placed on,
+    // which is what keeps them together. HandSize is still read from the ini
+    // for the legacy drive; config.cpp warns if both are off 1.0.
+    ImGui::SliderFloat("hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
+    ImGui::TextDisabled("hands AND held weapons, about the tracked palm - not the world scale");
     if (g_ovlDev) {
     ImGui::SliderFloat("world reach (uu/m)", &g_skcWorldScale, 40.0f, 200.0f, "%.0f");
     ImGui::TextDisabled("world mode only - too low puts the hands in your face");
