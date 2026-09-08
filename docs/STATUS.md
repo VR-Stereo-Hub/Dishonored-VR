@@ -13,7 +13,7 @@ Read `wa: beat v2`, `wa: interval nearest`, and per-asset `wa: contract` counts.
 Sword defaults RIGHT (1); crossbow/bolt LEFT (0). Hand calibration is retained.
 
 Full implementation and remaining assumptions:
-[VR-33 direct fix handoff](dishonored/VR-33-WEAPON-DIRECT-FIX-HANDOFF.md).
+[VR-33 direct fix handoff](dishonored/VR-33-HANDS-AND-WEAPONS.md).
 
 The old sweep-based test instructions below are historical and superseded.
 
@@ -153,7 +153,7 @@ headset.**
 
 1. The two tests above.
 2. If the weapons attach, the remaining W-items are in
-   `docs/dishonored/VR-33-WEAPON-IMPLEMENTATION-PLAN.md`: re-acquire on equip
+   `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`: re-acquire on equip
    change (buffer pointers can differ after a re-equip), and ownership during
    reload and release.
 3. `pcap/layout` was printing at draw rate and produced a 25 MB log in one
@@ -278,7 +278,7 @@ per-hand split, the restart path and the whole identifier are unverified.
 
 1. The three tests above.
 2. If the identifier names the crossbow's draws, weapon placement is unblocked:
-   `docs/dishonored/VR-33-WEAPON-IMPLEMENTATION-PLAN.md` is the full spec, and
+   `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the full spec, and
    the weapon target comes from the SHARED `palm_target` helper the hands
    already use, so a weapon can be placed before either hand draws.
 3. The hand adjust has no auto-repeat, deliberately - BRVR has none and an
@@ -340,7 +340,7 @@ wid:   'Skm_Player' OWNS signature ... | c6 x3 (1 bones) prim 486 stride 12
    produces just as well as a hide does.
 
 **The instrument cannot fail its own hypothesis, which is this project's oldest
-recurring fault** (`VR-33-HANDS.md` section 4). The orphan count was meant to be
+recurring fault** (`VR-33-HANDS-AND-WEAPONS.md` section 4). The orphan count was meant to be
 the control and a saturated table defeats it. The fix is not a bigger table
 alone: a signature must vanish on EVERY hide and RETURN on EVERY restore, over
 at least two hide/restore cycles, before it is called owned. A single
@@ -407,7 +407,7 @@ already applied through `palm_target`, so a per-hand version needs no new maths.
 
 The identification instrument is built and armed but has produced nothing yet.
 Its output is the input to placement, and placement was deliberately NOT written
-blind. `docs/dishonored/VR-33-WEAPON-IMPLEMENTATION-PLAN.md` is the full spec;
+blind. `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the full spec;
 the short form is:
 
 * one stable grip/root frame on the crossbow;
@@ -471,7 +471,7 @@ so a press can never silently do nothing again.
 The installed build is Release with `[Hands] PaletteRotate=1` and the grip
 transform at identity. **Launch the game; nothing else needs doing.** The full
 test list, with expected outcomes and what each failure would mean, is section 3
-of `docs/dishonored/VR-33-ROTATION-PLAN.md`.
+of `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`.
 
 **The hands will start at a wrong ANGLE.** G is identity until it is captured,
 so they track the wrists at a fixed offset. **SHIFT+F7** solves G for both hands
@@ -550,7 +550,7 @@ metres-to-units conversion (logging only for now), and mesh geometry size.
 The hands **track the controllers, are correctly scaled, occlude against world
 geometry, and hold position through head turns.** Tagged `vr33-hands-working`.
 
-**The full record is `docs/dishonored/VR-33-HANDS.md`** - the mechanism, the
+**The full record is `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`** - the mechanism, the
 engine facts, the seven approaches that failed and why, and the instrument
 failures that cost the most. Read that before touching this code; most of what
 looks like an obvious improvement has already been tried and measured.

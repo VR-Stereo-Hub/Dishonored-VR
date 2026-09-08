@@ -330,7 +330,7 @@ static volatile LONG g_mpStepReq = 0;   // hotkey -> MsTick, present thread
 //    difference, the grip offset and any anchor error into one 138 uu constant
 //    applied in a rotating frame - a 1.4 m lever pivoting on the head.
 //
-// All three are in docs/dishonored/VR-33-HANDS.md, and in git under the tags
+// All three are in docs/dishonored/VR-33-HANDS-AND-WEAPONS.md, and in git under the tags
 // vr33-placement-works and vr33-scale-correct.
 static float    g_mpCtlRUF[2][3];
 static bool     g_mpCtlRUFOk[2] = { false, false };
@@ -409,7 +409,7 @@ static bool     g_mpEyeOffset = false;  // [Hands] PaletteEyeOffset
 static LONG     g_mpEyeSeen[2] = { 0, 0 };   // draws attributed to pass 1 / pass 2
 static LONG     g_mpEyeUnclassified = 0;
 // THE EYE. Four mechanisms were tried and three failed; the reasons are in
-// docs/dishonored/VR-33-HANDS.md and are worth not repeating:
+// docs/dishonored/VR-33-HANDS-AND-WEAPONS.md and are worth not repeating:
 //
 //  1. The game-thread second-pass flag. UE3 queues render commands, so it reads
 //     false by the time the draw runs on the render thread. The counter caught

@@ -3598,7 +3598,7 @@ The previous zero-attempt run never exercised this destructive extent.
 19 weapon host tests and 28 existing hand tests pass. A simulator launch failed
 before gameplay, with an access violation instruction in Dishonored.exe at RVA
 0x60907e; root cause is undetermined. No attachment result is claimed from it.
-User headset testing is pending. See VR-33-WEAPON-DIRECT-FIX-HANDOFF.md for code
+User headset testing is pending. See VR-33-HANDS-AND-WEAPONS.md for code
 changes, exact test steps, remaining assumptions and rollback location.
 
 The first user headset run of the direct repair subsequently produced 196,422
