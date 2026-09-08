@@ -127,6 +127,7 @@ static void*    g_pcLayShader = NULL;
 static int      g_pcLayVp   = -1;
 static int      g_pcLayL2W  = -1;
 static int      g_pcLayBones = -1;
+static int      g_pcLayBonesN = 0;
 static LONG     g_pcLayFail = 0;
 
 static HANDLE   g_pcThread = NULL;

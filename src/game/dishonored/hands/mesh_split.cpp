@@ -1785,6 +1785,11 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 // was no invalidation at all before - the cache simply kept its last contents.
 static void MpOnReset(void)
 {
+    memset(g_waCommon, 0, sizeof(g_waCommon));
+    g_waMeshN = 0;
+    g_pcLayShader = NULL;
+    g_pcLayVp = g_pcLayL2W = g_pcLayBones = -1;
+    g_pcLayBonesN = 0;
     memset(g_mpValid, 0, sizeof(g_mpValid));
     g_mpValidN = 0;
     g_mpCacheN = 0;

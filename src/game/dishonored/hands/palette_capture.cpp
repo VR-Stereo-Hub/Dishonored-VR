@@ -84,8 +84,10 @@ static bool PcReflect(const uint8_t* code, UINT len, PcLayout* out)
             else if (!strcmp(nm, "MeshOrigin"))      out->meshOrigin = ridx;
             else if (!strcmp(nm, "MeshExtension"))   out->meshExtension = ridx;
         }
-        // The three that placement cannot proceed without.
-        out->ok = (out->vp >= 0 && out->bones >= 0 && out->localToWorld >= 0);
+        // Weapon placement only needs a component transform and its palette.
+        // Depth/shadow passes need not declare the camera's projection.
+        // The hand capture/placement callers separately require VP.
+        out->ok = (out->bones >= 0 && out->localToWorld >= 0);
         return true;
     }
     return false;
@@ -101,6 +103,7 @@ static void PcRefreshLayout(IDirect3DDevice9* dev)
     if (FAILED(dev->GetVertexShader(&vs)) || !vs) {
         if (vs) vs->Release();
         g_pcLayShader = NULL; g_pcLayVp = g_pcLayL2W = g_pcLayBones = -1;
+        g_pcLayBonesN = 0;
         return;
     }
     if ((void*)vs == g_pcLayShader) { vs->Release(); return; }
@@ -116,6 +119,7 @@ static void PcRefreshLayout(IDirect3DDevice9* dev)
     if (!ok || !PcReflect(code, len, &lay) || !lay.ok) {
         g_pcLayShader = key;              // remember the refusal, do not re-read every draw
         g_pcLayVp = g_pcLayL2W = g_pcLayBones = -1;
+        g_pcLayBonesN = 0;
         InterlockedIncrement(&g_pcLayFail);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
             "pcap/layout: this shader declares no readable constant table, so "
@@ -125,6 +129,7 @@ static void PcRefreshLayout(IDirect3DDevice9* dev)
     }
     g_pcLayShader = key;
     g_pcLayVp = lay.vp; g_pcLayL2W = lay.localToWorld; g_pcLayBones = lay.bones;
+    g_pcLayBonesN = lay.bonesN;
     // ONCE PER SHADER, not once per draw. Three or four shaders alternate
     // across the hand draws, so g_pcLayShader changes on nearly every one and
     // this line was re-reflecting and re-printing at draw rate: it produced a
@@ -340,7 +345,7 @@ static bool PcCapture(IDirect3DDevice9* dev, const MsContract* con, UINT primCou
     // The layout THIS shader declares. A packet without it is constants with
     // no key, so the capture refuses rather than saving one.
     PcLayout lay;
-    if (!PcReflect(code, codeLen, &lay) || !lay.ok) {
+    if (!PcReflect(code, codeLen, &lay) || !lay.ok || lay.vp < 0) {
         InterlockedIncrement(&g_pcFailed);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
             "pcap: FAILED - shader %08X has no readable constant table, or it "

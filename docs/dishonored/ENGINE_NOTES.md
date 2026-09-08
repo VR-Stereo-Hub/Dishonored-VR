@@ -3575,3 +3575,39 @@ The GObjects-wide tick scan runs on the script lane and walks every object once
 a second, calling `ObjClassName` on each. Measured cost: a 505-520 ms stall of
 the game thread every second (see above). It is a diagnostic, ships OFF, and
 must not be left enabled.
+
+## 2026-09-08: VR-33 weapon attachment direct repair
+
+Source inspection of 768fbf71 found that uncached weapon matching selected the
+first available hand and then excluded all components assigned to the other
+hand. The preserved failed run performed 302,039 comparisons with no patch
+attempts; this cannot establish whether the GPU correction itself was valid.
+
+The matcher now uses the complete affine reference bridge, preserves native
+scale, compares both hands, and revalidates each draw. The native transform
+fields formerly embedded in WaReadCompXform are centralized in patterns.h as
+kWaComponentLocalToWorld (+0x60) and kWaComponentTranslation (+0x90). These are
+existing FpComputePivots reads, not newly discovered offsets. Row extraction
+and a shared reference bridge still require independent live member matches.
+
+The old palette extent was 256 minus its start register. It would cross the
+BoneMatrices declaration into LocalToWorld and other constants. The repair
+carries the CTAB register count and rejects ranges overlapping VP/LocalToWorld.
+The previous zero-attempt run never exercised this destructive extent.
+
+19 weapon host tests and 28 existing hand tests pass. A simulator launch failed
+before gameplay, with an access violation instruction in Dishonored.exe at RVA
+0x60907e; root cause is undetermined. No attachment result is claimed from it.
+User headset testing is pending. See VR-33-WEAPON-DIRECT-FIX-HANDOFF.md for code
+changes, exact test steps, remaining assumptions and rollback location.
+
+The first user headset run of the direct repair subsequently produced 196,422
+successful patched draws with zero restore failures and near-zero transform
+residuals for all three named members. Weapons moved but used the opposite
+hand; there was also a large apparent offset and flickering dark silhouettes
+at the former positions. That run preceded the installed side-setting fix.
+The next revision swaps the settings and removes camera-VP requirements from
+weapon placement, allowing independently matched world-space passes with the
+correction conjugated through the reference bridge. These address concrete
+routing/math restrictions; visual ghost removal is still unverified. The host
+suite now contains 21 weapon cases plus the existing 28 hand cases.

@@ -8,18 +8,18 @@
 
 // The component's own LocalToWorld, read with the SAME extraction the shader
 // constant gets in MpAcquireCtx: three basis registers then a translation.
-// Doing it identically on both sides is deliberate - whichever of row- or
-// column-major the pair really is, the convention cancels in the comparison
-// rather than being asserted from memory and silently wrong.
+// Convert native FMatrix rows to our column-vector convention. The same
+// extraction is used for the shader registers. This is a convention to test
+// against member draws, not proof that every component shares the bridge.
 //
 // Scale is RETAINED. It is evidence for the match, and dividing it out here
 // would throw away the one quantity that separates a scaled duplicate from the
 // real thing.
 static bool WaReadCompXform(uint8_t* obj, dvr::hf::Mat3* R, float* t, float* scale)
 {
-    if (!LooksLikeObj(obj) || !RangeReadable(obj + 0x60, 0x40)) return false;
-    const float* M = (const float*)(obj + 0x60);   // 0x60 / 0x70 / 0x80
-    const float* T = (const float*)(obj + 0x90);
+    if (!LooksLikeObj(obj) || !RangeReadable(obj + kWaComponentLocalToWorld, 0x40)) return false;
+    const float* M = (const float*)(obj + kWaComponentLocalToWorld);   // 0x60 / 0x70 / 0x80
+    const float* T = (const float*)(obj + kWaComponentTranslation);
     float col[3][3];
     for (int j = 0; j < 3; j++)
         for (int i = 0; i < 3; i++) col[j][i] = M[j * 4 + i];
@@ -29,7 +29,7 @@ static bool WaReadCompXform(uint8_t* obj, dvr::hf::Mat3* R, float* t, float* sca
         n = sqrtf(n);
         if (!(n > 1.0e-4f) || n != n || n > 1.0e4f) return false;
         scale[j] = n;
-        for (int i = 0; i < 3; i++) col[j][i] /= n;
+        // Keep the full native basis; the matcher compares scale too.
     }
     for (int i = 0; i < 3; i++) {
         t[i] = T[i];
@@ -66,8 +66,9 @@ static void WaCompTick(void)
     if (!g_waOn) return;
     const double now = MaimNowMs();
     if (now - g_waCompMs < 8.0) return;        // once per frame is plenty
-    g_waCompMs = now;
 
+
+    WaComp snapshot[WA_MAX_COMP] = {};
     int n = 0;
     for (int i = 0; i < g_fpCandN && n < WA_MAX_COMP; i++) {
         FpCand* k = &g_fpCand[i];
@@ -89,16 +90,21 @@ static void WaCompTick(void)
         bool known = false;
         c.hand = WaHandFor(c.asset, &known);
         if (c.isMember && !known) c.isMember = false;   // never guess a side
-        g_waComp[n++] = c;
+        snapshot[n++] = c;
     }
+    AcquireSRWLockExclusive(&g_waCompLock);
+    memcpy(g_waComp, snapshot, sizeof(snapshot));
+    g_waCompMs = now;
     g_waCompN = n;
     g_waCompGen++;
+    ReleaseSRWLockExclusive(&g_waCompLock);
 
-    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
-        "wa/comp: %d component(s) snapshotted, generation %u. The anchor is the "
-        "one marked REF; members are what may be attached.", n, g_waCompGen);
+    static double said = 0;
+    if (now - said < 10000) return;
+    said = now;
+    Log("wa/comp: %d component(s), generation %u", n, g_waCompGen);
     for (int i = 0; i < n; i++)
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 10000,
+        Log(
             "wa/comp:   [%d] '%s' (%s) %s%s xform %s t=(%.1f %.1f %.1f) "
             "scale=(%.3f %.3f %.3f)",
             i, g_waComp[i].asset, g_waComp[i].name,
@@ -122,15 +128,24 @@ static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& 
     L.r = c->R_L;
     for (int i = 0; i < 3; i++) L.t[i] = c->t[i];
 
-    WaCommon w;
+    WaCommon w = {};
     w.L_hand  = L;
-    w.D       = dvr::hf::xform_mul(dvr::hf::xform_mul(L, D), dvr::hf::xform_inv(L));
+    dvr::hf::Xform invL;
+    if (!dvr::wf::inverse(L, &invL)) return;
+    w.D = dvr::hf::xform_mul(dvr::hf::xform_mul(L, D), invL);
     w.present = (uint32_t)dvr::frame::count();
     w.poseGen = c->pose.gen;
     w.eye     = g_mpEyeState;
     w.ok      = true;
     for (int i = 0; i < 9; i++) if (!MpFinite(w.D.r.m[i])) w.ok = false;
     for (int i = 0; i < 3; i++) if (!MpFinite(w.D.t[i]))   w.ok = false;
+    AcquireSRWLockShared(&g_waCompLock);
+    w.componentCount = g_waCompN;
+    w.componentGen = g_waCompGen;
+    memcpy(w.components, g_waComp, sizeof(w.components));
+    const double age = MaimNowMs() - g_waCompMs;
+    ReleaseSRWLockShared(&g_waCompLock);
+    if (age < 0 || age > 100.0) { w.ok = false; InterlockedIncrement(&g_waStaleComp); }
     g_waCommon[hand] = w;
 }
 
@@ -150,106 +165,9 @@ static const WaCommon* WaCommonFor(int hand, const MpDrawCtx* c)
 }
 
 
-// ---- the match --------------------------------------------------------------
 
-// Does this draw's contract match a cached one? Full discriminators: a buffer
-// pair alone can carry several ranges and several instances.
-static WaMesh* WaCached(void* vb, void* ib, void* decl, void* vs, UINT stride,
-                        INT baseVertex, UINT startIndex, UINT numVerts,
-                        UINT primCount)
-{
-    for (int m = 0; m < g_waMeshN; m++) {
-        WaMesh* w = &g_waMesh[m];
-        if (w->vb == vb && w->ib == ib && w->decl == decl && w->vs == vs &&
-            w->stride == stride && w->baseVertex == baseVertex &&
-            w->startIndex == startIndex && w->numVerts == numVerts &&
-            w->primCount == primCount)
-            return w;
-    }
-    return NULL;
-}
-
-
-// Compare this draw against every member component, through the bridge, and
-// return the winner ONLY if it is unique by a margin.
-//
-// The bridge: eyeOrigin comes from the anchor component, whose draw transform
-// the hand path already published. A candidate's own residual is never used to
-// validate that candidate.
-static int WaMatch(const MpDrawCtx* c, const WaCommon* w, int hand,
-                   float* bestAng, float* bestPos)
-{
-    // The anchor, and the offset between the two spaces.
-    int ref = -1;
-    for (int i = 0; i < g_waCompN; i++)
-        if (g_waComp[i].isRef && g_waComp[i].ok) { ref = i; break; }
-    if (ref < 0) return -2;                    // no anchor: cannot bridge
-
-    float eyeOrigin[3];
-    for (int i = 0; i < 3; i++)
-        eyeOrigin[i] = g_waComp[ref].t[i] - w->L_hand.t[i];
-
-    int best = -1, next = -1;
-    float bAng = 1.0e9f, bPos = 1.0e9f, nAng = 1.0e9f, nPos = 1.0e9f;
-    for (int i = 0; i < g_waCompN; i++) {
-        const WaComp* k = &g_waComp[i];
-        if (!k->ok || !k->isMember) continue;
-        if (k->hand != hand) continue;
-        const float ang = dvr::hf::rotation_diff_deg(c->R_L, k->R);
-        float d = 0.0f;
-        for (int j = 0; j < 3; j++) {
-            const float pred = k->t[j] - eyeOrigin[j];
-            d += (pred - c->t[j]) * (pred - c->t[j]);
-        }
-        const float pos = sqrtf(d);
-        // One scalar to rank on, with position weighted so a degree and a
-        // unit are comparable at the tolerances in force.
-        const float score = ang / (g_waAngTolDeg > 0.0f ? g_waAngTolDeg : 1.0f) +
-                            pos / (g_waPosTolUU  > 0.0f ? g_waPosTolUU  : 1.0f);
-        const float bScore = bAng / (g_waAngTolDeg > 0.0f ? g_waAngTolDeg : 1.0f) +
-                             bPos / (g_waPosTolUU  > 0.0f ? g_waPosTolUU  : 1.0f);
-        if (best < 0 || score < bScore) {
-            next = best; nAng = bAng; nPos = bPos;
-            best = i;    bAng = ang; bPos = pos;
-        } else {
-            const float nScore = nAng / (g_waAngTolDeg > 0.0f ? g_waAngTolDeg : 1.0f) +
-                                 nPos / (g_waPosTolUU  > 0.0f ? g_waPosTolUU  : 1.0f);
-            if (next < 0 || score < nScore) { next = i; nAng = ang; nPos = pos; }
-        }
-    }
-    *bestAng = bAng; *bestPos = bPos;
-    g_waBestAng = bAng; g_waBestPos = bPos;
-    g_waNextAng = nAng; g_waNextPos = nPos;
-    _snprintf(g_waBestName, sizeof(g_waBestName), "%s",
-              best >= 0 ? g_waComp[best].asset : "none");
-    g_waBestName[sizeof(g_waBestName) - 1] = 0;
-
-    if (best < 0) return -1;
-    if (bAng > g_waAngTolDeg || bPos > g_waPosTolUU) return -1;
-
-    // UNIQUENESS. Equal rotations are common - a bolt in the crossbow's
-    // channel shares one - so a winner that is not clearly better than the
-    // runner-up is an ambiguity, not an identity.
-    if (next >= 0) {
-        const float bScore = bAng / g_waAngTolDeg + bPos / g_waPosTolUU;
-        const float nScore = nAng / g_waAngTolDeg + nPos / g_waPosTolUU;
-        if (nScore < bScore * g_waMarginX) {
-            // Both indistinguishable AND both members of the same assembly in
-            // the same hand: placement is identical either way, so an assembly
-            // match is enough and no member identity is invented.
-            if (g_waComp[best].hand == g_waComp[next].hand) return best;
-            return -3;                          // different hands: refuse
-        }
-    }
-    return best;
-}
-
-
-// ---- the draw ---------------------------------------------------------------
-
-// Patch the member's palette with the common correction, draw it, restore.
-// Returns true when it has HANDLED the draw; `hr` receives the real result of
-// the draw that was submitted.
+// A cache records reporting/geometry history only. Every draw must still match
+// a current owned component, even when a world instance shares these buffers.
 static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
                    UINT primCount, HRESULT* hr)
@@ -257,235 +175,200 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     if (hr) *hr = D3D_OK;
     if (!g_waOn || !dev) return false;
     InterlockedIncrement(&g_waSeen);
-
-    // Cheap device state first - no reflection, no constant readback yet.
-    IDirect3DVertexBuffer9* vbo = NULL; UINT off = 0, stride = 0;
-    if (FAILED(dev->GetStreamSource(0, &vbo, &off, &stride)) || !vbo) return false;
-    void* vb = vbo; vbo->Release();
-    IDirect3DIndexBuffer9* ibo = NULL;
-    if (FAILED(dev->GetIndices(&ibo)) || !ibo) return false;
-    void* ib = ibo; ibo->Release();
-    IDirect3DVertexDeclaration9* dclo = NULL;
-    if (FAILED(dev->GetVertexDeclaration(&dclo)) || !dclo) return false;
-    void* decl = dclo; dclo->Release();
-    IDirect3DVertexShader9* vso = NULL;
-    if (FAILED(dev->GetVertexShader(&vso)) || !vso) return false;
-    void* vs = vso; vso->Release();
-
-    WaMesh* w = WaCached(vb, ib, decl, vs, stride, baseVertex, startIndex,
-                         numVertices, primCount);
-    const bool cached = (w != NULL);
-    if (cached) InterlockedIncrement(&g_waCacheHit);
-
-    // THE LAYOUT OF THE SHADER ACTUALLY BOUND. MpAcquireCtx reads registers by
-    // number, and those numbers belong to whichever shader was reflected last -
-    // the hand's, if nobody refreshes. A reflected register is only meaningful
-    // with its own shader current.
     PcRefreshLayout(dev);
-    if (g_pcLayVp < 0 || g_pcLayL2W < 0) {
-        if (cached) InterlockedIncrement(&g_waNoLayout);
+    if (g_pcLayL2W < 0 || g_pcLayL2W > 252) {
+        InterlockedIncrement(&g_waNoLayout); return false;
+    }
+    // The CTAB declaration bounds the patch. Never extend to the end of the
+    // constant bank: that includes LocalToWorld, projection and lighting.
+    if (!dvr::wf::palette_range(g_pcLayBones, g_pcLayBonesN, g_pcLayVp, g_pcLayL2W)) {
+        InterlockedIncrement(&g_waNoSource);
+        g_waWhy = "no validated, non-overlapping BoneMatrices declaration";
         return false;
     }
-
-    MpDrawCtx ctx;
-    if (!MpAcquireCtx(dev, &ctx)) {
-        if (cached) { InterlockedIncrement(&g_waNoLayout); g_waWhy = ctx.why; }
-        return false;
+    // The weapon never solves an XR pose or optical centre. Requiring the
+    // hand's symmetric camera projection here excludes depth/shadow passes.
+    MpDrawCtx ctx = {};
+    if (FAILED(dev->GetVertexShaderConstantF(g_pcLayL2W, ctx.l2w, 4))) {
+        InterlockedIncrement(&g_waNoLayout); return false;
     }
-
-    const int hand = cached ? w->hand : -1;
-
-    // Which hand's correction? For an uncached draw we do not know yet, so try
-    // each hand that has a live correction for this exact view.
-    const WaCommon* wc = NULL;
-    int useHand = -1;
-    for (int h = 0; h < 2; h++) {
-        if (hand >= 0 && h != hand) continue;
-        const WaCommon* cand = WaCommonFor(h, &ctx);
-        if (cand) { wc = cand; useHand = h; break; }
+    for (int r = 0; r < 3; ++r) {
+        ctx.t[r] = ctx.l2w[12+r];
+        for (int col = 0; col < 3; ++col) ctx.R_L.m[r*3+col] = ctx.l2w[col*4+r];
     }
-    if (!wc) {
-        InterlockedIncrement(&g_waNoCommon);
-        if (cached) {
-            // A member drawing before its hand in this view is a real ordering
-            // problem with one specific fix, so it is reported as itself and
-            // not folded into a generic refusal.
-            InterlockedIncrement(&g_waEarlyMember);
-            g_waWhy = "no hand correction exists yet for THIS Present, pose and "
-                      "eye - this member draws before the hand does";
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
-                "wa: '%s' NOT attached - %s. Borrowing the previous view's "
-                "correction would be a whole IPD wrong, so the native draw is "
-                "left alone. The fix is a same-generation hand source at an "
-                "earlier boundary, not a looser check.", w->asset, g_waWhy);
-        }
-        return false;
+    if (!g_mpPoseCsOk) return false;
+    EnterCriticalSection(&g_mpPoseCs);
+    ctx.pose = g_mpPosePub;
+    LeaveCriticalSection(&g_mpPoseCs);
+    const WaCommon* views[2] = {WaCommonFor(0, &ctx), WaCommonFor(1, &ctx)};
+    if (!views[0] && !views[1]) {
+        InterlockedIncrement(&g_waNoCommon); return false;
     }
+    static uint32_t tryPresent = 0;
+    static int tries = 0;
+    const uint32_t present = (uint32_t)dvr::frame::count();
+    if (tryPresent != present) { tryPresent = present; tries = 0; }
+    // Budget diagnostics only, not placement authority. A scene with many
+    // world draws must not starve its later first-person draws indefinitely.
+    if (++tries > g_waMaxTry) InterlockedIncrement(&g_waBudgetSkip);
 
-    // Identify, if this contract is not already known.
-    if (!cached) {
-        static uint32_t tryPresent = 0; static int tries = 0;
-        const uint32_t pres = (uint32_t)dvr::frame::count();
-        if (pres != tryPresent) { tryPresent = pres; tries = 0; }
-        if (++tries > g_waMaxTry) return false;
-        if (g_waMeshN >= WA_MAX_MESH) return false;
+    dvr::hf::Xform draw = {ctx.R_L, {ctx.t[0], ctx.t[1], ctx.t[2]}};
+    dvr::wf::Candidate candidates[64];
+    const WaComp* members[64];
+    dvr::hf::Xform corrections[64];
+    int count = 0;
+    for (int h = 0; h < 2; ++h) {
+        const WaCommon* v = views[h];
+        if (!v) continue;
+        const WaComp* ref = NULL;
+        bool duplicate = false;
+        for (int i = 0; i < v->componentCount; ++i) {
+            const WaComp* k = &v->components[i];
+            if (!k->ok || !k->isRef) continue;
+            if (ref) { duplicate = true; break; }
+            ref = k;
+        }
+        if (!ref || duplicate) { InterlockedIncrement(&g_waNoBridge); continue; }
+        dvr::hf::Xform nativeRef = {ref->R, {ref->t[0], ref->t[1], ref->t[2]}}, bridge;
+        if (!dvr::wf::bridge(nativeRef, v->L_hand, &bridge)) {
+            InterlockedIncrement(&g_waNoBridge); continue;
+        }
+        dvr::hf::Xform invBridge;
+        if (!dvr::wf::inverse(bridge, &invBridge)) continue;
+        const dvr::hf::Xform nativeDelta = dvr::hf::xform_mul(
+            dvr::hf::xform_mul(invBridge, v->D), bridge);
+        for (int i = 0; i < v->componentCount && count + 1 < 64; ++i) {
+            const WaComp* k = &v->components[i];
+            if (!k->ok || !k->isMember || k->hand != h) continue;
+            dvr::hf::Xform native = {k->R, {k->t[0], k->t[1], k->t[2]}};
+            dvr::wf::Candidate c;
+            c.predicted = dvr::hf::xform_mul(bridge, native);
+            c.hand = h;
+            c.assembly = (strstr(k->asset, "sword") || strstr(k->asset, "Sword")) ? 1 : 2;
+            candidates[count] = c; corrections[count] = v->D; members[count++] = k;
+            // A world-space pass has a second independently known prediction:
+            // the native component transform itself. It also needs the delta
+            // converted back out of the reference draw's rebased coordinates.
+            candidates[count] = c; candidates[count].predicted = native;
+            corrections[count] = nativeDelta; members[count++] = k;
+            InterlockedIncrement(&g_waHandCompared[h]);
+            const dvr::wf::Result one = dvr::wf::match(draw, &c, 1, g_waAngTolDeg, g_waPosTolUU, g_waMarginX);
+            if (one.score < g_waNearestScore[h]) {
+                g_waNearestScore[h] = one.score; g_waNearestAngle[h] = one.angle;
+                g_waNearestPos[h] = one.position; g_waNearestScale[h] = one.scale;
+                strcpy_s(g_waNearestName[h], k->asset);
+            }
+        }
+    }
+    InterlockedIncrement(&g_waCandChecked);
+    const dvr::wf::Result match = dvr::wf::match(draw, candidates, count,
+        g_waAngTolDeg, g_waPosTolUU, g_waMarginX);
+    if (match.best < 0) { InterlockedIncrement(&g_waNoCandidate); return false; }
+    if (match.ambiguous) { InterlockedIncrement(&g_waAmbiguous); return false; }
+    const WaComp* member = members[match.best];
+    const int hand = candidates[match.best].hand;
+    const WaCommon* wc = views[hand];
 
-        InterlockedIncrement(&g_waCandChecked);
-        float ang = 0.0f, pos = 0.0f;
-        const int comp = WaMatch(&ctx, wc, useHand, &ang, &pos);
-        if (comp == -3) {
-            InterlockedIncrement(&g_waAmbiguous);
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
-                "wa: AMBIGUOUS - best '%s' at %.3f deg / %.2f uu, runner-up at "
-                "%.3f deg / %.2f uu, and they are in different hands. Refusing: "
-                "a transform match that cannot separate two owners is not an "
-                "identity.", g_waBestName, (double)g_waBestAng,
-                (double)g_waBestPos, (double)g_waNextAng, (double)g_waNextPos);
-            return false;
-        }
-        if (comp < 0) {
-            InterlockedIncrement(&g_waNoCandidate);
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 5000,
-                "wa: no candidate - closest was '%s' at %.3f deg / %.2f uu "
-                "against bands of %.2f deg / %.2f uu.", g_waBestName,
-                (double)g_waBestAng, (double)g_waBestPos,
-                (double)g_waAngTolDeg, (double)g_waPosTolUU);
-            return false;
-        }
-        w = &g_waMesh[g_waMeshN++];
-        memset(w, 0, sizeof(*w));
+    IDirect3DVertexBuffer9* vb = NULL; UINT offset = 0, stride = 0;
+    IDirect3DIndexBuffer9* ib = NULL;
+    IDirect3DVertexDeclaration9* decl = NULL;
+    IDirect3DVertexShader9* vs = NULL;
+    dev->GetStreamSource(0, &vb, &offset, &stride);
+    dev->GetIndices(&ib); dev->GetVertexDeclaration(&decl); dev->GetVertexShader(&vs);
+    const bool geometryOk = vb && ib && decl && vs;
+    if (vb) vb->Release(); if (ib) ib->Release();
+    if (decl) decl->Release(); if (vs) vs->Release();
+    if (!geometryOk) return false;
+    WaMesh* w = NULL;
+    for (int i = 0; i < g_waMeshN; ++i) {
+        WaMesh* k = &g_waMesh[i];
+        if (k->vb == vb && k->ib == ib && k->decl == decl && k->vs == vs &&
+            k->stride == stride && k->streamOffset == offset && k->type == type &&
+            k->baseVertex == baseVertex && k->minIndex == minIndex &&
+            k->startIndex == startIndex && k->numVerts == numVertices && k->primCount == primCount &&
+            k->hand == hand && !strcmp(k->asset, member->asset)) { w = k; break; }
+    }
+    if (w) InterlockedIncrement(&g_waCacheHit);
+    else {
+        // Full reporting table does not prevent a new weapon from attaching.
+        const bool full = g_waMeshN == WA_MAX_MESH;
+        int slot = full ? 0 : g_waMeshN++;
+        if (full)
+            for (int i = 1; i < g_waMeshN; ++i)
+                if (g_waMesh[i].lastVerifyMs < g_waMesh[slot].lastVerifyMs) slot = i;
+        w = &g_waMesh[slot]; memset(w, 0, sizeof(*w));
         w->vb = vb; w->ib = ib; w->decl = decl; w->vs = vs;
-        w->stride = stride; w->baseVertex = baseVertex;
-        w->startIndex = startIndex; w->numVerts = numVertices;
-        w->primCount = primCount;
-        w->comp = comp; w->hand = useHand;
-        w->boneReg = g_pcLayBones;
-        w->lastVerifyMs = MaimNowMs();
-        _snprintf(w->asset, sizeof(w->asset), "%s", g_waComp[comp].asset);
-        w->asset[sizeof(w->asset) - 1] = 0;
+        w->stride = stride; w->streamOffset = offset; w->type = type;
+        w->baseVertex = baseVertex; w->minIndex = minIndex; w->startIndex = startIndex;
+        w->numVerts = numVertices; w->primCount = primCount; w->hand = hand;
+        strcpy_s(w->asset, member->asset);
         InterlockedIncrement(&g_waMatched);
-        Log("wa: MATCHED '%s' to a draw - %.3f deg / %.2f uu from its predicted "
-            "transform, runner-up %.3f deg / %.2f uu. Bridge from the body "
-            "mesh, not from this candidate's own residual. Contract: vb %p ib "
-            "%p decl %p vs %p stride %u base %d start %u verts %u prim %u, "
-            "bones at c%d. Into the %s hand.",
-            w->asset, (double)g_waBestAng, (double)g_waBestPos,
-            (double)g_waNextAng, (double)g_waNextPos, vb, ib, decl, vs, stride,
-            baseVertex, startIndex, numVertices, primCount, w->boneReg,
-            useHand ? "RIGHT" : "LEFT");
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+            "wa: MATCH '%s' hand %d: %.4f deg %.4f uu scale error %.5f; c%d x%d; component snapshot %u",
+            w->asset, hand, match.angle, match.position, match.scale,
+            g_pcLayBones, g_pcLayBonesN, wc->componentGen);
     }
-
-    // A SKINNED path only. The static case needs its own component transform
-    // and its dependent constants handled, which is a different backend; it is
-    // refused BY NAME rather than pretended to be a one-bone palette.
-    if (w->boneReg < 0) {
-        InterlockedIncrement(&g_waNoSource);
-        g_waWhy = "this shader declares no bone matrices - it is an unskinned "
-                  "path and this build does not modify those";
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
-            "wa: '%s' NOT attached - %s. Treating three registers as a one-bone "
-            "palette, as the previous build did, would corrupt whatever those "
-            "registers really are.", w->asset, g_waWhy);
-        return false;
+    w->lastVerifyMs = MaimNowMs();
+    w->boneReg = g_pcLayBones; w->regs = (UINT)g_pcLayBonesN;
+    dvr::hf::Xform inverse;
+    if (!dvr::wf::inverse(draw, &inverse)) { InterlockedIncrement(&w->refused); return false; }
+    const dvr::hf::Xform delta = dvr::hf::xform_mul(
+        dvr::hf::xform_mul(inverse, corrections[match.best]), draw);
+    for (int i = 0; i < 9; ++i) if (!MpFinite(delta.r.m[i])) return false;
+    for (int i = 0; i < 3; ++i) if (!MpFinite(delta.t[i])) return false;
+    static float source[WA_MAX_REGS*4], patched[WA_MAX_REGS*4];
+    if (FAILED(dev->GetVertexShaderConstantF(w->boneReg, source, w->regs))) {
+        InterlockedIncrement(&g_waNoSource); return false;
     }
-
-    // HOW MANY REGISTERS. Bounded by the device and by our buffer; the size of
-    // the last c6 write is not a palette size and is not consulted.
-    UINT regs = WA_MAX_REGS;
-    if ((UINT)w->boneReg + regs > 256u) regs = 256u - (UINT)w->boneReg;
-    if (w->regs) regs = w->regs;
-    if (!regs || regs > WA_MAX_REGS) {
-        InterlockedIncrement(&g_waNoSource);
-        g_waWhy = "the bone register range does not fit the device limit";
-        return false;
+    MpBuild(patched, source, w->regs, &delta);
+    if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, patched, w->regs))) {
+        if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs)))
+            InterlockedIncrement(&g_waRestoreFail);
+        InterlockedIncrement(&g_waNoSource); return false;
     }
-
-    static float src[4 * WA_MAX_REGS];
-    if (FAILED(dev->GetVertexShaderConstantF((UINT)w->boneReg, src, regs))) {
-        InterlockedIncrement(&g_waNoSource);
-        g_waWhy = "the bone block could not be read back";
-        InterlockedIncrement(&w->refused);
-        return false;
+    D3DVIEWPORT9 savedVp; bool changedVp = false;
+    if (g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp)) && savedVp.MaxZ < .5f) {
+        D3DVIEWPORT9 full = savedVp; full.MinZ = 0; full.MaxZ = 1;
+        changedVp = SUCCEEDED(dev->SetViewport(&full));
     }
-    w->regs = regs;
-
-    // THE CORRECTION. Conjugate the common transform into this member's own
-    // local space and compose it onto every matrix in the block. No weapon
-    // pivot, no grip solve, no per-member target: the whole assembly moves
-    // through one transform, so the game's own hand-to-weapon and
-    // weapon-to-bolt relationships - and the bolt's internal animation -
-    // survive untouched.
-    dvr::hf::Xform L;
-    L.r = ctx.R_L;
-    for (int i = 0; i < 3; i++) L.t[i] = ctx.t[i];
-    const dvr::hf::Xform Dm =
-        dvr::hf::xform_mul(dvr::hf::xform_mul(dvr::hf::xform_inv(L), wc->D), L);
-    for (int i = 0; i < 9; i++)
-        if (!MpFinite(Dm.r.m[i])) { InterlockedIncrement(&w->refused); return false; }
-    for (int i = 0; i < 3; i++)
-        if (!MpFinite(Dm.t[i]))   { InterlockedIncrement(&w->refused); return false; }
-
-    static float buf[4 * WA_MAX_REGS];
-    MpBuild(buf, src, regs, &Dm);
-
-    if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)w->boneReg, buf, regs))) {
-        InterlockedIncrement(&g_waNoSource);
-        g_waWhy = "the corrected block could not be uploaded";
-        InterlockedIncrement(&w->refused);
-        return false;
-    }
-
     InterlockedIncrement(&g_waAttempted);
-    const HRESULT drawHr = dvr::frame::orig_draw_indexed(
-        dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    const HRESULT drawHr = dvr::frame::orig_draw_indexed(dev, type, baseVertex,
+        minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
     if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); }
-
-    // RESTORE ON EVERY EXIT. A constant is current device state, so the game's
-    // own block goes back to the EXACT values in force before this draw or
-    // every later draw inherits the correction. A failure here is louder than
-    // the draw failing.
-    if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)w->boneReg, src, regs))) {
+    if (changedVp && FAILED(dev->SetViewport(&savedVp))) InterlockedIncrement(&g_waRestoreFail);
+    if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waRestoreFail);
-        Log("wa: RESTORE FAILED after '%s' - c%d x%u was not put back. Later "
-            "draws in this frame may inherit the weapon's correction.",
-            w->asset, w->boneReg, regs);
+        Log("wa: RESTORE FAILED for '%s' c%d x%u", w->asset, w->boneReg, w->regs);
     }
-
     g_waWhy = "placed";
-    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-        "wa: '%s' ATTACHED to the %s hand - c%d x%u, delta (%+.1f %+.1f %+.1f) "
-        "uu | placed %ld refused %ld | routed %ld, matched %ld, cache hits %ld, "
-        "ambiguous %ld, no-candidate %ld, no-correction %ld, early %ld, "
-        "attempted %ld, succeeded %ld, restore failures %ld.",
-        w->asset, w->hand ? "RIGHT" : "LEFT", w->boneReg, regs,
-        (double)Dm.t[0], (double)Dm.t[1], (double)Dm.t[2],
-        w->placed, w->refused, g_waSeen, g_waMatched, g_waCacheHit,
-        g_waAmbiguous, g_waNoCandidate, g_waNoCommon, g_waEarlyMember,
-        g_waAttempted, g_waSucceeded, g_waRestoreFail);
     return true;
 }
 
-
-// The heartbeat. It must print even when nothing has ever matched, because
-// "nothing attached" and "never entered" produced identical silence for three
-// runs and that is what made them unreadable.
 static void WaBeat(void)
 {
     if (!g_waOn) return;
-    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-        "wa: beat - %d component(s) known (gen %u), %d contract(s) matched | "
-        "routed %ld | no correction for the view %ld (of which members drawing "
-        "early %ld) | compared %ld -> matched %ld, ambiguous %ld, none %ld | "
-        "cache hits %ld | no layout %ld, no source %ld | attempted %ld, "
-        "succeeded %ld, restore failed %ld | closest so far '%s' at %.3f deg / "
-        "%.2f uu against bands %.2f / %.2f. Routed rising with compared at 0 "
-        "means no hand correction is reaching the weapon's view; compared "
-        "rising with matched at 0 means the bridge or the tolerances are wrong.",
-        g_waCompN, g_waCompGen, g_waMeshN, g_waSeen, g_waNoCommon,
-        g_waEarlyMember, g_waCandChecked, g_waMatched, g_waAmbiguous,
-        g_waNoCandidate, g_waCacheHit, g_waNoLayout, g_waNoSource,
-        g_waAttempted, g_waSucceeded, g_waRestoreFail, g_waBestName,
-        (double)g_waBestAng, (double)g_waBestPos,
-        (double)g_waAngTolDeg, (double)g_waPosTolUU);
+    static double said = 0;
+    const double now = MaimNowMs();
+    if (now - said < 5000) return;
+    said = now;
+    Log("wa: beat v2 | routed %ld compared %ld; member comparisons L %ld R %ld; "
+        "contracts %ld ambiguity %ld misses %ld; attempted %ld succeeded %ld restore-fail %ld; "
+        "no-layout %ld no-source %ld no-view %ld no-bridge %ld stale-snapshot %ld over-budget %ld | %s",
+        g_waSeen, g_waCandChecked, g_waHandCompared[0], g_waHandCompared[1],
+        g_waMatched, g_waAmbiguous, g_waNoCandidate, g_waAttempted, g_waSucceeded,
+        g_waRestoreFail, g_waNoLayout, g_waNoSource, g_waNoCommon, g_waNoBridge, g_waStaleComp,
+        g_waBudgetSkip, g_waWhy);
+    for (int h = 0; h < 2; ++h) {
+        if (g_waNearestScore[h] != FLT_MAX)
+            Log("wa: interval nearest hand %d '%s': %.4f deg / %.4f uu / scale %.5f (bands %.3f / %.3f / .005)",
+                h, g_waNearestName[h], g_waNearestAngle[h], g_waNearestPos[h],
+                g_waNearestScale[h], g_waAngTolDeg, g_waPosTolUU);
+        g_waNearestScore[h] = FLT_MAX;
+    }
+    for (int i = 0; i < g_waMeshN; ++i) {
+        const WaMesh* w = &g_waMesh[i];
+        Log("wa: contract '%s' hand %d c%d x%u placed %ld refused %ld age %.0f ms",
+            w->asset, w->hand, w->boneReg, w->regs, w->placed, w->refused, now-w->lastVerifyMs);
+    }
 }

@@ -1174,21 +1174,18 @@ static void LoadConfig()
     // that is testing it, and the previous stage stays reachable by turning it
     // back off.
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 0) != 0.0f;
-    // VR-33 W1: the weapon identifier. One automatic sweep that hides each
-    // first-person component in turn and records which draws stop arriving.
-    // VR-33 W2/W3: the weapon attachment. On by default and coupled to the
-    // identifier, because the sweep's output IS its input - the buffer pairs
-    // the sweep proves belong to 'crossbow_01' are the draws this corrects.
-    // WeaponId=0 leaves it with nothing to attach and it says so.
-    g_waOn            = IniFloat(ini, "Hands", "AttachWeapons", 1) != 0.0f;
-    g_waSwordHand     = (int)IniFloat(ini, "Hands", "AttachSwordHand", 0);
-    g_waXbowHand      = (int)IniFloat(ini, "Hands", "AttachCrossbowHand", 1);
+    // VR-33: attachment matches owned component transforms independently of
+    // the optional hide sweep. Installed test configuration enables it;
+    // a fresh configuration leaves this render lever off.
+    g_waOn            = IniFloat(ini, "Hands", "AttachWeapons", 0) != 0.0f;
+    g_waSwordHand     = (int)IniFloat(ini, "Hands", "AttachSwordHand", 1);
+    g_waXbowHand      = (int)IniFloat(ini, "Hands", "AttachCrossbowHand", 0);
     g_waAngTolDeg     = IniFloat(ini, "Hands", "AttachAngleTol", 0.25f);
     g_waPosTolUU      = IniFloat(ini, "Hands", "AttachPosTol",   1.0f);
     g_waMarginX       = IniFloat(ini, "Hands", "AttachMargin",   4.0f);
     g_waMaxTry        = (int)IniFloat(ini, "Hands", "AttachMaxTry", 3000);
-    if (g_waSwordHand < 0 || g_waSwordHand > 1) g_waSwordHand = 0;
-    if (g_waXbowHand  < 0 || g_waXbowHand  > 1) g_waXbowHand  = 1;
+    if (g_waSwordHand < 0 || g_waSwordHand > 1) g_waSwordHand = 1;
+    if (g_waXbowHand  < 0 || g_waXbowHand  > 1) g_waXbowHand  = 0;
     if (g_waAngTolDeg < 0.01f) g_waAngTolDeg = 0.01f;
     if (g_waAngTolDeg > 30.0f) g_waAngTolDeg = 30.0f;
     if (g_waPosTolUU  < 0.05f) g_waPosTolUU  = 0.05f;
@@ -1214,10 +1211,11 @@ static void LoadConfig()
             "a new grip - so the game's own hand-to-weapon and weapon-to-bolt "
             "relationships survive, and so does the bolt's internal animation.",
             (double)g_waAngTolDeg, (double)g_waPosTolUU, (double)g_waMarginX);
-        Log("config: those two bands are PROVISIONAL display limits, not "
-            "measured authorization thresholds. Calibrate them from the "
-            "residuals the 'wa: MATCHED' and 'wa: no candidate' lines report, "
-            "never by widening one until something matches.");
+        Log("config: attachment gates use those angle/position bands and a "
+            "0.5 percent scale band. Both hands are compared; every draw is "
+            "revalidated. Read 'wa: interval nearest' per hand for actual "
+            "residuals. AttachMaxTry is diagnostic only; it never starves "
+            "later weapon draws. Do not widen bands to manufacture a match.");
         Log("config: the hand sides are an ASSUMPTION, not measured attachment "
             "data - sword %s, crossbow and bolt %s. An asset that matches "
             "neither name is not attached at all rather than swept into a "

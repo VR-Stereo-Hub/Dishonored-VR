@@ -1,6 +1,23 @@
 # Status
 
-## CURRENT (2026-09-07, night): VR-33 - weapon attach armed, model scale added
+## CURRENT (2026-09-08): VR-33 weapon attachment direct repair, test pending
+
+Release fix installed; 28 hand tests and 21 weapon tests pass. The first headset run confirmed weapon
+motion, but wrong hands, a large offset and flickering old-position silhouettes.
+The follow-up corrects hand settings and permits qualified non-camera passes.
+Correct alignment and ghost removal remain pending the next headset run.
+
+No sweep or blinking is expected. Equip crossbow/sword, move each controller,
+then check the loaded bolt, head motion, both eyes and re-equip/reload.
+Read `wa: beat v2`, `wa: interval nearest`, and per-asset `wa: contract` counts.
+Sword defaults RIGHT (1); crossbow/bolt LEFT (0). Hand calibration is retained.
+
+Full implementation and remaining assumptions:
+[VR-33 direct fix handoff](dishonored/VR-33-WEAPON-DIRECT-FIX-HANDOFF.md).
+
+The old sweep-based test instructions below are historical and superseded.
+
+## Historical (2026-09-07, night): VR-33 - weapon attach armed, model scale added
 
 ### TEST TOMORROW, in this order
 

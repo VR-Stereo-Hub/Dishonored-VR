@@ -18,6 +18,7 @@
 
 #include "../../game/dishonored/hands/hand_frame.h"
 #include "../../game/dishonored/hands/hand_frame_test.h"
+#include "../../game/dishonored/hands/weapon_frame_test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -157,7 +158,7 @@ int main(int argc, char** argv)
     const int failed = dvr::hf::test::run_all(report, NULL);
     printf("---------------------------------------------------------------\n");
     printf("%s\n", failed ? "FAILURES" : "all cases passed");
-    int rc = failed ? 1 : 0;
+    int rc = (failed + WeaponFrameTests()) ? 1 : 0;
     if (argc > 1) rc |= replay(argc, argv);
     return rc;
 }

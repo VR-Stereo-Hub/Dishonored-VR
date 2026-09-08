@@ -55,18 +55,18 @@
 // is taken from a component we have ALREADY identified by other means: the
 // body mesh the split locks and draws.
 //
-//     eyeOrigin              = t_cpu_ref - t_draw_ref
-//     predicted L_draw_member = R_cpu_member, t_cpu_member - eyeOrigin
+//     K                       = L_draw_ref * inverse(L_cpu_ref)
+//     predicted L_draw_member = K * L_cpu_member
 //
 // A candidate is then checked on the WHOLE predicted transform - orientation,
 // position and scale - and must be unique by a margin. Rotation alone is a
 // filter, never an identity: a bolt lying in the crossbow's channel shares its
 // orientation, and so do plenty of world props.
 //
-// CONVENTION. The native matrix and the shader constant are read by the SAME
-// extraction, so whichever of row- or column-major the pair actually is, the
-// convention cancels in the comparison instead of being asserted from memory.
-// Scale is retained rather than normalised away, because it is evidence.
+// CONVENTION. Native rows and shader registers are converted into the math
+// helper's column-vector representation. A reference fitting its own bridge
+// is tautological; the independent member matches are the useful evidence.
+// Native scale is retained rather than normalised away.
 // ===========================================================================
 
 enum {
@@ -76,16 +76,6 @@ enum {
 };
 
 // ---- the hand's correction, published for the view it belongs to ------------
-struct WaCommon {
-    dvr::hf::Xform D;          // camera-relative world space
-    dvr::hf::Xform L_hand;     // the hand draw's own transform, for the bridge
-    uint32_t present;          // dvr::frame::count() when it was built
-    uint32_t poseGen;          // the pose snapshot it used
-    int      eye;              // g_mpEyeState at that draw
-    bool     ok;
-};
-static WaCommon g_waCommon[2];        // per hand
-
 // ---- the components, snapshotted on the script lane -------------------------
 struct WaComp {
     uint8_t*      obj;         // identity and lifetime, never dereferenced here
@@ -99,6 +89,21 @@ struct WaComp {
     bool          isMember;    // a weapon member we are willing to attach
     int           hand;
 };
+struct WaCommon {
+    dvr::hf::Xform D;          // camera-relative world space
+    dvr::hf::Xform L_hand;     // the hand draw's own transform, for the bridge
+    uint32_t present;          // dvr::frame::count() when it was built
+    uint32_t poseGen;          // the pose snapshot it used
+    int      eye;              // g_mpEyeState at that draw
+    WaComp components[WA_MAX_COMP];
+    int componentCount;
+    uint32_t componentGen;
+    bool     ok;
+};
+static WaCommon g_waCommon[2];        // per hand
+
+
+static SRWLOCK g_waCompLock = SRWLOCK_INIT;
 static WaComp   g_waComp[WA_MAX_COMP];
 static int      g_waCompN   = 0;
 static uint32_t g_waCompGen = 0;       // bumped on every republish
@@ -111,27 +116,28 @@ static double   g_waCompMs  = 0.0;
 // one member's draw from another's in the same buffers.
 struct WaMesh {
     void*    vb, *ib, *decl, *vs;
-    UINT     stride, startIndex, numVerts, primCount;
+    UINT     stride, startIndex, numVerts, primCount, streamOffset, minIndex;
+    D3DPRIMITIVETYPE type;
     INT      baseVertex;
     int      comp;             // index into g_waComp
     int      hand;
     char     asset[64];
     int      boneReg;          // the REFLECTED register, never assumed to be 6
     UINT     regs;             // registers actually patched
-    double   lastVerifyMs;     // the transform check is re-run periodically
+    double   lastVerifyMs;     // revalidated on every draw, also used for eviction
     LONG     placed, refused;
 };
 static WaMesh   g_waMesh[WA_MAX_MESH];
 static int      g_waMeshN = 0;
 
 // ---- levers -----------------------------------------------------------------
-static bool     g_waOn         = true;   // [Hands] AttachWeapons
-static int      g_waSwordHand  = 0;      // [Hands] AttachSwordHand
-static int      g_waXbowHand   = 1;      // [Hands] AttachCrossbowHand
+static bool     g_waOn         = false;   // [Hands] AttachWeapons
+static int      g_waSwordHand  = 1;      // [Hands] AttachSwordHand
+static int      g_waXbowHand   = 0;      // [Hands] AttachCrossbowHand
 static float    g_waAngTolDeg  = 0.25f;  // [Hands] AttachAngleTol - PROVISIONAL
 static float    g_waPosTolUU   = 1.0f;   // [Hands] AttachPosTol   - PROVISIONAL
 static float    g_waMarginX    = 4.0f;   // runner-up must be this much worse
-static int      g_waMaxTry     = 3000;   // full match attempts per Present
+static int      g_waMaxTry     = 3000;   // diagnostic watermark, never skips placement
 
 // ---- routing counters, BEFORE every gate ------------------------------------
 //
@@ -158,3 +164,9 @@ static const char* g_waWhy  = "no weapon draw has been routed yet";
 static float g_waBestAng = 0.0f, g_waBestPos = 0.0f;
 static float g_waNextAng = 0.0f, g_waNextPos = 0.0f;
 static char  g_waBestName[64] = "none";
+
+static LONG g_waHandCompared[2] = {};
+static LONG g_waStaleComp = 0, g_waBudgetSkip = 0, g_waNoBridge = 0;
+static float g_waNearestScore[2] = { FLT_MAX, FLT_MAX };
+static float g_waNearestAngle[2] = {}, g_waNearestPos[2] = {}, g_waNearestScale[2] = {};
+static char g_waNearestName[2][64] = {};
