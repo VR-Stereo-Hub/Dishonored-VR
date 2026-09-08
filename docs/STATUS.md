@@ -1101,10 +1101,13 @@ it on demand, `arms vis chain` prints the arm chain.
 **Verified in the headset:** hands track the controllers, are correctly scaled,
 occlude against world geometry, and hold position through head turns. PR #21.
 
-**Built but NOT headset-verified:** the final cleanup commit `b15fc59f`. The
-last log's build id is `g0b30b858-dirty` (19:43:53) while the cleanup DLL
-installed at 20:04:51 has never been loaded. It removes retired code paths and
-changes no placement behaviour, but that is an argument, not a run.
+**The cleanup is verified too**, after a scare worth recording. The trim did not
+compile: `g_mpEyeHunt` lost its declaration and the capture packet still
+referenced two retired modes - but MSBuild was linking STALE OBJECT FILES, so
+three builds reported success while the DLL kept an older build id. Comparing
+the id embedded in the installed DLL against `git describe` is what caught it;
+a "clean build" had been meaningless. Fixed in `fe531095`, rebuilt with a
+forced recompile, and confirmed in the headset with the ids matching.
 
 **What the session established.** The bone palette's output is the component's
 LOCAL space; `LocalToWorld` (c231) maps it to a camera-relative world frame and
