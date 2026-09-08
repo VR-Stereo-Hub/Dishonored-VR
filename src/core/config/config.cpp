@@ -1169,6 +1169,52 @@ static void LoadConfig()
     g_mpWsumTol       = IniFloat(ini, "Hands", "PaletteWeightTol", 0.02f);
     if (g_mpWsumTol < 0.0001f) g_mpWsumTol = 0.0001f;
     g_mpStep          = IniFloat(ini, "Hands", "PaletteStep", 0) != 0.0f;
+    // VR-33 rotation and grip. PaletteRotate defaults OFF here per the project
+    // rule for a new render lever; the installed ini turns it on for the run
+    // that is testing it, and the previous stage stays reachable by turning it
+    // back off.
+    g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 0) != 0.0f;
+    g_mpFrameTolOrtho = IniFloat(ini, "Hands", "PaletteFrameTol", 0.02f);
+    if (g_mpFrameTolOrtho < 0.0005f) g_mpFrameTolOrtho = 0.0005f;
+    if (g_mpFrameTolOrtho > 0.25f)   g_mpFrameTolOrtho = 0.25f;
+    g_mpFrameTolAniso = g_mpFrameTolOrtho;
+    {
+        // The grip transform, as three degrees per side. The convention is
+        // EXTRINSIC X, then Y, then Z about the camera-relative world axes,
+        // i.e. R = Rz*Ry*Rx - declared here, round-tripped by the frame
+        // self-test, and kept internally as a matrix. The angles exist only so
+        // a solved G can be written down and read back.
+        static const char* keys[2][3] = {
+            { "GripLX", "GripLY", "GripLZ" }, { "GripRX", "GripRY", "GripRZ" }
+        };
+        for (int h = 0; h < 2; h++) {
+            for (int a = 0; a < 3; a++)
+                g_mpGripDeg[h][a] = IniFloat(ini, "Hands", keys[h][a], 0.0f);
+            g_mpGrip[h] = dvr::hf::euler_xyz_deg_to_mat(
+                g_mpGripDeg[h][0], g_mpGripDeg[h][1], g_mpGripDeg[h][2]);
+            // A grip from the ini was written down deliberately, against a
+            // convention recorded with it. It is not fingerprint-checked; only
+            // one solved live in this session is, because that is the one whose
+            // source frame can be re-derived underneath it.
+            g_mpGripFromIni[h] = true;
+        }
+    }
+    if (g_mpOn && g_mpWorld && g_mpRotate)
+        Log("config: [Hands] PaletteRotate=1 - the hands take a FULL RIGID "
+            "correction, not just a translation. Orientation is read from the "
+            "dominant palette slot of each hand's anchor, the controller is "
+            "converted through the same physical mapping the working position "
+            "path uses (F * transpose(R_head) * R_ctl, then the draw's own "
+            "camera basis), and the grip transform G is %+.0f %+.0f %+.0f (L) "
+            "/ %+.0f %+.0f %+.0f (R) degrees, extrinsic X,Y,Z. G at zero means "
+            "the hands will TRACK your wrists but sit at a fixed wrong angle "
+            "until the grip is captured (SHIFT+F7) or these angles are filled "
+            "in. If any part of the rotation refuses, placement falls back to "
+            "TRANSLATION ONLY - a hand that tracks but is not oriented is worth "
+            "much more than a hand that does not track. Read ms/palette/frame.",
+            (double)g_mpGripDeg[0][0], (double)g_mpGripDeg[0][1],
+            (double)g_mpGripDeg[0][2], (double)g_mpGripDeg[1][0],
+            (double)g_mpGripDeg[1][1], (double)g_mpGripDeg[1][2]);
     if (g_mpOn && g_mpWorld)
         Log("config: [Hands] PaletteWorld=1 - the palm is placed through the "
             "MEASURED chain. LocalToWorld and ViewProjectionMatrix are read "
@@ -1631,6 +1677,19 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%.4f", g_mpWsumTol);
     WritePrivateProfileStringA("Hands", "PaletteWeightTol", v, ini);
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteRotate", g_mpRotate ? "1" : "0", ini);
+    _snprintf(v, 64, "%.4f", g_mpFrameTolOrtho);
+    WritePrivateProfileStringA("Hands", "PaletteFrameTol", v, ini);
+    {
+        static const char* keys[2][3] = {
+            { "GripLX", "GripLY", "GripLZ" }, { "GripRX", "GripRY", "GripRZ" }
+        };
+        for (int h = 0; h < 2; h++)
+            for (int a = 0; a < 3; a++) {
+                _snprintf(v, 64, "%.1f", g_mpGripDeg[h][a]);
+                WritePrivateProfileStringA("Hands", keys[h][a], v, ini);
+            }
+    }
     _snprintf(v, 64, "%.1f", g_hmAmount);
     WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);
     _snprintf(v, 64, "%d", g_hmAxis);

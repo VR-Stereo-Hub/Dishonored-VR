@@ -3076,6 +3076,85 @@ another memory-layout guess. Where the dispatch and the array read disagree the 
 and the dispatch wins. On this rig the material name is the only handle available, because
 `m_MaterialsToBodyParts` is an NPC dismemberment feature and the player asset carries none.
 
+## The hand shaders' normal path, and the palette's own scale (VR-33, 2026-09-07)
+
+Read from the three captured hand vertex shaders, and from replaying all 28
+saved packets through the shipped decomposition.
+
+### Normals and tangents ride the bone palette
+
+| Shader | Normal path |
+|---|---|
+| `DB11BB81` | Position only. No normal or tangent input |
+| `F2E11B73` | Decodes normals AND tangents and multiplies both through the SAME weighted bone-palette linear rows the positions use; the bitangent comes from their cross product and a handedness term |
+| `11DD5E8A` | The same palette-driven tangent frame, plus light-direction handling |
+
+**Consequence:** a proper rigid transform composed onto the palette carries the
+tangent frame with the geometry. No separate normal matrix is needed and none
+exists.
+
+**`WorldToLocal` MUST NOT be rotated.** In these shaders it converts view and
+light vectors INTO component space. It is not a missing skinning-normal matrix,
+and transforming it as well would apply the correction twice to lighting. The
+component's own transform is unchanged by a palette edit, so `WorldToLocal`
+stays correct as it is.
+
+This closes the question for these three hashes only. A weapon shader is a
+different hash and must be audited before the same reasoning is used on it.
+
+### The palette matrices are uniformly scaled rotations, and the scale is derived
+
+Every palette matrix measured is a rotation times a uniform scale with no shear.
+Over all 28 packets, taking the anchor's dominant slot:
+
+```
+28 packet(s): 28 decomposed, 0 refused. dominant slot 10 (the same in all)
+uniform scale 0.999511659 .. 0.999512255
+worst anisotropy 5.960e-07 | worst orthonormality residual 9.835e-07
+```
+
+An independent check over all 48 slots in all 28 packets (1,344 matrices) gives
+the same scale range and residuals at numerical precision.
+
+**The scale is DERIVED per call, never hard-coded.** 0.999512 is what these
+captures held, not a property of every future pose, mesh and pass. Only the
+frame used to build the correction is normalised; the rendered palette keeps its
+own scale, because the correction is composed onto the original matrices.
+
+### The weighted BLEND is not a rotation
+
+The same test on the anchor's weighted blend, all 28 packets: `det 0.970`,
+largest Gram off-diagonal 0.0075, diagonal off by up to 0.026. Averaging
+rotations contracts them. This is why orientation is read from one slot and only
+the POSITION comes from the blended anchor patch.
+
+### A slot is a render slot, not a joint
+
+Dominant weight does not establish that a slot follows the palm rather than a
+finger or the forearm, and a skinning matrix can fold in an inverse-bind
+rotation, so its axes are not anatomical axes. Any constant bind orientation is
+absorbed into the grip transform. What has to be measured is only that the slot
+follows the palm rigidly.
+
+Across the 28 packets the dominant slot's frame moves at most **1.05 degrees**.
+The blend's reading over the same packets was identical to five decimals and
+looked frozen, so the slot does respond to the engine's animation - but these
+captures are all one near-idle pose and this does NOT establish that it tracks
+the palm. Only a run in which the game animates the hand can.
+
+### The lane contract for the hand draws
+
+`MpDriveTick` runs from `present_tick.cpp` -> `DcTick` -> `MsTick`, on the
+present thread. `MsDraw` runs on whichever thread the renderer draws on. The
+two thread ids are now recorded and printed (`ms/palette/lane:`), so the
+contract is measured rather than assumed - and the controller pose crosses
+between them as one whole structure under a lock, with a generation, latched
+once per ORIGINAL DRAW so both hands of a draw share it.
+
+A group of floats followed by setting a validity flag is NOT publication: the
+flag is already true from the previous sample, so a reader can combine new rows
+with old ones and never know.
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.

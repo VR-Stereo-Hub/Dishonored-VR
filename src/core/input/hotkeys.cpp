@@ -18,7 +18,11 @@ static void StereoUpdate()
     }
     {
         static bool f7pWas = false;
-        bool f7p = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+        // SHIFT is excluded: SHIFT+F7 belongs to the VR-33 grip capture below,
+        // and the same key family firing two features at once has already cost
+        // one session (7099c3b0).
+        bool f7p = (GetAsyncKeyState(VK_F7) & 0x8000) != 0 &&
+                   !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
         if (f7p && !f7pWas) {
             // 33.6: F7 cycles OFF -> ROTATION DRIVE -> pin test -> OFF
             if (!g_skcRotDrive && !g_skcRotPin) {
@@ -231,6 +235,26 @@ static void StereoUpdate()
                          !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
         if (mpk && !mpWas) InterlockedExchange(&g_mpStepReq, 1);
         mpWas = mpk;
+    }
+
+    // VR-33: SHIFT+F7 captures the grip transform G for BOTH hands at once.
+    // Hold your hands the way the game's own idle pose holds them and press it.
+    // The request is one bit per side, consumed ONCE by the next qualified
+    // original draw, so it is solved against one coherent pose snapshot and
+    // the ORIGINAL palette rather than a corrected one.
+    {
+        static bool gcWas = false;
+        const bool gck = (GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
+                         (GetAsyncKeyState(VK_F7) & 0x8000);
+        if (gck && !gcWas) {
+            InterlockedExchange(&g_mpGripCapReq, 3);
+            Log("ms/palette/grip: capture ARMED for both hands (SHIFT+F7). The "
+                "next qualified draw of each hand solves G and prints it. The "
+                "hands will SNAP to the game's own animated orientation at that "
+                "instant - that is what the calibration means, and it is the "
+                "expected outcome.");
+        }
+        gcWas = gck;
     }
 
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;

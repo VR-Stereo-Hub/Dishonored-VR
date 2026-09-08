@@ -1,6 +1,85 @@
 # Status
 
-## CURRENT (2026-09-07): VR-33 - the hands are at the controllers and correct
+## CURRENT (2026-09-07): VR-33 - rotation and grip are BUILT and INSTALLED, unverified in the headset
+
+### What is armed right now
+
+The installed build is Release with `[Hands] PaletteRotate=1` and the grip
+transform at identity. **Launch the game; nothing else needs doing.** The full
+test list, with expected outcomes and what each failure would mean, is section 3
+of `docs/dishonored/VR-33-ROTATION-PLAN.md`.
+
+**The hands will start at a wrong ANGLE.** G is identity until it is captured,
+so they track the wrists at a fixed offset. **SHIFT+F7** solves G for both hands
+and prints six numbers for the ini; the hands snapping to the game's own
+orientation at that instant is what the calibration means.
+
+`PaletteRotate=0` returns to the headset-confirmed translation-only build.
+
+### The one question this run answers
+
+Does the candidate palm frame (`src` in `ms/palette/frame:`) move when the GAME
+animates the hand, and stay put when only the fingers move? Nothing offline can
+answer it: all 28 saved packets are one near-idle pose. If `src` never moves
+during a melee swing or a power, the dominant palette slot is not the palm's
+frame and the orientation source changes to a validated landmark fit.
+
+### What was corrected before building
+
+An external review found three blockers in the first draft of the plan, all
+fixed:
+
+1. **The motion gate was impossible.** It expected the game's palette to turn
+   when the tester rolled a physical wrist, with no mechanism connecting them.
+   Withdrawn; three orientations (`src`, `ctl`, `out`) are now logged under
+   separate names and are expected to be INDEPENDENT while rotation is off.
+2. **The orientation conversion reintroduced head-driven rotation.** A pose
+   orientation maps controller-local axes into another frame; a similarity
+   transform changes the basis of a rotation operator, which is a different
+   object. The correct form is `O_C = B * F * transpose(R_head) * R_ctl` with
+   `F = diag(1,1,-1)`, matching the physical mapping the working position path
+   already performs. The counterexample is now a shipped test that the rejected
+   formula fails by 180 degrees.
+3. **The grip capture mixed spaces.** The source frame is component-local and
+   the controller camera-relative; it is carried through the draw's own
+   LocalToWorld first.
+
+### Measured before any of it shipped
+
+* **20 of 20 frame-maths cases pass** (`src/tools/frame_test`, and the same
+  suite runs from `DllMain` into every log). They include the head-turn
+  counterexample, the grip round trip, the pivot, and the proof that rotation
+  OFF is bit-for-bit the shipped translation behaviour.
+* **All 28 saved packets decompose** through the shipped code: dominant slot 10
+  in every one, uniform scale 0.999511659 to 0.999512255, worst anisotropy
+  6.0e-07, worst orthonormality residual 9.8e-07. Three orders of magnitude
+  inside the tolerance.
+* **The single slot's frame moves 1.05 degrees** across those packets where the
+  weighted blend looked frozen to five decimals - so the slot does respond to
+  the engine's animation. It is not yet evidence that it follows the PALM.
+* **The three hand shaders' normal path is closed.** Two of them run normals and
+  tangents through the same palette rows, so a rigid correction carries the
+  tangent frame; their `WorldToLocal` is a view/light conversion and is NOT
+  touched. ENGINE_NOTES carries it.
+
+### Next steps
+
+1. The headset run above. Report the six grip numbers and whether `src` moves
+   with the game's animation.
+2. Put the solved G in the ini and re-judge orientation.
+3. Then the weapon assembly: a stable grip/root source frame, ONE root
+   correction, and every member's animated transform preserved RELATIVE to that
+   root. Independently pinning each animated part to a controller-relative
+   target cancels its own animation.
+4. Then firing. The visual weapon stage explicitly accepts that a released bolt
+   returns to the native origin; correcting it is the firing stage.
+
+Carried and deliberately not done: a render-view ticket for the eye, the
+`same eye` counter (an instrumentation limit, not 776 repeated eyes - no
+threshold tuning), head look-ahead against hand sampling time, one canonical
+metres-to-units conversion (logging only for now), and mesh geometry size.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the hands are at the controllers and correct
 
 ### Confirmed in the headset
 

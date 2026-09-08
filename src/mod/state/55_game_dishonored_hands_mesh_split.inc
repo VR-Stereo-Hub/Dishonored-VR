@@ -489,6 +489,108 @@ static UINT     g_mpValidN    = 0;      // how many of them are currently valid
 static float    g_mpWsumTol   = 0.02f;  // [Hands] PaletteWeightTol
 static float    g_mpWsumWorst = 0.0f;   // the sum that last caused a refusal
 
+// ---------------------------------------------------------------------------
+// VR-33 ROTATION AND GRIP
+// ---------------------------------------------------------------------------
+//
+// THE COHERENT POSE SNAPSHOT.
+//
+// The pose tick runs on the present thread (present_tick.cpp -> DcTick ->
+// MsTick) and the draws run on whichever thread the renderer draws on. Writing
+// a group of floats and then setting a validity flag is NOT publication: the
+// flag is already true from the previous sample, so a reader can combine new
+// rows with old ones and never know. The whole snapshot is therefore copied
+// under a lock, in one piece, and each ORIGINAL DRAW takes one copy that its
+// hands - and later its weapon - all share, so two draws of one view can never
+// disagree about where the controller was.
+//
+// The lock is uncontended in the normal case (about five original draws per
+// present), and `g_mpLaneSame` records whether the two lanes turned out to be
+// one thread after all, so the contract is measured rather than assumed.
+struct MpPoseSnap {
+    dvr::hf::Mat3 inHead[2];     // F * transpose(R_head) * R_ctl, per hand
+    float         ruf[2][3];     // F * transpose(R_head) * (p_ctl - p_head), metres
+    bool          ok[2];         // per hand: head AND that hand tracked
+    bool          headOk;
+    uint32_t      gen;           // bumped on every publication
+};
+static MpPoseSnap        g_mpPosePub;          // the published snapshot
+static CRITICAL_SECTION  g_mpPoseCs;
+static bool              g_mpPoseCsOk = false;
+static uint32_t          g_mpPoseGen  = 0;
+static DWORD             g_mpTickTid  = 0;     // the lane that publishes
+static DWORD             g_mpDrawTid  = 0;     // the lane that draws
+static int               g_mpLaneSame = -1;    // -1 unknown, 0 different, 1 same
+static LONG              g_mpPoseStale = 0;    // draws that took a snapshot older
+                                               // than the previous draw's
+
+// THE SOURCE FRAME. Orientation comes from ONE palette slot - the slot
+// carrying the greatest total weight across the anchor patch - because a
+// weighted BLEND of rotations is not a rotation (measured on the 28 saved
+// packets: det 0.970, Gram off by 2.6 percent), while a single slot is a
+// rotation times a uniform scale to six decimals.
+//
+// It is a PALETTE SLOT, not a named joint. Dominant weight does not prove it
+// follows the palm rather than a finger or the forearm, and a skinning matrix
+// can carry an inverse-bind rotation, so its axes are not anatomical axes. Any
+// constant bind orientation is absorbed into the grip transform G. What must be
+// established by measurement is only that the slot follows the PALM rigidly;
+// `ms/palette/frame:` reports what is needed to judge that.
+//
+// Frozen per class AND per source generation: a rebuild, a device reset or a
+// palette remap invalidates it, because an index still inside the palette does
+// not prove it still names the same transform.
+static int      g_mpDomSlot[MS_CLS_N] = { -1, -1, -1, -1, -1 };
+static float    g_mpDomWeight[MS_CLS_N] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static uint32_t g_mpSrcGen   = 0;       // bumped by every split rebuild/reset
+// THE FRAME-CONVENTION FINGERPRINT that a grip transform was solved against.
+// A generation number alone is too blunt: a rebuild that re-derives the SAME
+// slot and the SAME anchor has not changed what G means, and invalidating
+// there costs a headset run for nothing. A generation number is also not
+// enough on its own, because an index still inside the palette does not
+// prove it names the same transform. So record what was actually used - the
+// slot, the anchor's size and its first identity - and invalidate only when
+// one of them differs. That is a check, not a hope.
+struct MpFrameId { int slot; int anchorN; uint32_t anchor0; };
+static MpFrameId g_mpGripId[2] = { { -1, 0, 0 }, { -1, 0, 0 } };
+static bool      g_mpGripFromIni[2] = { true, true };
+
+// The last measured source frame, per hand, for the instrument.
+static dvr::hf::Mat3 g_mpSrcR[2];
+static bool     g_mpSrcOk[2]   = { false, false };
+static float    g_mpSrcScale[2] = { 0.0f, 0.0f };   // the slot's own uniform scale
+static float    g_mpSrcAniso[2] = { 0.0f, 0.0f };
+static float    g_mpSrcOrtho[2] = { 0.0f, 0.0f };
+// Angles for the instrument: how far each measured frame has moved from the
+// first one seen, so "does it track the palm?" is a number the tester can be
+// asked about rather than an impression.
+static dvr::hf::Mat3 g_mpSrcRef[2];
+static bool     g_mpSrcRefOk[2] = { false, false };
+static float    g_mpSrcMoved[2] = { 0.0f, 0.0f };   // deg from the reference
+static float    g_mpSrcMovedMax[2] = { 0.0f, 0.0f };
+static float    g_mpCtlMoved[2] = { 0.0f, 0.0f };   // the controller, same measure
+static float    g_mpCtlMovedMax[2] = { 0.0f, 0.0f };
+static dvr::hf::Mat3 g_mpCtlRef[2];
+static bool     g_mpCtlRefOk[2] = { false, false };
+static float    g_mpOutMoved[2] = { 0.0f, 0.0f };   // the APPLIED palm, when rotating
+static bool     g_mpOutOk[2] = { false, false };
+
+// THE LEVER AND THE GRIP TRANSFORM.
+static bool     g_mpRotate   = false;   // [Hands] PaletteRotate
+static float    g_mpGripDeg[2][3] = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f } };
+static dvr::hf::Mat3 g_mpGrip[2];       // built from g_mpGripDeg at config time
+static volatile LONG g_mpGripCapReq = 0;   // hotkey -> the next qualified draw
+static LONG     g_mpGripCapDone = 0;
+static LONG     g_mpRotOk = 0, g_mpRotRefused = 0;
+static const char* g_mpRotWhy = "not run yet";
+// Tolerances. Deliberately loose enough for a real palette and tight enough to
+// reject a frame that is not a rotation: the measured slot residuals are around
+// 1e-6, three orders of magnitude inside these.
+static float    g_mpFrameTolOrtho = 0.02f;   // [Hands] PaletteFrameTol
+static float    g_mpFrameTolAniso = 0.02f;
+static int      g_mpBasisImproper = 0;  // draws refused because B*F was not proper
+static int      g_mpSelfTestFailed = -1;   // -1 not run, else the failure count
+
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing
 // says the wrist is"; the knob exists because a derived number still has to

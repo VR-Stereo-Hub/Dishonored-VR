@@ -261,3 +261,37 @@ defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault
 Comfort, judder, warp, world scale, the mono screen's size and distance, fusion once a
 stereo method runs, hand placement feel, and anything about Virtual Desktop's own
 reprojection. Write the verdict in STATUS with the build id from the log's first line.
+
+## The rotation/grip frame maths (VR-33)
+
+`build\src\RelWithDebInfo\frame_test.exe` runs 20 deterministic cases over the
+SAME `hand_frame.h` the proxy compiles - not a re-derivation of it. Exit code is
+non-zero on any failure.
+
+```
+.\build\src\RelWithDebInfo\frame_test.exe
+.\build\src\RelWithDebInfo\frame_test.exe D:\dvr-data\dumps\pcap_*.txt
+```
+
+With packet arguments it also replays real captures through the shipped
+`decompose_scaled_rotation`, reporting the dominant slot, its uniform scale,
+anisotropy and orthonormality residual, and how far the frame moved across the
+set. A near-zero movement means the captures are one pose and says nothing about
+whether the frame tracks the palm.
+
+**The proxy runs the identical suite from `DllMain`** and writes each case to
+the log as `ms/frame/selftest:`, so a tester's log always carries proof that the
+arithmetic in that build is the arithmetic that was checked. If it fails, the
+rotation lever refuses and placement stays translation-only.
+
+The cases that carry the most weight:
+
+| Case | What it would catch |
+|---|---|
+| `head_turn` | An orientation conversion that rotates the hands with the head while the controller stands still. The rejected similarity transform fails it by 180 degrees |
+| `head_turn_can_fail` | That the suite can still detect that formula's return |
+| `grip_roundtrip` | A grip capture that does not snap to the native pose, i.e. mixed spaces |
+| `pivot_rotating` | A rotation about the component origin instead of the palm |
+| `rot_off_matches_legacy` | Any drift from the headset-confirmed translation-only behaviour |
+| `compose_commutes` | A correction that replaces the engine's animation instead of riding on it |
+

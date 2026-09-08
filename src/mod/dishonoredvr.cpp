@@ -39,6 +39,8 @@
 
 #include "core/gfx/d3d9ex.h"
 #include "game/dishonored/camera.h"
+#include "game/dishonored/hands/hand_frame.h"
+#include "game/dishonored/hands/hand_frame_test.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"

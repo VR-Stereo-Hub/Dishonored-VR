@@ -130,6 +130,16 @@ if(DVR_WITH_OPENXR)
     target_link_libraries(xr_hello32 PRIVATE openxr_loader d3d11 dxgi)
 endif()
 
+# --- frame_test - the VR-33 rotation/grip frame maths, on the desk -------------
+# Includes the same hand_frame.h / hand_frame_test.h the proxy includes, so a
+# pass here is a statement about the SHIPPED arithmetic rather than about a
+# re-derivation of it. No mod code, no D3D, no OpenXR. Not shipped. The proxy
+# runs the identical suite at init and writes the result to the log, so the
+# tester never has to run this.
+add_executable(frame_test tools/frame_test/main.cpp
+                          game/dishonored/hands/hand_frame.h
+                          game/dishonored/hands/hand_frame_test.h)
+
 # --- dvr_xrsim32 - the simulated OpenXR runtime --------------------------------
 # A Quest-3-shaped 32-bit OpenXR runtime so an agent can drive head, hands and
 # controllers and capture per-eye compositor output with no headset. Selected

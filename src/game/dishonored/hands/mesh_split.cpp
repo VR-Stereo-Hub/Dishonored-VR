@@ -1393,6 +1393,16 @@ static void MsClassify(void)
 static bool MsUpload(IDirect3DDevice9* dev)
 {
     if (!dev) return false;
+    // A REBUILD IS A NEW SOURCE GENERATION. The anchor identities and the
+    // frozen orientation slot are about to be re-derived, so anything solved
+    // against the old ones - the grip transform above all - stops being valid.
+    // An index that is still inside the palette does not prove it names the
+    // same transform, and a stale G applied against a changed source-frame
+    // convention would look like a grip that is simply wrong.
+    g_mpSrcGen++;
+    g_mpSrcOk[0] = g_mpSrcOk[1] = false;
+    g_mpSrcRefOk[0] = g_mpSrcRefOk[1] = false;
+    g_mpCtlRefOk[0] = g_mpCtlRefOk[1] = false;
     if (g_msIbDev != dev) {
         if (g_msIb) { g_msIb->Release(); g_msIb = NULL; }
         if (g_msVb) { g_msVb->Release(); g_msVb = NULL; }
@@ -1579,6 +1589,49 @@ static bool MsUpload(IDirect3DDevice9* dev)
                 "patch and their animation would drag the anchor.",
                 cls == MS_CLS_HAND_A ? "A (left)" : "B (right)",
                 g_mpAnchorN[cls], rad, cen[0], cen[1], cen[2], n);
+
+            // THE DOMINANT PALETTE SLOT for this class's orientation source.
+            // Frozen here, with the anchor, against this source generation -
+            // a rebuild or a reset invalidates both, because an index still
+            // inside the palette does not prove it names the same transform.
+            //
+            // This is a SLOT, not a joint. It is chosen by weight, and weight
+            // does not establish anatomy: whether it follows the palm rigidly
+            // is what the frame instrument has to measure.
+            {
+                float w[256]; memset(w, 0, sizeof(w));
+                float tot = 0.0f;
+                for (int k = 0; k < g_mpAnchorN[cls]; k++) {
+                    const MsVert* v = &g_msVert[g_mpAnchorIdx[cls][k]];
+                    for (int i = 0; i < 4; i++) {
+                        const int b = (int)v->bi[i];
+                        if (v->bw[i] > 0.0f && b >= 0 && b < 256)
+                            { w[b] += v->bw[i]; tot += v->bw[i]; }
+                    }
+                }
+                int best = -1; float bestW = 0.0f, secondW = 0.0f;
+                for (int b = 0; b < 256; b++) {
+                    if (w[b] > bestW) { secondW = bestW; bestW = w[b]; best = b; }
+                    else if (w[b] > secondW) secondW = w[b];
+                }
+                g_mpDomSlot[cls]   = best;
+                g_mpDomWeight[cls] = (tot > 0.0f) ? bestW / tot : 0.0f;
+                Log("ms/palette/frame: class %s - orientation will be read from "
+                    "palette SLOT %d, which carries %.0f%% of the anchor's weight "
+                    "(runner-up %.0f%%), frozen against source generation %u. This "
+                    "is a render slot, NOT a named joint: dominant weight does not "
+                    "prove it follows the palm rather than a finger or the "
+                    "forearm, and a skinning matrix can carry an inverse-bind "
+                    "rotation. The ms/palette/frame beat measures whether it "
+                    "actually tracks the palm; any fixed bind orientation is "
+                    "absorbed into the grip transform G.",
+                    cls == MS_CLS_HAND_A ? "A (left)" : "B (right)",
+                    best, (double)(g_mpDomWeight[cls] * 100.0f),
+                    (double)((tot > 0.0f ? secondW / tot : 0.0f) * 100.0f),
+                    g_mpSrcGen);
+                const int h = (cls == MS_CLS_HAND_B) ? 1 : 0;
+                g_mpSrcRefOk[h] = false; g_mpCtlRefOk[h] = false;
+            }
         }
     }
     g_msIb->Unlock();
@@ -1737,9 +1790,63 @@ static void MpOnReset(void)
     g_mpCacheN = 0;
     g_mpPalN   = 0;
     g_mpResidOk[0]  = g_mpResidOk[1]  = false;
+    // The SOURCE GENERATION moves too. The dominant slot, the anchor and any
+    // grip transform solved against them describe a palette layout that no
+    // longer exists; a slot index still inside the new palette would name a
+    // different transform, and a stale G would then be applied against a
+    // different source-frame convention without anything looking wrong.
+    g_mpSrcGen++;
+    g_mpSrcOk[0] = g_mpSrcOk[1] = false;
+    g_mpSrcRefOk[0] = g_mpSrcRefOk[1] = false;
+    g_mpCtlRefOk[0] = g_mpCtlRefOk[1] = false;
     Log("ms/palette: device reset - the palette cache, the calibrated origins "
-        "and the residuals are all dropped. Constants do not survive a reset "
-        "and a register we still believed in would describe a dead device.");
+        "and the residuals are all dropped, and the source generation is now "
+        "%u so the frozen orientation slot and any grip transform solved "
+        "against it are invalid. Constants do not survive a reset and a "
+        "register we still believed in would describe a dead device.",
+        g_mpSrcGen);
+}
+
+
+// One-time init, from DllMain: the pose lock, the grip matrices, and the frame
+// maths self-test. The self-test runs in EVERY build, on the tester's machine,
+// and writes its result to the log - so the log carries proof that the
+// arithmetic in THAT build is the arithmetic that was checked, and the tester
+// never has to run anything.
+static void MpFrameSelfTestReport(void* ctx, const char* name, bool pass,
+                                  const char* detail)
+{
+    (void)ctx;
+    if (pass)
+        DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
+                "ms/frame/selftest: %-28s PASS  %s", name, detail);
+    else
+        DVR_LOG(DVR_CAT, ::dvr::log::Level::Error,
+                "ms/frame/selftest: %-28s FAIL  %s", name, detail);
+}
+
+static void MpFrameInit(void)
+{
+    if (!g_mpPoseCsOk) { InitializeCriticalSection(&g_mpPoseCs); g_mpPoseCsOk = true; }
+    memset(&g_mpPosePub, 0, sizeof(g_mpPosePub));
+    for (int h = 0; h < 2; h++) {
+        g_mpGrip[h] = dvr::hf::identity3();
+        g_mpSrcR[h] = dvr::hf::identity3();
+        g_mpSrcRef[h] = dvr::hf::identity3();
+        g_mpCtlRef[h] = dvr::hf::identity3();
+    }
+    g_mpSelfTestFailed = dvr::hf::test::run_all(MpFrameSelfTestReport, NULL);
+    if (g_mpSelfTestFailed == 0)
+        Log("ms/frame/selftest: all cases passed. The rotation/grip frame maths "
+            "in this build is the maths that was checked, including the "
+            "stationary-controller head-turn counterexample that the rejected "
+            "similarity transform fails by 180 degrees.");
+    else
+        DVR_LOG(DVR_CAT, ::dvr::log::Level::Error,
+                "ms/frame/selftest: %d CASE(S) FAILED. The rotation lever will "
+                "REFUSE - placement stays translation-only, which is the "
+                "headset-confirmed behaviour. Send this log.",
+                g_mpSelfTestFailed);
 }
 
 
@@ -1774,6 +1881,15 @@ struct MpDrawCtx {
     uint32_t drawId;
     bool ok;
     const char* why;
+    // VR-33 rotation: the basis and LocalToWorld rotation as matrices, and ONE
+    // pose snapshot that every consumer of this draw shares. Latching it here
+    // is what stops the two hands - and later the weapon, which draws
+    // separately - from sampling different controller poses within one view.
+    dvr::hf::Mat3 B;            // columns right | up | forward
+    dvr::hf::Mat3 R_L;          // LocalToWorld's rotation
+    bool          basisProper;  // B*F is a proper rotation
+    MpPoseSnap    pose;
+    bool          poseOk;
 };
 
 
@@ -1832,9 +1948,87 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         }
 
     c->projRight = c->t[0]*r[0] + c->t[1]*r[1] + c->t[2]*r[2];
+
+    // The same two matrices, in the form the rotation maths wants. B's columns
+    // are the camera's right, up and forward; R_L is LocalToWorld's rotation,
+    // already validated orthonormal above.
+    c->B   = dvr::hf::basis_from_cols(c->r, c->u, c->f);
+    c->R_L = dvr::hf::basis_from_cols(c->col[0], c->col[1], c->col[2]);
+
+    // HANDEDNESS, CHECKED. The pose conversion composes B with F = diag(1,1,-1)
+    // to turn XR's right/up/BACK into right/up/FORWARD. On this game's verified
+    // path B is left-handed, so B*F is a proper rotation - but that is a
+    // measurement, not a licence, and forcing an improper matrix through an
+    // orientation is how a hand ends up correct about one axis and mirrored
+    // about another. A draw where it does not hold refuses to ROTATE; it still
+    // places, because placement never needed it.
+    c->basisProper = dvr::hf::basis_is_proper(c->B, 0.02f);
+    if (!c->basisProper) g_mpBasisImproper++;
+
+    // ONE POSE SNAPSHOT for this draw, copied whole under the lock. See
+    // MpPoseSnap for why a validity flag beside loose floats is not
+    // publication. The lane the draw runs on is recorded here too, so the
+    // thread contract is measured instead of assumed.
+    {
+        const DWORD tid = GetCurrentThreadId();
+        if (g_mpDrawTid == 0) g_mpDrawTid = tid;
+        if (g_mpLaneSame < 0 && g_mpTickTid != 0)
+            g_mpLaneSame = (g_mpTickTid == tid) ? 1 : 0;
+    }
+    c->poseOk = false;
+    if (g_mpPoseCsOk) {
+        EnterCriticalSection(&g_mpPoseCs);
+        c->pose = g_mpPosePub;
+        LeaveCriticalSection(&g_mpPoseCs);
+        c->poseOk = (c->pose.gen != 0);
+    }
+    {   // a snapshot older than the previous draw's means publication and
+        // consumption have crossed; it is not fatal, but it must be visible
+        static uint32_t lastGen = 0;
+        if (c->poseOk && c->pose.gen < lastGen) InterlockedIncrement(&g_mpPoseStale);
+        if (c->poseOk) lastGen = c->pose.gen;
+    }
+
     c->drawId = ++g_mpDrawSeq;
     c->ok = true;
     c->why = NULL;
+    return true;
+}
+
+
+// THE SOURCE PALM FRAME, from the frozen dominant palette slot.
+//
+// Returns the slot's normalised rotation and the uniform scale it was carrying.
+// The scale is DERIVED from this matrix on every call, never a constant: the
+// 0.999512 measured on the saved packets is what those captures held, not a
+// property of every future pose, mesh and pass.
+//
+// Only the FRAME is normalised. The rendered palette keeps its own scale,
+// because D is composed onto the original matrices.
+static bool MpSourceFrame(int cls, const float* pal, UINT count,
+                          dvr::hf::ScaledRot* out, const char** why)
+{
+    const char* dummy = NULL; if (!why) why = &dummy;
+    if (cls < 0 || cls >= MS_CLS_N)          { *why = "bad class"; return false; }
+    const int slot = g_mpDomSlot[cls];
+    if (slot < 0)                            { *why = "no dominant slot frozen for this class"; return false; }
+    const int bones = (int)(count / 3);
+    if (slot >= bones) {
+        *why = "the frozen orientation slot is outside the uploaded palette - "
+               "the layout changed under a frozen index";
+        return false;
+    }
+    const float* r0 = pal + (slot * 3 + 0) * 4;
+    const float* r1 = pal + (slot * 3 + 1) * 4;
+    const float* r2 = pal + (slot * 3 + 2) * 4;
+    dvr::hf::Mat3 m;
+    for (int c = 0; c < 3; c++) { m.m[0*3+c] = r0[c]; m.m[1*3+c] = r1[c]; m.m[2*3+c] = r2[c]; }
+    if (!dvr::hf::decompose_scaled_rotation(m, g_mpFrameTolAniso,
+                                            g_mpFrameTolOrtho, out)) {
+        *why = "the orientation slot is not a uniformly scaled rotation "
+               "(anisotropic, sheared, mirrored or degenerate)";
+        return false;
+    }
     return true;
 }
 
@@ -1933,13 +2127,14 @@ static void MpDrawCompare(const MpDrawCtx* c)
 // Place one hand through an already-acquired draw context. Reads no device
 // state of its own, so both hands of a draw are guaranteed to use identical
 // constants rather than merely expected to.
-static bool MpWorldTarget(const MpDrawCtx* c, int hand, const float* qLocal,
-                          float* outT, const char** why)
+static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
+                          const float* qLocal, dvr::hf::Xform* outD,
+                          const char** why)
 {
     const char* dummy = NULL; if (!why) why = &dummy;
     if (!c || !c->ok)                { *why = c ? c->why : "no context"; return false; }
     if (hand < 0 || hand > 1)        { *why = "bad hand"; return false; }
-    if (!g_mpCtlRUFOk[hand]) {
+    if (!c->poseOk || !c->pose.ok[hand]) {
         *why = (g_mpTickRan == 0)
              ? "the pose tick has NEVER RUN - the palette backend is off, or "
                "this build gated the tick on a flag that is not set"
@@ -1949,7 +2144,8 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, const float* qLocal,
     }
 
     const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
-    const float a = g_mpCtlRUF[hand][0], b = g_mpCtlRUF[hand][1], cc = g_mpCtlRUF[hand][2];
+    const float a = c->pose.ruf[hand][0], b = c->pose.ruf[hand][1],
+                cc = c->pose.ruf[hand][2];
     float dcam[3];
     for (int i = 0; i < 3; i++)
         dcam[i] = k * (a * c->r[i] + b * c->u[i] + cc * c->f[i]);
@@ -1979,16 +2175,136 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, const float* qLocal,
         g_mpEyeUnclassified++;
     }
 
-    float d[3];
-    for (int i = 0; i < 3; i++) d[i] = dcam[i] - c->t[i];
-    float targetLocal[3];
-    for (int j = 0; j < 3; j++)
-        targetLocal[j] = c->col[j][0]*d[0] + c->col[j][1]*d[1] + c->col[j][2]*d[2];
+    // ---- the rotational half ------------------------------------------------
+    //
+    // Everything above is the headset-confirmed translation path and is
+    // unchanged. Rotation is a SEPARATE decision on top of it: if any part of
+    // it refuses, the delta falls back to translation only rather than sending
+    // a correctly tracked hand back to where the engine put it. A hand that
+    // tracks but is not oriented is worth much more than a hand that does not
+    // track.
+    bool rotate = false;
+    dvr::hf::Mat3 O_C = dvr::hf::identity3();
+    dvr::hf::Mat3 R_src = dvr::hf::identity3();
 
-    for (int i = 0; i < 3; i++) {
-        outT[i] = targetLocal[i] - qLocal[i];
-        if (!MpFinite(outT[i])) { *why = "non-finite target"; return false; }
+    if (g_mpRotate) {
+        const char* rwhy = "not attempted";
+        dvr::hf::ScaledRot sr;
+        if (g_mpSelfTestFailed != 0) {
+            rwhy = "the frame maths self-test did not pass in this build";
+        } else if (!c->basisProper) {
+            rwhy = "B*F is not a proper rotation on this draw, so an orientation "
+                   "built through it would be mirrored on one axis";
+        } else if (!MpSourceFrame(cls, g_mpCache, g_mpCacheN, &sr, &rwhy)) {
+            /* rwhy set */
+        } else {
+            R_src = sr.r;
+            g_mpSrcR[hand] = sr.r; g_mpSrcOk[hand] = true;
+            g_mpSrcScale[hand] = sr.scale;
+            g_mpSrcAniso[hand] = sr.aniso;
+            g_mpSrcOrtho[hand] = sr.ortho;
+            O_C = dvr::hf::head_orient_to_camera(c->B, c->pose.inHead[hand]);
+
+            // THE GRIP CAPTURE. Consumed ONCE, from a qualified original draw,
+            // against ONE coherent pose snapshot, per side, and always from the
+            // ORIGINAL palette rather than one already corrected.
+            //
+            // Both operands must live in the same space: the source frame is
+            // measured in the component's LOCAL space, so it is carried to
+            // camera-relative world by THIS draw's LocalToWorld before being
+            // compared with the controller. Comparing them directly would bake
+            // the component's own orientation into G.
+            //
+            // The press snaps the hand back to the game's own animated
+            // orientation at that instant. That is what calibration means here,
+            // and the tester is told to expect it.
+            MpFrameId nowId;
+            nowId.slot    = g_mpDomSlot[cls];
+            nowId.anchorN = g_mpAnchorN[cls];
+            nowId.anchor0 = (g_mpAnchorN[cls] > 0) ? g_mpAnchorIdx[cls][0] : 0u;
+
+            const LONG capPrev = InterlockedAnd(&g_mpGripCapReq,
+                                                ~(LONG)(1 << hand));
+            if (capPrev & (1 << hand)) {
+                g_mpGrip[hand] = dvr::hf::grip_solve(O_C, c->R_L, R_src);
+                g_mpGripId[hand] = nowId;
+                g_mpGripFromIni[hand] = false;
+                float ex, ey, ez;
+                dvr::hf::mat_to_euler_xyz_deg(g_mpGrip[hand], &ex, &ey, &ez);
+                g_mpGripDeg[hand][0] = ex; g_mpGripDeg[hand][1] = ey;
+                g_mpGripDeg[hand][2] = ez;
+                InterlockedIncrement(&g_mpGripCapDone);
+                Log("ms/palette/grip: SOLVED for the %s hand against source "
+                    "generation %u - G = %+.1f %+.1f %+.1f degrees (extrinsic "
+                    "X,Y,Z; R = Rz*Ry*Rx). Put these in [Hands] Grip%s so the "
+                    "capture never has to be repeated. The hand has just snapped "
+                    "to the game's own animated orientation at the moment of the "
+                    "press: that IS the calibration, and it is the expected "
+                    "outcome, not a fault.",
+                    hand ? "RIGHT" : "LEFT", g_mpSrcGen,
+                    (double)ex, (double)ey, (double)ez, hand ? "R" : "L");
+            }
+
+            // A grip solved in this session is only valid while the frame
+            // convention it was solved against still holds. A grip read from
+            // the ini is not checked here: it was written down deliberately
+            // against a recorded convention, and refusing it on a fingerprint
+            // it predates would make the ini route unusable.
+            if (!g_mpGripFromIni[hand] &&
+                (g_mpGripId[hand].slot    != nowId.slot ||
+                 g_mpGripId[hand].anchorN != nowId.anchorN ||
+                 g_mpGripId[hand].anchor0 != nowId.anchor0)) {
+                rwhy = "the grip transform was solved against a different source "
+                       "frame - the orientation slot or the anchor has been "
+                       "re-derived since, so it no longer describes this frame. "
+                       "Press SHIFT+F7 to solve it again";
+            } else {
+                rotate = true;
+            }
+        }
+        if (!rotate) { g_mpRotWhy = rwhy; InterlockedIncrement(&g_mpRotRefused); }
+        else         InterlockedIncrement(&g_mpRotOk);
     }
+
+    const dvr::hf::Xform D = dvr::hf::delta_local(c->R_L, c->t, O_C, g_mpGrip[hand],
+                                                  dcam, R_src, qLocal, rotate);
+    for (int i = 0; i < 3; i++)
+        if (!MpFinite(D.t[i])) { *why = "non-finite target"; return false; }
+    for (int i = 0; i < 9; i++)
+        if (!MpFinite(D.r.m[i])) { *why = "non-finite rotation"; return false; }
+    *outD = D;
+
+    // The instrument's three SEPARATELY NAMED quantities. They are different
+    // measurements and conflating them is what made the previous plan's motion
+    // gate impossible: with rotation off, the controller moving while the
+    // source frame does not is CORRECT, because nothing connects them yet.
+    {
+        if (!g_mpSrcRefOk[hand] && g_mpSrcOk[hand])
+            { g_mpSrcRef[hand] = g_mpSrcR[hand]; g_mpSrcRefOk[hand] = true; }
+        if (!g_mpCtlRefOk[hand])
+            { g_mpCtlRef[hand] = c->pose.inHead[hand]; g_mpCtlRefOk[hand] = true; }
+        if (g_mpSrcRefOk[hand] && g_mpSrcOk[hand]) {
+            g_mpSrcMoved[hand] = dvr::hf::rotation_diff_deg(g_mpSrcRef[hand],
+                                                            g_mpSrcR[hand]);
+            if (g_mpSrcMoved[hand] > g_mpSrcMovedMax[hand])
+                g_mpSrcMovedMax[hand] = g_mpSrcMoved[hand];
+        }
+        if (g_mpCtlRefOk[hand]) {
+            g_mpCtlMoved[hand] = dvr::hf::rotation_diff_deg(g_mpCtlRef[hand],
+                                                            c->pose.inHead[hand]);
+            if (g_mpCtlMoved[hand] > g_mpCtlMovedMax[hand])
+                g_mpCtlMovedMax[hand] = g_mpCtlMoved[hand];
+        }
+        // The APPLIED orientation, which exists only when rotating.
+        g_mpOutOk[hand] = rotate;
+        if (rotate) g_mpOutMoved[hand] = dvr::hf::rotation_angle_deg(D.r);
+    }
+
+    float targetLocal[3];
+    { float d[3];
+      for (int i = 0; i < 3; i++) d[i] = dcam[i] - c->t[i];
+      for (int j = 0; j < 3; j++)
+          targetLocal[j] = c->col[j][0]*d[0] + c->col[j][1]*d[1] + c->col[j][2]*d[2]; }
     memcpy(g_mpLastTargetLocal[hand], targetLocal, sizeof(targetLocal));
     memcpy(g_mpLastPCam[hand], dcam, sizeof(dcam));
     return true;
@@ -2060,18 +2376,31 @@ static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
 }
 
 
-// D * M for every skinning matrix in the block, where D is a pure translation
-// by T in whatever space the palette is already expressed in. Each matrix is
-// 3 float4 rows, row-major 3x4, with the translation in .w - so a translation
-// composed on the LEFT is exactly "add T to the .w column", and the rotation
-// rows are untouched. Every bone gets the SAME D, which is what keeps the
-// animation: the weighted blend commutes with a common rigid transform.
-static void MpBuild(float* out, const float* src, UINT count, const float* T)
+// D * M for every skinning matrix in the block, where D is a rigid transform
+// in whatever space the palette is already expressed in. Each matrix is 3
+// float4 rows, row-major 3x4, with the translation in .w.
+//
+// Every bone gets the SAME D, which is what keeps the animation: the weighted
+// blend commutes with a common rigid transform, so the engine goes on
+// animating M_i and D only moves the result. `compose_commutes` in the
+// self-test pins that property.
+//
+// D's rotation is applied to the whole 3x3, so NORMALS AND TANGENTS COME WITH
+// IT. Two of the three shaders that draw this mesh (F2E11B73, 11DD5E8A) run
+// normals and tangents through these same blended rows and build the bitangent
+// from their cross product, so a proper rigid D carries the tangent frame
+// correctly and the uniform palette scale is harmless. Their WorldToLocal
+// constant converts view and light vectors INTO component space and is not a
+// second skinning matrix - it must NOT be touched.
+//
+// D's scale is 1 by construction (the frame it came from was normalised), so
+// the palette's own uniform scale survives in M and is not quietly removed.
+static void MpBuild(float* out, const float* src, UINT count,
+                    const dvr::hf::Xform* D)
 {
     memcpy(out, src, sizeof(float) * 4 * count);
     for (UINT b = 0; b + 3 <= count; b += 3)
-        for (int i = 0; i < 3; i++)
-            out[(b + i) * 4 + 3] = src[(b + i) * 4 + 3] + T[i];
+        dvr::hf::compose_3x4(*D, src + b * 4, out + b * 4);
 }
 
 
@@ -2314,7 +2643,9 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 // armed and feeds BOTH classes; otherwise the axis probe does,
                 // and that only touches the selected class so the other stays
                 // as the reference.
-                float T[3] = { 0.0f, 0.0f, 0.0f };
+                dvr::hf::Xform T;
+                T.r = dvr::hf::identity3();
+                T.t[0] = T.t[1] = T.t[2] = 0.0f;
                 bool  useT = false;
                 if (g_mpWorld) {
                     // BUILD A2: placement through the measured chain. No
@@ -2326,7 +2657,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                     float q[3];
                     const char* why = "anchor refused";
                     if (MpAnchorPos(rng[r].cls, g_mpCache, g_mpCacheN, q) &&
-                        MpWorldTarget(&ctx, hIdx, q, T, &why)) {
+                        MpWorldTarget(&ctx, hIdx, rng[r].cls, q, &T, &why)) {
                         useT = true;
                         InterlockedIncrement(&g_mpWorldOk);
                     } else {
@@ -2342,7 +2673,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 }
                 if (useT) {
                     static float buf[4 * 256];
-                    MpBuild(buf, g_mpCache, g_mpCacheN, T);
+                    MpBuild(buf, g_mpCache, g_mpCacheN, &T);
                     dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
                 } else {
                     dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
@@ -2432,7 +2763,16 @@ static void MpDriveTick(void)
 {
     if (!g_mpOn) return;
     InterlockedIncrement(&g_mpTickRan);
+    if (g_mpTickTid == 0) g_mpTickTid = GetCurrentThreadId();
+
+    // ONE SNAPSHOT, built locally and published whole. Nothing below writes
+    // anything a draw can see until the copy at the end, so a reader can never
+    // combine this sample's orientation with the previous sample's position.
+    MpPoseSnap snap;
+    memset(&snap, 0, sizeof(snap));
+    snap.headOk = g_devPoseOk[0];
     for (int h = 0; h < 2; h++) {
+        snap.inHead[h] = dvr::hf::identity3();
         if (!g_devPoseOk[0] || !g_devPoseOk[3 + h]) {
             if (g_mpCtlRUFOk[h]) {
                 g_mpCtlRUFOk[h] = false;
@@ -2452,10 +2792,49 @@ static void MpDriveTick(void)
         const float rx = g_devPose[0][0][0], ry = g_devPose[0][1][0], rz = g_devPose[0][2][0];
         const float ux = g_devPose[0][0][1], uy = g_devPose[0][1][1], uz = g_devPose[0][2][1];
         const float fx = -g_devPose[0][0][2], fy = -g_devPose[0][1][2], fz = -g_devPose[0][2][2];
-        g_mpCtlRUF[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
-        g_mpCtlRUF[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
-        g_mpCtlRUF[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
+        snap.ruf[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
+        snap.ruf[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
+        snap.ruf[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
+
+        // THE ORIENTATION, through the SAME physical mapping as the position
+        // above. g_devPose holds XR device-to-tracking matrices whose columns
+        // are right, up and BACK; the position path negates the head's third
+        // column to get forward, and F = diag(1,1,-1) is that same conversion
+        // written as a matrix. What is published is
+        //
+        //     F * transpose(R_head) * R_controller
+        //
+        // which the draw completes by multiplying with its own camera basis B.
+        // It is a POSE conversion, mapping controller-local axes into another
+        // frame - NOT a similarity transform of a head-relative rotation. The
+        // similarity form rotates the hands with the head while the controller
+        // stands still, and `head_turn` in the self-test is that counterexample.
+        {
+            float hc[3][3], cc[3][3];
+            for (int rr = 0; rr < 3; rr++)
+                for (int c2 = 0; c2 < 3; c2++) {
+                    hc[rr][c2] = g_devPose[0][rr][c2];
+                    cc[rr][c2] = g_devPose[3 + h][rr][c2];
+                }
+            dvr::hf::Mat3 R_H, R_C;
+            for (int rr = 0; rr < 3; rr++)
+                for (int c2 = 0; c2 < 3; c2++) {
+                    R_H.m[rr*3+c2] = hc[rr][c2];
+                    R_C.m[rr*3+c2] = cc[rr][c2];
+                }
+            snap.inHead[h] = dvr::hf::controller_orient_in_head(R_H, R_C);
+        }
+        snap.ok[h] = true;
+        memcpy(g_mpCtlRUF[h], snap.ruf[h], sizeof(snap.ruf[h]));
         g_mpCtlRUFOk[h] = true;
+    }
+
+    // PUBLISH. One lock, one whole structure, one generation. See MpPoseSnap.
+    if (g_mpPoseCsOk) {
+        snap.gen = ++g_mpPoseGen;
+        EnterCriticalSection(&g_mpPoseCs);
+        g_mpPosePub = snap;
+        LeaveCriticalSection(&g_mpPoseCs);
     }
 
     if (!g_mpWorld) return;
@@ -2484,6 +2863,59 @@ static void MpDriveTick(void)
         g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
         g_mpEyeToggles, g_mpEyeSame, g_mpEyeAmbiguous,
         (double)(g_ipdM * g_skcWorldScale));
+
+    // THE FRAME BEAT. Three SEPARATELY NAMED orientations, because they are
+    // three different measurements and conflating them produced a test that
+    // could not be passed: with rotation OFF nothing connects the controller to
+    // the game's palette, so the controller moving while the source frame does
+    // not is the CORRECT reading, not a failure.
+    //
+    //   src  the candidate palm frame, read from the original palette. Moves
+    //        only when the GAME animates the hand.
+    //   ctl  the controller, from the tracked pose. Moves when you move.
+    //   out  the correction actually applied, and it exists only when rotating.
+    //
+    // Each is reported as an angle from the first sample seen, which is the
+    // only honest single number for an orientation difference: three Euler
+    // numbers wrap and reorder and can read as an axis failure when nothing is
+    // wrong.
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/frame: L src %s %+.1f deg (max %.1f) scale %.6f aniso %.5f "
+        "ortho %.5f | L ctl %+.1f deg (max %.1f) | L out %s %.1f deg || "
+        "R src %s %+.1f (max %.1f) | R ctl %+.1f (max %.1f) | R out %s %.1f | "
+        "rotate=%d placed %ld refused %ld (%s) | slots L%d R%d gen %u | "
+        "selftest %s. src and ctl are INDEPENDENT while rotate=0 - that is "
+        "correct, nothing joins them yet; src should move only when the game "
+        "animates the hand.",
+        g_mpSrcOk[0] ? "ok" : "REFUSED", (double)g_mpSrcMoved[0],
+        (double)g_mpSrcMovedMax[0], (double)g_mpSrcScale[0],
+        (double)g_mpSrcAniso[0], (double)g_mpSrcOrtho[0],
+        (double)g_mpCtlMoved[0], (double)g_mpCtlMovedMax[0],
+        g_mpOutOk[0] ? "on" : "off", (double)g_mpOutMoved[0],
+        g_mpSrcOk[1] ? "ok" : "REFUSED", (double)g_mpSrcMoved[1],
+        (double)g_mpSrcMovedMax[1], (double)g_mpCtlMoved[1],
+        (double)g_mpCtlMovedMax[1],
+        g_mpOutOk[1] ? "on" : "off", (double)g_mpOutMoved[1],
+        g_mpRotate ? 1 : 0, g_mpRotOk, g_mpRotRefused, g_mpRotWhy,
+        g_mpDomSlot[MS_CLS_HAND_A], g_mpDomSlot[MS_CLS_HAND_B], g_mpSrcGen,
+        g_mpSelfTestFailed == 0 ? "PASSED" :
+            (g_mpSelfTestFailed < 0 ? "NOT RUN" : "FAILED"));
+
+    // The lane contract, and the coherence of the snapshot that crosses it.
+    // Measured rather than assumed, and printed rarely because it does not
+    // change: two lanes that turn out to be one thread is a fact worth having
+    // in the log, and one that is not is a fact worth having BEFORE a race is
+    // blamed on the maths.
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 30000,
+        "ms/palette/lane: pose published on thread %lu, draws consume on thread "
+        "%lu - %s. Snapshot generation %u, %ld draw(s) saw a snapshot older "
+        "than the previous draw's. The whole snapshot crosses under one lock, "
+        "so a draw can never mix this sample's orientation with the last "
+        "sample's position; the counter is what would make that visible.",
+        (unsigned long)g_mpTickTid, (unsigned long)g_mpDrawTid,
+        g_mpLaneSame < 0 ? "not yet compared" :
+            (g_mpLaneSame ? "the SAME lane" : "DIFFERENT lanes"),
+        g_mpPoseGen, g_mpPoseStale);
 }
 
 
