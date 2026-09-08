@@ -212,6 +212,66 @@ If the ring comes out slanted rather than square across the forearm, the
 `forearm axis refined N degree(s)` line says how far the second pass moved and
 is where to look. `ms edge 1` is the alternative if the one-triangle sawtooth
 is visible up close.
+## CURRENT (2026-09-06): VR-53 / VR-51 - the desktop had no eye policy, and a hold banked empty layers
+
+This branch is the frame path and nothing else. The arm/hand split worked on in
+the same sessions was split out onto its own branch and is VR-31.
+
+**The full reference is `docs/dishonored/DESKTOP_MIRROR.md`**; the hypothesis
+graveyard that led to it is `docs/dishonored/BRIEF-eye-flicker.md`, now marked
+answered. This section is the handoff summary only.
+
+### What was actually wrong
+
+`hkPresent` calls the game's original `Present` for EVERY eye draw, and
+`mirror_present()` in the runtime layer had never implemented the D3D9 copy -
+its own comment said so. So the game WINDOW showed L(k), R(k), L(k+1), R(k+1)
+while the headset received correct pairs the whole time. A recording of the
+window alternates between two camera positions one IPD apart, which is exactly
+what alternate-eye rendering looks like, and the diagnosis had been aimed at
+the headset path for several sessions on the strength of it.
+
+The headset was never doing AER. The desktop had no eye policy at all.
+
+`core/gfx/desktop_eye.cpp` pins it: snapshot on the left eye's present, re-blit
+over the right eye's present AFTER that eye's XR capture. The runtime layer
+owns the WHEN and the new module owns the HOW, so `openxr_runtime.cpp` gains a
+hook pointer and nothing else.
+
+### The pause-menu session loss - which is VR-51
+
+On a hold-only present the submitted copies are `holdProj` / `holdViews` /
+`holdQuad`, not the empty `proj` / `projViews` / `quad` locals - but the hold
+sets `layerCount = 1` and the snapshot bank keyed off `layerCount`, so it
+overwrote a good snapshot with zeroed structures and left it marked valid. The
+next hold submitted null handles and a zero view count, `xrEndFrame` answered
+`XR_ERROR_HANDLE_INVALID`, and the session stood down. Banked on
+`builtNewLayer` now.
+
+Still open and tracked separately: a saved layer holds swapchain HANDLES, not
+pixels, and OpenXR composites the most recently RELEASED image, so preserving a
+completed PAIR needs retained images rather than a retained structure.
+
+### Retracted, not tuned
+
+The "30 % of ticks double" reading and the stand-down guard built on it are
+REMOVED. That window straddled a pause menu, an `xrEndFrame` failure and
+session teardown; the windows either side read 78/78, 86/86, 87/87, 81/81. The
+guard would have disarmed a healthy renderer every time a session dropped. The
+`camera/eyetrace` line is corrected too - its ring samples constant uploads,
+not presents.
+
+### The run this needs
+
+Look at the game window: one view, no alternation, while the headset keeps
+correct stereo depth. `desktopeye:` in the log every 15 s should show snapshot
+and re-blit counts EQUAL and non-zero. Then open and close the pause menu
+several times: no `XR_ERROR_HANDLE_INVALID`, no session teardown.
+
+### Not addressed here
+
+Performance: ~78 complete pairs/s against a 90 Hz headset, ~9.7 ms of D3D9 GPU
+span per tick, 15.7 Mpixel per pair at 2750x2850. That is the next subject.
 
 ## PREVIOUS (2026-09-06, session 20): VR-31 - the cut is DERIVED from bone influence, per arm
 

@@ -93,6 +93,10 @@ inline bool apply_eye_offset(uint8_t* camObj) { return apply_offsets(camObj); }
 // latch, never a global flip.
 void set_second_pass(bool on);
 bool second_pass_for_current_thread();
+// The eye trace: what the RENDER used, per present, so "is the picture
+// alternating between two camera positions" stops being argued from counters
+// that cannot see it. Ticks from eyetest_present_tick.
+void eye_trace_tick();
 // The camera POSITION the writer produced last (world uu, position form,
 // whatever the field's sign), so a present can prove which write it carries
 // against its c5. False before the first write.
