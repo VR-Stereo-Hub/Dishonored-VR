@@ -930,9 +930,24 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         // Full reporting table does not prevent a new weapon from attaching.
         const bool full = g_waMeshN == WA_MAX_MESH;
         int slot = full ? 0 : g_waMeshN++;
-        if (full)
+        if (full) {
             for (int i = 1; i < g_waMeshN; ++i)
                 if (g_waMesh[i].lastVerifyMs < g_waMesh[slot].lastVerifyMs) slot = i;
+            // AN EVICTION IS A FAULT, NOT HOUSEKEEPING. The evicted contract
+            // stops being recognised, its passes go uncorrected until it is
+            // identified again, and its copy comes back. Say so with the age of
+            // what was thrown out: a victim that drew recently means the table
+            // is too small and is thrashing, which is a different problem from
+            // one that has not drawn for a minute.
+            const double ageMs = MaimNowMs() - g_waMesh[slot].lastVerifyMs;
+            Log("wa: EVICTING '%s' (hand %d, placed %ld, last drawn %.0f ms ago) "
+                "to make room - the contract table is full at %d. An eviction of "
+                "a contract that drew recently is THRASHING: that mesh stops "
+                "being corrected until it is identified again, and its copy "
+                "reappears in the meantime.",
+                g_waMesh[slot].asset, g_waMesh[slot].hand,
+                g_waMesh[slot].placed, ageMs, WA_MAX_MESH);
+        }
         w = &g_waMesh[slot]; memset(w, 0, sizeof(*w));
         w->vb = vb; w->ib = ib; w->decl = decl; w->vs = vs;
         w->stride = stride; w->streamOffset = offset; w->type = type;
@@ -1006,7 +1021,7 @@ static void WaBeat(void)
         "ghost passes seen %ld fixed %ld (no bone decl %ld, no sibling delta %ld, bad range %ld) | "
         "probe ran %ld: shares our vertex buffer %ld (same index buffer %ld), not ours %ld, "
         "over budget %ld | off-rig members %ld, other-instance draws %ld | "
-        "off-rig members %ld, other-instance draws %ld, view-model accepts %ld "
+        "contract table %d of %d | off-rig members %ld, other-instance draws %ld, view-model accepts %ld "
         "refusals %ld | "
         "other passes on known buffers %ld: corrected %ld "
         "(no bone decl %ld, no sibling delta %ld) | non-indexed %ld examined %ld: "
@@ -1020,6 +1035,7 @@ static void WaBeat(void)
         g_waBudgetSkip, g_waGhostSeen, g_waGhostFixed, g_waGhostNoBone,
         g_waGhostNoDelta, g_waGhostRange, g_waProbeRan, g_waProbeVbHit,
         g_waProbeIbHit, g_waProbeMiss, g_waProbeCapped,
+        g_waMeshN, (int)WA_MAX_MESH,
         g_waOffRig, g_waOffPass, g_waNearAccepted, g_waNearRejected,
         g_waOffRig, g_waOffPass,
         g_waIdSeen, g_waIdCorrected, g_waIdNoBone, g_waIdNoDelta,

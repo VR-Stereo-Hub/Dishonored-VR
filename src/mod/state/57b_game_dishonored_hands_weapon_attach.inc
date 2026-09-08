@@ -71,7 +71,20 @@
 
 enum {
     WA_MAX_COMP  = 16,     // components tracked from the script lane
-    WA_MAX_MESH  = 12,     // matched draw contracts
+    // THE CONTRACT TABLE WAS EXACTLY THE SIZE OF THE ANSWER, WHICH IS WHY IT
+    // THRASHED. Three meshes drawn by four shaders each is twelve contracts,
+    // and every healthy run reported "contracts 12" - pegged at the cap. One
+    // more distinct draw then evicts the oldest, which is a contract still in
+    // use; it has to be identified again, is uncorrected until it is, and the
+    // copy reappears. That is the tester's report exactly: the copies went
+    // away for two or three seconds and then came back flickering, and
+    // flickering in a stance that used to be steady, because eviction does not
+    // care about stance.
+    //
+    // A cap that is also the expected answer cannot absorb a weapon swap, a
+    // second bolt type, an extra pass or a level change. Sixty-four costs a
+    // few kilobytes and leaves room for all of them.
+    WA_MAX_MESH  = 64,     // matched draw contracts
     WA_MAX_REGS  = 256     // registers we are willing to patch
 };
 
