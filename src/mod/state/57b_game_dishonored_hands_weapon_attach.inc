@@ -301,6 +301,43 @@ struct WaMiss {
     bool  ok;
 };
 static WaMiss g_waMiss[2];        // per hand, reset each reporting interval
+
+// ---- THE VIEW MODEL CENSUS --------------------------------------------------
+//
+// Every contract is c6 x225 - one seventy-five bone palette shared by the body,
+// the sword, the crossbow and the bolt. Components on one view-model rig share
+// a LocalToWorld, so a transform match cannot tell those meshes apart: the
+// identity is in the BUFFERS, and the transform only says where the rig is.
+// That is consistent with everything measured. The weapons attach because the
+// matcher picks a component whose transform is right; a mesh it assigns to the
+// wrong component, or to none, is simply left where the engine drew it, and it
+// animates because the game's own palette is still driving it.
+//
+// So stop asking which component a draw belongs to and just list what is
+// actually drawn on this rig. Every distinct skinned geometry that reaches the
+// matcher is recorded once, with its buffers, size, LocalToWorld translation,
+// nearest component and residual, and whether it was corrected. Twenty or so
+// lines, printed once each, and between them they account for every piece of
+// the view model - including whichever piece is still standing at the native
+// position.
+//
+// This is a census, not a filter. It cannot exclude the thing it is looking
+// for, which is the failure mode of the last four attempts: a primitive-count
+// pre-filter, a palette gate, a per-Present budget and a tolerance band each
+// hid the target before anything could see it.
+enum { WA_MAX_CENSUS = 48 };
+struct WaCensus {
+    void*  vb, *ib, *vs;
+    UINT   primCount, numVerts, startIndex, stride;
+    float  l2w[3];
+    float  angle, position;
+    char   nearest[64];
+    bool   corrected;
+    LONG   draws;
+};
+static WaCensus g_waCensus[WA_MAX_CENSUS];
+static int      g_waCensusN = 0;
+static bool     g_waCensusOn = true;   // [Hands] AttachCensus
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
 static LONG g_waNoLayout    = 0;   // the bound shader has no usable layout
 static LONG g_waNoSource    = 0;   // palette unreadable or not skinned

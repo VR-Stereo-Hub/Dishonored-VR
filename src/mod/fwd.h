@@ -290,6 +290,10 @@ static bool WiOwns(int sig, int comp, uint32_t* h0, uint32_t* s0,
 struct MpDrawCtx;
 static void WaCompTick(void);
 static bool WaPrimCountKnown(UINT primCount);
+static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
+                         INT baseVertex, UINT numVertices, UINT startIndex,
+                         UINT primCount, const char* nearest, float angle,
+                         float position, bool corrected);
 static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
                        UINT startVertex, UINT primCount, HRESULT* hr);
 static void WaProbeRefused(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,

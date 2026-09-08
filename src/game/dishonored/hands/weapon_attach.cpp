@@ -252,6 +252,58 @@ static void WaProbeRefused(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
 }
 
 
+// ---- the view model census --------------------------------------------------
+
+// Record one distinct skinned geometry that reached the matcher. Deduplicated
+// on the full draw contract, logged once, never used as a gate.
+static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
+                         INT baseVertex, UINT numVertices, UINT startIndex,
+                         UINT primCount, const char* nearest, float angle,
+                         float position, bool corrected)
+{
+    if (!g_waCensusOn || !dev) return;
+    IDirect3DVertexBuffer9* vbo = NULL; UINT off = 0, stride = 0;
+    if (FAILED(dev->GetStreamSource(0, &vbo, &off, &stride)) || !vbo) return;
+    void* vb = vbo; vbo->Release();
+    IDirect3DIndexBuffer9* ibo = NULL; void* ib = NULL;
+    if (SUCCEEDED(dev->GetIndices(&ibo)) && ibo) { ib = ibo; ibo->Release(); }
+    IDirect3DVertexShader9* vso = NULL; void* vs = NULL;
+    if (SUCCEEDED(dev->GetVertexShader(&vso)) && vso) { vs = vso; vso->Release(); }
+
+    for (int i = 0; i < g_waCensusN; ++i) {
+        WaCensus* c = &g_waCensus[i];
+        if (c->vb == vb && c->ib == ib && c->vs == vs &&
+            c->primCount == primCount && c->numVerts == numVertices &&
+            c->startIndex == startIndex) {
+            InterlockedIncrement(&c->draws);
+            if (corrected) c->corrected = true;
+            return;
+        }
+    }
+    if (g_waCensusN >= WA_MAX_CENSUS) return;
+    WaCensus* c = &g_waCensus[g_waCensusN++];
+    memset(c, 0, sizeof(*c));
+    c->vb = vb; c->ib = ib; c->vs = vs;
+    c->primCount = primCount; c->numVerts = numVertices;
+    c->startIndex = startIndex; c->stride = stride;
+    for (int j = 0; j < 3; ++j) c->l2w[j] = ctx ? ctx->t[j] : 0.0f;
+    c->angle = angle; c->position = position;
+    c->corrected = corrected;
+    c->draws = 1;
+    _snprintf(c->nearest, sizeof(c->nearest), "%s", nearest ? nearest : "?");
+    c->nearest[sizeof(c->nearest) - 1] = 0;
+    Log("wa/census: [%d] vb %p ib %p vs %p | prim %u verts %u start %u stride %u "
+        "| LocalToWorld t=(%.1f %.1f %.1f) | nearest '%s' at %.3f deg / %.2f uu "
+        "| %s. One line per distinct geometry on the view-model rig; between "
+        "them they account for every piece of it, including whatever is still "
+        "standing at the native position.",
+        g_waCensusN - 1, vb, ib, vs, primCount, numVertices, startIndex, stride,
+        (double)c->l2w[0], (double)c->l2w[1], (double)c->l2w[2],
+        c->nearest, (double)angle, (double)position,
+        corrected ? "CORRECTED" : "left where the engine drew it");
+}
+
+
 // ---- recognition by buffer identity -----------------------------------------
 
 // Apply a known delta to whatever palette this shader declares. Shared by the
@@ -654,6 +706,9 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             if (mib) mib->Release();
             if (mvs) mvs->Release();
             g_waMiss[h] = m;
+            WaCensusNote(dev, &ctx, baseVertex, numVertices, startIndex,
+                         primCount, members[near_.best]->asset, near_.angle,
+                         near_.position, false);
         }
         return false;
     }
@@ -701,6 +756,8 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             w->asset, hand, match.angle, match.position, match.scale,
             g_pcLayBones, g_pcLayBonesN, wc->componentGen);
     }
+    WaCensusNote(dev, &ctx, baseVertex, numVertices, startIndex, primCount,
+                 member->asset, match.angle, match.position, true);
     w->lastVerifyMs = MaimNowMs();
     w->boneReg = g_pcLayBones; w->regs = (UINT)g_pcLayBonesN;
     dvr::hf::Xform inverse;

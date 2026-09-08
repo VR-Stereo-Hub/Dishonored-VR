@@ -1186,6 +1186,7 @@ static void LoadConfig()
     g_waMaxTry        = (int)IniFloat(ini, "Hands", "AttachMaxTry", 3000);
     g_waGhostFix      = IniFloat(ini, "Hands", "AttachGhostFix", 1) != 0.0f;
     g_waProbe         = IniFloat(ini, "Hands", "AttachProbe", 1) != 0.0f;
+    g_waCensusOn      = IniFloat(ini, "Hands", "AttachCensus", 1) != 0.0f;
     g_waProbeBudget   = (int)IniFloat(ini, "Hands", "AttachProbeBudget", 400);
     if (g_waProbeBudget < 0)     g_waProbeBudget = 0;
     if (g_waProbeBudget > 20000) g_waProbeBudget = 20000;
@@ -1913,6 +1914,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachMaxTry", v, ini);
     WritePrivateProfileStringA("Hands", "AttachGhostFix", g_waGhostFix ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachProbe", g_waProbe ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachCensus", g_waCensusOn ? "1" : "0", ini);
     _snprintf(v, 64, "%d", g_waProbeBudget);
     WritePrivateProfileStringA("Hands", "AttachProbeBudget", v, ini);
     _snprintf(v, 64, "%d", g_waSwordHand);
