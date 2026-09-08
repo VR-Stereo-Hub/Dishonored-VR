@@ -1887,7 +1887,8 @@ struct MpDrawCtx {
     // separately - from sampling different controller poses within one view.
     dvr::hf::Mat3 B;            // columns right | up | forward
     dvr::hf::Mat3 R_L;          // LocalToWorld's rotation
-    bool          basisProper;  // B*F is a proper rotation
+    bool          basisProper;  // B*F is orthonormal (either parity)
+    int           basisParity;  // +1 or -1: does the mapping mirror?
     MpPoseSnap    pose;
     bool          poseOk;
 };
@@ -1955,15 +1956,38 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
     c->B   = dvr::hf::basis_from_cols(c->r, c->u, c->f);
     c->R_L = dvr::hf::basis_from_cols(c->col[0], c->col[1], c->col[2]);
 
-    // HANDEDNESS, CHECKED. The pose conversion composes B with F = diag(1,1,-1)
-    // to turn XR's right/up/BACK into right/up/FORWARD. On this game's verified
-    // path B is left-handed, so B*F is a proper rotation - but that is a
-    // measurement, not a licence, and forcing an improper matrix through an
-    // orientation is how a hand ends up correct about one axis and mirrored
-    // about another. A draw where it does not hold refuses to ROTATE; it still
-    // places, because placement never needed it.
-    c->basisProper = dvr::hf::basis_is_proper(c->B, 0.02f);
+    // HANDEDNESS, MEASURED AND CARRIED - not required to be positive.
+    //
+    // MEASURED 2026-09-07 over 116,908 draws: B is RIGHT-handed here, so the
+    // pose mapping B*F*transpose(R_head) is a MIRROR between XR's frame and the
+    // game's camera-relative world frame. That is what a right-handed runtime
+    // and a left-handed engine should produce.
+    //
+    // The first build of this demanded a PROPER rotation and refused every
+    // single draw. The guard was wrong, not the game. A reflection is a
+    // coordinate convention: it is carried through by full basis change and it
+    // CANCELS between O_C and the grip transform, so what is finally composed
+    // onto the palette is a proper rotation at every controller pose. See
+    // hand_frame.h and the self-test's improper_basis_roundtrip.
+    //
+    // What is still required is ORTHONORMALITY, which is a broken read rather
+    // than a convention. A draw failing that refuses to ROTATE and still
+    // PLACES, because placement never needed the basis to be orthonormal.
+    c->basisProper = dvr::hf::basis_is_orthonormal(c->B, 0.02f);
+    c->basisParity = dvr::hf::basis_parity(c->B);
     if (!c->basisProper) g_mpBasisImproper++;
+    else if (g_mpParitySeen == 0) {
+        g_mpParitySeen = c->basisParity;
+        Log("ms/palette/frame: the pose mapping B*F*transpose(R_head) has parity "
+            "%+d - the draw basis is %s-handed, so the mapping between XR and "
+            "the game's camera-relative frame is %s. This is a measured "
+            "coordinate convention, not a fault: it is carried through by full "
+            "basis change and cancels between the controller orientation and "
+            "the grip transform, so what reaches the palette is a proper "
+            "rotation either way.",
+            c->basisParity, c->basisParity > 0 ? "left" : "right",
+            c->basisParity > 0 ? "orientation-preserving" : "a MIRROR");
+    }
 
     // ONE POSE SNAPSHOT for this draw, copied whole under the lock. See
     // MpPoseSnap for why a validity flag beside loose floats is not
@@ -2193,8 +2217,9 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         if (g_mpSelfTestFailed != 0) {
             rwhy = "the frame maths self-test did not pass in this build";
         } else if (!c->basisProper) {
-            rwhy = "B*F is not a proper rotation on this draw, so an orientation "
-                   "built through it would be mirrored on one axis";
+            rwhy = "the draw's camera basis is not orthonormal, so transpose "
+                   "would not be its inverse - this is a broken read, not a "
+                   "handedness convention";
         } else if (!MpSourceFrame(cls, g_mpCache, g_mpCacheN, &sr, &rwhy)) {
             /* rwhy set */
         } else {
@@ -2900,6 +2925,22 @@ static void MpDriveTick(void)
         g_mpDomSlot[MS_CLS_HAND_A], g_mpDomSlot[MS_CLS_HAND_B], g_mpSrcGen,
         g_mpSelfTestFailed == 0 ? "PASSED" :
             (g_mpSelfTestFailed < 0 ? "NOT RUN" : "FAILED"));
+
+    // A PRESS THAT DID NOTHING MUST SAY SO. The grip capture is consumed by the
+    // next qualified draw, so if rotation is refusing, the request just sits
+    // there and SHIFT+F7 appears to do nothing at all - which is exactly what
+    // happened on the first headset run. This makes the pending request and the
+    // reason visible without needing the tester to ask.
+    if (g_mpGripCapReq)
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 2000,
+            "ms/palette/grip: a capture is STILL PENDING for %s%s%s - no "
+            "qualified draw has consumed it. %s. Nothing has been solved and "
+            "the hands have not moved.",
+            (g_mpGripCapReq & 1) ? "LEFT" : "",
+            (g_mpGripCapReq == 3) ? " and " : "",
+            (g_mpGripCapReq & 2) ? "RIGHT" : "",
+            !g_mpRotate ? "[Hands] PaletteRotate is 0, so rotation is off"
+                        : g_mpRotWhy);
 
     // The lane contract, and the coherence of the snapshot that crosses it.
     // Measured rather than assumed, and printed rarely because it does not

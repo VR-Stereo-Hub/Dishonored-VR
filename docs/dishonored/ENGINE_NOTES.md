@@ -3155,6 +3155,57 @@ A group of floats followed by setting a validity flag is NOT publication: the
 flag is already true from the previous sample, so a reader can combine new rows
 with old ones and never know.
 
+### The XR-to-game pose mapping is a MIRROR, and that is a convention
+
+MEASURED 2026-09-07 over 116,908 hand draws in one run. The draw's camera basis
+`B` (columns right, up, forward, recovered from the ViewProjection rows) is
+RIGHT-handed, so with `F = diag(1,1,-1)` the composite pose mapping
+
+```
+M = B * F * transpose(R_head)
+```
+
+has determinant **-1**. It is a reflection between XR's frame and the game's
+camera-relative world frame - which is what a right-handed runtime and a
+left-handed engine should produce.
+
+The first rotation build demanded that `B * F` be a PROPER rotation and refused
+**every single draw** (`placed 0 refused 116908`). The guard was wrong, not the
+game. The fail-soft held: all 116,908 draws still placed translation-only, so
+the hands behaved exactly as the previous build and nothing regressed - the run
+looked like "nothing changed" and the log said precisely why.
+
+**The reflection carries through and cancels.** With `s = det(M) = +/-1`:
+
+| quantity | determinant |
+|---|---|
+| `O_C = M * R_ctl` | `s` |
+| `G = transpose(O_C) * (R_L * R_src)` | `s` |
+| `O_C * G` | `s * s = +1` |
+| `D.r = transpose(R_L) * (O_C*G) * transpose(R_src)` | `+1` |
+
+so what is finally composed onto the palette is a proper rotation at every
+controller pose, whatever the parity. Conjugation by an orthogonal `Q` sends a
+rotation of angle `theta` about axis `a` to one of the SAME angle about
+`det(Q) * Q a`, so a mirrored frame reverses the axis and preserves the angle -
+the correct physical transport in a mirrored coordinate system, not a fault to
+be patched out with a sign flip.
+
+Only ORTHONORMALITY is still required, because a non-orthogonal basis is a
+broken read rather than a convention, and transpose would not be its inverse.
+
+### The hand draws and the pose tick are ONE thread
+
+MEASURED in the same run: `ms/palette/lane:` reports the pose published on
+thread 14224 and the draws consumed on thread 14224 - the same lane - with
+0 draws seeing a stale snapshot over 11,881 publications.
+
+This does NOT retire the locked snapshot. The contract is now measured instead
+of assumed, and it is measured on one machine and one build; the lock costs an
+uncontended critical section about five times per present, and it is what makes
+the two hands of a draw - and later a separately drawn weapon - provably share
+one controller pose.
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.

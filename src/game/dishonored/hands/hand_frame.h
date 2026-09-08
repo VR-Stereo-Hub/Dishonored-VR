@@ -142,11 +142,46 @@ static inline bool is_rotation(const Mat3& a, float tol)
     return finite3(a) && orthonormal_err(a) <= tol && det3(a) > 0.0f;
 }
 
-// The product of the draw basis and F must be a proper rotation, or the pose
-// conversion would be composing a reflection into an orientation.
-static inline bool basis_is_proper(const Mat3& b, float tol)
+// THE POSE MAPPING MAY BE A REFLECTION, AND THAT IS NOT AN ERROR.
+//
+// MEASURED on this game (2026-09-07, 116,908 draws): the draw basis B is
+// RIGHT-handed, so `B * F` has determinant -1. The composite pose mapping
+// `M = B * F * transpose(R_head)` is therefore a MIRROR between XR's frame and
+// the game's camera-relative world frame - which is exactly what one expects
+// between a right-handed runtime and a left-handed engine.
+//
+// An earlier version of this file demanded `B * F` be a PROPER rotation and
+// refused every draw when it was not. That was the guard being wrong, not the
+// game: a reflection is a coordinate convention and must be carried through by
+// full basis change, never discarded and never patched out with a sign flip.
+//
+// It carries through and CANCELS. With `s = det(M) = +/-1`:
+//
+//   G      = transpose(O_C) * (R_L * R_src)      det = s
+//   O_C*G                                        det = s * s = +1
+//   D.r    = transpose(R_L) * (O_C*G) * transpose(R_src)   det = +1
+//
+// so the transform actually composed onto the palette is a PROPER rotation at
+// every controller pose, whatever the parity of the mapping is. Conjugation by
+// an orthogonal Q sends a rotation of angle theta about axis a to a rotation of
+// the SAME angle theta about axis det(Q)*Qa - so a mirrored frame reverses the
+// axis and preserves the angle, which is the correct physical transport in a
+// mirrored coordinate system rather than a bug to be corrected.
+// `improper_basis_roundtrip` in the self-test pins all of this.
+//
+// What must still hold is ORTHONORMALITY. A non-orthogonal basis is a broken
+// read, not a convention, and transpose would not be its inverse.
+static inline bool basis_is_orthonormal(const Mat3& b, float tol)
 {
-    return is_rotation(mul3(b, xr_back_to_forward()), tol);
+    const Mat3 m = mul3(b, xr_back_to_forward());
+    return finite3(m) && orthonormal_err(m) <= tol && fabsf(det3(m)) > 0.5f;
+}
+
+// +1 or -1: whether the pose mapping through this basis preserves handedness.
+// Logged, because it is a measured fact about the game's frame.
+static inline int basis_parity(const Mat3& b)
+{
+    return det3(mul3(b, xr_back_to_forward())) > 0.0f ? +1 : -1;
 }
 
 // A UNIFORMLY SCALED ROTATION, decomposed. The scale is DERIVED from this

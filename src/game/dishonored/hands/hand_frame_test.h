@@ -59,6 +59,15 @@ static inline int run_all(ReportFn fn, void* ctx)
 {
     Rec r; r.fn = fn; r.ctx = ctx; r.run = 0; r.failed = 0;
     const float TOL = 1e-4f;
+    // THE NOISE FLOOR FOR A NEAR-IDENTITY ANGLE. rotation_angle_deg goes
+    // through acos, which is ill-conditioned near zero: for a small angle
+    // theta, cos(theta) ~ 1 - theta^2/2, so a trace error of eps reads as
+    // an angle of about sqrt(2*eps). At float32 epsilon that is ~7e-4 rad,
+    // i.e. about 0.04 degrees, and a chain of six matrix products reaches
+    // it. Anything below this is float noise, not a rotation; asserting
+    // tighter than it would be asserting against the arithmetic rather
+    // than against the maths. 0.05 deg is three orders below visible.
+    const float ANG_EPS = 0.05f;
 
     // ---- 1. the head-turn counterexample -----------------------------------
     // Stationary controller, turning head, in a common frame consistent with
@@ -143,15 +152,59 @@ static inline int run_all(ReportFn fn, void* ctx)
     }
 
     // ---- 5. handedness -----------------------------------------------------
+    // BOTH parities are accepted; only a non-orthogonal basis is refused. The
+    // game measures right-handed, so B*F is a reflection - see hand_frame.h.
     {
         const Mat3 left  = mul3(rot_axis_deg(1, 40.0f), xr_back_to_forward());
         const Mat3 right = rot_axis_deg(1, 40.0f);
-        rec(&r, "basis_proper", basis_is_proper(left, 1e-3f) &&
-                                !basis_is_proper(right, 1e-3f),
-            "B*F is a proper rotation for a left-handed B (det %.3f) and is REFUSED "
-            "for a right-handed one (det %.3f)",
-            det3(mul3(left, xr_back_to_forward())),
-            det3(mul3(right, xr_back_to_forward())));
+        Mat3 broken = right; broken.m[1] += 0.5f;
+        rec(&r, "basis_orthonormal",
+            basis_is_orthonormal(left, 1e-3f) && basis_is_orthonormal(right, 1e-3f) &&
+            !basis_is_orthonormal(broken, 1e-3f) &&
+            basis_parity(left) == +1 && basis_parity(right) == -1,
+            "both parities accepted (left-handed B gives parity %+d, right-handed "
+            "gives %+d) and a non-orthogonal basis is REFUSED",
+            basis_parity(left), basis_parity(right));
+    }
+
+    // ---- 5b. THE REFLECTION CARRIES THROUGH AND CANCELS ---------------------
+    // The measured case: a right-handed B, so the pose mapping B*F*R_H^T is a
+    // mirror. The grip round trip must still be exact, the transform composed
+    // onto the palette must still be a PROPER rotation, and a controller
+    // rotation must still produce a hand rotation of the same angle.
+    {
+        const Mat3 R_H  = rot_axis_deg(1, 22.0f);
+        const Mat3 B    = rot_axis_deg(2, 8.0f);       // right-handed: B*F improper
+        const Mat3 R_C0 = mul3(rot_axis_deg(0, 15.0f), rot_axis_deg(2, 40.0f));
+        const Mat3 R_L  = rot_axis_deg(0, 90.0f);
+        const Mat3 Rsrc = rot_axis_deg(1, 27.0f);
+        const float tL[3] = { 1.0f, 2.0f, 3.0f };
+        const float q[3]  = { 24.5f, -142.5f, 58.0f };
+        float dcam[3];
+        { float qc[3]; mulv3(R_L, q, qc);
+          for (int i = 0; i < 3; i++) dcam[i] = qc[i] + tL[i]; }
+
+        const int parity = basis_parity(B);
+        const Mat3 O0 = controller_orient_camera(B, R_H, R_C0);
+        const Mat3 G  = grip_solve(O0, R_L, Rsrc);
+        const Xform D0 = delta_local(R_L, tL, O0, G, dcam, Rsrc, q, true);
+        const bool capOk = rotation_angle_deg(D0.r) < ANG_EPS;
+
+        // now turn the controller by a known angle and check what the hand does
+        const float turn = 37.0f;
+        const Mat3 R_C1 = mul3(R_C0, rot_axis_deg(1, turn));
+        const Mat3 O1 = controller_orient_camera(B, R_H, R_C1);
+        const Xform D1 = delta_local(R_L, tL, O1, G, dcam, Rsrc, q, true);
+        const float ang  = rotation_angle_deg(D1.r);
+        const bool proper = is_rotation(D1.r, 1e-3f);   // det > 0 as well
+
+        rec(&r, "improper_basis_roundtrip",
+            parity == -1 && capOk && proper && fabsf(ang - turn) < 0.05f,
+            "with a MIRRORED pose mapping (parity %+d): capture is still exact "
+            "(%.5f deg), the composed transform is still a proper rotation "
+            "(det %+.4f), and a %.0f deg controller turn gives a %.2f deg hand "
+            "turn. The reflection cancels between O_C and G",
+            parity, rotation_angle_deg(D0.r), det3(D1.r), turn, ang);
     }
 
     // ---- 6. the grip capture round trip ------------------------------------
@@ -176,7 +229,7 @@ static inline int run_all(ReportFn fn, void* ctx)
         const Xform D  = delta_local(R_L, tL, O_C, G, dcam, Rsrc, q, true);
         const float ang = rotation_angle_deg(D.r);
         float tmag = 0.0f; for (int i = 0; i < 3; i++) tmag += fabsf(D.t[i]);
-        rec(&r, "grip_roundtrip", ang < 1e-2f && tmag < 1e-2f,
+        rec(&r, "grip_roundtrip", ang < ANG_EPS && tmag < 1e-2f,
             "capture then apply on frozen input: correction is %.5f deg and "
             "%.5f uu, i.e. identity", ang, tmag);
 

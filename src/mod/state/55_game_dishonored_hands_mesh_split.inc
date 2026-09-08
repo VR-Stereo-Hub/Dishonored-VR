@@ -588,7 +588,8 @@ static const char* g_mpRotWhy = "not run yet";
 // 1e-6, three orders of magnitude inside these.
 static float    g_mpFrameTolOrtho = 0.02f;   // [Hands] PaletteFrameTol
 static float    g_mpFrameTolAniso = 0.02f;
-static int      g_mpBasisImproper = 0;  // draws refused because B*F was not proper
+static int      g_mpBasisImproper = 0;  // draws refused: the basis was not orthonormal
+static int      g_mpParitySeen    = 0;  // +1/-1 once measured, 0 until then
 static int      g_mpSelfTestFailed = -1;   // -1 not run, else the failure count
 
 // The derived wrist: distance from the hand bone's centroid, per side, and the

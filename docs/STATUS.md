@@ -2,6 +2,31 @@
 
 ## CURRENT (2026-09-07): VR-33 - rotation and grip are BUILT and INSTALLED, unverified in the headset
 
+### Run 1 found the fault, and the instrument named it
+
+The first rotation build refused on **every** draw: `rotate=1 placed 0 refused
+116908 (B*F is not a proper rotation)`. The hands looked unchanged and SHIFT+F7
+appeared to do nothing, because the grip capture sits behind the same gate.
+
+**The guard was wrong, not the game.** The draw's camera basis is RIGHT-handed,
+so the pose mapping between XR and the game's camera-relative frame is a
+MIRROR - exactly what a right-handed runtime and a left-handed engine produce.
+A reflection is a coordinate convention: it carries through by full basis change
+and CANCELS between the controller orientation and the grip transform, so what
+reaches the palette is a proper rotation either way. The guard now requires
+orthonormality only, records the parity, and a new self-test case
+(`improper_basis_roundtrip`) pins the whole chain under a mirrored mapping:
+capture exact, `det +1.0000`, a 37 degree controller turn giving a 37.00 degree
+hand turn.
+
+Two things the run confirmed on the way: the **fail-soft held** - all 116,908
+draws still placed translation-only, so nothing regressed and the run simply
+looked like the previous build - and the **pose tick and the hand draws are one
+thread** (14224), with 0 stale snapshots over 11,881 publications.
+
+A pending grip capture now logs a warning naming why it has not been consumed,
+so a press can never silently do nothing again.
+
 ### What is armed right now
 
 The installed build is Release with `[Hands] PaletteRotate=1` and the grip
