@@ -1137,6 +1137,64 @@ static void LoadConfig()
     g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
     g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
     g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
+    // VR-33 step 1. READ-ONLY, so it ships ON: it resolves engine names and
+    // reports what it could not find, and writes nothing anywhere.
+    g_prOn            = IniFloat(ini, "Hands", "PoseReport", 1) != 0.0f;
+    // VR-33 step 1b. This one MAKES ENGINE CALLS, so it ships OFF and is
+    // separate from the read-only report, which keeps working either way.
+    g_bqOn            = IniFloat(ini, "Hands", "BoneQuery", 0) != 0.0f;
+    // VR-33 phase 1. This one WRITES to the skeleton, so it ships OFF and
+    // restores every field it touched when it is switched off.
+    g_hmOn            = IniFloat(ini, "Hands", "HandMoveTest", 0) != 0.0f;
+    g_hmAmount        = IniFloat(ini, "Hands", "HandMoveUU", 10.0f);
+    g_hmAxis          = (int)IniFloat(ini, "Hands", "HandMoveAxis", 0);
+    if (g_hmAxis < 0 || g_hmAxis > 2) g_hmAxis = 0;
+    // VR-33: the draw-scoped bone palette. A RENDER LEVER, so it ships OFF
+    // with a live A/B - Palette=0 leaves MsDraw issuing the single merged draw
+    // it always did, and nothing in the frame path changes.
+    g_mpOn            = IniFloat(ini, "Hands", "Palette", 0) != 0.0f;
+    g_mpAmount        = IniFloat(ini, "Hands", "PaletteAmount", 12.0f);
+    g_mpAxis          = (int)IniFloat(ini, "Hands", "PaletteAxis", 1);
+    if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
+    g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
+    if (g_mpHand < 0 || g_mpHand > 2) g_mpHand = 0;
+    g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
+    if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
+    if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
+    g_mpWorld         = IniFloat(ini, "Hands", "PaletteWorld", 0) != 0.0f;
+    g_mpEyeHunt       = IniFloat(ini, "Hands", "PaletteEyeHunt", 0) != 0.0f;
+    g_mpDepth         = IniFloat(ini, "Hands", "PaletteDepthRange", 0) != 0.0f;
+    g_mpEyeOffset     = IniFloat(ini, "Hands", "PaletteEyeOffset", 0) != 0.0f;
+    g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
+    g_mpWsumTol       = IniFloat(ini, "Hands", "PaletteWeightTol", 0.02f);
+    if (g_mpWsumTol < 0.0001f) g_mpWsumTol = 0.0001f;
+    g_mpStep          = IniFloat(ini, "Hands", "PaletteStep", 0) != 0.0f;
+    if (g_mpOn && g_mpWorld)
+        Log("config: [Hands] PaletteWorld=1 - the palm is placed through the "
+            "MEASURED chain. LocalToWorld and ViewProjectionMatrix are read "
+            "from the device at each draw, through the register indices that "
+            "shader's own constant table declares, and the palm's current "
+            "position is re-skinned from the game's palette every frame. No "
+            "calibration and no neutral. The one number still assumed is the "
+            "scale: %.0f uu/m x gain %.2f, against [PosTrack] Scale=%.0f - a "
+            "scale error shows as a GAIN error, not as drift.",
+            (double)g_skcWorldScale, (double)g_mpDriveGain, (double)g_posScaleUU);
+    else if (g_mpOn && g_mpStep)
+        Log("config: [Hands] Palette=1 PaletteStep=1 - the palette's STEPPED "
+            "axis probe is armed and starts at REST, so nothing moves until "
+            "you ask. F6 advances rest -> axis 0 -> axis 1 -> axis 2 "
+            "-> rest, %+.1f uu on hand class %s each time, with the other class "
+            "never moving as the reference. Every press prints an "
+            "ms/palette/step: line, so which axis was live is never inferred.",
+            g_mpAmount,
+            g_mpHand == 0 ? "A (left)" : g_mpHand == 1 ? "B (right)" : "BOTH");
+    else if (g_mpOn)
+        Log("config: [Hands] Palette=1 - the draw-scoped bone palette is ARMED. "
+            "Hand class %s takes a %.1f uu delta on axis %d and the other class "
+            "takes none, so the OTHER HAND IS THE CONTROL. Read the "
+            "ms/palette: lines.",
+            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH (no control)",
+            g_mpAmount, g_mpAxis);
     // 3 = CLIP the triangles that straddle the plane, which is the only rule
     // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
     // triangles and leave a sawtooth one triangle high - on the coarse cuff
@@ -1553,6 +1611,30 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "WristPlane", g_msPlane ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "BoneQuery", g_bqOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "HandMoveTest", g_hmOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "Palette", g_mpOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.1f", g_mpAmount);
+    WritePrivateProfileStringA("Hands", "PaletteAmount", v, ini);
+    _snprintf(v, 64, "%d", g_mpAxis);
+    WritePrivateProfileStringA("Hands", "PaletteAxis", v, ini);
+    _snprintf(v, 64, "%d", g_mpHand);
+    WritePrivateProfileStringA("Hands", "PaletteHand", v, ini);
+    _snprintf(v, 64, "%.2f", g_mpDriveGain);
+    WritePrivateProfileStringA("Hands", "PaletteDriveGain", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteWorld", g_mpWorld ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteDepthRange", g_mpDepth ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.4f", g_mpWsumTol);
+    WritePrivateProfileStringA("Hands", "PaletteWeightTol", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
+    _snprintf(v, 64, "%.1f", g_hmAmount);
+    WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);
+    _snprintf(v, 64, "%d", g_hmAxis);
+    WritePrivateProfileStringA("Hands", "HandMoveAxis", v, ini);
     _snprintf(v, 64, "%d", g_msEdge);
     WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
     _snprintf(v, 64, "%d", g_msStepMode);

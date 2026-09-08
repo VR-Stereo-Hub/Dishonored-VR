@@ -153,6 +153,59 @@ static int      g_msCapUv[3] = { -1, -1, -1 };// the ring vertex each cap took i
 static IDirect3DVertexBuffer9* g_msVb = NULL;
 static bool     g_msOwnVb = false;            // stream 0 is the only stream
 static int      g_msExtraStream = -1;         // which stream vetoed the clip
+// A stream can be BOUND without the declaration referencing it. Leftover state
+// from an earlier draw is not data this draw consumes, and vetoing the clip on
+// it costs the clipped edge and the caps for no reason. Only a stream the
+// declaration actually names counts.
+static uint32_t g_msDeclStreams = 0;          // bitmask of streams the decl uses
+
+// THE SAME MESH IS DRAWN BY MORE THAN ONE PASS, AND ONLY SOME OF THEM CAN BE
+// CLIPPED. Measured 2026-09-07: one run locked the arm mesh twice, from the
+// identical vertex and index buffers, and got different answers. The first
+// draw reported "stream 0 is the only stream" and produced 78 clipped
+// triangles and 312 cap triangles; the second reported "stream 2 is also
+// bound", which vetoes owning stream 0, so the clip fell back to whole
+// triangles and the caps vanished. The tester saw the wrist caps disappear
+// between runs with no config change, twice, and this is why.
+//
+// A lock released after the mesh stops being drawn re-arms on whichever pass
+// draws it next, and that is a coin toss. So a draw that cannot be clipped is
+// SKIPPED rather than accepted, and the split waits for a pass it can own -
+// which the first build proves exists. The skips are bounded: after enough of
+// them the degraded split is taken anyway, loudly, because no hands at all is
+// worse than hands with a rougher edge.
+// WHAT THE SPLIT WAS BUILT FROM, checked again on every draw that tries to
+// use it.
+//
+// Choosing a better BUILD pass does not make later draws compatible. MsDraw
+// used to accept any draw with a matching primitive count and then bind our
+// re-based index buffer and generated vertices to it. A draw of the same
+// buffer pair with a different vertex window, start index, base vertex, stream
+// offset or declaration would consume a split that does not describe it, and
+// re-based indices with generated vertices are meaningless against another
+// stream's data. Nothing about waiting for a clippable pass fixes that.
+//
+// Worse, the caller drops what MsDraw declines once a split is ready
+// (draw_census.cpp:276) - the auto-arm fail-soft only covers !g_msReady - so
+// an incompatible draw was being SUPPRESSED rather than passed through. So
+// MsDraw now says WHICH of three things happened, and the caller acts on it.
+static INT      g_msBuiltBaseVertex = 0;
+static UINT     g_msBuiltMinIndex = 0, g_msBuiltNumVerts = 0;
+static UINT     g_msBuiltStartIndex = 0, g_msBuiltStream0Off = 0;
+static void*    g_msBuiltDecl = NULL;
+static volatile uint32_t g_msIncompat = 0;    // our geometry, wrong draw contract
+static bool     g_msPassThrough = false;      // MsDraw declined: DRAW IT NORMALLY
+
+// A split that WANTED the clip and did not get it. It still draws - a
+// sawtooth edge and no caps - but it is a degraded result, not a finished one,
+// so a later pass that can be clipped is allowed to replace it. Without this
+// the first degraded build was permanent: g_msReady gates the build path, so
+// nothing could ever upgrade it.
+static bool     g_msDegraded = false;
+
+static int      g_msStreamSkips = 0;
+static bool     g_msRetryLater = false;       // declined, but not refused
+#define MS_MAX_STREAM_SKIPS 120
 
 // The knob's step, as a fraction of the arm's length. Three sizes because the
 // right one is not knowable in advance: coarse to find the region, fine to
@@ -205,6 +258,236 @@ static int      g_msVerts = 0, g_msTris = 0, g_msBones = 0;
 static uint32_t g_msMinIndex = 0;              // the draw's vertex window
 static int      g_msClsStart[MS_CLS_N];        // triangle offsets in OUR buffer
 static int      g_msClsCount[MS_CLS_N];
+
+// ---- VR-33: the draw-scoped bone palette ------------------------------------
+//
+// The native lane is shut (ENGINE_NOTES: no SkelControl on this build is ever
+// evaluated), so the hands are moved where the draw consumes them: the skinning
+// matrices uploaded to c6. One common rigid delta D is applied to EVERY matrix
+// of one hand class, and that class is drawn under its own palette.
+//
+// Finger animation survives, which is the whole reason this is not a static
+// hand: sum_i w_i (D M_i) v = D (sum_i w_i M_i v). The engine keeps animating
+// M_i; D only moves the result.
+//
+// What it CANNOT do, stated here so it is not rediscovered: this is a GPU-side
+// edit. The engine's own transform is untouched, so weapons, muzzle effects and
+// firing aim do not follow. The weapon half of VR-33 needs its own mechanism.
+//
+// Rung 1, which is what ships here, is a pure TRANSLATION on one hand class
+// with the other class as the control. The rotation half needs the controller
+// pose resolved into this palette's space, and putting an unverified delta and
+// an unverified space in the same build is how a null result becomes
+// unreadable.
+static bool     g_mpOn      = false;   // [Hands] Palette
+static int      g_mpAxis    = 1;       // [Hands] PaletteAxis  0/1/2
+static float    g_mpAmount  = 12.0f;   // [Hands] PaletteAmount, unreal units
+static int      g_mpHand    = 0;       // [Hands] PaletteHand  0=A 1=B 2=both
+// The block the game last uploaded to c6. Cached at the upload rather than read
+// back from the device: a D3D9 constant read-back is a pipeline stall, and the
+// data is already in our hands for free.
+static float    g_mpCache[4 * 256];
+static UINT     g_mpCacheN  = 0;
+static LONG     g_mpDraws   = 0;       // per-class draws issued under a palette
+static LONG     g_mpNoCache = 0;       // per-class draw wanted, no c6 seen yet
+
+// THE AXIS PROBE. The palette's three axes were a basis nobody had measured,
+// and this is what measured them: a delta on one hand class with the other left
+// alone as the reference, stepped by the TESTER so there is no phase to infer.
+//
+// A timed sweep came first and gave two readings - left/down/forward and
+// down/forward/left. Those are one cycle entered a step apart, but nothing in
+// either run could prove that rather than a changed basis; the tester said so
+// before it was acted on, and the timed variant is gone. The stepped probe
+// settled it in a single run.
+//
+// RESULT, recorded in ENGINE_NOTES: axis 0 LEFT, axis 1 DOWN, axis 2 FORWARD.
+// Kept because it is what would re-measure the basis if the asset or the engine
+// path ever changed.
+static bool     g_mpStep      = false;  // [Hands] PaletteStep
+static int      g_mpStepAxis  = -1;     // -1 = resting, 0/1/2 = that axis
+static volatile LONG g_mpStepReq = 0;   // hotkey -> MsTick, present thread
+
+// ---- the controller offset the placement consumes -----------------------------
+//
+// The present thread publishes only frame-free scalars: the controller's offset
+// from the head, resolved into the head's own right/up/forward, in metres. The
+// draw turns those into a world vector using the basis it reads from that
+// draw's own constants, so no assumption about the game's axes lives here.
+//
+// THREE APPROACHES DIED BEFORE THIS ONE, and the reasons are worth keeping:
+//
+//  * A RELATIVE drive moved each hand by its controller's travel from a
+//    captured neutral. Refuted on paper before it was re-run - the cancellation
+//    argument covered the added displacement and omitted the animated hand
+//    already underneath it, so a still controller left the original hand still
+//    following the camera.
+//  * A YAW RESIDUAL correction assumed the camera carried a body yaw the head
+//    did not. The run measured phi constant at 144 deg across a 145 deg head
+//    swing: the camera tracks the head 1:1 and phi is the UE/XR yaw-origin
+//    offset, not a body yaw.
+//  * ABSOLUTE placement with a CALIBRATED origin folded the coordinate-origin
+//    difference, the grip offset and any anchor error into one 138 uu constant
+//    applied in a rotating frame - a 1.4 m lever pivoting on the head.
+//
+// All three are in docs/dishonored/VR-33-HANDS.md, and in git under the tags
+// vr33-placement-works and vr33-scale-correct.
+static float    g_mpCtlRUF[2][3];
+static bool     g_mpCtlRUFOk[2] = { false, false };
+static float    g_mpDriveGain = 1.0f;   // [Hands] PaletteDriveGain - scale trim
+
+// ---- the palm anchor ---------------------------------------------------------
+//
+// Placement needs to know where the visible palm IS this frame, and it finds out
+// by skinning real vertices with the game's own unmodified palette rather than
+// trusting an assumption about where the palette puts things.
+//
+// A fixed set of vertex identities chosen once at build time: the deduplicated
+// vertices nearest the hand class's bind-pose centroid, so fingers fall out as
+// the extremities of that cloud without needing to identify a joint. A moving
+// anchor would make the residual meaningless.
+enum { MP_ANCHOR_N = 12 };
+static uint32_t g_mpAnchorIdx[MS_CLS_N][MP_ANCHOR_N];
+static int      g_mpAnchorN[MS_CLS_N] = { 0, 0, 0, 0, 0 };
+
+// ---- BUILD A2: PLACEMENT THROUGH THE MEASURED CHAIN --------------------------
+//
+// The shader capture ended the guessing. The vertex path is
+//
+//     p_local = (sum_i w_i M_i) * (v0 * MeshExtension + MeshOrigin)
+//     p_cam   = LocalToWorld * p_local          (camera-relative world, uu)
+//     clip    = ViewProjectionMatrix * p_cam
+//
+// so the palette's output is the component's LOCAL space and LocalToWorld -
+// present in the constants, not conjecturable - takes it to a camera-relative
+// world frame. To put the palm at the controller:
+//
+//     target_local = Rl^T * (d_cam - t),   T = target_local - q_local
+//
+// where [Rl | t] is LocalToWorld and d_cam is the controller's position
+// relative to the camera in that frame. No calibrated offset, no neutral, and
+// nothing left underneath: q_local is re-measured every frame from the game's
+// own palette, so the animated baseline is subtracted rather than hoped away.
+//
+// d_cam is built from the camera's own basis, recovered from the
+// ViewProjectionMatrix: rows 0 and 1 normalised give right and up (their
+// lengths are the focal scales), and the w row is the forward axis and is
+// exactly unit for a standard perspective. Checked against a captured packet
+// before any of this was written: the left palm came out 15.3 uu left, 26.1 uu
+// below and 44.1 uu in front of the camera, which is where a left hand is.
+//
+// WHAT IS STILL ASSUMED, and is the one number not measured here: the metres
+// to unreal-units scale. [Hands] WorldScaleUU and [PosTrack] Scale disagree
+// (100 vs 108) and neither has been validated for THIS conversion at two
+// depths. A scale error shows up as the hand tracking with a gain error, not
+// as drift, so it is distinguishable from a frame error in the next run.
+static bool     g_mpWorld     = false;  // [Hands] PaletteWorld
+// THE VIEW MODEL IS DEPTH-CRUSHED, measured not guessed: the hand draw runs
+// with viewport MinZ 0.0 / MaxZ 0.001, the nearest thousandth of the depth
+// buffer, while other draws in the same frame use the full 0..1. That is the
+// standard first-person trick which guarantees the weapon and hands can never
+// be occluded by world geometry - and it is exactly why correctly placed hands
+// still composite on top of everything.
+//
+// Placement cannot fix it. The draw's depth range can, and we own the draw:
+// restore the full range for the hand draws only, and put the game's own back
+// immediately after. Whether that actually yields occlusion depends on the
+// depth buffer still holding world depths at that point, which is NOT known -
+// if the pass runs after a depth clear there is nothing to occlude against and
+// the hands will look identical. That is the experiment.
+//
+// A render lever, so it ships default OFF with a live A/B.
+static bool     g_mpDepth     = false;  // [Hands] PaletteDepthRange
+static LONG     g_mpDepthUsed = 0;
+static float    g_mpDepthSeen[2] = { 0.0f, 0.0f };   // the game's MinZ/MaxZ
+
+// The stereo eye offset. A render lever, so it ships default OFF with an A/B -
+// but it is the difference between hands that read as hand-sized and hands that
+// read as giants, so the A/B is what proves the diagnosis rather than a
+// preference.
+static bool     g_mpEyeOffset = false;  // [Hands] PaletteEyeOffset
+static LONG     g_mpEyeSeen[2] = { 0, 0 };   // draws attributed to pass 1 / pass 2
+static LONG     g_mpEyeUnclassified = 0;
+// THE EYE. Four mechanisms were tried and three failed; the reasons are in
+// docs/dishonored/VR-33-HANDS.md and are worth not repeating:
+//
+//  1. The game-thread second-pass flag. UE3 queues render commands, so it reads
+//     false by the time the draw runs on the render thread. The counter caught
+//     it: pass2 0 draws against pass1's 92,800.
+//  2. A learned MIDPOINT of LocalToWorld's right-axis projection. Not
+//     head-invariant - turning the head drifts the projection for reasons
+//     unrelated to the eye - so draws crossed a stale midpoint and took a full
+//     IPD of error, which read as the hands teleporting.
+//  3. The draw's ORDINAL within a frame. Sound in principle, but the sampling
+//     was per HAND, so its "pair" was the left and right hand of ONE draw whose
+//     constants are identical by construction. 24,376 zero comparisons that
+//     measured nothing.
+//
+// What works, and what the corrected sampling measured: successive ORIGINAL
+// draws differ on the right axis either by ~0 or by about one IPD - 6.76 uu
+// against 6.31 predicted. The eye is constant within a Present and changes
+// between them, so it is decided once per Present and the SIGN of the jump
+// gives left or right absolutely. No vote, no ordinal, no hand side.
+// The draw-to-draw comparison that found the eye, kept as the instrument that
+// would find it again if the engine path changed.
+static bool     g_mpEyeHunt = false;    // [Hands] PaletteEyeHunt
+
+// The corrected sampling: one context per ORIGINAL draw, and counts that say
+// what was sampled rather than only what was found.
+static uint32_t g_mpDrawSeq = 0;
+static LONG     g_mpDrawsEntered = 0, g_mpDrawsSampled = 0, g_mpDrawsRejected = 0;
+static const char* g_mpDrawRejectWhy = "none";
+static float    g_mpPrevVp[16], g_mpPrevL2w[16], g_mpPrevProj = 0.0f;
+static uint32_t g_mpPrevDrawId = 0;
+static bool     g_mpPrevDrawOk = false;
+static float    g_mpCmpMaxVp = 0.0f, g_mpCmpMaxL2w = 0.0f, g_mpCmpMaxProj = 0.0f;
+static LONG     g_mpCmpCount = 0;
+// The eye, decided once per Present from the right-axis jump in LocalToWorld's
+// translation. -1 left, +1 right, 0 unknown (no offset applied).
+static int      g_mpEyeState = 0;
+static uint32_t g_mpEyePresent = 0xFFFFFFFFu;
+static bool     g_mpEyeHavePrev = false;
+static float    g_mpEyePrevFirst = 0.0f;
+static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
+static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
+static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
+static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason
+static const char* g_mpWorldWhy = "not run yet";
+static float    g_mpLastTargetLocal[2][3];
+static float    g_mpLastPCam[2][3];
+
+static float    g_mpResid[2][3];        // target - corrected anchor, MEASURED
+static LONG     g_mpResidTick[2] = { 0, 0 };  // PER HAND - a shared counter only ever
+                                              // sampled the right hand in the normal
+                                              // left-then-right draw order
+static bool     g_mpResidOk[2]  = { false, false };
+static uint32_t g_mpResidGen[2] = { 0, 0 };
+static uint32_t g_mpCacheGen  = 0;      // bumped on every accepted palette write
+
+// THE PALETTE IS AN INTERVAL WITH PER-REGISTER VALIDITY, not a length.
+//
+// Tracking only a count could not express what the engine actually does. An
+// update starting INSIDE the block (c9 x3) failed the outer test entirely; a
+// wide block covering c6 could top up an existing cache but never bootstrap an
+// empty one; a short c6 x4 left the previous claimed length standing; and an
+// over-long upload was copied whole, after which MpBuild happily treated every
+// following triplet as another bone.
+//
+// So: a fixed register interval [MP_PAL_LO, MP_PAL_LO + 3*bones), a valid flag
+// per register, and every upload contributing its INTERSECTION with that
+// interval. The palette is usable only when every register in it is valid,
+// which is a statement about state rather than about the last write's size.
+enum { MP_PAL_LO = 6, MP_PAL_MAX = 256 };
+static uint8_t  g_mpValid[MP_PAL_MAX];  // per-register, indexed from MP_PAL_LO
+static UINT     g_mpPalN      = 0;      // registers in the interval (3 * bones)
+static UINT     g_mpValidN    = 0;      // how many of them are currently valid
+// How far the anchor's skin weights may stray from summing to 1 before the
+// anchor is refused outright. The shader's own weight arithmetic has NOT been
+// read yet; until it has, a sum far from 1 means the CPU point and the point
+// the GPU renders are different points, and the placement would be built on
+// the difference.
+static float    g_mpWsumTol   = 0.02f;  // [Hands] PaletteWeightTol
+static float    g_mpWsumWorst = 0.0f;   // the sum that last caused a refusal
 
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing

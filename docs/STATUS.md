@@ -2,6 +2,331 @@
 
 ## CURRENT (2026-09-05, session 17): VR-30 IS SOLVED - FaceRotation is the seam
 ## CURRENT (2026-09-06): VR-31 - the hands are cut from the arms, clipped and capped
+## CURRENT (2026-09-07): VR-33 - the hands are at the controllers and correct
+
+### Confirmed in the headset
+
+The hands **track the controllers, are correctly scaled, occlude against world
+geometry, and hold position through head turns.** Tagged `vr33-hands-working`.
+
+**The full record is `docs/dishonored/VR-33-HANDS.md`** - the mechanism, the
+engine facts, the seven approaches that failed and why, and the instrument
+failures that cost the most. Read that before touching this code; most of what
+looks like an obvious improvement has already been tried and measured.
+
+### The mechanism, in one paragraph
+
+The bone palette's output is the component's LOCAL space; `LocalToWorld` (c231)
+takes it to a camera-relative world frame and `ViewProjectionMatrix` (c0) to
+clip. Placement re-skins the palm from the game's own palette every frame and
+translates by `target - q`, so the animated baseline is subtracted rather than
+left underneath. The camera basis comes from the VP's rows. The eye is decided
+once per Present from the right-axis jump in `LocalToWorld`'s translation, whose
+sign gives left or right absolutely. Register numbers are parsed from each
+shader's CTAB, never hard-coded - three shaders draw this mesh and they
+disagree.
+
+### Next phase
+
+1. **Rotation and grip.** The hands keep the engine's animated orientation, so
+   they look posed rather than gripping. Full rigid composition, per-component
+   conjugation `D_local = inverse(C) * D * C`, a stable palm frame from
+   deliberately chosen landmarks rather than the current position patch, and
+   basis conversion by conjugation - the translational basis has determinant
+   -1 and is a coordinate convention, not a rotation.
+2. **The weapon assembly.** Crossbow, loaded bolt and reload parts, moved by the
+   same common transform through each component's own `C`. A hand-local delta
+   cannot be copied into a weapon-local palette.
+3. **Gameplay consumers.** Firing aim, projectile origin, melee. A GPU edit does
+   not move them.
+
+Carried and deliberately not done: one canonical metres-to-units conversion
+(`[Hands] WorldScaleUU` 100 against `[PosTrack] Scale` 108), pose timing (head
+look-ahead against hand prediction), a render-view ticket to carry the eye
+rather than infer it, and a harness case for the feature-gate regression that
+cost three runs.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the hands are at the controllers; the stereo eye offset is the last placement fault
+
+### Where this is
+
+**Placement through the measured chain WORKS.** The hands track the
+controllers, hold position through head turns, and now occlude correctly
+against world geometry. The tester rates it the best result of the session.
+
+The path is measured, not inferred. Read from the shaders' own disassembly:
+
+```
+p_local = ( sum_i w_i * BoneMatrix[idx_i] ) * ( v0 * MeshExtension + MeshOrigin )
+p_cam   = LocalToWorld * p_local            (camera-relative world, uu)
+clip    = ViewProjectionMatrix * p_cam
+```
+
+Placement is `target_local = Rl^T * (d_cam - t)`, `T = target_local - q_local`,
+with `LocalToWorld` and `ViewProjectionMatrix` read from the device at each
+draw through the register indices that shader's own constant table declares.
+`ENGINE_NOTES.md` carries the full finding.
+
+### The remaining fault: the eye offset is not applied
+
+**Symptom:** correct in each eye individually, far too large with both open.
+
+**Diagnosis:** `method=reentry` is live and the scene is genuinely drawn twice
+(`L/s=88 R/s=88 mono/s=0`), so the world has correct stereo. But `d_cam` is
+computed from the HEAD CENTRE and used unchanged for both eyes. Placing the
+hand at the same camera-relative offset in each eye puts the two hand images an
+IPD apart in world terms - the disparity of an object at infinity. A hand-sized
+object at infinite disparity reads as a giant hand far away, which is exactly
+what is reported.
+
+**The fix** is to subtract that eye's offset: for each eye,
+`d_cam_eye = d_cam_head -/+ (IPD/2) * right_axis`, with the right axis already
+recovered from the ViewProjectionMatrix. IPD is known (63.0-63.1 mm measured).
+
+**The blocker** is that the draw does not yet know which eye it is drawing.
+The capture records the eye as `-2`, "not identified", which was flagged as a
+known gap when the mono method made it harmless. Under `reentry` it is not
+harmless and is now the last thing between this and correct hands.
+
+### What is measured and settled
+
+* Three shaders draw this mesh. Only one is depth-crushed (`MaxZ 0.001`); the
+  other two use the full range. Placement currently applies to all three.
+* Register layouts differ per shader and are parsed from each shader's CTAB.
+  One shader defines c4 as an immediate that disagrees with the device.
+* The shader does NOT normalise skin weights, but the anchor's weights sum to
+  exactly 1.0000, so it is harmless here.
+* The depth-range lever works: restoring `MaxZ` 1.0 for our draws gives correct
+  occlusion against world geometry.
+* Scale is still formally unmeasured, but the "huge" report is now attributed
+  to the eye offset rather than to scale, and should be re-judged after it.
+
+### Next steps
+
+1. Identify the eye at the hand draw under `reentry`, and apply the eye offset.
+2. Re-judge apparent scale once stereo is correct.
+3. Then Build B: controller orientation and a grip-to-palm transform.
+4. Outstanding and deliberately not done: pose timing (head look-ahead vs
+   hand), the harness case for the feature-gate regression, render states in
+   the capture, and a rigorous uu/m measurement.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the SkelControl lane is closed, the palette route is next
+
+### Where this branch is
+
+The arm/hand split is healthy and confirmed in the headset: hands cut at the
+wrist, arms hidden, caps present, cap colour approved, ring at the measured
+-4.9. Two PRs are open and unmerged - #19 (VR-31, the split) and #20 (VR-53 and
+VR-51, the desktop mirror eye pin and the pause-menu session loss).
+
+**VR-33's native route is closed, and it is now evidence rather than an
+artifact.** The earlier "zero of 64 SkelControl objects advance" reading was a
+truncated scan - the sweep stopped when its 64-entry comparison table filled,
+so 64 was the array's capacity, not a population. Fixed and re-run the same
+day with the hands subsystem LIVE (`[Hands] Enabled=1`, `[Mode] GamepadOnly=0`,
+the state every earlier measurement lacked), 34 consecutive samples read:
+**103,117 GObjects entries walked, 66 SkelControls, all 66 tracked, 0
+untracked, 0 advancing.** No SkelControl is evaluated on this build, so a write
+to one cannot move anything. The old table had missed exactly two objects, so
+the retracted reading was right by luck; it is measured now. This also does
+retire the 38.x "9,000 writes a second outrun the recompute" reading. See
+ENGINE_NOTES, "SkelControls are NOT evaluated on this build".
+
+The scan's cost is measured too: **505-520 ms of game-thread stall once per
+second**, attributed by the perf line to `out/idle`, ~46 display slots at
+90 Hz. It is unplayable while armed. It is back OFF in the installed ini.
+
+### What IS established, and is worth keeping
+
+* `handAttachment_L/R_jnt` are children of `hand_L/R_jnt`, from validated
+  engine parent walks. If anything ever does move a hand joint, the weapon
+  attachment is beneath it.
+* The camera is on the spine/head branch; the two arms meet only at `Root_jnt`.
+  A per-side edit at or below a hand cannot disturb the view or the other hand.
+* Skeleton indices are NOT palette slots: `hand_L_jnt` is 54 and
+  `handAttachment_L_jnt` 56, against a 48-entry palette.
+* The arm mesh's declaration uses streams 0 and 1; a stale stream-2 binding was
+  what kept costing the wrist caps. Bound is not used.
+* Full bone table, class Super offset (+0x44), socket table with parent bones,
+  and the control field offsets - all in ENGINE_NOTES.
+
+### The next step
+
+**The draw-scoped palette backend, hands only.** Build a private palette per
+hand by applying one common rigid delta D to every skinning matrix that draw
+consumes, and draw each hand under its own palette. Finger animation survives
+because `sum_i w_i (D M_i) v = D (sum_i w_i M_i v)`, so this is not a static
+hand. The two hand classes already have independent index ranges in `MsDraw`,
+which is where it goes.
+
+Its honest cost: it moves pixels only. Weapons, muzzle effects and firing aim
+stay on the engine's transform, which a GPU edit does not touch, so the weapon
+half of VR-33 needs a separate mechanism. The tester has already accepted that
+the crosshair can be faked separately.
+
+The gate is passed - the tick scan has been run and the native lane is shut.
+The palette backend is the route, and it is the work in front of this branch.
+
+**What it is not**: it moves pixels only. Weapons, muzzle effects and firing
+aim stay on the engine's transform, which a GPU-side edit does not touch, so
+the weapon half of VR-33 needs a separate mechanism. The crosshair can be
+faked separately and that has been accepted.
+
+### How the pieces already on disk fit
+
+The backend is a join of two things that exist, not new machinery.
+
+* `hkSetVSConstF` already carries a whole-palette rewrite - the 30.70/71 hand
+  drive in `core/framework/vs_const_hook.cpp` applies a per-hand rotation and
+  translation to every bone matrix in a `c6` upload. That is exactly the
+  `D * M_i` the finger-animation argument needs.
+* What it lacks is DRAW SCOPE: it identifies a rig by upload `count` and
+  ordinal, so it cannot give the two hands different deltas when they share
+  one upload.
+* The missing half is on the other side. `MsDraw` in
+  `game/dishonored/hands/mesh_split.cpp` already has independent per-class
+  index ranges (`MS_CLS_HAND_A` / `MS_CLS_HAND_B`).
+
+So: cache the game's last `c6` block, and have `MsDraw` upload `D_L * M`
+before the hand-A range and `D_R * M` before hand-B, restoring the original
+block afterwards. D3D9 constants are current state, not one-shot - the trap is
+already recorded at `hands/draw_census.cpp:334`.
+
+### Build and deploy state
+
+The installed `d3d9.dll` is code-current with this branch - built and installed
+2026-09-07 12:55, three DOCS-ONLY commits behind HEAD. Its last run stamped
+`alpha-334-g88eefb61-dirty`; HEAD is `alpha-337-g220c5a28`, and the difference
+is ENGINE_NOTES and STATUS only. Rebuild anyway before trusting a build id.
+
+**Verified in the headset:** the split, the clip, the caps and cap colour, the
+ring at -4.9, the arms staying hidden, and the SkelControl lane being inert.
+**Built but NOT headset-verified:** the desktop mirror eye pin and the
+pause-menu session fix on PR #20 - both still need the run in
+`docs/dishonored/DESKTOP_MIRROR.md` section 7.
+
+**All diagnostics are now disarmed on the dev rig**: `[Hands] BoneQuery=0`,
+`HandMoveTest=0`. `PoseReport` has no key and defaults on; it is read-only and
+prints once. The GObjects tick scan is gated behind `HandMoveTest` and is the
+thing that cost frame rate - leave it off.
+
+### Traps this session paid for
+
+* A too-narrow grep produced two confident false claims ("the codebase has
+  never called a UE3 function", "g_peReentry is read nowhere"). Both were
+  wrong; grep the tree, not one file.
+* An instrument that cannot fail its own hypothesis is worse than none: a
+  function-local `static` made a false negative read as a measurement, and a
+  walk that printed ROOT for three different endings made a broken chain look
+  complete.
+* The GObjects-wide tick scan is heavy enough to be felt in the headset. It
+  ships OFF and should stay off.
+
+## PREVIOUS (2026-09-06): VR-33 - hands and weapons where the controllers are
+
+This is the working branch for VR-33 and it is the CONTINUATION OF BOTH open
+PRs: the arm/hand split (VR-31, PR #19) and the desktop mirror eye pin plus the
+pause-menu session fix (VR-53 / VR-54, PR #20). Both are merged in here, and
+neither has been merged to `VR-Main`.
+
+### Read this before installing anything
+
+**The two PR branches do not work on their own.** Branch VR-31 has no API layer
+guard, and without it `xrCreateInstance` fails with `XrResult(-32)` on both the
+native runtime and the SteamVR shim, so the game runs flat with no VR at all.
+The guard is on the VR-53 branch. That was found by installing the VR-31 branch
+alone on 2026-09-06 and losing VR entirely.
+
+**So install from THIS branch**, not from either PR branch, for as long as both
+PRs are open. The PR branches are for review; this one is what runs.
+
+### What VR-33 is
+
+The hands and the weapons go where the VR controllers are. VR-30 took the head's
+yaw out of the pawn's facing, which is what lets a hand sit still in the world
+while the head moves; VR-31 decided the presentation and cut the hands free of
+the arms. This branch is the transform work that follows from both.
+
+Nothing has been written for it yet.
+
+### Open questions carried in from the two PRs
+
+* **The cap's colour has not been re-confirmed** since the UV decode was
+  widened. The mode had never run - this asset packs TEXCOORD0 as `FLOAT16_2`
+  and the check demanded a `FLOAT2` - so every cap took ring vertex 0, an
+  arbitrary choice that happened to look right.
+* **Whether the ring's shape changes with the POSE** is unanswered. The cut is
+  computed in the bind pose and seen in the animated one.
+* **The desktop eye pin and the pause-menu fix are unverified in the headset.**
+  Section 7 of `docs/dishonored/DESKTOP_MIRROR.md` has the three checks.
+
+### References
+
+* `docs/dishonored/ARM_HAND_SPLIT.md` - the split, every key and hotkey, the traps
+* `docs/dishonored/DESKTOP_MIRROR.md` - the eye policy and the hold fix
+* `docs/dishonored/BRIEF-eye-flicker.md` - the hypothesis graveyard, ANSWERED
+
+## MERGED IN (VR-53 / VR-54, PR #20) (2026-09-06): VR-53 / VR-54 - the desktop had no eye policy, and a hold banked empty layers
+
+This branch is the frame path and nothing else. The arm/hand split worked on in
+the same sessions was split out onto its own branch and is VR-31.
+
+**The full reference is `docs/dishonored/DESKTOP_MIRROR.md`**; the hypothesis
+graveyard that led to it is `docs/dishonored/BRIEF-eye-flicker.md`, now marked
+answered. This section is the handoff summary only.
+
+### What was actually wrong
+
+`hkPresent` calls the game's original `Present` for EVERY eye draw, and
+`mirror_present()` in the runtime layer had never implemented the D3D9 copy -
+its own comment said so. So the game WINDOW showed L(k), R(k), L(k+1), R(k+1)
+while the headset received correct pairs the whole time. A recording of the
+window alternates between two camera positions one IPD apart, which is exactly
+what alternate-eye rendering looks like, and the diagnosis had been aimed at
+the headset path for several sessions on the strength of it.
+
+The headset was never doing AER. The desktop had no eye policy at all.
+
+`core/gfx/desktop_eye.cpp` pins it: snapshot on the left eye's present, re-blit
+over the right eye's present AFTER that eye's XR capture. The runtime layer
+owns the WHEN and the new module owns the HOW, so `openxr_runtime.cpp` gains a
+hook pointer and nothing else.
+
+### The pause-menu session loss (VR-54)
+
+On a hold-only present the submitted copies are `holdProj` / `holdViews` /
+`holdQuad`, not the empty `proj` / `projViews` / `quad` locals - but the hold
+sets `layerCount = 1` and the snapshot bank keyed off `layerCount`, so it
+overwrote a good snapshot with zeroed structures and left it marked valid. The
+next hold submitted null handles and a zero view count, `xrEndFrame` answered
+`XR_ERROR_HANDLE_INVALID`, and the session stood down. Banked on
+`builtNewLayer` now.
+
+Still open and tracked separately: a saved layer holds swapchain HANDLES, not
+pixels, and OpenXR composites the most recently RELEASED image, so preserving a
+completed PAIR needs retained images rather than a retained structure.
+
+### Retracted, not tuned
+
+The "30 % of ticks double" reading and the stand-down guard built on it are
+REMOVED. That window straddled a pause menu, an `xrEndFrame` failure and
+session teardown; the windows either side read 78/78, 86/86, 87/87, 81/81. The
+guard would have disarmed a healthy renderer every time a session dropped. The
+`camera/eyetrace` line is corrected too - its ring samples constant uploads,
+not presents.
+
+### The run this needs
+
+Look at the game window: one view, no alternation, while the headset keeps
+correct stereo depth. `desktopeye:` in the log every 15 s should show snapshot
+and re-blit counts EQUAL and non-zero. Then open and close the pause menu
+several times: no `XR_ERROR_HANDLE_INVALID`, no session teardown.
+
+### Not addressed here
+
+Performance: ~78 complete pairs/s against a 90 Hz headset, ~9.7 ms of D3D9 GPU
+span per tick, 15.7 Mpixel per pair at 2750x2850. That is the next subject.
+## MERGED IN (VR-31, PR #19) (2026-09-06): VR-31 - the hands are cut from the arms, clipped and capped
 
 This branch is the arm/hand split and nothing else. The desktop mirror eye pin
 and the pause-menu session loss found in the same sessions were split out onto

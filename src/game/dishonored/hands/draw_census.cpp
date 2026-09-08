@@ -249,11 +249,15 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
         // It is tried once. A refusal is remembered, so a mesh whose buffers
         // will not read does not re-lock them every frame; `ms rebuild` or
         // Numpad / clears it.
-        if (g_msOn && !g_msReady && !g_msRefused && g_dcPendingBones >= 2 &&
+        // A DEGRADED split may be upgraded. g_msReady alone would make the
+        // first uncapped build permanent, so a split that wanted the clip and
+        // did not get it stays eligible for a later pass that can be clipped.
+        if (g_msOn && (!g_msReady || g_msDegraded) && !g_msRefused &&
+            g_dcPendingBones >= 2 &&
             g_dcSinceUpload < DC_REUSE_WINDOW) {
             if (!MsBuild(self, baseVertex, minIndex, numVertices, startIndex,
-                         primCount, g_dcPendingBones))
-                g_msRefused = 1;
+                         primCount, g_dcPendingBones) && !g_msRetryLater)
+                g_msRefused = 1;   // a DECLINE is not a refusal - see MsBuild
         }
         // The wrist knob's refill happens HERE, on the render thread, because
         // this is the lane that draws from the buffer being refilled.
@@ -263,7 +267,7 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
             g_msReclassReq = 1;
         }
         if (g_msReclassReq && g_msReady) { g_msReclassReq = 0; MsReclassify(self); }
-        if (g_msOn && MsDraw(self, type, baseVertex, minIndex, numVertices, primCount)) {
+        if (g_msOn && MsDraw(self, type, baseVertex, minIndex, numVertices, startIndex, primCount)) {
             g_dcDropIdx++;
             return D3D_OK;
         }
@@ -273,6 +277,16 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
         // armed by itself must never make the arms vanish because a read
         // failed, so with no usable split it draws exactly what the game asked
         // for and says so in the beat.
+        // Our geometry, but a draw whose contract the split does not
+        // describe. It must be DRAWN, not dropped: suppressing it loses
+        // whatever pass it was - depth, shadow, a second material - and the
+        // arms come back or a contribution silently vanishes. The fail-soft
+        // below only covers the case where NO split exists.
+        if (g_msPassThrough) {
+            g_msFallback++;
+            return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex,
+                                                 numVertices, startIndex, primCount);
+        }
         if (g_msAutoArmed && (!g_msReady || g_msMode == MS_MODE_OFF)) {
             g_msFallback++;
             return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex,
@@ -550,9 +564,15 @@ static void DcCycleTick()
 
 static void DcTick()
 {
+    // MsTick used to be called BELOW the g_dcOn gate, so switching the draw
+    // census off silently killed the mesh split's whole tick - mode cycling,
+    // the wrist knob and the palette step all stopped, and the split stopped
+    // being maintained, which put the arms back on screen with nothing in the
+    // log to say why. The split does not belong to the census; it ticks either
+    // way now.
+    MsTick();
     if (!g_dcOn) return;
     DcCycleTick();
-    MsTick();
     // STALE LOCK. A level load recreates the buffers, and the old lock then
     // names freed pointers that no draw will ever match again - the mesh comes
     // back whole with nothing in the log to say why. Releasing an automatic

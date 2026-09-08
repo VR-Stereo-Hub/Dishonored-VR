@@ -39,8 +39,11 @@ static bool MsDecl(IDirect3DVertexDeclaration9* d, MsElem* pos, MsElem* wt, MsEl
     // cannot interpolate is copied from the nearer parent, which is right for a
     // bone index and close enough on a ring one triangle wide.
     g_msNel = 0;
+    g_msDeclStreams = 0;
     for (UINT i = 0; i < n; i++) {
-        if (el[i].Stream != 0 || el[i].Type == D3DDECLTYPE_UNUSED) continue;
+        if (el[i].Type == D3DDECLTYPE_UNUSED) continue;
+        if (el[i].Stream < 32) g_msDeclStreams |= (1u << el[i].Stream);
+        if (el[i].Stream != 0) continue;
         if (g_msNel < MAXD3DDECLLENGTH) g_msEl[g_msNel++] = el[i];
     }
     for (UINT i = 0; i < n; i++) {
@@ -285,14 +288,25 @@ static bool MsRead(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
         // vertices are addressed by the same index. So look, and say what was
         // found - a veto here is the difference between a clipped edge and a
         // sawtooth one, and it must not be silent.
+        // BOUND IS NOT USED. A stream left bound by an earlier draw is not
+        // data this one consumes: the declaration decides what the shader
+        // reads. The first version vetoed on any bound stream, which can throw
+        // away the clip - and the caps with it - over leftover state. Only a
+        // stream the declaration NAMES is allowed to veto.
         g_msExtraStream = -1;
         for (UINT si = 1; si < 8; si++) {
+            if (!(g_msDeclStreams & (1u << si))) continue;   // decl ignores it
             IDirect3DVertexBuffer9* ex = NULL; UINT eo = 0, es = 0;
             if (SUCCEEDED(dev->GetStreamSource(si, &ex, &eo, &es)) && ex) {
                 ex->Release();
                 if (es) { g_msExtraStream = (int)si; break; }
             }
         }
+        if (g_msDeclStreams & ~1u)
+            Log("ms: the declaration references stream mask 0x%X; only a stream "
+                "it actually names can veto the clip, because a stream merely "
+                "left bound by an earlier draw is not data this one reads",
+                g_msDeclStreams);
         g_msOwnVb = (g_msExtraStream < 0) && (stride <= MS_MAX_STRIDE);
         if (!g_msOwnVb)
             Log("ms: stream %d is also bound (or the %u byte vertex is past this "
@@ -1404,9 +1418,27 @@ static bool MsUpload(IDirect3DDevice9* dev)
             if (FAILED(dev->CreateVertexBuffer(room, D3DUSAGE_WRITEONLY, 0,
                                                D3DPOOL_MANAGED, &g_msVb, NULL)) ||
                 !g_msVb) {
-                Log("ms: REFUSED - could not create a %u byte vertex buffer; "
-                    "falling back to the game's, which means no clipping", room);
+                // NEVER SUBMIT GENERATED-VERTEX INDICES WITHOUT THE VERTICES.
+                // The clip has already run by the time we get here, so
+                // g_msOutIdx contains indices at or past g_msVerts that exist
+                // ONLY in the buffer we just failed to create. Clearing the
+                // flag would send those indices to the GAME's vertex buffer,
+                // where they address whatever happens to be there. Falling
+                // back is not free once vertices have been invented.
+                Log("ms: REFUSED - could not create a %u byte vertex buffer "
+                    "(%d clipped vertex(es) already generated). Re-deriving "
+                    "WITHOUT the clip rather than pointing generated indices at "
+                    "the game's vertices, which would draw garbage.",
+                    room, g_msClipN);
                 g_msOwnVb = false;
+                g_msDegraded = true;
+                MsClassify();          // whole triangles, no invented vertices
+                if (g_msClipN) {
+                    Log("ms: REFUSED - the reclassify still produced %d clipped "
+                        "vertex(es) with no buffer to hold them. Standing the "
+                        "split down entirely.", g_msClipN);
+                    return false;
+                }
             }
         }
     }
@@ -1469,6 +1501,85 @@ static bool MsUpload(IDirect3DDevice9* dev)
             at++; n++;
         }
         g_msClsCount[cls] = n;
+
+        // THE PALM ANCHOR for this class.
+        //
+        // The first version walked triangle corners on an index-modulo rule.
+        // Triangle order is not spatial order, so that sampled the WHOLE hand,
+        // fingers included, and could take the same vertex twice. An anchor
+        // containing finger vertices moves when the fingers animate, and
+        // pinning that average then drags the palm in response to finger
+        // motion - the correction would fight the animation it is supposed to
+        // ride on top of.
+        //
+        // So take a spatially COMPACT patch: the vertices nearest the hand
+        // class's own bind-pose centroid. Fingers are the extremities of that
+        // cloud and fall out naturally, without needing to identify a joint.
+        // Deduplicated, ORIGINAL vertices only (the clip's generated vertices
+        // have no blend data to skin with), and fixed from here on.
+        if (cls == MS_CLS_HAND_A || cls == MS_CLS_HAND_B) {
+            g_mpAnchorN[cls] = 0;
+            float cen[3] = { 0.0f, 0.0f, 0.0f };
+            int cn = 0;
+            for (int t = 0; t < g_msOutN; t++) {
+                if (g_msOutCls[t] != cls) continue;
+                for (int c = 0; c < 3; c++) {
+                    const uint32_t v = g_msOutIdx[t * 3 + c];
+                    if ((int)v >= g_msVerts) continue;
+                    cen[0] += g_msVert[v].p[0]; cen[1] += g_msVert[v].p[1];
+                    cen[2] += g_msVert[v].p[2]; cn++;
+                }
+            }
+            if (cn > 0) {
+                cen[0] /= (float)cn; cen[1] /= (float)cn; cen[2] /= (float)cn;
+                // Selection sort of the nearest MP_ANCHOR_N, deduplicated.
+                float best[MP_ANCHOR_N];
+                for (int k = 0; k < MP_ANCHOR_N; k++) best[k] = 3.4e38f;
+                for (int t = 0; t < g_msOutN; t++) {
+                    if (g_msOutCls[t] != cls) continue;
+                    for (int c = 0; c < 3; c++) {
+                        const uint32_t v = g_msOutIdx[t * 3 + c];
+                        if ((int)v >= g_msVerts) continue;
+                        bool dup = false;
+                        for (int k = 0; k < g_mpAnchorN[cls] && !dup; k++)
+                            if (g_mpAnchorIdx[cls][k] == v) dup = true;
+                        if (dup) continue;
+                        const float dx = g_msVert[v].p[0] - cen[0];
+                        const float dy = g_msVert[v].p[1] - cen[1];
+                        const float dz = g_msVert[v].p[2] - cen[2];
+                        const float d2 = dx*dx + dy*dy + dz*dz;
+                        int at = -1;
+                        for (int k = 0; k < MP_ANCHOR_N; k++)
+                            if (d2 < best[k]) { at = k; break; }
+                        if (at < 0) continue;
+                        for (int k = MP_ANCHOR_N - 1; k > at; k--) {
+                            best[k] = best[k - 1];
+                            g_mpAnchorIdx[cls][k] = g_mpAnchorIdx[cls][k - 1];
+                        }
+                        best[at] = d2;
+                        g_mpAnchorIdx[cls][at] = v;
+                        if (g_mpAnchorN[cls] < MP_ANCHOR_N) g_mpAnchorN[cls]++;
+                    }
+                }
+            }
+            // How tight the patch actually is, so "compact" is a number rather
+            // than an intention: a wide radius means fingers are still in it.
+            float rad = 0.0f;
+            for (int k = 0; k < g_mpAnchorN[cls]; k++) {
+                const MsVert* v = &g_msVert[g_mpAnchorIdx[cls][k]];
+                const float dx = v->p[0] - cen[0], dy = v->p[1] - cen[1],
+                            dz = v->p[2] - cen[2];
+                const float d = sqrtf(dx*dx + dy*dy + dz*dz);
+                if (d > rad) rad = d;
+            }
+            Log("ms/palette/anchor: class %s - %d vertex(es) within %.2f uu of "
+                "the class centroid (%.1f %.1f %.1f), from %d triangle(s). "
+                "FIXED identities, deduplicated, bind-pose compact. A radius "
+                "approaching the hand's own size would mean fingers are in the "
+                "patch and their animation would drag the anchor.",
+                cls == MS_CLS_HAND_A ? "A (left)" : "B (right)",
+                g_mpAnchorN[cls], rad, cen[0], cen[1], cen[2], n);
+        }
     }
     g_msIb->Unlock();
     Log("ms: buffers rebuilt - handA %d@%d, handB %d@%d, armA %d@%d, armB "
@@ -1500,8 +1611,77 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     Log("ms: ==== deriving the hand/arm split from bone influence ==== "
         "(draw: base %d, min %u, %u verts, start %u, %u tris, palette %u bones)",
         baseVertex, minIndex, numVertices, startIndex, primCount, bones);
+    g_msRetryLater = false;
+
+    // CHEAP FIRST. Ask whether this draw can be clipped BEFORE locking and
+    // copying its buffers - the first version declined only after the full
+    // readback, so every skipped candidate paid for two buffer locks and a
+    // 2771-vertex copy it then threw away.
+    if (g_msEdge == 3 && g_msStreamSkips < MS_MAX_STREAM_SKIPS) {
+        IDirect3DVertexDeclaration9* d0 = NULL;
+        uint32_t mask = 0;
+        if (SUCCEEDED(dev->GetVertexDeclaration(&d0)) && d0) {
+            D3DVERTEXELEMENT9 el0[MAXD3DDECLLENGTH]; UINT n0 = 0;
+            if (SUCCEEDED(d0->GetDeclaration(el0, &n0))) {
+                if (n0 > MAXD3DDECLLENGTH) n0 = MAXD3DDECLLENGTH;
+                for (UINT i = 0; i < n0; i++)
+                    if (el0[i].Type != D3DDECLTYPE_UNUSED && el0[i].Stream < 32)
+                        mask |= (1u << el0[i].Stream);
+            }
+            d0->Release();
+        }
+        int veto = -1;
+        for (UINT si = 1; si < 8 && mask; si++) {
+            if (!(mask & (1u << si))) continue;
+            IDirect3DVertexBuffer9* ex = NULL; UINT eo = 0, es = 0;
+            if (SUCCEEDED(dev->GetStreamSource(si, &ex, &eo, &es)) && ex) {
+                ex->Release();
+                if (es) { veto = (int)si; break; }
+            }
+        }
+        if (veto >= 0) {
+            g_msStreamSkips++;
+            g_msRetryLater = true;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                "ms: this draw declares AND binds stream %d, so the clip cannot "
+                "run on it - declining before the readback (skip %d of %d). "
+                "Nothing was locked or copied.",
+                veto, g_msStreamSkips, MS_MAX_STREAM_SKIPS);
+            return false;
+        }
+    }
+
     if (!MsRead(dev, baseVertex, minIndex, numVertices, startIndex, primCount, bones))
         return false;
+
+    // WAIT FOR A PASS WE CAN CLIP ON. This mesh is drawn by more than one
+    // pass and only some bind stream 0 alone; accepting a multi-stream one
+    // silently costs the clipped edge and the caps with it. Decline and let
+    // the next matching draw try - this is NOT a refusal, so the lock is not
+    // burned and the good pass still gets its chance.
+    if (!g_msOwnVb && g_msEdge == 3 && g_msStreamSkips < MS_MAX_STREAM_SKIPS) {
+        // Backstop: the cheap check above should have caught this, so reaching
+        // here means the two disagree - worth knowing.
+        g_msStreamSkips++;
+        g_msRetryLater = true;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+            "ms: this draw of the mesh binds stream %d as well, so the clip "
+            "cannot run on it - DECLINING and waiting for a pass that binds "
+            "stream 0 alone (skip %d of %d). The same mesh is drawn by several "
+            "passes and only some can be clipped; taking this one is how the "
+            "wrist caps go missing.",
+            g_msExtraStream, g_msStreamSkips, MS_MAX_STREAM_SKIPS);
+        return false;
+    }
+    if (!g_msOwnVb && g_msEdge == 3) {
+        g_msDegraded = true;
+        Log("ms: WARNING - %d build candidates in a row declared and bound a "
+            "second stream, so no clippable pass was found. Taking the "
+            "whole-triangle cut: a sawtooth edge and NO caps. This is DEGRADED, "
+            "not settled - a later clippable pass is allowed to replace it, and "
+            "the pending path draws the game's own mesh meanwhile, so the "
+            "alternative was never no hands.", g_msStreamSkips);
+    }
     MsBones(bones);
     if (!MsSides()) return false;
     if (!MsWrist(1) || !MsWrist(2)) {
@@ -1517,6 +1697,27 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     }
     if (!MsReclassify(dev)) return false;
     g_msReady = 1;
+    if (g_msOwnVb) { g_msStreamSkips = 0; g_msDegraded = false; }   // a good pass clears it
+
+    // The draw contract this split describes. Every later draw that wants to
+    // use it must match, or the re-based indices address the wrong vertices.
+    g_msBuiltBaseVertex = baseVertex;
+    g_msBuiltMinIndex   = minIndex;
+    g_msBuiltNumVerts   = numVertices;
+    g_msBuiltStartIndex = startIndex;
+    {
+        IDirect3DVertexDeclaration9* d = NULL;
+        if (SUCCEEDED(dev->GetVertexDeclaration(&d)) && d) { g_msBuiltDecl = d; d->Release(); }
+        IDirect3DVertexBuffer9* vb0 = NULL; UINT o0 = 0, s0 = 0;
+        if (SUCCEEDED(dev->GetStreamSource(0, &vb0, &o0, &s0)) && vb0) {
+            g_msBuiltStream0Off = o0; vb0->Release();
+        }
+    }
+    Log("ms: built from base %d, min %u, %u verts, start %u, stream0 offset %u, "
+        "decl %p. A draw that does not match this contract cannot use this "
+        "split - its indices are re-based onto our own vertex buffer.",
+        g_msBuiltBaseVertex, g_msBuiltMinIndex, g_msBuiltNumVerts,
+        g_msBuiltStartIndex, g_msBuiltStream0Off, g_msBuiltDecl);
     Log("ms: ==== READY - mode %s. Numpad 0 cycles the mode, + / - move the "
         "wrist, * picks which arm the wrist knob moves, / re-derives. ====",
         MsModeName(g_msMode));
@@ -1526,17 +1727,444 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 
 // ---- the draw ---------------------------------------------------------------
 
+// The palette does not survive a device reset: the constants are gone and any
+// register we still believe in describes a device that no longer exists. There
+// was no invalidation at all before - the cache simply kept its last contents.
+static void MpOnReset(void)
+{
+    memset(g_mpValid, 0, sizeof(g_mpValid));
+    g_mpValidN = 0;
+    g_mpCacheN = 0;
+    g_mpPalN   = 0;
+    g_mpResidOk[0]  = g_mpResidOk[1]  = false;
+    Log("ms/palette: device reset - the palette cache, the calibrated origins "
+        "and the residuals are all dropped. Constants do not survive a reset "
+        "and a register we still believed in would describe a dead device.");
+}
+
+
+static inline bool MpFinite(float x)
+{
+    return x == x && x < 3.4e38f && x > -3.4e38f;
+}
+
+
+// PLACEMENT THROUGH THE MEASURED CHAIN.
+//
+// THE SAMPLE UNIT IS THE ORIGINAL DRAW, NOT THE HAND.
+//
+// This function used to read the device itself, from inside MsDraw's per-hand
+// loop. So its "ordinal" counted HANDS: ordinal 0 was the left hand and
+// ordinal 1 the right hand OF THE SAME ORIGINAL DRAW, whose constants are
+// identical by construction. Comparing them measured nothing about eyes, and
+// 24,376 zero-difference pairs were reported as evidence that LocalToWorld
+// carries no eye information. It is not evidence either way - that question is
+// open again - and the "third draw" counter was simply the next original
+// draw's left hand.
+//
+// The context is therefore acquired ONCE per original draw, above the hand
+// loop, and both hands consume the same immutable copy. That also halves the
+// constant reads. An ordinal is telemetry about draws; it is never an eye
+// label.
+struct MpDrawCtx {
+    float r[3], u[3], f[3];     // camera basis, from the ViewProjection rows
+    float col[3][3], t[3];      // LocalToWorld, columns and translation
+    float projRight;            // L's translation on the right axis (telemetry)
+    float vp[16], l2w[16];      // kept whole so a diagnostic can diff them
+    uint32_t drawId;
+    bool ok;
+    const char* why;
+};
+
+
+// Read the draw's own constants and validate them. One call per original draw.
+static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
+{
+    memset(c, 0, sizeof(*c));
+    c->why = "not attempted";
+    if (!dev) { c->why = "no device"; return false; }
+    if (g_pcLayVp < 0 || g_pcLayL2W < 0) { c->why = "no shader layout"; return false; }
+
+    float vp[4][4], l2w[4][4];
+    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayVp, &vp[0][0], 4)))
+        { c->why = "VP read failed"; return false; }
+    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayL2W, &l2w[0][0], 4)))
+        { c->why = "LocalToWorld read failed"; return false; }
+    memcpy(c->vp, vp, sizeof(c->vp));
+    memcpy(c->l2w, l2w, sizeof(c->l2w));
+
+    // The camera basis, from the rows of the ViewProjection. NOTE the standing
+    // caveat: normalising rows this way assumes a symmetric projection. It has
+    // held on every captured packet so far and is checked below, but an
+    // asymmetric projection would need the principal-point terms removed first.
+    float r[3] = { vp[0][0], vp[1][0], vp[2][0] };
+    float u[3] = { vp[0][1], vp[1][1], vp[2][1] };
+    float f[3] = { vp[0][3], vp[1][3], vp[2][3] };
+    const float rn = sqrtf(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]);
+    const float un = sqrtf(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
+    const float fn = sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]);
+    if (!(rn > 1e-4f) || !(un > 1e-4f)) { c->why = "degenerate focal scales"; return false; }
+    if (fabsf(fn - 1.0f) > 0.01f) { c->why = "w row is not unit - not a standard perspective"; return false; }
+    for (int i = 0; i < 3; i++) { r[i] /= rn; u[i] /= un; }
+    const float ru = r[0]*u[0] + r[1]*u[1] + r[2]*u[2];
+    const float rf = r[0]*f[0] + r[1]*f[1] + r[2]*f[2];
+    const float uf = u[0]*f[0] + u[1]*f[1] + u[2]*f[2];
+    if (fabsf(ru) > 0.02f || fabsf(rf) > 0.02f || fabsf(uf) > 0.02f)
+        { c->why = "camera basis is not orthonormal"; return false; }
+    memcpy(c->r, r, sizeof(r)); memcpy(c->u, u, sizeof(u)); memcpy(c->f, f, sizeof(f));
+
+    // LocalToWorld: columns in the first three registers. ORTHOGONALITY is
+    // checked, not just column length - unit columns alone do not make a
+    // rotation, and the transpose is only the inverse if it is one.
+    for (int j = 0; j < 3; j++)
+        for (int i = 0; i < 3; i++) c->col[j][i] = l2w[j][i];
+    for (int i = 0; i < 3; i++) c->t[i] = l2w[3][i];
+    for (int j = 0; j < 3; j++) {
+        const float n = sqrtf(c->col[j][0]*c->col[j][0] + c->col[j][1]*c->col[j][1] +
+                              c->col[j][2]*c->col[j][2]);
+        if (fabsf(n - 1.0f) > 0.02f) { c->why = "LocalToWorld column is not unit"; return false; }
+    }
+    for (int j = 0; j < 3; j++)
+        for (int kk = j + 1; kk < 3; kk++) {
+            const float d = c->col[j][0]*c->col[kk][0] + c->col[j][1]*c->col[kk][1] +
+                            c->col[j][2]*c->col[kk][2];
+            if (fabsf(d) > 0.02f) { c->why = "LocalToWorld columns are not orthogonal"; return false; }
+        }
+
+    c->projRight = c->t[0]*r[0] + c->t[1]*r[1] + c->t[2]*r[2];
+    c->drawId = ++g_mpDrawSeq;
+    c->ok = true;
+    c->why = NULL;
+    return true;
+}
+
+
+// COMPARE SUCCESSIVE ORIGINAL DRAWS - the comparison that was never made.
+//
+// The previous diagnostic compared the two hands of one draw and found them
+// identical, which was arithmetic rather than evidence. This compares one
+// original draw against the previous one, which is the only pair that CAN
+// differ by an eye.
+//
+// It states what it sampled, not just what it found: draws entered, sampled,
+// rejected and compared are separate counts, and "no difference observed" is
+// reported separately from "nothing was sampled".
+// Decide the eye ONCE PER PRESENT. Within a Present every draw carries the
+// same constants - that is what the runs of exact zeroes are - and the eye
+// changes between Presents, showing up as a right-axis jump of about one IPD.
+//
+// Head motion also moves that projection between Presents, so a jump alone is
+// not enough: the band is bounded on both sides, and anything outside it
+// leaves the eye UNKNOWN rather than guessed. Unknown means no offset, which
+// is the consistent head-centre placement rather than a full IPD of error.
+static void MpEyeForPresent(const MpDrawCtx* c)
+{
+    const uint32_t pres = (uint32_t)dvr::frame::count();
+    if (pres == g_mpEyePresent) return;          // same Present, decision stands
+    g_mpEyePresent = pres;
+
+    const float ipdUU = g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f)
+                                  * g_mpDriveGain);
+    if (!g_mpEyeHavePrev) {
+        g_mpEyeHavePrev = true; g_mpEyePrevFirst = c->projRight;
+        g_mpEyeState = 0;                        // nothing to compare against yet
+        return;
+    }
+    const float d = c->projRight - g_mpEyePrevFirst;
+    const float ad = fabsf(d);
+    if (ad > 0.45f * ipdUU && ad < 2.0f * ipdUU) {
+        // The eye changed. The SIGN gives it absolutely, with no vote: the
+        // smaller right-axis projection is the right eye.
+        g_mpEyeState = (d < 0.0f) ? +1 : -1;
+        g_mpEyeToggles++;
+    } else if (ad <= 0.45f * ipdUU) {
+        // Same eye as the previous Present - or too small to tell apart.
+        g_mpEyeSame++;
+    } else {
+        g_mpEyeState = 0;                        // head moved too far to judge
+        g_mpEyeAmbiguous++;
+    }
+    g_mpEyePrevFirst = c->projRight;
+}
+
+
+static void MpDrawCompare(const MpDrawCtx* c)
+{
+    if (!c || !c->ok) return;
+    MpEyeForPresent(c);
+    if (!g_mpEyeHunt) return;
+    if (g_mpPrevDrawOk) {
+        float dv = 0.0f, dl = 0.0f; int dvIdx = -1, dlIdx = -1;
+        for (int i = 0; i < 16; i++) {
+            const float d = fabsf(c->vp[i] - g_mpPrevVp[i]);
+            if (d > dv) { dv = d; dvIdx = i; }
+        }
+        for (int i = 0; i < 16; i++) {
+            const float d = fabsf(c->l2w[i] - g_mpPrevL2w[i]);
+            if (d > dl) { dl = d; dlIdx = i; }
+        }
+        const float dProj = c->projRight - g_mpPrevProj;
+        if (dv > g_mpCmpMaxVp) g_mpCmpMaxVp = dv;
+        if (dl > g_mpCmpMaxL2w) g_mpCmpMaxL2w = dl;
+        if (fabsf(dProj) > fabsf(g_mpCmpMaxProj)) g_mpCmpMaxProj = dProj;
+        g_mpCmpCount++;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+            "ms/palette/cmp: draw %u vs %u | VP max element delta %.6f (idx %d) "
+            "| LocalToWorld max %.6f (idx %d) | L translation on the right axis "
+            "moved %.3f uu | running maxima VP %.6f L %.6f right %.3f over %ld "
+            "comparisons. This compares SUCCESSIVE ORIGINAL DRAWS, the only "
+            "pair that can differ by an eye; the previous diagnostic compared "
+            "the two HANDS of one draw and its zeroes meant nothing. Expected "
+            "IPD %.2f uu - but a matrix element delta is not a length, so treat "
+            "the right-axis translation as the only directly comparable number.",
+            c->drawId, g_mpPrevDrawId, (double)dv, dvIdx, (double)dl, dlIdx,
+            (double)dProj, (double)g_mpCmpMaxVp, (double)g_mpCmpMaxL2w,
+            (double)g_mpCmpMaxProj, g_mpCmpCount,
+            (double)(g_ipdM * g_skcWorldScale));
+    }
+    memcpy(g_mpPrevVp, c->vp, sizeof(g_mpPrevVp));
+    memcpy(g_mpPrevL2w, c->l2w, sizeof(g_mpPrevL2w));
+    g_mpPrevProj = c->projRight;
+    g_mpPrevDrawId = c->drawId;
+    g_mpPrevDrawOk = true;
+}
+
+
+// Place one hand through an already-acquired draw context. Reads no device
+// state of its own, so both hands of a draw are guaranteed to use identical
+// constants rather than merely expected to.
+static bool MpWorldTarget(const MpDrawCtx* c, int hand, const float* qLocal,
+                          float* outT, const char** why)
+{
+    const char* dummy = NULL; if (!why) why = &dummy;
+    if (!c || !c->ok)                { *why = c ? c->why : "no context"; return false; }
+    if (hand < 0 || hand > 1)        { *why = "bad hand"; return false; }
+    if (!g_mpCtlRUFOk[hand]) {
+        *why = (g_mpTickRan == 0)
+             ? "the pose tick has NEVER RUN - the palette backend is off, or "
+               "this build gated the tick on a flag that is not set"
+             : "the controller pose is invalid (tracking lost or not yet "
+               "acquired); the pose tick is running";
+        return false;
+    }
+
+    const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
+    const float a = g_mpCtlRUF[hand][0], b = g_mpCtlRUF[hand][1], cc = g_mpCtlRUF[hand][2];
+    float dcam[3];
+    for (int i = 0; i < 3; i++)
+        dcam[i] = k * (a * c->r[i] + b * c->u[i] + cc * c->f[i]);
+
+    // THE EYE, from the measurement the corrected sampling finally made.
+    //
+    // Comparing SUCCESSIVE ORIGINAL DRAWS shows two clean regimes: the
+    // right-axis component of LocalToWorld's translation either does not move
+    // at all between draws, or it moves by about one IPD - 6.76 uu measured
+    // against 6.31 predicted. So LocalToWorld does carry the eye after all;
+    // the per-hand sampling that appeared to rule it out was comparing a draw
+    // with itself.
+    //
+    // The eye is constant within a Present and changes between them, which is
+    // what the runs of exact zeroes are. So the eye is decided once per
+    // Present, in MpEyeForPresent, by comparing this Present's first draw
+    // against the previous one's - and never from an ordinal, a hand side or a
+    // moving midpoint, all of which have now failed.
+    if (g_mpEyeOffset && g_mpEyeState != 0) {
+        // Camera-relative: a position is world - camera, so the RIGHT eye's
+        // camera being further right makes its positions smaller on that axis.
+        // g_mpEyeState is -1 for left, +1 for right.
+        const float halfIpdUU = 0.5f * g_ipdM * k;
+        for (int i = 0; i < 3; i++) dcam[i] -= (float)g_mpEyeState * halfIpdUU * c->r[i];
+        if (g_mpEyeState > 0) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
+    } else {
+        g_mpEyeUnclassified++;
+    }
+
+    float d[3];
+    for (int i = 0; i < 3; i++) d[i] = dcam[i] - c->t[i];
+    float targetLocal[3];
+    for (int j = 0; j < 3; j++)
+        targetLocal[j] = c->col[j][0]*d[0] + c->col[j][1]*d[1] + c->col[j][2]*d[2];
+
+    for (int i = 0; i < 3; i++) {
+        outT[i] = targetLocal[i] - qLocal[i];
+        if (!MpFinite(outT[i])) { *why = "non-finite target"; return false; }
+    }
+    memcpy(g_mpLastTargetLocal[hand], targetLocal, sizeof(targetLocal));
+    memcpy(g_mpLastPCam[hand], dcam, sizeof(dcam));
+    return true;
+}
+
+
+// Where the palm anchor actually IS this frame, in the palette's output space.
+// Skins the chosen vertices with the palette the GAME asked for - never one we
+// have already moved, or the correction compounds frame on frame.
+//
+// The blend is the same one the shader does: sum over influences of
+// weight * (M[index] * vertex). Returns false rather than guessing if the
+// class has no anchor or an influence names a bone outside the block, because
+// a silently clamped index would put the anchor somewhere plausible and wrong.
+static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
+{
+    if (cls < 0 || cls >= MS_CLS_N || g_mpAnchorN[cls] <= 0) return false;
+    const int bones = (int)(count / 3);
+    float acc[3] = { 0.0f, 0.0f, 0.0f };
+
+    // EVERY anchor vertex must be valid or the whole anchor is refused. The
+    // previous version skipped a bad vertex and averaged the rest, returning
+    // success if ANY vertex worked - so a short or wrong palette silently
+    // changed WHICH point was being measured while the code's own comment
+    // promised refusal. A moved anchor and a moved hand are indistinguishable
+    // downstream, which is the one thing this measurement cannot afford.
+    for (int a = 0; a < g_mpAnchorN[cls]; a++) {
+        const uint32_t vi = g_mpAnchorIdx[cls][a];
+        if ((int)vi >= g_msVerts) return false;
+        const MsVert* v = &g_msVert[vi];
+        float wsum = 0.0f;
+        for (int i = 0; i < 4; i++) wsum += v->bw[i];
+        if (!(wsum > 0.0001f)) return false;             // also catches NaN
+        float q[3] = { 0.0f, 0.0f, 0.0f };
+        for (int i = 0; i < 4; i++) {
+            const float wgt = v->bw[i];
+            if (wgt <= 0.0f) continue;
+            const int b = (int)v->bi[i];
+            if (b < 0 || b >= bones) return false;
+            const float* r0 = pal + (b * 3 + 0) * 4;
+            const float* r1 = pal + (b * 3 + 1) * 4;
+            const float* r2 = pal + (b * 3 + 2) * 4;
+            q[0] += wgt * (r0[0]*v->p[0] + r0[1]*v->p[1] + r0[2]*v->p[2] + r0[3]);
+            q[1] += wgt * (r1[0]*v->p[0] + r1[1]*v->p[1] + r1[2]*v->p[2] + r1[3]);
+            q[2] += wgt * (r2[0]*v->p[0] + r2[1]*v->p[1] + r2[2]*v->p[2] + r2[3]);
+        }
+        // THE WEIGHT SUM IS REPORTED, NOT REPAIRED. Dividing by it here was
+        // fixing the CPU copy of an arithmetic the GPU may not perform, which
+        // would make this point something the shader never renders. Worse, if
+        // the shader really does use unnormalised weights then a palette
+        // translation T moves the vertex by wsum*T, so `target - q` would not
+        // even produce the displacement it claims. The shader has not been
+        // read yet, so this records the deviation and leaves the arithmetic
+        // alone; sums far from 1 make the whole anchor untrustworthy.
+        if (fabsf(wsum - 1.0f) > g_mpWsumTol) {
+            g_mpWsumWorst = wsum;
+            return false;
+        }
+        acc[0] += q[0]; acc[1] += q[1]; acc[2] += q[2];
+    }
+    const float inv = 1.0f / (float)g_mpAnchorN[cls];
+    out[0] = acc[0] * inv; out[1] = acc[1] * inv; out[2] = acc[2] * inv;
+    // A real finite test. `x == x` rejects NaN and cheerfully accepts
+    // infinity, and an infinite anchor would propagate into the submitted
+    // transform as a plausible-looking huge number.
+    for (int i = 0; i < 3; i++)
+        if (!MpFinite(out[i])) return false;
+    return true;
+}
+
+
+// D * M for every skinning matrix in the block, where D is a pure translation
+// by T in whatever space the palette is already expressed in. Each matrix is
+// 3 float4 rows, row-major 3x4, with the translation in .w - so a translation
+// composed on the LEFT is exactly "add T to the .w column", and the rotation
+// rows are untouched. Every bone gets the SAME D, which is what keeps the
+// animation: the weighted blend commutes with a common rigid transform.
+static void MpBuild(float* out, const float* src, UINT count, const float* T)
+{
+    memcpy(out, src, sizeof(float) * 4 * count);
+    for (UINT b = 0; b + 3 <= count; b += 3)
+        for (int i = 0; i < 3; i++)
+            out[(b + i) * 4 + 3] = src[(b + i) * 4 + 3] + T[i];
+}
+
+
 // Emit the classes this mode wants, through OUR index buffer. Returns false if
 // it drew nothing, and the caller then does whatever it would have done - which
 // is the fail-soft: an auto-armed lock with no usable split draws the mesh
 // exactly as the game asked for it.
-static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
-                   UINT minIndex, UINT numVertices, UINT primCount)
-{
-    if (!g_msReady || !g_msIb || g_msMode == MS_MODE_OFF) return false;
-    if (type != D3DPT_TRIANGLELIST) return false;
-    if ((int)primCount != g_msTris) return false;   // a different draw of this pair
+// THE GEOMETRY QUALIFIER, shared by the draw and the capture.
+//
+// Pulled out of MsDraw so the capture can ask "is this the hand draw, and does
+// it match the contract the split was built from?" WITHOUT calling MsDraw,
+// which actually draws and changes device state. A qualifier that has to draw
+// to answer is not a qualifier.
+//
+// Read-only: it takes no reference it does not release, and it writes only the
+// out-parameters. `why` gets a short reason on refusal so a capture that never
+// fires can say which field disagreed.
+struct MsContract {
+    UINT stream0Off, stride, startIndex, minIndex, numVertices;
+    INT  baseVertex;
+    void* decl;
+};
 
+static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                      UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount,
+                      MsContract* out, const char** why)
+{
+    const char* dummy = NULL;
+    if (!why) why = &dummy;
+    *why = NULL;
+    if (!dev)                        { *why = "no device";        return false; }
+    if (!g_msReady || !g_msIb)       { *why = "no split built";   return false; }
+    if (type != D3DPT_TRIANGLELIST)  { *why = "not a triangle list"; return false; }
+    if ((int)primCount != g_msTris)  { *why = "primitive count";  return false; }
+
+    // A FAILED QUERY MUST NOT CERTIFY THE CONTRACT. These used to leave their
+    // outputs at zero/NULL on failure, and the comparisons then skipped the
+    // very fields that could not be read - an unreadable device state passed
+    // as compatible.
+    UINT curOff = 0; IDirect3DVertexBuffer9* vb0 = NULL; UINT s0 = 0;
+    const bool ssOk = SUCCEEDED(dev->GetStreamSource(0, &vb0, &curOff, &s0)) && vb0 != NULL;
+    if (vb0) vb0->Release();
+    IDirect3DVertexDeclaration9* d = NULL; void* dp = NULL;
+    const bool dclOk = SUCCEEDED(dev->GetVertexDeclaration(&d)) && d != NULL;
+    if (d) { dp = d; d->Release(); }
+    if (!ssOk || !dclOk) { *why = "device state unreadable"; return false; }
+
+    if (baseVertex != g_msBuiltBaseVertex)      { *why = "base vertex";   return false; }
+    if (minIndex != g_msBuiltMinIndex)          { *why = "min index";     return false; }
+    if (numVertices != g_msBuiltNumVerts)       { *why = "vertex count";  return false; }
+    if (curOff != g_msBuiltStream0Off)          { *why = "stream0 offset"; return false; }
+    if ((int)startIndex != g_msBuiltStartIndex) { *why = "start index";   return false; }
+    if (g_msStride && s0 != g_msStride)         { *why = "stream stride"; return false; }
+    if (g_msBuiltDecl && dp != g_msBuiltDecl)   { *why = "declaration";   return false; }
+
+    if (out) {
+        out->stream0Off = curOff; out->stride = s0; out->startIndex = startIndex;
+        out->minIndex = minIndex; out->numVertices = numVertices;
+        out->baseVertex = baseVertex; out->decl = dp;
+    }
+    return true;
+}
+
+
+static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                   UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
+{
+    g_msPassThrough = false;
+    if (g_msMode == MS_MODE_OFF) return false;
+    MsContract con;
+    {
+        const char* why = NULL;
+        if (!MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex,
+                       primCount, &con, &why)) {
+            // Not this geometry at all: stay silent and let the caller decide.
+            if (!g_msReady || !g_msIb || type != D3DPT_TRIANGLELIST ||
+                (int)primCount != g_msTris)
+                return false;
+            // It IS this geometry but the contract disagrees. Draw it NORMALLY
+            // rather than replacing or dropping it - our indices are re-based
+            // and would address the wrong vertices, and the auto-arm fail-soft
+            // only covers the case where no split exists.
+            g_msIncompat++;
+            g_msPassThrough = true;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                "ms: a draw of this geometry does NOT match the contract the "
+                "split was built from - %s disagrees (base %d vs %d, min %u vs "
+                "%u, verts %u vs %u, startIndex %u vs %d). Drawing it normally.",
+                why, baseVertex, g_msBuiltBaseVertex, minIndex, g_msBuiltMinIndex,
+                numVertices, g_msBuiltNumVerts, startIndex, g_msBuiltStartIndex);
+            return false;
+        }
+    }
     int lo, hi;
     switch (g_msMode) {
     case MS_MODE_HANDS: lo = MS_CLS_HAND_A; hi = MS_CLS_HAND_B; break;
@@ -1549,6 +2177,60 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     int count = 0;
     for (int c = lo; c <= hi; c++) count += g_msClsCount[c];
     if (count <= 0) { g_msDraws++; return true; }   // drawing nothing IS the answer
+
+    // Keep the live register layout current for placement. Cheap: it compares
+    // the shader pointer and only re-reads when it changes.
+    if (g_mpWorld || (g_pcOn && g_pcWant > 0)) PcRefreshLayout(dev);
+
+    // VR-33 step 2: capture this qualified draw BEFORE any per-hand palette
+    // modification, so the packet records the state the GAME asked for. The
+    // qualifier above has already run and its contract is in `con` - the
+    // capture never calls MsDraw to find out whether it should fire, because
+    // MsDraw draws.
+    if (g_pcOn && g_pcWant > 0 && g_mpPalN && g_mpCacheN == g_mpPalN) {
+        float ourQ[3];
+        const int cls = MS_CLS_HAND_A;
+        if (MpAnchorPos(cls, g_mpCache, g_mpCacheN, ourQ)) {
+            if (PcCapture(dev, &con, primCount, cls, ourQ)) g_pcWant--;
+        } else {
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                "pcap: the anchor REFUSED at a qualified draw, so no packet was "
+                "taken - a capture whose own claimed palm position could not be "
+                "computed would be constants with nothing to check them against.");
+        }
+    }
+
+    // WHAT GETS DRAWN, AND IN HOW MANY DRAWS.
+    //
+    // Normally one merged draw over the whole class span, exactly as before.
+    // With the draw-scoped palette armed, one draw PER HAND CLASS instead, so
+    // each can carry its own c6 block - which is the entire point: the two
+    // hands share one upload from the engine and cannot otherwise be given
+    // different deltas. Off, or with no c6 block seen yet, this falls back to
+    // the merged draw and the backend costs nothing.
+    struct MpRange { int cls, start, count; };
+    MpRange rng[2];
+    int nrng = 0;
+    // The palette must be the COMPLETE verified interval for this split, not
+    // merely three registers of something. g_mpCacheN is 0 until every
+    // register in the interval is valid, so this is a state test.
+    bool perClass = g_mpOn && g_msMode == MS_MODE_HANDS &&
+                    g_mpPalN > 0 && g_mpCacheN == g_mpPalN;
+    if (perClass) {
+        for (int c = MS_CLS_HAND_A; c <= MS_CLS_HAND_B; c++)
+            if (g_msClsCount[c] > 0) {
+                rng[nrng].cls   = c;
+                rng[nrng].start = g_msClsStart[c];
+                rng[nrng].count = g_msClsCount[c];
+                nrng++;
+            }
+        if (!nrng) perClass = false;
+    }
+    if (g_mpOn && g_msMode == MS_MODE_HANDS && !perClass)
+        InterlockedIncrement(&g_mpNoCache);
+    if (!perClass) {
+        rng[0].cls = -1; rng[0].start = start; rng[0].count = count; nrng = 1;
+    }
 
     // The engine's buffers are put back before returning, on every path. Every
     // reference is taken and released inside this one call, so nothing outlives
@@ -1563,17 +2245,144 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             savedVb = NULL;
         boundVb = SUCCEEDED(dev->SetStreamSource(0, g_msVb, 0, g_msStride));
     }
-    if (SUCCEEDED(dev->SetIndices(g_msIb))) {
-        if (boundVb)
-            dvr::frame::orig_draw_indexed(dev, type, 0, 0,
-                                          (UINT)(g_msVerts + g_msClipN),
-                                          (UINT)start * 3u, (UINT)count);
-        else
-            dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex,
-                                          numVertices, (UINT)start * 3u,
-                                          (UINT)count);
-        g_msDraws++;
+    // THE SAME RULE AT DRAW TIME. If binding our vertex buffer failed but the
+    // split contains generated vertices, our index list cannot be drawn
+    // against the game's vertices - the re-based indices address our buffer,
+    // not theirs. Abort the replacement and let the caller draw the original,
+    // rather than submitting a draw that reads the wrong memory.
+    if (!boundVb && g_msClipN > 0) {
+        Log("ms: REFUSED at draw time - our vertex buffer would not bind and "
+            "the split holds %d generated vertex(es), so its indices have no "
+            "matching data in the game's buffer. Passing the draw through "
+            "untouched.", g_msClipN);
+        if (savedIb) savedIb->Release();
+        if (savedVb) savedVb->Release();
+        g_msPassThrough = true;
+        return false;
     }
+    // The depth-range lever. The game draws this mesh with MaxZ 0.001 so it can
+    // never be occluded; restore the full range for our draws only, and put the
+    // game's own back on every exit path below.
+    D3DVIEWPORT9 savedVp; bool vpSaved = false;
+    if (g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp))) {
+        g_mpDepthSeen[0] = savedVp.MinZ; g_mpDepthSeen[1] = savedVp.MaxZ;
+        if (savedVp.MaxZ < 0.5f) {          // only when it really is crushed
+            D3DVIEWPORT9 full = savedVp;
+            full.MinZ = 0.0f; full.MaxZ = 1.0f;
+            if (SUCCEEDED(dev->SetViewport(&full))) {
+                vpSaved = true;
+                InterlockedIncrement(&g_mpDepthUsed);
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                    "ms/palette/depth: the game draws these hands with MinZ "
+                    "%.4f MaxZ %.4f - the nearest thousandth of the depth "
+                    "buffer, which is what makes them draw over everything. "
+                    "Restoring 0..1 for our draws only. If they still composite "
+                    "on top, the pass runs after a depth clear and there is "
+                    "nothing to occlude against.",
+                    savedVp.MinZ, savedVp.MaxZ);
+            }
+        }
+    }
+
+    // ONE CONTEXT PER ORIGINAL DRAW, acquired above the hand loop so both
+    // hands consume identical constants by construction. This is the unit the
+    // eye question has to be asked in; asking it per hand compared a draw with
+    // itself.
+    MpDrawCtx ctx; ctx.ok = false; ctx.why = "not acquired";
+    if (g_mpWorld) {
+        g_mpDrawsEntered++;
+        if (MpAcquireCtx(dev, &ctx)) {
+            g_mpDrawsSampled++;
+            MpDrawCompare(&ctx);
+        } else {
+            g_mpDrawsRejected++;
+            g_mpDrawRejectWhy = ctx.why;
+        }
+    }
+
+    if (SUCCEEDED(dev->SetIndices(g_msIb))) {
+        for (int r = 0; r < nrng; r++) {
+            // The palette this range draws under. The delta is applied to the
+            // class the tester selected and to no other, so the OTHER hand is
+            // the control: if both move, the per-class scoping is not working
+            // and the reading means nothing.
+            if (perClass) {
+                const bool hit = (g_mpHand == 2) ||
+                                 (g_mpHand == 0 && rng[r].cls == MS_CLS_HAND_A) ||
+                                 (g_mpHand == 1 && rng[r].cls == MS_CLS_HAND_B);
+                // WHAT DELTA THIS RANGE CARRIES. The drive owns it when
+                // armed and feeds BOTH classes; otherwise the axis probe does,
+                // and that only touches the selected class so the other stays
+                // as the reference.
+                float T[3] = { 0.0f, 0.0f, 0.0f };
+                bool  useT = false;
+                if (g_mpWorld) {
+                    // BUILD A2: placement through the measured chain. No
+                    // calibration, no neutral - the palm's current position is
+                    // re-measured from the game's own palette every frame and
+                    // the delta is target minus that, so the animated baseline
+                    // is subtracted rather than left underneath.
+                    const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
+                    float q[3];
+                    const char* why = "anchor refused";
+                    if (MpAnchorPos(rng[r].cls, g_mpCache, g_mpCacheN, q) &&
+                        MpWorldTarget(&ctx, hIdx, q, T, &why)) {
+                        useT = true;
+                        InterlockedIncrement(&g_mpWorldOk);
+                    } else {
+                        // Refusing draws the engine's own hand. That is the
+                        // fail-soft, and the reason is named so it can never
+                        // read as "the feature does not work".
+                        g_mpWorldWhy = why;
+                        InterlockedIncrement(&g_mpWorldRefused);
+                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                            "ms/palette/world: hand %d NOT placed - %s. The "
+                            "engine's own hand is drawn instead.", hIdx, why);
+                    }
+                }
+                if (useT) {
+                    static float buf[4 * 256];
+                    MpBuild(buf, g_mpCache, g_mpCacheN, T);
+                    dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
+                } else {
+                    dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
+                }
+                InterlockedIncrement(&g_mpDraws);
+            }
+            if (boundVb)
+                dvr::frame::orig_draw_indexed(dev, type, 0, 0,
+                                              (UINT)(g_msVerts + g_msClipN),
+                                              (UINT)rng[r].start * 3u,
+                                              (UINT)rng[r].count);
+            else
+                dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex,
+                                              numVertices,
+                                              (UINT)rng[r].start * 3u,
+                                              (UINT)rng[r].count);
+            g_msDraws++;
+        }
+        // A D3D9 constant is CURRENT STATE, not a one-shot (draw_census.cpp:334
+        // paid for that once already). Put the game's own block back, or every
+        // draw after this one inherits our delta.
+        if (perClass)
+            dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
+
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette: %s | %d range(s) | delta (%.1f %.1f %.1f) uu on class "
+            "%s | c6 x%u (%u bones) | %ld per-class draw(s), %ld wanted with no "
+            "c6 cached. If BOTH hands move, the per-class scoping failed and "
+            "the delta is reaching the shared upload; if NEITHER moves, the "
+            "palette is not what skins this mesh.",
+            perClass ? "PER-CLASS" : "merged (backend off, wrong mode, or no c6 yet)",
+            nrng,
+            (g_mpAxis == 0) ? g_mpAmount : 0.0f,
+            (g_mpAxis == 1) ? g_mpAmount : 0.0f,
+            (g_mpAxis == 2) ? g_mpAmount : 0.0f,
+            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH",
+            g_mpCacheN, g_mpCacheN / 3,
+            g_mpDraws, g_mpNoCache);
+    }
+    if (vpSaved) dev->SetViewport(&savedVp);   // the game's own range, always
     dev->SetIndices(savedIb);
     if (savedIb) savedIb->Release();
     if (boundVb) {
@@ -1603,8 +2412,103 @@ static const char* MsModeName(int m)
 // render thread, next to the draw it affects. Locking our own index buffer from
 // this lane while the renderer was drawing from it would be a race with no
 // symptom until the frame it corrupted.
+// Rung 2. Present thread, from MsTick: turn each controller's travel since its
+// neutral into a palette delta. It reads the pose slots present_tick has
+// already filled (head = 0, hands = 3 and 4), so it makes no runtime call of
+// its own and cannot race the thread that owns them.
+// The controller offset the placement consumes. Present thread, from MsTick.
+// It reads the pose slots present_tick has already filled (head = 0, hands = 3
+// and 4), so it makes no runtime call of its own and cannot race the thread
+// that owns them.
+//
+// GATED ON THE BACKEND, NOT ON ITS CONSUMERS. This went wrong three times, the
+// same shape each time: MsTick hidden behind g_dcOn, then the poses behind
+// g_mpDrive when another mode needed them, then behind two flags when a third
+// did. Every time the engine's own hands were drawn instead, and every time it
+// read as "the feature does not work" rather than as a lane that never ran.
+// Listing consumers in a gate means editing the gate whenever one is added,
+// and it will be forgotten again.
+static void MpDriveTick(void)
+{
+    if (!g_mpOn) return;
+    InterlockedIncrement(&g_mpTickRan);
+    for (int h = 0; h < 2; h++) {
+        if (!g_devPoseOk[0] || !g_devPoseOk[3 + h]) {
+            if (g_mpCtlRUFOk[h]) {
+                g_mpCtlRUFOk[h] = false;
+                Log("ms/palette: hand %d lost its pose (head ok=%d hand ok=%d) "
+                    "- dropping its target, so the hand goes back to the "
+                    "engine's own position instead of sticking where it was.",
+                    h, g_devPoseOk[0] ? 1 : 0, g_devPoseOk[3 + h] ? 1 : 0);
+            }
+            continue;
+        }
+        // Hand minus head in XR world metres, resolved into the HEAD's own
+        // right/up/forward. Frame-free scalars: the draw turns them into a
+        // world vector with the basis from its own constants, so nothing here
+        // assumes anything about the game's axes.
+        float w[3];
+        for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - g_devPose[0][r][3];
+        const float rx = g_devPose[0][0][0], ry = g_devPose[0][1][0], rz = g_devPose[0][2][0];
+        const float ux = g_devPose[0][0][1], uy = g_devPose[0][1][1], uz = g_devPose[0][2][1];
+        const float fx = -g_devPose[0][0][2], fy = -g_devPose[0][1][2], fz = -g_devPose[0][2][2];
+        g_mpCtlRUF[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
+        g_mpCtlRUF[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
+        g_mpCtlRUF[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
+        g_mpCtlRUFOk[h] = true;
+    }
+
+    if (!g_mpWorld) return;
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/world: L ctl r/u/f (%+.3f %+.3f %+.3f) m -> pcam "
+        "(%+.1f %+.1f %+.1f) uu | R ctl (%+.3f %+.3f %+.3f) m | placed %ld "
+        "refused %ld (%s) | layout vp c%d l2w c%d | %.0f uu/m x %.2f",
+        g_mpCtlRUF[0][0], g_mpCtlRUF[0][1], g_mpCtlRUF[0][2],
+        g_mpLastPCam[0][0], g_mpLastPCam[0][1], g_mpLastPCam[0][2],
+        g_mpCtlRUF[1][0], g_mpCtlRUF[1][1], g_mpCtlRUF[1][2],
+        g_mpWorldOk, g_mpWorldRefused, g_mpWorldWhy,
+        g_pcLayVp, g_pcLayL2W, (double)g_skcWorldScale, (double)g_mpDriveGain);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/sampling: original draws entered %ld, sampled %ld, rejected "
+        "%ld (%s) | draw-to-draw comparisons %ld",
+        g_mpDrawsEntered, g_mpDrawsSampled, g_mpDrawsRejected,
+        g_mpDrawRejectWhy ? g_mpDrawRejectWhy : "none", g_mpCmpCount);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/eye: state %s | L %ld R %ld unknown %ld draws | presents: "
+        "%ld toggled, %ld same eye, %ld ambiguous | expected IPD %.2f uu. The "
+        "eye is decided once per PRESENT from the right-axis jump in "
+        "LocalToWorld's translation, and its SIGN gives left or right "
+        "absolutely. 'Ambiguous' rising means the head moved far enough between "
+        "presents to leave the band, and those draws take NO offset.",
+        g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
+        g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
+        g_mpEyeToggles, g_mpEyeSame, g_mpEyeAmbiguous,
+        (double)(g_ipdM * g_skcWorldScale));
+}
+
+
 static void MsTick(void)
 {
+    MpDriveTick();
+    PcTick();
+    // The palette's stepped axis probe. Present thread, no D3D touched - the
+    // draw detour reads g_mpStepAxis next time it runs.
+    if (InterlockedExchange(&g_mpStepReq, 0)) {
+        g_mpStepAxis = (g_mpStepAxis >= 2) ? -1 : (g_mpStepAxis + 1);
+        if (g_mpStepAxis < 0)
+            Log("ms/palette/step: >>> REST <<< - no delta on either hand. Both "
+                "hands are where the game put them; this is the reference "
+                "position. Press F6 for axis 0.");
+        else
+            Log("ms/palette/step: >>> AXIS %d <<< - hand class %s now carries "
+                "%+.1f uu on palette axis %d, the other class carries nothing. "
+                "hmdYaw=%.1f deg. Whichever way THIS hand moved from rest is "
+                "what axis %d means. Press F6 for %s.",
+                g_mpStepAxis,
+                g_mpHand == 0 ? "A (left)" : g_mpHand == 1 ? "B (right)" : "BOTH",
+                g_mpAmount, g_mpStepAxis, g_hmdYaw * 57.2958f, g_mpStepAxis,
+                g_mpStepAxis >= 2 ? "rest" : "the next axis");
+    }
     if (!g_msOn) return;
     if (g_msModeReq) {
         const int r = g_msModeReq; g_msModeReq = 0;

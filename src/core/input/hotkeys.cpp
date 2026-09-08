@@ -115,7 +115,13 @@ static void StereoUpdate()
     // These only SET A REQUEST - every ShowMaterialSection dispatch happens on
     // the script lane in MatCycleTick, because ProcessEvent does not belong on
     // the present thread.
-    if (g_matCycleCfg) {
+    // CTRL is the VR-33 modifier and must NOT leak in here. It used to: a
+    // CTRL+Numpad5 press meant for the palette probe also cycled the draw
+    // census below and put the arms back, which read as "the probe did
+    // nothing". A bare-numpad block has to check that the bare key is what
+    // was pressed.
+    const bool kCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    if (g_matCycleCfg && !kCtrl) {
         static bool n1Was = false, n2Was = false, n3Was = false;
         const bool n1 = (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
         const bool n2 = (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
@@ -129,7 +135,7 @@ static void StereoUpdate()
     // VR-31 route (b): step through the censused DRAWS. Same split as the
     // material cycler - the hotkey only posts a request, and DcCycleTick acts
     // on it from the tick, never from here.
-    if (g_dcOn) {
+    if (g_dcOn && !kCtrl) {
         static bool n4Was = false, n5Was = false, n6Was = false;
         const bool n4 = (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
         const bool n5 = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
@@ -161,7 +167,7 @@ static void StereoUpdate()
     //   Numpad *  which arm + / - moves: both -> side A -> side B
     //   Numpad .  step size for + / -: coarse -> fine -> ultrafine
     //   Numpad /  re-derive the whole split from the buffers
-    if (g_msOn) {
+    if (g_msOn && !kCtrl) {
         static bool n0Was = false, adWas = false, sbWas = false,
                     mlWas = false, dvWas = false, dcWas = false;
         const bool n0 = (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
@@ -192,6 +198,39 @@ static void StereoUpdate()
             }
         }
         n0Was = n0; adWas = ad; sbWas = sb; mlWas = ml; dvWas = dv; dcWas = dc;
+    }
+
+    // VR-33 phase 1. CTRL + Numpad2 steps the hand-move experiment through
+    // off -> additive zero -> plus -> minus -> off. CTRL, because the bare
+    // numpad belongs to the mesh split and the draw census.
+    {
+        static bool hmWas = false;
+        const bool hmk = kCtrl && (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
+        if (hmk && !hmWas) g_hmStepReq = 1;
+        hmWas = hmk;
+    }
+
+    // VR-33 step 2: SHIFT+F6 arms a batch of draw captures. Same key family as
+    // the probe it supports, and shifted so it cannot be hit while stepping.
+    {
+        static bool pcWas = false;
+        const bool pck = (GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
+                         (GetAsyncKeyState(VK_F6) & 0x8000);
+        if (pck && !pcWas) InterlockedExchange(&g_pcArmReq, 1);
+        pcWas = pck;
+    }
+
+    // VR-33: F6 steps the palette's axis probe. NOT a numpad key - every one
+    // of them is already claimed by a bare-key block above - and NOT a CTRL
+    // chord: CTRL is the game's block, so holding it to press a diagnostic
+    // makes the character do something and reads back as interference.
+    // rest -> axis 0 -> axis 1 -> axis 2 -> rest, one press each.
+    {
+        static bool mpWas = false;
+        const bool mpk = (GetAsyncKeyState(VK_F6) & 0x8000) != 0 &&
+                         !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
+        if (mpk && !mpWas) InterlockedExchange(&g_mpStepReq, 1);
+        mpWas = mpk;
     }
 
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;

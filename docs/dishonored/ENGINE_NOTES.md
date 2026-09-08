@@ -3165,3 +3165,285 @@ left after a headset walk on 2026-09-06 and it is read straight off the
 survives a level load and does not depend on the pawn's position. It is not
 derived and it is not a guess; the derived seed it replaced was
 `WristScale`=0.70.
+
+## The player rig's skeleton, from the engine (VR-33, 2026-09-07)
+
+Returned by `MatchRefBone` / `GetBoneName` / `GetParentBone` on the live
+`DishonoredPlayerSkeletalComponent`, not derived from geometry. Reproduce with
+`[Hands] BoneQuery=1`.
+
+**Reference-skeleton indices:** `camera_jnt` 8, `hand_R_jnt` 25,
+`handAttachment_R_jnt` 27, `hand_L_jnt` 54, `handAttachment_L_jnt` 56.
+
+**The chains:**
+
+```
+hand_*_jnt           -> lower_arm_*_jnt -> upper_arm_*_jnt -> shoulder_*_jnt
+                        -> Collarbone_*_Jnt -> Root_jnt -> root0_jnt -> ROOT
+handAttachment_*_jnt -> hand_*_jnt -> (as above)
+camera_jnt           -> head_jnt -> neck_jnt -> spine_3_jnt -> spine_2_jnt
+                        -> spine_1_jnt -> spine_0_jnt -> Root_jnt -> root0_jnt -> ROOT
+```
+
+Three facts that matter and were previously assumed:
+
+**The weapon attachment joints are CHILDREN of the hand joints.** A pose
+applied at a hand carries its attachment beneath it. Necessary for the
+engine-side route; not sufficient, since it says nothing about whether a later
+writer or the attachment update honours the change.
+
+**The camera is on the spine/head branch, not either arm.** The nearest common
+ancestor of `camera_jnt` and either hand is `Root_jnt`, and the two arms also
+only meet at `Root_jnt`. So a per-side edit at or below a hand joint cannot
+disturb the view or the opposite hand.
+
+**SKELETON INDICES ARE NOT PALETTE INDICES.** `hand_L_jnt` is bone 54 and
+`handAttachment_L_jnt` is bone 56, while the arm draw's GPU palette is 48
+entries (144 registers at c6). Both exceed it. The palette subsets or reorders
+the skeleton, so the two orderings cannot be used interchangeably, and any
+statement of the form "bone N of the palette" is about a render slot rather
+than about anatomy.
+
+### UStruct::SuperField is at +0x44
+
+Derived rather than guessed: it is the offset at which
+`DishonoredPlayerPawn` -> `Pawn` -> `Actor` -> `Object` all resolve by name.
+Three correctly ordered named links is the evidence; a single plausible pointer
+would not be.
+
+### The pawn's Mesh is a DishonoredPlayerSkeletalComponent
+
+Not a plain `SkeletalMeshComponent`. A receiver check by name equality would
+refuse a valid receiver; ancestry through the Super chain is required. This was
+load-bearing on the first run, not ceremony.
+
+### The mod's outbound ProcessEvent path
+
+`hands/mat_hide.cpp` has called `GetNumElements` and `GetMaterial` on live
+components since the material route, through
+`PFN_ProcessEventCall` (`__thiscall`, four arguments, parameter frame with a
+NULL Result), and `console.cpp` uses the same path. `g_peReentry` is set around
+those calls and **is read by `console.cpp:72` and `commands.cpp:319`** - so it
+guards those two callers, and nothing in `PeHandler` tests it, so it does not
+guard the hook. `PeHandler` runs
+`PeLatch` and the scene-draw call-site patch before any event filtering, so a
+mod-originated call needs a depth guard checked at the top of the handler, or
+it fires real side effects and enters the census as a game event.
+
+### The arm mesh's declaration uses streams 0 and 1, and a stale binding cost the caps
+
+Measured 2026-09-07. The vertex declaration for the first-person arm mesh
+references **stream mask 0x3** - streams 0 and 1 - and the draw binds only
+stream 0.
+
+The split needs to own stream 0 to re-base its index list onto its own vertex
+buffer, which is what the plane clip and therefore the wrist caps depend on. It
+used to veto that whenever ANY of streams 1-7 had a buffer bound, and a stream
+left bound by an earlier draw satisfied it. The wrist caps disappeared between
+runs with no configuration change, twice, and the log blamed "stream 2 is also
+bound" - a stream the declaration never references.
+
+**A bound stream is not a used stream.** The declaration decides what a draw
+reads. Only a stream the declaration names may veto.
+
+Note for later: the declaration DOES name stream 1, and no observed draw binds
+it. If one ever does, the veto fires legitimately and the clip is genuinely
+unavailable on that pass.
+
+### MsDraw must check the draw contract, not the primitive count
+
+The split's index list is re-based onto our own vertex buffer, so it is only
+valid for the exact draw it was built from. `MsDraw` used to accept any draw
+with a matching primitive type and count. A different vertex window, base
+vertex, start index, stream-0 offset or declaration on the same buffer pair
+would consume a split that does not describe it.
+
+The build now records that contract and every replacement draw re-checks it.
+A mismatch is passed through to the original draw - NOT dropped: once a split
+is ready the caller's auto-arm fail-soft no longer applies, so declining used
+to suppress the mesh entirely.
+
+## The view-model's vertex path, read from the shader (VR-33 step 2, 2026-09-07)
+
+Captured from a qualified hand draw and read out of the shader's own
+disassembly and constant table. This replaces every inferred answer about the
+palette's origin, including the "pawn root" conjecture, which was wrong.
+
+### The chain
+
+```
+p_local = ( sum_i w_i * BoneMatrix[idx_i] ) * ( v0 * MeshExtension + MeshOrigin )
+p_cam   = LocalToWorld * p_local
+clip    = ViewProjectionMatrix * p_cam
+```
+
+`BoneMatrices` is declared `float4x3[75]` - three registers per bone, bone `b`
+at `base + 3b`, `base + 3b + 1`, `base + 3b + 2`. The observed uploads carry 48
+matrices (144 registers), well inside the declared 75.
+
+**Weights are NOT normalised by the shader.** It sums `w_i * M_i` into one
+blended matrix and applies it once. So if the effective weights do not sum to
+one, a palette translation `T` moves the vertex by `wsum * T` and not by `T` -
+the hazard the review raised is real, and the anchor's tolerance check is the
+right guard.
+
+**The blend index order is swizzled.** The shader computes `a0` from
+`3 * blendindices` and then reads `.yxzw`, pairing weight `.y` with index `.y`
+and `.x` with `.x`. The pairing is correct; only the evaluation order differs.
+
+### Where the palette's output actually lives
+
+`p_local` is in the COMPONENT'S LOCAL SPACE, and `LocalToWorld` maps it to a
+**camera-relative** world frame - positions relative to the camera, world axes.
+Checked numerically on a captured packet: the anchor at local
+`(24.5, -142.5, 58.0)` maps to `(-46.2, 11.3, -24.6)`, about 53 uu from the
+origin, which is where a hand sits relative to a head. The ~138 uu vertical
+term in the old calibrated offset was simply the component's local origin.
+
+**`LocalToWorld`'s rotation does not follow the head.** Across captures with
+head yaw from -0.79 to +0.66 rad its rotation columns are identical to six
+decimal places and only its translation moves. This CONTRADICTS the earlier
+perceptual reading that the palette frame rotates with the head, and the
+constants are the stronger evidence. Both readings are kept here because the
+disagreement is the useful part.
+
+### Register numbers are per shader and must never be hard-coded
+
+Three shaders draw this mesh in one run. They agree on `ViewProjectionMatrix`
+at c0, `BoneMatrices` at c6 and `LocalToWorld` at c231, and they DISAGREE
+elsewhere: `MeshOrigin`/`MeshExtension` at c235/c236 in one and c238/c239 in
+the others, with `WorldToLocal` at c235 present only in two.
+
+Worse, one shader defines c4 as an immediate `(3, 1, 0, 0)` while the device
+reports `(0, 0, 0, 1)` for that register. A shader immediate overrides what the
+API supplied, so reading that register from the device would have been wrong by
+construction.
+
+The proxy therefore parses each shader's CTAB constant table at capture time
+and uses the register indices it declares. Nothing about the layout is assumed.
+
+## The bone palette's basis, measured (VR-33 rung 1, 2026-09-07)
+
+The skinning matrices the game uploads to `c6` (48 bones, `c6 x144`, 3 float4
+rows each, row-major 3x4 with the translation in `.w`) are expressed in a frame
+whose axes are:
+
+| axis | direction |
+|---|---|
+| 0 | LEFT |
+| 1 | DOWN |
+| 2 | FORWARD |
+
+`left x down = -forward`, so the frame is LEFT-handed, which is what UE3 should
+give and is the main reason to believe the reading rather than an artifact.
+
+**The frame rotates with the GAME CAMERA.** A stick turn carried the three
+directions round with it while the head yaw stayed at about -15 deg, which is
+what separates camera-relative from world-aligned: a world-aligned frame would
+have left the directions where they were. This is also the coupling behind
+hands that drift with head movement - a world-space offset pushed into this
+frame without composing the camera's yaw counter-rotates exactly that way.
+
+Against OpenXR (x right, y up, z BACKWARD, so forward = -z) the map is a plain
+componentwise negation: `left = -x`, `down = -y`, `forward = -z`, i.e.
+`T_palette = -k * v_xr`.
+
+### How it was measured, and the two readings that were not evidence
+
+A delta of 15 uu on one hand class with the other class untouched as the
+reference. The first two runs used a TIMER, and returned `left/down/forward`
+and `down/forward/left` - the same cycle entered one step in, but nothing in
+either run could prove that rather than a changed basis, and the tester said so
+before it was acted on. The third run was STEPPED BY THE TESTER (F6: rest ->
+axis 0 -> axis 1 -> axis 2 -> rest), which has no phase to infer: the log shows
+`REST, AXIS 0, AXIS 1, AXIS 2` at a steady `hmdYaw` of about -35 deg, and the
+answer was `left, down, forward`, agreeing with the first reading.
+
+Class A is the LEFT hand and class B the RIGHT: with the delta on class A the
+left hand left the crossbow while the right stayed on the sword hilt.
+
+### Traps this cost
+
+* `MsTick` was called from inside `DcTick`, BELOW its `if (!g_dcOn) return;`.
+  Switching the draw census off therefore killed the mesh split's whole tick -
+  mode cycling, the wrist knob, the palette step - and the split stopped being
+  maintained, putting the arms back on screen with nothing in the log naming
+  the cause. The split does not belong to the census and now ticks either way.
+* The bare-numpad hotkey blocks did not check their modifier, so a
+  CTRL+Numpad5 press meant for the palette probe ALSO cycled the draw census.
+  One press did two things and read as "the probe did nothing".
+* CTRL is the game's block. A diagnostic on a CTRL chord makes the character
+  act while it is being pressed. The probe is on F6, unmodified.
+
+## SkelControls are NOT evaluated on this build (VR-33 phase 1, 2026-09-07)
+
+This heading was briefly withdrawn on 2026-09-07 when the scan behind it turned
+out not to have swept GObjects, and restored the same day once the fixed sweep
+measured the whole population and agreed. The retraction is kept below, because
+the reasoning error is the reusable part.
+
+**The three named controls are inert.** `m_pLookAtControl_LeftHand`,
+`_RightHand` and `_Camera` are distinct live `SkelControlSingleBone` objects
+with `ControlStrength` 1.000 - and `ControlTickTag` frozen at 10 for an entire
+session while the mod wrote to one of them about 8,500 times a second. Its own
+apply flags were clear (`bools 0xA`, apply=0 add=0) and its saved translation
+was zero. UE3 stamps that tag when a control is EVALUATED.
+
+**RETRACTED 2026-09-07: the "every SkelControl in GObjects - 64 of them" scan
+did not walk GObjects.** Its comparison table held 64 entries and its loop
+condition was `curN < 64`, so the sweep STOPPED the moment the table filled.
+The "64" that was read as a population is the array's capacity, and every
+object after the 64th SkelControl in the array was never visited. The scan
+therefore says "none of the first 64 advanced", not "none advanced" - and the
+first N entries of GObjects are the earliest-constructed objects, which is the
+least representative slice available for a question about the player's live
+view model. This is the project's own rule biting again: a counter is not
+evidence until you know its population.
+
+What survives the retraction is the FIRST measurement, which did not depend on
+the scan: the three named `m_pLookAtControl_*` controls held `ControlTickTag`
+at 10 for an entire session under ~8,500 writes a second, with their own apply
+flags clear. Those three specific controls are inert. Whether ANY SkelControl
+on this build is evaluated is once again open.
+
+The scan now sweeps the whole array, tracks up to `HM_SCAN_CAP` (1024) objects
+for the second-apart comparison, and prints the population it ran over -
+objects walked, objects tracked, objects past the table - on the same line as
+the live count, so a zero cannot be read as a census again.
+
+### CONFIRMED with the fixed sweep (2026-09-07, same day)
+
+The run was made in the state the retracted one lacked: `[Hands] Enabled=1`,
+`[Mode] GamepadOnly=0`, so the mod's own hand subsystem WAS driving. Every one
+of 34 consecutive one-second samples read identically:
+
+```
+66 SkelControl object(s) out of 103117 GObjects entries walked (FULL sweep),
+66 tracked for comparison, 0 NOT tracked, 0 advanced their tick tag in the
+last second. hands=1 gamepadOnly=0
+```
+
+Full sweep, whole population tracked, nothing past the table, zero advancing,
+with the hands subsystem live. **No SkelControl is evaluated on this build.**
+A write to one cannot move anything, at any cadence, with any flags, in any
+space - and this time the population is known.
+
+The old 64-entry table had missed exactly two objects out of 66, so the
+retracted reading happened to be right. It was still not evidence; it is now.
+
+**This does retire the 38.x "9,000 writes a second outrun the recompute"
+reading.** No race was being lost - there was nothing to race.
+
+### Cost, measured
+
+The sweep stalls the game thread for **505-520 ms once per second** - the perf
+line attributes it to `out/idle (waiting for the game thread)`, 30x the mean
+present interval, ~46 display slots at 90 Hz. It is unplayable while armed and
+must be switched off after any run.
+
+### Cost note
+
+The GObjects-wide tick scan runs on the script lane and walks every object once
+a second, calling `ObjClassName` on each. Measured cost: a 505-520 ms stall of
+the game thread every second (see above). It is a diagnostic, ships OFF, and
+must not be left enabled.

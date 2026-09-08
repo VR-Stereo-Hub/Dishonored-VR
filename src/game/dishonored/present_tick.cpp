@@ -620,6 +620,12 @@ static void DvrAfterCreateDevice(HRESULT hr, HWND wnd, D3DPRESENT_PARAMETERS* pp
 
 static void DvrBeforeReset(D3DPRESENT_PARAMETERS* pp)
 {
+    // The bone palette is device state and does not survive a reset. This
+    // lives here rather than in frame_hooks.cpp because the palette's globals
+    // belong to the unity translation unit, and before_reset is the callback
+    // that unit already owns.
+    MpOnReset();
+    g_pcResetEpoch++;   // captured state is not comparable across a reset
     ResBeforePresentParams(pp, "Reset");   // 41.1
     UncapPresent(pp, "Reset");
     if (pp) g_gameWindowed = pp->Windowed != FALSE;      // 32.9
@@ -668,6 +674,9 @@ static void DvrInstallFrameHooks()
     rh.gates     = SceneDrawGates;
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
+    // VR-33 step 2: the capture worker. Started here rather than lazily at the
+    // first draw, so its thread never has to be created from inside a detour.
+    PcStart();
     // 41.2 (VR-31): our own hands. Registered unconditionally - the callback
     // returns immediately while [VRHands] Enabled is off, and registering it
     // only when the lever is on would mean `vrhands on` did nothing until a
