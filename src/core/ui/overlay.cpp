@@ -78,6 +78,29 @@ static void OverlayFrame()
     if (ImGui::BeginTabItem("View")) {
     if (ImGui::SliderFloat("world scale (uu/m)", &g_posScaleUU, 10.0f, 200.0f, "%.0f"))
         { /* sep recomputed each frame from this */ }
+
+    // VR-30: the arm decoupling, tunable by hand without the command seam.
+    ImGui::Separator();
+    {
+        float g = g_afCounterYaw < 0.0f ? 0.0f : g_afCounterYaw;
+        if (ImGui::SliderFloat("arm counter-yaw", &g, 0.0f, 2.0f, "%.2f"))
+            ArmFollowSetCounterYaw(g, "F10");
+        ImGui::SameLine();
+        if (ImGui::SmallButton(g_afCounterYaw >= 0.0f ? "off" : "on"))
+            ArmFollowSetCounterYaw(g_afCounterYaw >= 0.0f ? -1.0f : 1.0f, "F10");
+    }
+    // VR-30: THE fix. Head yaw stops turning the body; the stick still does.
+    {
+        bool on = g_frWant >= 0.0f;
+        if (ImGui::Checkbox("arms: head yaw does not turn the body", &on))
+            ArmFollowSetFacing(on ? 1.0f : -1.0f, "F10");
+        ImGui::TextDisabled("intercepts FaceRotation; the stick still turns you");
+    }
+    {
+        bool sr = g_asrWant >= 0.0f;
+        if (ImGui::Checkbox("arms: strip mesh rotation (dead end, kept as A/B)", &sr))
+            ArmFollowSetStripRot(sr ? 1.0f : -1.0f, "F10");
+    }
     ImGui::TextDisabled("smaller = world feels bigger; life-size door test");
 
     if (ImGui::SliderFloat("screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f"))

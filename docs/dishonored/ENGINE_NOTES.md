@@ -10,6 +10,165 @@ Rules: every number lives in `src/game/dishonored/patterns.h` and here, with how
 derived; a hook byte-verifies its target and refuses on mismatch; never copy a number from
 another game; findings go here in the same commit as the code that uses them.
 
+## SOLVED: VR-30, the arms follow the head - FaceRotation is the seam (2026-09-05)
+
+**Headset-judged fixed.** Head yaw leaves the arms and weapon alone; the right
+stick turns view and body together; both at once works. `[Camera] ArmBodyFacing`.
+
+### The operation
+
+`UDishonoredPlayerPawn::FaceRotation` is what faces the body to the view. It is
+**virtual at vtable slot 252 (offset +0x3F0)**, and on this build the pawn's
+vtable resolves it to **`0x00AB0D40`** (`patterns.h` `kFaceRotation`).
+`__thiscall`: `this` in ecx, stack `+0` Pitch, `+4` **Yaw**, `+8` Roll,
+`+0xC` DeltaTime, `ret 0x10`.
+
+The fix does **not** write the pawn's rotation. It hooks that function, replaces
+the **Yaw it is asked for** with a separated body heading, and lets the engine's
+own function run - so all of the engine's dependent bookkeeping still happens.
+Pitch, roll and delta time pass through; every other actor passes through.
+
+    view yaw  = body heading + head contribution
+    head turn  -> view changes, body heading does not
+    stick turn -> body heading and view change together
+
+The head contribution is bookkeeping for **our own injection**: the integer yaw
+delta `ApplyHeadToViewRotation` adds is taken once, in the fresh branch, so the
+2 ms modifier re-stamp and the stereo second pass cannot advance it twice. The
+stick is never re-integrated - it arrives inside the incoming view and survives
+a subtraction untouched. `body target = outgoing view - head contribution`.
+
+Measured on the winning run: **3365 replacements, 0 stale**, and 1014 calls on
+other pawns passed through untouched.
+
+### How the address was derived, and why static analysis alone could not
+
+1. `armfollow/nfp:` resolved the `FaceRotation` UFunction at runtime and reported
+   its exec thunk at **RVA 0x1DAF30** - the *same* thunk for `Pawn` and
+   `DishonoredPlayerPawn`, so the override is not in the thunk.
+2. The thunk ends `mov edx,[edi]; mov edx,[edx+0x3f0]; mov ecx,edi; call edx` -
+   a virtual dispatch. That gives slot 252.
+3. The live pawn's vtable slot 252 gives `0x00AB0D40`. It ends in `ret 0x10`
+   (Rotator by value + float) and has **zero static E8/E9 callers**: only ever
+   reached through the vtable.
+4. Which is why the probe counted **0 ProcessEvent dispatches of FaceRotation
+   across a whole gameplay run**. Gameplay reaches it native-to-native, so
+   hooking its script exec wrapper would have caught nothing. The one script
+   call site in the corpus is inside a debug cheat path, not gameplay.
+
+**Static analysis alone cannot find this on this image.** RTTI for the UE3
+classes is stripped, and the native name strings sit in a blob loaded into
+GNames at runtime, so there is no name-to-function table, no referenced string
+operand and no findable vtable. `xref` returns zero on `FaceRotation`,
+`UpdateRotation` and `PlayerMove_Walking`, and a pointer-table search returns
+zero. **One runtime resolution is required; everything after it is static.**
+Do not repeat the static search.
+
+### Identity: the bug that wasted two builds
+
+The writer must use the **event-latched** controller and pawn (`g_peCtrl` /
+`g_pePawn`), validated as a **possession pair** through `Controller.Pawn` by
+reflection.
+
+The camera-pointer scan (`FindPlayerController`) is not good enough, and the log
+shows why: it latched `23CB3800` before gameplay, the event stream named the
+real controller `16D86800` twelve seconds later, and the scan did not refresh
+until **57 seconds after that, once gameplay had ended**. For the whole play
+window every read came from the previous scene's dead object - constant, so the
+body froze *and* the stick died from one cause. A readable object of the right
+class is not enough when it belongs to the scene before this one. Discovery must
+not depend on the fallback head-tracking path, which returns early while
+scripted tracking is healthy.
+
+### What was falsified on the way, with numbers
+
+| Attempt | Result |
+|---|---|
+| Write `pawn.Rotation.Yaw` directly (`BodyYawLock`) | **4 of 186 writes survived** to the next dispatch (2.2%); 70% of the time the engine had already restamped the pawn to the view yaw. The target was *correct* - it held at -85.6 deg across a 35 deg view swing - and it made no difference. The engine re-derives the pawn heading from the controller every tick and no field assignment outruns that. **Removed.** |
+| `bRemoveMeshRotation` on `LookAtControl_LeftHand`/`_RightHand` (`ArmStripMeshRot`) | Ran clean and changed nothing: both controls found, bit resolved by reflection at **+0xb8 mask 0x10**, both reading 0 before, **304,244 writes**, both live all run, arms still followed. Ships OFF, kept as the reproducible A/B. |
+| `ArmCounterYaw`, `ArmFollowWeight`, `ArmLookAtStrength` | Pre-existing, unchanged, ship off. |
+
+**Byproduct worth keeping**: the reflected offset and mask for
+`bRemoveMeshRotation` **agree** with the `0x10` in `kSkcBools` that
+`skelcontrol.cpp` had been assuming unverified.
+
+### Two dead references found by reading, not by running
+
+- `g_haveInjRef` is declared `false` and **nothing in the tree ever assigns it**.
+  `BodyYawLock` evaluated `g_hmdYaw - (g_haveInjRef ? g_injRefYaw : g_hmdYaw)`
+  inline every dispatch, so its head delta was **always zero** - the subtraction
+  its comment, its ini text and STATUS all described never happened.
+- `ArmCounterYaw` reads the same expression but **latches it once** behind
+  `g_afCntHaveRef` and subtracts the saved value, so its delta is real. Earlier
+  counter-yaw results **stand**; an earlier revision of this file wrongly said
+  otherwise.
+
+### The lesson worth carrying
+
+Seven attempts and three more this session all failed the same way: each wrote a
+value the engine recomputes every tick, downstream of the one input we must
+modify for the player to look around. **Nobody had measured write survival.** The
+instrument that settles it in one run - read the field back at the next write
+and classify it ours / engine / third party - did not exist until this session
+and answered the question immediately. Measure whether a write is honoured before
+tuning what it writes.
+
+## FALSIFIED: bRemoveMeshRotation on the hand controls (2026-09-05, VR-30 option A)
+
+`[Camera] ArmStripMeshRot=1` forces `bRemoveMeshRotation` on
+`LookAtControl_LeftHand` and `_RightHand` every dispatch. It ran clean and
+changed nothing: both controls found (`obj[54361]`/`obj[54362]`,
+`SkelControlSingleBone`), the bit resolved by reflection at **+0xb8 mask 0x10**,
+both read 0 before, **304,244 writes**, both live for the whole run, arms still
+follow head yaw. The lever ships OFF and stays as the reproducible A/B.
+
+**Byproduct worth keeping**: the reflected offset and mask AGREE with the 0x10
+in `skelcontrol.cpp`'s `kSkcBools` handling, which had been shipping unverified.
+
+**Why it could never have worked, and it is already written down above.** Attempt
+3's deciding test swept a gain on `gain * (head yaw since neutral)` and found no
+gain that held the weapon still, concluding "no seam between the arms and the
+camera downstream"; the root cause beside it records that Arkane draws the
+first-person view model **in camera space**, with no world matrix for the arms
+anywhere in the constant map.
+
+So the arms are not being rotated by anything. They sit in the camera's frame by
+construction. There is no rotation to strip, no weight to zero and no flag to
+flip - which is why this lever, the body-yaw hold, the counter-yaw and the four
+earlier attempts all did nothing. **Every lever that looks for a rotation to
+cancel is a category error.** Only two things can work: place the hands
+absolutely in world space (attempt 5 proved SkelControl world-space translation
+is absolute), or hide the engine arms and draw our own (attempt 4, shipped for
+weapons).
+
+**Do not add another lever of this kind without a measured target.**
+
+**Correction (same day), and it narrows this entry.** The paragraph above
+over-claimed. The null result kills THIS lever, not every rotation-based route:
+a transform can be combined or baked into a bone matrix before it is uploaded,
+so "no separate world matrix in the constant map" does not prove the arms cannot
+be rotated independently. It also sat in direct conflict with the yaw-ladder
+section, which attributes arm yaw to the PAWN's rotation. That conflict is
+unresolved and must be settled at the native update path, not by preferring
+whichever explanation was written last.
+
+**What is actually established** is narrower and more useful: the commanded body
+target already separates head from stick (it holds at -85.6 deg across a 35 deg
+view swing), and it does not survive - 4 of 186 writes, 2.2%, with the pawn back
+near the view heading 70% of the time. So the open question is which operation
+overwrites it and whether that happens before the mesh transforms are built.
+
+**Static analysis cannot answer it on this image (checked 2026-09-05).** RTTI for
+the UE3 classes is stripped, and the native name strings sit in a blob loaded
+into GNames at runtime, so there is no name->function table, no referenced
+string operand and no findable vtable. `xref` on all four candidate strings
+returns zero. It needs one runtime resolution, which `armfollow/nfp:` does.
+
+**Also unproven and load-bearing**: the ProcessEvent hook is a PRE-hook, so a
+write placed "after the head injection" is still before ProcessViewRotation's own
+body finishes. Our write may simply be too early. That ordering is a measurement,
+not an assumption.
+
 ## Identity
 
 - UE3 licensee build 9099, x86, D3D9, Scaleform. No ASLR: image base 0x400000, `.reloc` ends
@@ -490,6 +649,382 @@ frame ahead); the first build cleared it at depth 3 and re-paired mid-pair every
 seconds (the c5 check caught every one: "tag -1 dropped ... c5 6383.1 is not the position
 the draw wrote 6376.9" - the two eye positions, 6.2 uu apart). Fixed by allowing two pairs
 and letting the c5 match skip stale tags (`tagResynced` in status.json).
+
+## VR-30: silent ownership refusal in alpha-317 (2026-09-05)
+
+The tested alpha-317 build (`14235674` source, dirty build tag based on `af94ba89`)
+reached GAMEPLAY at log time 24033218. Its 120 `armfollow/yaw` samples show the old
+view/pawn coupling, but it has no `yaw: owner` or `yaw: gen` lines. Offset reflection
+succeeded (`Controller.Pawn +0x248`, `Actor.Rotation +0xd0`); ownership never activated.
+This run did not test the new body-target arithmetic downstream.
+
+`YawOwnerValid` called `IsLiveObject` without `BuildLiveSet`. That helper searches
+`g_liveSet`, a sorted snapshot populated by other discovery paths, rather than the
+current GObjects table. A new gameplay object absent from the earlier snapshot is
+rejected indefinitely. This dependency reproduces in host tests: the pre-fix code
+cannot publish/apply for a valid possessed pair when the discovery snapshot is empty.
+Because its guards were silent, the log alone cannot distinguish that refusal from
+the other pre-fix identity guards. The repair removes the stale-snapshot dependency
+and logs every refusal category with the identities involved.
+
+No new offsets: scan the existing `kGObjHdr` table when binding a pair; cache the
+found slots and compare current slot contents before each write, following CamAlive
+and SkcAlive. Rebinding scans are throttled during loads. Keep the reflected possession
+check. Retry unresolved reflection instead of permanently latching a startup failure.
+Check snapshot validity/generation again after validation because validation can replace
+the owner. A body target is applied only after a successful head write/replay. The
+second-eye branch must bypass fresh integration regardless of elapsed milliseconds.
+
+Host coverage now includes real ownership/publication/body-write functions with mocked
+engine services, not just subtraction. Eleven ownership checks plus seven arithmetic
+checks pass. Neither suite establishes that the engine's next view input is independent
+of the pawn target; the earlier comment claiming feedback was structurally impossible
+was unsupported. Headset acceptance remains pending.
+
+## VR-30 IS NOT SOLVED, and BioShock Infinite says why the approach is wrong
+
+**Correction to the entry below.** "Perfectly still" was reported once and did not
+reproduce: a later run on a tree **byte-identical** to that build (verified with
+`git diff --stat`, empty) still had the arms moving with head yaw, with the same ini. So the
+result was never real, or it depended on something nobody was measuring. Either way the
+lever below is not a fix, and the entry that called it one was written from a single
+unverified report.
+
+**The process failure is worth more than the code.** Four changes shipped default-ON in a
+row, each reasoned from the last symptom rather than measured, each regressing the tester:
+an accumulator that fed back on itself, a reference borrowed from another lane, an FOV scale
+that no value could null, and a frame gate that broke the VR hook outright. This project's
+own rules say measure first and ship levers off. Neither was followed, and the cost was a
+headset session.
+
+### What Infinite does instead (`docs/reference/bioshock-trilogy-vr`, local mirror)
+
+BioShock Infinite is the same engine family - UE3 - and its VR mod **does not try to stop
+the arms following the view at all**. `src/game/bioshockinf/bones.h` declares:
+
+```c
+bool drive(const FrameContext& fc, const GamePose& target, int hand, float scale,
+           int armsMode, bool animMode, float capDepthCm, const float wristDeg[3]);
+```
+
+It drives one hand's **bone cluster toward a game-space target** every frame, pass-1 game
+thread only, with `armsMode 2` collapsing the whole arm chain to a point behind the grip at
+zero scale. The hands are **placed absolutely**; whether the body yaws underneath them is
+irrelevant, because nothing about their position is derived from it.
+
+That is the architectural answer, and Dishonored's own notes already contain the matching
+measurement without anyone joining it up: attempt 5 records that **SkelControl world-space
+TRANSLATION works and is absolute** - "the pin test: you can walk away from your hands" -
+while world-space rotation does not. Absolute placement is exactly the shape Infinite uses,
+and it is the half that was measured to work here.
+
+So VR-30's remaining work is what its own pass criteria always said: place the hands from
+the controllers. Every lever tried this session was an attempt to avoid that, and each one
+failed for a different reason - which is itself the evidence that the coupling is structural
+and cannot be switched off.
+
+### What still stands from this session
+
+The **pitch** result is real and holds: forcing the `DisableArmFollow` influences removes
+the vertical follow. The corpus findings, the yaw ladder and the negatives below are all
+measured or read, and none of them depend on the discredited "perfectly still" report.
+
+## (SUPERSEDED - see above) the arms are decoupled from the view, both axes
+
+**Headset-judged.** Pitch went first (the `DisableArmFollow` influences); yaw followed by
+writing a counter-rotation into `m_ArmFollowOffset_Rot_Primary/_Secondary`. Seven recorded
+attempts preceded this one and all of them looked for a switch to turn off. There is no
+switch. **The answer was a subtraction**, and the field that carries it had been sitting in
+the same struct as the pitch weights the whole time - a Rotator among floats, gated by a
+second influence pair nobody had raised.
+
+Ships as `[Camera] ArmCounterYaw=1.0` and `[Camera] ArmDisableWeight=1`.
+
+### The residual, and what it means
+
+With the gain at 1.0 the arms are **rock steady in pitch** and very close in yaw, with one
+artifact left: turning the head yaws the arms **slightly against** the turn - turn right and
+they drift a little left. That is **over-correction**, and it is diagnostic rather than
+mysterious: the counter is subtracting a hair more yaw than the arms were actually given.
+
+Two readings, and they are told apart by what happens when the head STOPS:
+
+- **The offset persists when you stop turning** - the gain is too high. The arms follow at
+  slightly less than 1:1, so countering at exactly 1.0 overshoots by the difference. Fix is
+  arithmetic: lower `ArmCounterYaw` until it nulls (0.9 first, then bisect).
+- **The offset springs back to centre when you stop** - it is a LAG mismatch, not a gain
+  error. The engine's arm follow is smoothed and ours is instantaneous, so during motion we
+  are ahead of it and the difference shows as a swing that settles. Fix is to match the
+  smoothing, not to change the gain, and lowering the gain would then leave a permanent
+  offset in exchange for a smaller swing - a bad trade.
+
+**Do not tune this by feel without asking which of the two it is.** They look similar in the
+headset for a moment and want opposite fixes.
+
+## The YAW ladder: every candidate, ranked, from two independent sweeps (VR-30, 2026-09-05)
+
+Two separate passes over the corpus - one aimed at the animation and skeleton, one at
+scripted events and cinematics - reached the same first choice, which is worth more than
+either reaching it alone. Recorded here so the next attempt starts at the top of a list
+instead of at the beginning.
+
+**The root cause, agreed by both passes**: there is no yaw driver for the arms anywhere.
+Every arm/aim/look mechanism the game exposes is pitch-only or NPC-only. The arms yaw
+because the **pawn** yaws - they are bones of its single mesh, and `FaceRotation` (a native
+override, and the only rotation-related override on `DishonoredPlayerPawn`) sets the actor's
+yaw from the controller every frame. The camera code never needed to ADD yaw, which is
+exactly why every arm-follow weight measured pitch-only.
+
+The architecture says so out loud: `StatePlayerMasterBase` carries `m_bIgnorePitch` (default
+true) and **there is no `m_bIgnoreYaw` twin**. The engineers only ever needed to decouple
+pitch.
+
+### The ladder, cheapest and most likely first
+
+1. **`m_ArmFollowOffset_Rot_Primary/_Secondary`** - Rotators (not floats) in
+   `DishonoredVTSettings` with a live Yaw field, scaled by `m_ArmFollowOffset_Weight_*`
+   (shipped 1.0) and gated by the `DisableArmOffset` influence pair, which is a DIFFERENT
+   pair from the `DisableArmFollow` one the pitch work used. **Both sweeps ranked this
+   first.** Shipped as `[Camera] ArmCounterYaw`; write `-headDelta` every dispatch.
+2. **`DishonoredPlayerController.m_bLimitPlayerYaw` + `m_fStartingPlayerYaw` +
+   `m_fLimitPlayerYaw_Min/_Max`** (`DishonoredPlayerController.uc:204, 224-226`) - a
+   dedicated yaw clamp relative to a captured starting yaw, with its own enable bool. Plain
+   transient UProperties, **no script writers anywhere**, so the native code reads them every
+   frame and nothing in script will fight a write. This is the game's own "pin the view's
+   yaw" and it is the strongest fallback.
+3. **`m_pLookAtControl_LeftHand` / `_RightHand`** (`DishonoredPlayerPawn.uc:307-308`) -
+   `SkelControlSingleBone` on the hand bones, each with a full `Rotator BoneRotation`,
+   `bApplyRotation`, `bAddRotation`, a selectable `BoneRotationSpace`, and
+   **`bRemoveMeshRotation`** - literally "strip the component's own rotation from this bone",
+   which is the decoupling primitive stated as a flag. Untested. Note these are the SIBLINGS
+   of the camera control that broke the view, so treat them with the same care.
+4. **`DishonoredCamera_AnimDriven.m_CurMaxPlayerControlledYaw_Neg/_Pos`** (+ `_Target`,
+   `_Blended`, `_SoftenThreshold`) - the per-axis "how far may the view deviate from the
+   body" clamp that leaning, choking, conversations, possession and the DLC kill-cam all
+   funnel through. Ships `m_fDefaultWeight=0.0`, so it is inert until its influence is raised.
+5. **`m_Debug_Player.m_bIgnoreAimOffset`** - one bool, and `IgnorePlayerAimOffset` is the one
+   cheat in the whole manager with a real script body doing nothing but writing it. Gates
+   `AnimNodeAimOffset`, whose `Aim.X` is the horizontal channel. Free to try.
+6. **`StatePlayerMasterLeaning.m_fMinAllowedYawDegrees/_Max`** (+/-60) - `config(PlayerState)`,
+   so it is the only yaw window in the game settable from an ini with no code at all. It only
+   applies while leaning, but it is a zero-cost existence proof that the clamp works.
+7. **`FaceRotation` itself** - the complete fix and the last resort. Movement, melee facing
+   and mantling all key off actor yaw, so neutralising it needs a separate locomotion yaw.
+
+### Existence proofs that the game CAN hold the body while the view moves
+
+It does this already, in five places, all with real numeric yaw windows: leaning (+/-60
+degrees, config), choking (`DisTweaks_Choke`, an **asymmetric** -50/+10), conversations
+(`DisConvLookAtConstraints.m_fMaxYawDelta`), possession
+(`DisTweaks_Possessable.m_fYawLimitWhilePossessed_Deg`), and soiree matinees
+(`DisInterpTrackAllowPlayerLook` with `m_fYaw_Min/_Max` keyframed, over an
+`InterpGroupPlayer` that pins the body to a stage mark). So the capability is shipped and
+tuned; the question was only ever which knob reaches it from outside a scripted state.
+
+### Negatives worth not re-deriving
+
+- **There is no separate arms mesh.** `DishonoredPlayerPawn`'s `pMesh` is one
+  `DishonoredPlayerSkeletalComponent` carrying arms AND body (`SDPG_Foreground`,
+  `bOnlyOwnerSee`, `CastShadow=false` - it is the viewmodel). `m_BodyMode`
+  (`ARMS_ONLY/FULL_BODY/HIDDEN`) swaps meshes, it does not add a component. That component's
+  `m_Offset` is a **Vector, not a Rotator**, so the arms cannot be rotated independently
+  through it.
+- No script-side flag, state or branch skips `FaceRotation`; the per-frame call is inside
+  `native final UpdateRotation`.
+- `LimitViewRotation` is pitch-only by signature.
+- `AnimNodeAimOffset` has the `Aim` Vector2D with a horizontal range this problem wants, but
+  **nothing in the game references the class**. Do not hunt for it in memory.
+- No spine bender on the player (NPC-only), no cover system, no
+  `bUseControllerRotationYaw` analogue, no camera YAW anim notify (the pitch one exists).
+
+## `LookAtControl_Camera` IS THE CAMERA'S BONE CONTROL, NOT THE ARMS' (VR-30, 2026-09-05)
+
+**Do not zero it.** Attempt 5 recorded this control as "the camera one aims the arms at the
+view", and that description sent this session down a wrong road. Forcing its
+`ControlStrength` to 0 did **not** touch the arms' horizontal follow, and it introduced a
+regression instead: **looking up and down made the view shift forward and backward.**
+
+The log says why, and the class name is the whole answer:
+
+```
+LookAtControl_Camera found obj[54363] 'LookAtControl_Camera'
+class 'SkelControlSingleBone' @ 0FAD6800, ControlStrength reads 1.000
+```
+
+It is a **`SkelControlSingleBone`**, not a `SkelControlLookAt`. A single-bone control
+overrides one bone's transform, and the bone this one is named for is the camera's -
+`camera_jnt`, which this same session established is a bone ON the first-person mesh that
+the camera POV rides (`DishonoredCamera_AnimDriven` is entry 0 of the non-additive core
+group). So this control belongs to the **arms-drive-the-camera** direction, not the
+camera-drives-the-arms one. Zeroing it stops the camera bone being placed, and the view
+starts sliding fore and aft with pitch - exactly what was seen.
+
+`[Camera] ArmLookAtStrength` is kept as a lever because the finding is worth being able to
+reproduce, but it ships **-1 (off)** and should stay there. `[Hands] CameraLookAtStrength`
+writes the same field and is equally dangerous; that it has been dead behind the hand-mesh
+gate for a dozen builds is luck, not design.
+
+**What this leaves for yaw.** Both remaining candidates from the previous entry are now
+spent: the settings weights and the influences own pitch, and this control owns the camera.
+Nothing found so far reaches the arms' horizontal follow. That makes the third reading in
+the entry below the likely one - **yaw is structural**: the viewmodel is drawn in camera
+space with no world matrix anywhere in the constant map, and the player's body yaws with
+the view because in a flat game that IS the correct behaviour. If so, no field will switch
+it off, and VR-30's remaining work is the one its own pass criteria describe - placing the
+hands by controller within that frame - which is the hand drive's job, not the camera's.
+
+## PITCH AND YAW ARE TWO DIFFERENT MECHANISMS (VR-30, 2026-09-05, headset)
+
+Three headset runs on the same build family, and the result is a clean split nobody
+predicted: **the arms' vertical (pitch) follow and horizontal (yaw) follow are owned by
+different things, and only pitch has been switched off.**
+
+| run | lever | what the headset saw |
+|---|---|---|
+| 1 | the game's own `DishonoredCamera.ini` `m_fDefaultWeight=1.0` | no change at all |
+| 2 | `[Camera] ArmFollowWeight=0` (force the settings struct) | arms **trail** the view on both axes - the cursor outpaces them |
+| 3 | `[Camera] ArmDisableWeight=1` (force the influences) | **vertical follow GONE**, horizontal unchanged |
+
+### What each run measured, and it is the log that says so
+
+**Run 1 - the config route is inert.** `m_fDefaultWeight=1.0` on
+`DishonoredCamera_DisableArmFollow` left the live influence reading `weight 0.000,
+target 0.000`. The class is `config(Camera)` and the ini section exists, but that value does
+not reach the live object. Restored to stock; do not spend another session on it.
+
+**Run 2 - the settings struct is a race we only half win.** The log shows
+`m_ArmFollowWeight` and both `_Rot_` weights oscillating **1.000 <-> 0.000 between
+dispatches**: our write lands, the engine's recompute lands right behind it. Roughly half
+authority, and half authority is exactly what "the arms trail the cursor" looks like - they
+are still pulled toward the view, just weakly enough to converge instead of track. Writing
+at a higher cadence cannot fix this; the recompute runs between our dispatches whatever we
+do.
+
+**Run 3 - the influences own PITCH, and they are not what `m_ArmFollowWeight` reads.**
+Forcing both `DisableArmFollow` influences to `m_Weight = m_TargetWeight = 1` with
+`m_bActive` set removed the vertical follow completely and held it. **And
+`m_ArmFollowWeight` still reads ~1.000 throughout** - so the recompute does NOT derive that
+field from these influences, which is what the second commit assumed. The influence acts on
+something else, and the pitch-only result points at the item aim additive:
+`DisTweaks_InventoryItem_PlayerSpecific` declares `m_ArmPitch_OffsetKeys` (a per-item curve
+mapping camera arm pitch to an arm pitch difference) and `m_bUseItemAimAdditives`, consumed
+by `DisAnimNodeBlendItemAimAdditive`. That is a **pitch-named** channel, and pitch is what
+went away.
+
+### So what owns YAW
+
+Not established. The candidates, cheapest first:
+
+1. **`m_ArmFollowWeight` itself.** Run 2 moved yaw (to trailing), so this field does reach
+   the horizontal channel - it just cannot be held against the recompute from this lane.
+   Running both levers together is the free test: if yaw trails while pitch stays fixed, the
+   two channels are confirmed separate and each lever's owner is named.
+2. **`LookAtControl_Camera`.** Attempt 5 found three Arkane look-at controls on the player
+   rig (`LookAtControl_Camera/_LeftHand/_RightHand`) and the camera one "aims the arms at the
+   view". `SkcRotApply` already writes its `ControlStrength` from
+   `[Hands] CameraLookAtStrength` **every dispatch** - the right cadence - and the key ships
+   at 1.0. **It has never been judged, because it is dead on a shipped build**: `SkcRotApply`
+   returns on `!g_skcDrive`, and `g_skcPlayer[]` is only populated by `SkelControlProbe`,
+   which runs below `ApplyHandToMesh`'s `if (!g_handMesh) return`. Reaching it needs either
+   `GamepadOnly=0` (which turns on a dozen other things at once) or hoisting the discovery
+   above that gate. **Note the hazard before touching it**: 32.6 records this as "the single
+   most dangerous store in the DLL" - writes into a freed AnimTree after `CollectGarbage`
+   corrupted the heap, which is why `SkcAlive`/`GraftEmergencyRestore` exist.
+3. **Structural camera-space placement.** ENGINE_NOTES' original root cause says the
+   viewmodel is drawn in camera space with no world matrix anywhere in the constant map. If
+   yaw is structural rather than a weighted additive, no field will switch it off and the
+   answer is the hand drive placing the arms in a frame we choose.
+
+Reading 1 and 2 together: the arms are attached to a body that yaws with the view, while
+pitch is applied as an additive on top. That would make yaw *correct* engine behaviour - your
+body does turn - and make the remaining work "place the hands by controller within that
+frame" rather than "stop the yaw", which is what the hand drive is for.
+
+## The arm-follow API, verified against the corpus (VR-30, 2026-09-05)
+
+Verified this session by reading `tools/uscript/` directly, correcting and extending the
+2026-09-02 research entry further down. **Still declaration-level: nothing has been read off
+a live object yet.** The probe that does that ships in this same commit.
+
+### What the game declares
+
+`DishonoredPlayerCamera.m_DishonoredVTSettings` (`:107`) is a `DishonoredVTSettings` - a
+struct declared in **`DishonoredCameraInfluenceGroup.uc:11`, not on the camera** - and the
+camera's defaults ship **arm follow fully ON**: `m_ArmFollowWeight`,
+`m_ArmFollowWeight_Rot_Primary/_Secondary` and `m_ArmFollowOffset_Weight_*` all 1.0, every
+rotator zero (`:171`).
+
+Four `DishonoredCameraInfluence` objects exist purely to turn it off, held both as named
+pointers (`:111-114`) and as entries **2-5 of `m_Influences[]` in group 3** (`CG_DISABLE_GROUP`,
+`:200-203`) - the last four entries of the last group, so they act as a final gate rather
+than contributing a POV delta. Each carries `m_Weight`, `m_TargetWeight`, `m_bActive`,
+`m_TransitionSpeed`, and both DisableArmFollow classes ship `m_fDefaultWeight=0.0`.
+
+`DishonoredCameraInfluence` also declares `CAM_BLEND_INSTANT = 1000000.f` - the game's own
+idiom for "snap, do not blend", i.e. what to put in `m_TransitionSpeed` to make a weight
+change land the same frame.
+
+### Three findings that constrain any approach
+
+1. **There is no script-level way to activate an influence.** Nothing in the corpus writes
+   `m_TargetWeight` or `m_bActive` - not once. Every influence class is `native(Camera)` with
+   only `var` declarations and `defaultproperties`; not one of the 20 has a single function.
+   The blend math and the activation triggers are C++ and cannot be read here.
+2. **Nothing in the game turns arm-follow off from script either.** The only references to
+   these classes anywhere are declarations and CDO array entries. There is no in-game state
+   (aiming, sheathing, a cutscene) whose script turns it off, so **there is no free A/B to
+   copy** - a hope the previous entry raised and this one closes.
+3. **The coupling runs in BOTH directions.** `camera_jnt` is a bone on the first-person mesh
+   (`DisTweaks_PlayerPawn_Camera.m_CameraBoneName`, `MatineePreviewPlayerPawn`,
+   `DishonoredNotify_CameraPitchTarget`) and `DishonoredCamera_AnimDriven` is entry 0 of the
+   NON-ADDITIVE core group: arms animation drives the camera POV, and then the camera POV
+   drives arm follow. Breaking only the second direction may not be enough, and AnimDriven is
+   the influence that owns the first.
+
+### Corrections to the 2026-09-02 entry
+
+- `m_UsedMaterials` is **not** beside `m_Offset`. It is one class up on
+  `DisSkeletalMeshComponent` and it is a body-part material show/hide table, not a viewmodel
+  transform. It is not a suppression route for the arms - do not chase it.
+- Nothing in the corpus ever **writes** `m_Offset`, `m_bUseFOV` or `m_FOV`, and none appears
+  in any `defaultproperties`. So the coordinate space of `m_Offset` **cannot** be derived from
+  script and must be measured the way `camera postest` measures.
+- "Primary/Secondary" is `EDisEquipUsage` (`_Primary=1`, `_Secondary=2`) - an equipped slot,
+  most likely weapon vs offhand power. **It is not handedness.**
+
+### The config route, which costs nothing to test
+
+`DishonoredCamera_DisableArmFollow` is `config(Camera)` and `m_fDefaultWeight` /
+`m_TransitionSpeed` are `var config`. The game's own
+`Documents\My Games\Dishonored\DishonoredGame\Config\DishonoredCamera.ini` **already carries
+the section**, shipping the weight at 0:
+
+```
+[DishonoredGame.DishonoredCamera_DisableArmFollow]
+m_fDefaultWeight=0.000000
+m_TransitionSpeed=2.000000
+```
+
+Setting that to 1.0 is a complete test of the mechanism with **no code, no build and no
+install**. `_Secondary` is a separate class and needs its own section
+(`[DishonoredGame.DisCamera_DisableArmFollow_Secondary]`) - it does not inherit the parent's.
+It may do nothing, if `m_fDefaultWeight` is only a reset value and C++ drives `m_TargetWeight`
+over the top; that outcome is itself the measurement, and it is what the probe distinguishes.
+
+### Two other levers this turned up
+
+- **`SetSkelControlActive(bool)` and `SetSkelControlStrength(float, float)` on
+  `SkelControlBase`, plus `FindSkelControl(name)` on `SkeletalMeshComponent`, are
+  script-callable natives** - the only documented callable API in the whole chain. Control
+  names come from `DisTweaks_PlayerPawn_Camera.m_LookAtControlName_Camera/_LeftHand/_RightHand`.
+  This is the same `LookAtControl_Camera` that attempt 5 found and that
+  `[Hands] CameraLookAtStrength` already dials - but that key is dead on a shipped build
+  because `GamepadOnly=1` clears `g_skcDrive`.
+- **`IgnorePlayerAimOffset(bool)`** is an exec with a real script body that sets
+  `m_bIgnoreAimOffset`, a plain bool in the pawn's `m_Debug_Player` struct
+  (`DishonoredPlayerPawn.uc:214-228, 361`). Aim-offset is the additive that pitches the arms
+  with the camera, so it is the closest script-visible analogue to disabling arm follow, and
+  it is trivially pokeable.
 
 ## Head coupling of the arms (the open problem; roadmap D5)
 

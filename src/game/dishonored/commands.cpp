@@ -4,6 +4,7 @@
 // Vocabulary (game words are tried before the core ones in command.h):
 //   recenter                     same as F5
 //   hands on|off                 the SkelControl hand drive
+//   arms [probe|status]          VR-30: the arm-follow probe, read-only (also reports every 30 s)
 //   blink on|off|probe           hand-aimed Blink; probe = one-shot survey
 //   fov <deg|0>                  the FOV lever (0 disarms)
 //   overlay on|off               the F10 settings panel
@@ -44,6 +45,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 {
     bool b = false;
     if (!strcmp(cmd, "recenter")) { RecenterHead(); return true; }
+    // VR-30: the arm-follow probe. Read-only, reports on its own every 30 s.
+    if (!strcmp(cmd, "arms") && !strcmp(args, "yawtest")) { YawSelfTest(); return true; }
+    if (!strcmp(cmd, "arms")) { if (ArmFollowCommand(args)) return true;
+        Log("arms: usage - arms [probe|status|yawtest]  (read-only; it also reports itself every 30 s)");
+        return true; }
     if (!strcmp(cmd, "hands") && DvrOnOff(args, &b)) {
         g_skcDrive = b; g_handMesh = b; g_autoHandDone = true;
         Log("hands: %s (seam)", b ? "ON" : "off");

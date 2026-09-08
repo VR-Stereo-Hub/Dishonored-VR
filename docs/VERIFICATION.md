@@ -54,6 +54,20 @@ question the simulator could answer is a wasted session.
 | Which half of a remedy repairs the eyes? (session 9) | seam | `reentry rearm [n]` (n single ticks, the capture untouched), `capture reinit` (the slots rebuilt, the mode unchanged), `stereo projection off` then `auto` (the runtime's quad -> projection transition) | `gates -> SINGLE draw (rearm by request)` then `DOUBLE draw after n single tick(s)`; `capture: shared slots REBUILT by request`; `projection layer released` / `CLAIMED`; then the `frameid` line and the eyes |
 | Comfort, judder, world scale, warp | headset | F10 overlay + the user | the verdict; write it in STATUS |
 
+## VR-30: the yaw instruments (2026-09-05)
+
+| Intent | Tool | Command | How to read it |
+|---|---|---|---|
+| Is the yaw bookkeeping correct? | host test, no game | `tools/yawtest-host.ps1` | Seven cases sliced VERBATIM out of `head_track.cpp` and compiled against a `Log()` shim: head-only leaves the body alone, stick-only moves both equally, simultaneous keeps both, replays add nothing twice, five revolutions stay continuous, a new owner discards stale state, a pawn write is not subtracted twice. `HOST RESULT: PASS`. |
+| Same cases against the live build | seam | `game-cmd.ps1 "arms yawtest"` | Same seven lines in `dishonored_vr.log`. |
+| Where is head/stick yaw going? | log | `armfollow/yaw:` | head, controller, pawn and view yaw with per-second deltas, one coherent sample. **A /s that reads ~0 while you are moving that input is the finding.** It caught the stale controller and the 2.2% write-survival number. |
+| Is the body-facing intercept working? | log | `armfollow/facing:` | `asked -> faced (body target) | seen N ours N replaced N stale N`. `replaced` climbing with `stale` at 0 is healthy. `seen` > `ours` is other actors passing through, which is correct. |
+| Where does the engine face the body? | log, one shot | `armfollow/nfp:` | Resolves the FaceRotation UFunction, prints `.text` RVAs to disassemble offline, dumps the pawn vtable head, and counts ProcessEvent dispatches of FaceRotation. **A count that stays at 0 proves the route is native-to-native.** |
+| Does a write actually survive? | pattern | any write instrument | Read the field back at the *next* write and classify it ours / engine / third party. This is the measurement that settled VR-30 after ten attempts had not, and it belongs on any new engine write.
+
+**Gotcha 21**: `tools/ini-golden.py --check` needs a FILE argument. Without one
+the script regenerates the golden instead of checking it, and reports success.
+
 ## 2. The simulated runtime (`dvr_xrsim32.dll`)
 
 A purpose-built 32-bit OpenXR runtime (`src/tools/xrsim`, from the BioShock trilogy mod) that

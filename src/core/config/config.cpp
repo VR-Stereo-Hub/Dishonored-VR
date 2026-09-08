@@ -20,10 +20,13 @@ static void WriteDefaultIni(const char* ini)
         "YawCountsPerDegree=11.5\n"
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
-        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). -0.090 is the\n"
-        "; value the 2026-09-03/04 headset runs were judged at (it was the code default and\n"
-        "; unwritten before); F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
-        "HeightOffsetM=-0.090\n"
+        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). +0.060 is\n"
+        "; headset-judged 2026-09-05, arrived at by ear across the arm-decoupling runs\n"
+        "; (-0.090 -> -0.050 -> +0.060 as the arms stopped moving and the scale settled).\n"
+        "; It pairs with [PosTrack] Scale=108 from the same session - eye height and world\n"
+        "; scale are judged together, so moving one alone will read as wrong.\n"
+        "; F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
+        "HeightOffsetM=0.060\n"
         "[Stereo]\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
@@ -57,6 +60,51 @@ static void WriteDefaultIni(const char* ini)
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
         "; the per-eye camera seam); none disables the write.\n"
         "EyeField=0x330\n"
+        "; ArmFollowWeight (VR-30): how hard the arms and weapon follow where you LOOK.\n"
+        "; -1 = off, the game's own value stands (ships). 0..1 forces it: 0 should stop the\n"
+        "; arms following the view entirely, 1 is the shipped behaviour written by us instead\n"
+        "; of by the engine (a control - if 1 looks stock, the write is landing).\n"
+        "; Measured 2026-09-05: the engine RECOMPUTES these weights every frame (they ride\n"
+        "; 0.982..1.000 and never leave it), so this is written on every script dispatch, the\n"
+        "; same cadence the FOV lever uses to outrun the same recompute. The game's own\n"
+        "; DishonoredCamera.ini m_fDefaultWeight was tried first and does nothing.\n"
+        "; This is ROTATION only; the position channel belongs to a separate ticket.\n"
+        "; `arms follow <0..1>` and `arms follow off` are the live A/B.\n"
+        "ArmFollowWeight=-1\n"
+        "; ArmDisableWeight (VR-30): the OTHER way at the same thing, and the better one.\n"
+        "; Rather than pasting a weight over the engine's recompute (which measured as a\n"
+        "; 1.000<->0.000 fight between dispatches, seen as the arms TRAILING the view), this\n"
+        "; forces the game's own DisableArmFollow influences, so the recompute derives an arm\n"
+        "; follow of 0 by itself and holds it. -1 = off (ships), 1 = full decoupling.\n"
+        "; m_Weight, m_TargetWeight and m_bActive are all written every dispatch, because the\n"
+        "; game pulls the target back to 0 about 60 ms after raising it on its own.\n"
+        "; `arms disable <0..1>` and `arms disable off` are the live A/B.\n"
+        "ArmDisableWeight=-1\n"
+        "; ArmLookAtStrength (VR-30): the YAW candidate. ArmDisableWeight above took the\n"
+        "; arms' VERTICAL follow and left the horizontal alone, and forcing the settings\n"
+        "; weights on top of it added nothing - so both of those act on one channel and\n"
+        "; neither reaches yaw. LookAtControl_Camera is the Arkane look-at that aims the\n"
+        "; arms at the view; 0 stops it. -1 = off (ships), 0..1 forces its ControlStrength.\n"
+        "; This one finds the node itself, so it works on a stock install - the mod's older\n"
+        "; [Hands] CameraLookAtStrength writes the same field but is dead behind the\n"
+        "; hand-mesh gate that [Mode] GamepadOnly=1 closes.\n"
+        "; `arms lookat <0..1>` and `arms lookat off` are the live A/B.\n"
+        "ArmLookAtStrength=-1\n"
+        "; ArmCounterYaw (VR-30): THE YAW LEVER, and it ships ON at 1.0.\n"
+        "; Reading the scripts end to end says there is no yaw driver for the arms at all -\n"
+        "; every arm/aim/look mechanism the game exposes is pitch-only or NPC-only. The arms\n"
+        "; yaw because the PAWN yaws: they are bones of its mesh, and the pawn's native\n"
+        "; FaceRotation sets its yaw from the controller every frame. There is nothing to\n"
+        "; switch off. So this SUBTRACTS instead: m_ArmFollowOffset_Rot_Primary/_Secondary\n"
+        "; are the game's own authored arm rotation offsets (Rotators, already scaled by a\n"
+        "; weight the engine respects), and they get a yaw equal and opposite to how far your\n"
+        "; head has turned since the reference. The arms then hold still in the world while\n"
+        "; the view turns, and attachments follow for free because the engine applies it.\n"
+        "; Stick turning moves the BODY yaw, not the head's, so it is untouched - the body\n"
+        "; comes round and the arms come with it, which is what you want.\n"
+        "; 1.0 = hold still, 0.5 = follow at half rate (tune by feel), 0 = write a zero offset\n"
+        "; as a control, -1 = off. `arms yaw <0..2>` and `arms yaw off` are the live A/B.\n"
+        "ArmCounterYaw=-1\n"
         "[Capture]\n"
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
@@ -253,7 +301,8 @@ static void WriteDefaultIni(const char* ini)
         "; how far it will follow.\n"
         "; If leaning LEFT moves the world the wrong way set FlipX=1.\n"
         "Enabled=1\n"
-        "Scale=98\n"
+        "; 108 uu/m: headset-judged 2026-09-05, tuned live with PgDn from 98 and kept.\n"
+        "Scale=108\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
         "[Neck]\n"
@@ -477,6 +526,38 @@ static void LoadConfig()
         GetPrivateProfileStringA("Camera", "EyeField", "0x330", ef, sizeof(ef), ini);
         dvr::camera::set_eye_field(ef);
     }
+    {   // VR-30: [Camera] ArmFollowWeight. -1 = off (ships). Read here rather
+        // than under [Hands] on purpose: the GamepadOnly block near the end of
+        // this function clears the hand switches, and this must survive it.
+        const float afw = IniFloat(ini, "Camera", "ArmFollowWeight", -1.0f);
+        if (afw > 1.0f)
+            Log("config: [Camera] ArmFollowWeight=%.2f is out of range (-1 = off, 0..1) - left OFF", afw);
+        else if (afw >= 0.0f)
+            ArmFollowSetForce(afw, "ini");
+        const float adw = IniFloat(ini, "Camera", "ArmDisableWeight", -1.0f);
+        if (adw > 1.0f)
+            Log("config: [Camera] ArmDisableWeight=%.2f is out of range (-1 = off, 0..1) - left OFF", adw);
+        else if (adw >= 0.0f)
+            ArmFollowSetInfluence(adw, "ini");
+        const float als = IniFloat(ini, "Camera", "ArmLookAtStrength", -1.0f);
+        if (als > 1.0f)
+            Log("config: [Camera] ArmLookAtStrength=%.2f is out of range (-1 = off, 0..1) - left OFF", als);
+        else if (als >= 0.0f)
+            ArmFollowSetLookAt(als, "ini");
+        // VR-30: the yaw lever. Ships ON at 1.0 - a deliberate exception to
+        // "every render lever ships OFF", made on the user's direction because
+        // the arms following the view is the fault the whole ticket is about.
+        const float acy = IniFloat(ini, "Camera", "ArmCounterYaw", -1.0f);
+        if (acy > 2.0f)
+            Log("config: [Camera] ArmCounterYaw=%.2f is out of range (-1 = off, 0..2) - left OFF", acy);
+        else if (acy >= 0.0f)
+            ArmFollowSetCounterYaw(acy, "ini");
+        // VR-30: the core fix - hold the body instead of correcting the arms
+        const float fac = IniFloat(ini, "Camera", "ArmBodyFacing", -1.0f);
+        if (fac >= 0.0f) ArmFollowSetFacing(fac, "ini");
+        const float asr = IniFloat(ini, "Camera", "ArmStripMeshRot", -1.0f);
+        if (asr >= 0.0f) ArmFollowSetStripRot(asr, "ini");
+    }
     {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
         // mode is refused with the reason and sync keeps running)
         char cm[16] = "";
@@ -576,7 +657,7 @@ static void LoadConfig()
     // its own UE3 build from three agreeing movement constants.
     // Corroborated by eye height: 78.1 uu above the pawn origin plus a typical
     // ~88 uu human collision half-height puts the eye at 1.66 m.
-    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 98.0f);
+    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 108.0f);
     if (g_posScaleUU < 1.0f)    g_posScaleUU = 1.0f;
     if (g_posScaleUU > 400.0f)  g_posScaleUU = 400.0f;
     g_roomScaleCfg = IniFloat(ini, "PosTrack", "RoomScale", 1) != 0.0f;  // 38.46
@@ -1038,7 +1119,7 @@ static void LoadConfig()
         "scale %.0f uu/m)", g_skcDrive ? "ON" : "off", (int)g_skcLive,
         (int)g_skcWorld, (int)g_skcDoTrans, (int)g_skcDoRot, (int)g_skcAddMode,
         g_skcScaleUU);
-    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", -0.09f);
+    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", 0.06f);
     if (g_heightOffsetM < -1.5f) g_heightOffsetM = -1.5f;
     if (g_heightOffsetM >  1.5f) g_heightOffsetM =  1.5f;
     g_crouchOn     = IniFloat(ini, "Tracking", "PhysicalCrouch", 1) != 0.0f;
