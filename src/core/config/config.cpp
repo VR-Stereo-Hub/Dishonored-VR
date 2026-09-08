@@ -1158,26 +1158,17 @@ static void LoadConfig()
     if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
     g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
     if (g_mpHand < 0 || g_mpHand > 2) g_mpHand = 0;
-    g_mpDrive         = IniFloat(ini, "Hands", "PaletteDrive", 0) != 0.0f;
     g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
     if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
     if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
     g_mpWorld         = IniFloat(ini, "Hands", "PaletteWorld", 0) != 0.0f;
+    g_mpEyeHunt       = IniFloat(ini, "Hands", "PaletteEyeHunt", 0) != 0.0f;
     g_mpDepth         = IniFloat(ini, "Hands", "PaletteDepthRange", 0) != 0.0f;
     g_mpEyeOffset     = IniFloat(ini, "Hands", "PaletteEyeOffset", 0) != 0.0f;
-    g_mpEyeHunt       = IniFloat(ini, "Hands", "PaletteEyeHunt", 0) != 0.0f;
-    g_mpAbs           = IniFloat(ini, "Hands", "PaletteAbsolute", 0) != 0.0f;
     g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
     g_mpWsumTol       = IniFloat(ini, "Hands", "PaletteWeightTol", 0.02f);
     if (g_mpWsumTol < 0.0001f) g_mpWsumTol = 0.0001f;
-    g_mpFrameProbe    = IniFloat(ini, "Hands", "PaletteFrameProbe", 0) != 0.0f;
-    g_mpYawMode       = (int)IniFloat(ini, "Hands", "PaletteYawFix", 0);
-    if (g_mpYawMode < 0 || g_mpYawMode > 3) g_mpYawMode = 2;
     g_mpStep          = IniFloat(ini, "Hands", "PaletteStep", 0) != 0.0f;
-    g_mpSweep         = IniFloat(ini, "Hands", "PaletteSweep", 0) != 0.0f;
-    g_mpSweepSec      = IniFloat(ini, "Hands", "PaletteSweepSeconds", 3.0f);
-    if (g_mpSweepSec < 0.5f)  g_mpSweepSec = 0.5f;
-    if (g_mpSweepSec > 30.0f) g_mpSweepSec = 30.0f;
     if (g_mpOn && g_mpWorld)
         Log("config: [Hands] PaletteWorld=1 - the palm is placed through the "
             "MEASURED chain. LocalToWorld and ViewProjectionMatrix are read "
@@ -1188,24 +1179,6 @@ static void LoadConfig()
             "scale: %.0f uu/m x gain %.2f, against [PosTrack] Scale=%.0f - a "
             "scale error shows as a GAIN error, not as drift.",
             (double)g_skcWorldScale, (double)g_mpDriveGain, (double)g_posScaleUU);
-    else if (g_mpOn && g_mpAbs)
-        Log("config: [Hands] PaletteAbsolute=1 - the palm anchor is placed "
-            "ABSOLUTELY. Each frame the visible palm's position is skinned from "
-            "the game's OWN palette and the delta is target minus that, so the "
-            "animated baseline is removed instead of being left underneath the "
-            "correction - which is the term the relative drive never cancelled. "
-            "%.0f uu/m x gain %.2f. F6 re-calibrates the constant "
-            "controller-to-palm offset.",
-            (double)g_skcWorldScale, (double)g_mpDriveGain);
-    else if (g_mpOn && g_mpDrive)
-        Log("config: [Hands] Palette=1 PaletteDrive=1 - the CONTROLLERS drive "
-            "the palette delta, at %.0f uu/m x gain %.2f, through the basis "
-            "measured 2026-09-07 (axis 0 left, 1 down, 2 forward, camera "
-            "relative). It is a RELATIVE drive: each hand starts where the "
-            "engine put it and moves by the controller's travel from a "
-            "captured neutral, so it does not place the hand AT the "
-            "controller. F6 recentres both hands.",
-            (double)g_skcWorldScale, (double)g_mpDriveGain);
     else if (g_mpOn && g_mpStep)
         Log("config: [Hands] Palette=1 PaletteStep=1 - the palette's STEPPED "
             "axis probe is armed and starts at REST, so nothing moves until "
@@ -1215,15 +1188,6 @@ static void LoadConfig()
             "ms/palette/step: line, so which axis was live is never inferred.",
             g_mpAmount,
             g_mpHand == 0 ? "A (left)" : g_mpHand == 1 ? "B (right)" : "BOTH");
-    else if (g_mpOn && g_mpSweep)
-        Log("config: [Hands] Palette=1 PaletteSweep=1 - the palette's AXIS "
-            "SWEEP is armed. Hand class %s takes a %+.1f uu delta that moves "
-            "to the next axis every %.1f s (0 -> 1 -> 2, repeating); the other "
-            "class never moves and is the reference. Each switch prints an "
-            "ms/palette/sweep: line naming the live axis, so the basis is read "
-            "off one run.",
-            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH (no reference)",
-            g_mpAmount, (double)g_mpSweepSec);
     else if (g_mpOn)
         Log("config: [Hands] Palette=1 - the draw-scoped bone palette is ARMED. "
             "Hand class %s takes a %.1f uu delta on axis %d and the other class "
@@ -1657,24 +1621,16 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteAxis", v, ini);
     _snprintf(v, 64, "%d", g_mpHand);
     WritePrivateProfileStringA("Hands", "PaletteHand", v, ini);
-    WritePrivateProfileStringA("Hands", "PaletteDrive", g_mpDrive ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", g_mpDriveGain);
     WritePrivateProfileStringA("Hands", "PaletteDriveGain", v, ini);
-    _snprintf(v, 64, "%d", g_mpYawMode);
-    WritePrivateProfileStringA("Hands", "PaletteYawFix", v, ini);
     WritePrivateProfileStringA("Hands", "PaletteWorld", g_mpWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteDepthRange", g_mpDepth ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
-    WritePrivateProfileStringA("Hands", "PaletteAbsolute", g_mpAbs ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.4f", g_mpWsumTol);
     WritePrivateProfileStringA("Hands", "PaletteWeightTol", v, ini);
-    WritePrivateProfileStringA("Hands", "PaletteFrameProbe", g_mpFrameProbe ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
-    WritePrivateProfileStringA("Hands", "PaletteSweep", g_mpSweep ? "1" : "0", ini);
-    _snprintf(v, 64, "%.1f", g_mpSweepSec);
-    WritePrivateProfileStringA("Hands", "PaletteSweepSeconds", v, ini);
     _snprintf(v, 64, "%.1f", g_hmAmount);
     WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);
     _snprintf(v, 64, "%d", g_hmAxis);

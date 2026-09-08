@@ -1572,7 +1572,6 @@ static bool MsUpload(IDirect3DDevice9* dev)
                 const float d = sqrtf(dx*dx + dy*dy + dz*dz);
                 if (d > rad) rad = d;
             }
-            g_mpOriginOk[0] = g_mpOriginOk[1] = false;   // geometry changed
             Log("ms/palette/anchor: class %s - %d vertex(es) within %.2f uu of "
                 "the class centroid (%.1f %.1f %.1f), from %d triangle(s). "
                 "FIXED identities, deduplicated, bind-pose compact. A radius "
@@ -1737,7 +1736,6 @@ static void MpOnReset(void)
     g_mpValidN = 0;
     g_mpCacheN = 0;
     g_mpPalN   = 0;
-    g_mpOriginOk[0] = g_mpOriginOk[1] = false;
     g_mpResidOk[0]  = g_mpResidOk[1]  = false;
     Log("ms/palette: device reset - the palette cache, the calibrated origins "
         "and the residuals are all dropped. Constants do not survive a reset "
@@ -2341,131 +2339,6 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                             "ms/palette/world: hand %d NOT placed - %s. The "
                             "engine's own hand is drawn instead.", hIdx, why);
                     }
-                } else if (g_mpAbs) {
-                    // ABSOLUTE. Find the palm now, from the game's own palette,
-                    // and translate by the difference to where it should be.
-                    // This is the term the relative drive never removed.
-                    const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
-                    float q[3];
-                    if (g_mpCtlOk[hIdx] &&
-                        MpAnchorPos(rng[r].cls, g_mpCache, g_mpCacheN, q)) {
-                        if (!g_mpOriginOk[hIdx]) {
-                            // Calibrate so the hand does not jump on the first
-                            // frame: the constant palette-space offset between
-                            // the controller point and the palm as drawn.
-                            for (int i = 0; i < 3; i++)
-                                g_mpOrigin[hIdx][i] = q[i] - g_mpCtlPal[hIdx][i];
-                            g_mpOriginOk[hIdx] = true;
-                            Log("ms/palette/abs: hand %d CALIBRATED - palm at "
-                                "(%.1f %.1f %.1f) uu, controller at (%.1f %.1f "
-                                "%.1f) uu, constant offset (%.1f %.1f %.1f). "
-                                "The hand does not move on this frame by "
-                                "construction; every frame after is absolute.",
-                                hIdx, q[0], q[1], q[2],
-                                g_mpCtlPal[hIdx][0], g_mpCtlPal[hIdx][1],
-                                g_mpCtlPal[hIdx][2],
-                                g_mpOrigin[hIdx][0], g_mpOrigin[hIdx][1],
-                                g_mpOrigin[hIdx][2]);
-                        }
-                        float tgt[3];
-                        for (int i = 0; i < 3; i++) {
-                            tgt[i] = g_mpCtlPal[hIdx][i] + g_mpOrigin[hIdx][i];
-                            T[i] = tgt[i] - q[i];
-                        }
-                        useT = true;
-                        // MEASURE the result instead of asserting it. This
-                        // used to write zero and call it "exact by
-                        // construction", which is not verification of
-                        // anything: it restates the line above it. Re-skin the
-                        // anchor from the palette we are actually about to
-                        // submit and report where the anchor really lands.
-                        // A non-zero residual means the transform does not
-                        // compose the way this code assumes - for instance if
-                        // the shader's effective weights do not sum to one, in
-                        // which case a translation T moves the vertex by
-                        // wsum*T and not by T.
-                        // PER HAND. One shared counter meant that in the
-                        // normal left-then-right draw order every 256th call
-                        // was always the right hand, so the LEFT residual never
-                        // sampled once - the instrument reported on half of
-                        // what it claimed to cover.
-                        if ((++g_mpResidTick[hIdx] & 0xFF) == 0) {
-                            static float chk[4 * 256];
-                            MpBuild(chk, g_mpCache, g_mpCacheN, T);
-                            float q2[3];
-                            if (MpAnchorPos(rng[r].cls, chk, g_mpCacheN, q2)) {
-                                for (int i = 0; i < 3; i++)
-                                    g_mpResid[hIdx][i] = tgt[i] - q2[i];
-                                g_mpResidOk[hIdx]  = true;
-                                g_mpResidGen[hIdx] = g_mpCacheGen;
-                            } else {
-                                // A failed sample is NOT a zero residual.
-                                g_mpResidOk[hIdx] = false;
-                            }
-                        }
-                    }
-                    else {
-                        // A silent fall-through here is exactly how the last
-                        // run wasted itself: the engine's own hands are still
-                        // hands, so "nothing applied" looks like "it does not
-                        // work" instead of naming which input was missing.
-                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
-                            "ms/palette/abs: hand %d NOT PLACED - controller "
-                            "pose %s, palm anchor %s (%d anchor vertex(es), "
-                            "c6 x%u). The engine's own hand is being drawn, so "
-                            "this looks like a hand that ignores the "
-                            "controller rather than a lane that never ran.",
-                            hIdx, g_mpCtlOk[hIdx] ? "ok" : "MISSING",
-                            g_mpAnchorN[rng[r].cls] > 0 ? "present" : "MISSING",
-                            g_mpAnchorN[rng[r].cls], g_mpCacheN);
-                    }
-                } else if (g_mpDrive) {
-                    const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
-                    if (g_mpDeltaOk[hIdx]) {
-                        T[0] = g_mpDeltaUU[hIdx][0];
-                        T[1] = g_mpDeltaUU[hIdx][1];
-                        T[2] = g_mpDeltaUU[hIdx][2];
-                        useT = true;
-                    }
-                } else if (hit) {
-                    // Which axis is live. The sweep walks 0,1,2 on a timer so
-                    // one run reports the whole basis; without it the ini's
-                    // fixed axis is used, which is the A/B.
-                    int axis = g_mpAxis;
-                    if (g_mpStep) {
-                        axis = g_mpStepAxis;      // -1 while resting
-                    } else if (g_mpSweep) {
-                        const double per = (g_mpSweepSec > 0.2f) ? g_mpSweepSec * 1000.0 : 3000.0;
-                        axis = (int)(fmod(MaimNowMs() / per, 3.0));
-                        if (axis < 0 || axis > 2) axis = 0;
-                        if (axis != g_mpSweepAxis) {
-                            g_mpSweepAxis = axis;
-                            // The yaw at the switch is the half that makes the
-                            // reading survive a turn. Axis 1 came back "down",
-                            // which is yaw-invariant and therefore trustworthy
-                            // on its own; "left" and "forward" were reported
-                            // from one facing and cannot yet be told apart from
-                            // world-aligned axes that only LOOKED view-aligned.
-                            // Two cycles at different yaws settle it: same
-                            // directions = view-aligned, rotated = world.
-                            Log("ms/palette/sweep: >>> AXIS %d <<< now carrying "
-                                "%+.1f uu on hand class %s, for the next %.1f s "
-                                "| hmdYaw=%.1f deg cam=(%.0f %.0f %.0f). "
-                                "Whichever way the hand JUMPS is what palette "
-                                "axis %d means AT THIS YAW. The other hand is "
-                                "not moving and is the reference.",
-                                axis, g_mpAmount,
-                                g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH",
-                                (double)g_mpSweepSec,
-                                g_hmdYaw * 57.2958f,
-                                g_camPosC5[0], g_camPosC5[1], g_camPosC5[2],
-                                axis);
-                        }
-                    }
-                    // axis < 0 is the probe RESTING: no delta, so this
-                    // class draws under the game's own block exactly like the
-                    // reference hand.
-                    if (axis >= 0 && axis < 3) { T[axis] = g_mpAmount; useT = true; }
                 }
                 if (useT) {
                     static float buf[4 * 256];
@@ -2543,285 +2416,74 @@ static const char* MsModeName(int m)
 // neutral into a palette delta. It reads the pose slots present_tick has
 // already filled (head = 0, hands = 3 and 4), so it makes no runtime call of
 // its own and cannot race the thread that owns them.
+// The controller offset the placement consumes. Present thread, from MsTick.
+// It reads the pose slots present_tick has already filled (head = 0, hands = 3
+// and 4), so it makes no runtime call of its own and cannot race the thread
+// that owns them.
+//
+// GATED ON THE BACKEND, NOT ON ITS CONSUMERS. This went wrong three times, the
+// same shape each time: MsTick hidden behind g_dcOn, then the poses behind
+// g_mpDrive when another mode needed them, then behind two flags when a third
+// did. Every time the engine's own hands were drawn instead, and every time it
+// read as "the feature does not work" rather than as a lane that never ran.
+// Listing consumers in a gate means editing the gate whenever one is added,
+// and it will be forgotten again.
 static void MpDriveTick(void)
 {
-    // GATED ON THE BACKEND, NOT ON ITS CONSUMERS. This has now gone wrong
-    // three times, each time the same shape: MsTick hidden behind g_dcOn,
-    // then the poses behind g_mpDrive when PaletteAbsolute needed them, then
-    // behind g_mpDrive||g_mpAbs when PaletteWorld needed them. Every time the
-    // engine's own hands were drawn instead, and every time that read as "the
-    // feature does not work" rather than as a lane that never ran.
-    //
-    // Listing consumers in a gate means the gate must be edited whenever one
-    // is added, and it will be forgotten again. So the condition is the
-    // BACKEND being on. All three modes require g_mpOn, the work is a handful
-    // of dot products per hand per present, and a mode added tomorrow gets its
-    // poses without anyone remembering to come back here.
     if (!g_mpOn) return;
     InterlockedIncrement(&g_mpTickRan);
-    const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
-    // The residual, once per tick so both hands use the same number.
-    g_mpPhiRad = g_viewYawRad - g_hmdYaw;
-
-    // WITHDRAWN 2026-09-07: THIS PROBE COULD NOT FAIL. With the controller
-    // physically still, w = hand - head is constant by construction - a head
-    // that rotates barely translates - so "WORLD is the flat one" was decided
-    // by the arithmetic before the run started, and the other two candidates
-    // move only because they are w rotated by the head yaw. The measured
-    // spreads say exactly that and nothing else: WORLD 0.28 m across a 158 deg
-    // swing, which is about what a neck-pivot translation gives, against HEAD
-    // 1.19 m and YAWONLY 1.07 m.
-    //
-    // The question needs the PALETTE in the loop. Which frame the delta lands
-    // in can only be seen by applying a known delta and watching where the
-    // hand goes as the head turns - which is the axis probe with a head turn
-    // added, and is what the next run does. Kept, disarmed, as the record of
-    // an instrument that was built to agree with itself.
-    //
-    // The camera tracks the head 1:1 - phi held 144.0-145.6 deg over a 145 deg
-    // head swing - so phi is the UE/XR yaw-origin offset, not a body yaw, and
-    // rotating by it was wrong. What is still open is which frame the offset
-    // must be expressed in, and that cannot be settled by asking whether a
-    // hand "looks stable".
-    //
-    // So compute all three candidates and print them. With the CONTROLLER HELD
-    // STILL and the head turning, the correct frame is the one whose numbers
-    // do not move: a candidate that drifts as the head yaw drifts is
-    // head-coupled and is the wrong frame, and that is readable off the log
-    // without anyone judging a hand by eye.
-    if (g_mpFrameProbe && g_devPoseOk[0] && g_devPoseOk[3]) {
-        float w[3];
-        for (int r = 0; r < 3; r++) w[r] = g_devPose[3][r][3] - g_devPose[0][r][3];
-        // HEAD: full head rotation removed (what rung 2 does).
-        float vh[3];
-        for (int c = 0; c < 3; c++)
-            vh[c] = g_devPose[0][0][c] * w[0] + g_devPose[0][1][c] * w[1] +
-                    g_devPose[0][2][c] * w[2];
-        // YAW: only the head's yaw removed, pitch and roll left in.
-        const float cy = cosf(-g_hmdYaw), sy = sinf(-g_hmdYaw);
-        const float vy0 =  w[0] * cy + w[2] * sy;
-        const float vy2 = -w[0] * sy + w[2] * cy;
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
-            "ms/palette/frame: hmdYaw=%+7.1f | WORLD (%+.3f %+.3f %+.3f) | "
-            "HEAD (%+.3f %+.3f %+.3f) | YAWONLY (%+.3f %+.3f %+.3f) m. "
-            "Left controller minus head, XR metres. HOLD THE CONTROLLER STILL "
-            "AND TURN THE HEAD: the frame whose three numbers STAY PUT while "
-            "hmdYaw moves is the palette's frame. One that tracks hmdYaw is "
-            "head-coupled and is the wrong answer, whatever it looks like.",
-            g_hmdYaw * 57.2958f,
-            w[0], w[1], w[2], vh[0], vh[1], vh[2], vy0, w[1], vy2);
-    }
     for (int h = 0; h < 2; h++) {
         if (!g_devPoseOk[0] || !g_devPoseOk[3 + h]) {
-            // Losing tracking must not freeze a stale delta on the hand: drop
-            // it, so the hand returns to where the engine put it and the log
-            // says which pose went missing.
-            g_mpCtlOk[h] = false;
-            g_mpCtlRUFOk[h] = false;
-            if (g_mpDeltaOk[h]) {
-                g_mpDeltaOk[h] = false;
-                Log("ms/palette/drive: hand %d lost its pose (head ok=%d hand "
-                    "ok=%d) - dropping its delta, so the hand goes back to the "
+            if (g_mpCtlRUFOk[h]) {
+                g_mpCtlRUFOk[h] = false;
+                Log("ms/palette: hand %d lost its pose (head ok=%d hand ok=%d) "
+                    "- dropping its target, so the hand goes back to the "
                     "engine's own position instead of sticking where it was.",
                     h, g_devPoseOk[0] ? 1 : 0, g_devPoseOk[3 + h] ? 1 : 0);
             }
             continue;
         }
-        // Hand minus head in XR world metres, then into HEAD space: the head's
-        // rotation is R, so R transpose takes a world vector to head-local.
+        // Hand minus head in XR world metres, resolved into the HEAD's own
+        // right/up/forward. Frame-free scalars: the draw turns them into a
+        // world vector with the basis from its own constants, so nothing here
+        // assumes anything about the game's axes.
         float w[3];
         for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - g_devPose[0][r][3];
-
-        // THE NEUTRAL IS STORED IN WORLD SPACE, not head space. Storing it
-        // head-relative was the whole of the drift: the zero point then
-        // rotated with the head, so a still controller produced a moving
-        // difference and the hand swung to chase it - and the neutral's own
-        // head yaw at capture became a fixed rotation of the mapping. Both
-        // reported symptoms, one cause.
-        //
-        // Subtract in WORLD, then rotate the difference into the head frame,
-        // which is the palette's (measured 2026-09-07: a 20 uu offset stayed
-        // on the same side of the face through a head turn). World effect is
-        // then R_head * R_head^T * (w - w0) = w - w0, constant while the
-        // controller is still however the head moves. A stick turn rotates the
-        // frame without rotating the head, so the hand rides round with the
-        // body - which is what it should do.
-        // The relative drive's neutral is only meaningful to the relative
-        // drive. Capturing and announcing it in world mode would put a line in
-        // the log about a mechanism that mode does not use.
-        if (!g_mpNeutralOk[h] && (g_mpDrive || g_mpAbs)) {
-            memcpy(g_mpNeutral[h], w, sizeof(w));
-            g_mpNeutralOk[h] = true;
-            Log("ms/palette/drive: hand %d NEUTRAL captured at WORLD-relative "
-                "(%.3f %.3f %.3f) m (hand minus head, XR axes). Every delta "
-                "from here is travel from THIS world offset, so the hand "
-                "starts where the engine put it and a head turn alone cannot "
-                "move it.",
-                h, w[0], w[1], w[2]);
-        }
-        // The controller's CURRENT head-relative position, which Build A uses
-        // directly, and which the relative drive's travel is measured against.
-        float v_now[3];
-        for (int c = 0; c < 3; c++)
-            v_now[c] = g_devPose[0][0][c] * w[0] + g_devPose[0][1][c] * w[1] +
-                       g_devPose[0][2][c] * w[2];
-
-        // World-space travel since the neutral, then into the head frame.
-        const float ww[3] = { w[0] - g_mpNeutral[h][0],
-                              w[1] - g_mpNeutral[h][1],
-                              w[2] - g_mpNeutral[h][2] };
-        float d[3];
-        for (int c = 0; c < 3; c++)
-            d[c] = g_devPose[0][0][c] * ww[0] + g_devPose[0][1][c] * ww[1] +
-                   g_devPose[0][2][c] * ww[2];
-        const float d0 = d[0], d1 = d[1], d2 = d[2];
-        // The measured basis: left = -x, down = -y, forward = -z.
-        float t0 = -k * d0, t1 = -k * d1, t2 = -k * d2;
-
-        // Take out the residual between the head frame this was computed in
-        // and the camera frame the palette applies it in. Rotation about the
-        // vertical (axis 1, down), so only left and forward move - which is
-        // why the vertical axis was already correct and is left alone.
-        if (g_mpYawMode) {
-            float sgn = 0.0f;
-            if (g_mpYawMode == 1) sgn =  1.0f;
-            else if (g_mpYawMode == 3) sgn = -1.0f;
-            else sgn = (h == 0) ? 1.0f : -1.0f;   // A/B: left +, right -
-            const float th = sgn * g_mpPhiRad;
-            const float c = cosf(th), sn = sinf(th);
-            const float n0 = t0 * c - t2 * sn;
-            const float n2 = t0 * sn + t2 * c;
-            t0 = n0; t2 = n2;
-        }
-        g_mpDeltaUU[h][0] = t0;
-        g_mpDeltaUU[h][1] = t1;
-        g_mpDeltaUU[h][2] = t2;
-        g_mpDeltaOk[h] = true;
-
-        // BUILD A2's target input: the controller's offset from the head,
-        // resolved into the HEAD's own right/up/forward, in metres. These are
-        // frame-free scalars - the draw turns them into a camera-relative
-        // world vector using the camera basis it reads from that draw's own
-        // ViewProjectionMatrix, so no assumption about the game's axes is made
-        // on this side at all.
-        {
-            // Head axes in XR world: the rotation's columns.
-            const float rx = g_devPose[0][0][0], ry = g_devPose[0][1][0], rz = g_devPose[0][2][0];
-            const float ux = g_devPose[0][0][1], uy = g_devPose[0][1][1], uz = g_devPose[0][2][1];
-            // XR forward is -Z of the head frame.
-            const float fx = -g_devPose[0][0][2], fy = -g_devPose[0][1][2], fz = -g_devPose[0][2][2];
-            g_mpCtlRUF[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
-            g_mpCtlRUF[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
-            g_mpCtlRUF[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
-            g_mpCtlRUFOk[h] = true;
-        }
-
-        // Build A's target input: the controller's own position in the
-        // palette's frame and units. No neutral, no travel - the position
-        // itself, so nothing here can carry a stale zero.
-        g_mpCtlPal[h][0] = -k * v_now[0];
-        g_mpCtlPal[h][1] = -k * v_now[1];
-        g_mpCtlPal[h][2] = -k * v_now[2];
-        g_mpCtlOk[h] = true;
+        const float rx = g_devPose[0][0][0], ry = g_devPose[0][1][0], rz = g_devPose[0][2][0];
+        const float ux = g_devPose[0][0][1], uy = g_devPose[0][1][1], uz = g_devPose[0][2][1];
+        const float fx = -g_devPose[0][0][2], fy = -g_devPose[0][1][2], fz = -g_devPose[0][2][2];
+        g_mpCtlRUF[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
+        g_mpCtlRUF[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
+        g_mpCtlRUF[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
+        g_mpCtlRUFOk[h] = true;
     }
 
-    if (g_mpWorld) {
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "ms/palette/world: L ctl r/u/f (%+.3f %+.3f %+.3f) m -> pcam "
-            "(%+.1f %+.1f %+.1f) uu, targetLocal (%+.1f %+.1f %+.1f) | R ctl "
-            "(%+.3f %+.3f %+.3f) m -> pcam (%+.1f %+.1f %+.1f) uu | placed "
-            "%ld refused %ld (%s) | layout vp c%d l2w c%d | %.0f uu/m x %.2f. "
-            "pcam is the controller in the camera-relative world frame the "
-            "shader itself uses; a LEFT hand should read negative right, "
-            "negative up and positive forward, which is what the captured "
-            "packet showed before any of this ran.",
-            g_mpCtlRUF[0][0], g_mpCtlRUF[0][1], g_mpCtlRUF[0][2],
-            g_mpLastPCam[0][0], g_mpLastPCam[0][1], g_mpLastPCam[0][2],
-            g_mpLastTargetLocal[0][0], g_mpLastTargetLocal[0][1], g_mpLastTargetLocal[0][2],
-            g_mpCtlRUF[1][0], g_mpCtlRUF[1][1], g_mpCtlRUF[1][2],
-            g_mpLastPCam[1][0], g_mpLastPCam[1][1], g_mpLastPCam[1][2],
-            g_mpWorldOk, g_mpWorldRefused, g_mpWorldWhy,
-            g_pcLayVp, g_pcLayL2W,
-            (double)g_skcWorldScale, (double)g_mpDriveGain);
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "ms/palette/sampling: original draws entered %ld, sampled %ld, "
-            "rejected %ld (%s) | draw-to-draw comparisons %ld | NO eye offset "
-            "is applied. The unit here is the ORIGINAL DRAW: the previous "
-            "instrument counted HANDS, so its pair was the left and right hand "
-            "of one draw and its 24,376 zeroes were arithmetic rather than "
-            "evidence. Whether LocalToWorld or the ViewProjection carries the "
-            "eye is open again and the cmp line is what answers it.",
-            g_mpDrawsEntered, g_mpDrawsSampled, g_mpDrawsRejected,
-            g_mpDrawRejectWhy ? g_mpDrawRejectWhy : "none", g_mpCmpCount);
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "ms/palette/eye: state %s | L %ld R %ld unknown %ld draws | "
-            "presents: %ld toggled, %ld same eye, %ld ambiguous | expected IPD "
-            "%.2f uu. The eye is decided once per PRESENT from the right-axis "
-            "jump in LocalToWorld's translation, and its SIGN gives left or "
-            "right absolutely - no vote, no ordinal, no hand side. 'Ambiguous' "
-            "rising means the head moved far enough between presents to leave "
-            "the band, and those draws take NO offset rather than a guess.",
-            g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
-            g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
-            g_mpEyeToggles, g_mpEyeSame, g_mpEyeAmbiguous,
-            (double)(g_ipdM * g_skcWorldScale));
-        return;
-    }
-    if (g_mpAbs) {
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "ms/palette/abs: L %s ctl (%+.1f %+.1f %+.1f) origin %s (%+.1f "
-            "%+.1f %+.1f) | R %s ctl (%+.1f %+.1f %+.1f) origin %s (%+.1f "
-            "%+.1f %+.1f) uu | %.0f uu/m x %.2f. The palm is RE-MEASURED from "
-            "the game's own palette every frame, so the animated baseline is "
-            "subtracted rather than left underneath. A hand that STILL swings "
-            "with the head means the anchor is not on the hand being drawn, or "
-            "the cached palette is not the one that draw consumed - it does "
-            "not mean the target moved.",
-            g_mpCtlOk[0] ? "ok" : "--",
-            g_mpCtlPal[0][0], g_mpCtlPal[0][1], g_mpCtlPal[0][2],
-            g_mpOriginOk[0] ? "set" : "PENDING",
-            g_mpOrigin[0][0], g_mpOrigin[0][1], g_mpOrigin[0][2],
-            g_mpCtlOk[1] ? "ok" : "--",
-            g_mpCtlPal[1][0], g_mpCtlPal[1][1], g_mpCtlPal[1][2],
-            g_mpOriginOk[1] ? "set" : "PENDING",
-            g_mpOrigin[1][0], g_mpOrigin[1][1], g_mpOrigin[1][2],
-            (double)g_skcWorldScale, (double)g_mpDriveGain);
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "ms/palette/abs: MEASURED residual L (%+.2f %+.2f %+.2f) R (%+.2f "
-            "%+.2f %+.2f) uu, gen %u, worst refused weight sum %.3f (tol "
-            "%.3f). The residual is re-skinned from the palette actually "
-            "submitted, NOT asserted: non-zero means the transform does not "
-            "compose the way this code assumes - the shader's effective "
-            "weights not summing to one would do it, since a translation T "
-            "then moves a vertex by wsum*T. Scale note: this target uses "
-            "[Hands] WorldScaleUU=%.0f while camera positional tracking uses "
-            "[PosTrack] Scale=%.0f - they are DIFFERENT numbers and at most "
-            "one of them can be right for this conversion.",
-            g_mpResid[0][0], g_mpResid[0][1], g_mpResid[0][2],
-            g_mpResid[1][0], g_mpResid[1][1], g_mpResid[1][2],
-            g_mpCacheGen, (double)g_mpWsumWorst, (double)g_mpWsumTol,
-            (double)g_skcWorldScale, (double)g_posScaleUU);
-        return;
-    }
+    if (!g_mpWorld) return;
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-        "ms/palette/drive: L %s (%+.1f %+.1f %+.1f) uu | R %s (%+.1f %+.1f "
-        "%+.1f) uu | %.0f uu/m x gain %.2f. The columns are the MEASURED "
-        "palette basis left/down/forward, so a hand moved RIGHT reads negative "
-        "in the first column and one moved UP reads negative in the second. "
-        "Both rows at zero while the controllers move is a neutral being "
-        "recaptured every frame, NOT the drive being off - the neutral line "
-        "prints once per capture and would be repeating. yawFix=%s phi=%.1f "
-        "deg (camera %.1f - head %.1f): in A/B the LEFT hand carries +phi and "
-        "the RIGHT -phi, so the hand that stays put in the world while the "
-        "head turns names the sign, and the other one is the control.",
-        g_mpDeltaOk[0] ? "ok" : "--",
-        g_mpDeltaUU[0][0], g_mpDeltaUU[0][1], g_mpDeltaUU[0][2],
-        g_mpDeltaOk[1] ? "ok" : "--",
-        g_mpDeltaUU[1][0], g_mpDeltaUU[1][1], g_mpDeltaUU[1][2],
-        (double)g_skcWorldScale, (double)g_mpDriveGain,
-        g_mpYawMode == 0 ? "off" : g_mpYawMode == 1 ? "+phi both" :
-        g_mpYawMode == 3 ? "-phi both" : "A/B (L +phi, R -phi)",
-        g_mpPhiRad * 57.2958f, g_viewYawRad * 57.2958f, g_hmdYaw * 57.2958f);
+        "ms/palette/world: L ctl r/u/f (%+.3f %+.3f %+.3f) m -> pcam "
+        "(%+.1f %+.1f %+.1f) uu | R ctl (%+.3f %+.3f %+.3f) m | placed %ld "
+        "refused %ld (%s) | layout vp c%d l2w c%d | %.0f uu/m x %.2f",
+        g_mpCtlRUF[0][0], g_mpCtlRUF[0][1], g_mpCtlRUF[0][2],
+        g_mpLastPCam[0][0], g_mpLastPCam[0][1], g_mpLastPCam[0][2],
+        g_mpCtlRUF[1][0], g_mpCtlRUF[1][1], g_mpCtlRUF[1][2],
+        g_mpWorldOk, g_mpWorldRefused, g_mpWorldWhy,
+        g_pcLayVp, g_pcLayL2W, (double)g_skcWorldScale, (double)g_mpDriveGain);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/sampling: original draws entered %ld, sampled %ld, rejected "
+        "%ld (%s) | draw-to-draw comparisons %ld",
+        g_mpDrawsEntered, g_mpDrawsSampled, g_mpDrawsRejected,
+        g_mpDrawRejectWhy ? g_mpDrawRejectWhy : "none", g_mpCmpCount);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/eye: state %s | L %ld R %ld unknown %ld draws | presents: "
+        "%ld toggled, %ld same eye, %ld ambiguous | expected IPD %.2f uu. The "
+        "eye is decided once per PRESENT from the right-axis jump in "
+        "LocalToWorld's translation, and its SIGN gives left or right "
+        "absolutely. 'Ambiguous' rising means the head moved far enough between "
+        "presents to leave the band, and those draws take NO offset.",
+        g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
+        g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
+        g_mpEyeToggles, g_mpEyeSame, g_mpEyeAmbiguous,
+        (double)(g_ipdM * g_skcWorldScale));
 }
 
 
@@ -2832,19 +2494,6 @@ static void MsTick(void)
     // The palette's stepped axis probe. Present thread, no D3D touched - the
     // draw detour reads g_mpStepAxis next time it runs.
     if (InterlockedExchange(&g_mpStepReq, 0)) {
-        if (g_mpDrive) {
-            // With the drive armed F6 means RECENTRE - the same key doing the
-            // same job it did for the probe, "start from here". Whatever pose
-            // the hands are in becomes the new zero.
-            g_mpNeutralOk[0] = g_mpNeutralOk[1] = false;
-            g_mpDeltaOk[0]   = g_mpDeltaOk[1]   = false;
-            g_mpOriginOk[0]  = g_mpOriginOk[1]  = false;
-            memset(g_mpDeltaUU, 0, sizeof(g_mpDeltaUU));
-            Log("ms/palette/drive: >>> RECENTRED <<< - both hands are back at "
-                "the engine's own position, and the next frame captures a "
-                "fresh neutral from wherever the controllers are now.");
-            return;
-        }
         g_mpStepAxis = (g_mpStepAxis >= 2) ? -1 : (g_mpStepAxis + 1);
         if (g_mpStepAxis < 0)
             Log("ms/palette/step: >>> REST <<< - no delta on either hand. Both "

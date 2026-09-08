@@ -291,122 +291,65 @@ static UINT     g_mpCacheN  = 0;
 static LONG     g_mpDraws   = 0;       // per-class draws issued under a palette
 static LONG     g_mpNoCache = 0;       // per-class draw wanted, no c6 seen yet
 
-// THE AXIS SWEEP. The palette's three axes are a basis we have never measured,
-// and guessing it is how a wrong sign gets shipped as a fix. So walk them:
-// hold the delta on axis 0 for a few seconds, then 1, then 2, and say on the
-// line which one is live. The tester reports three DIRECTIONS and that is the
-// whole basis, from one run, with nothing to press.
+// THE AXIS PROBE. The palette's three axes were a basis nobody had measured,
+// and this is what measured them: a delta on one hand class with the other left
+// alone as the reference, stepped by the TESTER so there is no phase to infer.
 //
-// It is deliberately self-labelling: the log says which axis is live at the
-// moment the hand is somewhere, so a report of "first it went up, then toward
-// me" maps onto axes without either of us reconstructing a timeline.
-static bool     g_mpSweep     = false;  // [Hands] PaletteSweep - on a timer
-static float    g_mpSweepSec  = 3.0f;   // [Hands] PaletteSweepSeconds
-static int      g_mpSweepAxis = -1;     // the axis live right now (render thread)
-
-// STEPPED, because a free-running timer makes the tester guess which step they
-// caught. The first reading came back left/down/forward and the second
-// down/forward/left - the same cycle entered one step in, but nothing in the
-// run could prove that rather than a changed basis. A step the tester STARTS
-// has no phase to mistake: press once, the delta is axis 0, and the log and
-// the hand agree by construction.
+// A timed sweep came first and gave two readings - left/down/forward and
+// down/forward/left. Those are one cycle entered a step apart, but nothing in
+// either run could prove that rather than a changed basis; the tester said so
+// before it was acted on, and the timed variant is gone. The stepped probe
+// settled it in a single run.
+//
+// RESULT, recorded in ENGINE_NOTES: axis 0 LEFT, axis 1 DOWN, axis 2 FORWARD.
+// Kept because it is what would re-measure the basis if the asset or the engine
+// path ever changed.
 static bool     g_mpStep      = false;  // [Hands] PaletteStep
 static int      g_mpStepAxis  = -1;     // -1 = resting, 0/1/2 = that axis
 static volatile LONG g_mpStepReq = 0;   // hotkey -> MsTick, present thread
 
-// ---- rung 2: the controller drives the delta ---------------------------------
+// ---- the controller offset the placement consumes -----------------------------
 //
-// THE BASIS, MEASURED 2026-09-07 with the stepped probe (tester-started, so no
-// phase was inferred): palette axis 0 = LEFT, axis 1 = DOWN, axis 2 = FORWARD,
-// and the frame rotates with the GAME CAMERA - a stick turn carried the
-// directions round with it while the head yaw stayed put, which is what tells
-// camera-relative apart from world-aligned. Left/down/forward is left-handed,
-// which is what UE3 should give and is the reason to believe it.
+// The present thread publishes only frame-free scalars: the controller's offset
+// from the head, resolved into the head's own right/up/forward, in metres. The
+// draw turns those into a world vector using the basis it reads from that
+// draw's own constants, so no assumption about the game's axes lives here.
 //
-// Against OpenXR (x right, y up, z BACKWARD, so forward = -z) the map is a
-// componentwise negation: left = -x, down = -y, forward = -z. T = -k * v.
+// THREE APPROACHES DIED BEFORE THIS ONE, and the reasons are worth keeping:
 //
-// WHY THE OFFSET IS TAKEN RELATIVE TO THE HEAD. The delta lands in a
-// camera-relative frame, so a head-relative offset is the one thing that
-// composes correctly without knowing the game's camera yaw at all: turning the
-// head rotates the offset and the frame together and they cancel, leaving the
-// hand world-stable; a stick turn rotates only the frame, and the hand rides
-// round with the body, which is what it should do. Reaching for the game's own
-// camera yaw would re-import the coupling that made hands drift with the head.
+//  * A RELATIVE drive moved each hand by its controller's travel from a
+//    captured neutral. Refuted on paper before it was re-run - the cancellation
+//    argument covered the added displacement and omitted the animated hand
+//    already underneath it, so a still controller left the original hand still
+//    following the camera.
+//  * A YAW RESIDUAL correction assumed the camera carried a body yaw the head
+//    did not. The run measured phi constant at 144 deg across a 145 deg head
+//    swing: the camera tracks the head 1:1 and phi is the UE/XR yaw-origin
+//    offset, not a body yaw.
+//  * ABSOLUTE placement with a CALIBRATED origin folded the coordinate-origin
+//    difference, the grip offset and any anchor error into one 138 uu constant
+//    applied in a rotating frame - a 1.4 m lever pivoting on the head.
 //
-// It is a RELATIVE drive. D = 0 means "wherever the game put the hand", so
-// this moves the hand BY the controller's travel from a captured neutral - it
-// does not place the hand AT the controller. Absolute placement needs the
-// hand's current position in palette space, and a skinning matrix's
-// translation column is not the bone's position, so that is its own rung.
-static bool     g_mpDrive     = false;  // [Hands] PaletteDrive
-static float    g_mpDriveGain = 1.0f;   // [Hands] PaletteDriveGain
-static float    g_mpNeutral[2][3];      // head-relative offset at the capture
-static bool     g_mpNeutralOk[2] = { false, false };
-static float    g_mpDeltaUU[2][3];      // present thread writes, draw reads
-static bool     g_mpDeltaOk[2] = { false, false };
-static LONG     g_mpDriveBeat = 0;
+// All three are in docs/dishonored/VR-33-HANDS.md, and in git under the tags
+// vr33-placement-works and vr33-scale-correct.
+static float    g_mpCtlRUF[2][3];
+static bool     g_mpCtlRUFOk[2] = { false, false };
+static float    g_mpDriveGain = 1.0f;   // [Hands] PaletteDriveGain - scale trim
 
-// THE YAW RESIDUAL, and why rung 2 needed one more turn.
+// ---- the palm anchor ---------------------------------------------------------
 //
-// Rung 2 took the offset in HEAD space on the assumption that the game
-// camera's rotation IS the head's. It is not: the camera also carries the
-// body/stick yaw, so a residual phi = camera yaw - head yaw sits between the
-// frame the offset was computed in and the frame the palette applies it in.
-// That single error produced BOTH reported symptoms - a constant rotation of
-// the mapping (whatever phi was when the neutral was captured) and hands
-// counter-rotating under head movement (phi changing as the head turns).
-// Vertical was unaffected, which is exactly what a yaw-only error predicts.
+// Placement needs to know where the visible palm IS this frame, and it finds out
+// by skinning real vertices with the game's own unmodified palette rather than
+// trusting an assumption about where the palette puts things.
 //
-// phi is measured, not guessed: g_viewYawRad is the yaw actually written to
-// the camera, published as a matched pair with the head yaw it came from.
-// What is NOT known is the sign convention between the two, so the two hands
-// take OPPOSITE signs for one run and the stable hand names the correct one.
-// The other hand is the control, which is the same A/B that measured the basis.
-// ---- BUILD A: ABSOLUTE PALM PLACEMENT ---------------------------------------
-//
-// The relative drive was refuted on paper before it was ever run again. Its
-// cancellation argument covered the ADDED displacement and silently omitted the
-// hand that was already there: with
-//
-//     p_out = h + R*(b(t) + d)  and  d = R^-1 (w - w0),
-//     p_out = h + R*b(t) + (w - w0)
-//
-// a still controller and a still head give d = 0 for every head ORIENTATION,
-// so the original camera-following hand b(t) keeps following the camera
-// underneath the correction. MpBuild adds to the existing matrices rather than
-// replacing their placement, so b(t) is genuinely still in there. No headset
-// run was needed to see it, and none should have been spent.
-//
-// Absolute placement removes b(t) instead of hoping it cancels: find where the
-// visible palm actually IS this frame by skinning real vertices with the
-// unmodified palette, and translate by the difference to where it should be.
-//
-//     translation = target - q(t),  q(t) = sum_j a_j sum_i w_ji M[idx_ji] v_j
-//
-// q is computed from the ORIGINAL cached palette every frame, never from a
-// palette we already moved, or the correction would compound.
-//
-// The anchor is a fixed set of vertex identities chosen once at build time, not
-// a centroid of whatever is currently classified as hand: a moving anchor makes
-// the residual meaningless. It is an explicit visual reference point and is NOT
-// a claim to have located an anatomical joint - the deliberate advantage of
-// skinning vertices is that it never needs one.
+// A fixed set of vertex identities chosen once at build time: the deduplicated
+// vertices nearest the hand class's bind-pose centroid, so fingers fall out as
+// the extremities of that cloud without needing to identify a joint. A moving
+// anchor would make the residual meaningless.
 enum { MP_ANCHOR_N = 12 };
 static uint32_t g_mpAnchorIdx[MS_CLS_N][MP_ANCHOR_N];
 static int      g_mpAnchorN[MS_CLS_N] = { 0, 0, 0, 0, 0 };
-static bool     g_mpAbs       = false;  // [Hands] PaletteAbsolute
-// Controller position converted into palette units/axes, published once per
-// present and read by the draw. Head-relative, which is the palette's own
-// frame, so no separate origin convention is smuggled in here.
-static float    g_mpCtlPal[2][3];
-static bool     g_mpCtlOk[2]  = { false, false };
-// The constant palette-space offset between the controller point and the palm
-// anchor, calibrated on the first draw after arming so the hand does not jump.
-// Constant in a frame that is itself head-attached, which is what makes it a
-// genuine constant rather than a hidden head coupling.
-static float    g_mpOrigin[2][3];
-static bool     g_mpOriginOk[2] = { false, false };
+
 // ---- BUILD A2: PLACEMENT THROUGH THE MEASURED CHAIN --------------------------
 //
 // The shader capture ended the guessing. The vertex path is
@@ -439,8 +382,6 @@ static bool     g_mpOriginOk[2] = { false, false };
 // depths. A scale error shows up as the hand tracking with a gain error, not
 // as drift, so it is distinguishable from a frame error in the next run.
 static bool     g_mpWorld     = false;  // [Hands] PaletteWorld
-static float    g_mpCtlRUF[2][3];       // controller offset from head: right/up/fwd, metres
-static bool     g_mpCtlRUFOk[2] = { false, false };
 // THE VIEW MODEL IS DEPTH-CRUSHED, measured not guessed: the hand draw runs
 // with viewport MinZ 0.0 / MaxZ 0.001, the nearest thousandth of the depth
 // buffer, while other draws in the same frame use the full 0..1. That is the
@@ -466,26 +407,27 @@ static float    g_mpDepthSeen[2] = { 0.0f, 0.0f };   // the game's MinZ/MaxZ
 // preference.
 static bool     g_mpEyeOffset = false;  // [Hands] PaletteEyeOffset
 static LONG     g_mpEyeSeen[2] = { 0, 0 };   // draws attributed to pass 1 / pass 2
-static float    g_mpLastEyeSign = 0.0f;
-static float    g_mpLastHalfIpd = 0.0f;
 static LONG     g_mpEyeUnclassified = 0;
-static float    g_mpEyeSpread = 0.0f;
-static float    g_mpLastEyeProj = 0.0f;
-// The eye is the draw's ordinal within the frame - head-invariant, unlike a
-// learned midpoint. Which ordinal is which eye is voted from same-frame pairs.
-static uint32_t g_mpEyeFrame  = 0xFFFFFFFFu;
-// Per-shader ordinals: three shaders draw this mesh and each draws it once per
-// eye, so a shared counter left the later passes uncorrected.
-enum { MP_EYE_SHADERS = 8 };
-static void*    g_mpEyeShader[MP_EYE_SHADERS] = { 0 };
-static int      g_mpEyeShaderOrd[MP_EYE_SHADERS] = { 0 };
-static int      g_mpEyeOrd0Slot = -1;
-static LONG     g_mpEyeThirds = 0, g_mpEyeOverflow = 0;
-// The discriminator hunt: which matrix actually differs between the draws of
-// one frame. LocalToWorld was the premise and measured 0.00 separation.
-static bool     g_mpEyeHunt = false;    // [Hands] PaletteEyeHunt
-static float    g_mpHuntVp0[16], g_mpHuntL0[16];
-static bool     g_mpHuntOk = false;
+// THE EYE. Four mechanisms were tried and three failed; the reasons are in
+// docs/dishonored/VR-33-HANDS.md and are worth not repeating:
+//
+//  1. The game-thread second-pass flag. UE3 queues render commands, so it reads
+//     false by the time the draw runs on the render thread. The counter caught
+//     it: pass2 0 draws against pass1's 92,800.
+//  2. A learned MIDPOINT of LocalToWorld's right-axis projection. Not
+//     head-invariant - turning the head drifts the projection for reasons
+//     unrelated to the eye - so draws crossed a stale midpoint and took a full
+//     IPD of error, which read as the hands teleporting.
+//  3. The draw's ORDINAL within a frame. Sound in principle, but the sampling
+//     was per HAND, so its "pair" was the left and right hand of ONE draw whose
+//     constants are identical by construction. 24,376 zero comparisons that
+//     measured nothing.
+//
+// What works, and what the corrected sampling measured: successive ORIGINAL
+// draws differ on the right axis either by ~0 or by about one IPD - 6.76 uu
+// against 6.31 predicted. The eye is constant within a Present and changes
+// between them, so it is decided once per Present and the SIGN of the jump
+// gives left or right absolutely. No vote, no ordinal, no hand side.
 // The corrected sampling: one context per ORIGINAL draw, and counts that say
 // what was sampled rather than only what was found.
 static uint32_t g_mpDrawSeq = 0;
@@ -503,12 +445,6 @@ static uint32_t g_mpEyePresent = 0xFFFFFFFFu;
 static bool     g_mpEyeHavePrev = false;
 static float    g_mpEyePrevFirst = 0.0f;
 static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
-static bool     g_mpEyeOrd0Ok = false;
-static float    g_mpEyeOrd0Proj = 0.0f;
-static int      g_mpEyeVote   = 0;
-static bool     g_mpEyeOrd0IsLeft = true;
-static LONG     g_mpEyePairs = 0, g_mpEyeBadPairs = 0;
-
 static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
 static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason
@@ -548,10 +484,6 @@ static UINT     g_mpValidN    = 0;      // how many of them are currently valid
 // the difference.
 static float    g_mpWsumTol   = 0.02f;  // [Hands] PaletteWeightTol
 static float    g_mpWsumWorst = 0.0f;   // the sum that last caused a refusal
-
-static int      g_mpYawMode   = 0;      // [Hands] PaletteYawFix 0=off 1=+ 2=A/B 3=-
-static bool     g_mpFrameProbe = false; // [Hands] PaletteFrameProbe
-static float    g_mpPhiRad    = 0.0f;   // the residual, for the log
 
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing

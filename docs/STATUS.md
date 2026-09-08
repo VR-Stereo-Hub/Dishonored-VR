@@ -1,6 +1,50 @@
 # Status
 
-## CURRENT (2026-09-07): VR-33 - the hands are at the controllers; the stereo eye offset is the last placement fault
+## CURRENT (2026-09-07): VR-33 - the hands are at the controllers and correct
+
+### Confirmed in the headset
+
+The hands **track the controllers, are correctly scaled, occlude against world
+geometry, and hold position through head turns.** Tagged `vr33-hands-working`.
+
+**The full record is `docs/dishonored/VR-33-HANDS.md`** - the mechanism, the
+engine facts, the seven approaches that failed and why, and the instrument
+failures that cost the most. Read that before touching this code; most of what
+looks like an obvious improvement has already been tried and measured.
+
+### The mechanism, in one paragraph
+
+The bone palette's output is the component's LOCAL space; `LocalToWorld` (c231)
+takes it to a camera-relative world frame and `ViewProjectionMatrix` (c0) to
+clip. Placement re-skins the palm from the game's own palette every frame and
+translates by `target - q`, so the animated baseline is subtracted rather than
+left underneath. The camera basis comes from the VP's rows. The eye is decided
+once per Present from the right-axis jump in `LocalToWorld`'s translation, whose
+sign gives left or right absolutely. Register numbers are parsed from each
+shader's CTAB, never hard-coded - three shaders draw this mesh and they
+disagree.
+
+### Next phase
+
+1. **Rotation and grip.** The hands keep the engine's animated orientation, so
+   they look posed rather than gripping. Full rigid composition, per-component
+   conjugation `D_local = inverse(C) * D * C`, a stable palm frame from
+   deliberately chosen landmarks rather than the current position patch, and
+   basis conversion by conjugation - the translational basis has determinant
+   -1 and is a coordinate convention, not a rotation.
+2. **The weapon assembly.** Crossbow, loaded bolt and reload parts, moved by the
+   same common transform through each component's own `C`. A hand-local delta
+   cannot be copied into a weapon-local palette.
+3. **Gameplay consumers.** Firing aim, projectile origin, melee. A GPU edit does
+   not move them.
+
+Carried and deliberately not done: one canonical metres-to-units conversion
+(`[Hands] WorldScaleUU` 100 against `[PosTrack] Scale` 108), pose timing (head
+look-ahead against hand prediction), a render-view ticket to carry the eye
+rather than infer it, and a harness case for the feature-gate regression that
+cost three runs.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the hands are at the controllers; the stereo eye offset is the last placement fault
 
 ### Where this is
 
