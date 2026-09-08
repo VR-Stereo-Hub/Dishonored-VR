@@ -496,6 +496,13 @@ static uint32_t g_mpPrevDrawId = 0;
 static bool     g_mpPrevDrawOk = false;
 static float    g_mpCmpMaxVp = 0.0f, g_mpCmpMaxL2w = 0.0f, g_mpCmpMaxProj = 0.0f;
 static LONG     g_mpCmpCount = 0;
+// The eye, decided once per Present from the right-axis jump in LocalToWorld's
+// translation. -1 left, +1 right, 0 unknown (no offset applied).
+static int      g_mpEyeState = 0;
+static uint32_t g_mpEyePresent = 0xFFFFFFFFu;
+static bool     g_mpEyeHavePrev = false;
+static float    g_mpEyePrevFirst = 0.0f;
+static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
 static bool     g_mpEyeOrd0Ok = false;
 static float    g_mpEyeOrd0Proj = 0.0f;
 static int      g_mpEyeVote   = 0;

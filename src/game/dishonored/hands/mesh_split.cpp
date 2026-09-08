@@ -1851,9 +1851,50 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
 // It states what it sampled, not just what it found: draws entered, sampled,
 // rejected and compared are separate counts, and "no difference observed" is
 // reported separately from "nothing was sampled".
+// Decide the eye ONCE PER PRESENT. Within a Present every draw carries the
+// same constants - that is what the runs of exact zeroes are - and the eye
+// changes between Presents, showing up as a right-axis jump of about one IPD.
+//
+// Head motion also moves that projection between Presents, so a jump alone is
+// not enough: the band is bounded on both sides, and anything outside it
+// leaves the eye UNKNOWN rather than guessed. Unknown means no offset, which
+// is the consistent head-centre placement rather than a full IPD of error.
+static void MpEyeForPresent(const MpDrawCtx* c)
+{
+    const uint32_t pres = (uint32_t)dvr::frame::count();
+    if (pres == g_mpEyePresent) return;          // same Present, decision stands
+    g_mpEyePresent = pres;
+
+    const float ipdUU = g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f)
+                                  * g_mpDriveGain);
+    if (!g_mpEyeHavePrev) {
+        g_mpEyeHavePrev = true; g_mpEyePrevFirst = c->projRight;
+        g_mpEyeState = 0;                        // nothing to compare against yet
+        return;
+    }
+    const float d = c->projRight - g_mpEyePrevFirst;
+    const float ad = fabsf(d);
+    if (ad > 0.45f * ipdUU && ad < 2.0f * ipdUU) {
+        // The eye changed. The SIGN gives it absolutely, with no vote: the
+        // smaller right-axis projection is the right eye.
+        g_mpEyeState = (d < 0.0f) ? +1 : -1;
+        g_mpEyeToggles++;
+    } else if (ad <= 0.45f * ipdUU) {
+        // Same eye as the previous Present - or too small to tell apart.
+        g_mpEyeSame++;
+    } else {
+        g_mpEyeState = 0;                        // head moved too far to judge
+        g_mpEyeAmbiguous++;
+    }
+    g_mpEyePrevFirst = c->projRight;
+}
+
+
 static void MpDrawCompare(const MpDrawCtx* c)
 {
-    if (!g_mpEyeHunt || !c || !c->ok) return;
+    if (!c || !c->ok) return;
+    MpEyeForPresent(c);
+    if (!g_mpEyeHunt) return;
     if (g_mpPrevDrawOk) {
         float dv = 0.0f, dl = 0.0f; int dvIdx = -1, dlIdx = -1;
         for (int i = 0; i < 16; i++) {
@@ -1915,11 +1956,30 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, const float* qLocal,
     for (int i = 0; i < 3; i++)
         dcam[i] = k * (a * c->r[i] + b * c->u[i] + cc * c->f[i]);
 
-    // NO EYE OFFSET IS APPLIED. The mechanism that would supply one is not
-    // established: the only measurement so far compared the two HANDS of one
-    // draw, which cannot differ by an eye. Applying a guessed half-IPD would
-    // be a full IPD of error whenever the guess is wrong, and the head-centre
-    // placement it would replace is at least consistent.
+    // THE EYE, from the measurement the corrected sampling finally made.
+    //
+    // Comparing SUCCESSIVE ORIGINAL DRAWS shows two clean regimes: the
+    // right-axis component of LocalToWorld's translation either does not move
+    // at all between draws, or it moves by about one IPD - 6.76 uu measured
+    // against 6.31 predicted. So LocalToWorld does carry the eye after all;
+    // the per-hand sampling that appeared to rule it out was comparing a draw
+    // with itself.
+    //
+    // The eye is constant within a Present and changes between them, which is
+    // what the runs of exact zeroes are. So the eye is decided once per
+    // Present, in MpEyeForPresent, by comparing this Present's first draw
+    // against the previous one's - and never from an ordinal, a hand side or a
+    // moving midpoint, all of which have now failed.
+    if (g_mpEyeOffset && g_mpEyeState != 0) {
+        // Camera-relative: a position is world - camera, so the RIGHT eye's
+        // camera being further right makes its positions smaller on that axis.
+        // g_mpEyeState is -1 for left, +1 for right.
+        const float halfIpdUU = 0.5f * g_ipdM * k;
+        for (int i = 0; i < 3; i++) dcam[i] -= (float)g_mpEyeState * halfIpdUU * c->r[i];
+        if (g_mpEyeState > 0) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
+    } else {
+        g_mpEyeUnclassified++;
+    }
 
     float d[3];
     for (int i = 0; i < 3; i++) d[i] = dcam[i] - c->t[i];
@@ -2693,6 +2753,18 @@ static void MpDriveTick(void)
             "eye is open again and the cmp line is what answers it.",
             g_mpDrawsEntered, g_mpDrawsSampled, g_mpDrawsRejected,
             g_mpDrawRejectWhy ? g_mpDrawRejectWhy : "none", g_mpCmpCount);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette/eye: state %s | L %ld R %ld unknown %ld draws | "
+            "presents: %ld toggled, %ld same eye, %ld ambiguous | expected IPD "
+            "%.2f uu. The eye is decided once per PRESENT from the right-axis "
+            "jump in LocalToWorld's translation, and its SIGN gives left or "
+            "right absolutely - no vote, no ordinal, no hand side. 'Ambiguous' "
+            "rising means the head moved far enough between presents to leave "
+            "the band, and those draws take NO offset rather than a guess.",
+            g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
+            g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
+            g_mpEyeToggles, g_mpEyeSame, g_mpEyeAmbiguous,
+            (double)(g_ipdM * g_skcWorldScale));
         return;
     }
     if (g_mpAbs) {
