@@ -227,7 +227,19 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     // sweep is currently in. Behind its own flag AND the skinned-draw gate, so
     // it costs one branch when off. Read-only: it takes no reference it does
     // not release inside the call and changes no device state.
-    if (g_wiOn && g_dcPendingBones && g_dcSinceUpload < DC_REUSE_WINDOW)
+    // THE GATE USED TO HIDE THE ANSWER. This sat behind the palette gate
+    // (a fresh c6 upload within DC_REUSE_WINDOW draws), which is the right
+    // gate for the CENSUS but wrong for identification: the tester can watch
+    // 'crossbow_01' vanish and come back on command, so its draws certainly
+    // stop - yet the sweep attributed nothing twice running, with reject
+    // counts uniform across every component INCLUDING the player body. That
+    // pattern is what "the thing being measured was never in the population"
+    // looks like. A first-person weapon drawn as a static or single-bone
+    // attachment, or whose palette lands outside the window, was invisible
+    // here. The sweep now sees every indexed draw and records whether a fresh
+    // palette was pending, so a static attachment is a value rather than an
+    // absence.
+    if (g_wiOn)
         WiNoteDraw(self, baseVertex, minIndex, numVertices, startIndex, primCount);
 
     // VR-33 W2/W3: THE WEAPON ATTACHMENT. Ahead of everything else, because a

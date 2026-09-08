@@ -79,7 +79,7 @@
 // about 2048 * (64 + 84) = 300 KB of static data, paid whether or not the
 // sweep is armed. That is the price of the control being trustworthy.
 enum {
-    WI_MAX_SIG   = 2048,
+    WI_MAX_SIG   = 8192,
     WI_MAX_PHASE = 42,     // 1 baseline + 4 per component
     WI_PER_COMP  = 4,      // hide, show, hide, show
     WI_MAX_COMP  = 10,     // (WI_MAX_PHASE - 1) / WI_PER_COMP
@@ -105,7 +105,13 @@ static int      g_wiSigN      = 0;
 static uint32_t g_wiSeen[WI_MAX_SIG][WI_MAX_PHASE];
 static volatile LONG g_wiPhase = -1;    // -1 = not collecting
 static LONG     g_wiOverflow  = 0;      // signatures that did not fit the table
-static LONG     g_wiDraws     = 0;      // skinned draws inspected
+static LONG     g_wiDraws     = 0;      // draws inspected
+// Draws seen in each phase, all signatures together. THE FIRST THING TO READ:
+// if the total does not fall when a component is hidden, that component's
+// draws are not in this population and no per-signature analysis below it can
+// mean anything. Two sweeps were spent before this number existed.
+static LONG     g_wiPhaseDraws[WI_MAX_PHASE];
+static LONG     g_wiPhaseStatic[WI_MAX_PHASE];   // of those, with no fresh palette
 
 // The sweep, driven on the script lane.
 static int      g_wiStep      = -1;     // -1 not started, else the phase index
@@ -131,3 +137,4 @@ static bool     g_wiWaitSaid  = false;  // the "waiting for" line, printed once
 // restore did not take poisons the phase after it. Recorded rather than
 // assumed, and reported.
 static bool     g_wiPhaseBad[WI_MAX_PHASE];
+static int      g_wiTop[16];

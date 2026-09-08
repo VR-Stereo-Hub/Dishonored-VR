@@ -52,13 +52,18 @@ static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
     if (!g_wiOn || phase < 0 || phase >= WI_MAX_PHASE || !dev) return;
     (void)minIndex;
 
+    InterlockedIncrement(&g_wiPhaseDraws[phase]);
+    const bool freshPalette = (g_dcPendingBones != 0) &&
+                              (g_dcSinceUpload < DC_REUSE_WINDOW);
+    if (!freshPalette) InterlockedIncrement(&g_wiPhaseStatic[phase]);
+
     WiSig s;
     memset(&s, 0, sizeof(s));
     s.baseVertex = baseVertex;
     s.numVerts   = numVertices;
     s.startIndex = startIndex;
     s.primCount  = primCount;
-    s.bones      = g_dcPendingBones;
+    s.bones      = freshPalette ? g_dcPendingBones : 0;   // 0 = static/stale
 
     IDirect3DVertexBuffer9* vb = NULL; UINT off = 0, stride = 0;
     if (SUCCEEDED(dev->GetStreamSource(0, &vb, &off, &stride))) {
@@ -155,6 +160,21 @@ static void WiReport(void)
         "hide from a camera move.",
         g_wiSigN, g_wiDraws);
 
+    // THE POPULATION CHECK, before any attribution. If hiding a component
+    // does not lower the total draw count, its draws were never in this
+    // population and everything below it is about something else.
+    Log("wid: draws per phase (phase: total / of which had no fresh palette):");
+    for (int p = 0; p < g_wiPhaseN; p++) {
+        const char* what = "baseline";
+        if (p > 0) {
+            const int cc = g_wiCompOf[p];
+            what = (cc >= 0 && cc < g_fpCandN) ? g_fpCand[cc].asset : "?";
+        }
+        Log("wid:   phase %2d %-16s %s : %ld / %ld", p, what,
+            p == 0 ? "     " : (g_wiHidden[p] ? "HIDE " : "show "),
+            g_wiPhaseDraws[p], g_wiPhaseStatic[p]);
+    }
+
     for (int c = 0; c < comps; c++) {
         const int k = g_wiCompOf[WiHidePhase(c, 0)];
         const char* asset = (k >= 0 && k < g_fpCandN) ? g_fpCand[k].asset : "?";
@@ -224,6 +244,33 @@ static void WiReport(void)
         "identity for any of them - a nonzero count there means the view was "
         "moving during the sweep and the whole run should be repeated standing "
         "still.", orphan, ambiguous);
+    // The biggest baseline signatures with their whole phase vector. When an
+    // attribution fails this is the only thing that says WHY: a pair that
+    // drops to zero on one hide and not the other is a different fault from a
+    // pair that never drops at all.
+    Log("wid: the 16 largest baseline signatures, phase by phase. Read across: "
+        "a weapon's pair should read high, 0, high, 0, high at its own four "
+        "phases and stay high everywhere else.");
+    for (int shown = 0; shown < 16; shown++) {
+        int best = -1; uint32_t bestN = 0;
+        for (int i = 0; i < g_wiSigN; i++) {
+            if (g_wiSeen[i][0] <= bestN) continue;
+            bool already = false;
+            for (int j = 0; j < shown; j++) if (g_wiTop[j] == i) already = true;
+            if (already) continue;
+            best = i; bestN = g_wiSeen[i][0];
+        }
+        if (best < 0) break;
+        g_wiTop[shown] = best;
+        char row[512]; int at = 0;
+        for (int p = 0; p < g_wiPhaseN && at < 400; p++)
+            at += _snprintf(row + at, sizeof(row) - at, "%u ", g_wiSeen[best][p]);
+        row[at < 0 ? 0 : (at < (int)sizeof(row) ? at : (int)sizeof(row) - 1)] = 0;
+        Log("wid:   vb %p ib %p bones %u prim %u verts %u stride %u | %s",
+            g_wiSig[best].vb, g_wiSig[best].ib, g_wiSig[best].bones,
+            g_wiSig[best].primCount, g_wiSig[best].numVerts,
+            g_wiSig[best].stride, row);
+    }
     Log("wid: ======================================================");
 }
 

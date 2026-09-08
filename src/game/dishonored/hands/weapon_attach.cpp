@@ -126,9 +126,19 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         return false;
     }
 
-    const UINT regs = w->bones ? (w->bones * 3u) : (UINT)(g_dcPendingBones * 3u);
+    // HOW MANY REGISTERS TO CORRECT. A skinned assembly reports its palette
+    // size; a STATIC attachment reports none, and the crossbow body is
+    // described elsewhere in this tree as exactly that (vs_const_hook.cpp:
+    // "static attachments (the crossbow's body): world position in .w"). One
+    // bone - three registers - is the right correction for a rigid body with
+    // no palette, and it is the same arithmetic: D times the one matrix.
+    UINT regs = 0;
+    if (w->bones)                          regs = w->bones * 3u;
+    else if (g_dcPendingBones &&
+             g_dcSinceUpload < DC_REUSE_WINDOW) regs = (UINT)g_dcPendingBones * 3u;
+    else                                   regs = 3u;      // static: one bone
     if (!regs || regs > WA_MAX_REGS) {
-        g_waWhy = "the palette size for this mesh is unknown or out of range";
+        g_waWhy = "the palette size for this mesh is out of range";
         InterlockedIncrement(&w->refused);
         return false;
     }
