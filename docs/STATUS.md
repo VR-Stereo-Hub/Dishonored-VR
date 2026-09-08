@@ -16,18 +16,59 @@ therefore the wrong uncalibrated default. The record now stores a parity sign
 beside a proper rotation, is versioned, refuses pre-version records, and saves
 itself so a calibration survives a restart with no key press.
 
-### FEEDBACK FROM THE HEADSET RUN - START HERE
+### The calibration save WORKS, measured
 
-Three things the tester reported, none of them yet addressed:
+```
+ms/palette/grip: SOLVED for the RIGHT hand ... parity -1, proper rotation
+                 +29.52 -47.63 +22.47 degrees
+ms/palette/grip: the left hand's calibration is SAVED (version 2, parity -1)
+ms/palette/grip: the right hand's calibration is SAVED (version 2, parity -1)
+```
+
+Both hands solved parity -1, as predicted, and both wrote a version-2 record.
+The restart path itself is still UNVERIFIED - nobody has relaunched and checked
+the hands come back right without a key press. That is headset test 1 below.
+
+### THE WEAPON IDENTIFIER PRODUCED A FALSE POSITIVE. Read this before reusing it
+
+It ran, and its report is wrong. Three defects, all visible in its own output:
+
+```
+wid: sweep planned - baseline plus 1 component(s)
+wid: 128 distinct skinned draw signature(s) over 16974 draw(s),
+     55272 that did not fit the table
+wid:   'Skm_Player' OWNS signature ... | c6 x3 (1 bones) prim 486 stride 12
+```
+
+1. **Only ONE component resolved.** `Skm_Player` alone; no `crossbow_01`, no
+   `bolt_01`, no `Wpn_PlySword01`. The sweep fired about 17 s after the config
+   loaded, before the weapons existed as components. It must WAIT until the
+   assets it is there to identify are actually resolved, and refuse rather than
+   sweep a list that cannot answer the question.
+2. **The signature table saturated.** 128 held, **55,272 draws did not fit**.
+   Once full it cannot record a new signature, so later phases are blind. An
+   overflow must INVALIDATE the report, not appear as a footnote under
+   attributions that it silently broke.
+3. **The attributions are not weapons and are probably not the player.**
+   `c6 x3` is a ONE-bone palette at stride 12 - world props, not the skinned
+   first-person mesh. What the report actually measured is "these draws stopped
+   during a 1.5 s window", which a camera move or an object leaving the view
+   produces just as well as a hide does.
+
+**The instrument cannot fail its own hypothesis, which is this project's oldest
+recurring fault** (`VR-33-HANDS.md` section 4). The orphan count was meant to be
+the control and a saturated table defeats it. The fix is not a bigger table
+alone: a signature must vanish on EVERY hide and RETURN on EVERY restore, over
+at least two hide/restore cycles, before it is called owned. A single
+disappearance is not evidence.
+
+### FEEDBACK FROM THE HEADSET RUN
 
 1. **F5 is already bound.** The hand trim added in `9d55ccde` uses F5, and
    `head_track.cpp:620` and `head_track.cpp:1064` already read it. One press
-   fires both. The trim is therefore unusable as shipped and must be rebound.
-2. **The weapon identifier's sweep was not seen.** No component blinked. It is
-   armed (`[Hands] WeaponId=1`, `MatCycle=0` in the installed ini) but either it
-   never ran or it refused. **Read the `wid:` lines and the refusal reason in
-   the log before changing anything** - it prints why it declined, and the
-   `MatCycle` guard is the most likely cause if that key was still 1 at launch.
+   fires both, so the trim is unusable as shipped and must be rebound.
+2. **Nothing was seen to blink** - consistent with the above: only the player
+   body was ever hidden, for 1.5 s, once.
 3. **The alignment needs small tweaks**, position and rotation, per hand.
 
 ### What the tester asked for next, specifically
