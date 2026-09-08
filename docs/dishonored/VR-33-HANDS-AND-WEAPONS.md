@@ -222,6 +222,54 @@ Three further things were needed:
    most one pass of depth or shadow and drawing it costs the copy. This is the
    arm split's own rule: drop what you cannot place.
 
+### Suppression, and the four ways of getting it wrong
+
+Once a copy is recognised there are two things to do with it: place it, or not
+draw it. Placing it needs a coordinate bridge, a fresh component snapshot, a
+same-view correction and a band wide enough for a socket-mounted member. Not
+drawing it needs none of that. **Not drawing it is the answer**, and it took
+five builds to get there because each attempt to be cleverer regressed:
+
+| Approach | Result |
+|---|---|
+| Suppress every pass we could not place | copies gone, ONE-FRAME BLINK |
+| Draw a stale-corrected pass instead | blink gone, one copy per failing pass |
+| Re-conjugate that stale correction | placement fixed, still TWO copies |
+| Hold the rescue to once per mesh | still two copies |
+| Remove the rescue, suppress auxiliary passes | translucent weapons, black bolt, invisible in shadow |
+
+Two rules came out of that, and both are load-bearing:
+
+**A PASS THAT IS NOT DRAWN AT THE NATIVE POSITION IS NOT NECESSARILY A
+DUPLICATE.** Several of a weapon's passes are its colour and lighting
+contributions. Suppressing those leaves only the ambient term, which reads as a
+translucent weapon that vanishes entirely in shadow - the last row above.
+"Suppress what we did not place" is safe only for a pass that would otherwise
+draw a second copy; it is not a general rule for passes we could not classify.
+
+**AT MOST ONE DRAWN INSTANCE OF A MESH PER FRAME, REACHED BY NEVER ADDING A
+DRAW.** A fallback that draws a stand-in cannot know whether the visible pass
+will draw later in the same frame, so every version of that guess produced a
+copy. Counting draws to enforce the invariant does not work; not adding them
+does.
+
+The shipping behaviour is the first row: suppress what we cannot place, and
+accept the blink. The retired rescue is preserved in `src/legacy/vr33/`.
+
+### The blink is a SHARED gate, and the weapons blink together
+
+The two weapons share no contract, buffers, component or match. They share only
+the inputs - the hand's correction, the eye decision and the component
+snapshot - so **blinking simultaneously is evidence of a shared gate failing,
+not of two placements failing independently.**
+
+The gate was the component-snapshot freshness bound. It had been tightened from
+100 ms to 20 ms while chasing a view-model sway theory that the headset then
+falsified; the tighter bound refused to publish a correction often enough to
+blink both weapons several times a second. Back at 100 ms the blink is
+essentially gone. **A bound that was never shown to cost accuracy was costing
+the picture.**
+
 ### The contract table was the size of the answer
 
 `WA_MAX_MESH` was 12. Three meshes drawn by four shaders each is twelve
@@ -232,6 +280,35 @@ and an eviction logs the age of what it threw out, because an eviction of a
 contract that drew recently is thrashing and an eviction of a stale one is not.
 
 ---
+
+## 4a. Why the weapons are so much harder than the hands
+
+Worth stating, because the asymmetry explains every defect in section 4 and
+predicts where the next one will come from.
+
+**We own the hands' draw; we only borrow the weapons'.** The split REPLACES the
+player mesh's draw - it emits the classes it wants through its own index buffer
+and drops the rest - so nothing else can draw that geometry and "a pass we
+missed" cannot exist. A weapon is drawn by the GAME in several passes; we patch
+constants and re-issue, and every pass we fail to recognise draws itself at the
+native position.
+
+**A hand's placement is self-contained; a weapon's is a chain.** A hand measures
+its own palm from its own palette every frame: one input, no coupling. A weapon
+needs the hand's correction, plus the coordinate bridge, plus a component
+snapshot published across two threads. Three couplings, each with its own way of
+being briefly unavailable - which is exactly what a blink is.
+
+**One geometry against many instances.** The hand mesh is locked by buffer
+identity and there is one of it. The weapons are several components drawn by
+several shaders, with world copies of the same mesh lying about (a fired bolt),
+and two of them socket-mounted so their component transform does not track
+their render transform.
+
+**And the failure modes are not comparable.** If hand placement refuses, the
+split still draws the hand, just uncorrected at the animated pose - a small
+error. If weapon placement refuses, the only choices are a copy in the wrong
+place or nothing at all. That asymmetry is the whole story of this ticket.
 
 ## 5. Lanes and device state
 
@@ -268,6 +345,8 @@ contract that drew recently is thrashing and an eviction of a stale one is not.
 | `AttachNearAngle` / `AttachNearPos` / `AttachNearMargin` | 20 / 30 / 1.5 | the relaxed band |
 | `AttachRigRadius` / `AttachPassRadius` | 200 / 60 | the other instance gates |
 | `AttachDropUncorrected` | 1 | suppress a recognised pass we cannot place |
+| `AttachSuppressUnplaced` | 1 | the same rule, route-independent: any unplaced draw on a weapon's buffers |
+| `AttachSnapshotMaxMs` | 100 | component-snapshot freshness. TIGHTENING THIS BLINKS BOTH WEAPONS |
 | `AttachCensus` | 1 | one line per distinct view-model geometry |
 | `WeaponId` | 0 | the whole-scene hide sweep, retired to a confirmation tool |
 
@@ -296,6 +375,12 @@ contract that drew recently is thrashing and an eviction of a stale one is not.
   seen from one side; a tracked controller lets the player look at the side the
   artists left open.
 * The hand sides are an assumption, not measured attachment data.
+* **A rare single-frame blink remains.** It is the smallest of the five known
+  defects and the only one this branch carries. It is a shared-gate failure:
+  when no correction is published for a Present, every pass of every weapon is
+  suppressed together.
+* **A fired bolt standing in the world can still be picked up and attached.**
+  The rig-radius and view-model gates reduced it but did not close it.
 
 ---
 
@@ -384,6 +469,15 @@ however it looks.
   64", and the native SkelControl lane was recorded as closed on that basis -
   a retraction that also withdrew the 38.x write-race retirement resting on it.
   A counter is not evidence until you know its population.
+* **Tightening a bound to chase a theory the headset later killed.** The
+  component-snapshot freshness went 100 ms to 20 ms for a sway hypothesis that
+  did not survive contact. The theory was dropped; the bound was not, and it
+  then caused a visible defect of its own. When a hypothesis dies, the changes
+  made for it should die with it unless they have their own justification.
+* **Reasoning about a symptom without asking what it is FOR.** Five builds went
+  into placing the copy correctly before anyone asked whether it needed drawing
+  at all. It did not. The cheapest question - what is this for? - was the one
+  that ended the investigation.
 * **A printf whose arguments stopped matching its format.** Two edits each added
   the same segment; every value after that point was shifted, and decisions were
   read from numbers that were not what they were labelled.

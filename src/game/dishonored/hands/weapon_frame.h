@@ -6,6 +6,33 @@
 namespace dvr { namespace wf {
 using namespace hf;
 
+// Geometry ownership includes the range: buffers can contain several meshes.
+// A shader is part of a pass, not evidence that two passes share a transform.
+struct Geometry {
+    const void *vb, *ib;
+    unsigned stride, offset, type, minIndex, start, vertices, primitives;
+    int base;
+};
+static inline bool same_geometry(const Geometry& a, const Geometry& b)
+{
+    return a.vb && a.ib && a.vb == b.vb && a.ib == b.ib &&
+        a.stride == b.stride && a.offset == b.offset && a.type == b.type &&
+        a.minIndex == b.minIndex && a.start == b.start && a.vertices == b.vertices &&
+        a.primitives == b.primitives && a.base == b.base;
+}
+
+static inline bool same_view(unsigned sourcePresent, int sourceEye,
+                             unsigned present, int eye)
+{
+    return (eye == -1 || eye == 1) && sourceEye == eye && sourcePresent == present;
+}
+
+static inline bool color_view(const void* handTarget, const void* drawTarget,
+                              bool sameViewport, unsigned colorMask)
+{
+    return handTarget && handTarget == drawTarget && sameViewport && colorMask != 0;
+}
+
 static inline bool inverse(const Xform& a, Xform* out)
 {
     const float* m = a.r.m;

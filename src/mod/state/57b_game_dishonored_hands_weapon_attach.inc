@@ -139,6 +139,7 @@ struct WaMesh {
     UINT     regs;             // registers actually patched
     double   lastVerifyMs;     // revalidated on every draw, also used for eviction
     LONG     placed, refused;
+    bool     wasLive;          // for the lock/unlock transition line
     // THE CORRECTION THIS CONTRACT LAST APPLIED, and the Present it was built
     // in. A sibling pass of the same geometry in the same Present is the same
     // mesh at the same place, so it takes the same delta - and requiring the
@@ -380,6 +381,62 @@ static LONG  g_waNearAccepted = 0;   // accepted on the relaxed band
 // is the copy itself.
 static bool  g_waDropUncorrected = true;  // [Hands] AttachDropUncorrected
 static LONG  g_waIdDropped    = 0;
+// How often the weapon draw's own pose snapshot had a different generation from
+// the hand's. This USED to refuse the correction; it is now tolerated, and the
+// counter is what makes that decision checkable rather than asserted.
+static LONG  g_waPoseGenDiff  = 0;
+
+// ---- SNAPSHOT AGE IS THE VIEW-MODEL'S SWAY --------------------------------
+//
+// The tester falsified the frame-rate story: a locked spot stays locked
+// whatever the frame rate does, but ROTATING away loses the lock and rotating
+// back regains it. That is a camera-POSE effect, and it points at one thing.
+//
+// The bridge cancels camera motion algebraically. K * native_member expands to
+// L_draw_ref * (inverse(L_native_ref) * L_native_member), and the bracketed
+// term is the member RELATIVE TO THE RIG - it has no camera in it at all, while
+// L_draw_ref is this frame's. So neither walking nor turning can move the
+// prediction through the bridge.
+//
+// What the bracket DOES carry is the member's pose relative to the rig at the
+// moment the snapshot was taken. Turning the view makes Dishonored's view model
+// SWAY on its own inertia, so that relative pose is exactly what changes while
+// you rotate - and a snapshot up to 100 ms old then predicts where the weapon
+// WAS, not where it is. Hold still and the sway settles onto the snapshot
+// again, which is the relock.
+//
+// The bound was 100 ms: nine frames of sway at 90 Hz, and the observed misses
+// were 11-12 degrees. Tightening it is the direct test of this, and the age is
+// now reported next to every residual so the correlation can be read off a log
+// rather than argued.
+static float g_waSnapMaxMs    = 20.0f;   // [Hands] AttachSnapshotMaxMs
+static float g_waSnapAgeAtUse = 0.0f;    // age of the snapshot the match used
+
+// ---- SUPPRESS WHAT WE CANNOT PLACE ------------------------------------------
+//
+// The tester asked the question that should have been asked four builds ago:
+// why reposition the copy at all? It is a DUPLICATE of geometry the same frame
+// already draws correctly, so placing it correctly and not drawing it are
+// visually identical - and one of those needs a coordinate bridge, a fresh
+// component snapshot, a same-view correction and a band wide enough for a
+// socket-mounted member, while the other needs none of it.
+//
+// So the rule becomes blunt and route-independent: a draw on a weapon's OWN
+// buffers that we did not place ourselves is not drawn. It does not matter
+// whether it failed for want of a layout, a view, a delta or a match; if we
+// know those buffers are a weapon's and we did not correct this draw, the only
+// thing drawing it can produce is the copy.
+//
+// WHAT THIS COSTS. That pass is most likely a depth or shadow contribution.
+// Losing it can mean the weapon no longer primes depth or no longer casts from
+// this pass - if the weapon starts z-fighting with the world, or its shadow
+// goes missing, this lever is why. It cannot make the weapon vanish outright:
+// the corrected pass is a different draw and still runs.
+//
+// Kept as a lever rather than a hard-coded behaviour because it trades a known
+// artifact for a possible one.
+static bool  g_waSuppressUnplaced = true;   // [Hands] AttachSuppressUnplaced
+static LONG  g_waSuppressed       = 0;
 static float g_waNearMargin   = 1.5f;    // [Hands] AttachNearMargin
 static LONG  g_waNearRejected = 0;   // on the view model and still refused
 

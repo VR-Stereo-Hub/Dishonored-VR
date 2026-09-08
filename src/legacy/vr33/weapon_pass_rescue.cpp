@@ -1,356 +1,6 @@
-// game/dishonored/hands/weapon_attach.cpp - included by src/mod/dishonoredvr.cpp
-// (unity build). See state chunk 57b for the design and why it changed.
-//
-// VR-33 W2/W3: identify the weapon's draws by a bridged full-transform match,
-// then carry them through the SAME correction the hand took.
-
-// ---- reading a native component transform -----------------------------------
-
-// The component's own LocalToWorld, read with the SAME extraction the shader
-// constant gets in MpAcquireCtx: three basis registers then a translation.
-// Convert native FMatrix rows to our column-vector convention. The same
-// extraction is used for the shader registers. This is a convention to test
-// against member draws, not proof that every component shares the bridge.
-//
-// Scale is RETAINED. It is evidence for the match, and dividing it out here
-// would throw away the one quantity that separates a scaled duplicate from the
-// real thing.
-static bool WaReadCompXform(uint8_t* obj, dvr::hf::Mat3* R, float* t, float* scale)
-{
-    if (!LooksLikeObj(obj) || !RangeReadable(obj + kWaComponentLocalToWorld, 0x40)) return false;
-    const float* M = (const float*)(obj + kWaComponentLocalToWorld);   // 0x60 / 0x70 / 0x80
-    const float* T = (const float*)(obj + kWaComponentTranslation);
-    float col[3][3];
-    for (int j = 0; j < 3; j++)
-        for (int i = 0; i < 3; i++) col[j][i] = M[j * 4 + i];
-    for (int j = 0; j < 3; j++) {
-        float n = 0.0f;
-        for (int i = 0; i < 3; i++) n += col[j][i] * col[j][i];
-        n = sqrtf(n);
-        if (!(n > 1.0e-4f) || n != n || n > 1.0e4f) return false;
-        scale[j] = n;
-        // Keep the full native basis; the matcher compares scale too.
-    }
-    for (int i = 0; i < 3; i++) {
-        t[i] = T[i];
-        if (t[i] != t[i] || t[i] > 1.0e9f || t[i] < -1.0e9f) return false;
-    }
-    *R = dvr::hf::basis_from_cols(col[0], col[1], col[2]);
-    return true;
-}
-
-
-// Which hand a member belongs in. The asset-name rule is a DEFAULT, not
-// measured attachment data - the review is right that the sword/crossbow
-// sides here are inherited assumption. It is logged as an assumption and is
-// overridable; an unknown asset is NOT silently swept into the crossbow hand.
-static int WaHandFor(const char* asset, bool* known)
-{
-    if (known) *known = true;
-    if (asset && (strstr(asset, "sword") || strstr(asset, "Sword")))
-        return g_waSwordHand;
-    if (asset && (strstr(asset, "crossbow") || strstr(asset, "Crossbow") ||
-                  strstr(asset, "bolt")     || strstr(asset, "Bolt")))
-        return g_waXbowHand;
-    if (known) *known = false;
-    return g_waXbowHand;
-}
-
-
-// ---- the component snapshot, SCRIPT LANE ------------------------------------
-//
-// Read-only. It does not call the legacy collect/restore writers, which are
-// not discovery helpers however much they look like one.
-static void WaCompTick(void)
-{
-    if (!g_waOn) return;
-    const double now = MaimNowMs();
-    // Twice a frame at 90 Hz. The snapshot's AGE is what limits the match when
-    // the view model is swaying, so halving the mean age is worth the walk.
-    if (now - g_waCompMs < 4.0) return;
-
-
-    WaComp snapshot[WA_MAX_COMP] = {};
-    int n = 0, dropped = 0;
-    for (int i = 0; i < g_fpCandN && n < WA_MAX_COMP; i++) {
-        FpCand* k = &g_fpCand[i];
-        // A candidate that has gone away since the scan is DROPPED, and that
-        // is worth counting: the failing run listed the body mesh among the
-        // view models and then did not have it in this snapshot, which is the
-        // difference between "never found" and "found and lost".
-        if (!LooksLikeObj(k->obj)) { dropped++; continue; }
-        WaComp c;
-        memset(&c, 0, sizeof(c));
-        c.obj = k->obj;
-        _snprintf(c.asset, sizeof(c.asset), "%s", k->asset);
-        _snprintf(c.name,  sizeof(c.name),  "%s", k->name);
-        c.asset[sizeof(c.asset) - 1] = 0;
-        c.name[sizeof(c.name) - 1] = 0;
-        c.ok = WaReadCompXform(k->obj, &c.R, c.t, c.scale);
-        // The BRIDGE ANCHOR is the body mesh - the one the split locks and
-        // draws, and therefore the one whose draw we can already identify
-        // without any of this machinery. That is the whole point: the offset
-        // comes from a component identified by other means.
-        c.isRef    = strstr(c.asset, "Skm_Player") != NULL;
-        c.isMember = !c.isRef;
-        bool known = false;
-        c.hand = WaHandFor(c.asset, &known);
-        if (c.isMember && !known) c.isMember = false;   // never guess a side
-        snapshot[n++] = c;
-    }
-    // WHAT THE ATTACHMENT ACTUALLY HAS. Counted here rather than inferred from
-    // a refusal counter later: without a REF there is no bridge and without a
-    // MEMBER there is nothing to move, and those are different problems with
-    // different answers.
-    int refs = 0, members = 0;
-    for (int i = 0; i < n; i++) {
-        if (!snapshot[i].ok) continue;
-        if (snapshot[i].isRef)    refs++;
-        if (snapshot[i].isMember) members++;
-    }
-
-    AcquireSRWLockExclusive(&g_waCompLock);
-    memcpy(g_waComp, snapshot, sizeof(snapshot));
-    g_waCompMs = now;
-    g_waCompN = n;
-    g_waRefN = refs;
-    g_waMemberN = members;
-    g_waDroppedN = dropped;
-    g_waCompGen++;
-    ReleaseSRWLockExclusive(&g_waCompLock);
-
-    // SAY SO, on its own cadence and at Warn, because a run that cannot
-    // possibly attach should not look like a run that tried and failed.
-    if (!refs || !members) {
-        InterlockedIncrement(&g_waNotReady);
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 4000,
-            "wa: NOTHING TO ATTACH - %d component(s) resolved, %d usable as the "
-            "bridge anchor (the body mesh), %d usable as a weapon%s. %s The "
-            "weapon path is idle by definition until both exist; no counter "
-            "below this describes a failure to place anything.",
-            n, refs, members,
-            dropped ? " (and some candidates went away between the scan and "
-                      "this snapshot)" : "",
-            !refs   ? "Without the body mesh there is no coordinate bridge."
-                    : "Draw a weapon: nothing is equipped that this can move.");
-    }
-
-    static double said = 0;
-    if (now - said < 10000) return;
-    said = now;
-    Log("wa/comp: %d component(s), generation %u", n, g_waCompGen);
-    for (int i = 0; i < n; i++)
-        Log(
-            "wa/comp:   [%d] '%s' (%s) %s%s xform %s t=(%.1f %.1f %.1f) "
-            "scale=(%.3f %.3f %.3f)",
-            i, g_waComp[i].asset, g_waComp[i].name,
-            g_waComp[i].isRef ? "REF" : "", g_waComp[i].isMember ? "MEMBER" : "",
-            g_waComp[i].ok ? "ok" : "UNREADABLE",
-            (double)g_waComp[i].t[0], (double)g_waComp[i].t[1],
-            (double)g_waComp[i].t[2], (double)g_waComp[i].scale[0],
-            (double)g_waComp[i].scale[1], (double)g_waComp[i].scale[2]);
-}
-
-
-// ---- the hand publishes its correction, PRESENT LANE ------------------------
-//
-// Called from the hand's own placement path once D is final - which is AFTER
-// the model scale, so that factor is carried exactly once and WaDraw must not
-// apply it again.
-static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& D)
-{
-    if (!g_waOn || hand < 0 || hand > 1 || !c) return;
-    dvr::hf::Xform L;
-    L.r = c->R_L;
-    for (int i = 0; i < 3; i++) L.t[i] = c->t[i];
-
-    WaCommon w = {};
-    w.L_hand  = L;
-    dvr::hf::Xform invL;
-    if (!dvr::wf::inverse(L, &invL)) return;
-    w.D = dvr::hf::xform_mul(dvr::hf::xform_mul(L, D), invL);
-    w.present = (uint32_t)dvr::frame::count();
-    w.poseGen = c->pose.gen;
-    w.eye     = g_mpEyeState;
-    w.ok      = true;
-    for (int i = 0; i < 9; i++) if (!MpFinite(w.D.r.m[i])) w.ok = false;
-    for (int i = 0; i < 3; i++) if (!MpFinite(w.D.t[i]))   w.ok = false;
-    AcquireSRWLockShared(&g_waCompLock);
-    w.componentCount = g_waCompN;
-    w.componentGen = g_waCompGen;
-    memcpy(w.components, g_waComp, sizeof(w.components));
-    const double age = MaimNowMs() - g_waCompMs;
-    ReleaseSRWLockShared(&g_waCompLock);
-    g_waSnapAgeAtUse = (float)age;
-    if (age < 0 || age > (double)g_waSnapMaxMs) {
-        w.ok = false;
-        InterlockedIncrement(&g_waStaleComp);
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 5000,
-            "wa: component snapshot is %.1f ms old, past the %.0f ms bound - "
-            "refusing to publish a correction from it. While the view model is "
-            "swaying, an old snapshot predicts where the weapon WAS.",
-            age, (double)g_waSnapMaxMs);
-    }
-    g_waCommon[hand] = w;
-}
-
-
-// Is there a correction for THIS view? Exact on Present, pose generation and
-// eye - a correction from the previous eye is a whole IPD wrong, and borrowing
-// one is the failure the old boolean could not even express.
-// THE POSE GENERATION WAS THE WRONG TEST, AND IT WAS POSITION-DEPENDENT.
-//
-// This used to demand that the weapon draw's own freshly-read pose snapshot
-// carry the SAME generation as the hand's. The weapon does not use its pose for
-// anything - it needs the hand's correction, which is a property of the FRAME.
-// Meanwhile the pose tick publishes on its own schedule, about ninety times a
-// second, so any publication landing between the hand's draw and the weapon's
-// draw within one Present bumped the generation and the correction was refused
-// as stale when it was perfectly current.
-//
-// How often that happens depends on how much wall-clock passes between those
-// two draws, which depends on how heavy the scene is - which is why the tester
-// could stand on one spot and have both weapons lock, walk forward and have
-// them unlock, and walk back onto the same spot and have them relock, every
-// time. It was never about where the player was; it was about how long the
-// frame took there.
-//
-// Present and EYE are kept. Both are genuine properties of the view: a
-// correction from another Present is stale, and one from the other eye is a
-// whole IPD wrong. The generation is recorded for reporting only.
-static const WaCommon* WaCommonFor(int hand, const MpDrawCtx* c)
-{
-    if (hand < 0 || hand > 1) return NULL;
-    const WaCommon* w = &g_waCommon[hand];
-    if (!w->ok) return NULL;
-    if (w->present != (uint32_t)dvr::frame::count()) return NULL;
-    if (w->eye     != g_mpEyeState) return NULL;
-    // Measure what the old test would have thrown away, so the claim above is
-    // checkable rather than asserted.
-    if (c && w->poseGen != c->pose.gen) InterlockedIncrement(&g_waPoseGenDiff);
-    return w;
-}
-
-
-
-#if DVR_WITH_LEGACY
-#include "legacy/vr33/weapon_refused_probe.cpp"
-#endif
-
-// ---- the view model census --------------------------------------------------
-
-// Record one distinct skinned geometry that reached the matcher. Deduplicated
-// on the full draw contract, logged once, never used as a gate.
-static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
-                         INT baseVertex, UINT numVertices, UINT startIndex,
-                         UINT primCount, const char* nearest, float angle,
-                         float position, bool corrected)
-{
-    if (!g_waCensusOn || !dev) return;
-    IDirect3DVertexBuffer9* vbo = NULL; UINT off = 0, stride = 0;
-    if (FAILED(dev->GetStreamSource(0, &vbo, &off, &stride)) || !vbo) return;
-    void* vb = vbo; vbo->Release();
-    IDirect3DIndexBuffer9* ibo = NULL; void* ib = NULL;
-    if (SUCCEEDED(dev->GetIndices(&ibo)) && ibo) { ib = ibo; ibo->Release(); }
-    IDirect3DVertexShader9* vso = NULL; void* vs = NULL;
-    if (SUCCEEDED(dev->GetVertexShader(&vso)) && vso) { vs = vso; vso->Release(); }
-
-    for (int i = 0; i < g_waCensusN; ++i) {
-        WaCensus* c = &g_waCensus[i];
-        if (c->vb == vb && c->ib == ib && c->vs == vs &&
-            c->primCount == primCount && c->numVerts == numVertices &&
-            c->startIndex == startIndex) {
-            InterlockedIncrement(&c->draws);
-            if (corrected) c->corrected = true;
-            return;
-        }
-    }
-    if (g_waCensusN >= WA_MAX_CENSUS) return;
-    WaCensus* c = &g_waCensus[g_waCensusN++];
-    memset(c, 0, sizeof(*c));
-    c->vb = vb; c->ib = ib; c->vs = vs;
-    c->primCount = primCount; c->numVerts = numVertices;
-    c->startIndex = startIndex; c->stride = stride;
-    for (int j = 0; j < 3; ++j) c->l2w[j] = ctx ? ctx->t[j] : 0.0f;
-    c->angle = angle; c->position = position;
-    c->corrected = corrected;
-    c->draws = 1;
-    _snprintf(c->nearest, sizeof(c->nearest), "%s", nearest ? nearest : "?");
-    c->nearest[sizeof(c->nearest) - 1] = 0;
-    Log("wa/census: [%d] vb %p ib %p vs %p | prim %u verts %u start %u stride %u "
-        "| LocalToWorld t=(%.1f %.1f %.1f) | nearest '%s' at %.3f deg / %.2f uu "
-        "| %s. One line per distinct geometry on the view-model rig; between "
-        "them they account for every piece of it, including whatever is still "
-        "standing at the native position.",
-        g_waCensusN - 1, vb, ib, vs, primCount, numVertices, startIndex, stride,
-        (double)c->l2w[0], (double)c->l2w[1], (double)c->l2w[2],
-        c->nearest, (double)angle, (double)position,
-        corrected ? "CORRECTED" : "left where the engine drew it");
-}
-
-
-// ---- recognition by buffer identity -----------------------------------------
-
-// Apply a known delta to whatever palette this shader declares. Shared by the
-// buffer-identity path and the non-indexed path: both already know WHICH mesh
-// they are looking at and need only the register and the delta.
-static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
-                           const dvr::hf::Xform& delta, bool indexed,
-                           D3DPRIMITIVETYPE type, INT baseVertex, UINT minIndex,
-                           UINT numVertices, UINT startIndex, UINT startVertex,
-                           UINT primCount, HRESULT* hr)
-{
-    const int start = (g_pcLayBones >= 0) ? g_pcLayBones : g_pcLayBonesPartial;
-    const int cnt   = (g_pcLayBones >= 0) ? g_pcLayBonesN : g_pcLayBonesNPartial;
-    if (start < 0 || cnt <= 0 || (cnt % 3) != 0 || start > 256 - cnt ||
-        cnt > WA_MAX_REGS) return false;
-
-    static float source[WA_MAX_REGS*4], patched[WA_MAX_REGS*4];
-    if (FAILED(dev->GetVertexShaderConstantF((UINT)start, source, (UINT)cnt))) {
-        InterlockedIncrement(&g_waNoSource); return false;
-    }
-    MpBuild(patched, source, (UINT)cnt, &delta);
-    if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, patched, (UINT)cnt))) {
-        if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, source, (UINT)cnt)))
-            InterlockedIncrement(&g_waRestoreFail);
-        InterlockedIncrement(&g_waNoSource); return false;
-    }
-    // THE DEPTH RANGE, exactly as the main path does it. The view model is
-    // drawn into a compressed depth range so it always sits in front of the
-    // world; once it has been moved OUT into the world it needs the full range
-    // or it renders in front of geometry it is now behind. The hands' own
-    // record names this as what fixed both their occlusion AND their duplicate
-    // ("correct occlusion against world geometry, after restoring the depth
-    // range. The ghost/duplicate hand is gone"), and these two paths were
-    // patching the palette without it - the one step of the main path they did
-    // not copy.
-    D3DVIEWPORT9 savedVp; bool changedVp = false;
-    if (g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp)) && savedVp.MaxZ < .5f) {
-        D3DVIEWPORT9 full = savedVp; full.MinZ = 0; full.MaxZ = 1;
-        changedVp = SUCCEEDED(dev->SetViewport(&full));
-    }
-    InterlockedIncrement(&g_waAttempted);
-    const HRESULT drawHr = indexed
-        ? dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex,
-                                        numVertices, startIndex, primCount)
-        : dvr::frame::orig_draw_prim(dev, type, startVertex, primCount);
-    if (hr) *hr = drawHr;
-    if (changedVp && FAILED(dev->SetViewport(&savedVp)))
-        InterlockedIncrement(&g_waRestoreFail);
-    if (SUCCEEDED(drawHr)) {
-        InterlockedIncrement(&g_waSucceeded);
-        InterlockedIncrement(&w->placed);
-    }
-    if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, source, (UINT)cnt))) {
-        InterlockedIncrement(&g_waRestoreFail);
-        Log("wa/id: RESTORE FAILED for '%s' c%d x%d", w->asset, start, cnt);
-    }
-    return SUCCEEDED(drawHr);
-}
-
-
-// The non-indexed entry, which the weapon router never reached before.
-static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
+// Superseded VR-33 cross-pass and stale rescue router.
+// Kept for comparison; no shipping hook calls these functions.
+static bool WaRetiredDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
                        UINT startVertex, UINT primCount, HRESULT* hr)
 {
     if (hr) *hr = D3D_OK;
@@ -381,20 +31,19 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
     if (!w->dmOk || w->dmPresent != (uint32_t)dvr::frame::count()) {
         InterlockedIncrement(&g_waPrimNoDelta); return false;
     }
-    if (!WaPatchAndDraw(dev, w, w->dm, false, type, 0, 0, 0, 0, startVertex,
-                        primCount, hr)) return false;
+    if (!WaPatchAndDraw(dev, w, w->dm, w->dm, false, type, 0, 0, 0, 0,
+                        startVertex, primCount, hr)) return false;
     InterlockedIncrement(&g_waPrimFixed);
     return true;
 }
 
 
-#if DVR_WITH_LEGACY
-#include "legacy/vr33/weapon_primitive_sibling.cpp"
-#endif
 
-static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+
+static bool WaRetiredDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
-                   UINT primCount, HRESULT* hr, bool* onWeaponBuffers)
+                   UINT primCount, HRESULT* hr, bool* onWeaponBuffers,
+                   WaMesh** knownOut)
 {
     if (hr) *hr = D3D_OK;
     if (!g_waOn || !dev) return false;
@@ -418,6 +67,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     (ib0 && g_waMesh[i].ib == ib0)) { known = &g_waMesh[i]; break; }
             // Whatever happens from here, this draw is a weapon's geometry.
             if (known && onWeaponBuffers) *onWeaponBuffers = true;
+            if (known && knownOut) *knownOut = known;
             if (known) {
                 PcRefreshLayout(dev);
                 // THE SHADER IS PART OF THE KEY, and leaving it out is what hid
@@ -475,6 +125,10 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     // that is precisely why the earlier sibling-only attempt
                     // corrected nothing.
                     dvr::hf::Xform corr;
+                    // The correction in its OWN space, kept beside the member
+                    // -local delta so a later reuse can re-conjugate rather
+                    // than replay - replaying is what misplaced the copy.
+                    dvr::hf::Xform corrSpace;
                     bool haveCorr = false;
                     if (sameGeometry && g_pcLayL2W >= 0 && g_pcLayL2W <= 252) {
                         MpDrawCtx c2 = {};
@@ -551,6 +205,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                 if (dvr::wf::inverse(L2, &iL2)) {
                                     corr = dvr::hf::xform_mul(
                                         dvr::hf::xform_mul(iL2, space), L2);
+                                    corrSpace = space;
                                     haveCorr = true;
                                 }
                             }
@@ -559,7 +214,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     }
                     if (!haveCorr && known->dmOk &&
                         known->dmPresent == (uint32_t)dvr::frame::count()) {
-                        corr = known->dm; haveCorr = true;
+                        corr = known->dm; corrSpace = known->dm; haveCorr = true;
                     }
                     // NOTHING USABLE FOR THIS PASS. Two choices, and drawing it
                     // untouched is the worse one: this is another pass of a mesh
@@ -598,7 +253,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     for (int q = 0; q < 3 && ok; ++q)
                         if (!MpFinite(corr.t[q])) ok = false;
                     if (ok && g_waGhostFix &&
-                        WaPatchAndDraw(dev, known, corr, true, type, baseVertex,
+                        WaPatchAndDraw(dev, known, corr, corrSpace, true, type, baseVertex,
                                        minIndex, numVertices, startIndex, 0,
                                        primCount, hr)) {
                         InterlockedIncrement(&g_waIdCorrected);
@@ -893,6 +548,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // instead of being left at the native position.
     w->dm = delta; w->dmPresent = (uint32_t)dvr::frame::count(); w->dmOk = true;
     static float source[WA_MAX_REGS*4], patched[WA_MAX_REGS*4];
+    const dvr::hf::Xform spaceCorrection = corrections[match.best];
     if (FAILED(dev->GetVertexShaderConstantF(w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waNoSource); return false;
     }
@@ -911,7 +567,16 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     const HRESULT drawHr = dvr::frame::orig_draw_indexed(dev, type, baseVertex,
         minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
-    if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); }
+    if (SUCCEEDED(drawHr)) {
+        InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed);
+        // Remember the SPACE-level correction, not the member-local delta. A
+        // delta belongs to the draw it was built for; the correction belongs to
+        // the view and can be re-conjugated into any pass's own space.
+        const int ei = (g_mpEyeState > 0) ? 1 : 0;
+        w->lastGood[ei] = spaceCorrection;
+        w->lastGoodPresent[ei] = (uint32_t)dvr::frame::count();
+        w->lastGoodOk[ei] = true;
+    }
     if (changedVp && FAILED(dev->SetViewport(&savedVp))) InterlockedIncrement(&g_waRestoreFail);
     if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waRestoreFail);
@@ -929,15 +594,83 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
 // question the tester asked settles it: there is nothing to gain by putting the
 // copy in the right place when the frame already draws that geometry correctly,
 // and not drawing it needs none of the machinery that placing it does.
-static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+static bool WaRetiredDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
                    UINT primCount, HRESULT* hr)
 {
     bool onWeapon = false;
-    if (WaDrawInner(dev, type, baseVertex, minIndex, numVertices, startIndex,
-                    primCount, hr, &onWeapon))
+    WaMesh* known = NULL;
+    if (WaRetiredDrawInner(dev, type, baseVertex, minIndex, numVertices, startIndex,
+                    primCount, hr, &onWeapon, &known))
         return true;
     if (!g_waSuppressUnplaced || !onWeapon) return false;
+
+    // BEFORE SUPPRESSING, TRY THE LAST CORRECTION THAT WORKED. Suppression
+    // removed the copy and left a one-frame hole in its place: on a frame where
+    // every pass fails placement, every pass is suppressed and the weapon is
+    // not drawn at all. That is the flicker - the hands do not have it because
+    // they are drawn by the split, which never suppresses.
+    //
+    // A correction one frame old is imperceptible on a held object. A missing
+    // weapon is not. The reuse is bounded in frames and matched on EYE, so it
+    // can be slightly stale but never a whole IPD wrong.
+    if (known) {
+        const int ei = (g_mpEyeState > 0) ? 1 : 0;
+        const uint32_t now = (uint32_t)dvr::frame::count();
+        // RE-CONJUGATE, NEVER REPLAY. The stored value is the correction in its
+        // own space; the delta that reaches the palette must be built from THIS
+        // draw's LocalToWorld. Replaying another pass's member-local delta is
+        // what put the geometry on the weapon but slightly off in size and
+        // alignment - the shadow that appeared to be locked to the weapon.
+        dvr::hf::Xform reuse;
+        bool haveReuse = false;
+        if (known->lastGoodOk[ei] &&
+            now - known->lastGoodPresent[ei] <= (uint32_t)g_waReuseMaxFrames &&
+            (g_pcLayBones >= 0 || g_pcLayBonesPartial >= 0) &&
+            g_pcLayL2W >= 0 && g_pcLayL2W <= 252) {
+            float l2w[16];
+            if (SUCCEEDED(dev->GetVertexShaderConstantF(g_pcLayL2W, l2w, 4))) {
+                dvr::hf::Xform L;
+                for (int r = 0; r < 3; ++r) {
+                    L.t[r] = l2w[12 + r];
+                    for (int cc = 0; cc < 3; ++cc) L.r.m[r*3+cc] = l2w[cc*4+r];
+                }
+                dvr::hf::Xform iL;
+                if (dvr::wf::inverse(L, &iL)) {
+                    reuse = dvr::hf::xform_mul(
+                        dvr::hf::xform_mul(iL, known->lastGood[ei]), L);
+                    haveReuse = true;
+                    for (int q = 0; q < 9 && haveReuse; ++q)
+                        if (!MpFinite(reuse.r.m[q])) haveReuse = false;
+                    for (int q = 0; q < 3 && haveReuse; ++q)
+                        if (!MpFinite(reuse.t[q])) haveReuse = false;
+                }
+            }
+        }
+        // ONLY IF NOTHING HAS DRAWN THIS MESH THIS FRAME, AND ONLY ONCE.
+        if (known->drewPresent == now || known->rescuePresent == now) {
+            haveReuse = false;
+            InterlockedIncrement(&g_waSuppressedExtra);
+        }
+        if (haveReuse) {
+            for (int q = 0; q < g_waMeshN; ++q)
+                if (g_waMesh[q].vb == known->vb && g_waMesh[q].ib == known->ib)
+                    g_waMesh[q].rescuePresent = now;
+            if (WaPatchAndDraw(dev, known, reuse, known->lastGood[ei], true, type,
+                               baseVertex, minIndex, numVertices, startIndex, 0,
+                               primCount, hr)) {
+                InterlockedIncrement(&g_waReusedLastGood);
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                    "wa: drew '%s' from the last correction that worked, %u "
+                    "frame(s) old on this eye - %ld times so far. This frame's "
+                    "correction was unavailable, and a slightly stale weapon is "
+                    "better than a missing one.",
+                    known->asset, now - known->lastGoodPresent[ei],
+                    g_waReusedLastGood);
+                return true;
+            }
+        }
+    }
     InterlockedIncrement(&g_waSuppressed);
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
         "wa: SUPPRESSED a weapon draw this build did not place - %ld so far. It "
@@ -949,77 +682,3 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     return true;
 }
 
-static void WaBeat(void)
-{
-    if (!g_waOn) return;
-    static double said = 0;
-    const double now = MaimNowMs();
-    if (now - said < 5000) return;
-    said = now;
-#if DVR_WITH_LEGACY
-#include "legacy/vr33/weapon_legacy_beat.inc"
-#else
-    Log("wa: routed %ld matched %ld; attempted %ld succeeded %ld restore-failed %ld | "
-        "known-buffer passes %ld corrected %ld; no-bones %ld no-delta %ld | "
-        "contracts %d/%d; other-instance %ld off-rig %ld; no-view %ld "
-        "stale-snapshot %ld (bound %.0f ms, last used %.1f ms old); suppressed %ld "
-        "pose-gen mismatches tolerated %ld | %s",
-        g_waSeen, g_waMatched, g_waAttempted, g_waSucceeded, g_waRestoreFail,
-        g_waIdSeen, g_waIdCorrected, g_waIdNoBone, g_waIdNoDelta,
-        g_waMeshN, (int)WA_MAX_MESH, g_waOffPass, g_waOffRig, g_waNoCommon,
-        g_waStaleComp, (double)g_waSnapMaxMs, (double)g_waSnapAgeAtUse,
-        g_waSuppressed,
-        g_waPoseGenDiff, g_waWhy);
-#endif
-    for (int h = 0; h < 2; ++h) {
-        if (g_waNearestScore[h] != FLT_MAX)
-            Log("wa: interval nearest hand %d '%s': %.4f deg / %.4f uu / scale "
-                "%.5f (bands %.3f / %.3f / .005), component snapshot %.1f ms old "
-                "at the time. If the residual tracks that age, the miss is the "
-                "view model swaying under a stale snapshot rather than a bad "
-                "bridge.",
-                h, g_waNearestName[h], g_waNearestAngle[h], g_waNearestPos[h],
-                g_waNearestScale[h], g_waAngTolDeg, g_waPosTolUU,
-                (double)g_waSnapAgeAtUse);
-        g_waNearestScore[h] = FLT_MAX;
-    }
-    for (int h = 0; h < 2; ++h) {
-        if (!g_waMiss[h].ok) continue;
-        Log("wa: NEAREST MISS hand %d, closest to '%s': %.3f deg / %.2f uu / "
-            "scale %.5f | vb %p ib %p vs %p prim %u verts %u start %u stride %u. "
-            "This is the best a NON-matching draw managed this interval. The "
-            "copy that stays behind animates correctly, so it is this mesh under "
-            "the game's own palette; if these buffers are stable across "
-            "intervals they are what it is drawn from, and buffer identity can "
-            "then correct it without ever matching a transform.",
-            h, g_waMiss[h].asset, (double)g_waMiss[h].angle,
-            (double)g_waMiss[h].position, (double)g_waMiss[h].scale,
-            g_waMiss[h].vb, g_waMiss[h].ib, g_waMiss[h].vs,
-            g_waMiss[h].primCount, g_waMiss[h].numVerts,
-            g_waMiss[h].startIndex, g_waMiss[h].stride);
-        g_waMiss[h].ok = false;
-    }
-    for (int i = 0; i < g_waMeshN; ++i) {
-        const WaMesh* w = &g_waMesh[i];
-        // A contract that STOPS drawing is the copy coming back, and it was
-        // only ever visible as a number that stopped rising. Name the
-        // transition in both directions.
-        {
-            WaMesh* m = &g_waMesh[i];
-            const bool live = (now - m->lastVerifyMs) < 500.0;
-            if (live != m->wasLive) {
-                m->wasLive = live;
-                Log("wa: '%s' hand %d is %s - placed %ld, ghost passes %ld, last "
-                    "drawn %.0f ms ago. eye %d, corrections published this "
-                    "second L %s R %s. An unlock here is the copy coming back.",
-                    m->asset, m->hand, live ? ">>> LOCKED <<<" : ">>> UNLOCKED <<<",
-                    m->placed, m->ghosts, now - m->lastVerifyMs, g_mpEyeState,
-                    g_waCommon[0].ok ? "yes" : "no",
-                    g_waCommon[1].ok ? "yes" : "no");
-            }
-        }
-        Log("wa: contract '%s' hand %d c%d x%u placed %ld refused %ld ghost passes %ld age %.0f ms",
-            w->asset, w->hand, w->boneReg, w->regs, w->placed, w->refused,
-            w->ghosts, now - w->lastVerifyMs);
-    }
-}

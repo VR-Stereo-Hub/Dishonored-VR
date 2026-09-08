@@ -1883,6 +1883,8 @@ struct MpDrawCtx {
     float col[3][3], t[3];      // LocalToWorld, columns and translation
     float projRight;            // L's translation on the right axis (telemetry)
     float vp[16], l2w[16];      // kept whole so a diagnostic can diff them
+    void* target;              // borrowed render-target identity for weapon passes
+    D3DVIEWPORT9 viewport;
     uint32_t drawId;
     bool ok;
     const char* why;
@@ -1912,6 +1914,12 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         { c->why = "VP read failed"; return false; }
     if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayL2W, &l2w[0][0], 4)))
         { c->why = "LocalToWorld read failed"; return false; }
+    IDirect3DSurface9* target = NULL;
+    if (SUCCEEDED(dev->GetRenderTarget(0, &target)) && target) {
+        c->target = target;
+        target->Release();
+    }
+    dev->GetViewport(&c->viewport);
     memcpy(c->vp, vp, sizeof(c->vp));
     memcpy(c->l2w, l2w, sizeof(c->l2w));
 

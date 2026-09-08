@@ -1199,6 +1199,16 @@ static void LoadConfig()
     g_waProbe         = IniFloat(ini, "Hands", "AttachProbe", 1) != 0.0f;
 #endif
     g_waCensusOn      = IniFloat(ini, "Hands", "AttachCensus", 1) != 0.0f;
+    g_waSuppressUnplaced = IniFloat(ini, "Hands", "AttachSuppressUnplaced", 1) != 0.0f;
+    // 100 ms, not 20. It was tightened to 20 chasing a view-model sway theory
+    // that the headset then falsified, and the tighter bound REFUSED to publish
+    // a correction often enough to blink both weapons at once several times a
+    // second - they share this gate, which is why they blinked together and why
+    // that was the clue. A bound this loose has never been shown to cost
+    // accuracy; the tight one was shown to cost the picture.
+    g_waSnapMaxMs     = IniFloat(ini, "Hands", "AttachSnapshotMaxMs", 100.0f);
+    if (g_waSnapMaxMs < 4.0f)   g_waSnapMaxMs = 4.0f;
+    if (g_waSnapMaxMs > 250.0f) g_waSnapMaxMs = 250.0f;
     g_waViewModelUU   = IniFloat(ini, "Hands", "AttachViewModelUU", 500.0f);
     g_waNearAngDeg    = IniFloat(ini, "Hands", "AttachNearAngle", 20.0f);
     g_waNearPosUU     = IniFloat(ini, "Hands", "AttachNearPos", 30.0f);
@@ -1951,6 +1961,10 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachProbe", g_waProbe ? "1" : "0", ini);
 #endif
     WritePrivateProfileStringA("Hands", "AttachCensus", g_waCensusOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.0f", g_waSnapMaxMs);
+    WritePrivateProfileStringA("Hands", "AttachSnapshotMaxMs", v, ini);
+    WritePrivateProfileStringA("Hands", "AttachSuppressUnplaced",
+                               g_waSuppressUnplaced ? "1" : "0", ini);
     _snprintf(v, 64, "%.0f", g_waViewModelUU);
     WritePrivateProfileStringA("Hands", "AttachViewModelUU", v, ini);
     _snprintf(v, 64, "%.2f", g_waNearAngDeg);
