@@ -286,7 +286,6 @@ static int  MatNumElements(uint8_t* comp);
 // consumes it by pointer, so the incomplete type is all this needs.
 struct MpDrawCtx;
 static void WaCompTick(void);
-static bool WaPrimCountKnown(UINT primCount);
 static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
                          INT baseVertex, UINT numVertices, UINT startIndex,
                          UINT primCount, const char* nearest, float angle,
@@ -491,4 +490,8 @@ bool YawSelfTest();
 
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/weapon_refused_probe_fwd.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_primitive_sibling_fwd.inc"
 #endif
