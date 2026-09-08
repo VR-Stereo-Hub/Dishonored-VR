@@ -278,12 +278,28 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
             InterlockedIncrement(&g_waRestoreFail);
         InterlockedIncrement(&g_waNoSource); return false;
     }
+    // THE DEPTH RANGE, exactly as the main path does it. The view model is
+    // drawn into a compressed depth range so it always sits in front of the
+    // world; once it has been moved OUT into the world it needs the full range
+    // or it renders in front of geometry it is now behind. The hands' own
+    // record names this as what fixed both their occlusion AND their duplicate
+    // ("correct occlusion against world geometry, after restoring the depth
+    // range. The ghost/duplicate hand is gone"), and these two paths were
+    // patching the palette without it - the one step of the main path they did
+    // not copy.
+    D3DVIEWPORT9 savedVp; bool changedVp = false;
+    if (g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp)) && savedVp.MaxZ < .5f) {
+        D3DVIEWPORT9 full = savedVp; full.MinZ = 0; full.MaxZ = 1;
+        changedVp = SUCCEEDED(dev->SetViewport(&full));
+    }
     InterlockedIncrement(&g_waAttempted);
     const HRESULT drawHr = indexed
         ? dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex,
                                         numVertices, startIndex, primCount)
         : dvr::frame::orig_draw_prim(dev, type, startVertex, primCount);
     if (hr) *hr = drawHr;
+    if (changedVp && FAILED(dev->SetViewport(&savedVp)))
+        InterlockedIncrement(&g_waRestoreFail);
     if (SUCCEEDED(drawHr)) {
         InterlockedIncrement(&g_waSucceeded);
         InterlockedIncrement(&w->placed);
