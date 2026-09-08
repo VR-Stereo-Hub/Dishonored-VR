@@ -1,6 +1,149 @@
 # Status
 
-## CURRENT (2026-09-07, later): VR-33 - the numpad adjust and a weapon identifier that can fail
+## CURRENT (2026-09-07, night): VR-33 - weapon attach armed, model scale added
+
+### TEST TOMORROW, in this order
+
+**1. THE WEAPONS (priority).** Launch, draw the crossbow, stand still somewhere
+quiet facing a wall, let the sweep run (~26 s of blinking), then keep playing.
+Nothing to press.
+
+* If it worked: the weapons follow your hands, and the log has
+  `wa: ADOPTED 'crossbow_01' ...` followed by `wa: ... ATTACHED`.
+* If it did not: the log now says WHY. Read these two tables, in this order:
+  * `wid: draws per phase` - total draws in each phase. **If the total does
+    not fall when a component is hidden, its draws are still not in the
+    population** and nothing below it means anything.
+  * `wid: the 16 largest baseline signatures` - each buffer pair's whole phase
+    vector. A weapon's pair should read high, 0, high, 0, high across its own
+    four phases. This separates "drops on one hide only" from "never drops at
+    all", which have looked identical for three runs.
+
+**2. THE SIZE, once the weapons are settled.** F10 -> **"hand / weapon size"**,
+or `[Hands] ModelScale` in the ini. Try **0.75**. It scales the hands AND
+anything held in them by one factor, about the tracked palm.
+
+* EXPECTED: hands and weapon shrink together, the grip stays put, the world
+  does not change size.
+* Ships at **1.00**, which is exactly the identity it replaces - so test 1 is
+  measured on the same geometry every previous build was.
+* Watch for hand shading getting brighter or darker as you move the slider:
+  two of the three hand shaders push normals through these palette rows, and
+  if they do not renormalise, a uniform scale changes normal LENGTH. Direction
+  is safe either way.
+* Also watch the wrist cap for a hole opening at the cut.
+
+### Where the weapon work actually stands
+
+The sweep is CORRECT and has been for three runs: all 16 phases, every hide
+and restore verified against `HiddenMaterials`, and the tester watched the
+sword, crossbow and bolt each blink twice on command. What kept failing was
+never the sweep - it was what the sweep could SEE.
+
+Three faults found and fixed, in order:
+
+1. **The report was lost to a lane that stopped** (`5df74130`). `WiTick` runs
+   on the script lane; the last phase ends on a deadline, so the report needed
+   one more tick of that lane, and the lane went quiet half a second later. 26
+   seconds of correct measurement, no output. The terminal step now runs from
+   whichever lane reaches the deadline first, behind an interlock.
+2. **The signature was too fine** (`c1fc4c55`). It hashed the draw's own range,
+   so a mesh drawn from a shared buffer became many short-lived signatures. Now
+   keyed on the vertex+index buffer pair - the key the mesh lock already uses,
+   and the one that names a GEOMETRY.
+3. **The recorder never saw the weapons at all** (`bc73daed`). It sat behind
+   the palette gate (a fresh c6 upload within the reuse window) - right for the
+   census, wrong for identification. `vs_const_hook.cpp` already describes the
+   crossbow's body as a STATIC attachment, which that gate excludes. It now
+   sees every indexed draw and records whether a fresh palette was pending.
+
+**The evidence that named fault 3 was in the log for two runs and was not
+read**: reject counts of 146/154/151/153, then 51/50/51/48 - near-identical for
+every component INCLUDING the player body. Counts that uniform are not a fact
+about components. That is what "the thing being measured was never in the
+population" looks like, and it survived a change of signature key because the
+key was never the fault. Hence the two new tables above: a third failure
+cannot now be silent.
+
+### The attachment itself
+
+`weapon_attach.cpp` (+ state chunk 57b). The sweep's owned buffer pairs are
+handed straight to placement - identification is the INPUT to attachment, not
+a report somebody reads and types back. Those draws then take the same rigid
+palette correction the hands take, from the same `g_mpPalmTarget`.
+
+A weapon assembly is rigid, so its frame is the palette's first bone rather
+than an averaged anchor; every bone gets one common transform, which is what
+keeps the loaded bolt animating with the stock instead of being pinned
+separately. A mesh with no palette is treated as one bone, three registers.
+c6 is current device state, so the game's own block goes back after the draw.
+
+Fail soft throughout: no target palm, an unreadable palette, a frame that will
+not normalise or a non-finite result all draw the engine's own weapon and log
+which. Blast radius is bounded to buffer pairs the sweep proved, so the
+confirmed hand path cannot be reached. `AttachWeapons=0` removes it.
+
+### The model scale (`21d3e3eb`)
+
+PageUp/PageDown were never a size knob. `g_posScaleUU` sets the stereo
+separation - a property of the PROJECTION - so it resizes the whole frame at
+once. The hands were not scaling with the world, they were scaling because of
+it, and that knob could never have made them smaller relative to the room.
+Hand TRAVEL is already independent (`WorldScaleUU`, `PaletteDriveGain`), which
+is why tracking felt right while the models were too big.
+
+`[Hands] ModelScale` is a uniform factor about the target palm, so the grip
+stays where tracking put it. The weapon path takes the same factor about the
+same palm, so the two cannot drift apart. `delta_from_target` now hands back
+the palm in local space (it always computed it and threw it away).
+
+The F10 "hand / weapon size" slider drives this instead of `HandSize`.
+`HandSize` wrote `SkelControlBase.BoneScale` engine-side, which only reaches
+SkelControl-driven bones and could never resize a separately-componented
+crossbow. The key still loads for the legacy drive; config warns with the
+product if both are off 1.0.
+
+### The levers as installed
+
+`AttachWeapons=1 AttachSwordHand=0 AttachCrossbowHand=1 WeaponId=1
+WeaponIdMs=1500 MatCycle=0 PaletteRotate=1 ModelScale=1.00 HandSize=1.00
+Adjust=1 AdjStepT=1 AdjStepR=3`, per-hand trim under `TrimLTX..TrimRRZ`, grip
+calibration under `GripL*`/`GripR*`. `MatCycle` must stay 0 - the identifier
+drives the same hide/restore calls and refuses while the cycler is armed.
+
+### Still untested from the previous session
+
+**The numpad hand adjust has never been pressed in a headset.** Numpad 9
+cycles LEFT position / LEFT rotation / RIGHT position / RIGHT rotation and
+names the mode; 8/2 forward/back or pitch, 6/4 right/left or yaw, 0/5 up/down
+or roll; 7 cycles the step. Every press logs and saves. The census gives up
+Numpad 4-9 while `Adjust=1`, the cycler gives up 2, and the mesh split's mode
+cycle moves from Numpad 0 to Numpad 1 - the startup log names all of it.
+
+**The grip restart path is confirmed** only insofar as the calibration loads;
+the hands were reported correct on the runs since.
+
+### Verified on the desk, not in the headset
+
+28 frame-maths cases pass (`build\src\RelWithDebInfo\frame_test.exe`),
+including the new `model_scale_about_the_palm`, which FAILED on its first run
+and was right to - it measured distances from `D(palm)` when the palm is a
+point in the OUTPUT space that `D` maps the source anchor onto. `lint` clean,
+exports clean. **The attachment and the model scale have never been in a
+headset.**
+
+### Next steps
+
+1. The two tests above.
+2. If the weapons attach, the remaining W-items are in
+   `docs/dishonored/VR-33-WEAPON-IMPLEMENTATION-PLAN.md`: re-acquire on equip
+   change (buffer pointers can differ after a re-equip), and ownership during
+   reload and release.
+3. `pcap/layout` was printing at draw rate and produced a 25 MB log in one
+   short run; now once per shader. Worth a look for other unbounded per-draw
+   lines in the same family.
+
+## PREVIOUS CURRENT (2026-09-07, later): VR-33 - the numpad adjust and a weapon identifier that can fail
 
 ### WHAT TO TEST, in order. Everything is installed and armed; just launch.
 
