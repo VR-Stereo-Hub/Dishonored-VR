@@ -280,9 +280,9 @@ static int      g_msClsCount[MS_CLS_N];
 // an unverified space in the same build is how a null result becomes
 // unreadable.
 static bool     g_mpOn      = false;   // [Hands] Palette
-static int      g_mpAxis    = 1;       // [Hands] PaletteAxis  0/1/2
-static float    g_mpAmount  = 12.0f;   // [Hands] PaletteAmount, unreal units
-static int      g_mpHand    = 0;       // [Hands] PaletteHand  0=A 1=B 2=both
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_axis_state.inc"
+#endif
 // The block the game last uploaded to c6. Cached at the upload rather than read
 // back from the device: a D3D9 constant read-back is a pipeline stall, and the
 // data is already in our hands for free.
@@ -304,9 +304,6 @@ static LONG     g_mpNoCache = 0;       // per-class draw wanted, no c6 seen yet
 // RESULT, recorded in ENGINE_NOTES: axis 0 LEFT, axis 1 DOWN, axis 2 FORWARD.
 // Kept because it is what would re-measure the basis if the asset or the engine
 // path ever changed.
-static bool     g_mpStep      = false;  // [Hands] PaletteStep
-static int      g_mpStepAxis  = -1;     // -1 = resting, 0/1/2 = that axis
-static volatile LONG g_mpStepReq = 0;   // hotkey -> MsTick, present thread
 
 // ---- the controller offset the placement consumes -----------------------------
 //

@@ -230,19 +230,9 @@ static void StereoUpdate()
 #include "legacy/vr33/palette_packet_capture_hotkeys.inc"
 #endif
 
-    // VR-33: F6 steps the palette's axis probe. NOT a numpad key - every one
-    // of them is already claimed by a bare-key block above - and NOT a CTRL
-    // chord: CTRL is the game's block, so holding it to press a diagnostic
-    // makes the character do something and reads back as interference.
-    // rest -> axis 0 -> axis 1 -> axis 2 -> rest, one press each.
-    {
-        static bool mpWas = false;
-        const bool mpk = (GetAsyncKeyState(VK_F6) & 0x8000) != 0 &&
-                         !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
-        if (mpk && !mpWas) InterlockedExchange(&g_mpStepReq, 1);
-        mpWas = mpk;
-    }
-
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_axis_hotkeys.inc"
+#endif
     // VR-33: SHIFT+F7 captures the grip transform G for BOTH hands at once.
     // Hold your hands the way the game's own idle pose holds them and press it.
     // The request is one bit per side, consumed ONCE by the next qualified

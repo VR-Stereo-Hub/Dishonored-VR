@@ -2723,9 +2723,11 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             // the control: if both move, the per-class scoping is not working
             // and the reading means nothing.
             if (perClass) {
+#if DVR_WITH_LEGACY
                 const bool hit = (g_mpHand == 2) ||
                                  (g_mpHand == 0 && rng[r].cls == MS_CLS_HAND_A) ||
                                  (g_mpHand == 1 && rng[r].cls == MS_CLS_HAND_B);
+#endif
                 // WHAT DELTA THIS RANGE CARRIES. The drive owns it when
                 // armed and feeds BOTH classes; otherwise the axis probe does,
                 // and that only touches the selected class so the other stays
@@ -2785,20 +2787,13 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         if (perClass)
             dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
 
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_axis_beat.inc"
+#else
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "ms/palette: %s | %d range(s) | delta (%.1f %.1f %.1f) uu on class "
-            "%s | c6 x%u (%u bones) | %ld per-class draw(s), %ld wanted with no "
-            "c6 cached. If BOTH hands move, the per-class scoping failed and "
-            "the delta is reaching the shared upload; if NEITHER moves, the "
-            "palette is not what skins this mesh.",
-            perClass ? "PER-CLASS" : "merged (backend off, wrong mode, or no c6 yet)",
-            nrng,
-            (g_mpAxis == 0) ? g_mpAmount : 0.0f,
-            (g_mpAxis == 1) ? g_mpAmount : 0.0f,
-            (g_mpAxis == 2) ? g_mpAmount : 0.0f,
-            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH",
-            g_mpCacheN, g_mpCacheN / 3,
-            g_mpDraws, g_mpNoCache);
+            "ms/palette: %s, %d ranges, c6 x%u; per-class draws %ld, missing palette %ld",
+            perClass ? "per-class" : "merged", nrng, g_mpCacheN, g_mpDraws, g_mpNoCache);
+#endif
     }
     if (vpSaved) dev->SetViewport(&savedVp);   // the game's own range, always
     dev->SetIndices(savedIb);
@@ -3215,24 +3210,9 @@ static void MsTick(void)
     WiFinishTick();     // VR-33 W1: the report, from whichever lane gets there
 #endif
     WaBeat();           // VR-33 W2/W3: prints even when nothing ever matched
-    // The palette's stepped axis probe. Present thread, no D3D touched - the
-    // draw detour reads g_mpStepAxis next time it runs.
-    if (InterlockedExchange(&g_mpStepReq, 0)) {
-        g_mpStepAxis = (g_mpStepAxis >= 2) ? -1 : (g_mpStepAxis + 1);
-        if (g_mpStepAxis < 0)
-            Log("ms/palette/step: >>> REST <<< - no delta on either hand. Both "
-                "hands are where the game put them; this is the reference "
-                "position. Press F6 for axis 0.");
-        else
-            Log("ms/palette/step: >>> AXIS %d <<< - hand class %s now carries "
-                "%+.1f uu on palette axis %d, the other class carries nothing. "
-                "hmdYaw=%.1f deg. Whichever way THIS hand moved from rest is "
-                "what axis %d means. Press F6 for %s.",
-                g_mpStepAxis,
-                g_mpHand == 0 ? "A (left)" : g_mpHand == 1 ? "B (right)" : "BOTH",
-                g_mpAmount, g_mpStepAxis, g_hmdYaw * 57.2958f, g_mpStepAxis,
-                g_mpStepAxis >= 2 ? "rest" : "the next axis");
-    }
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_axis_tick.inc"
+#endif
     if (!g_msOn) return;
     if (g_msModeReq) {
         const int r = g_msModeReq; g_msModeReq = 0;

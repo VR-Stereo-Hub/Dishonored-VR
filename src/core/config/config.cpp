@@ -1157,11 +1157,13 @@ static void LoadConfig()
     // with a live A/B - Palette=0 leaves MsDraw issuing the single merged draw
     // it always did, and nothing in the frame path changes.
     g_mpOn            = IniFloat(ini, "Hands", "Palette", 0) != 0.0f;
+#if DVR_WITH_LEGACY
     g_mpAmount        = IniFloat(ini, "Hands", "PaletteAmount", 12.0f);
     g_mpAxis          = (int)IniFloat(ini, "Hands", "PaletteAxis", 1);
     if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
     g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
     if (g_mpHand < 0 || g_mpHand > 2) g_mpHand = 0;
+#endif
     g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
     if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
     if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
@@ -1174,7 +1176,9 @@ static void LoadConfig()
 #endif
     g_mpWsumTol       = IniFloat(ini, "Hands", "PaletteWeightTol", 0.02f);
     if (g_mpWsumTol < 0.0001f) g_mpWsumTol = 0.0001f;
+#if DVR_WITH_LEGACY
     g_mpStep          = IniFloat(ini, "Hands", "PaletteStep", 0) != 0.0f;
+#endif
     // VR-33 rotation and grip. PaletteRotate defaults OFF here per the project
     // rule for a new render lever; the installed ini turns it on for the run
     // that is testing it, and the previous stage stays reachable by turning it
@@ -1483,22 +1487,9 @@ static void LoadConfig()
             "scale: %.0f uu/m x gain %.2f, against [PosTrack] Scale=%.0f - a "
             "scale error shows as a GAIN error, not as drift.",
             (double)g_skcWorldScale, (double)g_mpDriveGain, (double)g_posScaleUU);
-    else if (g_mpOn && g_mpStep)
-        Log("config: [Hands] Palette=1 PaletteStep=1 - the palette's STEPPED "
-            "axis probe is armed and starts at REST, so nothing moves until "
-            "you ask. F6 advances rest -> axis 0 -> axis 1 -> axis 2 "
-            "-> rest, %+.1f uu on hand class %s each time, with the other class "
-            "never moving as the reference. Every press prints an "
-            "ms/palette/step: line, so which axis was live is never inferred.",
-            g_mpAmount,
-            g_mpHand == 0 ? "A (left)" : g_mpHand == 1 ? "B (right)" : "BOTH");
-    else if (g_mpOn)
-        Log("config: [Hands] Palette=1 - the draw-scoped bone palette is ARMED. "
-            "Hand class %s takes a %.1f uu delta on axis %d and the other class "
-            "takes none, so the OTHER HAND IS THE CONTROL. Read the "
-            "ms/palette: lines.",
-            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH (no control)",
-            g_mpAmount, g_mpAxis);
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_axis_config_log.inc"
+#endif
     // 3 = CLIP the triangles that straddle the plane, which is the only rule
     // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
     // triangles and leave a sawtooth one triangle high - on the coarse cuff
@@ -1923,12 +1914,14 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "HandMoveTest", g_hmOn ? "1" : "0", ini);
 #endif
     WritePrivateProfileStringA("Hands", "Palette", g_mpOn ? "1" : "0", ini);
+#if DVR_WITH_LEGACY
     _snprintf(v, 64, "%.1f", g_mpAmount);
     WritePrivateProfileStringA("Hands", "PaletteAmount", v, ini);
     _snprintf(v, 64, "%d", g_mpAxis);
     WritePrivateProfileStringA("Hands", "PaletteAxis", v, ini);
     _snprintf(v, 64, "%d", g_mpHand);
     WritePrivateProfileStringA("Hands", "PaletteHand", v, ini);
+#endif
     _snprintf(v, 64, "%.2f", g_mpDriveGain);
     WritePrivateProfileStringA("Hands", "PaletteDriveGain", v, ini);
     WritePrivateProfileStringA("Hands", "PaletteWorld", g_mpWorld ? "1" : "0", ini);
@@ -1940,7 +1933,9 @@ static void OverlaySaveDefaults()
 #endif
     _snprintf(v, 64, "%.4f", g_mpWsumTol);
     WritePrivateProfileStringA("Hands", "PaletteWeightTol", v, ini);
+#if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
+#endif
     WritePrivateProfileStringA("Hands", "PaletteRotate", g_mpRotate ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachWeapons", g_waOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", g_waAngTolDeg);
