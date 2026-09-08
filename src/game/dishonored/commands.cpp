@@ -102,7 +102,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 #if DVR_WITH_LEGACY
     if (!strcmp(cmd, "handmove")) return HmCommand(args);
 #endif
+#if DVR_WITH_LEGACY
     if (!strcmp(cmd, "pcap")) return PcCommand(args);
+#endif
     if (!strcmp(cmd, "blink")) {
         if (!strcmp(args, "probe")) { BlinkProbeArm(); return true; }
         if (DvrOnOff(args, &b)) { g_blkAimOnCfg = b; g_blkDriveUI = b; Log("blink: hand aim %s (seam)", b ? "ON" : "off"); return true; }

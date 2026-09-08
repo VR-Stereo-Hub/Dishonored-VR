@@ -1,4 +1,4 @@
-﻿// game/dishonored/present_tick.cpp - the game side of the frame path (41.0).
+// game/dishonored/present_tick.cpp - the game side of the frame path (41.0).
 // Included by the unity build. core/framework/frame_hooks (a real module) owns
 // the D3D9 hooks and the ORDER of the frame path; what the game does per
 // present - the seam poll, the head pose into the camera write, the hands, the
@@ -625,7 +625,9 @@ static void DvrBeforeReset(D3DPRESENT_PARAMETERS* pp)
     // belong to the unity translation unit, and before_reset is the callback
     // that unit already owns.
     MpOnReset();
+#if DVR_WITH_LEGACY
     g_pcResetEpoch++;   // captured state is not comparable across a reset
+#endif
     ResBeforePresentParams(pp, "Reset");   // 41.1
     UncapPresent(pp, "Reset");
     if (pp) g_gameWindowed = pp->Windowed != FALSE;      // 32.9
@@ -676,7 +678,9 @@ static void DvrInstallFrameHooks()
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
     // VR-33 step 2: the capture worker. Started here rather than lazily at the
     // first draw, so its thread never has to be created from inside a detour.
+#if DVR_WITH_LEGACY
     PcStart();
+#endif
     // 41.2 (VR-31): our own hands. Registered unconditionally - the callback
     // returns immediately while [VRHands] Enabled is off, and registering it
     // only when the lever is on would mean `vrhands on` did nothing until a

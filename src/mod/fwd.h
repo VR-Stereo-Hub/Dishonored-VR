@@ -358,13 +358,7 @@ static bool MsReclassify(IDirect3DDevice9* dev);
 static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
                     UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
 struct MsContract;
-static bool PcCapture(IDirect3DDevice9* dev, const MsContract* con, UINT primCount,
-                      int cls, const float* ourQ);
 static void PcRefreshLayout(IDirect3DDevice9* dev);
-static void PcTick(void);
-static void PcStart(void);
-static void PcStop(void);
-static bool PcCommand(const char* args);
 struct MpDrawCtx;
 static void MpDrawCompare(const MpDrawCtx* c);
 static void MpEyeForPresent(const MpDrawCtx* c);
@@ -494,4 +488,8 @@ bool YawSelfTest();
 
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/weapon_primitive_sibling_fwd.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_packet_capture_fwd.inc"
 #endif
