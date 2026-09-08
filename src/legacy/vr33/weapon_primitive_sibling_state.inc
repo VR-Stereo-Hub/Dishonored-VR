@@ -20,4 +20,3 @@ static LONG g_waGhostFixed  = 0;   // of those, corrected
 static LONG g_waGhostNoBone = 0;   // no BoneMatrices declaration at all
 static LONG g_waGhostNoDelta = 0;  // sibling had no correction this Present
 static LONG g_waGhostRange  = 0;   // the palette range failed its bounds check
-

@@ -10,4 +10,3 @@
         if (mpk && !mpWas) InterlockedExchange(&g_mpStepReq, 1);
         mpWas = mpk;
     }
-

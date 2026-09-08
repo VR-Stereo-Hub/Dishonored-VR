@@ -7,4 +7,3 @@
         if (hmk && !hmWas) g_hmStepReq = 1;
         hmWas = hmk;
     }
-

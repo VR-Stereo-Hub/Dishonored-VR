@@ -7,4 +7,3 @@
         if (pck && !pcWas) InterlockedExchange(&g_pcArmReq, 1);
         pcWas = pck;
     }
-

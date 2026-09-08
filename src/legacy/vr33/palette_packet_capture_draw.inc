@@ -15,4 +15,3 @@
                 "computed would be constants with nothing to check them against.");
         }
     }
-

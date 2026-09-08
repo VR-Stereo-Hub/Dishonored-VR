@@ -48,5 +48,3 @@ static void WaProbeRefused(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
         stride, hit->stride, (int)type, (int)hit->type,
         g_pcLayBonesPartial >= 0 ? "declared" : "NOT declared");
 }
-
-
