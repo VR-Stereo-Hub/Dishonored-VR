@@ -486,6 +486,16 @@ static LONG     g_mpEyeThirds = 0, g_mpEyeOverflow = 0;
 static bool     g_mpEyeHunt = false;    // [Hands] PaletteEyeHunt
 static float    g_mpHuntVp0[16], g_mpHuntL0[16];
 static bool     g_mpHuntOk = false;
+// The corrected sampling: one context per ORIGINAL draw, and counts that say
+// what was sampled rather than only what was found.
+static uint32_t g_mpDrawSeq = 0;
+static LONG     g_mpDrawsEntered = 0, g_mpDrawsSampled = 0, g_mpDrawsRejected = 0;
+static const char* g_mpDrawRejectWhy = "none";
+static float    g_mpPrevVp[16], g_mpPrevL2w[16], g_mpPrevProj = 0.0f;
+static uint32_t g_mpPrevDrawId = 0;
+static bool     g_mpPrevDrawOk = false;
+static float    g_mpCmpMaxVp = 0.0f, g_mpCmpMaxL2w = 0.0f, g_mpCmpMaxProj = 0.0f;
+static LONG     g_mpCmpCount = 0;
 static bool     g_mpEyeOrd0Ok = false;
 static float    g_mpEyeOrd0Proj = 0.0f;
 static int      g_mpEyeVote   = 0;

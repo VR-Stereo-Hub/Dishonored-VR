@@ -347,6 +347,8 @@ static void PcTick(void);
 static void PcStart(void);
 static void PcStop(void);
 static bool PcCommand(const char* args);
+struct MpDrawCtx;
+static void MpDrawCompare(const MpDrawCtx* c);
 static void MpOnReset(void);
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);

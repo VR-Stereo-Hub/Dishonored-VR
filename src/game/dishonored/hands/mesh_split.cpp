@@ -1753,27 +1753,154 @@ static inline bool MpFinite(float x)
 
 // PLACEMENT THROUGH THE MEASURED CHAIN.
 //
-// Reads ViewProjectionMatrix and LocalToWorld from the DEVICE, at this draw,
-// through the register indices this shader's own constant table declares -
-// never assumed, because the three shaders that draw this mesh disagree about
-// their layout and one def's a register the device reports differently.
+// THE SAMPLE UNIT IS THE ORIGINAL DRAW, NOT THE HAND.
 //
-// Refuses loudly rather than placing a hand on numbers it could not verify.
-// The validations are the point: an orthonormal LocalToWorld rotation and a
-// unit w row are what make "this is a rigid transform into a camera-relative
-// frame, viewed through a standard perspective" a checked claim instead of an
-// assumption. A wrong layout fails them, which is the safety net that makes
-// the pointer-keyed layout cache safe.
-static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
+// This function used to read the device itself, from inside MsDraw's per-hand
+// loop. So its "ordinal" counted HANDS: ordinal 0 was the left hand and
+// ordinal 1 the right hand OF THE SAME ORIGINAL DRAW, whose constants are
+// identical by construction. Comparing them measured nothing about eyes, and
+// 24,376 zero-difference pairs were reported as evidence that LocalToWorld
+// carries no eye information. It is not evidence either way - that question is
+// open again - and the "third draw" counter was simply the next original
+// draw's left hand.
+//
+// The context is therefore acquired ONCE per original draw, above the hand
+// loop, and both hands consume the same immutable copy. That also halves the
+// constant reads. An ordinal is telemetry about draws; it is never an eye
+// label.
+struct MpDrawCtx {
+    float r[3], u[3], f[3];     // camera basis, from the ViewProjection rows
+    float col[3][3], t[3];      // LocalToWorld, columns and translation
+    float projRight;            // L's translation on the right axis (telemetry)
+    float vp[16], l2w[16];      // kept whole so a diagnostic can diff them
+    uint32_t drawId;
+    bool ok;
+    const char* why;
+};
+
+
+// Read the draw's own constants and validate them. One call per original draw.
+static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
+{
+    memset(c, 0, sizeof(*c));
+    c->why = "not attempted";
+    if (!dev) { c->why = "no device"; return false; }
+    if (g_pcLayVp < 0 || g_pcLayL2W < 0) { c->why = "no shader layout"; return false; }
+
+    float vp[4][4], l2w[4][4];
+    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayVp, &vp[0][0], 4)))
+        { c->why = "VP read failed"; return false; }
+    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayL2W, &l2w[0][0], 4)))
+        { c->why = "LocalToWorld read failed"; return false; }
+    memcpy(c->vp, vp, sizeof(c->vp));
+    memcpy(c->l2w, l2w, sizeof(c->l2w));
+
+    // The camera basis, from the rows of the ViewProjection. NOTE the standing
+    // caveat: normalising rows this way assumes a symmetric projection. It has
+    // held on every captured packet so far and is checked below, but an
+    // asymmetric projection would need the principal-point terms removed first.
+    float r[3] = { vp[0][0], vp[1][0], vp[2][0] };
+    float u[3] = { vp[0][1], vp[1][1], vp[2][1] };
+    float f[3] = { vp[0][3], vp[1][3], vp[2][3] };
+    const float rn = sqrtf(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]);
+    const float un = sqrtf(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
+    const float fn = sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]);
+    if (!(rn > 1e-4f) || !(un > 1e-4f)) { c->why = "degenerate focal scales"; return false; }
+    if (fabsf(fn - 1.0f) > 0.01f) { c->why = "w row is not unit - not a standard perspective"; return false; }
+    for (int i = 0; i < 3; i++) { r[i] /= rn; u[i] /= un; }
+    const float ru = r[0]*u[0] + r[1]*u[1] + r[2]*u[2];
+    const float rf = r[0]*f[0] + r[1]*f[1] + r[2]*f[2];
+    const float uf = u[0]*f[0] + u[1]*f[1] + u[2]*f[2];
+    if (fabsf(ru) > 0.02f || fabsf(rf) > 0.02f || fabsf(uf) > 0.02f)
+        { c->why = "camera basis is not orthonormal"; return false; }
+    memcpy(c->r, r, sizeof(r)); memcpy(c->u, u, sizeof(u)); memcpy(c->f, f, sizeof(f));
+
+    // LocalToWorld: columns in the first three registers. ORTHOGONALITY is
+    // checked, not just column length - unit columns alone do not make a
+    // rotation, and the transpose is only the inverse if it is one.
+    for (int j = 0; j < 3; j++)
+        for (int i = 0; i < 3; i++) c->col[j][i] = l2w[j][i];
+    for (int i = 0; i < 3; i++) c->t[i] = l2w[3][i];
+    for (int j = 0; j < 3; j++) {
+        const float n = sqrtf(c->col[j][0]*c->col[j][0] + c->col[j][1]*c->col[j][1] +
+                              c->col[j][2]*c->col[j][2]);
+        if (fabsf(n - 1.0f) > 0.02f) { c->why = "LocalToWorld column is not unit"; return false; }
+    }
+    for (int j = 0; j < 3; j++)
+        for (int kk = j + 1; kk < 3; kk++) {
+            const float d = c->col[j][0]*c->col[kk][0] + c->col[j][1]*c->col[kk][1] +
+                            c->col[j][2]*c->col[kk][2];
+            if (fabsf(d) > 0.02f) { c->why = "LocalToWorld columns are not orthogonal"; return false; }
+        }
+
+    c->projRight = c->t[0]*r[0] + c->t[1]*r[1] + c->t[2]*r[2];
+    c->drawId = ++g_mpDrawSeq;
+    c->ok = true;
+    c->why = NULL;
+    return true;
+}
+
+
+// COMPARE SUCCESSIVE ORIGINAL DRAWS - the comparison that was never made.
+//
+// The previous diagnostic compared the two hands of one draw and found them
+// identical, which was arithmetic rather than evidence. This compares one
+// original draw against the previous one, which is the only pair that CAN
+// differ by an eye.
+//
+// It states what it sampled, not just what it found: draws entered, sampled,
+// rejected and compared are separate counts, and "no difference observed" is
+// reported separately from "nothing was sampled".
+static void MpDrawCompare(const MpDrawCtx* c)
+{
+    if (!g_mpEyeHunt || !c || !c->ok) return;
+    if (g_mpPrevDrawOk) {
+        float dv = 0.0f, dl = 0.0f; int dvIdx = -1, dlIdx = -1;
+        for (int i = 0; i < 16; i++) {
+            const float d = fabsf(c->vp[i] - g_mpPrevVp[i]);
+            if (d > dv) { dv = d; dvIdx = i; }
+        }
+        for (int i = 0; i < 16; i++) {
+            const float d = fabsf(c->l2w[i] - g_mpPrevL2w[i]);
+            if (d > dl) { dl = d; dlIdx = i; }
+        }
+        const float dProj = c->projRight - g_mpPrevProj;
+        if (dv > g_mpCmpMaxVp) g_mpCmpMaxVp = dv;
+        if (dl > g_mpCmpMaxL2w) g_mpCmpMaxL2w = dl;
+        if (fabsf(dProj) > fabsf(g_mpCmpMaxProj)) g_mpCmpMaxProj = dProj;
+        g_mpCmpCount++;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+            "ms/palette/cmp: draw %u vs %u | VP max element delta %.6f (idx %d) "
+            "| LocalToWorld max %.6f (idx %d) | L translation on the right axis "
+            "moved %.3f uu | running maxima VP %.6f L %.6f right %.3f over %ld "
+            "comparisons. This compares SUCCESSIVE ORIGINAL DRAWS, the only "
+            "pair that can differ by an eye; the previous diagnostic compared "
+            "the two HANDS of one draw and its zeroes meant nothing. Expected "
+            "IPD %.2f uu - but a matrix element delta is not a length, so treat "
+            "the right-axis translation as the only directly comparable number.",
+            c->drawId, g_mpPrevDrawId, (double)dv, dvIdx, (double)dl, dlIdx,
+            (double)dProj, (double)g_mpCmpMaxVp, (double)g_mpCmpMaxL2w,
+            (double)g_mpCmpMaxProj, g_mpCmpCount,
+            (double)(g_ipdM * g_skcWorldScale));
+    }
+    memcpy(g_mpPrevVp, c->vp, sizeof(g_mpPrevVp));
+    memcpy(g_mpPrevL2w, c->l2w, sizeof(g_mpPrevL2w));
+    g_mpPrevProj = c->projRight;
+    g_mpPrevDrawId = c->drawId;
+    g_mpPrevDrawOk = true;
+}
+
+
+// Place one hand through an already-acquired draw context. Reads no device
+// state of its own, so both hands of a draw are guaranteed to use identical
+// constants rather than merely expected to.
+static bool MpWorldTarget(const MpDrawCtx* c, int hand, const float* qLocal,
                           float* outT, const char** why)
 {
     const char* dummy = NULL; if (!why) why = &dummy;
-    if (hand < 0 || hand > 1)        { *why = "bad hand";        return false; }
+    if (!c || !c->ok)                { *why = c ? c->why : "no context"; return false; }
+    if (hand < 0 || hand > 1)        { *why = "bad hand"; return false; }
     if (!g_mpCtlRUFOk[hand]) {
-        // Name the CAUSE, not the symptom. A pose that was never published
-        // because the publishing tick did not run looks identical downstream
-        // to a controller that lost tracking, and that ambiguity has now cost
-        // three runs.
         *why = (g_mpTickRan == 0)
              ? "the pose tick has NEVER RUN - the palette backend is off, or "
                "this build gated the tick on a flag that is not set"
@@ -1781,219 +1908,24 @@ static bool MpWorldTarget(IDirect3DDevice9* dev, int hand, const float* qLocal,
                "acquired); the pose tick is running";
         return false;
     }
-    if (g_pcLayVp < 0 || g_pcLayL2W < 0) { *why = "no shader layout"; return false; }
 
-    float vp[4][4], l2w[4][4];
-    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayVp, &vp[0][0], 4)))
-        { *why = "VP read failed"; return false; }
-    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayL2W, &l2w[0][0], 4)))
-        { *why = "LocalToWorld read failed"; return false; }
-
-    // The camera's basis, from the rows of the ViewProjection. The shader
-    // computes clip = c[vp+0]*x + c[vp+1]*y + c[vp+2]*z + c[vp+3]*w, so the
-    // row for a clip component is that component taken across the columns.
-    float r[3] = { vp[0][0], vp[1][0], vp[2][0] };
-    float u[3] = { vp[0][1], vp[1][1], vp[2][1] };
-    float f[3] = { vp[0][3], vp[1][3], vp[2][3] };
-    const float rn = sqrtf(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]);
-    const float un = sqrtf(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
-    const float fn = sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]);
-    if (!(rn > 1e-4f) || !(un > 1e-4f)) { *why = "degenerate focal scales"; return false; }
-    // The w row is the forward axis and is UNIT for a standard perspective.
-    // An orthographic or non-standard path will not satisfy this, and must be
-    // refused rather than forced into a plausible-looking answer.
-    if (fabsf(fn - 1.0f) > 0.01f) { *why = "w row is not unit - not a standard perspective"; return false; }
-    for (int i = 0; i < 3; i++) { r[i] /= rn; u[i] /= un; }
-
-    // Orthonormality, which a wrong layout will not accidentally satisfy.
-    const float ru = r[0]*u[0] + r[1]*u[1] + r[2]*u[2];
-    const float rf = r[0]*f[0] + r[1]*f[1] + r[2]*f[2];
-    const float uf = u[0]*f[0] + u[1]*f[1] + u[2]*f[2];
-    if (fabsf(ru) > 0.02f || fabsf(rf) > 0.02f || fabsf(uf) > 0.02f)
-        { *why = "camera basis is not orthonormal"; return false; }
-
-    // The controller, in the camera-relative world frame. The scale is the one
-    // number here that is still assumed rather than measured.
     const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
-    const float a = g_mpCtlRUF[hand][0], b = g_mpCtlRUF[hand][1], c = g_mpCtlRUF[hand][2];
+    const float a = g_mpCtlRUF[hand][0], b = g_mpCtlRUF[hand][1], cc = g_mpCtlRUF[hand][2];
     float dcam[3];
-    for (int i = 0; i < 3; i++) dcam[i] = k * (a * r[i] + b * u[i] + c * f[i]);
+    for (int i = 0; i < 3; i++)
+        dcam[i] = k * (a * c->r[i] + b * c->u[i] + cc * c->f[i]);
 
-    // THE EYE OFFSET. d_cam so far is the controller relative to the HEAD
-    // CENTRE, and using it unchanged for both eyes is what made correctly
-    // placed hands read as enormous: the same camera-relative offset in each
-    // eye puts the two hand images an IPD apart in world terms, which is the
-    // disparity of an object at INFINITY. A hand-sized object at infinite
-    // disparity is seen as a giant hand far away - "fine in each eye, huge
-    // with both", exactly as reported.
-    //
-    // The world does not have this problem because the engine moves the CAMERA
-    // between passes; our target was the only thing still measured from the
-    // head. So subtract this eye's own offset along the camera's right axis.
-    //
-    // WHICH EYE: the re-entry method draws pass 1 from the game's camera and
-    // pass 2 from the second-pass camera, and the camera seam already publishes
-    // which of those this thread is inside. That is the same signal the seam
-    // itself uses to decide what to write, so the hands cannot disagree with
-    // the view they are drawn into.
-    if (g_mpEyeOffset) {
-        // WHICH EYE: ORDINAL WITHIN THE FRAME, NOT A LEARNED MIDPOINT.
-        //
-        // The first version classified by comparing LocalToWorld's projection
-        // on the right axis against a midpoint learned from the draws. The
-        // classifier was real - the measured separation came out 6.8-6.9 uu
-        // against a predicted IPD of 6.31 uu - but the midpoint is not
-        // head-invariant: turning the head moves the whole mesh relative to the
-        // camera, so the projection drifts for reasons that have nothing to do
-        // with which eye is being drawn, and draws start landing on the wrong
-        // side of a stale midpoint. A misclassified draw takes a full IPD of
-        // error, which is why it read as the hands TELEPORTING rather than
-        // sliding, and why the scale appeared to slip while it happened.
-        //
-        // The pose is identical between the two passes of one frame; only the
-        // eye differs. So use the draw's ORDINAL within the frame, which no
-        // head movement can perturb, and learn once which ordinal is which eye
-        // by comparing the two projections WITHIN a frame - the only comparison
-        // where everything except the eye is held equal.
-        const float proj = l2w[3][0]*r[0] + l2w[3][1]*r[1] + l2w[3][2]*r[2];
-        const float halfIpdUU = 0.5f * g_ipdM * k;
-        const float ipdUU = g_ipdM * k;
-
-        // THE ORDINAL IS PER SHADER, not per frame.
-        //
-        // Three shaders draw this mesh and each draws it once per eye, so a
-        // frame carries up to six draws. Counting them together made ordinals
-        // 0 and 1 the first shader's two eyes and left everything from 2 on
-        // unclassified - and unclassified means NO offset, so those passes
-        // rendered at the head-centre position. That is the black duplicate
-        // hand behind each one in the tester's screenshot, and two overlapping
-        // images with different disparity is why the scale broke again.
-        //
-        // Each shader is its own stream of eye pairs, so each gets its own
-        // ordinal. The ordinal-to-eye VOTE stays shared: pass order is a
-        // property of the frame, not of the shader.
-        const uint32_t fr = (uint32_t)dvr::frame::count();
-        if (fr != g_mpEyeFrame) {
-            g_mpEyeFrame = fr;
-            for (int i = 0; i < MP_EYE_SHADERS; i++) {
-                g_mpEyeShader[i] = NULL; g_mpEyeShaderOrd[i] = 0;
-            }
-            g_mpEyeOrd0Ok = false;
-        }
-        void* const sh = g_pcLayShader;
-        int slot = -1;
-        for (int i = 0; i < MP_EYE_SHADERS; i++) {
-            if (g_mpEyeShader[i] == sh) { slot = i; break; }
-            if (!g_mpEyeShader[i]) { g_mpEyeShader[i] = sh; slot = i; break; }
-        }
-        if (slot < 0) { g_mpEyeOverflow++; slot = 0; }   // more shaders than slots
-        const int ord = g_mpEyeShaderOrd[slot]++;
-
-        float sign = 0.0f;
-        // NOTHING IS OFFSET UNTIL THE MAPPING HAS ACTUALLY BEEN LEARNED.
-        // Applying an offset on an unlearned vote is applying a full IPD on a
-        // coin flip, which is worse than the head-centre placement it replaces.
-        // The default "ordinal 0 is LEFT" is a placeholder, not a finding.
-        const bool learned = (g_mpEyePairs > 8);
-        if (ord == 0) {
-            g_mpEyeOrd0Proj = proj; g_mpEyeOrd0Ok = true; g_mpEyeOrd0Slot = slot;
-            sign = learned ? (g_mpEyeOrd0IsLeft ? -1.0f : +1.0f) : 0.0f;
-        } else if (ord == 1 && g_mpEyeOrd0Ok && g_mpEyeOrd0Slot == slot) {
-            // The vote. A pair only counts when the two projections differ by
-            // something close to an IPD; anything else is not two eyes and
-            // must not be allowed to flip the mapping.
-            const float d = g_mpEyeOrd0Proj - proj;
-            g_mpEyeSpread = fabsf(d);
-            if (g_mpEyeSpread > 0.4f * ipdUU && g_mpEyeSpread < 2.5f * ipdUU) {
-                // Camera-relative: a position is world - camera, and the right
-                // eye's camera sits further right, so ITS projection is the
-                // SMALLER one. The larger projection is the left eye.
-                g_mpEyeVote += (d > 0.0f) ? 1 : -1;
-                if (g_mpEyeVote > 64) g_mpEyeVote = 64;
-                if (g_mpEyeVote < -64) g_mpEyeVote = -64;
-                if (g_mpEyeVote > 4)  g_mpEyeOrd0IsLeft = true;
-                if (g_mpEyeVote < -4) g_mpEyeOrd0IsLeft = false;
-                g_mpEyePairs++;
-            } else {
-                g_mpEyeBadPairs++;
-            }
-            sign = learned ? (g_mpEyeOrd0IsLeft ? +1.0f : -1.0f) : 0.0f;
-        }
-        // ord >= 2 FOR ONE SHADER leaves sign at 0. Two eyes is two draws; a
-        // third from the same shader in one frame is not a third eye, and
-        // guessing would put a full IPD of error on it. This is now genuinely
-        // unexpected rather than routine - it was routine only because the
-        // ordinal used to be shared across shaders.
-        if (ord >= 2) g_mpEyeThirds++;
-
-        // WHERE DOES THE EYE ACTUALLY LIVE? LocalToWorld's translation was the
-        // premise and the measurement refuted it: the in-frame pair separation
-        // reads 0.00 uu against an expected 6.31, so L is IDENTICAL between the
-        // draws of a frame and carries no eye offset. The earlier "spread
-        // 6.8 uu" that seemed to confirm it was the midpoint version measuring
-        // head motion over time, not the eye - which is exactly why it fell
-        // apart on head turns.
-        //
-        // So find it rather than guess again. Keep each draw's VP and L, and
-        // when the ordinals of one frame are in hand, print which registers
-        // differ and by how much. Whatever carries the eye will show a
-        // difference of about one IPD in the right place; everything else will
-        // read zero.
-        if (g_mpEyeHunt) {
-            if (ord == 0) {
-                memcpy(g_mpHuntVp0, vp, sizeof(g_mpHuntVp0));
-                memcpy(g_mpHuntL0, l2w, sizeof(g_mpHuntL0));
-                g_mpHuntOk = true;
-            } else if (ord == 1 && g_mpHuntOk) {
-                float dv = 0.0f, dl = 0.0f;
-                int dvIdx = -1, dlIdx = -1;
-                for (int i = 0; i < 16; i++) {
-                    const float d = fabsf(((const float*)vp)[i] - g_mpHuntVp0[i]);
-                    if (d > dv) { dv = d; dvIdx = i; }
-                }
-                for (int i = 0; i < 16; i++) {
-                    const float d = fabsf(((const float*)l2w)[i] - g_mpHuntL0[i]);
-                    if (d > dl) { dl = d; dlIdx = i; }
-                }
-                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
-                    "ms/palette/hunt: between ordinal 0 and 1 of one frame - "
-                    "ViewProjection differs most at element %d by %.6f (c%d.%c), "
-                    "LocalToWorld at element %d by %.6f. Expected IPD %.2f uu. "
-                    "The matrix carrying the eye shows a difference of that "
-                    "order; a matrix reading ~0 everywhere does not separate "
-                    "the eyes and cannot classify them. If BOTH read ~0 these "
-                    "two draws are the same eye and the pass structure is not "
-                    "two-eyes-per-shader at all.",
-                    dvIdx, (double)dv, dvIdx >= 0 ? g_pcLayVp + dvIdx / 4 : -1,
-                    dvIdx >= 0 ? "xyzw"[dvIdx % 4] : '?',
-                    dlIdx, (double)dl, (double)(g_ipdM * k));
-            }
-        }
-
-        for (int i = 0; i < 3; i++) dcam[i] -= sign * halfIpdUU * r[i];
-        if (sign > 0.0f) g_mpEyeSeen[1]++; else if (sign < 0.0f) g_mpEyeSeen[0]++;
-        else g_mpEyeUnclassified++;
-        g_mpLastEyeSign = sign;
-        g_mpLastHalfIpd = halfIpdUU;
-        g_mpLastEyeProj = proj;
-    }
-
-    // LocalToWorld is [Rl | t] with Rl's COLUMNS in the first three registers.
-    // Rigid, so its inverse is Rl^T applied to (p - t) - checked, not assumed.
-    float col[3][3], t[3];
-    for (int j = 0; j < 3; j++)
-        for (int i = 0; i < 3; i++) col[j][i] = l2w[j][i];
-    for (int i = 0; i < 3; i++) t[i] = l2w[3][i];
-    for (int j = 0; j < 3; j++) {
-        const float n = sqrtf(col[j][0]*col[j][0] + col[j][1]*col[j][1] + col[j][2]*col[j][2]);
-        if (fabsf(n - 1.0f) > 0.02f) { *why = "LocalToWorld is not rigid"; return false; }
-    }
+    // NO EYE OFFSET IS APPLIED. The mechanism that would supply one is not
+    // established: the only measurement so far compared the two HANDS of one
+    // draw, which cannot differ by an eye. Applying a guessed half-IPD would
+    // be a full IPD of error whenever the guess is wrong, and the head-centre
+    // placement it would replace is at least consistent.
 
     float d[3];
-    for (int i = 0; i < 3; i++) d[i] = dcam[i] - t[i];
+    for (int i = 0; i < 3; i++) d[i] = dcam[i] - c->t[i];
     float targetLocal[3];
     for (int j = 0; j < 3; j++)
-        targetLocal[j] = col[j][0]*d[0] + col[j][1]*d[1] + col[j][2]*d[2];
+        targetLocal[j] = c->col[j][0]*d[0] + c->col[j][1]*d[1] + c->col[j][2]*d[2];
 
     for (int i = 0; i < 3; i++) {
         outT[i] = targetLocal[i] - qLocal[i];
@@ -2294,6 +2226,22 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         }
     }
 
+    // ONE CONTEXT PER ORIGINAL DRAW, acquired above the hand loop so both
+    // hands consume identical constants by construction. This is the unit the
+    // eye question has to be asked in; asking it per hand compared a draw with
+    // itself.
+    MpDrawCtx ctx; ctx.ok = false; ctx.why = "not acquired";
+    if (g_mpWorld) {
+        g_mpDrawsEntered++;
+        if (MpAcquireCtx(dev, &ctx)) {
+            g_mpDrawsSampled++;
+            MpDrawCompare(&ctx);
+        } else {
+            g_mpDrawsRejected++;
+            g_mpDrawRejectWhy = ctx.why;
+        }
+    }
+
     if (SUCCEEDED(dev->SetIndices(g_msIb))) {
         for (int r = 0; r < nrng; r++) {
             // The palette this range draws under. The delta is applied to the
@@ -2320,7 +2268,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                     float q[3];
                     const char* why = "anchor refused";
                     if (MpAnchorPos(rng[r].cls, g_mpCache, g_mpCacheN, q) &&
-                        MpWorldTarget(dev, hIdx, q, T, &why)) {
+                        MpWorldTarget(&ctx, hIdx, q, T, &why)) {
                         useT = true;
                         InterlockedIncrement(&g_mpWorldOk);
                     } else {
@@ -2736,20 +2684,15 @@ static void MpDriveTick(void)
             g_pcLayVp, g_pcLayL2W,
             (double)g_skcWorldScale, (double)g_mpDriveGain);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "ms/palette/eye: offset %s | L %ld R %ld unclassified %ld | "
-            "in-frame pair separation %.2f uu against an expected IPD of %.2f "
-            "uu | good pairs %ld, rejected %ld, third-draws %ld, shader "
-            "overflow %ld | vote %+d, ordinal 0 is the %s eye. The eye is the draw's ORDINAL within the frame, which head "
-            "movement cannot perturb; the ordinal-to-eye mapping is voted from "
-            "same-frame pairs, the only comparison where everything but the "
-            "eye is equal. Rising 'unclassified' means a frame drew this mesh "
-            "more than twice; rising 'rejected' means pairs are not separating "
-            "by an IPD and the mapping is not being learned from them.",
-            g_mpEyeOffset ? "ON" : "off",
-            g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
-            (double)g_mpEyeSpread, (double)(g_ipdM * g_skcWorldScale),
-            g_mpEyePairs, g_mpEyeBadPairs, g_mpEyeThirds, g_mpEyeOverflow,
-            g_mpEyeVote, g_mpEyeOrd0IsLeft ? "LEFT" : "RIGHT");
+            "ms/palette/sampling: original draws entered %ld, sampled %ld, "
+            "rejected %ld (%s) | draw-to-draw comparisons %ld | NO eye offset "
+            "is applied. The unit here is the ORIGINAL DRAW: the previous "
+            "instrument counted HANDS, so its pair was the left and right hand "
+            "of one draw and its 24,376 zeroes were arithmetic rather than "
+            "evidence. Whether LocalToWorld or the ViewProjection carries the "
+            "eye is open again and the cmp line is what answers it.",
+            g_mpDrawsEntered, g_mpDrawsSampled, g_mpDrawsRejected,
+            g_mpDrawRejectWhy ? g_mpDrawRejectWhy : "none", g_mpCmpCount);
         return;
     }
     if (g_mpAbs) {
