@@ -397,10 +397,6 @@ static void BqRun(void);
 static void BqTick(void);
 static bool BqCommand(const char* args);
 static uint8_t* HmControl(void);
-static void HmRestore(void);
-static void HmScanTicks(void);
-static void HmTick(void);
-static bool HmCommand(const char* args);
 static void HmPickModels();
 static void GraftTestSet(bool on);
 static void SkcRotZeroNeutral(const char* why);
@@ -499,4 +495,8 @@ bool YawSelfTest();
 
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/weapon_id_fwd.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/hand_move_fwd.inc"
 #endif

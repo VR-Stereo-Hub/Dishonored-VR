@@ -1145,10 +1145,12 @@ static void LoadConfig()
     g_bqOn            = IniFloat(ini, "Hands", "BoneQuery", 0) != 0.0f;
     // VR-33 phase 1. This one WRITES to the skeleton, so it ships OFF and
     // restores every field it touched when it is switched off.
+#if DVR_WITH_LEGACY
     g_hmOn            = IniFloat(ini, "Hands", "HandMoveTest", 0) != 0.0f;
     g_hmAmount        = IniFloat(ini, "Hands", "HandMoveUU", 10.0f);
     g_hmAxis          = (int)IniFloat(ini, "Hands", "HandMoveAxis", 0);
     if (g_hmAxis < 0 || g_hmAxis > 2) g_hmAxis = 0;
+#endif
     // VR-33: the draw-scoped bone palette. A RENDER LEVER, so it ships OFF
     // with a live A/B - Palette=0 leaves MsDraw issuing the single merged draw
     // it always did, and nothing in the frame path changes.
@@ -1907,7 +1909,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "BoneQuery", g_bqOn ? "1" : "0", ini);
+#if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "HandMoveTest", g_hmOn ? "1" : "0", ini);
+#endif
     WritePrivateProfileStringA("Hands", "Palette", g_mpOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.1f", g_mpAmount);
     WritePrivateProfileStringA("Hands", "PaletteAmount", v, ini);
@@ -2002,10 +2006,12 @@ static void OverlaySaveDefaults()
         _snprintf(v, 64, "%d", g_mpAdjStepR);
         WritePrivateProfileStringA("Hands", "AdjStepR", v, ini);
     }
+#if DVR_WITH_LEGACY
     _snprintf(v, 64, "%.1f", g_hmAmount);
     WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);
     _snprintf(v, 64, "%d", g_hmAxis);
     WritePrivateProfileStringA("Hands", "HandMoveAxis", v, ini);
+#endif
     _snprintf(v, 64, "%d", g_msEdge);
     WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
     _snprintf(v, 64, "%d", g_msStepMode);

@@ -97,7 +97,9 @@
 #include "mod/state/57b_game_dishonored_hands_weapon_attach.inc"
 #include "mod/state/56_game_dishonored_hands_pose_report.inc"
 #include "mod/state/57_game_dishonored_hands_bone_query.inc"
-#include "mod/state/58_game_dishonored_hands_hand_move.inc"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/58_game_dishonored_hands_hand_move.inc"
+#endif
 #include "mod/state/59_game_dishonored_hands_palette_capture.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
@@ -170,7 +172,9 @@
 #include "game/dishonored/hands/pose_report.cpp"
 #include "game/dishonored/hands/bone_query.cpp"
 #include "game/dishonored/hands/palette_capture.cpp"
-#include "game/dishonored/hands/hand_move.cpp"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/hand_move.cpp"
+#endif
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/weapon_id.cpp"
 #endif
