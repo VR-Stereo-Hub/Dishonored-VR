@@ -15,19 +15,26 @@ static inline uint64_t WiMix(uint64_t h, uint64_t v)
 // The signature of one draw. Everything that distinguishes geometry and pass:
 // the buffers, the declaration, the shader, the stride and the draw's own
 // range. Two draws differing in any of these are different work.
+// BUFFER IDENTITY, not draw identity. The first version hashed the draw's own
+// RANGE too - startIndex, baseVertex, primCount, numVerts - and that is why
+// the 2026-09-07 sweep attributed nothing: it held 450 signatures over 1.67 M
+// draws, and about 150 per component vanished on one hide but not the other,
+// in near-identical counts (146/154/151/153) for every component INCLUDING the
+// player body. Counts that uniform are not about the components at all; they
+// are background churn. A mesh drawn from a shared buffer gets a new range per
+// batch, so one crossbow became many short-lived signatures and none of them
+// could be present across all four of its phases.
+//
+// The vertex and index buffer pair is the key the mesh lock already uses for
+// exactly this reason (draw_census.cpp: "Buffer identity does not care"). It
+// names a GEOMETRY, which is what a component owns and what the attachment
+// needs. The shader and declaration are deliberately out too: the same mesh is
+// drawn by three shaders in different passes and all three are the crossbow.
 static uint64_t WiHash(const WiSig* s)
 {
     uint64_t h = 1469598103934665603ull;
     h = WiMix(h, (uint64_t)(uintptr_t)s->vb);
     h = WiMix(h, (uint64_t)(uintptr_t)s->ib);
-    h = WiMix(h, (uint64_t)(uintptr_t)s->vs);
-    h = WiMix(h, (uint64_t)(uintptr_t)s->decl);
-    h = WiMix(h, (uint64_t)s->stride);
-    h = WiMix(h, (uint64_t)s->primCount);
-    h = WiMix(h, (uint64_t)s->numVerts);
-    h = WiMix(h, (uint64_t)s->startIndex);
-    h = WiMix(h, (uint64_t)(int64_t)s->baseVertex);
-    h = WiMix(h, (uint64_t)s->bones);
     return h;
 }
 
@@ -67,7 +74,17 @@ static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 
     s.h = WiHash(&s);
     for (int i = 0; i < g_wiSigN; i++)
-        if (g_wiSig[i].h == s.h) { g_wiSeen[i][phase]++; InterlockedIncrement(&g_wiDraws); return; }
+        if (g_wiSig[i].h == s.h) {
+            g_wiSeen[i][phase]++;
+            // Keep the LARGEST range seen for this buffer pair. The stored
+            // range is telemetry for the report and a sanity check for the
+            // attachment, never part of the identity.
+            if (s.primCount > g_wiSig[i].primCount) g_wiSig[i].primCount = s.primCount;
+            if (s.numVerts  > g_wiSig[i].numVerts)  g_wiSig[i].numVerts  = s.numVerts;
+            if (s.bones     > g_wiSig[i].bones)     g_wiSig[i].bones     = s.bones;
+            InterlockedIncrement(&g_wiDraws);
+            return;
+        }
     if (g_wiSigN >= WI_MAX_SIG) { InterlockedIncrement(&g_wiOverflow); return; }
     g_wiSig[g_wiSigN] = s;
     memset(g_wiSeen[g_wiSigN], 0, sizeof(g_wiSeen[0]));
@@ -170,6 +187,10 @@ static void WiReport(void)
                 once++;
             }
         }
+        // THE POINT OF THE SWEEP. An owned buffer pair is handed straight to
+        // the attachment - identification is not a report to be read and typed
+        // back in, it is the input to placement.
+        if (hits) WaAdopt(asset, c);
         Log("wid:   '%s': %d signature(s) owned, %d that vanished on ONE hide "
             "but not the other and were REJECTED. Those rejects are the "
             "instrument working: they are what a single-cycle sweep would have "

@@ -1176,10 +1176,33 @@ static void LoadConfig()
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 0) != 0.0f;
     // VR-33 W1: the weapon identifier. One automatic sweep that hides each
     // first-person component in turn and records which draws stop arriving.
+    // VR-33 W2/W3: the weapon attachment. On by default and coupled to the
+    // identifier, because the sweep's output IS its input - the buffer pairs
+    // the sweep proves belong to 'crossbow_01' are the draws this corrects.
+    // WeaponId=0 leaves it with nothing to attach and it says so.
+    g_waOn            = IniFloat(ini, "Hands", "AttachWeapons", 1) != 0.0f;
+    g_waSwordHand     = (int)IniFloat(ini, "Hands", "AttachSwordHand", 0);
+    g_waXbowHand      = (int)IniFloat(ini, "Hands", "AttachCrossbowHand", 1);
+    if (g_waSwordHand < 0 || g_waSwordHand > 1) g_waSwordHand = 0;
+    if (g_waXbowHand  < 0 || g_waXbowHand  > 1) g_waXbowHand  = 1;
     g_wiOn            = IniFloat(ini, "Hands", "WeaponId", 0) != 0.0f;
     g_wiPhaseMs       = IniFloat(ini, "Hands", "WeaponIdMs", 1500.0f);
     if (g_wiPhaseMs < 300.0f)  g_wiPhaseMs = 300.0f;
     if (g_wiPhaseMs > 8000.0f) g_wiPhaseMs = 8000.0f;
+    if (g_waOn && g_wiOn)
+        Log("config: [Hands] AttachWeapons=1 - once the sweep below proves "
+            "which buffer pairs belong to 'crossbow_01', 'bolt_01' and "
+            "'Wpn_PlySword01', those draws take the SAME rigid palette "
+            "correction the hands take, from the SAME target palm. Sword to "
+            "the %s hand, crossbow and its loaded bolt to the %s. Every bone "
+            "of an assembly gets one common transform, so the bolt keeps its "
+            "animated relationship to the stock. Any refusal draws the "
+            "engine's own weapon and logs why - read the wa: lines.",
+            g_waSwordHand ? "RIGHT" : "LEFT", g_waXbowHand ? "RIGHT" : "LEFT");
+    else if (g_waOn)
+        Log("config: [Hands] AttachWeapons=1 but WeaponId=0, so nothing will "
+            "identify which draws are the weapons and nothing will be "
+            "attached. The sweep's output is the attachment's input.");
     if (g_wiOn)
         Log("config: [Hands] WeaponId=1 - the weapon identifier will run ONE "
             "sweep, %.1f s per component, hiding each first-person component "
@@ -1814,6 +1837,11 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteWeightTol", v, ini);
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteRotate", g_mpRotate ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachWeapons", g_waOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_waSwordHand);
+    WritePrivateProfileStringA("Hands", "AttachSwordHand", v, ini);
+    _snprintf(v, 64, "%d", g_waXbowHand);
+    WritePrivateProfileStringA("Hands", "AttachCrossbowHand", v, ini);
     WritePrivateProfileStringA("Hands", "WeaponId", g_wiOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.0f", g_wiPhaseMs);
     WritePrivateProfileStringA("Hands", "WeaponIdMs", v, ini);

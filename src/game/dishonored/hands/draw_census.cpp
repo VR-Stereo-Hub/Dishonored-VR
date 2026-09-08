@@ -230,6 +230,15 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     if (g_wiOn && g_dcPendingBones && g_dcSinceUpload < DC_REUSE_WINDOW)
         WiNoteDraw(self, baseVertex, minIndex, numVertices, startIndex, primCount);
 
+    // VR-33 W2/W3: THE WEAPON ATTACHMENT. Ahead of everything else, because a
+    // weapon mesh is not the locked hand mesh and must not fall through into
+    // the split's path. It returns true only when it has drawn the weapon
+    // itself with a corrected palette and put the game's own block back; false
+    // is the fail-soft and the draw proceeds untouched below.
+    if (g_waOn && g_waMeshN &&
+        WaDraw(self, type, baseVertex, minIndex, numVertices, startIndex, primCount))
+        return D3D_OK;
+
     // MESH LOCK, ahead of the palette gate on purpose.
     //
     // Dropping the three palette-fed passes over the arm mesh left a faint arm

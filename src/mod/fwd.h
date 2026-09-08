@@ -282,6 +282,13 @@ static void MatRestoreAll(const char* why);
 static int  MatNumElements(uint8_t* comp);
 // VR-33 W1: the weapon identifier (weapon_id.cpp)
 static void WiTick(void);
+static bool WiOwns(int sig, int comp, uint32_t* h0, uint32_t* s0,
+                   uint32_t* h1, uint32_t* s1);
+// VR-33 W2/W3: the weapon attachment (weapon_attach.cpp).
+static void WaAdopt(const char* asset, int comp);
+static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                   UINT minIndex, UINT numVertices, UINT startIndex,
+                   UINT primCount);
 static void WiFinish(void);
 static void WiFinishTick(void);
 static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
