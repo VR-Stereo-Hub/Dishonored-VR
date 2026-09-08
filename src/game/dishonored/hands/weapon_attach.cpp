@@ -200,57 +200,9 @@ static const WaCommon* WaCommonFor(int hand, const MpDrawCtx* c)
 
 
 
-// ---- the probe --------------------------------------------------------------
-
-// What IS this refused draw, relative to the weapons we have identified? Runs
-// only on draws the layout gate turned away, only while contracts exist, and
-// only within a per-Present budget.
-static void WaProbeRefused(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
-                           INT baseVertex, UINT minIndex, UINT numVertices,
-                           UINT startIndex, UINT primCount)
-{
-    if (!g_waProbe || !g_waMeshN) return;
-    static uint32_t probePresent = 0; static int used = 0;
-    const uint32_t present = (uint32_t)dvr::frame::count();
-    if (present != probePresent) { probePresent = present; used = 0; }
-    if (used >= g_waProbeBudget) { InterlockedIncrement(&g_waProbeCapped); return; }
-    used++;
-    InterlockedIncrement(&g_waProbeRan);
-
-    IDirect3DVertexBuffer9* vbo = NULL; UINT offset = 0, stride = 0;
-    if (FAILED(dev->GetStreamSource(0, &vbo, &offset, &stride)) || !vbo) return;
-    void* vb = vbo; vbo->Release();
-
-    const WaMesh* hit = NULL;
-    for (int i = 0; i < g_waMeshN; ++i)
-        if (g_waMesh[i].vb == vb) { hit = &g_waMesh[i]; break; }
-    if (!hit) { InterlockedIncrement(&g_waProbeMiss); return; }
-    InterlockedIncrement(&g_waProbeVbHit);
-
-    IDirect3DIndexBuffer9* ibo = NULL;
-    void* ib = NULL;
-    if (SUCCEEDED(dev->GetIndices(&ibo)) && ibo) { ib = ibo; ibo->Release(); }
-    IDirect3DVertexShader9* vso = NULL;
-    void* vs = NULL;
-    if (SUCCEEDED(dev->GetVertexShader(&vso)) && vso) { vs = vso; vso->Release(); }
-    if (ib && ib == hit->ib) InterlockedIncrement(&g_waProbeIbHit);
-
-    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-        "wa/probe: a REFUSED draw shares '%s' vertex buffer %p. index buffer %p "
-        "(%s), shader %p (%s), prim %u (contract %u), verts %u (%u), start %u "
-        "(%u), base %d (%d), stride %u (%u), type %d (%d), BoneMatrices %s. "
-        "This is what the dark copy at the native position actually is: same "
-        "buffers and a different range means another section or LOD, a "
-        "different index buffer means another mesh built from the same "
-        "vertices.",
-        hit->asset, vb, ib, (ib == hit->ib) ? "SAME" : "different",
-        vs, (vs == hit->vs) ? "SAME" : "different",
-        primCount, hit->primCount, numVertices, hit->numVerts,
-        startIndex, hit->startIndex, baseVertex, hit->baseVertex,
-        stride, hit->stride, (int)type, (int)hit->type,
-        g_pcLayBonesPartial >= 0 ? "declared" : "NOT declared");
-}
-
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_refused_probe.cpp"
+#endif
 
 // ---- the view model census --------------------------------------------------
 
@@ -734,12 +686,14 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             WaGhostPass(dev, type, baseVertex, minIndex, numVertices,
                         startIndex, primCount, hr))
             return true;
+#if DVR_WITH_LEGACY
         // Nothing matched on the strict key. Ask what this draw actually IS,
         // because "0 ghost passes" and "the ghost is not an indexed draw of a
         // known buffer" are different answers and the first build could not
         // tell them apart.
         WaProbeRefused(dev, type, baseVertex, minIndex, numVertices,
                        startIndex, primCount);
+#endif
         return false;
     }
     // The CTAB declaration bounds the patch. Never extend to the end of the
@@ -1037,43 +991,16 @@ static void WaBeat(void)
     const double now = MaimNowMs();
     if (now - said < 5000) return;
     said = now;
-    Log("wa: beat v2 | routed %ld compared %ld; member comparisons L %ld R %ld; "
-        "contracts %ld ambiguity %ld misses %ld; attempted %ld succeeded %ld restore-fail %ld; "
-        "no-layout %ld no-source %ld no-view %ld no-bridge %ld stale-snapshot %ld over-budget %ld | "
-        "ghost passes seen %ld fixed %ld (no bone decl %ld, no sibling delta %ld, bad range %ld) | "
-        "probe ran %ld: shares our vertex buffer %ld (same index buffer %ld), not ours %ld, "
-        "over budget %ld | "
-        "contract table %d of %d | off-rig members %ld, other-instance draws %ld, view-model accepts %ld "
-        "refusals %ld | "
-        "other passes on known buffers %ld: corrected %ld "
-        "(no bone decl %ld, no sibling delta %ld) | non-indexed %ld examined %ld: "
-        "on known buffers %ld corrected %ld (no bone decl %ld, no delta %ld) | "
-        "components: %d bridge anchor(s), "
-        "%d member(s), %d dropped, %ld tick(s) with nothing to attach | "
-        "stance %s (eye %.1f uu) | %s",
-        g_waSeen, g_waCandChecked, g_waHandCompared[0], g_waHandCompared[1],
-        g_waMatched, g_waAmbiguous, g_waNoCandidate, g_waAttempted, g_waSucceeded,
-        g_waRestoreFail, g_waNoLayout, g_waNoSource, g_waNoCommon, g_waNoBridge, g_waStaleComp,
-        g_waBudgetSkip, g_waGhostSeen, g_waGhostFixed, g_waGhostNoBone,
-        g_waGhostNoDelta, g_waGhostRange, g_waProbeRan, g_waProbeVbHit,
-        g_waProbeIbHit, g_waProbeMiss, g_waProbeCapped,
-        g_waMeshN, (int)WA_MAX_MESH,
-        g_waOffRig, g_waOffPass, g_waNearAccepted, g_waNearRejected,
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_legacy_beat.inc"
+#else
+    Log("wa: routed %ld matched %ld; attempted %ld succeeded %ld restore-failed %ld | "
+        "known-buffer passes %ld corrected %ld; no-bones %ld no-delta %ld | "
+        "contracts %d/%d; other-instance %ld off-rig %ld | %s",
+        g_waSeen, g_waMatched, g_waAttempted, g_waSucceeded, g_waRestoreFail,
         g_waIdSeen, g_waIdCorrected, g_waIdNoBone, g_waIdNoDelta,
-        g_waNonIndexed, g_waPrimSeen, g_waPrimVbHit, g_waPrimFixed,
-        g_waPrimNoBone, g_waPrimNoDelta,
-        g_waRefN, g_waMemberN, g_waDroppedN, g_waNotReady,
-        // THE STANCE. It read "standing (eye 0.0 uu)" for every sample of a run
-        // in which the tester deliberately spent half the time crouched: the
-        // eye height was never resolved, so the flag was 0 BY DESIGN and the
-        // line said "standing" anyway. A zero that is expected has to say so ON
-        // THE LINE (CLAUDE.md), and this one did not - it cost the correlation
-        // the run was made to capture.
-        (!g_actorLocFound || g_eyeNowUU == 0.0f)
-            ? "UNKNOWN (Actor.Location unresolved - NOT a report of standing)"
-            : (g_eyeCrouched ? "CROUCHED" : "standing"),
-        (double)g_eyeNowUU,
-        g_waWhy);
+        g_waMeshN, (int)WA_MAX_MESH, g_waOffPass, g_waOffRig, g_waWhy);
+#endif
     for (int h = 0; h < 2; ++h) {
         if (g_waNearestScore[h] != FLT_MAX)
             Log("wa: interval nearest hand %d '%s': %.4f deg / %.4f uu / scale %.5f (bands %.3f / %.3f / .005)",

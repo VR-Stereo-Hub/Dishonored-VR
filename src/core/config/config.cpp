@@ -1189,7 +1189,9 @@ static void LoadConfig()
     g_waMarginX       = IniFloat(ini, "Hands", "AttachMargin",   4.0f);
     g_waMaxTry        = (int)IniFloat(ini, "Hands", "AttachMaxTry", 3000);
     g_waGhostFix      = IniFloat(ini, "Hands", "AttachGhostFix", 1) != 0.0f;
+#if DVR_WITH_LEGACY
     g_waProbe         = IniFloat(ini, "Hands", "AttachProbe", 1) != 0.0f;
+#endif
     g_waCensusOn      = IniFloat(ini, "Hands", "AttachCensus", 1) != 0.0f;
     g_waViewModelUU   = IniFloat(ini, "Hands", "AttachViewModelUU", 500.0f);
     g_waNearAngDeg    = IniFloat(ini, "Hands", "AttachNearAngle", 20.0f);
@@ -1210,9 +1212,11 @@ static void LoadConfig()
     if (g_waRigRadiusUU  > 5000.0f) g_waRigRadiusUU  = 5000.0f;
     if (g_waPassRadiusUU < 1.0f)    g_waPassRadiusUU = 1.0f;
     if (g_waPassRadiusUU > 5000.0f) g_waPassRadiusUU = 5000.0f;
+#if DVR_WITH_LEGACY
     g_waProbeBudget   = (int)IniFloat(ini, "Hands", "AttachProbeBudget", 400);
     if (g_waProbeBudget < 0)     g_waProbeBudget = 0;
     if (g_waProbeBudget > 20000) g_waProbeBudget = 20000;
+#endif
     if (g_waSwordHand < 0 || g_waSwordHand > 1) g_waSwordHand = 1;
     if (g_waXbowHand  < 0 || g_waXbowHand  > 1) g_waXbowHand  = 0;
     if (g_waAngTolDeg < 0.01f) g_waAngTolDeg = 0.01f;
@@ -1944,7 +1948,9 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%d", g_waMaxTry);
     WritePrivateProfileStringA("Hands", "AttachMaxTry", v, ini);
     WritePrivateProfileStringA("Hands", "AttachGhostFix", g_waGhostFix ? "1" : "0", ini);
+#if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "AttachProbe", g_waProbe ? "1" : "0", ini);
+#endif
     WritePrivateProfileStringA("Hands", "AttachCensus", g_waCensusOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.0f", g_waViewModelUU);
     WritePrivateProfileStringA("Hands", "AttachViewModelUU", v, ini);
@@ -1960,8 +1966,10 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachRigRadius", v, ini);
     _snprintf(v, 64, "%.0f", g_waPassRadiusUU);
     WritePrivateProfileStringA("Hands", "AttachPassRadius", v, ini);
+#if DVR_WITH_LEGACY
     _snprintf(v, 64, "%d", g_waProbeBudget);
     WritePrivateProfileStringA("Hands", "AttachProbeBudget", v, ini);
+#endif
     _snprintf(v, 64, "%d", g_waSwordHand);
     WritePrivateProfileStringA("Hands", "AttachSwordHand", v, ini);
     _snprintf(v, 64, "%d", g_waXbowHand);

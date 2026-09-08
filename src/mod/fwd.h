@@ -293,9 +293,6 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
                          float position, bool corrected);
 static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
                        UINT startVertex, UINT primCount, HRESULT* hr);
-static void WaProbeRefused(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
-                           INT baseVertex, UINT minIndex, UINT numVertices,
-                           UINT startIndex, UINT primCount);
 static void WaBeat(void);
 static void WaPublishCommon(int hand, const MpDrawCtx* c,
                             const dvr::hf::Xform& D);
@@ -490,4 +487,8 @@ bool YawSelfTest();
 
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/hand_move_fwd.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_refused_probe_fwd.inc"
 #endif
