@@ -1247,19 +1247,93 @@ static void LoadConfig()
             }
             g_mpGripFromIni[h] = true;
         }
-        // The hand trim, in the calibrated palm frame. Metres and degrees.
-        g_mpTrimT[0] = IniFloat(ini, "Hands", "TrimTX", 0.0f);
-        g_mpTrimT[1] = IniFloat(ini, "Hands", "TrimTY", 0.0f);
-        g_mpTrimT[2] = IniFloat(ini, "Hands", "TrimTZ", 0.0f);
-        g_mpTrimR[0] = IniFloat(ini, "Hands", "TrimRX", 0.0f);
-        g_mpTrimR[1] = IniFloat(ini, "Hands", "TrimRY", 0.0f);
-        g_mpTrimR[2] = IniFloat(ini, "Hands", "TrimRZ", 0.0f);
-        for (int i = 0; i < 3; i++) {
-            if (g_mpTrimT[i] >  0.25f) g_mpTrimT[i] =  0.25f;
-            if (g_mpTrimT[i] < -0.25f) g_mpTrimT[i] = -0.25f;
-            if (g_mpTrimR[i] >  45.0f) g_mpTrimR[i] =  45.0f;
-            if (g_mpTrimR[i] < -45.0f) g_mpTrimR[i] = -45.0f;
+        // The hand trim, in the calibrated palm frame. Metres and degrees,
+        // PER HAND. The pre-numpad build stored one shared trim under
+        // TrimTX/TrimRX; those keys are read as the seed for BOTH hands so a
+        // trim already dialled in by hand is not silently thrown away, and the
+        // migration is logged rather than done quietly.
+        static const char* axn[3] = { "X", "Y", "Z" };
+        float seedT[3], seedR[3];
+        bool  seeded = false;
+        for (int a = 0; a < 3; a++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "TrimT%s", axn[a]);
+            seedT[a] = IniFloat(ini, "Hands", k, 0.0f);
+            _snprintf(k, sizeof(k), "TrimR%s", axn[a]);
+            seedR[a] = IniFloat(ini, "Hands", k, 0.0f);
+            if (seedT[a] != 0.0f || seedR[a] != 0.0f) seeded = true;
         }
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            for (int a = 0; a < 3; a++) {
+                char k[32];
+                _snprintf(k, sizeof(k), "Trim%sT%s", sfx, axn[a]);
+                g_mpTrimT[h][a] = IniFloat(ini, "Hands", k, seedT[a]);
+                _snprintf(k, sizeof(k), "Trim%sR%s", sfx, axn[a]);
+                g_mpTrimR[h][a] = IniFloat(ini, "Hands", k, seedR[a]);
+                if (g_mpTrimT[h][a] >  0.25f) g_mpTrimT[h][a] =  0.25f;
+                if (g_mpTrimT[h][a] < -0.25f) g_mpTrimT[h][a] = -0.25f;
+                if (g_mpTrimR[h][a] >  45.0f) g_mpTrimR[h][a] =  45.0f;
+                if (g_mpTrimR[h][a] < -45.0f) g_mpTrimR[h][a] = -45.0f;
+            }
+        }
+        if (seeded)
+            Log("config: the shared hand trim from the previous build "
+                "(TrimTX/TrimRX, %.1f %.1f %.1f mm / %.2f %.2f %.2f deg) was "
+                "copied to BOTH hands as the starting point for the per-hand "
+                "keys. It is now TrimL*/TrimR* and the numpad writes those; the "
+                "old keys are read once more and then ignored.",
+                (double)(seedT[0]*1000.0f), (double)(seedT[1]*1000.0f),
+                (double)(seedT[2]*1000.0f),
+                (double)seedR[0], (double)seedR[1], (double)seedR[2]);
+        Log("config: hand trim LOADED - left translation (%+.1f %+.1f %+.1f) mm "
+            "rotation (%+.2f %+.2f %+.2f) deg | right translation "
+            "(%+.1f %+.1f %+.1f) mm rotation (%+.2f %+.2f %+.2f) deg. All zero "
+            "is the uncalibrated state and is what a first run should print.",
+            (double)(g_mpTrimT[0][0]*1000.0f), (double)(g_mpTrimT[0][1]*1000.0f),
+            (double)(g_mpTrimT[0][2]*1000.0f),
+            (double)g_mpTrimR[0][0], (double)g_mpTrimR[0][1], (double)g_mpTrimR[0][2],
+            (double)(g_mpTrimT[1][0]*1000.0f), (double)(g_mpTrimT[1][1]*1000.0f),
+            (double)(g_mpTrimT[1][2]*1000.0f),
+            (double)g_mpTrimR[1][0], (double)g_mpTrimR[1][1], (double)g_mpTrimR[1][2]);
+    }
+
+    // THE NUMPAD ADJUST and its explicit claim. Defaults ON: it is the only
+    // way to correct a hand in the headset, and a lever the tester has to
+    // switch on before he can report anything costs a whole run.
+    g_mpAdjOn    = IniFloat(ini, "Hands", "Adjust", 1) != 0.0f;
+    g_mpAdjStepT = (int)IniFloat(ini, "Hands", "AdjStepT", 1);
+    g_mpAdjStepR = (int)IniFloat(ini, "Hands", "AdjStepR", 3);
+    if (g_mpAdjStepT < 0 || g_mpAdjStepT > 2) g_mpAdjStepT = 1;
+    if (g_mpAdjStepR < 0 || g_mpAdjStepR > 6) g_mpAdjStepR = 3;
+    if (g_mpAdjOn) {
+        Log("config: [Hands] Adjust=1 - THE NUMPAD IS CLAIMED BY THE HAND "
+            "ADJUST. Numpad 9 cycles LEFT position / LEFT rotation / RIGHT "
+            "position / RIGHT rotation and NAMES the mode in the log; 8/2 is "
+            "forward/back or pitch, 6/4 right/left or yaw, 0/5 up/down or roll; "
+            "7 cycles the step (now %.1f cm / %.2f deg). Every press logs the "
+            "new value and writes it to [Hands] Trim<L|R><T|R><X|Y|Z>, so a "
+            "good alignment survives a restart with nothing typed into the ini.",
+            (double)(kMpAdjStepT[g_mpAdjStepT] * 100.0f),
+            (double)kMpAdjStepR[g_mpAdjStepR]);
+        Log("config: what gave those keys up - the draw census and its "
+            "eighth-cutter (Numpad 4-9) are suppressed entirely while Adjust=1 "
+            "(census armed: %s); the material cycler keeps Numpad 1 and 3 and "
+            "gives up 2 (cycler armed: %s); the mesh split gives up Numpad 0 "
+            "and its mode cycle MOVES TO NUMPAD 1%s. Numpad + - * / . are "
+            "untouched and still belong to the split. Set Adjust=0 to hand "
+            "every key back.",
+            g_dcOn ? "yes, and it will not respond to the numpad" : "no",
+            g_matCycleCfg ? "yes" : "no",
+            g_matCycleCfg
+                ? " - EXCEPT that the material cycler is armed and owns Numpad "
+                  "1, so the split's mode cycle is unreachable this run. Set "
+                  "MatCycle=0 to get it back"
+                : "");
+    } else {
+        Log("config: [Hands] Adjust=0 - the numpad adjust is OFF and the hands "
+            "cannot be trimmed in the headset. The census, the material cycler "
+            "and the mesh split keep every numpad key.");
     }
     if (g_mpOn && g_mpWorld && g_mpRotate)
         Log("config: [Hands] PaletteRotate=1 - the hands take a FULL RIGID "
@@ -1762,14 +1836,23 @@ static void OverlaySaveDefaults()
                 WritePrivateProfileStringA("Hands", key, v, ini);
             }
         }
-        static const char* tk[3] = { "TrimTX", "TrimTY", "TrimTZ" };
-        static const char* rk[3] = { "TrimRX", "TrimRY", "TrimRZ" };
-        for (int i = 0; i < 3; i++) {
-            _snprintf(v, 64, "%.4f", g_mpTrimT[i]);
-            WritePrivateProfileStringA("Hands", tk[i], v, ini);
-            _snprintf(v, 64, "%.2f", g_mpTrimR[i]);
-            WritePrivateProfileStringA("Hands", rk[i], v, ini);
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            char key[32];
+            for (int a = 0; a < 3; a++) {
+                _snprintf(key, sizeof(key), "Trim%sT%s", sfx, ax[a]);
+                _snprintf(v, 64, "%.4f", g_mpTrimT[h][a]);
+                WritePrivateProfileStringA("Hands", key, v, ini);
+                _snprintf(key, sizeof(key), "Trim%sR%s", sfx, ax[a]);
+                _snprintf(v, 64, "%.2f", g_mpTrimR[h][a]);
+                WritePrivateProfileStringA("Hands", key, v, ini);
+            }
         }
+        WritePrivateProfileStringA("Hands", "Adjust", g_mpAdjOn ? "1" : "0", ini);
+        _snprintf(v, 64, "%d", g_mpAdjStepT);
+        WritePrivateProfileStringA("Hands", "AdjStepT", v, ini);
+        _snprintf(v, 64, "%d", g_mpAdjStepR);
+        WritePrivateProfileStringA("Hands", "AdjStepR", v, ini);
     }
     _snprintf(v, 64, "%.1f", g_hmAmount);
     WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);

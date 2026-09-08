@@ -2330,10 +2330,10 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // what lets a held weapon be placed before either hand has drawn.
         // The trim's translation is metres in the palm frame; k converts it
         // once, through the same effective scale the position path uses.
-        const float trimUU[3] = { g_mpTrimT[0] * k, g_mpTrimT[1] * k,
-                                  g_mpTrimT[2] * k };
+        const float trimUU[3] = { g_mpTrimT[hand][0] * k, g_mpTrimT[hand][1] * k,
+                                  g_mpTrimT[hand][2] * k };
         const dvr::hf::Mat3 trimR = dvr::hf::euler_xyz_deg_to_mat(
-            g_mpTrimR[0], g_mpTrimR[1], g_mpTrimR[2]);
+            g_mpTrimR[hand][0], g_mpTrimR[hand][1], g_mpTrimR[hand][2]);
         const dvr::hf::Xform target = dvr::hf::palm_target(O_C, Guse, dcam,
                                                            trimR, trimUU);
         g_mpPalmTarget[hand] = target;
@@ -3013,17 +3013,47 @@ static void MpDriveTick(void)
 
 // THE CALIBRATION AND TRIM TICK. Present thread, because file I/O has no place
 // in a draw detour: the draw only sets a bit.
+// The four adjust modes, named the way the log has to name them: which hand,
+// and whether the keys are moving it or turning it. A mode INDEX in a log is
+// no use to somebody in a headset who cannot read the log while pressing.
+static const char* MpAdjModeName(int m)
+{
+    switch (m) {
+    case 0: return "LEFT hand POSITION";
+    case 1: return "LEFT hand ROTATION";
+    case 2: return "RIGHT hand POSITION";
+    default: return "RIGHT hand ROTATION";
+    }
+}
+
+// The palm frame axes the trim is actually stored in. The keys are labelled
+// with the BRVR words the tester knows and every line prints BOTH, so a press
+// can be checked against the number it changed rather than trusted.
+//
+//   TX across the palm   -> right / left    (RX turns about it: pitch)
+//   TY along the fingers -> forward / back  (RY turns about it: roll)
+//   TZ out of the palm   -> up / down       (RZ turns about it: yaw)
+//
+// pitch/yaw/roll are named for the HAND, not the head: forward is the
+// fingers, up is out of the palm, right is across it.
 static const char* MpTrimAxisName(int a)
 {
     switch (a) {
-    case 0: return "TX (across the palm)";
-    case 1: return "TY (along the fingers)";
-    case 2: return "TZ (out of the palm)";
-    case 3: return "RX";
-    case 4: return "RY";
-    default: return "RZ";
+    case 0: return "TX (across the palm: right/left)";
+    case 1: return "TY (along the fingers: forward/back)";
+    case 2: return "TZ (out of the palm: up/down)";
+    case 3: return "RX (about the across-palm axis: pitch)";
+    case 4: return "RY (about the finger axis: roll)";
+    default: return "RZ (about the out-of-palm axis: yaw)";
     }
 }
+
+// Request bit 0..5 -> which stored axis the key drives, and its sign.
+// The bits are in key order: 8, 2, 6, 4, 0, 5.
+static const int   kMpAdjAxis[6] = { 1, 1, 0, 0, 2, 2 };
+static const float kMpAdjSign[6] = { +1.0f, -1.0f, +1.0f, -1.0f, +1.0f, -1.0f };
+static const char* kMpAdjKeyName[6] = { "Numpad 8", "Numpad 2", "Numpad 6",
+                                        "Numpad 4", "Numpad 0", "Numpad 5" };
 
 static void MpCalibTick(void)
 {
@@ -3053,47 +3083,113 @@ static void MpCalibTick(void)
         }
     }
 
-    // The trim keys.
-    const LONG req = InterlockedExchange(&g_mpTrimReq, 0);
+    // ---- THE NUMPAD ADJUST -------------------------------------------------
+    const LONG req = InterlockedExchange(&g_mpAdjReq, 0);
     if (!req) return;
-    if (req & 1) {
-        g_mpTrimAxis = (g_mpTrimAxis + 1) % 6;
-        Log("ms/palette/trim: axis %d selected - %s. SHIFT+F5 adds, CTRL+F5 "
-            "subtracts, one step of %s per press. The trim is expressed in the "
-            "CALIBRATED PALM FRAME, so it rides the palm rather than the world, "
-            "and it moves anything held in that hand by the same transform.",
-            g_mpTrimAxis, MpTrimAxisName(g_mpTrimAxis),
-            g_mpTrimAxis < 3 ? "2 mm" : "1 degree");
+
+    // Numpad 9: cycle the mode.
+    if (req & 0x80) {
+        g_mpAdjMode = (g_mpAdjMode + 1) % 4;
+        const int mh = g_mpAdjMode >> 1;
+        Log("ms/palette/adjust: >>> %s <<< | step %.2f %s | this hand is now at "
+            "translation (%+.1f %+.1f %+.1f) mm, rotation (%+.2f %+.2f %+.2f) "
+            "deg. Numpad 8/2 forward/back, 6/4 right/left, 0/5 up/down; "
+            "Numpad 7 changes the step, Numpad 9 the mode.",
+            MpAdjModeName(g_mpAdjMode),
+            (g_mpAdjMode & 1) ? (double)kMpAdjStepR[g_mpAdjStepR]
+                              : (double)(kMpAdjStepT[g_mpAdjStepT] * 100.0f),
+            (g_mpAdjMode & 1) ? "deg" : "cm",
+            (double)(g_mpTrimT[mh][0]*1000.0f), (double)(g_mpTrimT[mh][1]*1000.0f),
+            (double)(g_mpTrimT[mh][2]*1000.0f),
+            (double)g_mpTrimR[mh][0], (double)g_mpTrimR[mh][1],
+            (double)g_mpTrimR[mh][2]);
         return;
     }
-    const float dir = (req & 4) ? +1.0f : -1.0f;
-    if (g_mpTrimAxis < 3) g_mpTrimT[g_mpTrimAxis] += dir * g_mpTrimStepT;
-    else                  g_mpTrimR[g_mpTrimAxis - 3] += dir * g_mpTrimStepR;
-    for (int i = 0; i < 3; i++) {
-        if (g_mpTrimT[i] >  0.25f) g_mpTrimT[i] =  0.25f;   // 25 cm is not a trim
-        if (g_mpTrimT[i] < -0.25f) g_mpTrimT[i] = -0.25f;
-        if (g_mpTrimR[i] >  45.0f) g_mpTrimR[i] =  45.0f;
-        if (g_mpTrimR[i] < -45.0f) g_mpTrimR[i] = -45.0f;
+
+    // Numpad 7: cycle the step. Position and rotation keep their own index, so
+    // switching mode never silently changes the other one's step under you.
+    if (req & 0x40) {
+        char sv[32];
+        if (g_mpAdjMode & 1) {
+            g_mpAdjStepR = (g_mpAdjStepR + 1) % 7;
+            Log("ms/palette/adjust: step now %.2f deg (%s).",
+                (double)kMpAdjStepR[g_mpAdjStepR], MpAdjModeName(g_mpAdjMode));
+            _snprintf(sv, sizeof(sv), "%d", g_mpAdjStepR);
+            ConfigWriteKey("Hands", "AdjStepR", sv, "the numpad adjust");
+        } else {
+            g_mpAdjStepT = (g_mpAdjStepT + 1) % 3;
+            Log("ms/palette/adjust: step now %.1f cm (%s).",
+                (double)(kMpAdjStepT[g_mpAdjStepT] * 100.0f),
+                MpAdjModeName(g_mpAdjMode));
+            _snprintf(sv, sizeof(sv), "%d", g_mpAdjStepT);
+            ConfigWriteKey("Hands", "AdjStepT", sv, "the numpad adjust");
+        }
+        return;
     }
-    char v[64];
-    static const char* tk[3] = { "TrimTX", "TrimTY", "TrimTZ" };
-    static const char* rk[3] = { "TrimRX", "TrimRY", "TrimRZ" };
-    if (g_mpTrimAxis < 3) {
-        _snprintf(v, sizeof(v), "%.4f", g_mpTrimT[g_mpTrimAxis]);
-        ConfigWriteKey("Hands", tk[g_mpTrimAxis], v, "the hand trim");
-    } else {
-        _snprintf(v, sizeof(v), "%.2f", g_mpTrimR[g_mpTrimAxis - 3]);
-        ConfigWriteKey("Hands", rk[g_mpTrimAxis - 3], v, "the hand trim");
-    }
-    Log("ms/palette/trim: %s now %.1f %s | translation (%.1f %.1f %.1f) mm, "
-        "rotation (%.1f %.1f %.1f) deg. Saved, so it survives a restart.",
-        MpTrimAxisName(g_mpTrimAxis),
-        g_mpTrimAxis < 3 ? (double)(g_mpTrimT[g_mpTrimAxis] * 1000.0f)
-                         : (double)g_mpTrimR[g_mpTrimAxis - 3],
-        g_mpTrimAxis < 3 ? "mm" : "deg",
-        (double)(g_mpTrimT[0]*1000.0f), (double)(g_mpTrimT[1]*1000.0f),
-        (double)(g_mpTrimT[2]*1000.0f),
-        (double)g_mpTrimR[0], (double)g_mpTrimR[1], (double)g_mpTrimR[2]);
+
+    // One of the six directional keys. Take the LOWEST pending bit only: two
+    // opposite keys landing in one tick must not cancel into silence.
+    int bit = -1;
+    for (int b = 0; b < 6; b++) if (req & (1L << b)) { bit = b; break; }
+    if (bit < 0) return;
+
+    const int   h    = g_mpAdjMode >> 1;         // 0 left, 1 right
+    const bool  rot  = (g_mpAdjMode & 1) != 0;
+    const int   ax   = kMpAdjAxis[bit];
+    const float step = rot ? kMpAdjStepR[g_mpAdjStepR]
+                           : kMpAdjStepT[g_mpAdjStepT];
+    float* cell  = rot ? &g_mpTrimR[h][ax] : &g_mpTrimT[h][ax];
+    const float before = *cell;
+    *cell += kMpAdjSign[bit] * step;
+
+    // Clamp, and SAY SO. A silent clamp reads in a headset as "the key did
+    // nothing", which is the same symptom as a dead binding.
+    const float lim = rot ? 45.0f : 0.25f;
+    bool clamped = false;
+    if (*cell >  lim) { *cell =  lim; clamped = true; }
+    if (*cell < -lim) { *cell = -lim; clamped = true; }
+    if (clamped)
+        Log("ms/palette/adjust: CLAMPED at %+.2f %s. The key IS working and the "
+            "trim will not go further. A correction this large is a wrong grip "
+            "calibration rather than a trim - press SHIFT+F7 again.",
+            (double)(*cell * (rot ? 1.0f : 100.0f)), rot ? "deg" : "cm");
+
+    // DOES THIS PRESS REACH THE HANDS? The trim is only applied through
+    // palm_target, which is on the ROTATION path. With rotation refused the
+    // number below still changes and is still saved, and the hand does not
+    // move - which is exactly the symptom of a dead key. Say which it is,
+    // rather than letting the tester find out by pressing it thirty times.
+    if (g_mpRotOk == 0)
+        Log("ms/palette/adjust: WARNING - this press will NOT move the hand "
+            "yet. The trim rides the rotation path (palm_target) and rotation "
+            "has placed 0 draws so far (%ld refused; %s). The value below is "
+            "still saved and will apply the moment rotation starts placing.",
+            g_mpRotRefused, g_mpRotWhy);
+
+    // Write back under the per-hand key so a restart brings it back.
+    static const char* tk[3] = { "TX", "TY", "TZ" };
+    static const char* rk[3] = { "RX", "RY", "RZ" };
+    char key[32], v[64];
+    _snprintf(key, sizeof(key), "Trim%s%s", h ? "R" : "L", rot ? rk[ax] : tk[ax]);
+    _snprintf(v, sizeof(v), rot ? "%.2f" : "%.4f", (double)*cell);
+    ConfigWriteKey("Hands", key, v, "the numpad adjust");
+
+    Log("ms/palette/adjust: %s | %s -> %s %+.2f %s (was %+.2f, step %.2f) | the "
+        "%s hand is now at translation (%+.1f %+.1f %+.1f) mm, rotation "
+        "(%+.2f %+.2f %+.2f) deg. Saved to [Hands] %s, so it survives a "
+        "restart. The trim is in the CALIBRATED PALM FRAME - it rides the palm "
+        "rather than the world, and it moves anything held in that hand by the "
+        "same transform.",
+        MpAdjModeName(g_mpAdjMode), kMpAdjKeyName[bit],
+        MpTrimAxisName(rot ? ax + 3 : ax),
+        (double)(*cell * (rot ? 1.0f : 100.0f)), rot ? "deg" : "cm",
+        (double)(before * (rot ? 1.0f : 100.0f)),
+        (double)(step * (rot ? 1.0f : 100.0f)),
+        h ? "RIGHT" : "LEFT",
+        (double)(g_mpTrimT[h][0]*1000.0f), (double)(g_mpTrimT[h][1]*1000.0f),
+        (double)(g_mpTrimT[h][2]*1000.0f),
+        (double)g_mpTrimR[h][0], (double)g_mpTrimR[h][1],
+        (double)g_mpTrimR[h][2], key);
 }
 
 

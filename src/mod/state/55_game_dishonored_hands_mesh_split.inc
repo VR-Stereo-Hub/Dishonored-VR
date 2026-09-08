@@ -599,18 +599,58 @@ static int      g_mpGripSaveParity[2] = { 0, 0 };
 
 // THE HAND TRIM: a small rigid nudge expressed IN THE CALIBRATED PALM FRAME,
 // so "5 mm towards the fingers" stays towards the fingers however the wrist is
-// held. Shared by both hands: each palm is already calibrated to its own G, so
-// one trim in palm space means the same thing on both sides.
+// held.
+//
+// PER HAND since the numpad scheme landed. It used to be one shared trim on
+// the reasoning that each palm is already calibrated to its own G, so palm
+// space means the same thing on both sides. The headset disagreed: the two
+// grips are solved from two separate poses and carry their own residual, so
+// the leftover error is not common and one trim cannot cancel both.
 //
 // It moves the hand AND anything held in it by the same common transform, so a
 // later hand adjustment never invalidates a weapon profile. A weapon-only trim
 // is separate and belongs to the weapon stage.
-static float    g_mpTrimT[3] = { 0.0f, 0.0f, 0.0f };   // metres, palm frame
-static float    g_mpTrimR[3] = { 0.0f, 0.0f, 0.0f };   // degrees, extrinsic XYZ
-static int      g_mpTrimAxis = 0;       // 0..5 = TX TY TZ RX RY RZ
-static volatile LONG g_mpTrimReq = 0;   // bit 0 = cycle, 1 = minus, 2 = plus
-static float    g_mpTrimStepT = 0.002f; // 2 mm
-static float    g_mpTrimStepR = 1.0f;   // 1 degree
+static float    g_mpTrimT[2][3] = { { 0.0f, 0.0f, 0.0f },   // metres, palm frame
+                                    { 0.0f, 0.0f, 0.0f } };
+static float    g_mpTrimR[2][3] = { { 0.0f, 0.0f, 0.0f },   // degrees, XYZ
+                                    { 0.0f, 0.0f, 0.0f } };
+
+// ===========================================================================
+// THE NUMPAD ADJUST (VR-33). Adopted key for key from the maintainer's own
+// BioShock Remastered VR mod, because these are the keys the tester already
+// has in his fingers and a headset is the worst possible place to learn a new
+// binding. Four modes cycled with Numpad 9:
+//
+//   0  LEFT hand POSITION      1  LEFT hand ROTATION
+//   2  RIGHT hand POSITION     3  RIGHT hand ROTATION
+//
+//   Numpad 8 / 2   along the fingers, forward / back  |  pitch
+//   Numpad 6 / 4   across the palm, right / left      |  yaw
+//   Numpad 0 / 5   out of the palm, up / down         |  roll
+//   Numpad 7       cycles the step size
+//   Numpad 9       cycles the mode, and NAMES it in the log
+//
+// THE CLAIM. Every one of those keys is already read by another block in
+// hotkeys.cpp - the material cycler (1/2/3), the draw census and its
+// eighth-cutter (4..9) and the mesh split (0). One key firing two features has
+// cost this project a session already (7099c3b0, 0e1ccbb0), so this is not
+// another reader added alongside them: with [Hands] Adjust=1 the adjust block
+// takes those keys and the other blocks are suppressed FOR THOSE KEYS ONLY,
+// with one log line at startup saying the numpad is claimed and by what.
+// The mesh split's mode cycle moves from Numpad 0 to Numpad 1 to keep it
+// reachable.
+//
+// The rotation steps go down to a tenth of a degree because a hand that is
+// two degrees out is visible and one degree of correction overshoots it.
+static bool     g_mpAdjOn    = true;    // [Hands] Adjust
+static int      g_mpAdjMode  = 0;       // 0 Lpos, 1 Lrot, 2 Rpos, 3 Rrot
+static int      g_mpAdjStepT = 1;       // index into kMpAdjStepT
+static int      g_mpAdjStepR = 3;       // index into kMpAdjStepR
+// bits 0..5 = the six directional presses, 6 = step cycle, 7 = mode cycle
+static volatile LONG g_mpAdjReq = 0;
+static const float kMpAdjStepT[3] = { 0.005f, 0.02f, 0.05f };          // metres
+static const float kMpAdjStepR[7] = { 0.1f, 0.25f, 0.5f, 1.0f,
+                                      2.0f, 5.0f, 15.0f };             // degrees
 
 // The target palm each hand was placed at, in the draw's camera-relative
 // frame. Published so the weapon stage can consume the SAME target rather than

@@ -125,10 +125,21 @@ static void StereoUpdate()
     // nothing". A bare-numpad block has to check that the bare key is what
     // was pressed.
     const bool kCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+
+    // THE NUMPAD CLAIM (VR-33). With [Hands] Adjust=1 the hand adjust owns
+    // Numpad 0, 2, 4, 5, 6, 7, 8 and 9, and the three blocks below give those
+    // keys up - only those keys. This is an explicit claim rather than another
+    // reader added alongside them because one key firing two features has cost
+    // this project a session already (7099c3b0, 0e1ccbb0): with the census
+    // armed, a Numpad 5 meant to lower the left hand would ALSO step the census
+    // and put the arms back, and the adjust would read as broken.
+    // config.cpp logs the claim once at startup, naming what gave up what.
+    const bool kAdj = g_mpAdjOn && !kCtrl;
+
     if (g_matCycleCfg && !kCtrl) {
         static bool n1Was = false, n2Was = false, n3Was = false;
         const bool n1 = (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
-        const bool n2 = (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
+        const bool n2 = !kAdj && (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
         const bool n3 = (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) != 0;
         if (n1 && !n1Was) g_matCycleReq = -1;
         if (n2 && !n2Was) g_matCycleReq =  2;
@@ -139,7 +150,7 @@ static void StereoUpdate()
     // VR-31 route (b): step through the censused DRAWS. Same split as the
     // material cycler - the hotkey only posts a request, and DcCycleTick acts
     // on it from the tick, never from here.
-    if (g_dcOn && !kCtrl) {
+    if (g_dcOn && !kCtrl && !kAdj) {
         static bool n4Was = false, n5Was = false, n6Was = false;
         const bool n4 = (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
         const bool n5 = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
@@ -174,7 +185,14 @@ static void StereoUpdate()
     if (g_msOn && !kCtrl) {
         static bool n0Was = false, adWas = false, sbWas = false,
                     mlWas = false, dvWas = false, dcWas = false;
-        const bool n0 = (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
+        // The split's mode cycle MOVES to Numpad 1 while the adjust holds
+        // Numpad 0, rather than becoming unreachable. Numpad 1 belongs to the
+        // material cycler, which is off whenever the weapon identifier runs
+        // and off in the shipped ini; if both were on the cycler would keep it
+        // and this would be dead, so config.cpp says which owns it.
+        const bool n0 = kAdj
+            ? ((GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0 && !g_matCycleCfg)
+            : ((GetAsyncKeyState(VK_NUMPAD0) & 0x8000) != 0);
         const bool ad = (GetAsyncKeyState(VK_ADD)      & 0x8000) != 0;
         const bool sb = (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0;
         const bool ml = (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0;
@@ -257,23 +275,34 @@ static void StereoUpdate()
         gcWas = gck;
     }
 
-    // VR-33: the hand trim. F5 cycles the axis, SHIFT+F5 adds a step and
-    // CTRL+F5 subtracts one. Every press logs the new value and SAVES it, so
-    // nothing has to be typed into the ini and a good alignment survives a
-    // restart. The trim is in the calibrated palm frame and moves anything
-    // held in that hand by the same transform.
-    {
-        static bool tWas = false, tpWas = false, tmWas = false;
-        const bool sh = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-        const bool ct = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool f5 = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
-        const bool cyc = f5 && !sh && !ct;
-        const bool plus = f5 && sh && !ct;
-        const bool minus = f5 && ct && !sh;
-        if (cyc   && !tWas)  InterlockedOr(&g_mpTrimReq, 1);
-        if (plus  && !tpWas) InterlockedOr(&g_mpTrimReq, 4);
-        if (minus && !tmWas) InterlockedOr(&g_mpTrimReq, 2);
-        tWas = cyc; tpWas = plus; tmWas = minus;
+    // VR-33: THE HAND ADJUST, on BioShock Remastered VR's numpad keys.
+    //
+    //   Numpad 9   cycle mode: L position -> L rotation -> R position -> R rotation
+    //   Numpad 8/2 forward / back    (position)   or pitch (rotation)
+    //   Numpad 6/4 right / left      (position)   or yaw
+    //   Numpad 0/5 up / down         (position)   or roll
+    //   Numpad 7   cycle the step size
+    //
+    // This REPLACES the F5 trim shipped in 9d55ccde, which was unusable: F5 is
+    // the game's quicksave and head_track.cpp reads it too, so one press fired
+    // three features. These keys were chosen because the tester already has
+    // them in his fingers from the other mod - a headset is the worst place to
+    // learn a binding.
+    //
+    // The reader only POSTS a bit. Everything else - the arithmetic, the clamp
+    // and the ini write - happens in MpCalibTick on the present thread, because
+    // file I/O has no place in a hotkey poll.
+    if (kAdj) {
+        static const int  vk[8] = { VK_NUMPAD8, VK_NUMPAD2, VK_NUMPAD6,
+                                    VK_NUMPAD4, VK_NUMPAD0, VK_NUMPAD5,
+                                    VK_NUMPAD7, VK_NUMPAD9 };
+        static bool was[8] = { false, false, false, false,
+                               false, false, false, false };
+        for (int i = 0; i < 8; i++) {
+            const bool d = (GetAsyncKeyState(vk[i]) & 0x8000) != 0;
+            if (d && !was[i]) InterlockedOr(&g_mpAdjReq, 1L << i);
+            was[i] = d;
+        }
     }
 
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
