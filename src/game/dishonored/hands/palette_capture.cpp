@@ -411,8 +411,11 @@ static bool PcCapture(IDirect3DDevice9* dev, const MsContract* con, UINT primCou
     memcpy(k->camPosC5, g_camPosC5, sizeof(float) * 3);
     k->posTrackOn = g_posTrack ? 1 : 0;
     k->injectHeadOn = g_injectHead ? 1 : 0;
-    k->absOn = g_mpAbs ? 1 : 0;
-    k->driveOn = g_mpDrive ? 1 : 0;
+    // The two retired placement modes used to be recorded here. Only the
+    // measured chain remains, so the packet records THAT, and the fields keep
+    // their names so old packets stay readable.
+    k->absOn = g_mpWorld ? 1 : 0;
+    k->driveOn = 0;
     k->headOk = g_devPoseOk[0] ? 1 : 0;
     const int hIdx = (cls == MS_CLS_HAND_B) ? 1 : 0;
     k->handOk = g_devPoseOk[3 + hIdx] ? 1 : 0;
