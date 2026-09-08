@@ -69,10 +69,14 @@ static void WaCompTick(void)
 
 
     WaComp snapshot[WA_MAX_COMP] = {};
-    int n = 0;
+    int n = 0, dropped = 0;
     for (int i = 0; i < g_fpCandN && n < WA_MAX_COMP; i++) {
         FpCand* k = &g_fpCand[i];
-        if (!LooksLikeObj(k->obj)) continue;
+        // A candidate that has gone away since the scan is DROPPED, and that
+        // is worth counting: the failing run listed the body mesh among the
+        // view models and then did not have it in this snapshot, which is the
+        // difference between "never found" and "found and lost".
+        if (!LooksLikeObj(k->obj)) { dropped++; continue; }
         WaComp c;
         memset(&c, 0, sizeof(c));
         c.obj = k->obj;
@@ -92,12 +96,42 @@ static void WaCompTick(void)
         if (c.isMember && !known) c.isMember = false;   // never guess a side
         snapshot[n++] = c;
     }
+    // WHAT THE ATTACHMENT ACTUALLY HAS. Counted here rather than inferred from
+    // a refusal counter later: without a REF there is no bridge and without a
+    // MEMBER there is nothing to move, and those are different problems with
+    // different answers.
+    int refs = 0, members = 0;
+    for (int i = 0; i < n; i++) {
+        if (!snapshot[i].ok) continue;
+        if (snapshot[i].isRef)    refs++;
+        if (snapshot[i].isMember) members++;
+    }
+
     AcquireSRWLockExclusive(&g_waCompLock);
     memcpy(g_waComp, snapshot, sizeof(snapshot));
     g_waCompMs = now;
     g_waCompN = n;
+    g_waRefN = refs;
+    g_waMemberN = members;
+    g_waDroppedN = dropped;
     g_waCompGen++;
     ReleaseSRWLockExclusive(&g_waCompLock);
+
+    // SAY SO, on its own cadence and at Warn, because a run that cannot
+    // possibly attach should not look like a run that tried and failed.
+    if (!refs || !members) {
+        InterlockedIncrement(&g_waNotReady);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 4000,
+            "wa: NOTHING TO ATTACH - %d component(s) resolved, %d usable as the "
+            "bridge anchor (the body mesh), %d usable as a weapon%s. %s The "
+            "weapon path is idle by definition until both exist; no counter "
+            "below this describes a failure to place anything.",
+            n, refs, members,
+            dropped ? " (and some candidates went away between the scan and "
+                      "this snapshot)" : "",
+            !refs   ? "Without the body mesh there is no coordinate bridge."
+                    : "Draw a weapon: nothing is equipped that this can move.");
+    }
 
     static double said = 0;
     if (now - said < 10000) return;
@@ -530,13 +564,16 @@ static void WaBeat(void)
         "no-layout %ld no-source %ld no-view %ld no-bridge %ld stale-snapshot %ld over-budget %ld | "
         "ghost passes seen %ld fixed %ld (no bone decl %ld, no sibling delta %ld, bad range %ld) | "
         "probe ran %ld: shares our vertex buffer %ld (same index buffer %ld), not ours %ld, "
-        "over budget %ld | non-indexed draws %ld | stance %s (eye %.1f uu) | %s",
+        "over budget %ld | non-indexed draws %ld | components: %d bridge anchor(s), "
+        "%d member(s), %d dropped, %ld tick(s) with nothing to attach | "
+        "stance %s (eye %.1f uu) | %s",
         g_waSeen, g_waCandChecked, g_waHandCompared[0], g_waHandCompared[1],
         g_waMatched, g_waAmbiguous, g_waNoCandidate, g_waAttempted, g_waSucceeded,
         g_waRestoreFail, g_waNoLayout, g_waNoSource, g_waNoCommon, g_waNoBridge, g_waStaleComp,
         g_waBudgetSkip, g_waGhostSeen, g_waGhostFixed, g_waGhostNoBone,
         g_waGhostNoDelta, g_waGhostRange, g_waProbeRan, g_waProbeVbHit,
         g_waProbeIbHit, g_waProbeMiss, g_waProbeCapped, g_waNonIndexed,
+        g_waRefN, g_waMemberN, g_waDroppedN, g_waNotReady,
         // THE STANCE, because the tester reports the dark copy flickering while
         // standing and steady while crouched. Whatever the copy is, its
         // behaviour changes with stance, so every counter above has to be

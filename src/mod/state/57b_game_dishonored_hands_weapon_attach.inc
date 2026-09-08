@@ -209,6 +209,23 @@ static LONG g_waProbeIbHit  = 0;   // ... and its index buffer
 static LONG g_waProbeMiss   = 0;   // not our geometry at all
 static LONG g_waProbeCapped = 0;   // refused draws the budget did not reach
 static LONG g_waNonIndexed  = 0;   // draws that never reach this router
+
+// ---- READINESS --------------------------------------------------------------
+//
+// A run on 2026-09-08 attached nothing and the only sign of why was a
+// no-bridge counter buried in the beat. The cause was upstream and simple: the
+// component list held no weapon at all that run, so there was never anything
+// to attach. The build before it, on the same binary path, held six components
+// including the crossbow and attached fine.
+//
+// "The weapons did not attach" and "the weapons were never there to attach"
+// are different answers and the log has to separate them WITHOUT being read
+// counter by counter. These say, in one line, whether the attachment has what
+// it needs and what is missing if not.
+static int  g_waRefN        = 0;   // components that can anchor the bridge
+static int  g_waMemberN     = 0;   // weapon members eligible to attach
+static int  g_waDroppedN    = 0;   // candidates that went away before snapshot
+static LONG g_waNotReady    = 0;   // ticks with nothing to attach
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
 static LONG g_waNoLayout    = 0;   // the bound shader has no usable layout
 static LONG g_waNoSource    = 0;   // palette unreadable or not skinned
