@@ -798,8 +798,41 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         }
     }
     InterlockedIncrement(&g_waCandChecked);
-    const dvr::wf::Result match = dvr::wf::match(draw, candidates, count,
+    dvr::wf::Result match = dvr::wf::match(draw, candidates, count,
         g_waAngTolDeg, g_waPosTolUU, g_waMarginX);
+
+    // ON THE VIEW MODEL? Measured, not guessed: every view-model draw in the
+    // census sat within ~170 uu of the camera and the nearest world draw was
+    // 1880. Inside that radius the strict band is the wrong instrument - it
+    // was rejecting the sword at 11 degrees and the bolt at 12 while naming
+    // both correctly - so a relaxed band picks the member instead. It is still
+    // narrow enough to refuse the body mesh, which named a member at 175
+    // degrees and 143 uu.
+    if (match.best < 0 && count > 0) {
+        const float distCam = sqrtf(draw.t[0]*draw.t[0] + draw.t[1]*draw.t[1] +
+                                    draw.t[2]*draw.t[2]);
+        if (distCam <= g_waViewModelUU) {
+            const dvr::wf::Result near2 = dvr::wf::match(
+                draw, candidates, count, g_waNearAngDeg, g_waNearPosUU,
+                g_waMarginX);
+            if (near2.best >= 0 && !near2.ambiguous) {
+                InterlockedIncrement(&g_waNearAccepted);
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                    "wa: '%s' accepted on the view model - %.2f uu from the "
+                    "camera, %.3f deg / %.2f uu from its predicted transform. "
+                    "Outside the strict %.2f deg band but inside the view "
+                    "model's own, where proximity has already excluded every "
+                    "world instance. Socket-mounted members do not track their "
+                    "component transform as closely as a held one.",
+                    members[near2.best]->asset, (double)distCam,
+                    (double)near2.angle, (double)near2.position,
+                    (double)g_waAngTolDeg);
+                match = near2;
+            } else {
+                InterlockedIncrement(&g_waNearRejected);
+            }
+        }
+    }
     if (match.best < 0) {
         InterlockedIncrement(&g_waNoCandidate);
         // CHARACTERISE THE MISS. The copy that stays behind animates correctly,
@@ -941,7 +974,8 @@ static void WaBeat(void)
         "ghost passes seen %ld fixed %ld (no bone decl %ld, no sibling delta %ld, bad range %ld) | "
         "probe ran %ld: shares our vertex buffer %ld (same index buffer %ld), not ours %ld, "
         "over budget %ld | off-rig members %ld, other-instance draws %ld | "
-        "off-rig members %ld, other-instance draws %ld | "
+        "off-rig members %ld, other-instance draws %ld, view-model accepts %ld "
+        "refusals %ld | "
         "other passes on known buffers %ld: corrected %ld "
         "(no bone decl %ld, no sibling delta %ld) | non-indexed %ld examined %ld: "
         "on known buffers %ld corrected %ld (no bone decl %ld, no delta %ld) | "
@@ -954,7 +988,7 @@ static void WaBeat(void)
         g_waBudgetSkip, g_waGhostSeen, g_waGhostFixed, g_waGhostNoBone,
         g_waGhostNoDelta, g_waGhostRange, g_waProbeRan, g_waProbeVbHit,
         g_waProbeIbHit, g_waProbeMiss, g_waProbeCapped,
-        g_waOffRig, g_waOffPass,
+        g_waOffRig, g_waOffPass, g_waNearAccepted, g_waNearRejected,
         g_waOffRig, g_waOffPass,
         g_waIdSeen, g_waIdCorrected, g_waIdNoBone, g_waIdNoDelta,
         g_waNonIndexed, g_waPrimSeen, g_waPrimVbHit, g_waPrimFixed,

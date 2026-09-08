@@ -372,6 +372,37 @@ static float g_waPassRadiusUU = 60.0f;   // [Hands] AttachPassRadius
 static LONG  g_waOffRig      = 0;   // members rejected as not on the rig
 static LONG  g_waOffPass     = 0;   // same-geometry draws rejected as elsewhere
 
+// ---- THE VIEW MODEL IS A PLACE, AND IT SEPARATES CLEANLY --------------------
+//
+// The census settled what the tolerance band could not. Every view-model draw
+// sits within about 170 units of the camera; the nearest world draw is 1880
+// and most are three to nine thousand. That is better than a tenfold gap,
+// measured, and it is a far stronger instance test than any angular band.
+//
+// Inside it, the ASSIGNMENT was correct every single time and only the
+// RESIDUAL was too large: the sword's draw named Wpn_PlySword01 at 11.1
+// degrees, the bolt's named bolt_01 at 12.2, the crossbow's named crossbow_01
+// at 0.000. The sword and the bolt hang off sockets, so their component
+// transform does not track their render transform the way the crossbow's does
+// - and a band tight enough to keep world geometry out was never going to
+// admit them. That is why the sword attached only intermittently: sometimes
+// its residual happened to dip under the band.
+//
+// So the two jobs are separated. PROXIMITY decides that a draw is on the view
+// model at all, which is what keeps a fired bolt in the ground out. A RELAXED
+// band then picks which member it is, wide enough for a socket-mounted weapon
+// and still narrow enough to reject the body mesh, which named a member at
+// 175 degrees and 143 units. The strict band still governs everything outside.
+//
+// This is not widening a tolerance to manufacture a match. The strict band is
+// unchanged where it was doing real work; what replaces it inside the view
+// model is a different and better-separated test.
+static float g_waViewModelUU  = 500.0f;  // [Hands] AttachViewModelUU
+static float g_waNearAngDeg   = 20.0f;   // [Hands] AttachNearAngle
+static float g_waNearPosUU    = 30.0f;   // [Hands] AttachNearPos
+static LONG  g_waNearAccepted = 0;   // accepted on the relaxed band
+static LONG  g_waNearRejected = 0;   // on the view model and still refused
+
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
 static LONG g_waNoLayout    = 0;   // the bound shader has no usable layout
 static LONG g_waNoSource    = 0;   // palette unreadable or not skinned

@@ -1187,6 +1187,15 @@ static void LoadConfig()
     g_waGhostFix      = IniFloat(ini, "Hands", "AttachGhostFix", 1) != 0.0f;
     g_waProbe         = IniFloat(ini, "Hands", "AttachProbe", 1) != 0.0f;
     g_waCensusOn      = IniFloat(ini, "Hands", "AttachCensus", 1) != 0.0f;
+    g_waViewModelUU   = IniFloat(ini, "Hands", "AttachViewModelUU", 500.0f);
+    g_waNearAngDeg    = IniFloat(ini, "Hands", "AttachNearAngle", 20.0f);
+    g_waNearPosUU     = IniFloat(ini, "Hands", "AttachNearPos", 30.0f);
+    if (g_waViewModelUU < 10.0f)   g_waViewModelUU = 10.0f;
+    if (g_waViewModelUU > 1500.0f) g_waViewModelUU = 1500.0f;
+    if (g_waNearAngDeg  < 0.25f)   g_waNearAngDeg  = 0.25f;
+    if (g_waNearAngDeg  > 60.0f)   g_waNearAngDeg  = 60.0f;
+    if (g_waNearPosUU   < 1.0f)    g_waNearPosUU   = 1.0f;
+    if (g_waNearPosUU   > 200.0f)  g_waNearPosUU   = 200.0f;
     g_waRigRadiusUU   = IniFloat(ini, "Hands", "AttachRigRadius", 200.0f);
     g_waPassRadiusUU  = IniFloat(ini, "Hands", "AttachPassRadius", 60.0f);
     if (g_waRigRadiusUU  < 10.0f)   g_waRigRadiusUU  = 10.0f;
@@ -1921,6 +1930,12 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachGhostFix", g_waGhostFix ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachProbe", g_waProbe ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachCensus", g_waCensusOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.0f", g_waViewModelUU);
+    WritePrivateProfileStringA("Hands", "AttachViewModelUU", v, ini);
+    _snprintf(v, 64, "%.2f", g_waNearAngDeg);
+    WritePrivateProfileStringA("Hands", "AttachNearAngle", v, ini);
+    _snprintf(v, 64, "%.2f", g_waNearPosUU);
+    WritePrivateProfileStringA("Hands", "AttachNearPos", v, ini);
     _snprintf(v, 64, "%.0f", g_waRigRadiusUU);
     WritePrivateProfileStringA("Hands", "AttachRigRadius", v, ini);
     _snprintf(v, 64, "%.0f", g_waPassRadiusUU);
