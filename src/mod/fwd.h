@@ -46,12 +46,23 @@ static WORD SlideAssist(WORD b, bool userB, float mx, float my);
 static void WriteDefaultIni(const char* ini);
 static void LoadConfig();
 static void EnsureConfig();
+// core/vr/apilayer_guard.cpp - a 64-bit implicit OpenXR API layer fails
+// xrCreateInstance for every runtime in this 32-bit process.
+static WORD AlgMachine(const char* path);
+static bool AlgJsonStr(const char* json, const char* key, char* out, size_t cap);
+static bool AlgReadFile(const char* path, char* buf, size_t cap);
+static void AlgCheckLayer(const char* manifest, DWORD disabled, const char* where,
+                          int* bad, int* stuck);
+static void AlgScanKey(HKEY root, const char* subkey, REGSAM view, const char* where,
+                       int* seen, int* bad, int* stuck);
+static void ApiLayerGuard();
 static bool EnsureRealD3D9();
 static bool EnsureD3D11();
 static ID3D11Device* DvrProvideD3D11Device(const LUID* want);
 static void HmTriAdd(int h, const float* a, const float* b, const float* c, const float* col, float shade);
 static void HmBox(int h, float cx, float cy, float cz, float hx, float hy, float hz, float tipScale, const float* col);
 static void HmHand(int h, float side);
+static void HmBuildYPR(const float* ypr, float* out);
 static void HmDropSkins();
 static ID3D11ShaderResourceView* HmMakeSolidWhite();
 static int HmLoadSkin(const char* name);
@@ -59,7 +70,15 @@ static bool HmLoadObj(int h, const char* name);
 static void HmBuildGeometry();
 static bool HmEnsurePipeline();
 static int HmSortCmp(const void* a, const void* b);
-static void HmRenderEye(int eye);
+static int  HmRenderEye(int eye);
+static void HmReleaseDepth();
+static bool HmEnsureDepth(ID3D11Device* dev, uint32_t w, uint32_t h);
+static const char* HmWhy(int code);
+static void HmBeat();
+static void HmDrawCalibration(ID3D11DeviceContext* ctx);
+static void HmDrawIntoEye(ID3D11Device* dev, ID3D11DeviceContext* ctx,
+                          ID3D11RenderTargetView* rtv, uint32_t w, uint32_t h,
+                          int eyeSign);
 static bool EnsureCommonStates();
 static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 static void InstallWindowSubclass(const char* who);
@@ -231,7 +250,164 @@ static bool PawnSetCollisionHeight(float v);
 static bool ArmsPrep();
 static void ArmsReport(uint8_t* comp, const char* asset);
 static void ArmsToggle();
+// VR-31 route (a): the per-bone visibility lever (arms_hide.cpp)
+static bool BoneVisReadArray(uint8_t* comp, uint32_t off, uint8_t** dOut, int32_t* nOut);
+static void BoneVisResolve(const char* why);
+static bool BoneVisPrep();
+static void BoneVisChain();
+static void BoneVisOff(const char* why);
+static bool BoneVisOn();
+static uint32_t BoneVisFindPropAnywhere(const char* propName, char* clsOut, size_t clsCap);
+static void BoneVisScanArrays();
+static void BoneVisCloseOut();
+static void BoneVisScanWhenReady();
+static void BoneVisTick();
+static void BoneVisStatus();
+static bool ArmsCommand(const char* args);
+// VR-31 route (d): material-section hiding (hands/mat_hide.cpp)
+static uint32_t MatProp(const char* cls, const char* name);
+static void MatResolve(const char* why);
+static void MatCensus(const char* why);
+static bool MatCommand(const char* args);
+static void MatTick();
+static void MatAutoBuildPlan();
+static void MatAutoStep(double now);
+static void MatAutoTick();
+static void MatCycleTick();
+static void MatTickAll();
+static bool MatArrayAt(uint8_t* base, uint32_t off, uint8_t** dOut, int32_t* nOut, int32_t maxN);
+static bool MatArrayProp(uint8_t* base, uint32_t off, uint8_t** dOut, int32_t* nOut, int32_t maxN);
+static bool MatShowSection(uint8_t* comp, int id, bool show, int lod);
+static void MatRestoreAll(const char* why);
+static int  MatNumElements(uint8_t* comp);
+// VR-33 W1: the weapon identifier (weapon_id.cpp)
+static void WiTick(void);
+static bool WiOwns(int sig, int comp, uint32_t* h0, uint32_t* s0,
+                   uint32_t* h1, uint32_t* s1);
+// VR-33 W2/W3: the weapon attachment (weapon_attach.cpp).
+// MpDrawCtx is defined beside the palette path in mesh_split.cpp; the weapon
+// consumes it by pointer, so the incomplete type is all this needs.
+struct MpDrawCtx;
+static void WaCompTick(void);
+static bool WaPrimCountKnown(UINT primCount);
+static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
+                         INT baseVertex, UINT numVertices, UINT startIndex,
+                         UINT primCount, const char* nearest, float angle,
+                         float position, bool corrected);
+static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
+                       UINT startVertex, UINT primCount, HRESULT* hr);
+static void WaProbeRefused(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
+                           INT baseVertex, UINT minIndex, UINT numVertices,
+                           UINT startIndex, UINT primCount);
+static void WaBeat(void);
+static void WaPublishCommon(int hand, const MpDrawCtx* c,
+                            const dvr::hf::Xform& D);
+static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                   UINT minIndex, UINT numVertices, UINT startIndex,
+                   UINT primCount, HRESULT* hr);
+static void WiFinish(void);
+static void WiFinishTick(void);
+static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
+                       UINT numVertices, UINT startIndex, UINT primCount);
+static const char* MatMaterialName(uint8_t* comp, int i);
+static int  MatNumLods(uint8_t* comp);
+static bool MatHiddenArray(uint8_t* comp, int lod, uint8_t** dOut, int32_t* nOut);
+static int  MatHiddenFlag(uint8_t* comp, int id, int lod);
+static const char* MatFName(uint8_t* p);
 static void BoneDump();
+static bool DcSame(const DcDraw* a, const DcDraw* b);
+static bool DcSameGeom(const DcDraw* a, const DcDraw* b);
+static void DcReadDecl(DcDraw* r);
+static void DcNotePalette(UINT count);
+static void DcReport(const char* why);
+static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
+                                       INT baseVertex, UINT minIndex, UINT numVertices,
+                                       UINT startIndex, UINT primCount);
+static bool DcIsLocked(IDirect3DDevice9* self, bool needIb);
+static HRESULT __stdcall DcDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
+                                    UINT startVertex, UINT primCount);
+static void DcSliceTick();
+static void DcCycleTick();
+static void DcTick();
+static bool DcCommand(const char* args);
+// VR-31 step 2: the per-arm split derived from bone influence (mesh_split.cpp)
+struct MsElem;
+static bool MsDecl(IDirect3DVertexDeclaration9* d, MsElem* pos, MsElem* wt, MsElem* idx);
+static bool MsReadWeights(const uint8_t* v, const MsElem* e, float* w);
+static bool MsReadIndices(const uint8_t* v, const MsElem* e, uint8_t* b);
+static bool MsValidate(uint32_t bones);
+static bool MsRead(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
+                   UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
+static void MsBones(uint32_t bones);
+static int  MsComponents(int* comp);
+static bool MsSides(void);
+static bool MsWrist(int side);
+static void MsTriCentroid(int t, float* c);
+static void MsTriSides(void);
+static void MsPca(int side, const float* prevAxis, float lo, float hi, float* out);
+static int  MsSphereCount(int side);
+static float MsCutForCount(int side, const float* axis, int want);
+static bool MsBoneAxis(int side, float* out);
+static bool MsPlaneDerive(int side);
+static void MsLerpVertex(const uint8_t* va, const uint8_t* vb, float t, uint8_t* out);
+static void MsEmit(uint32_t a, uint32_t b, uint32_t c, int cls);
+static uint32_t MsClipVertex(uint32_t a, uint32_t b, float t);
+static void MsClipTri(const uint32_t* v, const float* d, int handCls, int armCls,
+                      int sd);
+static int  MsElemFind(int usage, int usageIndex);
+static const uint8_t* MsRawOf(uint32_t v);
+static uint32_t MsCapVertex(uint32_t skin, const uint8_t* look, const float* p,
+                            const float* n, int posOff, int nrmOff);
+static float MsHalf(uint16_t h);
+static bool MsReadUv(const uint8_t* v, int off, int type, float* uv);
+static int  MsTypeSize(int type);
+static int  MsRingUvMode(const uint32_t* ring, int n, int uvOff, int uvType);
+static void MsCaps(void);
+static void MsClassify(void);
+static bool MsUpload(IDirect3DDevice9* dev);
+static bool MsReclassify(IDirect3DDevice9* dev);
+static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
+                    UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
+struct MsContract;
+static bool PcCapture(IDirect3DDevice9* dev, const MsContract* con, UINT primCount,
+                      int cls, const float* ourQ);
+static void PcRefreshLayout(IDirect3DDevice9* dev);
+static void PcTick(void);
+static void PcStart(void);
+static void PcStop(void);
+static bool PcCommand(const char* args);
+struct MpDrawCtx;
+static void MpDrawCompare(const MpDrawCtx* c);
+static void MpEyeForPresent(const MpDrawCtx* c);
+static void MpOnReset(void);
+static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                   UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
+static const char* MsModeName(int m);
+static void MsTick(void);
+static bool MsCommand(const char* args);
+struct PrField;
+static void PrResolve(void);
+static uint32_t PrOff(const char* cls, const char* prop);
+static bool PrDumpSockets(void);
+static void PrTick(void);
+static bool PrCommand(const char* args);
+struct BqName;
+static uint32_t BqDeriveSuperOffset(uint8_t* cls);
+static bool BqReceiverIsA(uint8_t* obj, const char* cls);
+static uint8_t* BqFindFunc(const char* cls, const char* fname);
+static void BqCall(uint8_t* obj, uint8_t* fn, void* parms);
+enum BqEnd;
+static BqEnd BqWalk(uint8_t* comp, const char* startName, BqName* outChain, int* outN);
+static void BqControls(void);
+static void BqItems(uint8_t* pawnMesh);
+static void BqRun(void);
+static void BqTick(void);
+static bool BqCommand(const char* args);
+static uint8_t* HmControl(void);
+static void HmRestore(void);
+static void HmScanTicks(void);
+static void HmTick(void);
+static bool HmCommand(const char* args);
 static void HmPickModels();
 static void GraftTestSet(bool on);
 static void SkcRotZeroNeutral(const char* why);
@@ -285,6 +461,17 @@ static void ApplyHandToMesh();
 static void ApplyHeadToViewRotation(void* parms);
 static inline void LevWrite(uint8_t* p, float t);
 static inline void FovLeverApply();
+// VR-30: the arm-follow probe (game/dishonored/arm_follow.cpp), read-only
+static void ArmFollowTick();
+static void ArmFollowReport(const char* why);
+static bool ArmFollowCommand(const char* args);
+static void ArmFollowSetForce(float v, const char* who);
+static void ArmFollowSetInfluence(float v, const char* who);
+static void ArmFollowSetLookAt(float v, const char* who);
+static void ArmFollowSetCounterYaw(float v, const char* who);
+static void ArmFovTick();
+static void ArmLookFind();
+static inline bool ArmLookAlive();
 static bool NameHas(const char* s, const char* frag);
 static void BoneWigBuildMask();
 static void SbApply(const char* where);
@@ -311,3 +498,8 @@ static void InstallPadHook();
 static void RtdMarkerTick();
 static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where);
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved);
+
+// VR-30: yaw ownership (head_track.cpp)
+static void ArmFollowSetStripRot(float v, const char* who);
+static void ArmFollowSetFacing(float v, const char* who);
+bool YawSelfTest();

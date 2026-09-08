@@ -525,6 +525,12 @@ struct PairProbe {
     uint64_t intervalSumSqUs = 0;
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };
+// 41.2 (Dishonored): the desktop eye pin. This file owns no D3D9 device, so
+// the host installs the copy and mirror_present calls it. See
+// core/gfx/desktop_eye.h for what it does and why the order matters.
+typedef void (*MirrorHook)(int eyeSign);
+void set_mirror_hook(MirrorHook fn);
+
 void pair_probe(PairProbe* out);
 void pair_probe_peek(PairProbe* out);   // 41.1 (Dishonored): the same without draining the maxima
 // 41.1 (Dishonored): stalePresL + stalePresR, cumulative and never drained, so a

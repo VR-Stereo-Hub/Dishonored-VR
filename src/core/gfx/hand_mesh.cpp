@@ -40,6 +40,49 @@ static void HmBox(int h, float cx, float cy, float cz, float hx, float hy, float
     }
 }
 
+// ---------------------------------------------------------------------------
+// 41.2 (VR-31): the hand pass's OWN trim rotation.
+//
+// This used to call `RtdBuildYPR`, which lives in `src/legacy/rtd_drive.cpp`
+// and is compiled ONLY under -DDVR_WITH_LEGACY=ON. Every shipped build takes
+// the stub in `src/legacy/legacy_stubs.inc` instead:
+//
+//     static void RtdBuildYPR(const float* ypr, float* out) {}
+//
+// The call site declared `float B[9];` and never initialised it, so in every
+// normal build each hand vertex was rotated by nine floats of whatever was on
+// the stack. That is undefined behaviour with a very specific signature: the
+// triangle counter still climbs (the geometry is "built"), and NOTHING is
+// visible, because garbage can scatter the vertices anywhere or make them
+// non-finite - and a NaN sails straight through the near-plane reject below,
+// since `NaN > -0.03f` is false. Found by review, 2026-09-06; it is the reason
+// the first run drew 252 triangles per present and showed nothing.
+//
+// So the math is a live dependency now, local to this file. The retired
+// experiment stays retired: we take the twelve lines we need, not the
+// subsystem.
+//
+// CONVENTION, and it differs from the legacy helper on purpose. RtdBuildYPR is
+// commented "Z yaw, Y pitch, X roll", which is the UE3 world frame (Z up).
+// These meshes are built in the CONTROLLER's frame, which is Y-up: +X right,
+// +Y up, -Z along the grip. So yaw is about Y, pitch about X, roll about Z,
+// and the ini keys LYaw/LPitch/LRoll now mean what they say when you trim a
+// hand. This changes nothing in the current configuration - every trim value
+// in the shipped ini is 0.0 - and at zero it must produce EXACTLY identity,
+// which is the property the stub failed to have.
+static void HmBuildYPR(const float* ypr, float* out)   // Y yaw, X pitch, Z roll
+{
+    const float cy = cosf(ypr[0]), sy = sinf(ypr[0]);
+    const float cp = cosf(ypr[1]), sp = sinf(ypr[1]);
+    const float cr = cosf(ypr[2]), sr = sinf(ypr[2]);
+    // R = Ry(yaw) * Rx(pitch) * Rz(roll), written out so there is no dependency
+    // on a matrix helper that could itself be stubbed.
+    out[0] =  cy*cr + sy*sp*sr;  out[1] = -cy*sr + sy*sp*cr;  out[2] =  sy*cp;
+    out[3] =  cp*sr;             out[4] =  cp*cr;             out[5] = -sp;
+    out[6] = -sy*cr + cy*sp*sr;  out[7] =  sy*sr + cy*sp*cr;  out[8] =  cy*cp;
+}
+
+
 // A gripping hand: palm, four fingers curled round the grip (which runs down
 // -Z), a thumb on the inside, and a coat cuff behind so it does not read as a
 // severed hand floating in the air. side = +1 right, -1 left, which flips the
@@ -397,10 +440,20 @@ static int HmSortCmp(const void* a, const void* b)
 }
 
 
-static void HmRenderEye(int eye)
+// Returns the number of triangles submitted, or a NEGATIVE reason code. The
+// codes exist because every one of these early returns used to be a silent
+// `return` and they are not the same fault: "the hands are off", "the head is
+// not tracked" and "the runtime has not handed us a frustum yet" all produced
+// an empty screen and an empty log. HmWhy() turns a code back into words.
+enum { HM_WHY_OFF = -1, HM_WHY_NOHEAD = -2, HM_WHY_NOFRUSTUM = -3,
+       HM_WHY_NOMAP = -4,
+       // ...and the seam's own refusals, which never reach HmRenderEye at all.
+       HM_WHY_NOPROJ = -5, HM_WHY_CTX = -6, HM_WHY_PIPE = -7, HM_WHY_DEPTH = -8 };
+
+static int HmRenderEye(int eye)
 {
-    if (!g_hmEnable || !g_hmReady) return;
-    if (!g_devPoseOk[0]) return;
+    if (!g_hmEnable || !g_hmReady) return HM_WHY_OFF;
+    if (!g_devPoseOk[0]) return HM_WHY_NOHEAD;
     if (g_hmHotReload && eye == 0) {
         static double next = 0.0;
         double now = MaimNowMs();
@@ -439,7 +492,7 @@ static void HmRenderEye(int eye)
         l = g_eyeFr[eye][0]; r = g_eyeFr[eye][1];
         t = g_eyeFr[eye][2]; b = g_eyeFr[eye][3];
         ex = g_eyeOffs[eye][0]; ey = g_eyeOffs[eye][1]; ez = g_eyeOffs[eye][2];
-    } else return;
+    } else return HM_WHY_NOFRUSTUM;
     float idx = 1.0f / (r - l), idy = 1.0f / (b - t);
     float (*hm)[4] = g_devPose[0];
 
@@ -457,10 +510,10 @@ static void HmRenderEye(int eye)
         float rad[3] = { (g_hmRot[h][0] + g_hmMRot[mi][0]) * 0.01745329f,
                          (g_hmRot[h][1] + g_hmMRot[mi][1]) * 0.01745329f,
                          (g_hmRot[h][2] + g_hmMRot[mi][2]) * 0.01745329f };
-        float B[9]; RtdBuildYPR(rad, B);
+        float B[9]; HmBuildYPR(rad, B);   // never the legacy stub: see HmBuildYPR
         for (int q = 0; q < g_hmGeoN[h] && nt < HM_MAXTRI * 2; q++) {
             HmTri* tri = &g_hmGeo[h][q];
-            float es[3][3]; bool bad = false; float zsum = 0;
+            float es[3][3]; bool nonFinite = false, nearRej = false; float zsum = 0;
             for (int k = 0; k < 3; k++) {
                 const float* lp = tri->p[k];
                 float sc[3] = { lp[0]*g_hmScale, lp[1]*g_hmScale, lp[2]*g_hmScale };
@@ -486,32 +539,71 @@ static void HmRenderEye(int eye)
                 } else {
                     es[k][0] = dx; es[k][1] = dy; es[k][2] = dz;
                 }
-                if (es[k][2] > -0.03f) bad = true;             // at or behind the eye
+                // Finiteness FIRST, and explicitly. A NaN does not trip the
+                // near-plane test - `NaN > -0.03f` is false - so before this
+                // check a non-finite vertex was submitted like any other and
+                // counted as a healthy triangle.
+                if (!HmFinite(es[k][0]) || !HmFinite(es[k][1]) || !HmFinite(es[k][2]))
+                    nonFinite = true;
+                else if (es[k][2] > -kHmNearM) nearRej = true;   // at or behind the eye
                 zsum += es[k][2];
             }
-            if (bad) continue;
+            if (nonFinite) { g_hmNonFinite++; continue; }
+            if (nearRej)   { g_hmNearRej++;   continue; }
+            float ndc[3][2];
             for (int k = 0; k < 3; k++) {
                 float x = es[k][0], y = es[k][1], z = es[k][2];
+                const float w = -z;          // > kHmNearM, by the test above
                 HandVert* v = &vtx[nt*3 + k];
                 v->uv[0] = tri->uv[k][0]; v->uv[1] = tri->uv[k][1];
                 v->pos[0] = 2*idx*x + (r + l)*idx*z;
                 v->pos[1] = 2*idy*y + (b + t)*idy*z;
-                v->pos[2] = 0.5f * (-z);
-                v->pos[3] = -z;
+                // 41.2: a depth that actually varies with distance. This was
+                // `0.5f * (-z)`, which divides by w = -z to EXACTLY 0.5 at
+                // every distance, so the depth buffer could not order anything:
+                // the first fragment to reach a pixel won and every later one
+                // failed LESS. The painter's sort was removed on the assumption
+                // depth had replaced it, and it had not. Standard D3D mapping,
+                // 0 at the near plane and 1 at the far.
+                v->pos[2] = (kHmFarM / (kHmFarM - kHmNearM)) * (w - kHmNearM);
+                v->pos[3] = w;
                 for (int a = 0; a < 4; a++) v->col[a] = tri->c[a];
+                ndc[k][0] = v->pos[0] / w;
+                ndc[k][1] = v->pos[1] / w;
+                if (w < g_hmDistMin) g_hmDistMin = w;
+                if (w > g_hmDistMax) g_hmDistMax = w;
+            }
+            {   // Where did it land, and can it produce a pixel at all?
+                const float ax = ndc[1][0] - ndc[0][0], ay = ndc[1][1] - ndc[0][1];
+                const float bx = ndc[2][0] - ndc[0][0], by = ndc[2][1] - ndc[0][1];
+                if (fabsf(ax * by - ay * bx) * 0.5f < 1e-9f) g_hmDegenerate++;
+                float mnx = ndc[0][0], mxx = ndc[0][0];
+                float mny = ndc[0][1], mxy = ndc[0][1];
+                for (int k = 1; k < 3; k++) {
+                    if (ndc[k][0] < mnx) mnx = ndc[k][0];
+                    if (ndc[k][0] > mxx) mxx = ndc[k][0];
+                    if (ndc[k][1] < mny) mny = ndc[k][1];
+                    if (ndc[k][1] > mxy) mxy = ndc[k][1];
+                }
+                if (mxx >= -1.0f && mnx <= 1.0f && mxy >= -1.0f && mny <= 1.0f)
+                    g_hmOnScreen++;
+                if (mnx < g_hmNdcMin[0]) g_hmNdcMin[0] = mnx;
+                if (mxx > g_hmNdcMax[0]) g_hmNdcMax[0] = mxx;
+                if (mny < g_hmNdcMin[1]) g_hmNdcMin[1] = mny;
+                if (mxy > g_hmNdcMax[1]) g_hmNdcMax[1] = mxy;
             }
             key[nt] = zsum;
             order[nt] = tri->tex;      // batch key: which skin this triangle uses
             nt++;
         }
     }
-    if (!nt) return;
+    if (!nt) return 0;
     // Depth testing means draw ORDER no longer matters, so group by skin
     // instead of by distance - one draw call per texture, no sorting at all.
     static int runStart[8], runLen[8];
     for (int q = 0; q < 8; q++) { runStart[q] = 0; runLen[q] = 0; }
     D3D11_MAPPED_SUBRESOURCE ms;
-    if (FAILED(g_ctx11->Map(g_hmVB, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) return;
+    if (FAILED(g_ctx11->Map(g_hmVB, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) return HM_WHY_NOMAP;
     HandVert* dst = (HandVert*)ms.pData;
     int out = 0;
     for (int sl = 0; sl < 8; sl++) {
@@ -542,6 +634,258 @@ static void HmRenderEye(int eye)
         g_ctx11->Draw(runLen[sl] * 3, runStart[sl] * 3);
     }
     if (g_dsOff) g_ctx11->OMSetDepthStencilState(g_dsOff, 0);
+    return nt;
+}
+
+
+// ---------------------------------------------------------------------------
+// 41.2 (VR-31): THE DRAW SEAM.
+//
+// VR-31 asked whether floating HANDS were reachable. Route (d) proved that
+// hiding by material section works and, in the same breath, that it cannot
+// give hands: the census read ONE section on Skm_Player, so the arms and the
+// hands are the same piece of geometry and no finer cut exists in the asset.
+// The answer is therefore a different SOURCE for the hands, and the mod has
+// carried one since 30.77 - this file. Hide the game's body, draw our own.
+//
+// What was missing was not the renderer but its CALLER. HmRenderEye drew into
+// the per-eye render targets of the side-by-side pipeline, and that pipeline
+// was deleted in 41.0 (cc2fa936). Since then HmEnsurePipeline and HmRenderEye
+// have had no call site at all: the whole subsystem compiled, shipped and did
+// nothing, and [VRHands] Enabled=1 would have changed nothing on screen.
+//
+// So the stereo method calls us now, between the game image and the F10 panel.
+// Three things the old caller supplied and this one has to rebuild:
+//
+//   1. A DEPTH BUFFER. The pass batches by skin and depth-tests; the sort it
+//      used to do is gone. Without a bound DSV the depth STATE is inert and
+//      the back of a hand paints over its front.
+//   2. The right EYE. The tag of the pixels in the target, not the eye the
+//      next game draw will render.
+//   3. A frustum that matches the LAYER'S CLAIM, not the headset's raw
+//      half-angles - see DvrPresentPoses, where g_eyeFr is filled.
+//
+// Ships OFF ([VRHands] Enabled=0) with `vrhands on|off` as the live A/B.
+// UNVERIFIED in a headset as of this commit.
+// ---------------------------------------------------------------------------
+
+static void HmReleaseDepth()
+{
+    if (g_hmDSV) { g_hmDSV->Release(); g_hmDSV = NULL; }
+    if (g_hmDepthTex) { g_hmDepthTex->Release(); g_hmDepthTex = NULL; }
+    g_hmDepthW = g_hmDepthH = 0;
+}
+
+
+static bool HmEnsureDepth(ID3D11Device* dev, uint32_t w, uint32_t h)
+{
+    if (g_hmDSV && g_hmDepthW == w && g_hmDepthH == h) return true;
+    HmReleaseDepth();
+    D3D11_TEXTURE2D_DESC td; memset(&td, 0, sizeof(td));
+    td.Width = w; td.Height = h;
+    td.MipLevels = td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_D32_FLOAT;
+    td.SampleDesc.Count = 1;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    if (FAILED(dev->CreateTexture2D(&td, NULL, &g_hmDepthTex)) ||
+        FAILED(dev->CreateDepthStencilView(g_hmDepthTex, NULL, &g_hmDSV))) {
+        Log("vrhands: REFUSED - depth buffer %ux%u would not create. Without "
+            "one the depth STATE is inert and the back of a hand paints over "
+            "its front, so the pass declines rather than drawing it wrong.",
+            w, h);
+        HmReleaseDepth();
+        return false;
+    }
+    g_hmDepthW = w; g_hmDepthH = h;
+    Log("vrhands: depth buffer %ux%u D32 (%.1f MB), one shared by both eyes and "
+        "cleared per draw - a present carries one eye's picture and one eye's "
+        "hands, so they never overlap",
+        w, h, (double)w * (double)h * 4.0 / 1048576.0);
+    return true;
+}
+
+
+static const char* HmWhy(int code)
+{
+    switch (code) {
+    case HM_WHY_OFF:       return "the hands are off or the pipeline is not up";
+    case HM_WHY_NOHEAD:    return "no head pose this present";
+    case HM_WHY_NOFRUSTUM: return "no per-eye frustum yet (the runtime has not located the views)";
+    case HM_WHY_NOMAP:     return "the vertex buffer would not map";
+    case HM_WHY_NOPROJ:    return "the active method is not a projection layer";
+    case HM_WHY_CTX:       return "the seam's context is not g_ctx11";
+    case HM_WHY_PIPE:      return "the pipeline never came up";
+    case HM_WHY_DEPTH:     return "no depth buffer";
+    default:               return "drew";
+    }
+}
+
+
+// Every 3 s while the hands are on. It must be able to print the UNWELCOME
+// answer, so it names the reason for a zero instead of leaving one.
+static void HmBeat()
+{
+    if (!g_hmEnable) return;        // silence while the lever is off
+    const double now = MaimNowMs();
+    if (now < g_hmNextBeat) return;
+    const bool first = (g_hmNextBeat == 0.0);
+    g_hmNextBeat = now + 3000.0;
+    if (first) return;              // the first window is a fragment
+    const bool anyNdc = g_hmNdcMax[0] >= g_hmNdcMin[0];
+    Log("vrhands: beat calls=%u draws=%u last=%s | tris submitted=%u ON-SCREEN=%u "
+        "| dropped: nonFinite=%u nearPlane=%u | degenerate=%u | NDC x[%.2f %.2f] "
+        "y[%.2f %.2f] (the viewport is [-1 1] on both) | eye distance %.2f..%.2f m",
+        g_hmCalls, g_hmDraws, HmWhy(g_hmLastWhy), g_hmTris, g_hmOnScreen,
+        g_hmNonFinite, g_hmNearRej, g_hmDegenerate,
+        anyNdc ? g_hmNdcMin[0] : 0.0f, anyNdc ? g_hmNdcMax[0] : 0.0f,
+        anyNdc ? g_hmNdcMin[1] : 0.0f, anyNdc ? g_hmNdcMax[1] : 0.0f,
+        g_hmDistMax >= g_hmDistMin ? g_hmDistMin : 0.0f,
+        g_hmDistMax >= g_hmDistMin ? g_hmDistMax : 0.0f);
+    // How to read it, spelled out, because the first version of this line
+    // reported a healthy `tris` for geometry that could never draw a pixel:
+    //   calls 0                     the stereo method never reached the seam
+    //   draws 0, calls > 0          the pass refused - the reason is `last`
+    //   nonFinite > 0               the transform is producing NaN/inf
+    //   submitted > 0, on-screen 0  the geometry is off the viewport, and the
+    //                               NDC box says which way and by how much
+    //   degenerate ~= submitted     the triangles collapsed to no area
+    //   on-screen > 0, still blank  the draw path, not the geometry: turn on
+    //                               [VRHands] CalibTriangle
+    if (g_hmDraws && !g_hmOnScreen && g_hmTris)
+        Log("vrhands:   ^ SUBMITTED BUT NOTHING ON SCREEN - %u triangle(s) went "
+            "to the GPU and not one had bounds inside the viewport. This is a "
+            "GEOMETRY fault, not a draw-path fault; the NDC box above says "
+            "which axis and by how much.", g_hmTris);
+    if (g_hmNonFinite)
+        Log("vrhands:   ^ %u NON-FINITE triangle(s) - the transform is producing "
+            "NaN or inf. Nothing downstream can fix that.", g_hmNonFinite);
+    g_hmCalls = g_hmDraws = g_hmTris = 0;
+    g_hmNonFinite = g_hmNearRej = g_hmDegenerate = g_hmOnScreen = 0;
+    g_hmNdcMin[0] = g_hmNdcMin[1] = 1e30f;
+    g_hmNdcMax[0] = g_hmNdcMax[1] = -1e30f;
+    g_hmDistMin = 1e30f; g_hmDistMax = -1e30f;
+}
+
+
+// 41.2 (VR-31): the calibration triangle - the FALLBACK instrument.
+//
+// One triangle at fixed NDC coordinates, through the same shader, the same
+// vertex buffer, the same states and the same target as the hands. It cannot
+// be wrong about geometry because it has none to get wrong: if this appears
+// and the hands do not, the draw path is sound and the fault is in the
+// transform. If this does not appear either, the fault is the target or the
+// submission and the hunt moves there.
+//
+// It is a FALLBACK, not the first move, and the outcomes are not fully
+// exclusive: a visible calibration triangle proves ITS path works, and hands
+// could still fail on degenerate geometry or a texture slot. The beat's
+// counters discriminate those; this only separates path from geometry.
+// Default OFF ([VRHands] CalibTriangle).
+static void HmDrawCalibration(ID3D11DeviceContext* ctx)
+{
+    HandVert v[3];
+    memset(v, 0, sizeof(v));
+    // NDC directly: w = 1, so pos IS the clip position. Mid-depth so it neither
+    // hides behind nor punches through anything the hands draw.
+    static const float pts[3][2] = { { -0.5f, -0.5f }, { 0.0f, 0.5f }, { 0.5f, -0.5f } };
+    for (int k = 0; k < 3; k++) {
+        v[k].pos[0] = pts[k][0]; v[k].pos[1] = pts[k][1];
+        v[k].pos[2] = 0.5f;      v[k].pos[3] = 1.0f;
+        v[k].col[0] = 1.0f; v[k].col[1] = 0.0f; v[k].col[2] = 1.0f; v[k].col[3] = 1.0f;
+        v[k].uv[0] = 0.5f;  v[k].uv[1] = 0.5f;
+    }
+    D3D11_MAPPED_SUBRESOURCE ms;
+    if (FAILED(ctx->Map(g_hmVB, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) return;
+    memcpy(ms.pData, v, sizeof(v));
+    ctx->Unmap(g_hmVB, 0);
+    UINT stride = sizeof(HandVert), off = 0;
+    ctx->IASetInputLayout(g_hmLayout);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(g_hmVS, NULL, 0);
+    ctx->PSSetShader(g_hmPS, NULL, 0);
+    ctx->IASetVertexBuffers(0, 1, &g_hmVB, &stride, &off);
+    ctx->PSSetSamplers(0, 1, &g_sampler);
+    if (!g_hmSkin[0]) g_hmSkin[0] = HmMakeSolidWhite();
+    ctx->PSSetShaderResources(0, 1, &g_hmSkin[0]);
+    if (g_dsOn) ctx->OMSetDepthStencilState(g_dsOn, 0);
+    ctx->Draw(3, 0);
+    static bool said = false;
+    if (!said) {
+        said = true;
+        Log("vrhands: CALIBRATION TRIANGLE armed - a magenta triangle in the "
+            "middle of each eye, at fixed NDC, through the hands' own shader, "
+            "buffer, states and target. Visible + no hands = the draw path is "
+            "fine and the geometry is wrong. Neither visible = the target or "
+            "the submission. `[VRHands] CalibTriangle=0` turns it off.");
+    }
+}
+
+
+// The stereo seam's entry point. Present thread, target already carrying the
+// game image; we hand it back bound to `rtv` with NO depth, which is exactly
+// what the F10 overlay draws into next.
+static void HmDrawIntoEye(ID3D11Device* dev, ID3D11DeviceContext* ctx,
+                          ID3D11RenderTargetView* rtv, uint32_t w, uint32_t h,
+                          int eyeSign)
+{
+    if (!g_hmEnable) return;                 // silent: the lever is OFF by default
+    g_hmCalls++;   // the beat itself ticks from the present tick, not here
+    if (!dev || !ctx || !rtv || !w || !h) return;
+
+    // The quad screen is a PICTURE at [Screen] DistanceMeters, not a world.
+    // Hands composed through an eye frustum would sit at a depth the screen
+    // does not have, and would be wrong by exactly that disagreement. Refuse,
+    // and say which rung would work - a silent skip reads as broken hands.
+    if (!dvr::stereo::wants_projection()) {
+        static bool said = false;
+        if (!said) {
+            said = true;
+            Log("vrhands: NOT DRAWN on method '%s' - it shows the game on a "
+                "head-locked quad, and a quad is a picture, not a world. This "
+                "is the wrong rung, not a fault. `stereo reentry` puts a "
+                "projection layer up and the hands draw.",
+                dvr::stereo::active_name());
+        }
+        g_hmLastWhy = HM_WHY_NOPROJ;
+        return;
+    }
+    // Never take the game's context for granted: HmRenderEye writes through
+    // g_ctx11, so a target on a different context would silently draw nowhere.
+    if (ctx != g_ctx11) {
+        static bool said = false;
+        if (!said) {
+            said = true;
+            Log("vrhands: REFUSED - the seam handed us a context that is not "
+                "g_ctx11; the pass writes through g_ctx11 and would have drawn "
+                "into nothing");
+        }
+        g_hmLastWhy = HM_WHY_CTX;
+        return;
+    }
+    if (!HmEnsurePipeline()) {
+        static bool said = false;
+        if (!said) { said = true; Log("vrhands: pipeline would not come up - no hands this session"); }
+        g_hmLastWhy = HM_WHY_PIPE;
+        return;
+    }
+    if (!HmEnsureDepth(dev, w, h)) { g_hmLastWhy = HM_WHY_DEPTH; return; }
+
+    D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
+    ctx->RSSetViewports(1, &vp);
+    ctx->ClearDepthStencilView(g_hmDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
+    ctx->OMSetRenderTargets(1, &rtv, g_hmDSV);
+    if (g_hmCalib) HmDrawCalibration(ctx);
+    // eyeSign is -1 left, +1 right, 0 mono. HmRenderEye indexes 0/1; a mono
+    // present has no eye of its own and gets the left frustum.
+    const int why = HmRenderEye(eyeSign > 0 ? 1 : 0);
+    g_hmDraws++;
+    g_hmLastWhy = why;
+    if (why > 0) g_hmTris += (uint32_t)why;
+    // Hand the target back the way the overlay expects it: colour only, no
+    // depth. Leaving the DSV bound would depth-test the F10 panel against the
+    // hands, and the panel is 2D.
+    ctx->OMSetRenderTargets(1, &rtv, NULL);
 }
 
 

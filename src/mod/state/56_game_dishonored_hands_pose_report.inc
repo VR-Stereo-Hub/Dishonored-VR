@@ -1,0 +1,118 @@
+// State chunk 56 for game/dishonored/hands/pose_report - included by
+// src/mod/dishonoredvr.cpp. Original order is preserved across chunks.
+//
+// ===========================================================================
+// VR-33 step 1: the READ-ONLY pose, socket and item correspondence report.
+//
+// WHY THIS EXISTS AND WHY IT WRITES NOTHING. Four attempts at placing the
+// hands failed, and the review of them found that every one had been built on
+// a quantity nobody had checked. Three examples, all of them mine:
+//
+//   * "the pivot is at the shoulder" came from distances between skinning
+//     matrix TRANSLATIONS. A skinning matrix commonly folds in the inverse
+//     bind transform, so its translation places the bind mesh origin and not
+//     the joint. The number was real and the reading of it was invented.
+//   * g_msHandBone and g_msBoneHand were treated as one idea. They are two
+//     unrelated heuristics - maximum degree in a co-influence graph, and a
+//     sphere around a vertex centroid - and neither is anatomy.
+//   * 210 units a metre was derived from where a resting hand OUGHT to be,
+//     which assumes the answer.
+//
+// So before anything is placed anywhere, resolve what the engine itself says:
+// the live skeletal component, its sockets, each socket's parent BONE and
+// local transform, the equipped item and the socket it actually uses. Those
+// are semantic facts the asset states, rather than shapes guessed from a
+// vertex cloud.
+//
+// Every name below is taken from the decompiled scripts under
+// tools/uscript/dishonored, quoted exactly:
+//
+//   DishonoredInventory.m_Slots, .m_pOwner
+//   DishonoredInventoryItem.m_pOwningInventory, .m_CurSocket, .m_pMesh,
+//                           .m_pPlayerMesh, .m_pPostUpdateTickComponent
+//   SkeletalMeshSocket.SocketName, .BoneName, .RelativeLocation,
+//                      .RelativeRotation, .RelativeScale
+//
+// A name that does not resolve is REPORTED AS UNKNOWN and nothing is inferred
+// from its absence. That is the whole discipline this module exists to
+// restore: the plan's gate is "if a relationship is unknown, print it as
+// unknown", and a report that quietly substitutes a guess for a missing field
+// is worse than no report.
+//
+// LANE: the SCRIPT lane, called from PeHandler beside ArmFollowTick.
+//
+// It did not start there, and the correction is worth recording. The first
+// build said "the script lane, from the same place arm_follow's probe runs"
+// and was called from DcTick, which runs from DvrGameTick - "every enabled
+// present" - so it was reading UE3 objects from the PRESENT THREAD while its
+// own comment claimed otherwise. RangeReadable proves a page is mapped; it
+// does not make a multi-field read of a live object coherent, nor protect
+// against that object being freed between two of those fields. A probe that
+// is wrong about its own lane is worse than one with no comment at all.
+//
+// It was also gated behind g_dcOn, because DcTick returns early when the draw
+// census is off - so turning the census off silently took this report with it.
+// It now runs on its own.
+//
+// It reads engine memory through RangeReadable guards and never writes.
+// ===========================================================================
+
+#define PR_MAX_FIELDS 40
+
+struct PrField {
+    const char* cls;
+    const char* prop;
+    uint32_t    off;      // 0 = did not resolve
+};
+
+// The fields this report needs, by class and name. Kept as a table so the log
+// can say exactly which ones the running build could and could not find,
+// rather than failing at the first miss.
+static PrField g_prFields[PR_MAX_FIELDS] = {
+    { "DishonoredInventory",     "m_Slots",                   0 },
+    { "DishonoredInventory",     "m_pOwner",                  0 },
+    { "DishonoredInventoryItem", "m_pOwningInventory",        0 },
+    { "DishonoredInventoryItem", "m_CurSocket",               0 },
+    { "DishonoredInventoryItem", "m_pMesh",                   0 },
+    { "DishonoredInventoryItem", "m_pPlayerMesh",             0 },
+    { "DishonoredInventoryItem", "m_pPostUpdateTickComponent",0 },
+    { "SkeletalMeshSocket",      "SocketName",                0 },
+    { "SkeletalMeshSocket",      "BoneName",                  0 },
+    { "SkeletalMeshSocket",      "RelativeLocation",          0 },
+    { "SkeletalMeshSocket",      "RelativeRotation",          0 },
+    { "SkeletalMeshSocket",      "RelativeScale",             0 },
+    // Sockets live on the ASSET, not the component. The component only
+    // declares socket QUERIES (functions), which reflection over properties
+    // will never find - the first run reported it UNKNOWN and that was this
+    // module looking in the wrong place, not the build differing.
+    { "SkeletalMeshComponent",   "SkeletalMesh",              0 },
+    { "SkeletalMesh",            "Sockets",                   0 },
+    { "SkeletalMesh",            "RefSkeleton",               0 },
+    { "DishonoredPlayerPawn",    "m_pLookAtControl_LeftHand", 0 },
+    { "DishonoredPlayerPawn",    "m_pLookAtControl_RightHand",0 },
+    { "DishonoredPlayerPawn",    "m_pLookAtControl_Camera",   0 },
+    // Mesh is declared on Engine.Pawn (Pawn.uc:187), and FindPropOffset
+    // matches on the OUTER's name, so asking DishonoredPawn for it misses.
+    { "Pawn",                    "Mesh",                      0 },
+    // VR-33 step 1b.3, the live attachment path.
+    { "DishonoredPawn",          "m_pInventory",              0 },
+    { "DishonoredItemSkeletalComponent", "m_pItem",           0 },
+    { "SkeletalMeshComponent",   "AttachedToSkelComponent",   0 },
+    { "SkeletalMeshComponent",   "Attachments",               0 },
+    // VR-33 step 2a-part-1, the three hand controls.
+    { "SkelControlBase",         "ControlName",               0 },
+    { "SkelControlBase",         "ControlStrength",           0 },
+    { "SkelControlBase",         "NextControl",               0 },
+    { "SkelControlBase",         "ControlTickTag",            0 },
+    { "SkelControlBase",         "BoneScale",                 0 },
+    { NULL, NULL, 0 },
+};
+
+static bool     g_prOn = true;          // [Hands] PoseReport - read-only
+static bool     g_prTried = false;
+static uint32_t g_prNextTryMs = 0;
+static int      g_prFound = 0, g_prMissing = 0;
+static volatile int g_prDumpReq = 0;    // one full dump on request
+static double   g_prNextReport = 0.0;
+static bool     g_prDumped = false;    // the one automatic socket dump
+static double   g_prDumpNext = 0.0;    // the automatic dump retries until it works

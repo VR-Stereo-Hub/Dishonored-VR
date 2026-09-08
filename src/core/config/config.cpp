@@ -20,10 +20,13 @@ static void WriteDefaultIni(const char* ini)
         "YawCountsPerDegree=11.5\n"
         "PitchCountsPerDegree=11.5\n"
         "InvertPitch=0\n"
-        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). -0.090 is the\n"
-        "; value the 2026-09-03/04 headset runs were judged at (it was the code default and\n"
-        "; unwritten before); F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
-        "HeightOffsetM=-0.090\n"
+        "; HeightOffsetM shifts the eyes vertically (metres, negative = lower). +0.060 is\n"
+        "; headset-judged 2026-09-05, arrived at by ear across the arm-decoupling runs\n"
+        "; (-0.090 -> -0.050 -> +0.060 as the arms stopped moving and the scale settled).\n"
+        "; It pairs with [PosTrack] Scale=108 from the same session - eye height and world\n"
+        "; scale are judged together, so moving one alone will read as wrong.\n"
+        "; F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
+        "HeightOffsetM=0.060\n"
         "[Stereo]\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
@@ -57,6 +60,51 @@ static void WriteDefaultIni(const char* ini)
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
         "; the per-eye camera seam); none disables the write.\n"
         "EyeField=0x330\n"
+        "; ArmFollowWeight (VR-30): how hard the arms and weapon follow where you LOOK.\n"
+        "; -1 = off, the game's own value stands (ships). 0..1 forces it: 0 should stop the\n"
+        "; arms following the view entirely, 1 is the shipped behaviour written by us instead\n"
+        "; of by the engine (a control - if 1 looks stock, the write is landing).\n"
+        "; Measured 2026-09-05: the engine RECOMPUTES these weights every frame (they ride\n"
+        "; 0.982..1.000 and never leave it), so this is written on every script dispatch, the\n"
+        "; same cadence the FOV lever uses to outrun the same recompute. The game's own\n"
+        "; DishonoredCamera.ini m_fDefaultWeight was tried first and does nothing.\n"
+        "; This is ROTATION only; the position channel belongs to a separate ticket.\n"
+        "; `arms follow <0..1>` and `arms follow off` are the live A/B.\n"
+        "ArmFollowWeight=-1\n"
+        "; ArmDisableWeight (VR-30): the OTHER way at the same thing, and the better one.\n"
+        "; Rather than pasting a weight over the engine's recompute (which measured as a\n"
+        "; 1.000<->0.000 fight between dispatches, seen as the arms TRAILING the view), this\n"
+        "; forces the game's own DisableArmFollow influences, so the recompute derives an arm\n"
+        "; follow of 0 by itself and holds it. -1 = off (ships), 1 = full decoupling.\n"
+        "; m_Weight, m_TargetWeight and m_bActive are all written every dispatch, because the\n"
+        "; game pulls the target back to 0 about 60 ms after raising it on its own.\n"
+        "; `arms disable <0..1>` and `arms disable off` are the live A/B.\n"
+        "ArmDisableWeight=-1\n"
+        "; ArmLookAtStrength (VR-30): the YAW candidate. ArmDisableWeight above took the\n"
+        "; arms' VERTICAL follow and left the horizontal alone, and forcing the settings\n"
+        "; weights on top of it added nothing - so both of those act on one channel and\n"
+        "; neither reaches yaw. LookAtControl_Camera is the Arkane look-at that aims the\n"
+        "; arms at the view; 0 stops it. -1 = off (ships), 0..1 forces its ControlStrength.\n"
+        "; This one finds the node itself, so it works on a stock install - the mod's older\n"
+        "; [Hands] CameraLookAtStrength writes the same field but is dead behind the\n"
+        "; hand-mesh gate that [Mode] GamepadOnly=1 closes.\n"
+        "; `arms lookat <0..1>` and `arms lookat off` are the live A/B.\n"
+        "ArmLookAtStrength=-1\n"
+        "; ArmCounterYaw (VR-30): THE YAW LEVER, and it ships ON at 1.0.\n"
+        "; Reading the scripts end to end says there is no yaw driver for the arms at all -\n"
+        "; every arm/aim/look mechanism the game exposes is pitch-only or NPC-only. The arms\n"
+        "; yaw because the PAWN yaws: they are bones of its mesh, and the pawn's native\n"
+        "; FaceRotation sets its yaw from the controller every frame. There is nothing to\n"
+        "; switch off. So this SUBTRACTS instead: m_ArmFollowOffset_Rot_Primary/_Secondary\n"
+        "; are the game's own authored arm rotation offsets (Rotators, already scaled by a\n"
+        "; weight the engine respects), and they get a yaw equal and opposite to how far your\n"
+        "; head has turned since the reference. The arms then hold still in the world while\n"
+        "; the view turns, and attachments follow for free because the engine applies it.\n"
+        "; Stick turning moves the BODY yaw, not the head's, so it is untouched - the body\n"
+        "; comes round and the arms come with it, which is what you want.\n"
+        "; 1.0 = hold still, 0.5 = follow at half rate (tune by feel), 0 = write a zero offset\n"
+        "; as a control, -1 = off. `arms yaw <0..2>` and `arms yaw off` are the live A/B.\n"
+        "ArmCounterYaw=-1\n"
         "[Capture]\n"
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
@@ -253,7 +301,8 @@ static void WriteDefaultIni(const char* ini)
         "; how far it will follow.\n"
         "; If leaning LEFT moves the world the wrong way set FlipX=1.\n"
         "Enabled=1\n"
-        "Scale=98\n"
+        "; 108 uu/m: headset-judged 2026-09-05, tuned live with PgDn from 98 and kept.\n"
+        "Scale=108\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
         "[Neck]\n"
@@ -465,6 +514,10 @@ static void LoadConfig()
         // boot - the scene-draw hooks did not exist yet).
         char sm[16] = "";
         GetPrivateProfileStringA("Stereo", "Method", "reentry", sm, sizeof(sm), ini);
+        // The second draw stands itself down when it is not producing presents
+        // of its own - it can only overwrite pass 1 in the same backbuffer then,
+        // which makes the frame alternate between the eyes. See SceneDrawBeat.
+        g_sdStandDown = IniFloat(ini, "Stereo", "ReentryStandDown", 1) != 0.0f;
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
@@ -476,6 +529,38 @@ static void LoadConfig()
         char ef[16] = "";
         GetPrivateProfileStringA("Camera", "EyeField", "0x330", ef, sizeof(ef), ini);
         dvr::camera::set_eye_field(ef);
+    }
+    {   // VR-30: [Camera] ArmFollowWeight. -1 = off (ships). Read here rather
+        // than under [Hands] on purpose: the GamepadOnly block near the end of
+        // this function clears the hand switches, and this must survive it.
+        const float afw = IniFloat(ini, "Camera", "ArmFollowWeight", -1.0f);
+        if (afw > 1.0f)
+            Log("config: [Camera] ArmFollowWeight=%.2f is out of range (-1 = off, 0..1) - left OFF", afw);
+        else if (afw >= 0.0f)
+            ArmFollowSetForce(afw, "ini");
+        const float adw = IniFloat(ini, "Camera", "ArmDisableWeight", -1.0f);
+        if (adw > 1.0f)
+            Log("config: [Camera] ArmDisableWeight=%.2f is out of range (-1 = off, 0..1) - left OFF", adw);
+        else if (adw >= 0.0f)
+            ArmFollowSetInfluence(adw, "ini");
+        const float als = IniFloat(ini, "Camera", "ArmLookAtStrength", -1.0f);
+        if (als > 1.0f)
+            Log("config: [Camera] ArmLookAtStrength=%.2f is out of range (-1 = off, 0..1) - left OFF", als);
+        else if (als >= 0.0f)
+            ArmFollowSetLookAt(als, "ini");
+        // VR-30: the yaw lever. Ships ON at 1.0 - a deliberate exception to
+        // "every render lever ships OFF", made on the user's direction because
+        // the arms following the view is the fault the whole ticket is about.
+        const float acy = IniFloat(ini, "Camera", "ArmCounterYaw", -1.0f);
+        if (acy > 2.0f)
+            Log("config: [Camera] ArmCounterYaw=%.2f is out of range (-1 = off, 0..2) - left OFF", acy);
+        else if (acy >= 0.0f)
+            ArmFollowSetCounterYaw(acy, "ini");
+        // VR-30: the core fix - hold the body instead of correcting the arms
+        const float fac = IniFloat(ini, "Camera", "ArmBodyFacing", -1.0f);
+        if (fac >= 0.0f) ArmFollowSetFacing(fac, "ini");
+        const float asr = IniFloat(ini, "Camera", "ArmStripMeshRot", -1.0f);
+        if (asr >= 0.0f) ArmFollowSetStripRot(asr, "ini");
     }
     {   // [Capture] Mode: the capture path (sync is the baseline; an impossible
         // mode is refused with the reason and sync keeps running)
@@ -576,7 +661,7 @@ static void LoadConfig()
     // its own UE3 build from three agreeing movement constants.
     // Corroborated by eye height: 78.1 uu above the pawn origin plus a typical
     // ~88 uu human collision half-height puts the eye at 1.66 m.
-    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 98.0f);
+    g_posScaleUU = IniFloat(ini, "PosTrack", "Scale", 108.0f);
     if (g_posScaleUU < 1.0f)    g_posScaleUU = 1.0f;
     if (g_posScaleUU > 400.0f)  g_posScaleUU = 400.0f;
     g_roomScaleCfg = IniFloat(ini, "PosTrack", "RoomScale", 1) != 0.0f;  // 38.46
@@ -693,8 +778,22 @@ static void LoadConfig()
 
     // 30.77: our own VR hands
     {
+        // 41.2 (VR-31): back OFF. Its verdict is recorded - the renderer works
+        // (the uninitialised-matrix fix) and tracks the controllers - but the
+        // requirement moved to the game's OWN hands, because the powers animate
+        // them, and the built-in box primitives were a distraction on screen
+        // during the route (b) diagnosis. This is the FALLBACK now: `vrhands
+        // on`, and real art in vrhands\*.obj, if route (b) dead-ends.
         g_hmEnable   = IniFloat(ini, "VRHands", "Enabled", 0) != 0.0f;
-        g_hmHideGame = IniFloat(ini, "VRHands", "HideGameArms", 1) != 0.0f;
+        // HideGameArms ships OFF with it, and that is NOT an oversight. It
+        // collapses the game's own view-model rigs by upload size (30.77, the
+        // vs-const path) - a second behavioural change, in the same build as
+        // the first, and the author's own process rule is one per build. It
+        // also makes the first run diagnostic instead of pass/fail: with the
+        // game's arms still drawn, they are the reference our hands are judged
+        // against. If our hands land right, this flag is the whole remaining
+        // step to floating hands.
+        g_hmHideGame = IniFloat(ini, "VRHands", "HideGameArms", 0) != 0.0f;
         g_hmScale    = IniFloat(ini, "VRHands", "Scale", 1.0f);
         if (g_hmScale < 0.2f) g_hmScale = 0.2f;
         if (g_hmScale > 4.0f) g_hmScale = 4.0f;
@@ -703,6 +802,9 @@ static void LoadConfig()
         g_hmAuto = IniFloat(ini, "VRHands", "FollowEquipped", 1) != 0.0f;
         g_hmObjScale = IniFloat(ini, "VRHands", "ObjScale", 0.01f);
         g_hmHotReload = IniFloat(ini, "VRHands", "HotReload", 1) != 0.0f;
+        // 41.2 (VR-31): the fallback instrument, OFF. Only worth arming if the
+        // hands are still invisible once the beat says they are on-screen.
+        g_hmCalib = IniFloat(ini, "VRHands", "CalibTriangle", 0) != 0.0f;
         if (g_hmObjScale < 0.0001f) g_hmObjScale = 0.0001f;
         if (g_hmObjScale > 1.0f)    g_hmObjScale = 1.0f;
         g_hmHideStatic   = IniFloat(ini, "VRHands", "HideStaticParts", 1) != 0.0f;
@@ -995,6 +1097,432 @@ static void LoadConfig()
     if (g_sprintPulseMs < 60.0f)  g_sprintPulseMs = 60.0f;
     if (g_sprintPulseMs > 400.0f) g_sprintPulseMs = 400.0f;
     g_crouchHideCfg   = IniFloat(ini, "Hands", "CrouchHideArms", 1) != 0.0f; // 38.29
+    // VR-31 route (a). Back to OFF now the verdict is in: `arms vis status`
+    // runs the diagnostic on demand, and there is no array left to write to.
+    g_boneVisCfg      = IniFloat(ini, "Hands", "BoneVisHide", 0) != 0.0f;
+    // VR-31 route (d). Read-only census, ships ON: it costs one walk per run
+    // and it is what the route decision is waiting on.
+    g_matCensusCfg    = IniFloat(ini, "Hands", "MatCensus", 1) != 0.0f;
+    // VR-31 route (d): the automatic hide/restore A/B. Ships ON and undoes
+    // itself; MatAuto=0 leaves the census read-only.
+    g_matAutoCfg      = IniFloat(ini, "Hands", "MatAuto", 0) != 0.0f;
+    g_matCycleCfg     = IniFloat(ini, "Hands", "MatCycle", 1) != 0.0f;
+    // 41.2 (VR-31) route (b) step 1. ON for the test sessions: read-only until
+    // a numpad key is pressed, and a run that shows nothing is itself the
+    // answer. Reverts to OFF when the arm/hand split is settled.
+    g_dcOn            = IniFloat(ini, "Hands", "DrawCensus", 1) != 0.0f;
+    // VR-31 step 2: the arm/hand split derived from bone influence. ON by
+    // default and auto-arming, because the eyeballed slice mask it replaces was
+    // tuned on one hand and took too much of the other - a cut derived from the
+    // mesh's own skinning is per-arm by construction. It fails soft: a mesh it
+    // cannot read is drawn exactly as the game asked, and the log says why.
+    g_msOn            = IniFloat(ini, "Hands", "ArmSplit", 1) != 0.0f;
+    g_msAuto          = IniFloat(ini, "Hands", "ArmSplitAuto", 1) != 0.0f;
+    g_msMode          = (int)IniFloat(ini, "Hands", "ArmSplitMode", (float)MS_MODE_HANDS);
+    if (g_msMode < 0 || g_msMode >= MS_MODE_N) g_msMode = MS_MODE_HANDS;
+    // The measured shape of Corvo's first-person arm mesh. The auto-arm matches
+    // on it exactly, so a different asset is left alone; change these two if the
+    // log says the signature never matched.
+    g_msWantPrims     = (uint32_t)IniFloat(ini, "Hands", "ArmMeshPrims", 4448.0f);
+    g_msWantVerts     = (uint32_t)IniFloat(ini, "Hands", "ArmMeshVerts", 2771.0f);
+    // 0.70 is the tester's measured cut from the 2026-09-06 headset run. It is
+    // the SEED for the plane's starting position, not the cut itself.
+    g_msWristScale[1] = IniFloat(ini, "Hands", "WristScaleA", 0.70f);
+    g_msWristScale[2] = IniFloat(ini, "Hands", "WristScaleB", 0.70f);
+    // The cut is a PLANE across the forearm, not a sphere around the hand bone.
+    // The sphere moves in whole bones - a press changed nothing at all from
+    // scale 0.50 to 0.67, then flipped 156 triangles per arm at once - and its
+    // edge is the outline of a bone's influence region rather than a cut. A
+    // plane perpendicular to the forearm cuts it in a circle and moves smoothly.
+    g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
+    g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
+    g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
+    // VR-33 step 1. READ-ONLY, so it ships ON: it resolves engine names and
+    // reports what it could not find, and writes nothing anywhere.
+    g_prOn            = IniFloat(ini, "Hands", "PoseReport", 1) != 0.0f;
+    // VR-33 step 1b. This one MAKES ENGINE CALLS, so it ships OFF and is
+    // separate from the read-only report, which keeps working either way.
+    g_bqOn            = IniFloat(ini, "Hands", "BoneQuery", 0) != 0.0f;
+    // VR-33 phase 1. This one WRITES to the skeleton, so it ships OFF and
+    // restores every field it touched when it is switched off.
+    g_hmOn            = IniFloat(ini, "Hands", "HandMoveTest", 0) != 0.0f;
+    g_hmAmount        = IniFloat(ini, "Hands", "HandMoveUU", 10.0f);
+    g_hmAxis          = (int)IniFloat(ini, "Hands", "HandMoveAxis", 0);
+    if (g_hmAxis < 0 || g_hmAxis > 2) g_hmAxis = 0;
+    // VR-33: the draw-scoped bone palette. A RENDER LEVER, so it ships OFF
+    // with a live A/B - Palette=0 leaves MsDraw issuing the single merged draw
+    // it always did, and nothing in the frame path changes.
+    g_mpOn            = IniFloat(ini, "Hands", "Palette", 0) != 0.0f;
+    g_mpAmount        = IniFloat(ini, "Hands", "PaletteAmount", 12.0f);
+    g_mpAxis          = (int)IniFloat(ini, "Hands", "PaletteAxis", 1);
+    if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
+    g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
+    if (g_mpHand < 0 || g_mpHand > 2) g_mpHand = 0;
+    g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
+    if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
+    if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
+    g_mpWorld         = IniFloat(ini, "Hands", "PaletteWorld", 0) != 0.0f;
+    g_mpEyeHunt       = IniFloat(ini, "Hands", "PaletteEyeHunt", 0) != 0.0f;
+    g_mpDepth         = IniFloat(ini, "Hands", "PaletteDepthRange", 0) != 0.0f;
+    g_mpEyeOffset     = IniFloat(ini, "Hands", "PaletteEyeOffset", 0) != 0.0f;
+    g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
+    g_mpWsumTol       = IniFloat(ini, "Hands", "PaletteWeightTol", 0.02f);
+    if (g_mpWsumTol < 0.0001f) g_mpWsumTol = 0.0001f;
+    g_mpStep          = IniFloat(ini, "Hands", "PaletteStep", 0) != 0.0f;
+    // VR-33 rotation and grip. PaletteRotate defaults OFF here per the project
+    // rule for a new render lever; the installed ini turns it on for the run
+    // that is testing it, and the previous stage stays reachable by turning it
+    // back off.
+    g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 0) != 0.0f;
+    // VR-33: attachment matches owned component transforms independently of
+    // the optional hide sweep. Installed test configuration enables it;
+    // a fresh configuration leaves this render lever off.
+    g_waOn            = IniFloat(ini, "Hands", "AttachWeapons", 0) != 0.0f;
+    g_waSwordHand     = (int)IniFloat(ini, "Hands", "AttachSwordHand", 1);
+    g_waXbowHand      = (int)IniFloat(ini, "Hands", "AttachCrossbowHand", 0);
+    g_waAngTolDeg     = IniFloat(ini, "Hands", "AttachAngleTol", 0.25f);
+    g_waPosTolUU      = IniFloat(ini, "Hands", "AttachPosTol",   1.0f);
+    g_waMarginX       = IniFloat(ini, "Hands", "AttachMargin",   4.0f);
+    g_waMaxTry        = (int)IniFloat(ini, "Hands", "AttachMaxTry", 3000);
+    g_waGhostFix      = IniFloat(ini, "Hands", "AttachGhostFix", 1) != 0.0f;
+    g_waProbe         = IniFloat(ini, "Hands", "AttachProbe", 1) != 0.0f;
+    g_waCensusOn      = IniFloat(ini, "Hands", "AttachCensus", 1) != 0.0f;
+    g_waViewModelUU   = IniFloat(ini, "Hands", "AttachViewModelUU", 500.0f);
+    g_waNearAngDeg    = IniFloat(ini, "Hands", "AttachNearAngle", 20.0f);
+    g_waNearPosUU     = IniFloat(ini, "Hands", "AttachNearPos", 30.0f);
+    g_waNearMargin    = IniFloat(ini, "Hands", "AttachNearMargin", 1.5f);
+    g_waDropUncorrected = IniFloat(ini, "Hands", "AttachDropUncorrected", 1) != 0.0f;
+    if (g_waNearMargin < 1.05f) g_waNearMargin = 1.05f;
+    if (g_waNearMargin > 8.0f)  g_waNearMargin = 8.0f;
+    if (g_waViewModelUU < 10.0f)   g_waViewModelUU = 10.0f;
+    if (g_waViewModelUU > 1500.0f) g_waViewModelUU = 1500.0f;
+    if (g_waNearAngDeg  < 0.25f)   g_waNearAngDeg  = 0.25f;
+    if (g_waNearAngDeg  > 60.0f)   g_waNearAngDeg  = 60.0f;
+    if (g_waNearPosUU   < 1.0f)    g_waNearPosUU   = 1.0f;
+    if (g_waNearPosUU   > 200.0f)  g_waNearPosUU   = 200.0f;
+    g_waRigRadiusUU   = IniFloat(ini, "Hands", "AttachRigRadius", 200.0f);
+    g_waPassRadiusUU  = IniFloat(ini, "Hands", "AttachPassRadius", 60.0f);
+    if (g_waRigRadiusUU  < 10.0f)   g_waRigRadiusUU  = 10.0f;
+    if (g_waRigRadiusUU  > 5000.0f) g_waRigRadiusUU  = 5000.0f;
+    if (g_waPassRadiusUU < 1.0f)    g_waPassRadiusUU = 1.0f;
+    if (g_waPassRadiusUU > 5000.0f) g_waPassRadiusUU = 5000.0f;
+    g_waProbeBudget   = (int)IniFloat(ini, "Hands", "AttachProbeBudget", 400);
+    if (g_waProbeBudget < 0)     g_waProbeBudget = 0;
+    if (g_waProbeBudget > 20000) g_waProbeBudget = 20000;
+    if (g_waSwordHand < 0 || g_waSwordHand > 1) g_waSwordHand = 1;
+    if (g_waXbowHand  < 0 || g_waXbowHand  > 1) g_waXbowHand  = 0;
+    if (g_waAngTolDeg < 0.01f) g_waAngTolDeg = 0.01f;
+    if (g_waAngTolDeg > 30.0f) g_waAngTolDeg = 30.0f;
+    if (g_waPosTolUU  < 0.05f) g_waPosTolUU  = 0.05f;
+    if (g_waPosTolUU  > 200.0f) g_waPosTolUU = 200.0f;
+    if (g_waMarginX   < 1.2f)  g_waMarginX   = 1.2f;
+    if (g_waMaxTry    < 100)   g_waMaxTry    = 100;
+    if (g_waMaxTry    > 200000) g_waMaxTry   = 200000;
+    // The long sweep is now an OPTIONAL targeted confirmation, not the
+    // attachment's gate, so it defaults OFF: it costs 26 seconds of blinking
+    // and the attachment no longer consumes its output.
+    g_wiOn            = IniFloat(ini, "Hands", "WeaponId", 0) != 0.0f;
+    g_wiPhaseMs       = IniFloat(ini, "Hands", "WeaponIdMs", 1500.0f);
+    if (g_wiPhaseMs < 300.0f)  g_wiPhaseMs = 300.0f;
+    if (g_wiPhaseMs > 8000.0f) g_wiPhaseMs = 8000.0f;
+    if (g_waOn) {
+        Log("config: [Hands] AttachWeapons=1 - the weapon identifies its OWN "
+            "draws and no sweep is involved. A coordinate bridge is built from "
+            "the body mesh, whose draw is already identified by the split, and "
+            "each owned component's complete draw transform is then predicted "
+            "and matched on orientation AND position within %.2f deg / %.2f uu, "
+            "unique by %.1fx over the runner-up. A matched member takes the "
+            "SAME correction the hand took, conjugated into its own space - not "
+            "a new grip - so the game's own hand-to-weapon and weapon-to-bolt "
+            "relationships survive, and so does the bolt's internal animation.",
+            (double)g_waAngTolDeg, (double)g_waPosTolUU, (double)g_waMarginX);
+        Log("config: [Hands] AttachGhostFix=%s - a weapon mesh is drawn more "
+            "than once per frame, and only a pass declaring LocalToWorld can be "
+            "identified by transform. The others were left where the engine put "
+            "them, which is the dark copy standing at the weapon's old position. "
+            "A refused draw sharing a matched contract's buffers, range and "
+            "primitive count but drawn by a DIFFERENT shader takes that "
+            "contract's correction from the SAME Present - same mesh, same "
+            "frame, so the same delta. Read the wa/ghost: lines.",
+            g_waGhostFix ? "1" : "0");
+        Log("config: attachment gates use those angle/position bands and a "
+            "0.5 percent scale band. Both hands are compared; every draw is "
+            "revalidated. Read 'wa: interval nearest' per hand for actual "
+            "residuals. AttachMaxTry is diagnostic only; it never starves "
+            "later weapon draws. Do not widen bands to manufacture a match.");
+        Log("config: the hand sides are an ASSUMPTION, not measured attachment "
+            "data - sword %s, crossbow and bolt %s. An asset that matches "
+            "neither name is not attached at all rather than swept into a "
+            "default hand.",
+            g_waSwordHand ? "RIGHT" : "LEFT", g_waXbowHand ? "RIGHT" : "LEFT");
+    }
+    if (g_wiOn)
+        Log("config: [Hands] WeaponId=1 - the weapon identifier will run ONE "
+            "sweep, %.1f s per component, hiding each first-person component "
+            "in turn and recording which skinned draws stop being submitted. "
+            "A draw present in the baseline and absent exactly while a named "
+            "component is hidden BELONGS to it. Equip the weapon you care "
+            "about first: a component that is not drawn in the baseline "
+            "cannot be identified. Read the wid: lines.", g_wiPhaseMs / 1000.0);
+    g_mpFrameTolOrtho = IniFloat(ini, "Hands", "PaletteFrameTol", 0.02f);
+    if (g_mpFrameTolOrtho < 0.0005f) g_mpFrameTolOrtho = 0.0005f;
+    if (g_mpFrameTolOrtho > 0.25f)   g_mpFrameTolOrtho = 0.25f;
+    g_mpFrameTolAniso = g_mpFrameTolOrtho;
+    {
+        // THE CALIBRATION RECORD. Three degrees per side hold a PROPER
+        // rotation, in extrinsic X then Y then Z (R = Rz*Ry*Rx), and the
+        // reflection is carried separately as a parity sign. G = P * R_saved,
+        // exactly, because P*P = I.
+        //
+        // A record with no GripVersion is REFUSED. Those angles were written by
+        // the build that reduced an improper G to three rotation angles, which
+        // cannot represent it: loading them would restore a MIRRORED hand while
+        // looking like a perfectly good calibration. Refusing costs one capture
+        // press; accepting costs a confusing headset run.
+        static const char* ax[3] = { "X", "Y", "Z" };
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            char key[32];
+            _snprintf(key, sizeof(key), "Grip%sVersion", sfx);
+            g_mpGripVer[h] = (int)IniFloat(ini, "Hands", key, 0.0f);
+            _snprintf(key, sizeof(key), "Grip%sParity", sfx);
+            g_mpGripParity[h] = (int)IniFloat(ini, "Hands", key, 0.0f);
+            for (int a = 0; a < 3; a++) {
+                _snprintf(key, sizeof(key), "Grip%s%s", sfx, ax[a]);
+                g_mpGripDeg[h][a] = IniFloat(ini, "Hands", key, 0.0f);
+            }
+            const bool usable = (g_mpGripVer[h] == MP_GRIP_VERSION) &&
+                                (g_mpGripParity[h] == 1 || g_mpGripParity[h] == -1);
+            if (usable) {
+                g_mpGrip[h] = dvr::hf::join_parity(
+                    g_mpGripParity[h],
+                    dvr::hf::euler_xyz_deg_to_mat(g_mpGripDeg[h][0],
+                                                  g_mpGripDeg[h][1],
+                                                  g_mpGripDeg[h][2]));
+                g_mpGripHave[h] = true;
+                Log("config: the %s hand's grip calibration LOADED - version %d, "
+                    "parity %+d, proper rotation %+.2f %+.2f %+.2f degrees. No "
+                    "capture is needed this launch.",
+                    h ? "right" : "left", g_mpGripVer[h], g_mpGripParity[h],
+                    (double)g_mpGripDeg[h][0], (double)g_mpGripDeg[h][1],
+                    (double)g_mpGripDeg[h][2]);
+            } else {
+                g_mpGrip[h] = dvr::hf::identity3();   // replaced per draw by the
+                g_mpGripHave[h] = false;              // parity-matched default
+                if (g_mpGripVer[h] != 0 || g_mpGripDeg[h][0] != 0.0f ||
+                    g_mpGripDeg[h][1] != 0.0f || g_mpGripDeg[h][2] != 0.0f)
+                    Log("config: the %s hand has a grip record this build cannot "
+                        "use (version %d, parity %+d). A pre-version-%d record "
+                        "stored three rotation angles only, and the solved grip "
+                        "on this game is a REFLECTION that no product of proper "
+                        "rotations can represent - loading it would put the hand "
+                        "back inside out. Press SHIFT+F7 once and it will be "
+                        "saved correctly and never asked for again.",
+                        h ? "right" : "left", g_mpGripVer[h], g_mpGripParity[h],
+                        MP_GRIP_VERSION);
+            }
+            g_mpGripFromIni[h] = true;
+        }
+        // The hand trim, in the calibrated palm frame. Metres and degrees,
+        // PER HAND. The pre-numpad build stored one shared trim under
+        // TrimTX/TrimRX; those keys are read as the seed for BOTH hands so a
+        // trim already dialled in by hand is not silently thrown away, and the
+        // migration is logged rather than done quietly.
+        static const char* axn[3] = { "X", "Y", "Z" };
+        float seedT[3], seedR[3];
+        bool  seeded = false;
+        for (int a = 0; a < 3; a++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "TrimT%s", axn[a]);
+            seedT[a] = IniFloat(ini, "Hands", k, 0.0f);
+            _snprintf(k, sizeof(k), "TrimR%s", axn[a]);
+            seedR[a] = IniFloat(ini, "Hands", k, 0.0f);
+            if (seedT[a] != 0.0f || seedR[a] != 0.0f) seeded = true;
+        }
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            for (int a = 0; a < 3; a++) {
+                char k[32];
+                _snprintf(k, sizeof(k), "Trim%sT%s", sfx, axn[a]);
+                g_mpTrimT[h][a] = IniFloat(ini, "Hands", k, seedT[a]);
+                _snprintf(k, sizeof(k), "Trim%sR%s", sfx, axn[a]);
+                g_mpTrimR[h][a] = IniFloat(ini, "Hands", k, seedR[a]);
+                if (g_mpTrimT[h][a] >  0.25f) g_mpTrimT[h][a] =  0.25f;
+                if (g_mpTrimT[h][a] < -0.25f) g_mpTrimT[h][a] = -0.25f;
+                if (g_mpTrimR[h][a] >  45.0f) g_mpTrimR[h][a] =  45.0f;
+                if (g_mpTrimR[h][a] < -45.0f) g_mpTrimR[h][a] = -45.0f;
+            }
+        }
+        if (seeded)
+            Log("config: the shared hand trim from the previous build "
+                "(TrimTX/TrimRX, %.1f %.1f %.1f mm / %.2f %.2f %.2f deg) was "
+                "copied to BOTH hands as the starting point for the per-hand "
+                "keys. It is now TrimL*/TrimR* and the numpad writes those; the "
+                "old keys are read once more and then ignored.",
+                (double)(seedT[0]*1000.0f), (double)(seedT[1]*1000.0f),
+                (double)(seedT[2]*1000.0f),
+                (double)seedR[0], (double)seedR[1], (double)seedR[2]);
+        Log("config: hand trim LOADED - left translation (%+.1f %+.1f %+.1f) mm "
+            "rotation (%+.2f %+.2f %+.2f) deg | right translation "
+            "(%+.1f %+.1f %+.1f) mm rotation (%+.2f %+.2f %+.2f) deg. All zero "
+            "is the uncalibrated state and is what a first run should print.",
+            (double)(g_mpTrimT[0][0]*1000.0f), (double)(g_mpTrimT[0][1]*1000.0f),
+            (double)(g_mpTrimT[0][2]*1000.0f),
+            (double)g_mpTrimR[0][0], (double)g_mpTrimR[0][1], (double)g_mpTrimR[0][2],
+            (double)(g_mpTrimT[1][0]*1000.0f), (double)(g_mpTrimT[1][1]*1000.0f),
+            (double)(g_mpTrimT[1][2]*1000.0f),
+            (double)g_mpTrimR[1][0], (double)g_mpTrimR[1][1], (double)g_mpTrimR[1][2]);
+    }
+
+    // THE MODEL SCALE. Hands and held weapons, one uniform factor.
+    g_mpModelScale = IniFloat(ini, "Hands", "ModelScale", 1.0f);
+    if (g_mpModelScale < 0.3f) g_mpModelScale = 0.3f;
+    if (g_mpModelScale > 2.0f) g_mpModelScale = 2.0f;
+    if (g_mpModelScale != 1.0f)
+        Log("config: [Hands] ModelScale=%.2f - the hands and anything held in "
+            "them are drawn at %.0f%% size, scaled about the tracked palm so "
+            "the grip stays where tracking put it. This is NOT the world scale: "
+            "PageUp/PageDown set the stereo separation and change the apparent "
+            "size of the whole frame, which can never make the hands smaller "
+            "relative to the room. It is not the hand travel either "
+            "(WorldScaleUU=%.0f, PaletteDriveGain=%.2f), which is how far the "
+            "hand moves per metre of controller.",
+            (double)g_mpModelScale, (double)(g_mpModelScale * 100.0f),
+            (double)g_skcWorldScale, (double)g_mpDriveGain);
+    else
+        Log("config: [Hands] ModelScale=1.00 - hands and weapons at their own "
+            "size, which is the geometry the previous builds were measured "
+            "with. Lower it to about 0.75 to shrink both together; the F10 "
+            "'hand / weapon size' slider drives the same value live.");
+    // THE DOUBLE-APPLY, named rather than left to be discovered. HandSize
+    // writes SkelControlBase.BoneScale engine-side, which lands in the palette
+    // BEFORE this correction and therefore multiplies with it.
+    if (g_mpModelScale != 1.0f && g_skcHandSize != 1.0f)
+        Log("config: WARNING - [Hands] ModelScale=%.2f AND HandSize=%.2f are "
+            "BOTH away from 1.0, so the hand is scaled TWICE, to about %.0f%%. "
+            "HandSize is the older engine-side BoneScale write and it does not "
+            "reach a separately-componented weapon, so the two also disagree "
+            "about the crossbow. Set HandSize=1.00 and use ModelScale alone.",
+            (double)g_mpModelScale, (double)g_skcHandSize,
+            (double)(g_mpModelScale * g_skcHandSize * 100.0f));
+
+    // THE NUMPAD ADJUST and its explicit claim. Defaults ON: it is the only
+    // way to correct a hand in the headset, and a lever the tester has to
+    // switch on before he can report anything costs a whole run.
+    g_mpAdjOn    = IniFloat(ini, "Hands", "Adjust", 1) != 0.0f;
+    g_mpAdjStepT = (int)IniFloat(ini, "Hands", "AdjStepT", 1);
+    g_mpAdjStepR = (int)IniFloat(ini, "Hands", "AdjStepR", 3);
+    if (g_mpAdjStepT < 0 || g_mpAdjStepT > 2) g_mpAdjStepT = 1;
+    if (g_mpAdjStepR < 0 || g_mpAdjStepR > 6) g_mpAdjStepR = 3;
+    if (g_mpAdjOn) {
+        Log("config: [Hands] Adjust=1 - THE NUMPAD IS CLAIMED BY THE HAND "
+            "ADJUST. Numpad 9 cycles LEFT position / LEFT rotation / RIGHT "
+            "position / RIGHT rotation and NAMES the mode in the log; 8/2 is "
+            "forward/back or pitch, 6/4 right/left or yaw, 0/5 up/down or roll; "
+            "7 cycles the step (now %.1f cm / %.2f deg). Every press logs the "
+            "new value and writes it to [Hands] Trim<L|R><T|R><X|Y|Z>, so a "
+            "good alignment survives a restart with nothing typed into the ini.",
+            (double)(kMpAdjStepT[g_mpAdjStepT] * 100.0f),
+            (double)kMpAdjStepR[g_mpAdjStepR]);
+        Log("config: what gave those keys up - the draw census and its "
+            "eighth-cutter (Numpad 4-9) are suppressed entirely while Adjust=1 "
+            "(census armed: %s); the material cycler keeps Numpad 1 and 3 and "
+            "gives up 2 (cycler armed: %s); the mesh split gives up Numpad 0 "
+            "and its mode cycle MOVES TO NUMPAD 1%s. Numpad + - * / . are "
+            "untouched and still belong to the split. Set Adjust=0 to hand "
+            "every key back.",
+            g_dcOn ? "yes, and it will not respond to the numpad" : "no",
+            g_matCycleCfg ? "yes" : "no",
+            g_matCycleCfg
+                ? " - EXCEPT that the material cycler is armed and owns Numpad "
+                  "1, so the split's mode cycle is unreachable this run. Set "
+                  "MatCycle=0 to get it back"
+                : "");
+    } else {
+        Log("config: [Hands] Adjust=0 - the numpad adjust is OFF and the hands "
+            "cannot be trimmed in the headset. The census, the material cycler "
+            "and the mesh split keep every numpad key.");
+    }
+    if (g_mpOn && g_mpWorld && g_mpRotate)
+        Log("config: [Hands] PaletteRotate=1 - the hands take a FULL RIGID "
+            "correction, not just a translation. Orientation is read from the "
+            "dominant palette slot of each hand's anchor, the controller is "
+            "converted through the same physical mapping the working position "
+            "path uses (F * transpose(R_head) * R_ctl, then the draw's own "
+            "camera basis), and the grip transform G is %+.0f %+.0f %+.0f (L) "
+            "/ %+.0f %+.0f %+.0f (R) degrees, extrinsic X,Y,Z. G at zero means "
+            "the hands will TRACK your wrists but sit at a fixed wrong angle "
+            "until the grip is captured (SHIFT+F7) or these angles are filled "
+            "in. If any part of the rotation refuses, placement falls back to "
+            "TRANSLATION ONLY - a hand that tracks but is not oriented is worth "
+            "much more than a hand that does not track. Read ms/palette/frame.",
+            (double)g_mpGripDeg[0][0], (double)g_mpGripDeg[0][1],
+            (double)g_mpGripDeg[0][2], (double)g_mpGripDeg[1][0],
+            (double)g_mpGripDeg[1][1], (double)g_mpGripDeg[1][2]);
+    if (g_mpOn && g_mpWorld)
+        Log("config: [Hands] PaletteWorld=1 - the palm is placed through the "
+            "MEASURED chain. LocalToWorld and ViewProjectionMatrix are read "
+            "from the device at each draw, through the register indices that "
+            "shader's own constant table declares, and the palm's current "
+            "position is re-skinned from the game's palette every frame. No "
+            "calibration and no neutral. The one number still assumed is the "
+            "scale: %.0f uu/m x gain %.2f, against [PosTrack] Scale=%.0f - a "
+            "scale error shows as a GAIN error, not as drift.",
+            (double)g_skcWorldScale, (double)g_mpDriveGain, (double)g_posScaleUU);
+    else if (g_mpOn && g_mpStep)
+        Log("config: [Hands] Palette=1 PaletteStep=1 - the palette's STEPPED "
+            "axis probe is armed and starts at REST, so nothing moves until "
+            "you ask. F6 advances rest -> axis 0 -> axis 1 -> axis 2 "
+            "-> rest, %+.1f uu on hand class %s each time, with the other class "
+            "never moving as the reference. Every press prints an "
+            "ms/palette/step: line, so which axis was live is never inferred.",
+            g_mpAmount,
+            g_mpHand == 0 ? "A (left)" : g_mpHand == 1 ? "B (right)" : "BOTH");
+    else if (g_mpOn)
+        Log("config: [Hands] Palette=1 - the draw-scoped bone palette is ARMED. "
+            "Hand class %s takes a %.1f uu delta on axis %d and the other class "
+            "takes none, so the OTHER HAND IS THE CONTROL. Read the "
+            "ms/palette: lines.",
+            g_mpHand == 0 ? "A" : g_mpHand == 1 ? "B" : "BOTH (no control)",
+            g_mpAmount, g_mpAxis);
+    // 3 = CLIP the triangles that straddle the plane, which is the only rule
+    // whose boundary is the plane itself. 0, 1 and 2 round the cut to whole
+    // triangles and leave a sawtooth one triangle high - on the coarse cuff
+    // geometry that reads as spikes hanging off the wrist.
+    g_msEdge          = (int)IniFloat(ini, "Hands", "WristEdge", 3);
+    if (g_msEdge < 0 || g_msEdge > 3) g_msEdge = 3;
+    g_msStepMode      = (int)IniFloat(ini, "Hands", "WristStep", 1);
+    if (g_msStepMode < 0 || g_msStepMode > 2) g_msStepMode = 1;
+    // 0 = square to the forearm BONE, 1 = square to the longest direction of
+    // the arm's triangles. The bone is the anatomical answer and the default; a
+    // tapered sleeve can lean the triangle answer off it, and a ring square to
+    // the wrong one is slanted across the forearm.
+    g_msAxisMode      = (int)IniFloat(ini, "Hands", "WristAxis", 0);
+    if (g_msAxisMode < 0 || g_msAxisMode > 1) g_msAxisMode = 0;
+    // Where the ring sits, in mesh units from the hand bone, positive toward
+    // the fingers. -4.9 on both arms is the tester's MEASURED position from the
+    // 2026-09-06 headset run - the place the ring was left after walking it up
+    // and down the forearm with the knob, read straight off the `ms/wrist` line
+    // that press printed. It is not a derived number and not a guess, and it is
+    // asset-relative (a distance from the hand bone along the limb axis), so it
+    // survives a level load and does not depend on where the pawn is standing.
+    //
+    // The -1e9 sentinel still means "derive it", which places the ring where
+    // the seeded sphere was; that is what a user gets by deleting the key, and
+    // it is the escape hatch if a future asset makes -4.9 wrong.
+    for (int s = 1; s <= 2; s++) {
+        const float c = IniFloat(ini, "Hands", s == 1 ? "WristCutA" : "WristCutB",
+                                 -4.9f);
+        g_msCutSet[s] = (c > -1e8f) ? 1 : 0;
+        if (g_msCutSet[s]) g_msCutRel[s] = c;
+    }
+    for (int s = 1; s <= 2; s++) {
+        if (g_msWristScale[s] < 0.2f) g_msWristScale[s] = 0.2f;
+        if (g_msWristScale[s] > 5.0f) g_msWristScale[s] = 5.0f;
+    }
+    g_matStepMs       = IniFloat(ini, "Hands", "MatStepMs", 5000.0f);
+    if (g_matStepMs < 1500.0f)  g_matStepMs = 1500.0f;
+    if (g_matStepMs > 20000.0f) g_matStepMs = 20000.0f;
     g_crouchHideCyl   = IniFloat(ini, "Hands", "CrouchHideCyl", 76.0f);
     if (g_crouchHideCyl < 20.0f) g_crouchHideCyl = 20.0f;
     if (g_crouchHideCyl > 87.0f) g_crouchHideCyl = 87.0f;
@@ -1038,7 +1566,7 @@ static void LoadConfig()
         "scale %.0f uu/m)", g_skcDrive ? "ON" : "off", (int)g_skcLive,
         (int)g_skcWorld, (int)g_skcDoTrans, (int)g_skcDoRot, (int)g_skcAddMode,
         g_skcScaleUU);
-    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", -0.09f);
+    g_heightOffsetM = IniFloat(ini, "Tracking", "HeightOffsetM", 0.06f);
     if (g_heightOffsetM < -1.5f) g_heightOffsetM = -1.5f;
     if (g_heightOffsetM >  1.5f) g_heightOffsetM =  1.5f;
     g_crouchOn     = IniFloat(ini, "Tracking", "PhysicalCrouch", 1) != 0.0f;
@@ -1117,6 +1645,9 @@ static void LoadConfig()
         g_vrKeepAlive = GetPrivateProfileIntA("Screen", "KeepAliveUnfocused", 1, ini) != 0; // 38.78
         g_chainStamp = GetPrivateProfileIntA("HeadTrack", "ChainStamp", 1, ini) != 0; // 38.88
         g_fpsCap = IniFloat(ini, "VR", "FpsCap", 0.0f);                  // 38.14
+        // ApiLayerGuard runs before LoadConfig and reads this key itself; the
+        // read here only keeps the global in step for the ini rewrite.
+        g_algGuard = IniFloat(ini, "VR", "DisableBadApiLayers", 1) != 0.0f;
         if (g_fpsCap < 0.0f) g_fpsCap = 0.0f;
         if (g_fpsCap > 0.0f && g_fpsCap < 20.0f)  g_fpsCap = 20.0f;
         if (g_fpsCap > 144.0f) g_fpsCap = 144.0f;
@@ -1212,6 +1743,13 @@ static void EnsureConfig()
 {
     if (g_configLoaded || g_disabled) return;
     g_configLoaded = true;
+    // BEFORE anything else can reach the OpenXR loader. An implicit API layer
+    // that cannot load in a 32-bit process fails xrCreateInstance for the native
+    // runtime AND the shim with the same error, which reads as "no VR at all"
+    // and sends the diagnosis at the runtime instead of at the layer. Measured
+    // on 2026-09-06: an OBS mirror layer, x64 only, registered under HKCU (which
+    // WOW64 does not redirect), XrResult(-32).
+    ApiLayerGuard();
     LoadConfig();
         {   // [Log] Level=info  Cats=blink:debug,openxr:trace - env DVR_LOG / DVR_LOG_CATS win
             char ini[MAX_PATH], lv[32] = "", cats[512] = "";
@@ -1343,6 +1881,136 @@ static void OverlaySaveDefaults()
     // headset was silently discarded on exit. Everything the panel can change
     // is written here now.
     WritePrivateProfileStringA("Hands", "Enabled", g_skcDrive ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "BoneVisHide", g_boneVisCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatCensus", g_matCensusCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatAuto", g_matAutoCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "MatCycle", g_matCycleCfg ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "DrawCensus", g_dcOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "ArmSplit", g_msOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "ArmSplitAuto", g_msAuto ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_msMode);
+    WritePrivateProfileStringA("Hands", "ArmSplitMode", v, ini);
+    _snprintf(v, 64, "%u", g_msWantPrims);
+    WritePrivateProfileStringA("Hands", "ArmMeshPrims", v, ini);
+    _snprintf(v, 64, "%u", g_msWantVerts);
+    WritePrivateProfileStringA("Hands", "ArmMeshVerts", v, ini);
+    _snprintf(v, 64, "%.2f", g_msWristScale[1]);
+    WritePrivateProfileStringA("Hands", "WristScaleA", v, ini);
+    _snprintf(v, 64, "%.2f", g_msWristScale[2]);
+    WritePrivateProfileStringA("Hands", "WristScaleB", v, ini);
+    WritePrivateProfileStringA("Hands", "WristPlane", g_msPlane ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "BoneQuery", g_bqOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "HandMoveTest", g_hmOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "Palette", g_mpOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.1f", g_mpAmount);
+    WritePrivateProfileStringA("Hands", "PaletteAmount", v, ini);
+    _snprintf(v, 64, "%d", g_mpAxis);
+    WritePrivateProfileStringA("Hands", "PaletteAxis", v, ini);
+    _snprintf(v, 64, "%d", g_mpHand);
+    WritePrivateProfileStringA("Hands", "PaletteHand", v, ini);
+    _snprintf(v, 64, "%.2f", g_mpDriveGain);
+    WritePrivateProfileStringA("Hands", "PaletteDriveGain", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteWorld", g_mpWorld ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteDepthRange", g_mpDepth ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.4f", g_mpWsumTol);
+    WritePrivateProfileStringA("Hands", "PaletteWeightTol", v, ini);
+    WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteRotate", g_mpRotate ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachWeapons", g_waOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", g_waAngTolDeg);
+    WritePrivateProfileStringA("Hands", "AttachAngleTol", v, ini);
+    _snprintf(v, 64, "%.2f", g_waPosTolUU);
+    WritePrivateProfileStringA("Hands", "AttachPosTol", v, ini);
+    _snprintf(v, 64, "%.1f", g_waMarginX);
+    WritePrivateProfileStringA("Hands", "AttachMargin", v, ini);
+    _snprintf(v, 64, "%d", g_waMaxTry);
+    WritePrivateProfileStringA("Hands", "AttachMaxTry", v, ini);
+    WritePrivateProfileStringA("Hands", "AttachGhostFix", g_waGhostFix ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachProbe", g_waProbe ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachCensus", g_waCensusOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.0f", g_waViewModelUU);
+    WritePrivateProfileStringA("Hands", "AttachViewModelUU", v, ini);
+    _snprintf(v, 64, "%.2f", g_waNearAngDeg);
+    WritePrivateProfileStringA("Hands", "AttachNearAngle", v, ini);
+    _snprintf(v, 64, "%.2f", g_waNearPosUU);
+    WritePrivateProfileStringA("Hands", "AttachNearPos", v, ini);
+    _snprintf(v, 64, "%.2f", g_waNearMargin);
+    WritePrivateProfileStringA("Hands", "AttachNearMargin", v, ini);
+    WritePrivateProfileStringA("Hands", "AttachDropUncorrected",
+                               g_waDropUncorrected ? "1" : "0", ini);
+    _snprintf(v, 64, "%.0f", g_waRigRadiusUU);
+    WritePrivateProfileStringA("Hands", "AttachRigRadius", v, ini);
+    _snprintf(v, 64, "%.0f", g_waPassRadiusUU);
+    WritePrivateProfileStringA("Hands", "AttachPassRadius", v, ini);
+    _snprintf(v, 64, "%d", g_waProbeBudget);
+    WritePrivateProfileStringA("Hands", "AttachProbeBudget", v, ini);
+    _snprintf(v, 64, "%d", g_waSwordHand);
+    WritePrivateProfileStringA("Hands", "AttachSwordHand", v, ini);
+    _snprintf(v, 64, "%d", g_waXbowHand);
+    WritePrivateProfileStringA("Hands", "AttachCrossbowHand", v, ini);
+    WritePrivateProfileStringA("Hands", "WeaponId", g_wiOn ? "1" : "0", ini);
+    _snprintf(v, 64, "%.0f", g_wiPhaseMs);
+    WritePrivateProfileStringA("Hands", "WeaponIdMs", v, ini);
+    _snprintf(v, 64, "%.4f", g_mpFrameTolOrtho);
+    WritePrivateProfileStringA("Hands", "PaletteFrameTol", v, ini);
+    {
+        static const char* ax[3] = { "X", "Y", "Z" };
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            char key[32];
+            _snprintf(key, sizeof(key), "Grip%sVersion", sfx);
+            _snprintf(v, 64, "%d", g_mpGripVer[h]);
+            WritePrivateProfileStringA("Hands", key, v, ini);
+            _snprintf(key, sizeof(key), "Grip%sParity", sfx);
+            _snprintf(v, 64, "%d", g_mpGripParity[h]);
+            WritePrivateProfileStringA("Hands", key, v, ini);
+            for (int a = 0; a < 3; a++) {
+                _snprintf(key, sizeof(key), "Grip%s%s", sfx, ax[a]);
+                _snprintf(v, 64, "%.4f", g_mpGripDeg[h][a]);
+                WritePrivateProfileStringA("Hands", key, v, ini);
+            }
+        }
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            char key[32];
+            for (int a = 0; a < 3; a++) {
+                _snprintf(key, sizeof(key), "Trim%sT%s", sfx, ax[a]);
+                _snprintf(v, 64, "%.4f", g_mpTrimT[h][a]);
+                WritePrivateProfileStringA("Hands", key, v, ini);
+                _snprintf(key, sizeof(key), "Trim%sR%s", sfx, ax[a]);
+                _snprintf(v, 64, "%.2f", g_mpTrimR[h][a]);
+                WritePrivateProfileStringA("Hands", key, v, ini);
+            }
+        }
+        _snprintf(v, 64, "%.2f", g_mpModelScale);
+        WritePrivateProfileStringA("Hands", "ModelScale", v, ini);
+        WritePrivateProfileStringA("Hands", "Adjust", g_mpAdjOn ? "1" : "0", ini);
+        _snprintf(v, 64, "%d", g_mpAdjStepT);
+        WritePrivateProfileStringA("Hands", "AdjStepT", v, ini);
+        _snprintf(v, 64, "%d", g_mpAdjStepR);
+        WritePrivateProfileStringA("Hands", "AdjStepR", v, ini);
+    }
+    _snprintf(v, 64, "%.1f", g_hmAmount);
+    WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);
+    _snprintf(v, 64, "%d", g_hmAxis);
+    WritePrivateProfileStringA("Hands", "HandMoveAxis", v, ini);
+    _snprintf(v, 64, "%d", g_msEdge);
+    WritePrivateProfileStringA("Hands", "WristEdge", v, ini);
+    _snprintf(v, 64, "%d", g_msStepMode);
+    WritePrivateProfileStringA("Hands", "WristStep", v, ini);
+    _snprintf(v, 64, "%d", g_msAxisMode);
+    WritePrivateProfileStringA("Hands", "WristAxis", v, ini);
+    if (g_msCutSet[1]) { _snprintf(v, 64, "%.2f", g_msCutRel[1]);
+                         WritePrivateProfileStringA("Hands", "WristCutA", v, ini); }
+    if (g_msCutSet[2]) { _snprintf(v, 64, "%.2f", g_msCutRel[2]);
+                         WritePrivateProfileStringA("Hands", "WristCutB", v, ini); }
+    WritePrivateProfileStringA("VR", "DisableBadApiLayers", g_algGuard ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);
@@ -1452,6 +2120,7 @@ static void OverlaySaveDefaults()
         } }
     WritePrivateProfileStringA("Overlay", "DevTools", g_ovlDev ? "1" : "0", ini);
     WritePrivateProfileStringA("VRHands", "Enabled", g_hmEnable ? "1" : "0", ini);
+    WritePrivateProfileStringA("VRHands", "CalibTriangle", g_hmCalib ? "1" : "0", ini);
     WritePrivateProfileStringA("VRHands", "HideGameArms", g_hmHideGame ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", g_hmScale);
     WritePrivateProfileStringA("VRHands", "Scale", v, ini);

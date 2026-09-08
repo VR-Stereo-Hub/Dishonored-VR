@@ -1,3 +1,22 @@
+## Unreleased
+
+### Fixed
+
+- **The arms and weapon no longer follow your head (VR-30).** Turning your head
+  leaves the viewmodel where it is; the right stick still turns you; doing both
+  at once works. The mod now intercepts the engine's own body-facing operation
+  and asks it to face a heading with your head's contribution removed, instead
+  of writing the pawn's rotation behind the engine's back.
+  `[Camera] ArmBodyFacing=1` enables it; `arms facing off` is the live A/B.
+
+### Upgrading
+
+- **`[Camera] BodyYawLock` is removed.** It was measured futile (4 of 186 writes
+  survived to the next dispatch) and is superseded by `ArmBodyFacing`. Delete the
+  line from your ini; it is ignored if left.
+- `[Camera] ArmStripMeshRot` is new and ships OFF. It is kept only as the
+  reproducible A/B for a documented dead end and has no effect worth enabling.
+
 # Release notes
 
 ## 41.1.0 (unreleased) - native stereo ships, the four headset faults, the resolution picker

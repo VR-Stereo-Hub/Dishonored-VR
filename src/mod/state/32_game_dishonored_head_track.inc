@@ -85,6 +85,40 @@ static bool     g_rotHaveRef = false;
 // during a horizontal turn - the rotator BASE is four bytes earlier. Writing
 // from +0xa0 put pitch into yaw and yaw into roll, which is exactly the
 // scrambled feel from the last build.
+// ---- yaw ownership (VR-30) ------------------------------------------------
+// MEASURED 2026-09-05, the GAMEPLAY run: FindPlayerController latched
+// 23CB3800 at 22983406, before gameplay; PeLatch named the real gameplay
+// controller 16D86800 at 22995343; g_pcObj was not refreshed to it until
+// 23052468, AFTER gameplay ended. For the whole play window the body hold read
+// the previous scene's controller, whose rotation is dead, so ctrl and pawn sat
+// at 28080.4 deg with a 0.0/s delta while the view answered head and stick
+// normally. That, not the offset, is why the hold pinned the body.
+//
+// So identity comes from the EVENT STREAM (g_peCtrl / g_pePawn), never from a
+// camera-pointer scan, and it is validated as a possession PAIR before any
+// write. A readable object of the right class is not enough when it belongs to
+// the scene before this one.
+static uint8_t* g_yawCtrl     = NULL;   // the controller this snapshot belongs to
+static uint8_t* g_yawPawn     = NULL;   // the pawn it possesses
+static uint32_t g_yawGen      = 0;      // bumped on any identity change
+static uint32_t g_yawPawnOff  = 0;      // Controller.Pawn, by reflection
+static uint32_t g_yawRotOff   = 0;      // Actor.Rotation, by reflection
+static bool     g_yawTriedOff = false;
+static bool     g_yawSaidSplit= false;
+
+// The bookkeeping. headContrib is the running sum of the integer yaw deltas WE
+// injected - not a reference inferred from the controller, and not the stick
+// re-integrated. It advances exactly once per FRESH view computation; the 2 ms
+// modifier re-stamp and the stereo second pass replay the same numbers and must
+// add nothing.
+static int64_t  g_yawHeadContrib = 0;
+static int32_t  g_yawViewOut     = 0;   // outgoing view yaw, UE units
+static int32_t  g_yawBodyTarget  = 0;   // viewOut - headContrib
+static uint32_t g_yawSeq         = 0;
+static bool     g_yawValid       = false;
+static uint32_t g_yawApplied     = 0;   // pawn writes made from the snapshot
+static uint32_t g_yawRefused     = 0;   // and writes declined, with a reason
+
 static uint8_t* g_pcObj = NULL;
 // Only the fields we have actually VERIFIED as the view rotation. The probe
 // also flagged +0x33c/+0x35c/+0x380/+0x454 on the camera, and I wrote head

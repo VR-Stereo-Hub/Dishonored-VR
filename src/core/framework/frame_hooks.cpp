@@ -3,6 +3,7 @@
 #include "core/framework/frame_hooks.h"
 
 #include "core/framework/perf.h"
+#include "core/gfx/desktop_eye.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
 #include "core/gfx/stereo.h"
@@ -33,6 +34,8 @@ PFN_Reset         g_origReset = nullptr;
 PFN_BeginScene    g_origBeginScene = nullptr;
 SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
+DrawIndexedFn     g_origDrawIndexed = nullptr;
+DrawPrimFn        g_origDrawPrim = nullptr;
 
 uint32_t      g_count = 0;
 uint32_t      g_submits = 0;
@@ -119,6 +122,15 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
     // present's record (its OUT = the render thread's time outside this hook).
     dvr::perf::set_device(self);
+    // The desktop eye pin needs the game's device; the runtime layer calls into
+    // it from its own eye-pin call sites, which already sit on the right side
+    // of each eye's XR capture.
+    dvr::desktop_eye::set_device(self);
+    {   // Install the D3D9 pin once. The runtime layer owns the WHEN (its eye
+        // call sites already sit after each eye's XR capture); this owns the HOW.
+        static bool hooked = false;
+        if (!hooked) { hooked = true; dvr::vr::set_mirror_hook(&dvr::desktop_eye::on_present); }
+    }
     dvr::perf::stamp(dvr::perf::kEntry);
     if (g_cb.pre_tick) g_cb.pre_tick(self);
     // 41.1: a method that presents twice per tick is paced by the runtime's
@@ -209,6 +221,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     // (38.63: a forgotten one made the game's Reset fail forever).
     dvr::perf::on_reset();
     dvr::stereo::on_reset();
+    dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
     const HRESULT hr = g_origReset(self, pp);
     if (FAILED(hr))
         DVR_ERROR("device Reset FAILED 0x%08lx (%ux%u windowed=%d) - %s", (unsigned long)hr, pp ? pp->BackBufferWidth : 0,
@@ -221,6 +234,20 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
     if (g_cb.set_vs_const) return g_cb.set_vs_const(self, startReg, data, count);
     return g_origSetVsConst(self, startReg, data, count);
+}
+
+HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT baseVertex,
+                                UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    if (g_cb.draw_indexed)
+        return g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices,
+                                 startIndex, primCount);
+    return g_origDrawIndexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+}
+
+HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex,
+                             UINT primCount) {
+    if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
+    return g_origDrawPrim(self, type, startVertex, primCount);
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
@@ -259,7 +286,12 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         if (old && !g_origSetRt) g_origSetRt = (SetRenderTargetFn)old;
         old = PatchVtable(*outDev, 41, (void*)hkBeginScene);        // BeginScene (the perf marker)
         if (old && !g_origBeginScene) g_origBeginScene = (PFN_BeginScene)old;
-        DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene)");
+        old = PatchVtable(*outDev, 82, (void*)hkDrawIndexed);       // DrawIndexedPrimitive
+        if (old && !g_origDrawIndexed) g_origDrawIndexed = (DrawIndexedFn)old;
+        old = PatchVtable(*outDev, 81, (void*)hkDrawPrim);          // DrawPrimitive
+        if (old && !g_origDrawPrim) g_origDrawPrim = (DrawPrimFn)old;
+        DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene/"
+                 "DrawIndexedPrimitive)");
         // 41.1 (session 8): the creation census - what the game asks of this
         // device, the go/no-go for the D3D9Ex route (core/gfx/device_census).
         dvr::census::install(*outDev, self, adapter, type, flags, pp);
@@ -280,6 +312,19 @@ bool hook_d3d9(IDirect3D9* d3d) {
 
 HRESULT orig_set_vs_const(IDirect3DDevice9* dev, UINT startReg, const float* data, UINT count) {
     return g_origSetVsConst ? g_origSetVsConst(dev, startReg, data, count) : E_FAIL;
+}
+
+HRESULT orig_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                          UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    return g_origDrawIndexed ? g_origDrawIndexed(dev, type, baseVertex, minIndex, numVertices,
+                                                 startIndex, primCount)
+                             : D3DERR_INVALIDCALL;
+}
+
+HRESULT orig_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
+                       UINT primCount) {
+    return g_origDrawPrim ? g_origDrawPrim(dev, type, startVertex, primCount)
+                          : D3DERR_INVALIDCALL;
 }
 
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt) {

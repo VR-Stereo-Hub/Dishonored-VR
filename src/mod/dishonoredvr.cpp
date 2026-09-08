@@ -39,6 +39,9 @@
 
 #include "core/gfx/d3d9ex.h"
 #include "game/dishonored/camera.h"
+#include "game/dishonored/hands/hand_frame.h"
+#include "game/dishonored/hands/weapon_frame.h"
+#include "game/dishonored/hands/hand_frame_test.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
@@ -86,6 +89,14 @@
 #include "mod/state/51_legacy_spacebases.inc"
 #include "mod/state/52_game_dishonored_head_track.inc"
 #include "mod/state/53_core_input_pad_bridge.inc"
+#include "mod/state/54_game_dishonored_arm_follow.inc"
+#include "mod/state/55_game_dishonored_hands_mesh_split.inc"
+#include "mod/state/57_game_dishonored_hands_weapon_id.inc"
+#include "mod/state/57b_game_dishonored_hands_weapon_attach.inc"
+#include "mod/state/56_game_dishonored_hands_pose_report.inc"
+#include "mod/state/57_game_dishonored_hands_bone_query.inc"
+#include "mod/state/58_game_dishonored_hands_hand_move.inc"
+#include "mod/state/59_game_dishonored_hands_palette_capture.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
@@ -94,6 +105,9 @@
 #if !DVR_WITH_LEGACY
 #include "legacy/legacy_stubs.inc"
 #endif
+#define DVR_CAT ::dvr::log::Cat::openxr
+#include "core/vr/apilayer_guard.cpp"
+#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::cfg
 #include "core/config/config.cpp"
 #undef DVR_CAT
@@ -141,11 +155,23 @@
 #define DVR_CAT ::dvr::log::Cat::fov
 #include "game/dishonored/fov_lever.cpp"
 #undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::armfollow
+#include "game/dishonored/arm_follow.cpp"
+#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::menu
 #include "game/dishonored/game_state.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/arms_hide.cpp"
+#include "game/dishonored/hands/mat_hide.cpp"
+#include "game/dishonored/hands/mesh_split.cpp"
+#include "game/dishonored/hands/pose_report.cpp"
+#include "game/dishonored/hands/bone_query.cpp"
+#include "game/dishonored/hands/palette_capture.cpp"
+#include "game/dishonored/hands/hand_move.cpp"
+#include "game/dishonored/hands/weapon_id.cpp"
+#include "game/dishonored/hands/weapon_attach.cpp"
+#include "game/dishonored/hands/draw_census.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/fp_mesh.cpp"
