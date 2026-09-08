@@ -382,6 +382,121 @@ static inline int run_all(ReportFn fn, void* ctx)
             "Rz*Ry*Rx): worst reconstruction error %.4f deg", worst);
     }
 
+    // ---- 12b. THE CALIBRATION SURVIVES A RESTART, AT BOTH PARITIES ---------
+    // The bug: G is improper here, and three Euler angles rebuilt as Rz*Ry*Rx
+    // can never be improper, so the saved calibration came back mirrored.
+    // Compared as MATRICES, not as an angle - rotation_diff_deg is meaningless
+    // between a proper and an improper matrix and would have hidden this.
+    {
+        float worstEl = 0.0f; bool parityKept = true;
+        for (int sgn = -1; sgn <= 1; sgn += 2) {
+            // an improper G of the kind the game actually produces
+            Mat3 G = mul3(rot_axis_deg(0, 41.0f), rot_axis_deg(2, -63.0f));
+            if (sgn < 0) G = mul3(parity_factor(-1), G);
+            int p = 0; Mat3 proper;
+            split_parity(G, &p, &proper);
+            if (p != sgn) parityKept = false;
+            if (!is_rotation(proper, 1e-4f)) parityKept = false;
+            // through the ini's own format and back
+            float ex, ey, ez;
+            mat_to_euler_xyz_deg(proper, &ex, &ey, &ez);
+            const Mat3 back = join_parity(p, euler_xyz_deg_to_mat(ex, ey, ez));
+            for (int i = 0; i < 9; i++) {
+                const float e = fabsf(back.m[i] - G.m[i]);
+                if (e > worstEl) worstEl = e;
+            }
+        }
+        rec(&r, "grip_persists_with_parity", parityKept && worstEl < 2e-3f,
+            "capture, split to parity + proper rotation, write as degrees, read "
+            "back and rejoin: worst matrix element error %.6f at BOTH parities",
+            worstEl);
+
+        // and the naive route this replaced, so the suite can still catch it
+        Mat3 G = mul3(parity_factor(-1), rot_axis_deg(0, 41.0f));
+        float ex, ey, ez;
+        mat_to_euler_xyz_deg(G, &ex, &ey, &ez);
+        const Mat3 naive = euler_xyz_deg_to_mat(ex, ey, ez);
+        rec(&r, "grip_naive_euler_loses_parity",
+            det3(G) < 0.0f && det3(naive) > 0.0f,
+            "writing an improper G straight out as Euler angles comes back with "
+            "determinant %+.3f instead of %+.3f - the reflection is gone, which "
+            "is the restart bug this format replaced", det3(naive), det3(G));
+
+        // an UNCALIBRATED start must not be mirrored either
+        const Mat3 O_C = mul3(parity_factor(-1), rot_axis_deg(1, 20.0f));
+        rec(&r, "uncalibrated_default_is_not_mirrored",
+            det3(mul3(O_C, parity_factor(parity_of(O_C)))) > 0.0f &&
+            det3(mul3(O_C, identity3())) < 0.0f,
+            "with an improper pose mapping, the parity-matched default G gives a "
+            "proper orientation (det %+.3f) while identity gives a MIRRORED one "
+            "(det %+.3f) - which is the inside-out startup",
+            det3(mul3(O_C, parity_factor(parity_of(O_C)))),
+            det3(mul3(O_C, identity3())));
+    }
+
+    // ---- 12c. the shared palm target, and the trims -------------------------
+    // The weapon path needs the target palm BEFORE any hand has drawn, so it
+    // must come from the pose and the calibration alone. It has to agree
+    // exactly with what the hand path already computes.
+    {
+        const Mat3 R_H  = rot_axis_deg(1, 19.0f);
+        const Mat3 R_C  = mul3(rot_axis_deg(0, 33.0f), rot_axis_deg(2, 12.0f));
+        const Mat3 B    = rot_axis_deg(2, 6.0f);         // right-handed, as measured
+        const Mat3 R_L  = rot_axis_deg(0, 90.0f);
+        const Mat3 Rsrc = rot_axis_deg(1, 51.0f);
+        const float tL[3] = { 7.0f, -3.0f, 11.0f };
+        const float q[3]  = { 24.5f, -142.5f, 58.0f };
+        const float dcam[3] = { -46.2f, 11.3f, -24.6f };
+        const Mat3 O_C = controller_orient_camera(B, R_H, R_C);
+        const Mat3 G   = grip_solve(O_C, R_L, Rsrc);
+        const float noT[3] = { 0.0f, 0.0f, 0.0f };
+
+        const Xform tgt = palm_target(O_C, G, dcam, identity3(), noT);
+        const Xform viaTarget = delta_from_target(R_L, tL, tgt, Rsrc, q);
+        const Xform direct    = delta_local(R_L, tL, O_C, G, dcam, Rsrc, q, true);
+        float e = rotation_diff_deg(direct.r, viaTarget.r);
+        for (int i = 0; i < 3; i++) e += fabsf(direct.t[i] - viaTarget.t[i]);
+        rec(&r, "palm_target_matches_delta", e < 0.05f,
+            "the shared target helper reproduces the hand path's own correction "
+            "to %.5f - so a weapon can be placed before either hand draws", e);
+
+        // A trim translation is in the PALM frame, so it rotates with the palm.
+        const float trimT[3] = { 0.5f, 0.0f, 0.0f };
+        const Xform t1 = palm_target(O_C, G, dcam, identity3(), trimT);
+        float moved = 0.0f;
+        for (int i = 0; i < 3; i++) moved += (t1.t[i]-tgt.t[i])*(t1.t[i]-tgt.t[i]);
+        moved = sqrtf(moved);
+        const Mat3 O2 = controller_orient_camera(B, R_H, mul3(R_C, rot_axis_deg(1, 90.0f)));
+        const Xform t2 = palm_target(O2, G, dcam, identity3(), trimT);
+        float moved2 = 0.0f;
+        for (int i = 0; i < 3; i++) moved2 += (t2.t[i]-dcam[i])*(t2.t[i]-dcam[i]);
+        moved2 = sqrtf(moved2);
+        bool dirChanged = false;
+        for (int i = 0; i < 3; i++)
+            if (fabsf((t1.t[i]-dcam[i]) - (t2.t[i]-dcam[i])) > 0.05f) dirChanged = true;
+        rec(&r, "hand_trim_is_in_the_palm_frame",
+            fabsf(moved - 0.5f) < 1e-3f && fabsf(moved2 - 0.5f) < 1e-3f && dirChanged,
+            "a 0.5 unit trim moves the target 0.5 units (%.4f), still 0.5 after a "
+            "90 deg wrist turn (%.4f), and in a DIFFERENT direction - so it rides "
+            "the palm rather than the world", moved, moved2);
+
+        // A hand trim must move a held weapon by the SAME common transform.
+        Xform H; H.r = rot_axis_deg(2, 25.0f); H.t[0]=1.0f; H.t[1]=-2.0f; H.t[2]=0.5f;
+        const Xform w0 = xform_mul(tgt, H);
+        const Xform w1 = xform_mul(t1,  H);
+        float dh = 0.0f, dw = 0.0f;
+        for (int i = 0; i < 3; i++) {
+            dh += (t1.t[i]-tgt.t[i])*(t1.t[i]-tgt.t[i]);
+            dw += (w1.t[i]-w0.t[i])*(w1.t[i]-w0.t[i]);
+        }
+        rec(&r, "hand_trim_carries_the_weapon",
+            fabsf(sqrtf(dh) - sqrtf(dw)) < 1e-3f &&
+            rotation_diff_deg(w0.r, w1.r) < 1e-2f,
+            "a hand trim moves the palm and the held weapon by the same %.4f "
+            "units and adds no relative rotation - so weapon alignment inherits "
+            "hand alignment instead of needing recalibration", sqrtf(dh));
+    }
+
     // ---- 12. the reported error metric -------------------------------------
     {
         const float a = rotation_angle_deg(rot_axis_deg(1, 90.0f));

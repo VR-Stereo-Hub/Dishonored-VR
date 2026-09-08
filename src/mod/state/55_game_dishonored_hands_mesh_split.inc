@@ -577,6 +577,46 @@ static bool     g_mpOutOk[2] = { false, false };
 
 // THE LEVER AND THE GRIP TRANSFORM.
 static bool     g_mpRotate   = false;   // [Hands] PaletteRotate
+
+// THE CALIBRATION RECORD, versioned, with the reflection stored EXPLICITLY.
+//
+// G inherits the parity of the pose mapping and is improper on this game, so
+// three Euler angles cannot carry it: a product of three proper rotations is
+// always proper. The record therefore stores a parity sign and a PROPER
+// rotation, and `G = P * R_saved` rebuilds it exactly because P*P = I.
+//
+// GripVersion is what tells an old three-angle record apart from a complete
+// one. A record without it is NOT read as a calibration - the angles in it
+// were written by the build that dropped the reflection, and loading them
+// would restore a mirrored hand while looking like a valid calibration.
+enum { MP_GRIP_VERSION = 2 };
+static int      g_mpGripVer[2]    = { 0, 0 };   // 0 = no usable record
+static int      g_mpGripParity[2] = { 0, 0 };   // +1/-1, stored beside it
+static bool     g_mpGripHave[2]   = { false, false };
+static volatile LONG g_mpGripSaveReq = 0;       // draw -> the present thread
+static float    g_mpGripSaveDeg[2][3];          // the PROPER rotation, degrees
+static int      g_mpGripSaveParity[2] = { 0, 0 };
+
+// THE HAND TRIM: a small rigid nudge expressed IN THE CALIBRATED PALM FRAME,
+// so "5 mm towards the fingers" stays towards the fingers however the wrist is
+// held. Shared by both hands: each palm is already calibrated to its own G, so
+// one trim in palm space means the same thing on both sides.
+//
+// It moves the hand AND anything held in it by the same common transform, so a
+// later hand adjustment never invalidates a weapon profile. A weapon-only trim
+// is separate and belongs to the weapon stage.
+static float    g_mpTrimT[3] = { 0.0f, 0.0f, 0.0f };   // metres, palm frame
+static float    g_mpTrimR[3] = { 0.0f, 0.0f, 0.0f };   // degrees, extrinsic XYZ
+static int      g_mpTrimAxis = 0;       // 0..5 = TX TY TZ RX RY RZ
+static volatile LONG g_mpTrimReq = 0;   // bit 0 = cycle, 1 = minus, 2 = plus
+static float    g_mpTrimStepT = 0.002f; // 2 mm
+static float    g_mpTrimStepR = 1.0f;   // 1 degree
+
+// The target palm each hand was placed at, in the draw's camera-relative
+// frame. Published so the weapon stage can consume the SAME target rather than
+// a hand's delta - and so a mismatch between the two is visible.
+static dvr::hf::Xform g_mpPalmTarget[2];
+static bool     g_mpPalmTargetOk[2] = { false, false };
 static float    g_mpGripDeg[2][3] = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f } };
 static dvr::hf::Mat3 g_mpGrip[2];       // built from g_mpGripDeg at config time
 static volatile LONG g_mpGripCapReq = 0;   // hotkey -> the next qualified draw

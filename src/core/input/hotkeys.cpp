@@ -257,6 +257,25 @@ static void StereoUpdate()
         gcWas = gck;
     }
 
+    // VR-33: the hand trim. F5 cycles the axis, SHIFT+F5 adds a step and
+    // CTRL+F5 subtracts one. Every press logs the new value and SAVES it, so
+    // nothing has to be typed into the ini and a good alignment survives a
+    // restart. The trim is in the calibrated palm frame and moves anything
+    // held in that hand by the same transform.
+    {
+        static bool tWas = false, tpWas = false, tmWas = false;
+        const bool sh = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool ct = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool f5 = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+        const bool cyc = f5 && !sh && !ct;
+        const bool plus = f5 && sh && !ct;
+        const bool minus = f5 && ct && !sh;
+        if (cyc   && !tWas)  InterlockedOr(&g_mpTrimReq, 1);
+        if (plus  && !tpWas) InterlockedOr(&g_mpTrimReq, 4);
+        if (minus && !tmWas) InterlockedOr(&g_mpTrimReq, 2);
+        tWas = cyc; tpWas = plus; tmWas = minus;
+    }
+
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;
     (void)kCamRight; (void)kCamLoc0; (void)kCamLoc1; (void)kCamLoc2;
     (void)&FindLiveCamera; (void)&CamStillValid;

@@ -2254,20 +2254,37 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
                 g_mpGrip[hand] = dvr::hf::grip_solve(O_C, c->R_L, R_src);
                 g_mpGripId[hand] = nowId;
                 g_mpGripFromIni[hand] = false;
+                g_mpGripHave[hand] = true;
+                // SPLIT THE REFLECTION OUT BEFORE IT IS EVER WRITTEN DOWN.
+                // G is improper here, and no product of three proper rotations
+                // can be. Storing a parity sign beside a proper rotation is
+                // what makes the calibration survive a restart; the previous
+                // format silently dropped the reflection and the hands came
+                // back mirrored.
+                int par = 0; dvr::hf::Mat3 proper;
+                dvr::hf::split_parity(g_mpGrip[hand], &par, &proper);
                 float ex, ey, ez;
-                dvr::hf::mat_to_euler_xyz_deg(g_mpGrip[hand], &ex, &ey, &ez);
+                dvr::hf::mat_to_euler_xyz_deg(proper, &ex, &ey, &ez);
                 g_mpGripDeg[hand][0] = ex; g_mpGripDeg[hand][1] = ey;
                 g_mpGripDeg[hand][2] = ez;
+                g_mpGripParity[hand] = par;
+                g_mpGripVer[hand] = MP_GRIP_VERSION;
+                g_mpGripSaveDeg[hand][0] = ex; g_mpGripSaveDeg[hand][1] = ey;
+                g_mpGripSaveDeg[hand][2] = ez;
+                g_mpGripSaveParity[hand] = par;
+                InterlockedOr(&g_mpGripSaveReq, (LONG)(1 << hand));
                 InterlockedIncrement(&g_mpGripCapDone);
                 Log("ms/palette/grip: SOLVED for the %s hand against source "
-                    "generation %u - G = %+.1f %+.1f %+.1f degrees (extrinsic "
-                    "X,Y,Z; R = Rz*Ry*Rx). Put these in [Hands] Grip%s so the "
-                    "capture never has to be repeated. The hand has just snapped "
-                    "to the game's own animated orientation at the moment of the "
-                    "press: that IS the calibration, and it is the expected "
-                    "outcome, not a fault.",
-                    hand ? "RIGHT" : "LEFT", g_mpSrcGen,
-                    (double)ex, (double)ey, (double)ez, hand ? "R" : "L");
+                    "generation %u - parity %+d, proper rotation %+.2f %+.2f "
+                    "%+.2f degrees (extrinsic X,Y,Z; R = Rz*Ry*Rx). It is being "
+                    "SAVED to the ini automatically, so it survives a restart "
+                    "with no key press. The reflection is stored as the parity "
+                    "sign: three Euler angles alone cannot carry it, which is "
+                    "what made the hands come back inside out. The hand has just "
+                    "snapped to the game's own animated orientation at the "
+                    "moment of the press - that IS the calibration.",
+                    hand ? "RIGHT" : "LEFT", g_mpSrcGen, par,
+                    (double)ex, (double)ey, (double)ez);
             }
 
             // A grip solved in this session is only valid while the frame
@@ -2291,8 +2308,42 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         else         InterlockedIncrement(&g_mpRotOk);
     }
 
-    const dvr::hf::Xform D = dvr::hf::delta_local(c->R_L, c->t, O_C, g_mpGrip[hand],
-                                                  dcam, R_src, qLocal, rotate);
+    // THE GRIP ACTUALLY USED. With no calibration yet, identity is the WRONG
+    // default: the pose mapping is improper here, so identity makes O_C*G
+    // improper and the hand is drawn INSIDE OUT - which is exactly what the
+    // first headset run showed before SHIFT+F7. The parity-matched default is
+    // still uncalibrated and still at a wrong angle, but it is not mirrored.
+    dvr::hf::Mat3 Guse = g_mpGrip[hand];
+    if (rotate && !g_mpGripHave[hand] && g_mpGripVer[hand] != MP_GRIP_VERSION) {
+        Guse = dvr::hf::parity_factor(dvr::hf::parity_of(O_C));
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+            "ms/palette/grip: NO CALIBRATION for the %s hand yet, so the grip is "
+            "the parity-matched default (%+d). The hand tracks and is NOT "
+            "mirrored, but its angle is uncalibrated until SHIFT+F7.",
+            hand ? "right" : "left", dvr::hf::parity_of(O_C));
+    }
+
+    dvr::hf::Xform D;
+    if (rotate) {
+        // Through the SHARED target helper, which needs only the pose, the
+        // draw's basis and the calibration - no hand source palette. That is
+        // what lets a held weapon be placed before either hand has drawn.
+        // The trim's translation is metres in the palm frame; k converts it
+        // once, through the same effective scale the position path uses.
+        const float trimUU[3] = { g_mpTrimT[0] * k, g_mpTrimT[1] * k,
+                                  g_mpTrimT[2] * k };
+        const dvr::hf::Mat3 trimR = dvr::hf::euler_xyz_deg_to_mat(
+            g_mpTrimR[0], g_mpTrimR[1], g_mpTrimR[2]);
+        const dvr::hf::Xform target = dvr::hf::palm_target(O_C, Guse, dcam,
+                                                           trimR, trimUU);
+        g_mpPalmTarget[hand] = target;
+        g_mpPalmTargetOk[hand] = true;
+        D = dvr::hf::delta_from_target(c->R_L, c->t, target, R_src, qLocal);
+    } else {
+        D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
+                                 false);
+        g_mpPalmTargetOk[hand] = false;
+    }
     for (int i = 0; i < 3; i++)
         if (!MpFinite(D.t[i])) { *why = "non-finite target"; return false; }
     for (int i = 0; i < 9; i++)
@@ -2960,9 +3011,96 @@ static void MpDriveTick(void)
 }
 
 
+// THE CALIBRATION AND TRIM TICK. Present thread, because file I/O has no place
+// in a draw detour: the draw only sets a bit.
+static const char* MpTrimAxisName(int a)
+{
+    switch (a) {
+    case 0: return "TX (across the palm)";
+    case 1: return "TY (along the fingers)";
+    case 2: return "TZ (out of the palm)";
+    case 3: return "RX";
+    case 4: return "RY";
+    default: return "RZ";
+    }
+}
+
+static void MpCalibTick(void)
+{
+    // Save a freshly solved grip, once, per side.
+    const LONG save = InterlockedExchange(&g_mpGripSaveReq, 0);
+    if (save) {
+        for (int h = 0; h < 2; h++) {
+            if (!(save & (1 << h))) continue;
+            const char* sfx = h ? "R" : "L";
+            char key[32], v[64];
+            _snprintf(key, sizeof(key), "Grip%sVersion", sfx);
+            _snprintf(v, sizeof(v), "%d", MP_GRIP_VERSION);
+            ConfigWriteKey("Hands", key, v, "the grip capture");
+            _snprintf(key, sizeof(key), "Grip%sParity", sfx);
+            _snprintf(v, sizeof(v), "%d", g_mpGripSaveParity[h]);
+            ConfigWriteKey("Hands", key, v, "the grip capture");
+            static const char* ax[3] = { "X", "Y", "Z" };
+            for (int a = 0; a < 3; a++) {
+                _snprintf(key, sizeof(key), "Grip%s%s", sfx, ax[a]);
+                _snprintf(v, sizeof(v), "%.4f", g_mpGripSaveDeg[h][a]);
+                ConfigWriteKey("Hands", key, v, "the grip capture");
+            }
+            Log("ms/palette/grip: the %s hand's calibration is SAVED (version %d, "
+                "parity %+d). It will be loaded automatically on the next launch "
+                "- no key press, and no ini editing.",
+                h ? "right" : "left", MP_GRIP_VERSION, g_mpGripSaveParity[h]);
+        }
+    }
+
+    // The trim keys.
+    const LONG req = InterlockedExchange(&g_mpTrimReq, 0);
+    if (!req) return;
+    if (req & 1) {
+        g_mpTrimAxis = (g_mpTrimAxis + 1) % 6;
+        Log("ms/palette/trim: axis %d selected - %s. SHIFT+F5 adds, CTRL+F5 "
+            "subtracts, one step of %s per press. The trim is expressed in the "
+            "CALIBRATED PALM FRAME, so it rides the palm rather than the world, "
+            "and it moves anything held in that hand by the same transform.",
+            g_mpTrimAxis, MpTrimAxisName(g_mpTrimAxis),
+            g_mpTrimAxis < 3 ? "2 mm" : "1 degree");
+        return;
+    }
+    const float dir = (req & 4) ? +1.0f : -1.0f;
+    if (g_mpTrimAxis < 3) g_mpTrimT[g_mpTrimAxis] += dir * g_mpTrimStepT;
+    else                  g_mpTrimR[g_mpTrimAxis - 3] += dir * g_mpTrimStepR;
+    for (int i = 0; i < 3; i++) {
+        if (g_mpTrimT[i] >  0.25f) g_mpTrimT[i] =  0.25f;   // 25 cm is not a trim
+        if (g_mpTrimT[i] < -0.25f) g_mpTrimT[i] = -0.25f;
+        if (g_mpTrimR[i] >  45.0f) g_mpTrimR[i] =  45.0f;
+        if (g_mpTrimR[i] < -45.0f) g_mpTrimR[i] = -45.0f;
+    }
+    char v[64];
+    static const char* tk[3] = { "TrimTX", "TrimTY", "TrimTZ" };
+    static const char* rk[3] = { "TrimRX", "TrimRY", "TrimRZ" };
+    if (g_mpTrimAxis < 3) {
+        _snprintf(v, sizeof(v), "%.4f", g_mpTrimT[g_mpTrimAxis]);
+        ConfigWriteKey("Hands", tk[g_mpTrimAxis], v, "the hand trim");
+    } else {
+        _snprintf(v, sizeof(v), "%.2f", g_mpTrimR[g_mpTrimAxis - 3]);
+        ConfigWriteKey("Hands", rk[g_mpTrimAxis - 3], v, "the hand trim");
+    }
+    Log("ms/palette/trim: %s now %.1f %s | translation (%.1f %.1f %.1f) mm, "
+        "rotation (%.1f %.1f %.1f) deg. Saved, so it survives a restart.",
+        MpTrimAxisName(g_mpTrimAxis),
+        g_mpTrimAxis < 3 ? (double)(g_mpTrimT[g_mpTrimAxis] * 1000.0f)
+                         : (double)g_mpTrimR[g_mpTrimAxis - 3],
+        g_mpTrimAxis < 3 ? "mm" : "deg",
+        (double)(g_mpTrimT[0]*1000.0f), (double)(g_mpTrimT[1]*1000.0f),
+        (double)(g_mpTrimT[2]*1000.0f),
+        (double)g_mpTrimR[0], (double)g_mpTrimR[1], (double)g_mpTrimR[2]);
+}
+
+
 static void MsTick(void)
 {
     MpDriveTick();
+    MpCalibTick();
     PcTick();
     // The palette's stepped axis probe. Present thread, no D3D touched - the
     // draw detour reads g_mpStepAxis next time it runs.

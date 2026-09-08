@@ -1179,24 +1179,72 @@ static void LoadConfig()
     if (g_mpFrameTolOrtho > 0.25f)   g_mpFrameTolOrtho = 0.25f;
     g_mpFrameTolAniso = g_mpFrameTolOrtho;
     {
-        // The grip transform, as three degrees per side. The convention is
-        // EXTRINSIC X, then Y, then Z about the camera-relative world axes,
-        // i.e. R = Rz*Ry*Rx - declared here, round-tripped by the frame
-        // self-test, and kept internally as a matrix. The angles exist only so
-        // a solved G can be written down and read back.
-        static const char* keys[2][3] = {
-            { "GripLX", "GripLY", "GripLZ" }, { "GripRX", "GripRY", "GripRZ" }
-        };
+        // THE CALIBRATION RECORD. Three degrees per side hold a PROPER
+        // rotation, in extrinsic X then Y then Z (R = Rz*Ry*Rx), and the
+        // reflection is carried separately as a parity sign. G = P * R_saved,
+        // exactly, because P*P = I.
+        //
+        // A record with no GripVersion is REFUSED. Those angles were written by
+        // the build that reduced an improper G to three rotation angles, which
+        // cannot represent it: loading them would restore a MIRRORED hand while
+        // looking like a perfectly good calibration. Refusing costs one capture
+        // press; accepting costs a confusing headset run.
+        static const char* ax[3] = { "X", "Y", "Z" };
         for (int h = 0; h < 2; h++) {
-            for (int a = 0; a < 3; a++)
-                g_mpGripDeg[h][a] = IniFloat(ini, "Hands", keys[h][a], 0.0f);
-            g_mpGrip[h] = dvr::hf::euler_xyz_deg_to_mat(
-                g_mpGripDeg[h][0], g_mpGripDeg[h][1], g_mpGripDeg[h][2]);
-            // A grip from the ini was written down deliberately, against a
-            // convention recorded with it. It is not fingerprint-checked; only
-            // one solved live in this session is, because that is the one whose
-            // source frame can be re-derived underneath it.
+            const char* sfx = h ? "R" : "L";
+            char key[32];
+            _snprintf(key, sizeof(key), "Grip%sVersion", sfx);
+            g_mpGripVer[h] = (int)IniFloat(ini, "Hands", key, 0.0f);
+            _snprintf(key, sizeof(key), "Grip%sParity", sfx);
+            g_mpGripParity[h] = (int)IniFloat(ini, "Hands", key, 0.0f);
+            for (int a = 0; a < 3; a++) {
+                _snprintf(key, sizeof(key), "Grip%s%s", sfx, ax[a]);
+                g_mpGripDeg[h][a] = IniFloat(ini, "Hands", key, 0.0f);
+            }
+            const bool usable = (g_mpGripVer[h] == MP_GRIP_VERSION) &&
+                                (g_mpGripParity[h] == 1 || g_mpGripParity[h] == -1);
+            if (usable) {
+                g_mpGrip[h] = dvr::hf::join_parity(
+                    g_mpGripParity[h],
+                    dvr::hf::euler_xyz_deg_to_mat(g_mpGripDeg[h][0],
+                                                  g_mpGripDeg[h][1],
+                                                  g_mpGripDeg[h][2]));
+                g_mpGripHave[h] = true;
+                Log("config: the %s hand's grip calibration LOADED - version %d, "
+                    "parity %+d, proper rotation %+.2f %+.2f %+.2f degrees. No "
+                    "capture is needed this launch.",
+                    h ? "right" : "left", g_mpGripVer[h], g_mpGripParity[h],
+                    (double)g_mpGripDeg[h][0], (double)g_mpGripDeg[h][1],
+                    (double)g_mpGripDeg[h][2]);
+            } else {
+                g_mpGrip[h] = dvr::hf::identity3();   // replaced per draw by the
+                g_mpGripHave[h] = false;              // parity-matched default
+                if (g_mpGripVer[h] != 0 || g_mpGripDeg[h][0] != 0.0f ||
+                    g_mpGripDeg[h][1] != 0.0f || g_mpGripDeg[h][2] != 0.0f)
+                    Log("config: the %s hand has a grip record this build cannot "
+                        "use (version %d, parity %+d). A pre-version-%d record "
+                        "stored three rotation angles only, and the solved grip "
+                        "on this game is a REFLECTION that no product of proper "
+                        "rotations can represent - loading it would put the hand "
+                        "back inside out. Press SHIFT+F7 once and it will be "
+                        "saved correctly and never asked for again.",
+                        h ? "right" : "left", g_mpGripVer[h], g_mpGripParity[h],
+                        MP_GRIP_VERSION);
+            }
             g_mpGripFromIni[h] = true;
+        }
+        // The hand trim, in the calibrated palm frame. Metres and degrees.
+        g_mpTrimT[0] = IniFloat(ini, "Hands", "TrimTX", 0.0f);
+        g_mpTrimT[1] = IniFloat(ini, "Hands", "TrimTY", 0.0f);
+        g_mpTrimT[2] = IniFloat(ini, "Hands", "TrimTZ", 0.0f);
+        g_mpTrimR[0] = IniFloat(ini, "Hands", "TrimRX", 0.0f);
+        g_mpTrimR[1] = IniFloat(ini, "Hands", "TrimRY", 0.0f);
+        g_mpTrimR[2] = IniFloat(ini, "Hands", "TrimRZ", 0.0f);
+        for (int i = 0; i < 3; i++) {
+            if (g_mpTrimT[i] >  0.25f) g_mpTrimT[i] =  0.25f;
+            if (g_mpTrimT[i] < -0.25f) g_mpTrimT[i] = -0.25f;
+            if (g_mpTrimR[i] >  45.0f) g_mpTrimR[i] =  45.0f;
+            if (g_mpTrimR[i] < -45.0f) g_mpTrimR[i] = -45.0f;
         }
     }
     if (g_mpOn && g_mpWorld && g_mpRotate)
@@ -1681,14 +1729,30 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%.4f", g_mpFrameTolOrtho);
     WritePrivateProfileStringA("Hands", "PaletteFrameTol", v, ini);
     {
-        static const char* keys[2][3] = {
-            { "GripLX", "GripLY", "GripLZ" }, { "GripRX", "GripRY", "GripRZ" }
-        };
-        for (int h = 0; h < 2; h++)
+        static const char* ax[3] = { "X", "Y", "Z" };
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            char key[32];
+            _snprintf(key, sizeof(key), "Grip%sVersion", sfx);
+            _snprintf(v, 64, "%d", g_mpGripVer[h]);
+            WritePrivateProfileStringA("Hands", key, v, ini);
+            _snprintf(key, sizeof(key), "Grip%sParity", sfx);
+            _snprintf(v, 64, "%d", g_mpGripParity[h]);
+            WritePrivateProfileStringA("Hands", key, v, ini);
             for (int a = 0; a < 3; a++) {
-                _snprintf(v, 64, "%.1f", g_mpGripDeg[h][a]);
-                WritePrivateProfileStringA("Hands", keys[h][a], v, ini);
+                _snprintf(key, sizeof(key), "Grip%s%s", sfx, ax[a]);
+                _snprintf(v, 64, "%.4f", g_mpGripDeg[h][a]);
+                WritePrivateProfileStringA("Hands", key, v, ini);
             }
+        }
+        static const char* tk[3] = { "TrimTX", "TrimTY", "TrimTZ" };
+        static const char* rk[3] = { "TrimRX", "TrimRY", "TrimRZ" };
+        for (int i = 0; i < 3; i++) {
+            _snprintf(v, 64, "%.4f", g_mpTrimT[i]);
+            WritePrivateProfileStringA("Hands", tk[i], v, ini);
+            _snprintf(v, 64, "%.2f", g_mpTrimR[i]);
+            WritePrivateProfileStringA("Hands", rk[i], v, ini);
+        }
     }
     _snprintf(v, 64, "%.1f", g_hmAmount);
     WritePrivateProfileStringA("Hands", "HandMoveUU", v, ini);

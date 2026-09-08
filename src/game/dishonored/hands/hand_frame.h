@@ -267,6 +267,49 @@ static inline Mat3 grip_solve(const Mat3& O_C, const Mat3& R_L,
     return mul3(transpose3(O_C), mul3(R_L, R_src_local));
 }
 
+// ---- persisting an IMPROPER calibration -------------------------------------
+//
+// THE BUG THIS EXISTS FOR. The solved grip transform G inherits the parity of
+// the pose mapping, so on this game `det(G) = -1`. Writing it out as three
+// Euler angles and rebuilding it as `Rz*Ry*Rx` silently throws the reflection
+// away - a product of three proper rotations can never have determinant -1 -
+// so a calibration that worked in the session came back mirrored on the next
+// launch. It is also why an UNCALIBRATED start is inside out: identity G is
+// proper, `O_C * G` is then improper, and the hand is drawn reflected.
+//
+// The fix is to store the reflection EXPLICITLY rather than hope a rotation
+// format can carry it. With `p = det(O_C) = +/-1` and `P = diag(1, 1, p)`:
+//
+//     R_saved  = P * G          proper, so any rotation format round-trips it
+//     G_loaded = P * R_saved    exact, because P * P = I
+//
+// `p` is a measured sign, never an approximate determinant, and it is stored
+// beside the rotation. A parity-only default (`G = P`) is also what an
+// uncalibrated build must use, so the hands start un-mirrored.
+static inline Mat3 parity_factor(int p)
+{
+    Mat3 o = identity3(); o.m[8] = (p < 0) ? -1.0f : 1.0f; return o;
+}
+
+static inline int parity_of(const Mat3& m)
+{
+    return det3(m) > 0.0f ? +1 : -1;
+}
+
+// Split an orthogonal matrix into an explicit parity and a PROPER rotation.
+static inline void split_parity(const Mat3& m, int* p, Mat3* proper)
+{
+    const int s = parity_of(m);
+    if (p) *p = s;
+    if (proper) *proper = mul3(parity_factor(s), m);
+}
+
+// ...and put it back together. Exact, because P * P = I.
+static inline Mat3 join_parity(int p, const Mat3& proper)
+{
+    return mul3(parity_factor(p), proper);
+}
+
 // ---- the correction ---------------------------------------------------------
 
 // D_local = A_target_local * inverse(A_source_local), the rigid transform that
@@ -310,6 +353,68 @@ static inline Xform delta_local(const Mat3& R_L, const float* t_L,
         for (int i = 0; i < 3; i++) D.t[i] = tgt[i] - q_local[i];
     }
     return D;
+}
+
+// THE TARGET PALM, as one frame in the draw's camera-relative world space.
+//
+// Shared by the hands and - once the weapons land - by anything held in them,
+// which is the point: a weapon must be placeable BEFORE either hand has drawn,
+// so it cannot depend on a hand's source palette or a cached last-hand delta.
+// This needs only the pose snapshot, the draw's own basis, the calibration and
+// the trim.
+//
+//     PalmTarget = [ O_C * G * Trim.r | d_cam + (O_C * G) * Trim.t ]
+//
+// The trim's translation is expressed IN THE CALIBRATED PALM FRAME, so it
+// rotates with the palm - "5 mm towards the fingers" stays towards the fingers
+// however the wrist is held. Its units are whatever `trim_t` is given in; the
+// caller converts metres to unreal units once, through the same effective scale
+// the position path already uses.
+static inline Xform palm_target(const Mat3& O_C, const Mat3& G,
+                                const float* d_cam,
+                                const Mat3& trim_r, const float* trim_t)
+{
+    const Mat3 base = mul3(O_C, G);
+    Xform t;
+    t.r = mul3(base, trim_r);
+    float off[3];
+    mulv3(base, trim_t, off);
+    for (int i = 0; i < 3; i++) t.t[i] = d_cam[i] + off[i];
+    return t;
+}
+
+// D_local from an already-built target frame, for a component whose
+// LocalToWorld rotation is R_L and translation t_L, whose source frame is
+// [R_src_local | q_local]. This is `delta_local` with the target supplied
+// rather than derived, and the two agree by construction - `palm_target_matches
+// _delta` in the self-test pins that.
+static inline Xform delta_from_target(const Mat3& R_L, const float* t_L,
+                                      const Xform& target_C,
+                                      const Mat3& R_src_local,
+                                      const float* q_local)
+{
+    const Mat3 R_Lt = transpose3(R_L);
+    float d[3];
+    for (int i = 0; i < 3; i++) d[i] = target_C.t[i] - t_L[i];
+    float tgt[3];
+    mulv3(R_Lt, d, tgt);
+    Xform D;
+    D.r = mul3(mul3(R_Lt, target_C.r), transpose3(R_src_local));
+    float Rq[3];
+    mulv3(D.r, q_local, Rq);
+    for (int i = 0; i < 3; i++) D.t[i] = tgt[i] - Rq[i];
+    return D;
+}
+
+// Compose two Xforms: `a * b`.
+static inline Xform xform_mul(const Xform& a, const Xform& b)
+{
+    Xform o;
+    o.r = mul3(a.r, b.r);
+    float rt[3];
+    mulv3(a.r, b.t, rt);
+    for (int i = 0; i < 3; i++) o.t[i] = rt[i] + a.t[i];
+    return o;
 }
 
 // D * M for one 3x4 skinning matrix, row-major with the translation in .w.
