@@ -83,10 +83,32 @@ static void DvrConsumePoses()
     }
     g_ctrlIdx[0] = 3; g_ctrlIdx[1] = 4;
     // per-eye frustum + IPD for the hand pass (symmetric half-angles; the
-    // runtime layer claims symmetric fovs too)
+    // runtime layer claims symmetric fovs too).
+    //
+    // 41.2 (VR-31): while a PROJECTION layer is up, the compositor shows the
+    // eye texture across the fov the LAYER CLAIMS - the engine's own rendered
+    // hfov (DvrFovHandoff hands it to set_rendered_hfov), which is not the
+    // headset's raw half-angles and on a Quest 3 is nowhere near them. Hands
+    // projected through the headset's frustum would then be drawn at a
+    // different angle from the world they are supposed to be standing in, and
+    // would slide against it as the claim moved. So the hand pass gets the
+    // CLAIM, derived exactly the way the runtime derives it for the layer
+    // (openxr_runtime.cpp: tan(halfV) = tan(halfH) * h / w over the swapchain,
+    // which is this method's output texture). On the quad screen there is no
+    // claim and the headset's own angles stay - the hand pass refuses on that
+    // rung anyway, and a frustum nobody reads is better left honest.
     float hh = 0, hv = 0;
     if (dvr::vr::headset_half_fov_deg(&hh, &hv) && hh > 0.0f) {
         float th = tanf(hh * 0.0174533f), tv = tanf(hv * 0.0174533f);
+        const char* whose = "the headset's own half-angles";
+        const float claimDeg = dvr::stereo::wants_projection()
+                                   ? dvr::vr::rendered_hfov_deg() : 0.0f;
+        const uint32_t cw = dvr::capture::width(), ch = dvr::capture::height();
+        if (claimDeg > 1.0f && cw && ch) {
+            th = tanf(claimDeg * 0.5f * 0.0174533f);
+            tv = th * (float)ch / (float)cw;
+            whose = "the projection layer's claim";
+        }
         float sep = 0.0f;
         if (dvr::vr::eye_separation_m(&sep) && sep > 0.04f && sep < 0.08f) g_ipdM = sep;
         for (int eye = 0; eye < 2; eye++) {
@@ -96,6 +118,18 @@ static void DvrConsumePoses()
             g_eyeOffs[eye][1] = 0.0f; g_eyeOffs[eye][2] = 0.0f;
         }
         g_eyeFrOk = true;
+        // The derived numbers, on change only, so "the hands sit at the wrong
+        // angle" is arithmetic rather than opinion.
+        static float saidTh = 0.0f, saidTv = 0.0f; static const char* saidWhose = NULL;
+        if (fabsf(th - saidTh) > 0.001f || fabsf(tv - saidTv) > 0.001f || whose != saidWhose) {
+            saidTh = th; saidTv = tv; saidWhose = whose;
+            Log("vrhands: eye frustum from %s - half-angles %.1f/%.1f deg "
+                "(tan %.3f/%.3f) over %ux%u, IPD %.1f mm. The hands are composed "
+                "through THIS; if it disagrees with the layer's claim they slide "
+                "against the world.",
+                whose, atanf(th) * 57.29578f, atanf(tv) * 57.29578f, th, tv,
+                cw, ch, g_ipdM * 1000.0f);
+        }
     }
 }
 
@@ -248,6 +282,14 @@ static void DvrGameTick(IDirect3DDevice9* self)
         }
         StereoUpdate();   // the live-tuning hotkeys
         DvrConsumePoses();
+        // 41.2 (VR-31): the hand pass's beat ticks HERE, not only from inside
+        // the draw callback. Driven from the callback alone it could never
+        // print the one case it claims to name - "the stereo method never
+        // reached the seam" - because that case is exactly the one where the
+        // callback does not run. An instrument that cannot report its own
+        // worst answer is not an instrument.
+        HmBeat();
+        DcTick();        // VR-31 route (b): the draw census and its cycler
         // 41.0: the camera seam learns the eye the active method wants next,
         // the IPD and the world scale; the eyetest reads c5 back here.
         dvr::camera::set_eye(dvr::stereo::active() ? dvr::stereo::active()->eye_for_next_frame() : 0);
@@ -612,6 +654,8 @@ static void DvrInstallFrameHooks()
     cb.game_tick            = DvrGameTick;
     cb.set_vs_const         = hkSetVSConstF;
     cb.set_render_target    = hkSetRenderTarget;
+    cb.draw_indexed         = DcDrawIndexed;   // VR-31 route (b): the draw census
+    cb.draw_prim            = DcDrawPrim;      // ...and the non-indexed entry point
     cb.d3d11                = DvrFrameD3D11;
     cb.gameplay_verdict     = DvrGameplayVerdict;
     dvr::frame::set_callbacks(cb);
@@ -624,4 +668,9 @@ static void DvrInstallFrameHooks()
     rh.gates     = SceneDrawGates;
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
+    // 41.2 (VR-31): our own hands. Registered unconditionally - the callback
+    // returns immediately while [VRHands] Enabled is off, and registering it
+    // only when the lever is on would mean `vrhands on` did nothing until a
+    // restart.
+    dvr::stereo::set_hand_draw(HmDrawIntoEye);
 }

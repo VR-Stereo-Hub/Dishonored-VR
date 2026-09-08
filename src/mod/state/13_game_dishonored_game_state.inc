@@ -178,6 +178,22 @@ static int   g_crouchHideCfg   = 1;      // [Hands] CrouchHideArms
 static float g_crouchHideCyl   = 76.0f;  // [Hands] CrouchHideCyl
 static float g_crouchHideScale = 0.02f;  // [Hands] CrouchHideScale
 static bool  g_armsHidden      = false;
+// VR-31 route (a): per-bone hiding through the engine's own BoneVisibilityStates.
+// Back to OFF: the verdict is recorded (route (a) is closed on three
+// instruments, ENGINE_NOTES "VERDICT (2026-09-06, run 4)"), so the lever has
+// nothing left to prove and its diagnostics cost a GObjects walk and an
+// FpCollect per launch. `arms vis status` runs the whole diagnostic on demand.
+static int   g_boneVisCfg      = 0;      // [Hands] BoneVisHide
+// VR-31 route (d): the material census. Read-only, and it is the evidence the
+// route decision is waiting on, so it ships ON.
+static int   g_matCensusCfg    = 1;      // [Hands] MatCensus
+// The automatic A/B. Ships ON: the tester is not sending commands during a run,
+// so the mod runs the experiment on itself and restores everything after.
+// Route (d) is PROVEN, so the timed sweep goes back off - it fought the
+// cycler and its job is done. The numpad cycler is the way to identify a
+// section now, at a human pace.
+static int   g_matAutoCfg      = 0;      // [Hands] MatAuto
+static int   g_matCycleCfg     = 1;      // [Hands] MatCycle (Numpad 1/2/3)
 static int   g_handFloorCfg = 1;      // 38.27: [Hands] HandFloor
 static float g_handFloorMargin = 4.0f;// 38.27: uu above the capsule bottom
 static int   g_crawlTuckCfg = 1;      // 38.19: [Hands] CrawlTuck

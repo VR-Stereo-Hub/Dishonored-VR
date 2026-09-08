@@ -1062,6 +1062,10 @@ static void ApplyHandToMesh()
     // hide killed the only thing that could ever un-hide. The arms went away
     // on the first crouch and never came back, exactly as reported.
     ArmsHideTick();
+    // VR-31 route (a). Same reason ArmsHideTick sits above the early return:
+    // the census has to keep running, and the restore path has to stay
+    // reachable, whatever the hand drive is doing.
+    BoneVisTick();
     if (!g_handMesh) return;
     // 38.19: crawl tuck - the automated version of the HOME test that the
     // user measured as flawless. Skipping the whole apply is exactly what

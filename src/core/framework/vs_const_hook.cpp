@@ -212,6 +212,11 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
     // which is the entire reason the old component drive could not win.
     //
     // Routing: each rig is assigned to a controller, and the ARMS rig can be
+    // 41.2 (VR-31): the draw census sees every c6 upload BEFORE any of the
+    // rewriting paths below, so it records what the game asked for rather than
+    // what we left behind. Read-only and gated on g_dcOn.
+    if (startReg == 6) DcNotePalette(count);
+
     // split by bone index so the right arm follows the right hand and the left
     // arm the left. Held off while a diagnostic owns the same uploads.
     if (data && startReg == 6 && g_rtdOn && !g_boneRtGo && !g_rtdIdGo &&
