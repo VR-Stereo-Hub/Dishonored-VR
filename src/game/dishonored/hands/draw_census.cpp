@@ -202,6 +202,12 @@ static bool DcIsLocked(IDirect3DDevice9* self, bool needIb)
 static HRESULT __stdcall DcDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
                                     UINT startVertex, UINT primCount)
 {
+    // The weapon router lives on the INDEXED entry only. A pass drawn without
+    // an index buffer therefore never reaches it and cannot be corrected or
+    // even counted as refused - it would be a rendering mystery of exactly the
+    // kind this hook exists to prevent. Counting it here is what lets the beat
+    // say whether the missing copy is even in the population.
+    if (g_waOn) InterlockedIncrement(&g_waNonIndexed);
     if (g_dcOn && self && g_dcHideVb && DcIsLocked(self, false)) {
         // The same fail-soft as the indexed path. An AUTOMATIC lock must never
         // remove geometry it has not managed to classify - the split is a

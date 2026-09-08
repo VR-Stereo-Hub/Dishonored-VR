@@ -290,6 +290,9 @@ static bool WiOwns(int sig, int comp, uint32_t* h0, uint32_t* s0,
 struct MpDrawCtx;
 static void WaCompTick(void);
 static bool WaPrimCountKnown(UINT primCount);
+static void WaProbeRefused(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
+                           INT baseVertex, UINT minIndex, UINT numVertices,
+                           UINT startIndex, UINT primCount);
 static void WaBeat(void);
 static void WaPublishCommon(int hand, const MpDrawCtx* c,
                             const dvr::hf::Xform& D);
