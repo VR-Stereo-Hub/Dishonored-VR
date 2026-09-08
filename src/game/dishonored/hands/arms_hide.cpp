@@ -593,6 +593,7 @@ static void BoneVisTick()
     BoneVisScanWhenReady();     // no-op once it has run, silent until the rig is up
     MatTickAll();               // VR-31 route (d): census, then the automatic A/B
     WiTick();                   // VR-33 W1: which draws belong to which weapon
+    WaCompTick();               // VR-33 W2/W3: the component transform snapshot
     if (!g_bvOn) {
         // [Hands] BoneVisHide=1 arms it from the ini. The rig is not there on
         // the first ticks of a level, so retry - but cap the attempts, because

@@ -2346,6 +2346,12 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // that was measured without it.
         if (g_mpModelScale != 1.0f)
             D = dvr::hf::scale_about(D, palmLocal, g_mpModelScale);
+
+        // VR-33 W2/W3: publish THIS correction for the weapon path, conjugated
+        // out of the hand's local space into the draw's camera-relative world
+        // so any other member of the same view can consume it. Published here,
+        // AFTER the model scale, so that factor is carried exactly once.
+        WaPublishCommon(hand, c, D);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
                                  false);
@@ -3209,6 +3215,7 @@ static void MsTick(void)
     MpCalibTick();
     PcTick();
     WiFinishTick();     // VR-33 W1: the report, from whichever lane gets there
+    WaBeat();           // VR-33 W2/W3: prints even when nothing ever matched
     // The palette's stepped axis probe. Present thread, no D3D touched - the
     // draw detour reads g_mpStepAxis next time it runs.
     if (InterlockedExchange(&g_mpStepReq, 0)) {

@@ -1,216 +1,491 @@
 // game/dishonored/hands/weapon_attach.cpp - included by src/mod/dishonoredvr.cpp
-// (unity build). See state chunk 57b for what this is and why it exists.
+// (unity build). See state chunk 57b for the design and why it changed.
 //
-// VR-33 W2/W3: applies the SAME rigid palette correction the hands use to the
-// buffer pairs the component sweep identified as weapons.
+// VR-33 W2/W3: identify the weapon's draws by a bridged full-transform match,
+// then carry them through the SAME correction the hand took.
 
-// ---- adopting what the sweep identified -------------------------------------
+// ---- reading a native component transform -----------------------------------
 
-// Which hand an asset name belongs in. Matched on the asset because that is
-// what the sweep reports and what the component actually calls itself; the
-// bolt goes wherever the crossbow goes, since it is loaded in it.
-static int WaHandFor(const char* asset)
+// The component's own LocalToWorld, read with the SAME extraction the shader
+// constant gets in MpAcquireCtx: three basis registers then a translation.
+// Doing it identically on both sides is deliberate - whichever of row- or
+// column-major the pair really is, the convention cancels in the comparison
+// rather than being asserted from memory and silently wrong.
+//
+// Scale is RETAINED. It is evidence for the match, and dividing it out here
+// would throw away the one quantity that separates a scaled duplicate from the
+// real thing.
+static bool WaReadCompXform(uint8_t* obj, dvr::hf::Mat3* R, float* t, float* scale)
 {
-    if (!asset) return g_waXbowHand;
-    if (strstr(asset, "sword") || strstr(asset, "Sword")) return g_waSwordHand;
-    return g_waXbowHand;      // crossbow_01, bolt_01, and anything else held
+    if (!LooksLikeObj(obj) || !RangeReadable(obj + 0x60, 0x40)) return false;
+    const float* M = (const float*)(obj + 0x60);   // 0x60 / 0x70 / 0x80
+    const float* T = (const float*)(obj + 0x90);
+    float col[3][3];
+    for (int j = 0; j < 3; j++)
+        for (int i = 0; i < 3; i++) col[j][i] = M[j * 4 + i];
+    for (int j = 0; j < 3; j++) {
+        float n = 0.0f;
+        for (int i = 0; i < 3; i++) n += col[j][i] * col[j][i];
+        n = sqrtf(n);
+        if (!(n > 1.0e-4f) || n != n || n > 1.0e4f) return false;
+        scale[j] = n;
+        for (int i = 0; i < 3; i++) col[j][i] /= n;
+    }
+    for (int i = 0; i < 3; i++) {
+        t[i] = T[i];
+        if (t[i] != t[i] || t[i] > 1.0e9f || t[i] < -1.0e9f) return false;
+    }
+    *R = dvr::hf::basis_from_cols(col[0], col[1], col[2]);
+    return true;
 }
 
 
-// Called by WiReport for a component that OWNED at least one buffer pair.
-// Everything it needs is already in the sweep's table.
-static void WaAdopt(const char* asset, int comp)
+// Which hand a member belongs in. The asset-name rule is a DEFAULT, not
+// measured attachment data - the review is right that the sword/crossbow
+// sides here are inherited assumption. It is logged as an assumption and is
+// overridable; an unknown asset is NOT silently swept into the crossbow hand.
+static int WaHandFor(const char* asset, bool* known)
+{
+    if (known) *known = true;
+    if (asset && (strstr(asset, "sword") || strstr(asset, "Sword")))
+        return g_waSwordHand;
+    if (asset && (strstr(asset, "crossbow") || strstr(asset, "Crossbow") ||
+                  strstr(asset, "bolt")     || strstr(asset, "Bolt")))
+        return g_waXbowHand;
+    if (known) *known = false;
+    return g_waXbowHand;
+}
+
+
+// ---- the component snapshot, SCRIPT LANE ------------------------------------
+//
+// Read-only. It does not call the legacy collect/restore writers, which are
+// not discovery helpers however much they look like one.
+static void WaCompTick(void)
 {
     if (!g_waOn) return;
-    int added = 0;
-    for (int i = 0; i < g_wiSigN && g_waMeshN < WA_MAX_MESH; i++) {
-        uint32_t h0, s0, h1, s1;
-        if (!WiOwns(i, comp, &h0, &s0, &h1, &s1)) continue;
-        bool dup = false;
-        for (int m = 0; m < g_waMeshN; m++)
-            if (g_waMesh[m].vb == g_wiSig[i].vb && g_waMesh[m].ib == g_wiSig[i].ib)
-                dup = true;
-        if (dup) continue;
-        WaMesh* w = &g_waMesh[g_waMeshN++];
-        memset(w, 0, sizeof(*w));
-        w->vb = g_wiSig[i].vb;
-        w->ib = g_wiSig[i].ib;
-        w->bones = g_wiSig[i].bones;
-        w->hand = WaHandFor(asset);
-        _snprintf(w->asset, sizeof(w->asset), "%s", asset ? asset : "?");
-        w->asset[sizeof(w->asset) - 1] = 0;
-        added++;
+    const double now = MaimNowMs();
+    if (now - g_waCompMs < 8.0) return;        // once per frame is plenty
+    g_waCompMs = now;
+
+    int n = 0;
+    for (int i = 0; i < g_fpCandN && n < WA_MAX_COMP; i++) {
+        FpCand* k = &g_fpCand[i];
+        if (!LooksLikeObj(k->obj)) continue;
+        WaComp c;
+        memset(&c, 0, sizeof(c));
+        c.obj = k->obj;
+        _snprintf(c.asset, sizeof(c.asset), "%s", k->asset);
+        _snprintf(c.name,  sizeof(c.name),  "%s", k->name);
+        c.asset[sizeof(c.asset) - 1] = 0;
+        c.name[sizeof(c.name) - 1] = 0;
+        c.ok = WaReadCompXform(k->obj, &c.R, c.t, c.scale);
+        // The BRIDGE ANCHOR is the body mesh - the one the split locks and
+        // draws, and therefore the one whose draw we can already identify
+        // without any of this machinery. That is the whole point: the offset
+        // comes from a component identified by other means.
+        c.isRef    = strstr(c.asset, "Skm_Player") != NULL;
+        c.isMember = !c.isRef;
+        bool known = false;
+        c.hand = WaHandFor(c.asset, &known);
+        if (c.isMember && !known) c.isMember = false;   // never guess a side
+        g_waComp[n++] = c;
     }
-    if (added)
-        Log("wa: ADOPTED '%s' - %d buffer pair(s), into the %s hand. These "
-            "draws now take the same rigid palette correction the hands take, "
-            "from the same target palm. Nothing was typed in and nothing was "
-            "guessed: the pair is the one that stopped arriving on BOTH hides "
-            "of this component and came back on BOTH shows.",
-            asset, added, WaHandFor(asset) ? "RIGHT" : "LEFT");
-    else if (g_waMeshN >= WA_MAX_MESH)
-        Log("wa: REFUSED '%s' - the attach table is full at %d pair(s). Later "
-            "components cannot be attached this run.", asset, WA_MAX_MESH);
+    g_waCompN = n;
+    g_waCompGen++;
+
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+        "wa/comp: %d component(s) snapshotted, generation %u. The anchor is the "
+        "one marked REF; members are what may be attached.", n, g_waCompGen);
+    for (int i = 0; i < n; i++)
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 10000,
+            "wa/comp:   [%d] '%s' (%s) %s%s xform %s t=(%.1f %.1f %.1f) "
+            "scale=(%.3f %.3f %.3f)",
+            i, g_waComp[i].asset, g_waComp[i].name,
+            g_waComp[i].isRef ? "REF" : "", g_waComp[i].isMember ? "MEMBER" : "",
+            g_waComp[i].ok ? "ok" : "UNREADABLE",
+            (double)g_waComp[i].t[0], (double)g_waComp[i].t[1],
+            (double)g_waComp[i].t[2], (double)g_waComp[i].scale[0],
+            (double)g_waComp[i].scale[1], (double)g_waComp[i].scale[2]);
+}
+
+
+// ---- the hand publishes its correction, PRESENT LANE ------------------------
+//
+// Called from the hand's own placement path once D is final - which is AFTER
+// the model scale, so that factor is carried exactly once and WaDraw must not
+// apply it again.
+static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& D)
+{
+    if (!g_waOn || hand < 0 || hand > 1 || !c) return;
+    dvr::hf::Xform L;
+    L.r = c->R_L;
+    for (int i = 0; i < 3; i++) L.t[i] = c->t[i];
+
+    WaCommon w;
+    w.L_hand  = L;
+    w.D       = dvr::hf::xform_mul(dvr::hf::xform_mul(L, D), dvr::hf::xform_inv(L));
+    w.present = (uint32_t)dvr::frame::count();
+    w.poseGen = c->pose.gen;
+    w.eye     = g_mpEyeState;
+    w.ok      = true;
+    for (int i = 0; i < 9; i++) if (!MpFinite(w.D.r.m[i])) w.ok = false;
+    for (int i = 0; i < 3; i++) if (!MpFinite(w.D.t[i]))   w.ok = false;
+    g_waCommon[hand] = w;
+}
+
+
+// Is there a correction for THIS view? Exact on Present, pose generation and
+// eye - a correction from the previous eye is a whole IPD wrong, and borrowing
+// one is the failure the old boolean could not even express.
+static const WaCommon* WaCommonFor(int hand, const MpDrawCtx* c)
+{
+    if (hand < 0 || hand > 1) return NULL;
+    const WaCommon* w = &g_waCommon[hand];
+    if (!w->ok) return NULL;
+    if (w->present != (uint32_t)dvr::frame::count()) return NULL;
+    if (w->poseGen != c->pose.gen) return NULL;
+    if (w->eye     != g_mpEyeState) return NULL;
+    return w;
+}
+
+
+// ---- the match --------------------------------------------------------------
+
+// Does this draw's contract match a cached one? Full discriminators: a buffer
+// pair alone can carry several ranges and several instances.
+static WaMesh* WaCached(void* vb, void* ib, void* decl, void* vs, UINT stride,
+                        INT baseVertex, UINT startIndex, UINT numVerts,
+                        UINT primCount)
+{
+    for (int m = 0; m < g_waMeshN; m++) {
+        WaMesh* w = &g_waMesh[m];
+        if (w->vb == vb && w->ib == ib && w->decl == decl && w->vs == vs &&
+            w->stride == stride && w->baseVertex == baseVertex &&
+            w->startIndex == startIndex && w->numVerts == numVerts &&
+            w->primCount == primCount)
+            return w;
+    }
+    return NULL;
+}
+
+
+// Compare this draw against every member component, through the bridge, and
+// return the winner ONLY if it is unique by a margin.
+//
+// The bridge: eyeOrigin comes from the anchor component, whose draw transform
+// the hand path already published. A candidate's own residual is never used to
+// validate that candidate.
+static int WaMatch(const MpDrawCtx* c, const WaCommon* w, int hand,
+                   float* bestAng, float* bestPos)
+{
+    // The anchor, and the offset between the two spaces.
+    int ref = -1;
+    for (int i = 0; i < g_waCompN; i++)
+        if (g_waComp[i].isRef && g_waComp[i].ok) { ref = i; break; }
+    if (ref < 0) return -2;                    // no anchor: cannot bridge
+
+    float eyeOrigin[3];
+    for (int i = 0; i < 3; i++)
+        eyeOrigin[i] = g_waComp[ref].t[i] - w->L_hand.t[i];
+
+    int best = -1, next = -1;
+    float bAng = 1.0e9f, bPos = 1.0e9f, nAng = 1.0e9f, nPos = 1.0e9f;
+    for (int i = 0; i < g_waCompN; i++) {
+        const WaComp* k = &g_waComp[i];
+        if (!k->ok || !k->isMember) continue;
+        if (k->hand != hand) continue;
+        const float ang = dvr::hf::rotation_diff_deg(c->R_L, k->R);
+        float d = 0.0f;
+        for (int j = 0; j < 3; j++) {
+            const float pred = k->t[j] - eyeOrigin[j];
+            d += (pred - c->t[j]) * (pred - c->t[j]);
+        }
+        const float pos = sqrtf(d);
+        // One scalar to rank on, with position weighted so a degree and a
+        // unit are comparable at the tolerances in force.
+        const float score = ang / (g_waAngTolDeg > 0.0f ? g_waAngTolDeg : 1.0f) +
+                            pos / (g_waPosTolUU  > 0.0f ? g_waPosTolUU  : 1.0f);
+        const float bScore = bAng / (g_waAngTolDeg > 0.0f ? g_waAngTolDeg : 1.0f) +
+                             bPos / (g_waPosTolUU  > 0.0f ? g_waPosTolUU  : 1.0f);
+        if (best < 0 || score < bScore) {
+            next = best; nAng = bAng; nPos = bPos;
+            best = i;    bAng = ang; bPos = pos;
+        } else {
+            const float nScore = nAng / (g_waAngTolDeg > 0.0f ? g_waAngTolDeg : 1.0f) +
+                                 nPos / (g_waPosTolUU  > 0.0f ? g_waPosTolUU  : 1.0f);
+            if (next < 0 || score < nScore) { next = i; nAng = ang; nPos = pos; }
+        }
+    }
+    *bestAng = bAng; *bestPos = bPos;
+    g_waBestAng = bAng; g_waBestPos = bPos;
+    g_waNextAng = nAng; g_waNextPos = nPos;
+    _snprintf(g_waBestName, sizeof(g_waBestName), "%s",
+              best >= 0 ? g_waComp[best].asset : "none");
+    g_waBestName[sizeof(g_waBestName) - 1] = 0;
+
+    if (best < 0) return -1;
+    if (bAng > g_waAngTolDeg || bPos > g_waPosTolUU) return -1;
+
+    // UNIQUENESS. Equal rotations are common - a bolt in the crossbow's
+    // channel shares one - so a winner that is not clearly better than the
+    // runner-up is an ambiguity, not an identity.
+    if (next >= 0) {
+        const float bScore = bAng / g_waAngTolDeg + bPos / g_waPosTolUU;
+        const float nScore = nAng / g_waAngTolDeg + nPos / g_waPosTolUU;
+        if (nScore < bScore * g_waMarginX) {
+            // Both indistinguishable AND both members of the same assembly in
+            // the same hand: placement is identical either way, so an assembly
+            // match is enough and no member identity is invented.
+            if (g_waComp[best].hand == g_waComp[next].hand) return best;
+            return -3;                          // different hands: refuse
+        }
+    }
+    return best;
 }
 
 
 // ---- the draw ---------------------------------------------------------------
 
-// Is this draw one of the adopted weapon meshes? Buffer identity only, and the
-// references are released inside this call.
-static WaMesh* WaFind(IDirect3DDevice9* dev)
-{
-    if (!g_waOn || !g_waMeshN || !dev) return NULL;
-    IDirect3DVertexBuffer9* vb = NULL; UINT off = 0, stride = 0;
-    if (FAILED(dev->GetStreamSource(0, &vb, &off, &stride)) || !vb) return NULL;
-    void* vbp = vb; vb->Release();
-    IDirect3DIndexBuffer9* ib = NULL;
-    if (FAILED(dev->GetIndices(&ib)) || !ib) return NULL;
-    void* ibp = ib; ib->Release();
-    for (int m = 0; m < g_waMeshN; m++)
-        if (g_waMesh[m].vb == vbp && g_waMesh[m].ib == ibp) return &g_waMesh[m];
-    return NULL;
-}
-
-
-// The rigid assembly frame of a weapon, read from its own palette. A weapon is
-// a rigid body: every bone moves together, so bone 0 IS the assembly frame and
-// averaging over several would only add noise. Rows are 3 float4, row-major
-// 3x4, translation in .w - the same layout MpBuild composes against.
-static bool WaAssemblyFrame(const float* pal, dvr::hf::Mat3* R, float* t)
-{
-    for (int r = 0; r < 3; r++) {
-        const float* row = pal + r * 4;
-        for (int c = 0; c < 3; c++) R->m[r*3 + c] = row[c];
-        t[r] = row[3];
-    }
-    // The palette carries the engine's own uniform scale, so normalise the
-    // columns before this is used as an orientation. A frame that will not
-    // normalise is not a rotation and the draw is left alone.
-    for (int c = 0; c < 3; c++) {
-        float n = 0.0f;
-        for (int r = 0; r < 3; r++) n += R->m[r*3 + c] * R->m[r*3 + c];
-        n = sqrtf(n);
-        if (!(n > 1.0e-4f) || n != n) return false;
-        for (int r = 0; r < 3; r++) R->m[r*3 + c] /= n;
-    }
-    for (int i = 0; i < 9; i++) if (R->m[i] != R->m[i]) return false;
-    for (int i = 0; i < 3; i++) if (t[i] != t[i]) return false;
-    return true;
-}
-
-
-// The hook. Returns true when it has DRAWN the weapon itself (patched palette,
-// draw, palette restored); false means "not ours, or refused" and the caller
-// draws exactly what the game asked for.
+// Patch the member's palette with the common correction, draw it, restore.
+// Returns true when it has HANDLED the draw; `hr` receives the real result of
+// the draw that was submitted.
 static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
-                   UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
+                   UINT minIndex, UINT numVertices, UINT startIndex,
+                   UINT primCount, HRESULT* hr)
 {
-    WaMesh* w = WaFind(dev);
-    if (!w) return false;
-    InterlockedIncrement(&g_waDraws);
+    if (hr) *hr = D3D_OK;
+    if (!g_waOn || !dev) return false;
+    InterlockedIncrement(&g_waSeen);
 
-    const int hand = w->hand;
+    // Cheap device state first - no reflection, no constant readback yet.
+    IDirect3DVertexBuffer9* vbo = NULL; UINT off = 0, stride = 0;
+    if (FAILED(dev->GetStreamSource(0, &vbo, &off, &stride)) || !vbo) return false;
+    void* vb = vbo; vbo->Release();
+    IDirect3DIndexBuffer9* ibo = NULL;
+    if (FAILED(dev->GetIndices(&ibo)) || !ibo) return false;
+    void* ib = ibo; ibo->Release();
+    IDirect3DVertexDeclaration9* dclo = NULL;
+    if (FAILED(dev->GetVertexDeclaration(&dclo)) || !dclo) return false;
+    void* decl = dclo; dclo->Release();
+    IDirect3DVertexShader9* vso = NULL;
+    if (FAILED(dev->GetVertexShader(&vso)) || !vso) return false;
+    void* vs = vso; vso->Release();
 
-    // THE TARGET PALM. Published by the hand path for exactly this, and it is
-    // valid before either hand has drawn - which matters, because the weapon
-    // can be submitted first. If the hand path has not placed this frame there
-    // is no target and the weapon is drawn where the engine wanted it.
-    if (!g_mpPalmTargetOk[hand]) {
-        g_waWhy = "the target palm for this hand has not been built this frame "
-                  "- the hand path refused, or rotation is off";
-        InterlockedIncrement(&w->refused);
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
-            "wa: '%s' NOT attached - %s. The engine's own weapon is drawn.",
-            w->asset, g_waWhy);
+    WaMesh* w = WaCached(vb, ib, decl, vs, stride, baseVertex, startIndex,
+                         numVertices, primCount);
+    const bool cached = (w != NULL);
+    if (cached) InterlockedIncrement(&g_waCacheHit);
+
+    // THE LAYOUT OF THE SHADER ACTUALLY BOUND. MpAcquireCtx reads registers by
+    // number, and those numbers belong to whichever shader was reflected last -
+    // the hand's, if nobody refreshes. A reflected register is only meaningful
+    // with its own shader current.
+    PcRefreshLayout(dev);
+    if (g_pcLayVp < 0 || g_pcLayL2W < 0) {
+        if (cached) InterlockedIncrement(&g_waNoLayout);
         return false;
     }
 
-    // HOW MANY REGISTERS TO CORRECT. A skinned assembly reports its palette
-    // size; a STATIC attachment reports none, and the crossbow body is
-    // described elsewhere in this tree as exactly that (vs_const_hook.cpp:
-    // "static attachments (the crossbow's body): world position in .w"). One
-    // bone - three registers - is the right correction for a rigid body with
-    // no palette, and it is the same arithmetic: D times the one matrix.
-    UINT regs = 0;
-    if (w->bones)                          regs = w->bones * 3u;
-    else if (g_dcPendingBones &&
-             g_dcSinceUpload < DC_REUSE_WINDOW) regs = (UINT)g_dcPendingBones * 3u;
-    else                                   regs = 3u;      // static: one bone
-    if (!regs || regs > WA_MAX_REGS) {
-        g_waWhy = "the palette size for this mesh is out of range";
-        InterlockedIncrement(&w->refused);
-        return false;
-    }
-
-    // The draw's own constants: the camera basis and this mesh's LocalToWorld.
     MpDrawCtx ctx;
     if (!MpAcquireCtx(dev, &ctx)) {
-        g_waWhy = ctx.why;
-        InterlockedIncrement(&w->refused);
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
-            "wa: '%s' NOT attached - the draw's constants were refused (%s).",
-            w->asset, ctx.why);
+        if (cached) { InterlockedIncrement(&g_waNoLayout); g_waWhy = ctx.why; }
+        return false;
+    }
+
+    const int hand = cached ? w->hand : -1;
+
+    // Which hand's correction? For an uncached draw we do not know yet, so try
+    // each hand that has a live correction for this exact view.
+    const WaCommon* wc = NULL;
+    int useHand = -1;
+    for (int h = 0; h < 2; h++) {
+        if (hand >= 0 && h != hand) continue;
+        const WaCommon* cand = WaCommonFor(h, &ctx);
+        if (cand) { wc = cand; useHand = h; break; }
+    }
+    if (!wc) {
+        InterlockedIncrement(&g_waNoCommon);
+        if (cached) {
+            // A member drawing before its hand in this view is a real ordering
+            // problem with one specific fix, so it is reported as itself and
+            // not folded into a generic refusal.
+            InterlockedIncrement(&g_waEarlyMember);
+            g_waWhy = "no hand correction exists yet for THIS Present, pose and "
+                      "eye - this member draws before the hand does";
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                "wa: '%s' NOT attached - %s. Borrowing the previous view's "
+                "correction would be a whole IPD wrong, so the native draw is "
+                "left alone. The fix is a same-generation hand source at an "
+                "earlier boundary, not a looser check.", w->asset, g_waWhy);
+        }
+        return false;
+    }
+
+    // Identify, if this contract is not already known.
+    if (!cached) {
+        static uint32_t tryPresent = 0; static int tries = 0;
+        const uint32_t pres = (uint32_t)dvr::frame::count();
+        if (pres != tryPresent) { tryPresent = pres; tries = 0; }
+        if (++tries > g_waMaxTry) return false;
+        if (g_waMeshN >= WA_MAX_MESH) return false;
+
+        InterlockedIncrement(&g_waCandChecked);
+        float ang = 0.0f, pos = 0.0f;
+        const int comp = WaMatch(&ctx, wc, useHand, &ang, &pos);
+        if (comp == -3) {
+            InterlockedIncrement(&g_waAmbiguous);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+                "wa: AMBIGUOUS - best '%s' at %.3f deg / %.2f uu, runner-up at "
+                "%.3f deg / %.2f uu, and they are in different hands. Refusing: "
+                "a transform match that cannot separate two owners is not an "
+                "identity.", g_waBestName, (double)g_waBestAng,
+                (double)g_waBestPos, (double)g_waNextAng, (double)g_waNextPos);
+            return false;
+        }
+        if (comp < 0) {
+            InterlockedIncrement(&g_waNoCandidate);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 5000,
+                "wa: no candidate - closest was '%s' at %.3f deg / %.2f uu "
+                "against bands of %.2f deg / %.2f uu.", g_waBestName,
+                (double)g_waBestAng, (double)g_waBestPos,
+                (double)g_waAngTolDeg, (double)g_waPosTolUU);
+            return false;
+        }
+        w = &g_waMesh[g_waMeshN++];
+        memset(w, 0, sizeof(*w));
+        w->vb = vb; w->ib = ib; w->decl = decl; w->vs = vs;
+        w->stride = stride; w->baseVertex = baseVertex;
+        w->startIndex = startIndex; w->numVerts = numVertices;
+        w->primCount = primCount;
+        w->comp = comp; w->hand = useHand;
+        w->boneReg = g_pcLayBones;
+        w->lastVerifyMs = MaimNowMs();
+        _snprintf(w->asset, sizeof(w->asset), "%s", g_waComp[comp].asset);
+        w->asset[sizeof(w->asset) - 1] = 0;
+        InterlockedIncrement(&g_waMatched);
+        Log("wa: MATCHED '%s' to a draw - %.3f deg / %.2f uu from its predicted "
+            "transform, runner-up %.3f deg / %.2f uu. Bridge from the body "
+            "mesh, not from this candidate's own residual. Contract: vb %p ib "
+            "%p decl %p vs %p stride %u base %d start %u verts %u prim %u, "
+            "bones at c%d. Into the %s hand.",
+            w->asset, (double)g_waBestAng, (double)g_waBestPos,
+            (double)g_waNextAng, (double)g_waNextPos, vb, ib, decl, vs, stride,
+            baseVertex, startIndex, numVertices, primCount, w->boneReg,
+            useHand ? "RIGHT" : "LEFT");
+    }
+
+    // A SKINNED path only. The static case needs its own component transform
+    // and its dependent constants handled, which is a different backend; it is
+    // refused BY NAME rather than pretended to be a one-bone palette.
+    if (w->boneReg < 0) {
+        InterlockedIncrement(&g_waNoSource);
+        g_waWhy = "this shader declares no bone matrices - it is an unskinned "
+                  "path and this build does not modify those";
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+            "wa: '%s' NOT attached - %s. Treating three registers as a one-bone "
+            "palette, as the previous build did, would corrupt whatever those "
+            "registers really are.", w->asset, g_waWhy);
+        return false;
+    }
+
+    // HOW MANY REGISTERS. Bounded by the device and by our buffer; the size of
+    // the last c6 write is not a palette size and is not consulted.
+    UINT regs = WA_MAX_REGS;
+    if ((UINT)w->boneReg + regs > 256u) regs = 256u - (UINT)w->boneReg;
+    if (w->regs) regs = w->regs;
+    if (!regs || regs > WA_MAX_REGS) {
+        InterlockedIncrement(&g_waNoSource);
+        g_waWhy = "the bone register range does not fit the device limit";
         return false;
     }
 
     static float src[4 * WA_MAX_REGS];
-    if (FAILED(dev->GetVertexShaderConstantF(6, src, regs))) {
-        g_waWhy = "the bone palette could not be read back from c6";
+    if (FAILED(dev->GetVertexShaderConstantF((UINT)w->boneReg, src, regs))) {
+        InterlockedIncrement(&g_waNoSource);
+        g_waWhy = "the bone block could not be read back";
         InterlockedIncrement(&w->refused);
         return false;
     }
+    w->regs = regs;
 
-    dvr::hf::Mat3 R_src;
-    float q[3];
-    if (!WaAssemblyFrame(src, &R_src, q)) {
-        g_waWhy = "the assembly frame in the palette is not a usable rotation";
-        InterlockedIncrement(&w->refused);
-        return false;
-    }
-
-    // THE SAME DELTA THE HAND TAKES, from the SAME target. This is the whole
-    // attachment: D carries the assembly from where the engine put it to the
-    // tracked palm, and because every bone of the palette gets the same D the
-    // loaded bolt keeps its animated relationship to the stock instead of
-    // being pinned separately and having its animation cancelled.
-    float palmLocal[3];
-    dvr::hf::Xform D =
-        dvr::hf::delta_from_target(ctx.R_L, ctx.t, g_mpPalmTarget[hand], R_src, q,
-                                   palmLocal);
-    // THE SAME FACTOR ABOUT THE SAME PALM as the hand. That is what keeps the
-    // weapon in the hand at any size: both are scaled about the grip point, so
-    // neither can drift out of the other.
-    if (g_mpModelScale != 1.0f)
-        D = dvr::hf::scale_about(D, palmLocal, g_mpModelScale);
-    for (int i = 0; i < 3; i++)
-        if (!MpFinite(D.t[i])) { g_waWhy = "non-finite weapon target"; InterlockedIncrement(&w->refused); return false; }
+    // THE CORRECTION. Conjugate the common transform into this member's own
+    // local space and compose it onto every matrix in the block. No weapon
+    // pivot, no grip solve, no per-member target: the whole assembly moves
+    // through one transform, so the game's own hand-to-weapon and
+    // weapon-to-bolt relationships - and the bolt's internal animation -
+    // survive untouched.
+    dvr::hf::Xform L;
+    L.r = ctx.R_L;
+    for (int i = 0; i < 3; i++) L.t[i] = ctx.t[i];
+    const dvr::hf::Xform Dm =
+        dvr::hf::xform_mul(dvr::hf::xform_mul(dvr::hf::xform_inv(L), wc->D), L);
     for (int i = 0; i < 9; i++)
-        if (!MpFinite(D.r.m[i])) { g_waWhy = "non-finite weapon rotation"; InterlockedIncrement(&w->refused); return false; }
+        if (!MpFinite(Dm.r.m[i])) { InterlockedIncrement(&w->refused); return false; }
+    for (int i = 0; i < 3; i++)
+        if (!MpFinite(Dm.t[i]))   { InterlockedIncrement(&w->refused); return false; }
 
     static float buf[4 * WA_MAX_REGS];
-    MpBuild(buf, src, regs, &D);
-    if (FAILED(dvr::frame::orig_set_vs_const(dev, 6, buf, regs))) {
-        g_waWhy = "the corrected palette could not be uploaded";
+    MpBuild(buf, src, regs, &Dm);
+
+    if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)w->boneReg, buf, regs))) {
+        InterlockedIncrement(&g_waNoSource);
+        g_waWhy = "the corrected block could not be uploaded";
         InterlockedIncrement(&w->refused);
         return false;
     }
-    dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex, numVertices,
-                                  startIndex, primCount);
-    // c6 is CURRENT STATE, not a one-shot. Put the game's own block back or
-    // every draw after this one inherits the weapon's delta.
-    dvr::frame::orig_set_vs_const(dev, 6, src, regs);
 
-    InterlockedIncrement(&w->placed);
+    InterlockedIncrement(&g_waAttempted);
+    const HRESULT drawHr = dvr::frame::orig_draw_indexed(
+        dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    if (hr) *hr = drawHr;
+    if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); }
+
+    // RESTORE ON EVERY EXIT. A constant is current device state, so the game's
+    // own block goes back to the EXACT values in force before this draw or
+    // every later draw inherits the correction. A failure here is louder than
+    // the draw failing.
+    if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)w->boneReg, src, regs))) {
+        InterlockedIncrement(&g_waRestoreFail);
+        Log("wa: RESTORE FAILED after '%s' - c%d x%u was not put back. Later "
+            "draws in this frame may inherit the weapon's correction.",
+            w->asset, w->boneReg, regs);
+    }
+
     g_waWhy = "placed";
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-        "wa: '%s' ATTACHED to the %s hand - c6 x%u (%u bones), delta "
-        "(%+.1f %+.1f %+.1f) uu | %ld placed, %ld refused over %ld weapon "
-        "draw(s). Both counters move only if some draws of this mesh are "
-        "refused; placed at 0 with refused rising means the target palm is "
-        "never ready when this mesh is submitted.",
-        w->asset, hand ? "RIGHT" : "LEFT", regs, regs / 3,
-        (double)D.t[0], (double)D.t[1], (double)D.t[2],
-        w->placed, w->refused, g_waDraws);
+        "wa: '%s' ATTACHED to the %s hand - c%d x%u, delta (%+.1f %+.1f %+.1f) "
+        "uu | placed %ld refused %ld | routed %ld, matched %ld, cache hits %ld, "
+        "ambiguous %ld, no-candidate %ld, no-correction %ld, early %ld, "
+        "attempted %ld, succeeded %ld, restore failures %ld.",
+        w->asset, w->hand ? "RIGHT" : "LEFT", w->boneReg, regs,
+        (double)Dm.t[0], (double)Dm.t[1], (double)Dm.t[2],
+        w->placed, w->refused, g_waSeen, g_waMatched, g_waCacheHit,
+        g_waAmbiguous, g_waNoCandidate, g_waNoCommon, g_waEarlyMember,
+        g_waAttempted, g_waSucceeded, g_waRestoreFail);
     return true;
+}
+
+
+// The heartbeat. It must print even when nothing has ever matched, because
+// "nothing attached" and "never entered" produced identical silence for three
+// runs and that is what made them unreadable.
+static void WaBeat(void)
+{
+    if (!g_waOn) return;
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+        "wa: beat - %d component(s) known (gen %u), %d contract(s) matched | "
+        "routed %ld | no correction for the view %ld (of which members drawing "
+        "early %ld) | compared %ld -> matched %ld, ambiguous %ld, none %ld | "
+        "cache hits %ld | no layout %ld, no source %ld | attempted %ld, "
+        "succeeded %ld, restore failed %ld | closest so far '%s' at %.3f deg / "
+        "%.2f uu against bands %.2f / %.2f. Routed rising with compared at 0 "
+        "means no hand correction is reaching the weapon's view; compared "
+        "rising with matched at 0 means the bridge or the tolerances are wrong.",
+        g_waCompN, g_waCompGen, g_waMeshN, g_waSeen, g_waNoCommon,
+        g_waEarlyMember, g_waCandChecked, g_waMatched, g_waAmbiguous,
+        g_waNoCandidate, g_waCacheHit, g_waNoLayout, g_waNoSource,
+        g_waAttempted, g_waSucceeded, g_waRestoreFail, g_waBestName,
+        (double)g_waBestAng, (double)g_waBestPos,
+        (double)g_waAngTolDeg, (double)g_waPosTolUU);
 }

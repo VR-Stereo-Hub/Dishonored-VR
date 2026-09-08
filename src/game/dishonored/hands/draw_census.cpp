@@ -244,12 +244,20 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
 
     // VR-33 W2/W3: THE WEAPON ATTACHMENT. Ahead of everything else, because a
     // weapon mesh is not the locked hand mesh and must not fall through into
-    // the split's path. It returns true only when it has drawn the weapon
-    // itself with a corrected palette and put the game's own block back; false
-    // is the fail-soft and the draw proceeds untouched below.
-    if (g_waOn && g_waMeshN &&
-        WaDraw(self, type, baseVertex, minIndex, numVertices, startIndex, primCount))
-        return D3D_OK;
+    // the split's path.
+    //
+    // NOT gated on a populated table any more. That gate is what made three
+    // runs unreadable: with nothing adopted, the handler never executed and
+    // the log could not distinguish "never entered" from "entered and
+    // refused". It now routes on the lever alone, counts what it sees before
+    // any other gate, and returns the REAL result of the draw it submitted
+    // rather than an assumed D3D_OK.
+    if (g_waOn) {
+        HRESULT waHr = D3D_OK;
+        if (WaDraw(self, type, baseVertex, minIndex, numVertices, startIndex,
+                   primCount, &waHr))
+            return waHr;
+    }
 
     // MESH LOCK, ahead of the palette gate on purpose.
     //
@@ -368,12 +376,20 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     // draw records how many draws it sits after the upload, so reuse is visible
     // instead of invisible. The window is bounded so world geometry drawn long
     // after a palette does not flood the table.
-    if (!g_dcOn || !self || g_dcSinceUpload >= DC_REUSE_WINDOW || !g_dcPendingBones)
+    // THE AGE COUNTER IS MAINTAINED WHETHER OR NOT THE CENSUS REPORTS. It used
+    // to be incremented BELOW this early return, so with the census off it
+    // never advanced: the reuse window never closed, every draw looked like it
+    // followed a fresh palette, and g_dcPendingBones was really "the size of
+    // the last c6 write, whenever that was". Three weapon reports printed bone
+    // counts derived from that number and every one of them was fiction.
+    const uint32_t ord = g_dcSinceUpload;
+    if (g_dcSinceUpload < DC_REUSE_WINDOW) g_dcSinceUpload++;
+
+    if (!g_dcOn || !self || ord >= DC_REUSE_WINDOW || !g_dcPendingBones)
         return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex,
                                              numVertices, startIndex, primCount);
 
     const uint32_t bones = g_dcPendingBones;
-    const uint32_t ord = g_dcSinceUpload++;
 
     // Do not put single-matrix draws in the table. bones == 1 is one transform,
     // never a skin palette, and every such row came back skin=-- . They are also

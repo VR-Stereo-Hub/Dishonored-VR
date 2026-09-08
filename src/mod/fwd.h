@@ -285,10 +285,16 @@ static void WiTick(void);
 static bool WiOwns(int sig, int comp, uint32_t* h0, uint32_t* s0,
                    uint32_t* h1, uint32_t* s1);
 // VR-33 W2/W3: the weapon attachment (weapon_attach.cpp).
-static void WaAdopt(const char* asset, int comp);
+// MpDrawCtx is defined beside the palette path in mesh_split.cpp; the weapon
+// consumes it by pointer, so the incomplete type is all this needs.
+struct MpDrawCtx;
+static void WaCompTick(void);
+static void WaBeat(void);
+static void WaPublishCommon(int hand, const MpDrawCtx* c,
+                            const dvr::hf::Xform& D);
 static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
-                   UINT primCount);
+                   UINT primCount, HRESULT* hr);
 static void WiFinish(void);
 static void WiFinishTick(void);
 static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,

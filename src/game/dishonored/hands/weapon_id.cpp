@@ -207,10 +207,10 @@ static void WiReport(void)
                 once++;
             }
         }
-        // THE POINT OF THE SWEEP. An owned buffer pair is handed straight to
-        // the attachment - identification is not a report to be read and typed
-        // back in, it is the input to placement.
-        if (hits) WaAdopt(asset, c);
+        // The sweep NO LONGER feeds the attachment. It is a targeted
+        // confirmation instrument now: the attachment identifies its own draws
+        // through the coordinate bridge in weapon_attach.cpp, which does not
+        // need a 26 second scene-wide hide and survives a re-equip.
         Log("wid:   '%s': %d signature(s) owned, %d that vanished on ONE hide "
             "but not the other and were REJECTED. Those rejects are the "
             "instrument working: they are what a single-cycle sweep would have "

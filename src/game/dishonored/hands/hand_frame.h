@@ -435,6 +435,18 @@ static inline Xform scale_about(const Xform& D, const float* pivot, float s)
     return o;
 }
 
+// The inverse of a rigid Xform. The rotation is orthonormal here (either
+// parity - see the improper-basis note), so its transpose is its inverse; a
+// scaled Xform must not be passed through this.
+static inline Xform xform_inv(const Xform& a)
+{
+    Xform o;
+    o.r = transpose3(a.r);
+    mulv3(o.r, a.t, o.t);
+    for (int i = 0; i < 3; i++) o.t[i] = -o.t[i];
+    return o;
+}
+
 // Compose two Xforms: `a * b`.
 static inline Xform xform_mul(const Xform& a, const Xform& b)
 {
