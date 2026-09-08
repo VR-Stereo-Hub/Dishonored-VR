@@ -18,7 +18,11 @@ static void StereoUpdate()
     }
     {
         static bool f7pWas = false;
-        bool f7p = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+        // SHIFT is excluded: SHIFT+F7 belongs to the VR-33 grip capture below,
+        // and the same key family firing two features at once has already cost
+        // one session (7099c3b0).
+        bool f7p = (GetAsyncKeyState(VK_F7) & 0x8000) != 0 &&
+                   !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
         if (f7p && !f7pWas) {
             // 33.6: F7 cycles OFF -> ROTATION DRIVE -> pin test -> OFF
             if (!g_skcRotDrive && !g_skcRotPin) {
@@ -121,10 +125,21 @@ static void StereoUpdate()
     // nothing". A bare-numpad block has to check that the bare key is what
     // was pressed.
     const bool kCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+
+    // THE NUMPAD CLAIM (VR-33). With [Hands] Adjust=1 the hand adjust owns
+    // Numpad 0, 2, 4, 5, 6, 7, 8 and 9, and the three blocks below give those
+    // keys up - only those keys. This is an explicit claim rather than another
+    // reader added alongside them because one key firing two features has cost
+    // this project a session already (7099c3b0, 0e1ccbb0): with the census
+    // armed, a Numpad 5 meant to lower the left hand would ALSO step the census
+    // and put the arms back, and the adjust would read as broken.
+    // config.cpp logs the claim once at startup, naming what gave up what.
+    const bool kAdj = g_mpAdjOn && !kCtrl;
+
     if (g_matCycleCfg && !kCtrl) {
         static bool n1Was = false, n2Was = false, n3Was = false;
         const bool n1 = (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0;
-        const bool n2 = (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
+        const bool n2 = !kAdj && (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
         const bool n3 = (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) != 0;
         if (n1 && !n1Was) g_matCycleReq = -1;
         if (n2 && !n2Was) g_matCycleReq =  2;
@@ -135,7 +150,7 @@ static void StereoUpdate()
     // VR-31 route (b): step through the censused DRAWS. Same split as the
     // material cycler - the hotkey only posts a request, and DcCycleTick acts
     // on it from the tick, never from here.
-    if (g_dcOn && !kCtrl) {
+    if (g_dcOn && !kCtrl && !kAdj) {
         static bool n4Was = false, n5Was = false, n6Was = false;
         const bool n4 = (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) != 0;
         const bool n5 = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0;
@@ -170,7 +185,14 @@ static void StereoUpdate()
     if (g_msOn && !kCtrl) {
         static bool n0Was = false, adWas = false, sbWas = false,
                     mlWas = false, dvWas = false, dcWas = false;
-        const bool n0 = (GetAsyncKeyState(VK_NUMPAD0)  & 0x8000) != 0;
+        // The split's mode cycle MOVES to Numpad 1 while the adjust holds
+        // Numpad 0, rather than becoming unreachable. Numpad 1 belongs to the
+        // material cycler, which is off whenever the weapon identifier runs
+        // and off in the shipped ini; if both were on the cycler would keep it
+        // and this would be dead, so config.cpp says which owns it.
+        const bool n0 = kAdj
+            ? ((GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0 && !g_matCycleCfg)
+            : ((GetAsyncKeyState(VK_NUMPAD0) & 0x8000) != 0);
         const bool ad = (GetAsyncKeyState(VK_ADD)      & 0x8000) != 0;
         const bool sb = (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0;
         const bool ml = (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0;
@@ -200,37 +222,65 @@ static void StereoUpdate()
         n0Was = n0; adWas = ad; sbWas = sb; mlWas = ml; dvWas = dv; dcWas = dc;
     }
 
-    // VR-33 phase 1. CTRL + Numpad2 steps the hand-move experiment through
-    // off -> additive zero -> plus -> minus -> off. CTRL, because the bare
-    // numpad belongs to the mesh split and the draw census.
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/hand_move_hotkeys.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_packet_capture_hotkeys.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_axis_hotkeys.inc"
+#endif
+    // VR-33: SHIFT+F7 captures the grip transform G for BOTH hands at once.
+    // Hold your hands the way the game's own idle pose holds them and press it.
+    // The request is one bit per side, consumed ONCE by the next qualified
+    // original draw, so it is solved against one coherent pose snapshot and
+    // the ORIGINAL palette rather than a corrected one.
     {
-        static bool hmWas = false;
-        const bool hmk = kCtrl && (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) != 0;
-        if (hmk && !hmWas) g_hmStepReq = 1;
-        hmWas = hmk;
+        static bool gcWas = false;
+        const bool gck = (GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
+                         (GetAsyncKeyState(VK_F7) & 0x8000);
+        if (gck && !gcWas) {
+            InterlockedExchange(&g_mpGripCapReq, 3);
+            Log("ms/palette/grip: capture ARMED for both hands (SHIFT+F7). The "
+                "next qualified draw of each hand solves G and prints it. The "
+                "hands will SNAP to the game's own animated orientation at that "
+                "instant - that is what the calibration means, and it is the "
+                "expected outcome.");
+        }
+        gcWas = gck;
     }
 
-    // VR-33 step 2: SHIFT+F6 arms a batch of draw captures. Same key family as
-    // the probe it supports, and shifted so it cannot be hit while stepping.
-    {
-        static bool pcWas = false;
-        const bool pck = (GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
-                         (GetAsyncKeyState(VK_F6) & 0x8000);
-        if (pck && !pcWas) InterlockedExchange(&g_pcArmReq, 1);
-        pcWas = pck;
-    }
-
-    // VR-33: F6 steps the palette's axis probe. NOT a numpad key - every one
-    // of them is already claimed by a bare-key block above - and NOT a CTRL
-    // chord: CTRL is the game's block, so holding it to press a diagnostic
-    // makes the character do something and reads back as interference.
-    // rest -> axis 0 -> axis 1 -> axis 2 -> rest, one press each.
-    {
-        static bool mpWas = false;
-        const bool mpk = (GetAsyncKeyState(VK_F6) & 0x8000) != 0 &&
-                         !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
-        if (mpk && !mpWas) InterlockedExchange(&g_mpStepReq, 1);
-        mpWas = mpk;
+    // VR-33: THE HAND ADJUST, on BioShock Remastered VR's numpad keys.
+    //
+    //   Numpad 9   cycle mode: L position -> L rotation -> R position -> R rotation
+    //   Numpad 8/2 forward / back    (position)   or pitch (rotation)
+    //   Numpad 6/4 right / left      (position)   or yaw
+    //   Numpad 0/5 up / down         (position)   or roll
+    //   Numpad 7   cycle the step size
+    //
+    // This REPLACES the F5 trim shipped in 9d55ccde, which was unusable: F5 is
+    // the game's quicksave and head_track.cpp reads it too, so one press fired
+    // three features. These keys were chosen because the tester already has
+    // them in his fingers from the other mod - a headset is the worst place to
+    // learn a binding.
+    //
+    // The reader only POSTS a bit. Everything else - the arithmetic, the clamp
+    // and the ini write - happens in MpCalibTick on the present thread, because
+    // file I/O has no place in a hotkey poll.
+    if (kAdj) {
+        static const int  vk[8] = { VK_NUMPAD8, VK_NUMPAD2, VK_NUMPAD6,
+                                    VK_NUMPAD4, VK_NUMPAD0, VK_NUMPAD5,
+                                    VK_NUMPAD7, VK_NUMPAD9 };
+        static bool was[8] = { false, false, false, false,
+                               false, false, false, false };
+        for (int i = 0; i < 8; i++) {
+            const bool d = (GetAsyncKeyState(vk[i]) & 0x8000) != 0;
+            if (d && !was[i]) InterlockedOr(&g_mpAdjReq, 1L << i);
+            was[i] = d;
+        }
     }
 
     (void)g_camRefindIn; (void)g_camNameIdx; (void)g_camObj;

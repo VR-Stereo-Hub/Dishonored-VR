@@ -984,8 +984,6 @@ change land the same frame.
 ### Corrections to the 2026-09-02 entry
 
 - `m_UsedMaterials` is **not** beside `m_Offset`. It is one class up on
-  `DisSkeletalMeshComponent` and it is a body-part material show/hide table, not a viewmodel
-  transform. It is not a suppression route for the arms - do not chase it.
   `DisSkeletalMeshComponent`, with material indices and shown flags, not a viewmodel
   transform. The earlier dismissal as an arm-suppression route was unsupported:
   see the VR-31 research review below. Suitability depends on the player mesh's
@@ -3078,6 +3076,136 @@ another memory-layout guess. Where the dispatch and the array read disagree the 
 and the dispatch wins. On this rig the material name is the only handle available, because
 `m_MaterialsToBodyParts` is an NPC dismemberment feature and the player asset carries none.
 
+## The hand shaders' normal path, and the palette's own scale (VR-33, 2026-09-07)
+
+Read from the three captured hand vertex shaders, and from replaying all 28
+saved packets through the shipped decomposition.
+
+### Normals and tangents ride the bone palette
+
+| Shader | Normal path |
+|---|---|
+| `DB11BB81` | Position only. No normal or tangent input |
+| `F2E11B73` | Decodes normals AND tangents and multiplies both through the SAME weighted bone-palette linear rows the positions use; the bitangent comes from their cross product and a handedness term |
+| `11DD5E8A` | The same palette-driven tangent frame, plus light-direction handling |
+
+**Consequence:** a proper rigid transform composed onto the palette carries the
+tangent frame with the geometry. No separate normal matrix is needed and none
+exists.
+
+**`WorldToLocal` MUST NOT be rotated.** In these shaders it converts view and
+light vectors INTO component space. It is not a missing skinning-normal matrix,
+and transforming it as well would apply the correction twice to lighting. The
+component's own transform is unchanged by a palette edit, so `WorldToLocal`
+stays correct as it is.
+
+This closes the question for these three hashes only. A weapon shader is a
+different hash and must be audited before the same reasoning is used on it.
+
+### The palette matrices are uniformly scaled rotations, and the scale is derived
+
+Every palette matrix measured is a rotation times a uniform scale with no shear.
+Over all 28 packets, taking the anchor's dominant slot:
+
+```
+28 packet(s): 28 decomposed, 0 refused. dominant slot 10 (the same in all)
+uniform scale 0.999511659 .. 0.999512255
+worst anisotropy 5.960e-07 | worst orthonormality residual 9.835e-07
+```
+
+An independent check over all 48 slots in all 28 packets (1,344 matrices) gives
+the same scale range and residuals at numerical precision.
+
+**The scale is DERIVED per call, never hard-coded.** 0.999512 is what these
+captures held, not a property of every future pose, mesh and pass. Only the
+frame used to build the correction is normalised; the rendered palette keeps its
+own scale, because the correction is composed onto the original matrices.
+
+### The weighted BLEND is not a rotation
+
+The same test on the anchor's weighted blend, all 28 packets: `det 0.970`,
+largest Gram off-diagonal 0.0075, diagonal off by up to 0.026. Averaging
+rotations contracts them. This is why orientation is read from one slot and only
+the POSITION comes from the blended anchor patch.
+
+### A slot is a render slot, not a joint
+
+Dominant weight does not establish that a slot follows the palm rather than a
+finger or the forearm, and a skinning matrix can fold in an inverse-bind
+rotation, so its axes are not anatomical axes. Any constant bind orientation is
+absorbed into the grip transform. What has to be measured is only that the slot
+follows the palm rigidly.
+
+Across the 28 packets the dominant slot's frame moves at most **1.05 degrees**.
+The blend's reading over the same packets was identical to five decimals and
+looked frozen, so the slot does respond to the engine's animation - but these
+captures are all one near-idle pose and this does NOT establish that it tracks
+the palm. Only a run in which the game animates the hand can.
+
+### The lane contract for the hand draws
+
+`MpDriveTick` runs from `present_tick.cpp` -> `DcTick` -> `MsTick`, on the
+present thread. `MsDraw` runs on whichever thread the renderer draws on. The
+two thread ids are now recorded and printed (`ms/palette/lane:`), so the
+contract is measured rather than assumed - and the controller pose crosses
+between them as one whole structure under a lock, with a generation, latched
+once per ORIGINAL DRAW so both hands of a draw share it.
+
+A group of floats followed by setting a validity flag is NOT publication: the
+flag is already true from the previous sample, so a reader can combine new rows
+with old ones and never know.
+
+### The XR-to-game pose mapping is a MIRROR, and that is a convention
+
+MEASURED 2026-09-07 over 116,908 hand draws in one run. The draw's camera basis
+`B` (columns right, up, forward, recovered from the ViewProjection rows) is
+RIGHT-handed, so with `F = diag(1,1,-1)` the composite pose mapping
+
+```
+M = B * F * transpose(R_head)
+```
+
+has determinant **-1**. It is a reflection between XR's frame and the game's
+camera-relative world frame - which is what a right-handed runtime and a
+left-handed engine should produce.
+
+The first rotation build demanded that `B * F` be a PROPER rotation and refused
+**every single draw** (`placed 0 refused 116908`). The guard was wrong, not the
+game. The fail-soft held: all 116,908 draws still placed translation-only, so
+the hands behaved exactly as the previous build and nothing regressed - the run
+looked like "nothing changed" and the log said precisely why.
+
+**The reflection carries through and cancels.** With `s = det(M) = +/-1`:
+
+| quantity | determinant |
+|---|---|
+| `O_C = M * R_ctl` | `s` |
+| `G = transpose(O_C) * (R_L * R_src)` | `s` |
+| `O_C * G` | `s * s = +1` |
+| `D.r = transpose(R_L) * (O_C*G) * transpose(R_src)` | `+1` |
+
+so what is finally composed onto the palette is a proper rotation at every
+controller pose, whatever the parity. Conjugation by an orthogonal `Q` sends a
+rotation of angle `theta` about axis `a` to one of the SAME angle about
+`det(Q) * Q a`, so a mirrored frame reverses the axis and preserves the angle -
+the correct physical transport in a mirrored coordinate system, not a fault to
+be patched out with a sign flip.
+
+Only ORTHONORMALITY is still required, because a non-orthogonal basis is a
+broken read rather than a convention, and transpose would not be its inverse.
+
+### The hand draws and the pose tick are ONE thread
+
+MEASURED in the same run: `ms/palette/lane:` reports the pose published on
+thread 14224 and the draws consumed on thread 14224 - the same lane - with
+0 draws seeing a stale snapshot over 11,881 publications.
+
+This does NOT retire the locked snapshot. The contract is now measured instead
+of assumed, and it is measured on one machine and one build; the lock costs an
+uncontended critical section about five times per present, and it is what makes
+the two hands of a draw - and later a separately drawn weapon - provably share
+one controller pose.
+
 ## Dead ends (do not re-hunt)
 
 - The camera-object matrix at `kCamHookAt` is not what the renderer draws with.
@@ -3322,6 +3450,57 @@ construction.
 The proxy therefore parses each shader's CTAB constant table at capture time
 and uses the register indices it declares. Nothing about the layout is assumed.
 
+## The skinning palette is a TRANSPOSED 4x3, and the two halves index differently (VR-33, 2026-09-07)
+
+A D3D skinning palette holds each bone as three `float4`s that are the
+**transpose of a 4x3**: row `r` is matrix **COLUMN** `r`, and the `w` of each
+row holds that component of the translation.
+
+So the translation reads and transforms like an ordinary vector - which is why
+the probe's bone origins were sensible from the first run - and the basis does
+not. Applying `M' = R.M` to the stored form multiplies the basis by R
+**transposed** and along the row, while the translation column multiplies by R
+the ordinary way down the rows. **The two halves genuinely use different index
+patterns**, and the first build applied the translation's pattern to both.
+
+The symptom names the bug if you know it: position lands correctly, there is
+one controller angle where the hand sits exactly where it belongs, and the
+whole hand turns on a lever several feet long. That is a correct translation
+and a transposed basis together.
+
+## The palette is a register INTERVAL with per-register validity, not a length (VR-33, 2026-09-07)
+
+Caching the palette as a COUNT cannot express what the engine does. Four state
+questions a length cannot answer, all of them observed:
+
+* an update starting INSIDE the block fails an outer bounds test;
+* a wide block covering `c6` can top up an existing cache but never bootstrap
+  an empty one;
+* a short `c6 x4` leaves the previous claimed length standing;
+* an over-long upload is copied whole, after which every trailing triplet is
+  treated as another bone.
+
+Model it as a fixed interval `[6, 6 + 3*bones)` with a valid flag per register.
+Every upload contributes its intersection with that interval whatever it starts
+at or how far it runs, and the palette is usable only when the WHOLE interval is
+valid - so a partially filled palette can never be drawn through.
+
+## Sockets live on the ASSET, and `Mesh` is declared on `Pawn` (VR-33 step 1, 2026-09-06)
+
+Two reflection "UNKNOWN"s that were this side looking in the wrong place rather
+than the build differing from the corpus.
+
+`SkeletalMeshComponent` declares socket **queries**, which are functions;
+property reflection will never find them. The socket **list** is on the asset:
+
+```
+component -> SkeletalMesh (+0x1D4) -> Sockets (+0x160)
+```
+
+And `Mesh` is declared on `Engine.Pawn` (`Pawn.uc:187`). `FindPropOffset`
+matches on the OUTER's name, so asking `DishonoredPawn` for it was always going
+to miss.
+
 ## The bone palette's basis, measured (VR-33 rung 1, 2026-09-07)
 
 The skinning matrices the game uploads to `c6` (48 bones, `c6 x144`, 3 float4
@@ -3447,3 +3626,39 @@ The GObjects-wide tick scan runs on the script lane and walks every object once
 a second, calling `ObjClassName` on each. Measured cost: a 505-520 ms stall of
 the game thread every second (see above). It is a diagnostic, ships OFF, and
 must not be left enabled.
+
+## 2026-09-08: VR-33 weapon attachment direct repair
+
+Source inspection of 768fbf71 found that uncached weapon matching selected the
+first available hand and then excluded all components assigned to the other
+hand. The preserved failed run performed 302,039 comparisons with no patch
+attempts; this cannot establish whether the GPU correction itself was valid.
+
+The matcher now uses the complete affine reference bridge, preserves native
+scale, compares both hands, and revalidates each draw. The native transform
+fields formerly embedded in WaReadCompXform are centralized in patterns.h as
+kWaComponentLocalToWorld (+0x60) and kWaComponentTranslation (+0x90). These are
+existing FpComputePivots reads, not newly discovered offsets. Row extraction
+and a shared reference bridge still require independent live member matches.
+
+The old palette extent was 256 minus its start register. It would cross the
+BoneMatrices declaration into LocalToWorld and other constants. The repair
+carries the CTAB register count and rejects ranges overlapping VP/LocalToWorld.
+The previous zero-attempt run never exercised this destructive extent.
+
+19 weapon host tests and 28 existing hand tests pass. A simulator launch failed
+before gameplay, with an access violation instruction in Dishonored.exe at RVA
+0x60907e; root cause is undetermined. No attachment result is claimed from it.
+User headset testing is pending. See VR-33-HANDS-AND-WEAPONS.md for code
+changes, exact test steps, remaining assumptions and rollback location.
+
+The first user headset run of the direct repair subsequently produced 196,422
+successful patched draws with zero restore failures and near-zero transform
+residuals for all three named members. Weapons moved but used the opposite
+hand; there was also a large apparent offset and flickering dark silhouettes
+at the former positions. That run preceded the installed side-setting fix.
+The next revision swaps the settings and removes camera-VP requirements from
+weapon placement, allowing independently matched world-space passes with the
+correction conjugated through the reference bridge. These address concrete
+routing/math restrictions; visual ghost removal is still unverified. The host
+suite now contains 21 weapon cases plus the existing 28 hand cases.

@@ -202,6 +202,57 @@ sphere, which is the escape hatch if a future asset makes -4.9 wrong.
 The auto-repeat exists because at the ultrafine step the ring moves 0.1 % of
 the arm per press, and placing it by hand would otherwise be a hundred taps.
 
+**With `[Hands] Adjust=1` the split's mode cycle MOVES from Numpad 0 to
+Numpad 1**, because the hand adjust below claims Numpad 0. Numpad + - * / .
+are untouched. If `MatCycle=1` as well, the material cycler owns Numpad 1 and
+the split's mode cycle is unreachable for that run; the startup log says so
+outright rather than leaving a dead key.
+
+### 9a. The hand adjust (the numpad scheme)
+
+`[Hands] Adjust=1`, on by default. Adopted key for key from the maintainer's
+own BioShock Remastered VR mod, because those are the keys the tester already
+has in his fingers and a headset is the worst possible place to learn a new
+binding. It replaces the F5 trim shipped in `9d55ccde`, which was unusable:
+F5 is the game's quicksave and `head_track.cpp` reads it too, so one press
+fired three features.
+
+| Key | Position mode | Rotation mode |
+|---|---|---|
+| Numpad 9 | cycle the mode, and NAME it in the log | |
+| Numpad 8 / 2 | along the fingers, forward / back | pitch |
+| Numpad 6 / 4 | across the palm, right / left | yaw |
+| Numpad 0 / 5 | out of the palm, up / down | roll |
+| Numpad 7 | cycle the step: 0.5 / 2 / 5 cm | 0.1 / 0.25 / 0.5 / 1 / 2 / 5 / 15 deg |
+
+Four modes, cycled in this order: LEFT position, LEFT rotation, RIGHT
+position, RIGHT rotation. **Per hand** - the trim used to be one shared value
+on the reasoning that each palm is calibrated to its own grip, so palm space
+means the same thing on both sides. The headset disagreed: the two grips are
+solved from two separate poses and carry their own residual, so the leftover
+error is not common and one trim cannot cancel both.
+
+The trim is a rigid nudge **in the calibrated palm frame**, so "5 mm towards
+the fingers" stays towards the fingers however the wrist is held, and it moves
+anything held in that hand by the same transform - a later hand adjustment
+never invalidates a weapon profile.
+
+Every press logs the new value and writes it to
+`[Hands] Trim<L|R><T|R><X|Y|Z>`, so a good alignment survives a restart with
+nothing typed into the ini. The step indices persist as `AdjStepT`/`AdjStepR`.
+
+**Three things the log will tell you that a key press cannot.** A clamp at the
+25 cm / 45 degree limit prints a line saying the key is working and the trim
+will not go further (a silent clamp reads exactly like a dead binding). A
+press made while rotation is refusing prints a warning that the value is saved
+but will not move the hand yet, because the trim rides `palm_target` on the
+rotation path. And the startup line names every key the adjust took and what
+gave it up, because one key firing two features has cost this project a
+session already (`7099c3b0`, `0e1ccbb0`).
+
+Set `Adjust=0` to hand every numpad key back to the census, the cycler and
+the split.
+
 ## 10. Reading the log
 
 Every line is `[hands] ms:` or `ms/`.
@@ -235,6 +286,26 @@ rising fallback with a ready split means the draw did not match the one the
 split was built from.
 
 **Every `REFUSED` line carries the numbers that produced the refusal.**
+
+## 10a. Never submit generated indices without the vertices they address
+
+The split re-bases its index list onto vertices it INVENTS for the clip and the
+cap. Two paths could send those indices to the GAME's vertex buffer, where they
+address whatever happens to be there - a real correctness bug, not a cosmetic
+one.
+
+* `MsUpload` cleared `g_msOwnVb` when `CreateVertexBuffer` failed. By then
+  `MsClassify` has already run, so the index list contains entries at or past
+  `g_msVerts` that exist only in the buffer that just failed to be created.
+  **Falling back is not free once vertices have been invented.** It now
+  re-derives WITHOUT the clip and, if that still produces clipped vertices,
+  stands the split down entirely.
+* `MsDraw` drew with the game's `baseVertex`/`minIndex`/`numVertices` whenever
+  binding our vertex buffer failed - while still binding OUR index buffer. It
+  now aborts the replacement instead.
+
+The general rule: an index buffer and the vertex buffer it was built against
+are ONE artifact. A fail-soft that keeps half of the pair is not soft.
 
 ## 11. Traps and things not to repeat
 

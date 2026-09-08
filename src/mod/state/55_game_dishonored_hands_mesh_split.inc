@@ -280,9 +280,9 @@ static int      g_msClsCount[MS_CLS_N];
 // an unverified space in the same build is how a null result becomes
 // unreadable.
 static bool     g_mpOn      = false;   // [Hands] Palette
-static int      g_mpAxis    = 1;       // [Hands] PaletteAxis  0/1/2
-static float    g_mpAmount  = 12.0f;   // [Hands] PaletteAmount, unreal units
-static int      g_mpHand    = 0;       // [Hands] PaletteHand  0=A 1=B 2=both
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_axis_state.inc"
+#endif
 // The block the game last uploaded to c6. Cached at the upload rather than read
 // back from the device: a D3D9 constant read-back is a pipeline stall, and the
 // data is already in our hands for free.
@@ -304,9 +304,6 @@ static LONG     g_mpNoCache = 0;       // per-class draw wanted, no c6 seen yet
 // RESULT, recorded in ENGINE_NOTES: axis 0 LEFT, axis 1 DOWN, axis 2 FORWARD.
 // Kept because it is what would re-measure the basis if the asset or the engine
 // path ever changed.
-static bool     g_mpStep      = false;  // [Hands] PaletteStep
-static int      g_mpStepAxis  = -1;     // -1 = resting, 0/1/2 = that axis
-static volatile LONG g_mpStepReq = 0;   // hotkey -> MsTick, present thread
 
 // ---- the controller offset the placement consumes -----------------------------
 //
@@ -330,7 +327,7 @@ static volatile LONG g_mpStepReq = 0;   // hotkey -> MsTick, present thread
 //    difference, the grip offset and any anchor error into one 138 uu constant
 //    applied in a rotating frame - a 1.4 m lever pivoting on the head.
 //
-// All three are in docs/dishonored/VR-33-HANDS.md, and in git under the tags
+// All three are in docs/dishonored/VR-33-HANDS-AND-WEAPONS.md, and in git under the tags
 // vr33-placement-works and vr33-scale-correct.
 static float    g_mpCtlRUF[2][3];
 static bool     g_mpCtlRUFOk[2] = { false, false };
@@ -409,7 +406,7 @@ static bool     g_mpEyeOffset = false;  // [Hands] PaletteEyeOffset
 static LONG     g_mpEyeSeen[2] = { 0, 0 };   // draws attributed to pass 1 / pass 2
 static LONG     g_mpEyeUnclassified = 0;
 // THE EYE. Four mechanisms were tried and three failed; the reasons are in
-// docs/dishonored/VR-33-HANDS.md and are worth not repeating:
+// docs/dishonored/VR-33-HANDS-AND-WEAPONS.md and are worth not repeating:
 //
 //  1. The game-thread second-pass flag. UE3 queues render commands, so it reads
 //     false by the time the draw runs on the render thread. The counter caught
@@ -488,6 +485,208 @@ static UINT     g_mpValidN    = 0;      // how many of them are currently valid
 // the difference.
 static float    g_mpWsumTol   = 0.02f;  // [Hands] PaletteWeightTol
 static float    g_mpWsumWorst = 0.0f;   // the sum that last caused a refusal
+
+// ---------------------------------------------------------------------------
+// VR-33 ROTATION AND GRIP
+// ---------------------------------------------------------------------------
+//
+// THE COHERENT POSE SNAPSHOT.
+//
+// The pose tick runs on the present thread (present_tick.cpp -> DcTick ->
+// MsTick) and the draws run on whichever thread the renderer draws on. Writing
+// a group of floats and then setting a validity flag is NOT publication: the
+// flag is already true from the previous sample, so a reader can combine new
+// rows with old ones and never know. The whole snapshot is therefore copied
+// under a lock, in one piece, and each ORIGINAL DRAW takes one copy that its
+// hands - and later its weapon - all share, so two draws of one view can never
+// disagree about where the controller was.
+//
+// The lock is uncontended in the normal case (about five original draws per
+// present), and `g_mpLaneSame` records whether the two lanes turned out to be
+// one thread after all, so the contract is measured rather than assumed.
+struct MpPoseSnap {
+    dvr::hf::Mat3 inHead[2];     // F * transpose(R_head) * R_ctl, per hand
+    float         ruf[2][3];     // F * transpose(R_head) * (p_ctl - p_head), metres
+    bool          ok[2];         // per hand: head AND that hand tracked
+    bool          headOk;
+    uint32_t      gen;           // bumped on every publication
+};
+static MpPoseSnap        g_mpPosePub;          // the published snapshot
+static CRITICAL_SECTION  g_mpPoseCs;
+static bool              g_mpPoseCsOk = false;
+static uint32_t          g_mpPoseGen  = 0;
+static DWORD             g_mpTickTid  = 0;     // the lane that publishes
+static DWORD             g_mpDrawTid  = 0;     // the lane that draws
+static int               g_mpLaneSame = -1;    // -1 unknown, 0 different, 1 same
+static LONG              g_mpPoseStale = 0;    // draws that took a snapshot older
+                                               // than the previous draw's
+
+// THE SOURCE FRAME. Orientation comes from ONE palette slot - the slot
+// carrying the greatest total weight across the anchor patch - because a
+// weighted BLEND of rotations is not a rotation (measured on the 28 saved
+// packets: det 0.970, Gram off by 2.6 percent), while a single slot is a
+// rotation times a uniform scale to six decimals.
+//
+// It is a PALETTE SLOT, not a named joint. Dominant weight does not prove it
+// follows the palm rather than a finger or the forearm, and a skinning matrix
+// can carry an inverse-bind rotation, so its axes are not anatomical axes. Any
+// constant bind orientation is absorbed into the grip transform G. What must be
+// established by measurement is only that the slot follows the PALM rigidly;
+// `ms/palette/frame:` reports what is needed to judge that.
+//
+// Frozen per class AND per source generation: a rebuild, a device reset or a
+// palette remap invalidates it, because an index still inside the palette does
+// not prove it still names the same transform.
+static int      g_mpDomSlot[MS_CLS_N] = { -1, -1, -1, -1, -1 };
+static float    g_mpDomWeight[MS_CLS_N] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static uint32_t g_mpSrcGen   = 0;       // bumped by every split rebuild/reset
+// THE FRAME-CONVENTION FINGERPRINT that a grip transform was solved against.
+// A generation number alone is too blunt: a rebuild that re-derives the SAME
+// slot and the SAME anchor has not changed what G means, and invalidating
+// there costs a headset run for nothing. A generation number is also not
+// enough on its own, because an index still inside the palette does not
+// prove it names the same transform. So record what was actually used - the
+// slot, the anchor's size and its first identity - and invalidate only when
+// one of them differs. That is a check, not a hope.
+struct MpFrameId { int slot; int anchorN; uint32_t anchor0; };
+static MpFrameId g_mpGripId[2] = { { -1, 0, 0 }, { -1, 0, 0 } };
+static bool      g_mpGripFromIni[2] = { true, true };
+
+// The last measured source frame, per hand, for the instrument.
+static dvr::hf::Mat3 g_mpSrcR[2];
+static bool     g_mpSrcOk[2]   = { false, false };
+static float    g_mpSrcScale[2] = { 0.0f, 0.0f };   // the slot's own uniform scale
+static float    g_mpSrcAniso[2] = { 0.0f, 0.0f };
+static float    g_mpSrcOrtho[2] = { 0.0f, 0.0f };
+// Angles for the instrument: how far each measured frame has moved from the
+// first one seen, so "does it track the palm?" is a number the tester can be
+// asked about rather than an impression.
+static dvr::hf::Mat3 g_mpSrcRef[2];
+static bool     g_mpSrcRefOk[2] = { false, false };
+static float    g_mpSrcMoved[2] = { 0.0f, 0.0f };   // deg from the reference
+static float    g_mpSrcMovedMax[2] = { 0.0f, 0.0f };
+static float    g_mpCtlMoved[2] = { 0.0f, 0.0f };   // the controller, same measure
+static float    g_mpCtlMovedMax[2] = { 0.0f, 0.0f };
+static dvr::hf::Mat3 g_mpCtlRef[2];
+static bool     g_mpCtlRefOk[2] = { false, false };
+static float    g_mpOutMoved[2] = { 0.0f, 0.0f };   // the APPLIED palm, when rotating
+static bool     g_mpOutOk[2] = { false, false };
+
+// THE LEVER AND THE GRIP TRANSFORM.
+static bool     g_mpRotate   = false;   // [Hands] PaletteRotate
+
+// THE CALIBRATION RECORD, versioned, with the reflection stored EXPLICITLY.
+//
+// G inherits the parity of the pose mapping and is improper on this game, so
+// three Euler angles cannot carry it: a product of three proper rotations is
+// always proper. The record therefore stores a parity sign and a PROPER
+// rotation, and `G = P * R_saved` rebuilds it exactly because P*P = I.
+//
+// GripVersion is what tells an old three-angle record apart from a complete
+// one. A record without it is NOT read as a calibration - the angles in it
+// were written by the build that dropped the reflection, and loading them
+// would restore a mirrored hand while looking like a valid calibration.
+enum { MP_GRIP_VERSION = 2 };
+static int      g_mpGripVer[2]    = { 0, 0 };   // 0 = no usable record
+static int      g_mpGripParity[2] = { 0, 0 };   // +1/-1, stored beside it
+static bool     g_mpGripHave[2]   = { false, false };
+static volatile LONG g_mpGripSaveReq = 0;       // draw -> the present thread
+static float    g_mpGripSaveDeg[2][3];          // the PROPER rotation, degrees
+static int      g_mpGripSaveParity[2] = { 0, 0 };
+
+// THE HAND TRIM: a small rigid nudge expressed IN THE CALIBRATED PALM FRAME,
+// so "5 mm towards the fingers" stays towards the fingers however the wrist is
+// held.
+//
+// PER HAND since the numpad scheme landed. It used to be one shared trim on
+// the reasoning that each palm is already calibrated to its own G, so palm
+// space means the same thing on both sides. The headset disagreed: the two
+// grips are solved from two separate poses and carry their own residual, so
+// the leftover error is not common and one trim cannot cancel both.
+//
+// It moves the hand AND anything held in it by the same common transform, so a
+// later hand adjustment never invalidates a weapon profile. A weapon-only trim
+// is separate and belongs to the weapon stage.
+// THE MODEL SCALE. One uniform factor on the hand AND anything held in it,
+// applied about the target palm so the grip stays where tracking put it and
+// the model shrinks around the controller rather than sliding off it.
+//
+// This is NOT the world scale. PageUp/PageDown drive g_posScaleUU, which sets
+// the stereo separation - a property of the projection, so it changes the
+// apparent size of everything in the frame at once and can never make the
+// hands smaller relative to the room. Only the geometry can do that, which is
+// what this is.
+//
+// It is also not the hand TRAVEL (WorldScaleUU / PaletteDriveGain): those set
+// how far the hand moves per metre of controller, and the tester reports that
+// as already correct.
+//
+// One lever for both hands and both weapons on purpose. The weapon path takes
+// the same palm target and the same factor, so the two cannot drift apart the
+// way two independent knobs would.
+static float    g_mpModelScale = 1.0f;      // [Hands] ModelScale
+
+static float    g_mpTrimT[2][3] = { { 0.0f, 0.0f, 0.0f },   // metres, palm frame
+                                    { 0.0f, 0.0f, 0.0f } };
+static float    g_mpTrimR[2][3] = { { 0.0f, 0.0f, 0.0f },   // degrees, XYZ
+                                    { 0.0f, 0.0f, 0.0f } };
+
+// ===========================================================================
+// THE NUMPAD ADJUST (VR-33). Adopted key for key from the maintainer's own
+// BioShock Remastered VR mod, because these are the keys the tester already
+// has in his fingers and a headset is the worst possible place to learn a new
+// binding. Four modes cycled with Numpad 9:
+//
+//   0  LEFT hand POSITION      1  LEFT hand ROTATION
+//   2  RIGHT hand POSITION     3  RIGHT hand ROTATION
+//
+//   Numpad 8 / 2   along the fingers, forward / back  |  pitch
+//   Numpad 6 / 4   across the palm, right / left      |  yaw
+//   Numpad 0 / 5   out of the palm, up / down         |  roll
+//   Numpad 7       cycles the step size
+//   Numpad 9       cycles the mode, and NAMES it in the log
+//
+// THE CLAIM. Every one of those keys is already read by another block in
+// hotkeys.cpp - the material cycler (1/2/3), the draw census and its
+// eighth-cutter (4..9) and the mesh split (0). One key firing two features has
+// cost this project a session already (7099c3b0, 0e1ccbb0), so this is not
+// another reader added alongside them: with [Hands] Adjust=1 the adjust block
+// takes those keys and the other blocks are suppressed FOR THOSE KEYS ONLY,
+// with one log line at startup saying the numpad is claimed and by what.
+// The mesh split's mode cycle moves from Numpad 0 to Numpad 1 to keep it
+// reachable.
+//
+// The rotation steps go down to a tenth of a degree because a hand that is
+// two degrees out is visible and one degree of correction overshoots it.
+static bool     g_mpAdjOn    = true;    // [Hands] Adjust
+static int      g_mpAdjMode  = 0;       // 0 Lpos, 1 Lrot, 2 Rpos, 3 Rrot
+static int      g_mpAdjStepT = 1;       // index into kMpAdjStepT
+static int      g_mpAdjStepR = 3;       // index into kMpAdjStepR
+// bits 0..5 = the six directional presses, 6 = step cycle, 7 = mode cycle
+static volatile LONG g_mpAdjReq = 0;
+static const float kMpAdjStepT[3] = { 0.005f, 0.02f, 0.05f };          // metres
+static const float kMpAdjStepR[7] = { 0.1f, 0.25f, 0.5f, 1.0f,
+                                      2.0f, 5.0f, 15.0f };             // degrees
+
+// The target palm each hand was placed at, in the draw's camera-relative
+// frame. Published so the weapon stage can consume the SAME target rather than
+// a hand's delta - and so a mismatch between the two is visible.
+static dvr::hf::Xform g_mpPalmTarget[2];
+static bool     g_mpPalmTargetOk[2] = { false, false };
+static float    g_mpGripDeg[2][3] = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f } };
+static dvr::hf::Mat3 g_mpGrip[2];       // built from g_mpGripDeg at config time
+static volatile LONG g_mpGripCapReq = 0;   // hotkey -> the next qualified draw
+static LONG     g_mpGripCapDone = 0;
+static LONG     g_mpRotOk = 0, g_mpRotRefused = 0;
+static const char* g_mpRotWhy = "not run yet";
+// Tolerances. Deliberately loose enough for a real palette and tight enough to
+// reject a frame that is not a rotation: the measured slot residuals are around
+// 1e-6, three orders of magnitude inside these.
+static float    g_mpFrameTolOrtho = 0.02f;   // [Hands] PaletteFrameTol
+static float    g_mpFrameTolAniso = 0.02f;
+static int      g_mpBasisImproper = 0;  // draws refused: the basis was not orthonormal
+static int      g_mpParitySeen    = 0;  // +1/-1 once measured, 0 until then
+static int      g_mpSelfTestFailed = -1;   // -1 not run, else the failure count
 
 // The derived wrist: distance from the hand bone's centroid, per side, and the
 // tester's live multiplier on it. 1.0 means "exactly where the bone spacing

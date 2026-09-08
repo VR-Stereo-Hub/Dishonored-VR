@@ -123,7 +123,13 @@ static void DcReadDecl(DcDraw* r)
 // is to find sizes nobody has written down.
 static void DcNotePalette(UINT count)
 {
+    // VR-33 W1 needs the same 'this draw is skinned' gate the census uses,
+    // so the weapon identifier keeps it open too.
+#if DVR_WITH_LEGACY
+    if (!g_dcOn && !g_wiOn) return;
+#else
     if (!g_dcOn) return;
+#endif
     if (count < 3 || count > 250) return;
     g_dcPendingBones = count / 3;
     g_dcPendingSerial = 1;
@@ -200,6 +206,16 @@ static bool DcIsLocked(IDirect3DDevice9* self, bool needIb)
 static HRESULT __stdcall DcDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
                                     UINT startVertex, UINT primCount)
 {
+    // The weapon router lives on the INDEXED entry only. A pass drawn without
+    // an index buffer therefore never reaches it and cannot be corrected or
+    // even counted as refused - it would be a rendering mystery of exactly the
+    // kind this hook exists to prevent. Counting it here is what lets the beat
+    // say whether the missing copy is even in the population.
+    if (g_waOn) {
+        InterlockedIncrement(&g_waNonIndexed);
+        HRESULT waHr = D3D_OK;
+        if (WaDrawPrim(self, type, startVertex, primCount, &waHr)) return waHr;
+    }
     if (g_dcOn && self && g_dcHideVb && DcIsLocked(self, false)) {
         // The same fail-soft as the indexed path. An AUTOMATIC lock must never
         // remove geometry it has not managed to classify - the split is a
@@ -221,6 +237,44 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
                                        INT baseVertex, UINT minIndex, UINT numVertices,
                                        UINT startIndex, UINT primCount)
 {
+    // VR-33 W1. Records the draw's identity against the phase the component
+    // sweep is currently in. Behind its own flag AND the skinned-draw gate, so
+    // it costs one branch when off. Read-only: it takes no reference it does
+    // not release inside the call and changes no device state.
+    // THE GATE USED TO HIDE THE ANSWER. This sat behind the palette gate
+    // (a fresh c6 upload within DC_REUSE_WINDOW draws), which is the right
+    // gate for the CENSUS but wrong for identification: the tester can watch
+    // 'crossbow_01' vanish and come back on command, so its draws certainly
+    // stop - yet the sweep attributed nothing twice running, with reject
+    // counts uniform across every component INCLUDING the player body. That
+    // pattern is what "the thing being measured was never in the population"
+    // looks like. A first-person weapon drawn as a static or single-bone
+    // attachment, or whose palette lands outside the window, was invisible
+    // here. The sweep now sees every indexed draw and records whether a fresh
+    // palette was pending, so a static attachment is a value rather than an
+    // absence.
+#if DVR_WITH_LEGACY
+    if (g_wiOn)
+        WiNoteDraw(self, baseVertex, minIndex, numVertices, startIndex, primCount);
+#endif
+
+    // VR-33 W2/W3: THE WEAPON ATTACHMENT. Ahead of everything else, because a
+    // weapon mesh is not the locked hand mesh and must not fall through into
+    // the split's path.
+    //
+    // NOT gated on a populated table any more. That gate is what made three
+    // runs unreadable: with nothing adopted, the handler never executed and
+    // the log could not distinguish "never entered" from "entered and
+    // refused". It now routes on the lever alone, counts what it sees before
+    // any other gate, and returns the REAL result of the draw it submitted
+    // rather than an assumed D3D_OK.
+    if (g_waOn) {
+        HRESULT waHr = D3D_OK;
+        if (WaDraw(self, type, baseVertex, minIndex, numVertices, startIndex,
+                   primCount, &waHr))
+            return waHr;
+    }
+
     // MESH LOCK, ahead of the palette gate on purpose.
     //
     // Dropping the three palette-fed passes over the arm mesh left a faint arm
@@ -338,12 +392,20 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     // draw records how many draws it sits after the upload, so reuse is visible
     // instead of invisible. The window is bounded so world geometry drawn long
     // after a palette does not flood the table.
-    if (!g_dcOn || !self || g_dcSinceUpload >= DC_REUSE_WINDOW || !g_dcPendingBones)
+    // THE AGE COUNTER IS MAINTAINED WHETHER OR NOT THE CENSUS REPORTS. It used
+    // to be incremented BELOW this early return, so with the census off it
+    // never advanced: the reuse window never closed, every draw looked like it
+    // followed a fresh palette, and g_dcPendingBones was really "the size of
+    // the last c6 write, whenever that was". Three weapon reports printed bone
+    // counts derived from that number and every one of them was fiction.
+    const uint32_t ord = g_dcSinceUpload;
+    if (g_dcSinceUpload < DC_REUSE_WINDOW) g_dcSinceUpload++;
+
+    if (!g_dcOn || !self || ord >= DC_REUSE_WINDOW || !g_dcPendingBones)
         return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex,
                                              numVertices, startIndex, primCount);
 
     const uint32_t bones = g_dcPendingBones;
-    const uint32_t ord = g_dcSinceUpload++;
 
     // Do not put single-matrix draws in the table. bones == 1 is one transform,
     // never a skin palette, and every such row came back skin=-- . They are also

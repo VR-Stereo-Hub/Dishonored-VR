@@ -1,15 +1,635 @@
 # Status
 
-## CURRENT (2026-09-05, session 17): VR-30 IS SOLVED - FaceRotation is the seam
-## CURRENT (2026-09-06): VR-31 - the hands are cut from the arms, clipped and capped
-## CURRENT (2026-09-07): VR-33 - the hands are at the controllers and correct
+## CURRENT (2026-09-08): VR-33 is DONE and in review
+
+The hands and the held weapons are on the tracked controllers, headset-confirmed
+and stable. The branch is `claude/vr-33-rotation-grip-and-weapons`, twelve
+commits, and the PR is open against `VR-Main`. **Nothing here is merged.**
+
+### What a player sees now
+
+* Hands track position and rotation, and hold still when the head moves.
+* The crossbow, the loaded bolt and the sword follow their controllers, keeping
+  the game's own hand-to-weapon and weapon-to-bolt relationships and their
+  internal animation.
+* No duplicate weapon standing at the position the engine drew it.
+* A rare single-frame blink on the weapons, and a fired bolt close to the player
+  can still be picked up. Both are ticketed, neither reads as broken.
+
+### The three things worth knowing before touching this
+
+**The grip transform is a REFLECTION.** The draw's camera basis is right-handed
+and the engine is left-handed, so the pose mapping is a mirror. Three Euler
+angles cannot carry one; the saved record stores a parity sign beside a proper
+rotation and refuses a pre-version record rather than loading a hand inside out.
+A build that demands a proper rotation refuses every draw.
+
+**A weapon mesh is drawn by several passes, and any pass we do not place draws
+itself at the native position.** That is what the duplicate copies were. The
+contract key must include the VERTEX SHADER; without it an uncorrected pass
+looks like the contract's own draw.
+
+**Suppressing a pass is only safe when it would otherwise draw a second copy.**
+Several of a weapon's passes are its colour and lighting contributions.
+Suppressing those leaves the ambient term alone: a translucent weapon that
+vanishes in shadow. That was measured, not guessed.
+
+### The blink, and the shared gate behind it
+
+The two weapons share no contract, buffers, component or match - only their
+inputs. **They blink together, which is what identified the cause**: a shared
+gate, not two independent failures. The gate was the component-snapshot
+freshness bound, tightened from 100 ms to 20 ms while chasing a view-model sway
+theory the headset then falsified. The theory was dropped and the bound was not.
+Back at 100 ms the blink is rare.
+
+`AttachSnapshotMaxMs` is the lever. **Tightening it blinks both weapons.**
+
+### Next steps
+
+1. **Merge VR-33** when the reviewer is satisfied - the user's call, not an
+   agent's.
+2. **VR-59, the fired bolt** (High). A bolt fired into something close by is
+   inside every distance gate and is the same mesh drawn from the same buffers.
+   The gates cannot close it; the fix is an instance identity read from the
+   engine. This is the next session's focus.
+3. **VR-49, the 20-90 s settle** (Urgent). The weapon lock is now part of it.
+   The asset-to-hand and asset-to-space decisions do not change between runs
+   even though the buffers do, so they are cacheable.
+4. **VR-57, the crosshair** (Urgent). It is still head-locked while the weapon
+   points where the hand points. One ray.
+5. **VR-58**, the numpad adjust and ModelScale, neither ever exercised in a
+   headset. Both default to the identity, so the build that was tested is the
+   build that ships.
+6. **VR-56**, the weapon models have no back faces. The asset was authored to be
+   seen from one side.
+
+### Verified on the desk
+
+49 host cases (28 hand, 21 weapon), `tools\lint.ps1` clean, nine exports
+undecorated, the installed DLL matching the build. The simulator was not used
+for this work: every question on it was perceptual.
+
+### The record
+
+`docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the one durable document -
+mechanism, levers, and a graveyard of every approach that cost a headset run.
+Section 8 is worth reading before any similar work: five separate filters in
+this investigation each produced a confident zero while excluding the thing they
+were built to find, and an enumeration solved in one run what they had hidden
+for eight builds.
+
+## PREVIOUS CURRENT (2026-09-08): VR-33 weapon attachment direct repair, test pending
+
+Release fix installed; 28 hand tests and 21 weapon tests pass. The first headset run confirmed weapon
+motion, but wrong hands, a large offset and flickering old-position silhouettes.
+The follow-up corrects hand settings and permits qualified non-camera passes.
+Correct alignment and ghost removal remain pending the next headset run.
+
+No sweep or blinking is expected. Equip crossbow/sword, move each controller,
+then check the loaded bolt, head motion, both eyes and re-equip/reload.
+Read `wa: beat v2`, `wa: interval nearest`, and per-asset `wa: contract` counts.
+Sword defaults RIGHT (1); crossbow/bolt LEFT (0). Hand calibration is retained.
+
+Full implementation and remaining assumptions:
+[VR-33 direct fix handoff](dishonored/VR-33-HANDS-AND-WEAPONS.md).
+
+The old sweep-based test instructions below are historical and superseded.
+
+## Historical (2026-09-07, night): VR-33 - weapon attach armed, model scale added
+
+### TEST TOMORROW, in this order
+
+**1. THE WEAPONS (priority).** Launch, draw the crossbow, stand still somewhere
+quiet facing a wall, let the sweep run (~26 s of blinking), then keep playing.
+Nothing to press.
+
+* If it worked: the weapons follow your hands, and the log has
+  `wa: ADOPTED 'crossbow_01' ...` followed by `wa: ... ATTACHED`.
+* If it did not: the log now says WHY. Read these two tables, in this order:
+  * `wid: draws per phase` - total draws in each phase. **If the total does
+    not fall when a component is hidden, its draws are still not in the
+    population** and nothing below it means anything.
+  * `wid: the 16 largest baseline signatures` - each buffer pair's whole phase
+    vector. A weapon's pair should read high, 0, high, 0, high across its own
+    four phases. This separates "drops on one hide only" from "never drops at
+    all", which have looked identical for three runs.
+
+**2. THE SIZE, once the weapons are settled.** F10 -> **"hand / weapon size"**,
+or `[Hands] ModelScale` in the ini. Try **0.75**. It scales the hands AND
+anything held in them by one factor, about the tracked palm.
+
+* EXPECTED: hands and weapon shrink together, the grip stays put, the world
+  does not change size.
+* Ships at **1.00**, which is exactly the identity it replaces - so test 1 is
+  measured on the same geometry every previous build was.
+* Watch for hand shading getting brighter or darker as you move the slider:
+  two of the three hand shaders push normals through these palette rows, and
+  if they do not renormalise, a uniform scale changes normal LENGTH. Direction
+  is safe either way.
+* Also watch the wrist cap for a hole opening at the cut.
+
+### Where the weapon work actually stands
+
+The sweep is CORRECT and has been for three runs: all 16 phases, every hide
+and restore verified against `HiddenMaterials`, and the tester watched the
+sword, crossbow and bolt each blink twice on command. What kept failing was
+never the sweep - it was what the sweep could SEE.
+
+Three faults found and fixed, in order:
+
+1. **The report was lost to a lane that stopped** (`5df74130`). `WiTick` runs
+   on the script lane; the last phase ends on a deadline, so the report needed
+   one more tick of that lane, and the lane went quiet half a second later. 26
+   seconds of correct measurement, no output. The terminal step now runs from
+   whichever lane reaches the deadline first, behind an interlock.
+2. **The signature was too fine** (`c1fc4c55`). It hashed the draw's own range,
+   so a mesh drawn from a shared buffer became many short-lived signatures. Now
+   keyed on the vertex+index buffer pair - the key the mesh lock already uses,
+   and the one that names a GEOMETRY.
+3. **The recorder never saw the weapons at all** (`bc73daed`). It sat behind
+   the palette gate (a fresh c6 upload within the reuse window) - right for the
+   census, wrong for identification. `vs_const_hook.cpp` already describes the
+   crossbow's body as a STATIC attachment, which that gate excludes. It now
+   sees every indexed draw and records whether a fresh palette was pending.
+
+**The evidence that named fault 3 was in the log for two runs and was not
+read**: reject counts of 146/154/151/153, then 51/50/51/48 - near-identical for
+every component INCLUDING the player body. Counts that uniform are not a fact
+about components. That is what "the thing being measured was never in the
+population" looks like, and it survived a change of signature key because the
+key was never the fault. Hence the two new tables above: a third failure
+cannot now be silent.
+
+### The attachment itself
+
+`weapon_attach.cpp` (+ state chunk 57b). The sweep's owned buffer pairs are
+handed straight to placement - identification is the INPUT to attachment, not
+a report somebody reads and types back. Those draws then take the same rigid
+palette correction the hands take, from the same `g_mpPalmTarget`.
+
+A weapon assembly is rigid, so its frame is the palette's first bone rather
+than an averaged anchor; every bone gets one common transform, which is what
+keeps the loaded bolt animating with the stock instead of being pinned
+separately. A mesh with no palette is treated as one bone, three registers.
+c6 is current device state, so the game's own block goes back after the draw.
+
+Fail soft throughout: no target palm, an unreadable palette, a frame that will
+not normalise or a non-finite result all draw the engine's own weapon and log
+which. Blast radius is bounded to buffer pairs the sweep proved, so the
+confirmed hand path cannot be reached. `AttachWeapons=0` removes it.
+
+### The model scale (`21d3e3eb`)
+
+PageUp/PageDown were never a size knob. `g_posScaleUU` sets the stereo
+separation - a property of the PROJECTION - so it resizes the whole frame at
+once. The hands were not scaling with the world, they were scaling because of
+it, and that knob could never have made them smaller relative to the room.
+Hand TRAVEL is already independent (`WorldScaleUU`, `PaletteDriveGain`), which
+is why tracking felt right while the models were too big.
+
+`[Hands] ModelScale` is a uniform factor about the target palm, so the grip
+stays where tracking put it. The weapon path takes the same factor about the
+same palm, so the two cannot drift apart. `delta_from_target` now hands back
+the palm in local space (it always computed it and threw it away).
+
+The F10 "hand / weapon size" slider drives this instead of `HandSize`.
+`HandSize` wrote `SkelControlBase.BoneScale` engine-side, which only reaches
+SkelControl-driven bones and could never resize a separately-componented
+crossbow. The key still loads for the legacy drive; config warns with the
+product if both are off 1.0.
+
+### The levers as installed
+
+`AttachWeapons=1 AttachSwordHand=0 AttachCrossbowHand=1 WeaponId=1
+WeaponIdMs=1500 MatCycle=0 PaletteRotate=1 ModelScale=1.00 HandSize=1.00
+Adjust=1 AdjStepT=1 AdjStepR=3`, per-hand trim under `TrimLTX..TrimRRZ`, grip
+calibration under `GripL*`/`GripR*`. `MatCycle` must stay 0 - the identifier
+drives the same hide/restore calls and refuses while the cycler is armed.
+
+### Still untested from the previous session
+
+**The numpad hand adjust has never been pressed in a headset.** Numpad 9
+cycles LEFT position / LEFT rotation / RIGHT position / RIGHT rotation and
+names the mode; 8/2 forward/back or pitch, 6/4 right/left or yaw, 0/5 up/down
+or roll; 7 cycles the step. Every press logs and saves. The census gives up
+Numpad 4-9 while `Adjust=1`, the cycler gives up 2, and the mesh split's mode
+cycle moves from Numpad 0 to Numpad 1 - the startup log names all of it.
+
+**The grip restart path is confirmed** only insofar as the calibration loads;
+the hands were reported correct on the runs since.
+
+### Verified on the desk, not in the headset
+
+28 frame-maths cases pass (`build\src\RelWithDebInfo\frame_test.exe`),
+including the new `model_scale_about_the_palm`, which FAILED on its first run
+and was right to - it measured distances from `D(palm)` when the palm is a
+point in the OUTPUT space that `D` maps the source anchor onto. `lint` clean,
+exports clean. **The attachment and the model scale have never been in a
+headset.**
+
+### Next steps
+
+1. The two tests above.
+2. If the weapons attach, the remaining W-items are in
+   `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`: re-acquire on equip
+   change (buffer pointers can differ after a re-equip), and ownership during
+   reload and release.
+3. `pcap/layout` was printing at draw rate and produced a 25 MB log in one
+   short run; now once per shader. Worth a look for other unbounded per-draw
+   lines in the same family.
+
+## PREVIOUS CURRENT (2026-09-07, later): VR-33 - the numpad adjust and a weapon identifier that can fail
+
+### WHAT TO TEST, in order. Everything is installed and armed; just launch.
+
+The build is Release, installed, and the ini is set. Nothing needs typing and
+no key needs pressing to arm anything.
+
+**Test 1 - the calibration survives a restart.** Launch and look at your hands
+before touching any key. The grip was solved and saved last session
+(`GripLVersion=2 GripLParity=-1`, `GripRVersion=2 GripRParity=-1`).
+
+* EXPECTED: the hands are at the right angle immediately, the same as they
+  were after SHIFT+F7 last time. The log says
+  `config: the <side> hand's grip calibration LOADED - version 2, parity -1`
+  for both hands, and NOT the "NO CALIBRATION" warning.
+* IF THEY ARE MIRRORED OR INSIDE OUT: the saved record is not being applied.
+  Say so; the log line above is the one that matters.
+* IF THEY ARE AT A WRONG ANGLE BUT NOT MIRRORED: the record loaded but is
+  wrong. SHIFT+F7 will re-solve it.
+
+**Test 2 - the numpad adjust.** Press **Numpad 9** four times, slowly.
+
+* EXPECTED: four log lines naming `LEFT hand POSITION`, `LEFT hand ROTATION`,
+  `RIGHT hand POSITION`, `RIGHT hand ROTATION` in that order, each printing
+  that hand's current trim.
+* Then in `LEFT hand POSITION`, press **Numpad 8** a few times. EXPECTED: the
+  LEFT hand moves along its own fingers, 2 cm per press, and the right hand
+  does not move at all. Numpad 6/4 move it across the palm, 0/5 out of it.
+* **Numpad 7** cycles the step (0.5 / 2 / 5 cm). In a rotation mode it cycles
+  0.1 / 0.25 / 0.5 / 1 / 2 / 5 / 15 degrees.
+* Every press writes to the ini, so stop wherever it looks right and it will
+  be there next launch. No key press is needed to save.
+* IF A KEY DOES NOTHING: check the log for that press. The build prints a line
+  for every press, including a CLAMPED line at the limits and a warning if the
+  press is saved but cannot move the hand yet. A press with NO line at all is
+  the interesting failure - that means the key is not reaching us.
+
+**Test 3 - the weapon identifier.** Nothing to press. Draw the crossbow, stand
+still somewhere quiet facing a wall, and keep it in view.
+
+* EXPECTED, before you draw anything: `wid: WAITING - N component(s) resolved
+  and none of them is a weapon`, listing what it has. This is the fix: last
+  run it swept anyway and produced a confident wrong answer.
+* EXPECTED, a few seconds after the crossbow is out: `wid: sweep planned -
+  baseline plus N component(s) x 4 phases`, then the crossbow BLINKING off and
+  on twice per component, about 1.5 s each. **Stand still for the whole
+  sweep** - the test is "this draw stops and comes back with the hide", and a
+  view that changes under it produces the same signal.
+* EXPECTED at the end: a report. The three outcomes and what each means:
+  * `'crossbow_01' OWNS signature ...` - this is the answer, and it is what
+    the weapon attachment needs.
+  * `*** THIS REPORT IS VOID ***` - the signature table filled up. Not a
+    failure to report; it means try again somewhere emptier.
+  * `'crossbow_01' owns NO signature` - hiding it stopped nothing that came
+    back. Also an answer, and a different problem.
+* The report also prints how many signatures vanished on ONE hide but not the
+  other and were REJECTED. A nonzero number there is the instrument working:
+  those are exactly what the previous build called owned.
+
+### What changed this session
+
+**The hand trim moved to BioShock Remastered VR's numpad scheme, per hand**
+(`7c621cc2`). F5 could never have worked: it is the game's quicksave and
+`head_track.cpp` reads it at two more places, so one press fired three
+features. The scheme is adopted key for key because those are the keys the
+tester already has in his fingers.
+
+The trim is now per hand. One shared value assumed the residual after
+calibration is common to both palms; it is not, since the two grips are solved
+from two separate poses. The old shared keys seed both sides once so nothing
+already dialled in is lost, and the migration is logged.
+
+Every numpad key was already claimed behind a feature gate, so `[Hands]
+Adjust=1` makes an EXPLICIT claim rather than adding another reader: the
+census gives up Numpad 4-9 entirely, the material cycler gives up 2, and the
+mesh split gives up Numpad 0 with its mode cycle moving to Numpad 1. One
+startup line names what took what. Numpad + - * / . are untouched.
+
+**The weapon identifier was rebuilt so it can fail its own hypothesis**
+(`7bfa2675`). All three defects named in the previous entry are fixed:
+
+1. it refuses to plan until a component that is not the player body has
+   resolved AND the candidate list has been unchanged for three seconds;
+2. a table overflow VOIDS the report instead of footnoting it, and the table
+   is sixteen times larger;
+3. each component gets HIDE, SHOW, HIDE, SHOW, and a signature is attributed
+   only if it vanishes on both hides and returns on both shows. The report
+   counts the single-cycle near-misses it rejected, which is the number that
+   shows the old sweep was measuring noise.
+
+A fourth thing turned up on the way: `MatShowSection` returns true when the
+native was CALLED, not when the section actually hid - it logs `[DID NOT
+TAKE]` separately and still returns true. Phases are now judged by reading
+`HiddenMaterials` back, and a phase whose flags disagree with what it asked
+for is poisoned and its component reported UNTESTED.
+
+### The levers as installed
+
+`Adjust=1 AdjStepT=1 AdjStepR=3 Palette=1 PaletteWorld=1 PaletteEyeOffset=1
+PaletteDepthRange=1 PaletteRotate=1 WeaponId=1 WeaponIdMs=1500 MatCycle=0`,
+per-hand trim under `TrimLTX..TrimRRZ`, grip calibration under
+`GripLVersion`/`GripLParity`/`GripLX..Z` and the right-hand equivalents.
+`MatCycle` must stay 0: the identifier drives the same hide/restore calls and
+refuses outright while the cycler is armed. `PaletteRotate=0` returns to the
+headset-confirmed translation-only build.
+
+### Verified on the desk, not in the headset
+
+27 frame-maths cases pass (`build\src\RelWithDebInfo\frame_test.exe`),
+including `hand_trim_is_in_the_palm_frame` and `hand_trim_carries_the_weapon`
+which pin the trim the numpad now drives. `tools\lint.ps1` clean, exports
+clean. **Nothing here has been in a headset** - the numpad bindings, the
+per-hand split, the restart path and the whole identifier are unverified.
+
+### Next steps
+
+1. The three tests above.
+2. If the identifier names the crossbow's draws, weapon placement is unblocked:
+   `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the full spec, and
+   the weapon target comes from the SHARED `palm_target` helper the hands
+   already use, so a weapon can be placed before either hand draws.
+3. The hand adjust has no auto-repeat, deliberately - BRVR has none and an
+   unrequested one overshoots. If the tester wants it, it is four lines.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - hands CONFIRMED, weapons are next
+
+### Headset-confirmed this session
+
+**The hands track position AND rotation correctly.** After one SHIFT+F7 grip
+capture they snapped to almost exactly the right pose, tracked both position and
+rotation, and stayed still when the head moved. The tester asked for this to be
+kept. Recoverable tag: commit `82abe020`.
+
+Before the capture they were mirrored and inside out. That is the same
+arithmetic as the restart bug and both are fixed in `9d55ccde`: the solved grip
+is a REFLECTION (det -1), three Euler angles cannot carry one, and identity was
+therefore the wrong uncalibrated default. The record now stores a parity sign
+beside a proper rotation, is versioned, refuses pre-version records, and saves
+itself so a calibration survives a restart with no key press.
+
+### The calibration save WORKS, measured
+
+```
+ms/palette/grip: SOLVED for the RIGHT hand ... parity -1, proper rotation
+                 +29.52 -47.63 +22.47 degrees
+ms/palette/grip: the left hand's calibration is SAVED (version 2, parity -1)
+ms/palette/grip: the right hand's calibration is SAVED (version 2, parity -1)
+```
+
+Both hands solved parity -1, as predicted, and both wrote a version-2 record.
+The restart path itself is still UNVERIFIED - nobody has relaunched and checked
+the hands come back right without a key press. That is headset test 1 below.
+
+### THE WEAPON IDENTIFIER PRODUCED A FALSE POSITIVE. Read this before reusing it
+
+It ran, and its report is wrong. Three defects, all visible in its own output:
+
+```
+wid: sweep planned - baseline plus 1 component(s)
+wid: 128 distinct skinned draw signature(s) over 16974 draw(s),
+     55272 that did not fit the table
+wid:   'Skm_Player' OWNS signature ... | c6 x3 (1 bones) prim 486 stride 12
+```
+
+1. **Only ONE component resolved.** `Skm_Player` alone; no `crossbow_01`, no
+   `bolt_01`, no `Wpn_PlySword01`. The sweep fired about 17 s after the config
+   loaded, before the weapons existed as components. It must WAIT until the
+   assets it is there to identify are actually resolved, and refuse rather than
+   sweep a list that cannot answer the question.
+2. **The signature table saturated.** 128 held, **55,272 draws did not fit**.
+   Once full it cannot record a new signature, so later phases are blind. An
+   overflow must INVALIDATE the report, not appear as a footnote under
+   attributions that it silently broke.
+3. **The attributions are not weapons and are probably not the player.**
+   `c6 x3` is a ONE-bone palette at stride 12 - world props, not the skinned
+   first-person mesh. What the report actually measured is "these draws stopped
+   during a 1.5 s window", which a camera move or an object leaving the view
+   produces just as well as a hide does.
+
+**The instrument cannot fail its own hypothesis, which is this project's oldest
+recurring fault** (`VR-33-HANDS-AND-WEAPONS.md` section 4). The orphan count was meant to be
+the control and a saturated table defeats it. The fix is not a bigger table
+alone: a signature must vanish on EVERY hide and RETURN on EVERY restore, over
+at least two hide/restore cycles, before it is called owned. A single
+disappearance is not evidence.
+
+### FEEDBACK FROM THE HEADSET RUN
+
+1. **F5 is already bound.** The hand trim added in `9d55ccde` uses F5, and
+   `head_track.cpp:620` and `head_track.cpp:1064` already read it. One press
+   fires both, so the trim is unusable as shipped and must be rebound.
+2. **Nothing was seen to blink** - consistent with the above: only the player
+   body was ever hidden, for 1.5 s, once.
+3. **The alignment needs small tweaks**, position and rotation, per hand.
+
+### What the tester asked for next, specifically
+
+**Adopt BioShock Remastered VR's numpad adjust scheme, per hand.** Four modes
+cycled with **Numpad 9**, in this order:
+
+```
+  0  LEFT hand POSITION
+  1  LEFT hand ROTATION
+  2  RIGHT hand POSITION
+  3  RIGHT hand ROTATION
+```
+
+The scheme is adopted from the maintainer's own BioShock Remastered VR mod,
+where it has been in use for a long time; these are the keys the tester already
+has in his fingers, which is the reason for matching them exactly:
+
+| Key | Position mode | Rotation mode |
+|---|---|---|
+| Numpad 8 / 2 | forward / back (cm) | pitch (deg) |
+| Numpad 6 / 4 | right / left (cm) | yaw (deg) |
+| Numpad 0 / 5 | up / down (cm) | roll (deg) |
+| Numpad 7 | cycles the step: 0.5 / 2 / 5 cm | 0.1 / 0.25 / 0.5 / 1 / 2 / 5 / 15 deg |
+| Numpad 9 | cycles the mode, and the log line NAMES the mode and hand | |
+
+Every change is logged and written back to the ini, as BRVR does.
+
+**THE COLLISION, measured, and it must be handled before this ships.** Every
+numpad key in this repo is already claimed, each behind a feature gate:
+
+| Keys | Owner | Gate | Free right now? |
+|---|---|---|---|
+| 1 / 2 / 3 | the material cycler | `g_matCycleCfg` | yes - `MatCycle=0` in the installed ini |
+| 4 / 5 / 6 / 7 / 8 / 9 | the draw census and its eighth-cutter | `g_dcOn` | only while the census is off |
+| 0 and `/` | the mesh split | `g_msOn` | **NO - the split is what draws the hands** |
+| CTRL+2 | hand move | `kCtrl` | n/a |
+
+So Numpad 0 and 5 (up/down in BRVR's scheme) collide with the live mesh split.
+**Do not just add another reader.** Give the adjust mode an explicit claim: when
+`[Hands] Adjust=1` the adjust block takes the numpad and the split, census and
+cycler blocks are suppressed for those keys, with one log line saying the numpad
+is claimed and by what. One key firing two features has cost this project a
+session already (`7099c3b0`, `0e1ccbb0`).
+
+The existing hand trim (`g_mpTrimT` / `g_mpTrimR`, palm-frame, saved on every
+press) is the right backing store for the two LEFT/RIGHT modes - but it is
+currently ONE shared trim for both hands and needs splitting per side. It is
+already applied through `palm_target`, so a per-hand version needs no new maths.
+
+### Then: actually attach the weapons
+
+The identification instrument is built and armed but has produced nothing yet.
+Its output is the input to placement, and placement was deliberately NOT written
+blind. `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the full spec;
+the short form is:
+
+* one stable grip/root frame on the crossbow;
+* `D_assembly_C = WeaponGripTarget_C * inverse(S_C)`, and every member takes it
+  through its own `LocalToWorld`: `D_j_local = inverse(L_j) * D_assembly_C * L_j`;
+* the loaded bolt keeps its animated relationship to the root - independently
+  pinning each part to a controller offset would cancel its animation;
+* the weapon target comes from the SHARED `palm_target` helper, which is already
+  extracted and tested, so a weapon can be placed before either hand draws;
+* weapon draws must CONSUME the eye decision, never feed the hand classifier.
+
+### The levers as installed
+
+`Palette=1 PaletteWorld=1 PaletteEyeOffset=1 PaletteDepthRange=1
+PaletteRotate=1 WeaponId=1 WeaponIdMs=1500 MatCycle=0`, grip calibration saved
+under `GripLVersion`/`GripLParity`/`GripLX..Z` and the right-hand equivalents.
+`PaletteRotate=0` returns to the translation-only build.
+
+### Verified on the desk, not in the headset
+
+27 frame-maths cases pass (`build\src\RelWithDebInforame_test.exe`, and the
+same suite runs from `DllMain` into every log). The 28 saved packets replay
+through the shipped decomposition: dominant slot 10 left / 35 right, uniform
+scale 0.9995117 to 0.9995123, worst anisotropy 6.0e-07.
+
+Measured this session and in ENGINE_NOTES: the XR-to-game pose mapping is a
+MIRROR (`det(B*F) = -1`); the pose tick and the hand draws are ONE thread
+(14224), 0 stale snapshots over 11,881 publications; and two of the three hand
+shaders run normals and tangents through the same palette rows, so a rigid
+correction carries the tangent frame and `WorldToLocal` must be left alone.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - rotation and grip built, then confirmed
+
+### Run 1 found the fault, and the instrument named it
+
+The first rotation build refused on **every** draw: `rotate=1 placed 0 refused
+116908 (B*F is not a proper rotation)`. The hands looked unchanged and SHIFT+F7
+appeared to do nothing, because the grip capture sits behind the same gate.
+
+**The guard was wrong, not the game.** The draw's camera basis is RIGHT-handed,
+so the pose mapping between XR and the game's camera-relative frame is a
+MIRROR - exactly what a right-handed runtime and a left-handed engine produce.
+A reflection is a coordinate convention: it carries through by full basis change
+and CANCELS between the controller orientation and the grip transform, so what
+reaches the palette is a proper rotation either way. The guard now requires
+orthonormality only, records the parity, and a new self-test case
+(`improper_basis_roundtrip`) pins the whole chain under a mirrored mapping:
+capture exact, `det +1.0000`, a 37 degree controller turn giving a 37.00 degree
+hand turn.
+
+Two things the run confirmed on the way: the **fail-soft held** - all 116,908
+draws still placed translation-only, so nothing regressed and the run simply
+looked like the previous build - and the **pose tick and the hand draws are one
+thread** (14224), with 0 stale snapshots over 11,881 publications.
+
+A pending grip capture now logs a warning naming why it has not been consumed,
+so a press can never silently do nothing again.
+
+### What is armed right now
+
+The installed build is Release with `[Hands] PaletteRotate=1` and the grip
+transform at identity. **Launch the game; nothing else needs doing.** The full
+test list, with expected outcomes and what each failure would mean, is section 3
+of `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`.
+
+**The hands will start at a wrong ANGLE.** G is identity until it is captured,
+so they track the wrists at a fixed offset. **SHIFT+F7** solves G for both hands
+and prints six numbers for the ini; the hands snapping to the game's own
+orientation at that instant is what the calibration means.
+
+`PaletteRotate=0` returns to the headset-confirmed translation-only build.
+
+### The one question this run answers
+
+Does the candidate palm frame (`src` in `ms/palette/frame:`) move when the GAME
+animates the hand, and stay put when only the fingers move? Nothing offline can
+answer it: all 28 saved packets are one near-idle pose. If `src` never moves
+during a melee swing or a power, the dominant palette slot is not the palm's
+frame and the orientation source changes to a validated landmark fit.
+
+### What was corrected before building
+
+An external review found three blockers in the first draft of the plan, all
+fixed:
+
+1. **The motion gate was impossible.** It expected the game's palette to turn
+   when the tester rolled a physical wrist, with no mechanism connecting them.
+   Withdrawn; three orientations (`src`, `ctl`, `out`) are now logged under
+   separate names and are expected to be INDEPENDENT while rotation is off.
+2. **The orientation conversion reintroduced head-driven rotation.** A pose
+   orientation maps controller-local axes into another frame; a similarity
+   transform changes the basis of a rotation operator, which is a different
+   object. The correct form is `O_C = B * F * transpose(R_head) * R_ctl` with
+   `F = diag(1,1,-1)`, matching the physical mapping the working position path
+   already performs. The counterexample is now a shipped test that the rejected
+   formula fails by 180 degrees.
+3. **The grip capture mixed spaces.** The source frame is component-local and
+   the controller camera-relative; it is carried through the draw's own
+   LocalToWorld first.
+
+### Measured before any of it shipped
+
+* **20 of 20 frame-maths cases pass** (`src/tools/frame_test`, and the same
+  suite runs from `DllMain` into every log). They include the head-turn
+  counterexample, the grip round trip, the pivot, and the proof that rotation
+  OFF is bit-for-bit the shipped translation behaviour.
+* **All 28 saved packets decompose** through the shipped code: dominant slot 10
+  in every one, uniform scale 0.999511659 to 0.999512255, worst anisotropy
+  6.0e-07, worst orthonormality residual 9.8e-07. Three orders of magnitude
+  inside the tolerance.
+* **The single slot's frame moves 1.05 degrees** across those packets where the
+  weighted blend looked frozen to five decimals - so the slot does respond to
+  the engine's animation. It is not yet evidence that it follows the PALM.
+* **The three hand shaders' normal path is closed.** Two of them run normals and
+  tangents through the same palette rows, so a rigid correction carries the
+  tangent frame; their `WorldToLocal` is a view/light conversion and is NOT
+  touched. ENGINE_NOTES carries it.
+
+### Next steps
+
+1. The headset run above. Report the six grip numbers and whether `src` moves
+   with the game's animation.
+2. Put the solved G in the ini and re-judge orientation.
+3. Then the weapon assembly: a stable grip/root source frame, ONE root
+   correction, and every member's animated transform preserved RELATIVE to that
+   root. Independently pinning each animated part to a controller-relative
+   target cancels its own animation.
+4. Then firing. The visual weapon stage explicitly accepts that a released bolt
+   returns to the native origin; correcting it is the firing stage.
+
+Carried and deliberately not done: a render-view ticket for the eye, the
+`same eye` counter (an instrumentation limit, not 776 repeated eyes - no
+threshold tuning), head look-ahead against hand sampling time, one canonical
+metres-to-units conversion (logging only for now), and mesh geometry size.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the hands are at the controllers and correct
 
 ### Confirmed in the headset
 
 The hands **track the controllers, are correctly scaled, occlude against world
 geometry, and hold position through head turns.** Tagged `vr33-hands-working`.
 
-**The full record is `docs/dishonored/VR-33-HANDS.md`** - the mechanism, the
+**The full record is `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`** - the mechanism, the
 engine facts, the seven approaches that failed and why, and the instrument
 failures that cost the most. Read that before touching this code; most of what
 looks like an obvious improvement has already been tried and measured.
@@ -537,66 +1157,6 @@ If the ring comes out slanted rather than square across the forearm, the
 `forearm axis refined N degree(s)` line says how far the second pass moved and
 is where to look. `ms edge 1` is the alternative if the one-triangle sawtooth
 is visible up close.
-## CURRENT (2026-09-06): VR-53 / VR-51 - the desktop had no eye policy, and a hold banked empty layers
-
-This branch is the frame path and nothing else. The arm/hand split worked on in
-the same sessions was split out onto its own branch and is VR-31.
-
-**The full reference is `docs/dishonored/DESKTOP_MIRROR.md`**; the hypothesis
-graveyard that led to it is `docs/dishonored/BRIEF-eye-flicker.md`, now marked
-answered. This section is the handoff summary only.
-
-### What was actually wrong
-
-`hkPresent` calls the game's original `Present` for EVERY eye draw, and
-`mirror_present()` in the runtime layer had never implemented the D3D9 copy -
-its own comment said so. So the game WINDOW showed L(k), R(k), L(k+1), R(k+1)
-while the headset received correct pairs the whole time. A recording of the
-window alternates between two camera positions one IPD apart, which is exactly
-what alternate-eye rendering looks like, and the diagnosis had been aimed at
-the headset path for several sessions on the strength of it.
-
-The headset was never doing AER. The desktop had no eye policy at all.
-
-`core/gfx/desktop_eye.cpp` pins it: snapshot on the left eye's present, re-blit
-over the right eye's present AFTER that eye's XR capture. The runtime layer
-owns the WHEN and the new module owns the HOW, so `openxr_runtime.cpp` gains a
-hook pointer and nothing else.
-
-### The pause-menu session loss - which is VR-51
-
-On a hold-only present the submitted copies are `holdProj` / `holdViews` /
-`holdQuad`, not the empty `proj` / `projViews` / `quad` locals - but the hold
-sets `layerCount = 1` and the snapshot bank keyed off `layerCount`, so it
-overwrote a good snapshot with zeroed structures and left it marked valid. The
-next hold submitted null handles and a zero view count, `xrEndFrame` answered
-`XR_ERROR_HANDLE_INVALID`, and the session stood down. Banked on
-`builtNewLayer` now.
-
-Still open and tracked separately: a saved layer holds swapchain HANDLES, not
-pixels, and OpenXR composites the most recently RELEASED image, so preserving a
-completed PAIR needs retained images rather than a retained structure.
-
-### Retracted, not tuned
-
-The "30 % of ticks double" reading and the stand-down guard built on it are
-REMOVED. That window straddled a pause menu, an `xrEndFrame` failure and
-session teardown; the windows either side read 78/78, 86/86, 87/87, 81/81. The
-guard would have disarmed a healthy renderer every time a session dropped. The
-`camera/eyetrace` line is corrected too - its ring samples constant uploads,
-not presents.
-
-### The run this needs
-
-Look at the game window: one view, no alternation, while the headset keeps
-correct stereo depth. `desktopeye:` in the log every 15 s should show snapshot
-and re-blit counts EQUAL and non-zero. Then open and close the pause menu
-several times: no `XR_ERROR_HANDLE_INVALID`, no session teardown.
-
-### Not addressed here
-
-Performance: ~78 complete pairs/s against a 90 Hz headset, ~9.7 ms of D3D9 GPU
-span per tick, 15.7 Mpixel per pair at 2750x2850. That is the next subject.
 
 ## PREVIOUS (2026-09-06, session 20): VR-31 - the cut is DERIVED from bone influence, per arm
 
@@ -1157,6 +1717,48 @@ it on demand, `arms vis chain` prints the arm chain.
    is the VR-30 branch.
 
 ### Session log
+
+### 2026-09-07 - VR-33: the hands reach the controllers
+
+**Verified in the headset:** hands track the controllers, are correctly scaled,
+occlude against world geometry, and hold position through head turns. PR #21.
+
+**The cleanup is verified too**, after a scare worth recording. The trim did not
+compile: `g_mpEyeHunt` lost its declaration and the capture packet still
+referenced two retired modes - but MSBuild was linking STALE OBJECT FILES, so
+three builds reported success while the DLL kept an older build id. Comparing
+the id embedded in the installed DLL against `git describe` is what caught it;
+a "clean build" had been meaningless. Fixed in `fe531095`, rebuilt with a
+forced recompile, and confirmed in the headset with the ids matching.
+
+**What the session established.** The bone palette's output is the component's
+LOCAL space; `LocalToWorld` (c231) maps it to a camera-relative world frame and
+`ViewProjectionMatrix` (c0) to clip. Register indices differ per shader and are
+parsed from each shader's CTAB - three shaders draw this mesh and one defines c4
+as an immediate that disagrees with the device. The shader does not normalise
+skin weights. The view model is depth-crushed to MaxZ 0.001. The eye separates
+Present-to-Present in LocalToWorld's translation by 6.76 uu against a predicted
+IPD of 6.31.
+
+**What was falsified**, each with the measurement that killed it: a truncated
+GObjects census reporting its array capacity as a population; a relative drive
+whose cancellation argument omitted the animated hand underneath it; a
+head-space neutral; a yaw residual, killed by phi holding constant at 144 deg
+across a 145 deg head swing; a calibrated origin that became a 1.4 m lever on
+the head; and three eye classifiers - a game-thread flag that reads false on the
+render thread, a learned midpoint that was not head-invariant, and an ordinal
+that sampled per HAND so its pair was one draw compared with itself.
+
+**Instrument lesson, and the reason the above cost so much.** Three instruments
+produced confident readings later withdrawn, and once an absence was reported
+that had never been established. All four survived because they were checked
+against expectation rather than against their own ability to fail. The rule
+adopted: an instrument must declare and log the unit it sampled, and "nothing
+was sampled" must never be able to read as "no difference was found".
+
+**Seen and not chased:** each shader draws the mesh three times per frame, and
+only one pass is depth-crushed. The purpose of the other two is unknown.
+
 
 **2026-09-06, session 19 (part 3)**: floating hands WORK, using the game's own
 hands. Built the draw census, then the mesh lock (buffer-pair identity, both

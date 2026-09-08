@@ -280,6 +280,24 @@ static bool MatArrayProp(uint8_t* base, uint32_t off, uint8_t** dOut, int32_t* n
 static bool MatShowSection(uint8_t* comp, int id, bool show, int lod);
 static void MatRestoreAll(const char* why);
 static int  MatNumElements(uint8_t* comp);
+// VR-33 W1: the weapon identifier (weapon_id.cpp)
+// VR-33 W2/W3: the weapon attachment (weapon_attach.cpp).
+// MpDrawCtx is defined beside the palette path in mesh_split.cpp; the weapon
+// consumes it by pointer, so the incomplete type is all this needs.
+struct MpDrawCtx;
+static void WaCompTick(void);
+static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
+                         INT baseVertex, UINT numVertices, UINT startIndex,
+                         UINT primCount, const char* nearest, float angle,
+                         float position, bool corrected);
+static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
+                       UINT startVertex, UINT primCount, HRESULT* hr);
+static void WaBeat(void);
+static void WaPublishCommon(int hand, const MpDrawCtx* c,
+                            const dvr::hf::Xform& D);
+static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                   UINT minIndex, UINT numVertices, UINT startIndex,
+                   UINT primCount, HRESULT* hr);
 static const char* MatMaterialName(uint8_t* comp, int i);
 static int  MatNumLods(uint8_t* comp);
 static bool MatHiddenArray(uint8_t* comp, int lod, uint8_t** dOut, int32_t* nOut);
@@ -340,13 +358,7 @@ static bool MsReclassify(IDirect3DDevice9* dev);
 static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
                     UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones);
 struct MsContract;
-static bool PcCapture(IDirect3DDevice9* dev, const MsContract* con, UINT primCount,
-                      int cls, const float* ourQ);
 static void PcRefreshLayout(IDirect3DDevice9* dev);
-static void PcTick(void);
-static void PcStart(void);
-static void PcStop(void);
-static bool PcCommand(const char* args);
 struct MpDrawCtx;
 static void MpDrawCompare(const MpDrawCtx* c);
 static void MpEyeForPresent(const MpDrawCtx* c);
@@ -362,23 +374,10 @@ static uint32_t PrOff(const char* cls, const char* prop);
 static bool PrDumpSockets(void);
 static void PrTick(void);
 static bool PrCommand(const char* args);
-struct BqName;
-static uint32_t BqDeriveSuperOffset(uint8_t* cls);
-static bool BqReceiverIsA(uint8_t* obj, const char* cls);
-static uint8_t* BqFindFunc(const char* cls, const char* fname);
-static void BqCall(uint8_t* obj, uint8_t* fn, void* parms);
-enum BqEnd;
-static BqEnd BqWalk(uint8_t* comp, const char* startName, BqName* outChain, int* outN);
-static void BqControls(void);
-static void BqItems(uint8_t* pawnMesh);
-static void BqRun(void);
-static void BqTick(void);
-static bool BqCommand(const char* args);
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/bone_query_fwd.inc"
+#endif
 static uint8_t* HmControl(void);
-static void HmRestore(void);
-static void HmScanTicks(void);
-static void HmTick(void);
-static bool HmCommand(const char* args);
 static void HmPickModels();
 static void GraftTestSet(bool on);
 static void SkcRotZeroNeutral(const char* why);
@@ -474,3 +473,23 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved);
 static void ArmFollowSetStripRot(float v, const char* who);
 static void ArmFollowSetFacing(float v, const char* who);
 bool YawSelfTest();
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_id_fwd.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/hand_move_fwd.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_refused_probe_fwd.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_primitive_sibling_fwd.inc"
+#endif
+
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/palette_packet_capture_fwd.inc"
+#endif
