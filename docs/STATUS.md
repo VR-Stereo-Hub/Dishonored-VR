@@ -1096,6 +1096,45 @@ it on demand, `arms vis chain` prints the arm chain.
 
 ### Session log
 
+### 2026-09-07 - VR-33: the hands reach the controllers
+
+**Verified in the headset:** hands track the controllers, are correctly scaled,
+occlude against world geometry, and hold position through head turns. PR #21.
+
+**Built but NOT headset-verified:** the final cleanup commit `b15fc59f`. The
+last log's build id is `g0b30b858-dirty` (19:43:53) while the cleanup DLL
+installed at 20:04:51 has never been loaded. It removes retired code paths and
+changes no placement behaviour, but that is an argument, not a run.
+
+**What the session established.** The bone palette's output is the component's
+LOCAL space; `LocalToWorld` (c231) maps it to a camera-relative world frame and
+`ViewProjectionMatrix` (c0) to clip. Register indices differ per shader and are
+parsed from each shader's CTAB - three shaders draw this mesh and one defines c4
+as an immediate that disagrees with the device. The shader does not normalise
+skin weights. The view model is depth-crushed to MaxZ 0.001. The eye separates
+Present-to-Present in LocalToWorld's translation by 6.76 uu against a predicted
+IPD of 6.31.
+
+**What was falsified**, each with the measurement that killed it: a truncated
+GObjects census reporting its array capacity as a population; a relative drive
+whose cancellation argument omitted the animated hand underneath it; a
+head-space neutral; a yaw residual, killed by phi holding constant at 144 deg
+across a 145 deg head swing; a calibrated origin that became a 1.4 m lever on
+the head; and three eye classifiers - a game-thread flag that reads false on the
+render thread, a learned midpoint that was not head-invariant, and an ordinal
+that sampled per HAND so its pair was one draw compared with itself.
+
+**Instrument lesson, and the reason the above cost so much.** Three instruments
+produced confident readings later withdrawn, and once an absence was reported
+that had never been established. All four survived because they were checked
+against expectation rather than against their own ability to fail. The rule
+adopted: an instrument must declare and log the unit it sampled, and "nothing
+was sampled" must never be able to read as "no difference was found".
+
+**Seen and not chased:** each shader draws the mesh three times per frame, and
+only one pass is depth-crushed. The purpose of the other two is unknown.
+
+
 **2026-09-06, session 19 (part 3)**: floating hands WORK, using the game's own
 hands. Built the draw census, then the mesh lock (buffer-pair identity, both
 draw entry points), then live triangle-range slicing - the mesh is a triangle
