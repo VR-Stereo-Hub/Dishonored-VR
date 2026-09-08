@@ -252,6 +252,89 @@ static void WaProbeRefused(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
 }
 
 
+// ---- recognition by buffer identity -----------------------------------------
+
+// Apply a known delta to whatever palette this shader declares. Shared by the
+// buffer-identity path and the non-indexed path: both already know WHICH mesh
+// they are looking at and need only the register and the delta.
+static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
+                           const dvr::hf::Xform& delta, bool indexed,
+                           D3DPRIMITIVETYPE type, INT baseVertex, UINT minIndex,
+                           UINT numVertices, UINT startIndex, UINT startVertex,
+                           UINT primCount, HRESULT* hr)
+{
+    const int start = (g_pcLayBones >= 0) ? g_pcLayBones : g_pcLayBonesPartial;
+    const int cnt   = (g_pcLayBones >= 0) ? g_pcLayBonesN : g_pcLayBonesNPartial;
+    if (start < 0 || cnt <= 0 || (cnt % 3) != 0 || start > 256 - cnt ||
+        cnt > WA_MAX_REGS) return false;
+
+    static float source[WA_MAX_REGS*4], patched[WA_MAX_REGS*4];
+    if (FAILED(dev->GetVertexShaderConstantF((UINT)start, source, (UINT)cnt))) {
+        InterlockedIncrement(&g_waNoSource); return false;
+    }
+    MpBuild(patched, source, (UINT)cnt, &delta);
+    if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, patched, (UINT)cnt))) {
+        if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, source, (UINT)cnt)))
+            InterlockedIncrement(&g_waRestoreFail);
+        InterlockedIncrement(&g_waNoSource); return false;
+    }
+    InterlockedIncrement(&g_waAttempted);
+    const HRESULT drawHr = indexed
+        ? dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex,
+                                        numVertices, startIndex, primCount)
+        : dvr::frame::orig_draw_prim(dev, type, startVertex, primCount);
+    if (hr) *hr = drawHr;
+    if (SUCCEEDED(drawHr)) {
+        InterlockedIncrement(&g_waSucceeded);
+        InterlockedIncrement(&w->placed);
+    }
+    if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, source, (UINT)cnt))) {
+        InterlockedIncrement(&g_waRestoreFail);
+        Log("wa/id: RESTORE FAILED for '%s' c%d x%d", w->asset, start, cnt);
+    }
+    return SUCCEEDED(drawHr);
+}
+
+
+// The non-indexed entry, which the weapon router never reached before.
+static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
+                       UINT startVertex, UINT primCount, HRESULT* hr)
+{
+    if (hr) *hr = D3D_OK;
+    if (!g_waOn || !dev || !g_waMeshN) return false;
+    InterlockedIncrement(&g_waPrimSeen);
+
+    IDirect3DVertexBuffer9* vbo = NULL; UINT offset = 0, stride = 0;
+    if (FAILED(dev->GetStreamSource(0, &vbo, &offset, &stride)) || !vbo) return false;
+    void* vb = vbo; vbo->Release();
+
+    WaMesh* w = NULL;
+    for (int i = 0; i < g_waMeshN; ++i)
+        if (g_waMesh[i].vb == vb) { w = &g_waMesh[i]; break; }
+    if (!w) return false;
+    InterlockedIncrement(&g_waPrimVbHit);
+
+    PcRefreshLayout(dev);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "wa/prim: a NON-INDEXED draw shares '%s' vertex buffer %p - stride %u "
+        "(contract %u), start %u, prim %u, type %d. This entry never reached "
+        "the weapon router before. BoneMatrices %s.",
+        w->asset, vb, stride, w->stride, startVertex, primCount, (int)type,
+        (g_pcLayBones >= 0 || g_pcLayBonesPartial >= 0) ? "declared" : "NOT declared");
+
+    if (g_pcLayBones < 0 && g_pcLayBonesPartial < 0) {
+        InterlockedIncrement(&g_waPrimNoBone); return false;
+    }
+    if (!w->dmOk || w->dmPresent != (uint32_t)dvr::frame::count()) {
+        InterlockedIncrement(&g_waPrimNoDelta); return false;
+    }
+    if (!WaPatchAndDraw(dev, w, w->dm, false, type, 0, 0, 0, 0, startVertex,
+                        primCount, hr)) return false;
+    InterlockedIncrement(&g_waPrimFixed);
+    return true;
+}
+
+
 // ---- the ghost pass ---------------------------------------------------------
 
 // The primitive count arrives as a call argument, so this costs nothing and
@@ -364,6 +447,65 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     if (hr) *hr = D3D_OK;
     if (!g_waOn || !dev) return false;
     InterlockedIncrement(&g_waSeen);
+
+    // BUFFER IDENTITY FIRST, AND UNBUDGETED. This is the arm fix: a draw bound
+    // to a weapon's buffers IS that weapon whatever its constants look like, so
+    // recognising it must not depend on the shader declaring the full layout
+    // that IDENTIFYING it needs. Two device reads on the indexed path, the same
+    // pair the mesh lock already pays for every frame.
+    if (g_waMeshN) {
+        IDirect3DVertexBuffer9* vbo = NULL; UINT off0 = 0, str0 = 0;
+        if (SUCCEEDED(dev->GetStreamSource(0, &vbo, &off0, &str0)) && vbo) {
+            void* vb0 = vbo; vbo->Release();
+            IDirect3DIndexBuffer9* ibo = NULL; void* ib0 = NULL;
+            if (SUCCEEDED(dev->GetIndices(&ibo)) && ibo) { ib0 = ibo; ibo->Release(); }
+            WaMesh* known = NULL;
+            for (int i = 0; i < g_waMeshN; ++i)
+                if (g_waMesh[i].vb == vb0 ||
+                    (ib0 && g_waMesh[i].ib == ib0)) { known = &g_waMesh[i]; break; }
+            if (known) {
+                PcRefreshLayout(dev);
+                const bool sameContract =
+                    known->vb == vb0 && known->ib == ib0 &&
+                    known->stride == str0 && known->streamOffset == off0 &&
+                    known->type == type && known->baseVertex == baseVertex &&
+                    known->minIndex == minIndex && known->startIndex == startIndex &&
+                    known->numVerts == numVertices && known->primCount == primCount;
+                // A draw on known buffers that is NOT the contract's own draw is
+                // another pass of it - the copy left at the native position.
+                if (!sameContract) {
+                    InterlockedIncrement(&g_waIdSeen);
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                        "wa/id: another pass of '%s' on the same buffers - vb %p "
+                        "(%s) ib %p (%s), prim %u (contract %u), verts %u (%u), "
+                        "start %u (%u), stride %u (%u). Recognised by buffer "
+                        "identity, which does not need the LocalToWorld this "
+                        "pass never declares. BoneMatrices %s.",
+                        known->asset, vb0, vb0 == known->vb ? "same" : "different",
+                        ib0, ib0 == known->ib ? "same" : "different",
+                        primCount, known->primCount, numVertices, known->numVerts,
+                        startIndex, known->startIndex, str0, known->stride,
+                        (g_pcLayBones >= 0 || g_pcLayBonesPartial >= 0)
+                            ? "declared" : "NOT declared");
+                    if (g_pcLayBones < 0 && g_pcLayBonesPartial < 0)
+                        InterlockedIncrement(&g_waIdNoBone);
+                    else if (!known->dmOk ||
+                             known->dmPresent != (uint32_t)dvr::frame::count())
+                        InterlockedIncrement(&g_waIdNoDelta);
+                    else if (g_waGhostFix &&
+                             WaPatchAndDraw(dev, known, known->dm, true, type,
+                                            baseVertex, minIndex, numVertices,
+                                            startIndex, 0, primCount, hr)) {
+                        InterlockedIncrement(&g_waIdCorrected);
+                        InterlockedIncrement(&known->ghosts);
+                        return true;
+                    }
+                    return false;
+                }
+            }
+        }
+    }
+
     PcRefreshLayout(dev);
     if (g_pcLayL2W < 0 || g_pcLayL2W > 252) {
         InterlockedIncrement(&g_waNoLayout);
@@ -564,7 +706,10 @@ static void WaBeat(void)
         "no-layout %ld no-source %ld no-view %ld no-bridge %ld stale-snapshot %ld over-budget %ld | "
         "ghost passes seen %ld fixed %ld (no bone decl %ld, no sibling delta %ld, bad range %ld) | "
         "probe ran %ld: shares our vertex buffer %ld (same index buffer %ld), not ours %ld, "
-        "over budget %ld | non-indexed draws %ld | components: %d bridge anchor(s), "
+        "over budget %ld | other passes on known buffers %ld: corrected %ld "
+        "(no bone decl %ld, no sibling delta %ld) | non-indexed %ld examined %ld: "
+        "on known buffers %ld corrected %ld (no bone decl %ld, no delta %ld) | "
+        "components: %d bridge anchor(s), "
         "%d member(s), %d dropped, %ld tick(s) with nothing to attach | "
         "stance %s (eye %.1f uu) | %s",
         g_waSeen, g_waCandChecked, g_waHandCompared[0], g_waHandCompared[1],
@@ -572,13 +717,21 @@ static void WaBeat(void)
         g_waRestoreFail, g_waNoLayout, g_waNoSource, g_waNoCommon, g_waNoBridge, g_waStaleComp,
         g_waBudgetSkip, g_waGhostSeen, g_waGhostFixed, g_waGhostNoBone,
         g_waGhostNoDelta, g_waGhostRange, g_waProbeRan, g_waProbeVbHit,
-        g_waProbeIbHit, g_waProbeMiss, g_waProbeCapped, g_waNonIndexed,
+        g_waProbeIbHit, g_waProbeMiss, g_waProbeCapped,
+        g_waIdSeen, g_waIdCorrected, g_waIdNoBone, g_waIdNoDelta,
+        g_waNonIndexed, g_waPrimSeen, g_waPrimVbHit, g_waPrimFixed,
+        g_waPrimNoBone, g_waPrimNoDelta,
         g_waRefN, g_waMemberN, g_waDroppedN, g_waNotReady,
-        // THE STANCE, because the tester reports the dark copy flickering while
-        // standing and steady while crouched. Whatever the copy is, its
-        // behaviour changes with stance, so every counter above has to be
-        // readable against which stance produced it.
-        g_eyeCrouched ? "CROUCHED" : "standing", (double)g_eyeNowUU,
+        // THE STANCE. It read "standing (eye 0.0 uu)" for every sample of a run
+        // in which the tester deliberately spent half the time crouched: the
+        // eye height was never resolved, so the flag was 0 BY DESIGN and the
+        // line said "standing" anyway. A zero that is expected has to say so ON
+        // THE LINE (CLAUDE.md), and this one did not - it cost the correlation
+        // the run was made to capture.
+        (!g_actorLocFound || g_eyeNowUU == 0.0f)
+            ? "UNKNOWN (Actor.Location unresolved - NOT a report of standing)"
+            : (g_eyeCrouched ? "CROUCHED" : "standing"),
+        (double)g_eyeNowUU,
         g_waWhy);
     for (int h = 0; h < 2; ++h) {
         if (g_waNearestScore[h] != FLT_MAX)

@@ -226,6 +226,54 @@ static int  g_waRefN        = 0;   // components that can anchor the bridge
 static int  g_waMemberN     = 0;   // weapon members eligible to attach
 static int  g_waDroppedN    = 0;   // candidates that went away before snapshot
 static LONG g_waNotReady    = 0;   // ticks with nothing to attach
+
+// ---- BUFFER IDENTITY, AHEAD OF THE LAYOUT GATE ------------------------------
+//
+// THIS IS THE ARM FIX, APPLIED TO THE WEAPON. Dropping the three palette-fed
+// passes over the arm mesh left a faint arm still drawn, and the note in
+// draw_census.cpp says exactly why: "a pass whose bone constants land outside
+// the reuse window, or at a register other than c6, is invisible to it.
+// Buffer identity does not care. Any draw bound to this vertex and index
+// buffer IS this mesh, whatever the constants did."
+//
+// The weapon router had the same blindness in a different costume. It demands
+// a full shader layout - ViewProjection, LocalToWorld and BoneMatrices - before
+// it will look at a draw at all, and refuses about 5.97 million per run on that
+// gate alone. A weapon pass whose shader declares no LocalToWorld is invisible
+// to it in precisely the way the extra arm pass was invisible to the census.
+//
+// The layout is needed to IDENTIFY a draw by comparing transforms. It is not
+// needed to RECOGNISE one whose buffers we have already identified. So the
+// buffer check now runs first and unbudgeted, and a hit is the weapon whatever
+// its constants look like.
+//
+// AND THE PROBE'S ZERO WAS AN ARTEFACT. It reported 0 of 2.8 million refused
+// draws sharing a weapon buffer, but it also skipped 3.7 million more on a
+// per-Present budget that runs out on world geometry long before the frame
+// reaches the view model, which is drawn last. A budget that expires before
+// the target is drawn cannot see the target. That is the same error as the
+// primitive-count filter before it, and it is why the buffer check below has
+// no budget at all.
+static LONG g_waIdSeen      = 0;   // draws recognised by buffer identity
+static LONG g_waIdCorrected = 0;   // ... corrected through the sibling delta
+static LONG g_waIdNoBone    = 0;   // ... with no BoneMatrices declared
+static LONG g_waIdNoDelta   = 0;   // ... whose sibling had no delta this Present
+
+// ---- THE NON-INDEXED POPULATION ---------------------------------------------
+//
+// The weapon router lives on DrawIndexedPrimitive only, so a pass drawn with
+// DrawPrimitive has never been compared against anything - about 31,000 per
+// run, roughly four a frame, which is the scale of a few view-model passes
+// rather than of world geometry. draw_census.cpp hooks this entry for exactly
+// this reason: "a pass that draws without an index buffer would otherwise
+// survive every suppression this file performs and look like a rendering
+// mystery."
+static LONG g_waPrimSeen    = 0;
+static LONG g_waPrimVbHit   = 0;
+static LONG g_waPrimFixed   = 0;
+static LONG g_waPrimNoBone  = 0;
+static LONG g_waPrimNoDelta = 0;
+static LONG g_waProbeIbOnly = 0;
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
 static LONG g_waNoLayout    = 0;   // the bound shader has no usable layout
 static LONG g_waNoSource    = 0;   // palette unreadable or not skinned
