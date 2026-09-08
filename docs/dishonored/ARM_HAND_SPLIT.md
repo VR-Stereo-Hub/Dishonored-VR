@@ -287,6 +287,26 @@ split was built from.
 
 **Every `REFUSED` line carries the numbers that produced the refusal.**
 
+## 10a. Never submit generated indices without the vertices they address
+
+The split re-bases its index list onto vertices it INVENTS for the clip and the
+cap. Two paths could send those indices to the GAME's vertex buffer, where they
+address whatever happens to be there - a real correctness bug, not a cosmetic
+one.
+
+* `MsUpload` cleared `g_msOwnVb` when `CreateVertexBuffer` failed. By then
+  `MsClassify` has already run, so the index list contains entries at or past
+  `g_msVerts` that exist only in the buffer that just failed to be created.
+  **Falling back is not free once vertices have been invented.** It now
+  re-derives WITHOUT the clip and, if that still produces clipped vertices,
+  stands the split down entirely.
+* `MsDraw` drew with the game's `baseVertex`/`minIndex`/`numVertices` whenever
+  binding our vertex buffer failed - while still binding OUR index buffer. It
+  now aborts the replacement instead.
+
+The general rule: an index buffer and the vertex buffer it was built against
+are ONE artifact. A fail-soft that keeps half of the pair is not soft.
+
 ## 11. Traps and things not to repeat
 
 1. **The mesh lock must be armed by identity, not by a key press.** It was

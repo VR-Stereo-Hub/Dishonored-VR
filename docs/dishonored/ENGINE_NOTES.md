@@ -3450,6 +3450,57 @@ construction.
 The proxy therefore parses each shader's CTAB constant table at capture time
 and uses the register indices it declares. Nothing about the layout is assumed.
 
+## The skinning palette is a TRANSPOSED 4x3, and the two halves index differently (VR-33, 2026-09-07)
+
+A D3D skinning palette holds each bone as three `float4`s that are the
+**transpose of a 4x3**: row `r` is matrix **COLUMN** `r`, and the `w` of each
+row holds that component of the translation.
+
+So the translation reads and transforms like an ordinary vector - which is why
+the probe's bone origins were sensible from the first run - and the basis does
+not. Applying `M' = R.M` to the stored form multiplies the basis by R
+**transposed** and along the row, while the translation column multiplies by R
+the ordinary way down the rows. **The two halves genuinely use different index
+patterns**, and the first build applied the translation's pattern to both.
+
+The symptom names the bug if you know it: position lands correctly, there is
+one controller angle where the hand sits exactly where it belongs, and the
+whole hand turns on a lever several feet long. That is a correct translation
+and a transposed basis together.
+
+## The palette is a register INTERVAL with per-register validity, not a length (VR-33, 2026-09-07)
+
+Caching the palette as a COUNT cannot express what the engine does. Four state
+questions a length cannot answer, all of them observed:
+
+* an update starting INSIDE the block fails an outer bounds test;
+* a wide block covering `c6` can top up an existing cache but never bootstrap
+  an empty one;
+* a short `c6 x4` leaves the previous claimed length standing;
+* an over-long upload is copied whole, after which every trailing triplet is
+  treated as another bone.
+
+Model it as a fixed interval `[6, 6 + 3*bones)` with a valid flag per register.
+Every upload contributes its intersection with that interval whatever it starts
+at or how far it runs, and the palette is usable only when the WHOLE interval is
+valid - so a partially filled palette can never be drawn through.
+
+## Sockets live on the ASSET, and `Mesh` is declared on `Pawn` (VR-33 step 1, 2026-09-06)
+
+Two reflection "UNKNOWN"s that were this side looking in the wrong place rather
+than the build differing from the corpus.
+
+`SkeletalMeshComponent` declares socket **queries**, which are functions;
+property reflection will never find them. The socket **list** is on the asset:
+
+```
+component -> SkeletalMesh (+0x1D4) -> Sockets (+0x160)
+```
+
+And `Mesh` is declared on `Engine.Pawn` (`Pawn.uc:187`). `FindPropOffset`
+matches on the OUTER's name, so asking `DishonoredPawn` for it was always going
+to miss.
+
 ## The bone palette's basis, measured (VR-33 rung 1, 2026-09-07)
 
 The skinning matrices the game uploads to `c6` (48 bones, `c6 x144`, 3 float4

@@ -324,6 +324,36 @@ zero:
 An ENUMERATION cannot exclude what it is looking for. The census solved in one
 run what five filters had hidden for eight builds. Reach for it earlier.
 
+### The two frame bugs that looked like each other
+
+Both reported as "the hands drift and swivel when I turn my head", and they are
+different faults. Three rounds were spent because the question was put to a
+perceptual judgement instead of a number.
+
+**The yaw residual is a COORDINATE OFFSET, not a body yaw.** `phi` held
+144.0-145.6 degrees across a run in which the camera swung 73.6 to 189.1 and the
+head swung -71.2 to +44.8. The camera tracks the head 1:1 and `phi` is simply
+the fixed offset between UE's yaw origin and XR's. Rotating the delta by it was
+wrong, and "both hands swivel" was the report of doing so. `PaletteYawFix`
+defaults to 0.
+
+**The drive's neutral was stored in HEAD SPACE, and that was the whole drift.**
+The zero point rotated with the head, so a still controller produced a moving
+difference and the hand swung to chase it, while the head yaw at capture became
+a fixed rotation of the mapping. One error, both reported symptoms, and it
+predicted that vertical would be unaffected - which is what was reported.
+
+Subtract in WORLD, then rotate the difference into the head frame:
+`R_head * R_head^T * (w - w0) = w - w0`, constant while the controller is still
+however the head moves, while a stick turn rotates the frame without rotating
+the offset.
+
+The lesson worth keeping: **a frame question cannot be settled by asking whether
+a hand looks stable.** Print all the candidate frames as raw numbers next to the
+head yaw; held still, the correct frame is the one whose numbers do not move
+while the head turns, and one that tracks the head yaw is head-coupled and wrong
+however it looks.
+
 **Other dead ends:**
 
 * **Palette size as an identity.** "c6 x36 = the sword" is inherited lore. A
@@ -348,6 +378,12 @@ run what five filters had hidden for eight builds. Reach for it earlier.
   `standing (eye 0.0 uu)` through a run deliberately spent half crouched: the
   eye height was never resolved and the flag was 0 by design. It cost the
   correlation the run was made to capture.
+* **An instrument that reports its own CAP as a census.** The GObjects sweep
+  exited on `curN < 64`, the size of its comparison table, so it never walked
+  past the 64th SkelControl. "Zero of 64 advanced" meant "zero of the FIRST
+  64", and the native SkelControl lane was recorded as closed on that basis -
+  a retraction that also withdrew the 38.x write-race retirement resting on it.
+  A counter is not evidence until you know its population.
 * **A printf whose arguments stopped matching its format.** Two edits each added
   the same segment; every value after that point was shifted, and decisions were
   read from numbers that were not what they were labelled.
