@@ -1184,6 +1184,7 @@ static void LoadConfig()
     g_waPosTolUU      = IniFloat(ini, "Hands", "AttachPosTol",   1.0f);
     g_waMarginX       = IniFloat(ini, "Hands", "AttachMargin",   4.0f);
     g_waMaxTry        = (int)IniFloat(ini, "Hands", "AttachMaxTry", 3000);
+    g_waGhostFix      = IniFloat(ini, "Hands", "AttachGhostFix", 1) != 0.0f;
     if (g_waSwordHand < 0 || g_waSwordHand > 1) g_waSwordHand = 1;
     if (g_waXbowHand  < 0 || g_waXbowHand  > 1) g_waXbowHand  = 0;
     if (g_waAngTolDeg < 0.01f) g_waAngTolDeg = 0.01f;
@@ -1211,6 +1212,15 @@ static void LoadConfig()
             "a new grip - so the game's own hand-to-weapon and weapon-to-bolt "
             "relationships survive, and so does the bolt's internal animation.",
             (double)g_waAngTolDeg, (double)g_waPosTolUU, (double)g_waMarginX);
+        Log("config: [Hands] AttachGhostFix=%s - a weapon mesh is drawn more "
+            "than once per frame, and only a pass declaring LocalToWorld can be "
+            "identified by transform. The others were left where the engine put "
+            "them, which is the dark copy standing at the weapon's old position. "
+            "A refused draw sharing a matched contract's buffers, range and "
+            "primitive count but drawn by a DIFFERENT shader takes that "
+            "contract's correction from the SAME Present - same mesh, same "
+            "frame, so the same delta. Read the wa/ghost: lines.",
+            g_waGhostFix ? "1" : "0");
         Log("config: attachment gates use those angle/position bands and a "
             "0.5 percent scale band. Both hands are compared; every draw is "
             "revalidated. Read 'wa: interval nearest' per hand for actual "
@@ -1897,6 +1907,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachMargin", v, ini);
     _snprintf(v, 64, "%d", g_waMaxTry);
     WritePrivateProfileStringA("Hands", "AttachMaxTry", v, ini);
+    WritePrivateProfileStringA("Hands", "AttachGhostFix", g_waGhostFix ? "1" : "0", ini);
     _snprintf(v, 64, "%d", g_waSwordHand);
     WritePrivateProfileStringA("Hands", "AttachSwordHand", v, ini);
     _snprintf(v, 64, "%d", g_waXbowHand);

@@ -126,6 +126,14 @@ struct WaMesh {
     UINT     regs;             // registers actually patched
     double   lastVerifyMs;     // revalidated on every draw, also used for eviction
     LONG     placed, refused;
+    // THE CORRECTION THIS CONTRACT LAST APPLIED, and the Present it was built
+    // in. A sibling pass of the same geometry in the same Present is the same
+    // mesh at the same place, so it takes the same delta - and requiring the
+    // Present to match exactly is what stops a stale one being reused.
+    dvr::hf::Xform dm;
+    uint32_t dmPresent;
+    bool     dmOk;
+    LONG     ghosts;           // sibling passes corrected through this contract
 };
 static WaMesh   g_waMesh[WA_MAX_MESH];
 static int      g_waMeshN = 0;
@@ -150,6 +158,30 @@ static LONG g_waCandChecked = 0;   // full transform comparison performed
 static LONG g_waMatched     = 0;   // a unique candidate won
 static LONG g_waAmbiguous   = 0;   // two candidates within the margin
 static LONG g_waNoCandidate = 0;   // nothing within tolerance
+
+// ---- THE GHOST PASS ---------------------------------------------------------
+//
+// A weapon mesh is drawn more than once per frame: a colour pass, and at least
+// one depth or shadow pass. Only a pass whose shader declares LocalToWorld can
+// be identified by transform, so the others were refused and drawn where the
+// engine put them - which is a dark copy of the weapon standing at the native
+// position while the real one follows the hand. The tester reports exactly
+// that: locked to where the weapon used to be, flickering many times a second.
+//
+// A refused draw that shares a MATCHED contract's geometry - same buffers,
+// same range, same primitive count, different shader - is that pass. It does
+// not need identifying again; it needs the correction its sibling already
+// computed this Present.
+//
+// The cheap pre-filter is the primitive count, which arrives as a call
+// argument and costs nothing to test. Only a draw whose triangle count matches
+// a live contract pays for the device reads.
+static bool g_waGhostFix    = true;   // [Hands] AttachGhostFix
+static LONG g_waGhostSeen   = 0;   // refused draws sharing a contract's geometry
+static LONG g_waGhostFixed  = 0;   // of those, corrected
+static LONG g_waGhostNoBone = 0;   // no BoneMatrices declaration at all
+static LONG g_waGhostNoDelta = 0;  // sibling had no correction this Present
+static LONG g_waGhostRange  = 0;   // the palette range failed its bounds check
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
 static LONG g_waNoLayout    = 0;   // the bound shader has no usable layout
 static LONG g_waNoSource    = 0;   // palette unreadable or not skinned

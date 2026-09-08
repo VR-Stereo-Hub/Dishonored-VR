@@ -104,6 +104,7 @@ static void PcRefreshLayout(IDirect3DDevice9* dev)
         if (vs) vs->Release();
         g_pcLayShader = NULL; g_pcLayVp = g_pcLayL2W = g_pcLayBones = -1;
         g_pcLayBonesN = 0;
+        g_pcLayBonesPartial = -1; g_pcLayBonesNPartial = 0;
         return;
     }
     if ((void*)vs == g_pcLayShader) { vs->Release(); return; }
@@ -116,7 +117,22 @@ static void PcRefreshLayout(IDirect3DDevice9* dev)
     vs->Release();                        // released before anything can return
 
     PcLayout lay;
-    if (!ok || !PcReflect(code, len, &lay) || !lay.ok) {
+    const bool reflected = ok && PcReflect(code, len, &lay);
+    // THE PARTIAL LAYOUT. A shader that declares BoneMatrices but no
+    // LocalToWorld cannot be IDENTIFIED by transform - it has no transform to
+    // compare - but it can still be CORRECTED once something else has
+    // identified its geometry. That is exactly the ghost pass: the same weapon
+    // mesh, drawn by a depth or shadow shader that carries the palette and
+    // nothing else, left at the native position while the colour pass moved.
+    // Published separately so the full-layout gate keeps its meaning.
+    if (reflected && lay.bones >= 0) {
+        g_pcLayBonesPartial  = lay.bones;
+        g_pcLayBonesNPartial = lay.bonesN;
+    } else {
+        g_pcLayBonesPartial  = -1;
+        g_pcLayBonesNPartial = 0;
+    }
+    if (!reflected || !lay.ok) {
         g_pcLayShader = key;              // remember the refusal, do not re-read every draw
         g_pcLayVp = g_pcLayL2W = g_pcLayBones = -1;
         g_pcLayBonesN = 0;
