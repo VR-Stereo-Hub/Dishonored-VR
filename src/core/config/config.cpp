@@ -1142,7 +1142,9 @@ static void LoadConfig()
     g_prOn            = IniFloat(ini, "Hands", "PoseReport", 1) != 0.0f;
     // VR-33 step 1b. This one MAKES ENGINE CALLS, so it ships OFF and is
     // separate from the read-only report, which keeps working either way.
+#if DVR_WITH_LEGACY
     g_bqOn            = IniFloat(ini, "Hands", "BoneQuery", 0) != 0.0f;
+#endif
     // VR-33 phase 1. This one WRITES to the skeleton, so it ships OFF and
     // restores every field it touched when it is switched off.
 #if DVR_WITH_LEGACY
@@ -1908,7 +1910,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
+#if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "BoneQuery", g_bqOn ? "1" : "0", ini);
+#endif
 #if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "HandMoveTest", g_hmOn ? "1" : "0", ini);
 #endif

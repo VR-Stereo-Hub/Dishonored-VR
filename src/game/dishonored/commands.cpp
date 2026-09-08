@@ -96,7 +96,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "dc")) return DcCommand(args);
     if (!strcmp(cmd, "ms")) return MsCommand(args);
     if (!strcmp(cmd, "pose")) return PrCommand(args);
+#if DVR_WITH_LEGACY
     if (!strcmp(cmd, "bq")) return BqCommand(args);
+#endif
 #if DVR_WITH_LEGACY
     if (!strcmp(cmd, "handmove")) return HmCommand(args);
 #endif

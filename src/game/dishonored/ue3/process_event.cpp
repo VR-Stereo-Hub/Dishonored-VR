@@ -71,7 +71,9 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     //
     // Returning is safe: the stub calls the original engine function after
     // this observer returns, so the query still executes.
+#if DVR_WITH_LEGACY
     if (g_bqDepth > 0) return;
+#endif
 
     InterlockedIncrement(&g_peCalls);
 
@@ -126,7 +128,9 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     }
     ArmFollowTick();                              // VR-30: the arm-follow probe (read-only, finds its own camera)
     PrTick();                                     // VR-33: the pose/socket report - SCRIPT LANE, where the objects are coherent
+#if DVR_WITH_LEGACY
     BqTick();                                     // VR-33 step 1b: the bone queries, consumed on this lane only
+#endif
 #if DVR_WITH_LEGACY
     HmTick();                                     // VR-33 phase 1: the bounded hand-move experiment
 #endif

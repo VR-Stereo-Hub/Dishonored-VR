@@ -384,18 +384,9 @@ static uint32_t PrOff(const char* cls, const char* prop);
 static bool PrDumpSockets(void);
 static void PrTick(void);
 static bool PrCommand(const char* args);
-struct BqName;
-static uint32_t BqDeriveSuperOffset(uint8_t* cls);
-static bool BqReceiverIsA(uint8_t* obj, const char* cls);
-static uint8_t* BqFindFunc(const char* cls, const char* fname);
-static void BqCall(uint8_t* obj, uint8_t* fn, void* parms);
-enum BqEnd;
-static BqEnd BqWalk(uint8_t* comp, const char* startName, BqName* outChain, int* outN);
-static void BqControls(void);
-static void BqItems(uint8_t* pawnMesh);
-static void BqRun(void);
-static void BqTick(void);
-static bool BqCommand(const char* args);
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/bone_query_fwd.inc"
+#endif
 static uint8_t* HmControl(void);
 static void HmPickModels();
 static void GraftTestSet(bool on);

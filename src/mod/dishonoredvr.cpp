@@ -96,7 +96,9 @@
 #endif
 #include "mod/state/57b_game_dishonored_hands_weapon_attach.inc"
 #include "mod/state/56_game_dishonored_hands_pose_report.inc"
-#include "mod/state/57_game_dishonored_hands_bone_query.inc"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/57_game_dishonored_hands_bone_query.inc"
+#endif
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/58_game_dishonored_hands_hand_move.inc"
 #endif
@@ -170,7 +172,9 @@
 #include "game/dishonored/hands/mat_hide.cpp"
 #include "game/dishonored/hands/mesh_split.cpp"
 #include "game/dishonored/hands/pose_report.cpp"
-#include "game/dishonored/hands/bone_query.cpp"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/bone_query.cpp"
+#endif
 #include "game/dishonored/hands/palette_capture.cpp"
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/hand_move.cpp"
