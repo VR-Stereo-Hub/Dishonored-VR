@@ -79,61 +79,130 @@ static void WiNoteDraw(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 
 // ---- the report -------------------------------------------------------------
 
-// A signature BELONGS to the component of phase p when it is drawn in the
-// baseline and not drawn at all while that component is hidden. Stated as a
-// rule the reader can check, and it prints the counts that produced it so a
-// weak result cannot read as a strong one.
+// Phase layout. Phase 0 is the baseline. Component n then occupies phases
+// 1 + n*4 .. 4 + n*4 as HIDE, SHOW, HIDE, SHOW.
+static inline int WiHidePhase(int comp, int rep) { return 1 + comp*WI_PER_COMP + rep*2; }
+static inline int WiShowPhase(int comp, int rep) { return 2 + comp*WI_PER_COMP + rep*2; }
+
+// A signature BELONGS to a component when the picture MOVED with it, twice:
+// drawn in the baseline, absent through BOTH of that component's hide phases,
+// and back through BOTH of its show phases. A single disappearance is not
+// evidence - a camera move, an NPC leaving frame or an LOD switch all produce
+// one - and this project has already paid for reading one as an identity.
+static bool WiOwns(int sig, int comp, uint32_t* h0, uint32_t* s0,
+                   uint32_t* h1, uint32_t* s1)
+{
+    *h0 = g_wiSeen[sig][WiHidePhase(comp, 0)];
+    *s0 = g_wiSeen[sig][WiShowPhase(comp, 0)];
+    *h1 = g_wiSeen[sig][WiHidePhase(comp, 1)];
+    *s1 = g_wiSeen[sig][WiShowPhase(comp, 1)];
+    return g_wiSeen[sig][0] != 0 && *h0 == 0 && *h1 == 0 && *s0 != 0 && *s1 != 0;
+}
+
 static void WiReport(void)
 {
-    Log("wid: ================ WEAPON IDENTIFICATION ================");
-    Log("wid: %d distinct skinned draw signature(s) over %ld draw(s), %ld that "
-        "did not fit the table. Phase 0 is the baseline with nothing hidden; "
-        "each later phase hides exactly one component. A signature drawn in the "
-        "baseline and NOT drawn while component N is hidden belongs to that "
-        "component - that is identification by making the picture move, not by "
-        "palette size or draw order.",
-        g_wiSigN, g_wiDraws, g_wiOverflow);
+    const int comps = (g_wiPhaseN - 1) / WI_PER_COMP;
 
-    for (int p = 1; p < g_wiPhaseN; p++) {
-        const int c = g_wiCompOf[p];
-        const char* asset = (c >= 0 && c < g_fpCandN) ? g_fpCand[c].asset : "?";
-        int hits = 0;
-        for (int i = 0; i < g_wiSigN; i++) {
-            const uint32_t base = g_wiSeen[i][0];
-            const uint32_t here = g_wiSeen[i][p];
-            if (base == 0 || here != 0) continue;
-            hits++;
-            Log("wid:   '%s' OWNS signature %016llx - baseline %u draw(s), 0 "
-                "while hidden | c6 x%u (%u bones) prim %u verts %u base %d "
-                "start %u stride %u | vb %p ib %p vs %p decl %p",
-                asset, (unsigned long long)g_wiSig[i].h, base,
-                g_wiSig[i].bones * 3, g_wiSig[i].bones, g_wiSig[i].primCount,
-                g_wiSig[i].numVerts, g_wiSig[i].baseVertex,
-                g_wiSig[i].startIndex, g_wiSig[i].stride,
-                g_wiSig[i].vb, g_wiSig[i].ib, g_wiSig[i].vs, g_wiSig[i].decl);
-        }
-        if (!hits)
-            Log("wid:   '%s' owns NO signature that the baseline also drew. "
-                "Either the component was not drawn at all in the baseline "
-                "(not equipped, or off screen), or hiding it did not stop any "
-                "draw - both of which are answers, and neither is an identity.",
-                asset);
+    Log("wid: ================ WEAPON IDENTIFICATION ================");
+
+    // THE VOID CHECK FIRST, so nothing below can be read as an answer when it
+    // is not one. An overflowed table cannot record a signature it has not
+    // already seen, which means a "0 draws while hidden" can equally mean "the
+    // table was full and refused to count it". That is not a footnote.
+    if (g_wiOverflow) {
+        Log("wid: *** THIS REPORT IS VOID *** - %ld draw(s) did not fit the "
+            "%d-signature table, so an absence below can mean 'the table was "
+            "full and refused to record it' just as well as 'the component was "
+            "hidden'. No attribution is printed. %d signature(s) were held over "
+            "%ld counted draw(s). Raise WI_MAX_SIG, or run the sweep somewhere "
+            "with fewer skinned actors in view - a quiet room, weapon drawn, "
+            "facing a wall.",
+            g_wiOverflow, WI_MAX_SIG, g_wiSigN, g_wiDraws);
+        Log("wid: ======================================================");
+        return;
     }
 
-    // The signatures nothing accounted for, stated rather than left out. A
-    // report that only lists successes cannot be checked.
-    int orphan = 0;
-    for (int i = 0; i < g_wiSigN; i++) {
-        if (g_wiSeen[i][0] == 0) continue;
-        bool owned = false;
-        for (int p = 1; p < g_wiPhaseN && !owned; p++)
-            if (g_wiSeen[i][p] == 0) owned = true;
-        if (!owned) orphan++;
+    int bad = 0;
+    for (int p = 1; p < g_wiPhaseN; p++) if (g_wiPhaseBad[p]) bad++;
+    if (bad)
+        Log("wid: WARNING - %d phase(s) did not do what they said: a hide or a "
+            "restore call was refused. Any component whose phases are among "
+            "them is reported below as UNTESTED rather than as owning nothing.",
+            bad);
+
+    Log("wid: %d distinct skinned draw signature(s) over %ld draw(s), 0 that "
+        "did not fit the table. Phase 0 is the baseline. Each component then "
+        "gets HIDE, SHOW, HIDE, SHOW. A signature is only attributed when it "
+        "is drawn in the baseline, absent through BOTH hides and back through "
+        "BOTH shows - a prediction made four times, which is what separates a "
+        "hide from a camera move.",
+        g_wiSigN, g_wiDraws);
+
+    for (int c = 0; c < comps; c++) {
+        const int k = g_wiCompOf[WiHidePhase(c, 0)];
+        const char* asset = (k >= 0 && k < g_fpCandN) ? g_fpCand[k].asset : "?";
+        bool phasesOk = true;
+        for (int r = 0; r < 2; r++)
+            if (g_wiPhaseBad[WiHidePhase(c, r)] || g_wiPhaseBad[WiShowPhase(c, r)])
+                phasesOk = false;
+        if (!phasesOk) {
+            Log("wid:   '%s' UNTESTED - one of its four phases was refused, so "
+                "an absent draw here would be evidence of nothing.", asset);
+            continue;
+        }
+
+        int hits = 0, once = 0;
+        for (int i2 = 0; i2 < g_wiSigN; i2++) {
+            uint32_t h0, s0, h1, s1;
+            if (WiOwns(i2, c, &h0, &s0, &h1, &s1)) {
+                hits++;
+                Log("wid:   '%s' OWNS signature %016llx - baseline %u | hide 0 "
+                    "| show %u | hide 0 | show %u | c6 x%u (%u bones) prim %u "
+                    "verts %u base %d start %u stride %u | vb %p ib %p vs %p "
+                    "decl %p",
+                    asset, (unsigned long long)g_wiSig[i2].h, g_wiSeen[i2][0],
+                    s0, s1, g_wiSig[i2].bones * 3, g_wiSig[i2].bones,
+                    g_wiSig[i2].primCount, g_wiSig[i2].numVerts,
+                    g_wiSig[i2].baseVertex, g_wiSig[i2].startIndex,
+                    g_wiSig[i2].stride, g_wiSig[i2].vb, g_wiSig[i2].ib,
+                    g_wiSig[i2].vs, g_wiSig[i2].decl);
+            } else if (g_wiSeen[i2][0] && (h0 == 0 || h1 == 0)) {
+                once++;
+            }
+        }
+        Log("wid:   '%s': %d signature(s) owned, %d that vanished on ONE hide "
+            "but not the other and were REJECTED. Those rejects are the "
+            "instrument working: they are what a single-cycle sweep would have "
+            "reported as owned.",
+            asset, hits, once);
+        if (!hits)
+            Log("wid:   '%s' owns NO signature. Either it was not drawn in the "
+                "baseline (not equipped, or off screen), or hiding it stopped "
+                "nothing that came back. Both are answers; neither is an "
+                "identity.", asset);
+    }
+
+    // The control. Stated rather than left out: a report that only lists
+    // successes cannot be checked.
+    int orphan = 0, ambiguous = 0;
+    for (int i2 = 0; i2 < g_wiSigN; i2++) {
+        if (g_wiSeen[i2][0] == 0) continue;
+        int owners = 0;
+        for (int c = 0; c < comps; c++) {
+            uint32_t h0, s0, h1, s1;
+            if (WiOwns(i2, c, &h0, &s0, &h1, &s1)) owners++;
+        }
+        if (owners == 0) orphan++;
+        else if (owners > 1) ambiguous++;
     }
     Log("wid: %d baseline signature(s) survived EVERY hide - the player body, "
         "the world, and anything these components do not own. That number is "
-        "the report's own control: if it were 0, the sweep would be hiding "
-        "everything and the attributions above would mean nothing.", orphan);
+        "the report's own control: if it were 0 the sweep would be hiding "
+        "everything and the attributions above would mean nothing. %d "
+        "signature(s) satisfied MORE THAN ONE component and are not an "
+        "identity for any of them - a nonzero count there means the view was "
+        "moving during the sweep and the whole run should be repeated standing "
+        "still.", orphan, ambiguous);
     Log("wid: ======================================================");
 }
 
@@ -146,21 +215,91 @@ static void WiReport(void)
 static bool WiBuildPlan(void)
 {
     g_wiPhaseN = 1;                       // phase 0 = baseline
-    for (int c = 0; c < g_fpCandN && g_wiPhaseN < WI_MAX_PHASE; c++) {
+    int comps = 0;
+    for (int c = 0; c < g_fpCandN && comps < WI_MAX_COMP; c++) {
         FpCand* k = &g_fpCand[c];
         if (!LooksLikeObj(k->obj)) continue;
         if (MatNumElements(k->obj) <= 0) continue;
-        g_wiCompOf[g_wiPhaseN] = c;
-        g_wiPhaseN++;
+        for (int r = 0; r < WI_PER_COMP; r++) {
+            g_wiCompOf[g_wiPhaseN] = c;
+            g_wiHidden[g_wiPhaseN] = (r % 2) == 0;   // hide, show, hide, show
+            g_wiPhaseN++;
+        }
+        comps++;
     }
-    if (g_wiPhaseN <= 1) return false;
-    Log("wid: sweep planned - baseline plus %d component(s), %.1f s each, about "
-        "%.0f s total. Equip the weapon you care about BEFORE it runs; a "
-        "component that is not drawn in the baseline cannot be identified.",
-        g_wiPhaseN - 1, g_wiPhaseMs / 1000.0,
-        g_wiPhaseN * (g_wiPhaseMs / 1000.0));
+    if (!comps) return false;
+    Log("wid: sweep planned - baseline plus %d component(s) x 4 phases (hide, "
+        "show, hide, show), %.1f s each, about %.0f s total. STAND STILL and "
+        "keep the weapon in view for the whole sweep: the test is 'this draw "
+        "stops and comes back with the hide', and a view that changes under it "
+        "produces the same signal.",
+        comps, g_wiPhaseMs / 1000.0, g_wiPhaseN * (g_wiPhaseMs / 1000.0));
+    for (int c = 0; c < comps; c++) {
+        const int k = g_wiCompOf[WiHidePhase(c, 0)];
+        Log("wid:   component %d = '%s' (%s)", c, g_fpCand[k].asset,
+            g_fpCand[k].name);
+    }
     return true;
 }
+
+
+// Is the candidate list ready to be planned against? Two conditions, both of
+// which the first run failed silently:
+//
+//   - it must contain something that is NOT the player body. A plan that can
+//     only hide Skm_Player cannot identify a crossbow, and running it anyway
+//     produces a confident report about the wrong question;
+//   - it must have STOPPED CHANGING. FpCollect rebuilds it live as the player
+//     equips and stows, and a plan taken mid-rebuild is a plan against a list
+//     that no longer exists by the second phase.
+static bool WiAssetsReady(double now)
+{
+    int weapons = 0;
+    for (int c = 0; c < g_fpCandN; c++) {
+        FpCand* k = &g_fpCand[c];
+        if (!LooksLikeObj(k->obj)) continue;
+        if (FpIsViewModel(k)) continue;                 // pPlayerMesh, the body
+        if (MatNumElements(k->obj) <= 0) continue;
+        weapons++;
+    }
+
+    void* first = g_fpCandN ? (void*)g_fpCand[0].obj : NULL;
+    if (g_wiSeenN != g_fpCandN || g_wiSeenFirst != first) {
+        g_wiSeenN = g_fpCandN; g_wiSeenFirst = first; g_wiStable = now;
+        g_wiWaitSaid = false;
+    }
+
+    if (!weapons) {
+        if (!g_wiWaitSaid) {
+            g_wiWaitSaid = true;
+            Log("wid: WAITING - %d component(s) resolved and none of them is a "
+                "weapon (the only hideable thing is the player body). The sweep "
+                "REFUSES to run against a list that cannot contain the answer: "
+                "that is exactly what produced the false positive on "
+                "2026-09-07. Draw a weapon and it will start on its own.",
+                g_fpCandN);
+            for (int c = 0; c < g_fpCandN; c++)
+                Log("wid:   have [%d] '%s' asset=%s sections=%d", c,
+                    g_fpCand[c].name, g_fpCand[c].asset,
+                    LooksLikeObj(g_fpCand[c].obj) ? MatNumElements(g_fpCand[c].obj) : -1);
+        }
+        return false;
+    }
+
+    if (now - g_wiStable < (double)WI_SETTLE_MS) {
+        if (!g_wiWaitSaid) {
+            g_wiWaitSaid = true;
+            Log("wid: %d weapon component(s) resolved - waiting %.1f s for the "
+                "component list to settle before planning. It is rebuilt live "
+                "as things are equipped, and a plan taken mid-rebuild names "
+                "components that are gone by the second phase.",
+                weapons, (double)WI_SETTLE_MS / 1000.0);
+        }
+        return false;
+    }
+    return true;
+}
+
 
 static void WiTick(void)
 {
@@ -184,24 +323,28 @@ static void WiTick(void)
                 "draws'. Set MatCycle=0 to run the identifier.");
             return;
         }
-        // Wait for the rig, then plan once. Bounded retries: a refusal that
-        // repeats forever is noise rather than evidence.
-        if (!g_fpCandN) {
-            if (++g_wiTries > 600) {
+        // Wait for the rig, then for the WEAPONS, then plan once. Bounded:
+        // a refusal that repeats forever is noise rather than evidence, but
+        // the bound is long because a weapon is drawn when the player chooses.
+        if (!g_fpCandN || !WiAssetsReady(now)) {
+            if (++g_wiTries > 36000) {          // ~10 min of ticks
                 g_wiDone = true;
-                Log("wid: no first-person components ever resolved, so there is "
-                    "nothing to correlate draws against. The sweep is off.");
+                Log("wid: GIVING UP - no weapon component ever resolved, so "
+                    "there was never anything to correlate draws against. This "
+                    "is not a failure of the sweep: nothing was equipped, or "
+                    "the component scan never reached it. Restart with a weapon "
+                    "drawn to try again.");
             }
-            return;
-        }
-        if (!WiBuildPlan()) {
-            g_wiDone = true;
-            Log("wid: no component reported a material section, so no hide can "
-                "be made and no draw can be attributed. The sweep is off.");
             return;
         }
         g_wiStep  = 0;
         g_wiPhase = 0;                    // the baseline starts collecting NOW
+        if (!WiBuildPlan()) {
+            g_wiDone = true; g_wiPhase = -1;
+            Log("wid: no component reported a material section, so no hide can "
+                "be made and no draw can be attributed. The sweep is off.");
+            return;
+        }
         g_wiUntil = now + g_wiPhaseMs;
         Log("wid: >>> phase 0/%d: BASELINE, nothing hidden <<<", g_wiPhaseN - 1);
         return;
@@ -223,22 +366,55 @@ static void WiTick(void)
     const int c = g_wiCompOf[g_wiStep];
     FpCand* k = (c >= 0 && c < g_fpCandN) ? &g_fpCand[c] : NULL;
     if (!k || !LooksLikeObj(k->obj)) {
-        // Skip a component that has gone away rather than hiding nothing and
-        // recording the result as if it had been hidden.
-        Log("wid: phase %d/%d SKIPPED - component [%d] is no longer live, so a "
-            "phase here would record 'nothing vanished' for a hide that never "
-            "happened.", g_wiStep, g_wiPhaseN - 1, c);
-        g_wiUntil = now;                  // move straight on
+        // A component that has gone away mid-sweep poisons its own phases and
+        // must say so, not record "nothing vanished" for a hide that never
+        // happened.
+        g_wiPhaseBad[g_wiStep] = true;
+        Log("wid: phase %d/%d POISONED - component [%d] is no longer live, so "
+            "this phase records an absence that no hide produced.",
+            g_wiStep, g_wiPhaseN - 1, c);
+        g_wiPhase = g_wiStep;
+        g_wiUntil = now + g_wiPhaseMs;
         return;
     }
-    const int nsec = MatNumElements(k->obj);
-    bool hid = false;
-    for (int i = 0; i < nsec; i++)
-        if (MatShowSection(k->obj, i, false, 0)) hid = true;
-    g_wiHiding = hid;
+
+    // A HIDE phase calls the native; a SHOW phase calls NOTHING. The restore
+    // above (MatRestoreAll) has already put the component back, and it does so
+    // respecting what the game itself had hidden before we arrived - forcing
+    // every section visible here would change the picture rather than restore
+    // it, and the show phase would then be testing our own write.
+    //
+    // ACCEPTANCE IS THE FLAG, NOT THE CALL. MatShowSection returns true when
+    // the native was CALLED, which is not the same as the section being
+    // hidden: it logs "[DID NOT TAKE]" and still returns true. So the phase is
+    // judged by reading HiddenMaterials back afterwards. A phase whose flags
+    // do not match what it asked for is POISONED, and its component is
+    // reported UNTESTED rather than as owning nothing.
+    const bool wantHidden = g_wiHidden[g_wiStep];
+    const int  nsec = MatNumElements(k->obj);
+    if (wantHidden) {
+        for (int i2 = 0; i2 < nsec; i2++) MatShowSection(k->obj, i2, false, 0);
+        g_wiHiding = true;
+    }
+    int got = 0, unreadable = 0;
+    for (int i2 = 0; i2 < nsec; i2++) {
+        const int f = MatHiddenFlag(k->obj, i2, 0);
+        if (f < 0) unreadable++;
+        else if ((f != 0) == wantHidden) got++;
+    }
+    const bool acted = (nsec > 0) && (got == nsec);
+    g_wiPhaseBad[g_wiStep] = !acted;
     g_wiPhase  = g_wiStep;
     g_wiUntil  = now + g_wiPhaseMs;
-    Log("wid: >>> phase %d/%d: '%s' HIDDEN (%d section(s), hide %s) <<<",
-        g_wiStep, g_wiPhaseN - 1, k->asset, nsec,
-        hid ? "took" : "DID NOT TAKE - this phase cannot attribute anything");
+    Log("wid: >>> phase %d/%d: '%s' %s - %d/%d section(s) read back as %s"
+        "%s <<<",
+        g_wiStep, g_wiPhaseN - 1, k->asset,
+        wantHidden ? "HIDE" : "SHOW (restored, nothing called)",
+        got, nsec, wantHidden ? "hidden" : "visible",
+        unreadable
+            ? ", and the HiddenMaterials array was UNREADABLE for some of them - "
+              "this phase is POISONED and its component will be reported UNTESTED"
+            : (acted ? ", as asked"
+                     : " - this phase is POISONED and its component will be "
+                       "reported UNTESTED"));
 }
