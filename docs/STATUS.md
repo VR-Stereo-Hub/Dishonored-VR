@@ -42,9 +42,9 @@ cycled with **Numpad 9**, in this order:
   3  RIGHT hand ROTATION
 ```
 
-BRVR's implementation is `BioshockVR/Hands/HandsProbe.cpp:295-395` in the live
-tree at `C:\dev\Bioshock-Remastered-VR` (read it, do not re-derive it). Its
-axis keys, which the tester already has in his fingers:
+The scheme is adopted from the maintainer's own BioShock Remastered VR mod,
+where it has been in use for a long time; these are the keys the tester already
+has in his fingers, which is the reason for matching them exactly:
 
 | Key | Position mode | Rotation mode |
 |---|---|---|
