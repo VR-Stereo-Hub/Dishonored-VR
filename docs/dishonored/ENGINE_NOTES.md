@@ -3941,3 +3941,68 @@ slot[5] requires 0 | DishonoredWepPistol  -> own usage 0, socket 0
 
 The slot constraint and the item state are plainly different things, and only the
 item is the answer.
+
+
+## THE MONO WINDOW AT A LOAD IS A GHOST MENU FLAG (VR-62, 2026-09-08)
+
+Measured by the startup scoreboard on its first run, and it falsified the
+prediction that `CylTruthLive` was the laggard:
+
+```
+startup: load #1 scored - the mono window was 24.30 s.
+  pawn-ptr      +0.00 s      cyl           +0.00 s
+  gnames        +0.00 s      view          +0.00 s
+  inventory     +0.00 s      no-cine       +0.00 s
+  no-menu      +24.30 s   <- the laggard
+  verdict      +24.30 s      stereo       +24.30 s
+```
+
+Every term of the gameplay verdict was ready immediately except the menu flag,
+and the verdict and the first stereo tag both followed it within the same
+millisecond. **The whole mono window is one stuck flag.**
+
+### The flag is a ghost, and the CLEARER was the slow part
+
+`Dis_OpenPauseMenu` dispatches during a load and sets `g_menuOpen` when no menu
+is open. A ghost-clearer already existed for exactly this, and it is what took
+the time:
+
+```
+menu: stale flag cleared after  1505 ms - ... 118 gameplay dispatches still flowing
+menu: stale flag cleared after 24289 ms - ...  21 gameplay dispatches still flowing
+```
+
+It required **20 cumulative view-rotation dispatches**. That is a fine proxy for
+"the pipeline is still flowing" at gameplay rates and a terrible one during a
+load, which is the only time it matters: **the dispatch rate falls to about 1/s
+while a level settles, against roughly 78/s once it is up.** So the same ghost
+cleared in 1.5 s one time and 24.3 s the next, and the second number is the
+reported mono window start to finish.
+
+**A count of arrivals cannot tell "flowing slowly" from "stopped"; recency can.**
+A real menu shows NO dispatches at all, so one arriving within the last few
+hundred milliseconds is the discriminator, and it is rate-independent. The other
+three guards are unchanged and are what keep it safe: a live pawn (which excludes
+the main menu and its dispatching 3D background), no cursor, and the flag
+standing for 1500 ms.
+
+This is a worked example of a rule this project keeps paying for: **a counter is
+not evidence until you know its population.** The population here was "dispatches
+per second", and it changes by a factor of eighty between the two states the test
+has to tell apart.
+
+### A contract must not outlive its level
+
+Found in the same run, as a regression. A weapon contract holds the component it
+was matched to; a load destroys that component; the contract table is evicted
+only when it FILLS. So after a reload every contract points at a dead object, no
+reference can be found, and every draw is refused as unverifiable.
+
+**A refusal returns before the transform matcher, so it is a LOCKOUT rather than
+a refusal**: the contract can never be re-adopted and the weapons never attach
+again for the rest of the session. Measured: unverifiable past 45,000 while
+corrected sat frozen and only 3 contracts had ever matched.
+
+Contracts are now dropped when the game leaves gameplay, and any contract whose
+component has been missing from a fresh snapshot for about a second is retired so
+the matcher can re-adopt it.
