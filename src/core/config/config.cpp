@@ -1791,14 +1791,27 @@ static void LoadConfig()
         {   // 41.1: [Pace] - the projection layer's pacing levers (defaults = today)
             const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
             const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
-            // VR-65: the default is LAG 2 as of 2026-09-09, from a headset A/B.
+            // VR-65: trying LAG 0, after lag 2 was falsified in a headset.
             //
-            // The comparison ran baseline, alternative, baseline again: lag 1
-            // juddered, lag 2 was smooth, lag 1 juddered again. That reversal is
-            // what makes it a result rather than a coincidence, and it is the
-            // first thing in this investigation the tester could feel.
+            // The A/B ran lag 1, lag 2, lag 1, lag 0 across twenty-second
+            // segments, all four inside gameplay. The tester reported jittery,
+            // then smooth for ten to fifteen seconds, then jittery - which
+            // matched segment 2 in order, so lag 2 shipped as the default. On the
+            // next run with lag 2 fixed, it juddered. So the smooth window was
+            // NOT segment 2, and attributing it by order alone was wrong.
             //
-            // It is a DISCRIMINATOR AND A WORKAROUND, not a proven root cause.
+            // Lag 0 is the remaining untried arm and is being tried directly.
+            //
+            // The measurement already argued against lag being the mechanism:
+            // the submitted orientation sits within about 0.3 degrees of the
+            // sample the camera consumed even while the head moves, far too small
+            // to be visible judder, and the generation bookkeeping reported the
+            // same one-generation offset for lag 1 and lag 2, which cannot both
+            // be right. If lag 0 also judders, the fixed-history explanation is
+            // finished for these conditions and the next question is frame
+            // delivery, not another value.
+            //
+            // Whatever the outcome, this is a DISCRIMINATOR, not a proven cause.
             // The pose measurement says the submitted orientation is within about
             // 0.3 degrees of the sample the camera consumed even while the head
             // moves, which is far too small to be the visible judder - so
@@ -1811,7 +1824,7 @@ static void LoadConfig()
             // single-threaded renderer. This game has a separate render thread
             // and a delayed capture stage, so a deeper pipeline is exactly what
             // would be expected. `[Pace] Lag=1` restores the old behaviour.
-            const int lag = GetPrivateProfileIntA("Pace", "Lag", 2, ini);
+            const int lag = GetPrivateProfileIntA("Pace", "Lag", 0, ini);
             int syncHz = GetPrivateProfileIntA("Pace", "SyncHz", 0, ini);
             dvr::vr::set_pace_ahead(ahead);
             dvr::vr::set_pair_strict(strict != 0);
