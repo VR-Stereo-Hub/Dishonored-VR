@@ -1,6 +1,89 @@
 # Status
 
-## CURRENT (2026-09-08, night): VR-33 merged; VR-59 attempt 1 FALSIFIED
+## CURRENT (2026-09-08, night): VR-59 attempt 2 - verify every draw
+
+`VR-Main` is pushed at `555e8ff4`, PRs 18-22 closed. Attempt 2 of VR-59 is built,
+installed and covered by 86 host cases; **not yet in a headset.**
+
+### The measurement that settles the architecture
+
+From the attempt-1 run: **`known-buffer passes 196955, corrected 196619`, and
+`matched 4`.** 99.8% of all corrections were made on buffer identity alone, while
+the transform matcher - the only thing that checks WHERE a draw is - adopted four
+contracts in 13 million draws.
+
+**A contract identifies a GEOMETRY and was being used as an INSTANCE.** That one
+sentence explains every symptom reported, and they are all one bug:
+
+* a fired bolt rotates in place - it inherits the held bolt's delta, conjugated
+  about its own origin;
+* two fired bolts rotate together, each about its own origin - same delta, same
+  contract;
+* after a weapon switch every bolt orbits the muzzle at whatever radius it had
+  when the switch happened - the delta becomes a fixed transform relative to the
+  hand;
+* each bolt vanishes past an angle - beyond `AttachPassRadius` the draw is
+  refused, falls through to a matcher that cannot place it, and is dropped.
+
+And the reference that gate compares against, `lastL2W`, is written ONLY where
+the matcher adopts a contract - so it was current 4 times all run. A gate on a
+reference nothing maintains both misfires and misses.
+
+### The rule that replaces it
+
+**A draw is the held item only if it is where the engine says the held item is. A
+draw that matches nothing is handed back exactly as the engine drew it.**
+
+It names no asset, no weapon and no count, which is the point - a throwable that
+does not exist yet is covered without new code. Per draw:
+
+1. The contract carries the COMPONENT it was matched to (`compObj`), not just its
+   buffers. A second instance of that mesh can never inherit its correction.
+2. `WaVerifyDraw` compares the draw against that component's transform from the
+   live snapshot, expressed in the draw's space through the bridge the matcher
+   already builds. The snapshot is engine-read and republished twice a frame, so
+   it cannot go stale while the weapon is in view.
+3. A recent-verification cache (`heldAt`, refreshed on EVERY verified draw by both
+   routes) answers when no correction was published this Present, so a quiet
+   frame does not blink the weapons.
+4. Nothing to compare against means REFUSE. Absence of evidence is not consent -
+   that was the 41.x defect exactly.
+
+**Suppression is now only for a draw that PASSED verification.** That is what
+keeps a world instance visible: its colour and lighting passes are its own, not
+duplicates of anything we drew, and suppressing them is what made fired bolts
+vanish. The shared `dm` delta is also gated on the verdict, so a refusal is no
+longer advisory.
+
+The tolerance is `AttachPassRadius` reused, not a new number: the census measured
+0.3 uu between an uncorrected pass and its corrected twin, and two instances of a
+mesh are hundreds of units apart. Both bounds are asserted in the host suite.
+
+### Levers
+
+`AttachVerifyInstance=1` (OFF restores trusting buffer identity - the behaviour
+of every previous build, so the two compare directly), `AttachHeldMaxPresents=2`.
+The two falsified attempt-1 gates stay at OFF, kept so their measurement is
+reproducible.
+
+### What a headset run has to answer
+
+`wa: instance verify` reports held / elsewhere / unverifiable, which reference
+answered, and the worst offset accepted next to the farthest refused - so the
+radius can be judged from both sides rather than argued. **HELD should be the
+large majority while a weapon is out; 0 with flat weapons means verification is
+failing, not idle.** If `component` is 0 the engine-read route is not running and
+only the cache is holding it up, which would be a latent failure.
+
+The risk to watch is the opposite of the old one: too much refusal. If a held
+weapon goes flat or blinks, `AttachHeldMaxPresents` and the radius are the levers,
+and `AttachVerifyInstance=0` returns to the old behaviour.
+
+Also open: **VR-60**, the pistol is not in the component snapshot at all, so it
+has no member candidate and reaches contracts only through the buffer lookup's
+`vb || ib` OR. That is why its visibility depended on aim angle.
+
+## PREVIOUS (2026-09-08, night): VR-33 merged; VR-59 attempt 1 FALSIFIED
 
 `VR-Main` is pushed and at `555e8ff4`; PRs 18-22 are closed and their tickets
 are Done. **The VR-59 fix was tried in a headset and both of its gates were

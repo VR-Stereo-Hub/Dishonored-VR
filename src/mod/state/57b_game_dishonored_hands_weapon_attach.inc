@@ -133,6 +133,20 @@ struct WaMesh {
     D3DPRIMITIVETYPE type;
     INT      baseVertex;
     int      comp;             // index into g_waComp
+    // VR-59: the COMPONENT this contract was matched to. A contract names a
+    // geometry; this names the instance, and it is the thing every draw on
+    // these buffers is verified against.
+    void*    compObj;
+    // Where this contract last verified AS THE HELD ITEM, in the draw space of
+    // that verification, refreshed on EVERY verified draw. This is lastL2W
+    // done properly: lastL2W is written only where the transform matcher adopts
+    // a contract, which happened 4 times in 13 million draws in one run, so any
+    // test against it is comparing with a reference that is almost always
+    // stale. That single fact is why the pass-radius gate both misfired on held
+    // weapons and missed fired bolts.
+    float    heldAt[3];
+    uint32_t heldPresent;
+    bool     heldOk;
     int      hand;
     char     asset[64];
     int      boneReg;          // the REFLECTED register, never assumed to be 6
@@ -487,6 +501,34 @@ static LONG g_waNoFreshRef    = 0;
 static LONG g_waStowed        = 0;
 static LONG g_waVetoFreed     = 0;
 static LONG g_waVetoedRelaxed = 0;
+
+// ---- VR-59 attempt 2: verify every draw, correct none on faith -------------
+//
+// The lever is default ON. With it OFF the build reverts to trusting buffer
+// identity, which is the behaviour every run up to this one had, so the two are
+// directly comparable in a headset.
+static bool g_waVerifyInstance = true;   // [Hands] AttachVerifyInstance
+static int  g_waHeldMaxPresents = 2;     // [Hands] AttachHeldMaxPresents
+// What moves each of these, so a zero is readable:
+//   VerifiedHeld  - draws positively identified as the held item. This should be
+//                   the overwhelming majority while a weapon is out; if it is 0
+//                   and weapons are flat, verification is failing, not idle.
+//   VerifiedAway  - draws on weapon buffers that are a DIFFERENT instance.
+//                   Moves the moment a bolt exists in the world. A fired bolt
+//                   that stays put with this counting up is the fix working.
+//   VerifyNoRef   - draws that could not be verified either way, and were
+//                   therefore left exactly as the engine drew them.
+//   RefComponent / RefRecent - which reference answered, so "it works" can be
+//                   told apart from "it works because the cheap path happened
+//                   to agree". If RefComponent is 0 the engine-read route is
+//                   not running at all and only the cache is holding it up.
+static LONG g_waVerifiedHeld  = 0;
+static LONG g_waVerifiedAway  = 0;
+static LONG g_waVerifyNoRef   = 0;
+static LONG g_waRefComponent  = 0;
+static LONG g_waRefRecent     = 0;
+static float g_waAwayFarthest = 0.0f;   // the largest offset we refused
+static float g_waHeldWorst    = 0.0f;   // the largest offset we still accepted
 
 
 static LONG g_waCacheHit    = 0;   // matched by a cached contract

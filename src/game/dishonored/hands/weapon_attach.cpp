@@ -392,6 +392,95 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
 #include "legacy/vr33/weapon_primitive_sibling.cpp"
 #endif
 
+// ---- VR-59: verify a draw against the instance the contract was matched to --
+//
+// Returns the verdict and, for the log, the offset and which reference answered.
+// The engine-read component transform is authoritative and is preferred whenever
+// the bridge can be built; the recent-verification cache exists only so that a
+// Present in which no correction was published does not force every draw to be
+// refused, which would blink the weapons.
+//
+// NOTE the failure direction. When nothing can answer, this returns NO_REF and
+// the caller hands the draw back untouched. Refusing to touch a draw costs at
+// most a duplicate pass of a weapon; correcting one on faith is what dragged
+// world objects onto the hand.
+static dvr::wf::Instance WaVerifyDraw(const WaMesh* w, const MpDrawCtx* c2,
+                                      float* offsetOut, dvr::wf::InstanceRef* refOut)
+{
+    *offsetOut = 0.0f;
+    *refOut = dvr::wf::IREF_NONE;
+    if (!w || !c2) return dvr::wf::INSTANCE_NO_REF;
+
+    // 1. THE ENGINE'S OWN ANSWER. The component snapshot is republished twice a
+    // frame and does not depend on any correction having succeeded, so unlike
+    // lastL2W it cannot go stale while the weapon is in view.
+    const WaCommon* v = &g_waCommon[w->hand];
+    if (v->ok && v->present == (uint32_t)dvr::frame::count()) {
+        const WaComp* self = NULL;
+        const WaComp* ref  = NULL;
+        for (int i = 0; i < v->componentCount; ++i) {
+            const WaComp* k = &v->components[i];
+            if (!k->ok) continue;
+            if (k->isRef && !ref) ref = k;
+            // The POINTER first - that is the instance. The asset name is a
+            // fallback for a contract adopted before this field existed, and it
+            // is only ever as good as "some component with this mesh".
+            if (!self && w->compObj && k->obj == (uint8_t*)w->compObj) self = k;
+        }
+        if (!self && !w->compObj)
+            for (int i = 0; i < v->componentCount && !self; ++i) {
+                const WaComp* k = &v->components[i];
+                if (k->ok && k->isMember && k->hand == w->hand &&
+                    !strcmp(k->asset, w->asset)) self = k;
+            }
+        if (self) {
+            dvr::hf::Xform native = {self->R, {self->t[0], self->t[1], self->t[2]}};
+            dvr::hf::Xform expected = native;
+            bool haveExpected = w->useNative;
+            if (!w->useNative && ref) {
+                dvr::hf::Xform nr = {ref->R, {ref->t[0], ref->t[1], ref->t[2]}}, br;
+                if (dvr::wf::bridge(nr, v->L_hand, &br)) {
+                    expected = dvr::hf::xform_mul(br, native);
+                    haveExpected = true;
+                }
+            }
+            if (haveExpected) {
+                *offsetOut = dvr::wf::offset3(c2->t, expected.t);
+                *refOut = dvr::wf::IREF_COMPONENT;
+                InterlockedIncrement(&g_waRefComponent);
+                return dvr::wf::verify_instance(dvr::wf::IREF_COMPONENT,
+                                                *offsetOut, g_waPassRadiusUU);
+            }
+        }
+    }
+
+    // 2. WHERE THIS CONTRACT VERIFIED AS HELD A MOMENT AGO. Refreshed on every
+    // verified draw, so it tracks reality rather than the matcher's schedule.
+    const uint32_t now = (uint32_t)dvr::frame::count();
+    if (w->heldOk &&
+        (now - w->heldPresent) <= (uint32_t)(g_waHeldMaxPresents < 0 ? 0
+                                                                    : g_waHeldMaxPresents)) {
+        *offsetOut = dvr::wf::offset3(c2->t, w->heldAt);
+        *refOut = dvr::wf::IREF_RECENT;
+        InterlockedIncrement(&g_waRefRecent);
+        return dvr::wf::verify_instance(dvr::wf::IREF_RECENT, *offsetOut,
+                                        g_waPassRadiusUU);
+    }
+    return dvr::wf::INSTANCE_NO_REF;
+}
+
+
+// Record that this contract verified as the held item here. Both routes call it,
+// which is the whole point: a reference is only useful if the path that uses it
+// also maintains it.
+static void WaNoteHeld(WaMesh* w, const MpDrawCtx* c2)
+{
+    if (!w || !c2) return;
+    for (int i = 0; i < 3; ++i) w->heldAt[i] = c2->t[i];
+    w->heldPresent = (uint32_t)dvr::frame::count();
+    w->heldOk = true;
+}
+
 static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
                    UINT primCount, HRESULT* hr, bool* onWeaponBuffers)
@@ -512,96 +601,55 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                             // "not another pass of this contract", which is a
                             // reason to fall through to identification - not a
                             // reason to abandon the draw.
-                            const uint32_t nowPres = (uint32_t)dvr::frame::count();
-                            // THE INSTANCE QUESTION, ANSWERED IN ONE PLACE.
-                            // dvr::wf::held_instance is pure and frame_test
-                            // exercises every branch of it; this block only
-                            // gathers the evidence it needs.
-                            const bool refFresh = known->lastL2WOk &&
-                                (nowPres - known->lastL2WPresent) <=
-                                (uint32_t)(g_waRefPresents < 0 ? 0 : g_waRefPresents);
-                            float passDist = 0.0f;
-                            if (refFresh) {
-                                float d = 0.0f;
-                                for (int qq = 0; qq < 3; ++qq) {
-                                    const float e = c2.t[qq] - known->lastL2W[qq];
-                                    d += e * e;
+                            // VERIFY THIS DRAW, DO NOT TRUST THE CONTRACT.
+                            float vOff = 0.0f;
+                            dvr::wf::InstanceRef vRef = dvr::wf::IREF_NONE;
+                            dvr::wf::Instance verdict = dvr::wf::INSTANCE_HELD;
+                            if (g_waVerifyInstance) {
+                                verdict = WaVerifyDraw(known, &c2, &vOff, &vRef);
+                                switch (verdict) {
+                                case dvr::wf::INSTANCE_HELD:
+                                    InterlockedIncrement(&g_waVerifiedHeld);
+                                    if (vOff > g_waHeldWorst) g_waHeldWorst = vOff;
+                                    WaNoteHeld(known, &c2);
+                                    break;
+                                case dvr::wf::INSTANCE_ELSEWHERE:
+                                    InterlockedIncrement(&g_waVerifiedAway);
+                                    if (vOff > g_waAwayFarthest) g_waAwayFarthest = vOff;
+                                    InterlockedIncrement(&g_waOffPass);
+                                    instStrongVeto = true;
+                                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                                        "wa/id: a draw on '%s' buffers is %.0f uu from "
+                                        "where the engine puts that component (radius %.0f, "
+                                        "reference %s) - a DIFFERENT INSTANCE. Handed back "
+                                        "exactly as the engine drew it: not corrected, not "
+                                        "suppressed. A fired bolt or a dropped item is its "
+                                        "own object and its passes are its own.",
+                                        known->asset, (double)vOff,
+                                        (double)g_waPassRadiusUU,
+                                        vRef == dvr::wf::IREF_COMPONENT
+                                            ? "the component transform"
+                                            : "a recent verification");
+                                    break;
+                                default:
+                                    InterlockedIncrement(&g_waVerifyNoRef);
+                                    instStrongVeto = true;
+                                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                                        "wa/id: cannot verify a draw on '%s' buffers - no "
+                                        "component transform this Present and no recent "
+                                        "verification within %d present(s). Left untouched. "
+                                        "Correcting on no evidence is what dragged world "
+                                        "objects onto the hand.",
+                                        known->asset, g_waHeldMaxPresents);
+                                    break;
                                 }
-                                passDist = sqrtf(d);
                             }
-                            // IS THAT WEAPON STILL IN THAT HAND? The component
-                            // walk is the engine's own answer, and an INSTANCE
-                            // answer rather than a distance: a fired bolt is not
-                            // reachable from the pawn through the inventory
-                            // chain the scan walks, so it is not a live member
-                            // however close to the camera it is.
-                            bool liveMember = false;
-                            {
-                                const WaCommon* vl = &g_waCommon[known->hand];
-                                if (vl->ok)
-                                    for (int qq = 0; qq < vl->componentCount; ++qq)
-                                        if (vl->components[qq].ok &&
-                                            vl->components[qq].isMember &&
-                                            vl->components[qq].hand == known->hand &&
-                                            !strcmp(vl->components[qq].asset,
-                                                    known->asset))
-                                            { liveMember = true; break; }
-                            }
-                            const dvr::wf::Instance verdict =
-                                dvr::wf::held_instance(liveMember, g_waReqLiveMember,
-                                                       refFresh, g_waReqFreshRef,
-                                                       passDist, g_waPassRadiusUU);
-                            const bool instanceOk = dvr::wf::instance_corrects(verdict);
-                            if (dvr::wf::instance_strong_veto(verdict))
-                                instStrongVeto = true;
-                            switch (verdict) {
-                            case dvr::wf::INSTANCE_ELSEWHERE:
-                                InterlockedIncrement(&g_waOffPass);
-                                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-                                    "wa/id: a draw on '%s' buffers is %.0f uu from "
-                                    "where that mesh was drawn this frame (radius %.0f) - "
-                                    "a different INSTANCE, not another pass. Falling "
-                                    "through to identification rather than dropping it.",
-                                    known->asset, (double)passDist,
-                                    (double)g_waPassRadiusUU);
-                                break;
-                            case dvr::wf::INSTANCE_STOWED:
-                                InterlockedIncrement(&g_waStowed);
-                                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-                                    "wa/id: '%s' is not a live member of hand %d in "
-                                    "the current component snapshot - it is STOWED, so this "
-                                    "draw is a world instance of its mesh and not the held "
-                                    "one. Nothing about it is moved, and its buffers are "
-                                    "handed back so it is not suppressed either. This is "
-                                    "the fired bolt: put the crossbow away and the bolt in "
-                                    "the ground must stay in the ground.",
-                                    known->asset, known->hand);
-                                break;
-                            case dvr::wf::INSTANCE_NO_REF:
-                                InterlockedIncrement(&g_waNoFreshRef);
-                                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-                                    "wa/id: '%s' has not drawn on the view model for "
-                                    "%u present(s) (limit %d), so nothing vouches that this "
-                                    "draw is the held instance - refusing the correction and "
-                                    "falling through to identification. A contract outlives "
-                                    "its weapon being stowed; before VR-59 a missing "
-                                    "reference was read as permission.",
-                                    known->asset,
-                                    (unsigned)(nowPres - known->lastL2WPresent),
-                                    g_waRefPresents);
-                                break;
-                            default: break;
-                            }
-                            // A VETOED DRAW IS NOT OURS - but only on a STRONG
-                            // veto. Clearing this keeps AttachSuppressUnplaced
-                            // off a world instance, whose colour and lighting
-                            // passes are its own rather than duplicates of
-                            // anything we drew; suppressing them is what left
-                            // the dark stub standing where the bolt landed. A
-                            // held weapon whose contract merely went stale is
-                            // about to be re-identified, and releasing its
-                            // buffers would let a ghost copy draw meanwhile.
-                            if (instStrongVeto && g_waVetoFrees &&
+                            const bool instanceOk = dvr::wf::may_correct(verdict);
+                            // A REFUSED DRAW IS NOT OURS. Handing the buffers
+                            // back is what stops AttachSuppressUnplaced eating
+                            // a world instance, and it is why fired bolts
+                            // vanished past an angle before this.
+                            if (!instanceOk && g_waVetoFrees &&
                                 onWeaponBuffers && *onWeaponBuffers) {
                                 *onWeaponBuffers = false;
                                 InterlockedIncrement(&g_waVetoFreed);
@@ -640,7 +688,11 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                             }
                         }
                     }
-                    if (!haveCorr && known->dmOk &&
+                    // The shared delta is for ANOTHER PASS of the held item,
+                    // never for another instance of its mesh. Before VR-59 it
+                    // was reached whatever the instance tests had said, which
+                    // made every refusal above advisory.
+                    if (!haveCorr && !instStrongVeto && known->dmOk &&
                         known->dmPresent == (uint32_t)dvr::frame::count()) {
                         corr = known->dm; haveCorr = true;
                     }
@@ -970,6 +1022,10 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         w->baseVertex = baseVertex; w->minIndex = minIndex; w->startIndex = startIndex;
         w->numVerts = numVertices; w->primCount = primCount; w->hand = hand;
         strcpy_s(w->asset, member->asset);
+        // THE INSTANCE, not just the geometry. Every later draw on these
+        // buffers is verified against this component, so a second instance of
+        // the same mesh can never inherit this contract's correction.
+        w->compObj = member->obj;
         InterlockedIncrement(&g_waMatched);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
             "wa: MATCH '%s' hand %d: %.4f deg %.4f uu scale error %.5f; c%d x%d; component snapshot %u",
@@ -983,6 +1039,12 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     for (int q = 0; q < 3; ++q) w->lastL2W[q] = ctx.t[q];
     w->lastL2WPresent = (uint32_t)dvr::frame::count();
     w->lastL2WOk = true;
+    // The matcher just identified this draw by transform, which is the strongest
+    // verification there is - so it maintains the same reference the identity
+    // route uses. Both paths keeping it current is the fix for a reference that
+    // was refreshed 4 times in 13 million draws.
+    WaNoteHeld(w, &ctx);
+    if (!w->compObj) w->compObj = member->obj;
     w->lastVerifyMs = MaimNowMs();
     w->boneReg = g_pcLayBones; w->regs = (UINT)g_pcLayBonesN;
     dvr::hf::Xform inverse;
@@ -1074,26 +1136,31 @@ static void WaBeat(void)
         g_waSuppressed,
         g_waPoseGenDiff, g_waWhy);
 #endif
-    // VR-59: the instance gates. Every one of these SHOULD read 0 while a
-    // weapon is held and drawing every frame - that is the healthy run, not a
-    // dead instrument. They move when a weapon is stowed with its geometry
-    // still on screen, which is the fired-bolt case, and the line says so on
-    // the line so a zero cannot be read as "the gates are not working".
-    Log("wa: instance gates - no-fresh-reference %ld (limit %d present(s), "
-        "lever AttachRequireFreshRef=%d), stowed %ld (AttachRequireLiveMember"
-        "=%d), buffers handed back %ld (AttachVetoReleasesBuffers=%d), "
-        "relaxed band refused %ld (AttachInstanceVetoRelaxed=%d), "
-        "different-instance by pass radius %ld (%.0f uu). ALL ZERO IS THE "
-        "EXPECTED READING while a weapon is held and drawing: these count "
-        "draws on a weapon's buffers that are NOT the held instance, and "
-        "there are none until a fired bolt or a stowed weapon leaves its "
-        "geometry on screen. A non-zero stowed count with the bolt sitting "
-        "still where it landed is this fix working.",
-        g_waNoFreshRef, g_waRefPresents, (int)g_waReqFreshRef,
-        g_waStowed, (int)g_waReqLiveMember,
-        g_waVetoFreed, (int)g_waVetoFrees,
-        g_waVetoedRelaxed, (int)g_waVetoRelaxed,
-        g_waOffPass, (double)g_waPassRadiusUU);
+    // VR-59: PER-DRAW INSTANCE VERIFICATION. Read these together - each one
+    // says what would move it, because a bare zero here has been misread
+    // before (40.1, two counters that were zero by design).
+    Log("wa: instance verify (AttachVerifyInstance=%d, radius %.0f uu) - held "
+        "%ld, elsewhere %ld, unverifiable %ld | reference: component %ld, recent "
+        "%ld (window %d present(s)) | worst offset accepted %.1f uu, farthest "
+        "refused %.1f uu | buffers handed back %ld. HELD should be the large "
+        "majority while a weapon is out - if it is 0 and the weapons are flat "
+        "then verification is FAILING, not idle. ELSEWHERE moves the moment a "
+        "bolt or a dropped item exists in the world, and a fired bolt staying "
+        "put while this climbs is the fix working. If component is 0 the "
+        "engine-read route is not running at all and only the cache is holding "
+        "this up, which would be a latent failure. The two offsets bracket the "
+        "radius from both sides: if the worst accepted approaches the farthest "
+        "refused, the radius is in the wrong place.",
+        (int)g_waVerifyInstance, (double)g_waPassRadiusUU,
+        g_waVerifiedHeld, g_waVerifiedAway, g_waVerifyNoRef,
+        g_waRefComponent, g_waRefRecent, g_waHeldMaxPresents,
+        (double)g_waHeldWorst, (double)g_waAwayFarthest, g_waVetoFreed);
+    Log("wa: legacy instance levers - no-fresh-reference %ld (Require"
+        "FreshRef=%d), stowed %ld (RequireLiveMember=%d), relaxed band refused "
+        "%ld. Both gates were falsified in a headset and default OFF; they are "
+        "kept so the measurement stays reproducible.",
+        g_waNoFreshRef, (int)g_waReqFreshRef, g_waStowed,
+        (int)g_waReqLiveMember, g_waVetoedRelaxed);
     for (int h = 0; h < 2; ++h) {
         if (g_waNearestScore[h] != FLT_MAX)
             Log("wa: interval nearest hand %d '%s': %.4f deg / %.4f uu / scale "

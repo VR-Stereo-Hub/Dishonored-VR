@@ -1246,6 +1246,15 @@ static void LoadConfig()
     // throughout. DisWepCrossbow says why - the loaded bolt is
     // m_pArrowMesh_HighRes, a component of the WEAPON, which exists whether or
     // not the crossbow is drawn. Presence is not equipment.
+    // VR-59 attempt 2. Every draw on a weapon's buffers is verified against the
+    // component the contract was matched to, and a draw that matches nothing is
+    // handed back exactly as the engine drew it. OFF restores trusting buffer
+    // identity, which is what every build before this did, so the two compare
+    // directly in a headset.
+    g_waVerifyInstance = IniFloat(ini, "Hands", "AttachVerifyInstance", 1) != 0.0f;
+    g_waHeldMaxPresents = (int)IniFloat(ini, "Hands", "AttachHeldMaxPresents", 2);
+    if (g_waHeldMaxPresents < 0)  g_waHeldMaxPresents = 0;
+    if (g_waHeldMaxPresents > 90) g_waHeldMaxPresents = 90;
     g_waReqFreshRef   = IniFloat(ini, "Hands", "AttachRequireFreshRef", 0) != 0.0f;
     g_waReqLiveMember = IniFloat(ini, "Hands", "AttachRequireLiveMember", 0) != 0.0f;
     g_waVetoFrees     = IniFloat(ini, "Hands", "AttachVetoReleasesBuffers", 1) != 0.0f;
@@ -2007,6 +2016,10 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachDropUncorrected",
                                g_waDropUncorrected ? "1" : "0", ini);
     _snprintf(v, 64, "%.0f", g_waRigRadiusUU);
+    WritePrivateProfileStringA("Hands", "AttachVerifyInstance",
+                               g_waVerifyInstance ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_waHeldMaxPresents);
+    WritePrivateProfileStringA("Hands", "AttachHeldMaxPresents", v, ini);
     WritePrivateProfileStringA("Hands", "AttachRequireFreshRef",
                                g_waReqFreshRef ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachRequireLiveMember",

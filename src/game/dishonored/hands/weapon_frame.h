@@ -125,6 +125,69 @@ static inline const char* instance_name(Instance v)
 }
 
 
+// ---- VR-59: WHICH INSTANCE IS THIS DRAW? (the per-draw test) ---------------
+//
+// A contract identifies a GEOMETRY - a buffer, range and shader tuple. It was
+// being used as an INSTANCE identity, and the measurement of that mistake is
+// stark: in one run 196,619 of 196,623 corrections were made on buffer identity
+// alone, while the transform matcher - the only thing that checks WHERE a draw
+// is - adopted four contracts. Every bolt sharing those buffers therefore
+// inherited the held bolt's correction, conjugated about its own origin, which
+// is why fired bolts rotated in place, orbited the muzzle after a weapon
+// switch, and vanished past an angle.
+//
+// The rule that replaces it makes no reference to any asset, count or weapon,
+// so a new throwable needs no new code:
+//
+//   A DRAW IS THE HELD ITEM ONLY IF IT IS WHERE THE ENGINE SAYS THE HELD ITEM
+//   IS. A DRAW THAT MATCHES NOTHING IS HANDED BACK UNTOUCHED.
+//
+// Untouched matters as much as the test. The old default for an unrecognised
+// draw on weapon buffers was to suppress or drop it, which is correct for a
+// duplicate pass of the held weapon and catastrophic for a world instance -
+// its colour and lighting passes are its own. Suppression is now only for a
+// draw that PASSED this test and still could not be placed.
+
+// Where the reference position came from. The authority differs, so the caller
+// must not treat them alike.
+enum InstanceRef {
+    IREF_NONE = 0,      // nothing to compare against - refuse, do not guess
+    IREF_COMPONENT,     // the engine's own component transform, this frame
+    IREF_RECENT         // where this contract verified as held very recently
+};
+
+static inline float offset3(const float a[3], const float b[3])
+{
+    float d = 0.0f;
+    for (int i = 0; i < 3; ++i) { const float e = a[i] - b[i]; d += e * e; }
+    return sqrtf(d);
+}
+
+// THE TOLERANCE IS NOT A NEW NUMBER. Two measurements bracket it by three
+// orders of magnitude: the census put 0.3 uu between an uncorrected pass and
+// its corrected twin (same instance, different pass), and two instances of a
+// mesh are metres apart - hundreds of units. AttachPassRadius already sits in
+// that band and was chosen for this exact comparison, so it is reused rather
+// than a second threshold invented to be tuned against the first.
+static inline Instance verify_instance(InstanceRef which, float offset,
+                                      float radius)
+{
+    if (which == IREF_NONE) return INSTANCE_NO_REF;
+    return (offset > radius) ? INSTANCE_ELSEWHERE : INSTANCE_HELD;
+}
+
+// May a draw be corrected on this verdict? Only a positive identification.
+// NO_REF is not permission - that was the 41.x defect, where the absence of a
+// usable reference was read as consent and a bolt in the ground followed
+// whatever the player picked up next.
+static inline bool may_correct(Instance v) { return v == INSTANCE_HELD; }
+
+// May a draw we refused be suppressed? Never. A refused draw is either a world
+// instance (whose passes are its own) or one we could not identify, and in
+// both cases the engine's own draw is the best available answer.
+static inline bool may_suppress(Instance v) { return v == INSTANCE_HELD; }
+
+
 struct Candidate { Xform predicted; int hand, assembly; };
 struct Result { int best; bool ambiguous; float angle, position, scale, score; };
 
