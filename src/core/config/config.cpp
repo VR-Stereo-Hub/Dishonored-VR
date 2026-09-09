@@ -1227,8 +1227,27 @@ static void LoadConfig()
     // its weapon stowed the fault reaches a bolt at ANY distance, which is
     // itself proof no radius was gating it. All four default ON; each one off
     // restores the pre-VR-59 behaviour of that single step, so they A/B alone.
-    g_waReqFreshRef   = IniFloat(ini, "Hands", "AttachRequireFreshRef", 1) != 0.0f;
-    g_waReqLiveMember = IniFloat(ini, "Hands", "AttachRequireLiveMember", 1) != 0.0f;
+    // BOTH DEFAULT OFF, on measurement. Each rested on a premise the first
+    // headset run falsified, and each cost more than the bug it targeted.
+    //
+    // AttachRequireFreshRef demanded that a contract have drawn on the view
+    // model within AttachRefMaxPresents presents. lastL2W is refreshed ONLY by
+    // the transform matcher, never by the buffer-identity route that does the
+    // correcting, so once the matcher misses the reference goes stale forever
+    // and this gate blocks the only remaining route. Measured: 53,238 refusals
+    // in one run, all on HELD crossbow_01 and bolt_01, with the present gap
+    // growing monotonically to 21,367 - the reference was set once and never
+    // again. The held bolt stopped following the hand and drew natively.
+    //
+    // AttachRequireLiveMember asked whether that asset is a live member of the
+    // hand. It cannot answer the question: FpCollect walks the pawn INVENTORY,
+    // so every snapshot in that run held the same six components regardless of
+    // what was equipped, and bolt_01 (pArrowMesh_HighRes) was present
+    // throughout. DisWepCrossbow says why - the loaded bolt is
+    // m_pArrowMesh_HighRes, a component of the WEAPON, which exists whether or
+    // not the crossbow is drawn. Presence is not equipment.
+    g_waReqFreshRef   = IniFloat(ini, "Hands", "AttachRequireFreshRef", 0) != 0.0f;
+    g_waReqLiveMember = IniFloat(ini, "Hands", "AttachRequireLiveMember", 0) != 0.0f;
     g_waVetoFrees     = IniFloat(ini, "Hands", "AttachVetoReleasesBuffers", 1) != 0.0f;
     g_waVetoRelaxed   = IniFloat(ini, "Hands", "AttachInstanceVetoRelaxed", 1) != 0.0f;
     g_waRefPresents   = (int)IniFloat(ini, "Hands", "AttachRefMaxPresents", 2);

@@ -1,6 +1,64 @@
 # Status
 
-## CURRENT (2026-09-08, later): VR-33 merged, VR-59 fixed on the desk
+## CURRENT (2026-09-08, night): VR-33 merged; VR-59 attempt 1 FALSIFIED
+
+`VR-Main` is pushed and at `555e8ff4`; PRs 18-22 are closed and their tickets
+are Done. **The VR-59 fix was tried in a headset and both of its gates were
+falsified.** Both are now default OFF, the build is rebuilt and installed, and
+the run produced exactly the measurements needed to design the real fix.
+
+### What the run said
+
+The held bolt stopped following the hand and only inherited camera rotation - it
+was drawing natively. The pistol vanished depending on the angle between where
+it pointed and where the bolt had been. No bolt was fired at all, so every
+symptom was on HELD geometry: a straight regression.
+
+**`AttachRequireFreshRef` starves the held weapons.** 53,238 refusals in one
+run, all on held `crossbow_01` and `bolt_01`, with the present gap growing
+monotonically to 21,367. `lastL2W` is written ONLY where the transform matcher
+adopts a contract; the buffer-identity route that actually corrects the auxiliary
+passes never refreshes it. Once the matcher misses, the reference is stale
+forever and the gate blocks the only remaining route. **A reference has to be
+maintained on the path that uses it.**
+
+**`AttachRequireLiveMember` cannot answer its own question.** All 19 published
+snapshots in the run were identical - the same six components, including
+`bolt_01 (pArrowMesh_HighRes)` - across crossbow, sword and pistol being held in
+turn. `FpCollect` walks the pawn INVENTORY, and `DisWepCrossbow` says why: the
+loaded bolt is `m_pArrowMesh_HighRes`, a component of the WEAPON, which stays in
+inventory when stowed. Presence is not equipment.
+
+### What the scripts gave, and why it matters
+
+In `docs/dishonored/ENGINE_NOTES.md`. The loaded bolt and a fired bolt share
+**only** the mesh asset `bolt_01`; the component name, the component class and
+the owning actor all differ, and a fired bolt is a separate ACTOR
+(`DisProjectile_Arrow`) that never reaches the snapshot. That is why every
+asset-name and buffer-identity route can be fooled, and it is the shape any real
+fix has to take.
+
+The pistol is not in the snapshot at all, which is a separate finding worth
+acting on: it has no member candidate and can only reach a contract through the
+vertex-OR-index-buffer match, which is what made its visibility depend on aim
+angle.
+
+### The next attempt, designed but NOT written
+
+Compare each draw against the contract's COMPONENT position from the engine
+snapshot, expressed in draw space through the bridge the matcher already builds -
+not against `lastL2W`. The snapshot is engine-read and refreshed every 4 ms
+whether or not the matcher succeeded, so it cannot go stale the way `lastL2W`
+does. Store the component pointer in the contract at adoption so the right
+component is looked up each frame.
+
+What is kept from attempt 1: the `held_instance` predicate and its 13 host cases,
+`AttachVetoReleasesBuffers` (sound - a vetoed draw must not be suppressed), and
+`AttachInstanceVetoRelaxed`.
+
+### Previous entry for this session (the merge, still accurate)
+
+## PREVIOUS (2026-09-08, later): VR-33 merged, VR-59 attempt 1 written
 
 Two things happened this session. **PRs 18-22 are merged into `VR-Main` locally
 and are NOT pushed yet** - the push was blocked by a tool permission, so the
