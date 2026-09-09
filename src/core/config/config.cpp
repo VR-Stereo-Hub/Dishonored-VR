@@ -1255,6 +1255,9 @@ static void LoadConfig()
     // ships ON: its whole purpose is to report what the game is doing, and a
     // reporter nobody enables reports nothing.
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
+    // VR-60: offer the equipped item's own component as a candidate. OFF returns
+    // to the pointer walk alone, which cannot see the pistol at all.
+    g_waEquippedMembers = IniFloat(ini, "Hands", "AttachEquippedMembers", 1) != 0.0f;
     g_waVerifyInstance = IniFloat(ini, "Hands", "AttachVerifyInstance", 1) != 0.0f;
     g_waHeldMaxPresents = (int)IniFloat(ini, "Hands", "AttachHeldMaxPresents", 2);
     if (g_waHeldMaxPresents < 0)  g_waHeldMaxPresents = 0;
@@ -2020,6 +2023,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachDropUncorrected",
                                g_waDropUncorrected ? "1" : "0", ini);
     _snprintf(v, 64, "%.0f", g_waRigRadiusUU);
+    WritePrivateProfileStringA("Hands", "AttachEquippedMembers",
+                               g_waEquippedMembers ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachVerifyInstance",
                                g_waVerifyInstance ? "1" : "0", ini);
     _snprintf(v, 64, "%d", g_waHeldMaxPresents);

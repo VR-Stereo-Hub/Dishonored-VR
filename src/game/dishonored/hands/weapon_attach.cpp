@@ -98,6 +98,51 @@ static void WaCompTick(void)
         if (c.isMember && !known) c.isMember = false;   // never guess a side
         snapshot[n++] = c;
     }
+    // VR-60: THE EQUIPPED ITEM SUPPLIES ITS OWN COMPONENT. The pointer walk
+    // above cannot reach an item that lives only in the inventory TArray, which
+    // is every item except the few reachable by direct pointer - the pistol has
+    // never once appeared in it. VR-61 reads the equipped item per hand from the
+    // engine, so its own player mesh can be offered as a candidate and its draws
+    // verified against IT rather than against another weapon.
+    if (g_waEquippedMembers) {
+        for (int u = 1; u <= 2 && n < WA_MAX_COMP; ++u) {
+            uint8_t* item = g_rflHeldObj[u];
+            if (!item || !LooksLikeObj(item)) continue;
+            const uint32_t mOff =
+                RflOffsetOf("DishonoredInventoryItem", "m_pPlayerMesh");
+            if (!mOff || !RangeReadable(item + mOff, sizeof(void*))) continue;
+            uint8_t* comp = *(uint8_t**)(item + mOff);
+            if (!LooksLikeObj(comp)) { InterlockedIncrement(&g_waEquipNoMesh); continue; }
+            bool dup = false;
+            for (int z = 0; z < n; ++z) if (snapshot[z].obj == comp) { dup = true; break; }
+            if (dup) { InterlockedIncrement(&g_waEquipDup); continue; }
+
+            WaComp c;
+            memset(&c, 0, sizeof(c));
+            c.obj = comp;
+            const char* as = FpAssetName(comp);
+            const char* nm = RealName(RangeReadable(comp + kNameOff, 4)
+                                      ? *(uint32_t*)(comp + kNameOff) : 0);
+            _snprintf(c.asset, sizeof(c.asset), "%s", as ? as : "?");
+            _snprintf(c.name,  sizeof(c.name),  "%s", nm ? nm : "?");
+            c.asset[sizeof(c.asset) - 1] = 0;
+            c.name[sizeof(c.name) - 1] = 0;
+            c.ok = WaReadCompXform(comp, &c.R, c.t, c.scale);
+            c.isRef = false;
+            c.isMember = true;
+            // MEASURED, NOT ASSUMED. EDisEquipUsage says which hand holds this
+            // item; WaHandFor would have guessed it from asset-name substrings.
+            c.hand = (u == 1) ? g_waSwordHand : g_waXbowHand;
+            snapshot[n++] = c;
+            InterlockedIncrement(&g_waEquipAdded);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+                "wa/comp: added the EQUIPPED item's own component - '%s' (%s) to "
+                "hand %d, from equip usage %d read off the item. The pointer walk "
+                "cannot reach it: it lives in the inventory TArray. Its draws are "
+                "now verified against ITS component instead of another weapon's.",
+                c.asset, c.name, c.hand, u);
+        }
+    }
     // WHAT THE ATTACHMENT ACTUALLY HAS. Counted here rather than inferred from
     // a refusal counter later: without a REF there is no bridge and without a
     // MEMBER there is nothing to move, and those are different problems with

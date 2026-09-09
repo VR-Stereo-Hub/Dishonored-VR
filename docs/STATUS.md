@@ -1,6 +1,97 @@
 # Status
 
-## CURRENT (2026-09-08, night): VR-61, the UE3 property resolver, first run pending
+## CURRENT (2026-09-08, night): VR-59, VR-60 and VR-61 all confirmed in a headset
+
+Three tickets are fixed and headset-confirmed this session. **Nothing is merged.**
+Two PRs are open against `VR-Main` and its stack.
+
+| Ticket | What a player sees | PR |
+|---|---|---|
+| VR-59 | a fired bolt stays where it lands, visible and solid | #23 into `VR-Main` |
+| VR-61 | (no visible change) the mod can read what the game is doing | stacked |
+| VR-60 | the pistol stays on the hand at every angle | stacked |
+
+### The through-line, which is the useful part
+
+All three were the same mistake at different depths: **the mod acted on a guess
+about game state because it had no way to ask.**
+
+* VR-59: a contract identifies a GEOMETRY and was used as an INSTANCE. 196,619 of
+  196,623 corrections were made on buffer identity alone while the only test that
+  checks where a draw is ran 4 times in 13 million draws.
+* VR-60: the pistol had no identity at all, so it was verified against another
+  weapon's component. Its 45-degree detach cone was `AttachPassRadius` converted
+  into an angle by geometry - a held weapon orbits the head, so 60 uu at 45
+  degrees puts the view model about 78 uu from the camera. **Any threshold would
+  have produced some angle, because the identity was what was wrong.**
+* VR-61 is the general answer: ask the engine.
+
+### VR-61, and the research failure worth keeping
+
+**This repo already had a property resolver and a session reinvented it.**
+`FindPropOffset` / `FindBoolProp` in `ue3/uobject.cpp` have resolved properties by
+name since 38.x and are load-bearing in four modules. The mistake was going to
+another project for a technique before grepping here for prior art.
+
+The existing design is also the better one and it stays: every UProperty is itself
+a UObject whose Outer is the declaring class, so a GObjects scan finds it and
+nothing has to be derived - no chain offsets, no candidate layout, no search to
+validate. 578 lines of derivation were deleted.
+
+What was actually missing was two small things, and both are now in
+`ue3/reflect.cpp`: a CACHE (each lookup is a full GObjects scan, and the trilogy
+mod measured a name scan on a cadence stuttering that game at 2-3 Hz) and a TArray
+READER (the capability VR-60 needed).
+
+### What the engine now tells us, measured across sheathe and swap
+
+```
+Primary   DishonoredWepSword   EQUIPPED   (every time weapons are out)
+Secondary DisWepCrossbow  <->  DishonoredWepPistol
+sheathe:   Secondary -> none, then Primary -> none
+unsheathe: both return together
+```
+
+A flag that reads the same in every state is not evidence it is the right flag, so
+it was identified by making it MOVE. Two corrections came out of that:
+
+1. **`PawnInventorySlot.m_RequiredUsage` is a constraint on what may occupy a
+   slot, not what is in the hand.** Reading it reported an empty item in both
+   hands while the player was visibly holding a sword.
+2. **`DishonoredInventoryItem` carries `m_EquipUsage` and `m_CurSocket`.** The item
+   answers for itself, which is the equipped-versus-holstered distinction VR-59
+   attempt 1 needed and could not get from component presence.
+
+Also recorded as an observation and NOT a conclusion: sheathing reads socket
+`none`, never `holstered`, so nothing should assume a sheathed weapon is Holstered.
+
+### Branch stack, which matters for merge order
+
+```
+VR-Main
+  claude/vr-59-fired-bolt-instance-identity   PR #23   (Fixes VR-59)
+    claude/vr-60-pistol-not-in-snapshot       ancestor only, no PR
+      claude/vr-61-property-resolver          PR       (Ref VR-61, also fixes VR-60)
+```
+
+The VR-60 branch holds only analysis docs and is an ancestor of the VR-61 branch;
+VR-60's fix is a commit on the VR-61 branch, because it depends on VR-61's reader
+and the two were verified in one run. **Merge #23 first**, then the stacked PR
+retargets to `VR-Main` and closes VR-60 and VR-61.
+
+### Next steps
+
+1. Review and merge #23, then the stacked PR. The merge is the gate and it is the
+   user's call.
+2. **The arms during takedowns and chokes**, now unblocked:
+   `eDisPlayerActionUsage_Fullbody` is the discriminator, and `GAMEPLAY_STATE.md`
+   section 2 lists the rest of the wanted flags.
+3. **VR-49, the 20-90 s settle** (Urgent). The asset-to-hand decision is now
+   readable from the engine rather than inferred, which may shorten it.
+4. **VR-57, the crosshair** (Urgent). Still head-locked. One ray.
+5. **VR-58**, **VR-56**.
+
+## PREVIOUS (2026-09-08, night): VR-61, the UE3 property resolver, first run pending
 
 VR-59 is fixed and headset-confirmed; PR #23 is open against `VR-Main` and NOT
 merged. VR-60 (the pistol) is blocked on VR-61 by choice, because reading the

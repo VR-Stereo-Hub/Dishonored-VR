@@ -1,11 +1,12 @@
 # Gameplay state: the flags the mod needs, and how to read them
 
-**Status: the RESOLVER exists and one flag is read; the rest is wanted.** The
+**Status: the resolver and the EQUIPMENT flags are live and headset-confirmed.** The
 technique in section 5 has been in this repo since 38.x and is load-bearing in
 four modules. `ue3/reflect.cpp` (VR-61) adds a cache and a TArray reader on top,
 and uses them to read the equipped item per hand.
 
-Still wanted: `EItemSocket` (equipped versus holstered), the per-hand stance,
+Equipment per hand and `EItemSocket` are read and proven moving. Still wanted:
+the per-hand stance,
 `eDisPlayerActionUsage_Fullbody`, and a published snapshot with per-flag
 freshness. Section 2 is the full list and section 6 is the rules.
 
