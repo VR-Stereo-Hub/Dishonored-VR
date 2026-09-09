@@ -1350,6 +1350,14 @@ static void LoadConfig()
     // FALSIFIED and inert: the passes run on the game thread and the palette
     // draws on the render thread, so 0 of 83,400 draws ever found a pass to read.
     g_mpEyeFromPass = IniFloat(ini, "Hands", "PaletteEyeFromPass", 0) != 0.0f;
+    // VR-69: take the eye from the stereo method's MEASURED value instead of
+    // the palette's delta inference. The inference holds its previous answer
+    // when the sideways step is too small to read, and a held wrong answer is
+    // a full-IPD displacement of every weapon. PaletteEyeFromPass is the dead
+    // route - it executed zero times in 83,400 draws because the stereo passes
+    // run on the game thread and these draws on the render thread. This one
+    // does not need the stack.
+    g_mpEyeFromMeasured = IniFloat(ini, "Hands", "PaletteEyeFromMeasured", 1) != 0.0f;
     // When the eye step is too small to read, ALTERNATE rather than hold the
     // previous present's answer. The method presents the eyes alternately, so
     // holding is the one choice guaranteed wrong; 12% of presents took that path

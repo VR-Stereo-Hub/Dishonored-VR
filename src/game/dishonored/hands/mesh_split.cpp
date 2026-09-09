@@ -2317,6 +2317,40 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
                           ? (dvr::camera::second_pass_for_current_thread() ? +1 : -1)
                           : 0;
     int eyeUse = g_mpEyeState;
+
+    // VR-69: THE MEASURED EYE as a third opinion. Read through the seqlock; a
+    // torn or in-flight value is dropped rather than used, because a wrong eye
+    // here is a full-IPD displacement and a dropped sample is merely one draw
+    // left on the inference.
+    int meas = 0;
+    {
+        const LONG s0 = (LONG)dvr::stereo::g_msMeasSeq;
+        if (!(s0 & 1L)) {
+            const LONG e = (LONG)dvr::stereo::g_msMeasEye;
+            if ((LONG)dvr::stereo::g_msMeasSeq == s0) meas = (int)e;
+        }
+    }
+    if (meas == 0) InterlockedIncrement(&g_msMeasNone);
+    else if (meas == g_mpEyeState) InterlockedIncrement(&g_msMeasAgree);
+    else InterlockedIncrement(&g_msMeasDisagree);
+
+    // Acted on only behind its own lever, and only when it actually has an
+    // answer - it never downgrades a known inference to unknown.
+    if (g_mpEyeFromMeasured && meas != 0) eyeUse = meas;
+
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/measeye: the stereo method's MEASURED eye vs the palette's inference - agree %ld, "
+        "DISAGREE %ld, method had no answer %ld | acting on it: %s | this draw: measured %s, inferred %s, "
+        "using %s. The inference is a delta between consecutive draws and HOLDS when the step is too small "
+        "to read, which is how it goes wrong; the measurement comes from the method's own c5 pairing. If "
+        "the disagreement is large and the weapons are steady with PaletteEyeFromMeasured=1, the "
+        "measurement is the better source and the offset can come back on.",
+        g_msMeasAgree, g_msMeasDisagree, g_msMeasNone,
+        g_mpEyeFromMeasured ? "YES (PaletteEyeFromMeasured=1)" : "no (audit only)",
+        meas < 0 ? "LEFT" : meas > 0 ? "RIGHT" : "none",
+        g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
+        eyeUse < 0 ? "LEFT" : eyeUse > 0 ? "RIGHT" : "none");
+
     if (!truth) {
         InterlockedIncrement(&g_mpEyeNoTruth);
     } else {
