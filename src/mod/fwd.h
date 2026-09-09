@@ -156,6 +156,9 @@ static bool HandRoomPos(int hand, float* out);
 static bool MaimHandRel(float* rel);
 static bool HandAnglesPos(int hand, float* yawRel, float* pitchAbs, float* posFlat);
 static void MaimDirFromView(float viewYaw, float viewPitch, const float* rel, float* out);
+struct AimRay;
+static bool AimRayGet(AimRay* out);      // VR-57: THE aim ray - every consumer calls this
+static void AimRayStatus(void);
 static void MaimWriteAim(uint8_t* o, const float* dir, const float* refDir, int* velWrites);
 static void SteerAdd(uint8_t* o, const float* dir, double now);
 static void SteerTick();

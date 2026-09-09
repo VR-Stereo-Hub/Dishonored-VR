@@ -109,7 +109,17 @@ This is one new function, and it must be **derived from the same bridge the
 hands use**, not written fresh - two conversions between the same two spaces is
 the same failure mode as two rays.
 
-### Piece D - suppress the game's reticle
+### Piece D - suppress the game's reticle: THE GAME ALREADY DOES IT
+
+The game's own settings can turn the crosshair off. That removes almost all of
+this piece: no hook, no Scaleform work, no render change. What remains is one
+documentation line telling the player to switch it off, and an ini key only if
+we ever want to do it for them.
+
+**Do not build a suppression hook.** The two open questions this piece carried -
+Scaleform or engine-composited - no longer need answering to ship the feature.
+
+#### (superseded) the original piece D
 
 The game's crosshair is a Scaleform element drawn at screen centre, so it is
 baked into the eye image and inherits everything wrong with being head-locked.
@@ -124,6 +134,38 @@ with nothing.
 
 ---
 
+## STEP 1 DONE (2026-09-09): the ray has one home
+
+`src/game/dishonored/aim_ray.cpp`, `aimray` on the seam, and a line every 5 s on
+the motion-aim tick so a headset run shows whether it resolves without anyone
+typing a command.
+
+**What is shared, and what honestly is not.** The composition is
+`MaimDirFromView`, and both consumers call it verbatim - one algebra, one place,
+and its own comment now says so. They differ only in the VIEW BASIS they pass,
+and that difference is real:
+
+* the projectile steering passes the **shot's own spawn forward** - the ground
+  truth of where the game aimed, which cannot exist before the shot;
+* the crosshair passes the view **the camera is currently on**
+  (`g_viewYawRad`/`g_viewPitchRad`, what head_track just wrote), because there is
+  no projectile yet.
+
+**So the crosshair is a PREDICTION**, and that is stated on the line rather than
+hidden. Its test is step 6: fire, and the bolt lands under the dot. If it does
+not, the engine builds the shot from a view we are not tracking - and the fix is
+to track that view, **never** to give the crosshair a second derivation.
+
+The origin is the game camera's own world position (`g_camObj + 0x80`, the read
+blink.cpp already uses), because that is the point the direction is relative to.
+The hand's position would be a second, unverified claim about where shots start.
+
+Every refusal names itself: no controller pose, degenerate direction, no
+readable camera object. A ray that is unavailable in a menu is normal and must
+not read as a fault.
+
+---
+
 ## 3. Order of work, with what each step proves
 
 | # | Step | Proves | Kills it |
@@ -132,7 +174,7 @@ with nothing.
 | 2 | Publish a dot at a FIXED distance along that ray; `set_aim_dot` | the whole render path lights up, and the dot tracks the hand | no dot appears -> the runtime path or the space conversion is wrong, and nothing else is worth trying |
 | 3 | Headset: does the dot sit on the weapon's barrel line? | the ray and the conversion agree with what the player sees | - |
 | 4 | Replace the fixed distance with the engine trace's hit point | the dot sits ON surfaces | the trace cannot be borrowed -> ship the fallback, open a ticket |
-| 5 | Suppress the game's reticle behind a lever | the two are not fighting | - |
+| 5 | ~~Suppress the game's reticle~~ **turn it off in the game's own settings** | the two are not fighting | - |
 | 6 | Headset: point away from where the old crosshair sat, fire, and the shot lands under OUR dot | the ONE RAY rule holds end to end | it does not -> there are two rays and step 1 was not done properly |
 
 **Step 2 is the cheap one that de-risks everything.** It needs no trace, no

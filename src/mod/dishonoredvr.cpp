@@ -210,6 +210,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::aim
 #include "game/dishonored/motion_aim.cpp"
+#include "game/dishonored/aim_ray.cpp"   // VR-57: THE aim ray, shared by every consumer
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::core
 #include "game/dishonored/shared/ue_math.cpp"

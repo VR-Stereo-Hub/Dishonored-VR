@@ -50,6 +50,8 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 {
     bool b = false;
     if (!strcmp(cmd, "recenter")) { RecenterHead(); return true; }
+    // VR-57: THE aim ray - what it is, and which part refused when it is not there.
+    if (!strcmp(cmd, "aimray")) { AimRayStatus(); return true; }
     // VR-30: the arm-follow probe. Read-only, reports on its own every 30 s.
     if (!strcmp(cmd, "arms") && !strcmp(args, "yawtest")) { YawSelfTest(); return true; }
     if (!strcmp(cmd, "arms")) { if (ArmFollowCommand(args)) return true;
