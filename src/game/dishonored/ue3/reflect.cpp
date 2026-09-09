@@ -205,8 +205,15 @@ static void RflStateTick(void)
             const int usage = (int)*(uint8_t*)(slot + kRflUsageOff);
             if (usage < 0 || usage > 2) continue;
             const char* cn = ObjClassName(item);
+            // AN EMPTY PLACEHOLDER MUST NOT MASK A REAL ITEM. The first run
+            // reported DishonoredItemEmpty for both hands because this loop
+            // overwrote per usage and the placeholders came last. The engine
+            // keeps a slot per usage whether or not something occupies it, so
+            // the empty one is a legitimate row and simply not the answer.
+            if (cn && strstr(cn, "ItemEmpty") && found[usage][0]) continue;
             const char* nm = RealName(RangeReadable(item + kNameOff, 4)
                                       ? *(uint32_t*)(item + kNameOff) : 0);
+            if (found[usage][0] && cn && strstr(cn, "ItemEmpty")) continue;
             _snprintf(found[usage], sizeof(found[usage]), "%s (%s)",
                       cn ? cn : "?", nm ? nm : "?");
             found[usage][sizeof(found[usage]) - 1] = 0;
@@ -219,12 +226,29 @@ static void RflStateTick(void)
                     "only number in this path that reflection cannot answer, so it "
                     "is validated against the data instead of assumed.",
                     s, hits, (int)num);
+                // DUMP THE WHOLE ARRAY ONCE. The per-hand summary above collapses
+                // the array to two strings, and the first run showed why that is
+                // not enough on its own: every usage read DishonoredItemEmpty,
+                // which could equally mean empty placeholders, a wrong usage byte,
+                // or a loadout template rather than live equipment. One dump
+                // distinguishes all three and costs nothing after it.
+                for (int k = 0; k < num && k < 64; ++k) {
+                    uint8_t* sl = data + (size_t)k * (size_t)s;
+                    if (!RangeReadable(sl, (size_t)s)) break;
+                    uint8_t* it = *(uint8_t**)sl;
+                    const char* c2 = (it && LooksLikeObj(it)) ? ObjClassName(it) : NULL;
+                    const char* n2 = (it && LooksLikeObj(it) &&
+                                      RangeReadable(it + kNameOff, 4))
+                                     ? RealName(*(uint32_t*)(it + kNameOff)) : NULL;
+                    Log("rfl/state:   slot[%d] usage %d  %s (%s)", k,
+                        (int)*(uint8_t*)(sl + kRflUsageOff),
+                        c2 ? c2 : (it ? "not a UObject" : "empty"), n2 ? n2 : "-");
+                }
             }
             usable = hits; stride = s;
             break;
         }
     }
-
     ++g_rflState.gen;
     g_rflState.slots = num;
     g_rflState.usable = usable;

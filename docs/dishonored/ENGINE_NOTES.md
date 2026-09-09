@@ -3810,3 +3810,41 @@ Each lookup is a full `GObjects` scan. The trilogy mod measured a name scan on a
 poll cadence stuttering that entire game at 2-3 Hz. Resolve once, cache for the
 process lifetime (offsets are stable per boot), and cache the MISSES too, since
 a miss costs the same full scan.
+
+
+## THE PISTOL DETACH ANGLE IS A RADIUS, CONVERTED (VR-60, 2026-09-08)
+
+The pistol stays attached within about 45 degrees either way of the direction it
+was equipped facing, and re-equipping resets that reference to wherever the
+player is pointing. That reads as a rotation gate and there is no rotation gate
+in the code. It is `AttachPassRadius` (60 uu), converted into an angle by
+geometry.
+
+A held weapon orbits the head at a small radius, so turning the view moves it
+along a chord of `2 r sin(theta/2)`. Setting that equal to 60 uu at 45 degrees
+gives **r of about 78 uu** - squarely inside the view-model band the census
+measured (view-model draws sit within about 170 uu of the camera). Re-equipping
+resets it because that re-captures the reference position.
+
+Confirmed by the same run:
+
+```
+wa: instance verify - held 146073, elsewhere 35029, unverifiable 0
+  reference: component 179401, recent 1701
+  worst offset accepted 60.0 uu, farthest refused 3014.2 uu
+```
+
+The worst accepted offset sits exactly ON the radius, which is what a threshold
+being reached by drift rather than by a genuine instance difference looks like.
+The farthest refused, 3014 uu, is a real world instance - three orders of
+magnitude away, which is the separation the gate was designed for.
+
+**The verification is correct and the identity it is given is wrong.** The pistol
+has no member candidate of its own, so it reaches a contract only through the
+buffer lookup and is then checked against ANOTHER asset's component - one fixed
+in the world while the pistol orbits the head. Any threshold would produce some
+angle; the defect is the identity, which is what VR-60 is for.
+
+This is also a worked example of a rule this project keeps re-learning: **log the
+derived number, not just the inputs.** The angle was a mystery as a perception and
+arithmetic as soon as the offsets either side of the radius were on the line.
