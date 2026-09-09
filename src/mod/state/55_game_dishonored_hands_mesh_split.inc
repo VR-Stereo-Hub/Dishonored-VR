@@ -469,9 +469,7 @@ static LONG     g_mpEyeAgree    = 0;   // inference matched the pass that drew i
 static LONG     g_mpEyeDisagree = 0;   // it did not - a full IPD in the wrong way
 static LONG     g_mpEyeNoTruth  = 0;   // not a doubled tick, nothing to compare
 static LONG     g_mpEyeSaid     = 0;   // disagreements printed in full
-static bool     g_mpEyeFromPass = false;  // [Hands] PaletteEyeFromPass - the FIX,
-                                          // default OFF so this build changes one
-                                          // thing and the audit stays readable
+static bool     g_mpEyeFromPass = true;   // [Hands] PaletteEyeFromPass
 static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
 static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason

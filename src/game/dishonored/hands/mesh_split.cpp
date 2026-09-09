@@ -2201,43 +2201,55 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
     // Present, in MpEyeForPresent, by comparing this Present's first draw
     // against the previous one's - and never from an ordinal, a hand side or a
     // moving midpoint, all of which have now failed.
-    // ---- the eye audit (VR-16), read-only unless the lever is on -----------
+    // ---- WHICH EYE IS THIS DRAW? ------------------------------------------
     //
-    // g_sdEyeNow is what the re-entry method DID: -1 while pass 1 is drawing,
-    // +1 while pass 2 is, 0 when the tick was not doubled. It is not an
-    // inference and it cannot be late - this draw is running inside that pass,
-    // on that thread. g_mpEyeState is what the correction GUESSED from a jump in
-    // LocalToWorld, keyed on the present count.
+    // Asked, not inferred. The re-entry method draws the world twice per game
+    // tick with the camera moved between the passes, so a draw running inside
+    // one of them already knows its eye - the code that moved the camera is one
+    // stack frame up, on this thread.
     //
-    // Counted every draw; printed only for the first few disagreements and then
-    // on the beat, because a per-draw line here would be tens of thousands a
-    // second.
+    // Both halves of that sentence are checked, because the first version of
+    // this audit checked neither and its numbers meant nothing. g_sdInDrawTid
+    // carries THIS thread's id only while a doubled viewport draw is on the
+    // stack, and the camera seam's second-pass latch is per-thread too. A draw
+    // that fails either test is in a pass we do not own - a shadow or depth pass
+    // fed by the same palette - and it stays UNKNOWN and keeps the inference.
+    //
+    // MEASURED, first run: on the population that IS inside a pass, the
+    // inference disagreed with the drawing pass 39% of the time, steadily, all
+    // through gameplay. That is the flicker's mechanism - a full inter-pupillary
+    // offset applied in the wrong direction for one frame, on every weapon at
+    // once, mirrored between the eyes, which is exactly what was reported.
+    //
+    // The inference has two documented ways to produce that. It HOLDS the
+    // previous answer whenever the sideways jump is too small to read (1922
+    // presents in the first run), and it is keyed on the present counter, which
+    // runs at roughly twice the doubled-draw rate.
+    const LONG inDraw = InterlockedCompareExchange(&g_sdInDrawTid, 0, 0);
+    const int truth = (inDraw && (DWORD)inDraw == GetCurrentThreadId())
+                          ? (dvr::camera::second_pass_for_current_thread() ? +1 : -1)
+                          : 0;
     int eyeUse = g_mpEyeState;
-    {
-        const int truth = g_sdEyeNow;
-        if (!truth) {
-            InterlockedIncrement(&g_mpEyeNoTruth);
-        } else if (truth == g_mpEyeState) {
-            InterlockedIncrement(&g_mpEyeAgree);
-        } else {
+    if (!truth) {
+        InterlockedIncrement(&g_mpEyeNoTruth);
+    } else {
+        if (truth == g_mpEyeState) InterlockedIncrement(&g_mpEyeAgree);
+        else {
             InterlockedIncrement(&g_mpEyeDisagree);
             if (InterlockedIncrement(&g_mpEyeSaid) <= 12)
                 DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
-                    "ms/palette/eyeaudit: the pass that is drawing says %s, the "
+                    "ms/palette/eyeaudit: the pass drawing this says %s, the "
                     "inference says %s (projRight %.3f, prev %.3f, delta %.3f). "
-                    "Every hand and weapon draw in this frame takes a FULL "
-                    "inter-pupillary offset in the wrong direction, which is one "
-                    "mirrored jump on both weapons at once. Counting only - the "
-                    "offset applied is still the inference unless [Hands] "
-                    "PaletteEyeFromPass=1.",
+                    "Uncorrected that is one frame of every weapon displaced by a "
+                    "full IPD the wrong way, mirrored between the eyes.",
                     truth < 0 ? "LEFT" : "RIGHT",
                     g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
                     c->projRight, g_mpEyePrevFirst, c->projRight - g_mpEyePrevFirst);
         }
-        // THE FIX, behind its own lever and default OFF. With it on the eye is
-        // taken from the pass instead of inferred, and 'unknown' stops existing:
-        // a doubled tick always knows which eye it is drawing.
-        if (g_mpEyeFromPass && truth) eyeUse = truth;
+        // THE FIX. Take the eye from the pass. 'unknown' stops existing inside a
+        // doubled draw, so the half-IPD placement the inference fell back to
+        // when it could not tell goes away with it.
+        if (g_mpEyeFromPass) eyeUse = truth;
     }
 
     if (g_mpEyeOffset && eyeUse != 0) {

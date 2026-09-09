@@ -119,6 +119,23 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // the eyes, which is exactly the reported flicker. Published here so the audit
 // can compare the two without either one moving.
 static int   g_sdEyeNow = 0;
+// ... and the two facts that make it ATTRIBUTABLE rather than merely current.
+//
+// The first audit read g_sdEyeNow as a bare global, and a bare global cannot say
+// whether the draw asking is inside the pass that set it or merely running after
+// it. That matters: 89% of the corrected draws in the first run had no pass at
+// all to compare against, so the population the disagreement was measured over
+// was never established. A counter is not evidence until you know its
+// population, and this is the missing half.
+//
+// g_sdDoubleTick says the current game tick is being drawn twice; the depth
+// counter and the draw thread say the caller is lexically INSIDE one of those
+// two draws. Together with the camera seam's per-thread second-pass latch, a
+// draw can name its own eye with no inference and no race.
+// The THREAD that is currently inside a doubled viewport draw, or 0. A draw hook
+// that finds its own thread id here is lexically inside one of the two passes;
+// anything else is a pass we do not own and must stay UNKNOWN.
+static volatile LONG g_sdInDrawTid = 0;
 static bool  g_sdGateSceneLive = false;    // [Stereo] GateOnSceneLive
 static float g_sdSceneQuietMs  = 400.0f;   // [Stereo] SceneQuietMs
 static LONG  g_sdGatedByScene  = 0;   // doubled on scene liveness, not the verdict

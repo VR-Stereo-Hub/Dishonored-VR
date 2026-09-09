@@ -1265,10 +1265,11 @@ static void LoadConfig()
     // the rest of the session. The key exists so the two compare directly.
     g_fpAutoRecollect = IniFloat(ini, "Hands", "AttachAutoRecollect", 1) != 0.0f;
     // VR-16: take the eye from the pass that is drawing instead of inferring it
-    // from a jump in LocalToWorld. Default OFF - the audit counters ship on and
-    // measure whether the inference is wrong before anything acts on it, so this
-    // build changes exactly one behaviour.
-    g_mpEyeFromPass = IniFloat(ini, "Hands", "PaletteEyeFromPass", 0) != 0.0f;
+    // from a jump in LocalToWorld. ON since the audit measured the inference
+    // disagreeing with the drawing pass 39% of the time, steadily, on the draws
+    // that are inside a pass at all. OFF restores the inference so the two
+    // compare directly in one session.
+    g_mpEyeFromPass = IniFloat(ini, "Hands", "PaletteEyeFromPass", 1) != 0.0f;
     // How long a contract may keep refusing after its component disappears
     // before it is retired so the matcher can re-adopt. 90 presents is about a
     // second at 90 Hz - long enough that a one-frame snapshot gap is not a

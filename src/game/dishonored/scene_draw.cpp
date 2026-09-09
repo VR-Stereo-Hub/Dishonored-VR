@@ -404,6 +404,8 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         g_sdTick = SceneDrawDecide(callerRet);
         if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
         g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
+        InterlockedExchange(&g_sdInDrawTid,
+                            g_sdTick.doubleIt ? (LONG)GetCurrentThreadId() : 0);
         if (g_sdTick.doubleIt) {
             float pos[3];
             dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);
@@ -430,6 +432,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         g_sdLastDrawC5Serial = dvr::camera::render_pos_serial();
         SceneDrawBeat();
     }
+    if (depth == 0) InterlockedExchange(&g_sdInDrawTid, 0);
     InterlockedDecrement(&g_sdDepth);
 }
 
