@@ -498,6 +498,21 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // weapon that is stowed. A missing reference is NOT strong - it is an
     // absence of evidence, and the normal state of a weapon just re-equipped.
     bool instStrongVeto = false;
+    // The verdict itself, at function scope. It was previously only reachable
+    // inside the block that computed it, and that is why a refused draw still
+    // reached AttachDropUncorrected below and was eaten: the rule existed and
+    // the site that needed it could not see it.
+    // UNVERIFIED IS THE STARTING POINT, NOT HELD. A draw whose geometry does not
+    // match the contract exactly never reaches the verification block at all -
+    // a different range in a shared buffer, which is what a fired bolt and the
+    // pistol both produce. Defaulting this to HELD let those draws fall into the
+    // drop path unverified and be deleted, which is why the bolts were invisible
+    // for a whole run rather than misplaced.
+    //
+    // With verification off the default stays HELD, so the lever remains a true
+    // A/B against every build before it rather than a third behaviour.
+    dvr::wf::Instance instVerdict = g_waVerifyInstance ? dvr::wf::INSTANCE_NO_REF
+                                                       : dvr::wf::INSTANCE_HELD;
 
     // BUFFER IDENTITY FIRST, AND UNBUDGETED. This is the arm fix: a draw bound
     // to a weapon's buffers IS that weapon whatever its constants look like, so
@@ -644,6 +659,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                     break;
                                 }
                             }
+                            instVerdict = verdict;
                             const bool instanceOk = dvr::wf::may_correct(verdict);
                             // A REFUSED DRAW IS NOT OURS. Handing the buffers
                             // back is what stops AttachSuppressUnplaced eating
@@ -710,6 +726,27 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     // view is most often missing, and that is exactly this case.
                     if (!haveCorr) {
                         InterlockedIncrement(&g_waIdNoDelta);
+                        // ONLY A VERIFIED PASS OF THE HELD ITEM MAY BE DROPPED.
+                        // Dropping is a claim that this draw is a DUPLICATE of
+                        // geometry the frame draws correctly elsewhere. That is
+                        // true of another pass of the held weapon and false of a
+                        // world instance, which is the only copy of itself there
+                        // is - dropping it deletes the object. Fired bolts were
+                        // invisible for exactly this reason: verification
+                        // correctly refused them and then this line consumed the
+                        // draw anyway.
+                        if (!dvr::wf::may_suppress(instVerdict)) {
+                            InterlockedIncrement(&g_waHandedBack);
+                            if (onWeaponBuffers) *onWeaponBuffers = false;
+                            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                                "wa/id: handing a %s draw of '%s' back to the "
+                                "engine undrawn-by-us and unsuppressed. It is not a "
+                                "duplicate of anything this frame draws correctly, so "
+                                "dropping it would delete the object rather than move "
+                                "it.",
+                                dvr::wf::instance_name(instVerdict), known->asset);
+                            return false;
+                        }
                         if (g_waDropUncorrected) {
                             InterlockedIncrement(&g_waIdDropped);
                             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
@@ -1155,6 +1192,13 @@ static void WaBeat(void)
         g_waVerifiedHeld, g_waVerifiedAway, g_waVerifyNoRef,
         g_waRefComponent, g_waRefRecent, g_waHeldMaxPresents,
         (double)g_waHeldWorst, (double)g_waAwayFarthest, g_waVetoFreed);
+    Log("wa: handed back to the engine %ld draw(s) rather than dropped "
+        "(dropped-as-duplicate %ld). Dropping CLAIMS a draw is a duplicate of "
+        "geometry the frame draws correctly elsewhere; that is true of another "
+        "pass of the held item and false of a world instance, which is the only "
+        "copy of itself there is. If handed-back is 0 while fired bolts are "
+        "invisible, a refused draw is still being consumed somewhere.",
+        g_waHandedBack, g_waIdDropped);
     Log("wa: legacy instance levers - no-fresh-reference %ld (Require"
         "FreshRef=%d), stowed %ld (RequireLiveMember=%d), relaxed band refused "
         "%ld. Both gates were falsified in a headset and default OFF; they are "

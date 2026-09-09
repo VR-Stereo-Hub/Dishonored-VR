@@ -1,6 +1,54 @@
 # Status
 
-## CURRENT (2026-09-08, night): VR-59 attempt 2 - verify every draw
+## CURRENT (2026-09-08, night): VR-59 attempt 2b - refusing is not deleting
+
+Attempt 2 verified correctly and then DELETED what it refused: fired bolts were
+invisible for a whole run while the held bolt and the crossbow were fine. Two
+places consumed a refused draw, and both are closed. Built, installed, 88 host
+cases. Not yet in a headset.
+
+### The lesson, which is worth more than the fix
+
+**Refusing to correct a draw and refusing to draw it are different operations,
+and the second one deletes the object.** Dropping a draw is a CLAIM: that this
+draw duplicates geometry the frame renders correctly elsewhere. That is true of
+another pass of the held weapon and false of a world instance, which is the only
+copy of itself there is.
+
+The rule was written into `may_suppress` in attempt 2 and then not applied at
+either site that needed it:
+
+1. **`AttachDropUncorrected` sat past the verification block** and consumed any
+   draw with no correction. Verification refused the bolt correctly, and this
+   line ate it two branches later. Releasing `onWeaponBuffers` did not help -
+   that only guards the SECOND suppressor, out in `WaDraw`.
+2. **`instVerdict` defaulted to `HELD`.** A draw whose geometry does not match the
+   contract exactly never reaches verification at all - a different range in a
+   shared buffer, which is exactly what a fired bolt and the pistol produce - so
+   it arrived at the drop path carrying a default that said "this is the held
+   item". Unverified now means unverified, and only with the lever off does it
+   mean held.
+
+A guarantee that is stated in a pure helper is not a guarantee until every exit
+path is routed through it. There were four such paths and two were missed.
+
+### The new counter that would have caught it in one run
+
+`wa: handed back to the engine N draw(s) rather than dropped (dropped-as-
+duplicate M)`, and it says on the line: **if handed-back is 0 while fired bolts
+are invisible, a refused draw is still being consumed somewhere.** That is the
+reading the last two runs needed and did not have.
+
+### Still open, and expected to persist
+
+**VR-60**: the pistol turning invisible when aimed away from where a bolt was.
+It is not in the component snapshot at all, so it has no member candidate and
+reaches contracts only through the buffer lookup's `vb || ib` OR - its visibility
+is decided by a distance test belonging to another asset. Attempt 2b should stop
+it being DELETED (an unverified draw is now handed back), but the pistol still has
+no attachment of its own and that is VR-60's job.
+
+## PREVIOUS (2026-09-08, night): VR-59 attempt 2 - verify every draw
 
 `VR-Main` is pushed at `555e8ff4`, PRs 18-22 closed. Attempt 2 of VR-59 is built,
 installed and covered by 86 host cases; **not yet in a headset.**

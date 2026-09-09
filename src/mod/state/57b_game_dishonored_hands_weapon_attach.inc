@@ -527,6 +527,11 @@ static LONG g_waVerifiedAway  = 0;
 static LONG g_waVerifyNoRef   = 0;
 static LONG g_waRefComponent  = 0;
 static LONG g_waRefRecent     = 0;
+// Draws returned to the engine rather than dropped, because they did not verify
+// as the held item. Dropping claims a draw is a DUPLICATE; for a world instance
+// that claim is false and the drop deletes the object. This counter moving is
+// what a visible fired bolt looks like from the log side.
+static LONG g_waHandedBack    = 0;
 static float g_waAwayFarthest = 0.0f;   // the largest offset we refused
 static float g_waHeldWorst    = 0.0f;   // the largest offset we still accepted
 

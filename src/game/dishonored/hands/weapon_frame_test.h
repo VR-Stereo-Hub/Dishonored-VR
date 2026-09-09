@@ -236,6 +236,16 @@ static inline int WeaponFrameTests()
         check("many_passes_of_the_held_item_all_held", heldStillHeld);
     }
 
+    // DROPPING IS A CLAIM OF DUPLICATION, and it is the claim that made fired
+    // bolts invisible: verification refused them correctly and the drop path
+    // consumed the draw anyway. may_suppress is the single gate for both
+    // dropping inside the router and suppressing outside it.
+    check("a_refused_draw_may_never_be_dropped",
+          !may_suppress(INSTANCE_ELSEWHERE) && !may_suppress(INSTANCE_NO_REF) &&
+          !may_suppress(INSTANCE_STOWED));
+    check("drop_and_correct_agree_on_held",
+          may_suppress(INSTANCE_HELD) == may_correct(INSTANCE_HELD));
+
     check("verdict_names_are_distinct",
           strcmp(instance_name(INSTANCE_HELD), instance_name(INSTANCE_STOWED)) &&
           strcmp(instance_name(INSTANCE_STOWED), instance_name(INSTANCE_ELSEWHERE)) &&
