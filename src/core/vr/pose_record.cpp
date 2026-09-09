@@ -70,6 +70,12 @@ float    g_ctrlYawDeg = 6.0f;
 uint32_t g_ctrlPass = 0, g_ctrlFail = 0, g_ctrlChecks = 0;
 int      g_ctrlDone[CTRL_COUNT] = {};
 
+float    g_subSumAbs = 0.0f, g_subMaxAbs = 0.0f, g_subMaxSpeed = 0.0f;
+float    g_subFastSum = 0.0f, g_subSlowSum = 0.0f;
+uint32_t g_subChecks = 0, g_subFastN = 0, g_subSlowN = 0;
+float    g_subLastD = 0.0f, g_subLastSpeed = 0.0f;
+int      g_subGenBack = 0;
+
 Record   g_lastCopy = {};
 bool     g_haveLastCopy = false;
 
@@ -383,6 +389,72 @@ void check_controls(const Record& real, float observedYawDeg)
             pass ? "is meaningful" : "CANNOT RUN", real.eye);
         return;
     }
+}
+
+
+// Yaw about the XR up axis (+Y) from a quaternion, degrees. One conversion,
+// used for both sides of the comparison so a convention error cannot enter on
+// one side only.
+static float quat_yaw_deg(float x, float y, float z, float w)
+{
+    const float siny = 2.0f * (w * y + z * x);
+    const float cosy = 1.0f - 2.0f * (x * x + y * y);
+    return atan2f(siny, cosy) * 57.29578f;
+}
+
+
+void note_submitted(int eye, float qx, float qy, float qz, float qw, uint32_t gen)
+{
+    ensure_cs();
+    Lock lk;
+    if (!g_haveLastCopy) return;
+    const Record& r = g_lastCopy;
+    if (r.eye != eye || !r.track.ok) return;
+
+    const float recYaw = quat_yaw_deg(r.track.qx, r.track.qy, r.track.qz, r.track.qw);
+    const float subYaw = quat_yaw_deg(qx, qy, qz, qw);
+    const float d = wrap180(subYaw - recYaw);
+
+    // HEAD SPEED, from this record against the previous one for the same eye.
+    // Without it a delta is just a number; with it the delta can be shown to
+    // scale with speed, which is what separates a stale sample from a constant
+    // offset.
+    static float prevYaw[2] = {0.0f, 0.0f};
+    static double prevMs[2] = {0.0, 0.0};
+    static bool   havePrev[2] = {false, false};
+    const int ei = eye < 0 ? 0 : 1;
+    float speed = 0.0f;
+    const double now = dvr::clock::now_ms();
+    if (havePrev[ei] && now > prevMs[ei]) {
+        const float dy = wrap180(recYaw - prevYaw[ei]);
+        speed = fabsf(dy) / (float)((now - prevMs[ei]) / 1000.0);
+    }
+    prevYaw[ei] = recYaw; prevMs[ei] = now; havePrev[ei] = true;
+
+    ++g_subChecks;
+    g_subSumAbs += fabsf(d);
+    if (fabsf(d) > g_subMaxAbs) { g_subMaxAbs = fabsf(d); g_subMaxSpeed = speed; }
+    if (speed > 5.0f) { g_subFastSum += fabsf(d); ++g_subFastN; }
+    else              { g_subSlowSum += fabsf(d); ++g_subSlowN; }
+    g_subLastD = d; g_subLastSpeed = speed;
+    g_subGenBack = (int)(gen - r.track.gen);
+
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+        "xr: posesub eye %+d | the image was RENDERED from tracking yaw %.2f deg "
+        "(locate generation %u); the pose SUBMITTED with it is %.2f -> %+.3f deg "
+        "apart, %d generation(s) newer | head turning %.1f deg/s | mean error "
+        "%.3f deg over %u check(s); while the head moves faster than 5 deg/s the "
+        "mean is %.3f over %u, and while it is nearly still %.3f over %u | worst "
+        "%.3f deg at %.1f deg/s. BOTH sides are OpenXR convention, so this "
+        "difference is real and needs no world matrix. If it grows with head "
+        "speed the submitted sample is STALE, which is exactly the reported "
+        "symptom - judder on any physical turn, none on the thumbstick, because "
+        "the compositor corrects only for head motion.",
+        eye, recYaw, r.track.gen, subYaw, d, g_subGenBack, speed,
+        g_subChecks ? g_subSumAbs / (float)g_subChecks : 0.0f, g_subChecks,
+        g_subFastN ? g_subFastSum / (float)g_subFastN : 0.0f, g_subFastN,
+        g_subSlowN ? g_subSlowSum / (float)g_subSlowN : 0.0f, g_subSlowN,
+        g_subMaxAbs, g_subMaxSpeed);
 }
 
 

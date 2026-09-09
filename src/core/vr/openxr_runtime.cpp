@@ -4165,6 +4165,19 @@ void on_present_end(ID3D11Texture2D* frame) {
                         if (!dvr::pose::copy(recId, &rec)) {
                             ++jNoRec;
                         } else {
+                            // RECORD vs SUBMISSION first, because it needs no
+                            // world matrix and it is the leg the symptom points
+                            // at. Both sides are OpenXR convention.
+                            const int vi0 = rec.eye < 0 ? 0 : (rec.eye > 0 ? 1 : -1);
+                            if (vi0 >= 0)
+                                dvr::pose::note_submitted(
+                                    rec.eye,
+                                    projViews[vi0].pose.orientation.x,
+                                    projViews[vi0].pose.orientation.y,
+                                    projViews[vi0].pose.orientation.z,
+                                    projViews[vi0].pose.orientation.w,
+                                    g_locateGen.load(std::memory_order_relaxed));
+
                             float renderYaw = 0.0f; uint32_t renderSerial = 0;
                             const bool haveRender =
                                 dvr::pose::render_yaw_deg(&renderYaw, &renderSerial);

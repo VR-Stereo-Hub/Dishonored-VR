@@ -135,6 +135,22 @@ void configure_controls(uint32_t startAfter, uint32_t eachLen, float yawDeg);
 // explicit numeric tolerance.
 void check_controls(const Record& real, float observedYawDeg);
 
+// ---- RECORD vs SUBMISSION, the leg that needs no matrix ---------------------
+//
+// Both sides are OpenXR convention, so this one is a legitimate difference and
+// it does not depend on finding the world view-projection. It answers the
+// question the tester's symptom actually points at: was the image submitted with
+// ITS OWN tracking sample, or with a different one?
+//
+// The symptom is the discriminator. Judder appears on any physical head motion
+// beyond very slow and never on thumbstick turning, which is what a pose whose
+// error scales with HEAD ANGULAR SPEED looks like: the compositor corrects only
+// for head motion, so a stale sample costs speed times staleness and nothing at
+// all when the head is still. So the comparison is reported together with the
+// measured head speed, because a delta that grows with speed and a delta that
+// does not are different faults.
+void note_submitted(int eye, float qx, float qy, float qz, float qw, uint32_t gen);
+
 
 struct Stats {
     uint32_t opened, copies, expired, missing, pairs;
