@@ -4006,3 +4006,73 @@ corrected sat frozen and only 3 contracts had ever matched.
 Contracts are now dropped when the game leaves gameplay, and any contract whose
 component has been missing from a fresh snapshot for about a second is retired so
 the matcher can re-adopt it.
+
+
+## THE STARTUP MONO WINDOW: THREE FALSIFIED ATTEMPTS (VR-62, 2026-09-08)
+
+Recorded because all three failed in ways that narrow the problem, and one of
+them re-broke something this file had already documented.
+
+### What is established
+
+* **Nothing after the gameplay verdict holds the picture.** The verdict, the
+  state transition and the first DOUBLE draw land in the same millisecond. The
+  wait is entirely in deciding the game is in gameplay.
+* **Two of the verdict's five terms are slow by construction.** `menuOpen` is set
+  by a `Dis_OpenPauseMenu` dispatch during a load when no menu is open, and
+  `viewLive` deliberately requires a full second of continuous dispatches to
+  leave LOADING (measured at +1.52 s and +1.72 s).
+* **The view-dispatch RATE is not constant.** About 1/s while a level settles
+  against roughly 78/s once it is up - a factor of eighty between the two states
+  any dispatch-based test has to separate.
+
+### Attempt 1: clear the ghost menu flag on dispatch RECENCY - FALSIFIED
+
+It works: the ghost cleared in about 1.5 s instead of 24 s. It also clears at the
+MAIN MENU, which then goes stereo after a few seconds.
+
+**38.17 in this file already recorded that exact failure** - the main menu's 3D
+background keeps dispatching view rotations, so "dispatches still flowing" does
+not separate it from gameplay, and the clearer firing there swept the menu UI
+onto the wrist panel. The cumulative count of 20 was slow ENOUGH to hide that;
+recency is not. **Part of the 24 s clear that looked like a bug was the clearer
+being correctly slow at a main menu.**
+
+`CylTruthLive` was supposed to be the discriminator that made this safe. The run
+shows it is not sufficient, which is a new fact and the thing to attack next.
+
+### Attempt 2: double on SCENE LIVENESS instead of the verdict - FALSIFIED
+
+The hands and weapons FLASHED in the background of the pause menu. The camera
+upload serial keeps moving while a menu is up - the world is still rendered
+behind it - so "the scene is drawing" cannot tell a pause menu from a load, and
+doubling during a menu is exactly the hazard the verdict guards: **a menu's draws
+outnumber its presents, so the pair schedule breaks.**
+
+The idea is not dead, the signal was wrong. A pause menu silences the view
+dispatches while a load keeps them at ~1/s, so recency would separate them - but
+the window has to be wider than 1 s, which leaves a pause doubled for that long.
+That trades one artifact for another and needs measuring before it ships.
+
+### Attempt 3: force a candidate re-collect on a load - FALSIFIED AS WRITTEN
+
+Collecting during a load catches the rig half-built and returns one or two
+components with **no body mesh**. Because the rebuild trigger is
+`if (!g_fpCandN) FpCollect()`, a non-empty partial list is never refreshed and
+sticks for the session: `2 component(s) resolved, 0 usable as the bridge anchor`,
+repeating while the weapons sat in their default positions.
+
+**A stale list is bad; a partial one is worse**, because the stale list at least
+contained the anchor by name. Fixed by discarding a list with no anchor so the
+next tick retries, bounded at 120 attempts so a genuine absence reports itself
+instead of looping.
+
+### The rule this cost
+
+Every one of these replaced a slow, conservative test with a fast one, and every
+one of them was correct about the slowness and wrong about the replacement. **The
+conservative tests were slow because the fast signals do not separate the states
+they need to separate** - c5 movement cannot tell a pause from a load, dispatch
+flow cannot tell a main menu from gameplay, and a collect cannot tell a
+half-built rig from a finished one. Any future attempt needs a signal that
+distinguishes those pairs directly, not a faster version of one that does not.

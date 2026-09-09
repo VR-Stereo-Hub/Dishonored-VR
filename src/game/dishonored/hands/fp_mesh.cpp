@@ -504,6 +504,44 @@ static void FpCollect()
     for (int i = 0; i < g_fpCandN; i++)
         if (FpIsViewModel(&g_fpCand[i]) && !g_fpCand[i].havePivot) { g_fpPivotPend = 3; break; }
 
+    // A COLLECT WITHOUT THE BODY MESH IS NOT A RESULT, IT IS A RETRY.
+    //
+    // The body mesh is the bridge anchor: without it nothing can attach at all.
+    // Collecting during a load catches the rig half-built and returns one or two
+    // components with no anchor, and because the rebuild trigger is
+    // `if (!g_fpCandN) FpCollect()`, a NON-EMPTY partial list is never refreshed
+    // - it sticks for the rest of the session. Measured: 2 components, 0 usable
+    // as the bridge anchor, repeating every 4 s while the weapons sat in their
+    // default positions.
+    //
+    // So a list with no anchor is discarded and the next tick tries again. The
+    // attempt count is bounded: if the anchor genuinely never appears, the list
+    // is accepted as-is and the log says so, because looping forever would be a
+    // worse failure than a partial list and would hide itself.
+    {
+        static int noAnchorTries = 0;
+        bool anchor = false;
+        for (int i = 0; i < g_fpCandN && !anchor; i++)
+            if (strstr(g_fpCand[i].asset, "Skm_Player")) anchor = true;
+        if (g_fpCandN && !anchor && noAnchorTries < 120) {
+            ++noAnchorTries;
+            if (noAnchorTries == 1 || (noAnchorTries % 30) == 0)
+                Log("handmesh: collected %d component(s) but NO body mesh - the "
+                    "rig is still building, so this is a retry and not a result. "
+                    "Without the bridge anchor nothing can attach, and a partial "
+                    "list would stick because the rebuild only fires on an EMPTY "
+                    "one. Attempt %d of 120.", g_fpCandN, noAnchorTries);
+            g_fpCandN = 0; g_fpSel = -1;
+            return;
+        }
+        if (anchor) noAnchorTries = 0;
+        else if (g_fpCandN && noAnchorTries >= 120)
+            Log("handmesh: ACCEPTING a %d component list with no body mesh after "
+                "120 attempts. Nothing will attach with no bridge anchor, and "
+                "this line is the reason - retrying forever would hide it.",
+                g_fpCandN);
+    }
+
     // log only when the set actually changes, or this spams once a second
     static int lastN = -1; static void* lastFirst = NULL;
     void* first = g_fpCandN ? (void*)g_fpCand[0].obj : NULL;

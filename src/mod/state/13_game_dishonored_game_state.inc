@@ -89,7 +89,21 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // So with this on, a verdict refusal is overruled when the scene is
 // demonstrably live. The guards that remain are the ones that name a real menu
 // rather than a slow one: the main menu, a cinematic, and a live pawn.
-static bool  g_sdGateSceneLive = true;     // [Stereo] GateOnSceneLive
+// FALSIFIED IN A HEADSET, 2026-09-08, and default OFF because of it. With this
+// on, the hands and weapons FLASHED in the background of the pause menu. The
+// camera upload serial keeps moving while a menu is up - the world is still
+// being rendered behind it - so "the scene is drawing" cannot tell a pause menu
+// from a load, and doubling during a menu is exactly the hazard the verdict was
+// guarding: a menu's draws outnumber its presents, so the pair schedule breaks.
+//
+// The idea is not dead, the SIGNAL was wrong. The code already records the right
+// discriminator elsewhere: a pause menu silences the view-rotation dispatches,
+// while a load keeps dispatching about once a second. A gate built on dispatch
+// recency rather than on c5 movement would separate them - but it needs a window
+// wider than the 1 s load rate, which means a pause would stay doubled for that
+// window, so it trades one artifact for another and needs measuring before it
+// ships. Kept as a lever so that measurement is one ini key away.
+static bool  g_sdGateSceneLive = false;    // [Stereo] GateOnSceneLive
 static float g_sdSceneQuietMs  = 400.0f;   // [Stereo] SceneQuietMs
 static LONG  g_sdGatedByScene  = 0;   // doubled on scene liveness, not the verdict
 static double g_sdC5LastMoveMs = 0.0;
@@ -98,7 +112,21 @@ static uint32_t g_sdC5LastSerial = 0;
 // VR-62: clear a ghost menu flag on dispatch RECENCY rather than a cumulative
 // count. OFF restores the count, which is what held the picture mono for 24 s
 // on a measured load, so the two compare directly in a headset.
-static bool   g_menuGhostByRate  = true;    // [Menu] GhostClearByRate
+// FALSIFIED IN A HEADSET, 2026-09-08, and default OFF because of it. Clearing on
+// dispatch recency does collapse the ghost from 24 s to about 1.5 s - but it
+// also clears at the MAIN MENU, which then goes stereo after a few seconds.
+//
+// ENGINE_NOTES already recorded this exact failure at 38.17: the main menu's 3D
+// background keeps dispatching view rotations, so "dispatches still flowing"
+// does not separate it from gameplay, and the clearer firing there swept the
+// menu UI onto the wrist panel. The cumulative count was slow ENOUGH to hide
+// that; recency is not. The 24 s clear that looked like a bug was partly the
+// clearer being correctly slow at a main menu.
+//
+// So the count stays until something separates a main menu from a load without
+// relying on dispatch flow at all. CylTruthLive was supposed to be that
+// discriminator and the run shows it is not sufficient.
+static bool   g_menuGhostByRate  = false;   // [Menu] GhostClearByRate
 static double g_menuGhostQuietMs = 400.0;   // [Menu] GhostQuietMs
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
