@@ -2201,13 +2201,52 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
     // Present, in MpEyeForPresent, by comparing this Present's first draw
     // against the previous one's - and never from an ordinal, a hand side or a
     // moving midpoint, all of which have now failed.
-    if (g_mpEyeOffset && g_mpEyeState != 0) {
+    // ---- the eye audit (VR-16), read-only unless the lever is on -----------
+    //
+    // g_sdEyeNow is what the re-entry method DID: -1 while pass 1 is drawing,
+    // +1 while pass 2 is, 0 when the tick was not doubled. It is not an
+    // inference and it cannot be late - this draw is running inside that pass,
+    // on that thread. g_mpEyeState is what the correction GUESSED from a jump in
+    // LocalToWorld, keyed on the present count.
+    //
+    // Counted every draw; printed only for the first few disagreements and then
+    // on the beat, because a per-draw line here would be tens of thousands a
+    // second.
+    int eyeUse = g_mpEyeState;
+    {
+        const int truth = g_sdEyeNow;
+        if (!truth) {
+            InterlockedIncrement(&g_mpEyeNoTruth);
+        } else if (truth == g_mpEyeState) {
+            InterlockedIncrement(&g_mpEyeAgree);
+        } else {
+            InterlockedIncrement(&g_mpEyeDisagree);
+            if (InterlockedIncrement(&g_mpEyeSaid) <= 12)
+                DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
+                    "ms/palette/eyeaudit: the pass that is drawing says %s, the "
+                    "inference says %s (projRight %.3f, prev %.3f, delta %.3f). "
+                    "Every hand and weapon draw in this frame takes a FULL "
+                    "inter-pupillary offset in the wrong direction, which is one "
+                    "mirrored jump on both weapons at once. Counting only - the "
+                    "offset applied is still the inference unless [Hands] "
+                    "PaletteEyeFromPass=1.",
+                    truth < 0 ? "LEFT" : "RIGHT",
+                    g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
+                    c->projRight, g_mpEyePrevFirst, c->projRight - g_mpEyePrevFirst);
+        }
+        // THE FIX, behind its own lever and default OFF. With it on the eye is
+        // taken from the pass instead of inferred, and 'unknown' stops existing:
+        // a doubled tick always knows which eye it is drawing.
+        if (g_mpEyeFromPass && truth) eyeUse = truth;
+    }
+
+    if (g_mpEyeOffset && eyeUse != 0) {
         // Camera-relative: a position is world - camera, so the RIGHT eye's
         // camera being further right makes its positions smaller on that axis.
         // g_mpEyeState is -1 for left, +1 for right.
         const float halfIpdUU = 0.5f * g_ipdM * k;
-        for (int i = 0; i < 3; i++) dcam[i] -= (float)g_mpEyeState * halfIpdUU * c->r[i];
-        if (g_mpEyeState > 0) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
+        for (int i = 0; i < 3; i++) dcam[i] -= (float)eyeUse * halfIpdUU * c->r[i];
+        if (eyeUse > 0) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
     } else {
         g_mpEyeUnclassified++;
     }
@@ -2942,6 +2981,14 @@ static void MpDriveTick(void)
         "%ld (%s) | draw-to-draw comparisons %ld",
         g_mpDrawsEntered, g_mpDrawsSampled, g_mpDrawsRejected,
         g_mpDrawRejectWhy ? g_mpDrawRejectWhy : "none", g_mpCmpCount);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/eyeaudit: the drawing pass vs the inference - agree %ld, "
+        "DISAGREE %ld, no doubled pass to compare %ld | source in use: %s. A "
+        "disagreement is one frame of both weapons displaced by a full IPD, "
+        "mirrored between the eyes. Zero disagreements with the flicker still "
+        "visible would clear the inference and send this elsewhere.",
+        g_mpEyeAgree, g_mpEyeDisagree, g_mpEyeNoTruth,
+        g_mpEyeFromPass ? "the PASS (PaletteEyeFromPass=1)" : "the inference (default)");
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
         "ms/palette/eye: state %s | L %ld R %ld unknown %ld draws | presents: "
         "%ld toggled, %ld same eye, %ld ambiguous | expected IPD %.2f uu. The "

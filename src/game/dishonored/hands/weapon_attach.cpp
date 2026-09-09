@@ -179,10 +179,17 @@ static void WaCompTick(void)
             else if (now - refGoneSince > 1000.0) {
                 refGoneSince = 0.0;
                 Log("wa: the snapshot has %d weapon member(s) and NO bridge "
-                    "anchor for over a second - the candidate list is stale, not "
-                    "idle. Forcing a rescan; without the anchor nothing can "
-                    "attach at all.", members);
+                    "anchor for over a second - forcing a rebuild. The members "
+                    "come from the equipped-item path, which reads the inventory "
+                    "TArray and needs no candidate list, so weapons WITHOUT an "
+                    "anchor means the list is empty or dead rather than the "
+                    "player being unarmed.", members);
+                // Both, in this order. Invalidate does nothing when the list is
+                // already empty (its first line returns), which is exactly the
+                // state this branch keeps finding - so the rebuild is what
+                // actually has to happen and it has to be called directly.
                 FpInvalidateCandidates("no bridge anchor with weapons present");
+                FpEnsureCandidates("weapons present with no bridge anchor");
             }
         } else refGoneSince = 0.0;
     }

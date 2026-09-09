@@ -446,6 +446,32 @@ static uint32_t g_mpEyePresent = 0xFFFFFFFFu;
 static bool     g_mpEyeHavePrev = false;
 static float    g_mpEyePrevFirst = 0.0f;
 static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
+
+// VR-16: THE EYE AUDIT. Read-only by default.
+//
+// The correction infers the eye per PRESENT from a jump in LocalToWorld. The
+// re-entry method KNOWS it per DRAW, because it is the thing that moved the
+// camera. These counters compare the two without changing what is applied, so
+// one run says whether the inference is the flicker or is innocent.
+//
+// The tester's description is the hypothesis: both weapons jump together for a
+// single frame, displaced right in the right eye and left in the left eye. A
+// full inter-pupillary offset applied with the wrong sign looks exactly like
+// that, and the inference has two documented ways to produce one - it holds the
+// previous present's answer whenever the jump is too small to read, and it is
+// keyed on a present count that runs at roughly twice the doubled-draw rate.
+//
+// WHAT WOULD FALSIFY IT: if agree/disagree comes back with no disagreements
+// while the tester still sees the flicker, the eye inference is innocent and the
+// displacement is coming from somewhere else - the correction's own camera, or
+// the draw being routed to the wrong pass.
+static LONG     g_mpEyeAgree    = 0;   // inference matched the pass that drew it
+static LONG     g_mpEyeDisagree = 0;   // it did not - a full IPD in the wrong way
+static LONG     g_mpEyeNoTruth  = 0;   // not a doubled tick, nothing to compare
+static LONG     g_mpEyeSaid     = 0;   // disagreements printed in full
+static bool     g_mpEyeFromPass = false;  // [Hands] PaletteEyeFromPass - the FIX,
+                                          // default OFF so this build changes one
+                                          // thing and the audit stays readable
 static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
 static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason

@@ -66,6 +66,40 @@ static int      g_fpPivotPend = 0;       // frames to hold still while measuring
 static uint8_t* g_fpLastPawn = NULL;
 static double   g_fpCollectMs = 0.0;
 
+// VR-62: NOBODY OWNED THE REBUILD, and that is why the weapons never came back
+// after a second load.
+//
+// The candidate list is dropped when the game leaves gameplay - correctly, the
+// pointers are dead. The rebuild trigger everywhere is `if (!g_fpCandN)
+// FpCollect()`, and every one of those call sites is a ONE-SHOT that has already
+// fired by then: the material census (once per session, g_matCensusDone), the
+// bone-vis scan (once, g_bvScanned), the numpad cycler (a keypress), and
+// skelcontrol's per-frame refresh, which is behind `if (!g_handMesh) return` and
+// so never runs at all in the shipped GamepadOnly configuration.
+//
+// Measured in the 12a880f7 log: ONE `handmesh: ==== 6 view model(s) ====` for
+// the whole session, at the material census. The list is dropped at the second
+// load and FpCollect is never called again - not once, in the remaining 55
+// seconds. Every downstream symptom follows from that and none of them is a
+// separate bug: 0 refs forever, contracts stuck at 0/64, and a snapshot showing
+// 2 weapon members because those come from the VR-61 equipped-item path, which
+// reads the inventory TArray and needs no candidate list at all.
+//
+// The recovery that was supposed to cover this could not work either: the
+// no-anchor branch in WaCompTick calls FpInvalidateCandidates, whose first line
+// is `if (!g_fpCandN) return`. With the list already empty it is a no-op that
+// logs as though it acted, which is why the log repeats "Forcing a rescan" once
+// a second and nothing happens.
+//
+// So this is not a retry budget, a delay or a relaxed check. It is the missing
+// owner: while the game is in gameplay and the list is empty, something has to
+// call the collector on a cadence, and nothing did.
+static double   g_fpEnsureMs    = 0.0;    // next allowed rebuild attempt
+static int      g_fpEnsureTries = 0;      // attempts since the list went empty
+static LONG     g_fpEnsureBuilt = 0;      // rebuilds that produced a usable list
+static bool     g_fpAutoRecollect = true; // [Hands] AttachAutoRecollect
+static int      g_fpNoAnchorTries = 0;    // FpCollect's anchor retry, resettable
+
 static const char* FpAssetName(uint8_t* comp);
 static uint8_t* FpPawn();
 static void FpComputePivots();

@@ -601,6 +601,10 @@ static void BoneVisTick()
     // after every swap.
     RflTick();                  // VR-61: read the gameplay state flags
     UiTick();                   // VR-62: one bounded movie-player scan per load
+    // VR-62: the candidate list has an owner now. Every other FpCollect call
+    // site is a one-shot that has already fired by the time a load empties the
+    // list, so without this the weapons never attach again for the session.
+    FpEnsureCandidates("the candidate list is empty on the script tick");
     WaCompTick();               // VR-33 W2/W3: the component transform snapshot
     if (!g_bvOn) {
         // [Hands] BoneVisHide=1 arms it from the ini. The rig is not there on

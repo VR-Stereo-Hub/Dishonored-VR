@@ -348,6 +348,7 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
                          (void*)g_camObj, dvr::camera::eye_field());
     }
     dvr::stereo::reentry_push_tag(+1, wrote ? wrotePos : NULL);
+    g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
     QueryPerformanceCounter(&t0);
@@ -355,6 +356,7 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     QueryPerformanceCounter(&t1);
     dvr::vr::set_draw_stage(NULL);
     dvr::camera::set_second_pass(false);
+    g_sdEyeNow = 0;                        // no draw owns an eye between ticks
     g_sdCall2Us = (uint32_t)((t1.QuadPart - t0.QuadPart) * 1000000 / (g_qpcFreq ? g_qpcFreq : 1));
     if (g_sdCall2Us > g_sdCall2MaxUs) g_sdCall2MaxUs = g_sdCall2Us;
     if (!ok) {
@@ -401,6 +403,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         // was skipped (41.1: the resume-window one-sided stream).
         g_sdTick = SceneDrawDecide(callerRet);
         if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
+        g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
         if (g_sdTick.doubleIt) {
             float pos[3];
             dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);

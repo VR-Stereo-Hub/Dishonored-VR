@@ -103,6 +103,22 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // wider than the 1 s load rate, which means a pause would stay doubled for that
 // window, so it trades one artifact for another and needs measuring before it
 // ships. Kept as a lever so that measurement is one ini key away.
+// VR-16/VR-62: THE AUTHORITATIVE EYE FOR THE DRAW THAT IS RUNNING RIGHT NOW.
+//
+// -1 during pass 1, +1 during pass 2, 0 when the tick is not being doubled. The
+// re-entry method draws the world twice per game tick with the camera moved
+// between them, so inside a draw the eye is not something to infer: it is a
+// decision this code made microseconds earlier on this thread.
+//
+// It exists because the hand and weapon correction infers the eye instead, from
+// a jump in the draw's own LocalToWorld translation, keyed on the PRESENT count.
+// That clock is wrong twice over - there are about 160 presents per second
+// against 81 doubled draws - and when the inference misses, every hand and
+// weapon draw in that frame takes a full inter-pupillary offset in the wrong
+// direction. That is a one-frame jump, on both weapons at once, mirrored between
+// the eyes, which is exactly the reported flicker. Published here so the audit
+// can compare the two without either one moving.
+static int   g_sdEyeNow = 0;
 static bool  g_sdGateSceneLive = false;    // [Stereo] GateOnSceneLive
 static float g_sdSceneQuietMs  = 400.0f;   // [Stereo] SceneQuietMs
 static LONG  g_sdGatedByScene  = 0;   // doubled on scene liveness, not the verdict

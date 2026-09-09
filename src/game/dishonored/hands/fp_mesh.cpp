@@ -429,6 +429,45 @@ static void FpInvalidateCandidates(const char* why)
         "off it fails. The next tick rebuilds it.", g_fpCandN, why);
     g_fpCandN = 0; g_fpSel = -1;
     g_fpWritten = NULL; g_fpWritten2 = NULL;
+    // A NEW LEVEL GETS A FRESH BUDGET. Without this the anchor retry keeps the
+    // count it reached on the previous level, so a level that took a few tries
+    // can push the next one straight into the "accept a list with no anchor"
+    // branch - which never attaches anything and says so once.
+    g_fpNoAnchorTries = 0;
+    g_fpEnsureTries = 0;
+    g_fpEnsureMs = 0.0;
+}
+
+
+// THE OWNER OF THE REBUILD. Call it whenever the list is empty and the game is
+// in a position to have a rig; it does nothing when a list already exists.
+//
+// It is bounded and it says why it stopped. An unbounded retry would hide a
+// genuine absence, and a silent one would look exactly like the bug it fixes.
+static void FpEnsureCandidates(const char* why)
+{
+    if (!g_fpAutoRecollect || g_fpCandN) return;
+    const double t = MaimNowMs();
+    if (t < g_fpEnsureMs) return;
+    g_fpEnsureMs = t + 500.0;
+    uint8_t* pawn = FpPawn();
+    if (!pawn) return;            // no pawn, no rig; FpCollect would only log it
+    ++g_fpEnsureTries;
+    const int before = g_fpCandN;
+    FpCollect();
+    if (g_fpCandN && !before) {
+        InterlockedIncrement(&g_fpEnsureBuilt);
+        Log("handmesh: rebuilt the candidate list after %d attempt(s) - %s. %d "
+            "component(s). Nothing owned this rebuild before: every FpCollect "
+            "call site is a one-shot that had already fired, so a list dropped "
+            "at a load stayed empty for the rest of the session and no weapon "
+            "could attach.", g_fpEnsureTries, why, g_fpCandN);
+        g_fpEnsureTries = 0;
+    } else if (g_fpEnsureTries == 1 || (g_fpEnsureTries % 40) == 0) {
+        Log("handmesh: rebuild attempt %d produced no usable list (%s). The "
+            "collector ran and returned nothing usable - that is a rig that is "
+            "not up yet, not a missing trigger.", g_fpEnsureTries, why);
+    }
 }
 
 
@@ -519,7 +558,7 @@ static void FpCollect()
     // is accepted as-is and the log says so, because looping forever would be a
     // worse failure than a partial list and would hide itself.
     {
-        static int noAnchorTries = 0;
+        int& noAnchorTries = g_fpNoAnchorTries;   // resettable across a load
         bool anchor = false;
         for (int i = 0; i < g_fpCandN && !anchor; i++)
             if (strstr(g_fpCand[i].asset, "Skm_Player")) anchor = true;
