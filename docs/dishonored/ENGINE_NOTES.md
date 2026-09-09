@@ -4468,9 +4468,31 @@ and the launch file is demoted to a mirror:
   ini, which is the inert route, and sent a session down it.
 
 Editing `RenderWidth`/`RenderHeight` by hand now takes effect on the next launch,
-by itself. **UNVERIFIED in the headset at the time of writing** - the mechanism
-is derived from the logs above and the launch file's own timestamp, not from a
-run at a raised size.
+by itself.
+
+### CONFIRMED (2026-09-09, same day)
+
+3190x3306 - the same 55:57 aspect as 2750x2850, 10.55 MP against 7.84 - was
+armed and run. Every line carried it:
+
+```
+launch: the render ask is 3190x3306 fullscreen, VirtualMode ON, from the ini
+        (the launch file agreed)
+res: handed the game our 3190x3306@240 mode (slot 112)
+res: CreateDevice - the game asked for 3190x3306 windowed=0 fmt=21
+capture: 3190x3306 fmt=21 mode=sync
+res: HONOURED - the game renders 3190x3306 as asked
+xr: swapchain pair 3190x3306 format 29 (3 images each)
+capture: 3190x3306 content bbox [0,0]-[3184,3304] = 100% x 100% (FULL)
+```
+
+Full bbox, no crop. **The engine has no ceiling at 3190x3306 and never refused
+the mode** - it was only ever asking for a size nobody was advertising. The
+first `launch:` line came from the launch file and the second from the ini, in
+that order, which is the resolve doing exactly what it is for.
+
+2750x2850 was restored afterwards; the size is a performance question now, not a
+correctness one.
 
 ### The three lines that decide it in a log
 

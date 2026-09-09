@@ -50,7 +50,7 @@ cadence that had juddered.
 
 The fix stands on a measured mechanism and a reversing A-B-A, not on those.
 
-### The resolution ask: cause found, fix built, NOT yet run (VR-66)
+### The resolution ask: FIXED and CONFIRMED (VR-66)
 
 The stale command line suspected here was **ours**. The size had two homes and
 one writer: `dishonored_vr_launch.txt` drives the `-ResX/-ResY` the engine
@@ -64,13 +64,13 @@ The ini is now the authority: the ask is resolved from `[Screen]` on the
 engine's first `GetCommandLine` call (outside the loader lock), one resolved ask
 feeds both the command line and the advertised mode, a disagreement logs
 `launch: THE TWO ASKS DISAGREED` and rewrites the file, and the hooks install
-even with no launch file. Built, linted and installed; **no run has happened.**
+even with no launch file.
 
-**The one run that settles it**: raise `[Screen] RenderWidth/RenderHeight` in
-`dishonored_vr.ini` by hand, launch, and read three lines - `launch: the render
-ask is`, `res: handed the game our`, and `res: CreateDevice - the game asked
-for`. All three must carry the new size. 2750x2850 with `[Pace] Lag=2` is the
-known-good state to return to.
+**Confirmed in a run.** 3190x3306 (the same 55:57 aspect, 10.55 MP against 7.84)
+was armed and honoured end to end: `res: HONOURED`, `capture: 3190x3306`,
+`xr: swapchain pair 3190x3306`, bbox 100% x 100% FULL. **The engine never had a
+ceiling** - it was asking for a size nobody was advertising. 2750x2850 is
+restored; the size is now a performance question, not a correctness one.
 
 ### Next steps
 
