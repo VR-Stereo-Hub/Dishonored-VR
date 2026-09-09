@@ -42,6 +42,18 @@ the ticket was filed blaming "something outside both files".
 > **A file that exists beats the ini you edited.** A setting with two persistent
 > homes has no owner.
 
+**VR-69, the weapon flicker (2026-09-09) - the SAME class, a third time.** Every
+weapon jumped sideways about once a second. Three changes had been stacked into
+one run, so nothing could be attributed; the pose lever was A/B'd and cleared.
+The cause was `[Hands] PaletteEyeOffset=1` **in the installed ini, against a
+compiled default of 0** - a half-IPD sideways shift per eye, driven by an eye
+inference that two independent counters measure disagreeing about one time in
+eight. A wrong call moves the weapon a full IPD. Nothing logged the resolved
+value, so the key was invisible until someone grepped the ini.
+
+> **Third time. Grep the INSTALLED ini before theorising, and make every lever
+> that can produce a visible artefact log what it resolved to.**
+
 ### What to do before touching a key
 
 1. **Find every place the value can live.** Grep for the key name across `src/`,

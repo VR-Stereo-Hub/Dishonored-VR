@@ -780,7 +780,7 @@ static void LoadConfig()
         // which is what bv/lag measured. PoseLagAb walks 0/2/0/2 so a headset
         // run decides it.
         g_mpPoseLag = GetPrivateProfileIntA("Hands", "PoseLag", 2, ini);
-        g_mpPoseLagAb = GetPrivateProfileIntA("Hands", "PoseLagAb", 0, ini) != 0;
+        g_mpPoseLagAb = GetPrivateProfileIntA("Hands", "PoseLagAb", 1, ini) != 0;   // VR-68 reopened: judging the FLICKER
         Log("config: [Hands] PoseLag=%d PoseLagAb=%d - the head sample the hand is normalised against. 2 is the measured and headset-confirmed answer: bv/lag put the RENDERED camera at lag 2 (0.119 deg against 1.19 at lag 0 over 4085 moving frames) and a reversing A/B/A/B in a headset agreed. PoseLag=0 restores the old behaviour if you want to feel the difference.", g_mpPoseLag, (int)g_mpPoseLagAb);
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
             inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
@@ -1202,6 +1202,20 @@ static void LoadConfig()
     g_mpEyeHunt       = IniFloat(ini, "Hands", "PaletteEyeHunt", 0) != 0.0f;
     g_mpDepth         = IniFloat(ini, "Hands", "PaletteDepthRange", 0) != 0.0f;
     g_mpEyeOffset     = IniFloat(ini, "Hands", "PaletteEyeOffset", 0) != 0.0f;
+    // VR-64/VR-69: SAY WHAT THIS RESOLVED TO. It applies a HALF-IPD horizontal
+    // shift per eye to the weapon placement, driven by the eye inference - and
+    // that inference disagrees with the measurement about one time in eight
+    // (c5 pairing and the tag ring independently). Every wrong decision moves
+    // the weapon a FULL IPD sideways in that eye. It ships OFF, an installed
+    // ini had it ON, and the flicker that cost a session reads exactly like it.
+    if (g_mpEyeOffset)
+        Log("config: [Hands] PaletteEyeOffset=1 (compiled default is 0) - the weapon gets a half-IPD "
+            "sideways shift per eye, from an inference that has been measured disagreeing ~12%% of the "
+            "time. A wrong call displaces the weapon a FULL IPD. If weapons flicker sideways about once "
+            "a second, set this to 0 FIRST.");
+    else
+        Log("config: [Hands] PaletteEyeOffset=0 - no per-eye weapon shift. Stereo placement may be "
+            "slightly flat, and it cannot flicker sideways.");
 #if DVR_WITH_LEGACY
     g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
 #endif
