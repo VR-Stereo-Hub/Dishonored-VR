@@ -1,5 +1,68 @@
 # Plan 2 - the 80 Hz deficit and the weapon judder (VR-67/VR-68 draft, 2026-09-09)
 
+**Review update:** [PERF_REVIEW_2.md](C:/dev/Dishonored-VR/docs/dishonored/PERF_REVIEW_2.md)
+revises this draft against the original log and active pose/weapon paths.
+Its conclusions and test order supersede the proposals below; this draft is
+retained as review input.
+
+## RETRACTIONS (2026-09-09, after review 2)
+
+**Four claims below are withdrawn. All four were checked against the log and the
+source and all four are wrong.** They are left in place, struck through here
+rather than deleted, because the record of a wrong analysis is worth more than a
+tidy document.
+
+1. **1.3, "the hitch distribution MOVED", is a COUNTING ERROR.** Gameplay ran
+   8314609-8403078. **All 18 `out` gaps occurred BEFORE gameplay** (8291375 to
+   8313359 - startup and the menu). Inside gameplay, all 19 detected gaps sat in
+   the submission tail, exactly as in the previous run. There is no shift. The
+   whole "weakens a single-cause story" paragraph is void.
+2. **1.1 joins the wrong windows.** The 12.4 ms GPU span belongs to a
+   **57.0/s** window (8397593) that the draft never mentions; the 73.7/s window
+   is 9.7 ms. And the 66.7/s row is post-MENU with **untagged 40** - unusable as
+   evidence of anything.
+   **The window I missed is the interesting one**: 57.0/s, 17.5 ms tick, GPU
+   12.4 ms, render-thread R 11.6 ms + desktop Presents 4.8 ms = ~16.4 ms elapsed
+   against a **0.1 ms pacing wait**. That is where the deficit lives, and it is
+   not obviously a pixel problem.
+3. **3.1's mechanism names the wrong variable.** A newer CONTROLLER sample is not
+   double-corrected: a controller drawn as `H_r^-1 C_c` and reprojected by
+   `H_d^-1 H_r` yields `H_d^-1 C_c` for any age of `C_c`. The residual only
+   appears if the hand is made head-relative using a head `H_s` that differs from
+   the head `H_r` the view was rendered with, leaving `H_r H_s^-1`.
+   **The error is a head/view transform mismatch, not controller sample age**, and
+   the "world at N-2, weapon later than N, plus the prediction interval" arithmetic
+   is unmeasured and withdrawn.
+4. **3.3.1, the lag sweep, is not a discriminator and would have misled.**
+   Changing `Lag` changes the tag for the WHOLE image equally, so it moves the
+   world and the weapon together and cannot move the weapon-versus-world residual.
+   Running it and reading the result would have been the VR-65 mistake again.
+
+Two citations were also wrong: `mesh_split.cpp:2109` is a flicker diagnostic
+(`g_mpFlickYaw0 = g_hmdYaw`), not weapon placement; and "a grep returns nothing"
+searched the submission layer's variable names. **The hands DO have pose
+plumbing** - `MpPoseSnap.gen`, `WaCommon.poseGen`, `g_waPoseGenDiff`.
+
+### What survives, in the corrected form
+
+`MpDriveTick` reads head and hands from the SAME consume (`g_devPose[0]` and
+`g_devPose[3+h]`, filled by `DvrConsumePoses`), so the snapshot is internally
+coherent. It publishes head-relative data. **The draw then completes it with a
+camera basis `B` derived from the shader constants of the actual render.**
+
+So the open question is whether `B`'s head and `g_devPose[0]` are the same
+sample - and `STATUS.md` already records that they may not be:
+
+> the camera record still does not guarantee it holds the sample the camera was
+> calculated from - both writers calculate from the loose globals and consume the
+> coherent sample afterwards
+
+**That is `H_r H_s^-1`, already written down as an open defect before the weapon
+judder was reported.** It is a candidate, not a finding, and the motion matrix
+decides whether it is worth instrumenting.
+
+---
+
 **Status: draft, for review before anything is built.** Section 1 is measured on
 the run described. Sections 3 and 4 are hypotheses with falsification tests.
 Nothing here is implemented.

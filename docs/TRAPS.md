@@ -129,6 +129,34 @@ stalls counted, baseline-equal segments skipped, and the sweep now ships
 > **A "no change" verdict is a claim about the column it tested, and no other.**
 > The median and the tail have different noise floors, and the tail's is wider.
 
+### The VR-68 weapon analysis, the next day's write-up (2026-09-09)
+
+Three more, and the first is the most embarrassing because it needed no theory
+at all - only the timestamps that were already on the lines being counted.
+
+* **A hitch tally that spanned the wrong population.** "The hitch distribution
+  moved, `out` gaps doubled" was computed over the whole log. **Every one of the
+  18 `out` gaps happened before gameplay started.** Inside gameplay the mixture
+  was identical to the previous run. *Filter to the population before counting,
+  and print the population on the line.*
+* **Summary windows joined by eye rather than by timestamp.** A GPU span from one
+  window was quoted against a frame rate from another, and a third window was
+  used as evidence while carrying 40 untagged presents. The window that actually
+  mattered - 57/s, 17.5 ms tick, 16.4 ms of elapsed render-thread and Present
+  time against a 0.1 ms pacing wait - was never mentioned.
+* **A mechanism that named the wrong variable.** The weapon judder was blamed on
+  the controller sample being NEWER than the tagged view. It is not: a controller
+  drawn into the rendered view and reprojected by that view's own delta comes out
+  correct for any sample age. The residual needs the hand to be made head-relative
+  to a DIFFERENT head than the view was rendered with. Same family of fault,
+  completely different quantity to measure - and the proposed falsification test
+  (sweep the global lag) could not have moved the residual at all, because it
+  moves the world and the weapon together.
+
+> **A wait, a gap or an error observed somewhere does not name what caused it**,
+> and a mechanism that predicts the symptom is not thereby the mechanism. Write
+> the algebra before writing the arithmetic.
+
 ### The write-up over-claimed too, in three ways worth naming
 
 * **The wrong budget.** The GPU's 14-17 ms per pair was compared against a
