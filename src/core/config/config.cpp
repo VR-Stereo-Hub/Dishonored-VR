@@ -1281,7 +1281,8 @@ static void LoadConfig()
     // VR-65: the announced lag comparison. ON for this build only - it is the
     // discriminator the refusing render leg cannot supply, it changes nothing but
     // the pose-history selection, and it restores the baseline by itself.
-    dvr::vr::set_lag_ab(IniFloat(ini, "Stereo", "LagAB", 1) != 0.0f,
+    // The A/B has served its purpose and ships OFF; it stays for a re-test.
+    dvr::vr::set_lag_ab(IniFloat(ini, "Stereo", "LagAB", 0) != 0.0f,
                         (uint32_t)IniFloat(ini, "Stereo", "LagABSegMs", 20000));
     dvr::pose::configure_controls(
         (uint32_t)IniFloat(ini, "Stereo", "PoseControlsAfter", 60),
@@ -1790,7 +1791,27 @@ static void LoadConfig()
         {   // 41.1: [Pace] - the projection layer's pacing levers (defaults = today)
             const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
             const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
-            const int lag = GetPrivateProfileIntA("Pace", "Lag", 1, ini);
+            // VR-65: the default is LAG 2 as of 2026-09-09, from a headset A/B.
+            //
+            // The comparison ran baseline, alternative, baseline again: lag 1
+            // juddered, lag 2 was smooth, lag 1 juddered again. That reversal is
+            // what makes it a result rather than a coincidence, and it is the
+            // first thing in this investigation the tester could feel.
+            //
+            // It is a DISCRIMINATOR AND A WORKAROUND, not a proven root cause.
+            // The pose measurement says the submitted orientation is within about
+            // 0.3 degrees of the sample the camera consumed even while the head
+            // moves, which is far too small to be the visible judder - so
+            // something other than the orientation difference is what lag 2 is
+            // actually changing, and the generation bookkeeping did not report
+            // distinct offsets between the arms. That is unresolved and it is the
+            // next question, not a settled one.
+            //
+            // The historical default was 1, calibrated against BioShock 1's
+            // single-threaded renderer. This game has a separate render thread
+            // and a delayed capture stage, so a deeper pipeline is exactly what
+            // would be expected. `[Pace] Lag=1` restores the old behaviour.
+            const int lag = GetPrivateProfileIntA("Pace", "Lag", 2, ini);
             int syncHz = GetPrivateProfileIntA("Pace", "SyncHz", 0, ini);
             dvr::vr::set_pace_ahead(ahead);
             dvr::vr::set_pair_strict(strict != 0);
