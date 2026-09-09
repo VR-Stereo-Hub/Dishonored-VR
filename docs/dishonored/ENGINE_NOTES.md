@@ -4313,3 +4313,121 @@ switched destroys exactly the signal the switch was there to produce.**
 
 A 0.3 degree error was also dismissed as too small to see. At 2750x2850 per eye
 it is roughly five pixels near the centre of the image.
+
+
+## THE HEAD-TURN JUDDER WAS A POSE ONE GENERATION TOO NEW (VR-65, SOLVED 2026-09-09)
+
+The oldest and most damaging complaint in this mod. Static world geometry
+juddered and ghosted on any physical head turn; thumbstick turning with the head
+still was clean, and so was very slow head motion at a locked rate.
+
+**`[Pace] Lag=2`.** Headset-confirmed, and the tester's own summary was that the
+game feels an order of magnitude better to play, smooth enough that synchronous
+spacewarp now works well on top of it.
+
+### Why that value, and why the old one was wrong
+
+The pose submitted with an eye image is chosen from a history of located views by
+a fixed generation offset. The historical offset of 1 was calibrated against
+**BioShock 1's single-threaded renderer**. This game has a separate render thread
+AND a delayed D3D9 capture stage on top of it, so the pixels reaching the
+compositor are one generation older than that assumption, and the pose submitted
+with them described a head that had already moved on.
+
+That is exactly why only a PHYSICAL turn showed it. The compositor reprojects for
+head motion alone: a pose from the wrong moment costs head speed times the error,
+costs nothing while the head is still, and costs nothing for a view turned with
+the stick because that rotation is baked into the image and never reprojected.
+
+### The measurement, taken by switching it live inside one run
+
+| Selected | orientation difference, submitted vs the sample the camera consumed |
+|---|---|
+| lag 1 | 0.119 - 1.079 deg |
+| **lag 2** | **0.000 - 0.040 deg**, across a full 20 s, at head speeds to 106.6 deg/s |
+| lag 1 again | 0.473 deg, then 0.403, within two seconds |
+
+The tester felt the same three phases in the same order without being told which
+was which. An A-B-A that reverses is what makes it a result rather than a
+coincidence.
+
+### Two things that were wrongly ruled out on the way, and how
+
+**"All three lag values were tried and all juddered."** They were not. The
+installed ini names `Lag=1`, and the loader reads a compiled default ONLY when
+the key is absent, so two builds that changed that default changed nothing on
+this machine and both ran at lag 1. Their results were then read as the new value
+failing. The loader now logs the EFFECTIVE value and whether the ini overrode it;
+the per-frame field `chosen by lag arm N` was correct throughout and went unread.
+
+**"The submit rate is the cause - 68 pairs against 90 Hz slots."** Falsified by
+the tester, who ran it again and reported buttery smoothness at 61-72 submits/s
+with an inconsistent presentation rate - the same cadence that had juddered.
+Cadence matching is not what fixed this. It is worth keeping straight because the
+smooth run was ALSO at 60 Hz with a near-perfect 56-of-60 fill, which made the
+cadence story look right for the wrong reason.
+
+**A 0.3 degree error is not too small to see.** At 2750x2850 per eye it is
+roughly five pixels near the centre of the image. It was dismissed as invisible.
+
+### The instrument mistakes this ticket cost, all one class
+
+Every one was a number that could not mean what it appeared to mean:
+
+* a 39% disagreement read from a bare global across two threads - retracted
+* a 51-degree error differencing a UE world yaw against an XR tracking yaw, then
+  doubled by a sign convention - retracted
+* a near-zero produced by comparing a camera against the head values that camera
+  was built from - circular by construction
+* the render-side observation reading whichever `c0..c3` block came last, at
+  33 uploads per view, so it was some shadow or interface matrix whose implied
+  yaw sat at a constant 119 degrees
+* controls that reported `passed 0 FAILED 0` for three builds running, because
+  they were phased on records opened rather than checks performed, and then
+  gated behind a leg that refused
+
+**And the signal was in the log the whole time.** The orientation difference
+tracked the switched variable exactly; it was averaged across the transitions and
+reported as "nothing in the log distinguishes the phases". Averaging over a
+variable that is being deliberately switched destroys the signal the switch
+exists to produce.
+
+### Still open
+
+* The camera record does not yet guarantee it holds the sample the camera was
+  calculated from: both writers still calculate from the loose `g_hmd*` globals
+  and call `HtConsumeSample` afterwards. The signature was changed; the callers
+  were not fixed.
+* `g_viewsGen` is stamped one increment behind, so identical poses can appear to
+  carry different generation ids.
+* The render leg - what rendering actually consumed - was never obtained. The
+  world view-projection has not been identified.
+
+None of those block the fix. All of them limit what the diagnostic can prove
+about rendered pixels, and they are why this is recorded as a confirmed
+workaround with a measured mechanism rather than a fully verified root cause.
+
+## THE RESOLUTION ASK IS NOT HONOURED BY EDITING EITHER INI (VR-65, 2026-09-09)
+
+Raising `[Screen] RenderWidth/RenderHeight` to 3200x3300, and then to 3190x3306
+with both the mod ini and the game's own `DishonoredEngine.ini` written directly,
+produced a fullscreen 2560x1440 device both times - half the 5120x1440 desktop,
+and visibly low resolution.
+
+The mod's side worked. The log shows the mode advertised and handed over:
+
+```
+res: handed the game our 3200x3300@240 mode (slot 112)
+res: CreateDevice - the game asked for 2560x1440 windowed=0 fmt=21
+res: VirtualMode is on but the game asked fullscreen 2560x1440, not the
+     3200x3300 it was handed
+```
+
+**The game never asked for the advertised mode.** Writing `ResX`/`ResY` in
+`DishonoredEngine.ini` did not change that either, so something outside both
+files decides the size - a stale command line or launch option is the leading
+suspect and has not been checked.
+
+2750x2850 is restored in both files and is the known-good state. Anyone raising
+this should start by finding what supplies 2560x1440, not by editing a
+resolution key again.
