@@ -188,6 +188,82 @@ The rig radius exists because a component that has left the view model is still
 called `bolt_01` and still draws from the same buffers. Rig components sit
 together - the body, sword, crossbow and bolt spanned about sixty units.
 
+### None of those radii could close the fired bolt (VR-59)
+
+**A distance cannot answer an instance question.** A bolt fired into a surface
+a metre away is inside every radius above on merit: genuinely near the camera,
+genuinely near where the loaded bolt draws, genuinely the same mesh from the
+same buffers. Tightening the radii far enough to exclude it starts rejecting the
+real weapon when the player extends an arm.
+
+The decisive observation was not about distance at all. With the crossbow held,
+a fired bolt only inherited the crossbow's ROTATION. Switch to the pistol and
+the same bolt jumped out along the aim direction and tracked wherever the pistol
+pointed - **and it did that for bolts at any distance, near or far**. A fault
+that reaches an arbitrarily distant instance is proof that no radius was gating
+it, and it pointed straight at the real defect:
+
+**A CONTRACT OUTLIVES ITS WEAPON BEING STOWED, AND THE INSTANCE GATE RAN ONLY
+WHEN A FRESH REFERENCE EXISTED.** `g_waMesh` is keyed on buffers and is evicted
+only when the table fills. The pass-radius check compared a draw against
+`lastL2W`, the position where that mesh last drew on the view model - but it ran
+only `if (lastL2WOk && present - lastL2WPresent <= 2)`. Put the crossbow away and
+the loaded bolt stops drawing, that reference goes stale, and the condition is
+false, so **the gate was skipped entirely**. Meanwhile the hand that contract
+belongs to keeps publishing a fresh correction every single frame, because the
+HAND is always drawn. The absence of evidence was being read as permission.
+
+The second symptom had the same cause and is easy to misread. Some passes of the
+fired bolt were corrected (the copy that follows the hand) and the rest were
+SUPPRESSED as unplaced passes of a weapon - leaving a dark stub standing where
+the bolt landed. That is `AttachSuppressUnplaced` landing on a world instance,
+whose colour and lighting passes are its OWN rather than duplicates of anything
+we drew. It is the last row of the table in section 4, reached from a new
+direction.
+
+#### What replaced the radii
+
+`dvr::wf::held_instance` in `weapon_frame.h` - pure, and `frame_test` exercises
+every branch. It answers from evidence that is not distance, and the ORDER of
+the verdicts is the authority they carry:
+
+| Verdict | Evidence | Authority |
+|---|---|---|
+| `STOWED` | that asset is not a live member of that hand in the current component snapshot | strong |
+| `ELSEWHERE` | a fresh reference exists and this draw is past `AttachPassRadius` from it | strong |
+| `NO_REF` | nothing has vouched for this geometry for `AttachRefMaxPresents` presents | weak |
+| `HELD` | its weapon is in that hand and it drew there this frame | corrects |
+
+**`STOWED` is the engine's own answer, and it is why this works where a radius
+could not.** `FpCollect` walks out from the player pawn through the inventory
+chain only (Inventory, Container, Weapon, Item, Power, Pawn, depth 3). A fired
+bolt is a world projectile and is not reachable that way, so it cannot be a live
+member however close to the camera it sits. That is an instance identity read
+from the engine rather than inferred from geometry.
+
+Three consequences, each a lever, all four defaulting ON:
+
+| Lever | Default | What it does |
+|---|---|---|
+| `AttachRequireLiveMember` | 1 | a stowed weapon's contract corrects nothing |
+| `AttachRequireFreshRef` | 1 | a missing reference refuses instead of permitting |
+| `AttachRefMaxPresents` | 2 | how stale a reference may be and still vote |
+| `AttachVetoReleasesBuffers` | 1 | a strongly vetoed draw is handed back untouched, so suppression cannot eat a world instance |
+| `AttachInstanceVetoRelaxed` | 1 | a strong veto outranks the relaxed view-model band |
+
+**Only the two STRONG verdicts release buffers or overrule the relaxed band.**
+`NO_REF` does neither, and that asymmetry is load-bearing: a weapon just
+re-equipped has a stale contract by definition, so treating `NO_REF` as strong
+would stop a re-equipped sword relocking and would let its uncorrected pass draw
+a ghost copy while it tried.
+
+`wa: instance gates` reports all five counters every five seconds and says on
+the line that **all zero is the expected healthy reading** while a weapon is
+held and drawing - they count draws that are NOT the held instance, and there
+are none until a fired bolt or a stowed weapon leaves geometry on screen. Two
+counters in this subsystem have already been misread as "the hands are dead"
+when they were zero by design (40.1), so the line carries its own population.
+
 ---
 
 ## 4. The duplicate copies, and why they took eight builds
@@ -344,6 +420,11 @@ place or nothing at all. That asymmetry is the whole story of this ticket.
 | `AttachViewModelUU` | 500 | the proximity instance gate |
 | `AttachNearAngle` / `AttachNearPos` / `AttachNearMargin` | 20 / 30 / 1.5 | the relaxed band |
 | `AttachRigRadius` / `AttachPassRadius` | 200 / 60 | the other instance gates |
+| `AttachRequireLiveMember` | 1 | VR-59: a stowed weapon corrects nothing (the engine's own instance answer) |
+| `AttachRequireFreshRef` | 1 | VR-59: a missing reference refuses instead of permitting |
+| `AttachRefMaxPresents` | 2 | VR-59: how stale a reference may be and still vote |
+| `AttachVetoReleasesBuffers` | 1 | VR-59: a strongly vetoed draw is handed back untouched |
+| `AttachInstanceVetoRelaxed` | 1 | VR-59: a strong veto outranks the relaxed band |
 | `AttachDropUncorrected` | 1 | suppress a recognised pass we cannot place |
 | `AttachSuppressUnplaced` | 1 | the same rule, route-independent: any unplaced draw on a weapon's buffers |
 | `AttachSnapshotMaxMs` | 100 | component-snapshot freshness. TIGHTENING THIS BLINKS BOTH WEAPONS |
@@ -379,8 +460,11 @@ place or nothing at all. That asymmetry is the whole story of this ticket.
   defects and the only one this branch carries. It is a shared-gate failure:
   when no correction is published for a Present, every pass of every weapon is
   suppressed together.
-* **A fired bolt standing in the world can still be picked up and attached.**
-  The rig-radius and view-model gates reduced it but did not close it.
+* **A fired bolt standing in the world** (VR-59). The radius gates reduced it and
+  could not close it; replaced by an instance identity read from the engine, in
+  section 3. **Written and tested on the desk, NOT yet confirmed in a headset** -
+  the failing case is perceptual and close range, so only a headset run settles
+  it. What a run has to answer is in STATUS.
 
 ---
 

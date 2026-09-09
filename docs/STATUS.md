@@ -1,6 +1,124 @@
 # Status
 
-## CURRENT (2026-09-08): VR-33 is DONE and in review
+## CURRENT (2026-09-08, later): VR-33 merged, VR-59 fixed on the desk
+
+Two things happened this session. **PRs 18-22 are merged into `VR-Main` locally
+and are NOT pushed yet** - the push was blocked by a tool permission, so the
+remote `VR-Main` is still at `f44f4761` and all five PRs are still open. The
+first job of the next session is that one command, or to say so plainly if it is
+still refused.
+
+Then VR-59, the fired bolt, which is written, built, installed and covered by
+host tests but **has not been in a headset**.
+
+### The merge, and why it is five commits and not one
+
+PR 22 turned out to be a strict SUPERSET of 18, 19, 20 and 21: it was rebuilt off
+`VR-Main` and carries every feature from all four, plus later tuning that
+supersedes theirs (`HeightOffsetM` -0.090 -> 0.060, `PosTrack Scale` 98 -> 108).
+Merging 22 alone would have landed everything but left the other four PRs unable
+to close themselves, so they were merged in order 18 -> 19 -> 20 -> 21 -> 22
+instead, each as its own merge commit.
+
+Every conflict on the way to 21 was two branches appending to the same region - a
+new `CURRENT` section, a decision-log entry, `#include` lines in the unity TU -
+and was resolved as a UNION, so each feature keeps its own section. The final
+merge took 22's side throughout, because 22 is the integrated superset, and then
+22's own cleanup was applied (the 23 scaffolding docs it replaced with one
+durable record, and two experiments it retired to `src/legacy/vr33/`, which is
+why nothing was lost).
+
+**The end state was verified by construction: the merged tree is byte-identical
+to PR 22's tree**, which is the headset-confirmed build. `git diff HEAD
+origin/claude/vr-33-rotation-grip-and-weapons` is empty. Lint clean, Release
+builds, nine exports undecorated.
+
+### VR-59: a distance can never answer an instance question
+
+The branch is `claude/vr-59-fired-bolt-instance-identity` off the merged
+`VR-Main`. **No PR** - deliberately, on request.
+
+The three radius gates could not close this and were never going to. A bolt fired
+into a surface a metre away is inside all of them on merit. What identified the
+real defect was that the fault behaves COMPLETELY DIFFERENTLY depending on what
+is held: with the crossbow out a fired bolt only inherits its rotation, but with
+the pistol out the bolt jumps onto the aim direction and tracks the pistol - **at
+any distance, near or far.** A fault that reaches an arbitrarily distant instance
+proves no radius was gating it.
+
+**A contract outlives its weapon being stowed, and the instance gate ran only
+when a fresh reference existed.** `g_waMesh` is keyed on buffers and evicted only
+when the table fills. The pass-radius check ran behind
+`if (lastL2WOk && present - lastL2WPresent <= 2)`. Stow the crossbow, the loaded
+bolt stops drawing, that reference goes stale, and **the gate is skipped
+entirely** - while the hand that contract belongs to keeps publishing a fresh
+correction every frame, because the hand is always drawn. The absence of evidence
+was being read as permission.
+
+The dark stub left standing where the bolt landed is the same cause, not a second
+bug: some passes were corrected and the rest were SUPPRESSED by
+`AttachSuppressUnplaced`, whose documented cost is exactly this when it lands on
+a world instance - those colour and lighting passes are the bolt's own, not
+duplicates of anything we drew.
+
+### What replaced them
+
+`dvr::wf::held_instance` in `weapon_frame.h`, pure and fully exercised by
+`frame_test`. Four verdicts, and the ORDER is the authority they carry:
+
+* `STOWED` - that asset is not a live member of that hand in the current
+  component snapshot. **Strong, and it is the engine's own answer**: `FpCollect`
+  walks out from the pawn through the inventory chain only, so a world projectile
+  cannot appear in it however close to the camera it sits.
+* `ELSEWHERE` - a fresh reference exists and this draw is past
+  `AttachPassRadius` from it. Strong.
+* `NO_REF` - nothing has vouched for this geometry for `AttachRefMaxPresents`
+  presents. **Weak on purpose.** It refuses the correction, but it may not
+  release buffers or overrule the relaxed band, because a weapon just re-equipped
+  has a stale contract by definition - treating it as strong would stop a
+  re-equipped sword relocking and would draw a ghost copy while it tried.
+* `HELD` - corrects.
+
+Five levers, `[Hands]`, **all default ON**: `AttachRequireLiveMember`,
+`AttachRequireFreshRef`, `AttachRefMaxPresents=2`, `AttachVetoReleasesBuffers`,
+`AttachInstanceVetoRelaxed`. Each one off restores the pre-VR-59 behaviour of
+that single step, so they A/B alone; the host suite asserts that too.
+
+### Verified on the desk
+
+75 host cases pass (13 new, all on the instance verdict), `tools\lint.ps1` clean,
+Release built and installed, installed DLL hash matches the build. The installed
+ini has `AttachWeapons=1` and `AttachSnapshotMaxMs=100` and none of the five new
+keys, so all five take their ON defaults.
+
+The new cases deliberately hold the DISTANCE inside the radius and vary only the
+instance evidence - a suite that separated them by distance would be testing the
+gate that already failed.
+
+### Next steps
+
+1. **Push `VR-Main`** (`git push origin VR-Main`), then confirm PRs 18-22 closed
+   and VR-30, VR-31, VR-33, VR-51, VR-53 moved to Done.
+2. **A headset run for VR-59.** Fire a bolt into a wall a metre away, look at it,
+   then switch weapons and look again. `wa: instance gates` reports every
+   counter; the line says on itself that ALL ZERO IS THE HEALTHY READING while a
+   weapon is held and drawing, because it counts draws that are not the held
+   instance. A non-zero `stowed` count with the bolt sitting still is the fix
+   working.
+3. **Watch for the regression this could cause**: re-equipping a weapon must
+   still relock, and must not show a ghost copy while it does. That is what
+   `NO_REF` being weak protects, and it is the one thing in this change that
+   trades against the fix.
+4. **VR-49, the 20-90 s settle** (Urgent). The weapon lock is part of it and the
+   decisions are cacheable.
+5. **VR-57, the crosshair** (Urgent). Still head-locked while the weapon points
+   where the hand points. One ray.
+6. **VR-58** (numpad adjust, ModelScale) and **VR-56** (no back faces on the
+   weapon models).
+
+---
+
+## PREVIOUS CURRENT (2026-09-08): VR-33 is DONE and in review
 
 The hands and the held weapons are on the tracked controllers, headset-confirmed
 and stable. The branch is `claude/vr-33-rotation-grip-and-weapons`, twelve

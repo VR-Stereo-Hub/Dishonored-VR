@@ -62,6 +62,69 @@ static inline bool bridge(const Xform& nativeRef, const Xform& drawRef, Xform* k
     return true;
 }
 
+// ---- VR-59: IS THIS DRAW THE HELD INSTANCE? --------------------------------
+//
+// Buffer identity cannot tell two instances of one mesh apart - by design,
+// since that is what lets one identified pass recognise the others. A crossbow
+// bolt standing in the world is the same mesh from the same buffers as the
+// loaded one, and no radius separates them: fired into a wall a metre away it
+// is genuinely near the camera and genuinely near where the loaded bolt draws.
+//
+// So the question is answered from two pieces of evidence that are not
+// distances, and the ORDER of the verdicts matters because they carry
+// different authority:
+//
+//   STOWED    - the engine says that weapon is not in that hand. Strongest:
+//               the component walk reaches only what hangs off the pawn
+//               through the inventory chain, so a world projectile cannot
+//               appear in it however close to the camera it is.
+//   ELSEWHERE - a fresh reference exists and this draw is far from it. Also
+//               strong: two instances of one mesh, and this is not the one
+//               the view model drew this frame.
+//   NO_REF    - nothing has vouched for this geometry recently. This is an
+//               ABSENCE of evidence, not evidence, and it is the normal state
+//               of a weapon just re-equipped. It must refuse the sibling
+//               correction (before VR-59 it silently permitted it, which is
+//               how a bolt in the ground followed whatever was picked up next)
+//               but it must NOT be treated as strongly as the other two.
+enum Instance { INSTANCE_HELD = 0, INSTANCE_STOWED, INSTANCE_ELSEWHERE,
+                INSTANCE_NO_REF };
+
+// `presentsSinceRef` is only meaningful when `refFresh` is true.
+static inline Instance held_instance(bool liveMember, bool requireLiveMember,
+                                     bool refFresh, bool requireFreshRef,
+                                     float passDistance, float passRadius)
+{
+    if (requireLiveMember && !liveMember) return INSTANCE_STOWED;
+    if (refFresh) {
+        if (passDistance > passRadius) return INSTANCE_ELSEWHERE;
+        return INSTANCE_HELD;
+    }
+    if (requireFreshRef) return INSTANCE_NO_REF;
+    return INSTANCE_HELD;
+}
+
+// A verdict that carries positive evidence of a DIFFERENT instance. Only these
+// two may overturn the relaxed view-model band and hand a draw back to the
+// engine untouched; NO_REF may do neither.
+static inline bool instance_strong_veto(Instance v)
+{
+    return v == INSTANCE_STOWED || v == INSTANCE_ELSEWHERE;
+}
+
+static inline bool instance_corrects(Instance v) { return v == INSTANCE_HELD; }
+
+static inline const char* instance_name(Instance v)
+{
+    switch (v) {
+        case INSTANCE_HELD:      return "held";
+        case INSTANCE_STOWED:    return "stowed";
+        case INSTANCE_ELSEWHERE: return "elsewhere";
+        default:                 return "no-reference";
+    }
+}
+
+
 struct Candidate { Xform predicted; int hand, assembly; };
 struct Result { int best; bool ambiguous; float angle, position, scale, score; };
 
