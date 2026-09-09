@@ -313,6 +313,37 @@ static void RflStateTick(void)
         g_rflHeldSocket[i] = heldSock[i];
     }
 
+    // THE EQUIPMENT REVISION, from validated identity. Computed HERE and nowhere
+    // else, because this is the only point in the tick where the read is known
+    // to have succeeded - every failure above returned early, leaving the
+    // revision untouched, which is the "unknown is not empty" rule.
+    {
+        uint32_t sig = 2166136261u;
+        for (int u = 1; u <= 2; ++u) {
+            const uint32_t parts[2] = { (uint32_t)(uintptr_t)g_rflHeldObj[u],
+                                        (uint32_t)g_rflHeldSocket[u] };
+            for (int k = 0; k < 2; ++k) {
+                sig ^= parts[k];
+                sig *= 16777619u;
+            }
+        }
+        if (!g_rflEquipSigOk || sig != g_rflEquipSig) {
+            const bool first = !g_rflEquipSigOk;
+            g_rflEquipSig = sig;
+            g_rflEquipSigOk = true;
+            ++g_rflEquipRev;
+            g_rflEquipRevMs = now;
+            Log("rfl/state: equipment REVISION %u - Primary %p (%s), Secondary "
+                "%p (%s)%s. Keyed on the item OBJECT and its socket, not on the "
+                "class name: two instances of one weapon share a name and the "
+                "component that has to be re-collected belongs to the instance.",
+                g_rflEquipRev, (void*)g_rflHeldObj[1],
+                RflSocketName(g_rflHeldSocket[1]), (void*)g_rflHeldObj[2],
+                RflSocketName(g_rflHeldSocket[2]),
+                first ? " (the first signature this session)" : "");
+        }
+    }
+
     // LOG THE CHANGE, NEVER THE STATE.
     if (strcmp(g_rflState.equip[1], g_rflEquipPrev[1]) ||
         strcmp(g_rflState.equip[2], g_rflEquipPrev[2])) {

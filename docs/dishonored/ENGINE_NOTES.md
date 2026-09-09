@@ -4076,3 +4076,113 @@ they need to separate** - c5 movement cannot tell a pause from a load, dispatch
 flow cannot tell a main menu from gameplay, and a collect cannot tell a
 half-built rig from a finished one. Any future attempt needs a signal that
 distinguishes those pairs directly, not a faster version of one that does not.
+
+
+## WEAPON DRAWS RUN ON THE RENDER THREAD; THE STEREO PASSES RUN ON THE GAME THREAD (2026-09-09)
+
+Measured while trying to hand the re-entry method's eye decision to the weapon
+correction. The attempt executed **zero times in 83,400 corrected draws**
+(`agree 0, DISAGREE 0, no doubled pass to compare 83400`).
+
+The re-entry method re-draws the world twice on the GAME thread (`drawTid=76156`
+in the measured run). The engine queues those commands and replays them - and
+every palette-fed draw with them - on the RENDER thread (`presentTid=79476`).
+There is no stack for a draw hook to look up, and a per-thread marker set around
+the passes can never be seen by the correction.
+
+Consequences for anything built here later:
+
+* A game-thread decision reaches a draw hook only if it is attached to the queued
+  render work itself. A global read across the boundary is not a measurement.
+* `g_sdDoublingNow` (mono versus stereo) is a *latest-state* flag and is coherent
+  as a value, but it does not identify which queued commands are executing. It is
+  adequate for the mono guard, where the state holds for hundreds of consecutive
+  presents, and it is NOT adequate for anything per-frame.
+
+### A number to disregard
+
+An earlier version of that audit reported the eye inference disagreeing with the
+drawing pass 39% of the time. It was read from a bare global across those two
+threads and measures nothing. **Retracted.** It should not be cited.
+
+## THE EYE BEHIND THE WEAPON CORRECTION IS INFERRED, AND "TOO SMALL TO READ" IS NOT "THE SAME EYE" (2026-09-09)
+
+`MpEyeForPresent` in `hands/mesh_split.cpp` decides the eye once per present from
+a sideways step of about one IPD in the draw's own `LocalToWorld`. When the step
+fell inside the dead band it KEPT the previous present's answer. The method
+presents the eyes alternately - 148 tags against 147 presents measured - so
+holding is the one choice guaranteed wrong. Population: 991 of 8,341 presents.
+
+Alternating instead removed the reported weapon flicker in stereo. The instrument
+that counts unreadable presents fell from 31 windows including bursts of 565,
+396, 350 and 293 consecutive presents, to **one window of one present**.
+
+### And the state it was not reasoned about
+
+MONO. One camera means the step is zero on every present, which the band test
+correctly calls unreadable - so alternating flipped the hands by a full IPD every
+single frame, and the four largest windows above were all mono. A mono frame has
+no eye: it now takes no offset and the previous sample is dropped so the next
+pair starts from a clean compare.
+
+### What this does NOT explain
+
+A residual occasional flicker is still reported with the windows empty. The
+instrument records *unreadable* steps, not independently verified wrong-eye
+decisions, so a step the heuristic reads confidently and gets wrong is invisible
+to it. The eye inference is narrowed, not cleared.
+
+## NOBODY OWNS THE CANDIDATE LIST - TWICE (2026-09-09)
+
+The view-model candidate list has two ways to be wrong and had an owner for
+neither.
+
+**EMPTY, after a load.** Dropped when the game leaves gameplay (correct - a load
+destroys the components). Every rebuild trigger in the tree is
+`if (!g_fpCandN) FpCollect()` at a one-shot call site that has already fired: the
+material census (`g_matCensusDone`), the bone-vis scan (`g_bvScanned`), the
+numpad cycler, and skelcontrol's per-frame refresh, which is behind
+`if (!g_handMesh || g_armsHidden) return` and never runs in the shipped
+GamepadOnly configuration. Measured: one collect for a whole session, then
+nothing for the 55 seconds after the second load.
+
+Everything downstream followed and none of it was a separate bug - 0 refs,
+contracts stuck at 0/64, and `2 weapon member(s) and NO bridge anchor`, those
+members coming from the VR-61 equipped-item path which needs no candidate list.
+The recovery could not work either: the no-anchor branch called
+`FpInvalidateCandidates`, whose first line is `if (!g_fpCandN) return`, so it was
+a no-op that logged as though it had acted, once a second, forever.
+
+**STALE, after a weapon swap.** A swap does not empty the list. With the crossbow
+out the list held `[3] 'pArrowMesh_HighRes' asset=bolt_01`; the pistol was
+equipped, a rebuild ran while it was out and returned the pistol's mesh in that
+slot; swapping back to the crossbow triggered nothing, because the list was not
+empty. The bolt's draws kept arriving and kept failing -
+`NEAREST MISS ... 169.241 deg / 11.00 uu | prim 310 verts 257 stride 32`, which
+is the bolt's own geometry signature. The crossbow still attached because the
+equipped-item path supplies the item's mesh and none of its CHILDREN.
+
+### Three things the fix needed, and only the first is obvious
+
+1. A trigger on equipment change. Keyed on the item OBJECT and its socket, not on
+   the class name: two instances of one weapon share a name, and `g_rflState.gen`
+   increments on every successful read rather than on a change.
+2. A SETTLE WINDOW. The equipment event and the creation of the new weapon's
+   child components need not land in the same tick, so a single collect can win
+   the race, return a list with no loaded bolt, and declare success.
+3. The equipped items as COLLECTION ROOTS. The pawn walk reaches an item only
+   when a pointer chain happens to lead there, which is why the pistol never
+   appeared in a snapshot and why the bolt came and went. The bolt is a child of
+   the crossbow, not of the pawn.
+
+### A retirement that could not fire
+
+The stale-contract retirement lives inside `WaVerifyDraw`, so it is only reached
+by a contract whose buffers are still being DRAWN. A weapon that has been put
+away stops drawing, so its contract is never visited: measured as
+`contract 'Wpn_PlyGunElite' hand 0 ... age 12822 ms`, twelve seconds after the
+pistol went away. Retirement by ownership (the component is no longer among the
+candidates and is not an equipped item's own mesh) covers that case. It only ever
+retires - it never widens a radius or relaxes an angle, because an obsolete
+contract does not merely go idle, it BLOCKS adoption of the real one: a refused
+draw returns before the matcher.

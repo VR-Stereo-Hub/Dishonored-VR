@@ -100,6 +100,48 @@ static LONG     g_fpEnsureBuilt = 0;      // rebuilds that produced a usable lis
 static bool     g_fpAutoRecollect = true; // [Hands] AttachAutoRecollect
 static int      g_fpNoAnchorTries = 0;    // FpCollect's anchor retry, resettable
 
+// ---- REFRESH ON A SWAP, NOT ONLY ON AN EMPTY LIST ---------------------------
+//
+// The load fix above gave the list an owner for one state: EMPTY. A weapon swap
+// does not empty it, it makes it STALE, and the measured fault is exactly that.
+//
+// Headset run da1d760d. With the crossbow out the list held the bolt:
+//     handmesh:   [3] 'pArrowMesh_HighRes' asset=bolt_01
+// The pistol was equipped, a rebuild ran while it was out, and the list came
+// back with the pistol's mesh where the bolt had been. Swapping back to the
+// crossbow triggered nothing, because the list was not empty, so the bolt never
+// returned. Its draws kept arriving and kept failing to find anything to verify
+// against:
+//     wa: NEAREST MISS hand 0, closest to 'crossbow_01': 169.241 deg / 11.00 uu
+//         | prim 310 verts 257 start 0 stride 32
+// which is the bolt's own geometry signature from the wa/census line. The
+// crossbow itself still attached, because it comes from the equipped-item path,
+// which supplies the item's own mesh and none of its CHILDREN.
+//
+// TWO THINGS ARE NEEDED AND ONE OF THEM IS NOT OBVIOUS.
+//
+// The first is the trigger: refresh when the equipment revision moves, not only
+// when the list empties.
+//
+// The second is that ONE REBUILD IS NOT ENOUGH. The equipment event and the
+// creation of the loaded bolt component are not promised to happen in the same
+// tick, and a collect that wins the race returns a list with no bolt in it and
+// declares success. So a revision change opens a SETTLE WINDOW: a few more
+// collects over the next couple of seconds, at that revision, so a child that
+// appears late is picked up. Bounded, and it reports what each pass found.
+static uint32_t g_fpEquipRevSeen = 0;     // the revision the published list is for
+static bool     g_fpDirty        = false; // a refresh is wanted
+static char     g_fpDirtyWhy[96] = "";
+static int      g_fpSettleLeft   = 0;     // extra collects owed to this revision
+static double   g_fpSettleMs     = 0.0;   // next one due
+static uint32_t g_fpCandRev      = 0;     // bumped when the published SET changes
+static LONG     g_fpSwapRefresh  = 0;     // refreshes caused by a swap
+static bool     g_fpEquipRoots   = true;  // [Hands] AttachCollectEquippedRoots
+// How many extra collects a revision change is worth, and how far apart. Five at
+// 400 ms covers two seconds, which is longer than any swap animation measured.
+static int      g_fpSettleTries  = 5;     // [Hands] AttachSwapSettleTries
+static double   g_fpSettleGapMs  = 400.0; // [Hands] AttachSwapSettleGapMs
+
 static const char* FpAssetName(uint8_t* comp);
 static uint8_t* FpPawn();
 static void FpComputePivots();

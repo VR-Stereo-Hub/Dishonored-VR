@@ -130,3 +130,29 @@ static const char* RflSocketName(int v)
 // verified against instead of another weapon's.
 static uint8_t* g_rflHeldObj[3] = {};
 static int      g_rflHeldSocket[3] = {};
+
+// ---- THE EQUIPMENT REVISION -------------------------------------------------
+//
+// A number that changes when what is in the hands changes, and at no other time.
+// It exists because the candidate list has to be refreshed on a swap, and the
+// three things already available are all wrong for that job:
+//
+//   * the CLASS NAME comparison the equipment log uses. Two instances of the
+//     same weapon are the same string and a different object, and the component
+//     that must be re-collected belongs to the object.
+//   * g_rflState.gen, which increments on every successful READ, four times a
+//     second, whether anything changed or not.
+//   * the equip[] strings, same problem as the first.
+//
+// So the signature is built from VALIDATED OBJECT IDENTITY - the item pointer
+// each hand holds and the socket it reports - and the revision moves only when
+// that signature does.
+//
+// A FAILED READ IS UNKNOWN, NOT EMPTY. The signature is only recomputed where
+// the state read succeeded; a tick that could not resolve the inventory leaves
+// the revision exactly where it was, so a momentary read failure cannot be
+// mistaken for the player putting everything away.
+static uint32_t g_rflEquipSig   = 0;      // hash of the validated identities
+static uint32_t g_rflEquipRev   = 0;      // bumped when the signature changes
+static double   g_rflEquipRevMs = 0.0;    // when, for the settle window
+static bool     g_rflEquipSigOk = false;  // a signature has ever been computed

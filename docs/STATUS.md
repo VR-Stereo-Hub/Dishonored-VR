@@ -1,5 +1,79 @@
 # Status
 
+## CURRENT (2026-09-09, later): attachment fixed twice; the flicker narrowed
+
+Branch `claude/vr-62-startup-phase-timing`, pushed, **not merged, no PR**.
+`VR-Main` is still at `b38519c3`. Last headset-tested build was
+`vr33-hands-working-54-gda1d760d`; the build after it is not yet tested.
+
+### Headset-confirmed this session
+
+| What | Result |
+|---|---|
+| Weapons never attached after a second load | **FIXED** - attaches instantly on every load |
+| Weapon flicker in stereo | **Largely gone** - the unreadable-step instrument fell from 31 windows with bursts of 565/396/350/293 presents to one window of one present |
+| Hands flickering in mono | **FIXED** - a regression this session, caused and corrected in the same session |
+| Mono window after a load | 2.1-2.3 s, against 24 s when VR-62 opened |
+
+### Falsified this session, and one number retracted
+
+Taking the weapon eye from the drawing pass executed **zero times in 83,400
+draws**. The stereo passes run on the GAME thread and the palette draws on the
+RENDER thread, so there is no stack to look up. The lever stays, default OFF and
+inert, as the record. **The 39% disagreement figure reported earlier came from
+reading a bare global across those two threads and is retracted** - it should not
+be cited. ENGINE_NOTES carries all of it.
+
+### Not yet tested: the bolt after a weapon swap
+
+Reported: equip the pistol, switch back to the crossbow, and the **loaded bolt**
+is unattached in its default position. Everything else stays attached.
+
+Same class of fault as the load one, one level down. The list has an owner for
+EMPTY and had none for STALE. Three things were needed and only the first is
+obvious - an equipment-change trigger keyed on the item OBJECT rather than its
+class name, a SETTLE WINDOW because the child component need not exist in the
+same tick as the equipment event, and the equipped items as COLLECTION ROOTS
+because the bolt is a child of the crossbow and not of the pawn. Plus retirement
+of contracts by ownership, since the existing retirement can only be reached by a
+contract whose buffers are still being drawn.
+
+New levers, all default ON: `[Hands] AttachCollectEquippedRoots`,
+`AttachSwapSettleTries=5`, `AttachSwapSettleGapMs=400`.
+
+### The residual flicker, stated precisely
+
+> The unreadable-step fallback is substantially less active in the tested build.
+> Residual flicker remains unexplained. The instrument does not independently
+> verify every inferred eye.
+
+It records *unreadable* steps, not verified wrong-eye decisions, so a step the
+heuristic reads confidently and gets wrong is invisible to it. The eye inference
+is NARROWED, not cleared. Uninvestigated signals already in the log: the method's
+`pushed eye +1 TWICE in a row` warning, which over-claims (its predicted
+`abortLeft` stayed 0 and only 4 stale-eye submits occurred all session); the tag
+ring's `realigned 97 times, 3855 agree / 296 disagree`; and
+`UNEVEN CADENCE: 1.18 display slots per frame` at 147-162 presents/s against
+90 Hz, which `vrpace sync <hz>` can A/B and never has been.
+
+### VR-62 itself
+
+Untouched behaviourally. Both falsified levers stay OFF (`[Menu]
+GhostClearByRate`, `[Stereo] GateOnSceneLive`). The UI probe found
+`bMovieIsOpen` and remains observation-only: several movie objects read open
+persistently during gameplay, so "some movie is open" is not a blocking-menu
+test. The per-class census in the log is the raw material for that and has not
+been analysed.
+
+### Next steps
+
+1. Headset-test the bolt-after-swap fix (sequence in the session notes).
+2. File a Linear ticket for the bolt fault, separate from VR-62.
+3. Only then, the residual flicker - starting with what it affects, not with
+   another correction.
+
+---
+
 ## CURRENT (2026-09-09): VR-62 - the mono window, three attempts falsified
 
 **`VR-Main` is at `b38519c3`. VR-59, VR-60 and VR-61 are merged and Done.** The

@@ -113,6 +113,8 @@ static bool UiCommand(const char* args);
 // VR-62: the startup scoreboard (startup.cpp). Read-only, present thread.
 static void FpInvalidateCandidates(const char* why);
 static void FpEnsureCandidates(const char* why);
+static void FpMarkDirty(const char* why);
+static void WaRetireContractsNotIn(const char* why);
 static void WaInvalidateContracts(const char* why);
 static void SuBeginLoad(void);
 static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict);

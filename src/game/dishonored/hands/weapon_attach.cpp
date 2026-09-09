@@ -496,6 +496,62 @@ static void WaInvalidateContracts(const char* why)
 }
 
 
+// RETIRE BY OWNERSHIP, NOT BY HAND.
+//
+// The stale-contract retirement above lives inside WaVerifyDraw, so it only ever
+// fires for a contract whose buffers are still being DRAWN. A weapon that has
+// been put away stops drawing, so its contract is never visited and never
+// retired: the measured run carried `contract 'Wpn_PlyGunElite' hand 0 ... age
+// 12822 ms` twelve seconds after the pistol went away, holding a slot and
+// reading as though it were alive.
+//
+// Clearing every contract on the affected hand would be the easy version and it
+// would introduce a new gap - the sword shares a hand with nothing and has no
+// reason to be dropped because the other hand swapped. So this retires exactly
+// the contracts whose COMPONENT is no longer among the candidates: the component
+// is the instance the contract was matched to, and a component that is not in
+// the refreshed list cannot vouch for any draw.
+//
+// It only ever RETIRES. It does not widen a radius, relax an angle, or let a
+// draw through unverified - the point is to stop an obsolete contract blocking
+// the adoption of the real one, not to make matching easier.
+static void WaRetireContractsNotIn(const char* why)
+{
+    if (!g_waMeshN) return;
+    int retired = 0;
+    for (int i = 0; i < g_waMeshN; ++i) {
+        WaMesh* w = &g_waMesh[i];
+        if (!w->vb || !w->compObj) continue;
+        bool present = false;
+        for (int k = 0; k < g_fpCandN && !present; ++k)
+            if ((void*)g_fpCand[k].obj == w->compObj) present = true;
+        // The equipped item's own mesh never enters the candidate list - it is
+        // added to the snapshot directly by the VR-60 path - so a contract on
+        // one of those is still perfectly valid and must be left alone.
+        if (!present) {
+            for (int u = 1; u <= 2 && !present; ++u) {
+                uint8_t* item = g_rflHeldObj[u];
+                if (!item || !LooksLikeObj(item)) continue;
+                const uint32_t mOff =
+                    RflOffsetOf("DishonoredInventoryItem", "m_pPlayerMesh");
+                if (!mOff || !RangeReadable(item + mOff, sizeof(void*))) continue;
+                if (*(uint8_t**)(item + mOff) == (uint8_t*)w->compObj) present = true;
+            }
+        }
+        if (present) continue;
+        Log("wa: retiring the contract for '%s' on hand %d - %s, and its "
+            "component %p is not in it and is not an equipped item's own mesh. "
+            "An obsolete contract does not merely go idle, it BLOCKS the "
+            "adoption of the real one, because a refused draw returns before the "
+            "matcher. Placed %ld, refused %ld before this.",
+            w->asset, w->hand, why, w->compObj, w->placed, w->refused);
+        w->vb = NULL; w->ib = NULL; w->compSeenOk = false;
+        ++retired;
+    }
+    if (retired) InterlockedExchangeAdd(&g_waDroppedStale, (LONG)retired);
+}
+
+
 static dvr::wf::Instance WaVerifyDraw(const WaMesh* w, const MpDrawCtx* c2,
                                       float* offsetOut, dvr::wf::InstanceRef* refOut)
 {

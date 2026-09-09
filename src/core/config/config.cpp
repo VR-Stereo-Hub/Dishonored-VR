@@ -1264,6 +1264,21 @@ static void LoadConfig()
     // the time a load empties the list, and the weapons never attach again for
     // the rest of the session. The key exists so the two compare directly.
     g_fpAutoRecollect = IniFloat(ini, "Hands", "AttachAutoRecollect", 1) != 0.0f;
+    // Walk the equipped items as collection roots as well as the pawn. OFF
+    // returns to the pawn walk alone, which reaches an item's children only when
+    // a pointer chain happens to lead there - the crossbow's loaded bolt came
+    // and went with that luck.
+    g_fpEquipRoots = IniFloat(ini, "Hands", "AttachCollectEquippedRoots", 1) != 0.0f;
+    // How many extra collects a weapon swap is worth, and how far apart. The
+    // equipment event and the new weapon's child components do not have to
+    // appear in the same tick, so one rebuild can win the race and return a list
+    // with no loaded bolt in it. 0 disables the settle window.
+    g_fpSettleTries = (int)IniFloat(ini, "Hands", "AttachSwapSettleTries", 5);
+    if (g_fpSettleTries < 0)  g_fpSettleTries = 0;
+    if (g_fpSettleTries > 30) g_fpSettleTries = 30;
+    g_fpSettleGapMs = IniFloat(ini, "Hands", "AttachSwapSettleGapMs", 400.0f);
+    if (g_fpSettleGapMs < 50.0)   g_fpSettleGapMs = 50.0;
+    if (g_fpSettleGapMs > 5000.0) g_fpSettleGapMs = 5000.0;
     // VR-16: take the eye from the pass that is drawing instead of inferring it
     // from a jump in LocalToWorld. ON since the audit measured the inference
     // disagreeing with the drawing pass 39% of the time, steadily, on the draws
