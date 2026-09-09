@@ -177,6 +177,22 @@ write-up and is `shared`, and `hmd 25.00 ms` is `predictedDisplayPeriod`, which
 OpenXR does not require to equal the panel's refresh - so it is not evidence the
 panel runs at 40 Hz, and slot-occupancy ratios built on it are not physical.
 
+### And one instrument whose FAILURE was the useful result (VR-68, 2026-09-09)
+
+Worth recording because it is the opposite of everything above. The first
+head/view instrument returned a clean zero - generation gap 0 on every frame,
+under 0.1 deg in 87 of 100 windows - and it was **near-circular**: both values it
+compared derived from `g_hmdYaw` around the same pose consume, so it could only
+ever have caught a lane split that does not exist.
+
+That zero was not a dead end. It named the pair that HAD to be compared instead:
+fresh against **RENDERED**, not fresh against fresh. The replacement found the
+answer at ten times the confidence.
+
+> **A negative from an instrument you understand is worth more than a positive
+> from one you do not.** But check for circularity BEFORE the headset run, not
+> after - this one cost a run to discover.
+
 The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 
 > A counter is not evidence until you know its population. A measurement carries

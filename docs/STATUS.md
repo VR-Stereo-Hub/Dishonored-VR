@@ -1,5 +1,75 @@
 # Status
 
+## CURRENT (2026-09-09, evening): the WEAPON judder is fixed too
+
+**`[Hands] PoseLag=2`.** Headset-confirmed by a reversing A/B/A/B. The tester's
+verdict was that it fixed the weapon judder completely and the game is smooth
+even with the throughput deficit still open.
+
+Installed and known-good: 2750x2850, `VirtualMode=1`, `[Pace] Lag=2`,
+`[Hands] PoseLag=2`, 80 Hz, spacewarp off.
+
+### The fault
+
+The engine renders a frame from the head **two locate generations back** - the
+same fact that put `[Pace] Lag=2` in place for the world. `MpDriveTick`
+normalised the hand against the **freshest** head, so the hand was expressed
+relative to one head and planted in a view built from another. The residual is
+two generations of head rotation.
+
+`Lag=2` did not create it. It **revealed** it, by taking the world's judder away.
+
+### How it was found, in order
+
+1. **A motion matrix, no code.** Head rotation showed it; a stick turn did not.
+   That last row is the discriminator: a stick turn moves the game camera without
+   moving the head, so controller sampling and viewmodel animation are excluded.
+2. **The first instrument was near-circular and returned a clean zero.** It
+   compared the head stamped at the pose consume against the head the camera
+   write snapshotted - both derived from the same consume. Generation gap 0 on
+   every frame. The negative result is what named the correct pair: fresh versus
+   **RENDERED**, not fresh versus fresh.
+3. **A lag finder settled it.** Mean `|dB - dHead|` over 4085 moving frames:
+   lag0 1.190, lag1 2.406, **lag2 0.119**, lag3 2.405, lag4 1.192 deg. Ten times
+   clear, with a clean V around the minimum. It compares **deltas only**, because
+   the camera basis is game space and the head is XR space and differencing those
+   is what produced two retracted numbers here.
+
+### Performance: measured, and two candidates falsified
+
+Open, and tracked as VR-67. What is now known:
+
+* **The runtime's period is not fixed and nothing could see it before.** One run
+  was asked for 40 fps (25 ms), the next for 80 (12.50 ms). Every change is now
+  logged; that run showed zero changes.
+* **At 80 Hz the app delivers 57-80 of 80**, matching the reported 60-70 in the
+  hub. GPU 7.7-12.4 ms per tick against a 12.5 ms budget.
+* **The worst window is not obviously pixel-bound**: 57/s, 17.5 ms tick, GPU
+  12.4 ms, but render-thread R 11.6 ms + desktop Presents 4.8 ms against a
+  **0.1 ms** pacing wait. CPU/driver/synchronisation is not cleared.
+* **Falsified**: the FrameId render-target readback, and D3D9Ex maximum frame
+  latency at 1/2/3. Both inside the noise floor on median, tail and hitch count.
+* **All gameplay hitches sit in the submission tail** (`xrEndFrame`), 19 of 19 in
+  the last measured run. Where a wait is observed does not name what caused it -
+  that call takes a mutex and can wait on the previous submission and on D3D11
+  synchronisation, so our own GPU work can be charged to it.
+
+`docs/dishonored/PERF_PLAN_2.md` and `PERF_REVIEW_2.md` carry the full record,
+including four claims made and retracted along the way.
+
+### Next steps
+
+1. VR-67, the throughput deficit. Start with the 57/s window's split, not with a
+   resolution change.
+2. Finish the instrument repairs in `PERF_REVIEW_2.md` section 11 - the GPU span
+   still subtracts an interval it does not contain, and the D3D11 bridge is
+   unmeasured.
+3. VR-64, the weapon swap flicker. The `wa/key:` instrument has shipped and has
+   never been read.
+4. VR-57 the crosshair (Urgent), VR-58, VR-56.
+
+---
+
 ## CURRENT (2026-09-09, late): the head-turn judder is FIXED
 
 **`[Pace] Lag=2`.** Headset-confirmed. The tester's summary was that the game

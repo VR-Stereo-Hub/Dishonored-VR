@@ -5,6 +5,18 @@ revises this draft against the original log and active pose/weapon paths.
 Its conclusions and test order supersede the proposals below; this draft is
 retained as review input.
 
+## ANSWERED (2026-09-09): the weapon judder is FIXED, `[Hands] PoseLag=2`
+
+The lag finder put the rendered camera at **lag 2** - mean `|dB - dHead|`
+0.119 deg against 1.190 at lag 0 and 2.406 at lag 1, over 4085 moving frames,
+with a symmetric V around the minimum. The hand was normalised against the
+freshest head. A reversing A/B/A/B in the headset confirmed the fix completely.
+
+ENGINE_NOTES carries the mechanism, the numbers and the fix. The performance
+half of this document (section 4) is still OPEN and is VR-67.
+
+---
+
 ## RESULT: the head/view candidate is DEAD as measured, and the target is sharper (2026-09-09)
 
 The motion matrix came back with the world judder's signature - head rotation
