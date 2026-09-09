@@ -1,5 +1,76 @@
 # Status
 
+## CURRENT (2026-09-09, late): the head-turn judder is FIXED
+
+**`[Pace] Lag=2`.** Headset-confirmed. The tester's summary was that the game
+feels an order of magnitude better to play, and smooth enough that synchronous
+spacewarp works well on top of it. This was the oldest and most damaging
+complaint in the mod.
+
+Merged to `VR-Main`. Installed and known-good: `vr33-hands-working-65-gd89beb93`
+with `[Pace] Lag=2`, `[Stereo] LagAB=0`, 2750x2850, VirtualMode=1, 60 Hz.
+
+### Why
+
+The pose submitted with an eye image is chosen from a history of located views by
+a fixed generation offset. The old offset of 1 was calibrated against BioShock 1's
+SINGLE-THREADED renderer; this game has a separate render thread and a delayed
+D3D9 capture stage, so the pixels reaching the compositor are one generation
+older than that assumption and the pose described a head that had already moved.
+
+Only a PHYSICAL turn showed it because the compositor reprojects for head motion
+alone. Measured by switching it live in one run: the submitted orientation sat
+0.119-1.079 deg from the sample the camera consumed under lag 1, and 0.000-0.040
+deg across a full twenty seconds of lag 2 at head speeds to 106.6 deg/s, then
+returned to 0.47 within two seconds of lag 1 coming back. The tester felt the
+same three phases in the same order without being told which was which.
+
+### Two wrong turns worth not repeating
+
+**An ini key that exists beats every compiled default.** Two builds changed the
+default from 1 to 2 and then to 0; the installed ini names `Lag=1`, the loader
+reads a default only when the key is ABSENT, and both ran at lag 1. Their results
+were read as the new value failing, and pose selection was wrongly declared
+eliminated. The loader now logs the effective value and whether the ini overrode
+it.
+
+**Submit cadence was not the cause.** The tester falsified it directly: buttery
+smooth at 61-72 submits/s with an inconsistent presentation rate, the same
+cadence that had juddered.
+
+### Open, and honest about it
+
+* The camera record still does not guarantee it holds the sample the camera was
+  calculated from - both writers calculate from the loose globals and consume the
+  coherent sample afterwards. The signature was fixed; the callers were not.
+* `g_viewsGen` is stamped one increment behind.
+* The render leg - what rendering actually consumed - was never obtained; the
+  world view-projection is still unidentified. `c0..c3` is uploaded ~33 times per
+  view and the block sampled was not a perspective world view.
+
+The fix stands on a measured mechanism and a reversing A-B-A, not on those.
+
+### The resolution ask is NOT honoured - do not retry by editing a key
+
+Raising the render size to 3200x3300, then 3190x3306 with BOTH the mod ini and
+the game's own `DishonoredEngine.ini` written directly, produced a fullscreen
+2560x1440 device both times. The mod advertised the mode correctly and the game
+never asked for it. Something outside both files supplies 2560x1440 - a stale
+command line or Steam launch option is the leading suspect and is UNCHECKED.
+2750x2850 is restored. ENGINE_NOTES carries the log evidence.
+
+### Next steps
+
+1. VR-64, the weapon swap flicker. The `wa/key:` instrument naming which of the
+   fourteen contract key fields differs on a re-match has shipped and has never
+   been read.
+2. Repair the three instrument defects above, so the next pose question can be
+   answered by measurement rather than by an A/B.
+3. Find what supplies 2560x1440 before anyone raises the render size again.
+4. VR-57 the crosshair (Urgent), VR-58, VR-56.
+
+---
+
 ## CURRENT (2026-09-09, later): attachment fixed twice; the flicker narrowed
 
 Branch `claude/vr-62-startup-phase-timing`, pushed, **not merged, no PR**.

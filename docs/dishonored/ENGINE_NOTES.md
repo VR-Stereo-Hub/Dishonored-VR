@@ -4186,3 +4186,248 @@ candidates and is not an equipped item's own mesh) covers that case. It only eve
 retires - it never widens a radius or relaxes an angle, because an obsolete
 contract does not merely go idle, it BLOCKS adoption of the real one: a refused
 draw returns before the matcher.
+
+
+## THE POSE TRACE, AND TWO NUMBERS THAT MUST NOT BE CITED (VR-65, 2026-09-09)
+
+Recorded because both numbers were produced by an instrument of this project's
+own making, and both were quoted before they were checked.
+
+### RETRACTED: "the eye inference disagreed with the drawing pass 39% of the time"
+
+Read from a bare global across two threads. The stereo passes run on the GAME
+thread and the palette draws on the RENDER thread, so the value being read was
+never the one being claimed. It measured nothing.
+
+### RETRACTED: "the submitted pose is 51 degrees away from the rendered one"
+
+Two faults at once. It differenced a UE world camera yaw against an XR
+tracking-space yaw - different spaces, not comparable, and the game camera's yaw
+carries body and thumbstick rotation the tracking pose never sees. On top of
+that the mod publishes head yaw negated at the pose-lane seam, which doubled the
+answer. `2 x yaw` is exactly what the log showed.
+
+### AND THE SIGN-CORRECTED NEAR-ZERO IS NOT EVIDENCE EITHER
+
+After correcting for sign the two agreed to within 0.08 degrees, which looks like
+a clean bill of health and is not one. The record read the LIVE head globals at
+draw time - whatever the Present thread last wrote - and compared them against a
+pose derived from that same input. **Two values derived from one input agree by
+construction.** The repo already had the coherent alternative and it was not
+used: `g_injHmdYawSnap` / `g_injHmdPitchSnap` / `g_injHmdGen` / `g_injSnapOk`,
+"the HMD orientation AS OF the last camera write", added for blink for exactly
+this reason.
+
+### What DID hold
+
+The self-arming negative control worked: injecting +4.0 deg moved the recorded
+sample by +4.16 and the reported error by -4.32. That demonstrates the comparison
+responds to an angle. **It demonstrates nothing about whether the sample is the
+one rendering used** - sensitivity to a perturbation is not correctness of the
+input.
+
+Record transport also held: 112 join lines with `expired 0 missing 0`, so the id
+survives the pipeline with a 64-entry ring. A successful lookup proves the record
+was AVAILABLE. It does not prove the FIFO associated it with the right image.
+
+### The design that replaced it
+
+Three records, never mixed: what the camera was TOLD (published as one unit at
+the camera write, sample and resulting camera together), what rendering ACTUALLY
+consumed (the c0..c3 view-projection, read on the render thread), and what OpenXR
+was TOLD (per eye). Only camera-versus-render can clear the hypothesis.
+
+Two things the first version got wrong structurally and that are worth not
+repeating:
+
+* **A compiler barrier and an id check are not cross-thread synchronisation.**
+  `_ReadWriteBarrier()` orders nothing between threads, and an id check cannot
+  stop a slot being overwritten while a reader copies out of it. Records are
+  behind a lock now, copied out, never handed back as a pointer.
+* **The audit compared whichever record arrived last against the LEFT submitted
+  view**, regardless of which eye the record described. Each eye is compared
+  against its own view now, and an untagged record reports unknown.
+
+### The render observation does not assume a matrix layout
+
+c0..c3 is rebuilt from however the engine batches it - the c5 handling already
+learned that lesson when a device reset made the engine batch c5 into a wider
+block and a seam matching only `startReg==5` went blind for a whole run. The
+multiplication convention is then MEASURED from the game's own numbers: probe
+directions around the observed camera position are projected under both
+conventions, and the one that yields usable w values for a plausible fraction of
+a ring is the layout. If neither validates, the render side reports nothing
+rather than falling back to a guess, because a guessed layout produces a
+confident number about the wrong matrix.
+
+The yaw itself is found by search rather than decomposition: the world direction
+that projects to the screen centre is where the camera looks.
+
+
+## AN INI KEY THAT EXISTS BEATS EVERY COMPILED DEFAULT (VR-65, 2026-09-09)
+
+Recorded because it invalidated two headset tests and produced a conclusion that
+was not merely wrong but backwards.
+
+`[Pace] Lag` was changed in the source from 1 to 2, shipped, tested, and reported
+as juddering. Then to 0, shipped, tested, reported as juddering. On that basis
+pose-history selection was declared eliminated - all three arms tried, all three
+failed.
+
+**None of those builds changed anything.** The installed `dishonored_vr.ini`
+contains an explicit `Lag=1`, and the loader reads a compiled default ONLY when
+the key is absent. The file was dated the previous day, `install.ps1` copies
+binaries and does not touch it, and the generated default ini writes `Lag=1` too.
+Both "fixed lag" tests ran at lag 1.
+
+The A/B sequencer was unaffected because it stores into the atomic at runtime,
+which is why cycling appeared to work while a "fixed" value did not - and that
+apparent contradiction was written up as an unexplained correlation with the
+sequencer's mere presence, complete with speculation about atomic-store side
+effects and logging timing. All of it was a config file the instrument never read
+back.
+
+### The rules this cost
+
+* **A build that changes a compiled default has changed nothing on a machine
+  whose ini names that key.** Verify the EFFECTIVE value from the log, not the
+  intended one.
+* **The log must print what a lever resolved to and where it came from.** This
+  one printed the selected arm per submitted frame (`chosen by lag arm N`) and
+  that field was correct all along - it went unread, because the source diff
+  looked like proof.
+* An A/B that writes at runtime and an ini that writes at load are different
+  mechanisms. A result from one says nothing about the other.
+
+### And the measurement that was there the whole time
+
+Sampled against the same run, the recorded orientation difference tracked the
+sequence exactly: 0.119-1.079 deg while lag 1 was selected, 0.000-0.040 deg
+across the whole twenty seconds of lag 2 - at head speeds up to 106.6 deg/s, so
+not a still interval - and back to 0.473 and 0.403 deg within two seconds of
+returning to lag 1.
+
+That was averaged across the transitions and reported as "nothing in the log
+distinguishes the phases". **Averaging over a variable that is being deliberately
+switched destroys exactly the signal the switch was there to produce.**
+
+A 0.3 degree error was also dismissed as too small to see. At 2750x2850 per eye
+it is roughly five pixels near the centre of the image.
+
+
+## THE HEAD-TURN JUDDER WAS A POSE ONE GENERATION TOO NEW (VR-65, SOLVED 2026-09-09)
+
+The oldest and most damaging complaint in this mod. Static world geometry
+juddered and ghosted on any physical head turn; thumbstick turning with the head
+still was clean, and so was very slow head motion at a locked rate.
+
+**`[Pace] Lag=2`.** Headset-confirmed, and the tester's own summary was that the
+game feels an order of magnitude better to play, smooth enough that synchronous
+spacewarp now works well on top of it.
+
+### Why that value, and why the old one was wrong
+
+The pose submitted with an eye image is chosen from a history of located views by
+a fixed generation offset. The historical offset of 1 was calibrated against
+**BioShock 1's single-threaded renderer**. This game has a separate render thread
+AND a delayed D3D9 capture stage on top of it, so the pixels reaching the
+compositor are one generation older than that assumption, and the pose submitted
+with them described a head that had already moved on.
+
+That is exactly why only a PHYSICAL turn showed it. The compositor reprojects for
+head motion alone: a pose from the wrong moment costs head speed times the error,
+costs nothing while the head is still, and costs nothing for a view turned with
+the stick because that rotation is baked into the image and never reprojected.
+
+### The measurement, taken by switching it live inside one run
+
+| Selected | orientation difference, submitted vs the sample the camera consumed |
+|---|---|
+| lag 1 | 0.119 - 1.079 deg |
+| **lag 2** | **0.000 - 0.040 deg**, across a full 20 s, at head speeds to 106.6 deg/s |
+| lag 1 again | 0.473 deg, then 0.403, within two seconds |
+
+The tester felt the same three phases in the same order without being told which
+was which. An A-B-A that reverses is what makes it a result rather than a
+coincidence.
+
+### Two things that were wrongly ruled out on the way, and how
+
+**"All three lag values were tried and all juddered."** They were not. The
+installed ini names `Lag=1`, and the loader reads a compiled default ONLY when
+the key is absent, so two builds that changed that default changed nothing on
+this machine and both ran at lag 1. Their results were then read as the new value
+failing. The loader now logs the EFFECTIVE value and whether the ini overrode it;
+the per-frame field `chosen by lag arm N` was correct throughout and went unread.
+
+**"The submit rate is the cause - 68 pairs against 90 Hz slots."** Falsified by
+the tester, who ran it again and reported buttery smoothness at 61-72 submits/s
+with an inconsistent presentation rate - the same cadence that had juddered.
+Cadence matching is not what fixed this. It is worth keeping straight because the
+smooth run was ALSO at 60 Hz with a near-perfect 56-of-60 fill, which made the
+cadence story look right for the wrong reason.
+
+**A 0.3 degree error is not too small to see.** At 2750x2850 per eye it is
+roughly five pixels near the centre of the image. It was dismissed as invisible.
+
+### The instrument mistakes this ticket cost, all one class
+
+Every one was a number that could not mean what it appeared to mean:
+
+* a 39% disagreement read from a bare global across two threads - retracted
+* a 51-degree error differencing a UE world yaw against an XR tracking yaw, then
+  doubled by a sign convention - retracted
+* a near-zero produced by comparing a camera against the head values that camera
+  was built from - circular by construction
+* the render-side observation reading whichever `c0..c3` block came last, at
+  33 uploads per view, so it was some shadow or interface matrix whose implied
+  yaw sat at a constant 119 degrees
+* controls that reported `passed 0 FAILED 0` for three builds running, because
+  they were phased on records opened rather than checks performed, and then
+  gated behind a leg that refused
+
+**And the signal was in the log the whole time.** The orientation difference
+tracked the switched variable exactly; it was averaged across the transitions and
+reported as "nothing in the log distinguishes the phases". Averaging over a
+variable that is being deliberately switched destroys the signal the switch
+exists to produce.
+
+### Still open
+
+* The camera record does not yet guarantee it holds the sample the camera was
+  calculated from: both writers still calculate from the loose `g_hmd*` globals
+  and call `HtConsumeSample` afterwards. The signature was changed; the callers
+  were not fixed.
+* `g_viewsGen` is stamped one increment behind, so identical poses can appear to
+  carry different generation ids.
+* The render leg - what rendering actually consumed - was never obtained. The
+  world view-projection has not been identified.
+
+None of those block the fix. All of them limit what the diagnostic can prove
+about rendered pixels, and they are why this is recorded as a confirmed
+workaround with a measured mechanism rather than a fully verified root cause.
+
+## THE RESOLUTION ASK IS NOT HONOURED BY EDITING EITHER INI (VR-65, 2026-09-09)
+
+Raising `[Screen] RenderWidth/RenderHeight` to 3200x3300, and then to 3190x3306
+with both the mod ini and the game's own `DishonoredEngine.ini` written directly,
+produced a fullscreen 2560x1440 device both times - half the 5120x1440 desktop,
+and visibly low resolution.
+
+The mod's side worked. The log shows the mode advertised and handed over:
+
+```
+res: handed the game our 3200x3300@240 mode (slot 112)
+res: CreateDevice - the game asked for 2560x1440 windowed=0 fmt=21
+res: VirtualMode is on but the game asked fullscreen 2560x1440, not the
+     3200x3300 it was handed
+```
+
+**The game never asked for the advertised mode.** Writing `ResX`/`ResY` in
+`DishonoredEngine.ini` did not change that either, so something outside both
+files decides the size - a stale command line or launch option is the leading
+suspect and has not been checked.
+
+2750x2850 is restored in both files and is the known-good state. Anyone raising
+this should start by finding what supplies 2560x1440, not by editing a
+resolution key again.

@@ -36,6 +36,42 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
                             startReg, count, c5[0], c5[1], c5[2]);
     }
 
+    // ---- VR-65: THE RENDER OBSERVATION -------------------------------------
+    //
+    // The only evidence in the pose chain that does not descend from the mod's
+    // own intent: the view-projection the draws actually consume, read on the
+    // RENDER thread after every queue, thread hop and camera write.
+    //
+    // THE FIRST VERSION PUBLISHED THE WRONG MATRIX, and the run said so plainly:
+    // 901,338 c0..c3 uploads against 27,284 views, thirty-three per view. c0..c3
+    // is not one world view-projection - it is re-uploaded per pass and per
+    // object, and "the last one seen" was some shadow or UI matrix whose implied
+    // yaw sat at a constant 119 degrees while the camera swung between 29 and 80.
+    // The 39-degree disagreement that produced is an artefact of picking the
+    // wrong matrix and must not be read as a finding.
+    //
+    // So the block is tied to c5 instead. c5 is the render-side camera position
+    // of the world pass - the frame-map ABI this project already trusts for the
+    // stereo pairing - so the view-projection in effect AT THE c5 UPLOAD is the
+    // world one, by the same argument that makes c5 itself meaningful. If they
+    // arrive in one wide block, both come out of that block.
+    //
+    // PARTIAL UPLOADS COUNT. The c5 handling above already learned this: after a
+    // device reset the engine batched c5 into a wider block and a seam matching
+    // only startReg==5 went blind for a whole run.
+    if (data && startReg < 4 && startReg + count > 0) {
+        const UINT last = startReg + count;
+        for (UINT r = startReg; r < (last < 4 ? last : 4); ++r) {
+            memcpy(&g_vpRows[r * 4], data + (r - startReg) * 4, sizeof(float) * 4);
+            g_vpRowSeen |= (1u << r);
+        }
+        ++g_vpUploads;
+    }
+    // The camera position for the world pass just arrived: whatever c0..c3 holds
+    // now is the matrix that pass will draw with.
+    if (data && startReg <= 5 && startReg + count > 5 && g_vpRowSeen == 0xF)
+        dvr::pose::note_render_vp(g_vpRows, g_camPosC5, true);
+
     // ---- 30.70: live rig census + the stepped identifier -------------------
     // One unguarded increment per skinned upload (render thread only, no lock,
     // no logging) - this is the cheap kind of instrumentation, and it is what

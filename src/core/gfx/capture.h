@@ -101,6 +101,12 @@ uint32_t    reinits();
 // counts grabs; delivered_serial() says which grab's pixels texture() holds.
 void     set_pending_tag(int eyeSign);
 int      delivered_tag();
+// VR-65: the pose record the frame being grabbed was RENDERED with, and the
+// record belonging to the content the last grab DELIVERED. Under SharedWait=0
+// those differ by a present, which is exactly the gap that makes choosing a
+// pose by timing at submission unsafe. 0 means no record travelled with it.
+void     set_pending_rec(uint32_t rec);
+uint32_t delivered_rec();
 uint32_t delivered_serial();
 uint32_t serial();
 // 41.1 (session 9): the slot the delivered pixels sit in (shared: 0|1;

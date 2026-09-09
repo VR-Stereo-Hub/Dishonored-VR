@@ -1269,6 +1269,24 @@ static void LoadConfig()
     // a pointer chain happens to lead there - the crossbow's loaded bolt came
     // and went with that luck.
     g_fpEquipRoots = IniFloat(ini, "Hands", "AttachCollectEquippedRoots", 1) != 0.0f;
+    // On a candidate refresh, retire only contracts whose component is DEAD.
+    // A stowed weapon's component is alive and keeps its contract, so a swap
+    // back attaches on the first frame instead of re-identifying from scratch.
+    g_waRetireDead = IniFloat(ini, "Hands", "AttachRetireDeadOnRefresh", 1) != 0.0f;
+    // VR-65: the pose trace's NEGATIVE CONTROL, and it runs itself. A few
+    // seconds into a session it records a deliberately wrong head yaw for about
+    // a second; the submission join must report exactly that error and must
+    // return to zero after. Without it, a join that reports zero has not been
+    // shown capable of reporting anything else. PoseSelfTestRecords=0 disables.
+    // VR-65: the announced lag comparison. ON for this build only - it is the
+    // discriminator the refusing render leg cannot supply, it changes nothing but
+    // the pose-history selection, and it restores the baseline by itself.
+    dvr::vr::set_lag_ab(IniFloat(ini, "Stereo", "LagAB", 1) != 0.0f,
+                        (uint32_t)IniFloat(ini, "Stereo", "LagABSegMs", 20000));
+    dvr::pose::configure_controls(
+        (uint32_t)IniFloat(ini, "Stereo", "PoseControlsAfter", 60),
+        (uint32_t)IniFloat(ini, "Stereo", "PoseControlsEach", 30),
+        IniFloat(ini, "Stereo", "PoseControlsDeg", 6.0f));
     // How many extra collects a weapon swap is worth, and how far apart. The
     // equipment event and the new weapon's child components do not have to
     // appear in the same tick, so one rebuild can win the race and return a list
@@ -1772,11 +1790,28 @@ static void LoadConfig()
         {   // 41.1: [Pace] - the projection layer's pacing levers (defaults = today)
             const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
             const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
-            const int lag = GetPrivateProfileIntA("Pace", "Lag", 1, ini);
+            const int lag = GetPrivateProfileIntA("Pace", "Lag", 2, ini);
             int syncHz = GetPrivateProfileIntA("Pace", "SyncHz", 0, ini);
             dvr::vr::set_pace_ahead(ahead);
             dvr::vr::set_pair_strict(strict != 0);
             dvr::vr::set_pose_lag(lag);
+            // PRINT WHAT IT RESOLVED TO, AND WHETHER THE FILE SAID SO. Two headset
+            // tests were wasted shipping a changed compiled default to a machine
+            // whose ini names the key: the loader reads a default only when the key
+            // is ABSENT, so both builds ran at the old value and the result was read
+            // as the new value failing. A source diff is not an effective setting.
+            {
+                const bool fromFile =
+                    GetPrivateProfileIntA("Pace", "Lag", -1, ini) != -1;
+                Log("config: [Pace] Lag=%d - %s. This is the value the submission "
+                    "path will use; the per-frame log field 'chosen by lag arm N' "
+                    "is what it actually did.",
+                    lag, fromFile ? "FROM THE INI, which overrides the built-in "
+                                    "default. Changing the default in the source "
+                                    "will NOT change this machine."
+                                  : "the built-in default (the ini does not name "
+                                    "the key)");
+            }
             // The gate REFUSES a value it cannot honour rather than half-arming
             // it: the number that was read is logged and sync stays off, so a
             // typo cannot silently pace the game at 3 Hz.

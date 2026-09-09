@@ -150,6 +150,10 @@ static volatile LONG g_sdInDrawTid = 0;
 // A mono frame has no eye. The correction must apply no eye offset and must not
 // alternate anything.
 static volatile LONG g_sdDoublingNow = 0;
+// VR-65: the pair both passes of this tick belong to. Minted at pass 1 so a
+// left and a right image can be proved to be the same tick rather than assumed
+// to be by their order in a queue.
+static uint32_t g_sdPairId = 0;
 static bool  g_sdGateSceneLive = false;    // [Stereo] GateOnSceneLive
 static float g_sdSceneQuietMs  = 400.0f;   // [Stereo] SceneQuietMs
 static LONG  g_sdGatedByScene  = 0;   // doubled on scene liveness, not the verdict

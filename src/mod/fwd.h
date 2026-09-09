@@ -104,6 +104,11 @@ static bool RflCommand(const char* args);
 
 // VR-62: what screen is up, read off the movie players (ue3/ui_state.cpp).
 // Read-only observation: it gates nothing and writes no engine memory.
+// VR-65: publish the camera and the sample it came from, as one unit.
+static void HtPublishSample(const HtSample& s);
+static bool HtConsumeSample(HtSample* out);
+static void HtPublishCameraRecord(int writer, const HtSample& used,
+                                  float yawDeg, float pitchDeg, float rollDeg);
 static void UiPeLatch(void* obj);
 static void UiTick(void);
 static void UiPoll(bool pawn, bool viewLive);

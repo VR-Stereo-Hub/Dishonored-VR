@@ -317,6 +317,21 @@ static void SceneDrawDecisionLog(const SdDecision& d)
     }
 }
 
+// VR-65: open a record for this pass by COPYING what the camera write already
+// published. It samples nothing itself.
+//
+// That is the correction to the first version, which read the live head globals
+// here and called the result "the pose the image was rendered with". Those
+// globals are whatever the Present thread last wrote, not the sample this
+// camera was computed from, so the comparison it fed was circular and its
+// near-zero answer meant nothing. The camera write publishes the sample and the
+// camera together, under a lock, and this copies that pair.
+static uint32_t SdOpenPoseRecord(int eye, uint32_t pairId, bool secondPassReuse)
+{
+    return dvr::pose::open(eye, pairId, secondPassReuse);
+}
+
+
 // The second draw, taking the tick's decision (never re-deciding: that is what
 // made the tags one-sided). Only the poison is re-read - a fault poisons
 // mid-tick.
@@ -347,7 +362,10 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
                          "runs from pass 1's camera this tick: both eyes carry one view (counted on the beat line)",
                          (void*)g_camObj, dvr::camera::eye_field());
     }
-    dvr::stereo::reentry_push_tag(+1, wrote ? wrotePos : NULL);
+    // Pass 2 deliberately reuses pass 1's rotation, so the record says so
+    // rather than presenting the reuse as a fresh sample.
+    dvr::stereo::reentry_push_tag_rec(+1, wrote ? wrotePos : NULL,
+                                      SdOpenPoseRecord(+1, g_sdPairId, true));
     g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
@@ -409,13 +427,17 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         InterlockedExchange(&g_sdDoublingNow, g_sdTick.doubleIt ? 1 : 0);
         if (g_sdTick.doubleIt) {
             float pos[3];
-            dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);
+            const bool posOk = dvr::camera::last_written_pos(pos);
+            g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
+            dvr::stereo::reentry_push_tag_rec(-1, posOk ? pos : NULL,
+                                              SdOpenPoseRecord(-1, g_sdPairId, false));
         } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
             // A single GAMEPLAY draw while the method pops: one push per draw,
             // so its present cannot eat the next tick's -1 (the header's ONE
             // PUSH). Not in menus: their draws outnumber their presents and
             // the ring would only fill with junk (measured: cleared every 3 s).
-            dvr::stereo::reentry_push_tag(0, NULL);
+            dvr::stereo::reentry_push_tag_rec(0, NULL,
+                                              SdOpenPoseRecord(0, g_sdPairId, false));
         }
 
     }

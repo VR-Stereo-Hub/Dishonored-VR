@@ -220,5 +220,7 @@ bool reentry_c5_pair();
 // camera position the writer produced (null = unknown); the method pops one
 // per present in end_frame and hands the eye to the runtime's tag ring.
 void reentry_push_tag(int eyeSign, const float pos[3]);
+// VR-65: the same push, carrying the pose record the draw was rendered with.
+void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec);
 
 } // namespace dvr::stereo

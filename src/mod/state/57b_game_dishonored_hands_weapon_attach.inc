@@ -181,6 +181,10 @@ struct WaMesh {
     bool     lastL2WOk;
     LONG     ghosts;           // sibling passes corrected through this contract
 };
+// VR-64: retire a contract whose component is DEAD, on a candidate refresh.
+// Absence from the refreshed list is not death - a stowed weapon's component is
+// still alive - and retiring there cost a second of flicker on every swap back.
+static bool     g_waRetireDead = true;    // [Hands] AttachRetireDeadOnRefresh
 static WaMesh   g_waMesh[WA_MAX_MESH];
 static int      g_waMeshN = 0;
 

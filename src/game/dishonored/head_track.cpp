@@ -736,6 +736,15 @@ static void RotInjectTick()
     // something is already wrong.
     g_injHmdGen = g_hmdGen;
     dvr::vr::publish_script_head(g_injHmdYawSnap, g_injHmdGen, ++g_injHmdSeq);
+    {
+        // The sample this write consumed. Taken as one copy; a record built when
+        // none has been published yet says so rather than inventing an identity.
+        HtSample used;
+        if (HtConsumeSample(&used))
+            HtPublishCameraRecord(2, used, (float)iy / kUEPerRad * 57.29578f,
+                                  (float)ip / kUEPerRad * 57.29578f,
+                                  (float)ir / kUEPerRad * 57.29578f);
+    }
 
     // Watchdog: last time this "worked then froze". If our writes stop moving
     // the view - the head turns but the engine's yaw sits still - hand control
@@ -931,6 +940,13 @@ static void ApplyHeadToViewRotation(void* parms)
     // match. Game thread; the seam's storage is atomic.
     g_injHmdGen = g_hmdGen;
     dvr::vr::publish_script_head(g_injHmdYawSnap, g_injHmdGen, ++g_injHmdSeq);
+    {
+        HtSample used;
+        if (HtConsumeSample(&used))
+            HtPublishCameraRecord(1, used, g_viewYawRad * 57.29578f,
+                                  g_viewPitchRad * 57.29578f,
+                                  (float)frR / kUEPerRad * 57.29578f);
+    }
     (void)dp;
 
     static int hb = 0;
@@ -981,6 +997,86 @@ static void NeckSet(int mode, float belowM, float behindM, const char* who)
         dvr::stereo::wants_projection() ? "" : " (inert now: the quad screen has no projection pose to agree with)");
 }
 
+// VR-65: publish the camera as ONE unit - the tracking sample it was computed
+// from AND the camera that came out - at the moment of the write.
+//
+// The point is that nothing downstream reassembles this out of live globals. The
+// first version of the trace did exactly that and its answer was circular: it
+// compared a camera against the same head values the camera came from.
+//
+// The two spaces are kept apart deliberately. The tracking sample is stored in
+// OpenXR convention; the camera is UE world degrees and contains body and
+// thumbstick rotation the tracking pose never sees. Differencing them is
+// meaningless and the header says so.
+// VR-65: the coherent tracking sample, published once at the consumption
+// boundary and consumed by copy.
+//
+// A camera writer takes ONE copy at the top and uses only that copy, so the
+// sample the camera was computed from is the sample the record carries. Re-
+// reading afterwards is what made every previous version of this instrument
+// circular, and it is the specific defect this structure exists to remove.
+static HtSample        g_htSample;
+static CRITICAL_SECTION g_htSampleCs;
+static bool             g_htSampleCsOk = false;
+static LONG             g_htSampleOnce = 0;
+
+static void HtSampleInit()
+{
+    if (InterlockedCompareExchange(&g_htSampleOnce, 1, 0) == 0) {
+        InitializeCriticalSection(&g_htSampleCs);
+        g_htSampleCsOk = true;
+    }
+    while (!g_htSampleCsOk) Sleep(0);
+}
+
+static void HtPublishSample(const HtSample& s)
+{
+    HtSampleInit();
+    EnterCriticalSection(&g_htSampleCs);
+    g_htSample = s;
+    LeaveCriticalSection(&g_htSampleCs);
+}
+
+// Take the copy a camera write will use. Returns false before the first locate,
+// and a record built on that must say provenance was unavailable rather than
+// inventing an identity pose.
+static bool HtConsumeSample(HtSample* out)
+{
+    if (!out) return false;
+    HtSampleInit();
+    EnterCriticalSection(&g_htSampleCs);
+    const bool ok = g_htSample.ok;
+    if (ok) *out = g_htSample;
+    LeaveCriticalSection(&g_htSampleCs);
+    return ok;
+}
+
+
+static void HtPublishCameraRecord(int writer, const HtSample& used,
+                                  float yawDeg, float pitchDeg, float rollDeg)
+{
+    // THE SAMPLE IS HANDED IN, NOT RE-READ. The previous version called
+    // peek_head_pose here, after the camera had already been computed, and so
+    // recorded a second read of a stream that had moved on. That is the
+    // provenance error this signature exists to make impossible: a caller has to
+    // hold the sample it used in order to publish a record at all.
+    dvr::pose::Track t;
+    t.ok = used.ok;
+    t.qx = used.qx; t.qy = used.qy; t.qz = used.qz; t.qw = used.qw;
+    t.px = used.px; t.py = used.py; t.pz = used.pz;
+    t.gen = used.gen;
+    t.locateMs = used.locateMs;
+
+    dvr::pose::Cam c;
+    c.yawDeg = yawDeg; c.pitchDeg = pitchDeg; c.rollDeg = rollDeg;
+    c.posOk = dvr::camera::last_written_pos(c.pos);
+    c.writeMs = MaimNowMs();
+    c.writer = writer;
+    c.ok = true;
+    dvr::pose::publish_camera(t, c);
+}
+
+
 static void TrackHead(const float (*m)[4])
 {
     // (30.8 key diet: F8 mouse-look toggle retired - F3 owns head tracking,
@@ -1022,6 +1118,36 @@ static void TrackHead(const float (*m)[4])
     // instead of left - the headset's "tilt is reversed". [HeadInject]
     // FlipRoll stays the A/B override, 1 = this measured direction.
     g_hmdRoll = -atan2f(m[1][0], m[1][1]);
+
+    // VR-65: PUBLISH THE SAMPLE AS ONE UNIT, HERE, AT THE CONSUMPTION BOUNDARY.
+    //
+    // This is where a located pose becomes the numbers the camera is built from,
+    // so this is the only place a coherent sample exists. Everything downstream
+    // has so far re-read the loose globals - including the record that claimed to
+    // hold "the sample the image was rendered from", which called peek_head_pose
+    // AFTER the camera had been calculated and so recorded a different read of a
+    // moving stream. Locking the publication did not fix that; the provenance was
+    // wrong before the lock was reached.
+    //
+    // The quaternion and the Euler angles here come from ONE matrix, in one pass,
+    // with one generation. A consumer takes a copy of this and uses only the copy.
+    {
+        HtSample s;
+        s.yaw = g_hmdYaw; s.pitch = g_hmdPitch; s.roll = g_hmdRoll;
+        s.gen = g_hmdGen;
+        s.locateMs = dvr::vr::last_locate_ms();
+        dvr::vr::HeadPose hp;
+        s.poseOk = dvr::vr::peek_head_pose(hp);
+        if (s.poseOk) {
+            s.qx = hp.qx; s.qy = hp.qy; s.qz = hp.qz; s.qw = hp.qw;
+            s.px = hp.px; s.py = hp.py; s.pz = hp.pz;
+        } else {
+            s.qx = s.qy = s.qz = 0.0f; s.qw = 1.0f;
+            s.px = s.py = s.pz = 0.0f;
+        }
+        s.ok = true;
+        HtPublishSample(s);
+    }
 
     // 31.8: physical crouch moved OUT of the positional-tracking block. It only
     // needs your head height against the standing reference, and burying it
