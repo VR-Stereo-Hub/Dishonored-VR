@@ -4262,3 +4262,54 @@ confident number about the wrong matrix.
 
 The yaw itself is found by search rather than decomposition: the world direction
 that projects to the screen centre is where the camera looks.
+
+
+## AN INI KEY THAT EXISTS BEATS EVERY COMPILED DEFAULT (VR-65, 2026-09-09)
+
+Recorded because it invalidated two headset tests and produced a conclusion that
+was not merely wrong but backwards.
+
+`[Pace] Lag` was changed in the source from 1 to 2, shipped, tested, and reported
+as juddering. Then to 0, shipped, tested, reported as juddering. On that basis
+pose-history selection was declared eliminated - all three arms tried, all three
+failed.
+
+**None of those builds changed anything.** The installed `dishonored_vr.ini`
+contains an explicit `Lag=1`, and the loader reads a compiled default ONLY when
+the key is absent. The file was dated the previous day, `install.ps1` copies
+binaries and does not touch it, and the generated default ini writes `Lag=1` too.
+Both "fixed lag" tests ran at lag 1.
+
+The A/B sequencer was unaffected because it stores into the atomic at runtime,
+which is why cycling appeared to work while a "fixed" value did not - and that
+apparent contradiction was written up as an unexplained correlation with the
+sequencer's mere presence, complete with speculation about atomic-store side
+effects and logging timing. All of it was a config file the instrument never read
+back.
+
+### The rules this cost
+
+* **A build that changes a compiled default has changed nothing on a machine
+  whose ini names that key.** Verify the EFFECTIVE value from the log, not the
+  intended one.
+* **The log must print what a lever resolved to and where it came from.** This
+  one printed the selected arm per submitted frame (`chosen by lag arm N`) and
+  that field was correct all along - it went unread, because the source diff
+  looked like proof.
+* An A/B that writes at runtime and an ini that writes at load are different
+  mechanisms. A result from one says nothing about the other.
+
+### And the measurement that was there the whole time
+
+Sampled against the same run, the recorded orientation difference tracked the
+sequence exactly: 0.119-1.079 deg while lag 1 was selected, 0.000-0.040 deg
+across the whole twenty seconds of lag 2 - at head speeds up to 106.6 deg/s, so
+not a still interval - and back to 0.473 and 0.403 deg within two seconds of
+returning to lag 1.
+
+That was averaged across the transitions and reported as "nothing in the log
+distinguishes the phases". **Averaging over a variable that is being deliberately
+switched destroys exactly the signal the switch was there to produce.**
+
+A 0.3 degree error was also dismissed as too small to see. At 2750x2850 per eye
+it is roughly five pixels near the centre of the image.
