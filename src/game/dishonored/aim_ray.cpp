@@ -64,6 +64,21 @@ static bool AimRayGet(AimRay* out)
     memset(&r, 0, sizeof(r));
     r.why = "not attempted";
 
+    // FIRST, the reason that hides every other reason. [Mode] GamepadOnly=1
+    // turns off hands, hand mesh, motion aim, motion melee, motion crouch and
+    // controller Blink in one switch - so the ray has no hand to point along
+    // and no consumer to feed. Naming it here is the whole point: the first
+    // version of this instrument was called from the motion-aim tick, which
+    // GamepadOnly stops, so it printed NOTHING and a run looked like a build
+    // that had not loaded.
+    if (g_gamepadOnly) {
+        r.why = "[Mode] GamepadOnly=1 - the controllers are a plain gamepad, so motion aim is off and "
+                "there is no hand ray to derive. Set GamepadOnly=0 (VR-40) before expecting a crosshair.";
+        g_arLast = r; ++g_arFail;
+        if (out) *out = r;
+        return false;
+    }
+
     float rel[3];
     if (!MaimHandRel(rel)) {
         r.why = "no controller pose (MaimHandRel refused)";
@@ -107,6 +122,20 @@ static bool AimRayGet(AimRay* out)
     return true;
 }
 
+// Evaluated from the PRESENT path, which always runs. It deliberately does NOT
+// live on the motion-aim tick: that tick is switched off by [Mode] GamepadOnly,
+// and an instrument that can be silently disabled is worse than none - the
+// first version printed nothing at all and the run read as a build that had not
+// loaded. Whatever is wrong, this now says so once every 5 s.
+static void AimRayTick(void)
+{
+    static double s_next = 0.0;
+    const double nowMs = MaimNowMs();
+    if (nowMs < s_next) return;
+    s_next = nowMs + 5000.0;
+    AimRayStatus();
+}
+
 // `aimray status` - what the ray is, and which parts of it are measured rather
 // than assumed. It prints the REFUSAL reason too, because a ray that is not
 // available is the normal state in a menu and must not read as a fault.
@@ -119,6 +148,10 @@ static void AimRayStatus(void)
         ok ? "OK" : "UNAVAILABLE",
         r.origin[0], r.origin[1], r.origin[2], r.dir[0], r.dir[1], r.dir[2],
         r.viewYaw * 57.29578f, r.viewPitch * 57.29578f, g_arOk, g_arFail, r.why);
+    // The doctrine line once per run, not every 5 s - it never changes.
+    static bool s_saidOnce = false;
+    if (s_saidOnce) return;
+    s_saidOnce = true;
     Log("aimray: ONE RAY - the projectile steering and this share MaimDirFromView verbatim. They differ "
         "only in the view basis: the projectile passes its OWN spawn forward (the ground truth of where "
         "the game aimed, which cannot exist before the shot), this passes the camera's current view. So a "

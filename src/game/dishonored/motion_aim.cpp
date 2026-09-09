@@ -295,15 +295,6 @@ static void MotionAimTick(float hl, float hr)
     // (live keys moved to the mesh-control cluster; PitchOffsetDeg is ini-only)
     if (!g_maimEnabled) return;
 
-    // VR-57: exercise THE ray on the real lane, so a headset run shows whether
-    // it resolves without anyone typing a seam word - the tester runs the game,
-    // not the harness. One evaluation every 5 s, gated by its own timer rather
-    // than inside a log macro, because the point is to CALL it, not to print.
-    {
-        static double s_arNext = 0.0;
-        const double nowMs = MaimNowMs();
-        if (nowMs >= s_arNext) { s_arNext = nowMs + 5000.0; AimRayStatus(); }
-    }
 
     // watchpoint flood guard: freed/reused memory can storm the VEH - the VEH
     // itself must not suspend threads, so disarm from here (safe context)

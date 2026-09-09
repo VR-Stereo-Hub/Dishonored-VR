@@ -258,6 +258,7 @@ static void DvrConsumePoses()
         if (g_hvYawN < DVR_BV_RING) ++g_hvYawN;
         DvrHeadViewCheck();
         DvrLagFinder();
+        AimRayTick();          // VR-57: a lane that cannot be silently switched off
         TrackHead(m);
     } else {
         g_devPoseOk[0] = false;

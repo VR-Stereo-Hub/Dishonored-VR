@@ -159,6 +159,7 @@ static void MaimDirFromView(float viewYaw, float viewPitch, const float* rel, fl
 struct AimRay;
 static bool AimRayGet(AimRay* out);      // VR-57: THE aim ray - every consumer calls this
 static void AimRayStatus(void);
+static void AimRayTick(void);
 static void MaimWriteAim(uint8_t* o, const float* dir, const float* refDir, int* velWrites);
 static void SteerAdd(uint8_t* o, const float* dir, double now);
 static void SteerTick();
