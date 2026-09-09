@@ -1790,11 +1790,28 @@ static void LoadConfig()
         {   // 41.1: [Pace] - the projection layer's pacing levers (defaults = today)
             const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
             const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
-            const int lag = GetPrivateProfileIntA("Pace", "Lag", 1, ini);
+            const int lag = GetPrivateProfileIntA("Pace", "Lag", 2, ini);
             int syncHz = GetPrivateProfileIntA("Pace", "SyncHz", 0, ini);
             dvr::vr::set_pace_ahead(ahead);
             dvr::vr::set_pair_strict(strict != 0);
             dvr::vr::set_pose_lag(lag);
+            // PRINT WHAT IT RESOLVED TO, AND WHETHER THE FILE SAID SO. Two headset
+            // tests were wasted shipping a changed compiled default to a machine
+            // whose ini names the key: the loader reads a default only when the key
+            // is ABSENT, so both builds ran at the old value and the result was read
+            // as the new value failing. A source diff is not an effective setting.
+            {
+                const bool fromFile =
+                    GetPrivateProfileIntA("Pace", "Lag", -1, ini) != -1;
+                Log("config: [Pace] Lag=%d - %s. This is the value the submission "
+                    "path will use; the per-frame log field 'chosen by lag arm N' "
+                    "is what it actually did.",
+                    lag, fromFile ? "FROM THE INI, which overrides the built-in "
+                                    "default. Changing the default in the source "
+                                    "will NOT change this machine."
+                                  : "the built-in default (the ini does not name "
+                                    "the key)");
+            }
             // The gate REFUSES a value it cannot honour rather than half-arming
             // it: the number that was read is logged and sync stays off, so a
             // typo cannot silently pace the game at 3 Hz.
