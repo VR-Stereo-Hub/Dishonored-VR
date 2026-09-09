@@ -4601,3 +4601,64 @@ Open. Recorded so the next attempt starts from evidence.
   rather than the gameplay window reported a shift that does not exist, and
   summary windows joined by eye rather than by timestamp produced a table where
   no row's GPU span belonged to its own frame rate.
+
+## THE WEAPON'S PER-EYE OFFSET: RIGHT LEVER, WRONG SOURCE, THEN WRONG SIGN (VR-69, 2026-09-09)
+
+`[Hands] PaletteEyeOffset` applies a half-IPD sideways shift per eye to the
+weapon placement. It was correct to exist and wrong twice over in where it got
+the eye from.
+
+### 1. The source
+
+It took the eye from the palette's own inference: a DELTA between consecutive
+draws, which HOLDS its previous answer whenever the sideways step is too small
+to read. A held answer that is wrong displaces every weapon a full IPD sideways
+- the ~1 Hz flicker.
+
+Two counters independently measured the inference disagreeing with the stereo
+method about one time in eight (c5 pairing 49 of 406, the tag ring 47 of 352).
+
+**Turning the lever off removed the flicker by removing stereo depth.** With no
+per-eye disparity the weapon reads as infinitely far away, and something that
+far away filling that much of the view must be enormous - which is why the
+weapons looked massive with it off. It was the depth cue, not the scale.
+
+### 2. The sign, and the audit that caught it
+
+The stereo method already reconciles a MEASURED eye every present. Publishing it
+across (seqlock: the writer is the present thread, the reader is the render
+thread) and driving the offset from it gave:
+
+```
+agree 210, DISAGREE 87811     -> 99.8 % disagreement
+```
+
+**Two sources that disagree at random land near half. Two that disagree almost
+always are using opposite conventions.** The method tags pass 1 / pass 2; the
+palette tags left / right, and nothing ever required those to point the same
+way. Applied unsigned it did not remove the eye offset, it DOUBLED it - both
+weapons seen twice, permanently, which is exactly what the headset reported.
+
+With `[Hands] PaletteEyeMeasSign=-1` the same counter inverted as predicted:
+
+```
+agree 89761, DISAGREE 1900    -> 97.9 % agreement
+```
+
+Confirmed in the headset: correct size, correct depth, right eye clean.
+
+**The audit is the whole lesson.** Without it, 99.8 % disagreement would have
+read as "the measured eye is wrong, put it back", and the real finding - that
+the measurement is almost perfectly right and merely inverted - would have been
+thrown away. A sign flipped on a hunch is a guess; a sign flipped against a
+counter that MUST move is a measurement.
+
+### 3. What is left, and it is not this
+
+The left eye alone still shows a one-frame weapon jump, 1-2 times a second.
+**It is not a transform fault**: the weapon rotated upside down still jumps
+LEFT, and a bad transform would follow the object's own axes. A jump that keeps
+its screen direction is a STALE IMAGE. `ages L=2 R=0` and
+`pushed eye +1 TWICE in a row (68)` over ~84 s name it. That is a stereo-method
+fault and its own ticket; the weapon is only what makes it visible, because the
+world is nearly static under reprojection and a hand-held object is not.
