@@ -113,9 +113,40 @@ static void WaCompTick(void)
             if (!mOff || !RangeReadable(item + mOff, sizeof(void*))) continue;
             uint8_t* comp = *(uint8_t**)(item + mOff);
             if (!LooksLikeObj(comp)) { InterlockedIncrement(&g_waEquipNoMesh); continue; }
-            bool dup = false;
-            for (int z = 0; z < n; ++z) if (snapshot[z].obj == comp) { dup = true; break; }
-            if (dup) { InterlockedIncrement(&g_waEquipDup); continue; }
+            // ALREADY IN THE SNAPSHOT? UPGRADE IT, DO NOT SKIP IT.
+            //
+            // This used to `continue`, which was correct only while the pointer
+            // walk could not reach an equipped item at all. Collecting from the
+            // equipped items as roots means it can now, and the pistol arrives
+            // through the walk - where WaHandFor does not recognise the name
+            // 'Wpn_PlyGunElite' (it knows sword and crossbow/bolt only), so the
+            // entry is marked NOT a member and can never be corrected. The
+            // equipped-item path then saw a duplicate and skipped, leaving the
+            // unusable copy in place, and the pistol did not attach at all.
+            //
+            // The measured facts win over the name test: this component belongs
+            // to the item the engine says is equipped, and EDisEquipUsage says
+            // which hand holds it. Neither is a guess.
+            int at = -1;
+            for (int z = 0; z < n; ++z) if (snapshot[z].obj == comp) { at = z; break; }
+            if (at >= 0) {
+                InterlockedIncrement(&g_waEquipDup);
+                WaComp* e = &snapshot[at];
+                const bool wasMember = e->isMember;
+                const int  wasHand = e->hand;
+                e->isRef = false;
+                e->isMember = true;
+                e->hand = (u == 1) ? g_waSwordHand : g_waXbowHand;
+                if (!wasMember || wasHand != e->hand)
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+                        "wa/comp: UPGRADED '%s' - the pointer walk had it as "
+                        "member=%d hand %d, and the engine says it is the item "
+                        "equipped in usage %d, so it is member=1 hand %d. The "
+                        "name test knows the sword and the crossbow and nothing "
+                        "else; equip usage is measured.",
+                        e->asset, (int)wasMember, wasHand, u, e->hand);
+                continue;
+            }
 
             WaComp c;
             memset(&c, 0, sizeof(c));
