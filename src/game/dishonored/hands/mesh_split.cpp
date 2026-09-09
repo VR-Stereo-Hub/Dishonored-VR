@@ -3010,8 +3010,9 @@ static void MpDriveTick(void)
             if (seg < 4) {
                 g_mpPoseLag = kPlan[seg];
                 Log("ms/poselag: A/B segment %u of 4 - the hand is now normalised against the head "
-                    "%s. %s Turn your head side to side and watch the WEAPON against the world, not "
-                    "against your hand. Nothing else changed.",
+                    "%s. %s WATCH FOR THE SIDEWAYS FLICKER - a weapon jumping right or left about once a "
+                    "second - not for smoothness. If it happens in segments 2 and 4 and stops in 1 and 3, "
+                    "PoseLag=2 causes it. Nothing else changed.",
                     seg + 1,
                     kPlan[seg] == 0 ? "FRESH (lag 0, today's behaviour)"
                                     : "the view was rendered from (lag 2, the measured answer)",
