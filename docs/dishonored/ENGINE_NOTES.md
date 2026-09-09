@@ -3714,3 +3714,53 @@ Any freshness test built on it therefore starves the held weapons rather than
 catching world instances. **A reference has to be maintained on the path that
 uses it.** The engine-read component translation in the snapshot is the sound
 alternative: it is refreshed every 4 ms whether or not the matcher succeeded.
+
+## EQUIPMENT LIVES IN A TArray, WHICH THE COMPONENT WALK CANNOT TRAVERSE (VR-60, 2026-09-08)
+
+Source: the decompiled scripts. Class and member names only; no offsets, because
+offsets are derived against the running build.
+
+```
+DishonoredPlayerPawn.m_pInventory : DishonoredInventory
+DishonoredInventory extends Object
+    m_Slots : array<PawnInventorySlot>
+struct native PawnInventorySlot
+    m_pItem         : DishonoredInventoryItem
+    m_pRequiredType : Class<DishonoredInventoryItem>
+    m_RequiredUsage : EDisEquipUsage        // None | Primary | Secondary
+```
+
+**`FpCollect` cannot reach any of it.** The walk reads every 4-byte field as a
+possible `UObject*`; a `TArray` field's first four bytes are a pointer to a heap
+buffer of elements, so `LooksLikeObj` rejects it and the walk stops. Every
+inventory item is in `m_Slots`, which is exactly such an array.
+
+Measured consequence over a full run: all 19 published component snapshots were
+identical (six components) and **the pistol never appeared at all, including
+while it was the weapon in hand.** What the snapshot contains is whatever happens
+to be reachable by direct pointer from the pawn, and it cannot report what it
+missed because it never knew it was there.
+
+`m_RequiredUsage` on the slot is the per-hand channel, so **walking that one array
+answers "which item is in which hand" directly** - the question `WaHandFor`
+currently answers with an assumption baked into asset-name substrings.
+
+### The enums are the flags, and they already exist
+
+```
+EDisEquipUsage         None | Primary | Secondary            (DisGlobalEnums)
+EItemSocket            None | Equipped | Holstered | ...     (DisGlobalEnums)
+eDisPlayerStance       NotSet | NotReady | Ready | Blocking  (DishonoredPlayerPawn)
+eDisPlayerActionUsage  Fullbody | Upperbody | LeftHand       (DishonoredPlayerPawn)
+```
+
+`EItemSocket` is the equipped-versus-holstered distinction that VR-59 attempt 1
+needed and could not obtain from component presence. `m_PlayerStance` is indexed
+BY `EDisEquipUsage`, so stance is already per-hand.
+
+**`eDisPlayerActionUsage_Fullbody` is the takedown and choke discriminator**, and
+it is the signal the arm-unhiding work needs in order to hand animation control
+back to the game during those sequences.
+
+The route to reading all of it reliably is a UE3 property resolver keyed on FName;
+`docs/dishonored/GAMEPLAY_STATE.md` is the plan and the rules for it.
