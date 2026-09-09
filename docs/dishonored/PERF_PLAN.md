@@ -1,5 +1,10 @@
 # Performance plan - DRAFT for review (VR-67, 2026-09-09)
 
+**Review update:** [PERF_REVIEW.md](C:/dev/Dishonored-VR/docs/dishonored/PERF_REVIEW.md)
+revises this draft using the original log and source. Its conclusions and test
+order supersede the proposals below; this draft is retained as the review input.
+The reduced-resolution test has not been run.
+
 **Status: draft, for external review before any of it is built.** Everything in
 section 1 is measured on one identified build; everything in section 4 is a
 proposal with an explicit falsification test. Nothing in sections 3-5 has been

@@ -100,6 +100,55 @@ print the unwelcome answer.**
   three separate readers, including the original author. A zero that is expected
   must say so on its own line.
 
+### The VR-67 A/B, added the same day it was written (2026-09-09)
+
+The newest instrument joined this list within hours of shipping, which is the
+point of keeping the list.
+
+* **The verdict tested p50 and was quoted as covering the tail.** `NO CHANGE`
+  compared medians only; the write-up extended it to p99 and the hitch count,
+  which were never compared. **The baseline's own hitch share ran 1.68 -> 3.27
+  -> 4.99 % inside one run: the tail noise floor is threefold, not the 3 % the
+  median's spread suggested.** Neither lever was eliminated on tails.
+* **A tail was differenced against a median.** The printed `dP99` compared p99
+  against the baseline's *p50*, so its +100..140 % figures measured the shape of
+  the distribution, not a change.
+* **A third of the plan measured the baseline.** "max frame latency 3" was swept
+  against a baseline that already was 3, and nothing checked.
+* **The stalls being hunted were excluded from the sample.** Intervals of 5 s or
+  more were silently dropped.
+* **The sample had no deadline.** Consecutive PRESENT intervals alternate short
+  and long by construction under a two-present method, so twice their moving
+  median is not a frame deadline.
+
+Corrected: pair intervals, a separate tail floor and hitch floor that must BOTH
+be cleared, fixed 40/50/75/100 ms thresholds beside the relative one, severe
+stalls counted, baseline-equal segments skipped, and the sweep now ships
+**default OFF** so it cannot vary levers underneath another experiment.
+
+> **A "no change" verdict is a claim about the column it tested, and no other.**
+> The median and the tail have different noise floors, and the tail's is wider.
+
+### The write-up over-claimed too, in three ways worth naming
+
+* **The wrong budget.** The GPU's 14-17 ms per pair was compared against a
+  12.5 ms native-80 budget while the target was 40 fps with spacewarp, where the
+  budget is 25 ms and it fits. That answered a question nobody asked and made a
+  comfortable workload look like the cause of the hitches.
+* **"The mean did not rise"** was written directly beneath a quote showing it
+  rose from 0.07 to 2.58 ms.
+* **"Nothing of ours runs inside `xrEndFrame`"** is false. That call takes a
+  mutex, can wait on the previous submission, and can wait on D3D11
+  synchronisation - so our own GPU work and resource dependencies can be charged
+  to it. `acq 0.0` and `xrCopy 0.0` are CPU submission times and clear none of
+  that, because `CopyResource` is asynchronous. **Where a wait is observed does
+  not identify who caused it.**
+
+Also corrected the same day: the capture mode was called `deferred` in the
+write-up and is `shared`, and `hmd 25.00 ms` is `predictedDisplayPeriod`, which
+OpenXR does not require to equal the panel's refresh - so it is not evidence the
+panel runs at 40 Hz, and slot-occupancy ratios built on it are not physical.
+
 The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 
 > A counter is not evidence until you know its population. A measurement carries
