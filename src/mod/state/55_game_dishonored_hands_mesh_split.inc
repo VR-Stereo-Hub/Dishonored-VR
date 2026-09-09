@@ -808,3 +808,4 @@ static volatile int      g_msAutoArmed = 0;    // this lock came from the signat
 static double   g_msNextReport = 0.0;
 static bool g_mpEyeFromMeasured = true;   // VR-69: [Hands] PaletteEyeFromMeasured
 static LONG g_msMeasAgree = 0, g_msMeasDisagree = 0, g_msMeasNone = 0;   // VR-69 audit
+static int g_mpEyeMeasSign = -1;   // VR-69: [Hands] PaletteEyeMeasSign - the method tags pass 1/2, the palette left/right
