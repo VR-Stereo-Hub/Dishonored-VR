@@ -146,6 +146,13 @@ static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict)
     SuSample(SU_VIEW,    view);
     SuSample(SU_NOCINE,  noCine);
     SuSample(SU_VERDICT, verdict);
+    // VR-62 OBSERVATION ONLY. These two rows time the proposed classifier
+    // against the real one without either of them gating anything, which is
+    // the whole decision gate for this ticket: if ui-vrd does not arrive
+    // EARLIER than verdict on a legitimate load, and does not stay FALSE at a
+    // main menu and a pause, the proposal is not worth building on.
+    SuSample(SU_UI_VERDICT, g_uiVerdictNew);
+    SuSample(SU_UI_NOVIEW,  g_uiVerdictNoView);
 
     if (g_suStereoSeen) {
         SuMark(SU_STEREO);

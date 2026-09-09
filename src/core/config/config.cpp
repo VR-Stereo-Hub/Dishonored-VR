@@ -1267,6 +1267,10 @@ static void LoadConfig()
     g_sdSceneQuietMs  = IniFloat(ini, "Stereo", "SceneQuietMs", 400.0f);
     if (g_sdSceneQuietMs < 50.0f)   g_sdSceneQuietMs = 50.0f;
     if (g_sdSceneQuietMs > 2000.0f) g_sdSceneQuietMs = 2000.0f;
+    // VR-62: the movie-player probe. Read-only observation, and it ships ON for
+    // the same reason the equipment reader does - a reporter nobody enables
+    // reports nothing, and this one exists to be read out of a tester's log.
+    g_uiOn = IniFloat(ini, "Menu", "UiProbe", 1) != 0.0f;
     g_menuGhostByRate  = IniFloat(ini, "Menu", "GhostClearByRate", 0) != 0.0f;
     g_menuGhostQuietMs = IniFloat(ini, "Menu", "GhostQuietMs", 400.0f);
     if (g_menuGhostQuietMs < 50.0)   g_menuGhostQuietMs = 50.0;

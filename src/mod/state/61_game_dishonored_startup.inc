@@ -62,6 +62,8 @@ enum {
     SU_VIEW,         // DvrScriptViewLive(): the term that gates LOADING
     SU_NOCINE,       // no cinematic latch
     SU_VERDICT,      // DvrGameplayVerdict(): all five, together
+    SU_UI_VERDICT,   // VR-62: the same verdict with the movie state substituted
+    SU_UI_NOVIEW,    // ... and without the one-second view hold as well
     SU_STEREO,       // the first DOUBLE draw - the mono window ends HERE
     SU_COUNT
 };
@@ -76,6 +78,8 @@ static SuPhase g_su[SU_COUNT] = {
     { "view",     "the view pipeline dispatches - the term that gates LOADING", 0.0 },
     { "no-cine",  "no cinematic latch",                                   0.0 },
     { "verdict",  "the gameplay verdict is TRUE - all five terms",        0.0 },
+    { "ui-vrd",   "the PROPOSED verdict (movie state instead of the menu flags)", 0.0 },
+    { "ui-novw",  "the proposed verdict without the 1 s view hold either", 0.0 },
     { "stereo",   "the first DOUBLE draw - the mono window ENDS here",    0.0 },
 };
 

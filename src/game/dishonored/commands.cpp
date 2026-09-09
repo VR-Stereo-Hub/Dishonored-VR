@@ -106,6 +106,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "pcap")) return PcCommand(args);
     if (!strcmp(cmd, "rfl")) return RflCommand(args);
     if (!strcmp(cmd, "startup")) return SuCommand(args);
+    if (!strcmp(cmd, "uistate")) return UiCommand(args);
 #endif
     if (!strcmp(cmd, "blink")) {
         if (!strcmp(args, "probe")) { BlinkProbeArm(); return true; }
@@ -393,6 +394,10 @@ static void GameStateTick()
     const bool suCyl    = CylTruthLive();
     const bool suNoMenu = !g_menuOpen && !g_inMenu && !g_mainMenu;
     const bool suView   = DvrScriptViewLive();
+    // VR-62 observation. Sampled with the same values the state machine is
+    // about to decide on, so its "proposed" verdict cannot disagree with the
+    // real one for any reason except the one substitution it makes.
+    UiPoll(suCyl, suView);
 
     const char* s;
     if (!suCyl)                        s = "NO_PAWN";
@@ -411,6 +416,7 @@ static void GameStateTick()
     static bool wasGameplay = false;
     if (wasGameplay && !nowGameplay) {
         SuBeginLoad();
+        UiNoteLoad();   // the outgoing level's movie objects are not this level's
         // A load destroys the components the weapon contracts were matched to.
         WaInvalidateContracts("the game left gameplay");
         // ... and the candidate list itself, which holds the component pointers

@@ -102,6 +102,14 @@ static void RflTick(void);
 static void RflStateTick(void);
 static bool RflCommand(const char* args);
 
+// VR-62: what screen is up, read off the movie players (ue3/ui_state.cpp).
+// Read-only observation: it gates nothing and writes no engine memory.
+static void UiPeLatch(void* obj);
+static void UiTick(void);
+static void UiPoll(bool pawn, bool viewLive);
+static void UiNoteLoad(void);
+static bool UiCommand(const char* args);
+
 // VR-62: the startup scoreboard (startup.cpp). Read-only, present thread.
 static void FpInvalidateCandidates(const char* why);
 static void WaInvalidateContracts(const char* why);

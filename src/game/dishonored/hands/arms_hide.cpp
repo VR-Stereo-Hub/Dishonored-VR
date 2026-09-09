@@ -600,6 +600,7 @@ static void BoneVisTick()
     // happened first or the snapshot carries last tick's weapon for a moment
     // after every swap.
     RflTick();                  // VR-61: read the gameplay state flags
+    UiTick();                   // VR-62: one bounded movie-player scan per load
     WaCompTick();               // VR-33 W2/W3: the component transform snapshot
     if (!g_bvOn) {
         // [Hands] BoneVisHide=1 arms it from the ini. The rig is not there on
