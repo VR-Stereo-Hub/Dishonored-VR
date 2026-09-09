@@ -527,54 +527,48 @@ static void WaInvalidateContracts(const char* why)
 }
 
 
-// RETIRE BY OWNERSHIP, NOT BY HAND.
+// RETIRE WHAT IS DEAD. LEAVE WHAT IS MERELY PUT AWAY.
 //
-// The stale-contract retirement above lives inside WaVerifyDraw, so it only ever
-// fires for a contract whose buffers are still being DRAWN. A weapon that has
-// been put away stops drawing, so its contract is never visited and never
-// retired: the measured run carried `contract 'Wpn_PlyGunElite' hand 0 ... age
-// 12822 ms` twelve seconds after the pistol went away, holding a slot and
-// reading as though it were alive.
+// The first version of this retired any contract whose component had left the
+// candidate list, and that cost a second of flicker on every swap back. Absence
+// from the list is not death: equipping the pistol takes the crossbow's
+// component out of the list while the component itself is still perfectly alive,
+// and retiring there threw away an identity that was about to be correct again.
+// Swapping back then had to re-identify the crossbow from scratch - a new list,
+// a fresh snapshot and a transform match before the first correction could be
+// published, which is exactly the gap the tester saw.
 //
-// Clearing every contract on the affected hand would be the easy version and it
-// would introduce a new gap - the sword shares a hand with nothing and has no
-// reason to be dropped because the other hand swapped. So this retires exactly
-// the contracts whose COMPONENT is no longer among the candidates: the component
-// is the instance the contract was matched to, and a component that is not in
-// the refreshed list cannot vouch for any draw.
+// The reason to retire at all is narrower than that. A contract holds the
+// component it was matched to, and a contract pointing at a DESTROYED component
+// refuses every draw AND blocks its own re-adoption, because a refused draw
+// returns before the matcher. That is a lockout and it is what a level load
+// used to produce. It needs the pointer to be dead, not stowed.
+//
+// So the test is deadness, cheaply: the pointer no longer reads as an object at
+// all. A stowed weapon's component passes that and keeps its contract, so the
+// weapon is attached on the first frame it is drawn again.
+//
+// The two paths that were already correct are untouched and still cover the
+// rest: WaInvalidateContracts drops everything when the game leaves gameplay,
+// and the in-verifier retirement handles a component that vanishes while its
+// buffers are still being drawn.
 //
 // It only ever RETIRES. It does not widen a radius, relax an angle, or let a
-// draw through unverified - the point is to stop an obsolete contract blocking
-// the adoption of the real one, not to make matching easier.
+// draw through unverified.
 static void WaRetireContractsNotIn(const char* why)
 {
-    if (!g_waMeshN) return;
+    if (!g_waRetireDead || !g_waMeshN) return;
     int retired = 0;
     for (int i = 0; i < g_waMeshN; ++i) {
         WaMesh* w = &g_waMesh[i];
         if (!w->vb || !w->compObj) continue;
-        bool present = false;
-        for (int k = 0; k < g_fpCandN && !present; ++k)
-            if ((void*)g_fpCand[k].obj == w->compObj) present = true;
-        // The equipped item's own mesh never enters the candidate list - it is
-        // added to the snapshot directly by the VR-60 path - so a contract on
-        // one of those is still perfectly valid and must be left alone.
-        if (!present) {
-            for (int u = 1; u <= 2 && !present; ++u) {
-                uint8_t* item = g_rflHeldObj[u];
-                if (!item || !LooksLikeObj(item)) continue;
-                const uint32_t mOff =
-                    RflOffsetOf("DishonoredInventoryItem", "m_pPlayerMesh");
-                if (!mOff || !RangeReadable(item + mOff, sizeof(void*))) continue;
-                if (*(uint8_t**)(item + mOff) == (uint8_t*)w->compObj) present = true;
-            }
-        }
-        if (present) continue;
-        Log("wa: retiring the contract for '%s' on hand %d - %s, and its "
-            "component %p is not in it and is not an equipped item's own mesh. "
-            "An obsolete contract does not merely go idle, it BLOCKS the "
-            "adoption of the real one, because a refused draw returns before the "
-            "matcher. Placed %ld, refused %ld before this.",
+        if (LooksLikeObj((uint8_t*)w->compObj)) continue;   // alive, possibly stowed
+        Log("wa: retiring the contract for '%s' on hand %d - %s, and its component "
+            "%p no longer reads as an object. A DEAD component is the case that "
+            "matters: the contract refuses every draw and blocks its own "
+            "re-adoption, because a refused draw returns before the matcher. A "
+            "component that is merely stowed keeps its contract, so the weapon is "
+            "attached on the first frame it is drawn again. Placed %ld, refused %ld.",
             w->asset, w->hand, why, w->compObj, w->placed, w->refused);
         w->vb = NULL; w->ib = NULL; w->compSeenOk = false;
         ++retired;

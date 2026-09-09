@@ -33,6 +33,7 @@
 #include "core/framework/frame_hooks.h"
 #include "core/framework/perf.h"
 #include "core/gfx/stereo.h"
+#include "core/vr/pose_record.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/frame_id.h"
 #include "core/gfx/device_census.h"

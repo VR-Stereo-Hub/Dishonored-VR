@@ -1269,6 +1269,19 @@ static void LoadConfig()
     // a pointer chain happens to lead there - the crossbow's loaded bolt came
     // and went with that luck.
     g_fpEquipRoots = IniFloat(ini, "Hands", "AttachCollectEquippedRoots", 1) != 0.0f;
+    // On a candidate refresh, retire only contracts whose component is DEAD.
+    // A stowed weapon's component is alive and keeps its contract, so a swap
+    // back attaches on the first frame instead of re-identifying from scratch.
+    g_waRetireDead = IniFloat(ini, "Hands", "AttachRetireDeadOnRefresh", 1) != 0.0f;
+    // VR-65: the pose trace's NEGATIVE CONTROL, and it runs itself. A few
+    // seconds into a session it records a deliberately wrong head yaw for about
+    // a second; the submission join must report exactly that error and must
+    // return to zero after. Without it, a join that reports zero has not been
+    // shown capable of reporting anything else. PoseSelfTestRecords=0 disables.
+    dvr::pose::configure_self_test(
+        (uint32_t)IniFloat(ini, "Stereo", "PoseSelfTestAfter", 1200),
+        (uint32_t)IniFloat(ini, "Stereo", "PoseSelfTestRecords", 180),
+        IniFloat(ini, "Stereo", "PoseSelfTestDeg", 4.0f));
     // How many extra collects a weapon swap is worth, and how far apart. The
     // equipment event and the new weapon's child components do not have to
     // appear in the same tick, so one rebuild can win the race and return a list

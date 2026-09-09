@@ -317,6 +317,31 @@ static void SceneDrawDecisionLog(const SdDecision& d)
     }
 }
 
+// VR-65: the tracking sample this pass's camera was built from, taken as ONE
+// read and handed to the record whole.
+//
+// The mod publishes head yaw, pitch, roll and the locate generation as separate
+// globals written by the Present thread and read here on the game thread, so
+// nothing today guarantees that a reader sees four values from the same update.
+// This does not fix that - it records what was read, together, at the moment the
+// camera for this pass was decided, which is the thing submission has to be
+// judged against. Fixing the publication itself is step 2 of the ticket.
+static uint32_t SdOpenPoseRecord(int eye, uint32_t pairId, const float* camPos, bool camPosOk)
+{
+    dvr::pose::Sample s;
+    s.yawDeg   = g_hmdYaw   * 57.29578f;
+    s.pitchDeg = g_hmdPitch * 57.29578f;
+    s.rollDeg  = g_hmdRoll  * 57.29578f;
+    s.gen      = g_hmdGen;
+    s.locateMs = g_scriptHeadOK ? g_scriptHeadMs : 0.0;
+    dvr::vr::HeadPose hp;
+    s.headPosOk = dvr::vr::peek_head_pose(hp);   // peek: the audit stamp belongs to the camera drive
+    if (s.headPosOk) { s.headPos[0] = hp.px; s.headPos[1] = hp.py; s.headPos[2] = hp.pz; }
+    else             { s.headPos[0] = s.headPos[1] = s.headPos[2] = 0.0f; }
+    return dvr::pose::open(eye, pairId, s, camPos, camPosOk);
+}
+
+
 // The second draw, taking the tick's decision (never re-deciding: that is what
 // made the tags one-sided). Only the poison is re-read - a fault poisons
 // mid-tick.
@@ -347,7 +372,8 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
                          "runs from pass 1's camera this tick: both eyes carry one view (counted on the beat line)",
                          (void*)g_camObj, dvr::camera::eye_field());
     }
-    dvr::stereo::reentry_push_tag(+1, wrote ? wrotePos : NULL);
+    dvr::stereo::reentry_push_tag_rec(+1, wrote ? wrotePos : NULL,
+                                      SdOpenPoseRecord(+1, g_sdPairId, wrotePos, wrote));
     g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
@@ -409,13 +435,17 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         InterlockedExchange(&g_sdDoublingNow, g_sdTick.doubleIt ? 1 : 0);
         if (g_sdTick.doubleIt) {
             float pos[3];
-            dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);
+            const bool posOk = dvr::camera::last_written_pos(pos);
+            g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
+            dvr::stereo::reentry_push_tag_rec(-1, posOk ? pos : NULL,
+                                              SdOpenPoseRecord(-1, g_sdPairId, pos, posOk));
         } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
             // A single GAMEPLAY draw while the method pops: one push per draw,
             // so its present cannot eat the next tick's -1 (the header's ONE
             // PUSH). Not in menus: their draws outnumber their presents and
             // the ring would only fill with junk (measured: cleared every 3 s).
-            dvr::stereo::reentry_push_tag(0, NULL);
+            dvr::stereo::reentry_push_tag_rec(0, NULL,
+                                              SdOpenPoseRecord(0, g_sdPairId, NULL, false));
         }
 
     }

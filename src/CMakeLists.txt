@@ -57,6 +57,7 @@ set(DVR_REAL_SOURCES
     core/gfx/aer.cpp
     core/gfx/reentry.cpp
     game/dishonored/camera.cpp game/dishonored/camera.h
+    core/vr/pose_record.cpp    core/vr/pose_record.h
     core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h
     core/vr/openxr_input.cpp   core/vr/openxr_input.h
     core/vr/hud_stub.cpp       core/vr/hud_stub.h

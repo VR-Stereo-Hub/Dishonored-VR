@@ -78,6 +78,15 @@ uint32_t g_offSkipped = 0;     // presents grab() took nothing from while Off (t
 // the content the last grab actually delivered (equal except under deferred).
 int      g_pendingTag = 0;
 int      g_deliveredTag = 0;
+// VR-65: the pose record travels with the pixels, on the same slots and by the
+// same rule as the eye tag. Under SharedWait=0 the delivered slot is the
+// PREVIOUS present's, so the record that comes back out here is a present older
+// than the one being submitted - which is exactly the gap that makes choosing a
+// pose by timing unsafe, and the reason the record has to ride the image.
+uint32_t g_pendingRec = 0;
+uint32_t g_deliveredRec = 0;
+uint32_t g_rtRec[2] = {0, 0};
+uint32_t g_sharedRec[2] = {0, 0};
 uint32_t g_serial = 0;            // grab serial (the present the content came from)
 uint32_t g_deliveredSerial = 0;
 
@@ -590,7 +599,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         // handle a false return by re-showing it). The tag is consumed so a
         // stereo method's pairing sees an untagged present, not a stale one.
         bb->Release();
-        g_pendingTag = 0;
+        g_pendingTag = 0; g_pendingRec = 0;
         ++g_offSkipped;
         cost_tick();
         return false;
@@ -605,6 +614,8 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     const uint32_t thisSerial = g_serial;
     const int thisTag = g_pendingTag;
     g_pendingTag = 0;
+    const uint32_t thisRec = g_pendingRec;
+    g_pendingRec = 0;
     uint64_t rtdUs = 0, lockUs = 0, copyUs = 0, uploadUs = 0, blitUs = 0;
     bool delivered = false;
     // 41.1 (session 9): the frame-identity trace's stage bb - the backbuffer
@@ -620,6 +631,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         ctx->UpdateSubresource(g_tex, 0, nullptr, g_pixels, (UINT)g_w * 4, 0);
         uploadUs = qpc_us(t0, qpc_now());
         g_deliveredTag = thisTag; g_deliveredSerial = thisSerial;
+        g_deliveredRec = thisRec;
         delivered = true;
         sample_bbox();
     } else if (g_mode == Mode::Deferred) {
@@ -640,6 +652,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         // builds the next frame, and the lock below never meets it.
         if (!read_back_queue(dev, g_rt[cur], g_sys[cur], &rtdUs)) return false;
         g_rtValid[cur] = true; g_rtTag[cur] = thisTag; g_rtSerial[cur] = thisSerial;
+        g_rtRec[cur] = thisRec;
         g_rtCur = prev;
         if (!g_rtValid[prev]) {
             // The first present of the mode: nothing to deliver yet.
@@ -652,6 +665,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         ctx->UpdateSubresource(g_tex, 0, nullptr, g_pixels, (UINT)g_w * 4, 0);
         uploadUs = qpc_us(t1, qpc_now());
         g_deliveredTag = g_rtTag[prev]; g_deliveredSerial = g_rtSerial[prev];
+        g_deliveredRec = g_rtRec[prev];
         delivered = true;
         sample_bbox();
     } else {   // Shared
@@ -675,6 +689,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
             return false;
         }
         g_sharedValid[cur] = true; g_sharedTag[cur] = thisTag; g_sharedSerial[cur] = thisSerial;
+        g_sharedRec[cur] = thisRec;
         g_sharedCur = prev;
         // Delivery: the previous slot (pipelined, the tag travels with it) or
         // this one after its fence; either way the fence is waited on with a
@@ -685,6 +700,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         fence_wait(slot, &lockUs);
         g_sharedDelivered = slot;
         g_deliveredTag = g_sharedTag[slot]; g_deliveredSerial = g_sharedSerial[slot];
+        g_deliveredRec = g_sharedRec[slot];
         delivered = true;
         // The bbox readback (see set_bbox_ms in capture.h): a full-frame CPU
         // round trip on the present thread, in the mode whose whole purpose is
@@ -794,6 +810,8 @@ uint32_t reinits() { return g_reinits; }
 
 void set_pending_tag(int eyeSign) { g_pendingTag = eyeSign < 0 ? -1 : eyeSign > 0 ? 1 : 0; }
 int delivered_tag() { return g_deliveredTag; }
+void set_pending_rec(uint32_t rec) { g_pendingRec = rec; }
+uint32_t delivered_rec() { return g_deliveredRec; }
 uint32_t delivered_serial() { return g_deliveredSerial; }
 uint32_t serial() { return g_serial; }
 int delivered_slot() { return g_mode == Mode::Shared ? g_sharedDelivered : g_mode == Mode::Deferred ? (g_rtCur ^ 1) : -1; }

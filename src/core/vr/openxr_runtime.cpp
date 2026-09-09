@@ -11,6 +11,8 @@
 #include "core/util/xr_math.h"
 #include "core/vr/hud_stub.h"
 #include "core/gfx/frame_id.h"   // 41.1 (Dishonored): the frame-identity trace's stage sc
+#include "core/gfx/capture.h"    // VR-65: the record that rode the delivered texture
+#include "core/vr/pose_record.h"
 
 // The runtime layer logs under the openxr category at Info; every per-frame
 // line in it is first-N or rate-limited (the CLAUDE.md cost rules).
@@ -4122,6 +4124,60 @@ void on_present_end(ID3D11Texture2D* frame) {
                     // Rate-limited to 500 ms and stereo-only; the mono screen
                     // is head-locked and has no projection pose to be wrong
                     // about, so a zero there would mean nothing.
+                    // ---- VR-65: THE JOIN, against the record that rode the image ----
+                    //
+                    // The audit below compares the submitted pose against the
+                    // LATEST published script-camera yaw. With a separate game
+                    // thread and a capture stage that can deliver the previous
+                    // present's slot, "latest" may belong to a different image
+                    // entirely, so that comparison can agree for the wrong
+                    // reason - and it reported near-zero while this ticket's
+                    // fault was present.
+                    //
+                    // This one asks the DELIVERED texture what it was rendered
+                    // with. No timing assumption, no lag setting: the record id
+                    // travelled from the draw, through the tag ring, onto the
+                    // capture slot, and out with the pixels.
+                    //
+                    // It is read-only. Nothing here changes which pose is
+                    // submitted; that is step 2 of the ticket and it must not
+                    // happen until this trace has been read in a headset.
+                    if (stereo) {
+                        const uint32_t recId = dvr::capture::delivered_rec();
+                        const dvr::pose::Record* rec = dvr::pose::get(recId);
+                        static uint64_t lastJoinMs = 0;
+                        static uint32_t joinAgree = 0, joinDisagree = 0, joinNoRec = 0;
+                        if (!rec) {
+                            ++joinNoRec;
+                        } else {
+                            const float tagYawL = xr_quat_yaw_deg(
+                                projViews[0].pose.orientation.x, projViews[0].pose.orientation.y,
+                                projViews[0].pose.orientation.z, projViews[0].pose.orientation.w);
+                            float d = tagYawL - rec->yawDeg;
+                            while (d > 180.0f) d -= 360.0f;
+                            while (d < -180.0f) d += 360.0f;
+                            if (fabsf(d) <= 0.25f) ++joinAgree; else ++joinDisagree;
+                            const uint64_t now2 = GetTickCount64();
+                            if (now2 - lastJoinMs >= 1000) {
+                                lastJoinMs = now2;
+                                const dvr::pose::Stats ps = dvr::pose::stats();
+                                XRLOG("xr: posejoin rec %u pair %u eye %+d | the image was RENDERED at yaw "
+                                      "%.2f deg (gen %u); the pose being SUBMITTED with it reads %.2f -> "
+                                      "%+.2f deg of error | agree %u disagree %u, no record %u | records "
+                                      "opened %u, lookups expired %u missing %u%s. This is the only "
+                                      "comparison that uses the pose belonging to the DELIVERED texture; "
+                                      "the poseaudit line below compares against the latest script sample "
+                                      "instead and can agree for the wrong reason.",
+                                      rec->id, rec->pairId, rec->eye, rec->yawDeg, rec->gen,
+                                      tagYawL, d, joinAgree, joinDisagree, joinNoRec,
+                                      ps.opened, ps.expired, ps.missing,
+                                      rec->injectedYawDeg != 0.0f
+                                          ? " | NEGATIVE CONTROL ARMED: the error above must equal the injected offset"
+                                          : "");
+                                dvr::pose::log_beat();
+                            }
+                        }
+                    }
                     if (stereo && g_poseAudit.load(std::memory_order_relaxed)) {
                         uint64_t now = GetTickCount64();
                         if (now - g_lastPoseAuditLogMs >= 500) {
