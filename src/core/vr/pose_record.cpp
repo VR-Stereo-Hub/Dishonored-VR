@@ -68,11 +68,12 @@ int g_vpGood[2] = { -1, -1 };   // probe hits per convention, for the log
 uint32_t g_ctrlStart = 1500, g_ctrlLen = 120;
 float    g_ctrlYawDeg = 6.0f;
 uint32_t g_ctrlPass = 0, g_ctrlFail = 0, g_ctrlChecks = 0;
+bool     g_ctrlDoneSub = false;
 int      g_ctrlDone[CTRL_COUNT] = {};
 
 float    g_subSumAbs = 0.0f, g_subMaxAbs = 0.0f, g_subMaxSpeed = 0.0f;
 float    g_subFastSum = 0.0f, g_subSlowSum = 0.0f;
-uint32_t g_subChecks = 0, g_subFastN = 0, g_subSlowN = 0;
+uint32_t g_subChecks = 0, g_subFastN = 0, g_subSlowN = 0, g_subRepeatGen = 0;
 float    g_subLastD = 0.0f, g_subLastSpeed = 0.0f;
 int      g_subGenBack = 0;
 
@@ -88,6 +89,22 @@ void ensure_cs()
     }
     while (!g_csReady) Sleep(0);
 }
+
+// The angle between two rotations, sign-invariant so q and -q read as identical.
+float quat_angle_deg(float ax, float ay, float az, float aw,
+                            float bx, float by, float bz, float bw)
+{
+    const float na = sqrtf(ax*ax + ay*ay + az*az + aw*aw);
+    const float nb = sqrtf(bx*bx + by*by + bz*bz + bw*bw);
+    if (!(na > 1e-6f) || !(nb > 1e-6f)) return 0.0f;
+    ax /= na; ay /= na; az /= na; aw /= na;
+    bx /= nb; by /= nb; bz /= nb; bw /= nb;
+    float dot = ax*bx + ay*by + az*bz + aw*bw;
+    if (dot < 0.0f) dot = -dot;              // q and -q are one rotation
+    if (dot > 1.0f) dot = 1.0f;
+    return 2.0f * acosf(dot) * 57.29578f;
+}
+
 
 float wrap180(float d)
 {
@@ -299,8 +316,54 @@ bool render_yaw_deg(float* outDeg, uint32_t* outSerial)
 
 // ---- the controls -----------------------------------------------------------
 
+// GROUP A: PURE ARITHMETIC, on synthetic inputs, run once at configure time on
+// this machine before anything is installed. It depends on no game state, no
+// render observation and no headset, so it can never be blocked by a leg that
+// refuses - which is what silenced every control in the previous two builds.
+static void RunArithmeticControls()
+{
+    struct Case { const char* what; float a[4], b[4], expect; };
+    // Rotations about Y by known amounts, plus the sign-invariance case that a
+    // naive dot-product comparison gets wrong.
+    const float c10 = cosf(5.0f * 0.0174533f), s10 = sinf(5.0f * 0.0174533f);
+    const float c90 = cosf(45.0f * 0.0174533f), s90 = sinf(45.0f * 0.0174533f);
+    const Case cases[] = {
+        { "identity",              {0,0,0,1}, {0,0,0,1},          0.0f },
+        { "10 deg about yaw",      {0,0,0,1}, {0,s10,0,c10},     10.0f },
+        { "90 deg about yaw",      {0,0,0,1}, {0,s90,0,c90},     90.0f },
+        { "10 deg about pitch",    {0,0,0,1}, {s10,0,0,c10},     10.0f },
+        { "10 deg about roll",     {0,0,0,1}, {0,0,s10,c10},     10.0f },
+        { "negated quaternion",    {0,0,0,1}, {0,0,0,-1},         0.0f },
+        { "unnormalised input",    {0,0,0,2}, {0,0,0,1},          0.0f },
+    };
+    int pass = 0, fail = 0;
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        const Case& k = cases[i];
+        const float got = quat_angle_deg(k.a[0], k.a[1], k.a[2], k.a[3],
+                                         k.b[0], k.b[1], k.b[2], k.b[3]);
+        const bool ok = fabsf(got - k.expect) <= 0.05f;
+        ok ? ++pass : ++fail;
+        if (!ok)
+            DVR_LOG(DVR_CAT, ::dvr::log::Level::Error,
+                "pose/ctrl A: ARITHMETIC control FAILED - '%s' gave %.3f deg, "
+                "expected %.3f (tolerance 0.05). The angular comparison itself is "
+                "wrong, so every difference this trace reports is wrong with it.",
+                k.what, got, k.expect);
+    }
+    g_ctrlPass += pass; g_ctrlFail += fail;
+    DVR_LOG(DVR_CAT, fail ? ::dvr::log::Level::Error : ::dvr::log::Level::Info,
+        "pose/ctrl A: arithmetic - %d passed, %d FAILED of %d synthetic case(s), "
+        "covering identity, yaw, pitch, roll, a negated quaternion (the same "
+        "rotation, must read zero) and an unnormalised input. Group A depends on "
+        "nothing but this file, so it runs whether or not any other leg of the "
+        "trace is available.",
+        pass, fail, (int)(sizeof(cases) / sizeof(cases[0])));
+}
+
+
 void configure_controls(uint32_t startAfter, uint32_t eachLen, float yawDeg)
 {
+    RunArithmeticControls();
     g_ctrlStart = startAfter; g_ctrlLen = eachLen; g_ctrlYawDeg = yawDeg;
     if (!eachLen)
         DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
@@ -403,58 +466,116 @@ static float quat_yaw_deg(float x, float y, float z, float w)
 }
 
 
-void note_submitted(int eye, float qx, float qy, float qz, float qw, uint32_t gen)
+void note_submitted(int eye, float qx, float qy, float qz, float qw,
+                    uint32_t submittedGen, int lagUsed, const Record& rec)
 {
+    // THE RECORD IS PASSED IN. The previous version read a hidden "last copy"
+    // global, so it could compare an eye against a record belonging to the
+    // other one, and it could not say which eye it had actually checked.
     ensure_cs();
     Lock lk;
-    if (!g_haveLastCopy) return;
-    const Record& r = g_lastCopy;
+    const Record& r = rec;
     if (r.eye != eye || !r.track.ok) return;
 
+    // FULL ORIENTATION, not yaw. A yaw-only number cannot see a pitch or roll
+    // error at all, and the tester reports judder on pitch and roll too. The
+    // difference is the sign-invariant angle between two normalised quaternions,
+    // so a quaternion and its negation - the same rotation - read as zero.
+    const float d = quat_angle_deg(r.track.qx, r.track.qy, r.track.qz, r.track.qw,
+                                   qx, qy, qz, qw);
     const float recYaw = quat_yaw_deg(r.track.qx, r.track.qy, r.track.qz, r.track.qw);
     const float subYaw = quat_yaw_deg(qx, qy, qz, qw);
-    const float d = wrap180(subYaw - recYaw);
 
     // HEAD SPEED, from this record against the previous one for the same eye.
     // Without it a delta is just a number; with it the delta can be shown to
     // scale with speed, which is what separates a stale sample from a constant
     // offset.
-    static float prevYaw[2] = {0.0f, 0.0f};
-    static double prevMs[2] = {0.0, 0.0};
+    // THE DERIVATIVE USES TRACKING TIMESTAMPS, not the time this call happened.
+    // The previous version divided by submission arrival times, so queue jitter
+    // entered the number and it could not honestly be called head speed. This is
+    // the change in the SAMPLE between two locates, over the interval between
+    // those locates.
+    static float  prevQ[2][4] = {};
+    static double prevLocate[2] = {0.0, 0.0};
+    static uint32_t prevGen[2] = {0, 0};
     static bool   havePrev[2] = {false, false};
     const int ei = eye < 0 ? 0 : 1;
     float speed = 0.0f;
-    const double now = dvr::clock::now_ms();
-    if (havePrev[ei] && now > prevMs[ei]) {
-        const float dy = wrap180(recYaw - prevYaw[ei]);
-        speed = fabsf(dy) / (float)((now - prevMs[ei]) / 1000.0);
+    bool speedOk = false;
+    if (havePrev[ei] && r.track.gen != prevGen[ei] &&
+        r.track.locateMs > prevLocate[ei]) {
+        const float da = quat_angle_deg(prevQ[ei][0], prevQ[ei][1], prevQ[ei][2],
+                                        prevQ[ei][3], r.track.qx, r.track.qy,
+                                        r.track.qz, r.track.qw);
+        speed = da / (float)((r.track.locateMs - prevLocate[ei]) / 1000.0);
+        speedOk = true;
     }
-    prevYaw[ei] = recYaw; prevMs[ei] = now; havePrev[ei] = true;
+    if (r.track.gen != prevGen[ei]) {
+        prevQ[ei][0] = r.track.qx; prevQ[ei][1] = r.track.qy;
+        prevQ[ei][2] = r.track.qz; prevQ[ei][3] = r.track.qw;
+        prevLocate[ei] = r.track.locateMs; prevGen[ei] = r.track.gen;
+        havePrev[ei] = true;
+    } else {
+        ++g_subRepeatGen;
+    }
+
+    // GROUP C: the controls that only need a record and a submitted pose. They
+    // used to sit behind the render leg and so never ran once in two sessions.
+    if (g_ctrlLen && ++g_ctrlChecks >= g_ctrlStart && !g_ctrlDoneSub) {
+        g_ctrlDoneSub = true;
+        // Perturb a DIAGNOSTIC COPY by a known angle and confirm the comparison
+        // moves by it. Nothing that reaches submission is touched, so there is
+        // no wobble for the tester to see.
+        const float k = g_ctrlYawDeg * 0.5f * 0.0174533f;
+        const float pqx = r.track.qx * cosf(k) + r.track.qw * 0.0f;
+        (void)pqx;
+        const float sy = sinf(k), cy = cosf(k);
+        // q_perturbed = q_yaw(delta) * q_record, composed properly.
+        const float px2 = cy * r.track.qx + sy * r.track.qz;
+        const float py2 = cy * r.track.qy + sy * r.track.qw;
+        const float pz2 = cy * r.track.qz - sy * r.track.qx;
+        const float pw2 = cy * r.track.qw - sy * r.track.qy;
+        const float moved = quat_angle_deg(r.track.qx, r.track.qy, r.track.qz,
+                                           r.track.qw, px2, py2, pz2, pw2);
+        const bool pass = fabsf(moved - fabsf(g_ctrlYawDeg)) <= 0.10f;
+        pass ? ++g_ctrlPass : ++g_ctrlFail;
+        DVR_LOG(DVR_CAT, pass ? ::dvr::log::Level::Info : ::dvr::log::Level::Error,
+            "pose/ctrl C: RECORD-VS-SUBMISSION control %s - a diagnostic copy of "
+            "the live record was turned %.2f deg and the comparison measured "
+            "%.3f (tolerance 0.10). This proves the comparison responds to a real "
+            "rotation of a real record. It does NOT prove the record holds the "
+            "sample rendering used, and it does not exercise the render leg.",
+            pass ? "PASSED" : "FAILED", g_ctrlYawDeg, moved);
+    }
 
     ++g_subChecks;
     g_subSumAbs += fabsf(d);
     if (fabsf(d) > g_subMaxAbs) { g_subMaxAbs = fabsf(d); g_subMaxSpeed = speed; }
-    if (speed > 5.0f) { g_subFastSum += fabsf(d); ++g_subFastN; }
-    else              { g_subSlowSum += fabsf(d); ++g_subSlowN; }
+    if (speedOk) {
+        if (speed > 5.0f) { g_subFastSum += fabsf(d); ++g_subFastN; }
+        else              { g_subSlowSum += fabsf(d); ++g_subSlowN; }
+    }
     g_subLastD = d; g_subLastSpeed = speed;
-    g_subGenBack = (int)(gen - r.track.gen);
+    g_subGenBack = (int)(submittedGen - r.track.gen);
 
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
-        "xr: posesub eye %+d | the image was RENDERED from tracking yaw %.2f deg "
-        "(locate generation %u); the pose SUBMITTED with it is %.2f -> %+.3f deg "
-        "apart, %d generation(s) newer | head turning %.1f deg/s | mean error "
-        "%.3f deg over %u check(s); while the head moves faster than 5 deg/s the "
-        "mean is %.3f over %u, and while it is nearly still %.3f over %u | worst "
-        "%.3f deg at %.1f deg/s. BOTH sides are OpenXR convention, so this "
-        "difference is real and needs no world matrix. If it grows with head "
-        "speed the submitted sample is STALE, which is exactly the reported "
-        "symptom - judder on any physical turn, none on the thumbstick, because "
-        "the compositor corrects only for head motion.",
-        eye, recYaw, r.track.gen, subYaw, d, g_subGenBack, speed,
+        "xr: posesub eye %+d | the camera for this image CONSUMED locate "
+        "generation %u (yaw %.2f deg); the pose SUBMITTED with it is generation "
+        "%u (yaw %.2f), chosen by lag arm %d, %d generation(s) apart | full "
+        "orientation difference %.3f deg | sample changed %.1f deg/s between "
+        "locates%s | mean difference %.3f deg over %u check(s); above 5 deg/s "
+        "the mean is %.3f over %u, near still %.3f over %u | worst %.3f deg at "
+        "%.1f deg/s | repeated generations %u. Both sides are OpenXR convention "
+        "so the difference is real and needs no world matrix. It compares the "
+        "camera INPUT against the submitted metadata; it does not show whether "
+        "rendering honoured that input, and an association with motion is not by "
+        "itself proof of a stale sample.",
+        eye, r.track.gen, recYaw, submittedGen, subYaw, lagUsed, g_subGenBack, d,
+        speed, speedOk ? "" : " (NOT MEASURABLE this check - the generation did not advance)",
         g_subChecks ? g_subSumAbs / (float)g_subChecks : 0.0f, g_subChecks,
         g_subFastN ? g_subFastSum / (float)g_subFastN : 0.0f, g_subFastN,
         g_subSlowN ? g_subSlowSum / (float)g_subSlowN : 0.0f, g_subSlowN,
-        g_subMaxAbs, g_subMaxSpeed);
+        g_subMaxAbs, g_subMaxSpeed, g_subRepeatGen);
 }
 
 

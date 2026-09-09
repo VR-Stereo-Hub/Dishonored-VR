@@ -149,7 +149,8 @@ void check_controls(const Record& real, float observedYawDeg);
 // all when the head is still. So the comparison is reported together with the
 // measured head speed, because a delta that grows with speed and a delta that
 // does not are different faults.
-void note_submitted(int eye, float qx, float qy, float qz, float qw, uint32_t gen);
+void note_submitted(int eye, float qx, float qy, float qz, float qw,
+                    uint32_t submittedGen, int lagUsed, const Record& rec);
 
 
 struct Stats {

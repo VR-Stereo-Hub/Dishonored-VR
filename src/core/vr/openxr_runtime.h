@@ -310,6 +310,10 @@ bool pair_strict();
 // (reprojection wobble). DEFAULT 1 IN CORE - BS1/BS2 never call this and
 // behave byte-identically; the Infinite adapter exposes the in-headset A/B.
 void set_pose_lag(int lag);
+// VR-65: run the announced lag comparison - baseline, alternative, baseline
+// again, alternative - and restore the baseline at the end. Segment length in
+// milliseconds; 0 disables.
+void set_lag_ab(bool on, uint32_t segMs);
 int get_pose_lag();
 // 41.1 (Dishonored): pose look-ahead in display periods (0..2, default 0): the
 // head pose the game renders with and the views the layer is tagged with are

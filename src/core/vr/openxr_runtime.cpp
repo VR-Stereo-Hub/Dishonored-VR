@@ -208,6 +208,14 @@ XrView g_views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 XrView g_viewsContent[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 bool g_viewsContentValid = false;
 bool g_viewsValid = false;
+// VR-65: WHICH LOCATE each generation of views came from. Without this the pose
+// audit substituted the CURRENT generation for the submitted one, so it could
+// never report a lag it was itself selecting. The three move together with the
+// three view buffers below.
+uint32_t g_viewsGen = 0, g_viewsContentGen = 0, g_viewsPrev2Gen = 0;
+// The generation actually submitted per eye, and the lag arm that chose it.
+uint32_t g_eyePoseGen[2] = {0, 0};
+int      g_eyePoseLag[2] = {-1, -1};
 // Session 43b (the Infinite "jumpy camera"): the lockstep assumption behind
 // g_viewsContent - "locate N feeds the tick that presents at N+1" - was
 // calibrated on BS1's 1T (single-threaded) renderer. Infinite's substrate is
@@ -222,6 +230,12 @@ bool g_viewsValid = false;
 XrView g_viewsPrev2[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 bool g_viewsPrev2Valid = false;
 std::atomic<int> g_poseLag{1};
+// VR-65: the announced lag comparison. Off by default; a segment length of 0
+// disables it too. It moves only the pose-history selection above.
+std::atomic<bool>     g_lagAbOn{false};
+std::atomic<uint32_t> g_lagAbSegMs{20000};
+uint64_t              g_lagAbT0 = 0;
+uint32_t              g_lagAbSeg = 0xffffffffu;
 // 41.1 (Dishonored): pose look-ahead in display periods - the head pose the
 // game renders with, and the views the layer is tagged with, are located for
 // predictedDisplayTime + ahead * period (0 = today: the slot xrWaitFrame
@@ -3094,6 +3108,9 @@ void on_present_begin() {
     // zero-latency laser).
     g_viewsPrev2[0] = g_viewsContent[0]; // s43b: keep one more generation for
     g_viewsPrev2[1] = g_viewsContent[1]; // the lag-2 attribution candidate
+    g_viewsPrev2Gen = g_viewsContentGen;
+    g_viewsContentGen = g_viewsGen;
+    g_viewsGen = g_locateGen.load(std::memory_order_relaxed);
     g_viewsPrev2Valid = g_viewsContentValid;
     g_viewsContent[0] = g_views[0];
     g_viewsContent[1] = g_views[1];
@@ -3935,17 +3952,73 @@ void on_present_end(ID3D11Texture2D* frame) {
                 // state block). Default 1 == the historical g_viewsContent
                 // behavior; only the Infinite adapter ever changes it.
                 if (srFrame) {
+                    // ---- VR-65: THE LAG A/B, on a fixed, announced schedule --
+                    //
+                    // The decisive render leg has refused twice, so the cheaper
+                    // discriminator is to change the one thing under suspicion
+                    // and let the tester feel the answer. This changes ONLY which
+                    // generation of located views the submitted pose comes from -
+                    // no camera sampling, capture mode, resolution or pacing
+                    // setting moves with it.
+                    //
+                    // Baseline, alternative, BASELINE AGAIN, alternative. The
+                    // return to baseline is the point: an improvement that does
+                    // not come back when the baseline returns is a coincidence,
+                    // and a single A-then-B run cannot tell those apart.
+                    //
+                    // Each segment is announced with its value and its length so
+                    // the tester knows what they are judging, and the sequence
+                    // ends with the baseline restored.
+                    if (g_lagAbOn.load(std::memory_order_relaxed)) {
+                        const uint64_t nowMs = GetTickCount64();
+                        if (g_lagAbT0 == 0) g_lagAbT0 = nowMs;
+                        const uint32_t segMs = g_lagAbSegMs.load(std::memory_order_relaxed);
+                        const uint32_t seg = segMs ? (uint32_t)((nowMs - g_lagAbT0) / segMs) : 0u;
+                        if (seg != g_lagAbSeg) {
+                            g_lagAbSeg = seg;
+                            static const int kPlan[4] = { 1, 2, 1, 0 };
+                            if (seg < 4) {
+                                const int want = kPlan[seg];
+                                g_poseLag.store(want, std::memory_order_relaxed);
+                                XRLOG("xr: LAG A/B segment %u of 4 - pose history "
+                                      "selection is now LAG %d for the next %u ms. "
+                                      "%s Turn your head at a moderate speed, then "
+                                      "briefly faster, then pitch and roll, then "
+                                      "hold still and turn with the stick. Nothing "
+                                      "else changed: capture mode, resolution and "
+                                      "pacing are fixed.",
+                                      seg + 1, want, segMs,
+                                      seg == 0 ? "This is the BASELINE."
+                                      : seg == 2 ? "This is the BASELINE AGAIN - if "
+                                        "the previous segment felt better, it must "
+                                        "feel worse now, or the improvement was not real."
+                                      : "This is an ALTERNATIVE.");
+                            } else {
+                                g_poseLag.store(1, std::memory_order_relaxed);
+                                g_lagAbOn.store(false, std::memory_order_relaxed);
+                                XRLOG("xr: LAG A/B complete - baseline lag 1 "
+                                      "restored. Report which segments felt worst "
+                                      "and best by their numbers.");
+                            }
+                        }
+                    }
                     int lag = g_poseLag.load(std::memory_order_relaxed);
                     // Pick the pose GENERATION as a pair - the s50 rendered
                     // tag needs both eyes of the same locate to reconstruct
                     // the parallel render camera.
                     const XrView* gen;
+                    uint32_t genId; int lagUsed;
                     if (lag == 0 && g_viewsValid)
-                        gen = g_views;
+                        { gen = g_views;       genId = g_viewsGen;        lagUsed = 0; }
                     else if (lag == 2 && g_viewsPrev2Valid)
-                        gen = g_viewsPrev2;
+                        { gen = g_viewsPrev2;  genId = g_viewsPrev2Gen;   lagUsed = 2; }
                     else
-                        gen = g_viewsContent;
+                        { gen = g_viewsContent; genId = g_viewsContentGen; lagUsed = 1; }
+                    // The generation ACTUALLY submitted for this eye, and which
+                    // arm chose it. The audit reports these instead of the
+                    // current generation, which it cannot distinguish a lag from.
+                    g_eyePoseGen[srEye] = genId;
+                    g_eyePoseLag[srEye] = lagUsed;
                     if (g_eyeTagRendered.load(std::memory_order_relaxed))
                         g_eyePose[srEye] =
                             parallel_eye_tag(gen[0].pose, gen[1].pose, srEye,
@@ -4176,7 +4249,7 @@ void on_present_end(ID3D11Texture2D* frame) {
                                     projViews[vi0].pose.orientation.y,
                                     projViews[vi0].pose.orientation.z,
                                     projViews[vi0].pose.orientation.w,
-                                    g_locateGen.load(std::memory_order_relaxed));
+                                    g_eyePoseGen[vi0], g_eyePoseLag[vi0], rec);
 
                             float renderYaw = 0.0f; uint32_t renderSerial = 0;
                             const bool haveRender =
@@ -5095,6 +5168,13 @@ void set_pace_ahead(int periods) {
 }
 
 int pace_ahead() { return g_paceAhead.load(std::memory_order_relaxed); }
+
+void set_lag_ab(bool on, uint32_t segMs)
+{
+    g_lagAbSegMs.store(segMs, std::memory_order_relaxed);
+    g_lagAbT0 = 0; g_lagAbSeg = 0xffffffffu;
+    g_lagAbOn.store(on && segMs > 0, std::memory_order_relaxed);
+}
 
 void set_pose_lag(int lag) {
     if (lag < 0) lag = 0;

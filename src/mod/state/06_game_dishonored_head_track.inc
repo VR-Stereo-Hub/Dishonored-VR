@@ -18,6 +18,25 @@ static float g_carryX = 0, g_carryY = 0;
 // HMD orientation (radians), updated each frame from the pose; used by the
 // camera-matrix injection (F3) and its sign-flip config.
 static float g_hmdYaw = 0, g_hmdPitch = 0, g_hmdRoll = 0;
+
+// VR-65: ONE tracking sample, as it was at the moment a located pose became the
+// numbers the camera is built from. Published there, consumed by copy, and never
+// reassembled from the loose globals above.
+//
+// The loose globals stay because everything else already reads them. What they
+// cannot do is tell a later reader WHICH update it is looking at, and that is
+// precisely what a pose record has to know. Three instruments in a row failed on
+// exactly that: each re-read a moving stream and reported the result as the
+// sample its image had been rendered from.
+struct HtSample {
+    float    yaw, pitch, roll;     // radians, as the camera writer uses them
+    float    qx, qy, qz, qw;       // the same orientation, OpenXR convention
+    float    px, py, pz;           // metres, XR LOCAL space
+    uint32_t gen;                  // the locate that produced it
+    double   locateMs;             // when that locate happened
+    bool     poseOk;               // the quaternion half was available
+    bool     ok;                   // anything at all has been published
+};
 // 32.86: the HMD orientation AS OF the last camera write. The blink direction
 // is decomposed against the head and recomposed against the game camera; if
 // those two are sampled at different times, the gap between them is head

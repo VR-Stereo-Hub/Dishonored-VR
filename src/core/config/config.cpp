@@ -1278,6 +1278,11 @@ static void LoadConfig()
     // a second; the submission join must report exactly that error and must
     // return to zero after. Without it, a join that reports zero has not been
     // shown capable of reporting anything else. PoseSelfTestRecords=0 disables.
+    // VR-65: the announced lag comparison. ON for this build only - it is the
+    // discriminator the refusing render leg cannot supply, it changes nothing but
+    // the pose-history selection, and it restores the baseline by itself.
+    dvr::vr::set_lag_ab(IniFloat(ini, "Stereo", "LagAB", 1) != 0.0f,
+                        (uint32_t)IniFloat(ini, "Stereo", "LagABSegMs", 20000));
     dvr::pose::configure_controls(
         (uint32_t)IniFloat(ini, "Stereo", "PoseControlsAfter", 60),
         (uint32_t)IniFloat(ini, "Stereo", "PoseControlsEach", 30),
