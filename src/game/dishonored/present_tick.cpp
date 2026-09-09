@@ -58,6 +58,83 @@ static void DvrPoseTo3x4(const dvr::vr::HeadPose& p, float m[3][4])
 // The runtime layer's poses -> the mod's pose slots, once per present. Head
 // -> TrackHead (rotation write, positional, crouch); hands -> slots 3 and 4,
 // which is where the XR path always put them (g_ctrlIdx = 3/4).
+// VR-68: THE HEAD/VIEW MISMATCH INSTRUMENT.
+//
+// The weapon is placed head-relative: MpDriveTick normalises the controller
+// against the head in g_devPose[0], and the DRAW completes it with the camera
+// basis taken from the render's own shader constants. So the hand is expressed
+// relative to one head (call it H_s) and planted in a view built from another
+// (H_r). If those are different SAMPLES of the head, the residual H_r*H_s^-1
+// is left in the frame, and it is head rotation - which is exactly the motion
+// the tester reports it under (head turn yes, stick turn no).
+//
+// WHAT THIS IS NOT. It does NOT difference two coordinate systems: both values
+// below are the SAME quantity, g_hmdYaw/g_hmdPitch in the same convention,
+// sampled at two moments. Two numbers in this project have already been
+// retracted for differencing a UE yaw against an XR yaw, and this deliberately
+// avoids that class. It also does NOT compare the controller against the head:
+// their difference is where your hand is, not an error.
+//
+// IT CAN FAIL ITS OWN HYPOTHESIS. If the camera write and this consume land on
+// the same locate generation, the delta is 0.000 deg and the mechanism is dead.
+// The line says so on the line, and prints the generation gap beside the angle
+// so a zero angle with a nonzero gap (or the reverse) is visible rather than
+// averaged away.
+static uint32_t g_devPoseGen = 0;      // the locate g_devPose[0] came from
+static float    g_devPoseYaw = 0.0f;   // g_hmdYaw as of that consume
+static float    g_devPosePitch = 0.0f;
+static float    g_hvMaxDeg = 0.0f;     // worst residual since the last line
+static float    g_hvMaxSpeed = 0.0f;
+static int      g_hvGenGaps = 0;
+static int      g_hvSamples = 0;
+static double   g_hvPrevMs = 0.0;
+static float    g_hvPrevYaw = 0.0f;
+
+static void DvrHeadViewCheck()
+{
+    // The camera write's own snapshot of the head it used, and ours.
+    const int32_t genGap = (int32_t)g_devPoseGen - (int32_t)g_injHmdGen;
+    float dYaw = g_devPoseYaw - g_injHmdYawSnap;
+    float dPitch = g_devPosePitch - g_injHmdPitchSnap;
+    while (dYaw > 3.14159265f) dYaw -= 6.28318531f;
+    while (dYaw < -3.14159265f) dYaw += 6.28318531f;
+    const float deg = sqrtf(dYaw * dYaw + dPitch * dPitch) * 57.29578f;
+
+    const double now = dvr::clock::now_ms();
+    float speed = 0.0f;
+    if (g_hvPrevMs > 0.0 && now > g_hvPrevMs) {
+        float dy = g_devPoseYaw - g_hvPrevYaw;
+        while (dy > 3.14159265f) dy -= 6.28318531f;
+        while (dy < -3.14159265f) dy += 6.28318531f;
+        speed = (float)(fabs((double)dy) * 57.29578 / ((now - g_hvPrevMs) / 1000.0));
+    }
+    g_hvPrevMs = now; g_hvPrevYaw = g_devPoseYaw;
+
+    ++g_hvSamples;
+    if (genGap != 0) ++g_hvGenGaps;
+    if (deg > g_hvMaxDeg) g_hvMaxDeg = deg;
+    if (speed > g_hvMaxSpeed) g_hvMaxSpeed = speed;
+
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+        "hv: head/view residual - the hand is normalised against locate gen %u, the camera write used gen %u "
+        "(gap %+d) | this frame %.3f deg | WORST since the last line %.3f deg at head speed up to %.1f deg/s | "
+        "%d of %d frames had a generation gap. This is the SAME quantity (g_hmdYaw/Pitch) read at two moments, "
+        "never two coordinate systems. IF THIS IS NEAR ZERO THE WEAPON JUDDER IS NOT A HEAD/VIEW MISMATCH and "
+        "the candidate is dead; it should grow with head speed and be zero when the head is still.",
+        g_devPoseGen, g_injHmdGen, genGap, deg, g_hvMaxDeg, g_hvMaxSpeed,
+        g_hvGenGaps, g_hvSamples);
+    // The accumulators cover the window the line reports, so they reset on the
+    // same 1 s schedule the line prints on - not on whether the line printed.
+    {
+        static double s_reset = 0.0;
+        if (s_reset == 0.0) s_reset = now;
+        if (now - s_reset >= 1000.0) {
+            s_reset = now;
+            g_hvMaxDeg = 0.0f; g_hvMaxSpeed = 0.0f; g_hvGenGaps = 0; g_hvSamples = 0;
+        }
+    }
+}
+
 static void DvrConsumePoses()
 {
     dvr::vr::HeadPose hp;
@@ -66,6 +143,11 @@ static void DvrConsumePoses()
         DvrPoseTo3x4(hp, m);
         memcpy(g_devPose[0], m, sizeof(g_devPose[0]));
         g_devPoseOk[0] = true;
+        // VR-68: the identity of the head this hand normalisation will use.
+        g_devPoseGen = g_hmdGen;
+        g_devPoseYaw = g_hmdYaw;
+        g_devPosePitch = g_hmdPitch;
+        DvrHeadViewCheck();
         TrackHead(m);
     } else {
         g_devPoseOk[0] = false;
