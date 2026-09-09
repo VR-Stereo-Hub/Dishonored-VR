@@ -780,7 +780,12 @@ static void LoadConfig()
         // which is what bv/lag measured. PoseLagAb walks 0/2/0/2 so a headset
         // run decides it.
         g_mpPoseLag = GetPrivateProfileIntA("Hands", "PoseLag", 2, ini);
-        g_mpPoseLagAb = GetPrivateProfileIntA("Hands", "PoseLagAb", 1, ini) != 0;   // VR-68 reopened: judging the FLICKER
+        g_mpPoseLagAb = GetPrivateProfileIntA("Hands", "PoseLagAb", 0, ini) != 0;
+        // OFF by default again. Left on after the flicker A/B, it walked 0/2/0/2
+        // through every later run - so half of each run sat at PoseLag=0 and the
+        // judder "came back", which is the A/B working exactly as designed and
+        // being read as a regression. An experiment left armed contaminates every
+        // measurement after it.
         Log("config: [Hands] PoseLag=%d PoseLagAb=%d - the head sample the hand is normalised against. 2 is the measured and headset-confirmed answer: bv/lag put the RENDERED camera at lag 2 (0.119 deg against 1.19 at lag 0 over 4085 moving frames) and a reversing A/B/A/B in a headset agreed. PoseLag=0 restores the old behaviour if you want to feel the difference.", g_mpPoseLag, (int)g_mpPoseLagAb);
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
             inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);

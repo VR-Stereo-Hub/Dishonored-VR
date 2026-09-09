@@ -2342,9 +2342,23 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
     // ~99.8 % agreement. A sign flipped on a hunch would be another guess; a
     // sign flipped against a counter that must move is a measurement.
     const int measApplied = meas * g_mpEyeMeasSign;
-    if (meas == 0) InterlockedIncrement(&g_msMeasNone);
-    else if (measApplied == g_mpEyeState) InterlockedIncrement(&g_msMeasAgree);
-    else InterlockedIncrement(&g_msMeasDisagree);
+    // PER EYE. The symptom is LEFT ONLY, and every counter here was a total -
+    // which cannot show a fault that lives in one eye. The stale-swapchain
+    // hypothesis was falsified by a run where its fault never fired and the
+    // flicker was unchanged, so the next hypothesis has to be picked from
+    // numbers that can tell the eyes apart.
+    const int side = (measApplied < 0) ? 0 : 1;    // 0 = left, 1 = right
+    if (meas == 0) {
+        InterlockedIncrement(&g_msMeasNone);
+        // Which eye the INFERENCE thought it was, since the method had none.
+        if (g_mpEyeState != 0) InterlockedIncrement(&g_msMeasNoneEye[g_mpEyeState < 0 ? 0 : 1]);
+    } else if (measApplied == g_mpEyeState) {
+        InterlockedIncrement(&g_msMeasAgree);
+        InterlockedIncrement(&g_msMeasAgreeEye[side]);
+    } else {
+        InterlockedIncrement(&g_msMeasDisagree);
+        InterlockedIncrement(&g_msMeasDisagreeEye[side]);
+    }
 
     // Acted on only behind its own lever, and only when it actually has an
     // answer - it never downgrades a known inference to unknown.
@@ -2356,12 +2370,16 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         "using %s. The inference is a delta between consecutive draws and HOLDS when the step is too small "
         "to read, which is how it goes wrong; the measurement comes from the method's own c5 pairing. If "
         "the disagreement is large and the weapons are steady with PaletteEyeFromMeasured=1, the "
-        "measurement is the better source and the offset can come back on.",
+        "measurement is the better source and the offset can come back on. PER EYE - agree L %ld R %ld, "
+        "disagree L %ld R %ld, no answer L %ld R %ld. THE SYMPTOM IS LEFT ONLY, so if these are symmetric "
+        "the fault is not in this decision at all and the next hypothesis must come from somewhere else.",
         g_msMeasAgree, g_msMeasDisagree, g_msMeasNone, g_mpEyeMeasSign,
         g_mpEyeFromMeasured ? "YES (PaletteEyeFromMeasured=1)" : "no (audit only)",
         measApplied < 0 ? "LEFT" : measApplied > 0 ? "RIGHT" : "none",
         g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
-        eyeUse < 0 ? "LEFT" : eyeUse > 0 ? "RIGHT" : "none");
+        eyeUse < 0 ? "LEFT" : eyeUse > 0 ? "RIGHT" : "none",
+        g_msMeasAgreeEye[0], g_msMeasAgreeEye[1], g_msMeasDisagreeEye[0], g_msMeasDisagreeEye[1],
+        g_msMeasNoneEye[0], g_msMeasNoneEye[1]);
 
     if (!truth) {
         InterlockedIncrement(&g_mpEyeNoTruth);
