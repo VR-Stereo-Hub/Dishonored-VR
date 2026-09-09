@@ -1,6 +1,56 @@
 # Status
 
-## CURRENT (2026-09-08, night): VR-59 attempt 2b - refusing is not deleting
+## CURRENT (2026-09-08, night): VR-59 is FIXED and headset-confirmed
+
+**A fired bolt stays where it lands.** Confirmed in a headset: bolts are visible
+and solid, hold their position and rotation, show no coupling to the hand in any
+weapon, and newly fired bolts behave correctly too. The held bolt and the
+crossbow are unaffected. PR open against `VR-Main`.
+
+### What fixed it, in one sentence
+
+A contract identifies a GEOMETRY and was being used as an INSTANCE. Every draw on
+a weapon's buffers is now verified against the component that contract was
+matched to, using the engine's own transform from the live snapshot, and a draw
+that matches nothing is handed back exactly as the engine drew it.
+
+The measurement that proved the architecture was the problem: `known-buffer
+passes 196955, corrected 196619, matched 4`. Ninety-nine point eight percent of
+corrections were made on buffer identity alone, while the only test that checks
+where a draw is ran four times in 13 million draws.
+
+### The two lessons, both paid for by a headset run
+
+**A reference has to be maintained on the path that uses it.** `lastL2W` is
+written only where the transform matcher adopts a contract, so a gate built on it
+compares against something that is almost always stale. It refused 53,238 held
+draws in one run with the present gap growing to 21,367.
+
+**Refusing to correct a draw and refusing to draw it are different operations,
+and the second one deletes the object.** Dropping claims a draw duplicates
+geometry rendered correctly elsewhere - true of another pass of the held weapon,
+false of a world instance. The rule was written into `may_suppress` and then not
+applied at two of the four exit paths, which cost a run where the bolts were
+invisible rather than misplaced.
+
+### VR-60 is next, and its symptom CHANGED for the better
+
+The pistol used to turn invisible when aimed away from where a bolt was. It now
+stays visible and instead detaches to its default position with its own idle
+animation, reattaching when the aim comes back into range. That is this fix
+working: the draw was being dropped and is now handed back, so the failure mode
+went from deletion to falling back on the engine.
+
+The cause is unchanged and is VR-60's job: the pistol is not in the component
+snapshot at all, so it has no member candidate, reaches a contract only through
+the buffer lookup's `vb || ib` OR, and is therefore verified against ANOTHER
+asset's component. Past the radius from the bolt, it is correctly refused - the
+verification is right and the identity it is given is wrong.
+
+Branch `claude/vr-60-pistol-not-in-snapshot`, off the VR-59 branch because the
+fail-safe behaviour it builds on is not merged yet.
+
+## PREVIOUS (2026-09-08, night): VR-59 attempt 2b - refusing is not deleting
 
 Attempt 2 verified correctly and then DELETED what it refused: fired bolts were
 invisible for a whole run while the held bolt and the crossbow were fine. Two

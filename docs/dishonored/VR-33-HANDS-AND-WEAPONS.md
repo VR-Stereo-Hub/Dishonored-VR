@@ -460,11 +460,15 @@ place or nothing at all. That asymmetry is the whole story of this ticket.
   defects and the only one this branch carries. It is a shared-gate failure:
   when no correction is published for a Present, every pass of every weapon is
   suppressed together.
-* **A fired bolt standing in the world** (VR-59). The radius gates reduced it and
-  could not close it; replaced by an instance identity read from the engine, in
-  section 3. **Written and tested on the desk, NOT yet confirmed in a headset** -
-  the failing case is perceptual and close range, so only a headset run settles
-  it. What a run has to answer is in STATUS.
+* **A fired bolt standing in the world** (VR-59) - **FIXED, headset-confirmed.**
+  The radius gates could not close it because a contract identifies a geometry
+  and was being used as an instance. Every draw is now verified against the
+  component its contract was matched to, and a draw that matches nothing is
+  handed back exactly as the engine drew it. Section 3 has the mechanism.
+* **The pistol has no attachment of its own** (VR-60). It is not in the component
+  snapshot, so it reaches a contract only through the buffer lookup and is
+  verified against another asset's component. It detaches to its default position
+  past a radius from that component - correct verification, wrong identity.
 
 ---
 
