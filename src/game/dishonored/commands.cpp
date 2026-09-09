@@ -413,6 +413,10 @@ static void GameStateTick()
         SuBeginLoad();
         // A load destroys the components the weapon contracts were matched to.
         WaInvalidateContracts("the game left gameplay");
+        // ... and the candidate list itself, which holds the component pointers
+        // those contracts were matched to. Dropping the contracts without
+        // rebuilding this leaves the matcher with a dead list and no anchor.
+        FpInvalidateCandidates("the game left gameplay");
     }
     wasGameplay = nowGameplay;
     SuTick(suCyl, suNoMenu, suView, !g_cineNow, DvrGameplayVerdict());

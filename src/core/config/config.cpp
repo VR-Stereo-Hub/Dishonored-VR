@@ -1263,6 +1263,10 @@ static void LoadConfig()
     // second at 90 Hz - long enough that a one-frame snapshot gap is not a
     // retirement, short enough that a lockout cannot outlive a load.
     g_waStaleMaxPresents = (int)IniFloat(ini, "Hands", "AttachContractStalePresents", 90);
+    g_sdGateSceneLive = IniFloat(ini, "Stereo", "GateOnSceneLive", 1) != 0.0f;
+    g_sdSceneQuietMs  = IniFloat(ini, "Stereo", "SceneQuietMs", 400.0f);
+    if (g_sdSceneQuietMs < 50.0f)   g_sdSceneQuietMs = 50.0f;
+    if (g_sdSceneQuietMs > 2000.0f) g_sdSceneQuietMs = 2000.0f;
     g_menuGhostByRate  = IniFloat(ini, "Menu", "GhostClearByRate", 1) != 0.0f;
     g_menuGhostQuietMs = IniFloat(ini, "Menu", "GhostQuietMs", 400.0f);
     if (g_menuGhostQuietMs < 50.0)   g_menuGhostQuietMs = 50.0;

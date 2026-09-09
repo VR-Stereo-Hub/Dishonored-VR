@@ -9,6 +9,20 @@
 // the reason a phase is slow.
 
 
+// LAST false-to-true, not first. These terms TOGGLE, and recording the first
+// time each went true made the summary lie: the clock starts when the game
+// leaves gameplay, at which point the outgoing pawn is still alive, so
+// pawn-ptr and cyl both recorded +0.00 s and the report blamed whichever term
+// happened to be sampled last. A term that goes true, false, then true again
+// settled at the LAST transition, and that is the number that explains a wait.
+static void SuSample(int idx, bool nowTrue)
+{
+    if (!g_suArmed || idx < 0 || idx >= SU_COUNT) return;
+    if (!nowTrue) { g_su[idx].ms = 0.0; return; }
+    if (g_su[idx].ms == 0.0) g_su[idx].ms = MaimNowMs() - g_suT0;
+}
+
+// One-way milestones: an event that happened rather than a state that holds.
 static void SuMark(int idx)
 {
     if (!g_suArmed || idx < 0 || idx >= SU_COUNT) return;
@@ -117,21 +131,21 @@ static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict)
 {
     if (!g_suOn || !g_suArmed) return;
 
-    if (FpPawn())      SuMark(SU_PAWN_PTR);
+    SuSample(SU_PAWN_PTR, FpPawn() != NULL);
     // GNames populated is a FLOOR on everything that resolves by name, recorded so
     // a late signal can be told apart from a late name pool. It is NOT evidence of
     // a live pawn: resolving a property offset walks GObjects and needs no pawn,
     // which is why the summary below ignores it.
-    if (RflNamesReady()) SuMark(SU_NAMES);
+    if (RflNamesReady()) SuMark(SU_NAMES);   // one-way: the pool never empties
     // The equipment read IS live-player evidence: it calls FpPawn(), refuses
     // without one, and only succeeds once a real inventory reads back.
-    if (g_rflState.ok) SuMark(SU_INV_OK);
+    SuSample(SU_INV_OK, g_rflState.ok);
 
-    if (cyl)     SuMark(SU_CYL);
-    if (noMenu)  SuMark(SU_NOMENU);
-    if (view)    SuMark(SU_VIEW);
-    if (noCine)  SuMark(SU_NOCINE);
-    if (verdict) SuMark(SU_VERDICT);
+    SuSample(SU_CYL,     cyl);
+    SuSample(SU_NOMENU,  noMenu);
+    SuSample(SU_VIEW,    view);
+    SuSample(SU_NOCINE,  noCine);
+    SuSample(SU_VERDICT, verdict);
 
     if (g_suStereoSeen) {
         SuMark(SU_STEREO);

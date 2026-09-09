@@ -248,7 +248,39 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
     if (callerRet != kViewportDrawGameplayRet) { ++g_sdSkipForeign; d.why = "foreign caller"; return d; }
     if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; d.why = "exiting"; return d; }
     if (!dvr::vr::session_live() && !d.pulse) { ++g_sdSkipSession; d.why = "no XR session"; return d; }
-    if (!DvrGameplayVerdict()) { ++g_sdSkipState; d.why = "state not GAMEPLAY"; return d; }
+    // THE SCENE IS DRAWING, OR IT IS NOT. That is the only question this gate
+    // has to answer; the state machine answers a much broader one and two of its
+    // terms are slow by construction (a ghost menu flag, and a viewLive rule that
+    // needs a full second of dispatches to leave LOADING). Both were measured
+    // holding the picture mono after a load while the scene was already up.
+    if (!DvrGameplayVerdict()) {
+        // Track when the camera upload serial last MOVED - the honest "the scene
+        // is being drawn" signal, and the one the camera-silent gate below
+        // already trusts.
+        const uint32_t c5 = (uint32_t)dvr::camera::render_pos_serial();
+        const double nowMs = MaimNowMs();
+        if (c5 != g_sdC5LastSerial) { g_sdC5LastSerial = c5; g_sdC5LastMoveMs = nowMs; }
+
+        // A REAL menu still refuses, and these are the terms that name one
+        // rather than a slow one. The main menu has no pawn and its own 3D
+        // background, a cinematic owns the camera, and without a live pawn there
+        // is no view model to double for.
+        const bool sceneLive =
+            g_sdGateSceneLive && !g_mainMenu && !g_cineNow && CylTruthLive() &&
+            g_sdC5LastMoveMs > 0.0 &&
+            (nowMs - g_sdC5LastMoveMs) < (double)g_sdSceneQuietMs;
+
+        if (!sceneLive) { ++g_sdSkipState; d.why = "state not GAMEPLAY"; return d; }
+        InterlockedIncrement(&g_sdGatedByScene);
+        DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Info, 5000,
+            "reentry: doubling on SCENE LIVENESS while the gameplay verdict is "
+            "still false - the camera uploaded %.0f ms ago, there is a live pawn, "
+            "and neither the main menu nor a cinematic is up. The verdict's slow "
+            "terms (a ghost menu flag, and viewLive needing a second of "
+            "dispatches to leave LOADING) do not describe whether the scene is "
+            "drawing. %ld tick(s) so far.",
+            nowMs - g_sdC5LastMoveMs, g_sdGatedByScene);
+    }
     d.gameplay = true;   // from here on the draw presents once (a menu's draws outnumber its presents)
     if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; d.why = "eyetest/postest running"; return d; }
     // The camera-silent hole: a c5 upload must have arrived since the previous

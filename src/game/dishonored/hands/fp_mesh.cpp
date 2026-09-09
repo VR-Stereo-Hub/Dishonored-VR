@@ -403,6 +403,35 @@ static const char* FpAssetName(uint8_t* comp)
 }
 
 
+// Force the candidate list to be rebuilt. `if (!g_fpCandN) FpCollect()` is the
+// established rescan trigger, and skelcontrol already uses exactly this when it
+// finds its selected mesh stale.
+//
+// WHY A LOAD MUST DO THIS. The list holds raw component pointers. A level load
+// destroys those components, but the memory usually stays mapped, so
+// LooksLikeObj still passes on a dead pointer and the list looks healthy while
+// every transform read off it fails. The measured signature is the body mesh
+// still listed by name with an UNREADABLE transform, and then a snapshot where
+// its asset name will not even resolve:
+//
+//   wa/comp: [0] 'Skm_Player' (pMesh) REF xform UNREADABLE
+//   wa/comp: [0] '?' (pMesh)          xform UNREADABLE
+//   wa: NOTHING TO ATTACH - 0 usable as the bridge anchor (the body mesh)
+//
+// Without the bridge anchor nothing can attach at all, which is why the weapons
+// stayed in their default positions for a whole session after a second load.
+static void FpInvalidateCandidates(const char* why)
+{
+    if (!g_fpCandN) return;
+    Log("handmesh: dropping %d candidate(s) - %s. They are raw component "
+        "pointers and a load destroys what they point at; the memory usually "
+        "stays mapped, so a dead list looks healthy while every transform read "
+        "off it fails. The next tick rebuilds it.", g_fpCandN, why);
+    g_fpCandN = 0; g_fpSel = -1;
+    g_fpWritten = NULL; g_fpWritten2 = NULL;
+}
+
+
 static void FpCollect()
 {
     FpRestoreRotation();

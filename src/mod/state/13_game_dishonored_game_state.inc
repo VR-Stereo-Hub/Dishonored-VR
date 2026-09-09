@@ -65,6 +65,36 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // input goes quiet: buttons except START (pause must always work), sticks,
 // physical-crouch pulses, roomscale. Safety: the latch self-expires after
 // 8 minutes in case an off-toggle is ever missed.
+// ---- VR-62: DOUBLE ON SCENE LIVENESS, NOT ON A FIVE-TERM VERDICT -----------
+//
+// The scene-draw doubling gate asked DvrGameplayVerdict(), which is five terms
+// wide. It only needs one thing to be safe: that the scene is being drawn and
+// presented one-to-one, because the hazard it guards against is a MENU, whose
+// draws outnumber its presents and so break the pair schedule.
+//
+// Two of those five terms are slow by construction, and both were measured
+// holding the picture mono after a load:
+//
+//   menuOpen - set by a Dis_OpenPauseMenu dispatch during a load when no menu is
+//              open at all. A ghost.
+//   viewLive - leaving LOADING deliberately requires a full second of continuous
+//              dispatches, so it cannot clear sooner than 1 s however ready the
+//              scene is. Measured at +1.52 s and +1.72 s on two loads.
+//
+// Neither says anything about whether the scene is drawing. The downstream
+// gates already test that honestly - a c5 camera upload since the previous
+// draw, and a present since the previous draw - and those two together ARE the
+// pairing precondition.
+//
+// So with this on, a verdict refusal is overruled when the scene is
+// demonstrably live. The guards that remain are the ones that name a real menu
+// rather than a slow one: the main menu, a cinematic, and a live pawn.
+static bool  g_sdGateSceneLive = true;     // [Stereo] GateOnSceneLive
+static float g_sdSceneQuietMs  = 400.0f;   // [Stereo] SceneQuietMs
+static LONG  g_sdGatedByScene  = 0;   // doubled on scene liveness, not the verdict
+static double g_sdC5LastMoveMs = 0.0;
+static uint32_t g_sdC5LastSerial = 0;
+
 // VR-62: clear a ghost menu flag on dispatch RECENCY rather than a cumulative
 // count. OFF restores the count, which is what held the picture mono for 24 s
 // on a measured load, so the two compare directly in a headset.

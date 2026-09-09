@@ -166,6 +166,27 @@ static void WaCompTick(void)
 
     // SAY SO, on its own cadence and at Warn, because a run that cannot
     // possibly attach should not look like a run that tried and failed.
+    // A LIST WITH WEAPONS BUT NO BODY MESH IS A DEAD LIST, NOT AN IDLE ONE.
+    // The bridge anchor is the one component we can always identify, so weapons
+    // present without it means the pointers are stale rather than the player
+    // being unarmed - the exact state a level load leaves behind. A load hook
+    // covers the loads we see; this covers the ones we do not, and without it a
+    // single missed transition costs the whole session.
+    {
+        static double refGoneSince = 0.0;
+        if (!refs && members) {
+            if (refGoneSince == 0.0) refGoneSince = now;
+            else if (now - refGoneSince > 1000.0) {
+                refGoneSince = 0.0;
+                Log("wa: the snapshot has %d weapon member(s) and NO bridge "
+                    "anchor for over a second - the candidate list is stale, not "
+                    "idle. Forcing a rescan; without the anchor nothing can "
+                    "attach at all.", members);
+                FpInvalidateCandidates("no bridge anchor with weapons present");
+            }
+        } else refGoneSince = 0.0;
+    }
+
     if (!refs || !members) {
         InterlockedIncrement(&g_waNotReady);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 4000,
