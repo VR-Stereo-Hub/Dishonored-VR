@@ -806,3 +806,5 @@ static uint32_t g_msWantVerts = 2771;          // [Hands] ArmMeshVerts (measured
 static volatile uint32_t g_msLockFrame = 0;    // last frame the lock matched a draw
 static volatile int      g_msAutoArmed = 0;    // this lock came from the signature
 static double   g_msNextReport = 0.0;
+static bool g_mpEyeFromMeasured = true;   // VR-69: [Hands] PaletteEyeFromMeasured
+static LONG g_msMeasAgree = 0, g_msMeasDisagree = 0, g_msMeasNone = 0;   // VR-69 audit

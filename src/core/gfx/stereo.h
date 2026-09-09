@@ -223,4 +223,27 @@ void reentry_push_tag(int eyeSign, const float pos[3]);
 // VR-65: the same push, carrying the pose record the draw was rendered with.
 void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec);
 
+// VR-69: THE MEASURED EYE, from the present thread to the palette draw.
+//
+// The palette's own eye inference is a DELTA between consecutive draws, so it
+// HOLDS its previous answer whenever the sideways step is too small to read -
+// and a held answer that is wrong displaces every weapon a full IPD sideways.
+// That is the flicker PaletteEyeOffset=0 removed by giving up stereo depth.
+//
+// The stereo method already reconciles a MEASURED eye per present (the c5
+// pairing, with its own agree/disagree counters). These carry it across.
+//
+// SEQLOCK, not a bare global: the writer is the present thread and the reader
+// is the render thread, and a bare global read across exactly those two threads
+// is what produced the retracted 39 % figure in this project. A torn or
+// in-flight value must be DROPPED, never used - a wrong eye is a full-IPD
+// displacement, a dropped sample is one draw left on the inference.
+//
+// It is published as an OPINION. The palette audits it against the inference
+// and prints both, and [Hands] PaletteEyeFromMeasured decides whether it is
+// acted on - an unaudited swap would be the fourth guess in this area rather
+// than the first measurement.
+extern volatile long g_msMeasSeq;    // even = settled, odd = write in progress
+extern volatile long g_msMeasEye;    // -1 left, +1 right, 0 unknown
+
 } // namespace dvr::stereo

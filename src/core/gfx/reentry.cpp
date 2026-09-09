@@ -46,6 +46,13 @@
 #include <string.h>
 
 namespace dvr::stereo {
+
+// VR-69: external linkage on purpose - the palette draw reads these from
+// the unity translation unit. Defined here, ABOVE the anonymous namespace,
+// because inside it they would be internal and the link would fail.
+volatile long g_msMeasSeq = 0;
+volatile long g_msMeasEye = 0;
+
 namespace {
 
 ReentryHooks g_hooks;
@@ -276,6 +283,10 @@ public:
         // R=20`, and not one game-side gate moves, because the game side DID
         // run pass 2 and DID push its +1. The fragile arm must therefore agree
         // with the ring, or defer to it and let the streak realign.
+        // VR-69: publish the reconciled eye for the palette draw. Written
+        // BEFORE the c5 arbitration below refines it would publish a value the
+        // method itself does not believe, so it is published after - see the
+        // end of this block.
         if (g_c5Pair && inv != 0) {
             const bool robust = (inv == +1);   // within-tick: no world tick to cross
             if (tagged && t.eye != 0) {
@@ -337,6 +348,12 @@ public:
         if (tagged) {
             eye = t.eye;
             ++g_tagOk;
+            // VR-69: publish the RECONCILED eye for the palette draw, here and
+            // nowhere earlier - this is the first point the method itself
+            // believes the value. Seqlock: the reader is the render thread.
+            InterlockedIncrement(&g_msMeasSeq);
+            g_msMeasEye = (LONG)t.eye;
+            InterlockedIncrement(&g_msMeasSeq);
             // TELEMETRY ONLY: the engine moves the camera by up to a tick of
             // travel after the tick's last write, so a walking player's -1
             // present sits a few uu from the written position with its eye
