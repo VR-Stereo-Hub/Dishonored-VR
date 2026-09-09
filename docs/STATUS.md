@@ -50,23 +50,36 @@ cadence that had juddered.
 
 The fix stands on a measured mechanism and a reversing A-B-A, not on those.
 
-### The resolution ask is NOT honoured - do not retry by editing a key
+### The resolution ask: cause found, fix built, NOT yet run (VR-66)
 
-Raising the render size to 3200x3300, then 3190x3306 with BOTH the mod ini and
-the game's own `DishonoredEngine.ini` written directly, produced a fullscreen
-2560x1440 device both times. The mod advertised the mode correctly and the game
-never asked for it. Something outside both files supplies 2560x1440 - a stale
-command line or Steam launch option is the leading suspect and is UNCHECKED.
-2750x2850 is restored. ENGINE_NOTES carries the log evidence.
+The stale command line suspected here was **ours**. The size had two homes and
+one writer: `dishonored_vr_launch.txt` drives the `-ResX/-ResY` the engine
+obeys, `[Screen] RenderWidth/Height` drives the mode VirtualMode advertises.
+Hand-editing the ini moved only the second, so the engine asked for the launch
+file's five-day-old 2750x2850, that size was no longer advertised, and UE3 fell
+back to a real display mode - the fullscreen 2560x1440. Neither ini ever
+contained that number.
+
+The ini is now the authority: the ask is resolved from `[Screen]` on the
+engine's first `GetCommandLine` call (outside the loader lock), one resolved ask
+feeds both the command line and the advertised mode, a disagreement logs
+`launch: THE TWO ASKS DISAGREED` and rewrites the file, and the hooks install
+even with no launch file. Built, linted and installed; **no run has happened.**
+
+**The one run that settles it**: raise `[Screen] RenderWidth/RenderHeight` in
+`dishonored_vr.ini` by hand, launch, and read three lines - `launch: the render
+ask is`, `res: handed the game our`, and `res: CreateDevice - the game asked
+for`. All three must carry the new size. 2750x2850 with `[Pace] Lag=2` is the
+known-good state to return to.
 
 ### Next steps
 
-1. VR-64, the weapon swap flicker. The `wa/key:` instrument naming which of the
+1. Run the VR-66 verification above at a raised size, and read the three lines.
+2. VR-64, the weapon swap flicker. The `wa/key:` instrument naming which of the
    fourteen contract key fields differs on a re-match has shipped and has never
    been read.
-2. Repair the three instrument defects above, so the next pose question can be
+3. Repair the three instrument defects above, so the next pose question can be
    answered by measurement rather than by an A/B.
-3. Find what supplies 2560x1440 before anyone raises the render size again.
 4. VR-57 the crosshair (Urgent), VR-58, VR-56.
 
 ---
@@ -2476,6 +2489,45 @@ it on demand, `arms vis chain` prints the arm chain.
    is the VR-30 branch.
 
 ### Session log
+
+### 2026-09-09 - VR-66: the stale command line was the mod's own file
+
+The render size had two homes and one writer. `dishonored_vr_launch.txt` carries
+`-ResX/-ResY` and is read in `DllMain`, before the engine's entry point - that is
+the route the engine obeys. `[Screen] RenderWidth/Height` in the mod ini is read
+much later at `EnsureConfig` and drives the mode `VirtualMode` advertises. Both
+were only ever written together by `ResRequest`; a text editor writes one.
+
+So the two failed attempts asked with a text editor, moved the advertised mode
+to 3200x3300, and left the engine being told 2750x2850 - the file's value from
+five days earlier, still on disk with that timestamp. The engine asked for a
+size that was no longer in the mode list and UE3 fell back to a real display
+mode, which on this monitor is 2560x1440. **Neither ini ever contained 2560x1440;
+the mod supplied it.**
+
+`[Screen]` is now the authority. The ask is resolved from it on the engine's
+first `GetCommandLine` call - the CRT startup glue at the exe's entry point, past
+the loader lock, so the ini read `DllMain` is forbidden to do is safe and still
+early enough. One resolved ask sets both the command line and the advertised
+mode, so they cannot diverge; a disagreement logs both values and rewrites the
+file; and the hooks now install with no launch file at all, which an ini-only
+ask previously needed and never got.
+
+**Two lessons, both already in this file in another form.**
+
+*An ini key that exists beats every compiled default* (VR-65) has a sibling: a
+file that exists beats the ini you edited. Anywhere one setting has two
+persistent homes, the one nobody thinks to edit is the one that wins.
+
+*Every refused guard says why, with the values.* The `CreateDevice` mismatch
+warning named the game's own ini - the route measured inert on this build - and
+did not name the command line, which is the route that decides. It now prints
+what the engine was handed, how many import slots were patched, and whether the
+size the engine wanted is one of the adapter's real modes, which is the fallback
+signature.
+
+**Not verified.** No run at a raised size has happened. The mechanism comes from
+the logs and the launch file's timestamp.
 
 ### 2026-09-07 - VR-33: the hands reach the controllers
 
