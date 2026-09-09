@@ -810,3 +810,4 @@ static bool g_mpEyeFromMeasured = true;   // VR-69: [Hands] PaletteEyeFromMeasur
 static LONG g_msMeasAgree = 0, g_msMeasDisagree = 0, g_msMeasNone = 0;   // VR-69 audit
 static int g_mpEyeMeasSign = -1;   // VR-69: [Hands] PaletteEyeMeasSign - the method tags pass 1/2, the palette left/right
 static LONG g_msMeasAgreeEye[2] = {0,0}, g_msMeasDisagreeEye[2] = {0,0}, g_msMeasNoneEye[2] = {0,0};   // VR-69: left/right
+static LONG g_msPubStep1 = 0, g_msPubStepOther = 0, g_msPubRepeat = 0;   // VR-69 build 1: publication staleness

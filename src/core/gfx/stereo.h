@@ -247,6 +247,26 @@ void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec);
 // method pushes the same eye twice, instead of letting one eye go stale.
 extern int g_holdSameEye;
 
+// VR-69 build 1: the producer's PRESENT SEQUENCE, published with the eye.
+//
+// WHY THIS EXISTS. The sign flip that fixed the double image was explained as a
+// convention difference between the method (pass 1 / pass 2) and the palette
+// (left / right). That explanation is WRONG: scene_draw.cpp declares pass 1 the
+// LEFT eye (-1) and pass 2 the RIGHT eye (+1) outright, so the conventions
+// already agree.
+//
+// In a strictly alternating stream the PREVIOUS eye is the negation of the
+// current one, so "reading one present late" and "using the opposite
+// convention" produce identical agreement counts. The counter cannot separate
+// them. This sequence can: if the draw consistently reads a sequence one behind
+// the present it belongs to, the offset is TEMPORAL.
+//
+// It also predicts the residual flicker. A negation only equals the previous
+// eye while the stream alternates - at a repeat, an extra present or a mono
+// transition it gives the WRONG eye, and those are exactly the moments that
+// would produce an intermittent one-frame jump.
+extern volatile long g_msMeasPresentSeq;
+
 extern volatile long g_msMeasSeq;    // even = settled, odd = write in progress
 extern volatile long g_msMeasEye;    // -1 left, +1 right, 0 unknown
 

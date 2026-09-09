@@ -64,6 +64,18 @@ exactly as designed, read as a regression.
 > that switches the thing under test must default OFF the moment its run is
 > over, and the loader must print what it resolved to.
 
+**A counter that cannot separate two explanations (VR-69, 2026-09-09).** The
+weapon's eye source was negated and agreement went from 0.2 % to 97.9 %. That
+was read as proof of a convention mismatch. It is not: in an ALTERNATING stream
+the previous value is the negation of the current one, so "reading one
+publication late" produces exactly the same counter. `scene_draw.cpp` declares
+pass 1 left and pass 2 right outright, so the conventions never disagreed - the
+offset is temporal, and the fix works only while the alternation holds.
+
+> **Before believing a counter that moved, ask what ELSE would have moved it the
+> same way.** A prediction that only one hypothesis could satisfy is evidence; a
+> prediction two hypotheses satisfy identically is not, however large the number.
+
 ### What to do before touching a key
 
 1. **Find every place the value can live.** Grep for the key name across `src/`,

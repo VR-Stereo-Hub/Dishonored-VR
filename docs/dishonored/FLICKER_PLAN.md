@@ -1,5 +1,47 @@
 # The flickers - a plan for review (VR-69, 2026-09-09)
 
+## REVIEWED, AND ONE CORRECTION KILLS MY EXPLANATION
+
+`FLICKER_REVIEW.md` supersedes this. Checked against the source, its corrections
+hold:
+
+* **The sign fix was NOT a convention difference.** `scene_draw.cpp:369` and
+  `:424` declare pass 2 the RIGHT eye (+1) and pass 1 the LEFT eye (-1)
+  outright. The conventions already agreed, so my stated mechanism is wrong.
+  In an alternating stream the PREVIOUS eye is the negation of the current one,
+  so "one publication late" and "opposite convention" produce identical
+  agreement counts - the counter cannot separate them, and I read it as if it
+  could.
+* **And that is a better explanation of the residual flicker than anything in
+  Part 2 below.** A negation only equals the previous eye WHILE the stream
+  alternates. At a repeat, an extra present or a mono transition it yields the
+  WRONG eye - exactly the moments that would give an intermittent one-frame
+  jump.
+* **The left lean is a loading artefact.** Trimmed to 87 s of settled gameplay:
+  2,160 left against 2,120 right, 3.07 % against 3.01 %, ratio 1.019 - not 1.54.
+  Most of the excess accumulated before gameplay.
+* **The 5,770 unknowns are not 5,770 bad draws.** The counters measure placement
+  EVALUATIONS, several per draw, and most accumulated before the interval. The
+  trimmed share is 1.48 %, not ~4 %.
+* **The correction still stores the inference** (`weapon_attach.cpp:331`
+  compares `w->eye` against `g_mpEyeState`), so its freshness check cannot
+  verify the effective eye it claims to.
+* My "140,000 draws" was the agreement subtotal; the population is 152,751
+  evaluations.
+
+**Build 1 has started with the smallest piece that separates the two
+explanations**: the eye channel now carries a publication sequence, and the draw
+records whether it steps by exactly one. A stream that steps +1 every time is
+reading a different publication each time and the offset is temporal.
+
+---
+
+
+**Review:** [FLICKER_REVIEW.md](FLICKER_REVIEW.md) supersedes the conclusions and
+test order below. It corrects the gameplay populations, identifies missing
+draw-to-eye association, and proposes an incremental diagnostic plan. This draft
+is retained as the original hypothesis record.
+
 **Status: draft for review. Nothing here is built.** Two wrong hypotheses have
 already been spent on the residual left-eye flicker, both falsified by their own
 instruments, and this document is written to avoid spending a third the same way.

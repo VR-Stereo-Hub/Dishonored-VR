@@ -52,6 +52,8 @@ namespace dvr::stereo {
 // because inside it they would be internal and the link would fail.
 uint32_t g_sameEyeHolds = 0, g_sameEyeSpent = 0;   // VR-69
 int      g_holdSameEye = 1;                       // [Stereo] HoldSameEye
+volatile long g_msMeasPresentSeq = 0;
+long          g_msPublishCount = 0;   // VR-69 build 1: which present published the eye
 volatile long g_msMeasSeq = 0;
 volatile long g_msMeasEye = 0;
 
@@ -355,6 +357,7 @@ public:
             // believes the value. Seqlock: the reader is the render thread.
             InterlockedIncrement(&g_msMeasSeq);
             g_msMeasEye = (LONG)t.eye;
+            g_msMeasPresentSeq = InterlockedIncrement(&g_msPublishCount);
             InterlockedIncrement(&g_msMeasSeq);
             // TELEMETRY ONLY: the engine moves the camera by up to a tick of
             // travel after the tick's last write, so a walking player's -1

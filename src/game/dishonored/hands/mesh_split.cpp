@@ -2323,12 +2323,36 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
     // here is a full-IPD displacement and a dropped sample is merely one draw
     // left on the inference.
     int meas = 0;
+    LONG measPub = 0;
     {
         const LONG s0 = (LONG)dvr::stereo::g_msMeasSeq;
         if (!(s0 & 1L)) {
             const LONG e = (LONG)dvr::stereo::g_msMeasEye;
-            if ((LONG)dvr::stereo::g_msMeasSeq == s0) meas = (int)e;
+            const LONG p = (LONG)dvr::stereo::g_msMeasPresentSeq;
+            if ((LONG)dvr::stereo::g_msMeasSeq == s0) { meas = (int)e; measPub = p; }
         }
+    }
+    // VR-69 build 1: HOW STALE was the value this draw read?
+    //
+    // The sign flip was explained as a convention difference. That explanation
+    // is wrong - scene_draw.cpp declares pass 1 the LEFT eye and pass 2 the
+    // RIGHT eye outright, so the conventions already agree. In an alternating
+    // stream the PREVIOUS eye is the negation of the current one, so "one
+    // publication late" and "opposite convention" produce identical agreement
+    // counts and the counter cannot tell them apart. This can.
+    //
+    // It also predicts the residual flicker: a negation only equals the
+    // previous eye WHILE the stream alternates. At a repeat, an extra present
+    // or a mono transition it yields the wrong eye - exactly the moments that
+    // would give an intermittent one-frame jump.
+    {
+        static LONG s_lastPub = 0;
+        if (measPub != s_lastPub) {
+            const LONG step = measPub - s_lastPub;
+            s_lastPub = measPub;
+            if (step == 1) InterlockedIncrement(&g_msPubStep1);
+            else InterlockedIncrement(&g_msPubStepOther);
+        } else InterlockedIncrement(&g_msPubRepeat);
     }
     // MEASURED: agree 210, DISAGREE 87811 - 99.8 %, which is not one source
     // being better than another, it is the two using OPPOSITE conventions. The
@@ -2372,14 +2396,18 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         "the disagreement is large and the weapons are steady with PaletteEyeFromMeasured=1, the "
         "measurement is the better source and the offset can come back on. PER EYE - agree L %ld R %ld, "
         "disagree L %ld R %ld, no answer L %ld R %ld. THE SYMPTOM IS LEFT ONLY, so if these are symmetric "
-        "the fault is not in this decision at all and the next hypothesis must come from somewhere else.",
+        "the fault is not in this decision at all and the next hypothesis must come from somewhere else. "
+        "PUBLICATION STEPS - +1 %ld, other %ld, same value re-read %ld: a draw stream that steps by exactly "
+        "one is reading a DIFFERENT publication each time and the sign question is temporal, not a "
+        "convention; steps that are not +1 are where a negation stops equalling the previous eye, which is "
+        "where a one-frame jump would come from.",
         g_msMeasAgree, g_msMeasDisagree, g_msMeasNone, g_mpEyeMeasSign,
         g_mpEyeFromMeasured ? "YES (PaletteEyeFromMeasured=1)" : "no (audit only)",
         measApplied < 0 ? "LEFT" : measApplied > 0 ? "RIGHT" : "none",
         g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
         eyeUse < 0 ? "LEFT" : eyeUse > 0 ? "RIGHT" : "none",
         g_msMeasAgreeEye[0], g_msMeasAgreeEye[1], g_msMeasDisagreeEye[0], g_msMeasDisagreeEye[1],
-        g_msMeasNoneEye[0], g_msMeasNoneEye[1]);
+        g_msMeasNoneEye[0], g_msMeasNoneEye[1], g_msPubStep1, g_msPubStepOther, g_msPubRepeat);
 
     if (!truth) {
         InterlockedIncrement(&g_mpEyeNoTruth);
