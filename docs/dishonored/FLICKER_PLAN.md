@@ -97,7 +97,7 @@ Split left/right for the first time, over ~140,000 draws:
 |---|---:|---:|
 | measured and inferred AGREE | 70,871 | 70,590 |
 | DISAGREE | **3,350** | **2,170** |
-| method had no answer, inference also unknown | \multicolumn - 5,770 total | |
+| method had no answer, inference ALSO unknown | 5,770 total - neither counter could classify them | |
 
 Reading it honestly:
 
