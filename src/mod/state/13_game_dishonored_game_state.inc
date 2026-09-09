@@ -136,6 +136,20 @@ static int   g_sdEyeNow = 0;
 // that finds its own thread id here is lexically inside one of the two passes;
 // anything else is a pass we do not own and must stay UNKNOWN.
 static volatile LONG g_sdInDrawTid = 0;
+
+// IS THE METHOD PRODUCING PAIRS AT ALL? Readable from any thread, which the
+// marker above is not.
+//
+// This is the guard the alternation needed and did not have. In MONO there is
+// one camera, so the sideways step between presents is zero every time - which
+// the eye inference reads as "too small to tell", on EVERY present. Holding was
+// harmless there; alternating was not, and it flipped the hands by a full
+// inter-pupillary distance every single frame. Measured: four windows of 565,
+// 396, 350 and 293 consecutive unreadable presents, all of them mono.
+//
+// A mono frame has no eye. The correction must apply no eye offset and must not
+// alternate anything.
+static volatile LONG g_sdDoublingNow = 0;
 static bool  g_sdGateSceneLive = false;    // [Stereo] GateOnSceneLive
 static float g_sdSceneQuietMs  = 400.0f;   // [Stereo] SceneQuietMs
 static LONG  g_sdGatedByScene  = 0;   // doubled on scene liveness, not the verdict

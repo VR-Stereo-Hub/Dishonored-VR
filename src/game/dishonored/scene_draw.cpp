@@ -406,6 +406,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
         InterlockedExchange(&g_sdInDrawTid,
                             g_sdTick.doubleIt ? (LONG)GetCurrentThreadId() : 0);
+        InterlockedExchange(&g_sdDoublingNow, g_sdTick.doubleIt ? 1 : 0);
         if (g_sdTick.doubleIt) {
             float pos[3];
             dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);

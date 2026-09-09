@@ -2112,7 +2112,7 @@ static void MpFlickNote(const char* why)
             "ms/palette/flicker: window %d OPEN at head yaw %+.1f deg - %s. While "
             "this is open the eye behind the weapon correction is being guessed, "
             "and a wrong guess is one frame of every weapon displaced by a full "
-            "IPD, mirrored between the eyes.", g_mpFlickWindows, g_mpFlickYaw0, why);
+            "IPD, mirrored between the eyes.", g_mpFlickWindows, g_mpFlickYaw0 * 57.29578f, why);
     }
 }
 
@@ -2131,7 +2131,8 @@ static void MpFlickTick(void)
         "this window closed, the eye guess is the mechanism; if it kept going, "
         "it is not.", g_mpFlickWindows,
         (g_mpFlickLastMs - g_mpFlickStartMs) / 1000.0, g_mpFlickCount,
-        g_mpFlickYaw0, g_hmdYaw, g_mpEyeFlipped, (int)g_mpEyeAlternate);
+        g_mpFlickYaw0 * 57.29578f, g_hmdYaw * 57.29578f, g_mpEyeFlipped,
+        (int)g_mpEyeAlternate);
 }
 
 
@@ -2141,6 +2142,20 @@ static void MpEyeForPresent(const MpDrawCtx* c)
     if (pres == g_mpEyePresent) return;          // same Present, decision stands
     g_mpEyePresent = pres;
     MpFlickTick();               // does the open window end at this present?
+
+    // MONO HAS NO EYE, so there is nothing here to decide and nothing to offset.
+    // Without this the inference reads every mono present as "the step was too
+    // small to tell" - correctly, the step is zero - and the alternation then
+    // flips the hands by a full inter-pupillary distance every single frame.
+    // Measured as four windows of 565, 396, 350 and 293 consecutive unreadable
+    // presents, every one of them mono, and seen as the hands flickering on a
+    // loading screen. Holding was harmless here; alternating is not, so the
+    // guard belongs with the decision rather than inside the alternation.
+    if (!InterlockedCompareExchange(&g_sdDoublingNow, 0, 0)) {
+        g_mpEyeState = 0;        // no offset at all, which is the mono placement
+        g_mpEyeHavePrev = false; // and the next pair starts from a clean compare
+        return;
+    }
 
     const float ipdUU = g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f)
                                   * g_mpDriveGain);
