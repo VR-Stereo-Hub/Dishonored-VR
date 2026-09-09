@@ -241,6 +241,14 @@ static void DvrConsumePoses()
         DvrPoseTo3x4(hp, m);
         memcpy(g_devPose[0], m, sizeof(g_devPose[0]));
         g_devPoseOk[0] = true;
+        // VR-68: the head HISTORY the hand normalisation selects from. The lag
+        // finder measured the rendered camera moving with the head from two
+        // generations back (0.119 deg against 1.19 at lag 0, over 4085 moving
+        // frames), so the hand needs the same sample the view was built from.
+        g_headHistIdx = (g_headHistIdx + 1) % DVR_HEAD_HIST;
+        memcpy(g_headHist[g_headHistIdx], m, sizeof(g_headHist[0]));
+        g_headHistOk[g_headHistIdx] = true;
+        if (g_headHistN < DVR_HEAD_HIST) ++g_headHistN;
         // VR-68: the identity of the head this hand normalisation will use.
         g_devPoseGen = g_hmdGen;
         g_devPoseYaw = g_hmdYaw;

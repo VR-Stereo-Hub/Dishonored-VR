@@ -763,6 +763,13 @@ static void LoadConfig()
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
         dvr::perf::ab_set_enabled(GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        // VR-68: which head generation the HAND normalisation uses. 0 = the
+        // freshest (historical); 2 = the one the rendered view was built from,
+        // which is what bv/lag measured. PoseLagAb walks 0/2/0/2 so a headset
+        // run decides it.
+        g_mpPoseLag = GetPrivateProfileIntA("Hands", "PoseLag", 0, ini);
+        g_mpPoseLagAb = GetPrivateProfileIntA("Hands", "PoseLagAb", 1, ini) != 0;
+        Log("config: [Hands] PoseLag=%d PoseLagAb=%d - the head sample the hand is normalised against. bv/lag measured the RENDERED camera moving with lag 2 (0.119 deg against 1.19 at lag 0); the hand used lag 0, and that difference is head rotation left in the frame.", g_mpPoseLag, (int)g_mpPoseLagAb);
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
             inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
 

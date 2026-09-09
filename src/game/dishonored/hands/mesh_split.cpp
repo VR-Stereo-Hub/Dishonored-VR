@@ -2996,6 +2996,44 @@ static void MpDriveTick(void)
     // ONE SNAPSHOT, built locally and published whole. Nothing below writes
     // anything a draw can see until the copy at the end, so a reader can never
     // combine this sample's orientation with the previous sample's position.
+    // VR-68: WHICH head this normalisation uses. Default 0 is the historical
+    // behaviour (the freshest head). The measured answer is 2 - the generation
+    // the rendered view was actually built from - and the A/B below walks
+    // 0/2/0/2 so a headset run decides it rather than an argument.
+    if (g_mpPoseLagAb) {
+        const uint64_t nowMs = GetTickCount64();
+        if (g_mpPoseLagAbT0 == 0) g_mpPoseLagAbT0 = nowMs;
+        const uint32_t seg = (uint32_t)((nowMs - g_mpPoseLagAbT0) / 15000u);
+        if (seg != g_mpPoseLagAbSeg) {
+            g_mpPoseLagAbSeg = seg;
+            static const int kPlan[4] = { 0, 2, 0, 2 };
+            if (seg < 4) {
+                g_mpPoseLag = kPlan[seg];
+                Log("ms/poselag: A/B segment %u of 4 - the hand is now normalised against the head "
+                    "%s. %s Turn your head side to side and watch the WEAPON against the world, not "
+                    "against your hand. Nothing else changed.",
+                    seg + 1,
+                    kPlan[seg] == 0 ? "FRESH (lag 0, today's behaviour)"
+                                    : "the view was rendered from (lag 2, the measured answer)",
+                    seg == 0 ? "This is the BASELINE."
+                    : seg == 2 ? "BASELINE AGAIN - if the previous segment was better it must be worse now, "
+                                 "or the improvement was not real."
+                               : "This is the ALTERNATIVE.");
+            } else {
+                g_mpPoseLag = 0;
+                g_mpPoseLagAb = false;
+                Log("ms/poselag: A/B complete, baseline restored. Report which segments were worst and "
+                    "best by NUMBER.");
+            }
+        }
+    }
+    int hlag = g_mpPoseLag;
+    if (hlag < 0) hlag = 0;
+    if (hlag > DVR_HEAD_HIST - 1) hlag = DVR_HEAD_HIST - 1;
+    if (hlag >= g_headHistN) hlag = 0;                  // not enough history yet: fail soft to fresh
+    const int hidx = (g_headHistIdx - hlag + DVR_HEAD_HIST) % DVR_HEAD_HIST;
+    const float (*HEAD)[4] = g_headHistOk[hidx] ? g_headHist[hidx] : g_devPose[0];
+
     MpPoseSnap snap;
     memset(&snap, 0, sizeof(snap));
     snap.headOk = g_devPoseOk[0];
@@ -3016,10 +3054,10 @@ static void MpDriveTick(void)
         // world vector with the basis from its own constants, so nothing here
         // assumes anything about the game's axes.
         float w[3];
-        for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - g_devPose[0][r][3];
-        const float rx = g_devPose[0][0][0], ry = g_devPose[0][1][0], rz = g_devPose[0][2][0];
-        const float ux = g_devPose[0][0][1], uy = g_devPose[0][1][1], uz = g_devPose[0][2][1];
-        const float fx = -g_devPose[0][0][2], fy = -g_devPose[0][1][2], fz = -g_devPose[0][2][2];
+        for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - HEAD[r][3];
+        const float rx = HEAD[0][0], ry = HEAD[1][0], rz = HEAD[2][0];
+        const float ux = HEAD[0][1], uy = HEAD[1][1], uz = HEAD[2][1];
+        const float fx = -HEAD[0][2], fy = -HEAD[1][2], fz = -HEAD[2][2];
         snap.ruf[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
         snap.ruf[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
         snap.ruf[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
@@ -3041,7 +3079,7 @@ static void MpDriveTick(void)
             float hc[3][3], cc[3][3];
             for (int rr = 0; rr < 3; rr++)
                 for (int c2 = 0; c2 < 3; c2++) {
-                    hc[rr][c2] = g_devPose[0][rr][c2];
+                    hc[rr][c2] = HEAD[rr][c2];
                     cc[rr][c2] = g_devPose[3 + h][rr][c2];
                 }
             dvr::hf::Mat3 R_H, R_C;

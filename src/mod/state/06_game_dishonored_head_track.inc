@@ -28,6 +28,28 @@ static float g_hmdYaw = 0, g_hmdPitch = 0, g_hmdRoll = 0;
 // precisely what a pose record has to know. Three instruments in a row failed on
 // exactly that: each re-read a moving stream and reported the result as the
 // sample its image had been rendered from.
+// VR-68: the head history the HAND normalisation selects from, and the lever
+// that picks the generation. MEASURED: the rendered camera moves with the head
+// from two generations back (bv/lag, 0.119 deg at lag 2 against 1.19 at lag 0
+// over 4085 moving frames), while MpDriveTick normalised against the FRESH
+// head - so the hand was expressed relative to one head and planted in a view
+// built from another, leaving two generations of head rotation in the frame.
+//
+// This is NOT the submission lag applied twice. The compositor reprojects the
+// whole image from the tagged pose; the world is correct because it was
+// rendered from that pose, and the hand is correct only if it was placed
+// against the same one. Both consume the same generation; neither is delayed
+// again.
+#define DVR_HEAD_HIST 4
+static float g_headHist[DVR_HEAD_HIST][3][4];
+static bool  g_headHistOk[DVR_HEAD_HIST] = { false, false, false, false };
+static int   g_headHistIdx = 0;
+static int   g_headHistN = 0;
+static int   g_mpPoseLag = 0;          // [Hands] PoseLag - ships OFF (0 = today's behaviour)
+static bool  g_mpPoseLagAb = false;    // the announced A/B walks 0 / 2 / 0 / 2
+static uint64_t g_mpPoseLagAbT0 = 0;
+static uint32_t g_mpPoseLagAbSeg = 0xffffffffu;
+
 // VR-68: the lag finder's cross-thread channel. The draw (RENDER thread)
 // publishes the rendered camera's yaw through a seqlock; the finder (PRESENT
 // thread) reads it. A bare global across those two threads is what produced
