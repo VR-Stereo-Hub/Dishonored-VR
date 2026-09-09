@@ -3848,3 +3848,59 @@ angle; the defect is the identity, which is what VR-60 is for.
 This is also a worked example of a rule this project keeps re-learning: **log the
 derived number, not just the inputs.** The angle was a mystery as a perception and
 arithmetic as soon as the offsets either side of the radius were on the line.
+
+
+## EQUIPMENT: THE ITEM ANSWERS FOR ITSELF (VR-61, 2026-09-08)
+
+`DishonoredInventory.m_Slots` at `+0x0038` (resolved by name) is a
+`TArray<PawnInventorySlot>`, stride 12 validated against the data. Read live on
+a save with all four weapons carried:
+
+```
+slot[0] usage 1  DishonoredItemEmpty
+slot[1] usage 2  DishonoredItemEmpty
+slot[2] usage 0  DishonoredWepSword
+slot[3] usage 0  DisItemPowers
+slot[4] usage 0  DisWepCrossbow
+slot[5] usage 0  DishonoredWepPistol
+slot[6..8] usage 0  empty
+```
+
+**The pistol IS here**, along with every other weapon. It is absent from the
+component snapshot only because that walk cannot traverse a TArray. So the roster
+is fully readable and VR-60 has its data.
+
+### The slot does NOT say what is equipped
+
+`PawnInventorySlot.m_RequiredUsage` is a CONSTRAINT on what may occupy the slot,
+not what is in the hand. The dump says so plainly: slot 0 requires Primary and
+slot 1 requires Secondary, both holding a `DishonoredItemEmpty` placeholder, while
+the real weapons sit in unconstrained slots (usage 0). Reading the slot for equip
+state reports `DishonoredItemEmpty` in both hands while the player is visibly
+holding a sword.
+
+The engine keeps a slot per usage whether or not anything occupies it, so an
+Empty row is legitimate data and simply not the answer.
+
+### `DishonoredInventoryItem` carries both flags
+
+```
+m_EquipUsage : EDisEquipUsage   None | Primary | Secondary
+m_CurSocket  : EItemSocket      None | Equipped | Holstered | Give
+```
+
+The item says which hand it belongs to and whether it is IN that hand or on the
+body. **That is the equipped-versus-holstered distinction VR-59 attempt 1 needed
+and could not obtain from component presence**, and it is a per-object fact
+rather than an inference from an index or a position.
+
+`EItemSocket`: `ItemSocket_None` 0, `ItemSocket_Equipped` 1,
+`ItemSocket_Holstered` 2, `ItemSocket_Give` 3 (`DisGlobalEnums`).
+
+### Why this matters beyond the pistol
+
+The equipped item is the OWNER of the component the weapon attachment should be
+verifying a draw against. Today a draw is checked against whatever component its
+contract happens to carry, which for the pistol is another weapon entirely - the
+cause of its 45-degree detach cone. Reading the equipped item per hand replaces
+that with the right component, and it generalises to anything held.

@@ -86,3 +86,47 @@ static LONG     g_rflReads = 0;
 static const int kRflStrideCandidates[] = { 12, 16 };
 static int g_rflStride       = 0;   // 0 until one validates
 static const int kRflUsageOff = 8;  // the byte after the two pointers
+
+
+// ---- THE ITEM ANSWERS FOR ITSELF --------------------------------------------
+//
+// The first run read m_Slots and found all four weapons - sword, powers,
+// crossbow AND pistol, the last of which never appears in a component snapshot.
+// But it read the SLOT for equipment state and that was the wrong field:
+// PawnInventorySlot.m_RequiredUsage is a CONSTRAINT on what may occupy a slot,
+// not what is in the hand. The dump showed it plainly - slot 0 required usage
+// Primary and slot 1 required Secondary, both holding a DishonoredItemEmpty
+// placeholder, while the real weapons sat in slots 2-5 with no constraint at
+// all (usage 0).
+//
+// DishonoredInventoryItem carries the answer on itself:
+//
+//   m_EquipUsage : EDisEquipUsage   None | Primary | Secondary
+//   m_CurSocket  : EItemSocket      None | Equipped | Holstered | Give
+//
+// So the item says which hand it is in and whether it is actually in that hand
+// or on the body. That is the equipped-versus-holstered distinction VR-59
+// attempt 1 needed and could not obtain from component presence, and it is a
+// per-object fact rather than an inference from an index.
+enum RflSocket {
+    RFL_SOCKET_NONE = 0,
+    RFL_SOCKET_EQUIPPED = 1,
+    RFL_SOCKET_HOLSTERED = 2,
+    RFL_SOCKET_GIVE = 3
+};
+static const char* RflSocketName(int v)
+{
+    switch (v) {
+        case RFL_SOCKET_NONE:      return "none";
+        case RFL_SOCKET_EQUIPPED:  return "EQUIPPED";
+        case RFL_SOCKET_HOLSTERED: return "holstered";
+        case RFL_SOCKET_GIVE:      return "give";
+        default:                   return "?";
+    }
+}
+
+// The equipped item per hand, and the object behind it - the object is what
+// VR-60 needs, because its m_pPlayerMesh is the component the pistol should be
+// verified against instead of another weapon's.
+static uint8_t* g_rflHeldObj[3] = {};
+static int      g_rflHeldSocket[3] = {};

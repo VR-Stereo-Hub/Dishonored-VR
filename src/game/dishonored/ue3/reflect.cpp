@@ -186,6 +186,8 @@ static void RflStateTick(void)
     // pointers is the layout; if none does, that is a wrong stride and the log
     // must not let it look like an empty inventory.
     char found[3][64];
+    uint8_t* heldObj[3] = {};
+    int heldSock[3] = {};
     for (int i = 0; i < 3; ++i) found[i][0] = 0;
     int usable = 0, stride = g_rflStride;
     const int nCand = (int)(sizeof(kRflStrideCandidates) /
@@ -194,7 +196,8 @@ static void RflStateTick(void)
     for (int attempt = 0; attempt < (stride ? 1 : nCand); ++attempt) {
         const int s = stride ? stride : kRflStrideCandidates[attempt];
         int hits = 0;
-        for (int i = 0; i < 3; ++i) found[i][0] = 0;
+        for (int i = 0; i < 3; ++i)
+            { found[i][0] = 0; heldObj[i] = NULL; heldSock[i] = 0; }
         for (int i = 0; i < num && i < 64; ++i) {
             uint8_t* slot = data + (size_t)i * (size_t)s;
             if (!RangeReadable(slot, (size_t)s)) break;
@@ -202,21 +205,33 @@ static void RflStateTick(void)
             if (!item) continue;                 // an empty slot is normal
             if (!LooksLikeObj(item)) continue;
             ++hits;
-            const int usage = (int)*(uint8_t*)(slot + kRflUsageOff);
+            // ASK THE ITEM, NOT THE SLOT. m_RequiredUsage on the slot is a
+            // constraint on what may occupy it - the first run showed slot 0
+            // requiring Primary and slot 1 requiring Secondary, both holding an
+            // Empty placeholder, while the real weapons sat in unconstrained
+            // slots. The item carries its own equip usage and socket.
+            const uint32_t uOff = RflOffsetOf("DishonoredInventoryItem",
+                                              "m_EquipUsage");
+            const uint32_t sOff = RflOffsetOf("DishonoredInventoryItem",
+                                              "m_CurSocket");
+            if (!uOff || !sOff) continue;
+            if (!RangeReadable(item + uOff, 1) ||
+                !RangeReadable(item + sOff, 1)) continue;
+            const int usage  = (int)*(uint8_t*)(item + uOff);
+            const int socket = (int)*(uint8_t*)(item + sOff);
             if (usage < 0 || usage > 2) continue;
             const char* cn = ObjClassName(item);
-            // AN EMPTY PLACEHOLDER MUST NOT MASK A REAL ITEM. The first run
-            // reported DishonoredItemEmpty for both hands because this loop
-            // overwrote per usage and the placeholders came last. The engine
-            // keeps a slot per usage whether or not something occupies it, so
-            // the empty one is a legitimate row and simply not the answer.
-            if (cn && strstr(cn, "ItemEmpty") && found[usage][0]) continue;
             const char* nm = RealName(RangeReadable(item + kNameOff, 4)
                                       ? *(uint32_t*)(item + kNameOff) : 0);
-            if (found[usage][0] && cn && strstr(cn, "ItemEmpty")) continue;
+            // Only an EQUIPPED item is in the hand. A holstered one is on the
+            // body and must not be treated as held - that distinction is the
+            // whole reason this reads the item rather than counting components.
+            if (socket != RFL_SOCKET_EQUIPPED) continue;
             _snprintf(found[usage], sizeof(found[usage]), "%s (%s)",
                       cn ? cn : "?", nm ? nm : "?");
             found[usage][sizeof(found[usage]) - 1] = 0;
+            heldObj[usage] = item;
+            heldSock[usage] = socket;
         }
         if (hits > 0) {
             if (!g_rflStride) {
@@ -240,9 +255,20 @@ static void RflStateTick(void)
                     const char* n2 = (it && LooksLikeObj(it) &&
                                       RangeReadable(it + kNameOff, 4))
                                      ? RealName(*(uint32_t*)(it + kNameOff)) : NULL;
-                    Log("rfl/state:   slot[%d] usage %d  %s (%s)", k,
+                    const uint32_t uo = RflOffsetOf("DishonoredInventoryItem",
+                                                    "m_EquipUsage");
+                    const uint32_t so = RflOffsetOf("DishonoredInventoryItem",
+                                                    "m_CurSocket");
+                    int iu = -1, is_ = -1;
+                    if (it && LooksLikeObj(it) && uo && RangeReadable(it + uo, 1))
+                        iu = (int)*(uint8_t*)(it + uo);
+                    if (it && LooksLikeObj(it) && so && RangeReadable(it + so, 1))
+                        is_ = (int)*(uint8_t*)(it + so);
+                    Log("rfl/state:   slot[%d] requires usage %d | item %s (%s) "
+                        "-> its own equip usage %d, socket %d (%s)", k,
                         (int)*(uint8_t*)(sl + kRflUsageOff),
-                        c2 ? c2 : (it ? "not a UObject" : "empty"), n2 ? n2 : "-");
+                        c2 ? c2 : (it ? "not a UObject" : "empty"), n2 ? n2 : "-",
+                        iu, is_, RflSocketName(is_));
                 }
             }
             usable = hits; stride = s;
@@ -280,6 +306,11 @@ static void RflStateTick(void)
         _snprintf(g_rflState.equip[i], sizeof(g_rflState.equip[i]), "%s",
                   found[i][0] ? found[i] : "none");
         g_rflState.equip[i][sizeof(g_rflState.equip[i]) - 1] = 0;
+        // The OBJECT, not just its name. VR-60 needs it: the equipped item is
+        // the owner of the component the weapon attachment should verify
+        // against, instead of another asset's.
+        g_rflHeldObj[i] = heldObj[i];
+        g_rflHeldSocket[i] = heldSock[i];
     }
 
     // LOG THE CHANGE, NEVER THE STATE.
@@ -292,6 +323,9 @@ static void RflStateTick(void)
             g_rflEquipPrev[1][0] ? g_rflEquipPrev[1] : "?", g_rflState.equip[1],
             g_rflEquipPrev[2][0] ? g_rflEquipPrev[2] : "?", g_rflState.equip[2],
             (int)num, usable);
+        Log("rfl/state:   sockets - Primary %s, Secondary %s. Only an EQUIPPED "
+            "item is in the hand; a holstered one is on the body.",
+            RflSocketName(g_rflHeldSocket[1]), RflSocketName(g_rflHeldSocket[2]));
         for (int i = 1; i < 3; ++i) strcpy_s(g_rflEquipPrev[i], g_rflState.equip[i]);
     }
 }
