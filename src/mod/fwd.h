@@ -101,6 +101,11 @@ static bool RflArrayAt(uint8_t* obj, uint32_t off, uint8_t** outData,
 static void RflTick(void);
 static void RflStateTick(void);
 static bool RflCommand(const char* args);
+
+// VR-62: the startup scoreboard (startup.cpp). Read-only, present thread.
+static void SuBeginLoad(void);
+static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict);
+static bool SuCommand(const char* args);
 static inline bool CamAlive();
 static bool CamStillValid();
 static bool FindLiveCamera();

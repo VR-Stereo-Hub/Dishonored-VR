@@ -104,6 +104,7 @@
 #endif
 #include "mod/state/59_game_dishonored_hands_palette_capture.inc"
 #include "mod/state/60_game_dishonored_ue3_reflect.inc"
+#include "mod/state/61_game_dishonored_startup.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
@@ -218,6 +219,7 @@
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/uobject.cpp"
 #include "game/dishonored/ue3/reflect.cpp"
+#include "game/dishonored/startup.cpp"
 #undef DVR_CAT
 #if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy

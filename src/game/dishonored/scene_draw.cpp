@@ -272,6 +272,9 @@ static void SceneDrawDecisionLog(const SdDecision& d)
     if (said && d.doubleIt == wasDouble) return;
     said = true; wasDouble = d.doubleIt;
     if (d.doubleIt) {
+        // VR-62: the mono window ends HERE. This module owns the transition, so
+        // it is the one that reports it; the scoreboard must not re-derive it.
+        g_suStereoSeen = true;
         if (singleTicks)
             Log("reentry: gates -> DOUBLE draw after %lu single tick(s) - both eyes tagged again", (unsigned long)singleTicks);
         singleTicks = 0;
