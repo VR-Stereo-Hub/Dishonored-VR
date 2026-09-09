@@ -1358,6 +1358,7 @@ static void LoadConfig()
     // run on the game thread and these draws on the render thread. This one
     // does not need the stack.
     g_mpEyeFromMeasured = IniFloat(ini, "Hands", "PaletteEyeFromMeasured", 1) != 0.0f;
+    g_mpEyeMeasSign = IniFloat(ini, "Hands", "PaletteEyeMeasSign", -1) < 0.0f ? -1 : +1;
     // When the eye step is too small to read, ALTERNATE rather than hold the
     // previous present's answer. The method presents the eyes alternately, so
     // holding is the one choice guaranteed wrong; 12% of presents took that path

@@ -2330,24 +2330,36 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
             if ((LONG)dvr::stereo::g_msMeasSeq == s0) meas = (int)e;
         }
     }
+    // MEASURED: agree 210, DISAGREE 87811 - 99.8 %, which is not one source
+    // being better than another, it is the two using OPPOSITE conventions. The
+    // method's tag is pass 1 / pass 2; the palette's is left / right, and there
+    // was never any reason those had to point the same way. Applying it
+    // unsigned did not remove the eye offset, it DOUBLED it - which is exactly
+    // the reported symptom, both weapons seen twice, permanently.
+    //
+    // So the sign is a lever, and the AUDIT PROVES IT: the agreement below is
+    // computed on the SIGNED value, so if -1 is right the ratio must invert to
+    // ~99.8 % agreement. A sign flipped on a hunch would be another guess; a
+    // sign flipped against a counter that must move is a measurement.
+    const int measApplied = meas * g_mpEyeMeasSign;
     if (meas == 0) InterlockedIncrement(&g_msMeasNone);
-    else if (meas == g_mpEyeState) InterlockedIncrement(&g_msMeasAgree);
+    else if (measApplied == g_mpEyeState) InterlockedIncrement(&g_msMeasAgree);
     else InterlockedIncrement(&g_msMeasDisagree);
 
     // Acted on only behind its own lever, and only when it actually has an
     // answer - it never downgrades a known inference to unknown.
-    if (g_mpEyeFromMeasured && meas != 0) eyeUse = meas;
+    if (g_mpEyeFromMeasured && meas != 0) eyeUse = measApplied;
 
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
         "ms/palette/measeye: the stereo method's MEASURED eye vs the palette's inference - agree %ld, "
-        "DISAGREE %ld, method had no answer %ld | acting on it: %s | this draw: measured %s, inferred %s, "
+        "DISAGREE %ld, method had no answer %ld | sign %+d | acting on it: %s | this draw: measured %s, inferred %s, "
         "using %s. The inference is a delta between consecutive draws and HOLDS when the step is too small "
         "to read, which is how it goes wrong; the measurement comes from the method's own c5 pairing. If "
         "the disagreement is large and the weapons are steady with PaletteEyeFromMeasured=1, the "
         "measurement is the better source and the offset can come back on.",
-        g_msMeasAgree, g_msMeasDisagree, g_msMeasNone,
+        g_msMeasAgree, g_msMeasDisagree, g_msMeasNone, g_mpEyeMeasSign,
         g_mpEyeFromMeasured ? "YES (PaletteEyeFromMeasured=1)" : "no (audit only)",
-        meas < 0 ? "LEFT" : meas > 0 ? "RIGHT" : "none",
+        measApplied < 0 ? "LEFT" : measApplied > 0 ? "RIGHT" : "none",
         g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
         eyeUse < 0 ? "LEFT" : eyeUse > 0 ? "RIGHT" : "none");
 
