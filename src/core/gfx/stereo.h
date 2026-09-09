@@ -243,6 +243,10 @@ void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec);
 // and prints both, and [Hands] PaletteEyeFromMeasured decides whether it is
 // acted on - an unaudited swap would be the fourth guess in this area rather
 // than the first measurement.
+// VR-69: [Stereo] HoldSameEye - hold the previous complete pair when the
+// method pushes the same eye twice, instead of letting one eye go stale.
+extern int g_holdSameEye;
+
 extern volatile long g_msMeasSeq;    // even = settled, odd = write in progress
 extern volatile long g_msMeasEye;    // -1 left, +1 right, 0 unknown
 

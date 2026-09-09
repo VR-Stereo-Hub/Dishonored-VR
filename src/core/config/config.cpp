@@ -545,6 +545,16 @@ static void LoadConfig()
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 3, ini));
+        // VR-69: the SAME-eye repeat. One eye gets no copy and goes a frame
+        // stale while the other is current (measured: ages L=2 R=0), which a
+        // headset saw as a one-frame weapon jump in the LEFT eye alone.
+        // Holding leaves BOTH eyes on the previous complete pair - invisible,
+        // because it is the eyes DISAGREEING that shows. Capped so a long run
+        // cannot freeze the image.
+        dvr::stereo::g_holdSameEye = GetPrivateProfileIntA("Stereo", "HoldSameEye", 1, ini);
+        Log("config: [Stereo] HoldSameEye=%d - a same-eye repeat holds the previous complete pair "
+            "rather than letting one eye go stale (0 = off, the pre-VR-69 behaviour).",
+            dvr::stereo::g_holdSameEye);
     }
 
     {   // [Camera] EyeField: where the per-eye offset is written (measured by

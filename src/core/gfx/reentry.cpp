@@ -50,6 +50,8 @@ namespace dvr::stereo {
 // VR-69: external linkage on purpose - the palette draw reads these from
 // the unity translation unit. Defined here, ABOVE the anonymous namespace,
 // because inside it they would be internal and the link would fail.
+uint32_t g_sameEyeHolds = 0, g_sameEyeSpent = 0;   // VR-69
+int      g_holdSameEye = 1;                       // [Stereo] HoldSameEye
 volatile long g_msMeasSeq = 0;
 volatile long g_msMeasEye = 0;
 
@@ -505,6 +507,48 @@ public:
                                  delivered, g_pushSameEye, delivered < 0 ? "RIGHT" : "LEFT",
                                  g_c5Pair ? "on" : "off", g_c5Agree, g_c5Disagree, g_c5Took, g_c5Held,
                                  g_c5Realigned, g_c5Refused, g_c5Untagged);
+
+                // VR-69: HOLD instead of submitting half a pair.
+                //
+                // Measured: `ages L=2 R=0` - one eye two generations behind the
+                // other while this happens, and a headset saw exactly that as a
+                // one-frame weapon jump in the LEFT eye only, 1-2 times a
+                // second, keeping its screen direction even with the weapon
+                // rotated upside down. A stale image, not a bad transform.
+                //
+                // The reasoning: submitting this present writes ONE eye and
+                // leaves the other on an older image, so the two eyes disagree
+                // by a frame. Holding leaves BOTH on the previous complete
+                // pair. Both eyes stale by one frame together is invisible -
+                // the compositor reprojects it and the world is nearly static -
+                // and it is the eyes disagreeing that the player sees. That is
+                // why only the hand-held weapon showed it.
+                //
+                // Capped, and the cap is the point: a long run of repeats would
+                // otherwise freeze the image entirely, so after the limit the
+                // half-pair goes out as it does today. Same shape as
+                // [Stereo] HoldUntagged, for the same fail-soft reason.
+                const int lim = g_holdSameEye;
+                if (lim > 0 && sameEyeHeld_ < lim) {
+                    ++sameEyeHeld_;
+                    ++g_sameEyeHolds;
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                                     "reentry: same-eye present HELD (%d of %d in this run, %u total) - both eyes keep "
+                                     "the previous complete pair instead of one of them going a frame stale. Both eyes "
+                                     "stale together is invisible; the eyes DISAGREEING is the flicker.",
+                                     sameEyeHeld_, lim, g_sameEyeHolds);
+                    return false;
+                }
+                if (lim > 0) {
+                    ++g_sameEyeSpent;
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
+                                     "reentry: same-eye hold SPENT after %d in a row (%u times) - submitting the half "
+                                     "pair rather than freezing the image. A run this long is not the one-off the hold "
+                                     "was built for; if this line is common the repeat has a cause worth finding.",
+                                     sameEyeHeld_, g_sameEyeSpent);
+                }
+            } else {
+                sameEyeHeld_ = 0;
             }
             g_lastPushedEye = delivered;
             dvr::vr::sr_push_eye(delivered);
@@ -527,6 +571,7 @@ public:
         lastLeftOk_ = false;
         prevC5Ok_ = false;
         c5Streak_ = 0;
+        sameEyeHeld_ = 0;
         g_lastPushedEye = 0;   // a re-select must not read as a repeat
         taggedRecently_ = false;
         heldRun_ = 0;
@@ -610,6 +655,7 @@ private:
     uint32_t lastSame_ = 0, lastTook_ = 0, lastHeld_ = 0, lastRefused_ = 0, lastRealign_ = 0, lastDis_ = 0;
     bool     prevC5Ok_ = false;
     uint32_t c5Streak_ = 0;
+    int      sameEyeHeld_ = 0;   // VR-69: consecutive same-eye presents held
     // the stale-eye line's previous snapshot
     uint32_t lastStale_ = 0;
     bool     lastStaleInit_ = false;
