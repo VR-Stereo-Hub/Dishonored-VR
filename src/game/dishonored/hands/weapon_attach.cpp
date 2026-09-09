@@ -1241,6 +1241,47 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     }
     if (w) InterlockedIncrement(&g_waCacheHit);
     else {
+        // VR-64: WHICH KEY CHANGED? A swap re-matches the weapon even though its
+        // contract survived, and "the buffers changed" was a guess - this key has
+        // fourteen fields and any of them can miss. So when a lookup misses and a
+        // contract for the SAME asset on the SAME hand exists, name the fields
+        // that differ. Only on a miss, and rate-limited, so it costs nothing in
+        // the steady state.
+        for (int i = 0; i < g_waMeshN; ++i) {
+            const WaMesh* k = &g_waMesh[i];
+            if (k->hand != hand || strcmp(k->asset, member->asset)) continue;
+            if (!k->vb) continue;                      // a retired contract
+            char diff[256]; diff[0] = 0;
+            #define WA_DIFF(cond, name)                 if (cond) { const size_t u = strlen(diff);                     _snprintf(diff + u, sizeof(diff) - u, "%s%s", u ? " " : "", name); }
+            WA_DIFF(k->vb != vb, "vb")
+            WA_DIFF(k->ib != ib, "ib")
+            WA_DIFF(k->decl != decl, "decl")
+            WA_DIFF(k->vs != vs, "vs")
+            WA_DIFF(k->stride != stride, "stride")
+            WA_DIFF(k->streamOffset != offset, "streamOffset")
+            WA_DIFF(k->type != type, "type")
+            WA_DIFF(k->baseVertex != baseVertex, "baseVertex")
+            WA_DIFF(k->minIndex != minIndex, "minIndex")
+            WA_DIFF(k->startIndex != startIndex, "startIndex")
+            WA_DIFF(k->numVerts != numVertices, "numVerts")
+            WA_DIFF(k->primCount != primCount, "primCount")
+            #undef WA_DIFF
+            diff[sizeof(diff) - 1] = 0;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+                "wa/key: a draw of '%s' on hand %d did NOT match its existing "
+                "contract, and a NEW one is about to be adopted. The key fields "
+                "that differ: %s. The contract's component is %p and it is %s. "
+                "This names the actual reason for a re-match instead of assuming "
+                "the buffers moved - the key has fourteen fields and any of them "
+                "misses the same way.",
+                member->asset, hand, diff[0] ? diff : "NONE (the component or "
+                "asset name differs, or this is a second geometry of the same "
+                "weapon)", k->compObj,
+                LooksLikeObj((uint8_t*)k->compObj) ? "still a live object"
+                                                   : "no longer readable as one");
+            break;
+        }
+
         // Full reporting table does not prevent a new weapon from attaching.
         const bool full = g_waMeshN == WA_MAX_MESH;
         int slot = full ? 0 : g_waMeshN++;

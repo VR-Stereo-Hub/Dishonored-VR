@@ -1,125 +1,147 @@
-// core/vr/pose_record.h - the pose an image was actually rendered with (VR-65).
+// core/vr/pose_record.h - three records, kept apart on purpose (VR-65).
 //
-// THE PROBLEM THIS EXISTS FOR. The pose submitted to OpenXR with an eye image is
-// currently CHOSEN AT SUBMISSION TIME out of a global history, by a fixed lag
-// setting. Nothing carries the pose that the image was actually rendered with.
-// The chain is:
+// THE MISTAKE THE FIRST VERSION MADE, recorded because the number it produced
+// was quoted before it was checked. It kept ONE record and called it "the pose
+// the image was rendered with". It was not: it read the LIVE head globals at
+// draw time, which are whatever the Present thread last wrote, and compared them
+// against a pose derived from that same input. Two values derived from one input
+// agree by construction. Its near-zero result says nothing about whether
+// rendering honoured the camera, and its "+51 degrees of error" was arithmetic -
+// it differenced a UE world yaw against an XR tracking yaw and then doubled the
+// answer through a sign convention.
 //
-//   Present hook locates tracking and publishes a head rotation
-//   -> the GAME thread applies it to the game camera
-//   -> the game queues two viewport draws
-//   -> the RENDER thread replays them; a FIFO plus camera-position heuristics
-//      decide which eye each present is
-//   -> capture delivers the previous present's texture slot (SharedWait=0)
-//   -> submission picks a pose out of a history by g_poseLag
+// So the question is split into three, and they are never mixed:
 //
-// Every step of that is a timing assumption, and the last one was calibrated
-// against BioShock 1's SINGLE-THREADED renderer. Dishonored has a separate
-// render thread and an extra delayed capture stage. Khronos is explicit that the
-// compositor must be given the pose the submitted image was rendered with;
-// giving it a different one makes world content move wrongly with the head,
-// which is the reported symptom and is worst on a PHYSICAL turn - a thumbstick
-// turn moves the game camera while the head barely moves, so the compositor's
-// correction has almost nothing to do and the error hides.
+//   CAMERA      what the camera was TOLD to use, published as one unit at the
+//               camera write itself, together with the camera it produced
+//   RENDER      what rendering ACTUALLY consumed, read off the shader constants
+//               on the render thread, independent of anything above
+//   SUBMISSION  what OpenXR was TOLD the image represents, per eye
 //
-// THIS HEADER CHANGES NO BEHAVIOUR. It is the instrument that has to come first.
-// A record is opened where the camera is built, its id rides the existing eye
-// tag through the ring and onto the capture slot, and submission can then ask
-// what the DELIVERED texture was actually rendered with instead of guessing.
+// and three separate checks:
 //
-// WHY AN INSTRUMENT FIRST, AND WHY IT HAS A NEGATIVE CONTROL. The audit that
-// exists today compares the submitted pose against the LATEST published camera
-// yaw at submission time - not against the sample belonging to the captured
-// image - so with two threads it can agree for the wrong reason. It reported
-// near-zero error while this fault was present. Earlier in this project an audit
-// read a global across two threads and produced a confident 39% that meant
-// nothing. So this one ships with a deliberate-error mode: inject a known yaw
-// offset into the record and the audit must report exactly that offset. An audit
-// that cannot fail its own hypothesis is not evidence.
+//   CAMERA vs RENDER      did the intended camera reach rendering?
+//   RENDER vs SUBMISSION  does the submitted metadata describe this image?
+//   TRANSPORT             did the right record stay with the right eye image?
+//
+// Only the middle one can clear the leading hypothesis. Only the third can say
+// whether the other two were looking at the same frame. A successful record
+// lookup proves availability, not correspondence.
+//
+// CONVENTIONS, STATED ONCE. The tracking sample is stored in OpenXR convention:
+// quaternion plus position, right +X, up +Y, forward -Z, metres. The game camera
+// is stored separately in UE world Euler degrees. THEY ARE NOT COMPARABLE - the
+// game camera's yaw contains body and thumbstick rotation the tracking pose
+// never sees. Anything that differences them directly is measuring nothing.
 #pragma once
 
 #include <stdint.h>
 
 namespace dvr::pose {
 
-// One rendered eye, as it actually was. Immutable once opened.
+// ---- CAMERA: what the camera was told, and what it produced -----------------
+
+// The tracking sample, in OpenXR convention. One coherent read, taken where the
+// camera is computed - never reassembled afterwards out of separate globals.
+struct Track {
+    float    qx, qy, qz, qw;
+    float    px, py, pz;      // metres, XR LOCAL space
+    uint32_t gen;             // the runtime's locate generation this came from
+    double   locateMs;        // when the LOCATE happened, not when we wrote
+    bool     ok;
+};
+
+// The game camera that sample produced, in UE world convention.
+struct Cam {
+    float  yawDeg, pitchDeg, rollDeg;
+    float  pos[3];            // the eye position written, engine units
+    bool   posOk;
+    double writeMs;           // when the camera write happened
+    int    writer;            // 1 script dispatch, 2 direct fallback, 0 none
+    bool   ok;
+};
+
+// Published together, as one unit, at each camera construction. Both writer
+// paths call it: a run that has fallen back must stay measurable, or the
+// instrument goes quiet exactly when something is already wrong.
+void publish_camera(const Track& t, const Cam& c);
+
+// Copy the latest published pair out under the lock. Never hands back a pointer
+// into shared storage.
+bool camera_snapshot(Track* t, Cam* c);
+
+
+// ---- the per-view record that travels with the image ------------------------
+
 struct Record {
-    uint32_t id;            // 0 = never filled; ids start at 1 and only grow
-    uint32_t pairId;        // both eyes of one game tick share this
-    int      eye;           // -1 left, +1 right, 0 mono / untagged
-
-    // THE TRACKING SAMPLE THE CAMERA WAS BUILT FROM, taken as one coherent read
-    // rather than as separate globals. Yaw/pitch/roll are the mod's own
-    // published head angles in DEGREES; gen is the locate generation they came
-    // from, and locateMs is when that locate happened.
-    float    yawDeg, pitchDeg, rollDeg;
-    uint32_t gen;
-    double   locateMs;
-
-    // The head POSITION in tracking space at that sample, and the game-space
-    // camera position the eye write produced. The second is what the existing
-    // c5 pairing already measures, so a record can be checked against it.
-    float    headPos[3];
-    bool     headPosOk;
-    float    camPos[3];
-    bool     camPosOk;
-    float    injectedYawDeg;   // the negative control's offset, 0 when disarmed
-
-    // When the record was opened, on the game thread.
+    uint32_t id;
+    uint32_t pairId;
+    int      eye;             // -1 left, +1 right, 0 mono / untagged
+    Track    track;           // a COPY of the published sample, not a re-read
+    Cam      cam;             // a COPY of the camera it produced
     double   openedMs;
+    bool     secondPassReuse; // this view reused pass 1's camera, deliberately
 };
 
-// The tracking sample, handed in by the game adapter as ONE argument so it
-// cannot be assembled here out of separately-read globals. That is the whole
-// point: the camera was built from one coherent sample and the record has to
-// hold that same one. Angles in DEGREES.
-struct Sample {
-    float    yawDeg, pitchDeg, rollDeg;
-    uint32_t gen;
-    double   locateMs;
-    float    headPos[3];
-    bool     headPosOk;
-};
-
-// Open a record for the eye that is about to be drawn. Called on the GAME
-// thread, from the same place the eye tag is pushed, so the sample it carries
-// is the one the camera for THIS pass was built from. Returns the id to carry,
-// or 0 if the ring refused (which is counted, never silent).
-uint32_t open(int eye, uint32_t pairId, const Sample& s,
-              const float camPos[3], bool camPosOk);
-
-// Look one up by id. Returns nullptr when the id is 0, unknown, or has been
-// overwritten by the ring - which is itself a finding and is counted.
-const Record* get(uint32_t id);
-
-// Start a new pair. Called once per doubled game tick, before either pass.
 uint32_t next_pair();
 
-// THE NEGATIVE CONTROL. While armed, every record opened is given a yaw offset
-// by this many degrees, so the audit downstream MUST report an error of exactly
-// that size. If it reports zero, the audit is measuring the wrong thing and no
-// reassuring number from it can be believed. 0 disarms.
-void  set_inject_yaw_deg(float deg);
-float inject_yaw_deg();
+// Open a record for the view about to be drawn. GAME thread. It COPIES the
+// published camera pair rather than sampling anything itself, so the record
+// cannot disagree with the camera that was actually written.
+uint32_t open(int eye, uint32_t pairId, bool secondPassReuse);
 
-// THE SELF TEST. The tester does not run commands, and a negative control that
-// nobody arms proves nothing - so it arms ITSELF, once, a few seconds into a
-// run: records opened between two counts carry a known wrong yaw, and the
-// submission audit must report exactly that error for exactly that window. One
-// ordinary play session then contains the proof that the audit can fail.
+// COPY a record out. The ring can be overwritten while a reader works, so there
+// is no pointer accessor: this takes the lock, checks the id, and copies.
+// False for an id nobody set (missing) or one since overwritten (expired) -
+// counted apart, because they mean different things.
+bool copy(uint32_t id, Record* out);
+
+
+// ---- RENDER: what the draw actually consumed --------------------------------
 //
-// Off by setting the window to 0. It injects a rotation error of a few degrees
-// for about a second, which is visible but harmless, and it says so in the log
-// at both edges so nobody reads the wobble as a fault.
-void configure_self_test(uint32_t startAfter, uint32_t records, float deg);
+// Read off the vertex-shader constants on the render thread. The only evidence
+// in the chain that does not descend from the mod's own intent.
+//
+// The matrix layout is NOT assumed. note_render_vp stores the block; the solver
+// validates the multiplication convention against the camera position the same
+// upload carried and reports which one answered. A register number is not proof
+// of a layout, so the layout is measured.
+void note_render_vp(const float vp16[16], const float camPos[3], bool camPosOk);
 
-// Counters for the 3 s line: records opened, lookups answered, lookups that
-// arrived after the ring had wrapped, and lookups for an id nobody set.
-struct Stats { uint32_t opened, hits, expired, missing, pairs; };
+// The world yaw the observed view-projection actually implies, UE degrees,
+// found by projecting probe directions around the observed camera position and
+// taking the one that lands on the screen centre. No decomposition.
+// False when no usable block has been seen or neither convention validated -
+// which is a finding, logged, never treated as agreement.
+bool render_yaw_deg(float* outDeg, uint32_t* outSerial);
+
+
+// ---- the controls -----------------------------------------------------------
+//
+// Each proves ONE thing and the log says which. They operate on a DIAGNOSTIC
+// COPY, never on anything that reaches submission, so an armed control cannot
+// move the picture. The first version perturbed the real record and warned the
+// tester to expect a wobble; that was the wrong design and the warning with it.
+enum Control {
+    CTRL_NONE = 0,
+    CTRL_YAW,        // a known angular perturbation: does the comparison respond?
+    CTRL_OLD_REC,    // an older record substituted: is generation association live?
+    CTRL_WRONG_EYE,  // the eyes swapped: is eye association actually checked?
+    CTRL_COUNT
+};
+void configure_controls(uint32_t startAfter, uint32_t eachLen, float yawDeg);
+
+// Run the controls against a real observation, reporting pass or fail against an
+// explicit numeric tolerance.
+void check_controls(const Record& real, float observedYawDeg);
+
+
+struct Stats {
+    uint32_t opened, copies, expired, missing, pairs;
+    uint32_t camPublished, renderBlocks;
+    uint32_t ctrlPass, ctrlFail;
+};
 Stats stats();
-
-// One line, from the present thread's beat. Prints the join for the most recent
-// delivered record so a log reader can see the whole chain on one line.
-void log_beat();
+void  log_beat();
 
 } // namespace dvr::pose

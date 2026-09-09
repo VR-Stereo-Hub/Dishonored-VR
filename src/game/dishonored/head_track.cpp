@@ -736,6 +736,9 @@ static void RotInjectTick()
     // something is already wrong.
     g_injHmdGen = g_hmdGen;
     dvr::vr::publish_script_head(g_injHmdYawSnap, g_injHmdGen, ++g_injHmdSeq);
+    HtPublishCameraRecord(2, (float)iy / kUEPerRad * 57.29578f,
+                          (float)ip / kUEPerRad * 57.29578f,
+                          (float)ir / kUEPerRad * 57.29578f);
 
     // Watchdog: last time this "worked then froze". If our writes stop moving
     // the view - the head turns but the engine's yaw sits still - hand control
@@ -931,6 +934,8 @@ static void ApplyHeadToViewRotation(void* parms)
     // match. Game thread; the seam's storage is atomic.
     g_injHmdGen = g_hmdGen;
     dvr::vr::publish_script_head(g_injHmdYawSnap, g_injHmdGen, ++g_injHmdSeq);
+    HtPublishCameraRecord(1, g_viewYawRad * 57.29578f, g_viewPitchRad * 57.29578f,
+                          (float)frR / kUEPerRad * 57.29578f);
     (void)dp;
 
     static int hb = 0;
@@ -980,6 +985,47 @@ static void NeckSet(int mode, float belowM, float behindM, const char* who)
                       "tracked arc must not be applied twice (set the pivot to the pitchtest's numbers)",
         dvr::stereo::wants_projection() ? "" : " (inert now: the quad screen has no projection pose to agree with)");
 }
+
+// VR-65: publish the camera as ONE unit - the tracking sample it was computed
+// from AND the camera that came out - at the moment of the write.
+//
+// The point is that nothing downstream reassembles this out of live globals. The
+// first version of the trace did exactly that and its answer was circular: it
+// compared a camera against the same head values the camera came from.
+//
+// The two spaces are kept apart deliberately. The tracking sample is stored in
+// OpenXR convention; the camera is UE world degrees and contains body and
+// thumbstick rotation the tracking pose never sees. Differencing them is
+// meaningless and the header says so.
+static void HtPublishCameraRecord(int writer, float yawDeg, float pitchDeg,
+                                  float rollDeg)
+{
+    dvr::pose::Track t;
+    dvr::vr::HeadPose hp;
+    t.ok = dvr::vr::peek_head_pose(hp);   // peek: the audit stamp belongs to the drive
+    if (t.ok) {
+        t.qx = hp.qx; t.qy = hp.qy; t.qz = hp.qz; t.qw = hp.qw;
+        t.px = hp.px; t.py = hp.py; t.pz = hp.pz;
+    } else {
+        t.qx = t.qy = t.qz = 0.0f; t.qw = 1.0f;
+        t.px = t.py = t.pz = 0.0f;
+    }
+    t.gen = dvr::vr::locate_gen();
+    // The LOCATE time, not the camera-write time. The first version stored the
+    // write time under a field named for the locate, which would have made any
+    // latency figure derived from it wrong by however long the game thread took
+    // to get here.
+    t.locateMs = dvr::vr::last_locate_ms();
+
+    dvr::pose::Cam c;
+    c.yawDeg = yawDeg; c.pitchDeg = pitchDeg; c.rollDeg = rollDeg;
+    c.posOk = dvr::camera::last_written_pos(c.pos);
+    c.writeMs = MaimNowMs();
+    c.writer = writer;
+    c.ok = true;
+    dvr::pose::publish_camera(t, c);
+}
+
 
 static void TrackHead(const float (*m)[4])
 {

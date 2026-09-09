@@ -4186,3 +4186,79 @@ candidates and is not an equipped item's own mesh) covers that case. It only eve
 retires - it never widens a radius or relaxes an angle, because an obsolete
 contract does not merely go idle, it BLOCKS adoption of the real one: a refused
 draw returns before the matcher.
+
+
+## THE POSE TRACE, AND TWO NUMBERS THAT MUST NOT BE CITED (VR-65, 2026-09-09)
+
+Recorded because both numbers were produced by an instrument of this project's
+own making, and both were quoted before they were checked.
+
+### RETRACTED: "the eye inference disagreed with the drawing pass 39% of the time"
+
+Read from a bare global across two threads. The stereo passes run on the GAME
+thread and the palette draws on the RENDER thread, so the value being read was
+never the one being claimed. It measured nothing.
+
+### RETRACTED: "the submitted pose is 51 degrees away from the rendered one"
+
+Two faults at once. It differenced a UE world camera yaw against an XR
+tracking-space yaw - different spaces, not comparable, and the game camera's yaw
+carries body and thumbstick rotation the tracking pose never sees. On top of
+that the mod publishes head yaw negated at the pose-lane seam, which doubled the
+answer. `2 x yaw` is exactly what the log showed.
+
+### AND THE SIGN-CORRECTED NEAR-ZERO IS NOT EVIDENCE EITHER
+
+After correcting for sign the two agreed to within 0.08 degrees, which looks like
+a clean bill of health and is not one. The record read the LIVE head globals at
+draw time - whatever the Present thread last wrote - and compared them against a
+pose derived from that same input. **Two values derived from one input agree by
+construction.** The repo already had the coherent alternative and it was not
+used: `g_injHmdYawSnap` / `g_injHmdPitchSnap` / `g_injHmdGen` / `g_injSnapOk`,
+"the HMD orientation AS OF the last camera write", added for blink for exactly
+this reason.
+
+### What DID hold
+
+The self-arming negative control worked: injecting +4.0 deg moved the recorded
+sample by +4.16 and the reported error by -4.32. That demonstrates the comparison
+responds to an angle. **It demonstrates nothing about whether the sample is the
+one rendering used** - sensitivity to a perturbation is not correctness of the
+input.
+
+Record transport also held: 112 join lines with `expired 0 missing 0`, so the id
+survives the pipeline with a 64-entry ring. A successful lookup proves the record
+was AVAILABLE. It does not prove the FIFO associated it with the right image.
+
+### The design that replaced it
+
+Three records, never mixed: what the camera was TOLD (published as one unit at
+the camera write, sample and resulting camera together), what rendering ACTUALLY
+consumed (the c0..c3 view-projection, read on the render thread), and what OpenXR
+was TOLD (per eye). Only camera-versus-render can clear the hypothesis.
+
+Two things the first version got wrong structurally and that are worth not
+repeating:
+
+* **A compiler barrier and an id check are not cross-thread synchronisation.**
+  `_ReadWriteBarrier()` orders nothing between threads, and an id check cannot
+  stop a slot being overwritten while a reader copies out of it. Records are
+  behind a lock now, copied out, never handed back as a pointer.
+* **The audit compared whichever record arrived last against the LEFT submitted
+  view**, regardless of which eye the record described. Each eye is compared
+  against its own view now, and an untagged record reports unknown.
+
+### The render observation does not assume a matrix layout
+
+c0..c3 is rebuilt from however the engine batches it - the c5 handling already
+learned that lesson when a device reset made the engine batch c5 into a wider
+block and a seam matching only `startReg==5` went blind for a whole run. The
+multiplication convention is then MEASURED from the game's own numbers: probe
+directions around the observed camera position are projected under both
+conventions, and the one that yields usable w values for a plausible fraction of
+a ring is the layout. If neither validates, the render side reports nothing
+rather than falling back to a guess, because a guessed layout produces a
+confident number about the wrong matrix.
+
+The yaw itself is found by search rather than decomposition: the world direction
+that projects to the screen centre is where the camera looks.

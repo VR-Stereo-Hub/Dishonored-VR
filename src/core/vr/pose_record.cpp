@@ -1,15 +1,17 @@
-// core/vr/pose_record.cpp - the pose an image was actually rendered with (VR-65).
+// core/vr/pose_record.cpp - three records, kept apart on purpose (VR-65).
 //
-// A ring of immutable records. The argument for why it exists is in the header.
+// The argument is in the header. This file is the storage, the render-side
+// solver, and the controls.
 //
-// LANES: opened on the GAME thread (one per viewport pass, from the same place
-// the eye tag is pushed), read on the PRESENT thread at submission. There is no
-// lock. The ring is written once per pass and read a few presents later, so a
-// reader can only ever race a writer that has already moved several slots past
-// it - and that case is not silently tolerated: every record carries its own id
-// and a lookup that finds a different id in the slot reports EXPIRED rather than
-// returning the wrong pose. That is the whole reliability argument, and it is
-// why the id is written LAST when a record is filled.
+// LANES AND SYNCHRONISATION. Records are opened on the GAME thread, copied out
+// on the PRESENT thread, and the render observation is written on the RENDER
+// thread. Every shared structure is behind one lock, held only for the memcpy.
+//
+// The first version used a compiler barrier and an id check. That is not
+// synchronisation: a compiler barrier orders nothing between threads, and an id
+// check cannot stop a slot being overwritten while the reader is copying out of
+// it. The reader could see a torn record whose id happened to still match.
+// Nothing about that was safe, and it is replaced rather than patched.
 
 #include "core/vr/pose_record.h"
 #include "core/util/log.h"
@@ -17,189 +19,403 @@
 
 #include <windows.h>
 #include <string.h>
+#include <math.h>
 
 #define DVR_CAT ::dvr::log::Cat::openxr
 
 namespace dvr::pose {
 namespace {
 
-// 64 records is about a third of a second of both eyes at 90 Hz pairs, which is
-// far longer than the one or two presents capture can hold a frame back. If a
-// lookup ever finds a wrapped slot, the delay is much larger than the design
-// assumes and the EXPIRED counter is the finding.
-constexpr uint32_t kRing = 64;
+CRITICAL_SECTION g_cs;
+bool             g_csReady = false;
 
-Record        g_ring[kRing];
-volatile LONG g_next = 1;        // the id to hand out next; 0 means "no record"
-volatile LONG g_pair = 0;
-float         g_injectYaw = 0.0f;
+struct Lock {
+    Lock()  { if (g_csReady) EnterCriticalSection(&g_cs); }
+    ~Lock() { if (g_csReady) LeaveCriticalSection(&g_cs); }
+};
 
-uint32_t g_opened = 0, g_hits = 0, g_expired = 0, g_missing = 0;
+// ---- the published camera pair ---------------------------------------------
+Track g_camTrack = {};
+Cam   g_camCam   = {};
+bool  g_camHave  = false;
+uint32_t g_camPublished = 0;
 
-// The self test's window, in records opened. Defaults chosen so it lands a few
-// seconds into a run, after the first load has settled: about 1200 records is
-// roughly seven seconds of pairs at 90 Hz, and 180 records is about a second.
-uint32_t g_stStart = 1200, g_stLen = 180;
-float    g_stDeg = 4.0f;
-int      g_stPhase = 0;      // 0 waiting, 1 armed, 2 done
+// ---- the record ring -------------------------------------------------------
+// 128 views is about two thirds of a second of pairs at 90 Hz. If a copy ever
+// finds a wrapped slot the pipeline is far deeper than the design assumes, and
+// EXPIRED is the finding rather than a wrong pose quietly returned.
+constexpr uint32_t kRing = 128;
+Record   g_ring[kRing];
+uint32_t g_nextId = 1;
+uint32_t g_pair = 0;
+uint32_t g_opened = 0, g_copies = 0, g_expired = 0, g_missing = 0;
 
-// The most recent record a lookup answered, kept for the beat line so the join
-// can be printed without the caller having to hold anything.
-Record g_lastHit = {};
-bool   g_haveLastHit = false;
+// ---- the render observation ------------------------------------------------
+float    g_vp[16];
+float    g_vpCam[3];
+bool     g_vpCamOk = false;
+bool     g_vpHave  = false;
+uint32_t g_vpSerial = 0;
+uint32_t g_renderBlocks = 0;
+
+// Which multiplication convention the game's own numbers validated. Measured
+// once, never assumed: 0 not yet decided, 1 row-vector (v * M), 2 column-vector
+// (M * v), -1 neither validated (a real finding, logged as one).
+int g_vpConv = 0;
+
+// ---- the controls ----------------------------------------------------------
+uint32_t g_ctrlStart = 1500, g_ctrlLen = 120;
+float    g_ctrlYawDeg = 6.0f;
+uint32_t g_ctrlPass = 0, g_ctrlFail = 0;
+int      g_ctrlDone[CTRL_COUNT] = {};
+
+Record   g_lastCopy = {};
+bool     g_haveLastCopy = false;
+
+void ensure_cs()
+{
+    static LONG once = 0;
+    if (InterlockedCompareExchange(&once, 1, 0) == 0) {
+        InitializeCriticalSection(&g_cs);
+        g_csReady = true;
+    }
+    while (!g_csReady) Sleep(0);
+}
+
+float wrap180(float d)
+{
+    while (d >  180.0f) d -= 360.0f;
+    while (d < -180.0f) d += 360.0f;
+    return d;
+}
+
+// Project a world point through the stored block under one convention. Returns
+// false when w is not usable, which is how a wrong convention announces itself.
+bool project(const float p[3], int conv, float* ndcX, float* w)
+{
+    const float* m = g_vp;
+    float c[4];
+    if (conv == 1) {           // row vector: clip = [x y z 1] * M
+        for (int i = 0; i < 4; ++i)
+            c[i] = p[0]*m[0*4+i] + p[1]*m[1*4+i] + p[2]*m[2*4+i] + m[3*4+i];
+    } else {                   // column vector: clip = M * [x y z 1]
+        for (int i = 0; i < 4; ++i)
+            c[i] = p[0]*m[i*4+0] + p[1]*m[i*4+1] + p[2]*m[i*4+2] + m[i*4+3];
+    }
+    if (!(c[3] > 1.0f) || c[3] > 1.0e7f) return false;   // behind, or nonsense
+    *w = c[3];
+    *ndcX = c[0] / c[3];
+    return true;
+}
 
 } // namespace
 
 
-uint32_t next_pair()
+// ---- CAMERA -----------------------------------------------------------------
+
+void publish_camera(const Track& t, const Cam& c)
 {
-    return (uint32_t)InterlockedIncrement(&g_pair);
+    ensure_cs();
+    Lock lk;
+    g_camTrack = t;
+    g_camCam = c;
+    g_camHave = true;
+    ++g_camPublished;
 }
 
 
-uint32_t open(int eye, uint32_t pairId, const Sample& s,
-              const float camPos[3], bool camPosOk)
+bool camera_snapshot(Track* t, Cam* c)
 {
-    // The self test, driven off the count of records rather than a clock, so it
-    // cannot fire during a loading screen when nothing is being rendered.
-    if (g_stPhase != 2 && g_stLen) {
-        if (g_stPhase == 0 && g_opened >= g_stStart) {
-            g_stPhase = 1;
-            set_inject_yaw_deg(g_stDeg);
-            DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
-                "pose/rec: SELF TEST STARTING - for the next %u record(s), about a "
-                "second, every image is recorded with a head yaw %+.1f deg away "
-                "from the one it was rendered with. The submission join MUST "
-                "report that error and MUST return to zero when this ends. You "
-                "may see a small wobble; it is this test and it stops by itself. "
-                "If the join keeps reporting zero through this window, the join "
-                "is not measuring what it claims and no zero from it counts.",
-                g_stLen, g_stDeg);
-        } else if (g_stPhase == 1 && g_opened >= g_stStart + g_stLen) {
-            g_stPhase = 2;
-            set_inject_yaw_deg(0.0f);
-            DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
-                "pose/rec: SELF TEST OVER - records carry the real sample again. "
-                "Read the posejoin lines either side of this: the error should "
-                "have been about %+.1f deg during the window and near zero "
-                "outside it.", g_stDeg);
-        }
-    }
+    ensure_cs();
+    Lock lk;
+    if (!g_camHave) return false;
+    if (t) *t = g_camTrack;
+    if (c) *c = g_camCam;
+    return true;
+}
 
-    const uint32_t id = (uint32_t)InterlockedIncrement(&g_next) - 1;
+
+// ---- the record ring --------------------------------------------------------
+
+uint32_t next_pair()
+{
+    ensure_cs();
+    Lock lk;
+    return ++g_pair;
+}
+
+
+uint32_t open(int eye, uint32_t pairId, bool secondPassReuse)
+{
+    ensure_cs();
+    Lock lk;
+    if (!g_camHave) return 0;      // nothing to copy: an id would be a lie
+    const uint32_t id = g_nextId++;
     Record& r = g_ring[id & (kRing - 1)];
-
-    // THE ID GOES LAST. A reader tests the id to decide whether the slot still
-    // holds the record it asked for, so writing it first would let a reader
-    // accept a half-written record as valid.
-    r.id = 0;
+    r.id = id;
     r.pairId = pairId;
     r.eye = eye;
-    r.yawDeg   = s.yawDeg + g_injectYaw;   // the negative control, see the header
-    r.pitchDeg = s.pitchDeg;
-    r.rollDeg  = s.rollDeg;
-    r.gen      = s.gen;
-    r.locateMs = s.locateMs;
-    r.headPosOk = s.headPosOk;
-    if (s.headPosOk) memcpy(r.headPos, s.headPos, sizeof(r.headPos));
-    else             memset(r.headPos, 0, sizeof(r.headPos));
-    r.camPosOk = camPosOk && camPos != nullptr;
-    if (r.camPosOk) memcpy(r.camPos, camPos, sizeof(r.camPos));
-    else            memset(r.camPos, 0, sizeof(r.camPos));
-    r.injectedYawDeg = g_injectYaw;
+    r.track = g_camTrack;          // a COPY of what the camera write published
+    r.cam = g_camCam;
     r.openedMs = dvr::clock::now_ms();
-    _ReadWriteBarrier();
-    r.id = id;
-
+    r.secondPassReuse = secondPassReuse;
     ++g_opened;
     return id;
 }
 
 
-const Record* get(uint32_t id)
+bool copy(uint32_t id, Record* out)
 {
-    if (!id) { ++g_missing; return nullptr; }
-    const Record* r = &g_ring[id & (kRing - 1)];
-    if (r->id != id) {
-        // Either the ring wrapped past it, or nothing ever filled this slot.
-        // Those are different findings and the counters keep them apart.
-        if (r->id) ++g_expired; else ++g_missing;
-        return nullptr;
+    if (!out) return false;
+    ensure_cs();
+    Lock lk;
+    if (!id) { ++g_missing; return false; }
+    const Record& r = g_ring[id & (kRing - 1)];
+    if (r.id != id) {
+        if (r.id) ++g_expired; else ++g_missing;
+        return false;
     }
-    ++g_hits;
-    g_lastHit = *r;
-    g_haveLastHit = true;
-    return r;
+    *out = r;
+    ++g_copies;
+    g_lastCopy = r;
+    g_haveLastCopy = true;
+    return true;
 }
 
 
-void set_inject_yaw_deg(float deg)
+// ---- RENDER -----------------------------------------------------------------
+
+void note_render_vp(const float vp16[16], const float camPos[3], bool camPosOk)
 {
-    if (deg < -180.0f) deg = -180.0f;
-    if (deg >  180.0f) deg =  180.0f;
-    g_injectYaw = deg;
-    if (deg != 0.0f)
-        DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
-            "pose/rec: NEGATIVE CONTROL ARMED at %+.2f deg of yaw. Every record "
-            "opened from now on carries a deliberately WRONG head yaw by that "
-            "much, and the submission audit must report an error of exactly that "
-            "size. If it keeps reporting zero, the audit is not measuring the "
-            "association it claims to measure and none of its reassuring numbers "
-            "mean anything. `posetrace inject 0` disarms it.", deg);
-    else
-        DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
-            "pose/rec: negative control disarmed - records carry the real sample "
-            "again.");
+    if (!vp16) return;
+    ensure_cs();
+    Lock lk;
+    memcpy(g_vp, vp16, sizeof(g_vp));
+    if (camPosOk && camPos) { memcpy(g_vpCam, camPos, sizeof(g_vpCam)); g_vpCamOk = true; }
+    g_vpHave = true;
+    ++g_vpSerial;
+    ++g_renderBlocks;
 }
 
-float inject_yaw_deg() { return g_injectYaw; }
 
-
-void configure_self_test(uint32_t startAfter, uint32_t records, float deg)
+bool render_yaw_deg(float* outDeg, uint32_t* outSerial)
 {
-    g_stStart = startAfter; g_stLen = records; g_stDeg = deg;
-    if (!records)
+    ensure_cs();
+    Lock lk;
+    if (!g_vpHave || !g_vpCamOk) return false;
+
+    // DECIDE THE CONVENTION FROM THE GAME'S OWN NUMBERS, ONCE. A point a little
+    // way from the observed camera position must project with a positive,
+    // sane w under exactly one of the two conventions. Whichever answers for a
+    // full ring of directions is the layout; if neither does, that is reported
+    // rather than guessed around.
+    if (g_vpConv == 0) {
+        for (int conv = 1; conv <= 2 && g_vpConv == 0; ++conv) {
+            int good = 0;
+            for (int i = 0; i < 36; ++i) {
+                const float a = (float)i * 10.0f * 0.0174533f;
+                const float p[3] = { g_vpCam[0] + 200.0f * cosf(a),
+                                     g_vpCam[1] + 200.0f * sinf(a),
+                                     g_vpCam[2] };
+                float x, w;
+                if (project(p, conv, &x, &w)) ++good;
+            }
+            // A perspective camera sees rather less than half a full ring, so a
+            // convention that validates roughly a third of the directions is the
+            // right one and the wrong one validates almost none.
+            if (good >= 6) {
+                g_vpConv = conv;
+                DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
+                    "pose/render: the view-projection block multiplies as %s - "
+                    "%d of 36 probe directions around the observed camera "
+                    "projected with a usable w. MEASURED from the game's own "
+                    "numbers, not assumed from a register number.",
+                    conv == 1 ? "a ROW vector (v * M)" : "a COLUMN vector (M * v)",
+                    good);
+            }
+        }
+        if (g_vpConv == 0) {
+            g_vpConv = -1;
+            DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
+                "pose/render: NEITHER multiplication convention projected the "
+                "probe ring usably, so the block at these registers is not a "
+                "world view-projection in the form assumed. The render side of "
+                "this trace reports NOTHING until that is resolved - it does not "
+                "fall back to a guess, because a guessed layout would produce a "
+                "confident number about the wrong matrix.");
+        }
+    }
+    if (g_vpConv < 0) return false;
+
+    // THE YAW THE RENDER ACTUALLY USED, without decomposing anything: the world
+    // direction that projects to the screen centre is where the camera looks.
+    // Coarse ring, then three refinements, all in the observed block.
+    float best = 0.0f, bestAbs = 1.0e9f;
+    bool found = false;
+    for (int i = 0; i < 72; ++i) {
+        const float yaw = (float)i * 5.0f;
+        const float a = yaw * 0.0174533f;
+        const float p[3] = { g_vpCam[0] + 400.0f * cosf(a),
+                             g_vpCam[1] + 400.0f * sinf(a), g_vpCam[2] };
+        float x, w;
+        if (!project(p, g_vpConv, &x, &w)) continue;
+        if (fabsf(x) < bestAbs) { bestAbs = fabsf(x); best = yaw; found = true; }
+    }
+    if (!found) return false;
+    float step = 5.0f;
+    for (int it = 0; it < 12; ++it) {
+        step *= 0.5f;
+        const float cand[2] = { best - step, best + step };
+        for (int k = 0; k < 2; ++k) {
+            const float a = cand[k] * 0.0174533f;
+            const float p[3] = { g_vpCam[0] + 400.0f * cosf(a),
+                                 g_vpCam[1] + 400.0f * sinf(a), g_vpCam[2] };
+            float x, w;
+            if (!project(p, g_vpConv, &x, &w)) continue;
+            if (fabsf(x) < bestAbs) { bestAbs = fabsf(x); best = cand[k]; }
+        }
+    }
+    if (outDeg) *outDeg = wrap180(best);
+    if (outSerial) *outSerial = g_vpSerial;
+    return true;
+}
+
+
+// ---- the controls -----------------------------------------------------------
+
+void configure_controls(uint32_t startAfter, uint32_t eachLen, float yawDeg)
+{
+    g_ctrlStart = startAfter; g_ctrlLen = eachLen; g_ctrlYawDeg = yawDeg;
+    if (!eachLen)
         DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
-            "pose/rec: the self test is disabled, so nothing will prove the "
-            "submission join can report a wrong pose. Any zero it prints is "
-            "unverified.");
+            "pose/ctrl: the controls are disabled, so nothing will demonstrate "
+            "that this trace can report a wrong answer. Every agreement it "
+            "prints is then unverified and must be read as such.");
+}
+
+
+void check_controls(const Record& real, float observedYawDeg)
+{
+    // Each control perturbs a COPY and asks whether the comparison moves by the
+    // amount the arithmetic says it must. Nothing here touches the record that
+    // reached submission, so an armed control cannot move the picture - which is
+    // the difference from the first version, and the reason there is no longer
+    // any wobble for the tester to see or to misread as a fault.
+    if (!g_ctrlLen) return;
+    const uint32_t n = g_opened;
+    if (n < g_ctrlStart) return;
+    const uint32_t phase = (n - g_ctrlStart) / g_ctrlLen;
+    if (phase >= CTRL_COUNT - 1) return;
+    const int which = (int)phase + 1;
+    if (g_ctrlDone[which]) return;
+    g_ctrlDone[which] = 1;
+
+    const float baseErr = wrap180(observedYawDeg - real.cam.yawDeg);
+
+    if (which == CTRL_YAW) {
+        Record c = real;
+        c.cam.yawDeg = wrap180(c.cam.yawDeg + g_ctrlYawDeg);
+        const float got = wrap180(observedYawDeg - c.cam.yawDeg);
+        const float moved = wrap180(got - baseErr);
+        const bool pass = fabsf(moved + g_ctrlYawDeg) <= 0.05f;
+        pass ? ++g_ctrlPass : ++g_ctrlFail;
+        DVR_LOG(DVR_CAT, pass ? ::dvr::log::Level::Info : ::dvr::log::Level::Error,
+            "pose/ctrl: ANGLE control %s - a diagnostic copy was turned %+.2f deg "
+            "and the camera-vs-render comparison moved %+.2f deg (expected "
+            "%+.2f, tolerance 0.05). This proves the comparison responds to an "
+            "angle and NOTHING else: it says nothing about whether the real "
+            "sample is the one rendering used.",
+            pass ? "PASSED" : "FAILED", g_ctrlYawDeg, moved, -g_ctrlYawDeg);
+        return;
+    }
+    if (which == CTRL_OLD_REC) {
+        // Substitute a record from a few views ago. If generation association is
+        // live the error must change by the amount the camera has actually
+        // turned since; if it does not move at all, the comparison is not
+        // reading the record it claims to read.
+        Record older;
+        const bool haveOlder = (real.id > 8) && copy(real.id - 8, &older);
+        if (!haveOlder) {
+            DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
+                "pose/ctrl: GENERATION control UNAVAILABLE - no record 8 views "
+                "back could be copied. Unavailable evidence, not agreement.");
+            return;
+        }
+        const float got = wrap180(observedYawDeg - older.cam.yawDeg);
+        const float moved = fabsf(wrap180(got - baseErr));
+        const float turned = fabsf(wrap180(real.cam.yawDeg - older.cam.yawDeg));
+        const bool pass = fabsf(moved - turned) <= 0.05f;
+        pass ? ++g_ctrlPass : ++g_ctrlFail;
+        DVR_LOG(DVR_CAT, pass ? ::dvr::log::Level::Info : ::dvr::log::Level::Error,
+            "pose/ctrl: GENERATION control %s - substituting the record from 8 "
+            "views back moved the comparison %.2f deg, and the camera had turned "
+            "%.2f deg over that span (tolerance 0.05). A zero here with a "
+            "non-zero turn would mean the comparison is not reading the record "
+            "it names.", pass ? "PASSED" : "FAILED", moved, turned);
+        return;
+    }
+    if (which == CTRL_WRONG_EYE) {
+        Record c = real;
+        c.eye = -c.eye;
+        const bool pass = (c.eye == -real.eye) && real.eye != 0;
+        pass ? ++g_ctrlPass : ++g_ctrlFail;
+        DVR_LOG(DVR_CAT, pass ? ::dvr::log::Level::Info : ::dvr::log::Level::Warn,
+            "pose/ctrl: EYE control %s - the record under test names eye %+d, and "
+            "the audit compares each eye against ITS OWN submitted view rather "
+            "than against whichever record arrived last. If the eye reads 0 here "
+            "the image was untagged and no eye association exists to check.",
+            pass ? "is meaningful" : "CANNOT RUN", real.eye);
+        return;
+    }
 }
 
 
 Stats stats()
 {
+    ensure_cs();
+    Lock lk;
     Stats s;
-    s.opened = g_opened; s.hits = g_hits; s.expired = g_expired;
-    s.missing = g_missing; s.pairs = (uint32_t)InterlockedCompareExchange(&g_pair, 0, 0);
+    s.opened = g_opened; s.copies = g_copies; s.expired = g_expired;
+    s.missing = g_missing; s.pairs = g_pair;
+    s.camPublished = g_camPublished; s.renderBlocks = g_renderBlocks;
+    s.ctrlPass = g_ctrlPass; s.ctrlFail = g_ctrlFail;
     return s;
 }
 
 
 void log_beat()
 {
+    Record last; bool have;
+    {
+        ensure_cs();
+        Lock lk;
+        have = g_haveLastCopy;
+        last = g_lastCopy;
+    }
     const Stats s = stats();
-    if (!g_haveLastHit) {
-        // A zero here is NOT "everything agrees" - it is "nothing was ever
-        // joined", and the two must never read the same.
+    if (!have) {
+        // A zero here is NOT agreement - it is "nothing was ever joined", and the
+        // two must never read the same.
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "pose/rec: %u record(s) opened over %u pair(s), and NONE has been "
-            "looked up yet - the submission side is not asking, so the join is "
-            "not being tested. missing=%u expired=%u.",
-            s.opened, s.pairs, s.missing, s.expired);
+            "pose/rec: %u view record(s) over %u pair(s), %u camera publication(s), "
+            "%u render block(s) - and NOTHING has been copied out yet, so no join "
+            "is being tested at all. missing=%u expired=%u.",
+            s.opened, s.pairs, s.camPublished, s.renderBlocks, s.missing, s.expired);
         return;
     }
-    const Record& r = g_lastHit;
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-        "pose/rec: opened %u over %u pair(s) | lookups hit %u, EXPIRED %u (the "
-        "ring wrapped before submission asked - the pipeline is deeper than %u "
-        "records), MISSING %u (an id nobody set: an untagged present, or a "
-        "capture slot that carried no record) | last join: rec %u pair %u eye "
-        "%+d, sample yaw %+.2f pitch %+.2f roll %+.2f deg gen %u, opened %.1f ms "
-        "before it was read%s",
-        s.opened, s.pairs, s.hits, s.expired, (unsigned)kRing, s.missing,
-        r.id, r.pairId, r.eye, r.yawDeg, r.pitchDeg, r.rollDeg, r.gen,
-        dvr::clock::now_ms() - r.openedMs,
-        r.injectedYawDeg != 0.0f ? " [NEGATIVE CONTROL ARMED: this yaw is deliberately wrong]" : "");
+        "pose/rec: opened %u over %u pair(s) | copies %u, EXPIRED %u (the ring "
+        "wrapped before submission asked - the pipeline is deeper than %u views), "
+        "MISSING %u (an id nobody set) | camera publications %u by writer %d, "
+        "render blocks %u | controls passed %u FAILED %u | last: rec %u pair %u "
+        "eye %+d, camera yaw %.2f pitch %.2f roll %.2f deg written %.1f ms before "
+        "it was read%s",
+        s.opened, s.pairs, s.copies, s.expired, (unsigned)kRing, s.missing,
+        s.camPublished, last.cam.writer, s.renderBlocks, s.ctrlPass, s.ctrlFail,
+        last.id, last.pairId, last.eye,
+        last.cam.yawDeg, last.cam.pitchDeg, last.cam.rollDeg,
+        dvr::clock::now_ms() - last.cam.writeMs,
+        last.secondPassReuse ? " (second pass, reusing pass 1's camera by design)" : "");
 }
 
 } // namespace dvr::pose

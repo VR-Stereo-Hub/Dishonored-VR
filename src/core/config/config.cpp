@@ -1278,10 +1278,10 @@ static void LoadConfig()
     // a second; the submission join must report exactly that error and must
     // return to zero after. Without it, a join that reports zero has not been
     // shown capable of reporting anything else. PoseSelfTestRecords=0 disables.
-    dvr::pose::configure_self_test(
-        (uint32_t)IniFloat(ini, "Stereo", "PoseSelfTestAfter", 1200),
-        (uint32_t)IniFloat(ini, "Stereo", "PoseSelfTestRecords", 180),
-        IniFloat(ini, "Stereo", "PoseSelfTestDeg", 4.0f));
+    dvr::pose::configure_controls(
+        (uint32_t)IniFloat(ini, "Stereo", "PoseControlsAfter", 1500),
+        (uint32_t)IniFloat(ini, "Stereo", "PoseControlsEach", 120),
+        IniFloat(ini, "Stereo", "PoseControlsDeg", 6.0f));
     // How many extra collects a weapon swap is worth, and how far apart. The
     // equipment event and the new weapon's child components do not have to
     // appear in the same tick, so one rebuild can win the race and return a list

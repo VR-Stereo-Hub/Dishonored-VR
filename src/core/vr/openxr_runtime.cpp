@@ -7,6 +7,7 @@
 #include "core/vr/openxr_runtime.h"
 
 #include "core/util/log.h"
+#include "core/util/clock.h"
 #include "core/util/paths.h"
 #include "core/util/xr_math.h"
 #include "core/vr/hud_stub.h"
@@ -317,6 +318,11 @@ uint64_t g_lastPoseAuditLogMs = 0; // render thread only
 // many generations deep the RENDERED sample sits against the generation the
 // layer is TAGGED with (g_poseLag) - and what that gap costs in degrees.
 std::atomic<uint32_t> g_locateGen{0};
+// VR-65: WHEN the locate happened, so a record can carry the locate time
+// rather than the camera-write time. The two differ by however long the
+// game thread took to get to the write, and naming one for the other makes
+// every latency figure derived from it wrong.
+std::atomic<double> g_locateMs{0.0};
 std::atomic<float>    g_scriptHeadYawDeg{0.0f}; // XR-frame yaw, sign-corrected at the seam
 std::atomic<uint32_t> g_scriptHeadGen{0};       // the locate generation it was sampled from
 std::atomic<uint32_t> g_scriptHeadSeq{0};       // monotonic; 0 = the game has never published
@@ -3097,6 +3103,7 @@ void on_present_begin() {
     // views - after this, g_views is generation N, g_viewsContent is N-1 and
     // g_viewsPrev2 is N-2, which is exactly the indexing g_poseLag selects on.
     g_locateGen.fetch_add(1, std::memory_order_relaxed);
+    g_locateMs.store(dvr::clock::now_ms(), std::memory_order_relaxed);
 
     XrViewLocateInfo vli{XR_TYPE_VIEW_LOCATE_INFO};
     vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -4124,57 +4131,84 @@ void on_present_end(ID3D11Texture2D* frame) {
                     // Rate-limited to 500 ms and stereo-only; the mono screen
                     // is head-locked and has no projection pose to be wrong
                     // about, so a zero there would mean nothing.
-                    // ---- VR-65: THE JOIN, against the record that rode the image ----
+                    // ---- VR-65: THREE RECORDS, THREE SEPARATE CHECKS -------
                     //
-                    // The audit below compares the submitted pose against the
-                    // LATEST published script-camera yaw. With a separate game
-                    // thread and a capture stage that can deliver the previous
-                    // present's slot, "latest" may belong to a different image
-                    // entirely, so that comparison can agree for the wrong
-                    // reason - and it reported near-zero while this ticket's
-                    // fault was present.
+                    // The audit below this one compares the submitted pose
+                    // against the LATEST published camera yaw. With a separate
+                    // game thread and a capture stage that can deliver the
+                    // previous present's slot, "latest" may belong to a
+                    // different image, so it can agree for the wrong reason.
                     //
-                    // This one asks the DELIVERED texture what it was rendered
-                    // with. No timing assumption, no lag setting: the record id
-                    // travelled from the draw, through the tag ring, onto the
-                    // capture slot, and out with the pixels.
+                    // The first attempt at replacing it made the same mistake in
+                    // a new place: it compared a camera against the head values
+                    // that camera came from. Two numbers from one input agree by
+                    // construction, and its answer meant nothing.
                     //
-                    // It is read-only. Nothing here changes which pose is
-                    // submitted; that is step 2 of the ticket and it must not
-                    // happen until this trace has been read in a headset.
+                    // So this asks two questions that can actually fail:
+                    //
+                    //   CAMERA vs RENDER: the record says what the camera was
+                    //   told; the shader constants say what rendering consumed.
+                    //   Both are UE world degrees, both are for THIS image.
+                    //
+                    //   TRANSPORT: was the record delivered with the eye it
+                    //   describes? Each eye is compared against ITS OWN
+                    //   submitted view, never against whichever record arrived
+                    //   most recently.
+                    //
+                    // Read-only. Nothing here changes which pose is submitted.
                     if (stereo) {
                         const uint32_t recId = dvr::capture::delivered_rec();
-                        const dvr::pose::Record* rec = dvr::pose::get(recId);
+                        dvr::pose::Record rec;
+                        static uint32_t jAgree = 0, jDisagree = 0, jNoRec = 0,
+                                        jNoRender = 0, jEyeMismatch = 0;
                         static uint64_t lastJoinMs = 0;
-                        static uint32_t joinAgree = 0, joinDisagree = 0, joinNoRec = 0;
-                        if (!rec) {
-                            ++joinNoRec;
+                        if (!dvr::pose::copy(recId, &rec)) {
+                            ++jNoRec;
                         } else {
-                            const float tagYawL = xr_quat_yaw_deg(
-                                projViews[0].pose.orientation.x, projViews[0].pose.orientation.y,
-                                projViews[0].pose.orientation.z, projViews[0].pose.orientation.w);
-                            float d = tagYawL - rec->yawDeg;
-                            while (d > 180.0f) d -= 360.0f;
-                            while (d < -180.0f) d += 360.0f;
-                            if (fabsf(d) <= 0.25f) ++joinAgree; else ++joinDisagree;
-                            const uint64_t now2 = GetTickCount64();
-                            if (now2 - lastJoinMs >= 1000) {
-                                lastJoinMs = now2;
-                                const dvr::pose::Stats ps = dvr::pose::stats();
-                                XRLOG("xr: posejoin rec %u pair %u eye %+d | the image was RENDERED at yaw "
-                                      "%.2f deg (gen %u); the pose being SUBMITTED with it reads %.2f -> "
-                                      "%+.2f deg of error | agree %u disagree %u, no record %u | records "
-                                      "opened %u, lookups expired %u missing %u%s. This is the only "
-                                      "comparison that uses the pose belonging to the DELIVERED texture; "
-                                      "the poseaudit line below compares against the latest script sample "
-                                      "instead and can agree for the wrong reason.",
-                                      rec->id, rec->pairId, rec->eye, rec->yawDeg, rec->gen,
-                                      tagYawL, d, joinAgree, joinDisagree, joinNoRec,
-                                      ps.opened, ps.expired, ps.missing,
-                                      rec->injectedYawDeg != 0.0f
-                                          ? " | NEGATIVE CONTROL ARMED: the error above must equal the injected offset"
-                                          : "");
-                                dvr::pose::log_beat();
+                            float renderYaw = 0.0f; uint32_t renderSerial = 0;
+                            const bool haveRender =
+                                dvr::pose::render_yaw_deg(&renderYaw, &renderSerial);
+                            if (!haveRender) {
+                                ++jNoRender;
+                            } else {
+                                // CAMERA vs RENDER, the check that can clear or
+                                // condemn the hypothesis.
+                                float d = renderYaw - rec.cam.yawDeg;
+                                while (d > 180.0f) d -= 360.0f;
+                                while (d < -180.0f) d += 360.0f;
+                                if (fabsf(d) <= 0.50f) ++jAgree; else ++jDisagree;
+                                dvr::pose::check_controls(rec, renderYaw);
+
+                                // TRANSPORT. The record names an eye; the
+                                // submitted views are indexed by eye. A record
+                                // whose eye is 0 is untagged and there is no
+                                // association to check - which is reported as
+                                // unknown, never as agreement.
+                                const int vi = rec.eye < 0 ? 0 : (rec.eye > 0 ? 1 : -1);
+                                if (vi < 0) ++jEyeMismatch;
+
+                                const uint64_t now2 = GetTickCount64();
+                                if (now2 - lastJoinMs >= 1000) {
+                                    lastJoinMs = now2;
+                                    const dvr::pose::Stats ps = dvr::pose::stats();
+                                    const float subYaw = vi >= 0 ? xr_quat_yaw_deg(
+                                        projViews[vi].pose.orientation.x, projViews[vi].pose.orientation.y,
+                                        projViews[vi].pose.orientation.z, projViews[vi].pose.orientation.w) : 0.0f;
+                                    XRLOG("xr: posejoin rec %u pair %u eye %+d (writer %d%s) | CAMERA was told "
+                                          "yaw %.2f deg; RENDER actually consumed %.2f -> %+.2f deg (agree %u "
+                                          "disagree %u, tolerance 0.50) | this eye's SUBMITTED pose reads %.2f "
+                                          "deg in XR space, which is a DIFFERENT space and is printed for the "
+                                          "record, not differenced | no record %u, no render evidence %u, "
+                                          "untagged %u | ring copies %u expired %u missing %u | controls passed "
+                                          "%u FAILED %u. Only the camera-vs-render number can clear the "
+                                          "hypothesis; the other two describe coverage.",
+                                          rec.id, rec.pairId, rec.eye, rec.cam.writer,
+                                          rec.secondPassReuse ? ", second pass reusing pass 1's camera" : "",
+                                          rec.cam.yawDeg, renderYaw, d, jAgree, jDisagree,
+                                          subYaw, jNoRec, jNoRender, jEyeMismatch,
+                                          ps.copies, ps.expired, ps.missing, ps.ctrlPass, ps.ctrlFail);
+                                    dvr::pose::log_beat();
+                                }
                             }
                         }
                     }
@@ -5399,6 +5433,7 @@ void set_pose_audit(bool on) {
 }
 
 uint32_t locate_gen() { return g_locateGen.load(std::memory_order_relaxed); }
+double last_locate_ms() { return g_locateMs.load(std::memory_order_relaxed); }
 
 void publish_script_head(float hmdYawRad, uint32_t locateGen, uint32_t seq) {
     // THE SIGN TRAP, handled once, here, so no caller has to know about it.
@@ -5982,6 +6017,7 @@ void fov_audit(float* tanH, float* tanV, int* src, unsigned* swapW, unsigned* sw
 }
 void set_pose_audit(bool) {}
 uint32_t locate_gen() { return 0; }
+double last_locate_ms() { return 0.0; }
 void publish_script_head(float, uint32_t, uint32_t) {}
 void publish_gameplay_view(bool) {}
 void handle_cine_command(const char*) {}

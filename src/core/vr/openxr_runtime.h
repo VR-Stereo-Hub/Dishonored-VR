@@ -393,6 +393,9 @@ void set_pose_audit(bool on);
 // each head sample with the value current when it was taken, so the audit can
 // count how many generations deep the rendered sample sits.
 uint32_t locate_gen();
+// VR-65: when that locate actually happened, for a record that has to carry
+// the locate time rather than the time the camera write reached it.
+double last_locate_ms();
 
 // The SCRIPT lane's matched pair, published by the adapter's camera write:
 // the HMD yaw that write was computed from (XR frame, RADIANS, in the runtime

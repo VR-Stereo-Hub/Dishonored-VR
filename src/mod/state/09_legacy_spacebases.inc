@@ -20,6 +20,13 @@ static volatile UINT g_brtTarget = 0;
 static int    g_brtIdx = -1;
 static double g_brtUntil = 0.0;
 static float  g_camPosC5[3] = {0, 0, 0};
+
+// VR-65: the world VIEW-PROJECTION as rendering actually received it, rebuilt
+// from however the engine chooses to batch c0..c3. Published only once all four
+// rows have been seen, so a partial upload can never publish half of one matrix
+// beside half of the previous one.
+static float g_vpRows[16] = {};
+static unsigned g_vpRowSeen = 0;
 static bool   g_haveC5 = false;
 static volatile LONG g_brtHits = 0;
 

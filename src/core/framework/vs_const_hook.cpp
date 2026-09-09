@@ -36,6 +36,30 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
                             startReg, count, c5[0], c5[1], c5[2]);
     }
 
+    // ---- VR-65: THE RENDER OBSERVATION -------------------------------------
+    //
+    // The only evidence in the pose chain that does not descend from the mod's
+    // own intent. c0..c3 is the view-projection the world draws consume, and it
+    // arrives here on the RENDER thread at the moment it is uploaded - after
+    // every queue, every thread hop and every camera write, so it says what
+    // rendering actually got rather than what the camera was asked for.
+    //
+    // PARTIAL UPLOADS COUNT. The c5 handling above already learned this: after a
+    // device reset the engine batched c5 into a wider block and a seam that
+    // matched only startReg==5 saw nothing for a whole run. So the block is
+    // rebuilt from whatever covers c0..c3, however it arrives, and only
+    // published once all four rows have been seen.
+    if (data && startReg < 4 && startReg + count > 0) {
+        const UINT first = startReg;
+        const UINT last  = startReg + count;   // exclusive
+        for (UINT r = first < 4 ? first : 4; r < (last < 4 ? last : 4); ++r) {
+            memcpy(&g_vpRows[r * 4], data + (r - startReg) * 4, sizeof(float) * 4);
+            g_vpRowSeen |= (1u << r);
+        }
+        if (g_vpRowSeen == 0xF)
+            dvr::pose::note_render_vp(g_vpRows, g_camPosC5, g_haveC5);
+    }
+
     // ---- 30.70: live rig census + the stepped identifier -------------------
     // One unguarded increment per skinned upload (render thread only, no lock,
     // no logging) - this is the cheap kind of instrumentation, and it is what
