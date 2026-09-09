@@ -54,6 +54,16 @@ value, so the key was invisible until someone grepped the ini.
 > **Third time. Grep the INSTALLED ini before theorising, and make every lever
 > that can produce a visible artefact log what it resolved to.**
 
+**The judder that "came back" (2026-09-09).** `PoseLagAb` was defaulted ON to
+run one flicker comparison and never turned off. Every run after it walked
+0/2/0/2 on fifteen-second segments, so half of each run sat at `PoseLag=0` - the
+unfixed state - and the weapon judder duly reappeared. That is the A/B working
+exactly as designed, read as a regression.
+
+> **An experiment left armed contaminates every measurement after it.** A lever
+> that switches the thing under test must default OFF the moment its run is
+> over, and the loader must print what it resolved to.
+
 ### What to do before touching a key
 
 1. **Find every place the value can live.** Grep for the key name across `src/`,
