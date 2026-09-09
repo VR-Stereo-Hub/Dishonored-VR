@@ -4407,14 +4407,14 @@ None of those block the fix. All of them limit what the diagnostic can prove
 about rendered pixels, and they are why this is recorded as a confirmed
 workaround with a measured mechanism rather than a fully verified root cause.
 
-## THE RESOLUTION ASK IS NOT HONOURED BY EDITING EITHER INI (VR-65, 2026-09-09)
+## THE RESOLUTION ASK: TWO FILES CARRIED THE SIZE AND NOTHING KEPT THEM EQUAL (VR-66, 2026-09-09)
+
+### The symptom
 
 Raising `[Screen] RenderWidth/RenderHeight` to 3200x3300, and then to 3190x3306
 with both the mod ini and the game's own `DishonoredEngine.ini` written directly,
 produced a fullscreen 2560x1440 device both times - half the 5120x1440 desktop,
-and visibly low resolution.
-
-The mod's side worked. The log shows the mode advertised and handed over:
+and visibly low resolution. The mod's side looked healthy:
 
 ```
 res: handed the game our 3200x3300@240 mode (slot 112)
@@ -4423,11 +4423,85 @@ res: VirtualMode is on but the game asked fullscreen 2560x1440, not the
      3200x3300 it was handed
 ```
 
-**The game never asked for the advertised mode.** Writing `ResX`/`ResY` in
-`DishonoredEngine.ini` did not change that either, so something outside both
-files decides the size - a stale command line or launch option is the leading
-suspect and has not been checked.
+### The cause, and it was the mod's own file
 
-2750x2850 is restored in both files and is the known-good state. Anyone raising
-this should start by finding what supplies 2560x1440, not by editing a
-resolution key again.
+The size had **two homes and one writer**:
+
+| File | What it drives | Written by |
+|---|---|---|
+| `<gamedir>\dishonored_vr_launch.txt` | `-ResX/-ResY/-FullScreen` on the command line the engine **OBEYS** (read in `DllMain`, before the engine's entry point) | `ResRequest` only - the `res` seam word and the F10 picker |
+| `dishonored_vr.ini` `[Screen] RenderWidth/Height` | the mode `VirtualMode` **ADVERTISES** in `EnumAdapterModes` (read at `EnsureConfig`, and it overwrites what `DllMain` set) | `ResRequest`, and **a text editor** |
+
+Hand-editing the ini moved the second only. On the failed runs the launch file
+still held the previous ask - it is dated 2026-09-04 on this machine, five days
+before the attempts - so the engine was told `-ResX=2750 -ResY=2850` while the
+proxy advertised 3200x3300. The engine asked for 2750x2850 fullscreen, that size
+was not in the mode list any more (only 3200x3300 had been added), and **UE3 did
+exactly what this file already records it does: fell back to a real display
+mode.** The same fallback target as run 10 in "The render size" above, from the
+same monitor's list.
+
+**Neither ini ever contained 2560x1440. The mod's own stale launch file supplied
+it,** by making the engine ask for a size the mod was no longer advertising. The
+"stale command line" suspicion recorded when this opened was right; the stale
+command line was ours.
+
+### The fix (41.1, VR-66)
+
+**One ask, two consumers.** `[Screen]` in `dishonored_vr.ini` is the authority
+and the launch file is demoted to a mirror:
+
+* `LaunchArgsResolveFromIni` reads `[Screen]` on the engine's **first
+  `GetCommandLine` call** and overrides whatever the file carried. That call
+  comes from the CRT startup glue at the exe's entry point, which is after the
+  loader releases its lock - so the ini read `DllMain` must never do is safe
+  there, and the ask still lands before the engine parses anything.
+* `LaunchArgsBuild` sets the command-line size and `g_resWantW/H` (the advertised
+  mode) from that single resolved ask, so the two cannot diverge again.
+* A disagreement is logged as `launch: THE TWO ASKS DISAGREED` with both values,
+  and the file is rewritten to match.
+* `DllMain` installs the `GetCommandLine` hooks **even with no launch file**; an
+  ini-only ask used to be inert because the old code returned before hooking.
+* The `CreateDevice` mismatch warning now names the command line the engine was
+  handed, the slot count, and whether the size it asked for is one of the
+  adapter's real modes (the fallback signature). The old text blamed the game's
+  ini, which is the inert route, and sent a session down it.
+
+Editing `RenderWidth`/`RenderHeight` by hand now takes effect on the next launch,
+by itself.
+
+### CONFIRMED (2026-09-09, same day)
+
+3190x3306 - the same 55:57 aspect as 2750x2850, 10.55 MP against 7.84 - was
+armed and run. Every line carried it:
+
+```
+launch: the render ask is 3190x3306 fullscreen, VirtualMode ON, from the ini
+        (the launch file agreed)
+res: handed the game our 3190x3306@240 mode (slot 112)
+res: CreateDevice - the game asked for 3190x3306 windowed=0 fmt=21
+capture: 3190x3306 fmt=21 mode=sync
+res: HONOURED - the game renders 3190x3306 as asked
+xr: swapchain pair 3190x3306 format 29 (3 images each)
+capture: 3190x3306 content bbox [0,0]-[3184,3304] = 100% x 100% (FULL)
+```
+
+Full bbox, no crop. **The engine has no ceiling at 3190x3306 and never refused
+the mode** - it was only ever asking for a size nobody was advertising. The
+first `launch:` line came from the launch file and the second from the ini, in
+that order, which is the resolve doing exactly what it is for.
+
+2750x2850 was restored afterwards; the size is a performance question now, not a
+correctness one.
+
+### The three lines that decide it in a log
+
+```
+launch: the render ask is <W>x<H> ... from the ini (...)      <- what won
+res: handed the game our <W>x<H>@<hz> mode (slot N)           <- what is advertised
+res: CreateDevice - the game asked for <W>x<H> windowed=0     <- what the engine wanted
+```
+
+All three must carry the same size. If the first two agree and the third does
+not, the engine refused the mode; if the first two disagree, that is this bug
+returning.

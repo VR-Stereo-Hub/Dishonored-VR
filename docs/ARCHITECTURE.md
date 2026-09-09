@@ -579,3 +579,24 @@ holds for another pass of the held weapon and fails for a world instance, which 
 the only copy of itself there is - so the same refusal that is safe for one
 deletes the other. Suppression and dropping are now both gated on a positive
 identification, and unverified is the default rather than held.
+
+### 2026-09-09 - VR-66: one setting, one home
+
+The render size was persisted in two files with different lifetimes - a launch
+file read under the loader lock in `DllMain`, and the mod ini read much later -
+and each fed a different consumer of the same number. Nothing kept them equal,
+and the failure mode was silent: the engine asked for one size, the proxy
+advertised another, and UE3 quietly fell back to a display mode.
+
+The rule this leaves: **a setting with two persistent homes has no owner.** One
+of them is the authority and the other is a mirror that gets rewritten, or the
+second one is deleted. Which is which must be decided by what the consumers can
+reach, not by which is convenient to write - here the loader lock forces the
+early read to be a plain file read, so the file stays, but only as the fallback
+for the run where the authority is not there yet.
+
+The corollary for the log: **a mismatch line must name every source of the value
+with its value**, including the one the reader is least likely to suspect. This
+warning named the route already measured inert and stayed silent about the route
+that decides, and a session was spent on the former.
+

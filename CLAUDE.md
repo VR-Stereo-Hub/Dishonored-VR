@@ -49,6 +49,15 @@ permission. Single game, one branch: `VR-Main`.
   in the record; its exact wording never is, and reporting the observation instead carries
   every fact without putting someone's casual sentence in front of strangers permanently.
   Numbers, log lines, ini keys and the game's own shipped comments stay quotable.
+- **NEVER put a person's name in anything published to GitHub.** Not in a branch name, not in
+  a commit author line, a PR title or body, an issue, a comment, a code comment or any file.
+  This includes real names, email addresses and email local-parts, usernames derived from them,
+  and Linear's own copy-branch-name format, which is prefixed with the account holder's username
+  and is therefore banned as a source. Branches are `claude/vr-<n>-<slug>`. This repository is
+  public and none of it can be taken back: a branch name survives in every pull request that
+  used it, and **GitHub provides no way to delete a pull request** - only GitHub Support can.
+  If a name has already reached the remote, say so plainly and name what cannot be undone.
+
 - **Every change starts from a Linear ticket** in the "Dishonored VR Mod" project (team `VR`,
   workspace `vr-stereo-hub`). Search first; create from the template if it is not there, with
   project, milestone, priority and a `Type` label filled in. Branch `<owner>/vr-<n>-<slug>`
