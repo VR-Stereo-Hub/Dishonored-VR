@@ -3941,3 +3941,248 @@ slot[5] requires 0 | DishonoredWepPistol  -> own usage 0, socket 0
 
 The slot constraint and the item state are plainly different things, and only the
 item is the answer.
+
+
+## THE MONO WINDOW AT A LOAD IS A GHOST MENU FLAG (VR-62, 2026-09-08)
+
+Measured by the startup scoreboard on its first run, and it falsified the
+prediction that `CylTruthLive` was the laggard:
+
+```
+startup: load #1 scored - the mono window was 24.30 s.
+  pawn-ptr      +0.00 s      cyl           +0.00 s
+  gnames        +0.00 s      view          +0.00 s
+  inventory     +0.00 s      no-cine       +0.00 s
+  no-menu      +24.30 s   <- the laggard
+  verdict      +24.30 s      stereo       +24.30 s
+```
+
+Every term of the gameplay verdict was ready immediately except the menu flag,
+and the verdict and the first stereo tag both followed it within the same
+millisecond. **The whole mono window is one stuck flag.**
+
+### The flag is a ghost, and the CLEARER was the slow part
+
+`Dis_OpenPauseMenu` dispatches during a load and sets `g_menuOpen` when no menu
+is open. A ghost-clearer already existed for exactly this, and it is what took
+the time:
+
+```
+menu: stale flag cleared after  1505 ms - ... 118 gameplay dispatches still flowing
+menu: stale flag cleared after 24289 ms - ...  21 gameplay dispatches still flowing
+```
+
+It required **20 cumulative view-rotation dispatches**. That is a fine proxy for
+"the pipeline is still flowing" at gameplay rates and a terrible one during a
+load, which is the only time it matters: **the dispatch rate falls to about 1/s
+while a level settles, against roughly 78/s once it is up.** So the same ghost
+cleared in 1.5 s one time and 24.3 s the next, and the second number is the
+reported mono window start to finish.
+
+**A count of arrivals cannot tell "flowing slowly" from "stopped"; recency can.**
+A real menu shows NO dispatches at all, so one arriving within the last few
+hundred milliseconds is the discriminator, and it is rate-independent. The other
+three guards are unchanged and are what keep it safe: a live pawn (which excludes
+the main menu and its dispatching 3D background), no cursor, and the flag
+standing for 1500 ms.
+
+This is a worked example of a rule this project keeps paying for: **a counter is
+not evidence until you know its population.** The population here was "dispatches
+per second", and it changes by a factor of eighty between the two states the test
+has to tell apart.
+
+### A contract must not outlive its level
+
+Found in the same run, as a regression. A weapon contract holds the component it
+was matched to; a load destroys that component; the contract table is evicted
+only when it FILLS. So after a reload every contract points at a dead object, no
+reference can be found, and every draw is refused as unverifiable.
+
+**A refusal returns before the transform matcher, so it is a LOCKOUT rather than
+a refusal**: the contract can never be re-adopted and the weapons never attach
+again for the rest of the session. Measured: unverifiable past 45,000 while
+corrected sat frozen and only 3 contracts had ever matched.
+
+Contracts are now dropped when the game leaves gameplay, and any contract whose
+component has been missing from a fresh snapshot for about a second is retired so
+the matcher can re-adopt it.
+
+
+## THE STARTUP MONO WINDOW: THREE FALSIFIED ATTEMPTS (VR-62, 2026-09-08)
+
+Recorded because all three failed in ways that narrow the problem, and one of
+them re-broke something this file had already documented.
+
+### What is established
+
+* **Nothing after the gameplay verdict holds the picture.** The verdict, the
+  state transition and the first DOUBLE draw land in the same millisecond. The
+  wait is entirely in deciding the game is in gameplay.
+* **Two of the verdict's five terms are slow by construction.** `menuOpen` is set
+  by a `Dis_OpenPauseMenu` dispatch during a load when no menu is open, and
+  `viewLive` deliberately requires a full second of continuous dispatches to
+  leave LOADING (measured at +1.52 s and +1.72 s).
+* **The view-dispatch RATE is not constant.** About 1/s while a level settles
+  against roughly 78/s once it is up - a factor of eighty between the two states
+  any dispatch-based test has to separate.
+
+### Attempt 1: clear the ghost menu flag on dispatch RECENCY - FALSIFIED
+
+It works: the ghost cleared in about 1.5 s instead of 24 s. It also clears at the
+MAIN MENU, which then goes stereo after a few seconds.
+
+**38.17 in this file already recorded that exact failure** - the main menu's 3D
+background keeps dispatching view rotations, so "dispatches still flowing" does
+not separate it from gameplay, and the clearer firing there swept the menu UI
+onto the wrist panel. The cumulative count of 20 was slow ENOUGH to hide that;
+recency is not. **Part of the 24 s clear that looked like a bug was the clearer
+being correctly slow at a main menu.**
+
+`CylTruthLive` was supposed to be the discriminator that made this safe. The run
+shows it is not sufficient, which is a new fact and the thing to attack next.
+
+### Attempt 2: double on SCENE LIVENESS instead of the verdict - FALSIFIED
+
+The hands and weapons FLASHED in the background of the pause menu. The camera
+upload serial keeps moving while a menu is up - the world is still rendered
+behind it - so "the scene is drawing" cannot tell a pause menu from a load, and
+doubling during a menu is exactly the hazard the verdict guards: **a menu's draws
+outnumber its presents, so the pair schedule breaks.**
+
+The idea is not dead, the signal was wrong. A pause menu silences the view
+dispatches while a load keeps them at ~1/s, so recency would separate them - but
+the window has to be wider than 1 s, which leaves a pause doubled for that long.
+That trades one artifact for another and needs measuring before it ships.
+
+### Attempt 3: force a candidate re-collect on a load - FALSIFIED AS WRITTEN
+
+Collecting during a load catches the rig half-built and returns one or two
+components with **no body mesh**. Because the rebuild trigger is
+`if (!g_fpCandN) FpCollect()`, a non-empty partial list is never refreshed and
+sticks for the session: `2 component(s) resolved, 0 usable as the bridge anchor`,
+repeating while the weapons sat in their default positions.
+
+**A stale list is bad; a partial one is worse**, because the stale list at least
+contained the anchor by name. Fixed by discarding a list with no anchor so the
+next tick retries, bounded at 120 attempts so a genuine absence reports itself
+instead of looping.
+
+### The rule this cost
+
+Every one of these replaced a slow, conservative test with a fast one, and every
+one of them was correct about the slowness and wrong about the replacement. **The
+conservative tests were slow because the fast signals do not separate the states
+they need to separate** - c5 movement cannot tell a pause from a load, dispatch
+flow cannot tell a main menu from gameplay, and a collect cannot tell a
+half-built rig from a finished one. Any future attempt needs a signal that
+distinguishes those pairs directly, not a faster version of one that does not.
+
+
+## WEAPON DRAWS RUN ON THE RENDER THREAD; THE STEREO PASSES RUN ON THE GAME THREAD (2026-09-09)
+
+Measured while trying to hand the re-entry method's eye decision to the weapon
+correction. The attempt executed **zero times in 83,400 corrected draws**
+(`agree 0, DISAGREE 0, no doubled pass to compare 83400`).
+
+The re-entry method re-draws the world twice on the GAME thread (`drawTid=76156`
+in the measured run). The engine queues those commands and replays them - and
+every palette-fed draw with them - on the RENDER thread (`presentTid=79476`).
+There is no stack for a draw hook to look up, and a per-thread marker set around
+the passes can never be seen by the correction.
+
+Consequences for anything built here later:
+
+* A game-thread decision reaches a draw hook only if it is attached to the queued
+  render work itself. A global read across the boundary is not a measurement.
+* `g_sdDoublingNow` (mono versus stereo) is a *latest-state* flag and is coherent
+  as a value, but it does not identify which queued commands are executing. It is
+  adequate for the mono guard, where the state holds for hundreds of consecutive
+  presents, and it is NOT adequate for anything per-frame.
+
+### A number to disregard
+
+An earlier version of that audit reported the eye inference disagreeing with the
+drawing pass 39% of the time. It was read from a bare global across those two
+threads and measures nothing. **Retracted.** It should not be cited.
+
+## THE EYE BEHIND THE WEAPON CORRECTION IS INFERRED, AND "TOO SMALL TO READ" IS NOT "THE SAME EYE" (2026-09-09)
+
+`MpEyeForPresent` in `hands/mesh_split.cpp` decides the eye once per present from
+a sideways step of about one IPD in the draw's own `LocalToWorld`. When the step
+fell inside the dead band it KEPT the previous present's answer. The method
+presents the eyes alternately - 148 tags against 147 presents measured - so
+holding is the one choice guaranteed wrong. Population: 991 of 8,341 presents.
+
+Alternating instead removed the reported weapon flicker in stereo. The instrument
+that counts unreadable presents fell from 31 windows including bursts of 565,
+396, 350 and 293 consecutive presents, to **one window of one present**.
+
+### And the state it was not reasoned about
+
+MONO. One camera means the step is zero on every present, which the band test
+correctly calls unreadable - so alternating flipped the hands by a full IPD every
+single frame, and the four largest windows above were all mono. A mono frame has
+no eye: it now takes no offset and the previous sample is dropped so the next
+pair starts from a clean compare.
+
+### What this does NOT explain
+
+A residual occasional flicker is still reported with the windows empty. The
+instrument records *unreadable* steps, not independently verified wrong-eye
+decisions, so a step the heuristic reads confidently and gets wrong is invisible
+to it. The eye inference is narrowed, not cleared.
+
+## NOBODY OWNS THE CANDIDATE LIST - TWICE (2026-09-09)
+
+The view-model candidate list has two ways to be wrong and had an owner for
+neither.
+
+**EMPTY, after a load.** Dropped when the game leaves gameplay (correct - a load
+destroys the components). Every rebuild trigger in the tree is
+`if (!g_fpCandN) FpCollect()` at a one-shot call site that has already fired: the
+material census (`g_matCensusDone`), the bone-vis scan (`g_bvScanned`), the
+numpad cycler, and skelcontrol's per-frame refresh, which is behind
+`if (!g_handMesh || g_armsHidden) return` and never runs in the shipped
+GamepadOnly configuration. Measured: one collect for a whole session, then
+nothing for the 55 seconds after the second load.
+
+Everything downstream followed and none of it was a separate bug - 0 refs,
+contracts stuck at 0/64, and `2 weapon member(s) and NO bridge anchor`, those
+members coming from the VR-61 equipped-item path which needs no candidate list.
+The recovery could not work either: the no-anchor branch called
+`FpInvalidateCandidates`, whose first line is `if (!g_fpCandN) return`, so it was
+a no-op that logged as though it had acted, once a second, forever.
+
+**STALE, after a weapon swap.** A swap does not empty the list. With the crossbow
+out the list held `[3] 'pArrowMesh_HighRes' asset=bolt_01`; the pistol was
+equipped, a rebuild ran while it was out and returned the pistol's mesh in that
+slot; swapping back to the crossbow triggered nothing, because the list was not
+empty. The bolt's draws kept arriving and kept failing -
+`NEAREST MISS ... 169.241 deg / 11.00 uu | prim 310 verts 257 stride 32`, which
+is the bolt's own geometry signature. The crossbow still attached because the
+equipped-item path supplies the item's mesh and none of its CHILDREN.
+
+### Three things the fix needed, and only the first is obvious
+
+1. A trigger on equipment change. Keyed on the item OBJECT and its socket, not on
+   the class name: two instances of one weapon share a name, and `g_rflState.gen`
+   increments on every successful read rather than on a change.
+2. A SETTLE WINDOW. The equipment event and the creation of the new weapon's
+   child components need not land in the same tick, so a single collect can win
+   the race, return a list with no loaded bolt, and declare success.
+3. The equipped items as COLLECTION ROOTS. The pawn walk reaches an item only
+   when a pointer chain happens to lead there, which is why the pistol never
+   appeared in a snapshot and why the bolt came and went. The bolt is a child of
+   the crossbow, not of the pawn.
+
+### A retirement that could not fire
+
+The stale-contract retirement lives inside `WaVerifyDraw`, so it is only reached
+by a contract whose buffers are still being DRAWN. A weapon that has been put
+away stops drawing, so its contract is never visited: measured as
+`contract 'Wpn_PlyGunElite' hand 0 ... age 12822 ms`, twelve seconds after the
+pistol went away. Retirement by ownership (the component is no longer among the
+candidates and is not an equipped item's own mesh) covers that case. It only ever
+retires - it never widens a radius or relaxes an angle, because an obsolete
+contract does not merely go idle, it BLOCKS adoption of the real one: a refused
+draw returns before the matcher.

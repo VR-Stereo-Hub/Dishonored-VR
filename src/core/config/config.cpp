@@ -1258,6 +1258,59 @@ static void LoadConfig()
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
     // to the pointer walk alone, which cannot see the pistol at all.
     g_waEquippedMembers = IniFloat(ini, "Hands", "AttachEquippedMembers", 1) != 0.0f;
+    // VR-62: rebuild the candidate list while the game is in gameplay and the
+    // list is empty. ON, because with it OFF nothing owns the rebuild at all -
+    // every other FpCollect call site is a one-shot that has already fired by
+    // the time a load empties the list, and the weapons never attach again for
+    // the rest of the session. The key exists so the two compare directly.
+    g_fpAutoRecollect = IniFloat(ini, "Hands", "AttachAutoRecollect", 1) != 0.0f;
+    // Walk the equipped items as collection roots as well as the pawn. OFF
+    // returns to the pawn walk alone, which reaches an item's children only when
+    // a pointer chain happens to lead there - the crossbow's loaded bolt came
+    // and went with that luck.
+    g_fpEquipRoots = IniFloat(ini, "Hands", "AttachCollectEquippedRoots", 1) != 0.0f;
+    // How many extra collects a weapon swap is worth, and how far apart. The
+    // equipment event and the new weapon's child components do not have to
+    // appear in the same tick, so one rebuild can win the race and return a list
+    // with no loaded bolt in it. 0 disables the settle window.
+    g_fpSettleTries = (int)IniFloat(ini, "Hands", "AttachSwapSettleTries", 5);
+    if (g_fpSettleTries < 0)  g_fpSettleTries = 0;
+    if (g_fpSettleTries > 30) g_fpSettleTries = 30;
+    g_fpSettleGapMs = IniFloat(ini, "Hands", "AttachSwapSettleGapMs", 400.0f);
+    if (g_fpSettleGapMs < 50.0)   g_fpSettleGapMs = 50.0;
+    if (g_fpSettleGapMs > 5000.0) g_fpSettleGapMs = 5000.0;
+    // VR-16: take the eye from the pass that is drawing instead of inferring it
+    // from a jump in LocalToWorld. ON since the audit measured the inference
+    // disagreeing with the drawing pass 39% of the time, steadily, on the draws
+    // that are inside a pass at all. OFF restores the inference so the two
+    // compare directly in one session.
+    // FALSIFIED and inert: the passes run on the game thread and the palette
+    // draws on the render thread, so 0 of 83,400 draws ever found a pass to read.
+    g_mpEyeFromPass = IniFloat(ini, "Hands", "PaletteEyeFromPass", 0) != 0.0f;
+    // When the eye step is too small to read, ALTERNATE rather than hold the
+    // previous present's answer. The method presents the eyes alternately, so
+    // holding is the one choice guaranteed wrong; 12% of presents took that path
+    // in the flicker run. OFF restores the hold for a direct comparison.
+    g_mpEyeAlternate = IniFloat(ini, "Hands", "PaletteEyeAlternate", 1) != 0.0f;
+    // How long a contract may keep refusing after its component disappears
+    // before it is retired so the matcher can re-adopt. 90 presents is about a
+    // second at 90 Hz - long enough that a one-frame snapshot gap is not a
+    // retirement, short enough that a lockout cannot outlive a load.
+    g_waStaleMaxPresents = (int)IniFloat(ini, "Hands", "AttachContractStalePresents", 90);
+    g_sdGateSceneLive = IniFloat(ini, "Stereo", "GateOnSceneLive", 0) != 0.0f;
+    g_sdSceneQuietMs  = IniFloat(ini, "Stereo", "SceneQuietMs", 400.0f);
+    if (g_sdSceneQuietMs < 50.0f)   g_sdSceneQuietMs = 50.0f;
+    if (g_sdSceneQuietMs > 2000.0f) g_sdSceneQuietMs = 2000.0f;
+    // VR-62: the movie-player probe. Read-only observation, and it ships ON for
+    // the same reason the equipment reader does - a reporter nobody enables
+    // reports nothing, and this one exists to be read out of a tester's log.
+    g_uiOn = IniFloat(ini, "Menu", "UiProbe", 1) != 0.0f;
+    g_menuGhostByRate  = IniFloat(ini, "Menu", "GhostClearByRate", 0) != 0.0f;
+    g_menuGhostQuietMs = IniFloat(ini, "Menu", "GhostQuietMs", 400.0f);
+    if (g_menuGhostQuietMs < 50.0)   g_menuGhostQuietMs = 50.0;
+    if (g_menuGhostQuietMs > 5000.0) g_menuGhostQuietMs = 5000.0;
+    if (g_waStaleMaxPresents < 1)    g_waStaleMaxPresents = 1;
+    if (g_waStaleMaxPresents > 9000) g_waStaleMaxPresents = 9000;
     g_waVerifyInstance = IniFloat(ini, "Hands", "AttachVerifyInstance", 1) != 0.0f;
     g_waHeldMaxPresents = (int)IniFloat(ini, "Hands", "AttachHeldMaxPresents", 2);
     if (g_waHeldMaxPresents < 0)  g_waHeldMaxPresents = 0;

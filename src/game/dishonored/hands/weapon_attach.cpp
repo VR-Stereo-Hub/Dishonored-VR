@@ -113,9 +113,40 @@ static void WaCompTick(void)
             if (!mOff || !RangeReadable(item + mOff, sizeof(void*))) continue;
             uint8_t* comp = *(uint8_t**)(item + mOff);
             if (!LooksLikeObj(comp)) { InterlockedIncrement(&g_waEquipNoMesh); continue; }
-            bool dup = false;
-            for (int z = 0; z < n; ++z) if (snapshot[z].obj == comp) { dup = true; break; }
-            if (dup) { InterlockedIncrement(&g_waEquipDup); continue; }
+            // ALREADY IN THE SNAPSHOT? UPGRADE IT, DO NOT SKIP IT.
+            //
+            // This used to `continue`, which was correct only while the pointer
+            // walk could not reach an equipped item at all. Collecting from the
+            // equipped items as roots means it can now, and the pistol arrives
+            // through the walk - where WaHandFor does not recognise the name
+            // 'Wpn_PlyGunElite' (it knows sword and crossbow/bolt only), so the
+            // entry is marked NOT a member and can never be corrected. The
+            // equipped-item path then saw a duplicate and skipped, leaving the
+            // unusable copy in place, and the pistol did not attach at all.
+            //
+            // The measured facts win over the name test: this component belongs
+            // to the item the engine says is equipped, and EDisEquipUsage says
+            // which hand holds it. Neither is a guess.
+            int at = -1;
+            for (int z = 0; z < n; ++z) if (snapshot[z].obj == comp) { at = z; break; }
+            if (at >= 0) {
+                InterlockedIncrement(&g_waEquipDup);
+                WaComp* e = &snapshot[at];
+                const bool wasMember = e->isMember;
+                const int  wasHand = e->hand;
+                e->isRef = false;
+                e->isMember = true;
+                e->hand = (u == 1) ? g_waSwordHand : g_waXbowHand;
+                if (!wasMember || wasHand != e->hand)
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+                        "wa/comp: UPGRADED '%s' - the pointer walk had it as "
+                        "member=%d hand %d, and the engine says it is the item "
+                        "equipped in usage %d, so it is member=1 hand %d. The "
+                        "name test knows the sword and the crossbow and nothing "
+                        "else; equip usage is measured.",
+                        e->asset, (int)wasMember, wasHand, u, e->hand);
+                continue;
+            }
 
             WaComp c;
             memset(&c, 0, sizeof(c));
@@ -166,6 +197,34 @@ static void WaCompTick(void)
 
     // SAY SO, on its own cadence and at Warn, because a run that cannot
     // possibly attach should not look like a run that tried and failed.
+    // A LIST WITH WEAPONS BUT NO BODY MESH IS A DEAD LIST, NOT AN IDLE ONE.
+    // The bridge anchor is the one component we can always identify, so weapons
+    // present without it means the pointers are stale rather than the player
+    // being unarmed - the exact state a level load leaves behind. A load hook
+    // covers the loads we see; this covers the ones we do not, and without it a
+    // single missed transition costs the whole session.
+    {
+        static double refGoneSince = 0.0;
+        if (!refs && members) {
+            if (refGoneSince == 0.0) refGoneSince = now;
+            else if (now - refGoneSince > 1000.0) {
+                refGoneSince = 0.0;
+                Log("wa: the snapshot has %d weapon member(s) and NO bridge "
+                    "anchor for over a second - forcing a rebuild. The members "
+                    "come from the equipped-item path, which reads the inventory "
+                    "TArray and needs no candidate list, so weapons WITHOUT an "
+                    "anchor means the list is empty or dead rather than the "
+                    "player being unarmed.", members);
+                // Both, in this order. Invalidate does nothing when the list is
+                // already empty (its first line returns), which is exactly the
+                // state this branch keeps finding - so the rebuild is what
+                // actually has to happen and it has to be called directly.
+                FpInvalidateCandidates("no bridge anchor with weapons present");
+                FpEnsureCandidates("weapons present with no bridge anchor");
+            }
+        } else refGoneSince = 0.0;
+    }
+
     if (!refs || !members) {
         InterlockedIncrement(&g_waNotReady);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 4000,
@@ -449,6 +508,81 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
 // the caller hands the draw back untouched. Refusing to touch a draw costs at
 // most a duplicate pass of a weapon; correcting one on faith is what dragged
 // world objects onto the hand.
+// Drop every contract. Called when the game leaves gameplay, because a load
+// destroys the components the contracts were matched to and a contract pointing
+// at a dead object refuses every draw AND blocks its own re-adoption.
+static void WaInvalidateContracts(const char* why)
+{
+    if (!g_waMeshN) return;
+    const int n = g_waMeshN;
+    g_waMeshN = 0;
+    memset(g_waMesh, 0, sizeof(g_waMesh));
+    for (int i = 0; i < 3; ++i) g_rflHeldObj[i] = NULL;
+    InterlockedExchangeAdd(&g_waDroppedLoad, (LONG)n);
+    Log("wa: dropped %d contract(s) - %s. A contract holds the component it was "
+        "matched to, a load destroys that component, and a contract pointing at a "
+        "dead object refuses every draw and blocks its own re-adoption. The "
+        "weapons re-identify from scratch, which is the settle, not a fault.",
+        n, why);
+}
+
+
+// RETIRE BY OWNERSHIP, NOT BY HAND.
+//
+// The stale-contract retirement above lives inside WaVerifyDraw, so it only ever
+// fires for a contract whose buffers are still being DRAWN. A weapon that has
+// been put away stops drawing, so its contract is never visited and never
+// retired: the measured run carried `contract 'Wpn_PlyGunElite' hand 0 ... age
+// 12822 ms` twelve seconds after the pistol went away, holding a slot and
+// reading as though it were alive.
+//
+// Clearing every contract on the affected hand would be the easy version and it
+// would introduce a new gap - the sword shares a hand with nothing and has no
+// reason to be dropped because the other hand swapped. So this retires exactly
+// the contracts whose COMPONENT is no longer among the candidates: the component
+// is the instance the contract was matched to, and a component that is not in
+// the refreshed list cannot vouch for any draw.
+//
+// It only ever RETIRES. It does not widen a radius, relax an angle, or let a
+// draw through unverified - the point is to stop an obsolete contract blocking
+// the adoption of the real one, not to make matching easier.
+static void WaRetireContractsNotIn(const char* why)
+{
+    if (!g_waMeshN) return;
+    int retired = 0;
+    for (int i = 0; i < g_waMeshN; ++i) {
+        WaMesh* w = &g_waMesh[i];
+        if (!w->vb || !w->compObj) continue;
+        bool present = false;
+        for (int k = 0; k < g_fpCandN && !present; ++k)
+            if ((void*)g_fpCand[k].obj == w->compObj) present = true;
+        // The equipped item's own mesh never enters the candidate list - it is
+        // added to the snapshot directly by the VR-60 path - so a contract on
+        // one of those is still perfectly valid and must be left alone.
+        if (!present) {
+            for (int u = 1; u <= 2 && !present; ++u) {
+                uint8_t* item = g_rflHeldObj[u];
+                if (!item || !LooksLikeObj(item)) continue;
+                const uint32_t mOff =
+                    RflOffsetOf("DishonoredInventoryItem", "m_pPlayerMesh");
+                if (!mOff || !RangeReadable(item + mOff, sizeof(void*))) continue;
+                if (*(uint8_t**)(item + mOff) == (uint8_t*)w->compObj) present = true;
+            }
+        }
+        if (present) continue;
+        Log("wa: retiring the contract for '%s' on hand %d - %s, and its "
+            "component %p is not in it and is not an equipped item's own mesh. "
+            "An obsolete contract does not merely go idle, it BLOCKS the "
+            "adoption of the real one, because a refused draw returns before the "
+            "matcher. Placed %ld, refused %ld before this.",
+            w->asset, w->hand, why, w->compObj, w->placed, w->refused);
+        w->vb = NULL; w->ib = NULL; w->compSeenOk = false;
+        ++retired;
+    }
+    if (retired) InterlockedExchangeAdd(&g_waDroppedStale, (LONG)retired);
+}
+
+
 static dvr::wf::Instance WaVerifyDraw(const WaMesh* w, const MpDrawCtx* c2,
                                       float* offsetOut, dvr::wf::InstanceRef* refOut)
 {
@@ -478,6 +612,13 @@ static dvr::wf::Instance WaVerifyDraw(const WaMesh* w, const MpDrawCtx* c2,
                 if (k->ok && k->isMember && k->hand == w->hand &&
                     !strcmp(k->asset, w->asset)) self = k;
             }
+        // FOUND OR GONE, AND BOTH MATTER. A component still in the snapshot
+        // stamps the contract as live; one missing from a FRESH snapshot starts
+        // the clock on retiring it, so a stale contract cannot refuse forever.
+        if (self) {
+            ((WaMesh*)w)->compSeenPresent = (uint32_t)dvr::frame::count();
+            ((WaMesh*)w)->compSeenOk = true;
+        }
         if (self) {
             dvr::hf::Xform native = {self->R, {self->t[0], self->t[1], self->t[2]}};
             dvr::hf::Xform expected = native;
@@ -510,6 +651,35 @@ static dvr::wf::Instance WaVerifyDraw(const WaMesh* w, const MpDrawCtx* c2,
         InterlockedIncrement(&g_waRefRecent);
         return dvr::wf::verify_instance(dvr::wf::IREF_RECENT, *offsetOut,
                                         g_waPassRadiusUU);
+    }
+
+    // NOTHING CAN VOUCH FOR THIS CONTRACT. Refusing is correct for THIS draw,
+    // but refusing forever is a lockout: a refused draw returns before the
+    // transform matcher, so a contract whose component is gone can never be
+    // re-adopted and its weapon never attaches again. That is exactly what a
+    // level load produced - unverifiable climbing past 45,000 while corrected
+    // sat frozen.
+    //
+    // So a contract whose component has been missing this long is RETIRED. The
+    // next draw on those buffers finds no contract, falls through to the
+    // matcher, and identifies itself honestly.
+    if (w->compSeenOk &&
+        ((uint32_t)dvr::frame::count() - w->compSeenPresent) >
+        (uint32_t)(g_waStaleMaxPresents < 1 ? 1 : g_waStaleMaxPresents)) {
+        InterlockedIncrement(&g_waDroppedStale);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+            "wa: retiring the contract for '%s' - its component has been "
+            "missing from the snapshot for %u present(s) (limit %d), so nothing "
+            "can vouch for a draw on these buffers. Retiring lets the next draw "
+            "fall through to the matcher and identify itself; leaving it would "
+            "refuse every draw forever, which is how a level load stopped the "
+            "weapons attaching at all.",
+            w->asset,
+            (unsigned)((uint32_t)dvr::frame::count() - w->compSeenPresent),
+            g_waStaleMaxPresents);
+        ((WaMesh*)w)->vb = NULL;      // no draw can match it again
+        ((WaMesh*)w)->ib = NULL;
+        ((WaMesh*)w)->compSeenOk = false;
     }
     return dvr::wf::INSTANCE_NO_REF;
 }
@@ -1108,6 +1278,8 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         // buffers is verified against this component, so a second instance of
         // the same mesh can never inherit this contract's correction.
         w->compObj = member->obj;
+        w->compSeenPresent = (uint32_t)dvr::frame::count();
+        w->compSeenOk = true;
         InterlockedIncrement(&g_waMatched);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
             "wa: MATCH '%s' hand %d: %.4f deg %.4f uu scale error %.5f; c%d x%d; component snapshot %u",
@@ -1127,6 +1299,9 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // was refreshed 4 times in 13 million draws.
     WaNoteHeld(w, &ctx);
     if (!w->compObj) w->compObj = member->obj;
+    // A cache hit is a fresh identification too, so the component is live.
+    w->compSeenPresent = (uint32_t)dvr::frame::count();
+    w->compSeenOk = true;
     w->lastVerifyMs = MaimNowMs();
     w->boneReg = g_pcLayBones; w->regs = (UINT)g_pcLayBonesN;
     dvr::hf::Xform inverse;

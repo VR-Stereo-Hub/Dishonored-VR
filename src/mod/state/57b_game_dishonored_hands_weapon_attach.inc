@@ -144,6 +144,11 @@ struct WaMesh {
     // test against it is comparing with a reference that is almost always
     // stale. That single fact is why the pass-radius gate both misfired on held
     // weapons and missed fired bolts.
+    // When this contract's component was last FOUND in a fresh snapshot. A
+    // component that has gone means the contract is about something that no
+    // longer exists, and it must be retired rather than refusing forever.
+    uint32_t compSeenPresent;
+    bool     compSeenOk;
     float    heldAt[3];
     uint32_t heldPresent;
     bool     heldOk;
@@ -560,6 +565,33 @@ static bool g_waEquippedMembers = true;   // [Hands] AttachEquippedMembers
 static LONG g_waEquipAdded   = 0;   // components injected from the equipped item
 static LONG g_waEquipDup     = 0;   // already present from the pointer walk
 static LONG g_waEquipNoMesh  = 0;   // equipped item with no readable player mesh
+
+// ---- A CONTRACT MUST NOT OUTLIVE THE LEVEL IT WAS MATCHED IN ---------------
+//
+// A contract holds compObj, a pointer to the component it was matched to. A
+// level load destroys that component, and the contract table is evicted only
+// when it FILLS (64 entries), so after a reload every contract points at a dead
+// object. WaVerifyDraw then finds no component reference, the recent-verification
+// cache is stale too, and every draw returns NO_REF.
+//
+// That is not merely a refusal, it is a LOCKOUT: a refused draw returns before
+// reaching the transform matcher, so the contract can never be re-adopted and
+// the weapons never attach again for the rest of the session. Measured on the
+// second load of a session: unverifiable climbing past 45,000 while corrected sat
+// frozen at 16,245 and only 3 contracts had ever matched.
+//
+// Two defences, because either alone leaves a hole:
+//
+//   1. Drop every contract when the game leaves gameplay. Cheap, exact, and it
+//      covers the level load that caused this.
+//   2. Retire a contract whose component has been missing from a FRESH snapshot
+//      for a while. This covers the cases a load hook cannot see - an item
+//      destroyed mid-level, a weapon removed from inventory - and it is what
+//      stops any future stale pointer becoming permanent.
+static LONG g_waDroppedLoad  = 0;   // contracts dropped because a load began
+static LONG g_waDroppedStale = 0;   // contracts retired: component long gone
+static int  g_waStaleMaxPresents = 90;   // [Hands] AttachContractStalePresents
+
 
 static float g_waAwayFarthest = 0.0f;   // the largest offset we refused
 static float g_waHeldWorst    = 0.0f;   // the largest offset we still accepted

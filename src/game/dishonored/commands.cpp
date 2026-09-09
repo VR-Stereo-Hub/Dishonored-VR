@@ -105,6 +105,8 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 #if DVR_WITH_LEGACY
     if (!strcmp(cmd, "pcap")) return PcCommand(args);
     if (!strcmp(cmd, "rfl")) return RflCommand(args);
+    if (!strcmp(cmd, "startup")) return SuCommand(args);
+    if (!strcmp(cmd, "uistate")) return UiCommand(args);
 #endif
     if (!strcmp(cmd, "blink")) {
         if (!strcmp(args, "probe")) { BlinkProbeArm(); return true; }
@@ -387,16 +389,44 @@ static bool DvrScriptViewLive()
 // the line tools\boot.ps1 waits for. Present thread, once per frame.
 static void GameStateTick()
 {
+    // VR-62: sample the terms INDIVIDUALLY, so the scoreboard scores exactly the
+    // values this function decides on and cannot disagree with it.
+    const bool suCyl    = CylTruthLive();
+    const bool suNoMenu = !g_menuOpen && !g_inMenu && !g_mainMenu;
+    const bool suView   = DvrScriptViewLive();
+    // VR-62 observation. Sampled with the same values the state machine is
+    // about to decide on, so its "proposed" verdict cannot disagree with the
+    // real one for any reason except the one substitution it makes.
+    UiPoll(suCyl, suView);
+
     const char* s;
-    if (!CylTruthLive())               s = "NO_PAWN";
-    else if (g_menuOpen || g_inMenu || g_mainMenu) s = "MENU";
-    else if (!DvrScriptViewLive()) {
+    if (!suCyl)                        s = "NO_PAWN";
+    else if (!suNoMenu)                s = "MENU";
+    else if (!suView) {
         // A loading screen ends whatever cutscene the latch remembers.
         if (g_cineNow) { g_cineNow = false; Log("cine: latch cleared - a loading screen"); }
         s = "LOADING";
     }
     else if (g_cineNow)                s = "CINEMATIC";
     else                               s = "GAMEPLAY";
+
+    // VR-62. The clock starts when we LEAVE gameplay, because that is the last
+    // moment we know the picture was right; everything after it is the settle.
+    const bool nowGameplay = !strcmp(s, "GAMEPLAY");
+    static bool wasGameplay = false;
+    if (wasGameplay && !nowGameplay) {
+        SuBeginLoad();
+        UiNoteLoad();   // the outgoing level's movie objects are not this level's
+        // A load destroys the components the weapon contracts were matched to.
+        WaInvalidateContracts("the game left gameplay");
+        // ... and the candidate list itself, which holds the component pointers
+        // those contracts were matched to. Dropping the contracts without
+        // rebuilding this leaves the matcher with a dead list and no anchor.
+        FpInvalidateCandidates("the game left gameplay");
+    }
+    wasGameplay = nowGameplay;
+    SuTick(suCyl, suNoMenu, suView, !g_cineNow, DvrGameplayVerdict());
+
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
         DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info, "[game] state: %s", s);

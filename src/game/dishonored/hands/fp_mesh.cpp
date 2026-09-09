@@ -403,6 +403,175 @@ static const char* FpAssetName(uint8_t* comp)
 }
 
 
+// Force the candidate list to be rebuilt. `if (!g_fpCandN) FpCollect()` is the
+// established rescan trigger, and skelcontrol already uses exactly this when it
+// finds its selected mesh stale.
+//
+// WHY A LOAD MUST DO THIS. The list holds raw component pointers. A level load
+// destroys those components, but the memory usually stays mapped, so
+// LooksLikeObj still passes on a dead pointer and the list looks healthy while
+// every transform read off it fails. The measured signature is the body mesh
+// still listed by name with an UNREADABLE transform, and then a snapshot where
+// its asset name will not even resolve:
+//
+//   wa/comp: [0] 'Skm_Player' (pMesh) REF xform UNREADABLE
+//   wa/comp: [0] '?' (pMesh)          xform UNREADABLE
+//   wa: NOTHING TO ATTACH - 0 usable as the bridge anchor (the body mesh)
+//
+// Without the bridge anchor nothing can attach at all, which is why the weapons
+// stayed in their default positions for a whole session after a second load.
+static void FpInvalidateCandidates(const char* why)
+{
+    // THE BOOKKEEPING RESET MUST NOT DEPEND ON THE OLD LIST BEING NON-EMPTY.
+    // The early return used to come first, so a level change arriving with an
+    // already-empty list left the anchor budget, the attempt count and the
+    // settle window carrying the previous level's numbers - and a level that had
+    // needed a few tries could push the next one straight into the "accept a
+    // list with no anchor" branch, which attaches nothing and says so once.
+    g_fpNoAnchorTries = 0;
+    g_fpEnsureTries = 0;
+    g_fpEnsureMs = 0.0;
+    g_fpSettleLeft = 0;
+    g_fpSettleMs = 0.0;
+    g_fpEquipRevSeen = 0;          // no published list is for any revision now
+    FpMarkDirty(why);
+    if (!g_fpCandN) return;
+    Log("handmesh: dropping %d candidate(s) - %s. They are raw component "
+        "pointers and a load destroys what they point at; the memory usually "
+        "stays mapped, so a dead list looks healthy while every transform read "
+        "off it fails. The next tick rebuilds it.", g_fpCandN, why);
+    g_fpCandN = 0; g_fpSel = -1;
+    g_fpWritten = NULL; g_fpWritten2 = NULL;
+}
+
+
+// THE OWNER OF THE REBUILD, for both states the list can be wrong in.
+//
+// EMPTY is the load case: a level change drops the list and nothing else in the
+// tree rebuilds it, because every other FpCollect call site is a one-shot that
+// has already fired. STALE is the swap case: the list is full and describes the
+// PREVIOUS equipment, which is how the crossbow's loaded bolt disappeared and
+// never came back.
+//
+// Marking is separated from collecting on purpose. The change is detected on the
+// script tick beside the equipment read; the collect happens here, on the same
+// lane, before the component snapshot is published - so a rebuilt list is never
+// half-visible to the snapshot, and rapid swaps coalesce into one collect at the
+// latest revision instead of one collect each.
+static void FpMarkDirty(const char* why)
+{
+    if (g_fpDirty && !strcmp(g_fpDirtyWhy, why)) return;
+    g_fpDirty = true;
+    _snprintf(g_fpDirtyWhy, sizeof(g_fpDirtyWhy), "%s", why ? why : "?");
+    g_fpDirtyWhy[sizeof(g_fpDirtyWhy) - 1] = 0;
+}
+
+
+static void FpEnsureCandidates(const char* why)
+{
+    if (!g_fpAutoRecollect) return;
+
+    // WHAT THE PUBLISHED LIST IS FOR. Captured before the collect so a swap that
+    // lands mid-collect leaves the list marked dirty rather than being recorded
+    // as satisfied by a walk that started before it.
+    const uint32_t rev = g_rflEquipRev;
+
+    if (!g_fpCandN) FpMarkDirty(why ? why : "the candidate list is empty");
+    else if (g_rflEquipSigOk && rev != g_fpEquipRevSeen) {
+        FpMarkDirty("the equipment changed - the list describes the previous one");
+        // A REVISION CHANGE BUYS A SETTLE WINDOW. The equipment event and the
+        // creation of the new weapon's child components are not promised to
+        // land in the same tick, so one collect can legitimately win the race
+        // and return a list with no loaded bolt in it. These extra passes are
+        // what pick a late child up; without them the first collect would
+        // declare success and the bolt would be missing until the next swap.
+        if (g_fpSettleLeft <= 0) {
+            g_fpSettleLeft = g_fpSettleTries;
+            // A NEW REVISION IS A FRESH RECOVERY OPPORTUNITY. The anchor budget
+            // inside FpCollect latches after 120 failures into accepting a list
+            // with no anchor, which attaches nothing. A genuine equipment change
+            // is new information and must not inherit the previous one's
+            // exhaustion.
+            g_fpNoAnchorTries = 0;
+            g_fpEnsureTries = 0;
+            InterlockedIncrement(&g_fpSwapRefresh);
+            Log("handmesh: equipment revision %u -> %u, refreshing the candidate "
+                "list and holding %d settle pass(es) open. A swap does not empty "
+                "the list, it makes it describe the previous weapon, and the "
+                "child components of the new one may not exist yet.",
+                g_fpEquipRevSeen, rev, g_fpSettleTries);
+        }
+        g_fpSettleMs = 0.0;   // the first settle pass is due immediately
+    }
+
+    const double t = MaimNowMs();
+    const bool settling = g_fpSettleLeft > 0 && t >= g_fpSettleMs;
+    if (!g_fpDirty && !settling) return;
+    if (g_fpDirty && t < g_fpEnsureMs) return;
+    g_fpEnsureMs = t + 500.0;
+
+    uint8_t* pawn = FpPawn();
+    if (!pawn) return;            // no pawn, no rig; the mark stays for later
+    ++g_fpEnsureTries;
+
+    const uint32_t candRevBefore = g_fpCandRev;
+    FpCollect();
+
+    // SUCCESS IS NOT "THE FUNCTION RAN", AND IT IS NOT "THE COUNT IS NONZERO".
+    // The bridge anchor is the one component that must exist for anything to
+    // attach at all, and FpCollect already discards a list without it. So a
+    // non-empty list here means the anchor is present; anything less left the
+    // mark standing and will be retried.
+    const bool ok = g_fpCandN > 0;
+    if (settling) {
+        --g_fpSettleLeft;
+        g_fpSettleMs = t + g_fpSettleGapMs;
+        if (candRevBefore != g_fpCandRev)
+            Log("handmesh: settle pass for equipment revision %u CHANGED the set "
+                "(candidate revision %u -> %u) - a component appeared after the "
+                "swap, which is the case a single rebuild would have missed. "
+                "%d pass(es) left.", rev, candRevBefore, g_fpCandRev,
+                g_fpSettleLeft);
+        else if (g_fpSettleLeft == 0)
+            Log("handmesh: settle window for equipment revision %u closed with "
+                "no further change - the list stabilised at candidate revision "
+                "%u, %d component(s).", rev, g_fpCandRev, g_fpCandN);
+    }
+
+    if (!ok) {
+        if (g_fpEnsureTries == 1 || (g_fpEnsureTries % 40) == 0)
+            Log("handmesh: rebuild attempt %d produced no usable list (%s). The "
+                "collector ran and returned nothing usable - that is a rig that "
+                "is not up yet, not a missing trigger.", g_fpEnsureTries,
+                g_fpDirtyWhy);
+        return;                   // stays dirty on purpose
+    }
+
+    // A SWAP THAT LANDED DURING THE WALK IS NOT SATISFIED BY IT.
+    if (g_rflEquipRev != rev) {
+        Log("handmesh: the equipment changed again during the collect (%u -> "
+            "%u) - the list is still marked stale so the next tick collects for "
+            "the newer revision. Coalescing here is what stops a burst of swaps "
+            "becoming a burst of walks.", rev, g_rflEquipRev);
+        return;
+    }
+
+    const bool wasDirty = g_fpDirty;
+    g_fpDirty = false;
+    const uint32_t prevSeen = g_fpEquipRevSeen;
+    g_fpEquipRevSeen = rev;
+    if (wasDirty) {
+        Log("handmesh: candidate list refreshed - %d component(s), candidate "
+            "revision %u, equipment revision %u -> %u, after %d attempt(s). "
+            "Reason: %s.", g_fpCandN, g_fpCandRev, prevSeen, rev,
+            g_fpEnsureTries, g_fpDirtyWhy);
+        // The contracts that belonged to what is no longer here.
+        WaRetireContractsNotIn("the candidate list was refreshed");
+    }
+    g_fpEnsureTries = 0;
+}
+
+
 static void FpCollect()
 {
     FpRestoreRotation();
@@ -418,6 +587,29 @@ static void FpCollect()
     uint8_t* seen[224]; int seenN = 0;
     q[tail] = pawn; qd[tail] = 0; tail++;
     seen[seenN++] = pawn;
+
+    // THE EQUIPPED ITEMS ARE ROOTS TOO. The pawn walk reaches an item only when
+    // a direct pointer chain happens to lead there, which is why the pistol has
+    // never appeared in a snapshot and why the crossbow's loaded bolt comes and
+    // goes with whatever the walk found that pass. VR-61 reads the held item per
+    // hand off the engine, so its CHILDREN are reachable by construction rather
+    // than by luck - and the bolt is a child of the crossbow, not of the pawn.
+    //
+    // The roots are validated objects from the inventory read, and the walk from
+    // them is the same bounded one, with the same depth limit and the same
+    // skeletal-component test. Nothing unrelated can enter: an object still has
+    // to be a skeletal component with a writable transform to become a candidate.
+    if (g_fpEquipRoots) {
+        for (int u = 1; u <= 2; ++u) {
+            uint8_t* item = g_rflHeldObj[u];
+            if (!item || !LooksLikeObj(item)) continue;
+            bool dup = false;
+            for (int i = 0; i < seenN; i++) if (seen[i] == item) { dup = true; break; }
+            if (dup || seenN >= 224 || tail >= 160) continue;
+            seen[seenN++] = item;
+            q[tail] = item; qd[tail] = 1; tail++;   // depth 1: its own children count
+        }
+    }
 
     int visited = 0;
     while (head < tail && visited < 140) {
@@ -475,12 +667,60 @@ static void FpCollect()
     for (int i = 0; i < g_fpCandN; i++)
         if (FpIsViewModel(&g_fpCand[i]) && !g_fpCand[i].havePivot) { g_fpPivotPend = 3; break; }
 
-    // log only when the set actually changes, or this spams once a second
-    static int lastN = -1; static void* lastFirst = NULL;
-    void* first = g_fpCandN ? (void*)g_fpCand[0].obj : NULL;
-    if (lastN != g_fpCandN || lastFirst != first) {
-        lastN = g_fpCandN; lastFirst = first;
-        Log("handmesh: ==== %d view model(s) ====", g_fpCandN);
+    // A COLLECT WITHOUT THE BODY MESH IS NOT A RESULT, IT IS A RETRY.
+    //
+    // The body mesh is the bridge anchor: without it nothing can attach at all.
+    // Collecting during a load catches the rig half-built and returns one or two
+    // components with no anchor, and because the rebuild trigger is
+    // `if (!g_fpCandN) FpCollect()`, a NON-EMPTY partial list is never refreshed
+    // - it sticks for the rest of the session. Measured: 2 components, 0 usable
+    // as the bridge anchor, repeating every 4 s while the weapons sat in their
+    // default positions.
+    //
+    // So a list with no anchor is discarded and the next tick tries again. The
+    // attempt count is bounded: if the anchor genuinely never appears, the list
+    // is accepted as-is and the log says so, because looping forever would be a
+    // worse failure than a partial list and would hide itself.
+    {
+        int& noAnchorTries = g_fpNoAnchorTries;   // resettable across a load
+        bool anchor = false;
+        for (int i = 0; i < g_fpCandN && !anchor; i++)
+            if (strstr(g_fpCand[i].asset, "Skm_Player")) anchor = true;
+        if (g_fpCandN && !anchor && noAnchorTries < 120) {
+            ++noAnchorTries;
+            if (noAnchorTries == 1 || (noAnchorTries % 30) == 0)
+                Log("handmesh: collected %d component(s) but NO body mesh - the "
+                    "rig is still building, so this is a retry and not a result. "
+                    "Without the bridge anchor nothing can attach, and a partial "
+                    "list would stick because the rebuild only fires on an EMPTY "
+                    "one. Attempt %d of 120.", g_fpCandN, noAnchorTries);
+            g_fpCandN = 0; g_fpSel = -1;
+            return;
+        }
+        if (anchor) noAnchorTries = 0;
+        else if (g_fpCandN && noAnchorTries >= 120)
+            Log("handmesh: ACCEPTING a %d component list with no body mesh after "
+                "120 attempts. Nothing will attach with no bridge anchor, and "
+                "this line is the reason - retrying forever would hide it.",
+                g_fpCandN);
+    }
+
+    // LOG WHEN THE SET CHANGES, AND COMPARE THE WHOLE SET.
+    //
+    // The old test was the count and the first entry. That is exactly blind to
+    // the fault this code exists to fix: the bolt was REPLACED by the pistol's
+    // mesh in the middle of a six-entry list, so the count and the first entry
+    // were identical and nothing was logged while the list went wrong.
+    static uint8_t* lastSet[24]; static int lastSetN = -1;
+    bool changed = (lastSetN != g_fpCandN);
+    for (int i = 0; !changed && i < g_fpCandN; i++)
+        if (lastSet[i] != g_fpCand[i].obj) changed = true;
+    if (changed) {
+        lastSetN = g_fpCandN;
+        for (int i = 0; i < g_fpCandN && i < 24; i++) lastSet[i] = g_fpCand[i].obj;
+        ++g_fpCandRev;
+        Log("handmesh: ==== %d view model(s) ==== (candidate revision %u, for "
+            "equipment revision %u)", g_fpCandN, g_fpCandRev, g_rflEquipRev);
         for (int i = 0; i < g_fpCandN; i++)
             Log("handmesh:   [%d] '%s' asset=%s%s", i, g_fpCand[i].name,
                 g_fpCand[i].asset,

@@ -1,6 +1,167 @@
 # Status
 
-## CURRENT (2026-09-08, night): VR-59, VR-60 and VR-61 all confirmed in a headset
+## CURRENT (2026-09-09, later): attachment fixed twice; the flicker narrowed
+
+Branch `claude/vr-62-startup-phase-timing`, pushed, **not merged, no PR**.
+`VR-Main` is still at `b38519c3`. Last headset-tested build was
+`vr33-hands-working-54-gda1d760d`; the build after it is not yet tested.
+
+### Headset-confirmed this session
+
+| What | Result |
+|---|---|
+| Weapons never attached after a second load | **FIXED** - attaches instantly on every load |
+| Weapon flicker in stereo | **Largely gone** - the unreadable-step instrument fell from 31 windows with bursts of 565/396/350/293 presents to one window of one present |
+| Hands flickering in mono | **FIXED** - a regression this session, caused and corrected in the same session |
+| Mono window after a load | 2.1-2.3 s, against 24 s when VR-62 opened |
+
+### Falsified this session, and one number retracted
+
+Taking the weapon eye from the drawing pass executed **zero times in 83,400
+draws**. The stereo passes run on the GAME thread and the palette draws on the
+RENDER thread, so there is no stack to look up. The lever stays, default OFF and
+inert, as the record. **The 39% disagreement figure reported earlier came from
+reading a bare global across those two threads and is retracted** - it should not
+be cited. ENGINE_NOTES carries all of it.
+
+### Not yet tested: the bolt after a weapon swap
+
+Reported: equip the pistol, switch back to the crossbow, and the **loaded bolt**
+is unattached in its default position. Everything else stays attached.
+
+Same class of fault as the load one, one level down. The list has an owner for
+EMPTY and had none for STALE. Three things were needed and only the first is
+obvious - an equipment-change trigger keyed on the item OBJECT rather than its
+class name, a SETTLE WINDOW because the child component need not exist in the
+same tick as the equipment event, and the equipped items as COLLECTION ROOTS
+because the bolt is a child of the crossbow and not of the pawn. Plus retirement
+of contracts by ownership, since the existing retirement can only be reached by a
+contract whose buffers are still being drawn.
+
+New levers, all default ON: `[Hands] AttachCollectEquippedRoots`,
+`AttachSwapSettleTries=5`, `AttachSwapSettleGapMs=400`.
+
+### The residual flicker, stated precisely
+
+> The unreadable-step fallback is substantially less active in the tested build.
+> Residual flicker remains unexplained. The instrument does not independently
+> verify every inferred eye.
+
+It records *unreadable* steps, not verified wrong-eye decisions, so a step the
+heuristic reads confidently and gets wrong is invisible to it. The eye inference
+is NARROWED, not cleared. Uninvestigated signals already in the log: the method's
+`pushed eye +1 TWICE in a row` warning, which over-claims (its predicted
+`abortLeft` stayed 0 and only 4 stale-eye submits occurred all session); the tag
+ring's `realigned 97 times, 3855 agree / 296 disagree`; and
+`UNEVEN CADENCE: 1.18 display slots per frame` at 147-162 presents/s against
+90 Hz, which `vrpace sync <hz>` can A/B and never has been.
+
+### VR-62 itself
+
+Untouched behaviourally. Both falsified levers stay OFF (`[Menu]
+GhostClearByRate`, `[Stereo] GateOnSceneLive`). The UI probe found
+`bMovieIsOpen` and remains observation-only: several movie objects read open
+persistently during gameplay, so "some movie is open" is not a blocking-menu
+test. The per-class census in the log is the raw material for that and has not
+been analysed.
+
+### Next steps
+
+1. Headset-test the bolt-after-swap fix (sequence in the session notes).
+2. File a Linear ticket for the bolt fault, separate from VR-62.
+3. Only then, the residual flicker - starting with what it affects, not with
+   another correction.
+
+---
+
+## CURRENT (2026-09-09): VR-62 - the mono window, three attempts falsified
+
+**`VR-Main` is at `b38519c3`. VR-59, VR-60 and VR-61 are merged and Done.** The
+weapons work: a fired bolt stays where it lands, the pistol stays on the hand at
+every angle, and the mod reads equipment from the engine.
+
+Open work is VR-62 on branch `claude/vr-62-startup-phase-timing`, **not merged,
+no PR**. The installed build is `C02CB40A26477DF2`.
+
+### The state of VR-62
+
+A startup scoreboard exists and works. Three attempts to shorten the mono window
+were each falsified in a headset, and **both behaviour changes are default OFF**;
+the build behaves like the known-good one, with better logging.
+
+| Attempt | Lever | Result |
+|---|---|---|
+| Clear the ghost menu flag on dispatch RECENCY | `[Menu] GhostClearByRate` | 24 s to 1.5 s, **and the main menu goes stereo** |
+| Double on SCENE LIVENESS instead of the verdict | `[Stereo] GateOnSceneLive` | **hands and weapons flash behind the pause menu** |
+| Force a candidate re-collect on a load | (fixed, not a lever) | partial list with no body mesh, **nothing attaches all session** |
+
+### What is established, and should not be re-derived
+
+1. **Nothing after the gameplay verdict holds the picture.** The verdict, the
+   `[game] state: GAMEPLAY` transition and the first DOUBLE draw land in the same
+   millisecond. The wait is entirely in deciding the game is in gameplay.
+2. **Two of the verdict's five terms are slow by construction.** `menuOpen` is set
+   by a `Dis_OpenPauseMenu` dispatch during a load when no menu is open (a
+   ghost), and `viewLive` deliberately requires a full second of continuous
+   dispatches to leave LOADING - measured at +1.52 s and +1.72 s.
+3. **The view-dispatch rate differs by a factor of eighty** between a settling
+   level (about 1/s) and a running one (about 78/s). Any dispatch-based test has
+   to separate those two states.
+4. **The main menu keeps dispatching view rotations** (its 3D background) and can
+   have a live pawn, so neither dispatch flow nor `CylTruthLive` separates it
+   from gameplay. ENGINE_NOTES 38.17 recorded this before; attempt 1 re-broke it.
+5. **The camera upload serial keeps moving while a menu is up**, so "the scene is
+   drawing" cannot tell a pause menu from a load.
+
+### The rule the three failures share
+
+Every attempt replaced a slow conservative test with a fast one. Each was right
+about the slowness and wrong about the replacement, because **the fast signals do
+not separate the states that matter.** The next attempt needs a signal that
+distinguishes a main menu from gameplay, and a pause from a load, DIRECTLY -
+not a faster version of one that cannot.
+
+The most promising unexplored lead: `g_mainMenu` is set from named ProcessEvent
+dispatches rather than inferred, so it may be a real discriminator. Read how it
+is set in `ue3/process_event.cpp` before trusting it.
+
+### What is safe and staying
+
+* The startup scoreboard (`startup.cpp`), read-only, one line per load naming the
+  term that settled LAST. It records the LAST false-to-true transition, because
+  recording the first made it blame the wrong term - the clock starts as the game
+  leaves gameplay, when the outgoing pawn is still alive.
+* Weapon contracts are dropped when the game leaves gameplay, and a contract
+  whose component has been missing for about a second is retired. Without this a
+  level load left every contract pointing at a destroyed component, which is a
+  LOCKOUT rather than a refusal: a refused draw returns before the matcher, so
+  the contract can never be re-adopted.
+* A candidate list with no body mesh is discarded and re-collected, bounded at
+  120 attempts.
+
+### PLAN FOR THE NEXT SESSION - paste it here before starting
+
+> **This section is empty on purpose.** Drop the agreed plan in, replacing this
+> quote, before any code is written. A plan that lives only in a chat is lost the
+> moment the chat is, and three attempts were already spent last session on ideas
+> that were sound in isolation and wrong against facts recorded further up this
+> file.
+>
+> Whatever goes here should name, for each step: the SIGNAL it depends on, which
+> two states that signal separates, and how the run would show the step failed.
+> The three falsified attempts all skipped that last part.
+
+---
+
+### Next steps
+
+1. Find a real main-menu discriminator, then re-try attempt 1 behind its lever.
+2. VR-16, the weapon and hands flicker for the first seconds after a load - the
+   tail of the same settle.
+3. VR-49, the parent ticket, still carries the eye-starvation half of the settle.
+4. VR-57 the crosshair (Urgent), VR-58, VR-56.
+
+## PREVIOUS (2026-09-08, night): VR-59, VR-60 and VR-61 all confirmed in a headset
 
 Three tickets are fixed and headset-confirmed this session. **Nothing is merged.**
 Two PRs are open against `VR-Main` and its stack.

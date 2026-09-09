@@ -248,7 +248,39 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
     if (callerRet != kViewportDrawGameplayRet) { ++g_sdSkipForeign; d.why = "foreign caller"; return d; }
     if (InterlockedCompareExchange(&g_gameExiting, 0, 0)) { ++g_sdSkipExit; d.why = "exiting"; return d; }
     if (!dvr::vr::session_live() && !d.pulse) { ++g_sdSkipSession; d.why = "no XR session"; return d; }
-    if (!DvrGameplayVerdict()) { ++g_sdSkipState; d.why = "state not GAMEPLAY"; return d; }
+    // THE SCENE IS DRAWING, OR IT IS NOT. That is the only question this gate
+    // has to answer; the state machine answers a much broader one and two of its
+    // terms are slow by construction (a ghost menu flag, and a viewLive rule that
+    // needs a full second of dispatches to leave LOADING). Both were measured
+    // holding the picture mono after a load while the scene was already up.
+    if (!DvrGameplayVerdict()) {
+        // Track when the camera upload serial last MOVED - the honest "the scene
+        // is being drawn" signal, and the one the camera-silent gate below
+        // already trusts.
+        const uint32_t c5 = (uint32_t)dvr::camera::render_pos_serial();
+        const double nowMs = MaimNowMs();
+        if (c5 != g_sdC5LastSerial) { g_sdC5LastSerial = c5; g_sdC5LastMoveMs = nowMs; }
+
+        // A REAL menu still refuses, and these are the terms that name one
+        // rather than a slow one. The main menu has no pawn and its own 3D
+        // background, a cinematic owns the camera, and without a live pawn there
+        // is no view model to double for.
+        const bool sceneLive =
+            g_sdGateSceneLive && !g_mainMenu && !g_cineNow && CylTruthLive() &&
+            g_sdC5LastMoveMs > 0.0 &&
+            (nowMs - g_sdC5LastMoveMs) < (double)g_sdSceneQuietMs;
+
+        if (!sceneLive) { ++g_sdSkipState; d.why = "state not GAMEPLAY"; return d; }
+        InterlockedIncrement(&g_sdGatedByScene);
+        DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Info, 5000,
+            "reentry: doubling on SCENE LIVENESS while the gameplay verdict is "
+            "still false - the camera uploaded %.0f ms ago, there is a live pawn, "
+            "and neither the main menu nor a cinematic is up. The verdict's slow "
+            "terms (a ghost menu flag, and viewLive needing a second of "
+            "dispatches to leave LOADING) do not describe whether the scene is "
+            "drawing. %ld tick(s) so far.",
+            nowMs - g_sdC5LastMoveMs, g_sdGatedByScene);
+    }
     d.gameplay = true;   // from here on the draw presents once (a menu's draws outnumber its presents)
     if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; d.why = "eyetest/postest running"; return d; }
     // The camera-silent hole: a c5 upload must have arrived since the previous
@@ -272,6 +304,9 @@ static void SceneDrawDecisionLog(const SdDecision& d)
     if (said && d.doubleIt == wasDouble) return;
     said = true; wasDouble = d.doubleIt;
     if (d.doubleIt) {
+        // VR-62: the mono window ends HERE. This module owns the transition, so
+        // it is the one that reports it; the scoreboard must not re-derive it.
+        g_suStereoSeen = true;
         if (singleTicks)
             Log("reentry: gates -> DOUBLE draw after %lu single tick(s) - both eyes tagged again", (unsigned long)singleTicks);
         singleTicks = 0;
@@ -313,6 +348,7 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
                          (void*)g_camObj, dvr::camera::eye_field());
     }
     dvr::stereo::reentry_push_tag(+1, wrote ? wrotePos : NULL);
+    g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
     QueryPerformanceCounter(&t0);
@@ -320,6 +356,7 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     QueryPerformanceCounter(&t1);
     dvr::vr::set_draw_stage(NULL);
     dvr::camera::set_second_pass(false);
+    g_sdEyeNow = 0;                        // no draw owns an eye between ticks
     g_sdCall2Us = (uint32_t)((t1.QuadPart - t0.QuadPart) * 1000000 / (g_qpcFreq ? g_qpcFreq : 1));
     if (g_sdCall2Us > g_sdCall2MaxUs) g_sdCall2MaxUs = g_sdCall2Us;
     if (!ok) {
@@ -366,6 +403,10 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         // was skipped (41.1: the resume-window one-sided stream).
         g_sdTick = SceneDrawDecide(callerRet);
         if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
+        g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
+        InterlockedExchange(&g_sdInDrawTid,
+                            g_sdTick.doubleIt ? (LONG)GetCurrentThreadId() : 0);
+        InterlockedExchange(&g_sdDoublingNow, g_sdTick.doubleIt ? 1 : 0);
         if (g_sdTick.doubleIt) {
             float pos[3];
             dvr::stereo::reentry_push_tag(-1, dvr::camera::last_written_pos(pos) ? pos : NULL);
@@ -392,6 +433,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         g_sdLastDrawC5Serial = dvr::camera::render_pos_serial();
         SceneDrawBeat();
     }
+    if (depth == 0) InterlockedExchange(&g_sdInDrawTid, 0);
     InterlockedDecrement(&g_sdDepth);
 }
 

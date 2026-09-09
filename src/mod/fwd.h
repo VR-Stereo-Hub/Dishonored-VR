@@ -101,6 +101,24 @@ static bool RflArrayAt(uint8_t* obj, uint32_t off, uint8_t** outData,
 static void RflTick(void);
 static void RflStateTick(void);
 static bool RflCommand(const char* args);
+
+// VR-62: what screen is up, read off the movie players (ue3/ui_state.cpp).
+// Read-only observation: it gates nothing and writes no engine memory.
+static void UiPeLatch(void* obj);
+static void UiTick(void);
+static void UiPoll(bool pawn, bool viewLive);
+static void UiNoteLoad(void);
+static bool UiCommand(const char* args);
+
+// VR-62: the startup scoreboard (startup.cpp). Read-only, present thread.
+static void FpInvalidateCandidates(const char* why);
+static void FpEnsureCandidates(const char* why);
+static void FpMarkDirty(const char* why);
+static void WaRetireContractsNotIn(const char* why);
+static void WaInvalidateContracts(const char* why);
+static void SuBeginLoad(void);
+static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict);
+static bool SuCommand(const char* args);
 static inline bool CamAlive();
 static bool CamStillValid();
 static bool FindLiveCamera();
