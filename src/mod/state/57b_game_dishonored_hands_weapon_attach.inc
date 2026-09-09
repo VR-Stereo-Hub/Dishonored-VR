@@ -532,6 +532,35 @@ static LONG g_waRefRecent     = 0;
 // that claim is false and the drop deletes the object. This counter moving is
 // what a visible fired bolt looks like from the log side.
 static LONG g_waHandedBack    = 0;
+
+// ---- VR-60: THE EQUIPPED WEAPON SUPPLIES ITS OWN COMPONENT ------------------
+//
+// The pistol is not in FpCollect's component snapshot and never has been. That
+// walk reads each 4-byte field as a UObject pointer, so it cannot traverse the
+// TArray every inventory item lives in, and it sees only what happens to be
+// reachable by direct pointer. Measured: all 19 snapshots in a run were
+// identical, six components, no pistol, while the pistol was in hand.
+//
+// With no candidate of its own the pistol reaches a contract only through the
+// buffer lookup and is then verified against ANOTHER weapon's component - one
+// fixed in the world while the pistol orbits the head. That is the 45-degree
+// detach cone: AttachPassRadius converted into an angle by geometry, not a
+// rotation gate. Any threshold would produce some angle, because the identity is
+// what is wrong.
+//
+// So the equipped item supplies its own component. VR-61 reads which item is in
+// which hand from the engine (DishonoredInventoryItem::m_EquipUsage and
+// m_CurSocket, per object), and that item's m_pPlayerMesh is the component its
+// draws should be checked against.
+//
+// This also retires an assumption. The hand for these members comes from the
+// engine's own equip usage rather than from asset-name substrings in WaHandFor,
+// which the record has flagged as inherited guesswork since VR-33.
+static bool g_waEquippedMembers = true;   // [Hands] AttachEquippedMembers
+static LONG g_waEquipAdded   = 0;   // components injected from the equipped item
+static LONG g_waEquipDup     = 0;   // already present from the pointer walk
+static LONG g_waEquipNoMesh  = 0;   // equipped item with no readable player mesh
+
 static float g_waAwayFarthest = 0.0f;   // the largest offset we refused
 static float g_waHeldWorst    = 0.0f;   // the largest offset we still accepted
 

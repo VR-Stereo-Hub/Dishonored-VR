@@ -595,8 +595,12 @@ static void BoneVisTick()
 #if DVR_WITH_LEGACY
     WiTick();                   // VR-33 W1: which draws belong to which weapon
 #endif
+    // VR-61 BEFORE VR-33 W2/W3, deliberately: the component snapshot now offers
+    // the equipped item's own mesh (VR-60), so the equipment read has to have
+    // happened first or the snapshot carries last tick's weapon for a moment
+    // after every swap.
+    RflTick();                  // VR-61: read the gameplay state flags
     WaCompTick();               // VR-33 W2/W3: the component transform snapshot
-    RflTick();                  // VR-61: derive the property layout, read the flags
     if (!g_bvOn) {
         // [Hands] BoneVisHide=1 arms it from the ini. The rig is not there on
         // the first ticks of a level, so retry - but cap the attempts, because

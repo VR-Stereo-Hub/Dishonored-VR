@@ -3904,3 +3904,40 @@ verifying a draw against. Today a draw is checked against whatever component its
 contract happens to carry, which for the pistol is another weapon entirely - the
 cause of its 45-degree detach cone. Reading the equipped item per hand replaces
 that with the right component, and it generalises to anything held.
+
+
+### The equip flags MOVE, measured across sheathe and swap (VR-61, 2026-09-08)
+
+A flag that reads the same in every state is not evidence it is the right flag,
+so it was identified by making it move. One run, swapping ranged weapons and
+sheathing repeatedly:
+
+```
+Primary   DishonoredWepSword   EQUIPPED   (every time weapons are out)
+Secondary DisWepCrossbow  <->  DishonoredWepPistol
+sheathe:   Secondary -> none, then Primary -> none
+unsheathe: both return together
+```
+
+This matches the game exactly: the sword is a constant while weapons are out and
+the Secondary hand carries the ranged weapon, so unsheathing brings out both and
+sheathing puts both away. The ranged item leaves the hand slightly BEFORE the
+sword on a sheathe, consistently.
+
+**Sheathing reads socket `none` (0), never `holstered` (2).** So
+`ItemSocket_Holstered` means something this run never produced. Recorded as an
+observation, not a conclusion - do not assume a sheathed weapon is Holstered.
+
+The slot dump with the item fields, on a save carrying everything:
+
+```
+slot[0] requires 1 | DishonoredItemEmpty  -> own usage 0, socket 0
+slot[1] requires 2 | DishonoredItemEmpty  -> own usage 0, socket 0
+slot[2] requires 0 | DishonoredWepSword   -> own usage 1, socket 1 EQUIPPED
+slot[3] requires 0 | DisItemPowers        -> own usage 0, socket 0
+slot[4] requires 0 | DisWepCrossbow       -> own usage 2, socket 1 EQUIPPED
+slot[5] requires 0 | DishonoredWepPistol  -> own usage 0, socket 0
+```
+
+The slot constraint and the item state are plainly different things, and only the
+item is the answer.
