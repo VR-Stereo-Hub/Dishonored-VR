@@ -1,6 +1,79 @@
 # Status
 
-## CURRENT (2026-09-08, night): VR-59, VR-60 and VR-61 all confirmed in a headset
+## CURRENT (2026-09-09): VR-62 - the mono window, three attempts falsified
+
+**`VR-Main` is at `b38519c3`. VR-59, VR-60 and VR-61 are merged and Done.** The
+weapons work: a fired bolt stays where it lands, the pistol stays on the hand at
+every angle, and the mod reads equipment from the engine.
+
+Open work is VR-62 on branch `claude/vr-62-startup-phase-timing`, **not merged,
+no PR**. The installed build is `C02CB40A26477DF2`.
+
+### The state of VR-62
+
+A startup scoreboard exists and works. Three attempts to shorten the mono window
+were each falsified in a headset, and **both behaviour changes are default OFF**;
+the build behaves like the known-good one, with better logging.
+
+| Attempt | Lever | Result |
+|---|---|---|
+| Clear the ghost menu flag on dispatch RECENCY | `[Menu] GhostClearByRate` | 24 s to 1.5 s, **and the main menu goes stereo** |
+| Double on SCENE LIVENESS instead of the verdict | `[Stereo] GateOnSceneLive` | **hands and weapons flash behind the pause menu** |
+| Force a candidate re-collect on a load | (fixed, not a lever) | partial list with no body mesh, **nothing attaches all session** |
+
+### What is established, and should not be re-derived
+
+1. **Nothing after the gameplay verdict holds the picture.** The verdict, the
+   `[game] state: GAMEPLAY` transition and the first DOUBLE draw land in the same
+   millisecond. The wait is entirely in deciding the game is in gameplay.
+2. **Two of the verdict's five terms are slow by construction.** `menuOpen` is set
+   by a `Dis_OpenPauseMenu` dispatch during a load when no menu is open (a
+   ghost), and `viewLive` deliberately requires a full second of continuous
+   dispatches to leave LOADING - measured at +1.52 s and +1.72 s.
+3. **The view-dispatch rate differs by a factor of eighty** between a settling
+   level (about 1/s) and a running one (about 78/s). Any dispatch-based test has
+   to separate those two states.
+4. **The main menu keeps dispatching view rotations** (its 3D background) and can
+   have a live pawn, so neither dispatch flow nor `CylTruthLive` separates it
+   from gameplay. ENGINE_NOTES 38.17 recorded this before; attempt 1 re-broke it.
+5. **The camera upload serial keeps moving while a menu is up**, so "the scene is
+   drawing" cannot tell a pause menu from a load.
+
+### The rule the three failures share
+
+Every attempt replaced a slow conservative test with a fast one. Each was right
+about the slowness and wrong about the replacement, because **the fast signals do
+not separate the states that matter.** The next attempt needs a signal that
+distinguishes a main menu from gameplay, and a pause from a load, DIRECTLY -
+not a faster version of one that cannot.
+
+The most promising unexplored lead: `g_mainMenu` is set from named ProcessEvent
+dispatches rather than inferred, so it may be a real discriminator. Read how it
+is set in `ue3/process_event.cpp` before trusting it.
+
+### What is safe and staying
+
+* The startup scoreboard (`startup.cpp`), read-only, one line per load naming the
+  term that settled LAST. It records the LAST false-to-true transition, because
+  recording the first made it blame the wrong term - the clock starts as the game
+  leaves gameplay, when the outgoing pawn is still alive.
+* Weapon contracts are dropped when the game leaves gameplay, and a contract
+  whose component has been missing for about a second is retired. Without this a
+  level load left every contract pointing at a destroyed component, which is a
+  LOCKOUT rather than a refusal: a refused draw returns before the matcher, so
+  the contract can never be re-adopted.
+* A candidate list with no body mesh is discarded and re-collected, bounded at
+  120 attempts.
+
+### Next steps
+
+1. Find a real main-menu discriminator, then re-try attempt 1 behind its lever.
+2. VR-16, the weapon and hands flicker for the first seconds after a load - the
+   tail of the same settle.
+3. VR-49, the parent ticket, still carries the eye-starvation half of the settle.
+4. VR-57 the crosshair (Urgent), VR-58, VR-56.
+
+## PREVIOUS (2026-09-08, night): VR-59, VR-60 and VR-61 all confirmed in a headset
 
 Three tickets are fixed and headset-confirmed this session. **Nothing is merged.**
 Two PRs are open against `VR-Main` and its stack.
