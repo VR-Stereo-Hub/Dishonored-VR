@@ -469,7 +469,50 @@ static LONG     g_mpEyeAgree    = 0;   // inference matched the pass that drew i
 static LONG     g_mpEyeDisagree = 0;   // it did not - a full IPD in the wrong way
 static LONG     g_mpEyeNoTruth  = 0;   // not a doubled tick, nothing to compare
 static LONG     g_mpEyeSaid     = 0;   // disagreements printed in full
-static bool     g_mpEyeFromPass = true;   // [Hands] PaletteEyeFromPass
+// FALSIFIED, AND THE MEASUREMENT IS THE POINT. Taking the eye from the drawing
+// pass never executed once: 0 of 83,400 corrected draws found a doubled pass to
+// read, because the passes and the draws are on DIFFERENT THREADS. The re-entry
+// method re-draws the world on the game thread (76156 in the measured run) and
+// the engine replays those commands, and therefore every palette draw, on the
+// render thread (79476). There is no stack to look up.
+//
+// That also retracts the 39% disagreement this lever was turned on for. It came
+// from reading a bare global across those two threads, which is not a
+// measurement of anything. The lever stays, default OFF and inert, because the
+// finding is worth keeping and the code is the proof of it.
+static bool     g_mpEyeFromPass = false;  // [Hands] PaletteEyeFromPass
+
+// WHAT TO DO WHEN THE JUMP IS TOO SMALL TO READ.
+//
+// The inference decides the eye from a sideways step of about one IPD between
+// presents. When the step is too small to be sure, the current code KEEPS THE
+// PREVIOUS PRESENT'S ANSWER - and that is the one answer guaranteed to be wrong,
+// because the method presents the eyes alternately: pass 1 pushes -1, pass 2
+// pushes +1, and the run measured 148 tags against 147 presents.
+//
+// So "I cannot tell" should alternate, not hold. Measured population: 991 such
+// presents against 7350 clean ones in the flicker run, which is 12% - the right
+// order for an intermittent one-frame jump on both weapons at once.
+//
+// It is NOT unconditionally right. A present that delivered no tag, or a held
+// frame, really does repeat an eye, and there were a few hundred of those. This
+// trades a certain error on the majority for a possible error on the minority,
+// which is why it is a lever and why the run reports the count either way.
+static bool     g_mpEyeAlternate = true;  // [Hands] PaletteEyeAlternate
+static LONG     g_mpEyeFlipped   = 0;     // presents alternated instead of held
+
+// THE FLICKER, COUNTED AS A WINDOW RATHER THAN A TOTAL.
+//
+// A lifetime counter cannot be matched against "it flickered while I faced the
+// door and stopped when I turned away". These record the START and END of every
+// stretch where the eye could not be read cleanly, with the head yaw on the line,
+// so a spoken report lands on a timestamp without the tester timing anything.
+static bool     g_mpFlickOn      = false;
+static double   g_mpFlickStartMs = 0.0;
+static LONG     g_mpFlickCount   = 0;
+static double   g_mpFlickLastMs  = 0.0;
+static float    g_mpFlickYaw0    = 0.0f;
+static int      g_mpFlickWindows = 0;
 static LONG     g_mpTickRan   = 0;      // times the pose tick has run at all
 static LONG     g_mpWorldOk   = 0;      // draws placed through the measured chain
 static LONG     g_mpWorldRefused = 0;   // and draws that refused, with a reason

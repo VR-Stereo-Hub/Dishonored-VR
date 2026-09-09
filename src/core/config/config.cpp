@@ -1269,7 +1269,14 @@ static void LoadConfig()
     // disagreeing with the drawing pass 39% of the time, steadily, on the draws
     // that are inside a pass at all. OFF restores the inference so the two
     // compare directly in one session.
-    g_mpEyeFromPass = IniFloat(ini, "Hands", "PaletteEyeFromPass", 1) != 0.0f;
+    // FALSIFIED and inert: the passes run on the game thread and the palette
+    // draws on the render thread, so 0 of 83,400 draws ever found a pass to read.
+    g_mpEyeFromPass = IniFloat(ini, "Hands", "PaletteEyeFromPass", 0) != 0.0f;
+    // When the eye step is too small to read, ALTERNATE rather than hold the
+    // previous present's answer. The method presents the eyes alternately, so
+    // holding is the one choice guaranteed wrong; 12% of presents took that path
+    // in the flicker run. OFF restores the hold for a direct comparison.
+    g_mpEyeAlternate = IniFloat(ini, "Hands", "PaletteEyeAlternate", 1) != 0.0f;
     // How long a contract may keep refusing after its component disappears
     // before it is retired so the matcher can re-adopt. 90 presents is about a
     // second at 90 Hz - long enough that a one-frame snapshot gap is not a

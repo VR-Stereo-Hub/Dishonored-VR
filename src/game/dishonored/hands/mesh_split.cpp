@@ -2088,11 +2088,59 @@ static bool MpSourceFrame(int cls, const float* pal, UINT count,
 // not enough: the band is bounded on both sides, and anything outside it
 // leaves the eye UNKNOWN rather than guessed. Unknown means no offset, which
 // is the consistent head-centre placement rather than a full IPD of error.
+// One unreadable present. It opens a window on the first, keeps it open while
+// they keep arriving, and closes it after half a second of clean ones - so the
+// log carries a start, an end, a duration and a count instead of a running
+// total that cannot be matched to anything the tester saw.
+//
+// The head yaw goes on both ends because the reported behaviour is
+// DIRECTION-DEPENDENT: it flickered facing one way, stopped when turned away,
+// and returned on turning back. If that is real, the windows will cluster at a
+// yaw, and if it is not, they will not.
+static void MpFlickNote(const char* why)
+{
+    const double now = MaimNowMs();
+    g_mpFlickLastMs = now;
+    ++g_mpFlickCount;
+    if (!g_mpFlickOn) {
+        g_mpFlickOn = true;
+        g_mpFlickStartMs = now;
+        g_mpFlickCount = 1;
+        g_mpFlickYaw0 = g_hmdYaw;
+        ++g_mpFlickWindows;
+        DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
+            "ms/palette/flicker: window %d OPEN at head yaw %+.1f deg - %s. While "
+            "this is open the eye behind the weapon correction is being guessed, "
+            "and a wrong guess is one frame of every weapon displaced by a full "
+            "IPD, mirrored between the eyes.", g_mpFlickWindows, g_mpFlickYaw0, why);
+    }
+}
+
+
+// Closed from the per-present path once the unreadable presents stop.
+static void MpFlickTick(void)
+{
+    if (!g_mpFlickOn) return;
+    const double now = MaimNowMs();
+    if (now - g_mpFlickLastMs < 500.0) return;
+    g_mpFlickOn = false;
+    DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
+        "ms/palette/flicker: window %d CLOSED after %.2f s - %ld unreadable "
+        "present(s), head yaw %+.1f -> %+.1f deg. %ld of them were ALTERNATED "
+        "rather than held (PaletteEyeAlternate=%d). If the flicker stopped when "
+        "this window closed, the eye guess is the mechanism; if it kept going, "
+        "it is not.", g_mpFlickWindows,
+        (g_mpFlickLastMs - g_mpFlickStartMs) / 1000.0, g_mpFlickCount,
+        g_mpFlickYaw0, g_hmdYaw, g_mpEyeFlipped, (int)g_mpEyeAlternate);
+}
+
+
 static void MpEyeForPresent(const MpDrawCtx* c)
 {
     const uint32_t pres = (uint32_t)dvr::frame::count();
     if (pres == g_mpEyePresent) return;          // same Present, decision stands
     g_mpEyePresent = pres;
+    MpFlickTick();               // does the open window end at this present?
 
     const float ipdUU = g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f)
                                   * g_mpDriveGain);
@@ -2109,11 +2157,21 @@ static void MpEyeForPresent(const MpDrawCtx* c)
         g_mpEyeState = (d < 0.0f) ? +1 : -1;
         g_mpEyeToggles++;
     } else if (ad <= 0.45f * ipdUU) {
-        // Same eye as the previous Present - or too small to tell apart.
+        // TOO SMALL TO TELL APART - which is not the same thing as the same eye,
+        // and the difference is the whole bug. Holding the previous answer is
+        // the one choice guaranteed to be wrong when the method alternates, and
+        // it alternates: pass 1 pushes the left tag, pass 2 the right, measured
+        // at 148 tags for 147 presents.
         g_mpEyeSame++;
+        if (g_mpEyeAlternate && g_mpEyeState != 0) {
+            g_mpEyeState = -g_mpEyeState;
+            InterlockedIncrement(&g_mpEyeFlipped);
+        }
+        MpFlickNote("the eye step was too small to read");
     } else {
         g_mpEyeState = 0;                        // head moved too far to judge
         g_mpEyeAmbiguous++;
+        MpFlickNote("the head moved further than an eye step between presents");
     }
     g_mpEyePrevFirst = c->projRight;
 }
