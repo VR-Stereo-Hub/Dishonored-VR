@@ -811,3 +811,9 @@ static LONG g_msMeasAgree = 0, g_msMeasDisagree = 0, g_msMeasNone = 0;   // VR-6
 static int g_mpEyeMeasSign = -1;   // VR-69: [Hands] PaletteEyeMeasSign - the method tags pass 1/2, the palette left/right
 static LONG g_msMeasAgreeEye[2] = {0,0}, g_msMeasDisagreeEye[2] = {0,0}, g_msMeasNoneEye[2] = {0,0};   // VR-69: left/right
 static LONG g_msPubStep1 = 0, g_msPubStepOther = 0, g_msPubRepeat = 0;   // VR-69 build 1: publication staleness
+// VR-69: [Hands] PaletteEyeFromMatrix - take the eye offset from the draw's own
+// ViewProjection instead of deciding which eye the draw is. This is the root of
+// the weapon flickers: the decision is what has been wrong, in three different
+// ways, and the decision does not need to exist.
+static bool g_mpEyeFromMatrix = true;
+static LONG g_mpEyeMeasUsed = 0, g_mpEyeMeasAgree = 0, g_mpEyeMeasDiffer = 0, g_mpEyeMeasRefused = 0;

@@ -1374,6 +1374,10 @@ static void LoadConfig()
     // does not need the stack.
     g_mpEyeFromMeasured = IniFloat(ini, "Hands", "PaletteEyeFromMeasured", 1) != 0.0f;
     g_mpEyeMeasSign = IniFloat(ini, "Hands", "PaletteEyeMeasSign", -1) < 0.0f ? -1 : +1;
+    // VR-69: the ROOT fix. The eye offset is measured from the draw's own
+    // ViewProjection rather than decided from an inferred eye. Every weapon
+    // flicker so far has been that decision being wrong; this removes it.
+    g_mpEyeFromMatrix = IniFloat(ini, "Hands", "PaletteEyeFromMatrix", 1) != 0.0f;
     // When the eye step is too small to read, ALTERNATE rather than hold the
     // previous present's answer. The method presents the eyes alternately, so
     // holding is the one choice guaranteed wrong; 12% of presents took that path

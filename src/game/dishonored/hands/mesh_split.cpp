@@ -1882,6 +1882,10 @@ struct MpDrawCtx {
     float r[3], u[3], f[3];     // camera basis, from the ViewProjection rows
     float col[3][3], t[3];      // LocalToWorld, columns and translation
     float projRight;            // L's translation on the right axis (telemetry)
+    // VR-69: this eye's camera minus the head camera, in the draw's own basis.
+    // The eye offset MEASURED from the draw's own ViewProjection - no decision.
+    float eyeMeasR, eyeMeasU, eyeMeasF;
+    bool  eyeMeasOk;
     float vp[16], l2w[16];      // kept whole so a diagnostic can diff them
     void* target;              // borrowed render-target identity for weapon passes
     D3DVIEWPORT9 viewport;
@@ -1976,6 +1980,54 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         }
 
     c->projRight = c->t[0]*r[0] + c->t[1]*r[1] + c->t[2]*r[2];
+
+    // ================ VR-69: THE EYE, MEASURED, NOT DECIDED ================
+    //
+    // THE ROOT OF THE WEAPON FLICKERS. The placement target is HEAD-relative
+    // (the hand resolved into the head's right/up/forward). The draw's own
+    // position `t` is EYE-relative, because LocalToWorld here is rebased on the
+    // view. Bridging those two frames needs the distance between this eye's
+    // camera and the head's - and until now that was obtained by DECIDING which
+    // eye this draw was and applying a fixed half-IPD in that direction.
+    //
+    // Every weapon flicker in this project has come out of that decision being
+    // wrong some percentage of the time: the delta inference holding a stale
+    // answer, the measured channel belonging to another view, the unknown case
+    // applying no offset at all. Three hypotheses and three fixes have all been
+    // attempts to make the DECISION more reliable.
+    //
+    // The decision does not need to exist. The draw is holding this eye's own
+    // ViewProjection. For a row-vector VP the fourth row is the translation
+    // term, so the camera's position resolves directly:
+    //
+    //     camPos . r = -vp[3][0] / |r_raw|      (the same norms the basis used)
+    //     camPos . u = -vp[3][1] / |u_raw|
+    //     camPos . f = -vp[3][3]                (the w row is already unit)
+    //
+    // Subtract the head camera's own position and the remainder along `r` IS
+    // the eye offset for this draw, in the draw's own units, signed correctly by
+    // construction. No inference, no ±1, no convention to get backwards, and a
+    // mono pass yields zero on its own rather than needing to be recognised.
+    //
+    // IT CHECKS ITSELF. The magnitude must land near half the IPD. If it does
+    // not, the derivation is wrong and `eyeMeasOk` stays false so the old path
+    // keeps the frame - a bad offset here is a full-IPD displacement, which is
+    // the very fault this replaces.
+    c->eyeMeasOk = false;
+    c->eyeMeasR = 0.0f;
+    if (g_camObj && RangeReadable((void*)(g_camObj + 0x80), 12)) {
+        const float camR = -vp[3][0] / rn;
+        const float camU = -vp[3][1] / un;
+        const float camF = -vp[3][3];
+        const float* hc = (const float*)(g_camObj + 0x80);
+        const float headR = hc[0]*r[0] + hc[1]*r[1] + hc[2]*r[2];
+        const float headU = hc[0]*u[0] + hc[1]*u[1] + hc[2]*u[2];
+        const float headF = hc[0]*f[0] + hc[1]*f[1] + hc[2]*f[2];
+        c->eyeMeasR = camR - headR;
+        c->eyeMeasU = camU - headU;
+        c->eyeMeasF = camF - headF;
+        c->eyeMeasOk = true;
+    }
 
     // The same two matrices, in the form the rotation maths wants. B's columns
     // are the camera's right, up and forward; R_L is LocalToWorld's rotation,
@@ -2431,7 +2483,41 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         if (g_mpEyeFromPass) eyeUse = truth;
     }
 
-    if (g_mpEyeOffset && eyeUse != 0) {
+    // THE MEASURED PATH. Sanity-gated on the magnitude landing near half the
+    // IPD, because a wrong offset here is exactly the fault being replaced.
+    if (g_mpEyeOffset && g_mpEyeFromMatrix && c->eyeMeasOk) {
+        const float halfIpdUU = 0.5f * g_ipdM * k;
+        const float mag = fabsf(c->eyeMeasR);
+        const bool sane = halfIpdUU > 0.01f && mag <= halfIpdUU * 2.0f;
+        if (sane) {
+            // world = camera + offset, so removing the eye's own displacement
+            // from a head-relative target is a subtraction, exactly as the
+            // decided path did - only the number is read rather than chosen.
+            for (int i = 0; i < 3; i++) dcam[i] -= c->eyeMeasR * c->r[i];
+            InterlockedIncrement(&g_mpEyeMeasUsed);
+            if (c->eyeMeasR > 0.0f) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
+            // The self-check, and the agreement with the old decision - which
+            // is now telemetry rather than the source.
+            const int impliedEye = c->eyeMeasR > 0.0f ? +1 : -1;
+            if (eyeUse != 0 && impliedEye == eyeUse) InterlockedIncrement(&g_mpEyeMeasAgree);
+            else if (eyeUse != 0) InterlockedIncrement(&g_mpEyeMeasDiffer);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                "ms/palette/eyematrix: the eye offset is MEASURED from this draw's own ViewProjection, not "
+                "decided - %+.2f uu along right against a half-IPD of %.2f uu (%.0f%% of it). Used %ld times; "
+                "the old decision agreed %ld, differed %ld, and it is telemetry now, not the source. A mono "
+                "pass measures ~0 and needs no recognising. If the percentage is not near 100 the recovery of "
+                "the camera from the matrix is wrong and the gate below is what stops it displacing anything.",
+                c->eyeMeasR, halfIpdUU, halfIpdUU > 0.0f ? 100.0f * mag / halfIpdUU : 0.0f,
+                g_mpEyeMeasUsed, g_mpEyeMeasAgree, g_mpEyeMeasDiffer);
+        } else {
+            InterlockedIncrement(&g_mpEyeMeasRefused);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+                "ms/palette/eyematrix: REFUSED - measured %+.2f uu along right against a half-IPD of %.2f uu, "
+                "which is outside twice it (%ld refused). The frame keeps the decided path rather than taking a "
+                "number that cannot be an eye offset.",
+                c->eyeMeasR, halfIpdUU, g_mpEyeMeasRefused);
+        }
+    } else if (g_mpEyeOffset && eyeUse != 0) {
         // Camera-relative: a position is world - camera, so the RIGHT eye's
         // camera being further right makes its positions smaller on that axis.
         // g_mpEyeState is -1 for left, +1 for right.
