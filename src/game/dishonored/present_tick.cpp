@@ -102,13 +102,16 @@ static void DvrHeadViewCheck()
 
     const double now = dvr::clock::now_ms();
     float speed = 0.0f;
-    if (g_hvPrevMs > 0.0 && now > g_hvPrevMs) {
+    // A max over a window is destroyed by one tiny dt, and this column reported
+    // 300+ deg/s on half its lines - which no neck does. Ignore intervals under
+    // 2 ms rather than divide by them.
+    if (g_hvPrevMs > 0.0 && now - g_hvPrevMs >= 2.0) {
         float dy = g_devPoseYaw - g_hvPrevYaw;
         while (dy > 3.14159265f) dy -= 6.28318531f;
         while (dy < -3.14159265f) dy += 6.28318531f;
         speed = (float)(fabs((double)dy) * 57.29578 / ((now - g_hvPrevMs) / 1000.0));
     }
-    g_hvPrevMs = now; g_hvPrevYaw = g_devPoseYaw;
+    if (now - g_hvPrevMs >= 2.0 || g_hvPrevMs == 0.0) { g_hvPrevMs = now; g_hvPrevYaw = g_devPoseYaw; }
 
     ++g_hvSamples;
     if (genGap != 0) ++g_hvGenGaps;

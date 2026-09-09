@@ -5,6 +5,58 @@ revises this draft against the original log and active pose/weapon paths.
 Its conclusions and test order supersede the proposals below; this draft is
 retained as review input.
 
+## RESULT: the head/view candidate is DEAD as measured, and the target is sharper (2026-09-09)
+
+The motion matrix came back with the world judder's signature - head rotation
+shows it, a stick turn does not, spacewarp off - so the instrument was built and
+run. Over 100 reported seconds of head turning:
+
+* **Generation gap 0 on EVERY frame.** `0 of N frames had a generation gap`, in
+  all 100 lines. The hand normalisation and the camera write always consumed the
+  same locate.
+* **87 of 100 windows had a worst residual under 0.1 deg.** Thirteen had more,
+  peaking at 9.6 deg, and those do not track head speed.
+
+**The candidate as stated is dead, and the instrument was nearly circular
+anyway.** Both values it compared - the head stamped at the pose consume and the
+head the camera write snapshotted - derive from `g_hmdYaw` around the same
+consume. It could only ever have caught a script-lane/present-lane split, and
+there is none. That is a real negative for that split and nothing more.
+
+### What it sharpens
+
+`MpDriveTick` normalises the hand against the **fresh** head. The draw plants it
+using `B`, the camera basis read from **the render's own shader constants** -
+which is the view the engine ACTUALLY rendered, and the whole reason `Lag=2`
+exists is that those pixels are about two generations behind the fresh pose.
+
+**So the mismatch is fresh-versus-rendered, and this instrument compared
+fresh-versus-fresh.** The pair that matters is `B` against the head sample, and
+it was never measured.
+
+This also predicts the symptom's history better than the retracted version did:
+`Lag=2` did not enlarge the hand's error at all - the hand error is `B` versus
+fresh regardless of what the layer is tagged with. It **revealed** it, by taking
+the world's judder away. Which matches the report that the weapon judder "has
+probably been there".
+
+### Instrument defect found in its own first run
+
+The head-speed column read over 300 deg/s in 51 of 100 lines, which no neck
+does. A max over a window is destroyed by one tiny interval; intervals under
+2 ms are now ignored instead of divided by. **The speed figures in the run above
+are not usable** - the residual and generation columns are.
+
+### The next measurement, not yet built
+
+Compare `B` against the history of the head sample and find which past
+generation it corresponds to - the same technique that settled VR-65. It must
+compare **deltas between frames**, not absolute orientations, because `B` is in
+the game's space and the head sample is in XR space, and differencing those
+directly is what produced two already-retracted numbers in this project.
+
+---
+
 ## RETRACTIONS (2026-09-09, after review 2)
 
 **Four claims below are withdrawn. All four were checked against the log and the
