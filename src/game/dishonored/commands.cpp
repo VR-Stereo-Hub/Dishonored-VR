@@ -104,6 +104,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 #endif
 #if DVR_WITH_LEGACY
     if (!strcmp(cmd, "pcap")) return PcCommand(args);
+    if (!strcmp(cmd, "rfl")) return RflCommand(args);
 #endif
     if (!strcmp(cmd, "blink")) {
         if (!strcmp(args, "probe")) { BlinkProbeArm(); return true; }

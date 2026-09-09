@@ -24,6 +24,14 @@ static const uintptr_t kDataEnd    = kDataStart + 0x21B3BC;
 // Native row-vector FMatrix: basis rows followed by translation row.
 static const uint32_t kWaComponentLocalToWorld = 0x60;
 static const uint32_t kWaComponentTranslation = 0x90;
+// UE3 reflection: every UProperty is itself a UObject whose Outer is the class
+// that declares it, which is what FindPropOffset uses. These two were derived by
+// the 38.x skelcontrol property dump (the Offset column identifies itself: small,
+// distinct, ascending in declaration order and below the class instance size)
+// and have been in production use since. Promoted here from inline literals in
+// uobject.cpp so one place owns them; ENGINE_NOTES records the derivation.
+static const uint32_t kUPropOffset  = 0x5c;   // UProperty::Offset
+static const uint32_t kUBoolBitMask = 0x6c;   // UBoolProperty::BitMask
 static const uintptr_t kGObjHdr = 0x1423630; // TArray<UObject*> {Data,Num,Max}
 static const uintptr_t kGNamesData = 0x1435674;
 static const uintptr_t kGNamesNum  = 0x1435678;

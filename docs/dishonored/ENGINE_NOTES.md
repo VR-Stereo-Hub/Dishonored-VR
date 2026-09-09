@@ -3714,3 +3714,193 @@ Any freshness test built on it therefore starves the held weapons rather than
 catching world instances. **A reference has to be maintained on the path that
 uses it.** The engine-read component translation in the snapshot is the sound
 alternative: it is refreshed every 4 ms whether or not the matcher succeeded.
+
+## EQUIPMENT LIVES IN A TArray, WHICH THE COMPONENT WALK CANNOT TRAVERSE (VR-60, 2026-09-08)
+
+Source: the decompiled scripts. Class and member names only; no offsets, because
+offsets are derived against the running build.
+
+```
+DishonoredPlayerPawn.m_pInventory : DishonoredInventory
+DishonoredInventory extends Object
+    m_Slots : array<PawnInventorySlot>
+struct native PawnInventorySlot
+    m_pItem         : DishonoredInventoryItem
+    m_pRequiredType : Class<DishonoredInventoryItem>
+    m_RequiredUsage : EDisEquipUsage        // None | Primary | Secondary
+```
+
+**`FpCollect` cannot reach any of it.** The walk reads every 4-byte field as a
+possible `UObject*`; a `TArray` field's first four bytes are a pointer to a heap
+buffer of elements, so `LooksLikeObj` rejects it and the walk stops. Every
+inventory item is in `m_Slots`, which is exactly such an array.
+
+Measured consequence over a full run: all 19 published component snapshots were
+identical (six components) and **the pistol never appeared at all, including
+while it was the weapon in hand.** What the snapshot contains is whatever happens
+to be reachable by direct pointer from the pawn, and it cannot report what it
+missed because it never knew it was there.
+
+`m_RequiredUsage` on the slot is the per-hand channel, so **walking that one array
+answers "which item is in which hand" directly** - the question `WaHandFor`
+currently answers with an assumption baked into asset-name substrings.
+
+### The enums are the flags, and they already exist
+
+```
+EDisEquipUsage         None | Primary | Secondary            (DisGlobalEnums)
+EItemSocket            None | Equipped | Holstered | ...     (DisGlobalEnums)
+eDisPlayerStance       NotSet | NotReady | Ready | Blocking  (DishonoredPlayerPawn)
+eDisPlayerActionUsage  Fullbody | Upperbody | LeftHand       (DishonoredPlayerPawn)
+```
+
+`EItemSocket` is the equipped-versus-holstered distinction that VR-59 attempt 1
+needed and could not obtain from component presence. `m_PlayerStance` is indexed
+BY `EDisEquipUsage`, so stance is already per-hand.
+
+**`eDisPlayerActionUsage_Fullbody` is the takedown and choke discriminator**, and
+it is the signal the arm-unhiding work needs in order to hand animation control
+back to the game during those sequences.
+
+The route to reading all of it reliably is a UE3 property resolver keyed on FName;
+`docs/dishonored/GAMEPLAY_STATE.md` is the plan and the rules for it.
+
+
+## THE PROPERTY RESOLVER ALREADY EXISTED (VR-61, 2026-09-08)
+
+Recorded as a research failure, because the mistake is more useful than the fix.
+A session went to the BioShock trilogy mod for a technique to resolve properties
+by name **before grepping this repo for prior art**. This repo has had one since
+38.x and it is load-bearing in four modules.
+
+`FindPropOffset(className, propName)` and `FindBoolProp` in `ue3/uobject.cpp`.
+`arm_follow.cpp` resolves twelve properties through them; `crouch.cpp`,
+`block_state.cpp` and `skelcontrol.cpp` also use them.
+
+**They need no chain offsets.** Every `UProperty` is itself a `UObject` whose
+`Outer` is the class that declares it, so a `GObjects` scan for (name, outer
+name, class name containing `Property`) finds the property object and its own
+recorded offset is the answer. Nothing to derive, no candidate layout to get
+wrong. That is more robust than walking `Children` / `Next` / `SuperStruct`,
+which is what the trilogy mod had to do on its own UE3 build.
+
+| Offset | Slot | Derivation |
+|---|---|---|
+| `kUPropOffset` 0x5c | `UProperty::Offset` | the 38.x skelcontrol property dump: the Offset column identifies itself as small, distinct, ascending in declaration order and below the class instance size |
+| `kUBoolBitMask` 0x6c | `UBoolProperty::BitMask` | same dump |
+
+Both were inline literals in `uobject.cpp` and are now in `patterns.h`, where
+this repo requires engine offsets to live, so one place owns them.
+
+### Two traps that are properties of the lookup, not of a build
+
+**`FindPropOffset` matches on the OUTER's name, so it needs the DECLARING class.**
+A property inherited from a base class does not resolve under a subclass's name,
+and for a struct member the outer is the ScriptStruct rather than the class
+holding it (`arm_follow.cpp` documents this for `DishonoredVTSettings`). Offer
+the candidate declaring classes and log which one answered.
+
+**Nothing may resolve at init.** Our DLL loads from `DllMain` during the exe's
+import resolution, before the exe's CRT static initializers, so `GNames` is empty
+then. The gate every caller uses is `NameFromIndex(0)` reading `None`.
+
+### The cost, which is why a cache is not optional
+
+Each lookup is a full `GObjects` scan. The trilogy mod measured a name scan on a
+poll cadence stuttering that entire game at 2-3 Hz. Resolve once, cache for the
+process lifetime (offsets are stable per boot), and cache the MISSES too, since
+a miss costs the same full scan.
+
+
+## THE PISTOL DETACH ANGLE IS A RADIUS, CONVERTED (VR-60, 2026-09-08)
+
+The pistol stays attached within about 45 degrees either way of the direction it
+was equipped facing, and re-equipping resets that reference to wherever the
+player is pointing. That reads as a rotation gate and there is no rotation gate
+in the code. It is `AttachPassRadius` (60 uu), converted into an angle by
+geometry.
+
+A held weapon orbits the head at a small radius, so turning the view moves it
+along a chord of `2 r sin(theta/2)`. Setting that equal to 60 uu at 45 degrees
+gives **r of about 78 uu** - squarely inside the view-model band the census
+measured (view-model draws sit within about 170 uu of the camera). Re-equipping
+resets it because that re-captures the reference position.
+
+Confirmed by the same run:
+
+```
+wa: instance verify - held 146073, elsewhere 35029, unverifiable 0
+  reference: component 179401, recent 1701
+  worst offset accepted 60.0 uu, farthest refused 3014.2 uu
+```
+
+The worst accepted offset sits exactly ON the radius, which is what a threshold
+being reached by drift rather than by a genuine instance difference looks like.
+The farthest refused, 3014 uu, is a real world instance - three orders of
+magnitude away, which is the separation the gate was designed for.
+
+**The verification is correct and the identity it is given is wrong.** The pistol
+has no member candidate of its own, so it reaches a contract only through the
+buffer lookup and is then checked against ANOTHER asset's component - one fixed
+in the world while the pistol orbits the head. Any threshold would produce some
+angle; the defect is the identity, which is what VR-60 is for.
+
+This is also a worked example of a rule this project keeps re-learning: **log the
+derived number, not just the inputs.** The angle was a mystery as a perception and
+arithmetic as soon as the offsets either side of the radius were on the line.
+
+
+## EQUIPMENT: THE ITEM ANSWERS FOR ITSELF (VR-61, 2026-09-08)
+
+`DishonoredInventory.m_Slots` at `+0x0038` (resolved by name) is a
+`TArray<PawnInventorySlot>`, stride 12 validated against the data. Read live on
+a save with all four weapons carried:
+
+```
+slot[0] usage 1  DishonoredItemEmpty
+slot[1] usage 2  DishonoredItemEmpty
+slot[2] usage 0  DishonoredWepSword
+slot[3] usage 0  DisItemPowers
+slot[4] usage 0  DisWepCrossbow
+slot[5] usage 0  DishonoredWepPistol
+slot[6..8] usage 0  empty
+```
+
+**The pistol IS here**, along with every other weapon. It is absent from the
+component snapshot only because that walk cannot traverse a TArray. So the roster
+is fully readable and VR-60 has its data.
+
+### The slot does NOT say what is equipped
+
+`PawnInventorySlot.m_RequiredUsage` is a CONSTRAINT on what may occupy the slot,
+not what is in the hand. The dump says so plainly: slot 0 requires Primary and
+slot 1 requires Secondary, both holding a `DishonoredItemEmpty` placeholder, while
+the real weapons sit in unconstrained slots (usage 0). Reading the slot for equip
+state reports `DishonoredItemEmpty` in both hands while the player is visibly
+holding a sword.
+
+The engine keeps a slot per usage whether or not anything occupies it, so an
+Empty row is legitimate data and simply not the answer.
+
+### `DishonoredInventoryItem` carries both flags
+
+```
+m_EquipUsage : EDisEquipUsage   None | Primary | Secondary
+m_CurSocket  : EItemSocket      None | Equipped | Holstered | Give
+```
+
+The item says which hand it belongs to and whether it is IN that hand or on the
+body. **That is the equipped-versus-holstered distinction VR-59 attempt 1 needed
+and could not obtain from component presence**, and it is a per-object fact
+rather than an inference from an index or a position.
+
+`EItemSocket`: `ItemSocket_None` 0, `ItemSocket_Equipped` 1,
+`ItemSocket_Holstered` 2, `ItemSocket_Give` 3 (`DisGlobalEnums`).
+
+### Why this matters beyond the pistol
+
+The equipped item is the OWNER of the component the weapon attachment should be
+verifying a draw against. Today a draw is checked against whatever component its
+contract happens to carry, which for the pistol is another weapon entirely - the
+cause of its 45-degree detach cone. Reading the equipped item per hand replaces
+that with the right component, and it generalises to anything held.

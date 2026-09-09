@@ -91,6 +91,16 @@ static const char* RealName(uint32_t idx);
 static void HexDumpObject(const char* label, uint8_t* o, size_t bytes);
 static void RunUE3Probe();
 static const char* ObjClassName(uint8_t* o);
+
+// VR-61: gameplay state read by name (ue3/reflect.cpp). A thin layer over
+// FindPropOffset - a cache and a TArray reader. Read-only, script lane.
+static bool RflNamesReady(void);
+static uint32_t RflOffsetOf(const char* cls, const char* prop);
+static bool RflArrayAt(uint8_t* obj, uint32_t off, uint8_t** outData,
+                       int32_t* outNum);
+static void RflTick(void);
+static void RflStateTick(void);
+static bool RflCommand(const char* args);
 static inline bool CamAlive();
 static bool CamStillValid();
 static bool FindLiveCamera();
