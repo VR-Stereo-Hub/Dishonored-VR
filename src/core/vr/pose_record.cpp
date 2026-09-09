@@ -62,11 +62,12 @@ uint32_t g_renderBlocks = 0;
 // once, never assumed: 0 not yet decided, 1 row-vector (v * M), 2 column-vector
 // (M * v), -1 neither validated (a real finding, logged as one).
 int g_vpConv = 0;
+int g_vpGood[2] = { -1, -1 };   // probe hits per convention, for the log
 
 // ---- the controls ----------------------------------------------------------
 uint32_t g_ctrlStart = 1500, g_ctrlLen = 120;
 float    g_ctrlYawDeg = 6.0f;
-uint32_t g_ctrlPass = 0, g_ctrlFail = 0;
+uint32_t g_ctrlPass = 0, g_ctrlFail = 0, g_ctrlChecks = 0;
 int      g_ctrlDone[CTRL_COUNT] = {};
 
 Record   g_lastCopy = {};
@@ -220,10 +221,14 @@ bool render_yaw_deg(float* outDeg, uint32_t* outSerial)
                 float x, w;
                 if (project(p, conv, &x, &w)) ++good;
             }
-            // A perspective camera sees rather less than half a full ring, so a
-            // convention that validates roughly a third of the directions is the
-            // right one and the wrong one validates almost none.
-            if (good >= 6) {
+            g_vpGood[conv - 1] = good;
+            // A perspective camera sees rather LESS than half a ring. The first
+            // run validated 22 of 36 under the wrong matrix, which is more than
+            // a real camera can see and was the first sign the block was not a
+            // world view-projection. So the band is bounded at both ends and the
+            // count is always printed: too few means nothing projected, too many
+            // means this is not a perspective view of the world.
+            if (good >= 5 && good <= 20) {
                 g_vpConv = conv;
                 DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
                     "pose/render: the view-projection block multiplies as %s - "
@@ -236,6 +241,11 @@ bool render_yaw_deg(float* outDeg, uint32_t* outSerial)
         }
         if (g_vpConv == 0) {
             g_vpConv = -1;
+            DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
+                "pose/render: the probe ring validated %d and %d of 36 directions "
+                "under the two conventions. Outside the 5..20 band a perspective "
+                "world view would give, so this block is not one.",
+                g_vpGood[0], g_vpGood[1]);
             DVR_LOG(DVR_CAT, ::dvr::log::Level::Warn,
                 "pose/render: NEITHER multiplication convention projected the "
                 "probe ring usably, so the block at these registers is not a "
@@ -301,8 +311,14 @@ void check_controls(const Record& real, float observedYawDeg)
     // reached submission, so an armed control cannot move the picture - which is
     // the difference from the first version, and the reason there is no longer
     // any wobble for the tester to see or to misread as a fault.
+    // PHASED ON CHECKS PERFORMED, not on records opened. The first version
+    // counted opens, and opens ran far ahead of the submission side that calls
+    // this - so by the time the first check happened the whole window had gone
+    // by and not one control ran. The run showed it: `controls passed 0 FAILED
+    // 0` beside 27,284 records. A control that never fires is worse than none,
+    // because the zero reads like a pass.
     if (!g_ctrlLen) return;
-    const uint32_t n = g_opened;
+    const uint32_t n = ++g_ctrlChecks;
     if (n < g_ctrlStart) return;
     const uint32_t phase = (n - g_ctrlStart) / g_ctrlLen;
     if (phase >= CTRL_COUNT - 1) return;
@@ -407,11 +423,12 @@ void log_beat()
         "pose/rec: opened %u over %u pair(s) | copies %u, EXPIRED %u (the ring "
         "wrapped before submission asked - the pipeline is deeper than %u views), "
         "MISSING %u (an id nobody set) | camera publications %u by writer %d, "
-        "render blocks %u | controls passed %u FAILED %u | last: rec %u pair %u "
+        "render blocks %u | controls passed %u FAILED %u (checks %u) | last: rec %u pair %u "
         "eye %+d, camera yaw %.2f pitch %.2f roll %.2f deg written %.1f ms before "
         "it was read%s",
         s.opened, s.pairs, s.copies, s.expired, (unsigned)kRing, s.missing,
         s.camPublished, last.cam.writer, s.renderBlocks, s.ctrlPass, s.ctrlFail,
+        g_ctrlChecks,
         last.id, last.pairId, last.eye,
         last.cam.yawDeg, last.cam.pitchDeg, last.cam.rollDeg,
         dvr::clock::now_ms() - last.cam.writeMs,

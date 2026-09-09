@@ -1279,8 +1279,8 @@ static void LoadConfig()
     // return to zero after. Without it, a join that reports zero has not been
     // shown capable of reporting anything else. PoseSelfTestRecords=0 disables.
     dvr::pose::configure_controls(
-        (uint32_t)IniFloat(ini, "Stereo", "PoseControlsAfter", 1500),
-        (uint32_t)IniFloat(ini, "Stereo", "PoseControlsEach", 120),
+        (uint32_t)IniFloat(ini, "Stereo", "PoseControlsAfter", 60),
+        (uint32_t)IniFloat(ini, "Stereo", "PoseControlsEach", 30),
         IniFloat(ini, "Stereo", "PoseControlsDeg", 6.0f));
     // How many extra collects a weapon swap is worth, and how far apart. The
     // equipment event and the new weapon's child components do not have to

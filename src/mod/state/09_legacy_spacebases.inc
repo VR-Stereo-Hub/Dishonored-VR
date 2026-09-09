@@ -27,6 +27,10 @@ static float  g_camPosC5[3] = {0, 0, 0};
 // beside half of the previous one.
 static float g_vpRows[16] = {};
 static unsigned g_vpRowSeen = 0;
+// How many c0..c3 uploads happened, against how many were published as a world
+// view-projection. The ratio is the ambiguity: 33 to 1 in the first run, which
+// is what made "the last block seen" the wrong matrix.
+static unsigned g_vpUploads = 0;
 static bool   g_haveC5 = false;
 static volatile LONG g_brtHits = 0;
 
