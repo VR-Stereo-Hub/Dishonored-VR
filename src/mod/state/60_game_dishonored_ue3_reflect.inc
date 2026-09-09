@@ -1,124 +1,88 @@
-// ---- VR-61: THE UE3 PROPERTY RESOLVER ---------------------------------------
+// ---- VR-61: GAMEPLAY STATE, READ BY NAME ------------------------------------
 //
-// Resolve a property BY NAME to its byte offset on this build, by walking the
-// UClass property chain. The point is stated in GAMEPLAY_STATE.md: almost every
-// hard bug in this mod so far came from acting on a guess about game state
-// because there was no way to ask. This is the way to ask.
+// The argument is in docs/dishonored/GAMEPLAY_STATE.md: almost every hard bug in
+// this mod came from acting on a guess about game state because there was no way
+// to ask. This is the way to ask.
 //
-// WHAT IS ALREADY KNOWN, AND WHY THAT MAKES THIS CHEAP. UObject's own slots are
-// derived on this build and live in patterns.h: kOuterOff 0x24, kNameOff 0x28,
-// kClassOff 0x30. BioShock Infinite's equivalent work had to derive those first
-// and called it the hard part. Here the anchor is already in hand, so only four
-// slots are unknown: UField::Next, UStruct::SuperStruct, UStruct::Children and
-// UProperty::Offset.
+// THIS REPO ALREADY HAD THE RESOLVER, and the first version of this module
+// reinvented it. `FindPropOffset(className, propName)` and `FindBoolProp` in
+// ue3/uobject.cpp have resolved properties by name since 38.x and are used by
+// arm_follow, crouch, block_state and skelcontrol - twelve properties in
+// arm_follow alone. They need NO chain offsets: every UProperty is itself a
+// UObject whose Outer is the class that declares it, so a scan of GObjects for
+// (name, outer name, class contains "Property") finds it and its own recorded
+// offset is the answer.
 //
-// THE ORACLE. Two component offsets on this build are measured and in use every
-// frame - kWaComponentLocalToWorld 0x60 and kWaComponentTranslation 0x90 - and
-// UE3 names those properties `LocalToWorld` and `Translation` on
-// UPrimitiveComponent. So a candidate layout is accepted ONLY if the chain it
-// produces resolves those two names to those two offsets. That is a
-// self-validating search: it cannot quietly settle on a wrong layout, because a
-// wrong layout does not reproduce an answer we already know.
+// That is a better foundation than walking Children/Next/SuperStruct, because it
+// derives nothing: there is no candidate layout to get wrong and no search to
+// validate. So this module adds only what was genuinely missing, and the two
+// things it adds are the two the existing helper lacks.
 //
-// The alternative was brute force plus judgement, and this project has a rule
-// about instruments that cannot fail their own hypothesis.
+// WHAT IS NEW HERE, AND WHY EACH ONE IS NEEDED:
 //
-// TRAPS, all of them recorded by the BioShock trilogy mod's reflect.cpp and its
-// ENGINE_NOTES, and all of them cost that project sessions:
+// 1. A CACHE. FindPropOffset is a full GObjects scan of hundreds of thousands of
+//    entries. Every existing caller resolves once into a global by hand, which
+//    works but has to be re-done correctly each time. The BioShock trilogy mod
+//    measured the cost of getting it wrong: a name scan on a poll cadence
+//    stuttered that whole game at 2-3 Hz, and its rule is "never on a cadence".
+//    A cache makes the safe thing the default instead of a convention.
 //
-//   * NEVER INIT-DRIVEN. Our DLL loads from DllMain during the exe's import
-//     resolution, BEFORE the exe's CRT static initializers, so GNames is empty
-//     at init time. Deriving at startup would fail every boot and look like a
-//     broken instrument. This derives lazily, on first use, on the script lane.
-//   * ObjectArchetype is class-classed and SHARED between objects, which is what
-//     falsified it as a chain link there: two nodes cannot share a Next.
-//   * A hash-next slot walks to unrelated hash neighbours and looks plausible.
-//   * A leaf class may declare only a handful of properties, so the walk MUST
-//     follow the super chain or it will report a class as having almost nothing.
-//   * A full name-pool scan is hundreds of milliseconds. Doing one per poll
-//     stuttered that game at 2-3 Hz. Here every resolve is cached and the walk
-//     is one-shot per (class, name) pair - never on a cadence.
+// 2. A TArray READER. This is the capability VR-60 actually needs. Every
+//    inventory item in this game lives in DishonoredInventory.m_Slots, a
+//    TArray<PawnInventorySlot>, and FpCollect cannot traverse it: the walk reads
+//    each 4-byte field as a UObject pointer, and a TArray field's first four
+//    bytes are a heap data pointer. That is why the pistol never appears in a
+//    component snapshot however long the run.
 //
-// Numbers are NOT carried across from that project. Its slot values informed the
-// SHAPE of the search window and nothing else; this repo's rule against copying
-// a number between games applies in full, and the oracle is what decides.
+// No new engine offsets are derived and none are guessed. The two UProperty
+// offsets this depends on are the ones the existing code already established,
+// now in patterns.h where this repo requires engine offsets to live.
 
-// The derived layout. -1 means not derived; the whole module refuses while any
-// required slot is -1, and says which.
-struct RflLayout {
-    int next;        // UField::Next
-    int super;       // UStruct::SuperStruct
-    int children;    // UStruct::Children
-    int propOffset;  // UProperty::Offset
-    bool ok;
+// A property offset, memoised. Keyed on the DECLARING class name, which is what
+// FindPropOffset matches on - for a struct member that is the ScriptStruct
+// itself, a trap arm_follow.cpp already documents.
+struct RflProp {
+    char     cls[56];
+    char     prop[56];
+    uint32_t off;      // 0 = looked up and genuinely not found
+    bool     done;
 };
-static RflLayout g_rfl = { -1, -1, -1, -1, false };
+#define RFL_PROP_MAX 48
+static RflProp g_rflProp[RFL_PROP_MAX];
+static int     g_rflPropN = 0;
+static LONG    g_rflHit   = 0;   // answered from cache
+static LONG    g_rflScan  = 0;   // full GObjects scans actually performed
+static LONG    g_rflMiss  = 0;   // scans that found nothing
 
-// Derivation bookkeeping, so a refusal can say what it tried.
-static bool  g_rflTried      = false;  // a derivation attempt has completed
-static int   g_rflCandidates = 0;      // layouts walked
-static int   g_rflRejected   = 0;      // layouts that walked but failed the oracle
-static char  g_rflWhy[192]   = "not derived yet (derives lazily on first use, "
-                               "never at init - GNames is empty in DllMain)";
-static void* g_rflOracleObj  = NULL;   // the component the oracle was proved on
-static char  g_rflOracleCls[64] = "";
-
-// The oracle's two answers, read from patterns.h rather than repeated here.
-static const uint32_t kRflOracleL2W   = kWaComponentLocalToWorld;  // 0x60
-static const uint32_t kRflOracleTrans = kWaComponentTranslation;   // 0x90
-
-// Search windows. Deliberately generous and cheap: every walk bails on the
-// first unreadable pointer, and the oracle rejects everything that is not the
-// answer, so a wide window costs time once and buys not having to guess.
-static const int kRflMinOff = 0x28;   // at or after UObject::Name
-static const int kRflMaxOff = 0x9C;
-static const int kRflStep   = 4;
-
-// A resolve cache. Indices and offsets are stable for the process lifetime, and
-// the walk is far too expensive to repeat.
-struct RflCacheEntry {
-    void*    cls;
-    char     name[48];
-    uint32_t off;
-    uint32_t mask;      // bool properties only, 0 otherwise
-    bool     found;
+// ---- the state snapshot -----------------------------------------------------
+//
+// Read on the script lane and published for anyone who wants it. It carries its
+// own freshness, because a stale flag consumed as current is the exact failure
+// that cost VR-59 two builds (GAMEPLAY_STATE rule 6).
+//
+// EDisEquipUsage: 0 None, 1 Primary, 2 Secondary.
+struct RflState {
+    char     equip[3][64];   // item class and name, by equip usage
+    int      slots;          // elements in m_Slots
+    int      usable;         // slots that yielded a readable item
+    double   readMs;         // when this was last read
+    uint32_t gen;
+    bool     ok;
 };
-#define RFL_CACHE_MAX 64
-static RflCacheEntry g_rflCache[RFL_CACHE_MAX];
-static int           g_rflCacheN = 0;
-static LONG          g_rflCacheHit  = 0;
-static LONG          g_rflCacheMiss = 0;
-static LONG          g_rflWalks     = 0;   // full chain walks performed
-static LONG          g_rflRefused   = 0;   // resolves that found nothing
+static RflState g_rflState;
+static char     g_rflEquipPrev[3][64] = {};
+static bool     g_rflStateOn = true;      // [Hands] StateFlags
+static double   g_rflStateMs = 0.0;
+static char     g_rflWhy[224] = "not attempted yet";
+static LONG     g_rflReads = 0;
 
-// How deep a super chain may go before we call it a cycle. UE3 hierarchies are
-// shallow; a longer one means a bad link, not a deep class.
-static const int kRflMaxSuper = 24;
-// How many fields one class may declare before we call the chain broken. A wrong
-// Next slot produces an endless walk through unrelated memory.
-static const int kRflMaxFields = 4096;
-// During the SEARCH a walk is capped far shorter. A wrong Next produces an
-// endless plausible chain through unrelated memory, and the search pays that
-// cost thousands of times rather than once.
-static const int kRflSearchFields = 256;
-
-
-// ---- THE FIRST CONSUMER: equipment, per hand --------------------------------
-//
-// This exists to make the resolver FALSIFIABLE. A resolver that derives a layout
-// and reads nothing has proved only that it did not crash. Reading the inventory
-// is the one thing the component walk provably cannot do (it cannot traverse a
-// TArray, VR-60), so if this produces the equipped item per hand then the
-// resolver has done something the previous instrument could not, and if it
-// refuses it says which step failed with the numbers.
-//
-// Logs CHANGES only. The same equipment every tick earns nothing.
-static bool  g_rflStateOn   = true;    // [Hands] StateFlags
-static double g_rflStateMs  = 0.0;
-static int   g_rflSlotStride = 12;     // PawnInventorySlot: item, type, usage
-static char  g_rflEquip[3][64] = {};   // by EDisEquipUsage: None/Primary/Secondary
-static char  g_rflEquipPrev[3][64] = {};
-static int   g_rflSlotsSeen = 0;
-static bool  g_rflStateOk   = false;
-static char  g_rflStateWhy[192] = "not attempted yet";
-static LONG  g_rflStateReads = 0;
+// PawnInventorySlot is { DishonoredInventoryItem* m_pItem; Class* m_pRequiredType;
+// EDisEquipUsage m_RequiredUsage; } - two pointers and a byte, padded. The STRIDE
+// is the one number in this path that reflection cannot answer, because element
+// layout is not a property. So it is VALIDATED rather than trusted: a candidate
+// is accepted only if it yields readable UObject item pointers, and if none does
+// the log says the stride is wrong rather than that the inventory is empty. Those
+// two look identical without the distinction.
+static const int kRflStrideCandidates[] = { 12, 16 };
+static int g_rflStride       = 0;   // 0 until one validates
+static const int kRflUsageOff = 8;  // the byte after the two pointers

@@ -3764,3 +3764,49 @@ back to the game during those sequences.
 
 The route to reading all of it reliably is a UE3 property resolver keyed on FName;
 `docs/dishonored/GAMEPLAY_STATE.md` is the plan and the rules for it.
+
+
+## THE PROPERTY RESOLVER ALREADY EXISTED (VR-61, 2026-09-08)
+
+Recorded as a research failure, because the mistake is more useful than the fix.
+A session went to the BioShock trilogy mod for a technique to resolve properties
+by name **before grepping this repo for prior art**. This repo has had one since
+38.x and it is load-bearing in four modules.
+
+`FindPropOffset(className, propName)` and `FindBoolProp` in `ue3/uobject.cpp`.
+`arm_follow.cpp` resolves twelve properties through them; `crouch.cpp`,
+`block_state.cpp` and `skelcontrol.cpp` also use them.
+
+**They need no chain offsets.** Every `UProperty` is itself a `UObject` whose
+`Outer` is the class that declares it, so a `GObjects` scan for (name, outer
+name, class name containing `Property`) finds the property object and its own
+recorded offset is the answer. Nothing to derive, no candidate layout to get
+wrong. That is more robust than walking `Children` / `Next` / `SuperStruct`,
+which is what the trilogy mod had to do on its own UE3 build.
+
+| Offset | Slot | Derivation |
+|---|---|---|
+| `kUPropOffset` 0x5c | `UProperty::Offset` | the 38.x skelcontrol property dump: the Offset column identifies itself as small, distinct, ascending in declaration order and below the class instance size |
+| `kUBoolBitMask` 0x6c | `UBoolProperty::BitMask` | same dump |
+
+Both were inline literals in `uobject.cpp` and are now in `patterns.h`, where
+this repo requires engine offsets to live, so one place owns them.
+
+### Two traps that are properties of the lookup, not of a build
+
+**`FindPropOffset` matches on the OUTER's name, so it needs the DECLARING class.**
+A property inherited from a base class does not resolve under a subclass's name,
+and for a struct member the outer is the ScriptStruct rather than the class
+holding it (`arm_follow.cpp` documents this for `DishonoredVTSettings`). Offer
+the candidate declaring classes and log which one answered.
+
+**Nothing may resolve at init.** Our DLL loads from `DllMain` during the exe's
+import resolution, before the exe's CRT static initializers, so `GNames` is empty
+then. The gate every caller uses is `NameFromIndex(0)` reading `None`.
+
+### The cost, which is why a cache is not optional
+
+Each lookup is a full `GObjects` scan. The trilogy mod measured a name scan on a
+poll cadence stuttering that entire game at 2-3 Hz. Resolve once, cache for the
+process lifetime (offsets are stable per boot), and cache the MISSES too, since
+a miss costs the same full scan.

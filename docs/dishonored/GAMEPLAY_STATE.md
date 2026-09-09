@@ -1,10 +1,16 @@
 # Gameplay state: the flags the mod needs, and how to read them
 
-**Status: a WANTED RESOURCE, not yet built.** This document says what the mod
-needs to know about what the game is doing, what the engine already exposes,
-and which technique reads it reliably. Nothing here is implemented; where a
-number appears it is a starting hypothesis to be re-derived against the running
-build, never a value to copy.
+**Status: the RESOLVER exists and one flag is read; the rest is wanted.** The
+technique in section 5 has been in this repo since 38.x and is load-bearing in
+four modules. `ue3/reflect.cpp` (VR-61) adds a cache and a TArray reader on top,
+and uses them to read the equipped item per hand.
+
+Still wanted: `EItemSocket` (equipped versus holstered), the per-hand stance,
+`eDisPlayerActionUsage_Fullbody`, and a published snapshot with per-flag
+freshness. Section 2 is the full list and section 6 is the rules.
+
+Where a number appears here it is a starting hypothesis to be derived against the
+running build, never a value to copy.
 
 ---
 
@@ -137,55 +143,64 @@ indistinguishable from a thing that does not exist.
 
 ## 5. The technique: resolve properties by name
 
-Credited to the BioShock trilogy VR mod, where both halves are proven. Cite that
-work; do not copy its numbers.
+**This repo already has it, and it has since 38.x.** An earlier draft of this
+document sent a session to the BioShock trilogy mod for the technique before
+grepping here for prior art, which is backwards and is recorded so it is not
+repeated.
 
-### Half one, already present here
+### What exists, in `ue3/uobject.cpp`
 
-FName index to text. `NameFromIndex` and `RealName` in `ue3/uobject.cpp` already
-walk `GNames` to an `FNameEntry` and return its string, and `ObjClassName` gives
-any object's class name. BioShock Remastered VR uses the same technique
-(`fname_text` in its `patterns.cpp`) to name per-weapon profile keys and bones.
+| Helper | What it does |
+|---|---|
+| `FindNameIdx(name)` | text to FName index, by scanning `GNames` |
+| `NameFromIndex` / `RealName` / `ObjClassName` | FName index to text, and any object to its class name |
+| `FindPropOffset(className, propName)` | a property offset, by scanning `GObjects` |
+| `FindBoolProp(className, propName, &off, &mask)` | the same for a bool, plus its bitmask |
 
-### Half two, missing here
+**Why it needs no chain offsets at all.** Every `UProperty` is itself a
+`UObject` whose `Outer` is the class that declares it. So a scan of `GObjects`
+for (this name, that outer name, a class whose name contains `Property`) finds
+the property object, and its own recorded offset is the answer. There is no
+`Children` / `Next` / `SuperStruct` to derive, no candidate layout to get wrong
+and no search to validate.
 
-**Name to property OFFSET, by walking the `UClass` property chain.** BioShock
-Infinite measured this live on its own UE3 build: `UObject::Class`,
-`UField::Next`, `UStruct::SuperStruct`, `UStruct::Children`, `UProperty::Offset`
-and `UBoolProperty::BitMask`, exposed as `find_property_offset` /
-`find_bool_property_bit`, self-deriving every boot and refusing on drift.
+That is strictly more robust than walking the property chain, which is what the
+trilogy mod had to do. `kUPropOffset` and `kUBoolBitMask` are in `patterns.h`;
+ENGINE_NOTES records how the 38.x skelcontrol property dump derived them.
 
-Dishonored is UE3 build 9099, a different build, so **every one of those slots
-must be re-derived here.** Their Infinite values are a starting hypothesis for a
-scan window and nothing more; this project's rule against copying a number
-between games applies with full force.
+It is already load-bearing: `arm_follow.cpp` resolves twelve properties through
+it, and `crouch.cpp`, `block_state.cpp` and `skelcontrol.cpp` use it too.
 
-### Why this is the right shape
+### The established idiom, which new code should follow
 
-* It is **pure pointer reading**. A wrong guess yields a bad number, not a crash,
-  which is the opposite of the `ProcessEvent` plus `GetPropertyText` route.
-* It is **self-validating**. We already know offsets for this build
-  (`kWaComponentLocalToWorld = 0x60`, `kWaComponentTranslation = 0x90`,
-  `kNameOff` / `kClassOff` / `kOuterOff` in `patterns.h`). A candidate layout is
-  accepted only if the chain it produces reproduces those known answers. It
-  cannot silently settle on a wrong layout.
-* It **derives at boot rather than hardcoding**, so a patch that moves a field is
-  a refusal with a logged reason instead of silent garbage.
-* It replaces guessing with asking, which is the whole point of section 1.
+Resolve ONCE into a global, behind a GNames sanity gate - `NameFromIndex(0)`
+must read `None`, because our DLL loads from `DllMain` during the exe's import
+resolution, before the exe's CRT static initializers, so the name pool is empty
+then. **Nothing may resolve at init.** `arm_follow.cpp` is the reference.
 
-### The shape of the API this should expose
+### What was actually missing, and is now in `ue3/reflect.cpp`
 
-```
-resolve(obj, "PropertyName")     -> offset, or a refusal with a reason
-read_int / read_float / read_bool / read_object / read_name / read_array
-state()                          -> a snapshot of the flags in section 2
-```
+Two things, both small:
 
-Every accessor guarded, every refusal logged with the values that caused it, and
-a boot-time self-test that prints the derived layout next to the known offsets it
-was validated against. **An instrument that cannot fail its own hypothesis is not
-evidence**, so the self-test must be able to print the unwelcome answer.
+1. **A cache.** `FindPropOffset` is a full `GObjects` scan of hundreds of
+   thousands of entries. Every existing caller memoises into a global by hand,
+   which works but has to be got right each time. The trilogy mod measured what
+   getting it wrong costs: a name scan on a poll cadence stuttered that whole
+   game at 2-3 Hz, and its rule is **never on a cadence**. A cache makes the
+   safe thing the default instead of a convention, and it caches misses too,
+   since a miss costs a full scan as well.
+2. **A TArray reader.** The capability VR-60 needs, and the one thing the
+   component walk provably cannot do.
 
+No new engine offsets were derived for either, and none were guessed.
+
+### What is still worth taking from the trilogy mod
+
+Not the resolver - the things layered on top of one, none of which exist here:
+a UFunction call-by-name lane, a resolved-index form for cadenced callers,
+`DynamicLoadObject` by path, and a UClass-fixpoint gate for deciding whether an
+arbitrary pointer is a genuine UObject. Those are separate tickets if and when
+something needs them.
 ## 6. Rules for this subsystem
 
 Carried from the engineering rules this project already runs on.

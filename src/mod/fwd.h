@@ -92,17 +92,12 @@ static void HexDumpObject(const char* label, uint8_t* o, size_t bytes);
 static void RunUE3Probe();
 static const char* ObjClassName(uint8_t* o);
 
-// VR-61: the UE3 property resolver (ue3/reflect.cpp). Read-only, script lane,
-// derived lazily on first use - never at init, because GNames is empty while
-// our DllMain runs. GAMEPLAY_STATE.md has the rules.
-static bool RflDerive(void);
-static bool RflResolve(uint8_t* obj, const char* name, uint32_t* outOff);
-static bool RflReadInt(uint8_t* obj, const char* name, int32_t* out);
-static bool RflReadFloat(uint8_t* obj, const char* name, float* out);
-static bool RflReadObject(uint8_t* obj, const char* name, uint8_t** out);
-static bool RflReadName(uint8_t* obj, const char* name, const char** out);
-static bool RflReadArray(uint8_t* obj, const char* name, uint8_t** outData,
-                         int32_t* outNum);
+// VR-61: gameplay state read by name (ue3/reflect.cpp). A thin layer over
+// FindPropOffset - a cache and a TArray reader. Read-only, script lane.
+static bool RflNamesReady(void);
+static uint32_t RflOffsetOf(const char* cls, const char* prop);
+static bool RflArrayAt(uint8_t* obj, uint32_t off, uint8_t** outData,
+                       int32_t* outNum);
 static void RflTick(void);
 static void RflStateTick(void);
 static bool RflCommand(const char* args);

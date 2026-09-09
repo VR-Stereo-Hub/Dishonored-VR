@@ -230,7 +230,7 @@ static uint32_t FindPropOffset(const char* clsName, const char* propName)
         if (*(uint32_t*)(ou + kNameOff) != ci) continue;
         const char* pc = ObjClassName(o);
         if (!pc || !strstr(pc, "Property")) continue;
-        return *(uint32_t*)(o + 0x5c);          // UProperty::Offset
+        return *(uint32_t*)(o + kUPropOffset);          // UProperty::Offset
     }
     return 0;
 }
@@ -262,8 +262,8 @@ static bool FindBoolProp(const char* clsName, const char* propName,
         if (*(uint32_t*)(ou + kNameOff) != ci) continue;
         const char* pc = ObjClassName(o);
         if (!pc || strcmp(pc, "BoolProperty")) continue;
-        *off  = *(uint32_t*)(o + 0x5c);
-        *mask = *(uint32_t*)(o + 0x6c);
+        *off  = *(uint32_t*)(o + kUPropOffset);
+        *mask = *(uint32_t*)(o + kUBoolBitMask);
         return *off != 0 && *mask != 0;
     }
     return false;
