@@ -1,6 +1,7 @@
 #pragma once
 #include "weapon_frame.h"
 #include <stdio.h>
+#include <string.h>
 
 static inline int WeaponFrameTests()
 {
@@ -98,5 +99,156 @@ static inline int WeaponFrameTests()
     for(int i=0;i<9;++i) error += fabsf(nativeMoved.r.m[i]-drawMoved.r.m[i]);
     for(int i=0;i<3;++i) error += fabsf(nativeMoved.t[i]-drawMoved.t[i]);
     check("world_pass_receives_same_motion", error < .001f);
+
+    // ---- VR-59: the fired bolt is a different instance ---------------------
+    //
+    // The failing case is a bolt fired into a nearby surface: same mesh, same
+    // buffers, genuinely near the camera and genuinely near where the loaded
+    // bolt draws. So every case below holds the DISTANCE inside the radius and
+    // varies only the instance evidence - a suite that separated them by
+    // distance would be testing the gate that already failed.
+    const float inside = 5.0f, radius = 60.0f, outside = 900.0f;
+
+    // The held bolt: its weapon is in that hand and it drew there this frame.
+    check("held_bolt_corrects",
+          held_instance(true, true, true, true, inside, radius) == INSTANCE_HELD);
+
+    // THE BUG. The crossbow is stowed, so the loaded bolt has not drawn for
+    // many presents - and the hand it belongs to is still publishing a fresh
+    // correction every frame, because the hand is always drawn. Before VR-59
+    // this returned HELD and a bolt in the ground followed the pistol.
+    check("stowed_weapon_no_reference_refuses",
+          held_instance(false, true, false, true, 0.0f, radius) == INSTANCE_STOWED);
+    check("no_reference_alone_refuses",
+          held_instance(true, true, false, true, 0.0f, radius) == INSTANCE_NO_REF);
+
+    // Inside the radius and still refused, on the engine's own answer alone.
+    // This is the case no threshold could ever have closed.
+    check("stowed_inside_the_radius_still_refuses",
+          held_instance(false, true, true, true, inside, radius) == INSTANCE_STOWED);
+
+    // A second instance of a held weapon's mesh, drawn elsewhere.
+    check("live_member_drawn_elsewhere_refuses",
+          held_instance(true, true, true, true, outside, radius) == INSTANCE_ELSEWHERE);
+
+    // AUTHORITY, NOT JUST REFUSAL. Only positive evidence of another instance
+    // may overturn the relaxed view-model band or hand the buffers back. If
+    // NO_REF counted as strong, a re-equipped sword could not relock at all,
+    // and its uncorrected pass would draw a ghost copy meanwhile.
+    check("stowed_is_a_strong_veto",
+          instance_strong_veto(INSTANCE_STOWED));
+    check("elsewhere_is_a_strong_veto",
+          instance_strong_veto(INSTANCE_ELSEWHERE));
+    check("no_reference_is_NOT_a_strong_veto",
+          !instance_strong_veto(INSTANCE_NO_REF));
+    check("held_is_not_a_veto",
+          !instance_strong_veto(INSTANCE_HELD) && instance_corrects(INSTANCE_HELD));
+
+    // EVERY REFUSAL MUST STOP THE CORRECTION. Three verdicts, one consequence.
+    check("only_held_corrects",
+          !instance_corrects(INSTANCE_STOWED) &&
+          !instance_corrects(INSTANCE_ELSEWHERE) &&
+          !instance_corrects(INSTANCE_NO_REF));
+
+    // THE LEVERS RESTORE THE OLD BEHAVIOUR, which is what makes them an A/B.
+    // With both off, the stowed bolt is corrected again - the pre-VR-59 bug,
+    // reachable on purpose so a headset run can compare the two.
+    check("levers_off_restore_the_old_behaviour",
+          held_instance(false, false, false, false, 0.0f, radius) == INSTANCE_HELD);
+    check("live_member_lever_off_ignores_the_engine_answer",
+          held_instance(false, false, true, true, inside, radius) == INSTANCE_HELD);
+
+    // A zero radius must not silently accept everything.
+    check("zero_radius_refuses_any_offset",
+          held_instance(true, true, true, true, 0.1f, 0.0f) == INSTANCE_ELSEWHERE);
+
+    // ---- VR-59 attempt 2: the PER-DRAW test --------------------------------
+    //
+    // Attempt 1 asked questions the engine could not answer (is this weapon
+    // equipped - the snapshot holds the whole inventory) or answered from a
+    // reference nothing maintained (lastL2W, refreshed 4 times in 13 million
+    // draws). This asks the one question a draw can answer about itself: am I
+    // where the engine says this component is.
+    const float rad = 60.0f;
+    const float here[3]  = {10.0f, 20.0f, 30.0f};
+    const float pass2[3] = {10.3f, 20.0f, 30.0f};   // another pass, 0.3 uu (census)
+    const float world[3] = {10.0f, 20.0f, 230.0f};  // another instance, 200 uu
+
+    check("offset_is_euclidean", fabsf(offset3(here, world) - 200.0f) < .001f);
+
+    // The two measurements that bracket the tolerance, asserted rather than
+    // described - so a later radius change that breaks either one fails here.
+    check("another_pass_of_the_held_item_is_held",
+          verify_instance(IREF_COMPONENT, offset3(here, pass2), rad) == INSTANCE_HELD);
+    check("another_instance_is_elsewhere",
+          verify_instance(IREF_COMPONENT, offset3(here, world), rad) == INSTANCE_ELSEWHERE);
+
+    // NO REFERENCE IS NOT PERMISSION. This is the 41.x defect in one line.
+    check("no_reference_never_permits",
+          verify_instance(IREF_NONE, 0.0f, rad) == INSTANCE_NO_REF &&
+          !may_correct(verify_instance(IREF_NONE, 0.0f, rad)));
+
+    // The cheap reference must apply the SAME threshold as the engine-read one.
+    // If they ever differ, a draw could be held on one and elsewhere on the
+    // other within a single frame, which is a flicker.
+    check("both_references_use_one_threshold",
+          verify_instance(IREF_RECENT, offset3(here, world), rad) ==
+          verify_instance(IREF_COMPONENT, offset3(here, world), rad) &&
+          verify_instance(IREF_RECENT, offset3(here, pass2), rad) ==
+          verify_instance(IREF_COMPONENT, offset3(here, pass2), rad));
+
+    // Exactly on the radius is held; past it is not. Stated so the boundary is
+    // a decision rather than an accident of the comparison operator.
+    check("on_the_radius_is_held",
+          verify_instance(IREF_COMPONENT, rad, rad) == INSTANCE_HELD);
+    check("just_past_the_radius_is_elsewhere",
+          verify_instance(IREF_COMPONENT, rad + .01f, rad) == INSTANCE_ELSEWHERE);
+
+    // ONLY A POSITIVE IDENTIFICATION MAY BE CORRECTED, AND ONLY ONE MAY BE
+    // SUPPRESSED. The second half is the part that kept fired bolts visible:
+    // suppression is for a duplicate pass of the held item, and a world
+    // instance is not a duplicate of anything - its colour and lighting passes
+    // are its own. Getting this wrong deletes the object instead of moving it.
+    check("only_held_may_be_corrected",
+          may_correct(INSTANCE_HELD) && !may_correct(INSTANCE_ELSEWHERE) &&
+          !may_correct(INSTANCE_NO_REF) && !may_correct(INSTANCE_STOWED));
+    check("only_held_may_be_suppressed",
+          may_suppress(INSTANCE_HELD) && !may_suppress(INSTANCE_ELSEWHERE) &&
+          !may_suppress(INSTANCE_NO_REF));
+
+    // A GENERALISATION TEST, not a bolt test. Any number of world instances of
+    // one mesh, at any distances, must all be refused by the same rule with no
+    // knowledge of what they are - that is what makes this hold for throwables
+    // that do not exist yet.
+    {
+        bool allRefused = true, heldStillHeld = true;
+        for (int n = 1; n <= 12; ++n) {
+            const float inst[3] = {here[0], here[1], here[2] + 61.0f * n};
+            if (verify_instance(IREF_COMPONENT, offset3(here, inst), rad) !=
+                INSTANCE_ELSEWHERE) allRefused = false;
+        }
+        for (int n = 0; n < 12; ++n) {
+            const float pass[3] = {here[0] + .05f * n, here[1], here[2]};
+            if (verify_instance(IREF_COMPONENT, offset3(here, pass), rad) !=
+                INSTANCE_HELD) heldStillHeld = false;
+        }
+        check("many_world_instances_all_refused", allRefused);
+        check("many_passes_of_the_held_item_all_held", heldStillHeld);
+    }
+
+    // DROPPING IS A CLAIM OF DUPLICATION, and it is the claim that made fired
+    // bolts invisible: verification refused them correctly and the drop path
+    // consumed the draw anyway. may_suppress is the single gate for both
+    // dropping inside the router and suppressing outside it.
+    check("a_refused_draw_may_never_be_dropped",
+          !may_suppress(INSTANCE_ELSEWHERE) && !may_suppress(INSTANCE_NO_REF) &&
+          !may_suppress(INSTANCE_STOWED));
+    check("drop_and_correct_agree_on_held",
+          may_suppress(INSTANCE_HELD) == may_correct(INSTANCE_HELD));
+
+    check("verdict_names_are_distinct",
+          strcmp(instance_name(INSTANCE_HELD), instance_name(INSTANCE_STOWED)) &&
+          strcmp(instance_name(INSTANCE_STOWED), instance_name(INSTANCE_ELSEWHERE)) &&
+          strcmp(instance_name(INSTANCE_ELSEWHERE), instance_name(INSTANCE_NO_REF)));
     return failed;
 }

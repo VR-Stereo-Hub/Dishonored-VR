@@ -3662,3 +3662,55 @@ weapon placement, allowing independently matched world-space passes with the
 correction conjugated through the reference bridge. These address concrete
 routing/math restrictions; visual ghost removal is still unverified. The host
 suite now contains 21 weapon cases plus the existing 28 hand cases.
+
+## THE LOADED BOLT AND A FIRED BOLT ARE DIFFERENT CLASSES (VR-59, 2026-09-08)
+
+Source: the decompiled scripts (`DisWepCrossbow`, `DisTweaks_WepCrossbow`,
+`DisProjectile_Arrow`, `DisProjectile`). Read, not guessed, and nothing from them
+is reproduced here beyond the class and member names needed to name the objects.
+
+| | Loaded bolt | Fired bolt |
+|---|---|---|
+| Owner | `DisWepCrossbow` (an Inventory item on the pawn) | `DisProjectile_Arrow extends DisProjectile extends Actor` |
+| Member | `m_pArrowMesh_HighRes` | `m_pMesh` |
+| Component name | `pArrowMesh_HighRes` | `pSkeletalComp` |
+| Component class | `DishonoredItemSkeletalComponent` | `Engine.SkeletalMeshComponent` |
+| Mesh asset | `bolt_01` | `bolt_01` |
+
+`DisTweaks_WepCrossbow.m_ArrowSocketName` is the socket the loaded one hangs on.
+
+**The mesh asset is the ONE field they share**, which is exactly why an
+asset-name test cannot separate them and why buffer identity cannot either. The
+component name, the component class and the owning actor all differ, and the
+fired bolt is a separate ACTOR - so it is not reachable from the pawn and never
+appears in the component snapshot at all.
+
+### Two corrections to what the snapshot was believed to mean
+
+**`FpCollect` reports the pawn's INVENTORY, not what is equipped.** Measured over
+a full run: all 19 published snapshots were identical - six components, the same
+six, including `bolt_01 (pArrowMesh_HighRes)` - across crossbow, sword and pistol
+being held in turn. The scripts say why: the loaded bolt is a component of the
+WEAPON, and the weapon stays in inventory when stowed. **Presence in the snapshot
+is not evidence that a thing is in the player's hand**, and a gate built on that
+reading cannot fire (VR-59's `AttachRequireLiveMember`, now default OFF).
+
+**The pistol is not in the snapshot at all.** Only `Skm_Player`,
+`Wpn_PlySword01`, `crossbow_01` and `bolt_01` ever appear. So the pistol has no
+member candidate of its own and can only reach a contract through the
+vertex-OR-index-buffer match in the identity route - which is why its visibility
+depended on the angle between where it pointed and another asset's recorded
+position.
+
+### `lastL2W` is not a record of "drew on the view model this frame"
+
+It is written only where a contract is adopted through the transform matcher. The
+buffer-identity route, which is what actually corrects the auxiliary passes,
+never refreshes it. So once the matcher misses for a mesh, that reference goes
+stale permanently. Measured: 53,238 refusals in one run with the present gap
+growing monotonically to 21,367, all on HELD `crossbow_01` and `bolt_01`.
+
+Any freshness test built on it therefore starves the held weapons rather than
+catching world instances. **A reference has to be maintained on the path that
+uses it.** The engine-read component translation in the snapshot is the sound
+alternative: it is refreshed every 4 ms whether or not the matcher succeeded.

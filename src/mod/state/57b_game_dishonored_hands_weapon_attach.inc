@@ -133,6 +133,20 @@ struct WaMesh {
     D3DPRIMITIVETYPE type;
     INT      baseVertex;
     int      comp;             // index into g_waComp
+    // VR-59: the COMPONENT this contract was matched to. A contract names a
+    // geometry; this names the instance, and it is the thing every draw on
+    // these buffers is verified against.
+    void*    compObj;
+    // Where this contract last verified AS THE HELD ITEM, in the draw space of
+    // that verification, refreshed on EVERY verified draw. This is lastL2W
+    // done properly: lastL2W is written only where the transform matcher adopts
+    // a contract, which happened 4 times in 13 million draws in one run, so any
+    // test against it is comparing with a reference that is almost always
+    // stale. That single fact is why the pass-radius gate both misfired on held
+    // weapons and missed fired bolts.
+    float    heldAt[3];
+    uint32_t heldPresent;
+    bool     heldOk;
     int      hand;
     char     asset[64];
     int      boneReg;          // the REFLECTED register, never assumed to be 6
@@ -439,6 +453,88 @@ static bool  g_waSuppressUnplaced = true;   // [Hands] AttachSuppressUnplaced
 static LONG  g_waSuppressed       = 0;
 static float g_waNearMargin   = 1.5f;    // [Hands] AttachNearMargin
 static LONG  g_waNearRejected = 0;   // on the view model and still refused
+
+// ---- VR-59: A FIRED BOLT IS A DIFFERENT INSTANCE OF THE LOADED ONE ---------
+//
+// A contract is keyed on BUFFERS, and buffer identity cannot tell two
+// instances of one mesh apart - that is by design, and it is what lets one
+// identified pass recognise the others. A crossbow bolt standing in the world
+// is the same mesh drawn from the same buffers as the loaded one, so every
+// route in the identity block can reach it, and no radius separates the two:
+// a bolt fired into a wall a metre away is genuinely near the camera and
+// genuinely near where the loaded bolt draws.
+//
+// The defect was not the radii. It was that a contract OUTLIVES the weapon
+// being stowed - it is evicted only when the table fills - and the instance
+// gate ran only when a fresh reference existed. With the crossbow put away the
+// reference goes stale, the gate is skipped, and the hand for that contract is
+// still publishing a fresh correction every frame because the HAND is always
+// drawn. So the absence of evidence was read as permission, and a world bolt
+// was corrected onto whatever is now in that hand.
+//
+// Two symptoms, one cause. Some passes of the fired bolt were CORRECTED (the
+// copy that follows the hand) and the rest were SUPPRESSED as unplaced passes
+// of a weapon (the dark stub left standing in the ground). The second is the
+// documented cost of AttachSuppressUnplaced landing on a world instance: its
+// colour and lighting passes are its own, not duplicates of anything.
+//
+// Four preconditions, each a lever, each with a counter that can print the
+// unwelcome answer.
+static bool g_waReqFreshRef   = true;   // [Hands] AttachRequireFreshRef
+static bool g_waReqLiveMember = true;   // [Hands] AttachRequireLiveMember
+static bool g_waVetoFrees     = true;   // [Hands] AttachVetoReleasesBuffers
+static bool g_waVetoRelaxed   = true;   // [Hands] AttachInstanceVetoRelaxed
+static int  g_waRefPresents   = 2;      // [Hands] AttachRefMaxPresents
+// What would make each of these move, so a zero is readable:
+//   NoFreshRef  - a draw on a contract whose mesh has not drawn on the view
+//                 model for AttachRefMaxPresents presents. Reads 0 while the
+//                 weapon is held and drawing every frame, which is normal.
+//   Stowed      - a draw on a contract whose asset is not a live member of
+//                 that hand in the current snapshot. Reads 0 until a weapon
+//                 is put away with its geometry still on screen.
+//   VetoFreed   - vetoed draws handed back to the engine untouched, which is
+//                 what keeps a world bolt visible instead of suppressed.
+//   VetoRelaxed - vetoed draws additionally refused the relaxed view-model
+//                 band. Only the two STRONG vetoes do this; "no reference"
+//                 never does, or a re-equipped weapon could not relock.
+static LONG g_waNoFreshRef    = 0;
+static LONG g_waStowed        = 0;
+static LONG g_waVetoFreed     = 0;
+static LONG g_waVetoedRelaxed = 0;
+
+// ---- VR-59 attempt 2: verify every draw, correct none on faith -------------
+//
+// The lever is default ON. With it OFF the build reverts to trusting buffer
+// identity, which is the behaviour every run up to this one had, so the two are
+// directly comparable in a headset.
+static bool g_waVerifyInstance = true;   // [Hands] AttachVerifyInstance
+static int  g_waHeldMaxPresents = 2;     // [Hands] AttachHeldMaxPresents
+// What moves each of these, so a zero is readable:
+//   VerifiedHeld  - draws positively identified as the held item. This should be
+//                   the overwhelming majority while a weapon is out; if it is 0
+//                   and weapons are flat, verification is failing, not idle.
+//   VerifiedAway  - draws on weapon buffers that are a DIFFERENT instance.
+//                   Moves the moment a bolt exists in the world. A fired bolt
+//                   that stays put with this counting up is the fix working.
+//   VerifyNoRef   - draws that could not be verified either way, and were
+//                   therefore left exactly as the engine drew them.
+//   RefComponent / RefRecent - which reference answered, so "it works" can be
+//                   told apart from "it works because the cheap path happened
+//                   to agree". If RefComponent is 0 the engine-read route is
+//                   not running at all and only the cache is holding it up.
+static LONG g_waVerifiedHeld  = 0;
+static LONG g_waVerifiedAway  = 0;
+static LONG g_waVerifyNoRef   = 0;
+static LONG g_waRefComponent  = 0;
+static LONG g_waRefRecent     = 0;
+// Draws returned to the engine rather than dropped, because they did not verify
+// as the held item. Dropping claims a draw is a DUPLICATE; for a world instance
+// that claim is false and the drop deletes the object. This counter moving is
+// what a visible fired bolt looks like from the log side.
+static LONG g_waHandedBack    = 0;
+static float g_waAwayFarthest = 0.0f;   // the largest offset we refused
+static float g_waHeldWorst    = 0.0f;   // the largest offset we still accepted
+
 
 static LONG g_waCacheHit    = 0;   // matched by a cached contract
 static LONG g_waNoLayout    = 0;   // the bound shader has no usable layout

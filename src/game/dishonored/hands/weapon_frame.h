@@ -62,6 +62,132 @@ static inline bool bridge(const Xform& nativeRef, const Xform& drawRef, Xform* k
     return true;
 }
 
+// ---- VR-59: IS THIS DRAW THE HELD INSTANCE? --------------------------------
+//
+// Buffer identity cannot tell two instances of one mesh apart - by design,
+// since that is what lets one identified pass recognise the others. A crossbow
+// bolt standing in the world is the same mesh from the same buffers as the
+// loaded one, and no radius separates them: fired into a wall a metre away it
+// is genuinely near the camera and genuinely near where the loaded bolt draws.
+//
+// So the question is answered from two pieces of evidence that are not
+// distances, and the ORDER of the verdicts matters because they carry
+// different authority:
+//
+//   STOWED    - the engine says that weapon is not in that hand. Strongest:
+//               the component walk reaches only what hangs off the pawn
+//               through the inventory chain, so a world projectile cannot
+//               appear in it however close to the camera it is.
+//   ELSEWHERE - a fresh reference exists and this draw is far from it. Also
+//               strong: two instances of one mesh, and this is not the one
+//               the view model drew this frame.
+//   NO_REF    - nothing has vouched for this geometry recently. This is an
+//               ABSENCE of evidence, not evidence, and it is the normal state
+//               of a weapon just re-equipped. It must refuse the sibling
+//               correction (before VR-59 it silently permitted it, which is
+//               how a bolt in the ground followed whatever was picked up next)
+//               but it must NOT be treated as strongly as the other two.
+enum Instance { INSTANCE_HELD = 0, INSTANCE_STOWED, INSTANCE_ELSEWHERE,
+                INSTANCE_NO_REF };
+
+// `presentsSinceRef` is only meaningful when `refFresh` is true.
+static inline Instance held_instance(bool liveMember, bool requireLiveMember,
+                                     bool refFresh, bool requireFreshRef,
+                                     float passDistance, float passRadius)
+{
+    if (requireLiveMember && !liveMember) return INSTANCE_STOWED;
+    if (refFresh) {
+        if (passDistance > passRadius) return INSTANCE_ELSEWHERE;
+        return INSTANCE_HELD;
+    }
+    if (requireFreshRef) return INSTANCE_NO_REF;
+    return INSTANCE_HELD;
+}
+
+// A verdict that carries positive evidence of a DIFFERENT instance. Only these
+// two may overturn the relaxed view-model band and hand a draw back to the
+// engine untouched; NO_REF may do neither.
+static inline bool instance_strong_veto(Instance v)
+{
+    return v == INSTANCE_STOWED || v == INSTANCE_ELSEWHERE;
+}
+
+static inline bool instance_corrects(Instance v) { return v == INSTANCE_HELD; }
+
+static inline const char* instance_name(Instance v)
+{
+    switch (v) {
+        case INSTANCE_HELD:      return "held";
+        case INSTANCE_STOWED:    return "stowed";
+        case INSTANCE_ELSEWHERE: return "elsewhere";
+        default:                 return "no-reference";
+    }
+}
+
+
+// ---- VR-59: WHICH INSTANCE IS THIS DRAW? (the per-draw test) ---------------
+//
+// A contract identifies a GEOMETRY - a buffer, range and shader tuple. It was
+// being used as an INSTANCE identity, and the measurement of that mistake is
+// stark: in one run 196,619 of 196,623 corrections were made on buffer identity
+// alone, while the transform matcher - the only thing that checks WHERE a draw
+// is - adopted four contracts. Every bolt sharing those buffers therefore
+// inherited the held bolt's correction, conjugated about its own origin, which
+// is why fired bolts rotated in place, orbited the muzzle after a weapon
+// switch, and vanished past an angle.
+//
+// The rule that replaces it makes no reference to any asset, count or weapon,
+// so a new throwable needs no new code:
+//
+//   A DRAW IS THE HELD ITEM ONLY IF IT IS WHERE THE ENGINE SAYS THE HELD ITEM
+//   IS. A DRAW THAT MATCHES NOTHING IS HANDED BACK UNTOUCHED.
+//
+// Untouched matters as much as the test. The old default for an unrecognised
+// draw on weapon buffers was to suppress or drop it, which is correct for a
+// duplicate pass of the held weapon and catastrophic for a world instance -
+// its colour and lighting passes are its own. Suppression is now only for a
+// draw that PASSED this test and still could not be placed.
+
+// Where the reference position came from. The authority differs, so the caller
+// must not treat them alike.
+enum InstanceRef {
+    IREF_NONE = 0,      // nothing to compare against - refuse, do not guess
+    IREF_COMPONENT,     // the engine's own component transform, this frame
+    IREF_RECENT         // where this contract verified as held very recently
+};
+
+static inline float offset3(const float a[3], const float b[3])
+{
+    float d = 0.0f;
+    for (int i = 0; i < 3; ++i) { const float e = a[i] - b[i]; d += e * e; }
+    return sqrtf(d);
+}
+
+// THE TOLERANCE IS NOT A NEW NUMBER. Two measurements bracket it by three
+// orders of magnitude: the census put 0.3 uu between an uncorrected pass and
+// its corrected twin (same instance, different pass), and two instances of a
+// mesh are metres apart - hundreds of units. AttachPassRadius already sits in
+// that band and was chosen for this exact comparison, so it is reused rather
+// than a second threshold invented to be tuned against the first.
+static inline Instance verify_instance(InstanceRef which, float offset,
+                                      float radius)
+{
+    if (which == IREF_NONE) return INSTANCE_NO_REF;
+    return (offset > radius) ? INSTANCE_ELSEWHERE : INSTANCE_HELD;
+}
+
+// May a draw be corrected on this verdict? Only a positive identification.
+// NO_REF is not permission - that was the 41.x defect, where the absence of a
+// usable reference was read as consent and a bolt in the ground followed
+// whatever the player picked up next.
+static inline bool may_correct(Instance v) { return v == INSTANCE_HELD; }
+
+// May a draw we refused be suppressed? Never. A refused draw is either a world
+// instance (whose passes are its own) or one we could not identify, and in
+// both cases the engine's own draw is the best available answer.
+static inline bool may_suppress(Instance v) { return v == INSTANCE_HELD; }
+
+
 struct Candidate { Xform predicted; int hand, assembly; };
 struct Result { int best; bool ambiguous; float angle, position, scale, score; };
 

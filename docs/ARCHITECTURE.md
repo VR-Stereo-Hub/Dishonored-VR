@@ -543,3 +543,39 @@ session" counted after the session had already gone.
 The guard was removed rather than tuned. It would have disarmed a healthy
 renderer every time a session dropped - a fault indistinguishable from the one
 it was built to prevent.
+
+### A contract identifies a geometry, never an instance (2026-09-08)
+
+The weapon attachment keyed its correction on a draw CONTRACT - a vertex buffer,
+index buffer, range, shader and primitive count. That names a GEOMETRY, and it was
+being read as an identity. Two instances of one mesh drawn from one buffer are
+indistinguishable to it by construction, which is what put a fired crossbow bolt
+on the player's hand.
+
+The measurement is why this is a decision and not a tweak: in one run,
+`known-buffer passes 196955, corrected 196619, matched 4`. The transform match -
+the only test that asks WHERE a draw is - ran four times in 13 million draws.
+Everything else was faith in the contract.
+
+**Every draw on a weapon's buffers is now verified against the component its
+contract was matched to**, using the engine's own transform from the component
+snapshot, expressed in the draw's space through the existing bridge. The rule
+names no asset, weapon or count, so a throwable that does not exist yet is
+covered without new code:
+
+> A draw is the held item only if it is where the engine says the held item is. A
+> draw that matches nothing is handed back exactly as the engine drew it.
+
+Two constraints came out of getting this wrong twice, and both generalise:
+
+**A reference must be maintained on the path that uses it.** `lastL2W` was written
+only where the matcher adopts a contract, so a gate built on it compared against a
+value that was stale for the whole run. The replacement is refreshed by every
+verified draw on both routes.
+
+**Refusing to correct a draw and refusing to draw it are different operations.**
+Dropping a draw asserts it duplicates geometry rendered correctly elsewhere. That
+holds for another pass of the held weapon and fails for a world instance, which is
+the only copy of itself there is - so the same refusal that is safe for one
+deletes the other. Suppression and dropping are now both gated on a positive
+identification, and unverified is the default rather than held.

@@ -1222,6 +1222,46 @@ static void LoadConfig()
     if (g_waNearAngDeg  > 60.0f)   g_waNearAngDeg  = 60.0f;
     if (g_waNearPosUU   < 1.0f)    g_waNearPosUU   = 1.0f;
     if (g_waNearPosUU   > 200.0f)  g_waNearPosUU   = 200.0f;
+    // VR-59: the fired bolt. These are INSTANCE tests, not distances - a bolt
+    // fired into a nearby wall is inside every radius below on merit, and with
+    // its weapon stowed the fault reaches a bolt at ANY distance, which is
+    // itself proof no radius was gating it. All four default ON; each one off
+    // restores the pre-VR-59 behaviour of that single step, so they A/B alone.
+    // BOTH DEFAULT OFF, on measurement. Each rested on a premise the first
+    // headset run falsified, and each cost more than the bug it targeted.
+    //
+    // AttachRequireFreshRef demanded that a contract have drawn on the view
+    // model within AttachRefMaxPresents presents. lastL2W is refreshed ONLY by
+    // the transform matcher, never by the buffer-identity route that does the
+    // correcting, so once the matcher misses the reference goes stale forever
+    // and this gate blocks the only remaining route. Measured: 53,238 refusals
+    // in one run, all on HELD crossbow_01 and bolt_01, with the present gap
+    // growing monotonically to 21,367 - the reference was set once and never
+    // again. The held bolt stopped following the hand and drew natively.
+    //
+    // AttachRequireLiveMember asked whether that asset is a live member of the
+    // hand. It cannot answer the question: FpCollect walks the pawn INVENTORY,
+    // so every snapshot in that run held the same six components regardless of
+    // what was equipped, and bolt_01 (pArrowMesh_HighRes) was present
+    // throughout. DisWepCrossbow says why - the loaded bolt is
+    // m_pArrowMesh_HighRes, a component of the WEAPON, which exists whether or
+    // not the crossbow is drawn. Presence is not equipment.
+    // VR-59 attempt 2. Every draw on a weapon's buffers is verified against the
+    // component the contract was matched to, and a draw that matches nothing is
+    // handed back exactly as the engine drew it. OFF restores trusting buffer
+    // identity, which is what every build before this did, so the two compare
+    // directly in a headset.
+    g_waVerifyInstance = IniFloat(ini, "Hands", "AttachVerifyInstance", 1) != 0.0f;
+    g_waHeldMaxPresents = (int)IniFloat(ini, "Hands", "AttachHeldMaxPresents", 2);
+    if (g_waHeldMaxPresents < 0)  g_waHeldMaxPresents = 0;
+    if (g_waHeldMaxPresents > 90) g_waHeldMaxPresents = 90;
+    g_waReqFreshRef   = IniFloat(ini, "Hands", "AttachRequireFreshRef", 0) != 0.0f;
+    g_waReqLiveMember = IniFloat(ini, "Hands", "AttachRequireLiveMember", 0) != 0.0f;
+    g_waVetoFrees     = IniFloat(ini, "Hands", "AttachVetoReleasesBuffers", 1) != 0.0f;
+    g_waVetoRelaxed   = IniFloat(ini, "Hands", "AttachInstanceVetoRelaxed", 1) != 0.0f;
+    g_waRefPresents   = (int)IniFloat(ini, "Hands", "AttachRefMaxPresents", 2);
+    if (g_waRefPresents < 0)  g_waRefPresents = 0;
+    if (g_waRefPresents > 90) g_waRefPresents = 90;
     g_waRigRadiusUU   = IniFloat(ini, "Hands", "AttachRigRadius", 200.0f);
     g_waPassRadiusUU  = IniFloat(ini, "Hands", "AttachPassRadius", 60.0f);
     if (g_waRigRadiusUU  < 10.0f)   g_waRigRadiusUU  = 10.0f;
@@ -1976,6 +2016,20 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachDropUncorrected",
                                g_waDropUncorrected ? "1" : "0", ini);
     _snprintf(v, 64, "%.0f", g_waRigRadiusUU);
+    WritePrivateProfileStringA("Hands", "AttachVerifyInstance",
+                               g_waVerifyInstance ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_waHeldMaxPresents);
+    WritePrivateProfileStringA("Hands", "AttachHeldMaxPresents", v, ini);
+    WritePrivateProfileStringA("Hands", "AttachRequireFreshRef",
+                               g_waReqFreshRef ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachRequireLiveMember",
+                               g_waReqLiveMember ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachVetoReleasesBuffers",
+                               g_waVetoFrees ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachInstanceVetoRelaxed",
+                               g_waVetoRelaxed ? "1" : "0", ini);
+    _snprintf(v, 64, "%d", g_waRefPresents);
+    WritePrivateProfileStringA("Hands", "AttachRefMaxPresents", v, ini);
     WritePrivateProfileStringA("Hands", "AttachRigRadius", v, ini);
     _snprintf(v, 64, "%.0f", g_waPassRadiusUU);
     WritePrivateProfileStringA("Hands", "AttachPassRadius", v, ini);

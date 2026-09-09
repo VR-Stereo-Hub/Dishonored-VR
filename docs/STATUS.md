@@ -1,6 +1,363 @@
 # Status
 
-## CURRENT (2026-09-08): VR-33 is DONE and in review
+## CURRENT (2026-09-08, night): VR-59 is FIXED and headset-confirmed
+
+**A fired bolt stays where it lands.** Confirmed in a headset: bolts are visible
+and solid, hold their position and rotation, show no coupling to the hand in any
+weapon, and newly fired bolts behave correctly too. The held bolt and the
+crossbow are unaffected. PR open against `VR-Main`.
+
+### What fixed it, in one sentence
+
+A contract identifies a GEOMETRY and was being used as an INSTANCE. Every draw on
+a weapon's buffers is now verified against the component that contract was
+matched to, using the engine's own transform from the live snapshot, and a draw
+that matches nothing is handed back exactly as the engine drew it.
+
+The measurement that proved the architecture was the problem: `known-buffer
+passes 196955, corrected 196619, matched 4`. Ninety-nine point eight percent of
+corrections were made on buffer identity alone, while the only test that checks
+where a draw is ran four times in 13 million draws.
+
+### The two lessons, both paid for by a headset run
+
+**A reference has to be maintained on the path that uses it.** `lastL2W` is
+written only where the transform matcher adopts a contract, so a gate built on it
+compares against something that is almost always stale. It refused 53,238 held
+draws in one run with the present gap growing to 21,367.
+
+**Refusing to correct a draw and refusing to draw it are different operations,
+and the second one deletes the object.** Dropping claims a draw duplicates
+geometry rendered correctly elsewhere - true of another pass of the held weapon,
+false of a world instance. The rule was written into `may_suppress` and then not
+applied at two of the four exit paths, which cost a run where the bolts were
+invisible rather than misplaced.
+
+### VR-60 is next, and its symptom CHANGED for the better
+
+The pistol used to turn invisible when aimed away from where a bolt was. It now
+stays visible and instead detaches to its default position with its own idle
+animation, reattaching when the aim comes back into range. That is this fix
+working: the draw was being dropped and is now handed back, so the failure mode
+went from deletion to falling back on the engine.
+
+The cause is unchanged and is VR-60's job: the pistol is not in the component
+snapshot at all, so it has no member candidate, reaches a contract only through
+the buffer lookup's `vb || ib` OR, and is therefore verified against ANOTHER
+asset's component. Past the radius from the bolt, it is correctly refused - the
+verification is right and the identity it is given is wrong.
+
+Branch `claude/vr-60-pistol-not-in-snapshot`, off the VR-59 branch because the
+fail-safe behaviour it builds on is not merged yet.
+
+## PREVIOUS (2026-09-08, night): VR-59 attempt 2b - refusing is not deleting
+
+Attempt 2 verified correctly and then DELETED what it refused: fired bolts were
+invisible for a whole run while the held bolt and the crossbow were fine. Two
+places consumed a refused draw, and both are closed. Built, installed, 88 host
+cases. Not yet in a headset.
+
+### The lesson, which is worth more than the fix
+
+**Refusing to correct a draw and refusing to draw it are different operations,
+and the second one deletes the object.** Dropping a draw is a CLAIM: that this
+draw duplicates geometry the frame renders correctly elsewhere. That is true of
+another pass of the held weapon and false of a world instance, which is the only
+copy of itself there is.
+
+The rule was written into `may_suppress` in attempt 2 and then not applied at
+either site that needed it:
+
+1. **`AttachDropUncorrected` sat past the verification block** and consumed any
+   draw with no correction. Verification refused the bolt correctly, and this
+   line ate it two branches later. Releasing `onWeaponBuffers` did not help -
+   that only guards the SECOND suppressor, out in `WaDraw`.
+2. **`instVerdict` defaulted to `HELD`.** A draw whose geometry does not match the
+   contract exactly never reaches verification at all - a different range in a
+   shared buffer, which is exactly what a fired bolt and the pistol produce - so
+   it arrived at the drop path carrying a default that said "this is the held
+   item". Unverified now means unverified, and only with the lever off does it
+   mean held.
+
+A guarantee that is stated in a pure helper is not a guarantee until every exit
+path is routed through it. There were four such paths and two were missed.
+
+### The new counter that would have caught it in one run
+
+`wa: handed back to the engine N draw(s) rather than dropped (dropped-as-
+duplicate M)`, and it says on the line: **if handed-back is 0 while fired bolts
+are invisible, a refused draw is still being consumed somewhere.** That is the
+reading the last two runs needed and did not have.
+
+### Still open, and expected to persist
+
+**VR-60**: the pistol turning invisible when aimed away from where a bolt was.
+It is not in the component snapshot at all, so it has no member candidate and
+reaches contracts only through the buffer lookup's `vb || ib` OR - its visibility
+is decided by a distance test belonging to another asset. Attempt 2b should stop
+it being DELETED (an unverified draw is now handed back), but the pistol still has
+no attachment of its own and that is VR-60's job.
+
+## PREVIOUS (2026-09-08, night): VR-59 attempt 2 - verify every draw
+
+`VR-Main` is pushed at `555e8ff4`, PRs 18-22 closed. Attempt 2 of VR-59 is built,
+installed and covered by 86 host cases; **not yet in a headset.**
+
+### The measurement that settles the architecture
+
+From the attempt-1 run: **`known-buffer passes 196955, corrected 196619`, and
+`matched 4`.** 99.8% of all corrections were made on buffer identity alone, while
+the transform matcher - the only thing that checks WHERE a draw is - adopted four
+contracts in 13 million draws.
+
+**A contract identifies a GEOMETRY and was being used as an INSTANCE.** That one
+sentence explains every symptom reported, and they are all one bug:
+
+* a fired bolt rotates in place - it inherits the held bolt's delta, conjugated
+  about its own origin;
+* two fired bolts rotate together, each about its own origin - same delta, same
+  contract;
+* after a weapon switch every bolt orbits the muzzle at whatever radius it had
+  when the switch happened - the delta becomes a fixed transform relative to the
+  hand;
+* each bolt vanishes past an angle - beyond `AttachPassRadius` the draw is
+  refused, falls through to a matcher that cannot place it, and is dropped.
+
+And the reference that gate compares against, `lastL2W`, is written ONLY where
+the matcher adopts a contract - so it was current 4 times all run. A gate on a
+reference nothing maintains both misfires and misses.
+
+### The rule that replaces it
+
+**A draw is the held item only if it is where the engine says the held item is. A
+draw that matches nothing is handed back exactly as the engine drew it.**
+
+It names no asset, no weapon and no count, which is the point - a throwable that
+does not exist yet is covered without new code. Per draw:
+
+1. The contract carries the COMPONENT it was matched to (`compObj`), not just its
+   buffers. A second instance of that mesh can never inherit its correction.
+2. `WaVerifyDraw` compares the draw against that component's transform from the
+   live snapshot, expressed in the draw's space through the bridge the matcher
+   already builds. The snapshot is engine-read and republished twice a frame, so
+   it cannot go stale while the weapon is in view.
+3. A recent-verification cache (`heldAt`, refreshed on EVERY verified draw by both
+   routes) answers when no correction was published this Present, so a quiet
+   frame does not blink the weapons.
+4. Nothing to compare against means REFUSE. Absence of evidence is not consent -
+   that was the 41.x defect exactly.
+
+**Suppression is now only for a draw that PASSED verification.** That is what
+keeps a world instance visible: its colour and lighting passes are its own, not
+duplicates of anything we drew, and suppressing them is what made fired bolts
+vanish. The shared `dm` delta is also gated on the verdict, so a refusal is no
+longer advisory.
+
+The tolerance is `AttachPassRadius` reused, not a new number: the census measured
+0.3 uu between an uncorrected pass and its corrected twin, and two instances of a
+mesh are hundreds of units apart. Both bounds are asserted in the host suite.
+
+### Levers
+
+`AttachVerifyInstance=1` (OFF restores trusting buffer identity - the behaviour
+of every previous build, so the two compare directly), `AttachHeldMaxPresents=2`.
+The two falsified attempt-1 gates stay at OFF, kept so their measurement is
+reproducible.
+
+### What a headset run has to answer
+
+`wa: instance verify` reports held / elsewhere / unverifiable, which reference
+answered, and the worst offset accepted next to the farthest refused - so the
+radius can be judged from both sides rather than argued. **HELD should be the
+large majority while a weapon is out; 0 with flat weapons means verification is
+failing, not idle.** If `component` is 0 the engine-read route is not running and
+only the cache is holding it up, which would be a latent failure.
+
+The risk to watch is the opposite of the old one: too much refusal. If a held
+weapon goes flat or blinks, `AttachHeldMaxPresents` and the radius are the levers,
+and `AttachVerifyInstance=0` returns to the old behaviour.
+
+Also open: **VR-60**, the pistol is not in the component snapshot at all, so it
+has no member candidate and reaches contracts only through the buffer lookup's
+`vb || ib` OR. That is why its visibility depended on aim angle.
+
+## PREVIOUS (2026-09-08, night): VR-33 merged; VR-59 attempt 1 FALSIFIED
+
+`VR-Main` is pushed and at `555e8ff4`; PRs 18-22 are closed and their tickets
+are Done. **The VR-59 fix was tried in a headset and both of its gates were
+falsified.** Both are now default OFF, the build is rebuilt and installed, and
+the run produced exactly the measurements needed to design the real fix.
+
+### What the run said
+
+The held bolt stopped following the hand and only inherited camera rotation - it
+was drawing natively. The pistol vanished depending on the angle between where
+it pointed and where the bolt had been. No bolt was fired at all, so every
+symptom was on HELD geometry: a straight regression.
+
+**`AttachRequireFreshRef` starves the held weapons.** 53,238 refusals in one
+run, all on held `crossbow_01` and `bolt_01`, with the present gap growing
+monotonically to 21,367. `lastL2W` is written ONLY where the transform matcher
+adopts a contract; the buffer-identity route that actually corrects the auxiliary
+passes never refreshes it. Once the matcher misses, the reference is stale
+forever and the gate blocks the only remaining route. **A reference has to be
+maintained on the path that uses it.**
+
+**`AttachRequireLiveMember` cannot answer its own question.** All 19 published
+snapshots in the run were identical - the same six components, including
+`bolt_01 (pArrowMesh_HighRes)` - across crossbow, sword and pistol being held in
+turn. `FpCollect` walks the pawn INVENTORY, and `DisWepCrossbow` says why: the
+loaded bolt is `m_pArrowMesh_HighRes`, a component of the WEAPON, which stays in
+inventory when stowed. Presence is not equipment.
+
+### What the scripts gave, and why it matters
+
+In `docs/dishonored/ENGINE_NOTES.md`. The loaded bolt and a fired bolt share
+**only** the mesh asset `bolt_01`; the component name, the component class and
+the owning actor all differ, and a fired bolt is a separate ACTOR
+(`DisProjectile_Arrow`) that never reaches the snapshot. That is why every
+asset-name and buffer-identity route can be fooled, and it is the shape any real
+fix has to take.
+
+The pistol is not in the snapshot at all, which is a separate finding worth
+acting on: it has no member candidate and can only reach a contract through the
+vertex-OR-index-buffer match, which is what made its visibility depend on aim
+angle.
+
+### The next attempt, designed but NOT written
+
+Compare each draw against the contract's COMPONENT position from the engine
+snapshot, expressed in draw space through the bridge the matcher already builds -
+not against `lastL2W`. The snapshot is engine-read and refreshed every 4 ms
+whether or not the matcher succeeded, so it cannot go stale the way `lastL2W`
+does. Store the component pointer in the contract at adoption so the right
+component is looked up each frame.
+
+What is kept from attempt 1: the `held_instance` predicate and its 13 host cases,
+`AttachVetoReleasesBuffers` (sound - a vetoed draw must not be suppressed), and
+`AttachInstanceVetoRelaxed`.
+
+### Previous entry for this session (the merge, still accurate)
+
+## PREVIOUS (2026-09-08, later): VR-33 merged, VR-59 attempt 1 written
+
+Two things happened this session. **PRs 18-22 are merged into `VR-Main` locally
+and are NOT pushed yet** - the push was blocked by a tool permission, so the
+remote `VR-Main` is still at `f44f4761` and all five PRs are still open. The
+first job of the next session is that one command, or to say so plainly if it is
+still refused.
+
+Then VR-59, the fired bolt, which is written, built, installed and covered by
+host tests but **has not been in a headset**.
+
+### The merge, and why it is five commits and not one
+
+PR 22 turned out to be a strict SUPERSET of 18, 19, 20 and 21: it was rebuilt off
+`VR-Main` and carries every feature from all four, plus later tuning that
+supersedes theirs (`HeightOffsetM` -0.090 -> 0.060, `PosTrack Scale` 98 -> 108).
+Merging 22 alone would have landed everything but left the other four PRs unable
+to close themselves, so they were merged in order 18 -> 19 -> 20 -> 21 -> 22
+instead, each as its own merge commit.
+
+Every conflict on the way to 21 was two branches appending to the same region - a
+new `CURRENT` section, a decision-log entry, `#include` lines in the unity TU -
+and was resolved as a UNION, so each feature keeps its own section. The final
+merge took 22's side throughout, because 22 is the integrated superset, and then
+22's own cleanup was applied (the 23 scaffolding docs it replaced with one
+durable record, and two experiments it retired to `src/legacy/vr33/`, which is
+why nothing was lost).
+
+**The end state was verified by construction: the merged tree is byte-identical
+to PR 22's tree**, which is the headset-confirmed build. `git diff HEAD
+origin/claude/vr-33-rotation-grip-and-weapons` is empty. Lint clean, Release
+builds, nine exports undecorated.
+
+### VR-59: a distance can never answer an instance question
+
+The branch is `claude/vr-59-fired-bolt-instance-identity` off the merged
+`VR-Main`. **No PR** - deliberately, on request.
+
+The three radius gates could not close this and were never going to. A bolt fired
+into a surface a metre away is inside all of them on merit. What identified the
+real defect was that the fault behaves COMPLETELY DIFFERENTLY depending on what
+is held: with the crossbow out a fired bolt only inherits its rotation, but with
+the pistol out the bolt jumps onto the aim direction and tracks the pistol - **at
+any distance, near or far.** A fault that reaches an arbitrarily distant instance
+proves no radius was gating it.
+
+**A contract outlives its weapon being stowed, and the instance gate ran only
+when a fresh reference existed.** `g_waMesh` is keyed on buffers and evicted only
+when the table fills. The pass-radius check ran behind
+`if (lastL2WOk && present - lastL2WPresent <= 2)`. Stow the crossbow, the loaded
+bolt stops drawing, that reference goes stale, and **the gate is skipped
+entirely** - while the hand that contract belongs to keeps publishing a fresh
+correction every frame, because the hand is always drawn. The absence of evidence
+was being read as permission.
+
+The dark stub left standing where the bolt landed is the same cause, not a second
+bug: some passes were corrected and the rest were SUPPRESSED by
+`AttachSuppressUnplaced`, whose documented cost is exactly this when it lands on
+a world instance - those colour and lighting passes are the bolt's own, not
+duplicates of anything we drew.
+
+### What replaced them
+
+`dvr::wf::held_instance` in `weapon_frame.h`, pure and fully exercised by
+`frame_test`. Four verdicts, and the ORDER is the authority they carry:
+
+* `STOWED` - that asset is not a live member of that hand in the current
+  component snapshot. **Strong, and it is the engine's own answer**: `FpCollect`
+  walks out from the pawn through the inventory chain only, so a world projectile
+  cannot appear in it however close to the camera it sits.
+* `ELSEWHERE` - a fresh reference exists and this draw is past
+  `AttachPassRadius` from it. Strong.
+* `NO_REF` - nothing has vouched for this geometry for `AttachRefMaxPresents`
+  presents. **Weak on purpose.** It refuses the correction, but it may not
+  release buffers or overrule the relaxed band, because a weapon just re-equipped
+  has a stale contract by definition - treating it as strong would stop a
+  re-equipped sword relocking and would draw a ghost copy while it tried.
+* `HELD` - corrects.
+
+Five levers, `[Hands]`, **all default ON**: `AttachRequireLiveMember`,
+`AttachRequireFreshRef`, `AttachRefMaxPresents=2`, `AttachVetoReleasesBuffers`,
+`AttachInstanceVetoRelaxed`. Each one off restores the pre-VR-59 behaviour of
+that single step, so they A/B alone; the host suite asserts that too.
+
+### Verified on the desk
+
+75 host cases pass (13 new, all on the instance verdict), `tools\lint.ps1` clean,
+Release built and installed, installed DLL hash matches the build. The installed
+ini has `AttachWeapons=1` and `AttachSnapshotMaxMs=100` and none of the five new
+keys, so all five take their ON defaults.
+
+The new cases deliberately hold the DISTANCE inside the radius and vary only the
+instance evidence - a suite that separated them by distance would be testing the
+gate that already failed.
+
+### Next steps
+
+1. **Push `VR-Main`** (`git push origin VR-Main`), then confirm PRs 18-22 closed
+   and VR-30, VR-31, VR-33, VR-51, VR-53 moved to Done.
+2. **A headset run for VR-59.** Fire a bolt into a wall a metre away, look at it,
+   then switch weapons and look again. `wa: instance gates` reports every
+   counter; the line says on itself that ALL ZERO IS THE HEALTHY READING while a
+   weapon is held and drawing, because it counts draws that are not the held
+   instance. A non-zero `stowed` count with the bolt sitting still is the fix
+   working.
+3. **Watch for the regression this could cause**: re-equipping a weapon must
+   still relock, and must not show a ghost copy while it does. That is what
+   `NO_REF` being weak protects, and it is the one thing in this change that
+   trades against the fix.
+4. **VR-49, the 20-90 s settle** (Urgent). The weapon lock is part of it and the
+   decisions are cacheable.
+5. **VR-57, the crosshair** (Urgent). Still head-locked while the weapon points
+   where the hand points. One ray.
+6. **VR-58** (numpad adjust, ModelScale) and **VR-56** (no back faces on the
+   weapon models).
+
+---
+
+## PREVIOUS CURRENT (2026-09-08): VR-33 is DONE and in review
 
 The hands and the held weapons are on the tracked controllers, headset-confirmed
 and stable. The branch is `claude/vr-33-rotation-grip-and-weapons`, twelve
