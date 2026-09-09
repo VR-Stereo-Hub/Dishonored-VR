@@ -1251,6 +1251,10 @@ static void LoadConfig()
     // handed back exactly as the engine drew it. OFF restores trusting buffer
     // identity, which is what every build before this did, so the two compare
     // directly in a headset.
+    // VR-61: the gameplay state flags. Read-only and off the frame path, so it
+    // ships ON: its whole purpose is to report what the game is doing, and a
+    // reporter nobody enables reports nothing.
+    g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     g_waVerifyInstance = IniFloat(ini, "Hands", "AttachVerifyInstance", 1) != 0.0f;
     g_waHeldMaxPresents = (int)IniFloat(ini, "Hands", "AttachHeldMaxPresents", 2);
     if (g_waHeldMaxPresents < 0)  g_waHeldMaxPresents = 0;

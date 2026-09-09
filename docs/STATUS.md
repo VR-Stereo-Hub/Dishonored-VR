@@ -1,6 +1,85 @@
 # Status
 
-## CURRENT (2026-09-08, night): VR-59 is FIXED and headset-confirmed
+## CURRENT (2026-09-08, night): VR-61, the UE3 property resolver, first run pending
+
+VR-59 is fixed and headset-confirmed; PR #23 is open against `VR-Main` and NOT
+merged. VR-60 (the pistol) is blocked on VR-61 by choice, because reading the
+inventory is the clean fix and a second heuristic is not.
+
+Branch `claude/vr-61-property-resolver`. Built, installed, 88 host cases, lint
+clean. **The derivation has never run against the game.**
+
+### What this is
+
+`src/game/dishonored/ue3/reflect.cpp` resolves a property BY NAME to its byte
+offset on this build, by walking the UClass property chain. The argument for it is
+`docs/dishonored/GAMEPLAY_STATE.md`: almost every hard bug in this mod came from
+acting on a guess about game state because there was no way to ask.
+
+**Only four slots were unknown** - `UField::Next`, `UStruct::SuperStruct`,
+`UStruct::Children`, `UProperty::Offset` - because `kNameOff` / `kClassOff` /
+`kOuterOff` are already derived on this build. The BioShock trilogy work had to
+derive those first and called it the hard part.
+
+### The oracle, which is what makes this not a guess
+
+`kWaComponentLocalToWorld` (0x60) and `kWaComponentTranslation` (0x90) are
+measured on this build and read every frame, and UE3 names those properties
+`LocalToWorld` and `Translation`. **A layout is accepted only if it resolves both
+names to both offsets.** A wrong layout cannot reproduce an answer we already
+know, so the search cannot quietly settle on one.
+
+If derivation fails, the log says which stage and with what numbers - including
+the case where the constants themselves are wrong for that class, which would
+make the search impossible and the constants the bug.
+
+### Three traps taken from the trilogy mod rather than rediscovered
+
+1. **NEVER init-driven.** Our DLL loads from `DllMain` during import resolution,
+   before the exe's CRT static initializers, so GNames is empty then. Deriving at
+   startup fails every boot and looks like a broken instrument. This derives
+   lazily on the script lane and retries every 2 s until it succeeds.
+2. **A name-pool scan is hundreds of milliseconds and must never be on a
+   cadence** - it stuttered that game at 2-3 Hz. Every resolve here is cached per
+   (class, name) for the process lifetime.
+3. **`ObjectArchetype` is class-classed and SHARED**, which falsified it as a
+   chain link there: two nodes cannot share a `Next`. It is excluded explicitly.
+
+A fourth is ours: the four-way search was ~810k candidate layouts, each doing two
+chain walks. On the game thread that is a hang measured in minutes, and **a
+diagnostic that freezes the game is not a diagnostic.** The slots are separable,
+so derivation is staged into ~1,000 walks; the oracle still judges the finished
+layout, so staging changed the cost and not the standard of proof.
+
+### The first consumer exists to make the resolver falsifiable
+
+A resolver that derives a layout and reads nothing has proved only that it did not
+crash. So it reads the one thing the component walk provably cannot: pawn ->
+`m_pInventory` -> `m_Slots`, a TArray of `PawnInventorySlot`, each slot carrying
+the item AND its `EDisEquipUsage`. Every step resolved by name. Logs CHANGES only.
+
+The struct STRIDE is the single unresolved number in that path, because element
+layout is not in the property chain. It is validated rather than trusted: a stride
+that yields no readable item pointer is reported as **a wrong stride, not an empty
+inventory** - two things that look identical without that line.
+
+### What the next run has to answer
+
+Read in this order:
+
+1. `rfl: UE3 property layout DERIVED ...` with the four slots and the oracle it
+   was validated against. If instead `rfl: not derived yet - <reason>` repeats,
+   the reason names the stage.
+2. `rfl/state: equipment CHANGED - Primary ... Secondary ...` on every weapon
+   swap. **That line is the proof**: it is data out of a TArray, which is what
+   VR-60 needs and what the pointer walk cannot reach.
+3. Nothing should look or feel different. This subsystem is read-only, off the
+   frame path, and touches no render lever.
+
+`[Hands] StateFlags=0` turns the reader off; the resolver itself has no lever
+because nothing consumes it yet.
+
+## PREVIOUS (2026-09-08, night): VR-59 is FIXED and headset-confirmed
 
 **A fired bolt stays where it lands.** Confirmed in a headset: bolts are visible
 and solid, hold their position and rotation, show no coupling to the hand in any
