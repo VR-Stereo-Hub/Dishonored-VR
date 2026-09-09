@@ -132,6 +132,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         if (!hooked) { hooked = true; dvr::vr::set_mirror_hook(&dvr::desktop_eye::on_present); }
     }
     dvr::perf::stamp(dvr::perf::kEntry);
+    dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
     if (g_cb.pre_tick) g_cb.pre_tick(self);
     // 41.1: a method that presents twice per tick is paced by the runtime's
     // pair pacing (one xrWaitFrame per pair); a per-present cap would halve
@@ -178,6 +179,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
                      dvr::stereo::projection_override_name());
         }
         if (wanted) dvr::vr::publish_gameplay_view(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
+    }
+    {   // VR-67: the A/B measures gameplay, never a menu or a load
+        dvr::perf::ab_set_gameplay(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
     }
 
     if (g_cb.game_tick) g_cb.game_tick(self);

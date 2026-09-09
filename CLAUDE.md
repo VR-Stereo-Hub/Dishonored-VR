@@ -153,6 +153,10 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 
 ## Session protocol
 
+- **A setting that "does not work" is a `docs/TRAPS.md` question before it is a code question.**
+  Two sessions have gone to a value that was overridden somewhere else. Find every place the value can
+  live, read what the run RESOLVED it to (not what you wrote), and confirm it reached the consumer.
+  New traps and failed plans go in that file in the same commit as the work.
 - **START**: read `docs/STATUS.md`, the current milestone in `docs/ROADMAP.md`, then
   `git log --oneline -10`. **Find the Linear ticket** for the work (search before creating;
   create from the template if absent, with project, milestone, priority and a `Type` label),
@@ -243,6 +247,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/ROADMAP.md` | Milestones S0-S3 (the stereo ladder) with "done when" criteria and checkboxes; the carried D-items after |
 | `docs/ARCHITECTURE.md` | The frame path, the stereo ladder, the runtime layer, the camera seam, thread contracts, the unity build and how modules leave it, decision log |
 | `docs/RESEARCH.md` | Engine facts, prior art, VR runtime facts, legal posture, all with sources |
+| `docs/TRAPS.md` | **Traps and the graveyard**: the stale-setting class (check it FIRST when a key "does nothing"), instruments that could not fail their own hypothesis, plans tried and failed, and an index of the per-topic graveyards |
 | `docs/VERIFICATION.md` | **Verification catalog**: intent -> tool -> command -> how to read the result; the simulator and its instruments, the seam, captures, what still needs a human |
 | `docs/LINEAR_AND_GITHUB.md` | **The dev flow**: ticket -> branch -> PR -> review -> merge -> release. Statuses and what each means here, priority, labels, the ticket and PR templates, project updates, the release ritual, and what only the Linear UI can do |
 | `docs/CODE_REVIEW.md` | Every finding from the review of the original single file, with disposition |

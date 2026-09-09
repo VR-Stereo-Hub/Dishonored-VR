@@ -166,6 +166,13 @@ static void WriteDefaultIni(const char* ini)
         "ForceNoVSync=1\n"
         "FrameId=1\n"
         "FrameIdEvery=8\n"
+        "; Ab (41.1, VR-67): the performance A/B. 1 = on the FIRST present of a run it starts\n"
+        "; an announced plan of segments, switching ONE lever at a time and returning to the\n"
+        "; baseline between alternatives, then prints a per-segment DISTRIBUTION (p50/p95/p99/\n"
+        "; max and how many intervals ran over twice the median). A window MEAN cannot see a\n"
+        "; frame drop, which is why this exists. Nothing about what is rendered changes, and\n"
+        "; the baseline is restored when the plan ends. `perf ab status|off|restart|seg <ms>`.\n"
+        "Ab=1\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -755,6 +762,7 @@ static void LoadConfig()
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
+        dvr::perf::ab_set_enabled(GetPrivateProfileIntA("Perf", "Ab", 1, ini) != 0);
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
             inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
 
