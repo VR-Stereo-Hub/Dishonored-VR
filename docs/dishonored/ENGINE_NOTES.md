@@ -4505,3 +4505,99 @@ res: CreateDevice - the game asked for <W>x<H> windowed=0     <- what the engine
 All three must carry the same size. If the first two agree and the third does
 not, the engine refused the mode; if the first two disagree, that is this bug
 returning.
+
+## THE WEAPON JUDDER: THE HAND WAS NORMALISED AGAINST A HEAD THE VIEW WAS NOT RENDERED FROM (VR-68, 2026-09-09)
+
+The same fault as VR-65, one layer down, and it was hidden underneath it.
+
+### The measurement
+
+A lag finder compares the RENDERED camera's frame-to-frame yaw change - taken
+from `MpAcquireCtx`'s basis, which comes from the render's own ViewProjection
+constants - against the head's own change at several generations back. Mean
+`|dB - dHead|` over 4085 moving frames, 5796 skipped as too still to
+discriminate:
+
+| lag | mean error |
+|---|---:|
+| 0 | 1.190 deg |
+| 1 | 2.406 deg |
+| **2** | **0.119 deg** |
+| 3 | 2.405 deg |
+| 4 | 1.192 deg |
+
+Ten times clear of the runner-up, with `lag0 = lag4` and `lag1 = lag3` - the
+symmetric V of a real minimum rather than noise.
+
+**It compares DELTAS, never the two orientations.** The camera basis is in the
+game's space and the head sample is in XR space; differencing those directly is
+what produced the retracted 51-degree error. Frame-to-frame differences cancel
+any fixed offset between the spaces. The draw runs on the RENDER thread and the
+finder on the PRESENT thread, so the yaw is published through a seqlock - a bare
+global across those two threads is the retracted 39 % figure.
+
+### The fault
+
+`MpDriveTick` normalised the controller against `g_devPose[0]`, the freshest
+head. The draw plants the result with the camera basis from the render's own
+constants, which is two generations older. The residual is two generations of
+head rotation, at 1.19 deg mean - the same magnitude as the world error VR-65
+fixed (0.119-1.079 deg).
+
+**`[Pace] Lag=2` did not create this.** The hand error is rendered-versus-fresh
+regardless of what the layer is tagged with. Lag 2 revealed it by removing the
+world's own judder, which is why the report was that it had "probably been there".
+
+### The fix
+
+`g_headHist` keeps the head matrix four deep; `[Hands] PoseLag` selects the
+generation the normalisation uses. Default 2, headset-confirmed by a reversing
+A/B/A/B; 0 restores the old behaviour. It fails soft to the freshest head before
+enough history exists.
+
+**Not the submission lag applied twice.** The compositor reprojects the whole
+image from the tagged pose. The world is correct because it was rendered from
+that pose; the hand is correct only if it was placed against the same one. Both
+consume that generation and neither is delayed again.
+
+### The instrument that failed first, and why the failure was useful
+
+An earlier build compared the head stamped at the pose consume against the head
+the camera write snapshotted. Generation gap **0 on every frame**, under 0.1 deg
+in 87 of 100 windows. Both values derive from `g_hmdYaw` around the same consume,
+so it was near-circular and could only ever have caught a script-lane against
+present-lane split - of which there is none.
+
+**The negative result named the correct pair.** Fresh versus RENDERED, not fresh
+versus fresh. Its head-speed column also read over 300 deg/s on half its lines,
+because one tiny interval destroys a max; intervals under 2 ms are ignored now
+and those speed figures are not usable.
+
+## THE PERFORMANCE MEASUREMENTS (VR-67, 2026-09-09)
+
+Open. Recorded so the next attempt starts from evidence.
+
+* **`predictedDisplayPeriod` is not fixed and is not the panel refresh.** One run
+  was asked for 40 fps (25.00 ms), the next for 80 (12.50 ms), and the 3 s summary
+  only ever printed the period its window ENDED on. Every change is logged now.
+  A full period does not prove spacewarp is off, and a doubled one does not prove
+  it is on - the runtime's own decision depends on stats it may not get.
+* **At 80 Hz: 57-80 delivered of 80.** GPU 7.7-12.4 ms per tick against 12.5 ms.
+* **The worst window is not obviously pixel-bound.** 57/s, 17.5 ms tick, GPU
+  12.4 ms, render-thread R 11.6 ms plus desktop Presents 4.8 ms, against a
+  **0.1 ms** pacing wait. CPU, driver and synchronisation are not cleared, and
+  the D3D11 bridge has never been timed at all.
+* **Falsified by A/B**: the `FrameId` render-target readback, and D3D9Ex
+  `SetMaximumFrameLatency` at 1, 2 and 3 - all inside the noise floor on median,
+  tail and hitch count. The latency call succeeded and read back, so these are
+  real negatives rather than refused levers.
+* **Every gameplay hitch sits in the submission tail**, 19 of 19 in the last run,
+  40-115 ms with `xrEndFrame` itself 32-108 ms against a 0.07-0.5 ms typical.
+  **Where a wait is observed does not name what caused it**: that call takes a
+  mutex, can wait on the previous submission, and can wait on D3D11
+  synchronisation, so our own GPU work can be charged to it. The Wi-Fi link was
+  reported healthy and has not been implicated.
+* **Two counting traps, both paid for**: a hitch tally computed over a whole log
+  rather than the gameplay window reported a shift that does not exist, and
+  summary windows joined by eye rather than by timestamp produced a table where
+  no row's GPU span belonged to its own frame rate.

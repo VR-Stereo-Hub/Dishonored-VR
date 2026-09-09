@@ -52,6 +52,16 @@ enum Point {
 };
 void stamp(Point p);
 
+// The performance A/B (VR-67, perf_ab.cpp). One run walks an announced plan of
+// segments, switching ONE lever at a time and returning to the baseline between
+// alternatives, and reports a DISTRIBUTION per segment (p50/p95/p99/max and how
+// many intervals ran over twice the median) instead of a window mean - a mean
+// cannot see a frame drop. `perf ab on|off|restart|seg <ms>`; [Perf] Ab=.
+void ab_tick(IDirect3DDevice9* dev);   // present thread, at kEntry
+bool ab_command(const char* args);
+void ab_set_enabled(bool on);
+void ab_set_gameplay(bool inPlay);   // the plan only runs in gameplay
+
 // The frame-start marker (commit 2): the first BeginScene after the game's
 // Present returned splits OUT into idle (the render thread had nothing queued:
 // it waited for the game thread) and R (executing the frame's commands). The

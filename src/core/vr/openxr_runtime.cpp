@@ -3052,8 +3052,39 @@ void on_present_begin() {
     g_lastShouldRender.store(g_frameState.shouldRender != XR_FALSE, std::memory_order_relaxed);
     // Session 42: the runtime's own frame period, previously discarded. 0 stays
     // 0 on runtimes that do not fill it; consumers must treat that as unknown.
-    g_displayPeriodNs.store(static_cast<int64_t>(g_frameState.predictedDisplayPeriod),
-                            std::memory_order_relaxed);
+    {
+        const int64_t periodNs = static_cast<int64_t>(g_frameState.predictedDisplayPeriod);
+        // VR-67: LOG THE CHANGE, NOT THE STATE. This is predictedDisplayPeriod,
+        // which OpenXR does NOT require to equal the panel's refresh cycle - a
+        // reprojecting runtime reports the APPLICATION's period, so a doubling
+        // here is the runtime telling us it has started synthesising frames.
+        // The 3 s summary prints only the period the window ENDED on, so a
+        // transition inside a window is invisible there and was read as a
+        // steady 40 Hz across a run that in fact changed period at least twice.
+        // Every transition is now stamped with the frame index it happened on,
+        // so a hitch can be checked against it instead of assumed independent.
+        static int64_t s_lastPeriodNs = -1;
+        static uint32_t s_periodChanges = 0;
+        static uint64_t s_waits = 0;
+        ++s_waits;
+        if (periodNs != s_lastPeriodNs) {
+            const double wasMs = s_lastPeriodNs > 0 ? (double)s_lastPeriodNs / 1e6 : 0.0;
+            const double nowMs = periodNs > 0 ? (double)periodNs / 1e6 : 0.0;
+            if (s_lastPeriodNs >= 0)
+                XRLOG("xr: RUNTIME PERIOD CHANGED %.2f ms (%.1f Hz) -> %.2f ms (%.1f Hz) - change #%u, at frame "
+                      "%llu (xrWaitFrame calls since start). This is predictedDisplayPeriod, not the panel refresh: a doubling means the runtime "
+                      "has started reprojecting (spacewarp) and is asking us for half rate. Check the frame gaps "
+                      "around this frame index before blaming a stall on anything else.",
+                      wasMs, wasMs > 0.0 ? 1000.0 / wasMs : 0.0, nowMs, nowMs > 0.0 ? 1000.0 / nowMs : 0.0,
+                      ++s_periodChanges, (unsigned long long)s_waits);
+            else
+                XRLOG("xr: runtime period is %.2f ms (%.1f Hz) at the first located frame - predictedDisplayPeriod, "
+                      "NOT the panel refresh. Every later change is logged; if none is, the period held all run.",
+                      nowMs, nowMs > 0.0 ? 1000.0 / nowMs : 0.0);
+            s_lastPeriodNs = periodNs;
+        }
+        g_displayPeriodNs.store(periodNs, std::memory_order_relaxed);
+    }
     if (XR_FAILED(r)) {
         XRLOG("xr: xrWaitFrame failed: %s", res_str(r));
         teardown_session("waitframe failed");

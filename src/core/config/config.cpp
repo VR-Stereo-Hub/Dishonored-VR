@@ -166,6 +166,13 @@ static void WriteDefaultIni(const char* ini)
         "ForceNoVSync=1\n"
         "FrameId=1\n"
         "FrameIdEvery=8\n"
+        "; Ab (41.1, VR-67): the performance A/B. 1 = on the FIRST present of a run it starts\n"
+        "; an announced plan of segments, switching ONE lever at a time and returning to the\n"
+        "; baseline between alternatives, then prints a per-segment DISTRIBUTION (p50/p95/p99/\n"
+        "; max and how many intervals ran over twice the median). A window MEAN cannot see a\n"
+        "; frame drop, which is why this exists. Nothing about what is rendered changes, and\n"
+        "; the baseline is restored when the plan ends. `perf ab status|off|restart|seg <ms>`.\n"
+        "Ab=1\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -424,6 +431,18 @@ static void WriteDefaultIni(const char* ini)
         "WpnYaw=0\n"
         "WpnPitch=0\n"
         "WpnRoll=0\n"
+        "[Hands]\n"
+        "; PoseLag (41.2, VR-68): which generation of the head the hand and the weapon are\n"
+        "; normalised against. The engine renders a frame from the head TWO locate generations\n"
+        "; back - measured, the rendered camera motion matched that sample to 0.119 deg against\n"
+        "; 1.19 at the freshest, over 4085 moving frames - so a hand placed against the FRESHEST\n"
+        "; head is planted in a view built from a different one, and the leftover is two\n"
+        "; generations of head rotation. That is the weapon judder, and it is the same fault the\n"
+        "; world had before [Pace] Lag=2 fixed it, one layer down.\n"
+        "; 2 is confirmed in a headset by a reversing A/B/A/B; 0 is the pre-VR-68 behaviour.\n"
+        "; PoseLagAb=1 walks 0/2/0/2 on 15 s segments so the comparison can be felt again.\n"
+        "PoseLag=2\n"
+        "PoseLagAb=0\n"
         "[HeadInject]\n"
         "; (legacy, unused)\n"
         "FlipYaw=1\n"
@@ -755,6 +774,14 @@ static void LoadConfig()
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
+        dvr::perf::ab_set_enabled(GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        // VR-68: which head generation the HAND normalisation uses. 0 = the
+        // freshest (historical); 2 = the one the rendered view was built from,
+        // which is what bv/lag measured. PoseLagAb walks 0/2/0/2 so a headset
+        // run decides it.
+        g_mpPoseLag = GetPrivateProfileIntA("Hands", "PoseLag", 2, ini);
+        g_mpPoseLagAb = GetPrivateProfileIntA("Hands", "PoseLagAb", 0, ini) != 0;
+        Log("config: [Hands] PoseLag=%d PoseLagAb=%d - the head sample the hand is normalised against. 2 is the measured and headset-confirmed answer: bv/lag put the RENDERED camera at lag 2 (0.119 deg against 1.19 at lag 0 over 4085 moving frames) and a reversing A/B/A/B in a headset agreed. PoseLag=0 restores the old behaviour if you want to feel the difference.", g_mpPoseLag, (int)g_mpPoseLagAb);
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
             inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
 

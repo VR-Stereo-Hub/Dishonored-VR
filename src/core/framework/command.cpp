@@ -100,7 +100,9 @@ bool core_command(const char* cmd, const char* args)
         if (!strcmp(args, "off")) { dvr::perf::set_enabled(false); return true; }
         if (!strcmp(args, "gpu on"))  { dvr::perf::set_gpu_enabled(true); return true; }
         if (!strcmp(args, "gpu off")) { dvr::perf::set_gpu_enabled(false); return true; }
-        DVR_WARN("perf: usage - perf on|off|status|gpu on|off (the tick line and the gpu line, every 3 s)");
+        if (!strncmp(args, "ab", 2))  return dvr::perf::ab_command(args[2] == ' ' ? args + 3 : "");
+        DVR_WARN("perf: usage - perf on|off|status|gpu on|off|ab on|off|restart|seg <ms> (the tick line and the "
+                 "gpu line every 3 s; ab walks the segmented A/B plan and reports a distribution)");
         return true;
     }
     return false;
