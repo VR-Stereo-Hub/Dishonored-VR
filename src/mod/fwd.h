@@ -103,6 +103,7 @@ static void RflStateTick(void);
 static bool RflCommand(const char* args);
 
 // VR-62: the startup scoreboard (startup.cpp). Read-only, present thread.
+static void WaInvalidateContracts(const char* why);
 static void SuBeginLoad(void);
 static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict);
 static bool SuCommand(const char* args);

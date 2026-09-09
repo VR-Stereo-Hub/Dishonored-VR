@@ -1258,6 +1258,17 @@ static void LoadConfig()
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
     // to the pointer walk alone, which cannot see the pistol at all.
     g_waEquippedMembers = IniFloat(ini, "Hands", "AttachEquippedMembers", 1) != 0.0f;
+    // How long a contract may keep refusing after its component disappears
+    // before it is retired so the matcher can re-adopt. 90 presents is about a
+    // second at 90 Hz - long enough that a one-frame snapshot gap is not a
+    // retirement, short enough that a lockout cannot outlive a load.
+    g_waStaleMaxPresents = (int)IniFloat(ini, "Hands", "AttachContractStalePresents", 90);
+    g_menuGhostByRate  = IniFloat(ini, "Menu", "GhostClearByRate", 1) != 0.0f;
+    g_menuGhostQuietMs = IniFloat(ini, "Menu", "GhostQuietMs", 400.0f);
+    if (g_menuGhostQuietMs < 50.0)   g_menuGhostQuietMs = 50.0;
+    if (g_menuGhostQuietMs > 5000.0) g_menuGhostQuietMs = 5000.0;
+    if (g_waStaleMaxPresents < 1)    g_waStaleMaxPresents = 1;
+    if (g_waStaleMaxPresents > 9000) g_waStaleMaxPresents = 9000;
     g_waVerifyInstance = IniFloat(ini, "Hands", "AttachVerifyInstance", 1) != 0.0f;
     g_waHeldMaxPresents = (int)IniFloat(ini, "Hands", "AttachHeldMaxPresents", 2);
     if (g_waHeldMaxPresents < 0)  g_waHeldMaxPresents = 0;

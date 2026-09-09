@@ -409,7 +409,11 @@ static void GameStateTick()
     // moment we know the picture was right; everything after it is the settle.
     const bool nowGameplay = !strcmp(s, "GAMEPLAY");
     static bool wasGameplay = false;
-    if (wasGameplay && !nowGameplay) SuBeginLoad();
+    if (wasGameplay && !nowGameplay) {
+        SuBeginLoad();
+        // A load destroys the components the weapon contracts were matched to.
+        WaInvalidateContracts("the game left gameplay");
+    }
     wasGameplay = nowGameplay;
     SuTick(suCyl, suNoMenu, suView, !g_cineNow, DvrGameplayVerdict());
 

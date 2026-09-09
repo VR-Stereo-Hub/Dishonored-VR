@@ -449,6 +449,25 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
 // the caller hands the draw back untouched. Refusing to touch a draw costs at
 // most a duplicate pass of a weapon; correcting one on faith is what dragged
 // world objects onto the hand.
+// Drop every contract. Called when the game leaves gameplay, because a load
+// destroys the components the contracts were matched to and a contract pointing
+// at a dead object refuses every draw AND blocks its own re-adoption.
+static void WaInvalidateContracts(const char* why)
+{
+    if (!g_waMeshN) return;
+    const int n = g_waMeshN;
+    g_waMeshN = 0;
+    memset(g_waMesh, 0, sizeof(g_waMesh));
+    for (int i = 0; i < 3; ++i) g_rflHeldObj[i] = NULL;
+    InterlockedExchangeAdd(&g_waDroppedLoad, (LONG)n);
+    Log("wa: dropped %d contract(s) - %s. A contract holds the component it was "
+        "matched to, a load destroys that component, and a contract pointing at a "
+        "dead object refuses every draw and blocks its own re-adoption. The "
+        "weapons re-identify from scratch, which is the settle, not a fault.",
+        n, why);
+}
+
+
 static dvr::wf::Instance WaVerifyDraw(const WaMesh* w, const MpDrawCtx* c2,
                                       float* offsetOut, dvr::wf::InstanceRef* refOut)
 {
@@ -478,6 +497,13 @@ static dvr::wf::Instance WaVerifyDraw(const WaMesh* w, const MpDrawCtx* c2,
                 if (k->ok && k->isMember && k->hand == w->hand &&
                     !strcmp(k->asset, w->asset)) self = k;
             }
+        // FOUND OR GONE, AND BOTH MATTER. A component still in the snapshot
+        // stamps the contract as live; one missing from a FRESH snapshot starts
+        // the clock on retiring it, so a stale contract cannot refuse forever.
+        if (self) {
+            ((WaMesh*)w)->compSeenPresent = (uint32_t)dvr::frame::count();
+            ((WaMesh*)w)->compSeenOk = true;
+        }
         if (self) {
             dvr::hf::Xform native = {self->R, {self->t[0], self->t[1], self->t[2]}};
             dvr::hf::Xform expected = native;
@@ -510,6 +536,35 @@ static dvr::wf::Instance WaVerifyDraw(const WaMesh* w, const MpDrawCtx* c2,
         InterlockedIncrement(&g_waRefRecent);
         return dvr::wf::verify_instance(dvr::wf::IREF_RECENT, *offsetOut,
                                         g_waPassRadiusUU);
+    }
+
+    // NOTHING CAN VOUCH FOR THIS CONTRACT. Refusing is correct for THIS draw,
+    // but refusing forever is a lockout: a refused draw returns before the
+    // transform matcher, so a contract whose component is gone can never be
+    // re-adopted and its weapon never attaches again. That is exactly what a
+    // level load produced - unverifiable climbing past 45,000 while corrected
+    // sat frozen.
+    //
+    // So a contract whose component has been missing this long is RETIRED. The
+    // next draw on those buffers finds no contract, falls through to the
+    // matcher, and identifies itself honestly.
+    if (w->compSeenOk &&
+        ((uint32_t)dvr::frame::count() - w->compSeenPresent) >
+        (uint32_t)(g_waStaleMaxPresents < 1 ? 1 : g_waStaleMaxPresents)) {
+        InterlockedIncrement(&g_waDroppedStale);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+            "wa: retiring the contract for '%s' - its component has been "
+            "missing from the snapshot for %u present(s) (limit %d), so nothing "
+            "can vouch for a draw on these buffers. Retiring lets the next draw "
+            "fall through to the matcher and identify itself; leaving it would "
+            "refuse every draw forever, which is how a level load stopped the "
+            "weapons attaching at all.",
+            w->asset,
+            (unsigned)((uint32_t)dvr::frame::count() - w->compSeenPresent),
+            g_waStaleMaxPresents);
+        ((WaMesh*)w)->vb = NULL;      // no draw can match it again
+        ((WaMesh*)w)->ib = NULL;
+        ((WaMesh*)w)->compSeenOk = false;
     }
     return dvr::wf::INSTANCE_NO_REF;
 }
@@ -1108,6 +1163,8 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         // buffers is verified against this component, so a second instance of
         // the same mesh can never inherit this contract's correction.
         w->compObj = member->obj;
+        w->compSeenPresent = (uint32_t)dvr::frame::count();
+        w->compSeenOk = true;
         InterlockedIncrement(&g_waMatched);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
             "wa: MATCH '%s' hand %d: %.4f deg %.4f uu scale error %.5f; c%d x%d; component snapshot %u",
@@ -1127,6 +1184,9 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // was refreshed 4 times in 13 million draws.
     WaNoteHeld(w, &ctx);
     if (!w->compObj) w->compObj = member->obj;
+    // A cache hit is a fresh identification too, so the component is live.
+    w->compSeenPresent = (uint32_t)dvr::frame::count();
+    w->compSeenOk = true;
     w->lastVerifyMs = MaimNowMs();
     w->boneReg = g_pcLayBones; w->regs = (UINT)g_pcLayBonesN;
     dvr::hf::Xform inverse;

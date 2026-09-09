@@ -65,6 +65,11 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // input goes quiet: buttons except START (pause must always work), sticks,
 // physical-crouch pulses, roomscale. Safety: the latch self-expires after
 // 8 minutes in case an off-toggle is ever missed.
+// VR-62: clear a ghost menu flag on dispatch RECENCY rather than a cumulative
+// count. OFF restores the count, which is what held the picture mono for 24 s
+// on a measured load, so the two compare directly in a headset.
+static bool   g_menuGhostByRate  = true;    // [Menu] GhostClearByRate
+static double g_menuGhostQuietMs = 400.0;   // [Menu] GhostQuietMs
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
 static bool CylTruthLive();              // fwd

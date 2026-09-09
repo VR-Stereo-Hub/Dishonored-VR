@@ -1331,6 +1331,7 @@ static void TrackHead(const float (*m)[4])
             // rotation while paused, so gameplay dispatches STILL FLOWING means
             // the flag is a ghost. A real menu shows no dispatches at all.
             static LONG hitsAtStale = 0;
+            static double lastHitMs = 0.0;   // when a dispatch last ARRIVED
             // 38.17: the ghost-clear needs a LIVE PAWN. At the MAIN MENU the
             // 3D pub background keeps dispatching view rotations, and in
             // windowed mode the cursor half of the test is disabled - so the
@@ -1340,15 +1341,38 @@ static void TrackHead(const float (*m)[4])
             // reads while a gameplay pawn exists - the exact discriminator:
             // ghost menus happen in gameplay (pawn live), the main menu has
             // no pawn.
+            // VR-62: "STILL FLOWING" IS A RATE, AND THIS TESTED A COUNT.
+            //
+            // The old test wanted 20 cumulative dispatches. That is a fine proxy
+            // at gameplay rates and a terrible one during a load, which is the
+            // only time it matters: measured, the view pipeline dispatches about
+            // once a second while a level settles against roughly 78/s once it is
+            // up. So the same ghost flag cleared in 1505 ms one time (118
+            // dispatches) and 24289 ms the next (21) - and that second number IS
+            // the mono window the tester reports, start to finish.
+            //
+            // A count of arrivals cannot tell "flowing slowly" from "stopped".
+            // Recency can, and it is what the sentence above actually means: a
+            // real menu shows NO dispatches at all, so one arriving just now is
+            // the discriminator regardless of rate.
+            //
+            // The other three guards are unchanged and they are what make this
+            // safe: a live pawn (which excludes the main menu and its dispatching
+            // 3D background), no cursor, and the flag standing for 1500 ms.
             if (g_menuOpen && !cursorVis && CylTruthLive()) {
                 double now = MaimNowMs();
-                if (!wasOpen) { wasOpen = true; menuSince = now; hitsAtStale = g_pvrHits; }
-                else if (now - menuSince > 1500.0 && (g_pvrHits - hitsAtStale) > 20) {
+                if (g_pvrHits != hitsAtStale) { hitsAtStale = g_pvrHits; lastHitMs = now; }
+                if (!wasOpen) { wasOpen = true; menuSince = now; hitsAtStale = g_pvrHits; lastHitMs = now; }
+                else if (now - menuSince > 1500.0 &&
+                         (!g_menuGhostByRate || (now - lastHitMs) < g_menuGhostQuietMs)) {
                     g_menuOpen = false; wasOpen = false;
-                    Log("menu: stale flag cleared after %.0f ms - no cursor AND "
-                        "%ld gameplay dispatches still flowing, so this was a "
-                        "ghost, not a menu", now - menuSince,
-                        (long)(g_pvrHits - hitsAtStale));
+                    Log("menu: stale flag cleared after %.0f ms - no cursor, a live "
+                        "pawn, and a view dispatch %.0f ms ago, so the pipeline is "
+                        "STILL FLOWING and this was a ghost, not a menu. Tested on "
+                        "recency rather than a count: during a load the dispatch "
+                        "rate falls to about 1/s, and waiting for 20 of them is "
+                        "what used to hold the picture mono for 24 s.",
+                        now - menuSince, now - lastHitMs);
                 }
             } else {
                 wasOpen = false;
