@@ -1943,6 +1943,20 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         { c->why = "camera basis is not orthonormal"; return false; }
     memcpy(c->r, r, sizeof(r)); memcpy(c->u, u, sizeof(u)); memcpy(c->f, f, sizeof(f));
 
+    // VR-68: publish the RENDERED camera's yaw for the lag finder. This runs on
+    // the RENDER thread and the finder runs on the present thread, so it is a
+    // seqlock, not a bare global - a bare global read across those two threads
+    // is the exact mistake behind the retracted 39 % figure in this project.
+    // Once per present: DvrConsumePoses sets the want flag, this clears it, so
+    // the two eyes cannot contribute two samples to one frame interval.
+    if (g_bvWant) {
+        g_bvWant = false;
+        const float y = atan2f(c->f[1], c->f[0]);   // game space; only DELTAS are ever used
+        InterlockedIncrement(&g_bvSeq);             // odd: write in progress
+        g_bvYaw = y;
+        InterlockedIncrement(&g_bvSeq);             // even: value settled
+    }
+
     // LocalToWorld: columns in the first three registers. ORTHOGONALITY is
     // checked, not just column length - unit columns alone do not make a
     // rotation, and the transpose is only the inverse if it is one.

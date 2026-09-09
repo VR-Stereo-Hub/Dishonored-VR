@@ -80,6 +80,101 @@ static void DvrPoseTo3x4(const dvr::vr::HeadPose& p, float m[3][4])
 // The line says so on the line, and prints the generation gap beside the angle
 // so a zero angle with a nonzero gap (or the reverse) is visible rather than
 // averaged away.
+// VR-68 THE LAG FINDER. The hand is normalised against the FRESH head; the draw
+// plants it with B, the camera basis read from the render's own shader
+// constants - the view the engine ACTUALLY rendered, which the whole Lag=2
+// argument says is generations behind. Fresh against rendered is the pair that
+// matters, and the previous instrument compared fresh against fresh.
+//
+// HOW IT AVOIDS THE TRAP THAT RETRACTED TWO NUMBERS HERE. B is in the game's
+// space and the head sample is in XR space, and differencing those directly is
+// exactly what produced the 51-degree error. So nothing here differences the
+// two orientations. It compares their FRAME-TO-FRAME DELTAS, which cancel any
+// fixed offset between the spaces, and asks only which past head sample the
+// rendered camera's motion matches best. That is the technique that settled
+// VR-65.
+//
+// IT CAN FAIL. If no lag scores meaningfully better than the others the answer
+// is "undetermined" and the line says so. If lag 0 wins, the rendered camera is
+// current and the hand is already coherent with it - the candidate is dead.
+// It also refuses to score on a still head: with no rotation every lag fits
+// equally, so only frames where the head actually moved are counted, and the
+// count is printed so a verdict from three samples is visible as one.
+#define DVR_BV_LAGS 5
+#define DVR_BV_RING 8
+static float    g_hvYawRing[DVR_BV_RING] = {0};   // g_hmdYaw per present, newest at idx
+static int      g_hvYawIdx = 0;
+static int      g_hvYawN = 0;
+static double   g_bvErr[DVR_BV_LAGS] = {0};       // accumulated |dB - dHead_k|
+static int      g_bvUsed = 0;                     // frames that moved enough to score
+static int      g_bvSkipped = 0;                  // head too still to discriminate
+static float    g_bvPrevYaw = 0.0f;
+static bool     g_bvHavePrev = false;
+
+// The lag with the smallest mean error, or -1 when nothing separates them.
+// A winner that is not meaningfully better than the runner-up is NOT a winner:
+// this project has already shipped one verdict whose threshold was chosen
+// before anything was measured.
+static int DvrBestLag(void)
+{
+    if (g_bvUsed < 30) return -1;
+    int best = 0; double bestV = g_bvErr[0];
+    for (int k = 1; k < DVR_BV_LAGS; ++k) if (g_bvErr[k] < bestV) { bestV = g_bvErr[k]; best = k; }
+    double second = -1.0;
+    for (int k = 0; k < DVR_BV_LAGS; ++k) if (k != best && (second < 0.0 || g_bvErr[k] < second)) second = g_bvErr[k];
+    if (second <= 0.0 || bestV <= 0.0) return best;
+    return (second - bestV) / second >= 0.15 ? best : -1;   // 15 % clear, else undetermined
+}
+
+static float DvrWrapPi(float a)
+{
+    while (a > 3.14159265f) a -= 6.28318531f;
+    while (a < -3.14159265f) a += 6.28318531f;
+    return a;
+}
+
+// Present thread. Reads the render thread's published yaw through the seqlock.
+static void DvrLagFinder(void)
+{
+    LONG s0 = g_bvSeq;
+    if (s0 & 1L) return;                       // a write is in progress
+    const float bYaw = g_bvYaw;
+    if (g_bvSeq != s0) return;                 // it changed under us - drop this one
+    g_bvWant = true;                           // ask the next draw for a fresh sample
+
+    if (!g_bvHavePrev) { g_bvPrevYaw = bYaw; g_bvHavePrev = true; return; }
+    const float dB = DvrWrapPi(bYaw - g_bvPrevYaw);
+    g_bvPrevYaw = bYaw;
+
+    // The head's own delta over the same interval, k generations back.
+    if (g_hvYawN < DVR_BV_LAGS + 2) return;
+    float dHead[DVR_BV_LAGS];
+    for (int k = 0; k < DVR_BV_LAGS; ++k) {
+        const int a = (g_hvYawIdx - k + DVR_BV_RING) % DVR_BV_RING;
+        const int b = (g_hvYawIdx - k - 1 + DVR_BV_RING) % DVR_BV_RING;
+        dHead[k] = DvrWrapPi(g_hvYawRing[a] - g_hvYawRing[b]);
+    }
+    // A still head fits every lag equally. Do not let it vote.
+    const float moved = fabsf(dHead[0]) > fabsf(dB) ? fabsf(dHead[0]) : fabsf(dB);
+    if (moved < 0.0035f) { ++g_bvSkipped; return; }   // ~0.2 deg between presents
+    ++g_bvUsed;
+    for (int k = 0; k < DVR_BV_LAGS; ++k) g_bvErr[k] += fabs((double)(dB - dHead[k]));
+
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+        "bv/lag: which head sample did the RENDERED camera move with? mean |dB - dHead| per lag, over %d moving "
+        "frames (%d skipped as too still to discriminate): lag0 %.4f  lag1 %.4f  lag2 %.4f  lag3 %.4f  lag4 %.4f "
+        "deg -> BEST %d. Deltas only, never the two orientations differenced, because B is game space and the head "
+        "is XR space. Lag 0 winning means the rendered camera is current and the hand is already coherent with it. "
+        "No clear winner means undetermined, not zero.",
+        g_bvUsed, g_bvSkipped,
+        g_bvUsed ? g_bvErr[0] / g_bvUsed * 57.29578 : 0.0,
+        g_bvUsed ? g_bvErr[1] / g_bvUsed * 57.29578 : 0.0,
+        g_bvUsed ? g_bvErr[2] / g_bvUsed * 57.29578 : 0.0,
+        g_bvUsed ? g_bvErr[3] / g_bvUsed * 57.29578 : 0.0,
+        g_bvUsed ? g_bvErr[4] / g_bvUsed * 57.29578 : 0.0,
+        DvrBestLag());
+}
+
 static uint32_t g_devPoseGen = 0;      // the locate g_devPose[0] came from
 static float    g_devPoseYaw = 0.0f;   // g_hmdYaw as of that consume
 static float    g_devPosePitch = 0.0f;
@@ -150,7 +245,11 @@ static void DvrConsumePoses()
         g_devPoseGen = g_hmdGen;
         g_devPoseYaw = g_hmdYaw;
         g_devPosePitch = g_hmdPitch;
+        g_hvYawIdx = (g_hvYawIdx + 1) % DVR_BV_RING;
+        g_hvYawRing[g_hvYawIdx] = g_hmdYaw;
+        if (g_hvYawN < DVR_BV_RING) ++g_hvYawN;
         DvrHeadViewCheck();
+        DvrLagFinder();
         TrackHead(m);
     } else {
         g_devPoseOk[0] = false;

@@ -28,6 +28,14 @@ static float g_hmdYaw = 0, g_hmdPitch = 0, g_hmdRoll = 0;
 // precisely what a pose record has to know. Three instruments in a row failed on
 // exactly that: each re-read a moving stream and reported the result as the
 // sample its image had been rendered from.
+// VR-68: the lag finder's cross-thread channel. The draw (RENDER thread)
+// publishes the rendered camera's yaw through a seqlock; the finder (PRESENT
+// thread) reads it. A bare global across those two threads is what produced
+// the retracted 39 % figure, so the sequence counter is not optional.
+static volatile LONG  g_bvSeq = 0;    // even = settled, odd = write in progress
+static volatile float g_bvYaw = 0.0f; // rendered camera yaw, game space, DELTAS ONLY
+static volatile bool  g_bvWant = true;// the present thread asks for one sample per frame
+
 struct HtSample {
     float    yaw, pitch, roll;     // radians, as the camera writer uses them
     float    qx, qy, qz, qw;       // the same orientation, OpenXR convention
