@@ -52,6 +52,36 @@ project produced so many separate flicker bugs across its whole development?**
 
 ---
 
+### BUILD 1 RESULT (2026-09-09): the producer is clean, and the instrument could not answer its own question
+
+```
+PUBLICATION STEPS - +1 19054, other 0, same value re-read 180097
+```
+
+**`other 0`.** The publication sequence never skips and never repeats across the
+whole run. So the mechanism proposed one message earlier - a negation that stops
+equalling the previous eye when the alternation BREAKS - is falsified: the
+alternation never broke. Third hypothesis dead on this flicker.
+
+**And the instrument cannot settle temporal-versus-convention either**, which is
+what it was built for. It measures the PRODUCER's regularity. The question is
+whether a given draw reads the publication belonging to its own view, and the
+draw side still carries no view identity to compare against - exactly the gap
+`FLICKER_REVIEW.md` section 3A named before the build.
+
+**What it did establish, and it is worth having:**
+
+* 180,097 re-reads against 19,054 advances is **~9.45 placement evaluations per
+  published eye**. The review's correction that evaluations are not draws is now
+  a number.
+* The eye changes once per publication while ~9.45 evaluations read it, so **any
+  draw belonging to the next eye that runs before the next publication takes the
+  previous one.** That is the association fault as a measurable quantity rather
+  than a worry, and it is the next thing to measure - by giving the draw an
+  identity, not by timing the producer.
+
+---
+
 ## PART 1 - WHY SO MANY FLICKERS
 
 ### The structural answer

@@ -76,6 +76,19 @@ offset is temporal, and the fix works only while the alternation holds.
 > same way.** A prediction that only one hypothesis could satisfy is evidence; a
 > prediction two hypotheses satisfy identically is not, however large the number.
 
+**An instrument that answered a narrower question than the one asked (VR-69,
+2026-09-09).** A publication-sequence stamp was built to separate "the draw
+reads a stale eye" from "the conventions differ". It measured the PRODUCER's
+regularity - `other 0`, never a skip or a repeat - which killed one hypothesis
+but could not touch the question it existed for, because the draw side still had
+no view identity to compare against. That gap had already been named in review
+BEFORE the build.
+
+> **Ask what the instrument would have to observe to answer the question, and
+> check that you can observe it, before building it.** Three hypotheses on one
+> flicker have now died to instruments that could not have confirmed them
+> either.
+
 ### What to do before touching a key
 
 1. **Find every place the value can live.** Grep for the key name across `src/`,
