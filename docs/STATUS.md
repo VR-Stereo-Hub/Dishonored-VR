@@ -65,6 +65,20 @@ is set in `ue3/process_event.cpp` before trusting it.
 * A candidate list with no body mesh is discarded and re-collected, bounded at
   120 attempts.
 
+### PLAN FOR THE NEXT SESSION - paste it here before starting
+
+> **This section is empty on purpose.** Drop the agreed plan in, replacing this
+> quote, before any code is written. A plan that lives only in a chat is lost the
+> moment the chat is, and three attempts were already spent last session on ideas
+> that were sound in isolation and wrong against facts recorded further up this
+> file.
+>
+> Whatever goes here should name, for each step: the SIGNAL it depends on, which
+> two states that signal separates, and how the run would show the step failed.
+> The three falsified attempts all skipped that last part.
+
+---
+
 ### Next steps
 
 1. Find a real main-menu discriminator, then re-try attempt 1 behind its lever.
