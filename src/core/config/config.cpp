@@ -1281,8 +1281,7 @@ static void LoadConfig()
     // VR-65: the announced lag comparison. ON for this build only - it is the
     // discriminator the refusing render leg cannot supply, it changes nothing but
     // the pose-history selection, and it restores the baseline by itself.
-    // The A/B has served its purpose and ships OFF; it stays for a re-test.
-    dvr::vr::set_lag_ab(IniFloat(ini, "Stereo", "LagAB", 0) != 0.0f,
+    dvr::vr::set_lag_ab(IniFloat(ini, "Stereo", "LagAB", 1) != 0.0f,
                         (uint32_t)IniFloat(ini, "Stereo", "LagABSegMs", 20000));
     dvr::pose::configure_controls(
         (uint32_t)IniFloat(ini, "Stereo", "PoseControlsAfter", 60),
@@ -1791,40 +1790,7 @@ static void LoadConfig()
         {   // 41.1: [Pace] - the projection layer's pacing levers (defaults = today)
             const int ahead = GetPrivateProfileIntA("Pace", "Ahead", 0, ini);
             const int strict = GetPrivateProfileIntA("Pace", "Strict", 0, ini);
-            // VR-65: trying LAG 0, after lag 2 was falsified in a headset.
-            //
-            // The A/B ran lag 1, lag 2, lag 1, lag 0 across twenty-second
-            // segments, all four inside gameplay. The tester reported jittery,
-            // then smooth for ten to fifteen seconds, then jittery - which
-            // matched segment 2 in order, so lag 2 shipped as the default. On the
-            // next run with lag 2 fixed, it juddered. So the smooth window was
-            // NOT segment 2, and attributing it by order alone was wrong.
-            //
-            // Lag 0 is the remaining untried arm and is being tried directly.
-            //
-            // The measurement already argued against lag being the mechanism:
-            // the submitted orientation sits within about 0.3 degrees of the
-            // sample the camera consumed even while the head moves, far too small
-            // to be visible judder, and the generation bookkeeping reported the
-            // same one-generation offset for lag 1 and lag 2, which cannot both
-            // be right. If lag 0 also judders, the fixed-history explanation is
-            // finished for these conditions and the next question is frame
-            // delivery, not another value.
-            //
-            // Whatever the outcome, this is a DISCRIMINATOR, not a proven cause.
-            // The pose measurement says the submitted orientation is within about
-            // 0.3 degrees of the sample the camera consumed even while the head
-            // moves, which is far too small to be the visible judder - so
-            // something other than the orientation difference is what lag 2 is
-            // actually changing, and the generation bookkeeping did not report
-            // distinct offsets between the arms. That is unresolved and it is the
-            // next question, not a settled one.
-            //
-            // The historical default was 1, calibrated against BioShock 1's
-            // single-threaded renderer. This game has a separate render thread
-            // and a delayed capture stage, so a deeper pipeline is exactly what
-            // would be expected. `[Pace] Lag=1` restores the old behaviour.
-            const int lag = GetPrivateProfileIntA("Pace", "Lag", 0, ini);
+            const int lag = GetPrivateProfileIntA("Pace", "Lag", 1, ini);
             int syncHz = GetPrivateProfileIntA("Pace", "SyncHz", 0, ini);
             dvr::vr::set_pace_ahead(ahead);
             dvr::vr::set_pair_strict(strict != 0);
