@@ -7,6 +7,22 @@ question the simulator could answer is a wasted session.
 
 ## 1. The decision table
 
+VR-69 downward-clamp regression: `tools\camera-clamp-host.ps1` compiles the
+production camera writer and clamp functions. Nineteen checks cover exact-write
+ownership through a Z clamp, repeated descent, release, stereo offsets and fresh
+engine/object/field controls. `-LegacyClamp` substitutes the original raw Z write
+and fails six descent/release assertions. The fixture tests the writer interaction;
+it does not prove visual causation or replace the headset comparison.
+
+VR-69 eye-decision regression: `tools\palette-eye-host.ps1` extracts and compiles
+the actual `MpEyeForPresent` body with independent render-present and script-state
+inputs. Nine cases cover queued stereo draws after the game thread moves on,
+multiple hand ranges in one present, unchanged steps, large movement and counter
+wrap. `-Source <mesh_split.cpp>` runs the same cases against a historical
+candidate. This checks the state transition, not perceptual flicker or eye identity
+in every engine pass. The first comparison fails five assertions; the restored
+pre-regression decision passes all nine.
+
 | Intent | Tool | Command | Read it as |
 |---|---|---|---|
 | Does the tree build? | CMake | `tools\build.ps1` (and `-Legacy`) | exit 0 both ways |

@@ -77,6 +77,9 @@ const char* pos_lane_name();                  // "vp" | "camera" (+ " (auto)")
 // published by FovLeverApply while its clamp is live; the camera-lane writer
 // caps the position it writes at it. Off = no cap.
 void set_eye_ceiling(float zMax, bool on);
+// Script-side ceiling write; retains offset provenance only for an exact
+// previous write to this same camera field. All other fields are simply clamped.
+void clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax);
 
 // SCRIPT LANE, after the lever: write the eye offset (eye_offset_uu() along
 // the right row) plus, on the camera lane, the position offset, into the
