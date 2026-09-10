@@ -57,4 +57,21 @@ static bool g_algGuard = true;
 // Lives here rather than in scene_draw.cpp because config.cpp is compiled
 // before it in the unity build. See SceneDrawBeat.
 static bool g_sdStandDown = true;
+// VR-69: [Stereo] P1EyeWrite. Pass 2 writes its eye into the camera field
+// explicitly; pass 1 never did - it trusted the eye the world tick's
+// ProcessViewRotation dispatch left there. That asymmetry is the shape of the
+// reported fault: a tick whose dispatch does not land leaves the field holding
+// the PREVIOUS tick's pass-2 value, so the engine's own draw renders the LEFT
+// eye from the RIGHT eye's camera - the whole picture, world geometry included,
+// displaced by one full IPD, in a fixed direction, with the head standing still.
+// 1 = assert the left eye before pass 1, the mirror of what pass 2 already does.
+static bool     g_sdP1EyeWrite = true;
+// The measurement, and it keeps working while the write is ON: how far the field
+// MOVED when pass 1 asserted the left eye. Zero means the dispatch had already
+// put the left eye there and nothing was wrong; a full ipd*scale means the field
+// held the other eye and pass 1 was about to draw from it.
+static uint32_t g_sdP1Same = 0, g_sdP1Moved = 0, g_sdP1Other = 0, g_sdP1NoRead = 0;
+static uint32_t g_sdBeatP1Same = 0, g_sdBeatP1Moved = 0, g_sdBeatP1Other = 0;
+static uint32_t g_sdP1WriteRefused = 0, g_sdBeatP1Refused = 0;
+static float    g_sdP1MovedMaxUu = 0.0f;
 static uint32_t g_sdLastSubmits = 0;   // the runtime's stereo submit total at the last beat

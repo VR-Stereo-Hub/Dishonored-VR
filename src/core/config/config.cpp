@@ -64,6 +64,16 @@ static void WriteDefaultIni(const char* ini)
         "; for it. The beat line reports frameless/framelessPair/pairKept with their\n"
         "; population, so a zero in framelessPair kills this mechanism on its own line.\n"
         "HoldKeepsPair=1\n"
+        "; P1EyeWrite (VR-69): pass 2 writes its eye into the camera field explicitly and\n"
+        "; pass 1 never did - it trusted the eye the world tick left there. A tick whose\n"
+        "; dispatch does not land leaves the PREVIOUS tick's right-eye value in the\n"
+        "; field, so the engine's own draw renders the LEFT eye from the RIGHT camera:\n"
+        "; the whole picture, world geometry included, displaced by one full IPD in a\n"
+        "; fixed direction, with the head standing still. 1 = assert the left eye before\n"
+        "; pass 1 (default), the mirror of what pass 2 already does. 0 = the old trust,\n"
+        "; and the A/B. The beat prints pass1 eye same/MOVED with its population either\n"
+        "; way, because the count is of what the field held BEFORE the assertion.\n"
+        "P1EyeWrite=1\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -550,6 +560,14 @@ static void LoadConfig()
         // of its own - it can only overwrite pass 1 in the same backbuffer then,
         // which makes the frame alternate between the eyes. See SceneDrawBeat.
         g_sdStandDown = IniFloat(ini, "Stereo", "ReentryStandDown", 1) != 0.0f;
+        {
+            const int p1w = GetPrivateProfileIntA("Stereo", "P1EyeWrite", 1, ini);
+            const bool fromIni = GetPrivateProfileIntA("Stereo", "P1EyeWrite", -1, ini) != -1;
+            g_sdP1EyeWrite = p1w != 0;
+            DVR_INFO("config: [Stereo] P1EyeWrite=%d - %s (1 = the left eye is written into the camera "
+                     "field before pass 1, the mirror of pass 2; 0 = pass 1 trusts the tick's dispatch)",
+                     p1w, fromIni ? "from the installed ini" : "the compiled default (the key is absent)");
+        }
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)

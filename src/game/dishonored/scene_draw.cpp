@@ -184,6 +184,22 @@ static void SceneDrawBeat()
     const double s = (double)(now - g_sdBeatMs) / 1000.0;
     const uint32_t presents = g_frame;
     const uint32_t n = g_sdBeatTicks ? g_sdBeatTicks : 1;
+    // VR-69: pass 1's eye, before the beat line. same = the tick's dispatch had
+    // already put the left eye in the field and nothing was wrong; MOVED = it held
+    // the other eye and the engine's own draw was about to render the left picture
+    // from the right camera. Printed with its population (the ticks decided
+    // double), so MOVED=0 of N is the unwelcome answer and reads as one.
+    Log("reentry: pass1 eye - same=%lu MOVED=%lu partial=%lu unreadable=%lu writeRefused=%lu | population %lu "
+        "doubled tick(s) this window, worst move %.2f uu against ipd*scale %.2f | P1EyeWrite=%d. MOVED counts the "
+        "ticks whose camera field held the OTHER eye when the engine's own draw began - a full-IPD displacement "
+        "of the whole left picture. It keeps counting while the write is on, because it measures what the field "
+        "held BEFORE the assertion. same==population with MOVED=0 clears this.",
+        (unsigned long)g_sdBeatP1Same, (unsigned long)g_sdBeatP1Moved, (unsigned long)g_sdBeatP1Other,
+        (unsigned long)g_sdP1NoRead, (unsigned long)g_sdBeatP1Refused,
+        (unsigned long)(g_sdBeatP1Same + g_sdBeatP1Moved + g_sdBeatP1Other),
+        g_sdP1MovedMaxUu, dvr::camera::ipd_m() * dvr::camera::world_scale(),
+        g_sdP1EyeWrite ? 1 : 0);
+    g_sdBeatP1Same = g_sdBeatP1Moved = g_sdBeatP1Other = g_sdBeatP1Refused = 0;
     Log("reentry: beat draws/s=%.0f 2nd/s=%.0f presents/s=%.0f call2=%u us (max %u) skips foreign=%lu state=%lu "
         "silent=%lu stall=%lu session=%lu test=%lu exit=%lu drawTid=%lu presentTid=%lu%s%s"
         " | p2write refused=%lu of %lu (lifetime %lu; a refused write = pass 2 drew from pass 1's camera) cam=%p"
@@ -426,8 +442,50 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
                             g_sdTick.doubleIt ? (LONG)GetCurrentThreadId() : 0);
         InterlockedExchange(&g_sdDoublingNow, g_sdTick.doubleIt ? 1 : 0);
         if (g_sdTick.doubleIt) {
+            // VR-69: PASS 1'S EYE, ASSERTED RATHER THAN ASSUMED.
+            //
+            // The header above says pass 1 "draws from the eye the tick's
+            // dispatches wrote". Nothing checked that, and nothing made it true:
+            // pass 2 gets an explicit write and pass 1 gets a trust. If the
+            // dispatch does not land on a tick, the field still holds the
+            // PREVIOUS tick's pass-2 value and the engine's own draw renders the
+            // left eye from the right eye's camera.
+            //
+            // The measurement survives the fix: `before` is what the dispatch
+            // left, `pos` is what the field holds once the left eye is asserted,
+            // and their step along the camera's right row is zero when nothing
+            // was wrong and one full ipd*scale when the field held the other eye.
+            // So the counter keeps reporting the disease while the cure runs, and
+            // moved=0 over a window with the flicker visible kills this outright.
+            float before[3];
+            const bool beforeOk = dvr::camera::last_written_pos(before);
+            if (g_sdP1EyeWrite && !dvr::camera::apply_offsets(g_camObj)) {
+                ++g_sdP1WriteRefused; ++g_sdBeatP1Refused;
+                DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Warn, 3000,
+                                 "reentry: pass 1's eye write REFUSED by the camera seam (cam=%p, field %s) - "
+                                 "the engine's own draw runs from whatever the tick's dispatch left in the "
+                                 "field (counted on the beat line)",
+                                 (void*)g_camObj, dvr::camera::eye_field());
+            }
             float pos[3];
             const bool posOk = dvr::camera::last_written_pos(pos);
+            if (!beforeOk || !posOk) ++g_sdP1NoRead;
+            else {
+                float bf[3], br[3], bu[3];
+                if (!dvr::camera::last_basis(bf, br, bu)) ++g_sdP1NoRead;
+                else {
+                    const float d0 = pos[0] - before[0], d1 = pos[1] - before[1], d2 = pos[2] - before[2];
+                    const float along = d0 * br[0] + d1 * br[1] + d2 * br[2];
+                    const float ipdUu = dvr::camera::ipd_m() * dvr::camera::world_scale();
+                    const float mag = along < 0.0f ? -along : along;
+                    if (ipdUu <= 0.0f) ++g_sdP1NoRead;
+                    else if (mag < 0.25f * ipdUu) { ++g_sdP1Same; ++g_sdBeatP1Same; }
+                    else if (mag > 0.75f * ipdUu) {
+                        ++g_sdP1Moved; ++g_sdBeatP1Moved;
+                        if (mag > g_sdP1MovedMaxUu) g_sdP1MovedMaxUu = mag;
+                    } else { ++g_sdP1Other; ++g_sdBeatP1Other; }
+                }
+            }
             g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
             dvr::stereo::reentry_push_tag_rec(-1, posOk ? pos : NULL,
                                               SdOpenPoseRecord(-1, g_sdPairId, false));
