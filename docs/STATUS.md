@@ -1,5 +1,28 @@
 # Status
 
+## CURRENT (2026-09-10): first stability comparison installed, verdict pending
+
+VR-69 is now following the three-system comparison in `dishonored/LOCKON_REVIEW.md`.
+The installed candidate is `9fe2af45` plus the exact clean weapon-pose patch
+`22f275ba`: candidate/contract work from PR #26, with Hands PoseLag=2 and the
+existing Pace Lag=2 setting. No eye-decision changes were added. Release/x86
+build, all 88 desk cases, nine exports and lint passed. The DLL hash was checked
+after installation; the installed ini was not changed. The game was not launched.
+
+The previous DLL, ini, launch file and available logs are preserved under
+`build/vr69-bisect/before-first-candidate`. Candidate source, patch and manifest
+are under `build/vr69-bisect`; these local artifacts are not committed. Next
+evidence needed: whether the weapons settle and stay settled while playing,
+whether flicker returns on swaps/loads, and whether world or weapon judder occurs.
+The final combined fix is not established by this build.
+
+Important review correction: PR #27 also contains `fc343404`, which preserves
+live stowed weapon contracts. Weapon lock work is spread across PRs #26 and #27,
+so a clean first comparison is not proof that swap retention is complete. PR #32
+was already closed. No branch was deleted and VR-Main was not changed. The
+integration branch is `claude/vr-69-combined-stability`; the first diagnostic
+candidate lives in an isolated detached worktree.
+
 ## CURRENT (2026-09-09, evening): the WEAPON judder is fixed too
 
 **`[Hands] PoseLag=2`.** Headset-confirmed by a reversing A/B/A/B. The tester's
