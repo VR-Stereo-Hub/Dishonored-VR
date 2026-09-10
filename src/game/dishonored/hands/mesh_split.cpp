@@ -2858,6 +2858,16 @@ static void MpDriveTick(void)
     // ONE SNAPSHOT, built locally and published whole. Nothing below writes
     // anything a draw can see until the copy at the end, so a reader can never
     // combine this sample's orientation with the previous sample's position.
+    // VR-68: WHICH head this normalisation uses. The measured answer is 2 - the
+    // generation the rendered view was actually built from - and a headset A/B/A/B
+    // confirmed it. Fails soft to the freshest head before enough history exists.
+    int hlag = g_mpPoseLag;
+    if (hlag < 0) hlag = 0;
+    if (hlag > DVR_HEAD_HIST - 1) hlag = DVR_HEAD_HIST - 1;
+    if (hlag >= g_headHistN) hlag = 0;                  // not enough history yet
+    const int hidx = (g_headHistIdx - hlag + DVR_HEAD_HIST) % DVR_HEAD_HIST;
+    const float (*HEAD)[4] = g_headHistOk[hidx] ? g_headHist[hidx] : g_devPose[0];
+
     MpPoseSnap snap;
     memset(&snap, 0, sizeof(snap));
     snap.headOk = g_devPoseOk[0];
@@ -2878,10 +2888,10 @@ static void MpDriveTick(void)
         // world vector with the basis from its own constants, so nothing here
         // assumes anything about the game's axes.
         float w[3];
-        for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - g_devPose[0][r][3];
-        const float rx = g_devPose[0][0][0], ry = g_devPose[0][1][0], rz = g_devPose[0][2][0];
-        const float ux = g_devPose[0][0][1], uy = g_devPose[0][1][1], uz = g_devPose[0][2][1];
-        const float fx = -g_devPose[0][0][2], fy = -g_devPose[0][1][2], fz = -g_devPose[0][2][2];
+        for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - HEAD[r][3];
+        const float rx = HEAD[0][0], ry = HEAD[1][0], rz = HEAD[2][0];
+        const float ux = HEAD[0][1], uy = HEAD[1][1], uz = HEAD[2][1];
+        const float fx = -HEAD[0][2], fy = -HEAD[1][2], fz = -HEAD[2][2];
         snap.ruf[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
         snap.ruf[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
         snap.ruf[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
@@ -2903,7 +2913,7 @@ static void MpDriveTick(void)
             float hc[3][3], cc[3][3];
             for (int rr = 0; rr < 3; rr++)
                 for (int c2 = 0; c2 < 3; c2++) {
-                    hc[rr][c2] = g_devPose[0][rr][c2];
+                    hc[rr][c2] = HEAD[rr][c2];
                     cc[rr][c2] = g_devPose[3 + h][rr][c2];
                 }
             dvr::hf::Mat3 R_H, R_C;

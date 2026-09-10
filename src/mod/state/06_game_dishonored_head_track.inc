@@ -25,6 +25,31 @@ static float g_hmdYaw = 0, g_hmdPitch = 0, g_hmdRoll = 0;
 // - which is why blink "broke again" the moment 4032x2268 halved the frame
 // rate, and why it also broke during SEQ (same halving). Snapshot the pair
 // together and the lag can never enter, at any frame rate.
+// VR-68: the head history the HAND normalisation selects from, and the lever
+// that picks the generation. MEASURED: the rendered camera moves with the head
+// from two generations back (bv/lag, 0.119 deg at lag 2 against 1.19 at lag 0
+// over 4085 moving frames), while MpDriveTick normalised against the FRESH
+// head - so the hand was expressed relative to one head and planted in a view
+// built from another, leaving two generations of head rotation in the frame.
+//
+// This is NOT the submission lag applied twice. The compositor reprojects the
+// whole image from the tagged pose; the world is correct because it was
+// rendered from that pose, and the hand is correct only if it was placed
+// against the same one. Both consume the same generation; neither is delayed
+// again.
+//
+// Ported onto the pre-VR-69 base 2026-09-09. The A/B that shipped with the
+// original is deliberately NOT here: it walks the lever 0/2/0/2 on fifteen
+// second segments, and an experiment left armed contaminates every measurement
+// after it (docs/TRAPS.md section 1). The value it decided ships as the
+// default instead.
+#define DVR_HEAD_HIST 4
+static float g_headHist[DVR_HEAD_HIST][3][4];
+static bool  g_headHistOk[DVR_HEAD_HIST] = { false, false, false, false };
+static int   g_headHistIdx = 0;
+static int   g_headHistN = 0;
+static int   g_mpPoseLag = 2;          // [Hands] PoseLag - the measured, headset-confirmed answer
+
 static bool  g_blkProbeForce = false;   // [Blink] BlinkProbe=1: 2 Hz aim log
 static float g_injHmdYawSnap = 0, g_injHmdPitchSnap = 0;
 static bool  g_injSnapOk = false;

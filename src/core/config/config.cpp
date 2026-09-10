@@ -751,6 +751,14 @@ static void LoadConfig()
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
+        // VR-68: which head generation the HAND normalisation uses. 0 = the
+        // freshest (the pre-VR-68 behaviour); 2 = the one the rendered view was
+        // built from, which is what bv/lag measured and what a reversing A/B/A/B
+        // confirmed in a headset. It ships as the default because the experiment
+        // that decided it is over - see docs/TRAPS.md on levers left armed.
+        g_mpPoseLag = GetPrivateProfileIntA("Hands", "PoseLag", 2, ini);
+        Log("config: [Hands] PoseLag=%d - the head sample the hand is normalised against. 2 is the measured and headset-confirmed answer: bv/lag put the RENDERED camera at lag 2 (0.119 deg against 1.19 at lag 0 over 4085 moving frames) and a reversing A/B/A/B in a headset agreed. PoseLag=0 restores the old behaviour.", g_mpPoseLag);
+
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
             inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
 
