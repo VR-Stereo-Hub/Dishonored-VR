@@ -54,10 +54,12 @@ set(DVR_REAL_SOURCES
     core/gfx/hud_capture.cpp   core/gfx/hud_capture.h
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
+    core/gfx/desktop_eye.cpp   core/gfx/desktop_eye.h
     core/gfx/mono_screen.cpp
     core/gfx/aer.cpp
     core/gfx/reentry.cpp
     game/dishonored/camera.cpp game/dishonored/camera.h
+    core/vr/pose_record.cpp    core/vr/pose_record.h
     core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h
     core/vr/openxr_input.cpp   core/vr/openxr_input.h
     core/vr/hud_stub.cpp       core/vr/hud_stub.h
@@ -130,6 +132,16 @@ if(DVR_WITH_OPENXR)
     add_executable(xr_hello32 tools/xr_hello32/main.cpp)
     target_link_libraries(xr_hello32 PRIVATE openxr_loader d3d11 dxgi)
 endif()
+
+# --- frame_test - the VR-33 rotation/grip frame maths, on the desk -------------
+# Includes the same hand_frame.h / hand_frame_test.h the proxy includes, so a
+# pass here is a statement about the SHIPPED arithmetic rather than about a
+# re-derivation of it. No mod code, no D3D, no OpenXR. Not shipped. The proxy
+# runs the identical suite at init and writes the result to the log, so the
+# tester never has to run this.
+add_executable(frame_test tools/frame_test/main.cpp
+                          game/dishonored/hands/hand_frame.h
+                          game/dishonored/hands/hand_frame_test.h)
 
 # --- dvr_xrsim32 - the simulated OpenXR runtime --------------------------------
 # A Quest-3-shaped 32-bit OpenXR runtime so an agent can drive head, hands and

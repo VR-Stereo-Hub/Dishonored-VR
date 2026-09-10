@@ -164,6 +164,26 @@ using OverlayDrawFn = void (*)(ID3D11DeviceContext* ctx, ID3D11RenderTargetView*
 void set_overlay_draw(OverlayDrawFn fn);
 OverlayDrawFn overlay_draw();
 
+// 41.2 (VR-31): the mod's OWN hands, drawn into the output texture by the game
+// side AFTER the game image and BEFORE the F10 panel, so the panel still sits
+// on top of everything. Same shape and the same rule as OverlayDrawFn (the
+// callee binds the target, and hands it back bound to `rtv` with no depth).
+//
+// `eyeSign` is the tag of the PIXELS already in the target, not the eye the
+// next game draw will render: -1 left, +1 right, 0 the mono screen. Drawing
+// the right eye's hands over the left eye's picture is the stale-eye fault in
+// miniature, and the two are one line apart in reentry's end_frame.
+//
+// The callee refuses, once and with a reason, when the active method is NOT a
+// projection layer: the quad screen is a picture at [Screen] DistanceMeters,
+// not a world, and hands projected through an eye frustum would sit at a depth
+// it does not have.
+using HandDrawFn = void (*)(ID3D11Device* dev, ID3D11DeviceContext* ctx,
+                            ID3D11RenderTargetView* rtv, uint32_t w, uint32_t h,
+                            int eyeSign);
+void set_hand_draw(HandDrawFn fn);
+HandDrawFn hand_draw();
+
 // The methods (one translation unit each under core/gfx/). aer is a design
 // stub in 41.0: registered, named, refusing with its note.
 IStereo* create_mono_screen();
@@ -200,5 +220,7 @@ bool reentry_c5_pair();
 // camera position the writer produced (null = unknown); the method pops one
 // per present in end_frame and hands the eye to the runtime's tag ring.
 void reentry_push_tag(int eyeSign, const float pos[3]);
+// VR-65: the same push, carrying the pose record the draw was rendered with.
+void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec);
 
 } // namespace dvr::stereo

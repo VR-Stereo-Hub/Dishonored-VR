@@ -56,6 +56,31 @@ static uint32_t DvrPostRenderCount()
 
 extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
 {
+    // OUR OWN CALLS ARE NOT THE GAME'S EVENTS. A ProcessEvent call the mod
+    // makes re-enters this hook, and everything below - PeLatch, the scene
+    // draw's call-site patch, the blink candidate watch, the per-event mod
+    // actions - would then run on a synthetic event. Worse, it would enter the
+    // EVIDENCE: the census and the ordering traces would count events the game
+    // never fired.
+    //
+    // g_peReentry does not do this job. It IS read - console.cpp:72 and
+    // commands.cpp:319 both test it - but nothing in THIS file does, so it
+    // guards those two callers and not the hook. (An earlier version of this
+    // comment said it was read nowhere; that came from grepping only this
+    // file, and it was wrong.) g_bqDepth is a per-thread counter incremented
+    // across our own dispatch and restored with nesting preserved, checked
+    // HERE, before any side effect, which is the only place that helps.
+    //
+    // It covers the bone queries. It does NOT cover the older mod-originated
+    // calls in mat_hide.cpp and console.cpp, so a ProcessEvent trace is not
+    // purely game-generated until those are accounted for too.
+    //
+    // Returning is safe: the stub calls the original engine function after
+    // this observer returns, so the query still executes.
+#if DVR_WITH_LEGACY
+    if (g_bqDepth > 0) return;
+#endif
+
     InterlockedIncrement(&g_peCalls);
 
     // 41.1: the ProcessEvent CALLER's return address, for the scene probe.
@@ -68,6 +93,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                                    ? *(uint32_t*)((uint8_t*)a1 + kNameOff) : 0xffffffffu;
 
     PeLatch(obj);   // the engine tells us who the real actors are
+    UiPeLatch(obj); // VR-62: a movie player created after the scan, watched too
     SceneDrawApply();   // 41.1: the re-entry's call-site patch/restore, on the thread that runs the site
     // 32.8: while the blink window is open, note which script events fire ON a
     // candidate. Pointer compares only - no class-name lookup on this path.
@@ -107,6 +133,14 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
         if (g_camObj && !CamAlive()) g_camObj = NULL;
         if (!g_camObj && (InterlockedIncrement(&camReval) & 31) == 0) FindLiveCamera();
     }
+    ArmFollowTick();                              // VR-30: the arm-follow probe (read-only, finds its own camera)
+    PrTick();                                     // VR-33: the pose/socket report - SCRIPT LANE, where the objects are coherent
+#if DVR_WITH_LEGACY
+    BqTick();                                     // VR-33 step 1b: the bone queries, consumed on this lane only
+#endif
+#if DVR_WITH_LEGACY
+    HmTick();                                     // VR-33 phase 1: the bounded hand-move experiment
+#endif
     dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
     dvr::camera::apply_offsets(g_camObj);         // the eye offset (aer/reentry) + the lean on the camera lane
     BlinkTestApply();  // 32.14: same lane, same reason
@@ -154,6 +188,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // camera under the world-locking layer). Ungated again; the
             // order-proofing lives inside ApplyHeadToViewRotation now.
             if (g_rotInject) ApplyHeadToViewRotation(a2);
+            // The head writer applies the matching body target only after a
+            // successful fresh write or replay, never after a refused event.
             ApplyHandToMesh();
             return;
         }

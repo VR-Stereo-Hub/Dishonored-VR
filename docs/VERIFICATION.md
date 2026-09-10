@@ -14,7 +14,7 @@ question the simulator could answer is a wasted session.
 | Did the split change a body? | parser | `python tools\split-source.py --check` | "changed 16" = the Phase 0 MSVC edits only (9 exports, 6 `_ReturnAddress` sites, the `.mtl` fix); anything else is a regression |
 | Is the default ini unchanged? | golden | `python tools\ini-golden.py --check` | MATCH (the golden is generated from the working tree's WriteDefaultIni) |
 | Style rules | lint | `tools\lint.ps1` | "lint: clean" |
-| Change the render size | arm-res | `tools\arm-res.ps1 <W>x<H>` with the game stopped | it writes all FOUR places (the mod ini, `dishonored_vr_launch.txt`, DishonoredEngine.ini, DishonoredCompat.ini). Editing the mod ini alone desyncs them: the command line then asks the OLD size, the game falls back to the desktop mode fullscreen and the log says `res: NOT HONOURED` (2026-09-07, a whole headset run lost to it) |
+| Change the render size | arm-res or the ini | `tools\arm-res.ps1 <W>x<H>` with the game stopped, or edit `[Screen] RenderWidth/Height` | since VR-66 the ini is the AUTHORITY and the launch file is a mirror resolved from it at the engine's first `GetCommandLine`; the log says `launch: the render ask is WxH ... from the ini` and, if the mirror was stale, `launch: THE TWO ASKS DISAGREED`. Before that fix an ini-only edit desynced the two and the game fell back to the desktop mode fullscreen (`res: NOT HONOURED`, 2026-09-07, a headset run lost to it) - which is why the fix exists |
 | What is a present made of, and can the HUD be separated? | draw census | `game-cmd.ps1 "draws on"` in GAMEPLAY, read the 3 s table | the VERDICT line: the separating columns, or "NO CLEAN SEPARATOR". The BACKBUFFER population is the part a redirect can touch |
 | Is a draw class really the HUD? | kill + picture | `dump capture`, `draws kill hud`, `dump capture` | exactly the HUD changed and the world did not. A counter cannot answer this; only the picture can |
 | What is actually on the HUD panel? | dump | `game-cmd.ps1 "dump hud"` | `dumps\hud_<frame>.png` = the panel texture. HUD elements on transparent black; anything of the WORLD in there is a classifier fault (session 10 caught the scene resolve this way). Red and blue are swapped by the dump, not by the render |
@@ -27,12 +27,14 @@ question the simulator could answer is a wasted session.
 | Is the pose instrument armed / is the game publishing? | log | `game-cmd.ps1 "vrpace status"` | `xr: poseaudit ARMED\|off \| script-lane samples N` - `samples 0 (the adapter has NEVER published a camera write)` means no camera write has happened (a menu, head tracking off, the inject refused), so the audit has nothing to compare and says so rather than printing a misleading zero |
 | What does the bbox instrument cost? | log | `game-cmd.ps1 "capture status"` | `bboxEvery=30000ms(N samples, each a full-frame CPU readback)`. `capture bbox off` removes the periodic present-thread stall entirely; `capture bbox 3000` restores the pre-2026-09-04 behaviour for the A/B. Read it against the `perf: frame gap` count |
 | Arm a render size with the game NOT running | script | `tools\arm-res.ps1 2750x2850` (`-Status`, `-Clear`) | writes the same four places `res` does (mod ini, launch file, DishonoredEngine.ini, all four AppCompat buckets) and prints the predicted `perf: tick` from the measured ~0.64 ms/MP + ~5.6 ms floor fit. Takes effect at the NEXT launch |
+| Did the render size ask reach the engine? | log | `tail-log.ps1 -Grep "launch:|res: "` | **Three lines, all carrying the same size**: `launch: the render ask is WxH .. from the ini`, `res: handed the game our WxH@hz mode (slot N)`, `res: CreateDevice - the game asked for WxH windowed=0`. First two agree and the third differs = the engine refused the mode. First two differ = VR-66 has returned, and `launch: THE TWO ASKS DISAGREED` names both values. `res: HONOURED` is the verdict and reads the capture, never the requested number |
 | Is the capture the whole game window? | log | `tail-log.ps1 -Grep "capture:"` | `capture: WxH content bbox [..]-[..] = 100% x 100% (FULL)`; CROPPED names the corner-image class |
 | Which hooks installed? | log / status | `status-dump.ps1` -> `hooks{}` | `processEvent`, `blinkDir/Dst/Trc`, `pad` true |
 | Is the game in gameplay? | log | `[game] state: GAMEPLAY` | the line `boot.ps1` waits for |
 | Is the session live on the sim? | log + state.json | `xrsim-launch.ps1` | `xr: runtime "dvr-xrsim"`, `xr: pipeline READY`, `frame` advancing |
 | Is the mono screen in BOTH eyes? | capture | `xrsim-run.ps1 -Path tools\xrsim\mono.xrs` | `quadLayers >= 1`, `capNonBlackL/R >= 10` (the default head-locked quad is ~16% of a Quest 3 eye; its `src` reads ~97%), `stats.bboxL == bboxR` within the ~12 px eye parallax; a black eye is attributed in `xrsim.log` (COMPOSITOR vs APP fault) |
 | Are two eyes submitted? (stereo methods, S2) | capture | `xrsim-shot.ps1` -> `ProjViews`, `EyeSeparationM` | 2, ~0.063 |
+| Can the arms be hidden per bone? (VR-31 route a) | log | `game-cmd.ps1 "arms vis status"` for the offsets, `arms vis on` in gameplay, `arms vis chain` for the bone list, `arms vis off` for the A/B | `bonevis: reflection ... BoneVisibilityStates +0xNNN, SkelControlIndex +0xNNN, RequiredBones +0xNNN` names which array the 30.12 probe found at `0x288`. Then either a `REFUSED` line with its numbers (no such property / `num=0`, meaning the engine never allocated it / length is not the bone count) or `bonevis: ON`, followed every 2 s by `bonevis: census held=.. reverted=.. other=..`. **Read the census with the picture**: all held plus arms still on screen = the write survives and the renderer does not read this array (route (a) closed, go to route (b), the c6 palette); `reverted` climbing = the engine puts the bytes back and the write needs a later lane. **Answered 2026-09-06**: route (a) is closed, this build has no `BoneVisibilityStates` and `+0x288` is `SkelControlIndex` (8 of 10 arm bones free). Lever ships off; the diagnostic is kept because it is what closed the route. Note the scan matches any `TArray` whose `ArrayNum` is the bone count REGARDLESS of element size, so `+0x208`/`+0x214` show up as `SpaceBases`/`LocalAtoms` read sideways - judge the rows by the value range, not by their presence |
 | Which camera field does the renderer honour? | log | `game-cmd.ps1 "camera eyetest 100"` in gameplay, standing still | `camera/eyetest: <field> ... HONOURED|DISCARDED|INCONCLUSIVE`, then `DONE` with the field for `[Camera] EyeField` (ENGINE_NOTES, the per-eye camera seam) |
 | Are the two eyes paired? (S2) | log | `tools\eye-check.ps1` leg 0 | `stereo: beat ... L/s=N R/s=N`, both flowing and within 80% |
 | Does head rotation move the camera? | capture | `headlook.xrs` | `img-diff` of left eye at yaw 0 vs 35 rises well above the ~0.4 noise floor |
@@ -59,6 +61,20 @@ question the simulator could answer is a wasted session.
 | Are the eye tags on the right draws? (session 9) | log | the same line: `c5 |d| 6.17 uu, -6.17 along right: side ok` and `picture shift -N px` | `side ok` and a NEGATIVE shift (the right eye's content sits left of the left eye's) on every pair; `side SWAPPED` / a positive shift = the tags rode the other draw; `reentry: the tag ring skewed against the draws ... realigned` (Info) counts the ring's skews the invariant absorbed; `reentry c5pair off` is the A/B (expect the side to flip on its own within a minute) |
 | Which half of a remedy repairs the eyes? (session 9) | seam | `reentry rearm [n]` (n single ticks, the capture untouched), `capture reinit` (the slots rebuilt, the mode unchanged), `stereo projection off` then `auto` (the runtime's quad -> projection transition) | `gates -> SINGLE draw (rearm by request)` then `DOUBLE draw after n single tick(s)`; `capture: shared slots REBUILT by request`; `projection layer released` / `CLAIMED`; then the `frameid` line and the eyes |
 | Comfort, judder, world scale, warp | headset | F10 overlay + the user | the verdict; write it in STATUS |
+
+## VR-30: the yaw instruments (2026-09-05)
+
+| Intent | Tool | Command | How to read it |
+|---|---|---|---|
+| Is the yaw bookkeeping correct? | host test, no game | `tools/yawtest-host.ps1` | Seven cases sliced VERBATIM out of `head_track.cpp` and compiled against a `Log()` shim: head-only leaves the body alone, stick-only moves both equally, simultaneous keeps both, replays add nothing twice, five revolutions stay continuous, a new owner discards stale state, a pawn write is not subtracted twice. `HOST RESULT: PASS`. |
+| Same cases against the live build | seam | `game-cmd.ps1 "arms yawtest"` | Same seven lines in `dishonored_vr.log`. |
+| Where is head/stick yaw going? | log | `armfollow/yaw:` | head, controller, pawn and view yaw with per-second deltas, one coherent sample. **A /s that reads ~0 while you are moving that input is the finding.** It caught the stale controller and the 2.2% write-survival number. |
+| Is the body-facing intercept working? | log | `armfollow/facing:` | `asked -> faced (body target) | seen N ours N replaced N stale N`. `replaced` climbing with `stale` at 0 is healthy. `seen` > `ours` is other actors passing through, which is correct. |
+| Where does the engine face the body? | log, one shot | `armfollow/nfp:` | Resolves the FaceRotation UFunction, prints `.text` RVAs to disassemble offline, dumps the pawn vtable head, and counts ProcessEvent dispatches of FaceRotation. **A count that stays at 0 proves the route is native-to-native.** |
+| Does a write actually survive? | pattern | any write instrument | Read the field back at the *next* write and classify it ours / engine / third party. This is the measurement that settled VR-30 after ten attempts had not, and it belongs on any new engine write.
+
+**Gotcha 21**: `tools/ini-golden.py --check` needs a FILE argument. Without one
+the script regenerates the golden instead of checking it, and reports success.
 
 ## 2. The simulated runtime (`dvr_xrsim32.dll`)
 
@@ -252,3 +268,37 @@ defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault
 Comfort, judder, warp, world scale, the mono screen's size and distance, fusion once a
 stereo method runs, hand placement feel, and anything about Virtual Desktop's own
 reprojection. Write the verdict in STATUS with the build id from the log's first line.
+
+## The rotation/grip frame maths (VR-33)
+
+`build\src\RelWithDebInfo\frame_test.exe` runs 20 deterministic cases over the
+SAME `hand_frame.h` the proxy compiles - not a re-derivation of it. Exit code is
+non-zero on any failure.
+
+```
+.\build\src\RelWithDebInfo\frame_test.exe
+.\build\src\RelWithDebInfo\frame_test.exe D:\dvr-data\dumps\pcap_*.txt
+```
+
+With packet arguments it also replays real captures through the shipped
+`decompose_scaled_rotation`, reporting the dominant slot, its uniform scale,
+anisotropy and orthonormality residual, and how far the frame moved across the
+set. A near-zero movement means the captures are one pose and says nothing about
+whether the frame tracks the palm.
+
+**The proxy runs the identical suite from `DllMain`** and writes each case to
+the log as `ms/frame/selftest:`, so a tester's log always carries proof that the
+arithmetic in that build is the arithmetic that was checked. If it fails, the
+rotation lever refuses and placement stays translation-only.
+
+The cases that carry the most weight:
+
+| Case | What it would catch |
+|---|---|
+| `head_turn` | An orientation conversion that rotates the hands with the head while the controller stands still. The rejected similarity transform fails it by 180 degrees |
+| `head_turn_can_fail` | That the suite can still detect that formula's return |
+| `grip_roundtrip` | A grip capture that does not snap to the native pose, i.e. mixed spaces |
+| `pivot_rotating` | A rotation about the component origin instead of the palm |
+| `rot_off_matches_legacy` | Any drift from the headset-confirmed translation-only behaviour |
+| `compose_commutes` | A correction that replaces the engine's animation instead of riding on it |
+

@@ -1,4 +1,4 @@
-﻿// game/dishonored/present_tick.cpp - the game side of the frame path (41.0).
+// game/dishonored/present_tick.cpp - the game side of the frame path (41.0).
 // Included by the unity build. core/framework/frame_hooks (a real module) owns
 // the D3D9 hooks and the ORDER of the frame path; what the game does per
 // present - the seam poll, the head pose into the camera write, the hands, the
@@ -58,6 +58,181 @@ static void DvrPoseTo3x4(const dvr::vr::HeadPose& p, float m[3][4])
 // The runtime layer's poses -> the mod's pose slots, once per present. Head
 // -> TrackHead (rotation write, positional, crouch); hands -> slots 3 and 4,
 // which is where the XR path always put them (g_ctrlIdx = 3/4).
+// VR-68: THE HEAD/VIEW MISMATCH INSTRUMENT.
+//
+// The weapon is placed head-relative: MpDriveTick normalises the controller
+// against the head in g_devPose[0], and the DRAW completes it with the camera
+// basis taken from the render's own shader constants. So the hand is expressed
+// relative to one head (call it H_s) and planted in a view built from another
+// (H_r). If those are different SAMPLES of the head, the residual H_r*H_s^-1
+// is left in the frame, and it is head rotation - which is exactly the motion
+// the tester reports it under (head turn yes, stick turn no).
+//
+// WHAT THIS IS NOT. It does NOT difference two coordinate systems: both values
+// below are the SAME quantity, g_hmdYaw/g_hmdPitch in the same convention,
+// sampled at two moments. Two numbers in this project have already been
+// retracted for differencing a UE yaw against an XR yaw, and this deliberately
+// avoids that class. It also does NOT compare the controller against the head:
+// their difference is where your hand is, not an error.
+//
+// IT CAN FAIL ITS OWN HYPOTHESIS. If the camera write and this consume land on
+// the same locate generation, the delta is 0.000 deg and the mechanism is dead.
+// The line says so on the line, and prints the generation gap beside the angle
+// so a zero angle with a nonzero gap (or the reverse) is visible rather than
+// averaged away.
+// VR-68 THE LAG FINDER. The hand is normalised against the FRESH head; the draw
+// plants it with B, the camera basis read from the render's own shader
+// constants - the view the engine ACTUALLY rendered, which the whole Lag=2
+// argument says is generations behind. Fresh against rendered is the pair that
+// matters, and the previous instrument compared fresh against fresh.
+//
+// HOW IT AVOIDS THE TRAP THAT RETRACTED TWO NUMBERS HERE. B is in the game's
+// space and the head sample is in XR space, and differencing those directly is
+// exactly what produced the 51-degree error. So nothing here differences the
+// two orientations. It compares their FRAME-TO-FRAME DELTAS, which cancel any
+// fixed offset between the spaces, and asks only which past head sample the
+// rendered camera's motion matches best. That is the technique that settled
+// VR-65.
+//
+// IT CAN FAIL. If no lag scores meaningfully better than the others the answer
+// is "undetermined" and the line says so. If lag 0 wins, the rendered camera is
+// current and the hand is already coherent with it - the candidate is dead.
+// It also refuses to score on a still head: with no rotation every lag fits
+// equally, so only frames where the head actually moved are counted, and the
+// count is printed so a verdict from three samples is visible as one.
+#define DVR_BV_LAGS 5
+#define DVR_BV_RING 8
+static float    g_hvYawRing[DVR_BV_RING] = {0};   // g_hmdYaw per present, newest at idx
+static int      g_hvYawIdx = 0;
+static int      g_hvYawN = 0;
+static double   g_bvErr[DVR_BV_LAGS] = {0};       // accumulated |dB - dHead_k|
+static int      g_bvUsed = 0;                     // frames that moved enough to score
+static int      g_bvSkipped = 0;                  // head too still to discriminate
+static float    g_bvPrevYaw = 0.0f;
+static bool     g_bvHavePrev = false;
+
+// The lag with the smallest mean error, or -1 when nothing separates them.
+// A winner that is not meaningfully better than the runner-up is NOT a winner:
+// this project has already shipped one verdict whose threshold was chosen
+// before anything was measured.
+static int DvrBestLag(void)
+{
+    if (g_bvUsed < 30) return -1;
+    int best = 0; double bestV = g_bvErr[0];
+    for (int k = 1; k < DVR_BV_LAGS; ++k) if (g_bvErr[k] < bestV) { bestV = g_bvErr[k]; best = k; }
+    double second = -1.0;
+    for (int k = 0; k < DVR_BV_LAGS; ++k) if (k != best && (second < 0.0 || g_bvErr[k] < second)) second = g_bvErr[k];
+    if (second <= 0.0 || bestV <= 0.0) return best;
+    return (second - bestV) / second >= 0.15 ? best : -1;   // 15 % clear, else undetermined
+}
+
+static float DvrWrapPi(float a)
+{
+    while (a > 3.14159265f) a -= 6.28318531f;
+    while (a < -3.14159265f) a += 6.28318531f;
+    return a;
+}
+
+// Present thread. Reads the render thread's published yaw through the seqlock.
+static void DvrLagFinder(void)
+{
+    LONG s0 = g_bvSeq;
+    if (s0 & 1L) return;                       // a write is in progress
+    const float bYaw = g_bvYaw;
+    if (g_bvSeq != s0) return;                 // it changed under us - drop this one
+    g_bvWant = true;                           // ask the next draw for a fresh sample
+
+    if (!g_bvHavePrev) { g_bvPrevYaw = bYaw; g_bvHavePrev = true; return; }
+    const float dB = DvrWrapPi(bYaw - g_bvPrevYaw);
+    g_bvPrevYaw = bYaw;
+
+    // The head's own delta over the same interval, k generations back.
+    if (g_hvYawN < DVR_BV_LAGS + 2) return;
+    float dHead[DVR_BV_LAGS];
+    for (int k = 0; k < DVR_BV_LAGS; ++k) {
+        const int a = (g_hvYawIdx - k + DVR_BV_RING) % DVR_BV_RING;
+        const int b = (g_hvYawIdx - k - 1 + DVR_BV_RING) % DVR_BV_RING;
+        dHead[k] = DvrWrapPi(g_hvYawRing[a] - g_hvYawRing[b]);
+    }
+    // A still head fits every lag equally. Do not let it vote.
+    const float moved = fabsf(dHead[0]) > fabsf(dB) ? fabsf(dHead[0]) : fabsf(dB);
+    if (moved < 0.0035f) { ++g_bvSkipped; return; }   // ~0.2 deg between presents
+    ++g_bvUsed;
+    for (int k = 0; k < DVR_BV_LAGS; ++k) g_bvErr[k] += fabs((double)(dB - dHead[k]));
+
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+        "bv/lag: which head sample did the RENDERED camera move with? mean |dB - dHead| per lag, over %d moving "
+        "frames (%d skipped as too still to discriminate): lag0 %.4f  lag1 %.4f  lag2 %.4f  lag3 %.4f  lag4 %.4f "
+        "deg -> BEST %d. Deltas only, never the two orientations differenced, because B is game space and the head "
+        "is XR space. Lag 0 winning means the rendered camera is current and the hand is already coherent with it. "
+        "No clear winner means undetermined, not zero.",
+        g_bvUsed, g_bvSkipped,
+        g_bvUsed ? g_bvErr[0] / g_bvUsed * 57.29578 : 0.0,
+        g_bvUsed ? g_bvErr[1] / g_bvUsed * 57.29578 : 0.0,
+        g_bvUsed ? g_bvErr[2] / g_bvUsed * 57.29578 : 0.0,
+        g_bvUsed ? g_bvErr[3] / g_bvUsed * 57.29578 : 0.0,
+        g_bvUsed ? g_bvErr[4] / g_bvUsed * 57.29578 : 0.0,
+        DvrBestLag());
+}
+
+static uint32_t g_devPoseGen = 0;      // the locate g_devPose[0] came from
+static float    g_devPoseYaw = 0.0f;   // g_hmdYaw as of that consume
+static float    g_devPosePitch = 0.0f;
+static float    g_hvMaxDeg = 0.0f;     // worst residual since the last line
+static float    g_hvMaxSpeed = 0.0f;
+static int      g_hvGenGaps = 0;
+static int      g_hvSamples = 0;
+static double   g_hvPrevMs = 0.0;
+static float    g_hvPrevYaw = 0.0f;
+
+static void DvrHeadViewCheck()
+{
+    // The camera write's own snapshot of the head it used, and ours.
+    const int32_t genGap = (int32_t)g_devPoseGen - (int32_t)g_injHmdGen;
+    float dYaw = g_devPoseYaw - g_injHmdYawSnap;
+    float dPitch = g_devPosePitch - g_injHmdPitchSnap;
+    while (dYaw > 3.14159265f) dYaw -= 6.28318531f;
+    while (dYaw < -3.14159265f) dYaw += 6.28318531f;
+    const float deg = sqrtf(dYaw * dYaw + dPitch * dPitch) * 57.29578f;
+
+    const double now = dvr::clock::now_ms();
+    float speed = 0.0f;
+    // A max over a window is destroyed by one tiny dt, and this column reported
+    // 300+ deg/s on half its lines - which no neck does. Ignore intervals under
+    // 2 ms rather than divide by them.
+    if (g_hvPrevMs > 0.0 && now - g_hvPrevMs >= 2.0) {
+        float dy = g_devPoseYaw - g_hvPrevYaw;
+        while (dy > 3.14159265f) dy -= 6.28318531f;
+        while (dy < -3.14159265f) dy += 6.28318531f;
+        speed = (float)(fabs((double)dy) * 57.29578 / ((now - g_hvPrevMs) / 1000.0));
+    }
+    if (now - g_hvPrevMs >= 2.0 || g_hvPrevMs == 0.0) { g_hvPrevMs = now; g_hvPrevYaw = g_devPoseYaw; }
+
+    ++g_hvSamples;
+    if (genGap != 0) ++g_hvGenGaps;
+    if (deg > g_hvMaxDeg) g_hvMaxDeg = deg;
+    if (speed > g_hvMaxSpeed) g_hvMaxSpeed = speed;
+
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+        "hv: head/view residual - the hand is normalised against locate gen %u, the camera write used gen %u "
+        "(gap %+d) | this frame %.3f deg | WORST since the last line %.3f deg at head speed up to %.1f deg/s | "
+        "%d of %d frames had a generation gap. This is the SAME quantity (g_hmdYaw/Pitch) read at two moments, "
+        "never two coordinate systems. IF THIS IS NEAR ZERO THE WEAPON JUDDER IS NOT A HEAD/VIEW MISMATCH and "
+        "the candidate is dead; it should grow with head speed and be zero when the head is still.",
+        g_devPoseGen, g_injHmdGen, genGap, deg, g_hvMaxDeg, g_hvMaxSpeed,
+        g_hvGenGaps, g_hvSamples);
+    // The accumulators cover the window the line reports, so they reset on the
+    // same 1 s schedule the line prints on - not on whether the line printed.
+    {
+        static double s_reset = 0.0;
+        if (s_reset == 0.0) s_reset = now;
+        if (now - s_reset >= 1000.0) {
+            s_reset = now;
+            g_hvMaxDeg = 0.0f; g_hvMaxSpeed = 0.0f; g_hvGenGaps = 0; g_hvSamples = 0;
+        }
+    }
+}
+
 static void DvrConsumePoses()
 {
     dvr::vr::HeadPose hp;
@@ -66,6 +241,23 @@ static void DvrConsumePoses()
         DvrPoseTo3x4(hp, m);
         memcpy(g_devPose[0], m, sizeof(g_devPose[0]));
         g_devPoseOk[0] = true;
+        // VR-68: the head HISTORY the hand normalisation selects from. The lag
+        // finder measured the rendered camera moving with the head from two
+        // generations back (0.119 deg against 1.19 at lag 0, over 4085 moving
+        // frames), so the hand needs the same sample the view was built from.
+        g_headHistIdx = (g_headHistIdx + 1) % DVR_HEAD_HIST;
+        memcpy(g_headHist[g_headHistIdx], m, sizeof(g_headHist[0]));
+        g_headHistOk[g_headHistIdx] = true;
+        if (g_headHistN < DVR_HEAD_HIST) ++g_headHistN;
+        // VR-68: the identity of the head this hand normalisation will use.
+        g_devPoseGen = g_hmdGen;
+        g_devPoseYaw = g_hmdYaw;
+        g_devPosePitch = g_hmdPitch;
+        g_hvYawIdx = (g_hvYawIdx + 1) % DVR_BV_RING;
+        g_hvYawRing[g_hvYawIdx] = g_hmdYaw;
+        if (g_hvYawN < DVR_BV_RING) ++g_hvYawN;
+        DvrHeadViewCheck();
+        DvrLagFinder();
         TrackHead(m);
     } else {
         g_devPoseOk[0] = false;
@@ -83,10 +275,32 @@ static void DvrConsumePoses()
     }
     g_ctrlIdx[0] = 3; g_ctrlIdx[1] = 4;
     // per-eye frustum + IPD for the hand pass (symmetric half-angles; the
-    // runtime layer claims symmetric fovs too)
+    // runtime layer claims symmetric fovs too).
+    //
+    // 41.2 (VR-31): while a PROJECTION layer is up, the compositor shows the
+    // eye texture across the fov the LAYER CLAIMS - the engine's own rendered
+    // hfov (DvrFovHandoff hands it to set_rendered_hfov), which is not the
+    // headset's raw half-angles and on a Quest 3 is nowhere near them. Hands
+    // projected through the headset's frustum would then be drawn at a
+    // different angle from the world they are supposed to be standing in, and
+    // would slide against it as the claim moved. So the hand pass gets the
+    // CLAIM, derived exactly the way the runtime derives it for the layer
+    // (openxr_runtime.cpp: tan(halfV) = tan(halfH) * h / w over the swapchain,
+    // which is this method's output texture). On the quad screen there is no
+    // claim and the headset's own angles stay - the hand pass refuses on that
+    // rung anyway, and a frustum nobody reads is better left honest.
     float hh = 0, hv = 0;
     if (dvr::vr::headset_half_fov_deg(&hh, &hv) && hh > 0.0f) {
         float th = tanf(hh * 0.0174533f), tv = tanf(hv * 0.0174533f);
+        const char* whose = "the headset's own half-angles";
+        const float claimDeg = dvr::stereo::wants_projection()
+                                   ? dvr::vr::rendered_hfov_deg() : 0.0f;
+        const uint32_t cw = dvr::capture::width(), ch = dvr::capture::height();
+        if (claimDeg > 1.0f && cw && ch) {
+            th = tanf(claimDeg * 0.5f * 0.0174533f);
+            tv = th * (float)ch / (float)cw;
+            whose = "the projection layer's claim";
+        }
         float sep = 0.0f;
         if (dvr::vr::eye_separation_m(&sep) && sep > 0.04f && sep < 0.08f) g_ipdM = sep;
         for (int eye = 0; eye < 2; eye++) {
@@ -96,6 +310,18 @@ static void DvrConsumePoses()
             g_eyeOffs[eye][1] = 0.0f; g_eyeOffs[eye][2] = 0.0f;
         }
         g_eyeFrOk = true;
+        // The derived numbers, on change only, so "the hands sit at the wrong
+        // angle" is arithmetic rather than opinion.
+        static float saidTh = 0.0f, saidTv = 0.0f; static const char* saidWhose = NULL;
+        if (fabsf(th - saidTh) > 0.001f || fabsf(tv - saidTv) > 0.001f || whose != saidWhose) {
+            saidTh = th; saidTv = tv; saidWhose = whose;
+            Log("vrhands: eye frustum from %s - half-angles %.1f/%.1f deg "
+                "(tan %.3f/%.3f) over %ux%u, IPD %.1f mm. The hands are composed "
+                "through THIS; if it disagrees with the layer's claim they slide "
+                "against the world.",
+                whose, atanf(th) * 57.29578f, atanf(tv) * 57.29578f, th, tv,
+                cw, ch, g_ipdM * 1000.0f);
+        }
     }
 }
 
@@ -253,6 +479,14 @@ static void DvrGameTick(IDirect3DDevice9* self)
         }
         StereoUpdate();   // the live-tuning hotkeys
         DvrConsumePoses();
+        // 41.2 (VR-31): the hand pass's beat ticks HERE, not only from inside
+        // the draw callback. Driven from the callback alone it could never
+        // print the one case it claims to name - "the stereo method never
+        // reached the seam" - because that case is exactly the one where the
+        // callback does not run. An instrument that cannot report its own
+        // worst answer is not an instrument.
+        HmBeat();
+        DcTick();        // VR-31 route (b): the draw census and its cycler
         // 41.0: the camera seam learns the eye the active method wants next,
         // the IPD and the world scale; the eyetest reads c5 back here.
         dvr::camera::set_eye(dvr::stereo::active() ? dvr::stereo::active()->eye_for_next_frame() : 0);
@@ -603,6 +837,14 @@ static void DvrAfterCreateDevice(HRESULT hr, HWND wnd, D3DPRESENT_PARAMETERS* pp
 
 static void DvrBeforeReset(D3DPRESENT_PARAMETERS* pp)
 {
+    // The bone palette is device state and does not survive a reset. This
+    // lives here rather than in frame_hooks.cpp because the palette's globals
+    // belong to the unity translation unit, and before_reset is the callback
+    // that unit already owns.
+    MpOnReset();
+#if DVR_WITH_LEGACY
+    g_pcResetEpoch++;   // captured state is not comparable across a reset
+#endif
     ResBeforePresentParams(pp, "Reset");   // 41.1
     UncapPresent(pp, "Reset");
     if (pp) g_gameWindowed = pp->Windowed != FALSE;      // 32.9
@@ -637,6 +879,8 @@ static void DvrInstallFrameHooks()
     cb.game_tick            = DvrGameTick;
     cb.set_vs_const         = hkSetVSConstF;
     cb.set_render_target    = hkSetRenderTarget;
+    cb.draw_indexed         = DcDrawIndexed;   // VR-31 route (b): the draw census
+    cb.draw_prim            = DcDrawPrim;      // ...and the non-indexed entry point
     cb.d3d11                = DvrFrameD3D11;
     cb.gameplay_verdict     = DvrGameplayVerdict;
     dvr::frame::set_callbacks(cb);
@@ -649,6 +893,16 @@ static void DvrInstallFrameHooks()
     rh.gates     = SceneDrawGates;
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
+    // VR-33 step 2: the capture worker. Started here rather than lazily at the
+    // first draw, so its thread never has to be created from inside a detour.
+#if DVR_WITH_LEGACY
+    PcStart();
+#endif
+    // 41.2 (VR-31): our own hands. Registered unconditionally - the callback
+    // returns immediately while [VRHands] Enabled is off, and registering it
+    // only when the lever is on would mean `vrhands on` did nothing until a
+    // restart.
+    dvr::stereo::set_hand_draw(HmDrawIntoEye);
     // 41.2 (session 10): the two counters the draw census cannot see for itself.
     dvr::draws::set_game_counters(SceneDrawDraws, DvrPostRenderCount);
 }

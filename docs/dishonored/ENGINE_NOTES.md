@@ -10,6 +10,165 @@ Rules: every number lives in `src/game/dishonored/patterns.h` and here, with how
 derived; a hook byte-verifies its target and refuses on mismatch; never copy a number from
 another game; findings go here in the same commit as the code that uses them.
 
+## SOLVED: VR-30, the arms follow the head - FaceRotation is the seam (2026-09-05)
+
+**Headset-judged fixed.** Head yaw leaves the arms and weapon alone; the right
+stick turns view and body together; both at once works. `[Camera] ArmBodyFacing`.
+
+### The operation
+
+`UDishonoredPlayerPawn::FaceRotation` is what faces the body to the view. It is
+**virtual at vtable slot 252 (offset +0x3F0)**, and on this build the pawn's
+vtable resolves it to **`0x00AB0D40`** (`patterns.h` `kFaceRotation`).
+`__thiscall`: `this` in ecx, stack `+0` Pitch, `+4` **Yaw**, `+8` Roll,
+`+0xC` DeltaTime, `ret 0x10`.
+
+The fix does **not** write the pawn's rotation. It hooks that function, replaces
+the **Yaw it is asked for** with a separated body heading, and lets the engine's
+own function run - so all of the engine's dependent bookkeeping still happens.
+Pitch, roll and delta time pass through; every other actor passes through.
+
+    view yaw  = body heading + head contribution
+    head turn  -> view changes, body heading does not
+    stick turn -> body heading and view change together
+
+The head contribution is bookkeeping for **our own injection**: the integer yaw
+delta `ApplyHeadToViewRotation` adds is taken once, in the fresh branch, so the
+2 ms modifier re-stamp and the stereo second pass cannot advance it twice. The
+stick is never re-integrated - it arrives inside the incoming view and survives
+a subtraction untouched. `body target = outgoing view - head contribution`.
+
+Measured on the winning run: **3365 replacements, 0 stale**, and 1014 calls on
+other pawns passed through untouched.
+
+### How the address was derived, and why static analysis alone could not
+
+1. `armfollow/nfp:` resolved the `FaceRotation` UFunction at runtime and reported
+   its exec thunk at **RVA 0x1DAF30** - the *same* thunk for `Pawn` and
+   `DishonoredPlayerPawn`, so the override is not in the thunk.
+2. The thunk ends `mov edx,[edi]; mov edx,[edx+0x3f0]; mov ecx,edi; call edx` -
+   a virtual dispatch. That gives slot 252.
+3. The live pawn's vtable slot 252 gives `0x00AB0D40`. It ends in `ret 0x10`
+   (Rotator by value + float) and has **zero static E8/E9 callers**: only ever
+   reached through the vtable.
+4. Which is why the probe counted **0 ProcessEvent dispatches of FaceRotation
+   across a whole gameplay run**. Gameplay reaches it native-to-native, so
+   hooking its script exec wrapper would have caught nothing. The one script
+   call site in the corpus is inside a debug cheat path, not gameplay.
+
+**Static analysis alone cannot find this on this image.** RTTI for the UE3
+classes is stripped, and the native name strings sit in a blob loaded into
+GNames at runtime, so there is no name-to-function table, no referenced string
+operand and no findable vtable. `xref` returns zero on `FaceRotation`,
+`UpdateRotation` and `PlayerMove_Walking`, and a pointer-table search returns
+zero. **One runtime resolution is required; everything after it is static.**
+Do not repeat the static search.
+
+### Identity: the bug that wasted two builds
+
+The writer must use the **event-latched** controller and pawn (`g_peCtrl` /
+`g_pePawn`), validated as a **possession pair** through `Controller.Pawn` by
+reflection.
+
+The camera-pointer scan (`FindPlayerController`) is not good enough, and the log
+shows why: it latched `23CB3800` before gameplay, the event stream named the
+real controller `16D86800` twelve seconds later, and the scan did not refresh
+until **57 seconds after that, once gameplay had ended**. For the whole play
+window every read came from the previous scene's dead object - constant, so the
+body froze *and* the stick died from one cause. A readable object of the right
+class is not enough when it belongs to the scene before this one. Discovery must
+not depend on the fallback head-tracking path, which returns early while
+scripted tracking is healthy.
+
+### What was falsified on the way, with numbers
+
+| Attempt | Result |
+|---|---|
+| Write `pawn.Rotation.Yaw` directly (`BodyYawLock`) | **4 of 186 writes survived** to the next dispatch (2.2%); 70% of the time the engine had already restamped the pawn to the view yaw. The target was *correct* - it held at -85.6 deg across a 35 deg view swing - and it made no difference. The engine re-derives the pawn heading from the controller every tick and no field assignment outruns that. **Removed.** |
+| `bRemoveMeshRotation` on `LookAtControl_LeftHand`/`_RightHand` (`ArmStripMeshRot`) | Ran clean and changed nothing: both controls found, bit resolved by reflection at **+0xb8 mask 0x10**, both reading 0 before, **304,244 writes**, both live all run, arms still followed. Ships OFF, kept as the reproducible A/B. |
+| `ArmCounterYaw`, `ArmFollowWeight`, `ArmLookAtStrength` | Pre-existing, unchanged, ship off. |
+
+**Byproduct worth keeping**: the reflected offset and mask for
+`bRemoveMeshRotation` **agree** with the `0x10` in `kSkcBools` that
+`skelcontrol.cpp` had been assuming unverified.
+
+### Two dead references found by reading, not by running
+
+- `g_haveInjRef` is declared `false` and **nothing in the tree ever assigns it**.
+  `BodyYawLock` evaluated `g_hmdYaw - (g_haveInjRef ? g_injRefYaw : g_hmdYaw)`
+  inline every dispatch, so its head delta was **always zero** - the subtraction
+  its comment, its ini text and STATUS all described never happened.
+- `ArmCounterYaw` reads the same expression but **latches it once** behind
+  `g_afCntHaveRef` and subtracts the saved value, so its delta is real. Earlier
+  counter-yaw results **stand**; an earlier revision of this file wrongly said
+  otherwise.
+
+### The lesson worth carrying
+
+Seven attempts and three more this session all failed the same way: each wrote a
+value the engine recomputes every tick, downstream of the one input we must
+modify for the player to look around. **Nobody had measured write survival.** The
+instrument that settles it in one run - read the field back at the next write
+and classify it ours / engine / third party - did not exist until this session
+and answered the question immediately. Measure whether a write is honoured before
+tuning what it writes.
+
+## FALSIFIED: bRemoveMeshRotation on the hand controls (2026-09-05, VR-30 option A)
+
+`[Camera] ArmStripMeshRot=1` forces `bRemoveMeshRotation` on
+`LookAtControl_LeftHand` and `_RightHand` every dispatch. It ran clean and
+changed nothing: both controls found (`obj[54361]`/`obj[54362]`,
+`SkelControlSingleBone`), the bit resolved by reflection at **+0xb8 mask 0x10**,
+both read 0 before, **304,244 writes**, both live for the whole run, arms still
+follow head yaw. The lever ships OFF and stays as the reproducible A/B.
+
+**Byproduct worth keeping**: the reflected offset and mask AGREE with the 0x10
+in `skelcontrol.cpp`'s `kSkcBools` handling, which had been shipping unverified.
+
+**Why it could never have worked, and it is already written down above.** Attempt
+3's deciding test swept a gain on `gain * (head yaw since neutral)` and found no
+gain that held the weapon still, concluding "no seam between the arms and the
+camera downstream"; the root cause beside it records that Arkane draws the
+first-person view model **in camera space**, with no world matrix for the arms
+anywhere in the constant map.
+
+So the arms are not being rotated by anything. They sit in the camera's frame by
+construction. There is no rotation to strip, no weight to zero and no flag to
+flip - which is why this lever, the body-yaw hold, the counter-yaw and the four
+earlier attempts all did nothing. **Every lever that looks for a rotation to
+cancel is a category error.** Only two things can work: place the hands
+absolutely in world space (attempt 5 proved SkelControl world-space translation
+is absolute), or hide the engine arms and draw our own (attempt 4, shipped for
+weapons).
+
+**Do not add another lever of this kind without a measured target.**
+
+**Correction (same day), and it narrows this entry.** The paragraph above
+over-claimed. The null result kills THIS lever, not every rotation-based route:
+a transform can be combined or baked into a bone matrix before it is uploaded,
+so "no separate world matrix in the constant map" does not prove the arms cannot
+be rotated independently. It also sat in direct conflict with the yaw-ladder
+section, which attributes arm yaw to the PAWN's rotation. That conflict is
+unresolved and must be settled at the native update path, not by preferring
+whichever explanation was written last.
+
+**What is actually established** is narrower and more useful: the commanded body
+target already separates head from stick (it holds at -85.6 deg across a 35 deg
+view swing), and it does not survive - 4 of 186 writes, 2.2%, with the pawn back
+near the view heading 70% of the time. So the open question is which operation
+overwrites it and whether that happens before the mesh transforms are built.
+
+**Static analysis cannot answer it on this image (checked 2026-09-05).** RTTI for
+the UE3 classes is stripped, and the native name strings sit in a blob loaded
+into GNames at runtime, so there is no name->function table, no referenced
+string operand and no findable vtable. `xref` on all four candidate strings
+returns zero. It needs one runtime resolution, which `armfollow/nfp:` does.
+
+**Also unproven and load-bearing**: the ProcessEvent hook is a PRE-hook, so a
+write placed "after the head injection" is still before ProcessViewRotation's own
+body finishes. Our write may simply be too early. That ordering is a measurement,
+not an assumption.
+
 ## Identity
 
 - UE3 licensee build 9099, x86, D3D9, Scaleform. No ASLR: image base 0x400000, `.reloc` ends
@@ -490,6 +649,384 @@ frame ahead); the first build cleared it at depth 3 and re-paired mid-pair every
 seconds (the c5 check caught every one: "tag -1 dropped ... c5 6383.1 is not the position
 the draw wrote 6376.9" - the two eye positions, 6.2 uu apart). Fixed by allowing two pairs
 and letting the c5 match skip stale tags (`tagResynced` in status.json).
+
+## VR-30: silent ownership refusal in alpha-317 (2026-09-05)
+
+The tested alpha-317 build (`14235674` source, dirty build tag based on `af94ba89`)
+reached GAMEPLAY at log time 24033218. Its 120 `armfollow/yaw` samples show the old
+view/pawn coupling, but it has no `yaw: owner` or `yaw: gen` lines. Offset reflection
+succeeded (`Controller.Pawn +0x248`, `Actor.Rotation +0xd0`); ownership never activated.
+This run did not test the new body-target arithmetic downstream.
+
+`YawOwnerValid` called `IsLiveObject` without `BuildLiveSet`. That helper searches
+`g_liveSet`, a sorted snapshot populated by other discovery paths, rather than the
+current GObjects table. A new gameplay object absent from the earlier snapshot is
+rejected indefinitely. This dependency reproduces in host tests: the pre-fix code
+cannot publish/apply for a valid possessed pair when the discovery snapshot is empty.
+Because its guards were silent, the log alone cannot distinguish that refusal from
+the other pre-fix identity guards. The repair removes the stale-snapshot dependency
+and logs every refusal category with the identities involved.
+
+No new offsets: scan the existing `kGObjHdr` table when binding a pair; cache the
+found slots and compare current slot contents before each write, following CamAlive
+and SkcAlive. Rebinding scans are throttled during loads. Keep the reflected possession
+check. Retry unresolved reflection instead of permanently latching a startup failure.
+Check snapshot validity/generation again after validation because validation can replace
+the owner. A body target is applied only after a successful head write/replay. The
+second-eye branch must bypass fresh integration regardless of elapsed milliseconds.
+
+Host coverage now includes real ownership/publication/body-write functions with mocked
+engine services, not just subtraction. Eleven ownership checks plus seven arithmetic
+checks pass. Neither suite establishes that the engine's next view input is independent
+of the pawn target; the earlier comment claiming feedback was structurally impossible
+was unsupported. Headset acceptance remains pending.
+
+## VR-30 IS NOT SOLVED, and BioShock Infinite says why the approach is wrong
+
+**Correction to the entry below.** "Perfectly still" was reported once and did not
+reproduce: a later run on a tree **byte-identical** to that build (verified with
+`git diff --stat`, empty) still had the arms moving with head yaw, with the same ini. So the
+result was never real, or it depended on something nobody was measuring. Either way the
+lever below is not a fix, and the entry that called it one was written from a single
+unverified report.
+
+**The process failure is worth more than the code.** Four changes shipped default-ON in a
+row, each reasoned from the last symptom rather than measured, each regressing the tester:
+an accumulator that fed back on itself, a reference borrowed from another lane, an FOV scale
+that no value could null, and a frame gate that broke the VR hook outright. This project's
+own rules say measure first and ship levers off. Neither was followed, and the cost was a
+headset session.
+
+### What Infinite does instead (`docs/reference/bioshock-trilogy-vr`, local mirror)
+
+BioShock Infinite is the same engine family - UE3 - and its VR mod **does not try to stop
+the arms following the view at all**. `src/game/bioshockinf/bones.h` declares:
+
+```c
+bool drive(const FrameContext& fc, const GamePose& target, int hand, float scale,
+           int armsMode, bool animMode, float capDepthCm, const float wristDeg[3]);
+```
+
+It drives one hand's **bone cluster toward a game-space target** every frame, pass-1 game
+thread only, with `armsMode 2` collapsing the whole arm chain to a point behind the grip at
+zero scale. The hands are **placed absolutely**; whether the body yaws underneath them is
+irrelevant, because nothing about their position is derived from it.
+
+That is the architectural answer, and Dishonored's own notes already contain the matching
+measurement without anyone joining it up: attempt 5 records that **SkelControl world-space
+TRANSLATION works and is absolute** - "the pin test: you can walk away from your hands" -
+while world-space rotation does not. Absolute placement is exactly the shape Infinite uses,
+and it is the half that was measured to work here.
+
+So VR-30's remaining work is what its own pass criteria always said: place the hands from
+the controllers. Every lever tried this session was an attempt to avoid that, and each one
+failed for a different reason - which is itself the evidence that the coupling is structural
+and cannot be switched off.
+
+### What still stands from this session
+
+The **pitch** result is real and holds: forcing the `DisableArmFollow` influences removes
+the vertical follow. The corpus findings, the yaw ladder and the negatives below are all
+measured or read, and none of them depend on the discredited "perfectly still" report.
+
+## (SUPERSEDED - see above) the arms are decoupled from the view, both axes
+
+**Headset-judged.** Pitch went first (the `DisableArmFollow` influences); yaw followed by
+writing a counter-rotation into `m_ArmFollowOffset_Rot_Primary/_Secondary`. Seven recorded
+attempts preceded this one and all of them looked for a switch to turn off. There is no
+switch. **The answer was a subtraction**, and the field that carries it had been sitting in
+the same struct as the pitch weights the whole time - a Rotator among floats, gated by a
+second influence pair nobody had raised.
+
+Ships as `[Camera] ArmCounterYaw=1.0` and `[Camera] ArmDisableWeight=1`.
+
+### The residual, and what it means
+
+With the gain at 1.0 the arms are **rock steady in pitch** and very close in yaw, with one
+artifact left: turning the head yaws the arms **slightly against** the turn - turn right and
+they drift a little left. That is **over-correction**, and it is diagnostic rather than
+mysterious: the counter is subtracting a hair more yaw than the arms were actually given.
+
+Two readings, and they are told apart by what happens when the head STOPS:
+
+- **The offset persists when you stop turning** - the gain is too high. The arms follow at
+  slightly less than 1:1, so countering at exactly 1.0 overshoots by the difference. Fix is
+  arithmetic: lower `ArmCounterYaw` until it nulls (0.9 first, then bisect).
+- **The offset springs back to centre when you stop** - it is a LAG mismatch, not a gain
+  error. The engine's arm follow is smoothed and ours is instantaneous, so during motion we
+  are ahead of it and the difference shows as a swing that settles. Fix is to match the
+  smoothing, not to change the gain, and lowering the gain would then leave a permanent
+  offset in exchange for a smaller swing - a bad trade.
+
+**Do not tune this by feel without asking which of the two it is.** They look similar in the
+headset for a moment and want opposite fixes.
+
+## The YAW ladder: every candidate, ranked, from two independent sweeps (VR-30, 2026-09-05)
+
+Two separate passes over the corpus - one aimed at the animation and skeleton, one at
+scripted events and cinematics - reached the same first choice, which is worth more than
+either reaching it alone. Recorded here so the next attempt starts at the top of a list
+instead of at the beginning.
+
+**The root cause, agreed by both passes**: there is no yaw driver for the arms anywhere.
+Every arm/aim/look mechanism the game exposes is pitch-only or NPC-only. The arms yaw
+because the **pawn** yaws - they are bones of its single mesh, and `FaceRotation` (a native
+override, and the only rotation-related override on `DishonoredPlayerPawn`) sets the actor's
+yaw from the controller every frame. The camera code never needed to ADD yaw, which is
+exactly why every arm-follow weight measured pitch-only.
+
+The architecture says so out loud: `StatePlayerMasterBase` carries `m_bIgnorePitch` (default
+true) and **there is no `m_bIgnoreYaw` twin**. The engineers only ever needed to decouple
+pitch.
+
+### The ladder, cheapest and most likely first
+
+1. **`m_ArmFollowOffset_Rot_Primary/_Secondary`** - Rotators (not floats) in
+   `DishonoredVTSettings` with a live Yaw field, scaled by `m_ArmFollowOffset_Weight_*`
+   (shipped 1.0) and gated by the `DisableArmOffset` influence pair, which is a DIFFERENT
+   pair from the `DisableArmFollow` one the pitch work used. **Both sweeps ranked this
+   first.** Shipped as `[Camera] ArmCounterYaw`; write `-headDelta` every dispatch.
+2. **`DishonoredPlayerController.m_bLimitPlayerYaw` + `m_fStartingPlayerYaw` +
+   `m_fLimitPlayerYaw_Min/_Max`** (`DishonoredPlayerController.uc:204, 224-226`) - a
+   dedicated yaw clamp relative to a captured starting yaw, with its own enable bool. Plain
+   transient UProperties, **no script writers anywhere**, so the native code reads them every
+   frame and nothing in script will fight a write. This is the game's own "pin the view's
+   yaw" and it is the strongest fallback.
+3. **`m_pLookAtControl_LeftHand` / `_RightHand`** (`DishonoredPlayerPawn.uc:307-308`) -
+   `SkelControlSingleBone` on the hand bones, each with a full `Rotator BoneRotation`,
+   `bApplyRotation`, `bAddRotation`, a selectable `BoneRotationSpace`, and
+   **`bRemoveMeshRotation`** - literally "strip the component's own rotation from this bone",
+   which is the decoupling primitive stated as a flag. Untested. Note these are the SIBLINGS
+   of the camera control that broke the view, so treat them with the same care.
+4. **`DishonoredCamera_AnimDriven.m_CurMaxPlayerControlledYaw_Neg/_Pos`** (+ `_Target`,
+   `_Blended`, `_SoftenThreshold`) - the per-axis "how far may the view deviate from the
+   body" clamp that leaning, choking, conversations, possession and the DLC kill-cam all
+   funnel through. Ships `m_fDefaultWeight=0.0`, so it is inert until its influence is raised.
+5. **`m_Debug_Player.m_bIgnoreAimOffset`** - one bool, and `IgnorePlayerAimOffset` is the one
+   cheat in the whole manager with a real script body doing nothing but writing it. Gates
+   `AnimNodeAimOffset`, whose `Aim.X` is the horizontal channel. Free to try.
+6. **`StatePlayerMasterLeaning.m_fMinAllowedYawDegrees/_Max`** (+/-60) - `config(PlayerState)`,
+   so it is the only yaw window in the game settable from an ini with no code at all. It only
+   applies while leaning, but it is a zero-cost existence proof that the clamp works.
+7. **`FaceRotation` itself** - the complete fix and the last resort. Movement, melee facing
+   and mantling all key off actor yaw, so neutralising it needs a separate locomotion yaw.
+
+### Existence proofs that the game CAN hold the body while the view moves
+
+It does this already, in five places, all with real numeric yaw windows: leaning (+/-60
+degrees, config), choking (`DisTweaks_Choke`, an **asymmetric** -50/+10), conversations
+(`DisConvLookAtConstraints.m_fMaxYawDelta`), possession
+(`DisTweaks_Possessable.m_fYawLimitWhilePossessed_Deg`), and soiree matinees
+(`DisInterpTrackAllowPlayerLook` with `m_fYaw_Min/_Max` keyframed, over an
+`InterpGroupPlayer` that pins the body to a stage mark). So the capability is shipped and
+tuned; the question was only ever which knob reaches it from outside a scripted state.
+
+### Negatives worth not re-deriving
+
+- **There is no separate arms mesh.** `DishonoredPlayerPawn`'s `pMesh` is one
+  `DishonoredPlayerSkeletalComponent` carrying arms AND body (`SDPG_Foreground`,
+  `bOnlyOwnerSee`, `CastShadow=false` - it is the viewmodel). `m_BodyMode`
+  (`ARMS_ONLY/FULL_BODY/HIDDEN`) swaps meshes, it does not add a component. That component's
+  `m_Offset` is a **Vector, not a Rotator**, so the arms cannot be rotated independently
+  through it.
+- No script-side flag, state or branch skips `FaceRotation`; the per-frame call is inside
+  `native final UpdateRotation`.
+- `LimitViewRotation` is pitch-only by signature.
+- `AnimNodeAimOffset` has the `Aim` Vector2D with a horizontal range this problem wants, but
+  **nothing in the game references the class**. Do not hunt for it in memory.
+- No spine bender on the player (NPC-only), no cover system, no
+  `bUseControllerRotationYaw` analogue, no camera YAW anim notify (the pitch one exists).
+
+## `LookAtControl_Camera` IS THE CAMERA'S BONE CONTROL, NOT THE ARMS' (VR-30, 2026-09-05)
+
+**Do not zero it.** Attempt 5 recorded this control as "the camera one aims the arms at the
+view", and that description sent this session down a wrong road. Forcing its
+`ControlStrength` to 0 did **not** touch the arms' horizontal follow, and it introduced a
+regression instead: **looking up and down made the view shift forward and backward.**
+
+The log says why, and the class name is the whole answer:
+
+```
+LookAtControl_Camera found obj[54363] 'LookAtControl_Camera'
+class 'SkelControlSingleBone' @ 0FAD6800, ControlStrength reads 1.000
+```
+
+It is a **`SkelControlSingleBone`**, not a `SkelControlLookAt`. A single-bone control
+overrides one bone's transform, and the bone this one is named for is the camera's -
+`camera_jnt`, which this same session established is a bone ON the first-person mesh that
+the camera POV rides (`DishonoredCamera_AnimDriven` is entry 0 of the non-additive core
+group). So this control belongs to the **arms-drive-the-camera** direction, not the
+camera-drives-the-arms one. Zeroing it stops the camera bone being placed, and the view
+starts sliding fore and aft with pitch - exactly what was seen.
+
+`[Camera] ArmLookAtStrength` is kept as a lever because the finding is worth being able to
+reproduce, but it ships **-1 (off)** and should stay there. `[Hands] CameraLookAtStrength`
+writes the same field and is equally dangerous; that it has been dead behind the hand-mesh
+gate for a dozen builds is luck, not design.
+
+**What this leaves for yaw.** Both remaining candidates from the previous entry are now
+spent: the settings weights and the influences own pitch, and this control owns the camera.
+Nothing found so far reaches the arms' horizontal follow. That makes the third reading in
+the entry below the likely one - **yaw is structural**: the viewmodel is drawn in camera
+space with no world matrix anywhere in the constant map, and the player's body yaws with
+the view because in a flat game that IS the correct behaviour. If so, no field will switch
+it off, and VR-30's remaining work is the one its own pass criteria describe - placing the
+hands by controller within that frame - which is the hand drive's job, not the camera's.
+
+## PITCH AND YAW ARE TWO DIFFERENT MECHANISMS (VR-30, 2026-09-05, headset)
+
+Three headset runs on the same build family, and the result is a clean split nobody
+predicted: **the arms' vertical (pitch) follow and horizontal (yaw) follow are owned by
+different things, and only pitch has been switched off.**
+
+| run | lever | what the headset saw |
+|---|---|---|
+| 1 | the game's own `DishonoredCamera.ini` `m_fDefaultWeight=1.0` | no change at all |
+| 2 | `[Camera] ArmFollowWeight=0` (force the settings struct) | arms **trail** the view on both axes - the cursor outpaces them |
+| 3 | `[Camera] ArmDisableWeight=1` (force the influences) | **vertical follow GONE**, horizontal unchanged |
+
+### What each run measured, and it is the log that says so
+
+**Run 1 - the config route is inert.** `m_fDefaultWeight=1.0` on
+`DishonoredCamera_DisableArmFollow` left the live influence reading `weight 0.000,
+target 0.000`. The class is `config(Camera)` and the ini section exists, but that value does
+not reach the live object. Restored to stock; do not spend another session on it.
+
+**Run 2 - the settings struct is a race we only half win.** The log shows
+`m_ArmFollowWeight` and both `_Rot_` weights oscillating **1.000 <-> 0.000 between
+dispatches**: our write lands, the engine's recompute lands right behind it. Roughly half
+authority, and half authority is exactly what "the arms trail the cursor" looks like - they
+are still pulled toward the view, just weakly enough to converge instead of track. Writing
+at a higher cadence cannot fix this; the recompute runs between our dispatches whatever we
+do.
+
+**Run 3 - the influences own PITCH, and they are not what `m_ArmFollowWeight` reads.**
+Forcing both `DisableArmFollow` influences to `m_Weight = m_TargetWeight = 1` with
+`m_bActive` set removed the vertical follow completely and held it. **And
+`m_ArmFollowWeight` still reads ~1.000 throughout** - so the recompute does NOT derive that
+field from these influences, which is what the second commit assumed. The influence acts on
+something else, and the pitch-only result points at the item aim additive:
+`DisTweaks_InventoryItem_PlayerSpecific` declares `m_ArmPitch_OffsetKeys` (a per-item curve
+mapping camera arm pitch to an arm pitch difference) and `m_bUseItemAimAdditives`, consumed
+by `DisAnimNodeBlendItemAimAdditive`. That is a **pitch-named** channel, and pitch is what
+went away.
+
+### So what owns YAW
+
+Not established. The candidates, cheapest first:
+
+1. **`m_ArmFollowWeight` itself.** Run 2 moved yaw (to trailing), so this field does reach
+   the horizontal channel - it just cannot be held against the recompute from this lane.
+   Running both levers together is the free test: if yaw trails while pitch stays fixed, the
+   two channels are confirmed separate and each lever's owner is named.
+2. **`LookAtControl_Camera`.** Attempt 5 found three Arkane look-at controls on the player
+   rig (`LookAtControl_Camera/_LeftHand/_RightHand`) and the camera one "aims the arms at the
+   view". `SkcRotApply` already writes its `ControlStrength` from
+   `[Hands] CameraLookAtStrength` **every dispatch** - the right cadence - and the key ships
+   at 1.0. **It has never been judged, because it is dead on a shipped build**: `SkcRotApply`
+   returns on `!g_skcDrive`, and `g_skcPlayer[]` is only populated by `SkelControlProbe`,
+   which runs below `ApplyHandToMesh`'s `if (!g_handMesh) return`. Reaching it needs either
+   `GamepadOnly=0` (which turns on a dozen other things at once) or hoisting the discovery
+   above that gate. **Note the hazard before touching it**: 32.6 records this as "the single
+   most dangerous store in the DLL" - writes into a freed AnimTree after `CollectGarbage`
+   corrupted the heap, which is why `SkcAlive`/`GraftEmergencyRestore` exist.
+3. **Structural camera-space placement.** ENGINE_NOTES' original root cause says the
+   viewmodel is drawn in camera space with no world matrix anywhere in the constant map. If
+   yaw is structural rather than a weighted additive, no field will switch it off and the
+   answer is the hand drive placing the arms in a frame we choose.
+
+Reading 1 and 2 together: the arms are attached to a body that yaws with the view, while
+pitch is applied as an additive on top. That would make yaw *correct* engine behaviour - your
+body does turn - and make the remaining work "place the hands by controller within that
+frame" rather than "stop the yaw", which is what the hand drive is for.
+
+## The arm-follow API, verified against the corpus (VR-30, 2026-09-05)
+
+Verified this session by reading `tools/uscript/` directly, correcting and extending the
+2026-09-02 research entry further down. **Still declaration-level: nothing has been read off
+a live object yet.** The probe that does that ships in this same commit.
+
+### What the game declares
+
+`DishonoredPlayerCamera.m_DishonoredVTSettings` (`:107`) is a `DishonoredVTSettings` - a
+struct declared in **`DishonoredCameraInfluenceGroup.uc:11`, not on the camera** - and the
+camera's defaults ship **arm follow fully ON**: `m_ArmFollowWeight`,
+`m_ArmFollowWeight_Rot_Primary/_Secondary` and `m_ArmFollowOffset_Weight_*` all 1.0, every
+rotator zero (`:171`).
+
+Four `DishonoredCameraInfluence` objects exist purely to turn it off, held both as named
+pointers (`:111-114`) and as entries **2-5 of `m_Influences[]` in group 3** (`CG_DISABLE_GROUP`,
+`:200-203`) - the last four entries of the last group, so they act as a final gate rather
+than contributing a POV delta. Each carries `m_Weight`, `m_TargetWeight`, `m_bActive`,
+`m_TransitionSpeed`, and both DisableArmFollow classes ship `m_fDefaultWeight=0.0`.
+
+`DishonoredCameraInfluence` also declares `CAM_BLEND_INSTANT = 1000000.f` - the game's own
+idiom for "snap, do not blend", i.e. what to put in `m_TransitionSpeed` to make a weight
+change land the same frame.
+
+### Three findings that constrain any approach
+
+1. **There is no script-level way to activate an influence.** Nothing in the corpus writes
+   `m_TargetWeight` or `m_bActive` - not once. Every influence class is `native(Camera)` with
+   only `var` declarations and `defaultproperties`; not one of the 20 has a single function.
+   The blend math and the activation triggers are C++ and cannot be read here.
+2. **Nothing in the game turns arm-follow off from script either.** The only references to
+   these classes anywhere are declarations and CDO array entries. There is no in-game state
+   (aiming, sheathing, a cutscene) whose script turns it off, so **there is no free A/B to
+   copy** - a hope the previous entry raised and this one closes.
+3. **The coupling runs in BOTH directions.** `camera_jnt` is a bone on the first-person mesh
+   (`DisTweaks_PlayerPawn_Camera.m_CameraBoneName`, `MatineePreviewPlayerPawn`,
+   `DishonoredNotify_CameraPitchTarget`) and `DishonoredCamera_AnimDriven` is entry 0 of the
+   NON-ADDITIVE core group: arms animation drives the camera POV, and then the camera POV
+   drives arm follow. Breaking only the second direction may not be enough, and AnimDriven is
+   the influence that owns the first.
+
+### Corrections to the 2026-09-02 entry
+
+- `m_UsedMaterials` is **not** beside `m_Offset`. It is one class up on
+  `DisSkeletalMeshComponent`, with material indices and shown flags, not a viewmodel
+  transform. The earlier dismissal as an arm-suppression route was unsupported:
+  see the VR-31 research review below. Suitability depends on the player mesh's
+  actual section layout and native behavior.
+- Nothing in the corpus ever **writes** `m_Offset`, `m_bUseFOV` or `m_FOV`, and none appears
+  in any `defaultproperties`. So the coordinate space of `m_Offset` **cannot** be derived from
+  script and must be measured the way `camera postest` measures.
+- "Primary/Secondary" is `EDisEquipUsage` (`_Primary=1`, `_Secondary=2`) - an equipped slot,
+  most likely weapon vs offhand power. **It is not handedness.**
+
+### The config route, which costs nothing to test
+
+`DishonoredCamera_DisableArmFollow` is `config(Camera)` and `m_fDefaultWeight` /
+`m_TransitionSpeed` are `var config`. The game's own
+`Documents\My Games\Dishonored\DishonoredGame\Config\DishonoredCamera.ini` **already carries
+the section**, shipping the weight at 0:
+
+```
+[DishonoredGame.DishonoredCamera_DisableArmFollow]
+m_fDefaultWeight=0.000000
+m_TransitionSpeed=2.000000
+```
+
+Setting that to 1.0 is a complete test of the mechanism with **no code, no build and no
+install**. `_Secondary` is a separate class and needs its own section
+(`[DishonoredGame.DisCamera_DisableArmFollow_Secondary]`) - it does not inherit the parent's.
+It may do nothing, if `m_fDefaultWeight` is only a reset value and C++ drives `m_TargetWeight`
+over the top; that outcome is itself the measurement, and it is what the probe distinguishes.
+
+### Two other levers this turned up
+
+- **`SetSkelControlActive(bool)` and `SetSkelControlStrength(float, float)` on
+  `SkelControlBase`, plus `FindSkelControl(name)` on `SkeletalMeshComponent`, are
+  script-callable natives** - the only documented callable API in the whole chain. Control
+  names come from `DisTweaks_PlayerPawn_Camera.m_LookAtControlName_Camera/_LeftHand/_RightHand`.
+  This is the same `LookAtControl_Camera` that attempt 5 found and that
+  `[Hands] CameraLookAtStrength` already dials - but that key is dead on a shipped build
+  because `GamepadOnly=1` clears `g_skcDrive`.
+- **`IgnorePlayerAimOffset(bool)`** is an exec with a real script body that sets
+  `m_bIgnoreAimOffset`, a plain bool in the pawn's `m_Debug_Player` struct
+  (`DishonoredPlayerPawn.uc:214-228, 361`). Aim-offset is the additive that pitches the arms
+  with the camera, so it is the closest script-visible analogue to disabling arm follow, and
+  it is trivially pokeable.
 
 ## Head coupling of the arms (the open problem; roadmap D5)
 
@@ -2309,6 +2846,885 @@ predates this session (`dump eyes` shipped in session 9) and it has never been l
 because those dumps are read for geometry and for left-against-right differences rather than for
 colour. Worth fixing; do not read a colour verdict off a dump until it is.
 
+## The 30.13 bone-visibility result was recorded all along, and it names +0x288 (VR-31, 2026-09-06, session 18)
+
+Two sessions of planning treated "write 0x02 into the per-bone visibility array at
+component +0x288" as an open experiment whose result was **never recorded**. It is
+recorded. The original author wrote it down in a code comment, in the state chunk that
+sits beside the experiment rather than in this file, which is why three passes over the
+corpus missed it. It survives verbatim in `src/mod/state/40_game_dishonored_hands_arms_hide.inc`
+and in the original single file (`git show 824e08d8:src/dllmain.cpp`, line 11119):
+
+    30.14: the +0x288 byte poke was wrong - that array turned out to be some
+    per-bone animation control (arms froze to the view and rode the head).
+
+So the write was made, and it had a **visible effect that was not hiding**. That is a
+stronger result than a null one: the bytes at +0x288 are read by something, and what
+they drive is animation, not visibility.
+
+### What +0x288 most likely is
+
+UE3's `USkeletalMeshComponent` carries two per-bone byte arrays, and the probe found the
+wrong one:
+
+| array | default value | what a 2 there means |
+|---|---|---|
+| `BoneVisibilityStates` | 1 (`BVS_Visible`) | 2 = `BVS_ExplicitlyHidden` |
+| `SkelControlIndex` | **255** (no control on this bone) | 2 = this bone is driven by SkelControl #2 |
+
+30.12's probe reported the array as **`0xFF` everywhere except `0x02` on `spine_3_jnt`**.
+`0xFF` is not a legal `BoneVisibilityStates` value at all; it is exactly
+`SkelControlIndex`'s "none". On that reading, 30.13 did not hide the arm bones, it
+**attached them to SkelControl #2**, and "froze to the view and rode the head" is what an
+attached control does. A hidden bone does not ride anything.
+
+That is why the mismatch matters beyond bookkeeping: the existence proof the whole route
+rested on ("the game hides `spine_3_jnt` this way in first person") is probably not a
+hiding at all - it is the game pointing the chest bone at a bone controller.
+
+### The instrument that settles it without another guess
+
+This build ships full UE3 reflection: `FindPropOffset(class, property)` reads
+`UProperty::Offset` out of GObjects, the same technique the crouch cylinder (`CylinderComponent::CollisionHeight`)
+and the graft (`SkelControlBase::*`) already use. So the offsets do not have to be
+pattern-matched at all. `BoneVisResolve()` in `hands/arms_hide.cpp` asks the engine for
+`SkeletalMeshComponent::BoneVisibilityStates`, `::SkelControlIndex` and `::RequiredBones`,
+prints all three against `0x288`, and names which one the 30.12 probe actually found. A
+`0` from any of them is itself an answer: this build does not declare that property.
+
+**Do not re-derive a per-bone array by pattern-matching a byte range. Ask the reflection.**
+
+### The lever, and what it can prove
+
+`arms vis on|off|status|chain` (ini `[Hands] BoneVisHide`, **ships ON for the VR-31
+test sessions**, back to off once the verdict is recorded) writes
+`BVS_ExplicitlyHidden` into the arm-chain bones - collarbone, shoulder, upper arm, lower
+arm, sleeve; never hands or fingers - at the offset the engine named, saving and
+restoring the exact bytes. Three guards refuse before writing, each logging its numbers:
+
+- the property does not exist on this build;
+- the array is **empty** (`num=0`), which means the engine never allocated it and there is
+  nothing per-bone hiding can drive. That would close route (a) with a reason rather than a
+  failed write, and it is the same fact 30.17 saw when `HideBoneByName` allocated nothing;
+- the array's length does not equal the rig's ref-skeleton bone count, so it is not
+  per-bone for this mesh and our indices would land somewhere else.
+
+While it is on, a census runs on the script lane and reads back what it wrote, classifying
+every byte `held` / `reverted` / `other` against the value the engine had. This is VR-30's
+method note applied: **measure write survival before tuning what the write contains**. It
+separates two outcomes that look identical in a headset:
+
+- `reverted` climbing: the engine puts the bytes back, and the write needs a later lane.
+- all `held` and the arms still on screen: the write survives and **the renderer does not
+  read this array**, which closes route (a) properly and hands the question to route (b),
+  the c6 bone palette.
+
+A warning that must ride along, ported from BioShock and not yet paid for here: UE3 gives
+a hidden bone a zero transform, and the attachment path inverse-decomposes bone scale. If
+the weapon's attach bone is in the chain, the weapon goes through the near plane. `arms vis
+chain` prints the exact bone list so a report identifies the culprit rather than describing
+it.
+
+### MEASURED (2026-09-06, run 1, build `alpha-298-g5809b088`): both answers at once
+
+One gameplay run, lever armed from the ini, nothing sent by hand:
+
+    bonevis: reflection (prep) - BoneVisibilityStates +0x000, SkelControlIndex +0x288,
+             RequiredBones +0x23c (0 = the engine does not declare that property on this class)
+    bonevis: +0x288 - the array 30.12 found and 30.13 wrote 0x02 into - is SkelControlIndex.
+    bonevis: no BoneVisibilityStates property - route (a) is CLOSED on this build,
+             and not because a write failed
+
+**1. `+0x288` is `SkelControlIndex`. Confirmed, not inferred.** The prediction made from
+30.14's symptom was right: 30.13 pointed the arm bones at SkelControl #2 rather than hiding
+them, which is why they froze to the view and rode the head. The `0xFF` default was never a
+visibility value. `RequiredBones` resolving at `+0x23c` proves the resolver was working on
+the right class, so the `0` for `BoneVisibilityStates` is a real absence and not a lookup
+that failed.
+
+**2. Route (a) has nothing to write into.** This build's `SkeletalMeshComponent` does not
+declare `BoneVisibilityStates`. That is **consistent with** 30.17 and is the likeliest
+reading of it, but it is not a proof of it - nothing here inspects the native's
+implementation, and a native is free to keep state somewhere the script layer never names.
+Say "no script-visible array to drive", not "this is why the native did nothing":
+`HideBoneByName`
+dispatching and allocating nothing is the same fact seen from the other side - there is no
+array for it to allocate.
+
+**The existence proof the route rested on is gone with it.** "The game hides `spine_3_jnt`
+this way in first person" was the whole reason to try route (a), and the game is not hiding
+it - it is pointing that one bone at a bone controller. Nothing in the corpus now says
+Dishonored has per-bone hiding at all.
+
+**Run 2 (2026-09-06, `alpha-299-ge4343852`) closed the subclass reading:**
+
+    bonevis: no UProperty named BoneVisibilityStates on ANY class in GObjects,
+             so it is not merely on a subclass
+
+So the property is absent from the whole reflection corpus, not hidden on a subclass the
+first lookup constrained itself out of. One reading is left - the array existing in C++
+without script exposure - and run 2 did **not** answer it, through an instrument bug worth
+recording because it is a repeat of a shape this project keeps paying for: **the two
+cross-checks have different preconditions and were run at the same moment.** The name search
+needs only GObjects and answered on the first tick; the scan needs a prepped rig, and the
+first tick is about ten seconds before the pawn is latched (measured: close-out at 37135781,
+`handmesh: latched pawn` at 37145234). It logged `could not prep the rig`, and the one-shot
+flag then stopped it from ever trying again. The scan now retries until `g_fpCandN` and
+`FpPawn()` say there is a rig, and the precondition is checked at the call site because
+`ArmsPrep` logs its own failure and would otherwise bury the run.
+
+**Run 3 (`alpha-299-g8f556300`) then found the SECOND precondition, and it is a fact worth
+keeping: the first-person candidate list does not exist unless the hand-mesh drive is on.**
+Both of `FpCollect`'s callers (`FpCycle`, and the collect inside `ApplyHandToMeshInner`) sit
+behind that drive, and the tester runs `[Hands] Enabled=0` - so `g_fpCandN` was 0 for the
+whole run, the pawn latched fine, and the scan waited for a list nobody was ever going to
+build. **Anything that needs the component graph must serve its own `FpCollect`, or say in
+its refusal that it is waiting on a subsystem the config has switched off.** The scan now
+calls `FpCollect` itself, at most five times at 2 s apart, and names why in the log.
+
+### VERDICT (2026-09-06, run 4, `alpha-299-g54d45a04`): route (a) is closed on evidence
+
+The scan ran. Five per-bone byte arrays of length 79 exist on the rig, and **not one has its
+values confined to 0..2**, which is what a `BoneVisibilityStates` must look like:
+
+    bonevis: rig prepped for the scan - 10 arm-chain bone(s) of 79
+    bonevis: scan +0x208 num=79 zeros=37 ones=0 twos=0 other=42 range 0..243 -> not a visibility array
+    bonevis: scan +0x214 num=79 zeros=43 ones=0 twos=1 other=35 range 0..243 -> not a visibility array
+    bonevis: scan +0x23c num=79 zeros=1  ones=1 twos=1 other=76 range 0..78  -> not a visibility array
+    bonevis: scan +0x248 num=79 zeros=1  ones=1 twos=1 other=76 range 0..78  -> not a visibility array
+    bonevis: scan +0x288 num=79 zeros=1  ones=1 twos=1 other=76 range 0..255 -> not a visibility array
+    bonevis: scan done - 5 per-bone byte array(s) of length 79 on the rig
+
+**Route (a) is closed**, on three independent instruments rather than one lookup returning
+zero: the property does not resolve on `SkeletalMeshComponent`, no `UProperty` of that name
+exists on **any** class in GObjects, and no byte array on the component is shaped like one.
+
+Read the scan's rows with its limitation in mind, because two of them are old friends: the
+scan matches any `TArray` whose `ArrayNum` is the bone count, **regardless of element size**,
+then judges by the first `num` bytes. `+0x208` and `+0x214` are attempt 1's `SpaceBases` and
+`LocalAtoms` (arrays of `FMatrix`), so their "bytes" are matrix data read sideways;
+`+0x23c` / `+0x248` range 0..78, which is bone indices, and `+0x23c` is the `RequiredBones`
+reflection already named. The value test rejected all five correctly, and a genuine byte
+array of visibility states would have passed it, so the conclusion holds - but do not read
+those rows as five candidate visibility arrays.
+
+### What the same run found instead: route (c) has somewhere to point
+
+`SkelControlIndex` on the arm chain, the array this build actually has:
+
+| bone | index | state |
+|---|---|---|
+| 20 `Collarbone_R_Jnt` | **0** | the game drives it |
+| 21 `shoulder_R_jnt`, 22 `upper_arm_R_jnt`, 23 `lower_arm_R_jnt`, 48 `sleeve_R_jnt` | 255 | free |
+| 49 `Collarbone_L_Jnt` | **1** | the game drives it |
+| 50 `shoulder_L_jnt`, 51 `upper_arm_L_jnt`, 52 `lower_arm_L_jnt`, 77 `sleeve_L_jnt` | 255 | free |
+
+**8 of 10 free, and the 2 that are taken are exactly the two collarbones** - the roots of the
+chain, driven by controls 0 and 1. Those two controls are not yet identified; the mod's own
+control enumeration was off this run (`[Hands] Enabled=0`), so naming them is one cheap run
+with the hand drive on.
+
+This also finishes explaining 30.13. It wrote `2` onto the whole chain, which pointed the
+free bones at **SkelControl #2** - a control the game owns and that 30.14 recorded as making
+the arms "ride the head". The project has a name on file for a camera-tracking bone control
+on this rig (`LookAtControl_Camera`, a7b18b6f, "the camera's bone control - do not zero it").
+Whether #2 is that control is unverified and worth one run to settle, but the mechanism no
+longer has any mystery in it: 30.13 attached arm bones to a camera-following control.
+
+### Where the VR-31 verdict stands
+
+- **(a) per-bone visibility: CLOSED.** No array, on three instruments.
+- **(b) the c6 bone palette: OPEN and proven writable.** Sizes separate the uploads
+  (**x36 = sword, x144 = arms, x204 = NPC**); zero the x144 block, leave x36, and that is
+  "hide the arms, keep the weapon". Machinery in `src/legacy/rtd_drive.cpp`. Cost: it sits on
+  the hottest D3D9 entry point.
+- **(c) SkelControlIndex: OPEN and new.** One byte per bone, 8 of 10 free, and the mod
+  already drives SkelControls (`hands/skelcontrol.cpp`, `hands/graft.cpp`). Cheaper per frame
+  than (b) by a wide margin. The unknown is what a free bone can be pointed AT: the index
+  selects from the AnimTree's control lists, so this needs the control list understood before
+  a byte is written, and 30.13 is the standing warning about pointing bones at a control
+  somebody else owns.
+
+
+## VR-31 research review: geometry visibility before bone controls (2026-09-06)
+
+Scope: source and recorded-evidence review at `7d8b602e`, including the locally
+decompiled `tools/uscript/dishonored` corpus. No runtime changes or new gameplay
+measurements. The goal is to remove arm geometry while retaining animated hands
+and weapon attachments; absolute controller placement remains VR-52.
+
+### Recommended first experiment: material-section visibility
+
+These are declarations in this game's own corpus, not offsets borrowed from UDK:
+
+| local source under `tools/uscript/dishonored/` | finding |
+|---|---|
+| `Engine/SkeletalMeshComponent.uc:415` | native `ShowMaterialSection(MaterialID, bShow, LODIndex)` |
+| `Engine/SkeletalMeshComponent.uc:85` and `:203` | per-component LOD records contain `HiddenMaterials`; component owns `LODInfo` |
+| `Engine/SkeletalMesh.uc:56` and `:146` | `BodyPart` associates owner/cut bone names and a show-if-cut flag; asset has `m_MaterialsToBodyParts` |
+| `Engine/SkeletalMesh.uc:145` and `:114` | asset material array and per-LOD `LODMaterialMap` |
+| `DishonoredGame/DisSkeletalMeshComponent.uc:6` | `UsedMaterial` contains material index and shown flag; transient array at `:18` |
+| `DishonoredGame/DishonoredPlayerSkeletalComponent.uc:1` | player component inherits that Arkane component |
+| `DishonoredGame/DishonoredPlayerPawn.uc:1191` | player `pMesh` is foreground, owner-only, and forces attachment updates in tick |
+
+**Inference:** the shipped material visibility machinery could suppress sleeves
+without changing bone transforms, if hands and sleeves use separate sections.
+That would preserve the engine's authored animation and attachment inputs and
+avoid a new per-upload matrix rewrite. No script body or asset material inventory
+in this review proves that split exists. Material names alone cannot prove it:
+one material can cover both sleeve and hand geometry or several sections.
+
+The previous blanket dismissal of `m_UsedMaterials` confused its irrelevance to
+arm rotation with its possible relevance to geometry visibility. Its native
+writers are not available in these scripts; treat it as census evidence first,
+not a raw-write target. Prefer the native section API, after resolving and
+checking its reflected parameter layout, to editing an internal array directly.
+The previous inert HideBone calls are also a reason to demand a visible result
+from this native, not just successful ProcessEvent dispatch.
+
+### Route (c): usable topology, but not selective visibility
+
+`Engine/AnimTree.uc:25` defines each `SkelControlListHead` as a bone name,
+`ControlHead`, and editor coordinate; `SkelControlLists` is declared at `:136`.
+`Engine/SkelControlBase.uc:40` supplies `NextControl`. Read the live tree reached
+through the component's `Animations`, not its shared `AnimTreeTemplate`.
+
+The proposed identification run is insufficient as written. In
+`src/game/dishonored/hands/skelcontrol.cpp`, `SkelControlProbe` walks GObjects and
+appends matches to `g_skcPlayer[]`. Its printed control number is that buffer's
+slot, not the index of an AnimTree list. It never reads `SkelControlLists`.
+It also filters to `SkelControlSingleBone` after caching that class, so it is
+not a complete census of all control types. Name discovery cannot establish
+that list 2 is `LookAtControl_Camera`. Walk the actual lists and chains, then
+cross-check their bone names against both pre- and post-physics index arrays.
+
+`Engine/SkelControlBase.uc:37` declares `BoneScale`; `SkelControlSingleBone`
+adds translation/rotation fields, not a flag to hide only that bone's geometry.
+Epic's UE3 documentation states that scaling includes child bones and describes
+ordered chains and sharing a control among bones. Thus a free index is useful
+plumbing, but does not solve the arm/hand boundary.
+[Epic: Using Skeletal Controllers](https://docs.unrealengine.com/udk/Three/UsingSkeletalControllers.html)
+
+The repository already warns of this in
+`src/mod/state/12_game_dishonored_hands_skelcontrol.inc:310`: hand scaling affects
+descendants and the weapon. Its drive also excludes scale values at or below
+0.05 (`hands/skelcontrol.cpp:910`); the existing size slider is not a zero-scale
+hiding test. The later graft has its own scale writer (`:1231`), so a test must
+account for both writers rather than assume one field has sole authority.
+
+An arm scale of zero normally collapses descendants too. Restoring the hand
+would require a measured later transform/scale override; a finite reciprocal
+cannot undo a zero scale. A small nonzero scale with compensated descendants
+is an experiment with wrist deformation, transform order, and numerical issues,
+not a proven shortcut. A leaf sleeve bone could be a cheaper special case if
+its hierarchy and influenced vertices confirm it has no required descendants.
+
+Introducing an owned control also means object allocation/lifetime, list and
+tick registration, rebuild handling, and restoration. The existing template
+donor graft explicitly records template contamination across reloads in
+`hands/graft.cpp`; do not promote that prototype to a clean ownership solution.
+There is no measured basis for claiming route (c)'s total frame cost is lower
+by a wide margin solely from the number of bytes patched.
+
+### Route (b): distinguish whole-draw hiding from floating hands
+
+The previous x36/x144/x204 observations remain useful signatures for those
+recorded draws. They are not unique mesh IDs across every weapon, LOD, NPC,
+render pass, or DLC. The active upload interception is in
+`src/core/framework/vs_const_hook.cpp:210`; `src/legacy/rtd_drive.cpp` computes
+drive transforms, and `src/legacy/fp_mesh.cpp:552` contains the older whole-block
+and per-bone collapse routines.
+
+Zeroing a whole x144 palette removes all geometry using that palette, including
+hands in that draw. That supports floating weapons, not retained native hands.
+For selective bone collapse, the mapping is still unknown: 144 registers at
+three per bone represent 48 entries, while the rig census has 79 reference
+bones. Reference index 52 cannot be used as slot 52 in that upload. The hook
+also records separate arm draws (`vs_const_hook.cpp:223`). Establish each
+draw's palette-to-reference mapping, rather than reusing skeleton indices or
+assuming upload order stays fixed.
+
+Even a correct mapping does not make skinning a per-triangle visibility mask.
+A wrist vertex blended between a retained hand matrix and a collapsed forearm
+matrix receives both contributions. Collapsing selected bones can stretch or
+distort those triangles instead of removing them. Changing only basis entries
+also leaves bone translations apart, so it does not necessarily degenerate
+the whole arm. Inspect the vertex weights and test the wrist boundary.
+
+The constant hook already exists. A narrowly gated patch does not imply another
+hook installation, allocation, GObjects walk, or synchronous readback per call.
+Only matched draws need a bounded copy and edits. Measure incremental cost;
+being in a frequently called function alone does not establish unacceptable
+overhead. Geometry correctness is the first unresolved question.
+
+### Other alternatives and the next discriminating test
+
+1. **Read-only census, independent of `[Hands] Enabled`.** Start at the live
+   pawn's reflected mesh pointer, stamp component/asset/tree identities, resolve
+   material and LOD tables, and print body-part associations and actual control
+   list indices/chains. Validate reflected field sizes, bool masks, array lengths,
+   and struct strides. This also avoids interpreting native mirror declarations
+   such as `RefSkeleton`'s `array<int>` as their actual C++ element layout.
+2. **Section A/B if there is a plausible sleeve/hand split.** Save existing
+   visibility, hide one identified section through the native, verify geometry
+   and visibility readback, then restore exactly. Cover applicable LODs and
+   check whether Arkane's material bookkeeping overwrites the change. Prove
+   hands/fingers, sword, offhand item and power effects remain; verify VR-30
+   yaw behavior, crouch, reload, checkpoint reload and both eyes. One behavioral
+   change per build; run the simulator before requesting headset judgment.
+3. **If sections are mixed, prefer a render-only geometry mask experiment.**
+   A draw/section-specific triangle filter or wrist mask can preserve the full
+   skeleton and remove actual arm geometry without inherited scale. This needs
+   local mesh/UV/weight inspection and reliable draw identity, plus resource-reset
+   handling if using a filtered index buffer. It is more implementation work,
+   but has a clearer geometry boundary than bone collapse. A compatible hands-only
+   replacement mesh is another option, with asset compatibility and packaging
+   work; no game assets or decompiled sources belong in the repository.
+4. **Simpler fallback: floating weapons.** Hide player skin through validated
+   sections or a positively identified whole draw while preserving the animated
+   rig. Whole-component `SetHidden`, `bHideSkin`, and body-mode changes are
+   broader candidates with attachment/update consequences to measure. Do not
+   disable the skeleton or camera carrier. Showing native hands only during
+   powers is a separate state-driven visibility policy and does not by itself
+   remove sleeves during those powers.
+
+The existing array experiment stays retired. Its scan was limited to inline
+TArray-shaped headers in the first 0x1000 component bytes with length equal to
+the bone count. No reflected property plus no matching live header is strong
+evidence against that specific poke, not proof against every lazy, indirect,
+or differently encoded native implementation. In particular, lack of allocation
+does not establish why `HideBoneByName` did nothing. Do not spend another tester
+run repeating it without new native-code evidence.
+
+**Verdict:** material-section hiding is the best next test, conditional on the
+asset split. Route (b) remains a rendering fallback with mapping and seam
+questions; route (c) is lower priority for this visibility goal. No floating-hand
+implementation is proven by this review.
+
+### Run 5 (`alpha-302-gd939b9de`): the census read nothing, and it was the probe
+
+Every column came back 0 and the experiment refused. The reflection line is where the fault
+is, and it is mine, not the engine's:
+
+    mat: reflection (auto) - LODInfo +0x318, Materials +0x000, m_UsedMaterials +0x440,
+         m_MaterialsToBodyParts +0x078
+
+**`Materials` is declared on `MeshComponent`, not `SkeletalMeshComponent`.** The lookup
+constrained `Outer` to the wrong class, returned 0, and the census printed `materials=0` as
+though the mesh had no sections at all. Second fault on the same line: **a component's
+`Materials` is an OVERRIDE list and is normally empty** - the authoritative section count is
+`SkeletalMesh::Materials` on the ASSET. So even a correct component lookup would have read 0.
+
+**The rule this pays for, and it is the same shape as the `+0x288` misidentification:
+resolve a property by NAME and let the class be a hint, never a constraint.** `MatProp` now
+tries the expected class, falls back to a name-anywhere search across GObjects, and logs
+which class actually declares it. A `0` after that is a real absence.
+
+Two things the run did establish, both real:
+
+- **`ShowMaterialSection` exists and resolved** (`UFunction @ 10207020`), so the native is
+  there to dispatch if there is anything to dispatch it at.
+- **`LODInfo` (+0x318), `m_UsedMaterials` (+0x440) and `m_MaterialsToBodyParts` (+0x078) all
+  resolved**, and `m_MaterialsToBodyParts` read 0 entries on the player asset. That is the
+  expected answer rather than a fault: Arkane built the body-part table for dismemberment,
+  which is an NPC feature, so **the player rig has no owner-bone names to pick from** and the
+  NAMED path was never going to have targets. The SWEEP path is what settles route (d) on
+  this rig, and it needs the asset's section count, which is exactly what was misread.
+
+A third fact the log could not distinguish and now can: `FpAssetObj` returning NULL and an
+asset with an empty table printed identically. The census names which it was.
+
+### Route (d) is built and ships the census ON (2026-09-06, session 18)
+
+The review's recommended order is implemented, and its correction to my own next step is
+accepted: **turning the hand drive on cannot name SkelControl list indices.** The existing
+probe fills `g_skcPlayer[slot]` in GObjects iteration order, filtered to
+`SkelControlSingleBone` and capped at 8 (`hands/skelcontrol.cpp`, the discovery loop). Those
+slot numbers have no relationship to the values in `SkelControlIndex`, which index the
+component's own AnimTree control lists. The suggestion to "run once with `[Hands] Enabled=1`
+to name controls 0 and 1" was wrong and is withdrawn; naming them needs a walk of the real
+control lists, and `SkelControlLists` is a C++ member this build does not declare to script,
+so it is an offset derivation rather than a reflection lookup.
+
+`hands/mat_hide.cpp` does two things, both aimed at one launch rather than two:
+
+**The census, `[Hands] MatCensus=1`, read-only, automatic once per run.** For every
+first-person component it prints the material count, `LODInfo[0].HiddenMaterials`,
+`DisSkeletalMeshComponent::m_UsedMaterials`, and - the row that decides the route - the mesh
+asset's `SkeletalMesh::m_MaterialsToBodyParts`, with the `m_OwnerBone` and `m_CutBone` FNames
+resolved to strings. All four offsets come from reflection, and a `0` for any of them drops
+that column and says so. It serves its own `FpCollect`, so it does not depend on the
+hand-mesh drive being on - the precondition that cost run 3.
+
+**The hide, manual.** `arms mat hide <id>` dispatches the engine's own
+`ShowMaterialSection(MaterialID, bShow, LODIndex)` through ProcessEvent, exactly as
+`console.cpp` dispatches `ConsoleCommand`. It is never a raw write into `HiddenMaterials`:
+the native is what notifies the render thread, and a value verified in memory but never
+honoured downstream is this project's oldest trap. The call reads the flag back and prints
+whether it moved, so the dispatch has an acceptance test rather than a return code.
+`arms mat show <id>` and `arms mat restore` undo it.
+
+**How to read the census.** One row per material index. A row whose `owner` is a sleeve or
+arm bone, with the hand on a DIFFERENT row, is route (d) working: hide the first, keep the
+second, and no bone is touched. Every row sharing one owner bone means the asset has no
+arm/hand split and the route is closed on the same day it opened.
+
+**Why this is worth a run before (b) or (c).** Both of those fight the skeleton and inherit
+its problems - `BoneScale` propagates to child bones, so shrinking a forearm takes the hand
+and whatever is attached to it, and the c6 palette holds 48 entries against 79 reference
+bones with wrist vertices weighted to both sides of any cut. Route (d) removes geometry from
+a draw and leaves every transform alone, which is the property the other two have to buy.
+
+**Not established**: that the player asset has the split, that the native works on this
+component, or that the sections divide where the body parts do. Only the run says.
+
+### SOLVED: route (d) WORKS - ShowMaterialSection hides first-person geometry (2026-09-06)
+
+Headset-judged on `alpha-304-ge1135d25`. The sweep ran four steps and the tester reported
+geometry disappearing and coming back on each one. **`ShowMaterialSection` dispatched through
+ProcessEvent removes first-person geometry and the game keeps running normally.** That is
+route (d) proven and the first thing in VR-31 that actually hides anything.
+
+The plan the engine's own `GetNumElements` produced, and what it means:
+
+| step | component | sections | LODs |
+|---|---|---|---|
+| 1 | `Skm_Player` (DishonoredPlayerSkeletalComponent) | 1 | 1 |
+| 2 | `Wpn_PlySword01` (DishonoredItemSkeletalComponent) | 1 | 1 |
+| 3 | `crossbow_01` (DishonoredItemSkeletalComponent) | 1 | 1 |
+| 4 | `bolt_01` (DishonoredItemSkeletalComponent) | 1 | 1 |
+
+Two components reported 0 sections and were skipped (`asset=NOT FOUND` on both), and the
+material names came back as `MaterialInstanceConstant` for the body and the sword, with
+`crossbow_01_Mat` and `Bolt_01_Mat` for the other two.
+
+**The structural finding, and it is the one that shapes what comes next: EVERY component has
+exactly ONE material section.** So route (d) hides per COMPONENT, not per body part. There is
+no arm section and hand section to separate, because the whole first-person body is one
+section on `Skm_Player`. The tester's step-by-step recollection was approximate and the
+mapping of which step removed which limb is **not yet established** - that is what the numpad
+cycler is for, and until it has been walked deliberately the per-step attribution above
+should be read as the PLAN, not as what was seen.
+
+**What this gives immediately**: floating weapons. Hide `Skm_Player` and the sword, crossbow
+and bolt keep drawing, because they are separate components with their own sections.
+
+**What it does not give**: hands. Arms and hands share one section, so hiding the arms hides
+the hands with them. Route (d) cannot split them, and no amount of material work will - the
+split does not exist in the asset.
+
+**So floating HANDS needs a different source for the hands, not a finer cut of this mesh.**
+The mod already has one: `core/gfx/hand_mesh.cpp` draws its own hand geometry, and the
+SkelControl drive already places hands from the controllers. Hiding `Skm_Player` and drawing
+our own hands is the BioShock shape, arrived at from the opposite direction - and it also
+answers the powers requirement, since our own hands can be shown for powers and hidden
+otherwise without touching the game's mesh at all. Untested here, and it is the next thing.
+
+The cycler (`[Hands] MatCycle=1`, Numpad 3 next / Numpad 1 back / Numpad 2 all visible) walks
+the same plan at a human pace so each section can be identified deliberately. **The hotkey
+only posts a request; every dispatch happens on the script lane** in `MatCycleTick`, because
+ProcessEvent from the present thread is the lane error this project has a rule about. The
+timed sweep is back OFF now that the route is proven, so the two cannot fight.
+
+### What the cycler can still settle, and what the census already settled (2026-09-06)
+
+Worth stating before the walk, so the run is not spent proving something already on the log.
+The census read the component list off the engine, and there is **exactly one component with
+first-person body geometry**: `Skm_Player`. The other two that report sections are named
+weapons, and the two that report none report `GetNumElements=0` from the engine itself. So
+the arms, the hands and whatever else the body carries **cannot** be on separate steps -
+there is nowhere else for them to be.
+
+That leaves the walk one real question, not four:
+
+- **step 1 (`Skm_Player`)**: does hiding it remove BOTH arms and BOTH hands, and do the
+  weapons keep drawing? That is the floating-weapons verdict, and it is a yes/no on one step.
+- **steps 2-4** confirm the named weapons come off individually - useful, cheap, but they
+  only corroborate names the engine already gave.
+
+The cycler still earns its walk (a component's NAME is not proof of what it draws on screen),
+but the outcome that would change the plan is a surprise on step 1 - hands surviving it, or
+geometry the census did not account for.
+
+### VR-31: the hand renderer had no caller, and the frustum it wanted was the wrong one (2026-09-06)
+
+Route (d) sends floating hands to a different SOURCE for the hands: `core/gfx/hand_mesh.cpp`,
+which the mod has carried since 30.77. Reading it before wiring it turned up two things worth
+recording, because neither is visible from the config or the ini.
+
+**1. The renderer has been dead code since 41.0, and nothing said so.** `HmRenderEye` drew
+into the per-eye render targets of the side-by-side present pipeline, and that pipeline was
+deleted in `cc2fa936` ("remove the side-by-side present pipeline"). Since then:
+
+- `HmRenderEye` has had **no call site at all** (`git log -S` names `cc2fa936` as the commit
+  that took the last one);
+- `HmEnsurePipeline` has had none either, so the shaders were never compiled;
+- `[VRHands] Enabled=1` therefore changed **nothing on screen** and produced **no log line
+  saying so**. A lever that silently does nothing is the fault class this project's logging
+  rules exist for, and it survived because the config block, the ini keys and the model
+  auto-pick (`HmPickModels`, called every tick from `skelcontrol.cpp`) all still ran.
+
+The removal was correct at the time - the deleted code's own comment says hands "return with
+the projection-layer mode" - and the projection-layer mode has been live since S2b. The
+caller is what was never rebuilt.
+
+**2. The hand pass must be composed through the LAYER'S CLAIM, not the headset's FOV.** The
+frustum the hand pass reads (`g_eyeFr`, filled in `DvrPresentPoses`) was built from
+`headset_half_fov_deg`. But while a projection layer is up the compositor shows the eye
+texture across the fov the **layer claims**, and that claim is the engine's own rendered hfov
+(`camera+0x53c` -> `DvrFovHandoff` -> `set_rendered_hfov`), not the headset's half-angles -
+on the run that proved route (d) the claim was **108.1 deg**. Hands composed through the
+headset's frustum would be drawn at a different angle from the world they are meant to stand
+in, and would slide against it whenever the claim moved.
+
+The derivation now matches the runtime's own, so the two cannot drift apart:
+
+    tan(halfH) = tan(claimedHfov / 2)
+    tan(halfV) = tan(halfH) * h / w        (h, w = the method's output texture)
+
+which is exactly `openxr_runtime.cpp`'s `halfV = atan(tan(halfH) * g_swapH / g_swapW)` for
+the projection views it submits. The numbers print on change (`vrhands: eye frustum from ...`)
+so "the hands sit at the wrong angle" is arithmetic rather than opinion.
+
+**3. Three other things the deleted pipeline supplied.** A **depth buffer** (the pass batches
+by skin and depth-tests; the painter's sort is gone, and with no DSV bound the depth state is
+inert and the back of a hand paints over its front); the **eye tag of the pixels already in
+the target**, which is not the eye the next game draw will render; and a **refusal on the
+quad screen**, because a head-locked quad is a picture at `[Screen] DistanceMeters`, not a
+world, and eye-frustum hands have no depth there to occupy.
+
+**Status: wired, built, UNVERIFIED.** Nothing here has been seen in a headset. `[VRHands]
+Enabled` ships OFF, `vrhands on|off|status` is the live A/B, and the 3 s beat line prints
+calls / draws / triangles and **names the reason for any zero** rather than leaving one.
+
+### SOLVED (cause): the hands drew 252 triangles a present through an UNINITIALISED matrix (2026-09-06)
+
+Run on `alpha-307-gf297df53`, first headset run of the rebuilt hand pass. The tester saw
+no hands. The log said everything was healthy:
+
+    vrhands: pipeline ready
+    vrhands: depth buffer 2750x2850 D32 (29.9 MB)
+    vrhands: beat calls=480 draws=480 tris=120960 last=drew
+
+480 calls per 3 s, 252 triangles each - 132 + 120, both models complete, every present.
+
+**The cause, found by review of the code rather than by another run.** The transform did:
+
+    float B[9]; RtdBuildYPR(rad, B);
+
+`RtdBuildYPR` lives in `src/legacy/rtd_drive.cpp` and is compiled **only** under
+`-DDVR_WITH_LEGACY=ON`. Every shipped build takes the stub in
+`src/legacy/legacy_stubs.inc` instead:
+
+    static void RtdBuildYPR(const float* ypr, float* out) {}
+
+So `B` was never written, and every hand vertex was rotated by nine floats of whatever
+was on the stack. Undefined behaviour with a very specific signature: the counters stay
+healthy because the geometry IS built and submitted, and nothing is visible because the
+vertices are scattered or non-finite.
+
+**The reason it survived the first instrument.** The near-plane reject is
+`if (es[k][2] > -0.03f) bad = true;`, and `NaN > -0.03f` is **false**, so a non-finite
+vertex passes it and is counted as a good triangle. The counter measured "built", the
+question was "visible", and nothing in between was measured. The fix separates them:
+`submitted` and `ON-SCREEN` are now different numbers, with `nonFinite`, `nearPlane`,
+`degenerate` and an NDC bounding box beside them.
+
+**How far the class extends, measured.** Of the 23 stubs in `legacy_stubs.inc`, exactly
+**one** had an out-parameter that a live caller read unconditionally, and it is this one.
+The only other stub with out-parameters is
+`RtdSnapshot(float* R, float* T, ...) { return false; }`, and its caller
+(`vs_const_hook.cpp`) gates every read on that return (`if (ok[0] || ok[1])`, then
+`if (!ok[h]) continue;`), so `R`/`T` are never touched - safe by construction. The
+remaining 21 are `void f(...)` with no out-parameters and are genuine no-ops, which is
+what the design intends.
+
+**The rule.** A stub that returns void and writes nothing is a no-op; a stub with an
+OUT-PARAMETER is a landmine, because the caller cannot tell a value it never received
+from a value it did. If a retired experiment must keep a stub with an out-parameter,
+the stub has to initialise it - and a live path should not depend on a retired
+experiment at all. The math this one needed is twelve lines and now lives beside its
+caller as `HmBuildYPR`.
+
+**A second defect in the same function, found reading it.** The vertex depth was
+`pos.z = 0.5f * (-z)` with `pos.w = -z`, which divides to **exactly 0.5** at every
+distance. The depth buffer therefore could not order anything - the first fragment to
+reach a pixel won and every later one failed `LESS`. The painter's sort had been deleted
+on the assumption depth replaced it. Now a standard mapping, 0 at the near plane and 1
+at the far.
+
+**Convention note.** `RtdBuildYPR` is commented "Z yaw, Y pitch, X roll" - the UE3 world
+frame. The hand meshes are built in the CONTROLLER's frame, which is Y-up (+X right,
++Y up, -Z along the grip), so `HmBuildYPR` is Ry(yaw) * Rx(pitch) * Rz(roll) and the ini
+keys mean what they say. Verified numerically: exact identity at zero trim, and equal to
+`Ry*Rx*Rz` to 2.2e-16 over 64 angle combinations. Inert in the current configuration -
+every trim value in the shipped ini is 0.0.
+
+**Corrected from the first write-up of this run:** the claim that every present was
+delivered untagged was wrong. It was read off the first three beats, which are bring-up.
+Across the whole run gameplay reads `method=reentry out/s=160 L/s=80 R/s=80 mono/s=0` -
+properly tagged stereo. The untagged beats are the non-gameplay states.
+
+### VR-31: the real hands are the requirement, and route (b) starts at the DRAW (2026-09-06)
+
+The requirement changed on tester feedback: the game's OWN hands are needed, because the
+powers animate them. Replacement meshes cannot carry Arkane's power animations, so the
+custom renderer (now working - see the uninitialised-matrix entry) becomes the fallback
+rather than the goal.
+
+**What is closed, and what that does NOT close.** Route (a) is closed (no
+`BoneVisibilityStates` on any class). Route (d) is closed FOR HANDS (`Skm_Player` has one
+material section; the headset walk removed both arms and both hands on one press). But
+one shared material section rules out a MATERIAL split only. It says nothing about
+whether the renderer submits the arms and the hands as separate geometry, because UE3
+chunks a skeletal mesh by BONE INFLUENCE, not by material. That is route (b), it is
+untouched, and it is where the work goes.
+
+**Upload SIZE cannot answer it.** The inherited knowledge is "c6, 3 registers per bone,
+x144 = arms, x36 = sword, x204 = NPC", and `[VRHands] HideGameArms` hides by matching
+those sizes. Three reasons that cannot settle a split, all raised in review and all
+correct:
+
+- two chunks can carry the same bone count, hence the same upload size;
+- several draws can reuse one upload, so one palette is not one draw;
+- `HideSizes` is a list of what someone happened to observe, so discovery limited to it
+  can only rediscover it.
+
+The existing hook does record separate ARM draws by ordinal (`myOrd`, 30.72), but that
+distinguishes left arm from right arm - it is not an arm/hand split.
+
+**So the instrument censuses the DRAW** (`hands/draw_census.cpp`, `[Hands] DrawCensus`,
+ships ON). `DrawIndexedPrimitive` is hooked (vtable **82**; the index is corroborated by
+the two this file already patches, 29 `CreateDepthStencilSurface` and 94
+`SetVertexShaderConstantF`, which fix the standard layout). Every draw that consumes a c6
+palette is identified by what the renderer was actually holding - stream-0 vertex buffer
+and stride, index buffer, vertex declaration, vertex shader, index range and primitive
+count. Two draws differing in any of those are different geometry whatever their palette
+sizes agree on. Numpad 6 / 4 / 5 hide one row at a time.
+
+Two rules it observes, both from CLAUDE.md and both easy to get wrong here:
+
+- **never take a reference to an engine D3D object inside a detour** - the four `Get*`
+  calls each AddRef, so each is released on the next line and only the pointer VALUE is
+  kept, as an identity token, never dereferenced;
+- the hotkey posts a request and the tick acts on it. The detour itself runs on the
+  RENDER thread, so the row table is filled completely before its count is published.
+
+**Corrections to the first version of this plan, from review, recorded so they are not
+re-derived:**
+
+1. **A palette matrix's translation column is NOT the joint's position.** Skinning
+   matrices normally fold in the inverse bind pose, so in bind pose they can be identity
+   while the joint sits far from the mesh origin. Any "collapse the arm bones onto the
+   wrist" experiment must derive the wrist point in the palette's OUTPUT space - e.g. by
+   transforming the wrist's bind-pose position through its verified skinning matrix - not
+   by reading a translation column. Dishonored's convention has to be confirmed first.
+2. **Collapsing means a ZERO 3x3 linear part**, not an identity rotation. Identity leaves
+   the geometry extended and merely moves it.
+3. **Zeroing a matrix sends its contribution to the skinning OUTPUT-space origin**, not
+   necessarily the world origin.
+4. **Collapse does not guarantee a clean wrist.** Arm-only vertices converge only if all
+   their influences receive the same point; mixed arm/hand vertices still deform, and
+   triangles crossing the boundary can fan into a visible cuff. Treat collapse as a cheap
+   prototype - if it seams, move to triangle filtering rather than tuning the target.
+5. **The cleaner geometry answer is an INDEX-BUFFER filter**: for a verified player draw,
+   submit a replacement index list containing only the hand and chosen cuff triangles,
+   keeping the original vertices, weights, materials, shaders and animated palette. That
+   removes arm triangles while preserving the retained triangles' original deformation,
+   so finger and power animation survive without reimplementing any of it. It works even
+   when arms and hands share both material and chunk. Cost: choosing the wrist boundary
+   from bind-pose geometry and skin weights (topology and position, not a weight
+   threshold alone, which makes holes), caching per mesh/LOD, and restoring draw state.
+6. **Bisection is discovery, not a bone map.** It cannot establish every hand/finger
+   influence, cannot assume a contiguous hand block, and does not prove the mapping
+   survives LOD or asset changes.
+7. **`FindRefSkel` is weaker than its comment claims.** The comment in `arms_hide.cpp`
+   says the weapon view model must report exactly its 14 bones; the function does not
+   enforce that. It accepts the first TArray in a 0x28..0x300 window whose first six
+   entries resolve as names (`num` merely 8..256), so it can latch onto an unrelated FName
+   array. Strengthen the structural checks before treating its output as authoritative.
+8. **Controller placement is a SEPARATE acceptance gate.** `[Hands] Enabled=1` is not
+   proof of 6DoF control. The target behaviour is to place and orient the WRIST from the
+   controller while preserving the engine's finger transforms relative to it, tested first
+   on one wrist with the arms visible and the custom hands off. Prefer an engine-side
+   control, because attachments, particle origins and gameplay aim follow it; a
+   render-only transform preserves visible finger animation but moves none of those.
+9. The retired RTD experiments failed to decouple PLACEMENT with the transforms they
+   tried. They did not falsify selective geometry FILTERING, and the distinction must stay
+   explicit.
+
+**Sequence:** identify draws -> collapse with a correct wrist target -> index-buffer
+filter if the seam fails -> validate controller wrist placement -> combine, then test
+Blink, Devouring Swarm, Windblast, weapons, head and stick turns, crouch, reload and
+checkpoint reload.
+
+### The alpha-303 review: four probe faults, and the rule they all share
+
+A second review of the material probe found four faults before another run was spent on it.
+All four were real, all four were mine, and three of them would have produced a confident
+wrong answer rather than an obvious failure - which is the expensive kind.
+
+1. **The visibility readback could never work.** The array helper refused an offset of 0,
+   and `HiddenMaterials` is member **0** of the `LODInfo` struct, so both reads always
+   failed. The census reported 0 entries and the post-call readback said "unreadable"
+   whether or not hiding worked. Split into `MatArrayAt` (any offset, for reads INSIDE a
+   struct) and `MatArrayProp` (requires a resolved property offset, for reads off an object).
+2. **The name-anywhere fallback was unsound.** `Materials` and `LODInfo` are declared on
+   several unrelated types; an offset found on `SkeletalMesh` is meaningless applied to a
+   component, and logging which class it came from does not make the number valid. **A
+   fallback that returns the wrong offset is worse than no offset.** Removed: every field
+   names its verified declaring class and a miss is a logged refusal.
+3. **The sweep could not prove what it changed.** It took `g_armComp` or candidate 0, and
+   the run-5 log carries **two** player skeletal components with no evidence which draws the
+   arms; it also only touched LOD 0. It now sweeps every component that reports sections and
+   every LOD each declares, LOD-major so LOD 0 of everything comes first, naming component,
+   section and LOD at each step.
+4. **"Restore" was show-everything-it-touched.** Nothing saved the prior visibility, so a
+   section the game had already hidden could be left visible afterwards. Each hide now
+   records the prior flag per (component, section, LOD) and puts that exact value back.
+
+**The rule underneath all four, and it is the same one `+0x288` and `Materials +0x000`
+already paid for: a probe must be able to tell a FAILED READ from an EMPTY ANSWER.** Every
+one of these faults collapsed those two into the same output. `sections=0, asset=found` is
+not a closed route; it is a probe that cannot distinguish them.
+
+The review also supplied the independent check the probe was missing:
+`MeshComponent::GetNumElements()` and `GetMaterial(int)` are native and dispatchable, so the
+section count and the material NAMES now come from the engine itself rather than from
+another memory-layout guess. Where the dispatch and the array read disagree the log says so
+and the dispatch wins. On this rig the material name is the only handle available, because
+`m_MaterialsToBodyParts` is an NPC dismemberment feature and the player asset carries none.
+
+## The hand shaders' normal path, and the palette's own scale (VR-33, 2026-09-07)
+
+Read from the three captured hand vertex shaders, and from replaying all 28
+saved packets through the shipped decomposition.
+
+### Normals and tangents ride the bone palette
+
+| Shader | Normal path |
+|---|---|
+| `DB11BB81` | Position only. No normal or tangent input |
+| `F2E11B73` | Decodes normals AND tangents and multiplies both through the SAME weighted bone-palette linear rows the positions use; the bitangent comes from their cross product and a handedness term |
+| `11DD5E8A` | The same palette-driven tangent frame, plus light-direction handling |
+
+**Consequence:** a proper rigid transform composed onto the palette carries the
+tangent frame with the geometry. No separate normal matrix is needed and none
+exists.
+
+**`WorldToLocal` MUST NOT be rotated.** In these shaders it converts view and
+light vectors INTO component space. It is not a missing skinning-normal matrix,
+and transforming it as well would apply the correction twice to lighting. The
+component's own transform is unchanged by a palette edit, so `WorldToLocal`
+stays correct as it is.
+
+This closes the question for these three hashes only. A weapon shader is a
+different hash and must be audited before the same reasoning is used on it.
+
+### The palette matrices are uniformly scaled rotations, and the scale is derived
+
+Every palette matrix measured is a rotation times a uniform scale with no shear.
+Over all 28 packets, taking the anchor's dominant slot:
+
+```
+28 packet(s): 28 decomposed, 0 refused. dominant slot 10 (the same in all)
+uniform scale 0.999511659 .. 0.999512255
+worst anisotropy 5.960e-07 | worst orthonormality residual 9.835e-07
+```
+
+An independent check over all 48 slots in all 28 packets (1,344 matrices) gives
+the same scale range and residuals at numerical precision.
+
+**The scale is DERIVED per call, never hard-coded.** 0.999512 is what these
+captures held, not a property of every future pose, mesh and pass. Only the
+frame used to build the correction is normalised; the rendered palette keeps its
+own scale, because the correction is composed onto the original matrices.
+
+### The weighted BLEND is not a rotation
+
+The same test on the anchor's weighted blend, all 28 packets: `det 0.970`,
+largest Gram off-diagonal 0.0075, diagonal off by up to 0.026. Averaging
+rotations contracts them. This is why orientation is read from one slot and only
+the POSITION comes from the blended anchor patch.
+
+### A slot is a render slot, not a joint
+
+Dominant weight does not establish that a slot follows the palm rather than a
+finger or the forearm, and a skinning matrix can fold in an inverse-bind
+rotation, so its axes are not anatomical axes. Any constant bind orientation is
+absorbed into the grip transform. What has to be measured is only that the slot
+follows the palm rigidly.
+
+Across the 28 packets the dominant slot's frame moves at most **1.05 degrees**.
+The blend's reading over the same packets was identical to five decimals and
+looked frozen, so the slot does respond to the engine's animation - but these
+captures are all one near-idle pose and this does NOT establish that it tracks
+the palm. Only a run in which the game animates the hand can.
+
+### The lane contract for the hand draws
+
+`MpDriveTick` runs from `present_tick.cpp` -> `DcTick` -> `MsTick`, on the
+present thread. `MsDraw` runs on whichever thread the renderer draws on. The
+two thread ids are now recorded and printed (`ms/palette/lane:`), so the
+contract is measured rather than assumed - and the controller pose crosses
+between them as one whole structure under a lock, with a generation, latched
+once per ORIGINAL DRAW so both hands of a draw share it.
+
+A group of floats followed by setting a validity flag is NOT publication: the
+flag is already true from the previous sample, so a reader can combine new rows
+with old ones and never know.
+
+### The XR-to-game pose mapping is a MIRROR, and that is a convention
+
+MEASURED 2026-09-07 over 116,908 hand draws in one run. The draw's camera basis
+`B` (columns right, up, forward, recovered from the ViewProjection rows) is
+RIGHT-handed, so with `F = diag(1,1,-1)` the composite pose mapping
+
+```
+M = B * F * transpose(R_head)
+```
+
+has determinant **-1**. It is a reflection between XR's frame and the game's
+camera-relative world frame - which is what a right-handed runtime and a
+left-handed engine should produce.
+
+The first rotation build demanded that `B * F` be a PROPER rotation and refused
+**every single draw** (`placed 0 refused 116908`). The guard was wrong, not the
+game. The fail-soft held: all 116,908 draws still placed translation-only, so
+the hands behaved exactly as the previous build and nothing regressed - the run
+looked like "nothing changed" and the log said precisely why.
+
+**The reflection carries through and cancels.** With `s = det(M) = +/-1`:
+
+| quantity | determinant |
+|---|---|
+| `O_C = M * R_ctl` | `s` |
+| `G = transpose(O_C) * (R_L * R_src)` | `s` |
+| `O_C * G` | `s * s = +1` |
+| `D.r = transpose(R_L) * (O_C*G) * transpose(R_src)` | `+1` |
+
+so what is finally composed onto the palette is a proper rotation at every
+controller pose, whatever the parity. Conjugation by an orthogonal `Q` sends a
+rotation of angle `theta` about axis `a` to one of the SAME angle about
+`det(Q) * Q a`, so a mirrored frame reverses the axis and preserves the angle -
+the correct physical transport in a mirrored coordinate system, not a fault to
+be patched out with a sign flip.
+
+Only ORTHONORMALITY is still required, because a non-orthogonal basis is a
+broken read rather than a convention, and transpose would not be its inverse.
+
+### The hand draws and the pose tick are ONE thread
+
+MEASURED in the same run: `ms/palette/lane:` reports the pose published on
+thread 14224 and the draws consumed on thread 14224 - the same lane - with
+0 draws seeing a stale snapshot over 11,881 publications.
+
+This does NOT retire the locked snapshot. The contract is now measured instead
+of assumed, and it is measured on one machine and one build; the lock costs an
+uncontended critical section about five times per present, and it is what makes
+the two hands of a draw - and later a separately drawn weapon - provably share
+one controller pose.
+
 ## Dead ends (do not re-hunt)
 
 - **In-game menus on the HUD panel with the projection kept** (2026-09-07, reverted the same
@@ -2326,7 +3742,19 @@ colour. Worth fixing; do not read a colour verdict off a dump until it is.
 - "Any constant upload of 9+ registers is a bone palette" is false; writing into them corrupts
   world geometry.
 - `HideBoneByName` on the arms does nothing (no visuals, no allocation); hiding is by
-  render-size masks (`WeaponHideBones`, `ArmsHideTick`).
+  render-size masks (`WeaponHideBones`, `ArmsHideTick`). **Narrower than it reads**: that
+  measured the SCRIPT FUNCTION dispatching to nothing, which is a fact about
+  `HideBoneByName`, not about any array. The array question is above, "The 30.13
+  bone-visibility result was recorded all along".
+- **`+0x288` is `SkelControlIndex`, MEASURED** (2026-09-06, reflection, run 1), not
+  `BoneVisibilityStates`. Writing `0x02` there attaches the bone to SkelControl #2; 30.13
+  did it and 30.14 recorded the arms freezing to the view and riding the head. Resolve an
+  offset from UE3 reflection instead of pattern-matching a byte range.
+- **This build declares no `BoneVisibilityStates` on `SkeletalMeshComponent`** (measured
+  the same run; `RequiredBones` resolved at `+0x23c`, so the resolver was working). Per-bone
+  hiding has no script-visible array to drive. That is consistent with 30.17's
+  `HideBoneByName` allocating nothing and is the likeliest reading, but the native's own
+  implementation was never inspected, so it is not established as the cause.
 - Window-route resolution changes (work area, max tracking size, self-resize, fullscreen
   escape, client-rect spoof, mode list): six builds, the game still chose its own size; the
   engine's own setres is INERT on this build (measured 2026-09-03: it dispatches and does nothing); the command line is the way, and the fullscreen path takes a proxy-advertised mode ("The render size", session 7).
@@ -2340,3 +3768,1365 @@ Blink detours, 33-36 graft and calibration, 37.x OpenXR bring-up (XR-1 bench, XR
 XR-3 pace thread), 38.x the Quest convergence attempts, 38.92 shipped. The fork: M2 frame
 map, M3 splice, M4 twins, M5 sequential + shafts, M6 wrist HUD + shadows, M7 pixel-shader
 shear, M8 quarter-res light passes (M8.2 shipped).
+
+## The arm mesh, measured (VR-31, 2026-09-06)
+
+Everything here was read from the running game and is quoted from the log, not
+derived. The full account of what the split does with it is
+`docs/dishonored/ARM_HAND_SPLIT.md`.
+
+**The mesh signature**, used to arm the lock by identity rather than by a key
+press: **4448 primitives, 2771 vertices**. `[Hands] ArmMeshPrims` /
+`ArmMeshVerts`.
+
+**The vertex declaration**, stream 0, **32 bytes a vertex, 9 elements**:
+
+```
+POSITION      off=16  type=2  (D3DDECLTYPE_FLOAT3)
+BLENDWEIGHT   off=12  type=8  (D3DDECLTYPE_UBYTE4N)
+BLENDINDICES  off=8   type=5  (D3DDECLTYPE_UBYTE4)
+TEXCOORD0             FLOAT16_2   - packed, see below
+```
+
+Stream 0 is the ONLY stream, which is what makes the clip possible at all: the
+index list can be re-based onto a vertex buffer of ours without desynchronising
+a second stream addressed by the same index.
+
+**The buffers are readable.** `vb usage=0x0 pool=0 size=88672 stride=32` - not
+`D3DUSAGE_WRITEONLY`, so the read lock returns real data on this asset and this
+driver. That is a fact about this build, not a guarantee: the validation that
+would catch an uninitialised page is still in place and still runs.
+
+**TEXCOORD0 is FLOAT16_2, and that cost a silent fallback.** A check that
+demanded a `FLOAT2` answered "NO TEXCOORD0", so the cap's colour mode never ran
+and every cap took ring vertex 0 instead - which looked correct, because vertex
+0 is still a vertex on the boundary ring. It would not have looked correct on a
+ring that landed on a texture seam. **A refusal that produces a plausible
+picture is the worst kind of refusal**, and this one is the example to cite:
+the fix was to widen the decode, and to make the log line name the offset and
+type it found and say which of the two paths actually ran.
+
+**NORMAL is not a FLOAT3 here**, so cap vertices inherit the donor's normal
+rather than having one forced flat to the cut plane. Re-encoding a packed normal
+without knowing the asset's bias and scale would be a guessed constant shipped
+as a measured one.
+
+**The palette measures 48 bones**; the module's ceiling is 128.
+
+### The measured cut position
+
+`[Hands] WristCutA` / `WristCutB` = **-4.9**, mesh units from the hand bone
+along the limb axis, positive toward the fingers. This is where the ring was
+left after a headset walk on 2026-09-06 and it is read straight off the
+`ms/wrist` line that the last press printed. It is asset-relative, so it
+survives a level load and does not depend on the pawn's position. It is not
+derived and it is not a guess; the derived seed it replaced was
+`WristScale`=0.70.
+
+## The player rig's skeleton, from the engine (VR-33, 2026-09-07)
+
+Returned by `MatchRefBone` / `GetBoneName` / `GetParentBone` on the live
+`DishonoredPlayerSkeletalComponent`, not derived from geometry. Reproduce with
+`[Hands] BoneQuery=1`.
+
+**Reference-skeleton indices:** `camera_jnt` 8, `hand_R_jnt` 25,
+`handAttachment_R_jnt` 27, `hand_L_jnt` 54, `handAttachment_L_jnt` 56.
+
+**The chains:**
+
+```
+hand_*_jnt           -> lower_arm_*_jnt -> upper_arm_*_jnt -> shoulder_*_jnt
+                        -> Collarbone_*_Jnt -> Root_jnt -> root0_jnt -> ROOT
+handAttachment_*_jnt -> hand_*_jnt -> (as above)
+camera_jnt           -> head_jnt -> neck_jnt -> spine_3_jnt -> spine_2_jnt
+                        -> spine_1_jnt -> spine_0_jnt -> Root_jnt -> root0_jnt -> ROOT
+```
+
+Three facts that matter and were previously assumed:
+
+**The weapon attachment joints are CHILDREN of the hand joints.** A pose
+applied at a hand carries its attachment beneath it. Necessary for the
+engine-side route; not sufficient, since it says nothing about whether a later
+writer or the attachment update honours the change.
+
+**The camera is on the spine/head branch, not either arm.** The nearest common
+ancestor of `camera_jnt` and either hand is `Root_jnt`, and the two arms also
+only meet at `Root_jnt`. So a per-side edit at or below a hand joint cannot
+disturb the view or the opposite hand.
+
+**SKELETON INDICES ARE NOT PALETTE INDICES.** `hand_L_jnt` is bone 54 and
+`handAttachment_L_jnt` is bone 56, while the arm draw's GPU palette is 48
+entries (144 registers at c6). Both exceed it. The palette subsets or reorders
+the skeleton, so the two orderings cannot be used interchangeably, and any
+statement of the form "bone N of the palette" is about a render slot rather
+than about anatomy.
+
+### UStruct::SuperField is at +0x44
+
+Derived rather than guessed: it is the offset at which
+`DishonoredPlayerPawn` -> `Pawn` -> `Actor` -> `Object` all resolve by name.
+Three correctly ordered named links is the evidence; a single plausible pointer
+would not be.
+
+### The pawn's Mesh is a DishonoredPlayerSkeletalComponent
+
+Not a plain `SkeletalMeshComponent`. A receiver check by name equality would
+refuse a valid receiver; ancestry through the Super chain is required. This was
+load-bearing on the first run, not ceremony.
+
+### The mod's outbound ProcessEvent path
+
+`hands/mat_hide.cpp` has called `GetNumElements` and `GetMaterial` on live
+components since the material route, through
+`PFN_ProcessEventCall` (`__thiscall`, four arguments, parameter frame with a
+NULL Result), and `console.cpp` uses the same path. `g_peReentry` is set around
+those calls and **is read by `console.cpp:72` and `commands.cpp:319`** - so it
+guards those two callers, and nothing in `PeHandler` tests it, so it does not
+guard the hook. `PeHandler` runs
+`PeLatch` and the scene-draw call-site patch before any event filtering, so a
+mod-originated call needs a depth guard checked at the top of the handler, or
+it fires real side effects and enters the census as a game event.
+
+### The arm mesh's declaration uses streams 0 and 1, and a stale binding cost the caps
+
+Measured 2026-09-07. The vertex declaration for the first-person arm mesh
+references **stream mask 0x3** - streams 0 and 1 - and the draw binds only
+stream 0.
+
+The split needs to own stream 0 to re-base its index list onto its own vertex
+buffer, which is what the plane clip and therefore the wrist caps depend on. It
+used to veto that whenever ANY of streams 1-7 had a buffer bound, and a stream
+left bound by an earlier draw satisfied it. The wrist caps disappeared between
+runs with no configuration change, twice, and the log blamed "stream 2 is also
+bound" - a stream the declaration never references.
+
+**A bound stream is not a used stream.** The declaration decides what a draw
+reads. Only a stream the declaration names may veto.
+
+Note for later: the declaration DOES name stream 1, and no observed draw binds
+it. If one ever does, the veto fires legitimately and the clip is genuinely
+unavailable on that pass.
+
+### MsDraw must check the draw contract, not the primitive count
+
+The split's index list is re-based onto our own vertex buffer, so it is only
+valid for the exact draw it was built from. `MsDraw` used to accept any draw
+with a matching primitive type and count. A different vertex window, base
+vertex, start index, stream-0 offset or declaration on the same buffer pair
+would consume a split that does not describe it.
+
+The build now records that contract and every replacement draw re-checks it.
+A mismatch is passed through to the original draw - NOT dropped: once a split
+is ready the caller's auto-arm fail-soft no longer applies, so declining used
+to suppress the mesh entirely.
+
+## The view-model's vertex path, read from the shader (VR-33 step 2, 2026-09-07)
+
+Captured from a qualified hand draw and read out of the shader's own
+disassembly and constant table. This replaces every inferred answer about the
+palette's origin, including the "pawn root" conjecture, which was wrong.
+
+### The chain
+
+```
+p_local = ( sum_i w_i * BoneMatrix[idx_i] ) * ( v0 * MeshExtension + MeshOrigin )
+p_cam   = LocalToWorld * p_local
+clip    = ViewProjectionMatrix * p_cam
+```
+
+`BoneMatrices` is declared `float4x3[75]` - three registers per bone, bone `b`
+at `base + 3b`, `base + 3b + 1`, `base + 3b + 2`. The observed uploads carry 48
+matrices (144 registers), well inside the declared 75.
+
+**Weights are NOT normalised by the shader.** It sums `w_i * M_i` into one
+blended matrix and applies it once. So if the effective weights do not sum to
+one, a palette translation `T` moves the vertex by `wsum * T` and not by `T` -
+the hazard the review raised is real, and the anchor's tolerance check is the
+right guard.
+
+**The blend index order is swizzled.** The shader computes `a0` from
+`3 * blendindices` and then reads `.yxzw`, pairing weight `.y` with index `.y`
+and `.x` with `.x`. The pairing is correct; only the evaluation order differs.
+
+### Where the palette's output actually lives
+
+`p_local` is in the COMPONENT'S LOCAL SPACE, and `LocalToWorld` maps it to a
+**camera-relative** world frame - positions relative to the camera, world axes.
+Checked numerically on a captured packet: the anchor at local
+`(24.5, -142.5, 58.0)` maps to `(-46.2, 11.3, -24.6)`, about 53 uu from the
+origin, which is where a hand sits relative to a head. The ~138 uu vertical
+term in the old calibrated offset was simply the component's local origin.
+
+**`LocalToWorld`'s rotation does not follow the head.** Across captures with
+head yaw from -0.79 to +0.66 rad its rotation columns are identical to six
+decimal places and only its translation moves. This CONTRADICTS the earlier
+perceptual reading that the palette frame rotates with the head, and the
+constants are the stronger evidence. Both readings are kept here because the
+disagreement is the useful part.
+
+### Register numbers are per shader and must never be hard-coded
+
+Three shaders draw this mesh in one run. They agree on `ViewProjectionMatrix`
+at c0, `BoneMatrices` at c6 and `LocalToWorld` at c231, and they DISAGREE
+elsewhere: `MeshOrigin`/`MeshExtension` at c235/c236 in one and c238/c239 in
+the others, with `WorldToLocal` at c235 present only in two.
+
+Worse, one shader defines c4 as an immediate `(3, 1, 0, 0)` while the device
+reports `(0, 0, 0, 1)` for that register. A shader immediate overrides what the
+API supplied, so reading that register from the device would have been wrong by
+construction.
+
+The proxy therefore parses each shader's CTAB constant table at capture time
+and uses the register indices it declares. Nothing about the layout is assumed.
+
+## The skinning palette is a TRANSPOSED 4x3, and the two halves index differently (VR-33, 2026-09-07)
+
+A D3D skinning palette holds each bone as three `float4`s that are the
+**transpose of a 4x3**: row `r` is matrix **COLUMN** `r`, and the `w` of each
+row holds that component of the translation.
+
+So the translation reads and transforms like an ordinary vector - which is why
+the probe's bone origins were sensible from the first run - and the basis does
+not. Applying `M' = R.M` to the stored form multiplies the basis by R
+**transposed** and along the row, while the translation column multiplies by R
+the ordinary way down the rows. **The two halves genuinely use different index
+patterns**, and the first build applied the translation's pattern to both.
+
+The symptom names the bug if you know it: position lands correctly, there is
+one controller angle where the hand sits exactly where it belongs, and the
+whole hand turns on a lever several feet long. That is a correct translation
+and a transposed basis together.
+
+## The palette is a register INTERVAL with per-register validity, not a length (VR-33, 2026-09-07)
+
+Caching the palette as a COUNT cannot express what the engine does. Four state
+questions a length cannot answer, all of them observed:
+
+* an update starting INSIDE the block fails an outer bounds test;
+* a wide block covering `c6` can top up an existing cache but never bootstrap
+  an empty one;
+* a short `c6 x4` leaves the previous claimed length standing;
+* an over-long upload is copied whole, after which every trailing triplet is
+  treated as another bone.
+
+Model it as a fixed interval `[6, 6 + 3*bones)` with a valid flag per register.
+Every upload contributes its intersection with that interval whatever it starts
+at or how far it runs, and the palette is usable only when the WHOLE interval is
+valid - so a partially filled palette can never be drawn through.
+
+## Sockets live on the ASSET, and `Mesh` is declared on `Pawn` (VR-33 step 1, 2026-09-06)
+
+Two reflection "UNKNOWN"s that were this side looking in the wrong place rather
+than the build differing from the corpus.
+
+`SkeletalMeshComponent` declares socket **queries**, which are functions;
+property reflection will never find them. The socket **list** is on the asset:
+
+```
+component -> SkeletalMesh (+0x1D4) -> Sockets (+0x160)
+```
+
+And `Mesh` is declared on `Engine.Pawn` (`Pawn.uc:187`). `FindPropOffset`
+matches on the OUTER's name, so asking `DishonoredPawn` for it was always going
+to miss.
+
+## The bone palette's basis, measured (VR-33 rung 1, 2026-09-07)
+
+The skinning matrices the game uploads to `c6` (48 bones, `c6 x144`, 3 float4
+rows each, row-major 3x4 with the translation in `.w`) are expressed in a frame
+whose axes are:
+
+| axis | direction |
+|---|---|
+| 0 | LEFT |
+| 1 | DOWN |
+| 2 | FORWARD |
+
+`left x down = -forward`, so the frame is LEFT-handed, which is what UE3 should
+give and is the main reason to believe the reading rather than an artifact.
+
+**The frame rotates with the GAME CAMERA.** A stick turn carried the three
+directions round with it while the head yaw stayed at about -15 deg, which is
+what separates camera-relative from world-aligned: a world-aligned frame would
+have left the directions where they were. This is also the coupling behind
+hands that drift with head movement - a world-space offset pushed into this
+frame without composing the camera's yaw counter-rotates exactly that way.
+
+Against OpenXR (x right, y up, z BACKWARD, so forward = -z) the map is a plain
+componentwise negation: `left = -x`, `down = -y`, `forward = -z`, i.e.
+`T_palette = -k * v_xr`.
+
+### How it was measured, and the two readings that were not evidence
+
+A delta of 15 uu on one hand class with the other class untouched as the
+reference. The first two runs used a TIMER, and returned `left/down/forward`
+and `down/forward/left` - the same cycle entered one step in, but nothing in
+either run could prove that rather than a changed basis, and the tester said so
+before it was acted on. The third run was STEPPED BY THE TESTER (F6: rest ->
+axis 0 -> axis 1 -> axis 2 -> rest), which has no phase to infer: the log shows
+`REST, AXIS 0, AXIS 1, AXIS 2` at a steady `hmdYaw` of about -35 deg, and the
+answer was `left, down, forward`, agreeing with the first reading.
+
+Class A is the LEFT hand and class B the RIGHT: with the delta on class A the
+left hand left the crossbow while the right stayed on the sword hilt.
+
+### Traps this cost
+
+* `MsTick` was called from inside `DcTick`, BELOW its `if (!g_dcOn) return;`.
+  Switching the draw census off therefore killed the mesh split's whole tick -
+  mode cycling, the wrist knob, the palette step - and the split stopped being
+  maintained, putting the arms back on screen with nothing in the log naming
+  the cause. The split does not belong to the census and now ticks either way.
+* The bare-numpad hotkey blocks did not check their modifier, so a
+  CTRL+Numpad5 press meant for the palette probe ALSO cycled the draw census.
+  One press did two things and read as "the probe did nothing".
+* CTRL is the game's block. A diagnostic on a CTRL chord makes the character
+  act while it is being pressed. The probe is on F6, unmodified.
+
+## SkelControls are NOT evaluated on this build (VR-33 phase 1, 2026-09-07)
+
+This heading was briefly withdrawn on 2026-09-07 when the scan behind it turned
+out not to have swept GObjects, and restored the same day once the fixed sweep
+measured the whole population and agreed. The retraction is kept below, because
+the reasoning error is the reusable part.
+
+**The three named controls are inert.** `m_pLookAtControl_LeftHand`,
+`_RightHand` and `_Camera` are distinct live `SkelControlSingleBone` objects
+with `ControlStrength` 1.000 - and `ControlTickTag` frozen at 10 for an entire
+session while the mod wrote to one of them about 8,500 times a second. Its own
+apply flags were clear (`bools 0xA`, apply=0 add=0) and its saved translation
+was zero. UE3 stamps that tag when a control is EVALUATED.
+
+**RETRACTED 2026-09-07: the "every SkelControl in GObjects - 64 of them" scan
+did not walk GObjects.** Its comparison table held 64 entries and its loop
+condition was `curN < 64`, so the sweep STOPPED the moment the table filled.
+The "64" that was read as a population is the array's capacity, and every
+object after the 64th SkelControl in the array was never visited. The scan
+therefore says "none of the first 64 advanced", not "none advanced" - and the
+first N entries of GObjects are the earliest-constructed objects, which is the
+least representative slice available for a question about the player's live
+view model. This is the project's own rule biting again: a counter is not
+evidence until you know its population.
+
+What survives the retraction is the FIRST measurement, which did not depend on
+the scan: the three named `m_pLookAtControl_*` controls held `ControlTickTag`
+at 10 for an entire session under ~8,500 writes a second, with their own apply
+flags clear. Those three specific controls are inert. Whether ANY SkelControl
+on this build is evaluated is once again open.
+
+The scan now sweeps the whole array, tracks up to `HM_SCAN_CAP` (1024) objects
+for the second-apart comparison, and prints the population it ran over -
+objects walked, objects tracked, objects past the table - on the same line as
+the live count, so a zero cannot be read as a census again.
+
+### CONFIRMED with the fixed sweep (2026-09-07, same day)
+
+The run was made in the state the retracted one lacked: `[Hands] Enabled=1`,
+`[Mode] GamepadOnly=0`, so the mod's own hand subsystem WAS driving. Every one
+of 34 consecutive one-second samples read identically:
+
+```
+66 SkelControl object(s) out of 103117 GObjects entries walked (FULL sweep),
+66 tracked for comparison, 0 NOT tracked, 0 advanced their tick tag in the
+last second. hands=1 gamepadOnly=0
+```
+
+Full sweep, whole population tracked, nothing past the table, zero advancing,
+with the hands subsystem live. **No SkelControl is evaluated on this build.**
+A write to one cannot move anything, at any cadence, with any flags, in any
+space - and this time the population is known.
+
+The old 64-entry table had missed exactly two objects out of 66, so the
+retracted reading happened to be right. It was still not evidence; it is now.
+
+**This does retire the 38.x "9,000 writes a second outrun the recompute"
+reading.** No race was being lost - there was nothing to race.
+
+### Cost, measured
+
+The sweep stalls the game thread for **505-520 ms once per second** - the perf
+line attributes it to `out/idle (waiting for the game thread)`, 30x the mean
+present interval, ~46 display slots at 90 Hz. It is unplayable while armed and
+must be switched off after any run.
+
+### Cost note
+
+The GObjects-wide tick scan runs on the script lane and walks every object once
+a second, calling `ObjClassName` on each. Measured cost: a 505-520 ms stall of
+the game thread every second (see above). It is a diagnostic, ships OFF, and
+must not be left enabled.
+
+## 2026-09-08: VR-33 weapon attachment direct repair
+
+Source inspection of 768fbf71 found that uncached weapon matching selected the
+first available hand and then excluded all components assigned to the other
+hand. The preserved failed run performed 302,039 comparisons with no patch
+attempts; this cannot establish whether the GPU correction itself was valid.
+
+The matcher now uses the complete affine reference bridge, preserves native
+scale, compares both hands, and revalidates each draw. The native transform
+fields formerly embedded in WaReadCompXform are centralized in patterns.h as
+kWaComponentLocalToWorld (+0x60) and kWaComponentTranslation (+0x90). These are
+existing FpComputePivots reads, not newly discovered offsets. Row extraction
+and a shared reference bridge still require independent live member matches.
+
+The old palette extent was 256 minus its start register. It would cross the
+BoneMatrices declaration into LocalToWorld and other constants. The repair
+carries the CTAB register count and rejects ranges overlapping VP/LocalToWorld.
+The previous zero-attempt run never exercised this destructive extent.
+
+19 weapon host tests and 28 existing hand tests pass. A simulator launch failed
+before gameplay, with an access violation instruction in Dishonored.exe at RVA
+0x60907e; root cause is undetermined. No attachment result is claimed from it.
+User headset testing is pending. See VR-33-HANDS-AND-WEAPONS.md for code
+changes, exact test steps, remaining assumptions and rollback location.
+
+The first user headset run of the direct repair subsequently produced 196,422
+successful patched draws with zero restore failures and near-zero transform
+residuals for all three named members. Weapons moved but used the opposite
+hand; there was also a large apparent offset and flickering dark silhouettes
+at the former positions. That run preceded the installed side-setting fix.
+The next revision swaps the settings and removes camera-VP requirements from
+weapon placement, allowing independently matched world-space passes with the
+correction conjugated through the reference bridge. These address concrete
+routing/math restrictions; visual ghost removal is still unverified. The host
+suite now contains 21 weapon cases plus the existing 28 hand cases.
+
+## THE LOADED BOLT AND A FIRED BOLT ARE DIFFERENT CLASSES (VR-59, 2026-09-08)
+
+Source: the decompiled scripts (`DisWepCrossbow`, `DisTweaks_WepCrossbow`,
+`DisProjectile_Arrow`, `DisProjectile`). Read, not guessed, and nothing from them
+is reproduced here beyond the class and member names needed to name the objects.
+
+| | Loaded bolt | Fired bolt |
+|---|---|---|
+| Owner | `DisWepCrossbow` (an Inventory item on the pawn) | `DisProjectile_Arrow extends DisProjectile extends Actor` |
+| Member | `m_pArrowMesh_HighRes` | `m_pMesh` |
+| Component name | `pArrowMesh_HighRes` | `pSkeletalComp` |
+| Component class | `DishonoredItemSkeletalComponent` | `Engine.SkeletalMeshComponent` |
+| Mesh asset | `bolt_01` | `bolt_01` |
+
+`DisTweaks_WepCrossbow.m_ArrowSocketName` is the socket the loaded one hangs on.
+
+**The mesh asset is the ONE field they share**, which is exactly why an
+asset-name test cannot separate them and why buffer identity cannot either. The
+component name, the component class and the owning actor all differ, and the
+fired bolt is a separate ACTOR - so it is not reachable from the pawn and never
+appears in the component snapshot at all.
+
+### Two corrections to what the snapshot was believed to mean
+
+**`FpCollect` reports the pawn's INVENTORY, not what is equipped.** Measured over
+a full run: all 19 published snapshots were identical - six components, the same
+six, including `bolt_01 (pArrowMesh_HighRes)` - across crossbow, sword and pistol
+being held in turn. The scripts say why: the loaded bolt is a component of the
+WEAPON, and the weapon stays in inventory when stowed. **Presence in the snapshot
+is not evidence that a thing is in the player's hand**, and a gate built on that
+reading cannot fire (VR-59's `AttachRequireLiveMember`, now default OFF).
+
+**The pistol is not in the snapshot at all.** Only `Skm_Player`,
+`Wpn_PlySword01`, `crossbow_01` and `bolt_01` ever appear. So the pistol has no
+member candidate of its own and can only reach a contract through the
+vertex-OR-index-buffer match in the identity route - which is why its visibility
+depended on the angle between where it pointed and another asset's recorded
+position.
+
+### `lastL2W` is not a record of "drew on the view model this frame"
+
+It is written only where a contract is adopted through the transform matcher. The
+buffer-identity route, which is what actually corrects the auxiliary passes,
+never refreshes it. So once the matcher misses for a mesh, that reference goes
+stale permanently. Measured: 53,238 refusals in one run with the present gap
+growing monotonically to 21,367, all on HELD `crossbow_01` and `bolt_01`.
+
+Any freshness test built on it therefore starves the held weapons rather than
+catching world instances. **A reference has to be maintained on the path that
+uses it.** The engine-read component translation in the snapshot is the sound
+alternative: it is refreshed every 4 ms whether or not the matcher succeeded.
+
+## EQUIPMENT LIVES IN A TArray, WHICH THE COMPONENT WALK CANNOT TRAVERSE (VR-60, 2026-09-08)
+
+Source: the decompiled scripts. Class and member names only; no offsets, because
+offsets are derived against the running build.
+
+```
+DishonoredPlayerPawn.m_pInventory : DishonoredInventory
+DishonoredInventory extends Object
+    m_Slots : array<PawnInventorySlot>
+struct native PawnInventorySlot
+    m_pItem         : DishonoredInventoryItem
+    m_pRequiredType : Class<DishonoredInventoryItem>
+    m_RequiredUsage : EDisEquipUsage        // None | Primary | Secondary
+```
+
+**`FpCollect` cannot reach any of it.** The walk reads every 4-byte field as a
+possible `UObject*`; a `TArray` field's first four bytes are a pointer to a heap
+buffer of elements, so `LooksLikeObj` rejects it and the walk stops. Every
+inventory item is in `m_Slots`, which is exactly such an array.
+
+Measured consequence over a full run: all 19 published component snapshots were
+identical (six components) and **the pistol never appeared at all, including
+while it was the weapon in hand.** What the snapshot contains is whatever happens
+to be reachable by direct pointer from the pawn, and it cannot report what it
+missed because it never knew it was there.
+
+`m_RequiredUsage` on the slot is the per-hand channel, so **walking that one array
+answers "which item is in which hand" directly** - the question `WaHandFor`
+currently answers with an assumption baked into asset-name substrings.
+
+### The enums are the flags, and they already exist
+
+```
+EDisEquipUsage         None | Primary | Secondary            (DisGlobalEnums)
+EItemSocket            None | Equipped | Holstered | ...     (DisGlobalEnums)
+eDisPlayerStance       NotSet | NotReady | Ready | Blocking  (DishonoredPlayerPawn)
+eDisPlayerActionUsage  Fullbody | Upperbody | LeftHand       (DishonoredPlayerPawn)
+```
+
+`EItemSocket` is the equipped-versus-holstered distinction that VR-59 attempt 1
+needed and could not obtain from component presence. `m_PlayerStance` is indexed
+BY `EDisEquipUsage`, so stance is already per-hand.
+
+**`eDisPlayerActionUsage_Fullbody` is the takedown and choke discriminator**, and
+it is the signal the arm-unhiding work needs in order to hand animation control
+back to the game during those sequences.
+
+The route to reading all of it reliably is a UE3 property resolver keyed on FName;
+`docs/dishonored/GAMEPLAY_STATE.md` is the plan and the rules for it.
+
+
+## THE PROPERTY RESOLVER ALREADY EXISTED (VR-61, 2026-09-08)
+
+Recorded as a research failure, because the mistake is more useful than the fix.
+A session went to the BioShock trilogy mod for a technique to resolve properties
+by name **before grepping this repo for prior art**. This repo has had one since
+38.x and it is load-bearing in four modules.
+
+`FindPropOffset(className, propName)` and `FindBoolProp` in `ue3/uobject.cpp`.
+`arm_follow.cpp` resolves twelve properties through them; `crouch.cpp`,
+`block_state.cpp` and `skelcontrol.cpp` also use them.
+
+**They need no chain offsets.** Every `UProperty` is itself a `UObject` whose
+`Outer` is the class that declares it, so a `GObjects` scan for (name, outer
+name, class name containing `Property`) finds the property object and its own
+recorded offset is the answer. Nothing to derive, no candidate layout to get
+wrong. That is more robust than walking `Children` / `Next` / `SuperStruct`,
+which is what the trilogy mod had to do on its own UE3 build.
+
+| Offset | Slot | Derivation |
+|---|---|---|
+| `kUPropOffset` 0x5c | `UProperty::Offset` | the 38.x skelcontrol property dump: the Offset column identifies itself as small, distinct, ascending in declaration order and below the class instance size |
+| `kUBoolBitMask` 0x6c | `UBoolProperty::BitMask` | same dump |
+
+Both were inline literals in `uobject.cpp` and are now in `patterns.h`, where
+this repo requires engine offsets to live, so one place owns them.
+
+### Two traps that are properties of the lookup, not of a build
+
+**`FindPropOffset` matches on the OUTER's name, so it needs the DECLARING class.**
+A property inherited from a base class does not resolve under a subclass's name,
+and for a struct member the outer is the ScriptStruct rather than the class
+holding it (`arm_follow.cpp` documents this for `DishonoredVTSettings`). Offer
+the candidate declaring classes and log which one answered.
+
+**Nothing may resolve at init.** Our DLL loads from `DllMain` during the exe's
+import resolution, before the exe's CRT static initializers, so `GNames` is empty
+then. The gate every caller uses is `NameFromIndex(0)` reading `None`.
+
+### The cost, which is why a cache is not optional
+
+Each lookup is a full `GObjects` scan. The trilogy mod measured a name scan on a
+poll cadence stuttering that entire game at 2-3 Hz. Resolve once, cache for the
+process lifetime (offsets are stable per boot), and cache the MISSES too, since
+a miss costs the same full scan.
+
+
+## THE PISTOL DETACH ANGLE IS A RADIUS, CONVERTED (VR-60, 2026-09-08)
+
+The pistol stays attached within about 45 degrees either way of the direction it
+was equipped facing, and re-equipping resets that reference to wherever the
+player is pointing. That reads as a rotation gate and there is no rotation gate
+in the code. It is `AttachPassRadius` (60 uu), converted into an angle by
+geometry.
+
+A held weapon orbits the head at a small radius, so turning the view moves it
+along a chord of `2 r sin(theta/2)`. Setting that equal to 60 uu at 45 degrees
+gives **r of about 78 uu** - squarely inside the view-model band the census
+measured (view-model draws sit within about 170 uu of the camera). Re-equipping
+resets it because that re-captures the reference position.
+
+Confirmed by the same run:
+
+```
+wa: instance verify - held 146073, elsewhere 35029, unverifiable 0
+  reference: component 179401, recent 1701
+  worst offset accepted 60.0 uu, farthest refused 3014.2 uu
+```
+
+The worst accepted offset sits exactly ON the radius, which is what a threshold
+being reached by drift rather than by a genuine instance difference looks like.
+The farthest refused, 3014 uu, is a real world instance - three orders of
+magnitude away, which is the separation the gate was designed for.
+
+**The verification is correct and the identity it is given is wrong.** The pistol
+has no member candidate of its own, so it reaches a contract only through the
+buffer lookup and is then checked against ANOTHER asset's component - one fixed
+in the world while the pistol orbits the head. Any threshold would produce some
+angle; the defect is the identity, which is what VR-60 is for.
+
+This is also a worked example of a rule this project keeps re-learning: **log the
+derived number, not just the inputs.** The angle was a mystery as a perception and
+arithmetic as soon as the offsets either side of the radius were on the line.
+
+
+## EQUIPMENT: THE ITEM ANSWERS FOR ITSELF (VR-61, 2026-09-08)
+
+`DishonoredInventory.m_Slots` at `+0x0038` (resolved by name) is a
+`TArray<PawnInventorySlot>`, stride 12 validated against the data. Read live on
+a save with all four weapons carried:
+
+```
+slot[0] usage 1  DishonoredItemEmpty
+slot[1] usage 2  DishonoredItemEmpty
+slot[2] usage 0  DishonoredWepSword
+slot[3] usage 0  DisItemPowers
+slot[4] usage 0  DisWepCrossbow
+slot[5] usage 0  DishonoredWepPistol
+slot[6..8] usage 0  empty
+```
+
+**The pistol IS here**, along with every other weapon. It is absent from the
+component snapshot only because that walk cannot traverse a TArray. So the roster
+is fully readable and VR-60 has its data.
+
+### The slot does NOT say what is equipped
+
+`PawnInventorySlot.m_RequiredUsage` is a CONSTRAINT on what may occupy the slot,
+not what is in the hand. The dump says so plainly: slot 0 requires Primary and
+slot 1 requires Secondary, both holding a `DishonoredItemEmpty` placeholder, while
+the real weapons sit in unconstrained slots (usage 0). Reading the slot for equip
+state reports `DishonoredItemEmpty` in both hands while the player is visibly
+holding a sword.
+
+The engine keeps a slot per usage whether or not anything occupies it, so an
+Empty row is legitimate data and simply not the answer.
+
+### `DishonoredInventoryItem` carries both flags
+
+```
+m_EquipUsage : EDisEquipUsage   None | Primary | Secondary
+m_CurSocket  : EItemSocket      None | Equipped | Holstered | Give
+```
+
+The item says which hand it belongs to and whether it is IN that hand or on the
+body. **That is the equipped-versus-holstered distinction VR-59 attempt 1 needed
+and could not obtain from component presence**, and it is a per-object fact
+rather than an inference from an index or a position.
+
+`EItemSocket`: `ItemSocket_None` 0, `ItemSocket_Equipped` 1,
+`ItemSocket_Holstered` 2, `ItemSocket_Give` 3 (`DisGlobalEnums`).
+
+### Why this matters beyond the pistol
+
+The equipped item is the OWNER of the component the weapon attachment should be
+verifying a draw against. Today a draw is checked against whatever component its
+contract happens to carry, which for the pistol is another weapon entirely - the
+cause of its 45-degree detach cone. Reading the equipped item per hand replaces
+that with the right component, and it generalises to anything held.
+
+
+### The equip flags MOVE, measured across sheathe and swap (VR-61, 2026-09-08)
+
+A flag that reads the same in every state is not evidence it is the right flag,
+so it was identified by making it move. One run, swapping ranged weapons and
+sheathing repeatedly:
+
+```
+Primary   DishonoredWepSword   EQUIPPED   (every time weapons are out)
+Secondary DisWepCrossbow  <->  DishonoredWepPistol
+sheathe:   Secondary -> none, then Primary -> none
+unsheathe: both return together
+```
+
+This matches the game exactly: the sword is a constant while weapons are out and
+the Secondary hand carries the ranged weapon, so unsheathing brings out both and
+sheathing puts both away. The ranged item leaves the hand slightly BEFORE the
+sword on a sheathe, consistently.
+
+**Sheathing reads socket `none` (0), never `holstered` (2).** So
+`ItemSocket_Holstered` means something this run never produced. Recorded as an
+observation, not a conclusion - do not assume a sheathed weapon is Holstered.
+
+The slot dump with the item fields, on a save carrying everything:
+
+```
+slot[0] requires 1 | DishonoredItemEmpty  -> own usage 0, socket 0
+slot[1] requires 2 | DishonoredItemEmpty  -> own usage 0, socket 0
+slot[2] requires 0 | DishonoredWepSword   -> own usage 1, socket 1 EQUIPPED
+slot[3] requires 0 | DisItemPowers        -> own usage 0, socket 0
+slot[4] requires 0 | DisWepCrossbow       -> own usage 2, socket 1 EQUIPPED
+slot[5] requires 0 | DishonoredWepPistol  -> own usage 0, socket 0
+```
+
+The slot constraint and the item state are plainly different things, and only the
+item is the answer.
+
+
+## THE MONO WINDOW AT A LOAD IS A GHOST MENU FLAG (VR-62, 2026-09-08)
+
+Measured by the startup scoreboard on its first run, and it falsified the
+prediction that `CylTruthLive` was the laggard:
+
+```
+startup: load #1 scored - the mono window was 24.30 s.
+  pawn-ptr      +0.00 s      cyl           +0.00 s
+  gnames        +0.00 s      view          +0.00 s
+  inventory     +0.00 s      no-cine       +0.00 s
+  no-menu      +24.30 s   <- the laggard
+  verdict      +24.30 s      stereo       +24.30 s
+```
+
+Every term of the gameplay verdict was ready immediately except the menu flag,
+and the verdict and the first stereo tag both followed it within the same
+millisecond. **The whole mono window is one stuck flag.**
+
+### The flag is a ghost, and the CLEARER was the slow part
+
+`Dis_OpenPauseMenu` dispatches during a load and sets `g_menuOpen` when no menu
+is open. A ghost-clearer already existed for exactly this, and it is what took
+the time:
+
+```
+menu: stale flag cleared after  1505 ms - ... 118 gameplay dispatches still flowing
+menu: stale flag cleared after 24289 ms - ...  21 gameplay dispatches still flowing
+```
+
+It required **20 cumulative view-rotation dispatches**. That is a fine proxy for
+"the pipeline is still flowing" at gameplay rates and a terrible one during a
+load, which is the only time it matters: **the dispatch rate falls to about 1/s
+while a level settles, against roughly 78/s once it is up.** So the same ghost
+cleared in 1.5 s one time and 24.3 s the next, and the second number is the
+reported mono window start to finish.
+
+**A count of arrivals cannot tell "flowing slowly" from "stopped"; recency can.**
+A real menu shows NO dispatches at all, so one arriving within the last few
+hundred milliseconds is the discriminator, and it is rate-independent. The other
+three guards are unchanged and are what keep it safe: a live pawn (which excludes
+the main menu and its dispatching 3D background), no cursor, and the flag
+standing for 1500 ms.
+
+This is a worked example of a rule this project keeps paying for: **a counter is
+not evidence until you know its population.** The population here was "dispatches
+per second", and it changes by a factor of eighty between the two states the test
+has to tell apart.
+
+### A contract must not outlive its level
+
+Found in the same run, as a regression. A weapon contract holds the component it
+was matched to; a load destroys that component; the contract table is evicted
+only when it FILLS. So after a reload every contract points at a dead object, no
+reference can be found, and every draw is refused as unverifiable.
+
+**A refusal returns before the transform matcher, so it is a LOCKOUT rather than
+a refusal**: the contract can never be re-adopted and the weapons never attach
+again for the rest of the session. Measured: unverifiable past 45,000 while
+corrected sat frozen and only 3 contracts had ever matched.
+
+Contracts are now dropped when the game leaves gameplay, and any contract whose
+component has been missing from a fresh snapshot for about a second is retired so
+the matcher can re-adopt it.
+
+
+## THE STARTUP MONO WINDOW: THREE FALSIFIED ATTEMPTS (VR-62, 2026-09-08)
+
+Recorded because all three failed in ways that narrow the problem, and one of
+them re-broke something this file had already documented.
+
+### What is established
+
+* **Nothing after the gameplay verdict holds the picture.** The verdict, the
+  state transition and the first DOUBLE draw land in the same millisecond. The
+  wait is entirely in deciding the game is in gameplay.
+* **Two of the verdict's five terms are slow by construction.** `menuOpen` is set
+  by a `Dis_OpenPauseMenu` dispatch during a load when no menu is open, and
+  `viewLive` deliberately requires a full second of continuous dispatches to
+  leave LOADING (measured at +1.52 s and +1.72 s).
+* **The view-dispatch RATE is not constant.** About 1/s while a level settles
+  against roughly 78/s once it is up - a factor of eighty between the two states
+  any dispatch-based test has to separate.
+
+### Attempt 1: clear the ghost menu flag on dispatch RECENCY - FALSIFIED
+
+It works: the ghost cleared in about 1.5 s instead of 24 s. It also clears at the
+MAIN MENU, which then goes stereo after a few seconds.
+
+**38.17 in this file already recorded that exact failure** - the main menu's 3D
+background keeps dispatching view rotations, so "dispatches still flowing" does
+not separate it from gameplay, and the clearer firing there swept the menu UI
+onto the wrist panel. The cumulative count of 20 was slow ENOUGH to hide that;
+recency is not. **Part of the 24 s clear that looked like a bug was the clearer
+being correctly slow at a main menu.**
+
+`CylTruthLive` was supposed to be the discriminator that made this safe. The run
+shows it is not sufficient, which is a new fact and the thing to attack next.
+
+### Attempt 2: double on SCENE LIVENESS instead of the verdict - FALSIFIED
+
+The hands and weapons FLASHED in the background of the pause menu. The camera
+upload serial keeps moving while a menu is up - the world is still rendered
+behind it - so "the scene is drawing" cannot tell a pause menu from a load, and
+doubling during a menu is exactly the hazard the verdict guards: **a menu's draws
+outnumber its presents, so the pair schedule breaks.**
+
+The idea is not dead, the signal was wrong. A pause menu silences the view
+dispatches while a load keeps them at ~1/s, so recency would separate them - but
+the window has to be wider than 1 s, which leaves a pause doubled for that long.
+That trades one artifact for another and needs measuring before it ships.
+
+### Attempt 3: force a candidate re-collect on a load - FALSIFIED AS WRITTEN
+
+Collecting during a load catches the rig half-built and returns one or two
+components with **no body mesh**. Because the rebuild trigger is
+`if (!g_fpCandN) FpCollect()`, a non-empty partial list is never refreshed and
+sticks for the session: `2 component(s) resolved, 0 usable as the bridge anchor`,
+repeating while the weapons sat in their default positions.
+
+**A stale list is bad; a partial one is worse**, because the stale list at least
+contained the anchor by name. Fixed by discarding a list with no anchor so the
+next tick retries, bounded at 120 attempts so a genuine absence reports itself
+instead of looping.
+
+### The rule this cost
+
+Every one of these replaced a slow, conservative test with a fast one, and every
+one of them was correct about the slowness and wrong about the replacement. **The
+conservative tests were slow because the fast signals do not separate the states
+they need to separate** - c5 movement cannot tell a pause from a load, dispatch
+flow cannot tell a main menu from gameplay, and a collect cannot tell a
+half-built rig from a finished one. Any future attempt needs a signal that
+distinguishes those pairs directly, not a faster version of one that does not.
+
+
+## WEAPON DRAWS RUN ON THE RENDER THREAD; THE STEREO PASSES RUN ON THE GAME THREAD (2026-09-09)
+
+Measured while trying to hand the re-entry method's eye decision to the weapon
+correction. The attempt executed **zero times in 83,400 corrected draws**
+(`agree 0, DISAGREE 0, no doubled pass to compare 83400`).
+
+The re-entry method re-draws the world twice on the GAME thread (`drawTid=76156`
+in the measured run). The engine queues those commands and replays them - and
+every palette-fed draw with them - on the RENDER thread (`presentTid=79476`).
+There is no stack for a draw hook to look up, and a per-thread marker set around
+the passes can never be seen by the correction.
+
+Consequences for anything built here later:
+
+* A game-thread decision reaches a draw hook only if it is attached to the queued
+  render work itself. A global read across the boundary is not a measurement.
+* `g_sdDoublingNow` (mono versus stereo) is a *latest-state* flag and is coherent
+  as a value, but it does not identify which queued commands are executing. It is
+  adequate for the mono guard, where the state holds for hundreds of consecutive
+  presents, and it is NOT adequate for anything per-frame.
+
+### A number to disregard
+
+An earlier version of that audit reported the eye inference disagreeing with the
+drawing pass 39% of the time. It was read from a bare global across those two
+threads and measures nothing. **Retracted.** It should not be cited.
+
+## THE EYE BEHIND THE WEAPON CORRECTION IS INFERRED, AND "TOO SMALL TO READ" IS NOT "THE SAME EYE" (2026-09-09)
+
+`MpEyeForPresent` in `hands/mesh_split.cpp` decides the eye once per present from
+a sideways step of about one IPD in the draw's own `LocalToWorld`. When the step
+fell inside the dead band it KEPT the previous present's answer. The method
+presents the eyes alternately - 148 tags against 147 presents measured - so
+holding is the one choice guaranteed wrong. Population: 991 of 8,341 presents.
+
+Alternating instead removed the reported weapon flicker in stereo. The instrument
+that counts unreadable presents fell from 31 windows including bursts of 565,
+396, 350 and 293 consecutive presents, to **one window of one present**.
+
+### And the state it was not reasoned about
+
+MONO. One camera means the step is zero on every present, which the band test
+correctly calls unreadable - so alternating flipped the hands by a full IPD every
+single frame, and the four largest windows above were all mono. A mono frame has
+no eye: it now takes no offset and the previous sample is dropped so the next
+pair starts from a clean compare.
+
+### What this does NOT explain
+
+A residual occasional flicker is still reported with the windows empty. The
+instrument records *unreadable* steps, not independently verified wrong-eye
+decisions, so a step the heuristic reads confidently and gets wrong is invisible
+to it. The eye inference is narrowed, not cleared.
+
+## NOBODY OWNS THE CANDIDATE LIST - TWICE (2026-09-09)
+
+The view-model candidate list has two ways to be wrong and had an owner for
+neither.
+
+**EMPTY, after a load.** Dropped when the game leaves gameplay (correct - a load
+destroys the components). Every rebuild trigger in the tree is
+`if (!g_fpCandN) FpCollect()` at a one-shot call site that has already fired: the
+material census (`g_matCensusDone`), the bone-vis scan (`g_bvScanned`), the
+numpad cycler, and skelcontrol's per-frame refresh, which is behind
+`if (!g_handMesh || g_armsHidden) return` and never runs in the shipped
+GamepadOnly configuration. Measured: one collect for a whole session, then
+nothing for the 55 seconds after the second load.
+
+Everything downstream followed and none of it was a separate bug - 0 refs,
+contracts stuck at 0/64, and `2 weapon member(s) and NO bridge anchor`, those
+members coming from the VR-61 equipped-item path which needs no candidate list.
+The recovery could not work either: the no-anchor branch called
+`FpInvalidateCandidates`, whose first line is `if (!g_fpCandN) return`, so it was
+a no-op that logged as though it had acted, once a second, forever.
+
+**STALE, after a weapon swap.** A swap does not empty the list. With the crossbow
+out the list held `[3] 'pArrowMesh_HighRes' asset=bolt_01`; the pistol was
+equipped, a rebuild ran while it was out and returned the pistol's mesh in that
+slot; swapping back to the crossbow triggered nothing, because the list was not
+empty. The bolt's draws kept arriving and kept failing -
+`NEAREST MISS ... 169.241 deg / 11.00 uu | prim 310 verts 257 stride 32`, which
+is the bolt's own geometry signature. The crossbow still attached because the
+equipped-item path supplies the item's mesh and none of its CHILDREN.
+
+### Three things the fix needed, and only the first is obvious
+
+1. A trigger on equipment change. Keyed on the item OBJECT and its socket, not on
+   the class name: two instances of one weapon share a name, and `g_rflState.gen`
+   increments on every successful read rather than on a change.
+2. A SETTLE WINDOW. The equipment event and the creation of the new weapon's
+   child components need not land in the same tick, so a single collect can win
+   the race, return a list with no loaded bolt, and declare success.
+3. The equipped items as COLLECTION ROOTS. The pawn walk reaches an item only
+   when a pointer chain happens to lead there, which is why the pistol never
+   appeared in a snapshot and why the bolt came and went. The bolt is a child of
+   the crossbow, not of the pawn.
+
+### A retirement that could not fire
+
+The stale-contract retirement lives inside `WaVerifyDraw`, so it is only reached
+by a contract whose buffers are still being DRAWN. A weapon that has been put
+away stops drawing, so its contract is never visited: measured as
+`contract 'Wpn_PlyGunElite' hand 0 ... age 12822 ms`, twelve seconds after the
+pistol went away. Retirement by ownership (the component is no longer among the
+candidates and is not an equipped item's own mesh) covers that case. It only ever
+retires - it never widens a radius or relaxes an angle, because an obsolete
+contract does not merely go idle, it BLOCKS adoption of the real one: a refused
+draw returns before the matcher.
+
+
+## THE POSE TRACE, AND TWO NUMBERS THAT MUST NOT BE CITED (VR-65, 2026-09-09)
+
+Recorded because both numbers were produced by an instrument of this project's
+own making, and both were quoted before they were checked.
+
+### RETRACTED: "the eye inference disagreed with the drawing pass 39% of the time"
+
+Read from a bare global across two threads. The stereo passes run on the GAME
+thread and the palette draws on the RENDER thread, so the value being read was
+never the one being claimed. It measured nothing.
+
+### RETRACTED: "the submitted pose is 51 degrees away from the rendered one"
+
+Two faults at once. It differenced a UE world camera yaw against an XR
+tracking-space yaw - different spaces, not comparable, and the game camera's yaw
+carries body and thumbstick rotation the tracking pose never sees. On top of
+that the mod publishes head yaw negated at the pose-lane seam, which doubled the
+answer. `2 x yaw` is exactly what the log showed.
+
+### AND THE SIGN-CORRECTED NEAR-ZERO IS NOT EVIDENCE EITHER
+
+After correcting for sign the two agreed to within 0.08 degrees, which looks like
+a clean bill of health and is not one. The record read the LIVE head globals at
+draw time - whatever the Present thread last wrote - and compared them against a
+pose derived from that same input. **Two values derived from one input agree by
+construction.** The repo already had the coherent alternative and it was not
+used: `g_injHmdYawSnap` / `g_injHmdPitchSnap` / `g_injHmdGen` / `g_injSnapOk`,
+"the HMD orientation AS OF the last camera write", added for blink for exactly
+this reason.
+
+### What DID hold
+
+The self-arming negative control worked: injecting +4.0 deg moved the recorded
+sample by +4.16 and the reported error by -4.32. That demonstrates the comparison
+responds to an angle. **It demonstrates nothing about whether the sample is the
+one rendering used** - sensitivity to a perturbation is not correctness of the
+input.
+
+Record transport also held: 112 join lines with `expired 0 missing 0`, so the id
+survives the pipeline with a 64-entry ring. A successful lookup proves the record
+was AVAILABLE. It does not prove the FIFO associated it with the right image.
+
+### The design that replaced it
+
+Three records, never mixed: what the camera was TOLD (published as one unit at
+the camera write, sample and resulting camera together), what rendering ACTUALLY
+consumed (the c0..c3 view-projection, read on the render thread), and what OpenXR
+was TOLD (per eye). Only camera-versus-render can clear the hypothesis.
+
+Two things the first version got wrong structurally and that are worth not
+repeating:
+
+* **A compiler barrier and an id check are not cross-thread synchronisation.**
+  `_ReadWriteBarrier()` orders nothing between threads, and an id check cannot
+  stop a slot being overwritten while a reader copies out of it. Records are
+  behind a lock now, copied out, never handed back as a pointer.
+* **The audit compared whichever record arrived last against the LEFT submitted
+  view**, regardless of which eye the record described. Each eye is compared
+  against its own view now, and an untagged record reports unknown.
+
+### The render observation does not assume a matrix layout
+
+c0..c3 is rebuilt from however the engine batches it - the c5 handling already
+learned that lesson when a device reset made the engine batch c5 into a wider
+block and a seam matching only `startReg==5` went blind for a whole run. The
+multiplication convention is then MEASURED from the game's own numbers: probe
+directions around the observed camera position are projected under both
+conventions, and the one that yields usable w values for a plausible fraction of
+a ring is the layout. If neither validates, the render side reports nothing
+rather than falling back to a guess, because a guessed layout produces a
+confident number about the wrong matrix.
+
+The yaw itself is found by search rather than decomposition: the world direction
+that projects to the screen centre is where the camera looks.
+
+
+## AN INI KEY THAT EXISTS BEATS EVERY COMPILED DEFAULT (VR-65, 2026-09-09)
+
+Recorded because it invalidated two headset tests and produced a conclusion that
+was not merely wrong but backwards.
+
+`[Pace] Lag` was changed in the source from 1 to 2, shipped, tested, and reported
+as juddering. Then to 0, shipped, tested, reported as juddering. On that basis
+pose-history selection was declared eliminated - all three arms tried, all three
+failed.
+
+**None of those builds changed anything.** The installed `dishonored_vr.ini`
+contains an explicit `Lag=1`, and the loader reads a compiled default ONLY when
+the key is absent. The file was dated the previous day, `install.ps1` copies
+binaries and does not touch it, and the generated default ini writes `Lag=1` too.
+Both "fixed lag" tests ran at lag 1.
+
+The A/B sequencer was unaffected because it stores into the atomic at runtime,
+which is why cycling appeared to work while a "fixed" value did not - and that
+apparent contradiction was written up as an unexplained correlation with the
+sequencer's mere presence, complete with speculation about atomic-store side
+effects and logging timing. All of it was a config file the instrument never read
+back.
+
+### The rules this cost
+
+* **A build that changes a compiled default has changed nothing on a machine
+  whose ini names that key.** Verify the EFFECTIVE value from the log, not the
+  intended one.
+* **The log must print what a lever resolved to and where it came from.** This
+  one printed the selected arm per submitted frame (`chosen by lag arm N`) and
+  that field was correct all along - it went unread, because the source diff
+  looked like proof.
+* An A/B that writes at runtime and an ini that writes at load are different
+  mechanisms. A result from one says nothing about the other.
+
+### And the measurement that was there the whole time
+
+Sampled against the same run, the recorded orientation difference tracked the
+sequence exactly: 0.119-1.079 deg while lag 1 was selected, 0.000-0.040 deg
+across the whole twenty seconds of lag 2 - at head speeds up to 106.6 deg/s, so
+not a still interval - and back to 0.473 and 0.403 deg within two seconds of
+returning to lag 1.
+
+That was averaged across the transitions and reported as "nothing in the log
+distinguishes the phases". **Averaging over a variable that is being deliberately
+switched destroys exactly the signal the switch was there to produce.**
+
+A 0.3 degree error was also dismissed as too small to see. At 2750x2850 per eye
+it is roughly five pixels near the centre of the image.
+
+
+## THE HEAD-TURN JUDDER WAS A POSE ONE GENERATION TOO NEW (VR-65, SOLVED 2026-09-09)
+
+The oldest and most damaging complaint in this mod. Static world geometry
+juddered and ghosted on any physical head turn; thumbstick turning with the head
+still was clean, and so was very slow head motion at a locked rate.
+
+**`[Pace] Lag=2`.** Headset-confirmed, and the tester's own summary was that the
+game feels an order of magnitude better to play, smooth enough that synchronous
+spacewarp now works well on top of it.
+
+### Why that value, and why the old one was wrong
+
+The pose submitted with an eye image is chosen from a history of located views by
+a fixed generation offset. The historical offset of 1 was calibrated against
+**BioShock 1's single-threaded renderer**. This game has a separate render thread
+AND a delayed D3D9 capture stage on top of it, so the pixels reaching the
+compositor are one generation older than that assumption, and the pose submitted
+with them described a head that had already moved on.
+
+That is exactly why only a PHYSICAL turn showed it. The compositor reprojects for
+head motion alone: a pose from the wrong moment costs head speed times the error,
+costs nothing while the head is still, and costs nothing for a view turned with
+the stick because that rotation is baked into the image and never reprojected.
+
+### The measurement, taken by switching it live inside one run
+
+| Selected | orientation difference, submitted vs the sample the camera consumed |
+|---|---|
+| lag 1 | 0.119 - 1.079 deg |
+| **lag 2** | **0.000 - 0.040 deg**, across a full 20 s, at head speeds to 106.6 deg/s |
+| lag 1 again | 0.473 deg, then 0.403, within two seconds |
+
+The tester felt the same three phases in the same order without being told which
+was which. An A-B-A that reverses is what makes it a result rather than a
+coincidence.
+
+### Two things that were wrongly ruled out on the way, and how
+
+**"All three lag values were tried and all juddered."** They were not. The
+installed ini names `Lag=1`, and the loader reads a compiled default ONLY when
+the key is absent, so two builds that changed that default changed nothing on
+this machine and both ran at lag 1. Their results were then read as the new value
+failing. The loader now logs the EFFECTIVE value and whether the ini overrode it;
+the per-frame field `chosen by lag arm N` was correct throughout and went unread.
+
+**"The submit rate is the cause - 68 pairs against 90 Hz slots."** Falsified by
+the tester, who ran it again and reported buttery smoothness at 61-72 submits/s
+with an inconsistent presentation rate - the same cadence that had juddered.
+Cadence matching is not what fixed this. It is worth keeping straight because the
+smooth run was ALSO at 60 Hz with a near-perfect 56-of-60 fill, which made the
+cadence story look right for the wrong reason.
+
+**A 0.3 degree error is not too small to see.** At 2750x2850 per eye it is
+roughly five pixels near the centre of the image. It was dismissed as invisible.
+
+### The instrument mistakes this ticket cost, all one class
+
+Every one was a number that could not mean what it appeared to mean:
+
+* a 39% disagreement read from a bare global across two threads - retracted
+* a 51-degree error differencing a UE world yaw against an XR tracking yaw, then
+  doubled by a sign convention - retracted
+* a near-zero produced by comparing a camera against the head values that camera
+  was built from - circular by construction
+* the render-side observation reading whichever `c0..c3` block came last, at
+  33 uploads per view, so it was some shadow or interface matrix whose implied
+  yaw sat at a constant 119 degrees
+* controls that reported `passed 0 FAILED 0` for three builds running, because
+  they were phased on records opened rather than checks performed, and then
+  gated behind a leg that refused
+
+**And the signal was in the log the whole time.** The orientation difference
+tracked the switched variable exactly; it was averaged across the transitions and
+reported as "nothing in the log distinguishes the phases". Averaging over a
+variable that is being deliberately switched destroys the signal the switch
+exists to produce.
+
+### Still open
+
+* The camera record does not yet guarantee it holds the sample the camera was
+  calculated from: both writers still calculate from the loose `g_hmd*` globals
+  and call `HtConsumeSample` afterwards. The signature was changed; the callers
+  were not fixed.
+* `g_viewsGen` is stamped one increment behind, so identical poses can appear to
+  carry different generation ids.
+* The render leg - what rendering actually consumed - was never obtained. The
+  world view-projection has not been identified.
+
+None of those block the fix. All of them limit what the diagnostic can prove
+about rendered pixels, and they are why this is recorded as a confirmed
+workaround with a measured mechanism rather than a fully verified root cause.
+
+## THE RESOLUTION ASK: TWO FILES CARRIED THE SIZE AND NOTHING KEPT THEM EQUAL (VR-66, 2026-09-09)
+
+### The symptom
+
+Raising `[Screen] RenderWidth/RenderHeight` to 3200x3300, and then to 3190x3306
+with both the mod ini and the game's own `DishonoredEngine.ini` written directly,
+produced a fullscreen 2560x1440 device both times - half the 5120x1440 desktop,
+and visibly low resolution. The mod's side looked healthy:
+
+```
+res: handed the game our 3200x3300@240 mode (slot 112)
+res: CreateDevice - the game asked for 2560x1440 windowed=0 fmt=21
+res: VirtualMode is on but the game asked fullscreen 2560x1440, not the
+     3200x3300 it was handed
+```
+
+### The cause, and it was the mod's own file
+
+The size had **two homes and one writer**:
+
+| File | What it drives | Written by |
+|---|---|---|
+| `<gamedir>\dishonored_vr_launch.txt` | `-ResX/-ResY/-FullScreen` on the command line the engine **OBEYS** (read in `DllMain`, before the engine's entry point) | `ResRequest` only - the `res` seam word and the F10 picker |
+| `dishonored_vr.ini` `[Screen] RenderWidth/Height` | the mode `VirtualMode` **ADVERTISES** in `EnumAdapterModes` (read at `EnsureConfig`, and it overwrites what `DllMain` set) | `ResRequest`, and **a text editor** |
+
+Hand-editing the ini moved the second only. On the failed runs the launch file
+still held the previous ask - it is dated 2026-09-04 on this machine, five days
+before the attempts - so the engine was told `-ResX=2750 -ResY=2850` while the
+proxy advertised 3200x3300. The engine asked for 2750x2850 fullscreen, that size
+was not in the mode list any more (only 3200x3300 had been added), and **UE3 did
+exactly what this file already records it does: fell back to a real display
+mode.** The same fallback target as run 10 in "The render size" above, from the
+same monitor's list.
+
+**Neither ini ever contained 2560x1440. The mod's own stale launch file supplied
+it,** by making the engine ask for a size the mod was no longer advertising. The
+"stale command line" suspicion recorded when this opened was right; the stale
+command line was ours.
+
+### The fix (41.1, VR-66)
+
+**One ask, two consumers.** `[Screen]` in `dishonored_vr.ini` is the authority
+and the launch file is demoted to a mirror:
+
+* `LaunchArgsResolveFromIni` reads `[Screen]` on the engine's **first
+  `GetCommandLine` call** and overrides whatever the file carried. That call
+  comes from the CRT startup glue at the exe's entry point, which is after the
+  loader releases its lock - so the ini read `DllMain` must never do is safe
+  there, and the ask still lands before the engine parses anything.
+* `LaunchArgsBuild` sets the command-line size and `g_resWantW/H` (the advertised
+  mode) from that single resolved ask, so the two cannot diverge again.
+* A disagreement is logged as `launch: THE TWO ASKS DISAGREED` with both values,
+  and the file is rewritten to match.
+* `DllMain` installs the `GetCommandLine` hooks **even with no launch file**; an
+  ini-only ask used to be inert because the old code returned before hooking.
+* The `CreateDevice` mismatch warning now names the command line the engine was
+  handed, the slot count, and whether the size it asked for is one of the
+  adapter's real modes (the fallback signature). The old text blamed the game's
+  ini, which is the inert route, and sent a session down it.
+
+Editing `RenderWidth`/`RenderHeight` by hand now takes effect on the next launch,
+by itself.
+
+### CONFIRMED (2026-09-09, same day)
+
+3190x3306 - the same 55:57 aspect as 2750x2850, 10.55 MP against 7.84 - was
+armed and run. Every line carried it:
+
+```
+launch: the render ask is 3190x3306 fullscreen, VirtualMode ON, from the ini
+        (the launch file agreed)
+res: handed the game our 3190x3306@240 mode (slot 112)
+res: CreateDevice - the game asked for 3190x3306 windowed=0 fmt=21
+capture: 3190x3306 fmt=21 mode=sync
+res: HONOURED - the game renders 3190x3306 as asked
+xr: swapchain pair 3190x3306 format 29 (3 images each)
+capture: 3190x3306 content bbox [0,0]-[3184,3304] = 100% x 100% (FULL)
+```
+
+Full bbox, no crop. **The engine has no ceiling at 3190x3306 and never refused
+the mode** - it was only ever asking for a size nobody was advertising. The
+first `launch:` line came from the launch file and the second from the ini, in
+that order, which is the resolve doing exactly what it is for.
+
+2750x2850 was restored afterwards; the size is a performance question now, not a
+correctness one.
+
+### The three lines that decide it in a log
+
+```
+launch: the render ask is <W>x<H> ... from the ini (...)      <- what won
+res: handed the game our <W>x<H>@<hz> mode (slot N)           <- what is advertised
+res: CreateDevice - the game asked for <W>x<H> windowed=0     <- what the engine wanted
+```
+
+All three must carry the same size. If the first two agree and the third does
+not, the engine refused the mode; if the first two disagree, that is this bug
+returning.
+
+## THE WEAPON JUDDER: THE HAND WAS NORMALISED AGAINST A HEAD THE VIEW WAS NOT RENDERED FROM (VR-68, 2026-09-09)
+
+The same fault as VR-65, one layer down, and it was hidden underneath it.
+
+### The measurement
+
+A lag finder compares the RENDERED camera's frame-to-frame yaw change - taken
+from `MpAcquireCtx`'s basis, which comes from the render's own ViewProjection
+constants - against the head's own change at several generations back. Mean
+`|dB - dHead|` over 4085 moving frames, 5796 skipped as too still to
+discriminate:
+
+| lag | mean error |
+|---|---:|
+| 0 | 1.190 deg |
+| 1 | 2.406 deg |
+| **2** | **0.119 deg** |
+| 3 | 2.405 deg |
+| 4 | 1.192 deg |
+
+Ten times clear of the runner-up, with `lag0 = lag4` and `lag1 = lag3` - the
+symmetric V of a real minimum rather than noise.
+
+**It compares DELTAS, never the two orientations.** The camera basis is in the
+game's space and the head sample is in XR space; differencing those directly is
+what produced the retracted 51-degree error. Frame-to-frame differences cancel
+any fixed offset between the spaces. The draw runs on the RENDER thread and the
+finder on the PRESENT thread, so the yaw is published through a seqlock - a bare
+global across those two threads is the retracted 39 % figure.
+
+### The fault
+
+`MpDriveTick` normalised the controller against `g_devPose[0]`, the freshest
+head. The draw plants the result with the camera basis from the render's own
+constants, which is two generations older. The residual is two generations of
+head rotation, at 1.19 deg mean - the same magnitude as the world error VR-65
+fixed (0.119-1.079 deg).
+
+**`[Pace] Lag=2` did not create this.** The hand error is rendered-versus-fresh
+regardless of what the layer is tagged with. Lag 2 revealed it by removing the
+world's own judder, which is why the report was that it had "probably been there".
+
+### The fix
+
+`g_headHist` keeps the head matrix four deep; `[Hands] PoseLag` selects the
+generation the normalisation uses. Default 2, headset-confirmed by a reversing
+A/B/A/B; 0 restores the old behaviour. It fails soft to the freshest head before
+enough history exists.
+
+**Not the submission lag applied twice.** The compositor reprojects the whole
+image from the tagged pose. The world is correct because it was rendered from
+that pose; the hand is correct only if it was placed against the same one. Both
+consume that generation and neither is delayed again.
+
+### The instrument that failed first, and why the failure was useful
+
+An earlier build compared the head stamped at the pose consume against the head
+the camera write snapshotted. Generation gap **0 on every frame**, under 0.1 deg
+in 87 of 100 windows. Both values derive from `g_hmdYaw` around the same consume,
+so it was near-circular and could only ever have caught a script-lane against
+present-lane split - of which there is none.
+
+**The negative result named the correct pair.** Fresh versus RENDERED, not fresh
+versus fresh. Its head-speed column also read over 300 deg/s on half its lines,
+because one tiny interval destroys a max; intervals under 2 ms are ignored now
+and those speed figures are not usable.
+
+## THE PERFORMANCE MEASUREMENTS (VR-67, 2026-09-09)
+
+Open. Recorded so the next attempt starts from evidence.
+
+* **`predictedDisplayPeriod` is not fixed and is not the panel refresh.** One run
+  was asked for 40 fps (25.00 ms), the next for 80 (12.50 ms), and the 3 s summary
+  only ever printed the period its window ENDED on. Every change is logged now.
+  A full period does not prove spacewarp is off, and a doubled one does not prove
+  it is on - the runtime's own decision depends on stats it may not get.
+* **At 80 Hz: 57-80 delivered of 80.** GPU 7.7-12.4 ms per tick against 12.5 ms.
+* **The worst window is not obviously pixel-bound.** 57/s, 17.5 ms tick, GPU
+  12.4 ms, render-thread R 11.6 ms plus desktop Presents 4.8 ms, against a
+  **0.1 ms** pacing wait. CPU, driver and synchronisation are not cleared, and
+  the D3D11 bridge has never been timed at all.
+* **Falsified by A/B**: the `FrameId` render-target readback, and D3D9Ex
+  `SetMaximumFrameLatency` at 1, 2 and 3 - all inside the noise floor on median,
+  tail and hitch count. The latency call succeeded and read back, so these are
+  real negatives rather than refused levers.
+* **Every gameplay hitch sits in the submission tail**, 19 of 19 in the last run,
+  40-115 ms with `xrEndFrame` itself 32-108 ms against a 0.07-0.5 ms typical.
+  **Where a wait is observed does not name what caused it**: that call takes a
+  mutex, can wait on the previous submission, and can wait on D3D11
+  synchronisation, so our own GPU work can be charged to it. The Wi-Fi link was
+  reported healthy and has not been implicated.
+* **Two counting traps, both paid for**: a hitch tally computed over a whole log
+  rather than the gameplay window reported a shift that does not exist, and
+  summary windows joined by eye rather than by timestamp produced a table where
+  no row's GPU span belonged to its own frame rate.

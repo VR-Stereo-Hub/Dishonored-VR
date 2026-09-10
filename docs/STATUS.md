@@ -1,5 +1,2764 @@
 # Status
 
+## CURRENT (2026-09-09, evening): the WEAPON judder is fixed too
+
+**`[Hands] PoseLag=2`.** Headset-confirmed by a reversing A/B/A/B. The tester's
+verdict was that it fixed the weapon judder completely and the game is smooth
+even with the throughput deficit still open.
+
+Installed and known-good: 2750x2850, `VirtualMode=1`, `[Pace] Lag=2`,
+`[Hands] PoseLag=2`, 80 Hz, spacewarp off.
+
+### The fault
+
+The engine renders a frame from the head **two locate generations back** - the
+same fact that put `[Pace] Lag=2` in place for the world. `MpDriveTick`
+normalised the hand against the **freshest** head, so the hand was expressed
+relative to one head and planted in a view built from another. The residual is
+two generations of head rotation.
+
+`Lag=2` did not create it. It **revealed** it, by taking the world's judder away.
+
+### How it was found, in order
+
+1. **A motion matrix, no code.** Head rotation showed it; a stick turn did not.
+   That last row is the discriminator: a stick turn moves the game camera without
+   moving the head, so controller sampling and viewmodel animation are excluded.
+2. **The first instrument was near-circular and returned a clean zero.** It
+   compared the head stamped at the pose consume against the head the camera
+   write snapshotted - both derived from the same consume. Generation gap 0 on
+   every frame. The negative result is what named the correct pair: fresh versus
+   **RENDERED**, not fresh versus fresh.
+3. **A lag finder settled it.** Mean `|dB - dHead|` over 4085 moving frames:
+   lag0 1.190, lag1 2.406, **lag2 0.119**, lag3 2.405, lag4 1.192 deg. Ten times
+   clear, with a clean V around the minimum. It compares **deltas only**, because
+   the camera basis is game space and the head is XR space and differencing those
+   is what produced two retracted numbers here.
+
+### Performance: measured, and two candidates falsified
+
+Open, and tracked as VR-67. What is now known:
+
+* **The runtime's period is not fixed and nothing could see it before.** One run
+  was asked for 40 fps (25 ms), the next for 80 (12.50 ms). Every change is now
+  logged; that run showed zero changes.
+* **At 80 Hz the app delivers 57-80 of 80**, matching the reported 60-70 in the
+  hub. GPU 7.7-12.4 ms per tick against a 12.5 ms budget.
+* **The worst window is not obviously pixel-bound**: 57/s, 17.5 ms tick, GPU
+  12.4 ms, but render-thread R 11.6 ms + desktop Presents 4.8 ms against a
+  **0.1 ms** pacing wait. CPU/driver/synchronisation is not cleared.
+* **Falsified**: the FrameId render-target readback, and D3D9Ex maximum frame
+  latency at 1/2/3. Both inside the noise floor on median, tail and hitch count.
+* **All gameplay hitches sit in the submission tail** (`xrEndFrame`), 19 of 19 in
+  the last measured run. Where a wait is observed does not name what caused it -
+  that call takes a mutex and can wait on the previous submission and on D3D11
+  synchronisation, so our own GPU work can be charged to it.
+
+`docs/dishonored/PERF_PLAN_2.md` and `PERF_REVIEW_2.md` carry the full record,
+including four claims made and retracted along the way.
+
+### Next steps
+
+1. VR-67, the throughput deficit. Start with the 57/s window's split, not with a
+   resolution change.
+2. Finish the instrument repairs in `PERF_REVIEW_2.md` section 11 - the GPU span
+   still subtracts an interval it does not contain, and the D3D11 bridge is
+   unmeasured.
+3. VR-64, the weapon swap flicker. The `wa/key:` instrument has shipped and has
+   never been read.
+4. VR-57 the crosshair (Urgent), VR-58, VR-56.
+
+---
+
+## CURRENT (2026-09-09, late): the head-turn judder is FIXED
+
+**`[Pace] Lag=2`.** Headset-confirmed. The tester's summary was that the game
+feels an order of magnitude better to play, and smooth enough that synchronous
+spacewarp works well on top of it. This was the oldest and most damaging
+complaint in the mod.
+
+Merged to `VR-Main`. Installed and known-good: `vr33-hands-working-65-gd89beb93`
+with `[Pace] Lag=2`, `[Stereo] LagAB=0`, 2750x2850, VirtualMode=1, 60 Hz.
+
+### Why
+
+The pose submitted with an eye image is chosen from a history of located views by
+a fixed generation offset. The old offset of 1 was calibrated against BioShock 1's
+SINGLE-THREADED renderer; this game has a separate render thread and a delayed
+D3D9 capture stage, so the pixels reaching the compositor are one generation
+older than that assumption and the pose described a head that had already moved.
+
+Only a PHYSICAL turn showed it because the compositor reprojects for head motion
+alone. Measured by switching it live in one run: the submitted orientation sat
+0.119-1.079 deg from the sample the camera consumed under lag 1, and 0.000-0.040
+deg across a full twenty seconds of lag 2 at head speeds to 106.6 deg/s, then
+returned to 0.47 within two seconds of lag 1 coming back. The tester felt the
+same three phases in the same order without being told which was which.
+
+### Two wrong turns worth not repeating
+
+**An ini key that exists beats every compiled default.** Two builds changed the
+default from 1 to 2 and then to 0; the installed ini names `Lag=1`, the loader
+reads a default only when the key is ABSENT, and both ran at lag 1. Their results
+were read as the new value failing, and pose selection was wrongly declared
+eliminated. The loader now logs the effective value and whether the ini overrode
+it.
+
+**Submit cadence was not the cause.** The tester falsified it directly: buttery
+smooth at 61-72 submits/s with an inconsistent presentation rate, the same
+cadence that had juddered.
+
+### Open, and honest about it
+
+* The camera record still does not guarantee it holds the sample the camera was
+  calculated from - both writers calculate from the loose globals and consume the
+  coherent sample afterwards. The signature was fixed; the callers were not.
+* `g_viewsGen` is stamped one increment behind.
+* The render leg - what rendering actually consumed - was never obtained; the
+  world view-projection is still unidentified. `c0..c3` is uploaded ~33 times per
+  view and the block sampled was not a perspective world view.
+
+The fix stands on a measured mechanism and a reversing A-B-A, not on those.
+
+### The resolution ask: FIXED and CONFIRMED (VR-66)
+
+The stale command line suspected here was **ours**. The size had two homes and
+one writer: `dishonored_vr_launch.txt` drives the `-ResX/-ResY` the engine
+obeys, `[Screen] RenderWidth/Height` drives the mode VirtualMode advertises.
+Hand-editing the ini moved only the second, so the engine asked for the launch
+file's five-day-old 2750x2850, that size was no longer advertised, and UE3 fell
+back to a real display mode - the fullscreen 2560x1440. Neither ini ever
+contained that number.
+
+The ini is now the authority: the ask is resolved from `[Screen]` on the
+engine's first `GetCommandLine` call (outside the loader lock), one resolved ask
+feeds both the command line and the advertised mode, a disagreement logs
+`launch: THE TWO ASKS DISAGREED` and rewrites the file, and the hooks install
+even with no launch file.
+
+**Confirmed in a run.** 3190x3306 (the same 55:57 aspect, 10.55 MP against 7.84)
+was armed and honoured end to end: `res: HONOURED`, `capture: 3190x3306`,
+`xr: swapchain pair 3190x3306`, bbox 100% x 100% FULL. **The engine never had a
+ceiling** - it was asking for a size nobody was advertising. 2750x2850 is
+restored; the size is now a performance question, not a correctness one.
+
+### Next steps
+
+1. Run the VR-66 verification above at a raised size, and read the three lines.
+2. VR-64, the weapon swap flicker. The `wa/key:` instrument naming which of the
+   fourteen contract key fields differs on a re-match has shipped and has never
+   been read.
+3. Repair the three instrument defects above, so the next pose question can be
+   answered by measurement rather than by an A/B.
+4. VR-57 the crosshair (Urgent), VR-58, VR-56.
+
+---
+
+## CURRENT (2026-09-09, later): attachment fixed twice; the flicker narrowed
+
+Branch `claude/vr-62-startup-phase-timing`, pushed, **not merged, no PR**.
+`VR-Main` is still at `b38519c3`. Last headset-tested build was
+`vr33-hands-working-54-gda1d760d`; the build after it is not yet tested.
+
+### Headset-confirmed this session
+
+| What | Result |
+|---|---|
+| Weapons never attached after a second load | **FIXED** - attaches instantly on every load |
+| Weapon flicker in stereo | **Largely gone** - the unreadable-step instrument fell from 31 windows with bursts of 565/396/350/293 presents to one window of one present |
+| Hands flickering in mono | **FIXED** - a regression this session, caused and corrected in the same session |
+| Mono window after a load | 2.1-2.3 s, against 24 s when VR-62 opened |
+
+### Falsified this session, and one number retracted
+
+Taking the weapon eye from the drawing pass executed **zero times in 83,400
+draws**. The stereo passes run on the GAME thread and the palette draws on the
+RENDER thread, so there is no stack to look up. The lever stays, default OFF and
+inert, as the record. **The 39% disagreement figure reported earlier came from
+reading a bare global across those two threads and is retracted** - it should not
+be cited. ENGINE_NOTES carries all of it.
+
+### Not yet tested: the bolt after a weapon swap
+
+Reported: equip the pistol, switch back to the crossbow, and the **loaded bolt**
+is unattached in its default position. Everything else stays attached.
+
+Same class of fault as the load one, one level down. The list has an owner for
+EMPTY and had none for STALE. Three things were needed and only the first is
+obvious - an equipment-change trigger keyed on the item OBJECT rather than its
+class name, a SETTLE WINDOW because the child component need not exist in the
+same tick as the equipment event, and the equipped items as COLLECTION ROOTS
+because the bolt is a child of the crossbow and not of the pawn. Plus retirement
+of contracts by ownership, since the existing retirement can only be reached by a
+contract whose buffers are still being drawn.
+
+New levers, all default ON: `[Hands] AttachCollectEquippedRoots`,
+`AttachSwapSettleTries=5`, `AttachSwapSettleGapMs=400`.
+
+### The residual flicker, stated precisely
+
+> The unreadable-step fallback is substantially less active in the tested build.
+> Residual flicker remains unexplained. The instrument does not independently
+> verify every inferred eye.
+
+It records *unreadable* steps, not verified wrong-eye decisions, so a step the
+heuristic reads confidently and gets wrong is invisible to it. The eye inference
+is NARROWED, not cleared. Uninvestigated signals already in the log: the method's
+`pushed eye +1 TWICE in a row` warning, which over-claims (its predicted
+`abortLeft` stayed 0 and only 4 stale-eye submits occurred all session); the tag
+ring's `realigned 97 times, 3855 agree / 296 disagree`; and
+`UNEVEN CADENCE: 1.18 display slots per frame` at 147-162 presents/s against
+90 Hz, which `vrpace sync <hz>` can A/B and never has been.
+
+### VR-62 itself
+
+Untouched behaviourally. Both falsified levers stay OFF (`[Menu]
+GhostClearByRate`, `[Stereo] GateOnSceneLive`). The UI probe found
+`bMovieIsOpen` and remains observation-only: several movie objects read open
+persistently during gameplay, so "some movie is open" is not a blocking-menu
+test. The per-class census in the log is the raw material for that and has not
+been analysed.
+
+### Next steps
+
+1. Headset-test the bolt-after-swap fix (sequence in the session notes).
+2. File a Linear ticket for the bolt fault, separate from VR-62.
+3. Only then, the residual flicker - starting with what it affects, not with
+   another correction.
+
+---
+
+## CURRENT (2026-09-09): VR-62 - the mono window, three attempts falsified
+
+**`VR-Main` is at `b38519c3`. VR-59, VR-60 and VR-61 are merged and Done.** The
+weapons work: a fired bolt stays where it lands, the pistol stays on the hand at
+every angle, and the mod reads equipment from the engine.
+
+Open work is VR-62 on branch `claude/vr-62-startup-phase-timing`, **not merged,
+no PR**. The installed build is `C02CB40A26477DF2`.
+
+### The state of VR-62
+
+A startup scoreboard exists and works. Three attempts to shorten the mono window
+were each falsified in a headset, and **both behaviour changes are default OFF**;
+the build behaves like the known-good one, with better logging.
+
+| Attempt | Lever | Result |
+|---|---|---|
+| Clear the ghost menu flag on dispatch RECENCY | `[Menu] GhostClearByRate` | 24 s to 1.5 s, **and the main menu goes stereo** |
+| Double on SCENE LIVENESS instead of the verdict | `[Stereo] GateOnSceneLive` | **hands and weapons flash behind the pause menu** |
+| Force a candidate re-collect on a load | (fixed, not a lever) | partial list with no body mesh, **nothing attaches all session** |
+
+### What is established, and should not be re-derived
+
+1. **Nothing after the gameplay verdict holds the picture.** The verdict, the
+   `[game] state: GAMEPLAY` transition and the first DOUBLE draw land in the same
+   millisecond. The wait is entirely in deciding the game is in gameplay.
+2. **Two of the verdict's five terms are slow by construction.** `menuOpen` is set
+   by a `Dis_OpenPauseMenu` dispatch during a load when no menu is open (a
+   ghost), and `viewLive` deliberately requires a full second of continuous
+   dispatches to leave LOADING - measured at +1.52 s and +1.72 s.
+3. **The view-dispatch rate differs by a factor of eighty** between a settling
+   level (about 1/s) and a running one (about 78/s). Any dispatch-based test has
+   to separate those two states.
+4. **The main menu keeps dispatching view rotations** (its 3D background) and can
+   have a live pawn, so neither dispatch flow nor `CylTruthLive` separates it
+   from gameplay. ENGINE_NOTES 38.17 recorded this before; attempt 1 re-broke it.
+5. **The camera upload serial keeps moving while a menu is up**, so "the scene is
+   drawing" cannot tell a pause menu from a load.
+
+### The rule the three failures share
+
+Every attempt replaced a slow conservative test with a fast one. Each was right
+about the slowness and wrong about the replacement, because **the fast signals do
+not separate the states that matter.** The next attempt needs a signal that
+distinguishes a main menu from gameplay, and a pause from a load, DIRECTLY -
+not a faster version of one that cannot.
+
+The most promising unexplored lead: `g_mainMenu` is set from named ProcessEvent
+dispatches rather than inferred, so it may be a real discriminator. Read how it
+is set in `ue3/process_event.cpp` before trusting it.
+
+### What is safe and staying
+
+* The startup scoreboard (`startup.cpp`), read-only, one line per load naming the
+  term that settled LAST. It records the LAST false-to-true transition, because
+  recording the first made it blame the wrong term - the clock starts as the game
+  leaves gameplay, when the outgoing pawn is still alive.
+* Weapon contracts are dropped when the game leaves gameplay, and a contract
+  whose component has been missing for about a second is retired. Without this a
+  level load left every contract pointing at a destroyed component, which is a
+  LOCKOUT rather than a refusal: a refused draw returns before the matcher, so
+  the contract can never be re-adopted.
+* A candidate list with no body mesh is discarded and re-collected, bounded at
+  120 attempts.
+
+### PLAN FOR THE NEXT SESSION - paste it here before starting
+
+> **This section is empty on purpose.** Drop the agreed plan in, replacing this
+> quote, before any code is written. A plan that lives only in a chat is lost the
+> moment the chat is, and three attempts were already spent last session on ideas
+> that were sound in isolation and wrong against facts recorded further up this
+> file.
+>
+> Whatever goes here should name, for each step: the SIGNAL it depends on, which
+> two states that signal separates, and how the run would show the step failed.
+> The three falsified attempts all skipped that last part.
+
+---
+
+### Next steps
+
+1. Find a real main-menu discriminator, then re-try attempt 1 behind its lever.
+2. VR-16, the weapon and hands flicker for the first seconds after a load - the
+   tail of the same settle.
+3. VR-49, the parent ticket, still carries the eye-starvation half of the settle.
+4. VR-57 the crosshair (Urgent), VR-58, VR-56.
+
+## PREVIOUS (2026-09-08, night): VR-59, VR-60 and VR-61 all confirmed in a headset
+
+Three tickets are fixed and headset-confirmed this session. **Nothing is merged.**
+Two PRs are open against `VR-Main` and its stack.
+
+| Ticket | What a player sees | PR |
+|---|---|---|
+| VR-59 | a fired bolt stays where it lands, visible and solid | #23 into `VR-Main` |
+| VR-61 | (no visible change) the mod can read what the game is doing | stacked |
+| VR-60 | the pistol stays on the hand at every angle | stacked |
+
+### The through-line, which is the useful part
+
+All three were the same mistake at different depths: **the mod acted on a guess
+about game state because it had no way to ask.**
+
+* VR-59: a contract identifies a GEOMETRY and was used as an INSTANCE. 196,619 of
+  196,623 corrections were made on buffer identity alone while the only test that
+  checks where a draw is ran 4 times in 13 million draws.
+* VR-60: the pistol had no identity at all, so it was verified against another
+  weapon's component. Its 45-degree detach cone was `AttachPassRadius` converted
+  into an angle by geometry - a held weapon orbits the head, so 60 uu at 45
+  degrees puts the view model about 78 uu from the camera. **Any threshold would
+  have produced some angle, because the identity was what was wrong.**
+* VR-61 is the general answer: ask the engine.
+
+### VR-61, and the research failure worth keeping
+
+**This repo already had a property resolver and a session reinvented it.**
+`FindPropOffset` / `FindBoolProp` in `ue3/uobject.cpp` have resolved properties by
+name since 38.x and are load-bearing in four modules. The mistake was going to
+another project for a technique before grepping here for prior art.
+
+The existing design is also the better one and it stays: every UProperty is itself
+a UObject whose Outer is the declaring class, so a GObjects scan finds it and
+nothing has to be derived - no chain offsets, no candidate layout, no search to
+validate. 578 lines of derivation were deleted.
+
+What was actually missing was two small things, and both are now in
+`ue3/reflect.cpp`: a CACHE (each lookup is a full GObjects scan, and the trilogy
+mod measured a name scan on a cadence stuttering that game at 2-3 Hz) and a TArray
+READER (the capability VR-60 needed).
+
+### What the engine now tells us, measured across sheathe and swap
+
+```
+Primary   DishonoredWepSword   EQUIPPED   (every time weapons are out)
+Secondary DisWepCrossbow  <->  DishonoredWepPistol
+sheathe:   Secondary -> none, then Primary -> none
+unsheathe: both return together
+```
+
+A flag that reads the same in every state is not evidence it is the right flag, so
+it was identified by making it MOVE. Two corrections came out of that:
+
+1. **`PawnInventorySlot.m_RequiredUsage` is a constraint on what may occupy a
+   slot, not what is in the hand.** Reading it reported an empty item in both
+   hands while the player was visibly holding a sword.
+2. **`DishonoredInventoryItem` carries `m_EquipUsage` and `m_CurSocket`.** The item
+   answers for itself, which is the equipped-versus-holstered distinction VR-59
+   attempt 1 needed and could not get from component presence.
+
+Also recorded as an observation and NOT a conclusion: sheathing reads socket
+`none`, never `holstered`, so nothing should assume a sheathed weapon is Holstered.
+
+### Branch stack, which matters for merge order
+
+```
+VR-Main
+  claude/vr-59-fired-bolt-instance-identity   PR #23   (Fixes VR-59)
+    claude/vr-60-pistol-not-in-snapshot       ancestor only, no PR
+      claude/vr-61-property-resolver          PR       (Ref VR-61, also fixes VR-60)
+```
+
+The VR-60 branch holds only analysis docs and is an ancestor of the VR-61 branch;
+VR-60's fix is a commit on the VR-61 branch, because it depends on VR-61's reader
+and the two were verified in one run. **Merge #23 first**, then the stacked PR
+retargets to `VR-Main` and closes VR-60 and VR-61.
+
+### Next steps
+
+1. Review and merge #23, then the stacked PR. The merge is the gate and it is the
+   user's call.
+2. **The arms during takedowns and chokes**, now unblocked:
+   `eDisPlayerActionUsage_Fullbody` is the discriminator, and `GAMEPLAY_STATE.md`
+   section 2 lists the rest of the wanted flags.
+3. **VR-49, the 20-90 s settle** (Urgent). The asset-to-hand decision is now
+   readable from the engine rather than inferred, which may shorten it.
+4. **VR-57, the crosshair** (Urgent). Still head-locked. One ray.
+5. **VR-58**, **VR-56**.
+
+## PREVIOUS (2026-09-08, night): VR-61, the UE3 property resolver, first run pending
+
+VR-59 is fixed and headset-confirmed; PR #23 is open against `VR-Main` and NOT
+merged. VR-60 (the pistol) is blocked on VR-61 by choice, because reading the
+inventory is the clean fix and a second heuristic is not.
+
+Branch `claude/vr-61-property-resolver`. Built, installed, 88 host cases, lint
+clean. **The derivation has never run against the game.**
+
+### What this is
+
+`src/game/dishonored/ue3/reflect.cpp` resolves a property BY NAME to its byte
+offset on this build, by walking the UClass property chain. The argument for it is
+`docs/dishonored/GAMEPLAY_STATE.md`: almost every hard bug in this mod came from
+acting on a guess about game state because there was no way to ask.
+
+**Only four slots were unknown** - `UField::Next`, `UStruct::SuperStruct`,
+`UStruct::Children`, `UProperty::Offset` - because `kNameOff` / `kClassOff` /
+`kOuterOff` are already derived on this build. The BioShock trilogy work had to
+derive those first and called it the hard part.
+
+### The oracle, which is what makes this not a guess
+
+`kWaComponentLocalToWorld` (0x60) and `kWaComponentTranslation` (0x90) are
+measured on this build and read every frame, and UE3 names those properties
+`LocalToWorld` and `Translation`. **A layout is accepted only if it resolves both
+names to both offsets.** A wrong layout cannot reproduce an answer we already
+know, so the search cannot quietly settle on one.
+
+If derivation fails, the log says which stage and with what numbers - including
+the case where the constants themselves are wrong for that class, which would
+make the search impossible and the constants the bug.
+
+### Three traps taken from the trilogy mod rather than rediscovered
+
+1. **NEVER init-driven.** Our DLL loads from `DllMain` during import resolution,
+   before the exe's CRT static initializers, so GNames is empty then. Deriving at
+   startup fails every boot and looks like a broken instrument. This derives
+   lazily on the script lane and retries every 2 s until it succeeds.
+2. **A name-pool scan is hundreds of milliseconds and must never be on a
+   cadence** - it stuttered that game at 2-3 Hz. Every resolve here is cached per
+   (class, name) for the process lifetime.
+3. **`ObjectArchetype` is class-classed and SHARED**, which falsified it as a
+   chain link there: two nodes cannot share a `Next`. It is excluded explicitly.
+
+A fourth is ours: the four-way search was ~810k candidate layouts, each doing two
+chain walks. On the game thread that is a hang measured in minutes, and **a
+diagnostic that freezes the game is not a diagnostic.** The slots are separable,
+so derivation is staged into ~1,000 walks; the oracle still judges the finished
+layout, so staging changed the cost and not the standard of proof.
+
+### The first consumer exists to make the resolver falsifiable
+
+A resolver that derives a layout and reads nothing has proved only that it did not
+crash. So it reads the one thing the component walk provably cannot: pawn ->
+`m_pInventory` -> `m_Slots`, a TArray of `PawnInventorySlot`, each slot carrying
+the item AND its `EDisEquipUsage`. Every step resolved by name. Logs CHANGES only.
+
+The struct STRIDE is the single unresolved number in that path, because element
+layout is not in the property chain. It is validated rather than trusted: a stride
+that yields no readable item pointer is reported as **a wrong stride, not an empty
+inventory** - two things that look identical without that line.
+
+### What the next run has to answer
+
+Read in this order:
+
+1. `rfl: UE3 property layout DERIVED ...` with the four slots and the oracle it
+   was validated against. If instead `rfl: not derived yet - <reason>` repeats,
+   the reason names the stage.
+2. `rfl/state: equipment CHANGED - Primary ... Secondary ...` on every weapon
+   swap. **That line is the proof**: it is data out of a TArray, which is what
+   VR-60 needs and what the pointer walk cannot reach.
+3. Nothing should look or feel different. This subsystem is read-only, off the
+   frame path, and touches no render lever.
+
+`[Hands] StateFlags=0` turns the reader off; the resolver itself has no lever
+because nothing consumes it yet.
+
+## PREVIOUS (2026-09-08, night): VR-59 is FIXED and headset-confirmed
+
+**A fired bolt stays where it lands.** Confirmed in a headset: bolts are visible
+and solid, hold their position and rotation, show no coupling to the hand in any
+weapon, and newly fired bolts behave correctly too. The held bolt and the
+crossbow are unaffected. PR open against `VR-Main`.
+
+### What fixed it, in one sentence
+
+A contract identifies a GEOMETRY and was being used as an INSTANCE. Every draw on
+a weapon's buffers is now verified against the component that contract was
+matched to, using the engine's own transform from the live snapshot, and a draw
+that matches nothing is handed back exactly as the engine drew it.
+
+The measurement that proved the architecture was the problem: `known-buffer
+passes 196955, corrected 196619, matched 4`. Ninety-nine point eight percent of
+corrections were made on buffer identity alone, while the only test that checks
+where a draw is ran four times in 13 million draws.
+
+### The two lessons, both paid for by a headset run
+
+**A reference has to be maintained on the path that uses it.** `lastL2W` is
+written only where the transform matcher adopts a contract, so a gate built on it
+compares against something that is almost always stale. It refused 53,238 held
+draws in one run with the present gap growing to 21,367.
+
+**Refusing to correct a draw and refusing to draw it are different operations,
+and the second one deletes the object.** Dropping claims a draw duplicates
+geometry rendered correctly elsewhere - true of another pass of the held weapon,
+false of a world instance. The rule was written into `may_suppress` and then not
+applied at two of the four exit paths, which cost a run where the bolts were
+invisible rather than misplaced.
+
+### VR-60 is next, and its symptom CHANGED for the better
+
+The pistol used to turn invisible when aimed away from where a bolt was. It now
+stays visible and instead detaches to its default position with its own idle
+animation, reattaching when the aim comes back into range. That is this fix
+working: the draw was being dropped and is now handed back, so the failure mode
+went from deletion to falling back on the engine.
+
+The cause is unchanged and is VR-60's job: the pistol is not in the component
+snapshot at all, so it has no member candidate, reaches a contract only through
+the buffer lookup's `vb || ib` OR, and is therefore verified against ANOTHER
+asset's component. Past the radius from the bolt, it is correctly refused - the
+verification is right and the identity it is given is wrong.
+
+Branch `claude/vr-60-pistol-not-in-snapshot`, off the VR-59 branch because the
+fail-safe behaviour it builds on is not merged yet.
+
+## PREVIOUS (2026-09-08, night): VR-59 attempt 2b - refusing is not deleting
+
+Attempt 2 verified correctly and then DELETED what it refused: fired bolts were
+invisible for a whole run while the held bolt and the crossbow were fine. Two
+places consumed a refused draw, and both are closed. Built, installed, 88 host
+cases. Not yet in a headset.
+
+### The lesson, which is worth more than the fix
+
+**Refusing to correct a draw and refusing to draw it are different operations,
+and the second one deletes the object.** Dropping a draw is a CLAIM: that this
+draw duplicates geometry the frame renders correctly elsewhere. That is true of
+another pass of the held weapon and false of a world instance, which is the only
+copy of itself there is.
+
+The rule was written into `may_suppress` in attempt 2 and then not applied at
+either site that needed it:
+
+1. **`AttachDropUncorrected` sat past the verification block** and consumed any
+   draw with no correction. Verification refused the bolt correctly, and this
+   line ate it two branches later. Releasing `onWeaponBuffers` did not help -
+   that only guards the SECOND suppressor, out in `WaDraw`.
+2. **`instVerdict` defaulted to `HELD`.** A draw whose geometry does not match the
+   contract exactly never reaches verification at all - a different range in a
+   shared buffer, which is exactly what a fired bolt and the pistol produce - so
+   it arrived at the drop path carrying a default that said "this is the held
+   item". Unverified now means unverified, and only with the lever off does it
+   mean held.
+
+A guarantee that is stated in a pure helper is not a guarantee until every exit
+path is routed through it. There were four such paths and two were missed.
+
+### The new counter that would have caught it in one run
+
+`wa: handed back to the engine N draw(s) rather than dropped (dropped-as-
+duplicate M)`, and it says on the line: **if handed-back is 0 while fired bolts
+are invisible, a refused draw is still being consumed somewhere.** That is the
+reading the last two runs needed and did not have.
+
+### Still open, and expected to persist
+
+**VR-60**: the pistol turning invisible when aimed away from where a bolt was.
+It is not in the component snapshot at all, so it has no member candidate and
+reaches contracts only through the buffer lookup's `vb || ib` OR - its visibility
+is decided by a distance test belonging to another asset. Attempt 2b should stop
+it being DELETED (an unverified draw is now handed back), but the pistol still has
+no attachment of its own and that is VR-60's job.
+
+## PREVIOUS (2026-09-08, night): VR-59 attempt 2 - verify every draw
+
+`VR-Main` is pushed at `555e8ff4`, PRs 18-22 closed. Attempt 2 of VR-59 is built,
+installed and covered by 86 host cases; **not yet in a headset.**
+
+### The measurement that settles the architecture
+
+From the attempt-1 run: **`known-buffer passes 196955, corrected 196619`, and
+`matched 4`.** 99.8% of all corrections were made on buffer identity alone, while
+the transform matcher - the only thing that checks WHERE a draw is - adopted four
+contracts in 13 million draws.
+
+**A contract identifies a GEOMETRY and was being used as an INSTANCE.** That one
+sentence explains every symptom reported, and they are all one bug:
+
+* a fired bolt rotates in place - it inherits the held bolt's delta, conjugated
+  about its own origin;
+* two fired bolts rotate together, each about its own origin - same delta, same
+  contract;
+* after a weapon switch every bolt orbits the muzzle at whatever radius it had
+  when the switch happened - the delta becomes a fixed transform relative to the
+  hand;
+* each bolt vanishes past an angle - beyond `AttachPassRadius` the draw is
+  refused, falls through to a matcher that cannot place it, and is dropped.
+
+And the reference that gate compares against, `lastL2W`, is written ONLY where
+the matcher adopts a contract - so it was current 4 times all run. A gate on a
+reference nothing maintains both misfires and misses.
+
+### The rule that replaces it
+
+**A draw is the held item only if it is where the engine says the held item is. A
+draw that matches nothing is handed back exactly as the engine drew it.**
+
+It names no asset, no weapon and no count, which is the point - a throwable that
+does not exist yet is covered without new code. Per draw:
+
+1. The contract carries the COMPONENT it was matched to (`compObj`), not just its
+   buffers. A second instance of that mesh can never inherit its correction.
+2. `WaVerifyDraw` compares the draw against that component's transform from the
+   live snapshot, expressed in the draw's space through the bridge the matcher
+   already builds. The snapshot is engine-read and republished twice a frame, so
+   it cannot go stale while the weapon is in view.
+3. A recent-verification cache (`heldAt`, refreshed on EVERY verified draw by both
+   routes) answers when no correction was published this Present, so a quiet
+   frame does not blink the weapons.
+4. Nothing to compare against means REFUSE. Absence of evidence is not consent -
+   that was the 41.x defect exactly.
+
+**Suppression is now only for a draw that PASSED verification.** That is what
+keeps a world instance visible: its colour and lighting passes are its own, not
+duplicates of anything we drew, and suppressing them is what made fired bolts
+vanish. The shared `dm` delta is also gated on the verdict, so a refusal is no
+longer advisory.
+
+The tolerance is `AttachPassRadius` reused, not a new number: the census measured
+0.3 uu between an uncorrected pass and its corrected twin, and two instances of a
+mesh are hundreds of units apart. Both bounds are asserted in the host suite.
+
+### Levers
+
+`AttachVerifyInstance=1` (OFF restores trusting buffer identity - the behaviour
+of every previous build, so the two compare directly), `AttachHeldMaxPresents=2`.
+The two falsified attempt-1 gates stay at OFF, kept so their measurement is
+reproducible.
+
+### What a headset run has to answer
+
+`wa: instance verify` reports held / elsewhere / unverifiable, which reference
+answered, and the worst offset accepted next to the farthest refused - so the
+radius can be judged from both sides rather than argued. **HELD should be the
+large majority while a weapon is out; 0 with flat weapons means verification is
+failing, not idle.** If `component` is 0 the engine-read route is not running and
+only the cache is holding it up, which would be a latent failure.
+
+The risk to watch is the opposite of the old one: too much refusal. If a held
+weapon goes flat or blinks, `AttachHeldMaxPresents` and the radius are the levers,
+and `AttachVerifyInstance=0` returns to the old behaviour.
+
+Also open: **VR-60**, the pistol is not in the component snapshot at all, so it
+has no member candidate and reaches contracts only through the buffer lookup's
+`vb || ib` OR. That is why its visibility depended on aim angle.
+
+## PREVIOUS (2026-09-08, night): VR-33 merged; VR-59 attempt 1 FALSIFIED
+
+`VR-Main` is pushed and at `555e8ff4`; PRs 18-22 are closed and their tickets
+are Done. **The VR-59 fix was tried in a headset and both of its gates were
+falsified.** Both are now default OFF, the build is rebuilt and installed, and
+the run produced exactly the measurements needed to design the real fix.
+
+### What the run said
+
+The held bolt stopped following the hand and only inherited camera rotation - it
+was drawing natively. The pistol vanished depending on the angle between where
+it pointed and where the bolt had been. No bolt was fired at all, so every
+symptom was on HELD geometry: a straight regression.
+
+**`AttachRequireFreshRef` starves the held weapons.** 53,238 refusals in one
+run, all on held `crossbow_01` and `bolt_01`, with the present gap growing
+monotonically to 21,367. `lastL2W` is written ONLY where the transform matcher
+adopts a contract; the buffer-identity route that actually corrects the auxiliary
+passes never refreshes it. Once the matcher misses, the reference is stale
+forever and the gate blocks the only remaining route. **A reference has to be
+maintained on the path that uses it.**
+
+**`AttachRequireLiveMember` cannot answer its own question.** All 19 published
+snapshots in the run were identical - the same six components, including
+`bolt_01 (pArrowMesh_HighRes)` - across crossbow, sword and pistol being held in
+turn. `FpCollect` walks the pawn INVENTORY, and `DisWepCrossbow` says why: the
+loaded bolt is `m_pArrowMesh_HighRes`, a component of the WEAPON, which stays in
+inventory when stowed. Presence is not equipment.
+
+### What the scripts gave, and why it matters
+
+In `docs/dishonored/ENGINE_NOTES.md`. The loaded bolt and a fired bolt share
+**only** the mesh asset `bolt_01`; the component name, the component class and
+the owning actor all differ, and a fired bolt is a separate ACTOR
+(`DisProjectile_Arrow`) that never reaches the snapshot. That is why every
+asset-name and buffer-identity route can be fooled, and it is the shape any real
+fix has to take.
+
+The pistol is not in the snapshot at all, which is a separate finding worth
+acting on: it has no member candidate and can only reach a contract through the
+vertex-OR-index-buffer match, which is what made its visibility depend on aim
+angle.
+
+### The next attempt, designed but NOT written
+
+Compare each draw against the contract's COMPONENT position from the engine
+snapshot, expressed in draw space through the bridge the matcher already builds -
+not against `lastL2W`. The snapshot is engine-read and refreshed every 4 ms
+whether or not the matcher succeeded, so it cannot go stale the way `lastL2W`
+does. Store the component pointer in the contract at adoption so the right
+component is looked up each frame.
+
+What is kept from attempt 1: the `held_instance` predicate and its 13 host cases,
+`AttachVetoReleasesBuffers` (sound - a vetoed draw must not be suppressed), and
+`AttachInstanceVetoRelaxed`.
+
+### Previous entry for this session (the merge, still accurate)
+
+## PREVIOUS (2026-09-08, later): VR-33 merged, VR-59 attempt 1 written
+
+Two things happened this session. **PRs 18-22 are merged into `VR-Main` locally
+and are NOT pushed yet** - the push was blocked by a tool permission, so the
+remote `VR-Main` is still at `f44f4761` and all five PRs are still open. The
+first job of the next session is that one command, or to say so plainly if it is
+still refused.
+
+Then VR-59, the fired bolt, which is written, built, installed and covered by
+host tests but **has not been in a headset**.
+
+### The merge, and why it is five commits and not one
+
+PR 22 turned out to be a strict SUPERSET of 18, 19, 20 and 21: it was rebuilt off
+`VR-Main` and carries every feature from all four, plus later tuning that
+supersedes theirs (`HeightOffsetM` -0.090 -> 0.060, `PosTrack Scale` 98 -> 108).
+Merging 22 alone would have landed everything but left the other four PRs unable
+to close themselves, so they were merged in order 18 -> 19 -> 20 -> 21 -> 22
+instead, each as its own merge commit.
+
+Every conflict on the way to 21 was two branches appending to the same region - a
+new `CURRENT` section, a decision-log entry, `#include` lines in the unity TU -
+and was resolved as a UNION, so each feature keeps its own section. The final
+merge took 22's side throughout, because 22 is the integrated superset, and then
+22's own cleanup was applied (the 23 scaffolding docs it replaced with one
+durable record, and two experiments it retired to `src/legacy/vr33/`, which is
+why nothing was lost).
+
+**The end state was verified by construction: the merged tree is byte-identical
+to PR 22's tree**, which is the headset-confirmed build. `git diff HEAD
+origin/claude/vr-33-rotation-grip-and-weapons` is empty. Lint clean, Release
+builds, nine exports undecorated.
+
+### VR-59: a distance can never answer an instance question
+
+The branch is `claude/vr-59-fired-bolt-instance-identity` off the merged
+`VR-Main`. **No PR** - deliberately, on request.
+
+The three radius gates could not close this and were never going to. A bolt fired
+into a surface a metre away is inside all of them on merit. What identified the
+real defect was that the fault behaves COMPLETELY DIFFERENTLY depending on what
+is held: with the crossbow out a fired bolt only inherits its rotation, but with
+the pistol out the bolt jumps onto the aim direction and tracks the pistol - **at
+any distance, near or far.** A fault that reaches an arbitrarily distant instance
+proves no radius was gating it.
+
+**A contract outlives its weapon being stowed, and the instance gate ran only
+when a fresh reference existed.** `g_waMesh` is keyed on buffers and evicted only
+when the table fills. The pass-radius check ran behind
+`if (lastL2WOk && present - lastL2WPresent <= 2)`. Stow the crossbow, the loaded
+bolt stops drawing, that reference goes stale, and **the gate is skipped
+entirely** - while the hand that contract belongs to keeps publishing a fresh
+correction every frame, because the hand is always drawn. The absence of evidence
+was being read as permission.
+
+The dark stub left standing where the bolt landed is the same cause, not a second
+bug: some passes were corrected and the rest were SUPPRESSED by
+`AttachSuppressUnplaced`, whose documented cost is exactly this when it lands on
+a world instance - those colour and lighting passes are the bolt's own, not
+duplicates of anything we drew.
+
+### What replaced them
+
+`dvr::wf::held_instance` in `weapon_frame.h`, pure and fully exercised by
+`frame_test`. Four verdicts, and the ORDER is the authority they carry:
+
+* `STOWED` - that asset is not a live member of that hand in the current
+  component snapshot. **Strong, and it is the engine's own answer**: `FpCollect`
+  walks out from the pawn through the inventory chain only, so a world projectile
+  cannot appear in it however close to the camera it sits.
+* `ELSEWHERE` - a fresh reference exists and this draw is past
+  `AttachPassRadius` from it. Strong.
+* `NO_REF` - nothing has vouched for this geometry for `AttachRefMaxPresents`
+  presents. **Weak on purpose.** It refuses the correction, but it may not
+  release buffers or overrule the relaxed band, because a weapon just re-equipped
+  has a stale contract by definition - treating it as strong would stop a
+  re-equipped sword relocking and would draw a ghost copy while it tried.
+* `HELD` - corrects.
+
+Five levers, `[Hands]`, **all default ON**: `AttachRequireLiveMember`,
+`AttachRequireFreshRef`, `AttachRefMaxPresents=2`, `AttachVetoReleasesBuffers`,
+`AttachInstanceVetoRelaxed`. Each one off restores the pre-VR-59 behaviour of
+that single step, so they A/B alone; the host suite asserts that too.
+
+### Verified on the desk
+
+75 host cases pass (13 new, all on the instance verdict), `tools\lint.ps1` clean,
+Release built and installed, installed DLL hash matches the build. The installed
+ini has `AttachWeapons=1` and `AttachSnapshotMaxMs=100` and none of the five new
+keys, so all five take their ON defaults.
+
+The new cases deliberately hold the DISTANCE inside the radius and vary only the
+instance evidence - a suite that separated them by distance would be testing the
+gate that already failed.
+
+### Next steps
+
+1. **Push `VR-Main`** (`git push origin VR-Main`), then confirm PRs 18-22 closed
+   and VR-30, VR-31, VR-33, VR-51, VR-53 moved to Done.
+2. **A headset run for VR-59.** Fire a bolt into a wall a metre away, look at it,
+   then switch weapons and look again. `wa: instance gates` reports every
+   counter; the line says on itself that ALL ZERO IS THE HEALTHY READING while a
+   weapon is held and drawing, because it counts draws that are not the held
+   instance. A non-zero `stowed` count with the bolt sitting still is the fix
+   working.
+3. **Watch for the regression this could cause**: re-equipping a weapon must
+   still relock, and must not show a ghost copy while it does. That is what
+   `NO_REF` being weak protects, and it is the one thing in this change that
+   trades against the fix.
+4. **VR-49, the 20-90 s settle** (Urgent). The weapon lock is part of it and the
+   decisions are cacheable.
+5. **VR-57, the crosshair** (Urgent). Still head-locked while the weapon points
+   where the hand points. One ray.
+6. **VR-58** (numpad adjust, ModelScale) and **VR-56** (no back faces on the
+   weapon models).
+
+---
+
+## PREVIOUS CURRENT (2026-09-08): VR-33 is DONE and in review
+
+The hands and the held weapons are on the tracked controllers, headset-confirmed
+and stable. The branch is `claude/vr-33-rotation-grip-and-weapons`, twelve
+commits, and the PR is open against `VR-Main`. **Nothing here is merged.**
+
+### What a player sees now
+
+* Hands track position and rotation, and hold still when the head moves.
+* The crossbow, the loaded bolt and the sword follow their controllers, keeping
+  the game's own hand-to-weapon and weapon-to-bolt relationships and their
+  internal animation.
+* No duplicate weapon standing at the position the engine drew it.
+* A rare single-frame blink on the weapons, and a fired bolt close to the player
+  can still be picked up. Both are ticketed, neither reads as broken.
+
+### The three things worth knowing before touching this
+
+**The grip transform is a REFLECTION.** The draw's camera basis is right-handed
+and the engine is left-handed, so the pose mapping is a mirror. Three Euler
+angles cannot carry one; the saved record stores a parity sign beside a proper
+rotation and refuses a pre-version record rather than loading a hand inside out.
+A build that demands a proper rotation refuses every draw.
+
+**A weapon mesh is drawn by several passes, and any pass we do not place draws
+itself at the native position.** That is what the duplicate copies were. The
+contract key must include the VERTEX SHADER; without it an uncorrected pass
+looks like the contract's own draw.
+
+**Suppressing a pass is only safe when it would otherwise draw a second copy.**
+Several of a weapon's passes are its colour and lighting contributions.
+Suppressing those leaves the ambient term alone: a translucent weapon that
+vanishes in shadow. That was measured, not guessed.
+
+### The blink, and the shared gate behind it
+
+The two weapons share no contract, buffers, component or match - only their
+inputs. **They blink together, which is what identified the cause**: a shared
+gate, not two independent failures. The gate was the component-snapshot
+freshness bound, tightened from 100 ms to 20 ms while chasing a view-model sway
+theory the headset then falsified. The theory was dropped and the bound was not.
+Back at 100 ms the blink is rare.
+
+`AttachSnapshotMaxMs` is the lever. **Tightening it blinks both weapons.**
+
+### Next steps
+
+1. **Merge VR-33** when the reviewer is satisfied - the user's call, not an
+   agent's.
+2. **VR-59, the fired bolt** (High). A bolt fired into something close by is
+   inside every distance gate and is the same mesh drawn from the same buffers.
+   The gates cannot close it; the fix is an instance identity read from the
+   engine. This is the next session's focus.
+3. **VR-49, the 20-90 s settle** (Urgent). The weapon lock is now part of it.
+   The asset-to-hand and asset-to-space decisions do not change between runs
+   even though the buffers do, so they are cacheable.
+4. **VR-57, the crosshair** (Urgent). It is still head-locked while the weapon
+   points where the hand points. One ray.
+5. **VR-58**, the numpad adjust and ModelScale, neither ever exercised in a
+   headset. Both default to the identity, so the build that was tested is the
+   build that ships.
+6. **VR-56**, the weapon models have no back faces. The asset was authored to be
+   seen from one side.
+
+### Verified on the desk
+
+49 host cases (28 hand, 21 weapon), `tools\lint.ps1` clean, nine exports
+undecorated, the installed DLL matching the build. The simulator was not used
+for this work: every question on it was perceptual.
+
+### The record
+
+`docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the one durable document -
+mechanism, levers, and a graveyard of every approach that cost a headset run.
+Section 8 is worth reading before any similar work: five separate filters in
+this investigation each produced a confident zero while excluding the thing they
+were built to find, and an enumeration solved in one run what they had hidden
+for eight builds.
+
+## PREVIOUS CURRENT (2026-09-08): VR-33 weapon attachment direct repair, test pending
+
+Release fix installed; 28 hand tests and 21 weapon tests pass. The first headset run confirmed weapon
+motion, but wrong hands, a large offset and flickering old-position silhouettes.
+The follow-up corrects hand settings and permits qualified non-camera passes.
+Correct alignment and ghost removal remain pending the next headset run.
+
+No sweep or blinking is expected. Equip crossbow/sword, move each controller,
+then check the loaded bolt, head motion, both eyes and re-equip/reload.
+Read `wa: beat v2`, `wa: interval nearest`, and per-asset `wa: contract` counts.
+Sword defaults RIGHT (1); crossbow/bolt LEFT (0). Hand calibration is retained.
+
+Full implementation and remaining assumptions:
+[VR-33 direct fix handoff](dishonored/VR-33-HANDS-AND-WEAPONS.md).
+
+The old sweep-based test instructions below are historical and superseded.
+
+## Historical (2026-09-07, night): VR-33 - weapon attach armed, model scale added
+
+### TEST TOMORROW, in this order
+
+**1. THE WEAPONS (priority).** Launch, draw the crossbow, stand still somewhere
+quiet facing a wall, let the sweep run (~26 s of blinking), then keep playing.
+Nothing to press.
+
+* If it worked: the weapons follow your hands, and the log has
+  `wa: ADOPTED 'crossbow_01' ...` followed by `wa: ... ATTACHED`.
+* If it did not: the log now says WHY. Read these two tables, in this order:
+  * `wid: draws per phase` - total draws in each phase. **If the total does
+    not fall when a component is hidden, its draws are still not in the
+    population** and nothing below it means anything.
+  * `wid: the 16 largest baseline signatures` - each buffer pair's whole phase
+    vector. A weapon's pair should read high, 0, high, 0, high across its own
+    four phases. This separates "drops on one hide only" from "never drops at
+    all", which have looked identical for three runs.
+
+**2. THE SIZE, once the weapons are settled.** F10 -> **"hand / weapon size"**,
+or `[Hands] ModelScale` in the ini. Try **0.75**. It scales the hands AND
+anything held in them by one factor, about the tracked palm.
+
+* EXPECTED: hands and weapon shrink together, the grip stays put, the world
+  does not change size.
+* Ships at **1.00**, which is exactly the identity it replaces - so test 1 is
+  measured on the same geometry every previous build was.
+* Watch for hand shading getting brighter or darker as you move the slider:
+  two of the three hand shaders push normals through these palette rows, and
+  if they do not renormalise, a uniform scale changes normal LENGTH. Direction
+  is safe either way.
+* Also watch the wrist cap for a hole opening at the cut.
+
+### Where the weapon work actually stands
+
+The sweep is CORRECT and has been for three runs: all 16 phases, every hide
+and restore verified against `HiddenMaterials`, and the tester watched the
+sword, crossbow and bolt each blink twice on command. What kept failing was
+never the sweep - it was what the sweep could SEE.
+
+Three faults found and fixed, in order:
+
+1. **The report was lost to a lane that stopped** (`5df74130`). `WiTick` runs
+   on the script lane; the last phase ends on a deadline, so the report needed
+   one more tick of that lane, and the lane went quiet half a second later. 26
+   seconds of correct measurement, no output. The terminal step now runs from
+   whichever lane reaches the deadline first, behind an interlock.
+2. **The signature was too fine** (`c1fc4c55`). It hashed the draw's own range,
+   so a mesh drawn from a shared buffer became many short-lived signatures. Now
+   keyed on the vertex+index buffer pair - the key the mesh lock already uses,
+   and the one that names a GEOMETRY.
+3. **The recorder never saw the weapons at all** (`bc73daed`). It sat behind
+   the palette gate (a fresh c6 upload within the reuse window) - right for the
+   census, wrong for identification. `vs_const_hook.cpp` already describes the
+   crossbow's body as a STATIC attachment, which that gate excludes. It now
+   sees every indexed draw and records whether a fresh palette was pending.
+
+**The evidence that named fault 3 was in the log for two runs and was not
+read**: reject counts of 146/154/151/153, then 51/50/51/48 - near-identical for
+every component INCLUDING the player body. Counts that uniform are not a fact
+about components. That is what "the thing being measured was never in the
+population" looks like, and it survived a change of signature key because the
+key was never the fault. Hence the two new tables above: a third failure
+cannot now be silent.
+
+### The attachment itself
+
+`weapon_attach.cpp` (+ state chunk 57b). The sweep's owned buffer pairs are
+handed straight to placement - identification is the INPUT to attachment, not
+a report somebody reads and types back. Those draws then take the same rigid
+palette correction the hands take, from the same `g_mpPalmTarget`.
+
+A weapon assembly is rigid, so its frame is the palette's first bone rather
+than an averaged anchor; every bone gets one common transform, which is what
+keeps the loaded bolt animating with the stock instead of being pinned
+separately. A mesh with no palette is treated as one bone, three registers.
+c6 is current device state, so the game's own block goes back after the draw.
+
+Fail soft throughout: no target palm, an unreadable palette, a frame that will
+not normalise or a non-finite result all draw the engine's own weapon and log
+which. Blast radius is bounded to buffer pairs the sweep proved, so the
+confirmed hand path cannot be reached. `AttachWeapons=0` removes it.
+
+### The model scale (`21d3e3eb`)
+
+PageUp/PageDown were never a size knob. `g_posScaleUU` sets the stereo
+separation - a property of the PROJECTION - so it resizes the whole frame at
+once. The hands were not scaling with the world, they were scaling because of
+it, and that knob could never have made them smaller relative to the room.
+Hand TRAVEL is already independent (`WorldScaleUU`, `PaletteDriveGain`), which
+is why tracking felt right while the models were too big.
+
+`[Hands] ModelScale` is a uniform factor about the target palm, so the grip
+stays where tracking put it. The weapon path takes the same factor about the
+same palm, so the two cannot drift apart. `delta_from_target` now hands back
+the palm in local space (it always computed it and threw it away).
+
+The F10 "hand / weapon size" slider drives this instead of `HandSize`.
+`HandSize` wrote `SkelControlBase.BoneScale` engine-side, which only reaches
+SkelControl-driven bones and could never resize a separately-componented
+crossbow. The key still loads for the legacy drive; config warns with the
+product if both are off 1.0.
+
+### The levers as installed
+
+`AttachWeapons=1 AttachSwordHand=0 AttachCrossbowHand=1 WeaponId=1
+WeaponIdMs=1500 MatCycle=0 PaletteRotate=1 ModelScale=1.00 HandSize=1.00
+Adjust=1 AdjStepT=1 AdjStepR=3`, per-hand trim under `TrimLTX..TrimRRZ`, grip
+calibration under `GripL*`/`GripR*`. `MatCycle` must stay 0 - the identifier
+drives the same hide/restore calls and refuses while the cycler is armed.
+
+### Still untested from the previous session
+
+**The numpad hand adjust has never been pressed in a headset.** Numpad 9
+cycles LEFT position / LEFT rotation / RIGHT position / RIGHT rotation and
+names the mode; 8/2 forward/back or pitch, 6/4 right/left or yaw, 0/5 up/down
+or roll; 7 cycles the step. Every press logs and saves. The census gives up
+Numpad 4-9 while `Adjust=1`, the cycler gives up 2, and the mesh split's mode
+cycle moves from Numpad 0 to Numpad 1 - the startup log names all of it.
+
+**The grip restart path is confirmed** only insofar as the calibration loads;
+the hands were reported correct on the runs since.
+
+### Verified on the desk, not in the headset
+
+28 frame-maths cases pass (`build\src\RelWithDebInfo\frame_test.exe`),
+including the new `model_scale_about_the_palm`, which FAILED on its first run
+and was right to - it measured distances from `D(palm)` when the palm is a
+point in the OUTPUT space that `D` maps the source anchor onto. `lint` clean,
+exports clean. **The attachment and the model scale have never been in a
+headset.**
+
+### Next steps
+
+1. The two tests above.
+2. If the weapons attach, the remaining W-items are in
+   `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`: re-acquire on equip
+   change (buffer pointers can differ after a re-equip), and ownership during
+   reload and release.
+3. `pcap/layout` was printing at draw rate and produced a 25 MB log in one
+   short run; now once per shader. Worth a look for other unbounded per-draw
+   lines in the same family.
+
+## PREVIOUS CURRENT (2026-09-07, later): VR-33 - the numpad adjust and a weapon identifier that can fail
+
+### WHAT TO TEST, in order. Everything is installed and armed; just launch.
+
+The build is Release, installed, and the ini is set. Nothing needs typing and
+no key needs pressing to arm anything.
+
+**Test 1 - the calibration survives a restart.** Launch and look at your hands
+before touching any key. The grip was solved and saved last session
+(`GripLVersion=2 GripLParity=-1`, `GripRVersion=2 GripRParity=-1`).
+
+* EXPECTED: the hands are at the right angle immediately, the same as they
+  were after SHIFT+F7 last time. The log says
+  `config: the <side> hand's grip calibration LOADED - version 2, parity -1`
+  for both hands, and NOT the "NO CALIBRATION" warning.
+* IF THEY ARE MIRRORED OR INSIDE OUT: the saved record is not being applied.
+  Say so; the log line above is the one that matters.
+* IF THEY ARE AT A WRONG ANGLE BUT NOT MIRRORED: the record loaded but is
+  wrong. SHIFT+F7 will re-solve it.
+
+**Test 2 - the numpad adjust.** Press **Numpad 9** four times, slowly.
+
+* EXPECTED: four log lines naming `LEFT hand POSITION`, `LEFT hand ROTATION`,
+  `RIGHT hand POSITION`, `RIGHT hand ROTATION` in that order, each printing
+  that hand's current trim.
+* Then in `LEFT hand POSITION`, press **Numpad 8** a few times. EXPECTED: the
+  LEFT hand moves along its own fingers, 2 cm per press, and the right hand
+  does not move at all. Numpad 6/4 move it across the palm, 0/5 out of it.
+* **Numpad 7** cycles the step (0.5 / 2 / 5 cm). In a rotation mode it cycles
+  0.1 / 0.25 / 0.5 / 1 / 2 / 5 / 15 degrees.
+* Every press writes to the ini, so stop wherever it looks right and it will
+  be there next launch. No key press is needed to save.
+* IF A KEY DOES NOTHING: check the log for that press. The build prints a line
+  for every press, including a CLAMPED line at the limits and a warning if the
+  press is saved but cannot move the hand yet. A press with NO line at all is
+  the interesting failure - that means the key is not reaching us.
+
+**Test 3 - the weapon identifier.** Nothing to press. Draw the crossbow, stand
+still somewhere quiet facing a wall, and keep it in view.
+
+* EXPECTED, before you draw anything: `wid: WAITING - N component(s) resolved
+  and none of them is a weapon`, listing what it has. This is the fix: last
+  run it swept anyway and produced a confident wrong answer.
+* EXPECTED, a few seconds after the crossbow is out: `wid: sweep planned -
+  baseline plus N component(s) x 4 phases`, then the crossbow BLINKING off and
+  on twice per component, about 1.5 s each. **Stand still for the whole
+  sweep** - the test is "this draw stops and comes back with the hide", and a
+  view that changes under it produces the same signal.
+* EXPECTED at the end: a report. The three outcomes and what each means:
+  * `'crossbow_01' OWNS signature ...` - this is the answer, and it is what
+    the weapon attachment needs.
+  * `*** THIS REPORT IS VOID ***` - the signature table filled up. Not a
+    failure to report; it means try again somewhere emptier.
+  * `'crossbow_01' owns NO signature` - hiding it stopped nothing that came
+    back. Also an answer, and a different problem.
+* The report also prints how many signatures vanished on ONE hide but not the
+  other and were REJECTED. A nonzero number there is the instrument working:
+  those are exactly what the previous build called owned.
+
+### What changed this session
+
+**The hand trim moved to BioShock Remastered VR's numpad scheme, per hand**
+(`7c621cc2`). F5 could never have worked: it is the game's quicksave and
+`head_track.cpp` reads it at two more places, so one press fired three
+features. The scheme is adopted key for key because those are the keys the
+tester already has in his fingers.
+
+The trim is now per hand. One shared value assumed the residual after
+calibration is common to both palms; it is not, since the two grips are solved
+from two separate poses. The old shared keys seed both sides once so nothing
+already dialled in is lost, and the migration is logged.
+
+Every numpad key was already claimed behind a feature gate, so `[Hands]
+Adjust=1` makes an EXPLICIT claim rather than adding another reader: the
+census gives up Numpad 4-9 entirely, the material cycler gives up 2, and the
+mesh split gives up Numpad 0 with its mode cycle moving to Numpad 1. One
+startup line names what took what. Numpad + - * / . are untouched.
+
+**The weapon identifier was rebuilt so it can fail its own hypothesis**
+(`7bfa2675`). All three defects named in the previous entry are fixed:
+
+1. it refuses to plan until a component that is not the player body has
+   resolved AND the candidate list has been unchanged for three seconds;
+2. a table overflow VOIDS the report instead of footnoting it, and the table
+   is sixteen times larger;
+3. each component gets HIDE, SHOW, HIDE, SHOW, and a signature is attributed
+   only if it vanishes on both hides and returns on both shows. The report
+   counts the single-cycle near-misses it rejected, which is the number that
+   shows the old sweep was measuring noise.
+
+A fourth thing turned up on the way: `MatShowSection` returns true when the
+native was CALLED, not when the section actually hid - it logs `[DID NOT
+TAKE]` separately and still returns true. Phases are now judged by reading
+`HiddenMaterials` back, and a phase whose flags disagree with what it asked
+for is poisoned and its component reported UNTESTED.
+
+### The levers as installed
+
+`Adjust=1 AdjStepT=1 AdjStepR=3 Palette=1 PaletteWorld=1 PaletteEyeOffset=1
+PaletteDepthRange=1 PaletteRotate=1 WeaponId=1 WeaponIdMs=1500 MatCycle=0`,
+per-hand trim under `TrimLTX..TrimRRZ`, grip calibration under
+`GripLVersion`/`GripLParity`/`GripLX..Z` and the right-hand equivalents.
+`MatCycle` must stay 0: the identifier drives the same hide/restore calls and
+refuses outright while the cycler is armed. `PaletteRotate=0` returns to the
+headset-confirmed translation-only build.
+
+### Verified on the desk, not in the headset
+
+27 frame-maths cases pass (`build\src\RelWithDebInfo\frame_test.exe`),
+including `hand_trim_is_in_the_palm_frame` and `hand_trim_carries_the_weapon`
+which pin the trim the numpad now drives. `tools\lint.ps1` clean, exports
+clean. **Nothing here has been in a headset** - the numpad bindings, the
+per-hand split, the restart path and the whole identifier are unverified.
+
+### Next steps
+
+1. The three tests above.
+2. If the identifier names the crossbow's draws, weapon placement is unblocked:
+   `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the full spec, and
+   the weapon target comes from the SHARED `palm_target` helper the hands
+   already use, so a weapon can be placed before either hand draws.
+3. The hand adjust has no auto-repeat, deliberately - BRVR has none and an
+   unrequested one overshoots. If the tester wants it, it is four lines.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - hands CONFIRMED, weapons are next
+
+### Headset-confirmed this session
+
+**The hands track position AND rotation correctly.** After one SHIFT+F7 grip
+capture they snapped to almost exactly the right pose, tracked both position and
+rotation, and stayed still when the head moved. The tester asked for this to be
+kept. Recoverable tag: commit `82abe020`.
+
+Before the capture they were mirrored and inside out. That is the same
+arithmetic as the restart bug and both are fixed in `9d55ccde`: the solved grip
+is a REFLECTION (det -1), three Euler angles cannot carry one, and identity was
+therefore the wrong uncalibrated default. The record now stores a parity sign
+beside a proper rotation, is versioned, refuses pre-version records, and saves
+itself so a calibration survives a restart with no key press.
+
+### The calibration save WORKS, measured
+
+```
+ms/palette/grip: SOLVED for the RIGHT hand ... parity -1, proper rotation
+                 +29.52 -47.63 +22.47 degrees
+ms/palette/grip: the left hand's calibration is SAVED (version 2, parity -1)
+ms/palette/grip: the right hand's calibration is SAVED (version 2, parity -1)
+```
+
+Both hands solved parity -1, as predicted, and both wrote a version-2 record.
+The restart path itself is still UNVERIFIED - nobody has relaunched and checked
+the hands come back right without a key press. That is headset test 1 below.
+
+### THE WEAPON IDENTIFIER PRODUCED A FALSE POSITIVE. Read this before reusing it
+
+It ran, and its report is wrong. Three defects, all visible in its own output:
+
+```
+wid: sweep planned - baseline plus 1 component(s)
+wid: 128 distinct skinned draw signature(s) over 16974 draw(s),
+     55272 that did not fit the table
+wid:   'Skm_Player' OWNS signature ... | c6 x3 (1 bones) prim 486 stride 12
+```
+
+1. **Only ONE component resolved.** `Skm_Player` alone; no `crossbow_01`, no
+   `bolt_01`, no `Wpn_PlySword01`. The sweep fired about 17 s after the config
+   loaded, before the weapons existed as components. It must WAIT until the
+   assets it is there to identify are actually resolved, and refuse rather than
+   sweep a list that cannot answer the question.
+2. **The signature table saturated.** 128 held, **55,272 draws did not fit**.
+   Once full it cannot record a new signature, so later phases are blind. An
+   overflow must INVALIDATE the report, not appear as a footnote under
+   attributions that it silently broke.
+3. **The attributions are not weapons and are probably not the player.**
+   `c6 x3` is a ONE-bone palette at stride 12 - world props, not the skinned
+   first-person mesh. What the report actually measured is "these draws stopped
+   during a 1.5 s window", which a camera move or an object leaving the view
+   produces just as well as a hide does.
+
+**The instrument cannot fail its own hypothesis, which is this project's oldest
+recurring fault** (`VR-33-HANDS-AND-WEAPONS.md` section 4). The orphan count was meant to be
+the control and a saturated table defeats it. The fix is not a bigger table
+alone: a signature must vanish on EVERY hide and RETURN on EVERY restore, over
+at least two hide/restore cycles, before it is called owned. A single
+disappearance is not evidence.
+
+### FEEDBACK FROM THE HEADSET RUN
+
+1. **F5 is already bound.** The hand trim added in `9d55ccde` uses F5, and
+   `head_track.cpp:620` and `head_track.cpp:1064` already read it. One press
+   fires both, so the trim is unusable as shipped and must be rebound.
+2. **Nothing was seen to blink** - consistent with the above: only the player
+   body was ever hidden, for 1.5 s, once.
+3. **The alignment needs small tweaks**, position and rotation, per hand.
+
+### What the tester asked for next, specifically
+
+**Adopt BioShock Remastered VR's numpad adjust scheme, per hand.** Four modes
+cycled with **Numpad 9**, in this order:
+
+```
+  0  LEFT hand POSITION
+  1  LEFT hand ROTATION
+  2  RIGHT hand POSITION
+  3  RIGHT hand ROTATION
+```
+
+The scheme is adopted from the maintainer's own BioShock Remastered VR mod,
+where it has been in use for a long time; these are the keys the tester already
+has in his fingers, which is the reason for matching them exactly:
+
+| Key | Position mode | Rotation mode |
+|---|---|---|
+| Numpad 8 / 2 | forward / back (cm) | pitch (deg) |
+| Numpad 6 / 4 | right / left (cm) | yaw (deg) |
+| Numpad 0 / 5 | up / down (cm) | roll (deg) |
+| Numpad 7 | cycles the step: 0.5 / 2 / 5 cm | 0.1 / 0.25 / 0.5 / 1 / 2 / 5 / 15 deg |
+| Numpad 9 | cycles the mode, and the log line NAMES the mode and hand | |
+
+Every change is logged and written back to the ini, as BRVR does.
+
+**THE COLLISION, measured, and it must be handled before this ships.** Every
+numpad key in this repo is already claimed, each behind a feature gate:
+
+| Keys | Owner | Gate | Free right now? |
+|---|---|---|---|
+| 1 / 2 / 3 | the material cycler | `g_matCycleCfg` | yes - `MatCycle=0` in the installed ini |
+| 4 / 5 / 6 / 7 / 8 / 9 | the draw census and its eighth-cutter | `g_dcOn` | only while the census is off |
+| 0 and `/` | the mesh split | `g_msOn` | **NO - the split is what draws the hands** |
+| CTRL+2 | hand move | `kCtrl` | n/a |
+
+So Numpad 0 and 5 (up/down in BRVR's scheme) collide with the live mesh split.
+**Do not just add another reader.** Give the adjust mode an explicit claim: when
+`[Hands] Adjust=1` the adjust block takes the numpad and the split, census and
+cycler blocks are suppressed for those keys, with one log line saying the numpad
+is claimed and by what. One key firing two features has cost this project a
+session already (`7099c3b0`, `0e1ccbb0`).
+
+The existing hand trim (`g_mpTrimT` / `g_mpTrimR`, palm-frame, saved on every
+press) is the right backing store for the two LEFT/RIGHT modes - but it is
+currently ONE shared trim for both hands and needs splitting per side. It is
+already applied through `palm_target`, so a per-hand version needs no new maths.
+
+### Then: actually attach the weapons
+
+The identification instrument is built and armed but has produced nothing yet.
+Its output is the input to placement, and placement was deliberately NOT written
+blind. `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` is the full spec;
+the short form is:
+
+* one stable grip/root frame on the crossbow;
+* `D_assembly_C = WeaponGripTarget_C * inverse(S_C)`, and every member takes it
+  through its own `LocalToWorld`: `D_j_local = inverse(L_j) * D_assembly_C * L_j`;
+* the loaded bolt keeps its animated relationship to the root - independently
+  pinning each part to a controller offset would cancel its animation;
+* the weapon target comes from the SHARED `palm_target` helper, which is already
+  extracted and tested, so a weapon can be placed before either hand draws;
+* weapon draws must CONSUME the eye decision, never feed the hand classifier.
+
+### The levers as installed
+
+`Palette=1 PaletteWorld=1 PaletteEyeOffset=1 PaletteDepthRange=1
+PaletteRotate=1 WeaponId=1 WeaponIdMs=1500 MatCycle=0`, grip calibration saved
+under `GripLVersion`/`GripLParity`/`GripLX..Z` and the right-hand equivalents.
+`PaletteRotate=0` returns to the translation-only build.
+
+### Verified on the desk, not in the headset
+
+27 frame-maths cases pass (`build\src\RelWithDebInforame_test.exe`, and the
+same suite runs from `DllMain` into every log). The 28 saved packets replay
+through the shipped decomposition: dominant slot 10 left / 35 right, uniform
+scale 0.9995117 to 0.9995123, worst anisotropy 6.0e-07.
+
+Measured this session and in ENGINE_NOTES: the XR-to-game pose mapping is a
+MIRROR (`det(B*F) = -1`); the pose tick and the hand draws are ONE thread
+(14224), 0 stale snapshots over 11,881 publications; and two of the three hand
+shaders run normals and tangents through the same palette rows, so a rigid
+correction carries the tangent frame and `WorldToLocal` must be left alone.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - rotation and grip built, then confirmed
+
+### Run 1 found the fault, and the instrument named it
+
+The first rotation build refused on **every** draw: `rotate=1 placed 0 refused
+116908 (B*F is not a proper rotation)`. The hands looked unchanged and SHIFT+F7
+appeared to do nothing, because the grip capture sits behind the same gate.
+
+**The guard was wrong, not the game.** The draw's camera basis is RIGHT-handed,
+so the pose mapping between XR and the game's camera-relative frame is a
+MIRROR - exactly what a right-handed runtime and a left-handed engine produce.
+A reflection is a coordinate convention: it carries through by full basis change
+and CANCELS between the controller orientation and the grip transform, so what
+reaches the palette is a proper rotation either way. The guard now requires
+orthonormality only, records the parity, and a new self-test case
+(`improper_basis_roundtrip`) pins the whole chain under a mirrored mapping:
+capture exact, `det +1.0000`, a 37 degree controller turn giving a 37.00 degree
+hand turn.
+
+Two things the run confirmed on the way: the **fail-soft held** - all 116,908
+draws still placed translation-only, so nothing regressed and the run simply
+looked like the previous build - and the **pose tick and the hand draws are one
+thread** (14224), with 0 stale snapshots over 11,881 publications.
+
+A pending grip capture now logs a warning naming why it has not been consumed,
+so a press can never silently do nothing again.
+
+### What is armed right now
+
+The installed build is Release with `[Hands] PaletteRotate=1` and the grip
+transform at identity. **Launch the game; nothing else needs doing.** The full
+test list, with expected outcomes and what each failure would mean, is section 3
+of `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`.
+
+**The hands will start at a wrong ANGLE.** G is identity until it is captured,
+so they track the wrists at a fixed offset. **SHIFT+F7** solves G for both hands
+and prints six numbers for the ini; the hands snapping to the game's own
+orientation at that instant is what the calibration means.
+
+`PaletteRotate=0` returns to the headset-confirmed translation-only build.
+
+### The one question this run answers
+
+Does the candidate palm frame (`src` in `ms/palette/frame:`) move when the GAME
+animates the hand, and stay put when only the fingers move? Nothing offline can
+answer it: all 28 saved packets are one near-idle pose. If `src` never moves
+during a melee swing or a power, the dominant palette slot is not the palm's
+frame and the orientation source changes to a validated landmark fit.
+
+### What was corrected before building
+
+An external review found three blockers in the first draft of the plan, all
+fixed:
+
+1. **The motion gate was impossible.** It expected the game's palette to turn
+   when the tester rolled a physical wrist, with no mechanism connecting them.
+   Withdrawn; three orientations (`src`, `ctl`, `out`) are now logged under
+   separate names and are expected to be INDEPENDENT while rotation is off.
+2. **The orientation conversion reintroduced head-driven rotation.** A pose
+   orientation maps controller-local axes into another frame; a similarity
+   transform changes the basis of a rotation operator, which is a different
+   object. The correct form is `O_C = B * F * transpose(R_head) * R_ctl` with
+   `F = diag(1,1,-1)`, matching the physical mapping the working position path
+   already performs. The counterexample is now a shipped test that the rejected
+   formula fails by 180 degrees.
+3. **The grip capture mixed spaces.** The source frame is component-local and
+   the controller camera-relative; it is carried through the draw's own
+   LocalToWorld first.
+
+### Measured before any of it shipped
+
+* **20 of 20 frame-maths cases pass** (`src/tools/frame_test`, and the same
+  suite runs from `DllMain` into every log). They include the head-turn
+  counterexample, the grip round trip, the pivot, and the proof that rotation
+  OFF is bit-for-bit the shipped translation behaviour.
+* **All 28 saved packets decompose** through the shipped code: dominant slot 10
+  in every one, uniform scale 0.999511659 to 0.999512255, worst anisotropy
+  6.0e-07, worst orthonormality residual 9.8e-07. Three orders of magnitude
+  inside the tolerance.
+* **The single slot's frame moves 1.05 degrees** across those packets where the
+  weighted blend looked frozen to five decimals - so the slot does respond to
+  the engine's animation. It is not yet evidence that it follows the PALM.
+* **The three hand shaders' normal path is closed.** Two of them run normals and
+  tangents through the same palette rows, so a rigid correction carries the
+  tangent frame; their `WorldToLocal` is a view/light conversion and is NOT
+  touched. ENGINE_NOTES carries it.
+
+### Next steps
+
+1. The headset run above. Report the six grip numbers and whether `src` moves
+   with the game's animation.
+2. Put the solved G in the ini and re-judge orientation.
+3. Then the weapon assembly: a stable grip/root source frame, ONE root
+   correction, and every member's animated transform preserved RELATIVE to that
+   root. Independently pinning each animated part to a controller-relative
+   target cancels its own animation.
+4. Then firing. The visual weapon stage explicitly accepts that a released bolt
+   returns to the native origin; correcting it is the firing stage.
+
+Carried and deliberately not done: a render-view ticket for the eye, the
+`same eye` counter (an instrumentation limit, not 776 repeated eyes - no
+threshold tuning), head look-ahead against hand sampling time, one canonical
+metres-to-units conversion (logging only for now), and mesh geometry size.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the hands are at the controllers and correct
+
+### Confirmed in the headset
+
+The hands **track the controllers, are correctly scaled, occlude against world
+geometry, and hold position through head turns.** Tagged `vr33-hands-working`.
+
+**The full record is `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md`** - the mechanism, the
+engine facts, the seven approaches that failed and why, and the instrument
+failures that cost the most. Read that before touching this code; most of what
+looks like an obvious improvement has already been tried and measured.
+
+### The mechanism, in one paragraph
+
+The bone palette's output is the component's LOCAL space; `LocalToWorld` (c231)
+takes it to a camera-relative world frame and `ViewProjectionMatrix` (c0) to
+clip. Placement re-skins the palm from the game's own palette every frame and
+translates by `target - q`, so the animated baseline is subtracted rather than
+left underneath. The camera basis comes from the VP's rows. The eye is decided
+once per Present from the right-axis jump in `LocalToWorld`'s translation, whose
+sign gives left or right absolutely. Register numbers are parsed from each
+shader's CTAB, never hard-coded - three shaders draw this mesh and they
+disagree.
+
+### Next phase
+
+1. **Rotation and grip.** The hands keep the engine's animated orientation, so
+   they look posed rather than gripping. Full rigid composition, per-component
+   conjugation `D_local = inverse(C) * D * C`, a stable palm frame from
+   deliberately chosen landmarks rather than the current position patch, and
+   basis conversion by conjugation - the translational basis has determinant
+   -1 and is a coordinate convention, not a rotation.
+2. **The weapon assembly.** Crossbow, loaded bolt and reload parts, moved by the
+   same common transform through each component's own `C`. A hand-local delta
+   cannot be copied into a weapon-local palette.
+3. **Gameplay consumers.** Firing aim, projectile origin, melee. A GPU edit does
+   not move them.
+
+Carried and deliberately not done: one canonical metres-to-units conversion
+(`[Hands] WorldScaleUU` 100 against `[PosTrack] Scale` 108), pose timing (head
+look-ahead against hand prediction), a render-view ticket to carry the eye
+rather than infer it, and a harness case for the feature-gate regression that
+cost three runs.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the hands are at the controllers; the stereo eye offset is the last placement fault
+
+### Where this is
+
+**Placement through the measured chain WORKS.** The hands track the
+controllers, hold position through head turns, and now occlude correctly
+against world geometry. The tester rates it the best result of the session.
+
+The path is measured, not inferred. Read from the shaders' own disassembly:
+
+```
+p_local = ( sum_i w_i * BoneMatrix[idx_i] ) * ( v0 * MeshExtension + MeshOrigin )
+p_cam   = LocalToWorld * p_local            (camera-relative world, uu)
+clip    = ViewProjectionMatrix * p_cam
+```
+
+Placement is `target_local = Rl^T * (d_cam - t)`, `T = target_local - q_local`,
+with `LocalToWorld` and `ViewProjectionMatrix` read from the device at each
+draw through the register indices that shader's own constant table declares.
+`ENGINE_NOTES.md` carries the full finding.
+
+### The remaining fault: the eye offset is not applied
+
+**Symptom:** correct in each eye individually, far too large with both open.
+
+**Diagnosis:** `method=reentry` is live and the scene is genuinely drawn twice
+(`L/s=88 R/s=88 mono/s=0`), so the world has correct stereo. But `d_cam` is
+computed from the HEAD CENTRE and used unchanged for both eyes. Placing the
+hand at the same camera-relative offset in each eye puts the two hand images an
+IPD apart in world terms - the disparity of an object at infinity. A hand-sized
+object at infinite disparity reads as a giant hand far away, which is exactly
+what is reported.
+
+**The fix** is to subtract that eye's offset: for each eye,
+`d_cam_eye = d_cam_head -/+ (IPD/2) * right_axis`, with the right axis already
+recovered from the ViewProjectionMatrix. IPD is known (63.0-63.1 mm measured).
+
+**The blocker** is that the draw does not yet know which eye it is drawing.
+The capture records the eye as `-2`, "not identified", which was flagged as a
+known gap when the mono method made it harmless. Under `reentry` it is not
+harmless and is now the last thing between this and correct hands.
+
+### What is measured and settled
+
+* Three shaders draw this mesh. Only one is depth-crushed (`MaxZ 0.001`); the
+  other two use the full range. Placement currently applies to all three.
+* Register layouts differ per shader and are parsed from each shader's CTAB.
+  One shader defines c4 as an immediate that disagrees with the device.
+* The shader does NOT normalise skin weights, but the anchor's weights sum to
+  exactly 1.0000, so it is harmless here.
+* The depth-range lever works: restoring `MaxZ` 1.0 for our draws gives correct
+  occlusion against world geometry.
+* Scale is still formally unmeasured, but the "huge" report is now attributed
+  to the eye offset rather than to scale, and should be re-judged after it.
+
+### Next steps
+
+1. Identify the eye at the hand draw under `reentry`, and apply the eye offset.
+2. Re-judge apparent scale once stereo is correct.
+3. Then Build B: controller orientation and a grip-to-palm transform.
+4. Outstanding and deliberately not done: pose timing (head look-ahead vs
+   hand), the harness case for the feature-gate regression, render states in
+   the capture, and a rigorous uu/m measurement.
+
+## PREVIOUS CURRENT (2026-09-07): VR-33 - the SkelControl lane is closed, the palette route is next
+
+### Where this branch is
+
+The arm/hand split is healthy and confirmed in the headset: hands cut at the
+wrist, arms hidden, caps present, cap colour approved, ring at the measured
+-4.9. Two PRs are open and unmerged - #19 (VR-31, the split) and #20 (VR-53 and
+VR-51, the desktop mirror eye pin and the pause-menu session loss).
+
+**VR-33's native route is closed, and it is now evidence rather than an
+artifact.** The earlier "zero of 64 SkelControl objects advance" reading was a
+truncated scan - the sweep stopped when its 64-entry comparison table filled,
+so 64 was the array's capacity, not a population. Fixed and re-run the same
+day with the hands subsystem LIVE (`[Hands] Enabled=1`, `[Mode] GamepadOnly=0`,
+the state every earlier measurement lacked), 34 consecutive samples read:
+**103,117 GObjects entries walked, 66 SkelControls, all 66 tracked, 0
+untracked, 0 advancing.** No SkelControl is evaluated on this build, so a write
+to one cannot move anything. The old table had missed exactly two objects, so
+the retracted reading was right by luck; it is measured now. This also does
+retire the 38.x "9,000 writes a second outrun the recompute" reading. See
+ENGINE_NOTES, "SkelControls are NOT evaluated on this build".
+
+The scan's cost is measured too: **505-520 ms of game-thread stall once per
+second**, attributed by the perf line to `out/idle`, ~46 display slots at
+90 Hz. It is unplayable while armed. It is back OFF in the installed ini.
+
+### What IS established, and is worth keeping
+
+* `handAttachment_L/R_jnt` are children of `hand_L/R_jnt`, from validated
+  engine parent walks. If anything ever does move a hand joint, the weapon
+  attachment is beneath it.
+* The camera is on the spine/head branch; the two arms meet only at `Root_jnt`.
+  A per-side edit at or below a hand cannot disturb the view or the other hand.
+* Skeleton indices are NOT palette slots: `hand_L_jnt` is 54 and
+  `handAttachment_L_jnt` 56, against a 48-entry palette.
+* The arm mesh's declaration uses streams 0 and 1; a stale stream-2 binding was
+  what kept costing the wrist caps. Bound is not used.
+* Full bone table, class Super offset (+0x44), socket table with parent bones,
+  and the control field offsets - all in ENGINE_NOTES.
+
+### The next step
+
+**The draw-scoped palette backend, hands only.** Build a private palette per
+hand by applying one common rigid delta D to every skinning matrix that draw
+consumes, and draw each hand under its own palette. Finger animation survives
+because `sum_i w_i (D M_i) v = D (sum_i w_i M_i v)`, so this is not a static
+hand. The two hand classes already have independent index ranges in `MsDraw`,
+which is where it goes.
+
+Its honest cost: it moves pixels only. Weapons, muzzle effects and firing aim
+stay on the engine's transform, which a GPU edit does not touch, so the weapon
+half of VR-33 needs a separate mechanism. The tester has already accepted that
+the crosshair can be faked separately.
+
+The gate is passed - the tick scan has been run and the native lane is shut.
+The palette backend is the route, and it is the work in front of this branch.
+
+**What it is not**: it moves pixels only. Weapons, muzzle effects and firing
+aim stay on the engine's transform, which a GPU-side edit does not touch, so
+the weapon half of VR-33 needs a separate mechanism. The crosshair can be
+faked separately and that has been accepted.
+
+### How the pieces already on disk fit
+
+The backend is a join of two things that exist, not new machinery.
+
+* `hkSetVSConstF` already carries a whole-palette rewrite - the 30.70/71 hand
+  drive in `core/framework/vs_const_hook.cpp` applies a per-hand rotation and
+  translation to every bone matrix in a `c6` upload. That is exactly the
+  `D * M_i` the finger-animation argument needs.
+* What it lacks is DRAW SCOPE: it identifies a rig by upload `count` and
+  ordinal, so it cannot give the two hands different deltas when they share
+  one upload.
+* The missing half is on the other side. `MsDraw` in
+  `game/dishonored/hands/mesh_split.cpp` already has independent per-class
+  index ranges (`MS_CLS_HAND_A` / `MS_CLS_HAND_B`).
+
+So: cache the game's last `c6` block, and have `MsDraw` upload `D_L * M`
+before the hand-A range and `D_R * M` before hand-B, restoring the original
+block afterwards. D3D9 constants are current state, not one-shot - the trap is
+already recorded at `hands/draw_census.cpp:334`.
+
+### Build and deploy state
+
+The installed `d3d9.dll` is code-current with this branch - built and installed
+2026-09-07 12:55, three DOCS-ONLY commits behind HEAD. Its last run stamped
+`alpha-334-g88eefb61-dirty`; HEAD is `alpha-337-g220c5a28`, and the difference
+is ENGINE_NOTES and STATUS only. Rebuild anyway before trusting a build id.
+
+**Verified in the headset:** the split, the clip, the caps and cap colour, the
+ring at -4.9, the arms staying hidden, and the SkelControl lane being inert.
+**Built but NOT headset-verified:** the desktop mirror eye pin and the
+pause-menu session fix on PR #20 - both still need the run in
+`docs/dishonored/DESKTOP_MIRROR.md` section 7.
+
+**All diagnostics are now disarmed on the dev rig**: `[Hands] BoneQuery=0`,
+`HandMoveTest=0`. `PoseReport` has no key and defaults on; it is read-only and
+prints once. The GObjects tick scan is gated behind `HandMoveTest` and is the
+thing that cost frame rate - leave it off.
+
+### Traps this session paid for
+
+* A too-narrow grep produced two confident false claims ("the codebase has
+  never called a UE3 function", "g_peReentry is read nowhere"). Both were
+  wrong; grep the tree, not one file.
+* An instrument that cannot fail its own hypothesis is worse than none: a
+  function-local `static` made a false negative read as a measurement, and a
+  walk that printed ROOT for three different endings made a broken chain look
+  complete.
+* The GObjects-wide tick scan is heavy enough to be felt in the headset. It
+  ships OFF and should stay off.
+
+## PREVIOUS (2026-09-06): VR-33 - hands and weapons where the controllers are
+
+This is the working branch for VR-33 and it is the CONTINUATION OF BOTH open
+PRs: the arm/hand split (VR-31, PR #19) and the desktop mirror eye pin plus the
+pause-menu session fix (VR-53 / VR-54, PR #20). Both are merged in here, and
+neither has been merged to `VR-Main`.
+
+### Read this before installing anything
+
+**The two PR branches do not work on their own.** Branch VR-31 has no API layer
+guard, and without it `xrCreateInstance` fails with `XrResult(-32)` on both the
+native runtime and the SteamVR shim, so the game runs flat with no VR at all.
+The guard is on the VR-53 branch. That was found by installing the VR-31 branch
+alone on 2026-09-06 and losing VR entirely.
+
+**So install from THIS branch**, not from either PR branch, for as long as both
+PRs are open. The PR branches are for review; this one is what runs.
+
+### What VR-33 is
+
+The hands and the weapons go where the VR controllers are. VR-30 took the head's
+yaw out of the pawn's facing, which is what lets a hand sit still in the world
+while the head moves; VR-31 decided the presentation and cut the hands free of
+the arms. This branch is the transform work that follows from both.
+
+Nothing has been written for it yet.
+
+### Open questions carried in from the two PRs
+
+* **The cap's colour has not been re-confirmed** since the UV decode was
+  widened. The mode had never run - this asset packs TEXCOORD0 as `FLOAT16_2`
+  and the check demanded a `FLOAT2` - so every cap took ring vertex 0, an
+  arbitrary choice that happened to look right.
+* **Whether the ring's shape changes with the POSE** is unanswered. The cut is
+  computed in the bind pose and seen in the animated one.
+* **The desktop eye pin and the pause-menu fix are unverified in the headset.**
+  Section 7 of `docs/dishonored/DESKTOP_MIRROR.md` has the three checks.
+
+### References
+
+* `docs/dishonored/ARM_HAND_SPLIT.md` - the split, every key and hotkey, the traps
+* `docs/dishonored/DESKTOP_MIRROR.md` - the eye policy and the hold fix
+* `docs/dishonored/BRIEF-eye-flicker.md` - the hypothesis graveyard, ANSWERED
+
+## MERGED IN (VR-53 / VR-54, PR #20) (2026-09-06): VR-53 / VR-54 - the desktop had no eye policy, and a hold banked empty layers
+
+This branch is the frame path and nothing else. The arm/hand split worked on in
+the same sessions was split out onto its own branch and is VR-31.
+
+**The full reference is `docs/dishonored/DESKTOP_MIRROR.md`**; the hypothesis
+graveyard that led to it is `docs/dishonored/BRIEF-eye-flicker.md`, now marked
+answered. This section is the handoff summary only.
+
+### What was actually wrong
+
+`hkPresent` calls the game's original `Present` for EVERY eye draw, and
+`mirror_present()` in the runtime layer had never implemented the D3D9 copy -
+its own comment said so. So the game WINDOW showed L(k), R(k), L(k+1), R(k+1)
+while the headset received correct pairs the whole time. A recording of the
+window alternates between two camera positions one IPD apart, which is exactly
+what alternate-eye rendering looks like, and the diagnosis had been aimed at
+the headset path for several sessions on the strength of it.
+
+The headset was never doing AER. The desktop had no eye policy at all.
+
+`core/gfx/desktop_eye.cpp` pins it: snapshot on the left eye's present, re-blit
+over the right eye's present AFTER that eye's XR capture. The runtime layer
+owns the WHEN and the new module owns the HOW, so `openxr_runtime.cpp` gains a
+hook pointer and nothing else.
+
+### The pause-menu session loss (VR-54)
+
+On a hold-only present the submitted copies are `holdProj` / `holdViews` /
+`holdQuad`, not the empty `proj` / `projViews` / `quad` locals - but the hold
+sets `layerCount = 1` and the snapshot bank keyed off `layerCount`, so it
+overwrote a good snapshot with zeroed structures and left it marked valid. The
+next hold submitted null handles and a zero view count, `xrEndFrame` answered
+`XR_ERROR_HANDLE_INVALID`, and the session stood down. Banked on
+`builtNewLayer` now.
+
+Still open and tracked separately: a saved layer holds swapchain HANDLES, not
+pixels, and OpenXR composites the most recently RELEASED image, so preserving a
+completed PAIR needs retained images rather than a retained structure.
+
+### Retracted, not tuned
+
+The "30 % of ticks double" reading and the stand-down guard built on it are
+REMOVED. That window straddled a pause menu, an `xrEndFrame` failure and
+session teardown; the windows either side read 78/78, 86/86, 87/87, 81/81. The
+guard would have disarmed a healthy renderer every time a session dropped. The
+`camera/eyetrace` line is corrected too - its ring samples constant uploads,
+not presents.
+
+### The run this needs
+
+Look at the game window: one view, no alternation, while the headset keeps
+correct stereo depth. `desktopeye:` in the log every 15 s should show snapshot
+and re-blit counts EQUAL and non-zero. Then open and close the pause menu
+several times: no `XR_ERROR_HANDLE_INVALID`, no session teardown.
+
+### Not addressed here
+
+Performance: ~78 complete pairs/s against a 90 Hz headset, ~9.7 ms of D3D9 GPU
+span per tick, 15.7 Mpixel per pair at 2750x2850. That is the next subject.
+## MERGED IN (VR-31, PR #19) (2026-09-06): VR-31 - the hands are cut from the arms, clipped and capped
+
+This branch is the arm/hand split and nothing else. The desktop mirror eye pin
+and the pause-menu session loss found in the same sessions were split out onto
+their own branch and are VR-53 and VR-54.
+
+**The full reference for everything below is `docs/dishonored/ARM_HAND_SPLIT.md`**
+- the derivation, every ini key and hotkey, how to read the log, the traps, and
+what is still unverified. This section is the handoff summary only.
+
+### Where it stands
+
+The arms and hands are one skinned triangle list with one material, so the
+geometry is cut by us. The cut is derived per arm from BONE INFLUENCE, shaped
+as a plane perpendicular to the forearm, with the triangles that straddle that
+plane CLIPPED at it so the boundary is the plane itself rather than a row of
+triangle edges. The open end that leaves is CAPPED with a two-sided disc
+coloured from the mode of the boundary ring's own texture coordinates.
+
+The ring ships at the tester's measured position: `[Hands] WristCutA` /
+`WristCutB` = **-4.9**, read off the `ms/wrist` line at the end of the
+2026-09-06 headset walk. It is asset-relative, so it survives a level load.
+
+### Verified in the headset
+
+* The split itself: the hands draw, the arms do not.
+* The plane, the clip, and the ring walk with Numpad + / -.
+* The cap, at the point where it was still falling back to ring vertex 0 for
+  its colour.
+
+### NOT verified
+
+* The cap since the UV decode was widened. The log had been answering `NO
+  TEXCOORD0` because this asset packs its texture coordinate as `FLOAT16_2` and
+  the check demanded a `FLOAT2`, so the colour MODE never ran and every cap took
+  ring vertex 0 - an arbitrary choice that happened to look right. The mode now
+  runs, so **the cap's colour may differ from the one that was approved**. That
+  is the first thing to look at on the next run.
+* Whether the ring's shape changes with the POSE. The cut is computed in the
+  bind pose and seen in the animated one. If the ring's shape changes as the arm
+  moves, a slant has a different cause and a different fix than the axis; if the
+  slant is fixed relative to the arm whatever the pose, it is the axis. One run
+  settles it and nothing else can.
+
+### The run this needs
+
+Look at your hands. The wrist ends in a solid disc, no see-through, from every
+angle including down the arm from the elbow end. Walk the ring with Numpad
++ / - and watch the colour track it - sleeve on the cuff, skin past it. Then
+say whether the colour is the same one as before, because the decode fix could
+have changed it.
+
+In the log: `ms: cut end CAPPED` names the colour path that ran and the winning
+ring vertex; `ms: triangles by class` carries the whole result in one line.
+
+## PREVIOUS (2026-09-06, session 20d): VR-31 - a reversed winding was eating a third of the cut
+
+The clip RAN - the log says 54 triangles cut into 108 new vertices, stream 0
+ours - and the result was still ragged, with some of the boundary on one clean
+line and the rest missing or floating loose. That pattern named the bug.
+
+### The bug: one third of every clip was wound backwards
+
+`MsClipTri` picked the three corners by ASCENDING INDEX (`in[0], out[0],
+out[1]`) instead of in cyclic order. When the odd vertex out is the MIDDLE one
+of the three - one case in three - that reverses the triangle, and a reversed
+triangle is culled. Two thirds of the cut came out on a clean line and one
+third vanished, which is exactly what was reported.
+
+Fixed by taking the odd vertex `i` and its neighbours as `(i+1)%3` and
+`(i+2)%3`, so both halves keep the source triangle's winding.
+
+### The slant: the ring may be square to the wrong direction
+
+"Taking too many on the other side of the forearm" is a ring that is not
+perpendicular to the arm. The axis was the longest direction of the arm's
+triangle cloud (PCA), which a tapered sleeve can lean off the bone.
+
+`MsBoneAxis` derives it from the SKELETON instead: the hand bone minus the bone
+it hangs off, that bone being the hand's graph neighbour whose centroid is
+farthest away. No names, no hierarchy, same as everything else here. Both axes
+are computed, the angle between them is logged per side, and `ms axis
+bone|pca` switches live - which one is right is a question about this asset, not
+about geometry, and one press settles it. Default is the bone.
+
+### Also
+
+`+` / `-` auto-repeat after 400 ms, because at the ultrafine step the ring moves
+0.1% of the arm per press and placing it by hand would be a hundred taps.
+
+### Still unruled-out, and the check for it
+
+The cut is computed in the mesh's BIND pose and seen in the ANIMATED one. If
+the ring's shape CHANGES as the arm moves, that is the cause and the fix is a
+different one; if the slant is fixed relative to the arm whatever the pose, it
+is the axis. That is a thing the tester can see in one run and nothing else can
+answer.
+
+## PREVIOUS (2026-09-06, session 20c): VR-31 - the straddling triangles are CLIPPED
+
+Headset run on the plane cut: the steps were much better, the edge was still
+jagged - spikes hanging off the cuff in the screenshot. Diagnosed and fixed
+here, untested.
+
+### Why a plane was not enough
+
+The plane fixed the JUMPS but not the OUTLINE. A triangle straddling the cut
+was still kept or dropped whole, so the boundary was a sawtooth one triangle
+high; on the coarse cuff geometry that is a set of spikes. No edge RULE fixes
+that - keeping only triangles entirely past the plane trades spikes for
+notches. The boundary has to stop being made of original triangle edges.
+
+### The clip
+
+A triangle crossing the plane is split into the part on each side, with new
+vertices interpolated along the two crossing edges. Both halves are emitted
+into their own class, so `arms` stays the exact inverse of `hands` and `all`
+still rebuilds the original mesh. The boundary is then the plane itself.
+
+That needs a VERTEX buffer of ours as well as an index buffer, because the new
+vertices do not exist in the game's. Every stream-0 element is interpolated by
+its declared type; blend INDICES come whole from the nearer parent vertex,
+because a bone index is a name and not a quantity, and the weights go with them
+so they cannot end up naming the wrong bones. Both buffers are `D3DPOOL_MANAGED`
+with room to grow, so moving the ring does not recreate them and `hkReset` has
+nothing to release.
+
+**The one precondition, checked and logged**: stream 0 must be the only stream,
+because re-basing the index list onto a buffer of ours would desynchronise any
+second stream the game had bound. A mesh with more streams falls back to whole
+triangles with the reason named.
+
+### Smaller steps
+
+`Numpad .` cycles the knob's step: 2% of the arm, 0.5%, 0.1%. Default 0.5%
+(`[Hands] WristStep`).
+
+### New defaults
+
+`WristEdge=3` (clip), `WristStep=1` (fine). `ms edge 0|1|2|3` still selects the
+whole-triangle rules for comparison - 3 is the only one whose boundary is the
+plane rather than a row of triangle edges.
+
+### The run this needs
+
+The wrist should end in a clean ring with no spikes. `ms status` says how many
+triangles were cut and how many vertices were made; if `stream 0 belongs to the
+game` appears, the clip was vetoed and the reason is in the read lines. Then
+`Numpad .` for finer steps, `+` / `-` to place it, and the `ms/wrist` numbers
+become `WristCutA` / `WristCutB`.
+
+Compare against `ms edge 1` to see what the clip is worth - that is the best of
+the whole-triangle rules and should still show a notched edge.
+
+## PREVIOUS (2026-09-06, session 20b): VR-31 - the cut is a PLANE across the forearm
+
+The bone-influence split works and was confirmed in the headset: both hands
+present, both arms gone, at `WristScale` 0.70 on both sides (radius 21.7,
+2109 hand triangles per arm). Two faults in the SHAPE of the cut, both fixed
+here and neither yet tested.
+
+### The sphere moved in whole bones
+
+The tester's walk is in the log and it is unambiguous: from scale 0.50 to 0.67
+the triangle counts did not change AT ALL, then one press flipped 156 triangles
+per arm at once. A bone is inside the sphere or outside it, so every triangle
+that bone dominates changes class together. What is left is the outline of a
+bone's influence region, which is why moving the knob made the edge jagged
+rather than moving it.
+
+### A plane cuts a cylinder in a circle
+
+`MsPlaneDerive` per arm:
+
+1. **The limb axis** by power iteration on the covariance of the arm's triangle
+   centroids. Two passes - a rough axis over the whole arm, then a refined one
+   over a band around the rough cut, so the ring is perpendicular to the
+   FOREARM and not to the whole limb with the hand's mass pulling on it. The
+   refinement logs how many degrees it moved, and refuses past 40.
+2. **The starting position** keeps exactly the number of triangles the sphere
+   was keeping at the tester's 0.70. Changing the shape of the cut does not
+   move it: the look that was settled on survives, it just stops being blobby.
+3. **The knob moves the plane in LENGTH** - 2% of the arm per press - so the
+   ring travels smoothly instead of waiting for a bone to flip.
+
+The sphere is kept, not deleted: it is the seed, the fallback
+(`ms shape sphere`), and the thing that proved the classification works.
+
+### New keys and defaults
+
+`[Hands] WristPlane=1` (plane), `WristScaleA/B=0.70` (the tester's measured
+seed), `WristEdge=0`, `WristCutA/B` unset (derive). Setting `WristCutA/B` pins
+the ring in mesh units from the hand bone and survives a level load - the knob
+and `ms cut` both print exactly that number, so a good look becomes the default
+without another walk.
+
+`ms cut <a> [b]` places the ring, `ms shape plane|sphere`, `ms edge 0|1|2`
+(kept when the centroid / all three vertices / any vertex is past the plane).
+
+### The run this needs
+
+Look at the hands: the starting picture should be the SAME amount of forearm as
+the tester left it, but ending in a clean ring instead of a jagged edge. Then
+`Numpad +` / `-`: the ring should slide smoothly, a small step each press, with
+no chunk of triangles vanishing at once. When it looks right, read the
+`ms/wrist` line for the two numbers and they become `WristCutA` / `WristCutB`.
+
+If the ring comes out slanted rather than square across the forearm, the
+`forearm axis refined N degree(s)` line says how far the second pass moved and
+is where to look. `ms edge 1` is the alternative if the one-triangle sawtooth
+is visible up close.
+
+## PREVIOUS (2026-09-06, session 20): VR-31 - the cut is DERIVED from bone influence, per arm
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open). Installed
+Release. **Untested - built and installed, not run.**
+
+### What replaced the eyeballed mask
+
+The 32-slice mask cut by PERCENTAGE of the triangle order, and the two arms sit
+in different, non-aligned regions of that order, so a mask tuned on the left
+hand took too much of the right. No amount of further eyeballing fixes a cut
+that cannot express the shape.
+
+`src/game/dishonored/hands/mesh_split.cpp` classifies each TRIANGLE by the
+bones that actually move it, which is per-arm by construction:
+
+1. **Read once.** The draw's index range and vertex window are copied out of
+   the game's own buffers - the first time this project has read them - and
+   VALIDATED against facts the data must satisfy (indices inside the draw's own
+   vertex window, bone indices below the palette size, weights summing to 1,
+   finite positions, a non-degenerate bbox). A `D3DUSAGE_WRITEONLY` buffer may
+   legally hand back an uninitialised page on a read lock; that is why the
+   descriptors are logged BEFORE the lock and why a failed validation refuses
+   instead of carving the mesh up from noise.
+2. **Two arms from the SKINNING GRAPH.** Two bones are adjacent when some vertex
+   is meaningfully moved by both. Separate limbs share no vertex, so the graph
+   falls into two components - no bone names, no hierarchy, no engine
+   structures. A geometric widest-gap split is the fallback and says so in the
+   log when it is used.
+3. **The wrist from the bone SPACING.** The hand bone is the one with the most
+   neighbours (a forearm joins two things; a hand joins the forearm and every
+   finger). Sort the side's bones by distance from it and the biggest gap in
+   that list is the wrist. Derived, not eyeballed.
+4. **Per triangle**, the class holding most of its influence weight wins, so a
+   triangle straddling the wrist follows the bones that move it. Stray sleeve
+   shards go with the arm bones they are weighted to, which is why they should
+   disappear without a special case.
+5. **One index buffer of our own** (`D3DPOOL_MANAGED`, so `hkReset` has nothing
+   to release), classes emitted contiguously with both hands adjacent - so
+   "both hands, no arms" is ONE draw call, not a run per fragment.
+
+### Also fixed: the stale-lock weakness
+
+The mesh lock is now **auto-armed by the mesh's measured signature** (prims
+4448, verts 2771, skinned declaration, triangle list - all ini keys), and
+`DcTick` releases an automatic lock that has not been drawn for 300 frames so a
+level load that recreated the buffers re-arms on the new pair. An automatic lock
+**fails soft**: a mesh it cannot split is drawn exactly as the game asked, on
+both the indexed and non-indexed paths. A hand-armed lock (Numpad 6) is
+unchanged and still drops what it is told to.
+
+### Defaults and controls (everything ships ON)
+
+`[Hands] ArmSplit=1 ArmSplitAuto=1 ArmSplitMode=1` (mode 1 = HANDS).
+
+    Numpad 0   next mode: hands -> all -> arms -> other -> off -> hands
+    Numpad +   keep MORE as hand (the cut moves up the arm)
+    Numpad -   keep LESS as hand (the cut moves toward the fingers)
+    Numpad *   which arm + / - moves: both -> side A -> side B
+    Numpad /   re-derive the whole split from the buffers
+    Numpad 5   release everything, and stop the automatic re-arm
+
+Seam: `ms status | off | hands | arms | all | other | rebuild | wrist <n> |
+side <n>`. The 32-slice mask and `dc mask s19` are untouched and remain the
+fallback if a driver refuses the read.
+
+### The run this needs
+
+Load a save with the sword and crossbow out and read `dishonored_vr.log` for
+`ms:`. Expected: `ms: ib fmt=... usage=...`, then a validation line with zeros,
+then two graph components, two wrist radii, and a class count with BOTH hand
+classes non-zero. In the headset both hands should be present and both arms
+gone, with no percentage tuning at all. `Numpad 0` once shows the whole mesh
+through our buffer (the A/B - it must look exactly like stock); a second press
+shows the inverse cut, arms with no hands, which is the cheapest proof the
+classification is real and not a coincidence.
+
+If a hand is too short or too long, `Numpad +` / `-` moves that wrist and the
+log prints the radius - ONE number per arm instead of 32 slice bits.
+
+### Still not done
+
+- The acceptance list: Blink, Devouring Swarm, Windblast, weapons, head and
+  stick turns, crouch, reload, checkpoint reload. Power effects are
+  socket-driven, so verify the SOCKETS follow, not just the fingers.
+- `HmDrawIntoEye` asks the METHOD whether it wants a projection layer, not
+  whether the RUNTIME submitted one.
+- `FindRefSkel` does not enforce the validation its comment claims.
+- Controller wrist placement is still a separate gate; `[Hands] Enabled=0`.
+
+## PREVIOUS (2026-09-06, session 19): VR-31 - FLOATING HANDS WORK, the cut needs per-arm ranges
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open). Installed
+`alpha-316`. **No PR opened - the user asked for commit and push only.**
+
+### The result: the game's OWN hands, floating, with their own animation
+
+Headset-confirmed twice with screenshots: Corvo's real hand holding the sword,
+and the real hand holding the crossbow, with the arm gone from the cuff. This is
+Arkane's geometry, Arkane's skinning and Arkane's animation - nothing is
+replaced - so the powers animate the fingers exactly as they always did, which
+was the whole requirement.
+
+### How it works, and why it needs no index buffer
+
+The first-person arms and hands are ONE skinned mesh (`bones=48 skin=IW`, 4448
+triangles, 2771 vertices) drawn by three vertex shaders. The mesh is a triangle
+LIST, so any contiguous run of its triangles can be drawn on its own by shifting
+`startIndex` and shrinking `primCount`. **Nothing is read, captured or
+replaced** - the game's own buffers stay bound and we ask for part of the list.
+
+The target is identified by BUFFER PAIR (stream-0 VB + IB), not by bone-palette
+size, so every pass over it is caught including ones the palette-gated census
+never saw. `DrawPrimitive` is hooked as well as `DrawIndexedPrimitive`.
+
+### THE MEASURED CUT, and its limitation
+
+The tester's mask, 12 of 32 slices: **`0x3001D237`**
+
+    slices  1,2,3   triangles  0%.. 9%
+    slices  5,6     triangles 12%..18%
+    slice  10       triangles 28%..31%
+    slice  13       triangles 37%..40%
+    slices 15,16,17 triangles 43%..53%
+    slices 29,30    triangles 87%..93%
+
+Restore it with **`dc mask s19`** instead of repeating twelve headset presses.
+
+**It is NOT the default and must not become one yet.** It was tuned for the
+LEFT hand and takes too much of the right. The reason is structural and is the
+next problem to solve: **the two arms occupy different, non-aligned regions of
+the one triangle list**, so a single set of slices tuned by eye on one hand
+cannot be correct for the other. The slices are also PERCENTAGES of this mesh's
+primCount, so the mask means nothing on a different asset or LOD.
+
+### Next steps
+
+1. **Two independent masks, one per hand.** The cut has to be chosen per arm,
+   because the arms are not symmetric in the triangle order. Either two masks
+   the tester tunes separately, or - better - classify triangles by BONE
+   INFLUENCE so the cut is derived rather than eyeballed.
+2. **Finer than 32 slices** where a slice straddles hand and arm. 32 was enough
+   for the left hand and not obviously enough for the right.
+3. **Sleeve shards.** Small black triangles survive the cut (visible in the
+   session screenshots); they are weighted to arm bones and sit outside the
+   marked runs.
+4. **Then the acceptance list** from review: Blink, Devouring Swarm, Windblast,
+   weapons, head and stick turns, crouch, reload, checkpoint reload. Power
+   effects are socket-driven, so verify the sockets follow, not just the
+   fingers.
+5. **Controller wrist placement is still a separate gate** and untouched;
+   `[Hands] Enabled=0`.
+
+### Known weaknesses in the instrument, deliberately not fixed
+
+- The mesh lock is armed from a censused row, so a level load that recreates the
+  buffers leaves it stale and silently drawing everything. Needs a re-arm path
+  before this is a shipping lever rather than a diagnostic.
+- `HmDrawIntoEye` asks the METHOD whether it wants a projection layer, not
+  whether the RUNTIME submitted one.
+- `FindRefSkel` does not enforce the validation its comment claims.
+
+## PREVIOUS (2026-09-06, session 19): VR-31 - the cycler is WALKED, the hands had an uninitialised matrix
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open, so this PR takes
+`Ref VR-31`). Installed build `alpha-308`.
+
+### VR-31's question is ANSWERED: route (d) cannot give hands
+
+The cycler was walked in the headset on `alpha-307`. Four presses of Numpad 3
+removed, in order: **both arms and hands together**, sword, crossbow, bolt -
+exactly the plan the engine's own `GetNumElements` produced. Attribution is now
+MEASURED, not recalled.
+
+So `Skm_Player` carries arms and hands as ONE material section, route (d) gives
+**floating weapons**, and it can never give floating hands.
+
+**Note the limit of that conclusion** (raised in review, and it is right): one
+shared material section rules out a MATERIAL-only split. It does not prove our
+own hands are the only possible route - preserving Dishonored's original
+animated hands would need a different geometry-FILTERING approach (route (b),
+the c6 bone palette, x144 = arms, is untouched and is where that would start).
+Custom hands are the route being taken, not the only one that exists.
+
+### The hands drew every triangle and showed nothing - the cause is found
+
+First run of the rebuilt hand pass: `calls=480 draws=480 tris=120960 last=drew`,
+252 triangles per present (both models, complete), nothing on screen.
+
+**Cause, found by code review rather than another run:** the transform did
+`float B[9]; RtdBuildYPR(rad, B);` and `RtdBuildYPR` is compiled ONLY under
+`-DDVR_WITH_LEGACY=ON`. Every shipped build takes the empty stub in
+`src/legacy/legacy_stubs.inc`, so `B` was never written and every hand vertex
+was rotated by nine floats of stack garbage. The counters stayed healthy because
+the geometry really was built and submitted; and a NaN passes the near-plane
+reject, because `NaN > -0.03f` is false.
+
+Fixed in this build:
+
+- **`HmBuildYPR`, local to `hand_mesh.cpp`** - the twelve lines needed, not the
+  legacy subsystem. Y-up controller convention (yaw about Y, pitch about X, roll
+  about Z), so the ini keys mean what they say. Verified numerically: exact
+  identity at zero trim, equal to `Ry*Rx*Rz` to 2.2e-16 over 64 combinations.
+  Inert in the current configuration - every shipped trim value is 0.0.
+- **`submitted` and `ON-SCREEN` are different numbers now.** The beat also counts
+  `nonFinite`, `nearPlane` and `degenerate` (zero projected area draws no pixel
+  and has a perfectly ordinary bounding box) and prints the NDC bounding box, so
+  "invisible" resolves to an axis and a magnitude.
+- **Real depth.** `pos.z = 0.5f * (-z)` over `w = -z` divides to exactly 0.5 at
+  every distance, so the depth buffer could order nothing. Standard mapping now.
+- **The calibration triangle** (`[VRHands] CalibTriangle`, `vrhands calib on`),
+  default OFF: one fixed-NDC triangle through the same shader, buffer, states
+  and target. The FALLBACK if the hands are still invisible once the geometry is
+  sound - and its outcomes are not fully exclusive, so the beat's counters, not
+  it, are the first read.
+
+**How far the bug class extends, measured:** of 23 stubs in `legacy_stubs.inc`,
+exactly one had an out-parameter a live caller read unconditionally, and it is
+this one. `RtdSnapshot` also has out-parameters but returns false and its caller
+gates every read on that. The other 21 are void no-ops, as intended.
+
+### Still open, deliberately not fixed in this build
+
+- **The projection guard reads the wrong thing.** `HmDrawIntoEye` asks the
+  METHOD whether it wants a projection layer, not whether the RUNTIME submitted
+  one. It did not misfire on this run. Fixing it means adding an accessor to
+  `openxr_runtime.cpp`, the file this project keeps closest to the BioShock
+  copy, so it is not being done mid-diagnosis.
+- Hiding the game's arms once ours are visible should use the **proven
+  material-section hide on `Skm_Player`**, not `[VRHands] HideGameArms` - that
+  flag's upload-size filters also target weapons and carry static-geometry
+  heuristics, so it is not equivalent.
+
+### The requirement changed: the REAL hands, because the powers animate them
+
+Custom meshes cannot carry Arkane's power animations, so the working custom
+renderer is now the FALLBACK and route (b) is the goal. Full plan and the nine
+review corrections are in ENGINE_NOTES, "route (b) starts at the DRAW".
+
+**Step 1 is built and installed: the DRAW census** (`hands/draw_census.cpp`,
+`[Hands] DrawCensus`, ships ON). Upload SIZE cannot settle an arm/hand split -
+two chunks can share a size, several draws can reuse one upload, and `HideSizes`
+only contains what someone already saw. So `DrawIndexedPrimitive` is hooked
+(vtable 82) and every palette-fed draw is identified by what the renderer held:
+stream-0 VB and stride, IB, vertex declaration, vertex shader, index range,
+primitive count. **Numpad 6** next, **4** back, **5** all visible - one row
+hidden per press, the log names it. `dc report|status|hide <n>|show` on the seam.
+
+Two rules it observes: no engine D3D reference survives the detour (each `Get*`
+AddRefs and is released on the next line, pointer kept as an identity token
+only), and the hotkey posts a request that the tick acts on - the detour itself
+runs on the RENDER thread.
+
+### Next steps
+
+1. Walk the draw cycler (Numpad 6). Two rows sharing a bone count but differing
+   in VB/IB or index range are separate geometry a size-based hide cannot tell
+   apart - that is the question. If one row is arms-without-hands, route (b) is
+   a draw skip and it is nearly done.
+2. If arms and hands share one draw: collapse-to-wrist as a cheap prototype -
+   with the wrist point derived in the palette's OUTPUT space, NOT read off a
+   translation column (skinning matrices fold in the inverse bind pose), and a
+   ZERO 3x3 linear part, not identity.
+3. If that seams: the index-buffer filter - a replacement index list of hand and
+   cuff triangles only, original vertices, weights and animated palette kept.
+   Survives arms and hands sharing both material and chunk.
+4. Controller wrist placement is a SEPARATE gate; `[Hands] Enabled=0` today.
+5. Read the hands beat line. `ON-SCREEN=0` with `submitted>0` is a geometry fault
+   and the NDC box names the axis; `nonFinite>0` means the transform is still
+   producing NaN; healthy counters with a blank screen means arm the calibration
+   triangle.
+2. Then hide `Skm_Player` by material section for the floating-hands verdict.
+3. Floating weapons as a shipping lever (hide `Skm_Player`, default OFF, live
+   A/B); check the shadow and Blink's aim.
+
+## PREVIOUS (2026-09-06, session 19): VR-31 - our own hands are WIRED (unverified)
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open, so this PR takes
+`Ref VR-31`, not `Fixes VR-31`). Installed build carries the hand wiring.
+
+### The cycler is installed and has NEVER been run
+
+`alpha-305-g23ef0ae5` (the cycler commit) is the installed proxy - verified by
+reading the build tag out of the installed `d3d9.dll`. The newest log on disk is
+`alpha-304-ge1135d25`, the run that proved route (d) with the timed sweep. So
+**the walk needs no build; it needs a headset session.**
+
+The plan the cycler builds is deterministic and already on that log, so the
+recording sheet can be written now. Four positions, Numpad 3 stepping forward:
+
+| position | component | what the engine calls it |
+|---|---|---|
+| 1 | `Skm_Player` | the first-person body, section 0, LOD 0 |
+| 2 | `Wpn_PlySword01` | the sword |
+| 3 | `crossbow_01` | the crossbow |
+| 4 | `bolt_01` | the loaded bolt |
+
+Numpad 1 steps back, Numpad 2 restores everything. Each press logs its position
+and component, so the walk only needs the tester to say what vanished at each
+one.
+
+**One thing the census already settles, so the run is not spent on it:**
+`Skm_Player` is the ONLY component carrying first-person body geometry. Arms and
+hands cannot be on separate positions - there is nowhere else for them to be.
+The question the walk actually answers is position 1: do both arms AND both
+hands go, and do the weapons keep drawing? (ENGINE_NOTES, "What the cycler can
+still settle".)
+
+### Our own hands: the caller was the missing piece, and it is back
+
+`core/gfx/hand_mesh.cpp` has drawn nothing since 41.0. `HmRenderEye` and
+`HmEnsurePipeline` lost their only call site when the side-by-side pipeline was
+deleted (`cc2fa936`), so `[VRHands] Enabled=1` changed nothing on screen and
+logged nothing about it. Rebuilt this session:
+
+- a `HandDrawFn` seam beside `OverlayDrawFn` in `core/gfx/stereo.h`; the active
+  method calls it between the game image and the F10 panel, passing **the eye
+  tag of the pixels already in the target** (not the eye the next game draw
+  renders - one line apart in `reentry::end_frame`);
+- the pass's own D32 depth buffer, sized to the method's output and cleared per
+  draw. The painter's sort is gone; without a bound DSV the depth state is inert
+  and the back of a hand paints over its front;
+- **the frustum corrected to the projection layer's CLAIM** (the engine's
+  rendered hfov, derived the way the runtime derives its own half-angles)
+  instead of the headset's raw half-angles - 108.1 deg against the headset's
+  numbers on the last measured run, and a slide against the world that grows
+  with the gap;
+- a refusal on the mono screen that says which rung would work, because a silent
+  skip and broken hands look identical in a log;
+- a 3 s beat printing calls / draws / triangles that **names the reason for any
+  zero**, and `handModelTris` / `handModelWhy` in `status.json`.
+
+**Ships ON** (`[VRHands] Enabled=1`) for the test sessions - the same deliberate
+exception as `[Device] ShadowFullCopy` and `[Hands] BoneVisHide`, so a run shows
+the hands without anyone sending a seam word first; it reverts to OFF when the
+verdict is recorded. `vrhands on|off|status` is the live A/B.
+
+**`[VRHands] HideGameArms` ships OFF with it, on purpose.** It collapses the
+game's own view-model rigs by upload size (the 30.77 vs-const path) - a SECOND
+behavioural change in the same build as the first draw of ours, against the
+author's one-change-per-build rule. It also makes run 1 diagnostic instead of
+pass/fail: with the game's arms still drawn, they are the reference our hands
+are judged against. If our hands land right, that flag is the whole remaining
+step to floating hands.
+
+**UNVERIFIED - nothing here has been seen in a headset or on the simulator.**
+
+### Next steps
+
+1. Walk the cycler (4 positions above) and record position 1's answer.
+2. Run 1 of the hands: nothing to switch on. Read the beat line. Expect
+   the first run to need trim: `[VRHands] Scale`, the per-hand `PosX/Y/Z` and
+   `Yaw/Pitch/Roll`, all already in the ini, none of them exercised since 30.x.
+   The overlay panel for them was deleted in 31.5 and would have to come back if
+   trimming by ini proves too slow.
+3. Floating weapons as a shipping lever: hide `Skm_Player`, default OFF, live
+   A/B, and check what it does to the shadow and to Blink's aim.
+4. Routes (b) and (c) are not needed for either. (a) is closed.
+
+## PREVIOUS (2026-09-06, session 18): VR-31 - route (d) WORKS, floating weapons are in reach
+
+Branch `claude/vr-31-arm-hiding-floating-hands`, based on
+`claude/vr-30-decouple-arm-hand-movement` (PR #18 still open, so this PR takes
+`Ref VR-31`, not `Fixes VR-31`). Installed build `alpha-305`.
+
+### PROVEN, headset-judged: ShowMaterialSection hides first-person geometry
+
+Four automatic steps, geometry disappeared and returned on each. **Route (d)
+works.** Full record in `ENGINE_NOTES.md`, "SOLVED: route (d) WORKS".
+
+The plan the engine's own `GetNumElements` produced:
+
+| step | component | sections |
+|---|---|---|
+| 1 | `Skm_Player` (the first-person body) | 1 |
+| 2 | `Wpn_PlySword01` | 1 |
+| 3 | `crossbow_01` | 1 |
+| 4 | `bolt_01` | 1 |
+
+**Every component has exactly ONE material section.** Route (d) therefore hides
+per COMPONENT, not per body part.
+
+- **This gives floating weapons now**: hide `Skm_Player`, and the sword,
+  crossbow and bolt keep drawing as separate components.
+- **It cannot give floating hands**: arms and hands share one section, so
+  hiding the arms hides the hands too. No finer material cut exists in the
+  asset, and none can be made from outside it.
+
+**The tester's per-step attribution is NOT yet established.** The recollection
+of which step removed which limb was approximate. The table above is the PLAN,
+not what was seen. The numpad cycler exists to settle it deliberately.
+
+### The cycler
+
+`[Hands] MatCycle=1`, ships ON. **Numpad 3** next, **Numpad 1** back,
+**Numpad 2** everything visible. Each press logs the component, section and LOD
+it hid. The hotkey only posts a request; every dispatch runs on the SCRIPT
+lane in `MatCycleTick`, because ProcessEvent from the present thread is the
+lane error this project has a rule about. The timed sweep (`[Hands] MatAuto`)
+is back OFF now the route is proven, so the two cannot fight.
+
+### Next: floating hands needs a different SOURCE for the hands
+
+Not a finer cut of the game's mesh - that split does not exist. The mod already
+has its own: `core/gfx/hand_mesh.cpp` draws hand geometry and the SkelControl
+drive already places hands from the controllers. Hide `Skm_Player`, draw our
+own hands. That is the BioShock shape reached from the opposite direction, and
+it also answers the powers requirement - our own hands can be shown for powers
+and hidden otherwise without touching the game's mesh at all. Untested.
+
+### Next steps
+
+1. Walk the cycler and write down which component is which limb, so the
+   attribution is measured instead of remembered.
+2. Floating weapons as a shipping lever: hide `Skm_Player`, default OFF, live
+   A/B, and check what it does to the shadow and to Blink's aim.
+3. Floating hands: `hand_mesh.cpp` + the SkelControl placement, with a
+   visibility policy that shows hands for powers.
+4. Routes (b) and (c) are not needed for either of the above. (a) is closed.
+
+## PREVIOUS (2026-09-06, session 18): VR-31 - route (a) closed, route (c) found
+
+Branch **`claude/vr-31-arm-hiding-floating-hands`**, now cut from
+**`claude/vr-30-decouple-arm-hand-movement`** (rebased 2026-09-06, session 18).
+Linear **VR-31** is In Progress.
+
+### The base, and what that means for the PR
+
+This branch **carries the VR-30 fix** and is safe to build and install from. It
+is based on the VR-30 branch, not on `VR-Main`, because VR-30 is still open in
+**PR #18**. So:
+
+- the PR body's first line is `Ref VR-31`, not `Fixes VR-31` - only the PR that
+  reaches `VR-Main` closes the ticket, and this one will not until #18 lands;
+- **PR #18 merges first.** After it does, this branch rebases onto `VR-Main` and
+  its PR retargets there.
+- The tester's ini carries `[Camera] ArmBodyFacing=1` (the VR-30 fix, on),
+  `ArmStripMeshRot=-1` and a leftover `BodyYawLock=-1` whose key no longer
+  exists in this code and is ignored.
+
+### VR-30 is DONE (2026-09-05, session 17)
+
+Headset-judged: head yaw leaves the arms and weapon alone, the right stick turns
+view and body together, both at once works. `FaceRotation` is virtual at vtable
+slot 252 (`0x00AB0D40`); the mod replaces the **Yaw it is asked for** with
+`view - our own injected head contribution` and lets the engine's own function
+run. Measured 3365 replacements, 0 stale, `perf: tick` unchanged at 11.3-11.8 ms
+against an 11.11 ms budget. Full record in `ENGINE_NOTES.md`, "SOLVED: VR-30".
+
+### VR-31: the question, and where the research already is
+
+**The deliverable is a verdict, not a feature**: floating hands via the
+bone-density trick, or floating weapons with hands only for the powers.
+
+**The 30.13 result is NOT missing.** Session 18 found it. The original author
+recorded it in a code comment in the state chunk beside the experiment
+(`src/mod/state/40_game_dishonored_hands_arms_hide.inc`, and in the original
+single file at `git show 824e08d8:src/dllmain.cpp` line 11119), which is why
+three passes over the corpus called it unrecorded:
+
+    30.14: the +0x288 byte poke was wrong - that array turned out to be some
+    per-bone animation control (arms froze to the view and rode the head).
+
+So the write was made, and it had a visible effect that was not hiding. The
+probable reason: `0xFF` is not a legal `BoneVisibilityStates` value, but it is
+exactly `SkelControlIndex`'s "no control on this bone", so 30.13 most likely
+attached the arm bones to SkelControl #2 rather than hiding them. That also
+weakens the existence proof route (a) rested on - the game may not be hiding
+`spine_3_jnt` at all, it may be pointing it at a controller. Full record in
+`ENGINE_NOTES.md`, "The 30.13 bone-visibility result was recorded all along".
+
+**What session 18 built instead of repeating it.** The offsets do not have to
+be guessed: this build ships UE3 reflection (`FindPropOffset` reads
+`UProperty::Offset` out of GObjects, as the crouch cylinder and the graft
+already do). `arms vis on|off|status|chain`, ini `[Hands] BoneVisHide`, **ships
+ON for the test sessions** (a deliberate exception to "every lever ships OFF",
+the same call as `[Device] ShadowFullCopy`, so a run prints the census without
+anyone sending a seam word; it reverts to OFF when the verdict is recorded):
+
+- asks the engine where `BoneVisibilityStates`, `SkelControlIndex` and
+  `RequiredBones` really live and prints all three against `0x288`, naming
+  which array 30.12 actually found;
+- writes `BVS_ExplicitlyHidden` into the arm chain at the offset the engine
+  named (never hands or fingers), saving and restoring the exact bytes;
+- refuses, with numbers, if the property does not exist, if the array is empty
+  (`num=0` - the engine never allocated it, which closes route (a) with a
+  reason and is the same fact 30.17 saw), or if its length is not the rig's
+  bone count;
+- runs a write-survival census every 2 s while on - `held` / `reverted` /
+  `other` - so "the write did not survive" and "the write survived and the
+  renderer ignores this array" stop looking identical in a headset.
+
+Route (b), the c6 bone palette (**x36 = sword, x144 = arms, x204 = NPC**,
+machinery in `src/legacy/rtd_drive.cpp`), is untouched and is where an all-held
+census sends the question next.
+
+### VERDICT (2026-09-06, runs 1-4): route (a) is CLOSED, and route (c) is new
+
+Four runs, all read-only, all with the arms staying visible - which was the
+correct result each time: the lever refused to write and said why.
+
+**Route (a), per-bone visibility, is closed on three independent instruments:**
+
+1. `BoneVisibilityStates` does not resolve on `SkeletalMeshComponent`
+   (`RequiredBones` resolved at `+0x23c` in the same call, so the resolver was
+   working and the `0` is a real absence);
+2. no `UProperty` of that name exists on **any** class in GObjects, so it is
+   not hiding on a subclass;
+3. of the five per-bone byte arrays on the rig, none has its values confined
+   to `0..2`, which is what a visibility array must look like.
+
+**`+0x288` is `SkelControlIndex`, measured.** 30.13 pointed the arm bones at
+SkelControl #2 rather than hiding them, which is exactly the symptom 30.14
+recorded. The existence proof route (a) rested on is gone with it: the game is
+not hiding `spine_3_jnt`, it is pointing that bone at a controller. And 30.17
+is consistent with it - `HideBoneByName` allocating nothing is what a missing
+array would produce - but the native's implementation was never inspected, so
+that is the likeliest reading and not a demonstrated cause.
+
+**Route (c) appeared in the same run.** `SkelControlIndex` on the arm chain:
+**8 of 10 bones read `255` (free)**, and the 2 that are taken are exactly the
+two collarbones, driven by controls **0** and **1**. One byte per bone, and the
+mod already drives SkelControls. What those two controls are is not yet known -
+the mod's own control enumeration was off this run (`[Hands] Enabled=0`), so
+naming them is one cheap run with the hand drive on.
+
+Full record, including the scan's element-size caveat, in `ENGINE_NOTES.md`,
+"VERDICT (2026-09-06, run 4)".
+
+### The three routes, as they now stand
+
+| route | state | cost | unknown |
+|---|---|---|---|
+| (a) per-bone visibility | **CLOSED**, three instruments | - | none, it is finished |
+| (b) c6 bone palette | **OPEN**, proven writable | the hottest D3D9 entry point | none material: x36 = sword, x144 = arms, x204 = NPC, machinery in `src/legacy/rtd_drive.cpp` |
+| (c) `SkelControlIndex` | **OPEN**, new | one byte per bone | what a free bone can be pointed AT - the index selects from the AnimTree's control lists |
+
+**The lever is back to default OFF** now the verdict is recorded. What is kept
+is the diagnostic that closed the route: `arms vis status` re-runs the whole of
+it on demand, `arms vis chain` prints the arm chain.
+
+### Next steps
+
+1. **The route decision is the user's**, and it is the real open question. (b)
+   is the safe one - proven writes, mesh separation already measured, and the
+   only doubt is frame cost on the D3D9 hot path. (c) is the cheap one and the
+   more interesting one, but it needs the AnimTree control list understood
+   before a single byte is written, and 30.13 is the standing warning about
+   pointing bones at a control somebody else owns.
+2. Either way, one cheap run with `[Hands] Enabled=1` names SkelControls 0 and
+   1 (and settles whether #2 is `LookAtControl_Camera`, which would close the
+   30.13 story completely).
+3. PR is not open yet. It takes `Ref VR-31`, not `Fixes VR-31`, while the base
+   is the VR-30 branch.
+
+### Session log
+
+### 2026-09-09 - VR-66: the stale command line was the mod's own file
+
+The render size had two homes and one writer. `dishonored_vr_launch.txt` carries
+`-ResX/-ResY` and is read in `DllMain`, before the engine's entry point - that is
+the route the engine obeys. `[Screen] RenderWidth/Height` in the mod ini is read
+much later at `EnsureConfig` and drives the mode `VirtualMode` advertises. Both
+were only ever written together by `ResRequest`; a text editor writes one.
+
+So the two failed attempts asked with a text editor, moved the advertised mode
+to 3200x3300, and left the engine being told 2750x2850 - the file's value from
+five days earlier, still on disk with that timestamp. The engine asked for a
+size that was no longer in the mode list and UE3 fell back to a real display
+mode, which on this monitor is 2560x1440. **Neither ini ever contained 2560x1440;
+the mod supplied it.**
+
+`[Screen]` is now the authority. The ask is resolved from it on the engine's
+first `GetCommandLine` call - the CRT startup glue at the exe's entry point, past
+the loader lock, so the ini read `DllMain` is forbidden to do is safe and still
+early enough. One resolved ask sets both the command line and the advertised
+mode, so they cannot diverge; a disagreement logs both values and rewrites the
+file; and the hooks now install with no launch file at all, which an ini-only
+ask previously needed and never got.
+
+**Two lessons, both already in this file in another form.**
+
+*An ini key that exists beats every compiled default* (VR-65) has a sibling: a
+file that exists beats the ini you edited. Anywhere one setting has two
+persistent homes, the one nobody thinks to edit is the one that wins.
+
+*Every refused guard says why, with the values.* The `CreateDevice` mismatch
+warning named the game's own ini - the route measured inert on this build - and
+did not name the command line, which is the route that decides. It now prints
+what the engine was handed, how many import slots were patched, and whether the
+size the engine wanted is one of the adapter's real modes, which is the fallback
+signature.
+
+**Not verified.** No run at a raised size has happened. The mechanism comes from
+the logs and the launch file's timestamp.
+
+### 2026-09-07 - VR-33: the hands reach the controllers
+
+**Verified in the headset:** hands track the controllers, are correctly scaled,
+occlude against world geometry, and hold position through head turns. PR #21.
+
+**The cleanup is verified too**, after a scare worth recording. The trim did not
+compile: `g_mpEyeHunt` lost its declaration and the capture packet still
+referenced two retired modes - but MSBuild was linking STALE OBJECT FILES, so
+three builds reported success while the DLL kept an older build id. Comparing
+the id embedded in the installed DLL against `git describe` is what caught it;
+a "clean build" had been meaningless. Fixed in `fe531095`, rebuilt with a
+forced recompile, and confirmed in the headset with the ids matching.
+
+**What the session established.** The bone palette's output is the component's
+LOCAL space; `LocalToWorld` (c231) maps it to a camera-relative world frame and
+`ViewProjectionMatrix` (c0) to clip. Register indices differ per shader and are
+parsed from each shader's CTAB - three shaders draw this mesh and one defines c4
+as an immediate that disagrees with the device. The shader does not normalise
+skin weights. The view model is depth-crushed to MaxZ 0.001. The eye separates
+Present-to-Present in LocalToWorld's translation by 6.76 uu against a predicted
+IPD of 6.31.
+
+**What was falsified**, each with the measurement that killed it: a truncated
+GObjects census reporting its array capacity as a population; a relative drive
+whose cancellation argument omitted the animated hand underneath it; a
+head-space neutral; a yaw residual, killed by phi holding constant at 144 deg
+across a 145 deg head swing; a calibrated origin that became a 1.4 m lever on
+the head; and three eye classifiers - a game-thread flag that reads false on the
+render thread, a learned midpoint that was not head-invariant, and an ordinal
+that sampled per HAND so its pair was one draw compared with itself.
+
+**Instrument lesson, and the reason the above cost so much.** Three instruments
+produced confident readings later withdrawn, and once an absence was reported
+that had never been established. All four survived because they were checked
+against expectation rather than against their own ability to fail. The rule
+adopted: an instrument must declare and log the unit it sampled, and "nothing
+was sampled" must never be able to read as "no difference was found".
+
+**Seen and not chased:** each shader draws the mesh three times per frame, and
+only one pass is depth-crushed. The purpose of the other two is unknown.
+
+
+**2026-09-06, session 19 (part 3)**: floating hands WORK, using the game's own
+hands. Built the draw census, then the mesh lock (buffer-pair identity, both
+draw entry points), then live triangle-range slicing - the mesh is a triangle
+list, so sub-ranges of the game's own index buffer can be drawn without reading
+or replacing anything. Two headset screenshots confirm real hands with the arms
+gone. The tester's cut is `0x3001D237`, restorable with `dc mask s19`; it is not
+a default because the two arms sit in non-aligned regions and it was tuned on
+the left. Also found and fixed: single-matrix draws were saturating the census
+table, and a full table silently disabled suppression - which was the whole
+explanation for the faint arm that survived earlier hides.
+
+**2026-09-06, session 19 (part 2)**: the cycler walk came back and matches the
+engine's plan exactly - arms+hands together, then sword, crossbow, bolt. VR-31's
+route (d) question is answered. The hands showed nothing despite healthy
+counters; review found `RtdBuildYPR` is a legacy-only symbol that resolves to an
+empty stub in every shipped build, so the hand transform ran on an uninitialised
+matrix. Replaced with a local `HmBuildYPR` (verified identity at zero and equal
+to Ry*Rx*Rz to 2.2e-16), separated `submitted` from `ON-SCREEN` in the beat,
+fixed the constant-0.5 depth, and added a calibration triangle as the fallback.
+Swept all 23 legacy stubs: exactly one was unsafe. Corrected an error in part 1's
+write-up - the stereo tagging claim was read off bring-up beats and gameplay is
+properly tagged.
+
+**2026-09-06, session 19**: no headset run. Established that the cycler build
+(`alpha-305-g23ef0ae5`) is the INSTALLED proxy and has never been run - the
+newest log on disk is `alpha-304`, the timed-sweep run - so the walk needs a
+session, not a build, and wrote the 4-position recording sheet from the census
+already on that log. Then found that `core/gfx/hand_mesh.cpp` has been dead code
+since 41.0: `HmRenderEye` and `HmEnsurePipeline` lost their only call site when
+the side-by-side pipeline was deleted in `cc2fa936`, so `[VRHands] Enabled=1`
+changed nothing and said nothing. Rebuilt the caller as a `HandDrawFn` on the
+stereo seam, gave the pass its own depth buffer, corrected its frustum to the
+projection layer's CLAIM rather than the headset's half-angles, made the mono
+screen refuse out loud, and added a beat that names the reason for a zero.
+Builds clean, lint clean, exports OK, installed Release. **Nothing verified** -
+no headset, no simulator run.
+
+**2026-09-06, session 18**: opened. Branch cut, VR-31 moved to In Progress,
+research located and extracted. Found that the 30.13 experiment's result was
+recorded after all and that `+0x288` is very likely `SkelControlIndex`, not
+`BoneVisibilityStates`; corrected two dead-end entries in `ENGINE_NOTES.md` and
+added the record. Built the reflection-resolved route (a) lever and its
+write-survival census, default off. Builds clean, lint clean, exports OK.
+Rebased onto the VR-30 branch and installed Release. **Four tester runs**:
+route (a) is closed on three instruments, `+0x288` is `SkelControlIndex` by
+measurement, this build has no `BoneVisibilityStates` anywhere, and the arm
+chain is 8-of-10 free in `SkelControlIndex` - which is route (c). Two of the
+four runs were spent on instrument preconditions I got wrong (the scan needs a
+live rig, and the candidate list does not exist unless the hand drive is on);
+both are recorded in ENGINE_NOTES so the next instrument does not repeat them.
+Lever back to default OFF, diagnostic kept behind `arms vis status`.
+
+**2026-09-05, session 17**: VR-30 solved and closed. PR #18 open against
+`VR-Main`, unmerged. Also filed **VR-52** (place the hands absolutely from the
+controllers) with the anchor bug and the acceptance direction recorded, since
+that is a separate problem from this one.
+
+## PREVIOUS (2026-09-05, session 17): VR-30 IS SOLVED - FaceRotation is the seam
+
+Branch **`claude/vr-30-decouple-arm-hand-movement`**, cut from `VR-Main`.
+
+**Headset-judged fixed.** Head yaw leaves the arms and weapon alone, the right
+stick turns view and body together, and both at once works. That is VR-30's full
+acceptance, both halves.
+
+### The fix, in one paragraph
+
+`FaceRotation` is what faces the body to the view. It is **virtual at vtable slot
+252** and resolves to **`0x00AB0D40`** on this build. The mod hooks it and
+replaces the **Yaw it is asked for** with a separated body heading
+(`view - our own injected head contribution`), then lets the engine's own
+function run so its dependent bookkeeping still happens. Pitch, roll, delta time
+and every other actor pass through untouched. `[Camera] ArmBodyFacing`, ships
+**OFF**, `arms facing 1|off` is the live A/B. Measured: **3365 replacements, 0
+stale**, 1014 calls on other pawns untouched.
+
+Full derivation, the falsified attempts with their numbers, and the identity bug
+are in `docs/dishonored/ENGINE_NOTES.md`, "SOLVED: VR-30".
+
+### What was removed, and why
+
+- **`[Camera] BodyYawLock` is gone.** It wrote the pawn's `Rotation.Yaw` every
+  dispatch and was measured futile: **4 of 186 writes survived** to the next
+  dispatch. Its target was correct; the engine simply re-derives the pawn's
+  heading from the controller every tick. Users with the key in their ini can
+  delete the line; it is ignored.
+- **The per-dispatch `FaceRotation` name match is gone** from `PeHandler`. Its
+  question is answered (0 dispatches across a full run - the route is
+  native-to-native) and the answer is in ENGINE_NOTES.
+
+### What is kept as instruments
+
+- `armfollow/yaw:` - the four-way yaw census (head, controller, pawn, view with
+  per-second deltas). It found the stale-controller bug and the write-survival
+  number. Now on the 1-in-128 slow path.
+- `armfollow/nfp:` - the one-shot native-facing probe that derived the vtable
+  slot. Costs nothing after it fires.
+- `[Camera] ArmStripMeshRot` - ships OFF, kept as the reproducible A/B for a
+  documented dead end (304,244 writes, no effect).
+- `tools/yawtest-host.ps1` - compiles the yaw bookkeeping out of `head_track.cpp`
+  **verbatim** and runs its seven cases on the host. No game, no headset.
+
+### Performance
+
+`perf: tick` on the winning run reads 11.3-11.8 ms against an 11.11 ms budget at
+90 Hz, unchanged from before the branch. The hook adds a handful of integer
+compares to a function that runs about once per frame per pawn. The census's
+clock read was moved to the slow path (c5ecea34's rule); the answered
+per-dispatch name match was deleted.
+
+### Next
+
+VR-30 is done. The hands are still placed by the engine - **absolute controller
+placement is a separate ticket**, and `ENGINE_NOTES` records that SkelControl
+world-space translation is absolute (attempt 5's pin test) and that the world
+block's anchor is wrong: `camera+0x80` is not a position (DISCARDED 120/120),
+`camera+0x330` is.
+
 ## SOLVED (2026-09-05, VR-15): the black texture bug was a MIP fault, and it ships fixed
 
 PRs #14 (the crouch fix) and #15 (the 90 Hz defaults) are **merged to `VR-Main`**. Branch

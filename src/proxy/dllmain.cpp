@@ -37,6 +37,12 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
         DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Info,
                 "=== Dishonored VR proxy loaded (dishonoredvr %s, build %s, built %s %s) ===",
                 DVR_VERSION, DVR_BUILD_ID, __DATE__, __TIME__);
+
+        // VR-33: the pose lock and the rotation/grip frame self-test. Here
+        // because it must be in place before the first draw and before any
+        // config read, and because DllMain is single-threaded under the
+        // loader lock. It touches no D3D, no VR and no engine memory.
+        MpFrameInit();
         DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Info,
                 "dir: %s  data: %s  disabled: %d", g_dir, dvr::paths::data_dir(), (int)g_disabled);
         // NOTE: do NOT touch the ini here. DllMain runs under the Windows loader

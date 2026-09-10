@@ -15,6 +15,14 @@ permission. Single game, one branch: `VR-Main`.
 
 ## Hard rules
 
+- **NEVER MERGE TO `VR-Main` WITHOUT EXPLICIT PERMISSION.** Committing, pushing a feature
+  branch and opening a PR are all fine on your own judgement - none of them touch `VR-Main`.
+  **The merge is the gate**, and it is the one irreversible step. Ask, show exactly what is
+  about to land, and wait for a yes. A passing build is not permission. A finished feature is
+  not permission. **"This branch is good to go", "looks great", "nice work" and "close the
+  ticket" are NOT permission** - they are approval of the work, not of the merge; the only
+  thing that counts is the user saying to merge it. If in doubt, do not merge and ask.
+
 - **NEVER commit game-derived content**: no decompiled UnrealScript, no extracted assets, no
   frame dumps, captures or crash dumps. `tools/uscript/` and `*.png/*.bmp/*.dmp` are gitignored
   for a reason. Findings go to `docs/dishonored/ENGINE_NOTES.md`, never game code.
@@ -41,6 +49,15 @@ permission. Single game, one branch: `VR-Main`.
   in the record; its exact wording never is, and reporting the observation instead carries
   every fact without putting someone's casual sentence in front of strangers permanently.
   Numbers, log lines, ini keys and the game's own shipped comments stay quotable.
+- **NEVER put a person's name in anything published to GitHub.** Not in a branch name, not in
+  a commit author line, a PR title or body, an issue, a comment, a code comment or any file.
+  This includes real names, email addresses and email local-parts, usernames derived from them,
+  and Linear's own copy-branch-name format, which is prefixed with the account holder's username
+  and is therefore banned as a source. Branches are `claude/vr-<n>-<slug>`. This repository is
+  public and none of it can be taken back: a branch name survives in every pull request that
+  used it, and **GitHub provides no way to delete a pull request** - only GitHub Support can.
+  If a name has already reached the remote, say so plainly and name what cannot be undone.
+
 - **Every change starts from a Linear ticket** in the "Dishonored VR Mod" project (team `VR`,
   workspace `vr-stereo-hub`). Search first; create from the template if it is not there, with
   project, milestone, priority and a `Type` label filled in. Branch `<owner>/vr-<n>-<slug>`
@@ -136,6 +153,10 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 
 ## Session protocol
 
+- **A setting that "does not work" is a `docs/TRAPS.md` question before it is a code question.**
+  Two sessions have gone to a value that was overridden somewhere else. Find every place the value can
+  live, read what the run RESOLVED it to (not what you wrote), and confirm it reached the consumer.
+  New traps and failed plans go in that file in the same commit as the work.
 - **START**: read `docs/STATUS.md`, the current milestone in `docs/ROADMAP.md`, then
   `git log --oneline -10`. **Find the Linear ticket** for the work (search before creating;
   create from the template if absent, with project, milestone, priority and a `Type` label),
@@ -226,6 +247,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/ROADMAP.md` | Milestones S0-S3 (the stereo ladder) with "done when" criteria and checkboxes; the carried D-items after |
 | `docs/ARCHITECTURE.md` | The frame path, the stereo ladder, the runtime layer, the camera seam, thread contracts, the unity build and how modules leave it, decision log |
 | `docs/RESEARCH.md` | Engine facts, prior art, VR runtime facts, legal posture, all with sources |
+| `docs/TRAPS.md` | **Traps and the graveyard**: the stale-setting class (check it FIRST when a key "does nothing"), instruments that could not fail their own hypothesis, plans tried and failed, and an index of the per-topic graveyards |
 | `docs/VERIFICATION.md` | **Verification catalog**: intent -> tool -> command -> how to read the result; the simulator and its instruments, the seam, captures, what still needs a human |
 | `docs/LINEAR_AND_GITHUB.md` | **The dev flow**: ticket -> branch -> PR -> review -> merge -> release. Statuses and what each means here, priority, labels, the ticket and PR templates, project updates, the release ritual, and what only the Linear UI can do |
 | `docs/CODE_REVIEW.md` | Every finding from the review of the original single file, with disposition |
@@ -233,6 +255,11 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/TROUBLESHOOTING.md` | User-facing troubleshooting (ships in the zip) |
 | `docs/RELEASE_NOTES.md` | Per-version notes; 41.0 "Upgrading" lists every removed key |
 | `docs/dishonored/ENGINE_NOTES.md` | The reverse-engineering knowledge base: addresses with derivation, class layouts, hook points, the per-eye camera seam's write points, the head-coupling chronology, dead ends |
+| `docs/dishonored/GAMEPLAY_STATE.md` | **A WANTED RESOURCE, not built**: the gameplay flags the mod needs (equipped item per hand, holstered, stance, full-body actions), what the engine already exposes, and the FName-keyed UE3 property resolver that would read them |
+| `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` | **The hands and the held weapons**: the palette correction, the grip reflection, the numpad adjust, the model scale, the coordinate bridge, how a weapon draw is identified and how the duplicate copies were cleared. Section 8 is the graveyard - every approach in it cost a headset run |
+| `docs/dishonored/ARM_HAND_SPLIT.md` | **The arm/hand split** (VR-31): how the hands are cut from the arms, the three cut shapes and why, the clip and the cap, every ini key and hotkey, how to read the log, the traps |
 | `docs/dishonored/TESTING.md` | Install/launch loop, flat and simulator checks, headset checklist, crash triage |
+| `docs/dishonored/DESKTOP_MIRROR.md` | **The desktop mirror's eye policy** (VR-53/VR-54): why the game window alternated eyes, where the pin lives and why it is not in the runtime layer, the pause-menu session loss, and the counter reading that was retracted |
+| `docs/dishonored/BRIEF-eye-flicker.md` | The eye-flicker investigation: four hypotheses argued and killed. ANSWERED - kept as the graveyard |
 | `docs/dishonored/XR_HANDOFF.md` | The pre-41.0 OpenXR/Quest presentation bug (historical; the pipeline it describes is gone) |
 | `docs/dishonored/HANDOFF-GINGASVR.md` | **The original author's handoff** (their build 39.4): what was measured, disproved, the traps, the process rules, the 39.x fixes our base lacks |

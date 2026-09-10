@@ -7,10 +7,13 @@
 #include "core/vr/openxr_runtime.h"
 
 #include "core/util/log.h"
+#include "core/util/clock.h"
 #include "core/util/paths.h"
 #include "core/util/xr_math.h"
 #include "core/vr/hud_stub.h"
 #include "core/gfx/frame_id.h"   // 41.1 (Dishonored): the frame-identity trace's stage sc
+#include "core/gfx/capture.h"    // VR-65: the record that rode the delivered texture
+#include "core/vr/pose_record.h"
 
 // The runtime layer logs under the openxr category at Info; every per-frame
 // line in it is first-N or rate-limited (the CLAUDE.md cost rules).
@@ -205,6 +208,14 @@ XrView g_views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 XrView g_viewsContent[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 bool g_viewsContentValid = false;
 bool g_viewsValid = false;
+// VR-65: WHICH LOCATE each generation of views came from. Without this the pose
+// audit substituted the CURRENT generation for the submitted one, so it could
+// never report a lag it was itself selecting. The three move together with the
+// three view buffers below.
+uint32_t g_viewsGen = 0, g_viewsContentGen = 0, g_viewsPrev2Gen = 0;
+// The generation actually submitted per eye, and the lag arm that chose it.
+uint32_t g_eyePoseGen[2] = {0, 0};
+int      g_eyePoseLag[2] = {-1, -1};
 // Session 43b (the Infinite "jumpy camera"): the lockstep assumption behind
 // g_viewsContent - "locate N feeds the tick that presents at N+1" - was
 // calibrated on BS1's 1T (single-threaded) renderer. Infinite's substrate is
@@ -219,6 +230,12 @@ bool g_viewsValid = false;
 XrView g_viewsPrev2[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 bool g_viewsPrev2Valid = false;
 std::atomic<int> g_poseLag{1};
+// VR-65: the announced lag comparison. Off by default; a segment length of 0
+// disables it too. It moves only the pose-history selection above.
+std::atomic<bool>     g_lagAbOn{false};
+std::atomic<uint32_t> g_lagAbSegMs{20000};
+uint64_t              g_lagAbT0 = 0;
+uint32_t              g_lagAbSeg = 0xffffffffu;
 // 41.1 (Dishonored): pose look-ahead in display periods - the head pose the
 // game renders with, and the views the layer is tagged with, are located for
 // predictedDisplayTime + ahead * period (0 = today: the slot xrWaitFrame
@@ -315,6 +332,11 @@ uint64_t g_lastPoseAuditLogMs = 0; // render thread only
 // many generations deep the RENDERED sample sits against the generation the
 // layer is TAGGED with (g_poseLag) - and what that gap costs in degrees.
 std::atomic<uint32_t> g_locateGen{0};
+// VR-65: WHEN the locate happened, so a record can carry the locate time
+// rather than the camera-write time. The two differ by however long the
+// game thread took to get to the write, and naming one for the other makes
+// every latency figure derived from it wrong.
+std::atomic<double> g_locateMs{0.0};
 std::atomic<float>    g_scriptHeadYawDeg{0.0f}; // XR-frame yaw, sign-corrected at the seam
 std::atomic<uint32_t> g_scriptHeadGen{0};       // the locate generation it was sampled from
 std::atomic<uint32_t> g_scriptHeadSeq{0};       // monotonic; 0 = the game has never published
@@ -1894,20 +1916,28 @@ void release_mirror() {
     g_mirrorFmt = DXGI_FORMAT_UNKNOWN;
 }
 
+// The D3D9 pin, installed by the host (see set_mirror_hook).
+MirrorHook g_mirrorHook = nullptr;
+
 // The eye pin for one present (see the block comment at the globals). Uses
 // the game device straight off the backbuffer, so it works with or without a
 // live XR session. eyeSign: -1 = this backbuffer is the LEFT eye (snapshot),
 // +1 = RIGHT eye (re-blit the held left over it - call only AFTER the right
 // eye's XR capture), 0 = mono (nothing to pin).
 void mirror_present(int eyeSign) {
-    // 41.0 (Dishonored): the desktop window shows the game's own D3D9
-    // backbuffer; pinning it to one eye needs a D3D9 StretchRect from the
-    // stereo method, not a DXGI copy. Counted (vrmirror status), never blitted,
-    // until a method needs it.
+    // 41.2 (Dishonored): IMPLEMENTED. The pin is a D3D9 StretchRect and this
+    // file has no D3D9 device, so the host installs the hook and
+    // core/gfx/desktop_eye.cpp does the copy - which keeps this file as close to
+    // the BioShock copy as the D3D9 host allows. Until 41.2 this function only
+    // counted, and its own comment said so; the consequence was that the game
+    // window showed L,R,L,R under a working sequential stereo stream and a
+    // recording of it looked exactly like alternate-eye rendering.
     if (eyeSign == 0 || !g_mirror.load(std::memory_order_relaxed)) return;
     if (eyeSign < 0) g_mirrorHolds.fetch_add(1, std::memory_order_relaxed);
     else g_mirrorBlits.fetch_add(1, std::memory_order_relaxed);
+    if (g_mirrorHook) g_mirrorHook(eyeSign);
 }
+
 
 void reset_aer() {
     g_eyeValid[0] = g_eyeValid[1] = false;
@@ -3022,8 +3052,39 @@ void on_present_begin() {
     g_lastShouldRender.store(g_frameState.shouldRender != XR_FALSE, std::memory_order_relaxed);
     // Session 42: the runtime's own frame period, previously discarded. 0 stays
     // 0 on runtimes that do not fill it; consumers must treat that as unknown.
-    g_displayPeriodNs.store(static_cast<int64_t>(g_frameState.predictedDisplayPeriod),
-                            std::memory_order_relaxed);
+    {
+        const int64_t periodNs = static_cast<int64_t>(g_frameState.predictedDisplayPeriod);
+        // VR-67: LOG THE CHANGE, NOT THE STATE. This is predictedDisplayPeriod,
+        // which OpenXR does NOT require to equal the panel's refresh cycle - a
+        // reprojecting runtime reports the APPLICATION's period, so a doubling
+        // here is the runtime telling us it has started synthesising frames.
+        // The 3 s summary prints only the period the window ENDED on, so a
+        // transition inside a window is invisible there and was read as a
+        // steady 40 Hz across a run that in fact changed period at least twice.
+        // Every transition is now stamped with the frame index it happened on,
+        // so a hitch can be checked against it instead of assumed independent.
+        static int64_t s_lastPeriodNs = -1;
+        static uint32_t s_periodChanges = 0;
+        static uint64_t s_waits = 0;
+        ++s_waits;
+        if (periodNs != s_lastPeriodNs) {
+            const double wasMs = s_lastPeriodNs > 0 ? (double)s_lastPeriodNs / 1e6 : 0.0;
+            const double nowMs = periodNs > 0 ? (double)periodNs / 1e6 : 0.0;
+            if (s_lastPeriodNs >= 0)
+                XRLOG("xr: RUNTIME PERIOD CHANGED %.2f ms (%.1f Hz) -> %.2f ms (%.1f Hz) - change #%u, at frame "
+                      "%llu (xrWaitFrame calls since start). This is predictedDisplayPeriod, not the panel refresh: a doubling means the runtime "
+                      "has started reprojecting (spacewarp) and is asking us for half rate. Check the frame gaps "
+                      "around this frame index before blaming a stall on anything else.",
+                      wasMs, wasMs > 0.0 ? 1000.0 / wasMs : 0.0, nowMs, nowMs > 0.0 ? 1000.0 / nowMs : 0.0,
+                      ++s_periodChanges, (unsigned long long)s_waits);
+            else
+                XRLOG("xr: runtime period is %.2f ms (%.1f Hz) at the first located frame - predictedDisplayPeriod, "
+                      "NOT the panel refresh. Every later change is logged; if none is, the period held all run.",
+                      nowMs, nowMs > 0.0 ? 1000.0 / nowMs : 0.0);
+            s_lastPeriodNs = periodNs;
+        }
+        g_displayPeriodNs.store(periodNs, std::memory_order_relaxed);
+    }
     if (XR_FAILED(r)) {
         XRLOG("xr: xrWaitFrame failed: %s", res_str(r));
         teardown_session("waitframe failed");
@@ -3078,6 +3139,9 @@ void on_present_begin() {
     // zero-latency laser).
     g_viewsPrev2[0] = g_viewsContent[0]; // s43b: keep one more generation for
     g_viewsPrev2[1] = g_viewsContent[1]; // the lag-2 attribution candidate
+    g_viewsPrev2Gen = g_viewsContentGen;
+    g_viewsContentGen = g_viewsGen;
+    g_viewsGen = g_locateGen.load(std::memory_order_relaxed);
     g_viewsPrev2Valid = g_viewsContentValid;
     g_viewsContent[0] = g_views[0];
     g_viewsContent[1] = g_views[1];
@@ -3087,6 +3151,7 @@ void on_present_begin() {
     // views - after this, g_views is generation N, g_viewsContent is N-1 and
     // g_viewsPrev2 is N-2, which is exactly the indexing g_poseLag selects on.
     g_locateGen.fetch_add(1, std::memory_order_relaxed);
+    g_locateMs.store(dvr::clock::now_ms(), std::memory_order_relaxed);
 
     XrViewLocateInfo vli{XR_TYPE_VIEW_LOCATE_INFO};
     vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -3918,17 +3983,73 @@ void on_present_end(ID3D11Texture2D* frame) {
                 // state block). Default 1 == the historical g_viewsContent
                 // behavior; only the Infinite adapter ever changes it.
                 if (srFrame) {
+                    // ---- VR-65: THE LAG A/B, on a fixed, announced schedule --
+                    //
+                    // The decisive render leg has refused twice, so the cheaper
+                    // discriminator is to change the one thing under suspicion
+                    // and let the tester feel the answer. This changes ONLY which
+                    // generation of located views the submitted pose comes from -
+                    // no camera sampling, capture mode, resolution or pacing
+                    // setting moves with it.
+                    //
+                    // Baseline, alternative, BASELINE AGAIN, alternative. The
+                    // return to baseline is the point: an improvement that does
+                    // not come back when the baseline returns is a coincidence,
+                    // and a single A-then-B run cannot tell those apart.
+                    //
+                    // Each segment is announced with its value and its length so
+                    // the tester knows what they are judging, and the sequence
+                    // ends with the baseline restored.
+                    if (g_lagAbOn.load(std::memory_order_relaxed)) {
+                        const uint64_t nowMs = GetTickCount64();
+                        if (g_lagAbT0 == 0) g_lagAbT0 = nowMs;
+                        const uint32_t segMs = g_lagAbSegMs.load(std::memory_order_relaxed);
+                        const uint32_t seg = segMs ? (uint32_t)((nowMs - g_lagAbT0) / segMs) : 0u;
+                        if (seg != g_lagAbSeg) {
+                            g_lagAbSeg = seg;
+                            static const int kPlan[4] = { 1, 2, 1, 0 };
+                            if (seg < 4) {
+                                const int want = kPlan[seg];
+                                g_poseLag.store(want, std::memory_order_relaxed);
+                                XRLOG("xr: LAG A/B segment %u of 4 - pose history "
+                                      "selection is now LAG %d for the next %u ms. "
+                                      "%s Turn your head at a moderate speed, then "
+                                      "briefly faster, then pitch and roll, then "
+                                      "hold still and turn with the stick. Nothing "
+                                      "else changed: capture mode, resolution and "
+                                      "pacing are fixed.",
+                                      seg + 1, want, segMs,
+                                      seg == 0 ? "This is the BASELINE."
+                                      : seg == 2 ? "This is the BASELINE AGAIN - if "
+                                        "the previous segment felt better, it must "
+                                        "feel worse now, or the improvement was not real."
+                                      : "This is an ALTERNATIVE.");
+                            } else {
+                                g_poseLag.store(1, std::memory_order_relaxed);
+                                g_lagAbOn.store(false, std::memory_order_relaxed);
+                                XRLOG("xr: LAG A/B complete - baseline lag 1 "
+                                      "restored. Report which segments felt worst "
+                                      "and best by their numbers.");
+                            }
+                        }
+                    }
                     int lag = g_poseLag.load(std::memory_order_relaxed);
                     // Pick the pose GENERATION as a pair - the s50 rendered
                     // tag needs both eyes of the same locate to reconstruct
                     // the parallel render camera.
                     const XrView* gen;
+                    uint32_t genId; int lagUsed;
                     if (lag == 0 && g_viewsValid)
-                        gen = g_views;
+                        { gen = g_views;       genId = g_viewsGen;        lagUsed = 0; }
                     else if (lag == 2 && g_viewsPrev2Valid)
-                        gen = g_viewsPrev2;
+                        { gen = g_viewsPrev2;  genId = g_viewsPrev2Gen;   lagUsed = 2; }
                     else
-                        gen = g_viewsContent;
+                        { gen = g_viewsContent; genId = g_viewsContentGen; lagUsed = 1; }
+                    // The generation ACTUALLY submitted for this eye, and which
+                    // arm chose it. The audit reports these instead of the
+                    // current generation, which it cannot distinguish a lag from.
+                    g_eyePoseGen[srEye] = genId;
+                    g_eyePoseLag[srEye] = lagUsed;
                     if (g_eyeTagRendered.load(std::memory_order_relaxed))
                         g_eyePose[srEye] =
                             parallel_eye_tag(gen[0].pose, gen[1].pose, srEye,
@@ -4114,6 +4235,100 @@ void on_present_end(ID3D11Texture2D* frame) {
                     // Rate-limited to 500 ms and stereo-only; the mono screen
                     // is head-locked and has no projection pose to be wrong
                     // about, so a zero there would mean nothing.
+                    // ---- VR-65: THREE RECORDS, THREE SEPARATE CHECKS -------
+                    //
+                    // The audit below this one compares the submitted pose
+                    // against the LATEST published camera yaw. With a separate
+                    // game thread and a capture stage that can deliver the
+                    // previous present's slot, "latest" may belong to a
+                    // different image, so it can agree for the wrong reason.
+                    //
+                    // The first attempt at replacing it made the same mistake in
+                    // a new place: it compared a camera against the head values
+                    // that camera came from. Two numbers from one input agree by
+                    // construction, and its answer meant nothing.
+                    //
+                    // So this asks two questions that can actually fail:
+                    //
+                    //   CAMERA vs RENDER: the record says what the camera was
+                    //   told; the shader constants say what rendering consumed.
+                    //   Both are UE world degrees, both are for THIS image.
+                    //
+                    //   TRANSPORT: was the record delivered with the eye it
+                    //   describes? Each eye is compared against ITS OWN
+                    //   submitted view, never against whichever record arrived
+                    //   most recently.
+                    //
+                    // Read-only. Nothing here changes which pose is submitted.
+                    if (stereo) {
+                        const uint32_t recId = dvr::capture::delivered_rec();
+                        dvr::pose::Record rec;
+                        static uint32_t jAgree = 0, jDisagree = 0, jNoRec = 0,
+                                        jNoRender = 0, jEyeMismatch = 0;
+                        static uint64_t lastJoinMs = 0;
+                        if (!dvr::pose::copy(recId, &rec)) {
+                            ++jNoRec;
+                        } else {
+                            // RECORD vs SUBMISSION first, because it needs no
+                            // world matrix and it is the leg the symptom points
+                            // at. Both sides are OpenXR convention.
+                            const int vi0 = rec.eye < 0 ? 0 : (rec.eye > 0 ? 1 : -1);
+                            if (vi0 >= 0)
+                                dvr::pose::note_submitted(
+                                    rec.eye,
+                                    projViews[vi0].pose.orientation.x,
+                                    projViews[vi0].pose.orientation.y,
+                                    projViews[vi0].pose.orientation.z,
+                                    projViews[vi0].pose.orientation.w,
+                                    g_eyePoseGen[vi0], g_eyePoseLag[vi0], rec);
+
+                            float renderYaw = 0.0f; uint32_t renderSerial = 0;
+                            const bool haveRender =
+                                dvr::pose::render_yaw_deg(&renderYaw, &renderSerial);
+                            if (!haveRender) {
+                                ++jNoRender;
+                            } else {
+                                // CAMERA vs RENDER, the check that can clear or
+                                // condemn the hypothesis.
+                                float d = renderYaw - rec.cam.yawDeg;
+                                while (d > 180.0f) d -= 360.0f;
+                                while (d < -180.0f) d += 360.0f;
+                                if (fabsf(d) <= 0.50f) ++jAgree; else ++jDisagree;
+                                dvr::pose::check_controls(rec, renderYaw);
+
+                                // TRANSPORT. The record names an eye; the
+                                // submitted views are indexed by eye. A record
+                                // whose eye is 0 is untagged and there is no
+                                // association to check - which is reported as
+                                // unknown, never as agreement.
+                                const int vi = rec.eye < 0 ? 0 : (rec.eye > 0 ? 1 : -1);
+                                if (vi < 0) ++jEyeMismatch;
+
+                                const uint64_t now2 = GetTickCount64();
+                                if (now2 - lastJoinMs >= 1000) {
+                                    lastJoinMs = now2;
+                                    const dvr::pose::Stats ps = dvr::pose::stats();
+                                    const float subYaw = vi >= 0 ? xr_quat_yaw_deg(
+                                        projViews[vi].pose.orientation.x, projViews[vi].pose.orientation.y,
+                                        projViews[vi].pose.orientation.z, projViews[vi].pose.orientation.w) : 0.0f;
+                                    XRLOG("xr: posejoin rec %u pair %u eye %+d (writer %d%s) | CAMERA was told "
+                                          "yaw %.2f deg; RENDER actually consumed %.2f -> %+.2f deg (agree %u "
+                                          "disagree %u, tolerance 0.50) | this eye's SUBMITTED pose reads %.2f "
+                                          "deg in XR space, which is a DIFFERENT space and is printed for the "
+                                          "record, not differenced | no record %u, no render evidence %u, "
+                                          "untagged %u | ring copies %u expired %u missing %u | controls passed "
+                                          "%u FAILED %u. Only the camera-vs-render number can clear the "
+                                          "hypothesis; the other two describe coverage.",
+                                          rec.id, rec.pairId, rec.eye, rec.cam.writer,
+                                          rec.secondPassReuse ? ", second pass reusing pass 1's camera" : "",
+                                          rec.cam.yawDeg, renderYaw, d, jAgree, jDisagree,
+                                          subYaw, jNoRec, jNoRender, jEyeMismatch,
+                                          ps.copies, ps.expired, ps.missing, ps.ctrlPass, ps.ctrlFail);
+                                    dvr::pose::log_beat();
+                                }
+                            }
+                        }
+                    }
                     if (stereo && g_poseAudit.load(std::memory_order_relaxed)) {
                         uint64_t now = GetTickCount64();
                         if (now - g_lastPoseAuditLogMs >= 500) {
@@ -4318,6 +4533,11 @@ void on_present_end(ID3D11Texture2D* frame) {
     // supposed to mean. Reprojection to the new display time is the runtime's
     // job and is exactly what it does for the parked-session keepalive that
     // already re-submits this same snapshot.
+    // Did THIS present build a layer of its own? The hold below sets
+    // layerCount = 1 for a re-submission, and the bank at the end of this
+    // function used to read that as "a new layer was built" - see the bank for
+    // what that cost.
+    const bool builtNewLayer = (layerCount != 0);
     XrCompositionLayerProjection holdProj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     XrCompositionLayerProjectionView holdViews[2] = {
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
@@ -4399,7 +4619,30 @@ void on_present_end(ID3D11Texture2D* frame) {
     // guard above re-submits it too and that guard is not gated on the feed
     // lever. Cost is one struct copy under an uncontended mutex per submitted
     // present.
-    if (layerCount && (g_lastLayer == 2 || g_lastLayer == 1)) {
+    // 41.2: `builtNewLayer`, NOT `layerCount`.
+    //
+    // THE BUG THIS FIXES. On a hold-only present, `proj` / `projViews` / `quad`
+    // are the EMPTY locals declared at the top of this function - the held
+    // copies that were actually submitted live in holdProj / holdViews /
+    // holdQuad. The hold sets layerCount = 1, so this bank fired and overwrote a
+    // perfectly good snapshot with zeroed structures while leaving it marked
+    // valid. The NEXT hold then submitted null handles and a zero view count,
+    // and xrEndFrame answered XR_ERROR_HANDLE_INVALID - which stands the session
+    // down. Both logs from 2026-09-06 show exactly that at the pause-menu
+    // transition, and it is why a window that straddled the pause read as "the
+    // renderer stopped doubling" when what had happened was that the session
+    // was gone.
+    //
+    // A hold re-submits the snapshot unchanged, so leaving the bank untouched is
+    // both correct and sufficient.
+    //
+    // What this does NOT fix, and is tracked separately: a saved layer holds
+    // swapchain HANDLES, not pixels, and OpenXR composites the most recently
+    // RELEASED image of a swapchain. If a new left image was released and its
+    // right sibling never arrived, re-submitting this snapshot pairs the new
+    // left with the old right. Preserving a completed PAIR needs retained
+    // images, not a retained structure.
+    if (builtNewLayer && (g_lastLayer == 2 || g_lastLayer == 1)) {
         std::lock_guard<std::mutex> lk(g_feedSnapMutex);
         g_feedSnap.valid = true;
         g_feedSnap.isProj = (g_lastLayer == 2);
@@ -4957,6 +5200,13 @@ void set_pace_ahead(int periods) {
 
 int pace_ahead() { return g_paceAhead.load(std::memory_order_relaxed); }
 
+void set_lag_ab(bool on, uint32_t segMs)
+{
+    g_lagAbSegMs.store(segMs, std::memory_order_relaxed);
+    g_lagAbT0 = 0; g_lagAbSeg = 0xffffffffu;
+    g_lagAbOn.store(on && segMs > 0, std::memory_order_relaxed);
+}
+
 void set_pose_lag(int lag) {
     if (lag < 0) lag = 0;
     if (lag > 2) lag = 2;
@@ -5307,6 +5557,7 @@ void set_pose_audit(bool on) {
 }
 
 uint32_t locate_gen() { return g_locateGen.load(std::memory_order_relaxed); }
+double last_locate_ms() { return g_locateMs.load(std::memory_order_relaxed); }
 
 void publish_script_head(float hmdYawRad, uint32_t locateGen, uint32_t seq) {
     // THE SIGN TRAP, handled once, here, so no caller has to know about it.
@@ -5664,6 +5915,16 @@ bool pair_open() { return g_srPairOpen; }
 uint32_t pace_timeouts() { return g_paceTimeouts.load(std::memory_order_relaxed); }
 
 static void pair_probe_fill(PairProbe* out, bool drain);
+// 41.2 (Dishonored): the desktop eye pin's implementation, installed by the
+// D3D9 host. Public scope on purpose - mirror_present lives in the anonymous
+// namespace and the host cannot reach it.
+void set_mirror_hook(MirrorHook fn) {
+    g_mirrorHook = fn;
+    DVR_INFO("xr: desktop eye pin %s", fn ? "installed - the game window will "
+             "hold ONE eye instead of showing whichever eye each present carried"
+             : "removed");
+}
+
 void pair_probe(PairProbe* out) { pair_probe_fill(out, true); }
 // 41.1 (Dishonored): the same snapshot WITHOUT draining the maxima, for a
 // per-present reader (the method's stale-eye line) that must not eat the
@@ -5880,6 +6141,7 @@ void fov_audit(float* tanH, float* tanV, int* src, unsigned* swapW, unsigned* sw
 }
 void set_pose_audit(bool) {}
 uint32_t locate_gen() { return 0; }
+double last_locate_ms() { return 0.0; }
 void publish_script_head(float, uint32_t, uint32_t) {}
 void publish_gameplay_view(bool) {}
 void handle_cine_command(const char*) {}

@@ -4,9 +4,15 @@
 // Vocabulary (game words are tried before the core ones in command.h):
 //   recenter                     same as F5
 //   hands on|off                 the SkelControl hand drive
+//   arms [probe|status]          VR-30: the arm-follow probe, read-only (also reports every 30 s)
 //   blink on|off|probe           hand-aimed Blink; probe = one-shot survey
 //   fov <deg|0>                  the FOV lever (0 disarms)
 //   overlay on|off               the F10 settings panel
+//   arms vis on|off|status|chain VR-31: per-bone arm hiding through the engine's
+//                                own BoneVisibilityStates (ships off, live A/B)
+//   arms mat census|hide <id>|show <id>|restore  VR-31 route (d): the material
+//                                section census (auto, read-only) and hiding one
+//                                section through the engine's own native
 //   camera status                the per-eye camera seam (eye, ipd, field, fov, c5)
 //   camera eyetest <uu> [field]  the write-point instrument (field 0x80|..|all; `camera eyetest stop`)
 //   camera eyefield <name|none>  the field the eye offset writes to ([Camera] EyeField)
@@ -51,11 +57,64 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 {
     bool b = false;
     if (!strcmp(cmd, "recenter")) { RecenterHead(); return true; }
+    // VR-30: the arm-follow probe. Read-only, reports on its own every 30 s.
+    if (!strcmp(cmd, "arms") && !strcmp(args, "yawtest")) { YawSelfTest(); return true; }
+    if (!strcmp(cmd, "arms")) { if (ArmFollowCommand(args)) return true;
+        Log("arms: usage - arms [probe|status|yawtest]  (read-only; it also reports itself every 30 s)");
+        return true; }
     if (!strcmp(cmd, "hands") && DvrOnOff(args, &b)) {
         g_skcDrive = b; g_handMesh = b; g_autoHandDone = true;
         Log("hands: %s (seam)", b ? "ON" : "off");
         return true;
     }
+    // 41.2 (VR-31): the mod's own drawn hands - the live A/B for [VRHands]
+    // Enabled. Ships OFF; `vrhands on` needs a projection method (reentry) to
+    // show anything, and says so on the log if it does not have one.
+    if (!strcmp(cmd, "vrhands")) {
+        if (DvrOnOff(args, &b)) {
+            g_hmEnable = b;
+            g_hmNextBeat = 0.0;                    // a clean beat window per arming
+            g_hmCalls = g_hmDraws = g_hmTris = 0;
+            Log("vrhands: %s (seam) - method '%s'%s. The beat line every 3 s "
+                "says calls/draws/tris and names any zero.",
+                b ? "ON" : "off", dvr::stereo::active_name(),
+                (b && !dvr::stereo::wants_projection())
+                    ? ", which is NOT a projection layer: nothing will draw until `stereo reentry`"
+                    : "");
+            return true;
+        }
+        if (!strcmp(args, "calib on") || !strcmp(args, "calib off")) {
+            g_hmCalib = !strcmp(args, "calib on");
+            Log("vrhands: calibration triangle %s (seam)", g_hmCalib ? "ARMED" : "off");
+            return true;
+        }
+        if (!strcmp(args, "status")) {
+            Log("vrhands: %s | method '%s' projection=%d | pipeline=%d depth=%ux%u "
+                "| models L=%d R=%d scale %.2f | last %s",
+                g_hmEnable ? "ON" : "off", dvr::stereo::active_name(),
+                (int)dvr::stereo::wants_projection(), (int)g_hmReady,
+                g_hmDepthW, g_hmDepthH, g_hmModel[0], g_hmModel[1], g_hmScale,
+                HmWhy(g_hmLastWhy));
+            return true;
+        }
+        Log("vrhands: usage - vrhands on|off|status|calib on|calib off");
+        return true;
+    }
+    if (!strcmp(cmd, "dc")) return DcCommand(args);
+    if (!strcmp(cmd, "ms")) return MsCommand(args);
+    if (!strcmp(cmd, "pose")) return PrCommand(args);
+#if DVR_WITH_LEGACY
+    if (!strcmp(cmd, "bq")) return BqCommand(args);
+#endif
+#if DVR_WITH_LEGACY
+    if (!strcmp(cmd, "handmove")) return HmCommand(args);
+#endif
+#if DVR_WITH_LEGACY
+    if (!strcmp(cmd, "pcap")) return PcCommand(args);
+    if (!strcmp(cmd, "rfl")) return RflCommand(args);
+    if (!strcmp(cmd, "startup")) return SuCommand(args);
+    if (!strcmp(cmd, "uistate")) return UiCommand(args);
+#endif
     if (!strcmp(cmd, "blink")) {
         if (!strcmp(args, "probe")) { BlinkProbeArm(); return true; }
         if (DvrOnOff(args, &b)) { g_blkAimOnCfg = b; g_blkDriveUI = b; Log("blink: hand aim %s (seam)", b ? "ON" : "off"); return true; }
@@ -70,6 +129,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
+    if (!strcmp(cmd, "arms")) return ArmsCommand(args);   // VR-31: the per-bone visibility lever
     if (!strcmp(cmd, "res")) return ResCommand(args);   // 41.1: the render-resolution picker
     if (!strcmp(cmd, "neck")) {
         // 41.1: `neck off|add|cancel [below] [behind]` - the pitch pivot lever (head_track.cpp NeckSet)
@@ -349,16 +409,44 @@ static bool DvrScriptViewLive()
 // the line tools\boot.ps1 waits for. Present thread, once per frame.
 static void GameStateTick()
 {
+    // VR-62: sample the terms INDIVIDUALLY, so the scoreboard scores exactly the
+    // values this function decides on and cannot disagree with it.
+    const bool suCyl    = CylTruthLive();
+    const bool suNoMenu = !g_menuOpen && !g_inMenu && !g_mainMenu;
+    const bool suView   = DvrScriptViewLive();
+    // VR-62 observation. Sampled with the same values the state machine is
+    // about to decide on, so its "proposed" verdict cannot disagree with the
+    // real one for any reason except the one substitution it makes.
+    UiPoll(suCyl, suView);
+
     const char* s;
-    if (!CylTruthLive())               s = "NO_PAWN";
-    else if (g_menuOpen || g_inMenu || g_mainMenu) s = "MENU";
-    else if (!DvrScriptViewLive()) {
+    if (!suCyl)                        s = "NO_PAWN";
+    else if (!suNoMenu)                s = "MENU";
+    else if (!suView) {
         // A loading screen ends whatever cutscene the latch remembers.
         if (g_cineNow) { g_cineNow = false; Log("cine: latch cleared - a loading screen"); }
         s = "LOADING";
     }
     else if (g_cineNow)                s = "CINEMATIC";
     else                               s = "GAMEPLAY";
+
+    // VR-62. The clock starts when we LEAVE gameplay, because that is the last
+    // moment we know the picture was right; everything after it is the settle.
+    const bool nowGameplay = !strcmp(s, "GAMEPLAY");
+    static bool wasGameplay = false;
+    if (wasGameplay && !nowGameplay) {
+        SuBeginLoad();
+        UiNoteLoad();   // the outgoing level's movie objects are not this level's
+        // A load destroys the components the weapon contracts were matched to.
+        WaInvalidateContracts("the game left gameplay");
+        // ... and the candidate list itself, which holds the component pointers
+        // those contracts were matched to. Dropping the contracts without
+        // rebuilding this leaves the matcher with a dead list and no anchor.
+        FpInvalidateCandidates("the game left gameplay");
+    }
+    wasGameplay = nowGameplay;
+    SuTick(suCyl, suNoMenu, suView, !g_cineNow, DvrGameplayVerdict());
+
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
         DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info, "[game] state: %s", s);
@@ -431,6 +519,9 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("features");
     w.kv("gamepadOnly", (bool)g_gamepadOnly);   // 40.3: names the OWNER of the zeroes below
     w.kv("hands", (bool)g_skcDrive); w.kv("handMesh", (bool)g_handMesh); w.kv("handModels", (bool)g_hmEnable);
+    // 41.2 (VR-31): the drawn hands' own liveness. handModels alone cannot say
+    // whether anything reached the screen - handModelTris is what does.
+    w.kv("handModelTris", (int)g_hmTris); w.kv("handModelWhy", HmWhy(g_hmLastWhy));
     w.kv("blink", (bool)g_blkAimOnCfg); w.kv("melee", (bool)g_meleeOn);
     w.kv("fovLever", (double)g_fovLever);
     w.kv("fpsCap", (double)g_fpsCap);

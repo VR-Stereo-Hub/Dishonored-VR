@@ -53,7 +53,9 @@ ReentryHooks g_hooks;
 // The tag ring: game thread pushes (per draw), present thread pops (per
 // present). Power-of-two, SPSC, self-healing on a skew.
 constexpr uint32_t kRing = 8;
-struct Tag { int eye; bool posOk; float pos[3]; };
+// VR-65: the tag carries the RECORD the draw was rendered with, so the pose
+// travels with the image instead of being chosen by timing at submission.
+struct Tag { int eye; bool posOk; float pos[3]; uint32_t rec; };
 Tag           g_ring[kRing];
 volatile LONG g_ringHead = 0, g_ringTail = 0;
 uint32_t      g_ringDropped = 0, g_ringCleared = 0, g_tagMismatch = 0, g_tagOk = 0, g_tagUntagged = 0;
@@ -356,6 +358,10 @@ public:
             ++g_tagUntagged;
         }
         dvr::capture::set_pending_tag(eye);
+        // VR-65: and the record the draw was rendered with, onto the same slot
+        // the pixels land in. An untagged present carries 0, which the audit
+        // reports as MISSING rather than silently joining to nothing.
+        dvr::capture::set_pending_rec(tagged ? t.rec : 0u);
         {   // 41.1 (session 9): the camera of the draw the grab will take, and its right row
             float bf[3], br[3], bu[3];
             const bool basisOk = dvr::camera::last_basis(bf, br, bu);
@@ -369,6 +375,13 @@ public:
         if (!ensure_target(d.dev11, w, h)) return false;
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
+            // 41.2 (VR-31): our own hands, over the game image and under the
+            // F10 panel. The eye is the tag of the pixels JUST blitted, which
+            // is NOT `eye` (the eye the next game draw will render) - one line
+            // apart, and confusing them is the stale-eye fault in miniature.
+            if (HandDrawFn hd = hand_draw())
+                hd(d.dev11, d.ctx11, rtv_, w, h,
+                   fresh ? dvr::capture::delivered_tag() : 0);
             if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
             // 41.1 (session 9): the frame-identity trace's stages slot and out,
             // inside the read fence (the slot thumbnail is a read of the slot).
@@ -606,13 +619,16 @@ void set_reentry_c5_pair(bool on) {
 }
 bool reentry_c5_pair() { return g_c5Pair; }
 
-void reentry_push_tag(int eyeSign, const float pos[3]) {
+void reentry_push_tag(int eyeSign, const float pos[3]) { reentry_push_tag_rec(eyeSign, pos, 0); }
+
+void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec) {
 
     const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0), tail = InterlockedCompareExchange(&g_ringTail, 0, 0);
     if (head - tail >= (LONG)kRing) { ++g_ringDropped; return; }   // no consumer (no present) or stalled
     Tag& t = g_ring[head & (kRing - 1)];
     t.eye = eyeSign;
     t.posOk = pos != nullptr;
+    t.rec = rec;
     if (pos) memcpy(t.pos, pos, sizeof(t.pos));
     InterlockedExchange(&g_ringHead, head + 1);
 }

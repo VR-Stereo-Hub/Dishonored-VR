@@ -24,6 +24,7 @@ bool         g_registered = false;
 FrameOutput  g_last;
 uint32_t     g_framesOut = 0;
 OverlayDrawFn g_overlay = nullptr;
+HandDrawFn    g_handDraw = nullptr;
 
 // The beat: one line every 3 s naming the method and what it produced, so a
 // log can say which eyes flowed and at what rate. The counters here are
@@ -478,5 +479,7 @@ void log_status() {
 
 void set_overlay_draw(OverlayDrawFn fn) { g_overlay = fn; }
 OverlayDrawFn overlay_draw() { return g_overlay; }
+void set_hand_draw(HandDrawFn fn) { g_handDraw = fn; }
+HandDrawFn hand_draw() { return g_handDraw; }
 
 } // namespace dvr::stereo

@@ -186,12 +186,17 @@ cheap; remembering is not.
 ### 2. Branch
 
 ```
-<owner>/vr-<n>-<short-slug>
+claude/vr-<n>-<short-slug>
 ```
 
-This is Linear's own "copy git branch name" format (`Ctrl + Shift + .` on the issue), so the
-easiest way to get it right is to copy it from the ticket. `<owner>` is your Linear username,
-or `claude` for an agent session. Branch off `VR-Main`.
+**Do NOT copy the branch name from the ticket.** Linear's "copy git branch name"
+(`Ctrl + Shift + .`) prefixes it with the Linear username, which is derived from the account's
+email address and is usually a real person's name. This repository is PUBLIC and a branch name
+is permanent - it survives in every closed pull request, and GitHub has no way to delete a pull
+request once it exists. Type the branch by hand instead: the prefix is always `claude`, never a
+username, a handle, an email local-part or any part of a person's name. Branch off `VR-Main`.
+
+Linear still links the PR from the `Fixes VR-<n>` line in the body, so nothing is lost.
 
 The branch name alone is enough for Linear to link the PR, but the PR body says it too, because
 branches get renamed and merged bodies do not.
@@ -389,7 +394,8 @@ Write about them that way, in code, comments, commits, PRs and issues.
 
 ## Referencing issues in commits and pull requests
 
-- Branch: `<owner>/<team>-<number>-<slug>`, which is Linear's own copy-branch-name format.
+- Branch: `claude/vr-<number>-<slug>`. Never Linear's copy-branch-name format - it carries the
+  account holder's name into a public repository permanently.
   Copy it from the issue.
 - The FIRST line of the PR body is the link: `Fixes VR-123` when the PR targets the repo's
   default branch, `Ref VR-123` when it targets a working branch, so that only the PR which
@@ -500,7 +506,7 @@ close its ticket, because the change has not reached `VR-Main` yet.
 ```
 1. Search Linear. Create from the template if it is not there.
    Project + milestone + priority + Type label, always.
-2. Branch: <owner>/vr-<n>-<slug>, off VR-Main. Copy it from the ticket.
+2. Branch: claude/vr-<n>-<slug>, off VR-Main. Type it; do NOT copy it from the ticket.
 3. Work. Simulator first. Headset last. ENGINE_NOTES in the same commit.
 4. PR body line 1: "Fixes VR-<n>" into VR-Main, "Ref VR-<n>" into a working branch.
    Title: a conventional-commit subject.

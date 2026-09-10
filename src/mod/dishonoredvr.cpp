@@ -33,6 +33,7 @@
 #include "core/framework/frame_hooks.h"
 #include "core/framework/perf.h"
 #include "core/gfx/stereo.h"
+#include "core/vr/pose_record.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/draw_census.h"
 #include "core/gfx/hud_capture.h"
@@ -41,6 +42,9 @@
 
 #include "core/gfx/d3d9ex.h"
 #include "game/dishonored/camera.h"
+#include "game/dishonored/hands/hand_frame.h"
+#include "game/dishonored/hands/weapon_frame.h"
+#include "game/dishonored/hands/hand_frame_test.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
@@ -88,6 +92,23 @@
 #include "mod/state/51_legacy_spacebases.inc"
 #include "mod/state/52_game_dishonored_head_track.inc"
 #include "mod/state/53_core_input_pad_bridge.inc"
+#include "mod/state/54_game_dishonored_arm_follow.inc"
+#include "mod/state/55_game_dishonored_hands_mesh_split.inc"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/57_game_dishonored_hands_weapon_id.inc"
+#endif
+#include "mod/state/57b_game_dishonored_hands_weapon_attach.inc"
+#include "mod/state/56_game_dishonored_hands_pose_report.inc"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/57_game_dishonored_hands_bone_query.inc"
+#endif
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/58_game_dishonored_hands_hand_move.inc"
+#endif
+#include "mod/state/59_game_dishonored_hands_palette_capture.inc"
+#include "mod/state/60_game_dishonored_ue3_reflect.inc"
+#include "mod/state/61_game_dishonored_startup.inc"
+#include "mod/state/62_game_dishonored_ue3_ui_state.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
@@ -96,10 +117,14 @@
 #if !DVR_WITH_LEGACY
 #include "legacy/legacy_stubs.inc"
 #endif
+#define DVR_CAT ::dvr::log::Cat::openxr
+#include "core/vr/apilayer_guard.cpp"
+#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::cfg
 #include "core/config/config.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
+#include "core/framework/perf_ab.cpp"
 #include "core/framework/vs_const_hook.cpp"
 #include "game/dishonored/present_tick.cpp"
 #undef DVR_CAT
@@ -143,11 +168,29 @@
 #define DVR_CAT ::dvr::log::Cat::fov
 #include "game/dishonored/fov_lever.cpp"
 #undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::armfollow
+#include "game/dishonored/arm_follow.cpp"
+#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::menu
 #include "game/dishonored/game_state.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/arms_hide.cpp"
+#include "game/dishonored/hands/mat_hide.cpp"
+#include "game/dishonored/hands/mesh_split.cpp"
+#include "game/dishonored/hands/pose_report.cpp"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/bone_query.cpp"
+#endif
+#include "game/dishonored/hands/palette_capture.cpp"
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/hand_move.cpp"
+#endif
+#if DVR_WITH_LEGACY
+#include "legacy/vr33/weapon_id.cpp"
+#endif
+#include "game/dishonored/hands/weapon_attach.cpp"
+#include "game/dishonored/hands/draw_census.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/fp_mesh.cpp"
@@ -180,6 +223,9 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/uobject.cpp"
+#include "game/dishonored/ue3/reflect.cpp"
+#include "game/dishonored/ue3/ui_state.cpp"
+#include "game/dishonored/startup.cpp"
 #undef DVR_CAT
 #if DVR_WITH_LEGACY
 #define DVR_CAT ::dvr::log::Cat::legacy

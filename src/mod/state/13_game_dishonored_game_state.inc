@@ -65,6 +65,120 @@ static double g_lastVersusMs = 0.0;        // 38.51: last block-input event
 // input goes quiet: buttons except START (pause must always work), sticks,
 // physical-crouch pulses, roomscale. Safety: the latch self-expires after
 // 8 minutes in case an off-toggle is ever missed.
+// ---- VR-62: DOUBLE ON SCENE LIVENESS, NOT ON A FIVE-TERM VERDICT -----------
+//
+// The scene-draw doubling gate asked DvrGameplayVerdict(), which is five terms
+// wide. It only needs one thing to be safe: that the scene is being drawn and
+// presented one-to-one, because the hazard it guards against is a MENU, whose
+// draws outnumber its presents and so break the pair schedule.
+//
+// Two of those five terms are slow by construction, and both were measured
+// holding the picture mono after a load:
+//
+//   menuOpen - set by a Dis_OpenPauseMenu dispatch during a load when no menu is
+//              open at all. A ghost.
+//   viewLive - leaving LOADING deliberately requires a full second of continuous
+//              dispatches, so it cannot clear sooner than 1 s however ready the
+//              scene is. Measured at +1.52 s and +1.72 s on two loads.
+//
+// Neither says anything about whether the scene is drawing. The downstream
+// gates already test that honestly - a c5 camera upload since the previous
+// draw, and a present since the previous draw - and those two together ARE the
+// pairing precondition.
+//
+// So with this on, a verdict refusal is overruled when the scene is
+// demonstrably live. The guards that remain are the ones that name a real menu
+// rather than a slow one: the main menu, a cinematic, and a live pawn.
+// FALSIFIED IN A HEADSET, 2026-09-08, and default OFF because of it. With this
+// on, the hands and weapons FLASHED in the background of the pause menu. The
+// camera upload serial keeps moving while a menu is up - the world is still
+// being rendered behind it - so "the scene is drawing" cannot tell a pause menu
+// from a load, and doubling during a menu is exactly the hazard the verdict was
+// guarding: a menu's draws outnumber its presents, so the pair schedule breaks.
+//
+// The idea is not dead, the SIGNAL was wrong. The code already records the right
+// discriminator elsewhere: a pause menu silences the view-rotation dispatches,
+// while a load keeps dispatching about once a second. A gate built on dispatch
+// recency rather than on c5 movement would separate them - but it needs a window
+// wider than the 1 s load rate, which means a pause would stay doubled for that
+// window, so it trades one artifact for another and needs measuring before it
+// ships. Kept as a lever so that measurement is one ini key away.
+// VR-16/VR-62: THE AUTHORITATIVE EYE FOR THE DRAW THAT IS RUNNING RIGHT NOW.
+//
+// -1 during pass 1, +1 during pass 2, 0 when the tick is not being doubled. The
+// re-entry method draws the world twice per game tick with the camera moved
+// between them, so inside a draw the eye is not something to infer: it is a
+// decision this code made microseconds earlier on this thread.
+//
+// It exists because the hand and weapon correction infers the eye instead, from
+// a jump in the draw's own LocalToWorld translation, keyed on the PRESENT count.
+// That clock is wrong twice over - there are about 160 presents per second
+// against 81 doubled draws - and when the inference misses, every hand and
+// weapon draw in that frame takes a full inter-pupillary offset in the wrong
+// direction. That is a one-frame jump, on both weapons at once, mirrored between
+// the eyes, which is exactly the reported flicker. Published here so the audit
+// can compare the two without either one moving.
+static int   g_sdEyeNow = 0;
+// ... and the two facts that make it ATTRIBUTABLE rather than merely current.
+//
+// The first audit read g_sdEyeNow as a bare global, and a bare global cannot say
+// whether the draw asking is inside the pass that set it or merely running after
+// it. That matters: 89% of the corrected draws in the first run had no pass at
+// all to compare against, so the population the disagreement was measured over
+// was never established. A counter is not evidence until you know its
+// population, and this is the missing half.
+//
+// g_sdDoubleTick says the current game tick is being drawn twice; the depth
+// counter and the draw thread say the caller is lexically INSIDE one of those
+// two draws. Together with the camera seam's per-thread second-pass latch, a
+// draw can name its own eye with no inference and no race.
+// The THREAD that is currently inside a doubled viewport draw, or 0. A draw hook
+// that finds its own thread id here is lexically inside one of the two passes;
+// anything else is a pass we do not own and must stay UNKNOWN.
+static volatile LONG g_sdInDrawTid = 0;
+
+// IS THE METHOD PRODUCING PAIRS AT ALL? Readable from any thread, which the
+// marker above is not.
+//
+// This is the guard the alternation needed and did not have. In MONO there is
+// one camera, so the sideways step between presents is zero every time - which
+// the eye inference reads as "too small to tell", on EVERY present. Holding was
+// harmless there; alternating was not, and it flipped the hands by a full
+// inter-pupillary distance every single frame. Measured: four windows of 565,
+// 396, 350 and 293 consecutive unreadable presents, all of them mono.
+//
+// A mono frame has no eye. The correction must apply no eye offset and must not
+// alternate anything.
+static volatile LONG g_sdDoublingNow = 0;
+// VR-65: the pair both passes of this tick belong to. Minted at pass 1 so a
+// left and a right image can be proved to be the same tick rather than assumed
+// to be by their order in a queue.
+static uint32_t g_sdPairId = 0;
+static bool  g_sdGateSceneLive = false;    // [Stereo] GateOnSceneLive
+static float g_sdSceneQuietMs  = 400.0f;   // [Stereo] SceneQuietMs
+static LONG  g_sdGatedByScene  = 0;   // doubled on scene liveness, not the verdict
+static double g_sdC5LastMoveMs = 0.0;
+static uint32_t g_sdC5LastSerial = 0;
+
+// VR-62: clear a ghost menu flag on dispatch RECENCY rather than a cumulative
+// count. OFF restores the count, which is what held the picture mono for 24 s
+// on a measured load, so the two compare directly in a headset.
+// FALSIFIED IN A HEADSET, 2026-09-08, and default OFF because of it. Clearing on
+// dispatch recency does collapse the ghost from 24 s to about 1.5 s - but it
+// also clears at the MAIN MENU, which then goes stereo after a few seconds.
+//
+// ENGINE_NOTES already recorded this exact failure at 38.17: the main menu's 3D
+// background keeps dispatching view rotations, so "dispatches still flowing"
+// does not separate it from gameplay, and the clearer firing there swept the
+// menu UI onto the wrist panel. The cumulative count was slow ENOUGH to hide
+// that; recency is not. The 24 s clear that looked like a bug was partly the
+// clearer being correctly slow at a main menu.
+//
+// So the count stays until something separates a main menu from a load without
+// relying on dispatch flow at all. CylTruthLive was supposed to be that
+// discriminator and the run shows it is not sufficient.
+static bool   g_menuGhostByRate  = false;   // [Menu] GhostClearByRate
+static double g_menuGhostQuietMs = 400.0;   // [Menu] GhostQuietMs
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
 // 41.2 (session 10): PostRender dispatches, for the draw census. The HUD is
@@ -221,6 +335,22 @@ static int   g_crouchHideCfg   = 1;      // [Hands] CrouchHideArms
 static float g_crouchHideCyl   = 76.0f;  // [Hands] CrouchHideCyl
 static float g_crouchHideScale = 0.02f;  // [Hands] CrouchHideScale
 static bool  g_armsHidden      = false;
+// VR-31 route (a): per-bone hiding through the engine's own BoneVisibilityStates.
+// Back to OFF: the verdict is recorded (route (a) is closed on three
+// instruments, ENGINE_NOTES "VERDICT (2026-09-06, run 4)"), so the lever has
+// nothing left to prove and its diagnostics cost a GObjects walk and an
+// FpCollect per launch. `arms vis status` runs the whole diagnostic on demand.
+static int   g_boneVisCfg      = 0;      // [Hands] BoneVisHide
+// VR-31 route (d): the material census. Read-only, and it is the evidence the
+// route decision is waiting on, so it ships ON.
+static int   g_matCensusCfg    = 1;      // [Hands] MatCensus
+// The automatic A/B. Ships ON: the tester is not sending commands during a run,
+// so the mod runs the experiment on itself and restores everything after.
+// Route (d) is PROVEN, so the timed sweep goes back off - it fought the
+// cycler and its job is done. The numpad cycler is the way to identify a
+// section now, at a human pace.
+static int   g_matAutoCfg      = 0;      // [Hands] MatAuto
+static int   g_matCycleCfg     = 1;      // [Hands] MatCycle (Numpad 1/2/3)
 static int   g_handFloorCfg = 1;      // 38.27: [Hands] HandFloor
 static float g_handFloorMargin = 4.0f;// 38.27: uu above the capsule bottom
 static int   g_crawlTuckCfg = 1;      // 38.19: [Hands] CrawlTuck

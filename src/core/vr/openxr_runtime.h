@@ -310,6 +310,10 @@ bool pair_strict();
 // (reprojection wobble). DEFAULT 1 IN CORE - BS1/BS2 never call this and
 // behave byte-identically; the Infinite adapter exposes the in-headset A/B.
 void set_pose_lag(int lag);
+// VR-65: run the announced lag comparison - baseline, alternative, baseline
+// again, alternative - and restore the baseline at the end. Segment length in
+// milliseconds; 0 disables.
+void set_lag_ab(bool on, uint32_t segMs);
 int get_pose_lag();
 // 41.1 (Dishonored): pose look-ahead in display periods (0..2, default 0): the
 // head pose the game renders with and the views the layer is tagged with are
@@ -393,6 +397,9 @@ void set_pose_audit(bool on);
 // each head sample with the value current when it was taken, so the audit can
 // count how many generations deep the rendered sample sits.
 uint32_t locate_gen();
+// VR-65: when that locate actually happened, for a record that has to carry
+// the locate time rather than the time the camera write reached it.
+double last_locate_ms();
 
 // The SCRIPT lane's matched pair, published by the adapter's camera write:
 // the HMD yaw that write was computed from (XR frame, RADIANS, in the runtime
@@ -525,6 +532,12 @@ struct PairProbe {
     uint64_t intervalSumSqUs = 0;
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };
+// 41.2 (Dishonored): the desktop eye pin. This file owns no D3D9 device, so
+// the host installs the copy and mirror_present calls it. See
+// core/gfx/desktop_eye.h for what it does and why the order matters.
+typedef void (*MirrorHook)(int eyeSign);
+void set_mirror_hook(MirrorHook fn);
+
 void pair_probe(PairProbe* out);
 void pair_probe_peek(PairProbe* out);   // 41.1 (Dishonored): the same without draining the maxima
 // 41.1 (Dishonored): stalePresL + stalePresR, cumulative and never drained, so a
