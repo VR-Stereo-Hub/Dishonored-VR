@@ -38,10 +38,18 @@
 //
 // ---- ORIGIN ----
 //
-// The composition yields a DIRECTION only. The origin is the game camera's own
-// world position (`g_camObj + 0x80`, the same read blink.cpp uses), because that
-// is the point the direction is relative to. Using the hand's position instead
-// would be a second, unverified derivation of where shots start.
+// The composition yields a DIRECTION only. The origin is the camera's world
+// position from the RENDER SIDE - c5 of the last draw, via camera::render_pos -
+// because that is the point the direction is relative to. Using the hand's
+// position instead would be a second, unverified derivation of where shots
+// start.
+//
+// It read `g_camObj + 0x80` when this file shipped, copying blink.cpp's comment.
+// ENGINE_NOTES had already retired that field: measured as a FIXED OFFSET
+// VECTOR, discarded 120 of 120, "not positions at all". The proof was in this
+// instrument's own first line - `origin (3 500 -130)`, the retired constant to
+// the decimal - and it was not read. blink.cpp still carries the same stale
+// comment and wants its own audit; it is deliberately not changed here.
 
 // The ray, in GAME world space. `why` names the first thing that refused, so a
 // missing dot is a sentence rather than a silence.

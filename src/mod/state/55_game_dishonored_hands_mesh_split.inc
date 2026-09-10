@@ -815,5 +815,9 @@ static LONG g_msPubStep1 = 0, g_msPubStepOther = 0, g_msPubRepeat = 0;   // VR-6
 // ViewProjection instead of deciding which eye the draw is. This is the root of
 // the weapon flickers: the decision is what has been wrong, in three different
 // ways, and the decision does not need to exist.
-static bool g_mpEyeFromMatrix = false;   // UNVERIFIED - review rejected the build; OFF until the reference is established
+// VR-69 phase A. The BEHAVIOUR lever is gone - there is nothing for it to do
+// until Phase B establishes the head-centre reference, and leaving a dead lever
+// that looks live is how the next reader ships it. What remains is a DIAGNOSTIC
+// that records the recovered camera and cannot touch placement.
+static bool g_mpEyeMatrixDiag = true;
 static LONG g_mpEyeMeasUsed = 0, g_mpEyeMeasAgree = 0, g_mpEyeMeasDiffer = 0, g_mpEyeMeasRefused = 0;

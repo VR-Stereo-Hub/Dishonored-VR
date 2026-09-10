@@ -1377,7 +1377,9 @@ static void LoadConfig()
     // VR-69: the ROOT fix. The eye offset is measured from the draw's own
     // ViewProjection rather than decided from an inferred eye. Every weapon
     // flicker so far has been that decision being wrong; this removes it.
-    g_mpEyeFromMatrix = IniFloat(ini, "Hands", "PaletteEyeFromMatrix", 0) != 0.0f;
+    // Phase A: a DIAGNOSTIC, not a behaviour lever. It records the camera
+    // recovered from each draw's ViewProjection and cannot move a weapon.
+    g_mpEyeMatrixDiag = IniFloat(ini, "Hands", "PaletteEyeMatrixDiag", 1) != 0.0f;
     // When the eye step is too small to read, ALTERNATE rather than hold the
     // previous present's answer. The method presents the eyes alternately, so
     // holding is the one choice guaranteed wrong; 12% of presents took that path

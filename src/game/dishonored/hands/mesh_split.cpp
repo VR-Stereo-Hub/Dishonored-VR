@@ -1882,10 +1882,13 @@ struct MpDrawCtx {
     float r[3], u[3], f[3];     // camera basis, from the ViewProjection rows
     float col[3][3], t[3];      // LocalToWorld, columns and translation
     float projRight;            // L's translation on the right axis (telemetry)
-    // VR-69: this eye's camera minus the head camera, in the draw's own basis.
-    // The eye offset MEASURED from the draw's own ViewProjection - no decision.
-    float eyeMeasR, eyeMeasU, eyeMeasF;
+    // VR-69 phase A: the camera recovered from this draw's own ViewProjection,
+    // in the MATRIX'S input space. NOT differenced against anything - there is
+    // no established head centre to difference it against, and inventing one is
+    // what the last two attempts did.
+    float eyeCamR, eyeCamU, eyeCamF;
     bool  eyeMeasOk;
+    const char* eyeMeasWhy;
     float vp[16], l2w[16];      // kept whole so a diagnostic can diff them
     void* target;              // borrowed render-target identity for weapon passes
     D3DVIEWPORT9 viewport;
@@ -2013,20 +2016,44 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
     // not, the derivation is wrong and `eyeMeasOk` stays false so the old path
     // keeps the frame - a bad offset here is a full-IPD displacement, which is
     // the very fault this replaces.
+    // PHASE A: RECOVER, VALIDATE, AND DO NOT INVENT A REFERENCE.
+    //
+    // The camera recovered here is in the MATRIX'S OWN INPUT SPACE, which for
+    // this viewmodel is documented as camera-relative - so it is not an absolute
+    // world camera and must not be differenced against one. The previous version
+    // subtracted `camera + 0x80`, a field ENGINE_NOTES measured as a FIXED
+    // OFFSET VECTOR and explicitly retired ("not positions at all ... retire
+    // it"). That subtraction mixed spaces and was wrong twice over.
+    //
+    // AND THERE IS NO ESTABLISHED HEAD CENTRE TO SUBTRACT. c5 / camera+0x330 is
+    // the EYE camera - it is where the per-eye displacement is written - so it
+    // is not a centre either. A single eye's view-projection cannot supply the
+    // missing reference on its own: the same camera is a right eye about one
+    // centre and a left eye about another, with opposite corrections.
+    //
+    // So Phase A records the recovered camera and stops. No difference, no
+    // offset, no placement effect. Establishing the reference is Phase B's job
+    // and it needs captured packets, not another guess.
     c->eyeMeasOk = false;
-    c->eyeMeasR = 0.0f;
-    if (g_camObj && RangeReadable((void*)(g_camObj + 0x80), 12)) {
+    c->eyeCamR = c->eyeCamU = c->eyeCamF = 0.0f;
+    c->eyeMeasWhy = "not attempted";
+    if (!(rn > 1e-4f) || !(un > 1e-4f)) {
+        c->eyeMeasWhy = "degenerate focal norms";
+    } else {
         const float camR = -vp[3][0] / rn;
         const float camU = -vp[3][1] / un;
         const float camF = -vp[3][3];
-        const float* hc = (const float*)(g_camObj + 0x80);
-        const float headR = hc[0]*r[0] + hc[1]*r[1] + hc[2]*r[2];
-        const float headU = hc[0]*u[0] + hc[1]*u[1] + hc[2]*u[2];
-        const float headF = hc[0]*f[0] + hc[1]*f[1] + hc[2]*f[2];
-        c->eyeMeasR = camR - headR;
-        c->eyeMeasU = camU - headU;
-        c->eyeMeasF = camF - headF;
-        c->eyeMeasOk = true;
+        // Finite and bounded, before anything reads them. A NaN reaching the
+        // placement is a silent teleport, and the old gate let one through.
+        const float sum = camR + camU + camF;
+        if (sum != sum || camR > 1e9f || camR < -1e9f || camU > 1e9f || camU < -1e9f ||
+            camF > 1e9f || camF < -1e9f) {
+            c->eyeMeasWhy = "recovered camera is not finite or is out of range";
+        } else {
+            c->eyeCamR = camR; c->eyeCamU = camU; c->eyeCamF = camF;
+            c->eyeMeasOk = true;
+            c->eyeMeasWhy = "recovered (in the MATRIX'S input space - no reference subtracted)";
+        }
     }
 
     // The same two matrices, in the form the rotation maths wants. B's columns
@@ -2483,53 +2510,26 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         if (g_mpEyeFromPass) eyeUse = truth;
     }
 
-    // THE MEASURED PATH. Sanity-gated on the magnitude landing near half the
-    // IPD, because a wrong offset here is exactly the fault being replaced.
-    if (g_mpEyeOffset && g_mpEyeFromMatrix && c->eyeMeasOk) {
-        const float halfIpdUU = 0.5f * g_ipdM * k;
-        const float mag = fabsf(c->eyeMeasR);
-        const bool sane = halfIpdUU > 0.01f && mag <= halfIpdUU * 2.0f;
-        if (sane) {
-            // world = camera + offset, so removing the eye's own displacement
-            // from a head-relative target is a subtraction, exactly as the
-            // decided path did - only the number is read rather than chosen.
-            for (int i = 0; i < 3; i++) dcam[i] -= c->eyeMeasR * c->r[i];
-            InterlockedIncrement(&g_mpEyeMeasUsed);
-            if (c->eyeMeasR > 0.0f) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
-            // The self-check, and the agreement with the old decision - which
-            // is now telemetry rather than the source.
-            const int impliedEye = c->eyeMeasR > 0.0f ? +1 : -1;
-            if (eyeUse != 0 && impliedEye == eyeUse) InterlockedIncrement(&g_mpEyeMeasAgree);
-            else if (eyeUse != 0) InterlockedIncrement(&g_mpEyeMeasDiffer);
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-                "ms/palette/eyematrix: the eye offset is MEASURED from this draw's own ViewProjection, not "
-                "decided - %+.2f uu along right against a half-IPD of %.2f uu (%.0f%% of it). Used %ld times; "
-                "the old decision agreed %ld, differed %ld, and it is telemetry now, not the source. A mono "
-                "pass measures ~0 and needs no recognising. If the percentage is not near 100 the recovery of "
-                "the camera from the matrix is wrong and the gate below is what stops it displacing anything.",
-                c->eyeMeasR, halfIpdUU, halfIpdUU > 0.0f ? 100.0f * mag / halfIpdUU : 0.0f,
-                g_mpEyeMeasUsed, g_mpEyeMeasAgree, g_mpEyeMeasDiffer);
-        } else {
-            // THE REGRESSION THIS SHIPPED WITH, found in review before any run.
-            // Refusing used to fall out of the `if` entirely, past the `else if`
-            // that holds the decided path - so a rejected candidate applied NO
-            // eye offset at all. That is a half-IPD error, and a candidate
-            // drifting in and out of the gate would switch between measured and
-            // uncorrected placement: exactly the discontinuity being hunted.
-            // A diagnostic-only path must leave the output UNCHANGED whether it
-            // succeeds or refuses, and this one did not.
-            InterlockedIncrement(&g_mpEyeMeasRefused);
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
-                "ms/palette/eyematrix: REFUSED - measured %+.2f uu along right against a half-IPD of %.2f uu "
-                "(%ld refused). The decided path takes the frame, which it did NOT do in the build this was "
-                "found in.",
-                c->eyeMeasR, halfIpdUU, g_mpEyeMeasRefused);
-            if (eyeUse != 0) {
-                for (int i = 0; i < 3; i++) dcam[i] -= (float)eyeUse * halfIpdUU * c->r[i];
-                if (eyeUse > 0) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
-            } else g_mpEyeUnclassified++;
-        }
-    } else if (g_mpEyeOffset && eyeUse != 0) {
+    // PHASE A DIAGNOSTIC. Records only. It cannot move a weapon: there is no
+    // branch below that consumes it, and the placement runs the decided path
+    // exactly as it did before this work started.
+    if (g_mpEyeMatrixDiag) {
+        if (c->eyeMeasOk) InterlockedIncrement(&g_mpEyeMeasUsed);
+        else InterlockedIncrement(&g_mpEyeMeasRefused);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette/eyematrix: PHASE A, records only, placement UNCHANGED. Camera recovered from this "
+            "draw's ViewProjection: r %+.2f u %+.2f f %+.2f (%s) - recovered %ld, refused %ld. This is in the "
+            "MATRIX'S OWN input space, which the notes document as camera-relative for this pass, so it is NOT "
+            "an absolute world camera and nothing is subtracted from it. There is no established head centre to "
+            "subtract: c5 and camera+0x330 are the EYE camera, and camera+0x80 was measured as a fixed offset "
+            "vector and retired. A single eye's matrix cannot supply the missing reference - the same camera is "
+            "a right eye about one centre and a left eye about another. Phase B establishes the reference from "
+            "captured packets; until then this number is evidence, not an offset.",
+            c->eyeCamR, c->eyeCamU, c->eyeCamF, c->eyeMeasWhy,
+            g_mpEyeMeasUsed, g_mpEyeMeasRefused);
+    }
+
+    if (g_mpEyeOffset && eyeUse != 0) {
         // Camera-relative: a position is world - camera, so the RIGHT eye's
         // camera being further right makes its positions smaller on that axis.
         // g_mpEyeState is -1 for left, +1 for right.

@@ -105,6 +105,23 @@ BEFORE the build.
 4. **Do not wipe and reinstall to diagnose this.** It has never once been the
    answer and it destroys the evidence.
 
+### The same class, in ENGINE_NOTES rather than an ini (VR-69, 2026-09-09)
+
+`camera + 0x80` was used as the camera's world position in new code, copied from
+a comment in `blink.cpp`. **ENGINE_NOTES had already retired it**: measured as a
+FIXED OFFSET VECTOR, `DISCARDED 120/120`, with the explicit instruction that
+`0x80/0x90/0xC4` "are not positions at all ... retire it". The real position is
+c5, which equals minus `camera + 0x330`.
+
+And the instrument said so on its own first line - `origin (3 500 -130) uu`,
+which is that retired field's constant `(5.2, 500.0, -130.6)` to the decimal.
+**A ray origin that never moves is not a camera.** It was noticed, called
+"unstable", and moved past.
+
+> **A stale comment in a neighbouring file is not a source. ENGINE_NOTES is.**
+> Grep the notes for a field before using it, and read the first line your own
+> instrument prints as though someone else wrote it.
+
 ### Where the settings actually live
 
 | Setting | The places it can live | Which one decides |
