@@ -667,6 +667,11 @@ static void OverlayFrame()
                                     "width and height are the HUD sliders on the Runtime tab");
             else
                 ImGui::TextDisabled("off: the game draws its HUD into the frame, as it always has");
+            bool mop = g_hudMenuOnPanel;
+            if (ImGui::Checkbox("in-game menus on the panel too (pause, journal, shop; the main menu keeps the screen)", &mop)) {
+                g_hudMenuOnPanel = mop;
+                ConfigWriteKey("Hud", "MenuOnPanel", mop ? "1" : "0", "F10 Display");
+            }
             bool dc = dvr::draws::enabled();
             if (ImGui::Checkbox("draw census (a table and a VERDICT every 3 s; off = one bool per draw)", &dc)) {
                 dvr::draws::set_enabled(dc);

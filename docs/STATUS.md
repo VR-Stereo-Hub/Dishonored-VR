@@ -3491,6 +3491,12 @@ verdict.
   `patterns.h` carries no measured fingerprint. Verified: the panel texture holds the indicator
   and the reticle and nothing else, the world is intact with no HUD in it, `reentry.xrs` 11/11 and
   the tick unchanged at 90/s.
+- **IN-GAME MENUS RIDE THE PANEL, WITH THE WORLD IN STEREO BEHIND THEM** (`[Hud] MenuOnPanel=1`,
+  the tester's ask). Two things the measurement corrected: a paused menu dropped the verdict on
+  `viewLive`, not on the menu flags (the pause silences the view pipeline), and the camera upload
+  keeps flowing while paused, so the re-entry keeps doubling - `L/s=60 R/s=60 mono/s=0` with the
+  pause menu open, 93 menu draws per present on the panel, the game's own pause blur staying in the
+  world. The main menu keeps the screen.
 - **THE GATE IS THE GAME STATE, not the draw** - the pause menu is drawn by the same class
   (measured), so a draw-only gate would sweep the menu onto the panel, which is the original's
   inherited bug (HANDOFF 8.4). The panel needs the runtime's own gate (a projection present
