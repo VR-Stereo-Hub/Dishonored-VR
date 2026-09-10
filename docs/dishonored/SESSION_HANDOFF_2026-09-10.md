@@ -1,5 +1,9 @@
 # Stability fixes and reticle-aim reset: handoff (VR-69)
 
+Merge follow-up: the user subsequently explicitly authorized completing PR #33
+and merging to VR-Main in this task. The earlier division of work below is
+historical; the tested-build and integration distinctions remain applicable.
+
 2026-09-10. Purpose: finish the PR/integration process without losing the exact
 combination that was confirmed in the headset. No merge was performed in this
 session. Reuse the existing draft PR #33 rather than creating a duplicate.

@@ -1,5 +1,23 @@
 # Status
 
+## CURRENT (2026-09-10): PR #33 stability fixes, merge authorized
+
+The final controlled build `417bfad9` is headset-confirmed for head-turn stability,
+weapon lock through swaps, and the downward-motion flicker fix. PR #33 carries
+the same two corrective changes on current VR-Main, plus regression tests and
+the full evidence/handoff. The user explicitly authorized completing the PR and
+merging it to VR-Main. This supersedes the earlier plan to hand off the merge.
+
+The installed DLL remains the confirmed `417bfad9` binary. Only `[MotionAim]
+Enabled=0 was applied afterward to restore native reticle aiming. No global
+aiming default changed; the next reticle shot remains unverified. The source
+integration builds and passes host checks, but it is not the exact historical
+binary used for the headset verdict. Preserve that distinction when packaging.
+
+Next: verify the reticle shot on next launch, and verify any newly built mainline
+package against the preserved working binary/configuration. No release is declared.
+The session handoff and local backup manifest remain the complete provenance.
+
 ## CURRENT (2026-09-10): stability confirmed; reticle aim reset; handoff ready
 
 The tester confirmed `417bfad9` eliminates the remaining downward-motion flicker.
