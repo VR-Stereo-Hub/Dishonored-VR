@@ -1,5 +1,11 @@
 # Fixing the ROOT of the weapon flicker - proposal for review (VR-69, 2026-09-09)
 
+**Review decision: do not install this build as written.**
+[FLICKER_ROOT_REVIEW.md](FLICKER_ROOT_REVIEW.md) supersedes its implementation and
+test plan. The review identifies a broken refusal fallback, an invalid camera
+reference assumption, unresolved coordinate/time association, and an insufficient
+acceptance gate. The original proposal remains below as the hypothesis record.
+
 **Status: written, built, NOT installed for testing and NOT verified.** This is a
 proposal. It exists because the per-symptom approach has now failed enough times
 that continuing it is the wrong call.

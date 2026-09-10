@@ -104,16 +104,27 @@ static bool AimRayGet(AimRay* out)
         return false;
     }
 
-    // The origin: the game camera's own world position. Never the hand's - that
-    // would be a second derivation of where a shot starts.
-    if (!g_camObj || !RangeReadable((void*)(g_camObj + 0x80), 12)) {
-        r.why = "the camera object has no readable world position yet";
+    // The origin: the camera's world position, from the RENDER SIDE.
+    //
+    // THIS WAS WRONG WHEN THIS FILE SHIPPED. It read `g_camObj + 0x80`, copying
+    // blink.cpp's comment calling that "camera world pos". ENGINE_NOTES retires
+    // that reading explicitly: 0x80 measured as a FIXED OFFSET VECTOR, not a
+    // position, DISCARDED 120 of 120 - "0x80/0x90/0xC4 are not positions at all
+    // ... the earlier reading of them was wrong - retire it".
+    //
+    // The tell was in this instrument's own first run and was not read:
+    // `origin (3 500 -130) uu`, which is the retired field's constant
+    // (5.2, 500.0, -130.6) to the decimal. A ray origin that never moves is not
+    // a camera.
+    //
+    // c5 is the camera world position (it equals minus 0x330 to the decimal),
+    // and camera.h publishes it as the render-side truth of the last draw.
+    if (!dvr::camera::render_pos(r.origin)) {
+        r.why = "no render-side camera position yet (camera::render_pos - c5 of the last draw)";
         g_arLast = r; ++g_arFail;
         if (out) *out = r;
         return false;
     }
-    const float* cp = (const float*)(g_camObj + 0x80);
-    r.origin[0] = cp[0]; r.origin[1] = cp[1]; r.origin[2] = cp[2];
 
     r.ok = true;
     r.why = "ok";

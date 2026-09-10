@@ -815,5 +815,5 @@ static LONG g_msPubStep1 = 0, g_msPubStepOther = 0, g_msPubRepeat = 0;   // VR-6
 // ViewProjection instead of deciding which eye the draw is. This is the root of
 // the weapon flickers: the decision is what has been wrong, in three different
 // ways, and the decision does not need to exist.
-static bool g_mpEyeFromMatrix = true;
+static bool g_mpEyeFromMatrix = false;   // UNVERIFIED - review rejected the build; OFF until the reference is established
 static LONG g_mpEyeMeasUsed = 0, g_mpEyeMeasAgree = 0, g_mpEyeMeasDiffer = 0, g_mpEyeMeasRefused = 0;

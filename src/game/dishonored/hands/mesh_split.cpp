@@ -2510,12 +2510,24 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
                 c->eyeMeasR, halfIpdUU, halfIpdUU > 0.0f ? 100.0f * mag / halfIpdUU : 0.0f,
                 g_mpEyeMeasUsed, g_mpEyeMeasAgree, g_mpEyeMeasDiffer);
         } else {
+            // THE REGRESSION THIS SHIPPED WITH, found in review before any run.
+            // Refusing used to fall out of the `if` entirely, past the `else if`
+            // that holds the decided path - so a rejected candidate applied NO
+            // eye offset at all. That is a half-IPD error, and a candidate
+            // drifting in and out of the gate would switch between measured and
+            // uncorrected placement: exactly the discontinuity being hunted.
+            // A diagnostic-only path must leave the output UNCHANGED whether it
+            // succeeds or refuses, and this one did not.
             InterlockedIncrement(&g_mpEyeMeasRefused);
             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
-                "ms/palette/eyematrix: REFUSED - measured %+.2f uu along right against a half-IPD of %.2f uu, "
-                "which is outside twice it (%ld refused). The frame keeps the decided path rather than taking a "
-                "number that cannot be an eye offset.",
+                "ms/palette/eyematrix: REFUSED - measured %+.2f uu along right against a half-IPD of %.2f uu "
+                "(%ld refused). The decided path takes the frame, which it did NOT do in the build this was "
+                "found in.",
                 c->eyeMeasR, halfIpdUU, g_mpEyeMeasRefused);
+            if (eyeUse != 0) {
+                for (int i = 0; i < 3; i++) dcam[i] -= (float)eyeUse * halfIpdUU * c->r[i];
+                if (eyeUse > 0) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
+            } else g_mpEyeUnclassified++;
         }
     } else if (g_mpEyeOffset && eyeUse != 0) {
         // Camera-relative: a position is world - camera, so the RIGHT eye's
