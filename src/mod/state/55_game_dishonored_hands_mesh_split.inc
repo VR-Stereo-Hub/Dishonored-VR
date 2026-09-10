@@ -821,3 +821,6 @@ static LONG g_msPubStep1 = 0, g_msPubStepOther = 0, g_msPubRepeat = 0;   // VR-6
 // that records the recovered camera and cannot touch placement.
 static bool g_mpEyeMatrixDiag = true;
 static LONG g_mpEyeMeasUsed = 0, g_mpEyeMeasAgree = 0, g_mpEyeMeasDiffer = 0, g_mpEyeMeasRefused = 0;
+// VR-69 phase B: where the eye translation lives. Counted over pairs of draws of
+// the SAME object, one per eye. All four outcomes are answers.
+static LONG g_mpPbPairs = 0, g_mpPbVpOnly = 0, g_mpPbL2wOnly = 0, g_mpPbBoth = 0, g_mpPbNeither = 0;

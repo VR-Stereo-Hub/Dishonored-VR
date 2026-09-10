@@ -2510,6 +2510,81 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         if (g_mpEyeFromPass) eyeUse = truth;
     }
 
+    // ================== PHASE B: WHERE DOES THE EYE LIVE? ==================
+    //
+    // Question 1 of the review's Phase B, and everything else waits on it:
+    // which input origin do VP and LocalToWorld use, and WHERE IS THE EYE
+    // TRANSLATION? Until that is known, any reference we subtract is a guess -
+    // which is how the last three attempts went wrong.
+    //
+    // It needs no packet files and no offline analysis. The same object is
+    // drawn once per eye. Capture the matrices for one draw, and when the SAME
+    // object comes round again in the same tick with the other eye, difference
+    // them:
+    //
+    //   * VP changed, LocalToWorld did not  -> the eye lives in the VIEW matrix,
+    //     the recovered camera is meaningful, and the input space is shared.
+    //   * LocalToWorld changed, VP did not  -> the eye is already baked into the
+    //     object's own transform. The matrix recovery cannot see it and Phase A's
+    //     whole approach is dead.
+    //   * BOTH changed                      -> the input space is camera-relative
+    //     as the notes suggest, and the eye is split across both. Then the
+    //     reference must be expressed in the draw's space, not the world's.
+    //   * NEITHER changed                   -> the two draws are the same view;
+    //     the eye decision was wrong, or this is a mono pass.
+    //
+    // All four are answers. There is no outcome where this prints nothing
+    // useful, which is the property the last three instruments lacked.
+    //
+    // The object key is LocalToWorld's own translation quantised, which is
+    // stable for one object within a tick and different between objects. It is
+    // deliberately NOT the contract - the contract is the thing under suspicion
+    // elsewhere and must not gate this.
+    if (g_mpEyeMatrixDiag) {
+        const float kq = 0.05f;
+        const long k0 = (long)(c->t[0] / kq), k1 = (long)(c->t[1] / kq), k2 = (long)(c->t[2] / kq);
+        // The VP and L2W signatures: a cheap scalar each, enough to say CHANGED
+        // or NOT without storing sixteen floats per draw.
+        // c->vp / c->l2w are kept flat (16 floats) precisely so a diagnostic can
+        // diff them - the comment at their declaration says so.
+        float vpSig = 0.0f, l2wSig = 0.0f;
+        for (int e = 0; e < 16; ++e) { vpSig += c->vp[e] * (float)(1 + e); l2wSig += c->l2w[e] * (float)(1 + e); }
+
+        static long  s_k0 = 0x7fffffff, s_k1 = 0, s_k2 = 0;
+        static float s_vpSig = 0.0f, s_l2wSig = 0.0f, s_camR = 0.0f, s_projRight = 0.0f;
+        static bool  s_have = false;
+
+        if (s_have && k0 == s_k0 && k1 == s_k1 && k2 == s_k2) {
+            const float dVp  = vpSig  - s_vpSig;
+            const float dL2w = l2wSig - s_l2wSig;
+            const bool vpMoved  = fabsf(dVp)  > 1e-4f;
+            const bool l2wMoved = fabsf(dL2w) > 1e-4f;
+            const float halfIpdUU = 0.5f * g_ipdM * k;
+            InterlockedIncrement(&g_mpPbPairs);
+            if (vpMoved && !l2wMoved)      InterlockedIncrement(&g_mpPbVpOnly);
+            else if (!vpMoved && l2wMoved) InterlockedIncrement(&g_mpPbL2wOnly);
+            else if (vpMoved && l2wMoved)  InterlockedIncrement(&g_mpPbBoth);
+            else                           InterlockedIncrement(&g_mpPbNeither);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                "ms/palette/wheretheeye: same object drawn twice - VP %s, LocalToWorld %s. Recovered camera "
+                "along right moved %+.2f uu, the object's own position moved %+.2f uu, half-IPD is %.2f uu. "
+                "Totals: VP only %ld, L2W only %ld, BOTH %ld, NEITHER %ld, of %ld pairs. VP ONLY means the eye "
+                "lives in the view matrix and the recovery is meaningful. L2W ONLY means the eye is baked into "
+                "the object transform and the matrix approach is DEAD. BOTH means the input space is "
+                "camera-relative and any reference must be expressed in the draw's space, never the world's. "
+                "NEITHER means these two draws are one view - a wrong eye decision, or a mono pass.",
+                vpMoved ? "CHANGED" : "same", l2wMoved ? "CHANGED" : "same",
+                c->eyeCamR - s_camR, c->projRight - s_projRight, halfIpdUU,
+                g_mpPbVpOnly, g_mpPbL2wOnly, g_mpPbBoth, g_mpPbNeither, g_mpPbPairs);
+            s_have = false;   // one comparison per pair, not a running chain
+        } else {
+            s_k0 = k0; s_k1 = k1; s_k2 = k2;
+            s_vpSig = vpSig; s_l2wSig = l2wSig;
+            s_camR = c->eyeCamR; s_projRight = c->projRight;
+            s_have = true;
+        }
+    }
+
     // PHASE A DIAGNOSTIC. Records only. It cannot move a weapon: there is no
     // branch below that consumes it, and the placement runs the decided path
     // exactly as it did before this work started.
