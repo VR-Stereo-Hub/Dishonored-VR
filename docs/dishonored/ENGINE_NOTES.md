@@ -4718,3 +4718,65 @@ world geometry - so a shared moment means a shared cause UPSTREAM of both, in
 the view or the camera, not in the palette. Every hypothesis so far has been
 inside the palette's per-eye correction, and this says the palette is
 downstream of whatever is actually wrong.
+
+## PHASE B ANSWERED: THE INPUT SPACE IS CAMERA-RELATIVE (VR-69, 2026-09-09)
+
+The validated observer (`eye_observer.h`, suite in `eye_observer_test.h`) pairs
+on `c->drawId`, which `MpAcquireCtx` has stamped once per ORIGINAL draw all
+along. First run:
+
+```
+POPULATION samples 75163 over 37582 DISTINCT draws, 37581 pairs formed,
+refused 1 same-draw / 0 other-object
+VP only 1, L2W only 239, BOTH 7271, NEITHER 30070
+```
+
+### The population is sound, and the numbers say why
+
+`samples / distinctDraws` is exactly **2.0** - the two hand ranges - and pairs
+are formed between draw N and draw N+1, never within one draw. `refused
+same-draw = 1` is not a fault: after the first refusal the held sample is always
+the second range of the previous draw, so the same-draw case cannot recur. That
+is the observer behaving exactly as its suite describes, and it is the first
+population in this investigation that survives inspection.
+
+### The answer
+
+| Verdict | Count | Share |
+|---|---:|---:|
+| NEITHER | 30,070 | 79.9 % |
+| **BOTH** | **7,271** | **19.3 %** |
+| L2W only | 239 | 0.6 % |
+| **VP only** | **1** | **0.003 %** |
+
+**VP ONLY is essentially empty.** If the eye lived in the view matrix alone -
+the assumption behind the whole matrix-recovery attempt - a large VP-only
+population would be the signature, because the same object drawn for two eyes
+would differ in VP and not in LocalToWorld. There is one such pair in 37,581.
+
+**BOTH is the population where the view changes**, at 19.3 %. The remaining 80 %
+are consecutive draws sharing a view entirely: the duplicate passes of one
+object within one view that `VR-33-HANDS-AND-WEAPONS.md` section 8 documents.
+
+So: **when the view changes, BOTH matrices change together.** That is what a
+camera-relative input space looks like, and it confirms the shader and numeric
+evidence already recorded at ENGINE_NOTES "LocalToWorld maps this mesh into a
+camera-relative world frame" rather than resting on it.
+
+### What it settles
+
+* **The matrix recovery was doomed for a reason now measured**, not argued:
+  recovering a camera from VP yields a camera in an input space that itself
+  moves with the camera. There is no fixed origin to difference against.
+* **Any reference must be expressed in the DRAW'S space, never the world's** -
+  which is exactly what `FLICKER_ROOT_REVIEW.md` warned before the measurement
+  existed to support it.
+* **The eye cannot be recovered from one draw.** Both matrices move together, so
+  neither carries the eye on its own, and a single draw has no second view to
+  difference against.
+
+### And the hands flicker too
+
+Reported in the same run: the hands flicker, not only the weapons. Consistent -
+both go through this placement - and it widens the symptom to everything the
+palette places, alongside the world jitter that accompanies it.
