@@ -24,6 +24,59 @@ would not by itself contain the complete swap-retention behavior.
 
 ## First comparison
 
+### Result: head-turn judder fixed, stereo weapon flicker persists
+
+The first candidate was tested on 2026-09-10. World and weapon judder during
+head turns remained corrected. Weapons did not visually settle: a brief displaced
+image appeared outward in each eye, sometimes becoming a displacement lasting
+several frames with an apparent size change. These are observations, not proof
+of a compositor-generated duplicate or a change to model scale.
+
+The preserved log confirms the first candidate's build ID. Its final eye summary
+has L=67,510, R=67,550 and unknown=8,538 placement evaluations, with 13,502 readable
+eye transitions, nine small steps and zero large-step ambiguities. The contract
+summaries retain the same three adopted weapons, continue placing them, and
+report zero contract refusals in those summaries. Thus visually failing to settle
+is not evidence that candidate collection repeatedly lost the weapon in this run.
+
+With eye offset enabled, an unknown eye omits its half-IPD correction. Omitting
+the right-eye subtraction moves its target right; omitting the left-eye addition
+moves its target left. This fits the reported direction and can change disparity.
+It does not establish event-by-event visual correlation from aggregate counts.
+
+The live game-thread mono guard can reset both the render-side eye state and
+its previous sample without incrementing the large-step ambiguity counter.
+`PaletteEyeAlternate=0` does not disable it. A host test of the production
+function reproduces that loss when old stereo draws run after a new script-side
+single-draw decision: five assertions fail before the restore, all nine pass
+afterwards. The other 88 desk cases continue to pass.
+
+Preserved run: `build/vr69-bisect/first-result/dishonored_vr.log`, SHA-256
+`DE905DAAD6EF439906FDA78B621646607A9538F142FFEE0F87CEEB050B6D873E`.
+
+### Second comparison: restore the previously working eye decision
+
+The first candidate is now pinned as diagnostic commit `08cbb368`; its source
+is the same four-file patch used for the earlier dirty build. Commit `b3a1ff46`
+then restores `MpEyeForPresent` and `MpWorldTarget` exactly to their `b38519c3`
+function bodies, retaining the clean pose-history consumer in `MpDriveTick`.
+Removed experimental code is retained under `src/legacy/vr69` and is not selected
+by the active path. The empty pass-audit log is removed too. Its zero agreement
+count never established correctness because it had no comparable draw population.
+
+This is the planned controlled restoration, not a new eye heuristic. The first
+candidate's runtime, capture, camera writer, candidate collection and contract
+lifecycle files are unchanged. In particular, it does not yet add #27's separate
+stowed-contract improvement. Retired PaletteEyeAlternate/PaletteEyeFromPass
+settings no longer select the active eye path; PaletteEyeOffset remains enabled.
+
+Second build ID: `vr33-hands-working-59-gb3a1ff46`. Normal-build DLL SHA-256:
+`C615EF48547E5A822499B819260913ABE3DA293A63BD04F19F70F943EB9FA4A0`.
+The release build, 88 existing tests, nine eye regression cases and export check
+passed. Installation and the next visual result are recorded in STATUS.
+
+### Original first-candidate setup
+
 The known comparison baseline is `b38519c3` plus the clean weapon-pose port
 `22f275ba`. The latest available installed-run log reports
 `vr33-hands-working-42-gb38519c3-dirty`, not a directly identifiable clean commit;

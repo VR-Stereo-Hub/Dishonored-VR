@@ -1,6 +1,35 @@
 # Status
 
-## CURRENT (2026-09-10): first stability comparison installed, verdict pending
+## CURRENT (2026-09-10): eye-decision restore installed, visual verdict pending
+
+The first comparison preserved world/weapon head-turn stability but reproduced
+persistent stereo weapon flicker, outward in each eye, with occasional longer
+displacements and apparent size changes. Its log keeps three active weapon
+contracts but reports 8,538 unknown-eye placement evaluations out of 143,598,
+with zero large-step ambiguities. That narrows the next controlled change to
+the eye decision rather than assuming the weapon repeatedly lost its contract.
+
+The installed second comparison is `vr33-hands-working-59-gb3a1ff46`: the first
+candidate (`08cbb368`, source equivalent to its earlier dirty build) plus the
+pre-regression `MpEyeForPresent` and `MpWorldTarget` bodies. Candidate recovery,
+contract lifecycle, capture, runtime and the clean weapon-pose-lag port are
+unchanged from the first run. The inactive eye experiment remains in legacy
+source. Ini/settings are unchanged; the game was not launched by the agent.
+
+The real production eye-decision function fails five host assertions before
+the restore and passes all nine afterwards, including delayed stereo draws
+after a script-side single-draw tick. All 88 existing desk tests, normal and
+legacy release builds, and the x86 export check pass. The normal DLL was staged
+before the legacy check and its installed hash verified. This verifies the code
+path, not the final visible result.
+
+The first-result log and ini are preserved under `build/vr69-bisect/first-result`;
+the first DLL and original pre-comparison DLL remain backed up. Full provenance
+and next decision gates are in `dishonored/LOCKON_REVIEW.md`. Next evidence:
+whether the outward ghost/displacement stops while head-turn stability stays
+correct. No branches were removed and VR-Main was not merged.
+
+## Earlier comparison (2026-09-10): setup before the first result
 
 VR-69 is now following the three-system comparison in `dishonored/LOCKON_REVIEW.md`.
 The installed candidate is `9fe2af45` plus the exact clean weapon-pose patch

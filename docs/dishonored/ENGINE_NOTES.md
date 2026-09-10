@@ -4601,3 +4601,29 @@ Open. Recorded so the next attempt starts from evidence.
   rather than the gameplay window reported a shift that does not exist, and
   summary windows joined by eye rather than by timestamp produced a table where
   no row's GPU span belonged to its own frame rate.
+
+## VR-69: a live script mono flag resets an older render eye (2026-09-10)
+
+The first controlled candidate, `9fe2af45` plus the clean weapon-pose port
+`22f275ba`, retained stable world/weapon head turns but reproduced persistent
+outward weapon flicker in both eyes. Three weapon contracts remained active in
+the recorded summaries. The final palette-eye population was 143,598 evaluations,
+including 8,538 unknown-eye evaluations and zero large-step ambiguities.
+
+`da1d760d` made `MpEyeForPresent` read `g_sdDoublingNow`, a live script-side
+state, and clear the render-side eye and its previous sample when false. A
+queued stereo draw need not belong to the latest script-side decision. This
+branch remains active with PaletteEyeAlternate=0, so the earlier negative
+alternation test did not exclude it. Unknown eye omits the half-IPD correction,
+which moves a right-eye target right and a left-eye target left relative to their
+corrected positions. That fits the report without a model-scale change, but
+aggregate counters do not prove event-by-event visual correspondence.
+
+`tools/palette-eye-host.ps1` compiles the production function with independent
+script/render inputs. The first-candidate function fails five assertions; the
+restored pre-#26 function passes all nine, including queued draws after a new
+single-draw script tick. The restore also keeps the original large-step refusal
+and per-present decision reuse. This tests a state transition, not all engine
+view association. The second diagnostic is `b3a1ff46`, with camera/capture/pose
+and candidate-contract behavior unchanged from the first. Its visible verdict
+is pending. The retired experiment is preserved under `src/legacy/vr69`.
