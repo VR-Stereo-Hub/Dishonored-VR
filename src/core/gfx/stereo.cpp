@@ -216,6 +216,23 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
             // pair. onOpenPair is the only subset that can do that, and kept is
             // how many the lever caught. onOpenPair=0 while frameless>0 kills the
             // mechanism outright - the unwelcome answer this line can print.
+            // VR-69: THE PAIR THAT WAS ACTUALLY SUBMITTED, measured on every
+            // stereo submit in the window rather than sampled. The tester reports
+            // the whole left picture jumping LEFT by a fixed amount, standing
+            // still, independent of weapon orientation - that is a lateral
+            // displacement of one eye, and this is the scalar it would move.
+            //
+            // While the head is still: min == max == the IPD, along min == max ==
+            // +IPD, flips 0, genSplit 0. Any of those four moving names the fault.
+            // All four flat over a window with the flicker visible kills the whole
+            // submitted-pose family, which is why the population is on the line.
+            DVR_INFO("stereo: pair sep mean=%.4f min=%.4f max=%.4f m | along right min=%+.4f max=%+.4f m "
+                     "(eye 0 must sit LEFT of eye 1, so along is POSITIVE and equals the IPD) | SIDE FLIPS=%u "
+                     "| locate genSplit=%u (worst gap %u) lag L=%d R=%d | population %u stereo submit(s) this "
+                     "window, every one measured. Flat min/max with flips=0 and genSplit=0 means the submitted "
+                     "poses are not displacing the left eye and this family is dead.",
+                     p.sepMeanM, p.sepMinM, p.sepMaxM, p.sepAlongMinM, p.sepAlongMaxM, p.sepFlips,
+                     p.sepGenSplit, p.sepGenGapMax, p.sepLagL, p.sepLagR, p.sepN);
             const uint32_t dFrameless = p.frameless - q.frameless;
             const uint32_t dOnPair = p.framelessPair - q.framelessPair;
             const uint32_t dKept = p.pairKept - q.pairKept;

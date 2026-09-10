@@ -485,6 +485,31 @@ std::atomic<uint32_t> g_pmUntaggedProj{0};   // untagged present captured in pro
 // framelessPair reads 0 while holds run, this mechanism is dead and the line
 // says so itself.
 std::atomic<uint32_t> g_pmFrameless{0}, g_pmFramelessPair{0}, g_pmPairKept{0};
+// VR-69 (2026-09-09): THE EYE SEPARATION OF THE PAIR ACTUALLY SUBMITTED.
+//
+// The tester reports the whole left-eye picture - world geometry, weapon and
+// hands together - jumping LEFT once or twice a second, in a fixed direction,
+// independent of weapon orientation, AND WHILE STANDING COMPLETELY STILL. That
+// rules out everything driven by motion, and it rules out a transform error on
+// the hands (which cannot move world geometry). What is left is the pair itself:
+// either the left swapchain holds the right eye's picture, or the left eye is
+// submitted with a pose that is not where the left eye is.
+//
+// This measures the second one directly, and it is a single scalar that MUST be
+// constant while the head is still: the distance between the two poses handed to
+// the compositor, and the sign of that separation along the head's own right
+// axis. Eye 0 must sit to the LEFT of eye 1, so `along` must be POSITIVE and
+// equal to the IPD. A frame where `along` goes negative is the left and right
+// poses swapped - which displaces the entire left image by a full IPD, to the
+// left, whatever the head is doing.
+//
+// It can print the unwelcome answer: a flat min == max == IPD with sideFlips 0
+// and genSplit 0 kills the whole submitted-pose family in one line, over a
+// population this line also prints.
+uint32_t g_sepN = 0, g_sepFlips = 0, g_sepGenSplit = 0, g_sepGenGapMax = 0;
+float    g_sepMin = 0.0f, g_sepMax = 0.0f, g_sepSum = 0.0f;
+float    g_sepAlongMin = 0.0f, g_sepAlongMax = 0.0f;
+int      g_sepLagL = -1, g_sepLagR = -1;
 // [Stereo] HoldKeepsPair (default 1): a frame-less present that finds a pair
 // open returns without closing the XR frame, so the RIGHT present completes the
 // pair from the same locate, exactly as it would with no hold at all. 0 = the
@@ -4189,6 +4214,42 @@ void on_present_end(ID3D11Texture2D* frame) {
                     // stale frame with a stale pose - the double image.
                     if (stereo) {
                         g_pmStereoSubmits.fetch_add(1, std::memory_order_relaxed);
+                        // VR-69: the separation of the pair being submitted, and its
+                        // side. Cheap (one subtract, one rotate, one dot) and it runs on
+                        // EVERY stereo submit, not a sample - the fault is 2 % of frames.
+                        {
+                            const float dx = g_eyePose[1].position.x - g_eyePose[0].position.x;
+                            const float dy = g_eyePose[1].position.y - g_eyePose[0].position.y;
+                            const float dz = g_eyePose[1].position.z - g_eyePose[0].position.z;
+                            const float sep = sqrtf(dx * dx + dy * dy + dz * dz);
+                            // The left eye's own right axis, so the test needs no world
+                            // matrix and no assumption about which way the player faces.
+                            const XrQuaternionf& q = g_eyePose[0].orientation;
+                            float rightAxis[3] = {1.0f, 0.0f, 0.0f}, r3[3];
+                            dvr::xrmath::quat_rotate(q.x, q.y, q.z, q.w, rightAxis, r3);
+                            const float along = dx * r3[0] + dy * r3[1] + dz * r3[2];
+                            if (g_sepN == 0) {
+                                g_sepMin = g_sepMax = sep;
+                                g_sepAlongMin = g_sepAlongMax = along;
+                            } else {
+                                if (sep < g_sepMin) g_sepMin = sep;
+                                if (sep > g_sepMax) g_sepMax = sep;
+                                if (along < g_sepAlongMin) g_sepAlongMin = along;
+                                if (along > g_sepAlongMax) g_sepAlongMax = along;
+                            }
+                            g_sepSum += sep;
+                            ++g_sepN;
+                            if (along <= 0.0f) ++g_sepFlips;
+                            if (g_eyePoseGen[0] != g_eyePoseGen[1]) {
+                                ++g_sepGenSplit;
+                                const uint32_t gap = g_eyePoseGen[0] > g_eyePoseGen[1]
+                                                         ? g_eyePoseGen[0] - g_eyePoseGen[1]
+                                                         : g_eyePoseGen[1] - g_eyePoseGen[0];
+                                if (gap > g_sepGenGapMax) g_sepGenGapMax = gap;
+                            }
+                            g_sepLagL = g_eyePoseLag[0];
+                            g_sepLagR = g_eyePoseLag[1];
+                        }
                         const uint64_t nowMs = GetTickCount64();
                         for (int e = 0; e < 2; ++e) {
                             uint64_t last = g_pmLastCapMs[e].load(std::memory_order_relaxed);
@@ -5997,6 +6058,18 @@ static void pair_probe_fill(PairProbe* out, bool drain) {
     out->frameless = g_pmFrameless.load(std::memory_order_relaxed);
     out->framelessPair = g_pmFramelessPair.load(std::memory_order_relaxed);
     out->pairKept = g_pmPairKept.load(std::memory_order_relaxed);
+    out->sepN = g_sepN;
+    out->sepFlips = g_sepFlips;
+    out->sepGenSplit = g_sepGenSplit;
+    out->sepGenGapMax = g_sepGenGapMax;
+    out->sepMinM = g_sepMin;
+    out->sepMaxM = g_sepMax;
+    out->sepMeanM = g_sepN ? g_sepSum / (float)g_sepN : 0.0f;
+    out->sepAlongMinM = g_sepAlongMin;
+    out->sepAlongMaxM = g_sepAlongMax;
+    out->sepLagL = g_sepLagL;
+    out->sepLagR = g_sepLagR;
+    if (drain) { g_sepN = 0; g_sepFlips = 0; g_sepGenSplit = 0; g_sepGenGapMax = 0; g_sepSum = 0.0f; }
     out->eatenNoFrame = g_srEatenNoFrame.load(std::memory_order_relaxed);
     out->rebuilds = g_pmRebuilds.load(std::memory_order_relaxed);
     out->stereoSubmits = g_pmStereoSubmits.load(std::memory_order_relaxed);

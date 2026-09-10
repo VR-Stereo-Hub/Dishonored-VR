@@ -498,6 +498,16 @@ struct PairProbe {
     // the subset that found a LEFT pair open - the only ones that could close
     // somebody else's pair. pairKept = the subset [Stereo] HoldKeepsPair saved.
     uint32_t frameless = 0, framelessPair = 0, pairKept = 0;
+    // VR-69: the separation of the pair actually submitted, over EVERY stereo
+    // submit in the window (not a sample). sepN is the population. While the head
+    // is still, sepMin == sepMax == the IPD and alongMin == alongMax == +IPD;
+    // sepFlips counts pairs whose eye 0 pose sat to the RIGHT of eye 1, which
+    // displaces the whole left image by a full IPD to the left. genSplit counts
+    // pairs whose two eyes came from different locate generations.
+    uint32_t sepN = 0, sepFlips = 0, sepGenSplit = 0, sepGenGapMax = 0;
+    float    sepMinM = 0.0f, sepMaxM = 0.0f, sepMeanM = 0.0f;
+    float    sepAlongMinM = 0.0f, sepAlongMaxM = 0.0f;
+    int      sepLagL = -1, sepLagR = -1;
     uint32_t eatenNoFrame = 0;   // 41.1 (Dishonored): tags popped by a present that opened no frame (cumulative)
     uint32_t rebuilds = 0;       // swapchain destroy/recreate cycles
     uint32_t stereoSubmits = 0;  // submits with both eyes valid

@@ -210,6 +210,19 @@ stalls counted, baseline-equal segments skipped, and the sweep now ships
 > **A "no change" verdict is a claim about the column it tested, and no other.**
 > The median and the tail have different noise floors, and the tail's is wider.
 
+### The pose audit that has never once looked at the left eye (VR-69, 2026-09-09)
+
+`xr: posesub` printed 44 lines in one run and every one of them was `eye +1`,
+carrying means and worst cases over 3298 checks. Under pair pacing the LEFT
+present returns early at the pair hold, before the audit runs, so the audit
+physically cannot see the left eye - **and the left eye is the one the tester
+reports the fault in.** The numbers are the right eye's, printed without saying
+so.
+
+> **An audit on a two-sided thing must print how many of each side it saw.** A
+> per-eye instrument whose lines are all one eye is not measuring an asymmetry,
+> it is one.
+
 ### The VR-68 weapon analysis, the next day's write-up (2026-09-09)
 
 Three more, and the first is the most embarrassing because it needed no theory
@@ -293,6 +306,7 @@ The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 | Taking the weapon eye from the drawing pass | Executed zero times in 83,400 draws. The stereo passes run on the game thread and the palette draws on the render thread, so there is no stack to look up. | STATUS, 2026-09-09 |
 | The `+0x288` per-bone visibility poke to hide arms | That array is a per-bone animation control; the arms froze to the view and rode the head. Recorded by the original author in a code comment, and missed by three passes over the corpus. | ENGINE_NOTES, VR-31 |
 | Gating the bbox readback to cut frame gaps | Cut samples from one per 3 s to 2-3 per run and changed the gap rate not at all. The prediction failed and is recorded as failed. | STATUS, session 15b |
+| The frame-less present closing an open pair (VR-69) | `onOpenPair=0` in every window while `frameless` ran 1-37 per window. A frame-less present never lands mid-pair. Cost one run; the counter printed it directly. | ENGINE_NOTES, "A FRAME-LESS PRESENT CLOSES SOMEBODY ELSE'S PAIR" |
 | A Vulkan translation layer (the DXVK fork) | Removed in 41.0. The game renders natively through D3D9; do not bring it back. Git history keeps it under the `dxvk-*` tags. | CLAUDE.md |
 
 ---

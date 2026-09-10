@@ -164,6 +164,50 @@ public:
     // later, and named with the owner first: the deltas of the game side's
     // pass-2 skip counters (a one-sided -1 stream), the runtime's swapchain
     // failures, or a tag eaten by a present that opened no frame.
+    // VR-69: THE ARBITRATION'S OWN COUNTERS, ON A HEARTBEAT.
+    //
+    // The c5 override can RELABEL which eye a present's picture belongs to - a
+    // wrong call sends a whole frame to the other swapchain, which is a full-IPD
+    // displacement of everything in it: world geometry, weapon and hands together,
+    // in one eye, in a fixed direction, with no dependence on what the player is
+    // doing. That is the reported symptom exactly.
+    //
+    // Every one of these counters existed already. NONE of them is printed in a
+    // healthy run: they appear only on the STALE line (which needs a stale submit
+    // to fire, and has fired zero times in two runs) and on a Debug-level line
+    // that is off by default. The only actor that can produce the symptom has been
+    // running unobserved. This prints it every 3 s with its population, whether or
+    // not anything is wrong - agree == verdicts and the rest zero is the unwelcome
+    // answer and it kills the arbitration as a candidate.
+    void c5_beat() {
+        const uint64_t now = GetTickCount64();
+        if (c5BeatMs_ == 0) { c5BeatMs_ = now; return; }
+        if (now - c5BeatMs_ < 3000) return;
+        const double sec = (double)(now - c5BeatMs_) / 1000.0;
+        c5BeatMs_ = now;
+        const uint32_t dV = g_c5Verdicts - lbVerdicts_, dA = g_c5Agree - lbAgree_;
+        const uint32_t dD = g_c5Disagree - lbDis_, dT = g_c5Took - lbTook_;
+        const uint32_t dH = g_c5Held - lbHeld_, dR = g_c5Realigned - lbRealign_;
+        const uint32_t dU = g_c5Untagged - lbUntag_, dF = g_c5Refused - lbRefused_;
+        const uint32_t dK = g_c5Unknown - lbUnknown_, dS = g_pushSameEye - lbSame_;
+        const uint32_t dOk = g_tagOk - lbTagOk_, dNt = g_tagUntagged - lbUntagged2_;
+        const uint32_t dMm = g_tagMismatch - lbMismatch_;
+        const uint32_t dCl = g_ringCleared - lbCleared_;
+        lbVerdicts_ = g_c5Verdicts; lbAgree_ = g_c5Agree; lbDis_ = g_c5Disagree;
+        lbTook_ = g_c5Took; lbHeld_ = g_c5Held; lbRealign_ = g_c5Realigned;
+        lbUntag_ = g_c5Untagged; lbRefused_ = g_c5Refused; lbUnknown_ = g_c5Unknown;
+        lbSame_ = g_pushSameEye; lbTagOk_ = g_tagOk; lbUntagged2_ = g_tagUntagged;
+        lbMismatch_ = g_tagMismatch; lbCleared_ = g_ringCleared;
+        DVR_INFO("reentry: c5 arbitration this window - verdicts=%u agree=%u DISAGREE=%u "
+                 "(took=%u held=%u realigned=%u) | untagged=%u refusedInvent=%u unknown=%u "
+                 "| pushedSameEyeTwice=%u | tags ok=%u untagged=%u posMismatch=%u ringCleared=%u "
+                 "| population: %.0f verdict(s)/s over %.1f s, pairing %s. A DISAGREEMENT is this "
+                 "method relabelling which eye a whole frame belongs to; took/realigned are the ones "
+                 "it ACTED on. agree==verdicts with everything else 0 clears the arbitration.",
+                 dV, dA, dD, dT, dH, dR, dU, dF, dK, dS, dOk, dNt, dMm, dCl,
+                 sec > 0.0 ? dV / sec : 0.0, sec, g_c5Pair ? "on" : "off");
+    }
+
     void stale_check() {
         const uint32_t stale = dvr::vr::pair_stale_submits();
         uint32_t gates[kReentryGateCount] = {};
@@ -238,6 +282,7 @@ public:
             return false;
         }
         stale_check();
+        c5_beat();
         dvr::frameid::begin_present();   // 41.1 (session 9): the previous present's trace closes, its pairs are judged
         if (!d.dev9 || !d.dev11 || !d.ctx11) return false;
         if (!blit_.init(d.dev11)) return false;
@@ -660,6 +705,10 @@ private:
     uint32_t c5Streak_ = 0;
     int      sameEyeHeld_ = 0;   // VR-69: consecutive same-eye presents held
     // the stale-eye line's previous snapshot
+    uint64_t c5BeatMs_ = 0;
+    uint32_t lbVerdicts_ = 0, lbAgree_ = 0, lbDis_ = 0, lbTook_ = 0, lbHeld_ = 0;
+    uint32_t lbRealign_ = 0, lbUntag_ = 0, lbRefused_ = 0, lbUnknown_ = 0, lbSame_ = 0;
+    uint32_t lbTagOk_ = 0, lbUntagged2_ = 0, lbMismatch_ = 0, lbCleared_ = 0;
     uint32_t lastStale_ = 0;
     bool     lastStaleInit_ = false;
     uint32_t lastGates_[kReentryGateCount] = {};

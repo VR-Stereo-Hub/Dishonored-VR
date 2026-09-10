@@ -5011,3 +5011,44 @@ stereo: frameless presents=N this window, of which onOpenPair=M, kept=K (HoldKee
 line, without needing anyone to interpret it. A frame-less present that finds no
 pair open takes the pre-existing `!g_frameOpen` early return and is harmless; only
 the subset that lands mid-pair can do damage, and that subset now has a number.
+
+### KILLED THE SAME DAY IT WAS BUILT (2026-09-09, second run)
+
+`onOpenPair=0` in **every** window of the run, while `frameless` ran 1-37 per
+window (21 windows, 4-533 presents each). A frame-less present never lands
+between a LEFT present and its RIGHT: whenever one arrived, no pair was open, so
+it took the pre-existing `!g_frameOpen` early return and did no harm. The lever
+fired zero times and the tester reports the flicker unchanged.
+
+The mechanism is dead. The instrument is kept: it was built to be able to print
+this, it printed it in one run, and it cost no headset time to interpret.
+
+**And it cleared the whole submission layer with it.** In that run, across 21
+windows of gameplay: `L/s == R/s` every window, `mono/s=0`, `pairs == submits`,
+`aborts=0 (left=0 untagged=0 expired=0)`, `staleEye L=0 R=0`, `eaten=0`, zero
+`STALE . EYE` lines, `ageL=1 ageR=0` (the healthy reading) in all 16 eyes lines.
+Every untagged present was held; none reached an eye as mono. **The pairing,
+tagging, capture-delivery and submission path is not producing the residual.**
+
+### A COLUMN THAT IS NOT EVIDENCE: frameid's `sc`
+
+The frameid pair line prints an L-R difference per stage. `bb`, `slot` and `out`
+sit at 15.7-22.3 across 30 sampled pairs; `sc` ranges 2.0 to 64.0 in the same
+lines, which reads as the swapchains holding something other than what was handed
+in. It is not: `stage_swapchain` takes a **64x64 centre crop** of the swapchain
+image, while `bb`/`slot`/`out` are shader downsamples of the whole frame. A tiny
+centre patch's L-R difference varies with whatever happens to be in the middle of
+the picture. Different sampling, not comparable, and no fault is shown.
+
+### THE ONE POPULATION GAP LEFT IN THE POSE AUDIT
+
+`xr: posesub` fired 44 times in that run and **all 44 were `eye +1`**, over 3298
+checks. It is not a bias in the data: under pair pacing the LEFT present takes the
+`pairHold` early return before the audit is reached, so **the left eye's submitted
+pose has never been audited at all**. Its mean difference, worst case and repeated
+generations are the RIGHT eye's numbers wearing an unlabelled name.
+
+That is the same defect as every entry in TRAPS section 2 - an instrument whose
+population excludes the thing under suspicion - and it is on the eye the tester
+reports the fault in.
+
