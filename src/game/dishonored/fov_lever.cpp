@@ -127,7 +127,7 @@ static inline void FovLeverApply()
             float z = lp[2];
             if (z > zmax && (z - pz) < 250.0f && (z - pz) > -250.0f) {
                 if (!did) was = z;
-                lp[2] = zmax;
+                dvr::camera::clamp_location_z(g_camObj, kCamLoc[ci], zmax);
                 did = true;
             }
         }

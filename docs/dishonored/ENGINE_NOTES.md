@@ -4627,3 +4627,21 @@ and per-present decision reuse. This tests a state transition, not all engine
 view association. The second diagnostic is `b3a1ff46`, with camera/capture/pose
 and candidate-contract behavior unchanged from the first. Its visible verdict
 is pending. The retired experiment is preserved under `src/legacy/vr69`.
+
+## VR-69: a ceiling write can invalidate camera offset ownership (2026-09-10)
+
+After the eye restore at b3a1ff46, headset feedback confirms stable head turns
+and weapon swaps, with residual flicker during downward character movement.
+FovLeverApply clamps only Z in the selected camera field before apply_offsets.
+The camera Writer recognizes a persistent field by all three coordinates; a
+mod-owned Z clamp breaks that comparison and lets the next eye offset accumulate
+on X/Y from the previous offset. The production writer reproduces this on the
+host: the original clamp fails six of 19 checks; the ownership-preserving clamp
+passes all 19. Fresh engine vectors and other objects/fields retain their old
+behavior. No new engine address or offset is introduced.
+
+417bfad9 changes the clamp call to preserve the original base only when the
+entire pre-clamp field exactly equals that writer's own previous write on the
+same object/field. Its bounded camera/clamp-rebase log establishes execution;
+actual correlation with the remaining headset symptom is still pending.
+See DOWNWARD_CLAMP_REVIEW.md for the evidence, scope and rollback baseline.

@@ -5,6 +5,12 @@ that survives startup, reload and equipment swaps. The combined result still
 requires a headset verdict. This review starts with the supplied LOCKON_PLAN,
 not the earlier writer/eye reconstruction proposals.
 
+Update 2026-09-10: the `b3a1ff46` comparison is headset-confirmed for head-turn
+stability and weapon lock through equipment swaps. Startup settling remains
+brief and is accepted for now. The remaining downward-character-motion flicker,
+the exact writer interaction reproduced on the host, and the isolated next
+candidate are in [DOWNWARD_CLAMP_REVIEW.md](DOWNWARD_CLAMP_REVIEW.md).
+
 ## Provenance, verified against GitHub and local history
 
 | Piece | PR / merge | Relevant detail |

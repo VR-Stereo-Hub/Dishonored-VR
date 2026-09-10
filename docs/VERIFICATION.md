@@ -7,6 +7,13 @@ question the simulator could answer is a wasted session.
 
 ## 1. The decision table
 
+VR-69 downward-clamp regression: `tools\camera-clamp-host.ps1` compiles the
+production camera writer and clamp functions. Nineteen checks cover exact-write
+ownership through a Z clamp, repeated descent, release, stereo offsets and fresh
+engine/object/field controls. `-LegacyClamp` substitutes the original raw Z write
+and fails six descent/release assertions. The fixture tests the writer interaction;
+it does not prove visual causation or replace the headset comparison.
+
 VR-69 eye-decision regression: `tools\palette-eye-host.ps1` extracts and compiles
 the actual `MpEyeForPresent` body with independent render-present and script-state
 inputs. Nine cases cover queued stereo draws after the game thread moves on,

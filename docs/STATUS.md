@@ -1,6 +1,35 @@
 # Status
 
-## CURRENT (2026-09-10): eye-decision restore installed, visual verdict pending
+## CURRENT (2026-09-10): eye restore confirmed; downward clamp candidate installed
+
+The `b3a1ff46` headset run confirmed stable world/weapon head turns and stable
+weapon attachment after startup, including equipment swaps. The remaining
+flicker was specific to downward character movement (crouch, descending slopes,
+falling); tracked head/controller vertical movement did not reproduce it.
+Brief startup settling is accepted for this task.
+
+Installed candidate `vr33-hands-working-60-g417bfad9` starts directly from that
+confirmed build. It fixes one interaction: FovLeverApply's Z-only ceiling write
+could invalidate the camera writer's whole-vector ownership check and accumulate
+old eye offsets in X/Y. The clamp now retains that ownership only for an exact
+previous write to the same camera and field. Ceiling/easing, eye selection,
+pose lag, weapon contracts and settings are unchanged. Details and counterexamples:
+`dishonored/DOWNWARD_CLAMP_REVIEW.md`.
+
+Nineteen production-function clamp checks pass (the old raw clamp fails six),
+as do the nine eye checks, 88 frame checks, release build, lint and export check.
+The integration branch also builds. The installed candidate is the controlled
+historical-base build, not the later mainline integration. Its SHA-256 is
+`1781FDAA987233F5E2E9A0A448A4CB47E1A4AE595FD2D0A99AF1C9C7C722D762`.
+Installed hash and x86 machine type were verified; ini bytes are unchanged.
+
+The confirmed DLL, ini and log are saved in `build/vr69-bisect/before-downward-clamp`.
+The new game run is pending; no simulator game run or headset result is claimed.
+Next: compare downward movement with ascent/head turns/equipment swaps, and read
+the bounded `camera/clamp-rebase` evidence. Restore `b3a1ff46` if any previously
+working behavior regresses. PR #33 remains draft; nothing is merged.
+
+## Earlier candidate (2026-09-10): eye-decision restore before its visual result
 
 The first comparison preserved world/weapon head-turn stability but reproduced
 persistent stereo weapon flicker, outward in each eye, with occasional longer
