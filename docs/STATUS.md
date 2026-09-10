@@ -1,5 +1,70 @@
 # Status
 
+## CURRENT (2026-09-09, late): VR-Main plus the weapon eye fix, flicker parked
+
+Branch `claude/vr-69-weapon-eye-from-measured` off `VR-Main`. Four cherry-picked
+commits, no new work. The universal-flicker attempt is parked on
+`claude/attempted-universal-flicker-fix` and its findings are on
+`claude/vr-69-flicker-findings` (docs only).
+
+### Why this branch exists
+
+Reverting to `VR-Main` lost the weapon scale and depth fix along with the failed
+experiments. `VR-Main` reads `[Hands] PaletteEyeOffset` but has neither
+`PaletteEyeFromMeasured` nor `PaletteEyeMeasSign`, so the key falls back to the OLD
+eye inference - the one `docs/TRAPS.md` records as disagreeing about one time in
+eight, each disagreement moving the weapon a full IPD. Setting it to 0 to avoid
+that is what made the weapons look enormous again.
+
+**"Huge" is not a scale fault - it is an EYE MISALIGNMENT.** The tester named it
+that way and it is the correct quantity: with no per-eye offset both eyes are
+handed the same weapon position, so the disparity that should say "40 cm away"
+says "much closer", and the brain reports it as size. Nothing about the model's
+scale changes. That is the "no eye offset at all" row of the closed-approaches
+table, felt directly.
+
+It matters for what comes next. If a MISSING per-eye offset reads as a size
+change, then a per-eye offset that is momentarily WRONG reads as a jump - which
+is the residual symptom. Apparent size and the left-eye jump may be one quantity
+at two magnitudes, and an instrument that measures per-eye disparity in the
+PICTURE would speak to both.
+
+**A key that exists in the installed ini beats every compiled default, and a key
+whose supporting code was left on another branch is inert or worse.** Third time
+this class has cost something (`docs/TRAPS.md` section 1).
+
+### What was picked, and what was left
+
+| Commit | Why |
+|---|---|
+| say what PaletteEyeOffset resolved to | the lever now logs its value and provenance |
+| drive the weapon's per-eye offset from the measured eye | the fix itself |
+| the measured eye and the palette use opposite conventions | the sign, picture-checked |
+| disarm the pose A/B, count the eye audit per eye | stops an armed experiment contaminating later runs |
+
+Deliberately left behind: the publication-sequence stamp. It is in TRAPS as an
+instrument that measured the PRODUCER when the question was about the consumer,
+and it conflicted on the pick.
+
+### Installed and known-good
+
+2750x2850, `VirtualMode=1`, `[Pace] Lag=2`, `[Hands] PoseLag=2`,
+`PaletteEyeOffset=1` (ini), `PaletteEyeFromMeasured=1` and `PaletteEyeMeasSign=-1`
+(compiled defaults, both logged), `PaletteEyeHunt=0` (a diagnostic, left disarmed),
+`GamepadOnly=0`, 90 Hz. Backup: `dishonored_vr.ini.bak-preVRMainRevert`.
+
+### Still open
+
+The residual LEFT-eye flicker is unchanged and unexplained: the whole picture -
+world geometry, weapon and hands together - jumps LEFT by a fixed amount one to two
+times a second, independent of weapon orientation, while standing completely still.
+Twelve approaches are closed by measurement; see the findings branch. The next
+attempt should render a marker INTO each pass and look at the pixels rather than
+building a thirteenth counter.
+
+---
+
+
 ## CURRENT (2026-09-09, evening): the WEAPON judder is fixed too
 
 **`[Hands] PoseLag=2`.** Headset-confirmed by a reversing A/B/A/B. The tester's
