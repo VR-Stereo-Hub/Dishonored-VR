@@ -5052,3 +5052,79 @@ That is the same defect as every entry in TRAPS section 2 - an instrument whose
 population excludes the thing under suspicion - and it is on the eye the tester
 reports the fault in.
 
+## THREE MORE CLOSED BY MEASUREMENT IN ONE EVENING (VR-69, 2026-09-09)
+
+All three were killed by counters that printed their own population, in three
+runs, without a single number needing interpretation. Recorded together because
+the pattern is the result: **the fault is not anywhere between the two draws and
+the headset.**
+
+### 1. The submitted pair's geometry is exact
+
+The distance between the two poses handed to the compositor, measured on EVERY
+stereo submit (not sampled):
+
+```
+stereo: pair sep mean=0.0631 min=0.0631 max=0.0631 m | along right min=+0.0631
+        max=+0.0631 m | SIDE FLIPS=0 | locate genSplit=0 (worst gap 0) lag L=2 R=2
+        | population 212..262 stereo submit(s)
+```
+
+**25 windows, roughly 5,700 pairs, min == max == mean to four decimals in every
+one.** Zero side flips (eye 0 never sat right of eye 1), zero pairs whose two eyes
+came from different locate generations. The submitted poses cannot be displacing
+the left eye.
+
+### 2. The eye labelling is exact
+
+```
+reentry: c5 arbitration this window - verdicts=475 agree=475 DISAGREE=0
+         (took=0 held=0 realigned=0) | pushedSameEyeTwice=0 | tags ok=483
+         untagged=0 posMismatch=0 ringCleared=0
+```
+
+**24 of 25 windows, roughly 11,000 verdicts, DISAGREE=0.** The single exception
+was one loading-transition window (disagree 6, took 3, realigned 2) and is not the
+gameplay population. The arbitration never relabelled a frame's eye during play.
+
+These counters existed before this session and had never been printed in a healthy
+run: they appeared only on a STALE line that has now fired zero times in three
+runs, and on a Debug line that is off by default.
+
+### 3. Pass 1's camera always held the left eye
+
+The last structural asymmetry: pass 2 writes its eye into the camera field
+explicitly, pass 1 trusted the world tick's dispatch. Asserting the left eye
+before pass 1 and measuring the step the field took:
+
+```
+reentry: pass1 eye - same=265 MOVED=0 partial=0 unreadable=0 writeRefused=0
+         | population 265 doubled tick(s) this window, worst move 0.00 uu
+         against ipd*scale 6.81
+```
+
+**`same == population` in every window, `MOVED=0`, worst move 0.00 uu.** The
+dispatch never misses. The trust was justified all along, and the write is now a
+no-op that costs one extra `apply_offsets` per tick.
+
+### What this leaves
+
+Everything from "the two draws produced two pictures" to "the headset displayed
+them" is measured clean, over stated populations, in three consecutive runs:
+tags, arbitration, pairing, ages, aborts, capture delivery, swapchain targets,
+submitted poses, eye separation and pass-1 camera state.
+
+The tester's description narrows what remains: the whole left picture - world
+geometry, weapon and hands together - **jumps LEFT** by a fixed amount, in a fixed
+direction whatever the weapon is doing, **while standing completely still**, one
+to two times a second.
+
+A fixed-direction, full-scene, one-eye displacement with correct labels, correct
+poses and a correct camera at draw time means **the left eye's PICTURE is
+occasionally not what pass 1 rendered** - the content diverges somewhere the eye
+bookkeeping cannot see, or pass 1's draw itself is not honouring the camera it was
+given. "A verified write is not an honoured one" is the rule that survives here,
+and the next session should start by making the two passes visually
+distinguishable (a marker rendered INTO each pass) rather than by counting
+anything else.
+

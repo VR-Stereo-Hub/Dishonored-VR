@@ -307,6 +307,9 @@ The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 | The `+0x288` per-bone visibility poke to hide arms | That array is a per-bone animation control; the arms froze to the view and rode the head. Recorded by the original author in a code comment, and missed by three passes over the corpus. | ENGINE_NOTES, VR-31 |
 | Gating the bbox readback to cut frame gaps | Cut samples from one per 3 s to 2-3 per run and changed the gap rate not at all. The prediction failed and is recorded as failed. | STATUS, session 15b |
 | The frame-less present closing an open pair (VR-69) | `onOpenPair=0` in every window while `frameless` ran 1-37 per window. A frame-less present never lands mid-pair. Cost one run; the counter printed it directly. | ENGINE_NOTES, "A FRAME-LESS PRESENT CLOSES SOMEBODY ELSE'S PAIR" |
+| The submitted pair's poses displacing one eye (VR-69) | min == max == mean 0.0631 m over ~5,700 pairs in 25 windows, 0 side flips, 0 generation splits. | ENGINE_NOTES, "THREE MORE CLOSED BY MEASUREMENT" |
+| The c5 arbitration relabelling an eye (VR-69) | DISAGREE=0 over ~11,000 verdicts in 24 of 25 windows; the one exception was a loading transition. | same |
+| Pass 1 drawing from the previous tick's right-eye camera (VR-69) | `MOVED=0`, `same == population`, worst move 0.00 uu against ipd*scale 6.81, every window. The dispatch never misses. | same |
 | A Vulkan translation layer (the DXVK fork) | Removed in 41.0. The game renders natively through D3D9; do not bring it back. Git history keeps it under the `dxvk-*` tags. | CLAUDE.md |
 
 ---
