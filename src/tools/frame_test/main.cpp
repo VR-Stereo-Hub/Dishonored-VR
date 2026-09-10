@@ -19,6 +19,7 @@
 #include "../../game/dishonored/hands/hand_frame.h"
 #include "../../game/dishonored/hands/hand_frame_test.h"
 #include "../../game/dishonored/hands/weapon_frame_test.h"
+#include "../../game/dishonored/hands/eye_observer_test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -158,7 +159,12 @@ int main(int argc, char** argv)
     const int failed = dvr::hf::test::run_all(report, NULL);
     printf("---------------------------------------------------------------\n");
     printf("%s\n", failed ? "FAILURES" : "all cases passed");
-    int rc = (failed + WeaponFrameTests()) ? 1 : 0;
+    printf("\nVR-69 eye-pair observer\n");
+    printf("---------------------------------------------------------------\n");
+    const bool eyeOk = dvr::eyeobs::suite(report, NULL);
+    printf("---------------------------------------------------------------\n");
+    printf("%s\n", eyeOk ? "all cases passed" : "FAILURES");
+    int rc = (failed + WeaponFrameTests() + (eyeOk ? 0 : 1)) ? 1 : 0;
     if (argc > 1) rc |= replay(argc, argv);
     return rc;
 }

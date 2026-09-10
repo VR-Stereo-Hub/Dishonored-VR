@@ -139,7 +139,9 @@ endif()
 # tester never has to run this.
 add_executable(frame_test tools/frame_test/main.cpp
                           game/dishonored/hands/hand_frame.h
-                          game/dishonored/hands/hand_frame_test.h)
+                          game/dishonored/hands/hand_frame_test.h
+                          game/dishonored/hands/eye_observer.h
+                          game/dishonored/hands/eye_observer_test.h)
 
 # --- dvr_xrsim32 - the simulated OpenXR runtime --------------------------------
 # A Quest-3-shaped 32-bit OpenXR runtime so an agent can drive head, hands and
