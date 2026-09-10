@@ -1,5 +1,84 @@
 # Status
 
+## CURRENT (2026-09-09, late): the flicker hunt is PARKED, and what it eliminated
+
+`VR-Main` is the working base again. The universal-flicker work is parked on
+**`claude/attempted-universal-flicker-fix`** (pushed, NOT merged, no PR): eleven
+approaches, three headset runs in one evening, and no fix. This branch carries
+only the durable findings - the eliminations and the traps - because they are what
+the next attempt must not repeat.
+
+### The symptom, stated precisely for the first time
+
+The whole LEFT eye picture - world geometry, weapon and hands **together** -
+**jumps LEFT** by a fixed amount, one to two times a second. The direction does
+not change with the weapon's orientation, and **it happens while standing
+completely still**. Those last two facts arrived late and are worth more than any
+instrument built before them: they rule out every motion-driven mechanism, and
+world geometry moving with the hands rules out the whole placement family, since
+the mod does not place world geometry.
+
+### ELIMINATED BY MEASUREMENT - do not re-try any of these
+
+Every row was closed by a counter that printed its own population and could have
+printed the unwelcome answer. Detail in `docs/dishonored/ENGINE_NOTES.md` and
+`docs/TRAPS.md`.
+
+| Approach | How it died |
+|---|---|
+| Eye from the palette's delta inference | holds a stale answer; full-IPD displacement |
+| Eye from the drawing pass | 0 executions in 83,400 draws - wrong thread |
+| No eye offset at all | flicker gone, stereo depth gone, weapons enormous |
+| Eye from the stereo method's tag | fixed the LARGE flicker; residual remains |
+| A same-eye hold | zero holds fired, symptom unchanged |
+| Recovery from the draw's own matrices | no fixed origin; the input space moves with the camera |
+| Absolute position agreement (writer vs c5) | fails while WALKING; dropped a third of left tags |
+| The held-layer partial pair | `aborts=0` while holds ran at 1.33/s |
+| A frame-less present closing an open pair | `onOpenPair=0` in every window while frameless ran 1-37 |
+| The submitted pair's poses displacing one eye | sep min == max == mean 0.0631 m over ~5,700 pairs, 0 side flips |
+| The c5 arbitration relabelling an eye | `DISAGREE=0` over ~11,000 verdicts |
+| Pass 1 drawing from the previous tick's camera | `MOVED=0`, `same == population`, worst move 0.00 uu |
+
+### What the eliminations leave
+
+Everything from "the two draws produced two pictures" to "the headset displayed
+them" is now measured clean over stated populations, in three consecutive runs:
+tags, arbitration, pairing, eye ages, aborts, capture delivery, swapchain targets,
+submitted poses, eye separation, and the camera state at pass 1.
+
+Correct labels, correct poses and a correct camera at draw time, with a
+fixed-direction full-scene one-eye displacement, means **the left eye's PICTURE is
+occasionally not what pass 1 rendered.** A verified write is not an honoured one.
+
+### Where the next attempt should start
+
+**Make the two passes visually distinguishable, and stop counting.** A marker
+rendered INTO each pass (a small tinted quad whose position or colour encodes the
+eye) turns "which picture is in the left eye" from an inference into something
+that can be read directly - by the tester in the headset, and by a readback in
+software. Eleven counters have now agreed the bookkeeping is right; the next
+instrument has to look at the pixels.
+
+### The engine boundaries, found and worth keeping
+
+* **Producer**: `FViewport::Draw` (`kViewportDraw`, 0x005fc5b0) from
+  `UGameEngine::Tick`'s call site, game thread. One call = one render view.
+* **Consumer**: D3D9 `BeginScene` on the render thread - **1.0 per present in
+  100 % of presents**, across all windows of two logs. Presents = 2x ticks, so it
+  is 1:1 with the view. Palette draws and `Present` share that thread, so
+  `BeginScene ... draws ... Present` is the scope of exactly one engine view.
+
+That answers Phase 0 of the parked implementation plan. It was only ever used as a
+perf marker.
+
+### Installed and known-good
+
+2750x2850, `VirtualMode=1`, `[Pace] Lag=2`, `[Hands] PoseLag=2`, 90 Hz. Both lag
+values are headset-confirmed; do not disturb them.
+
+---
+
+
 ## CURRENT (2026-09-09, evening): the WEAPON judder is fixed too
 
 **`[Hands] PoseLag=2`.** Headset-confirmed by a reversing A/B/A/B. The tester's

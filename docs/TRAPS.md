@@ -42,6 +42,70 @@ the ticket was filed blaming "something outside both files".
 > **A file that exists beats the ini you edited.** A setting with two persistent
 > homes has no owner.
 
+**VR-69, the weapon flicker (2026-09-09) - the SAME class, a third time.** Every
+weapon jumped sideways about once a second. Three changes had been stacked into
+one run, so nothing could be attributed; the pose lever was A/B'd and cleared.
+The cause was `[Hands] PaletteEyeOffset=1` **in the installed ini, against a
+compiled default of 0** - a half-IPD sideways shift per eye, driven by an eye
+inference that two independent counters measure disagreeing about one time in
+eight. A wrong call moves the weapon a full IPD. Nothing logged the resolved
+value, so the key was invisible until someone grepped the ini.
+
+> **Third time. Grep the INSTALLED ini before theorising, and make every lever
+> that can produce a visible artefact log what it resolved to.**
+
+**The judder that "came back" (2026-09-09).** `PoseLagAb` was defaulted ON to
+run one flicker comparison and never turned off. Every run after it walked
+0/2/0/2 on fifteen-second segments, so half of each run sat at `PoseLag=0` - the
+unfixed state - and the weapon judder duly reappeared. That is the A/B working
+exactly as designed, read as a regression.
+
+> **An experiment left armed contaminates every measurement after it.** A lever
+> that switches the thing under test must default OFF the moment its run is
+> over, and the loader must print what it resolved to.
+
+**A counter that cannot separate two explanations (VR-69, 2026-09-09).** The
+weapon's eye source was negated and agreement went from 0.2 % to 97.9 %. That
+was read as proof of a convention mismatch. It is not: in an ALTERNATING stream
+the previous value is the negation of the current one, so "reading one
+publication late" produces exactly the same counter. `scene_draw.cpp` declares
+pass 1 left and pass 2 right outright, so the conventions never disagreed - the
+offset is temporal, and the fix works only while the alternation holds.
+
+> **Before believing a counter that moved, ask what ELSE would have moved it the
+> same way.** A prediction that only one hypothesis could satisfy is evidence; a
+> prediction two hypotheses satisfy identically is not, however large the number.
+
+**An instrument that answered a narrower question than the one asked (VR-69,
+2026-09-09).** A publication-sequence stamp was built to separate "the draw
+reads a stale eye" from "the conventions differ". It measured the PRODUCER's
+regularity - `other 0`, never a skip or a repeat - which killed one hypothesis
+but could not touch the question it existed for, because the draw side still had
+no view identity to compare against. That gap had already been named in review
+BEFORE the build.
+
+> **Ask what the instrument would have to observe to answer the question, and
+> check that you can observe it, before building it.** Three hypotheses on one
+> flicker have now died to instruments that could not have confirmed them
+> either.
+
+**FOUR instruments in one session, and the same defect each time (2026-09-09).**
+A probe compared a draw context with itself, because `MpWorldTarget` is called
+once per hand range from a loop that shares one `MpDrawCtx`. It returned
+105,816 of 105,816 identical with exactly 0.00 variance - which is what comparing
+an object to itself produces - and that was read as a finding about stereo.
+
+The four, in order: an audit that could only print zero because both its inputs
+came from one pose consume; a publication stamp that measured the producer when
+the question was about the consumer; a hold whose fault never fired while the
+symptom continued; and this one, whose population was a single object.
+
+> **Verify the POPULATION before reading the number.** Every one failed the same
+> way - not the arithmetic, not the threshold, but *what was actually in the
+> sample*. Print the population's identity on the line: how many distinct
+> objects, views and eyes, so a sample of one cannot look like a sample of a
+> hundred thousand.
+
 ### What to do before touching a key
 
 1. **Find every place the value can live.** Grep for the key name across `src/`,
@@ -57,6 +121,23 @@ the ticket was filed blaming "something outside both files".
    (`docs/VERIFICATION.md`); for a pose lever it is the resolved-value line.
 4. **Do not wipe and reinstall to diagnose this.** It has never once been the
    answer and it destroys the evidence.
+
+### The same class, in ENGINE_NOTES rather than an ini (VR-69, 2026-09-09)
+
+`camera + 0x80` was used as the camera's world position in new code, copied from
+a comment in `blink.cpp`. **ENGINE_NOTES had already retired it**: measured as a
+FIXED OFFSET VECTOR, `DISCARDED 120/120`, with the explicit instruction that
+`0x80/0x90/0xC4` "are not positions at all ... retire it". The real position is
+c5, which equals minus `camera + 0x330`.
+
+And the instrument said so on its own first line - `origin (3 500 -130) uu`,
+which is that retired field's constant `(5.2, 500.0, -130.6)` to the decimal.
+**A ray origin that never moves is not a camera.** It was noticed, called
+"unstable", and moved past.
+
+> **A stale comment in a neighbouring file is not a source. ENGINE_NOTES is.**
+> Grep the notes for a field before using it, and read the first line your own
+> instrument prints as though someone else wrote it.
 
 ### Where the settings actually live
 
@@ -128,6 +209,19 @@ stalls counted, baseline-equal segments skipped, and the sweep now ships
 
 > **A "no change" verdict is a claim about the column it tested, and no other.**
 > The median and the tail have different noise floors, and the tail's is wider.
+
+### The pose audit that has never once looked at the left eye (VR-69, 2026-09-09)
+
+`xr: posesub` printed 44 lines in one run and every one of them was `eye +1`,
+carrying means and worst cases over 3298 checks. Under pair pacing the LEFT
+present returns early at the pair hold, before the audit runs, so the audit
+physically cannot see the left eye - **and the left eye is the one the tester
+reports the fault in.** The numbers are the right eye's, printed without saying
+so.
+
+> **An audit on a two-sided thing must print how many of each side it saw.** A
+> per-eye instrument whose lines are all one eye is not measuring an asymmetry,
+> it is one.
 
 ### The VR-68 weapon analysis, the next day's write-up (2026-09-09)
 
@@ -212,6 +306,10 @@ The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 | Taking the weapon eye from the drawing pass | Executed zero times in 83,400 draws. The stereo passes run on the game thread and the palette draws on the render thread, so there is no stack to look up. | STATUS, 2026-09-09 |
 | The `+0x288` per-bone visibility poke to hide arms | That array is a per-bone animation control; the arms froze to the view and rode the head. Recorded by the original author in a code comment, and missed by three passes over the corpus. | ENGINE_NOTES, VR-31 |
 | Gating the bbox readback to cut frame gaps | Cut samples from one per 3 s to 2-3 per run and changed the gap rate not at all. The prediction failed and is recorded as failed. | STATUS, session 15b |
+| The frame-less present closing an open pair (VR-69) | `onOpenPair=0` in every window while `frameless` ran 1-37 per window. A frame-less present never lands mid-pair. Cost one run; the counter printed it directly. | ENGINE_NOTES, "A FRAME-LESS PRESENT CLOSES SOMEBODY ELSE'S PAIR" |
+| The submitted pair's poses displacing one eye (VR-69) | min == max == mean 0.0631 m over ~5,700 pairs in 25 windows, 0 side flips, 0 generation splits. | ENGINE_NOTES, "THREE MORE CLOSED BY MEASUREMENT" |
+| The c5 arbitration relabelling an eye (VR-69) | DISAGREE=0 over ~11,000 verdicts in 24 of 25 windows; the one exception was a loading transition. | same |
+| Pass 1 drawing from the previous tick's right-eye camera (VR-69) | `MOVED=0`, `same == population`, worst move 0.00 uu against ipd*scale 6.81, every window. The dispatch never misses. | same |
 | A Vulkan translation layer (the DXVK fork) | Removed in 41.0. The game renders natively through D3D9; do not bring it back. Git history keeps it under the `dxvk-*` tags. | CLAUDE.md |
 
 ---

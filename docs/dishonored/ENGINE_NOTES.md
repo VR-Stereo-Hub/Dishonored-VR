@@ -368,6 +368,9 @@ candidate):**
 | 0x350 `kPovOffs[1]` | (53.6, -4735.0, 3036.1), also -c5 in form | DISCARDED 120/120 (c5 moved -2.2 uu, mean) |
 | 0x374 `kPovOffs[2]` | (53.6, -4835.0, 3036.1), also -c5 in form | DISCARDED 120/120 (0.0) |
 
+**Historical interpretation below is superseded by "The camera field holds the
+POSITION, c5 is its negation" later in this file. Do not implement its sign.**
+
 So: c5 IS the camera world position (it equals minus 0x330 to the decimal), and **camera+0x330
 is the eye-offset write point**: a value written there on the script lane at dispatch cadence
 is what the renderer draws from, in NEGATED form. The seam's field table carries the sign
@@ -447,7 +450,8 @@ pairwise dots 0.000 (UE3: X forward, Y right, Z up).
 Lean/crouch/roomscale used to ride the c0 view-projection patch (`LeanVP`), a matrix patch
 the renderer's attachments do not follow. `[PosTrack] Lane=vp|camera` (default vp, the
 shipped path; `postrack lane <l>` live) moves the offset onto the camera seam's write: ONE
-write per dispatch of `base - (eye + position)` into camera+0x330, the position offset
+write per dispatch of `base + (eye + position)` into camera+0x330 (the corrected
+position-field sign; c5 negates it), the position offset
 resolved along the basis rows. The seam is the single owner of the offset (TrackHead
 publishes it there; both lanes read it there), and the `camera postest <R> [U] [F]`
 instrument overrides it with a commanded triple, takes 45 presents of c5 baseline at zero,
@@ -4601,3 +4605,526 @@ Open. Recorded so the next attempt starts from evidence.
   rather than the gameplay window reported a shift that does not exist, and
   summary windows joined by eye rather than by timestamp produced a table where
   no row's GPU span belonged to its own frame rate.
+
+## THE WEAPON'S PER-EYE OFFSET: RIGHT LEVER, WRONG SOURCE, THEN WRONG SIGN (VR-69, 2026-09-09)
+
+`[Hands] PaletteEyeOffset` applies a half-IPD sideways shift per eye to the
+weapon placement. It was correct to exist and wrong twice over in where it got
+the eye from.
+
+### 1. The source
+
+It took the eye from the palette's own inference: a DELTA between consecutive
+draws, which HOLDS its previous answer whenever the sideways step is too small
+to read. A held answer that is wrong displaces every weapon a full IPD sideways
+- the ~1 Hz flicker.
+
+Two counters independently measured the inference disagreeing with the stereo
+method about one time in eight (c5 pairing 49 of 406, the tag ring 47 of 352).
+
+**Turning the lever off removed the flicker by removing stereo depth.** With no
+per-eye disparity the weapon reads as infinitely far away, and something that
+far away filling that much of the view must be enormous - which is why the
+weapons looked massive with it off. It was the depth cue, not the scale.
+
+### 2. The sign, and the audit that caught it
+
+The stereo method already reconciles a MEASURED eye every present. Publishing it
+across (seqlock: the writer is the present thread, the reader is the render
+thread) and driving the offset from it gave:
+
+```
+agree 210, DISAGREE 87811     -> 99.8 % disagreement
+```
+
+**Two sources that disagree at random land near half. Two that disagree almost
+always are using opposite conventions.** The method tags pass 1 / pass 2; the
+palette tags left / right, and nothing ever required those to point the same
+way. Applied unsigned it did not remove the eye offset, it DOUBLED it - both
+weapons seen twice, permanently, which is exactly what the headset reported.
+
+With `[Hands] PaletteEyeMeasSign=-1` the same counter inverted as predicted:
+
+```
+agree 89761, DISAGREE 1900    -> 97.9 % agreement
+```
+
+Confirmed in the headset: correct size, correct depth, right eye clean.
+
+**The audit is the whole lesson.** Without it, 99.8 % disagreement would have
+read as "the measured eye is wrong, put it back", and the real finding - that
+the measurement is almost perfectly right and merely inverted - would have been
+thrown away. A sign flipped on a hunch is a guess; a sign flipped against a
+counter that MUST move is a measurement.
+
+### 3. What is left, and it is not this
+
+The left eye alone still shows a one-frame weapon jump, 1-2 times a second.
+**It is not a transform fault**: the weapon rotated upside down still jumps
+LEFT, and a bad transform would follow the object's own axes. A jump that keeps
+its screen direction is a STALE IMAGE. `ages L=2 R=0` and
+`pushed eye +1 TWICE in a row (68)` over ~84 s name it. That is a stereo-method
+fault and its own ticket; the weapon is only what makes it visible, because the
+world is nearly static under reprojection and a hand-held object is not.
+
+## Phase B matrix probe: original interpretation, superseded (VR-69, 2026-09-09)
+
+**Correction after source review:** the conclusions below are not established.
+The probe runs inside the hand/range loop and can compare the same original draw
+context with itself. It keys matches on the LocalToWorld translation it is trying
+to test and compares weighted sums rather than all matrix elements. The 105,816
+NEITHER results therefore do not prove absent eye information or duplicate passes.
+Synthetic replay reproduces an all-NEITHER result with distinct alternating eye
+matrices. The synchronized world/weapon report also does not locate the fault
+exclusively upstream: shared image delivery, submission and timing remain open.
+See [VIEW_JITTER_PLAN.md](VIEW_JITTER_PLAN.md) for the corrected evidence, the
+zero pass-2 refusal counter, and the active present-progress/held-layer lead.
+The original interpretation is retained below as the hypothesis history.
+
+The Phase B probe pairs consecutive draws of the same object and asks which
+matrix changed. Over a full run:
+
+```
+VP only 0, L2W only 0, BOTH 0, NEITHER 105816, of 105816 pairs
+```
+
+**Not one exception.** VP identical, LocalToWorld identical, the recovered camera
+moved 0.00 uu and the object's own position moved 0.00 uu, against a half-IPD of
+3.15 uu.
+
+### What it means, and what it does not
+
+**The matrix approach to recovering the eye is DEAD.** Whatever these paired
+draws are, they carry no per-eye information whatsoever - so no amount of
+algebra on `vp` or `l2w` at this site can recover an eye. The whole
+`PaletteEyeFromMatrix` direction is closed by measurement rather than by
+argument.
+
+**But 100 % of 105,816 is not "a wrong eye decision".** That would be
+intermittent. A total is an instrument limitation: the probe pairs CONSECUTIVE
+draws of the same object, and what it is catching is the same object drawn more
+than once within ONE view - the duplicate passes `VR-33-HANDS-AND-WEAPONS.md`
+section 8 already documents - not the left and right eyes.
+
+So the honest reading is narrower than the counter looks: **at the site where
+the per-eye correction is applied, consecutive draws of one object share a
+view.** The correction is being applied per DRAW to draws that are not per-eye.
+That is why an eye had to be decided at all, and why every attempt to decide it
+better has failed - the information is not present at that site.
+
+### The observation that came with it
+
+Reported in the same run: **the world geometry jitters slightly every time the
+weapons flicker.** The two are synchronised.
+
+That is the most useful thing in this session. Weapon placement cannot move
+world geometry - so a shared moment means a shared cause UPSTREAM of both, in
+the view or the camera, not in the palette. Every hypothesis so far has been
+inside the palette's per-eye correction, and this says the palette is
+downstream of whatever is actually wrong.
+
+## PHASE B, CORRECTED: WHAT THE OBSERVER ACTUALLY COMPARED (VR-69, 2026-09-09)
+
+**The section below overstates its own counter and is corrected here.**
+
+* **"VP only = 1, therefore the eye is not in the view matrix" does not follow.**
+  VP changed in **7,272** comparisons - the 1 VP-only plus all 7,271 BOTH. If
+  the input space is camera-relative, an eye change moves both matrices BY
+  CONSTRUCTION and lands in BOTH, never in VP-only. So VP-only being empty is
+  what a camera-relative space PREDICTS, and it cannot distinguish "the eye is
+  in VP" from "the eye is in both". The conclusion was read off the wrong cell.
+* **The pairs were never verified to be opposite EYES.** `Sample` carries a draw
+  id and an object id and no eye or view-pair identity. What the observer
+  measured is *consecutive distinct-draw comparisons*, which is a real
+  improvement on comparing a draw with itself, and is still not a stereo pair.
+* **The object id is an XOR of geometry parameters** (`mesh_split.cpp`), so
+  distinct objects can collide, and a completed pair reseeds from the next
+  sample, giving overlapping adjacent pairs.
+
+**What survives:** the population is sound (2.0 samples per distinct draw, pairs
+only across draws), and 80 % of consecutive draws share a view entirely while
+19 % differ in both matrices. The camera-relative reading of the input space
+still rests on the independent shader evidence already recorded, not on this
+counter. **Matrix-based placement stays closed** - but for the reasons in
+`FLICKER_ROOT_REVIEW.md`, not because this counter proved it.
+
+## THE HOLD MECHANISM HAS A COUNTERPREDICTION THAT FAILS (VR-69, 2026-09-09)
+
+The held-layer hypothesis needs this order: release the LEFT image, then take an
+untagged hold before the right is released, so the submission resolves to a new
+left and an old right.
+
+**That sequence should increment an abort counter.** With pair pacing active, a
+left release followed by an untagged completion increments `abortUntagged`, and
+a timeout increments `abortExpired`.
+
+Measured, in the same run as the holds: **`aborts=0` in all 22 printed stereo
+summaries**, while the hold counter advanced 53 times in 39.8 s (~1.33/s).
+
+So either the sequence does not occur, or the abort instrument does not cover
+the path that produces these holds. **The next observer must explain that
+discrepancy before either result is believed** - a mechanism whose own
+counterprediction fails is not yet a cause, however well it fits the symptom.
+
+Two further corrections to how the hypothesis was stated:
+
+* **"Same pair means innocent" is wrong.** Both images can advance together
+  while the saved poses still describe an older pair. Stereo coherence, change
+  since the bank, and image-versus-metadata agreement are three separate
+  questions and need three separate verdicts.
+* **The unchanged eye's pose is not necessarily stale.** A partial update can
+  mismatch one eye while the other remains correct, so "poses describing
+  neither image" was too strong.
+
+## (OVERSTATED - see above) PHASE B ANSWERED: THE INPUT SPACE IS CAMERA-RELATIVE
+
+The validated observer (`eye_observer.h`, suite in `eye_observer_test.h`) pairs
+on `c->drawId`, which `MpAcquireCtx` has stamped once per ORIGINAL draw all
+along. First run:
+
+```
+POPULATION samples 75163 over 37582 DISTINCT draws, 37581 pairs formed,
+refused 1 same-draw / 0 other-object
+VP only 1, L2W only 239, BOTH 7271, NEITHER 30070
+```
+
+### The population is sound, and the numbers say why
+
+`samples / distinctDraws` is exactly **2.0** - the two hand ranges - and pairs
+are formed between draw N and draw N+1, never within one draw. `refused
+same-draw = 1` is not a fault: after the first refusal the held sample is always
+the second range of the previous draw, so the same-draw case cannot recur. That
+is the observer behaving exactly as its suite describes, and it is the first
+population in this investigation that survives inspection.
+
+### The answer
+
+| Verdict | Count | Share |
+|---|---:|---:|
+| NEITHER | 30,070 | 79.9 % |
+| **BOTH** | **7,271** | **19.3 %** |
+| L2W only | 239 | 0.6 % |
+| **VP only** | **1** | **0.003 %** |
+
+**VP ONLY is essentially empty.** If the eye lived in the view matrix alone -
+the assumption behind the whole matrix-recovery attempt - a large VP-only
+population would be the signature, because the same object drawn for two eyes
+would differ in VP and not in LocalToWorld. There is one such pair in 37,581.
+
+**BOTH is the population where the view changes**, at 19.3 %. The remaining 80 %
+are consecutive draws sharing a view entirely: the duplicate passes of one
+object within one view that `VR-33-HANDS-AND-WEAPONS.md` section 8 documents.
+
+So: **when the view changes, BOTH matrices change together.** That is what a
+camera-relative input space looks like, and it confirms the shader and numeric
+evidence already recorded at ENGINE_NOTES "LocalToWorld maps this mesh into a
+camera-relative world frame" rather than resting on it.
+
+### What it settles
+
+* **The matrix recovery was doomed for a reason now measured**, not argued:
+  recovering a camera from VP yields a camera in an input space that itself
+  moves with the camera. There is no fixed origin to difference against.
+* **Any reference must be expressed in the DRAW'S space, never the world's** -
+  which is exactly what `FLICKER_ROOT_REVIEW.md` warned before the measurement
+  existed to support it.
+* **The eye cannot be recovered from one draw.** Both matrices move together, so
+  neither carries the eye on its own, and a single draw has no second view to
+  difference against.
+
+### And the hands flicker too
+
+Reported in the same run: the hands flicker, not only the weapons. Consistent -
+both go through this placement - and it widens the symptom to everything the
+palette places, alongside the world jitter that accompanies it.
+
+## "READ THE EYE FROM THE WRITER" WAS ALREADY TRIED, AND WHY IT FAILED (VR-69, 2026-09-09)
+
+Recorded because a plan proposed it as new, and the answer was already in this
+file at the first headset run of 2026-09-03.
+
+**The writer's own position WAS carried with the tags and compared against c5.**
+`scene_draw.cpp:357,430` still calls `camera::last_written_pos`; the history is
+in `reentry.cpp:101-109`. The consumer required the written position and c5 to
+agree within 2 uu.
+
+**It failed while WALKING**, and only while walking:
+
+```
+c5 5692.0 6376.0  vs  written 5689.5 6375.8   (~2.5 uu along the heading,
+                                               the eye offset intact)
+L/s=36  R/s=54  mono/s=18
+```
+
+The engine moves the camera by a tick of travel AFTER the seam's write, so the
+absolute positions disagree while the EYE TERM is perfectly correct. A third of
+LEFT tags were rejected on that basis, every rejection broke a pair, and the
+runtime showed one image to both eyes for that frame. **Every simulator run had
+stood still, so every simulator run passed.**
+
+### What this rules out, and what it does not
+
+* **Absolute position agreement is not an identity test.** Dead, measured.
+* **The writer's record is not useless** - the eye term inside it was correct
+  throughout. What is missing is a way to know WHICH VIEW a draw consumes, and a
+  position comparison cannot supply it.
+
+### The asymmetry has a structural origin, and it is the same eye
+
+The +1 present's write happens in the stub immediately before its draw and
+**always matched**. The -1 present's write is separated from its draw by a tick
+of engine travel and is the one that failed.
+
+**The left eye is structurally the one whose write is furthest from its draw**,
+and the left eye is the one that flickers now. That is a coincidence worth
+recording and NOT worth building on yet - three mechanisms that fit the symptom
+this well have already been falsified.
+
+### The other corrections that came with it
+
+* **The sign is obsolete in the plan.** `apply_offsets` writes `base + offset`
+  and c5 is negated (`kFields` sign +1, c5Sign -1). The `base - offset` form was
+  superseded by the picture-based sign correction earlier in this file.
+* **The seam writes on camera dispatches, not once per view** - about 19 writes
+  per present in one measured configuration - so a write sequence cannot be
+  renamed a pass id.
+* **`base` is not a proven head centre.** `current_base` is rebasing
+  bookkeeping, and the field already carries engine motion, tracking and a
+  ceiling clamp. Under a clamp, `E - H` need not equal the requested eye vector
+  at all.
+
+## PHASE 0 ANSWERED: THE RENDER-THREAD VIEW BOUNDARY IS `BeginScene` (VR-69, 2026-09-09)
+
+Derived entirely from the run artifacts already on disk - no new run, no new
+engine address. Both boundaries the writer-to-view identity plan asked for exist
+and one of them was already hooked.
+
+### The producer
+
+`FViewport::Draw` at `kViewportDraw` (0x005fc5b0), reached from
+`UGameEngine::Tick`'s single call site (0x006330da), on the GAME thread. One call
+builds one view family and enqueues the render commands for it. The re-entry
+method already wraps this call site, so the mod owns the producer boundary
+outright and has since 41.1.
+
+### The consumer
+
+D3D9 `BeginScene`, which UE3's D3D9 RHI issues from `RHIBeginDrawingViewport`
+when the render thread executes that view family's BeginDrawing command.
+
+Measured across every perf window of both 2026-09-09 headset runs:
+
+```
+marker=BeginScene(BeginScene 1.0/present in 291 of 291, SRT 47.5/present)
+marker=BeginScene(BeginScene 1.0/present in 530 of 530, SRT 50.2/present)
+```
+
+**1.0 BeginScene per present, in 100 % of presents, in every window sampled.**
+Under re-entry presents = 2x ticks = one per `FViewport::Draw`, so `BeginScene` is
+1:1 with the view family. Population: 22 windows in `dishonored_vr.log`, 53 in
+`dishonored_vr.prev.log`; no window disagreed.
+
+### And the scope is exact
+
+The lane line says where the draws live:
+
+```
+ms/palette/lane: pose published on thread 62148, draws consume on thread 62148
+reentry: ... drawTid=62856 presentTid=62148
+```
+
+The palette draws and `Present` share tid 62148 (the render thread);
+`FViewport::Draw` runs on 62856 (the game thread). So
+`BeginScene ... palette draws ... Present` is a render-thread scope containing the
+draws of exactly ONE engine view.
+
+This is why every previous attempt failed the same way. They tried to reach the
+palette draw either from the game thread (no stack to look up - 0 executions in
+83,400 draws) or from `Present` (too late; the draws already happened).
+`BeginScene` is on the right thread AND early enough, and it had only ever been
+used as a perf marker.
+
+What it still is not: `BeginScene` gives SCOPE, not identity. Pairing the game
+thread's push with the render thread's pop is FIFO order - but FIFO order inside
+the engine's own command stream, one push per view family and one pop per
+BeginScene, which is falsifiable by counting. That verification is the remaining
+Phase 0 work.
+
+## A FRAME-LESS PRESENT CLOSES SOMEBODY ELSE'S PAIR (VR-69, 2026-09-09)
+
+Found while establishing the boundary above, and it fits the residual symptom
+better than anything in the placement family - because it is not a placement
+fault at all, which is what the world geometry disturbing WITH the hands and the
+weapon has been saying.
+
+Under re-entry the LEFT-tagged present captures its eye, releases the swapchain
+image and leaves the XR frame OPEN (`g_srPairOpen`); the RIGHT present completes
+the pair from the same locate. A present that hands in NO texture - a
+`[Stereo] HoldUntagged` hold, a same-eye hold, a grab that delivered nothing -
+still reaches `on_present_end`, and there:
+
+* `pairSecond = g_srPairOpen` consumed the open pair,
+* the layer assembly sits inside `if (backbuffer)` and was skipped,
+* so `layerCount == 0` and the zero-layer path re-submitted the PREVIOUS pair's
+  layer and ended the frame.
+
+The display slot is spent re-showing a pair the player has already seen, and the
+fresh left image released one present earlier is never shown in its own pair.
+
+### The rate, with its population
+
+`dishonored_vr.prev.log`: `held=332` over 40426625 -> 40565781 ms = 139 s, so
+**2.4 frame-less presents per second**. The stereo beat agrees from the other
+side: `none/s` reads 1-3 in the majority of the 53 windows.
+
+The reported symptom is a whole-scene disturbance 1-2 times a second. The rate
+matches, and unlike every placement hypothesis this one moves world geometry, the
+weapon and the hands together by construction, because it is the whole submitted
+frame.
+
+### Why nothing saw it
+
+Across all 53 windows of that run: `aborts=0 (left=0 untagged=0 expired=0)`,
+`staleEye L=0 R=0`, `eaten=0`, and zero `STALE . EYE` lines in either log. Every
+one of those counters is truthful. They are all keyed on a tag being PUSHED or a
+submit HAPPENING, and a held present does neither: `sr_push_eye` is never reached
+because `end_frame` returned false before it.
+
+That is the fourth instrument in two days whose population excluded the event it
+existed to catch (docs/TRAPS.md section 2).
+
+### The lever, and what would kill the hypothesis
+
+`[Stereo] HoldKeepsPair` (default 1): a frame-less present that finds a pair open
+returns without closing the XR frame, so the right present completes the pair from
+the same locate exactly as it would with no hold at all. The 500 ms
+`kPairHoldMaxMs` guard in the pacing path still reclaims a stranded pair.
+
+The beat line prints the population it is counted over:
+
+```
+stereo: frameless presents=N this window, of which onOpenPair=M, kept=K (HoldKeepsPair=1)
+        | population: P present(s) out this window, S of them stereo submits
+```
+
+**`onOpenPair=0` with `frameless>0` kills this mechanism outright**, on its own
+line, without needing anyone to interpret it. A frame-less present that finds no
+pair open takes the pre-existing `!g_frameOpen` early return and is harmless; only
+the subset that lands mid-pair can do damage, and that subset now has a number.
+
+### KILLED THE SAME DAY IT WAS BUILT (2026-09-09, second run)
+
+`onOpenPair=0` in **every** window of the run, while `frameless` ran 1-37 per
+window (21 windows, 4-533 presents each). A frame-less present never lands
+between a LEFT present and its RIGHT: whenever one arrived, no pair was open, so
+it took the pre-existing `!g_frameOpen` early return and did no harm. The lever
+fired zero times and the tester reports the flicker unchanged.
+
+The mechanism is dead. The instrument is kept: it was built to be able to print
+this, it printed it in one run, and it cost no headset time to interpret.
+
+**And it cleared the whole submission layer with it.** In that run, across 21
+windows of gameplay: `L/s == R/s` every window, `mono/s=0`, `pairs == submits`,
+`aborts=0 (left=0 untagged=0 expired=0)`, `staleEye L=0 R=0`, `eaten=0`, zero
+`STALE . EYE` lines, `ageL=1 ageR=0` (the healthy reading) in all 16 eyes lines.
+Every untagged present was held; none reached an eye as mono. **The pairing,
+tagging, capture-delivery and submission path is not producing the residual.**
+
+### A COLUMN THAT IS NOT EVIDENCE: frameid's `sc`
+
+The frameid pair line prints an L-R difference per stage. `bb`, `slot` and `out`
+sit at 15.7-22.3 across 30 sampled pairs; `sc` ranges 2.0 to 64.0 in the same
+lines, which reads as the swapchains holding something other than what was handed
+in. It is not: `stage_swapchain` takes a **64x64 centre crop** of the swapchain
+image, while `bb`/`slot`/`out` are shader downsamples of the whole frame. A tiny
+centre patch's L-R difference varies with whatever happens to be in the middle of
+the picture. Different sampling, not comparable, and no fault is shown.
+
+### THE ONE POPULATION GAP LEFT IN THE POSE AUDIT
+
+`xr: posesub` fired 44 times in that run and **all 44 were `eye +1`**, over 3298
+checks. It is not a bias in the data: under pair pacing the LEFT present takes the
+`pairHold` early return before the audit is reached, so **the left eye's submitted
+pose has never been audited at all**. Its mean difference, worst case and repeated
+generations are the RIGHT eye's numbers wearing an unlabelled name.
+
+That is the same defect as every entry in TRAPS section 2 - an instrument whose
+population excludes the thing under suspicion - and it is on the eye the tester
+reports the fault in.
+
+## THREE MORE CLOSED BY MEASUREMENT IN ONE EVENING (VR-69, 2026-09-09)
+
+All three were killed by counters that printed their own population, in three
+runs, without a single number needing interpretation. Recorded together because
+the pattern is the result: **the fault is not anywhere between the two draws and
+the headset.**
+
+### 1. The submitted pair's geometry is exact
+
+The distance between the two poses handed to the compositor, measured on EVERY
+stereo submit (not sampled):
+
+```
+stereo: pair sep mean=0.0631 min=0.0631 max=0.0631 m | along right min=+0.0631
+        max=+0.0631 m | SIDE FLIPS=0 | locate genSplit=0 (worst gap 0) lag L=2 R=2
+        | population 212..262 stereo submit(s)
+```
+
+**25 windows, roughly 5,700 pairs, min == max == mean to four decimals in every
+one.** Zero side flips (eye 0 never sat right of eye 1), zero pairs whose two eyes
+came from different locate generations. The submitted poses cannot be displacing
+the left eye.
+
+### 2. The eye labelling is exact
+
+```
+reentry: c5 arbitration this window - verdicts=475 agree=475 DISAGREE=0
+         (took=0 held=0 realigned=0) | pushedSameEyeTwice=0 | tags ok=483
+         untagged=0 posMismatch=0 ringCleared=0
+```
+
+**24 of 25 windows, roughly 11,000 verdicts, DISAGREE=0.** The single exception
+was one loading-transition window (disagree 6, took 3, realigned 2) and is not the
+gameplay population. The arbitration never relabelled a frame's eye during play.
+
+These counters existed before this session and had never been printed in a healthy
+run: they appeared only on a STALE line that has now fired zero times in three
+runs, and on a Debug line that is off by default.
+
+### 3. Pass 1's camera always held the left eye
+
+The last structural asymmetry: pass 2 writes its eye into the camera field
+explicitly, pass 1 trusted the world tick's dispatch. Asserting the left eye
+before pass 1 and measuring the step the field took:
+
+```
+reentry: pass1 eye - same=265 MOVED=0 partial=0 unreadable=0 writeRefused=0
+         | population 265 doubled tick(s) this window, worst move 0.00 uu
+         against ipd*scale 6.81
+```
+
+**`same == population` in every window, `MOVED=0`, worst move 0.00 uu.** The
+dispatch never misses. The trust was justified all along, and the write is now a
+no-op that costs one extra `apply_offsets` per tick.
+
+### What this leaves
+
+Everything from "the two draws produced two pictures" to "the headset displayed
+them" is measured clean, over stated populations, in three consecutive runs:
+tags, arbitration, pairing, ages, aborts, capture delivery, swapchain targets,
+submitted poses, eye separation and pass-1 camera state.
+
+The tester's description narrows what remains: the whole left picture - world
+geometry, weapon and hands together - **jumps LEFT** by a fixed amount, in a fixed
+direction whatever the weapon is doing, **while standing completely still**, one
+to two times a second.
+
+A fixed-direction, full-scene, one-eye displacement with correct labels, correct
+poses and a correct camera at draw time means **the left eye's PICTURE is
+occasionally not what pass 1 rendered** - the content diverges somewhere the eye
+bookkeeping cannot see, or pass 1's draw itself is not honouring the camera it was
+given. "A verified write is not an honoured one" is the rule that survives here,
+and the next session should start by making the two passes visually
+distinguishable (a marker rendered INTO each pass) rather than by counting
+anything else.
+
