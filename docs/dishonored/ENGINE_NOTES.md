@@ -4719,7 +4719,60 @@ the view or the camera, not in the palette. Every hypothesis so far has been
 inside the palette's per-eye correction, and this says the palette is
 downstream of whatever is actually wrong.
 
-## PHASE B ANSWERED: THE INPUT SPACE IS CAMERA-RELATIVE (VR-69, 2026-09-09)
+## PHASE B, CORRECTED: WHAT THE OBSERVER ACTUALLY COMPARED (VR-69, 2026-09-09)
+
+**The section below overstates its own counter and is corrected here.**
+
+* **"VP only = 1, therefore the eye is not in the view matrix" does not follow.**
+  VP changed in **7,272** comparisons - the 1 VP-only plus all 7,271 BOTH. If
+  the input space is camera-relative, an eye change moves both matrices BY
+  CONSTRUCTION and lands in BOTH, never in VP-only. So VP-only being empty is
+  what a camera-relative space PREDICTS, and it cannot distinguish "the eye is
+  in VP" from "the eye is in both". The conclusion was read off the wrong cell.
+* **The pairs were never verified to be opposite EYES.** `Sample` carries a draw
+  id and an object id and no eye or view-pair identity. What the observer
+  measured is *consecutive distinct-draw comparisons*, which is a real
+  improvement on comparing a draw with itself, and is still not a stereo pair.
+* **The object id is an XOR of geometry parameters** (`mesh_split.cpp`), so
+  distinct objects can collide, and a completed pair reseeds from the next
+  sample, giving overlapping adjacent pairs.
+
+**What survives:** the population is sound (2.0 samples per distinct draw, pairs
+only across draws), and 80 % of consecutive draws share a view entirely while
+19 % differ in both matrices. The camera-relative reading of the input space
+still rests on the independent shader evidence already recorded, not on this
+counter. **Matrix-based placement stays closed** - but for the reasons in
+`FLICKER_ROOT_REVIEW.md`, not because this counter proved it.
+
+## THE HOLD MECHANISM HAS A COUNTERPREDICTION THAT FAILS (VR-69, 2026-09-09)
+
+The held-layer hypothesis needs this order: release the LEFT image, then take an
+untagged hold before the right is released, so the submission resolves to a new
+left and an old right.
+
+**That sequence should increment an abort counter.** With pair pacing active, a
+left release followed by an untagged completion increments `abortUntagged`, and
+a timeout increments `abortExpired`.
+
+Measured, in the same run as the holds: **`aborts=0` in all 22 printed stereo
+summaries**, while the hold counter advanced 53 times in 39.8 s (~1.33/s).
+
+So either the sequence does not occur, or the abort instrument does not cover
+the path that produces these holds. **The next observer must explain that
+discrepancy before either result is believed** - a mechanism whose own
+counterprediction fails is not yet a cause, however well it fits the symptom.
+
+Two further corrections to how the hypothesis was stated:
+
+* **"Same pair means innocent" is wrong.** Both images can advance together
+  while the saved poses still describe an older pair. Stereo coherence, change
+  since the bank, and image-versus-metadata agreement are three separate
+  questions and need three separate verdicts.
+* **The unchanged eye's pose is not necessarily stale.** A partial update can
+  mismatch one eye while the other remains correct, so "poses describing
+  neither image" was too strong.
+
+## (OVERSTATED - see above) PHASE B ANSWERED: THE INPUT SPACE IS CAMERA-RELATIVE
 
 The validated observer (`eye_observer.h`, suite in `eye_observer_test.h`) pairs
 on `c->drawId`, which `MpAcquireCtx` has stamped once per ORIGINAL draw all

@@ -1,201 +1,235 @@
-# The held layer, and what it actually re-submits - plan for review (VR-69)
+# Held images and stereo identity: reviewed plan (VR-69)
 
-**Status: plan. Nothing built for it.** Written after the validated observer
-closed Phase B's first question, and after the review named a lead in a log that
-was already on disk and had not been looked at.
+2026-09-09. Reviewed against source at `fad8aff8` and the preserved observer run.
+**Decision: proceed with a revised observer, not a rendering fix yet.** This is
+a documentation review. No binary, configuration, installation or game launch
+was changed.
 
----
+## 1. Objective and verdict
 
-## 0. What is wanted
+Remove the shared fault behind synchronized world, weapon and hand flicker,
+while preserving confirmed depth, scale and pose-alignment improvements.
+The architectural target is a complete rendered stereo pair whose identity and
+rendering metadata survive capture, release, storage and submission together.
+This is a useful correctness requirement even if several faults contribute.
+A universal single cause is not established.
 
-> **Fix the CORE of the flickering, once, so all of it falls to the same change.**
+The OpenXR mechanism is valid: saving a layer description does not retain its
+historical pixels. Each referenced swapchain resolves to its last released image
+at `xrEndFrame`. The saved subimage contains a swapchain handle, rectangle and
+array layer, not a selectable historical acquired-image index. See the official
+[xrEndFrame reference](https://registry.khronos.org/OpenXR/specs/1.0/man/html/xrEndFrame.html),
+[projection-view definition](https://registry.khronos.org/OpenXR/specs/1.0/man/html/XrCompositionLayerProjectionView.html)
+and [subimage definition](https://registry.khronos.org/OpenXR/specs/1.0/man/html/XrSwapchainSubImage.html).
 
-The mod remains worse to play than at the start of the session. Real fixes
-landed - render size, head-turn judder, weapon judder, the large weapon flicker
-and double image, weapon scale and depth - and a residual remains.
+Three draft claims need correction:
 
-**The symptom has grown, and the growth is the most useful thing about it:**
+1. Matching source-pair IDs do not exonerate a hold: both images can advance
+   together while saved poses still describe an older pair.
+2. Split source-pair IDs establish inconsistent provenance if their association
+   with pixels is verified. They do not alone establish visible flicker or its
+   frequency, and do not prove every flicker shares this cause.
+3. The simple partial-left-pair explanation predicts an existing abort counter
+   that the available gameplay log does not show. Investigate that contradiction.
 
-| What flickers / jitters | Placed by |
+## 2. Source evidence and the counterprediction
+
+References are in `src/core/vr/openxr_runtime.cpp` at the reviewed commit.
+
+| Location | Finding |
 |---|---|
-| Weapons | the palette |
-| Hands (newly reported this run) | the palette |
-| World geometry, at the same moments | **not the palette** |
+| 3946-3977 | Acquire, wait, copy and release operate on one eye. The release result is currently ignored. |
+| 4087-4100 | The first left-eye capture can release its image, set `g_srPairOpen`, and return without submitting. |
+| 3674-3675, 3810-3891 | The next present consumes open-pair state. A non-right completion increments an abort reason, including an untagged completion. |
+| 2919-2926 | An expired open pair also has an abort path. |
+| 4540-4568 | A no-layer present can reuse the saved layer description. |
+| 4645-4655 | A newly built layer is banked after successful submission. Newly built does not prove coherent stereo pixels. |
+| 789-798, 1087-1111 | `FeedSnap` stores descriptions and poses, not pixels; the detached feed path submits a copied snapshot. |
 
-Three things move together and only two of them are ours to place. That is
-either a shared upstream cause or a whole-image effect, and both live downstream
-of where six attempts have been spent.
-
----
-
-## 1. What is now settled, with evidence
-
-### 1.1 The eye cannot be recovered from a draw (measured, not argued)
-
-The validated observer (`eye_observer.h`; suite `eye_observer_test.h`, 8 cases
-passing, run at init and on the desk) pairs draw N against draw N+1 of the same
-geometry, on `drawId` stamped once per ORIGINAL draw:
+A partially updated swapchain set therefore exists between left and right
+processing. Whether a held submission sees it requires the actual event order:
 
 ```
-POPULATION samples 75163 over 37582 DISTINCT draws, 37581 pairs formed,
-refused 1 same-draw / 0 other-object
-VP only 1, L2W only 239, BOTH 7271, NEITHER 30070
+submit and bank A_L + A_R with metadata A
+release B_L, leaving A_R as the latest right image
+submit the saved A description before releasing B_R
 ```
 
-Population is sound: exactly 2.0 samples per draw, pairs only ever across draws.
+This resolves to B_L + A_R with A metadata. The unchanged right image can still
+match its saved pose. The draft's statement that poses describe neither image
+is incorrect. Even B_L need not have a different render pose while stationary;
+record actual metadata differences.
 
-* **VP only: 1 of 37,581.** If the eye lived in the view matrix, that population
-  would be large. It is empty.
-* **BOTH: 19.3 %** - the population where the view changes. Both matrices move
-  together, which is what a **camera-relative input space** looks like, and it
-  confirms the shader evidence already in ENGINE_NOTES rather than resting on it.
-* **NEITHER: 80 %** - consecutive draws sharing a view: the duplicate passes
-  documented in `VR-33-HANDS-AND-WEAPONS.md` section 8.
+With pair pacing active, left release followed directly by an untagged hold
+should increment `abortUntagged`. Timeout should increment `abortExpired`.
+A completed-pair-then-hold sequence should increment neither.
 
-**Consequence:** a reference must be expressed in the DRAW's space, never the
-world's, and no single draw can yield an eye. The matrix-recovery direction is
-closed by measurement.
+The preserved latest observer log shows held count 47 at timestamp 41934718 and
+100 at 41974500: **53 holds in 39.782 seconds**, about 1.33/s, within gameplay.
+Enclosing stereo summaries repeatedly report zero left, untagged and expired
+aborts. This argues against treating those recurring holds as the straightforward
+left-release-then-untagged sequence. It does not prove every transition is covered
+or that the abort instrument is complete.
 
-### 1.2 The camera-refusal candidate is dead
+The earlier 132-second run had 158 progress skips and 158 holds. Keep that
+separate from this later run, which reports a 90 Hz display period. Similar
+rates prioritize investigation; they do not identify releases consumed by each
+hold or establish alignment with a visible event.
 
-`p2write refused` reads **0** for the whole run. Explicitly refused second-eye
-writes are not this. (A successful write reaching the wrong view is untested.)
+Local evidence, not for committing: `build/held-layer-review-2026-09-09/observer-run.log`.
+SHA-256: `7F97D3954F2B1532D6FAF861103499B0D17AC3B854B4D4A8A77547F664B70778`.
+Build tag: `vr33-hands-working-105-g34f04ffb-dirty`.
 
----
+## 3. Symptom interpretation
 
-## 2. The lead: the hold path
-
-From a 132-second gameplay interval already on disk:
-
-```
-present-progress skips ....... 158
-held-layer resubmissions ..... 158
-```
-
-**About 1.2 per second, against a reported 1-2 per second.** The chain:
-
-```
-no Present progress at the game-side gate
- -> single gameplay draw / zero tag
- -> untagged delivery
- -> HoldUntagged
- -> no texture handed to on_present_end
- -> the saved layer is resubmitted
-```
-
-**Matching totals are not causation** and are not treated as such here. But this
-is the only candidate with the right rate, in the right place, already counted,
-and never joined to a visible event.
-
-### 2.1 The mechanism that would explain every part of the symptom
-
-From the review's own citation, and this is the sharp end:
-
-> Saving a layer description does not preserve a historical pixel pair. **OpenXR
-> uses each swapchain's LATEST RELEASED image.**
-
-So a "hold" re-submits the **saved poses and layer descriptions** but the
-**runtime resolves each swapchain to whatever it most recently released**. If
-one eye released a new image between the saved pair and the resubmission, the
-held layer combines:
-
-* a **new** image for that eye,
-* an **old** image for the other,
-* **stale poses** describing neither.
-
-That predicts, without further assumption:
-
-| Observed | Predicted by this mechanism |
+| Observation | Supported inference and limit |
 |---|---|
-| One eye only | yes - only the eye that released a newer image is disturbed |
-| World AND weapon together | yes - it is the whole eye image, not a placement |
-| Orientation-independent | yes - a stale/mismatched image, not a transform |
-| ~1 per second | yes - the hold rate |
-| Hands as well as weapons | yes - same image |
+| World, hands and weapons disturb together | Whole-image or shared-view faults are plausible; submission is not uniquely identified. |
+| Left eye is more visibly affected | Releasing left first creates a plausible asymmetry. Visibility depends on content, motion and reprojection. |
+| Similar direction with an inverted weapon | Fits a shared-image fault, but also a camera-space error independent of weapon orientation. |
+| Approximately 1-2 events/s | Compare defective submissions with events, not all holds. Valid repeated frames can also affect cadence. |
 
-**It is a hypothesis. It has not been measured, and the last six were not
-either.** The plan's job is to measure it, including the outcome where it is
-wrong.
+Neither Wi-Fi nor encoder causation follows from these observations. A downstream
+runtime effect remains an alternative if submitted content, metadata and timing
+prove correct. Do not assign blame before that boundary is measured.
 
-### 2.2 What would falsify it
+## 4. Identity and independent verdicts
 
-Record, at **every** final submission - fresh, held, mono and keepalive alike:
+Keep three identities separate:
 
-* each eye swapchain's **last successfully released image id**, and
-* the image ids the **saved** layer was assembled from, and
-* the submitted pose/FOV records and their source.
+- Rendered content: original stereo pair ID, eye/view ID, capture serial,
+  delivered record, and pose/FOV actually used to render it.
+- Release event: session/swapchain lifetime, handle, acquired image index,
+  array layer, monotonic release serial and result.
+- Submission: serial, path/reason, saved-bank serial, display time, referenced
+  subimages, submitted pose/FOV and reference-space identity.
 
-Then: **if a held submission's two eyes resolve to image ids from the same pair,
-the mechanism is dead** and the hold is innocent. If they resolve to ids from
-different pairs, the mechanism is live and the fix is to preserve a complete pair
-rather than a description of one.
+Independent left/right release counters cannot establish a common source pair.
+Ring indices repeat; handles can be reused after recreation. Carry lifetime
+identity too. Stamp provenance at the producer and carry it with the texture.
+Joining the left image to the latest global right record at submission would
+recreate the association problem inside the observer.
 
-This is falsifiable without a headset - the ids alone settle it.
+If rendering provenance is inferred, print UNVERIFIED. Track reference space,
+FOV, rectangle and relevant origin/recenter generation as well as pose generation.
+Different metadata IDs with equal values are not necessarily a geometric error.
 
----
+| Axis | Outcomes |
+|---|---|
+| Source stereo coherence | MATCHED, SPLIT, UNKNOWN |
+| Change since saved bank | Release-event changes and content changes, separately: neither, left, right, both, unknown |
+| Image-to-submitted-metadata agreement | Per eye: match, mismatch, unverified; include numerical pose/FOV differences |
 
-## 3. What must NOT be done first
+Releasing the same captured content again changes the release event without
+necessarily changing pixels or invalidating metadata. Conversely, exact equality
+with the bank is insufficient if that bank was already incoherent.
 
-* **Do not disable `HoldUntagged` or the present-progress guard** to see if the
-  flicker stops. Both prevent known failures; removing them substitutes a
-  different artefact and confounds the test. The review says this explicitly.
-* **Do not touch placement.** Six attempts, and 1.1 says the information is not
-  there.
-* **Do not change `[Pace] Lag=2` or `[Hands] PoseLag=2`.** Both headset-confirmed;
-  an A/B left armed on the latter already contaminated four runs.
+Classify fresh, held and feed projection submissions with the same core. Fresh
+submissions are essential controls and may themselves bank the fault. Count
+mono/quad and empty submissions separately; neither is a matched stereo control.
+Shared classification does not inherently double cost: use bounded records and
+aggregate summaries.
 
----
+## 5. Observer implementation
 
-## 4. Proposed instrument
+1. Audit producer -> capture -> release identity and every `xrEndFrame` site.
+   Cover normal present, detached `feed_submit_cycle`, and empty-layer cleanup
+   and timeout paths. Account for auxiliary HUD/laser layers separately.
+2. Maintain a release ledger per swapchain lifetime. Record acquire, wait, copy
+   and release outcomes; advance latest-released identity only after successful
+   release. Failed or unknown copy provenance stays unknown. A wait timeout is
+   nonnegative, so `XR_SUCCEEDED` alone is not a general readiness test. Do not
+   propagate the existing comment that failed waits require release. Queued GPU
+   copies are not CPU proof of completion; add no fence or readback for this audit.
+   The [wait contract](https://registry.khronos.org/OpenXR/specs/1.0/man/html/xrWaitSwapchainImage.html)
+   explicitly distinguishes a successful wait without timeout from a timeout.
+3. Bank provenance with the exact `FeedSnap` description under its existing
+   synchronization. Preserve coherence/verification status rather than treating
+   fresh as valid. Read description and provenance together. Respect frame-call
+   ownership; independent atomics must not create synthetic mixed snapshots.
+4. At each submission resolve the actual referenced handles/array layers against
+   the ledger. Record timestamps before/after the call, result, game/session
+   state, pair-open/abort transitions, bank, verdicts and content age. Separate
+   attempts from successful calls; API success does not prove visible display.
+5. Retain a bounded bank -> release -> submit event ring with anomaly samples,
+   aggregate counts and overflow counts. Avoid per-draw logging and holding a
+   snapshot mutex across blocking XR calls.
+6. Reconcile totals by path/state. Correlate partial-left holds with expected
+   abort reasons. Explain any disagreement with existing counters before accepting
+   either result. Unknowns cannot silently enter the MATCHED population.
 
-Bounded, records only, default enabled so an ordinary launch is informative.
+Keep placement, lag, present-progress guard and `HoldUntagged` unchanged. Record
+active settings and build identity at startup. The diagnostic observer may be
+on; any subsequent behavioral lever defaults off with a reversible live A/B.
 
-1. **Per-eye release identity.** A monotonically increasing id stamped when an
-   image is successfully released into each eye swapchain, kept per eye.
-2. **At every submission**, record: path (fresh / held / mono / keepalive), the
-   two eyes' current last-released ids, the ids the saved layer was built from
-   if held, the submitted pose record ids, and the frame index.
-3. **The verdict line**: how many held submissions resolved to a MATCHED pair
-   versus a SPLIT pair, and the id gap when split.
+## 6. Validation before a headset run
 
-**The line must be able to say MATCHED.** If every held submission resolves to a
-matched pair, this plan is wrong and says so - the property the four failed
-instruments lacked and the validated observer now has.
+Test the same classifier used by production and its integration with the actual
+pair/bank state machine. A separate model alone does not validate shipped logic.
 
-### Population discipline, learned the hard way
+| Fixture | Expected result |
+|---|---|
+| Bank A; hold without release | Matched A, unchanged content, matching metadata |
+| Bank A; release B left; untagged hold | Split B/A; left changed; metadata mismatch if pose differs; expected untagged abort in ordinary pair pacing |
+| Bank A; advance both images to B without replacing bank | Matched B, both changed, detect old A metadata. Adversarial classifier fixture, not an assertion about the common runtime path |
+| Bank an already split fresh submission; hold | Exact bank match retains split verdict |
+| Release the same A content again | Release changes, content unchanged, metadata can match |
+| Equal release serials from different source pairs | Split despite serial equality |
+| Healthy pair with unequal release serials | Matched source pair |
+| Failed release, unknown copy, wait timeout | No invented known-good release/content |
+| Ring wrap, swapchain recreation, session restart | No identity alias; incompatible banks invalidated |
+| Mono, empty, detached feed, failed end-frame | Correct populations and bank behavior |
 
-Print the population beside the verdict - submissions seen, held, fresh, and how
-many were classified - and separate startup, gameplay and menu. Four instruments
-in one session produced confident numbers about the wrong sample, and the fifth
-only worked because its population was printed first and checked.
+Then exercise available simulator integration: partial updates, normal holds,
+transitions and release failures where supported. Report unsupported injection
+explicitly. Measure overhead while preserving render settings. No headset is
+needed to validate the classifier or demonstrate a deterministic ledger violation.
+A representative game run is still needed to establish occurrence here; visible
+correlation is needed to attribute the reported flicker.
 
----
+## 7. Decision gates and conditional fix
 
-## 5. Questions for the reviewer
+- Split content or incorrect image metadata correlates with visible events:
+  repair the earliest boundary that loses association. Preserve a complete pixel
+  pair with its actual rendering metadata and submit that committed product.
+- Violations occur without visible correlation: these are correctness defects,
+  but do not declare the universal cause solved.
+- Flicker occurs with coherent content and matching metadata: reject this
+  mismatch mechanism for those events. Investigate repeated-content age, missed
+  slots, view/camera state and downstream presentation. Valid holds can judder.
+- Unknown provenance or incomplete coverage: repair the observer; no verdict.
 
-1. **Is the latest-release mechanism in 2.1 correct for this runtime's usage** -
-   specifically, does the mod release an eye image between a saved pair and a
-   resubmission, or is release always paired with submission such that the
-   situation cannot arise?
-2. **Is a per-eye release id sufficient identity**, or does the acquire/release
-   index cycle make ids ambiguous across a swapchain's image ring?
-3. **Should the fresh path be instrumented too**, or is the held path enough for
-   a first correlation? Instrumenting both doubles the cost but makes MATCHED
-   meaningful as a control rather than an absence.
-4. **Is 158 skips / 158 holds over 132 s worth this much weight**, given the
-   review's own caution that equal totals are not correspondence?
-5. **What else could move world, hands and weapons together** that is neither
-   the palette nor the submission path, so it is not missed by scoping to this?
+If preservation is needed, assess staging both source eyes before publishing,
+with submission excluded during partial publication. Separate swapchain releases
+are not an atomic stereo transaction: define failure handling and ownership for
+all submission paths. Caching an acquired index or `FeedSnap` cannot select old
+pixels. Recopying retained pixels, separate swapchain banks or a shared stereo
+image have different memory/copy/latency costs; choose after tracing the failure.
 
----
+Success requires both corrected trace invariants and removal of synchronized
+visible flicker at the same scene/settings, without regressing scale, depth,
+attachment or pose alignment. One corrective behavior per build.
 
-## 6. Constraints
+## 8. Corrections to inherited evidence
 
-* One behavioural change per build; broken three times this session.
-* Every new lever default OFF with a live A/B; an armed experiment contaminates
-  every later measurement.
-* Instruments validated in fixtures before a headset run - `eye_observer_test.h`
-  is the pattern and it worked.
-* Verify the POPULATION before reading any number.
-* The tester runs the game, not the harness.
-* Never commit game-derived captures.
+The updated eye observer fixes same-draw comparisons and tests elementwise
+matrix differences. Its eight fixtures do not prove that integration supplies
+opposite eyes of the same object/view pair. `Sample` has draw/object IDs but no
+eye or view-pair identity. The integration's `objectId` is an XOR of geometry
+parameters (`hands/mesh_split.cpp:3095`), not unique component/buffer identity.
+Multiple objects can share it. Repeated evaluations can reseed the next
+comparison after a pair completes, yielding overlapping adjacent-draw pairs.
+
+Therefore `VP only 1, L2W only 239, BOTH 7271, NEITHER 30070` does not close
+matrix recovery: VP changed in **7,272** comparisons, including BOTH. BOTH alone
+does not prove camera-relative input; NEITHER alone does not prove duplicate
+passes. Retain independent shader-space evidence, but describe this counter as
+distinct-draw comparisons, not verified stereo pairs. Do not revive matrix-based
+placement in this investigation.
+
+`p2write refused = 0` excludes that explicit refusal path in this run. It does
+not prove accepted writes reached the intended view. Other shared causes include
+wrong view/pose association, capture-slot reuse, stale textures, incorrect
+projection/space metadata, shared graphics-state leakage, uneven cadence and
+runtime reprojection. The identity trace should narrow these possibilities,
+not presuppose the answer.
