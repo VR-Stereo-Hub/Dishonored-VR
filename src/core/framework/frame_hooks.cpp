@@ -6,6 +6,8 @@
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
+#include "core/gfx/draw_census.h"
+#include "core/gfx/hud_capture.h"
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
 #include "core/util/crash.h"
@@ -116,7 +118,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // PreExit). The session comes down here, on the present thread, once.
     if (InterlockedCompareExchange(&g_exiting, 0, 0)) {
         static bool torn = false;
-        if (!torn) { torn = true; dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit"); }
+        if (!torn) { torn = true; dvr::draws::shutdown(); dvr::hudcap::shutdown(); dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit"); }
         return g_origPresent(self, src, dst, wnd, dirty);
     }
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
@@ -134,6 +136,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::perf::stamp(dvr::perf::kEntry);
     dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
     if (g_cb.pre_tick) g_cb.pre_tick(self);
+    // 41.2 (session 10): the draw census closes the previous present's record
+    // here and checks its render-thread assumption. Off = one bool per draw.
+    dvr::draws::present_tick(self);
     // 41.1: a method that presents twice per tick is paced by the runtime's
     // pair pacing (one xrWaitFrame per pair); a per-present cap would halve
     // the tick rate.
@@ -194,6 +199,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::stereo::FrameOutput out;
     dvr::stereo::end_frame(devs, out);
     dvr::perf::stamp(dvr::perf::kAfterEnd);
+    // 41.2 (session 10): the HUD panel's copy, clear and hand-off. Between the
+    // method and the runtime on purpose: it belongs to no stereo method.
+    dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
     if (out.tex) ++g_submits;
     dvr::vr::on_present_end(out.tex);
     dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
@@ -225,6 +233,8 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     // (38.63: a forgotten one made the game's Reset fail forever).
     dvr::perf::on_reset();
     dvr::stereo::on_reset();
+    dvr::draws::on_reset();
+    dvr::hudcap::on_reset();
     dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
     const HRESULT hr = g_origReset(self, pp);
     if (FAILED(hr))
@@ -256,6 +266,7 @@ HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
     dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
+    dvr::draws::on_set_render_target(idx, rt);
     if (g_cb.set_render_target) return g_cb.set_render_target(self, idx, rt);
     return g_origSetRt(self, idx, rt);
 }
@@ -299,6 +310,9 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         // 41.1 (session 8): the creation census - what the game asks of this
         // device, the go/no-go for the D3D9Ex route (core/gfx/device_census).
         dvr::census::install(*outDev, self, adapter, type, flags, pp);
+        // 41.2 (session 10): the draw census - which entry points the Scaleform
+        // HUD uses, and whether it separates from the world (core/gfx/draw_census).
+        dvr::draws::install(*outDev);
     }
     return hr;
 }

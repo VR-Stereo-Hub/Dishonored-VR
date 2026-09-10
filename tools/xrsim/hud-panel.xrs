@@ -1,0 +1,35 @@
+# hud-panel.xrs - the HUD panel reaches the compositor as a quad (41.2, session 10).
+#
+# The panel is drawn by the RUNTIME as a head-locked quad layer, so it exists
+# only in the compositor and never appears in a window screenshot: quadLayers is
+# the field that sees it. Run this in GAMEPLAY (walk in first) with stereo
+# reentry armed, or the gate is down by design and the panel never arms.
+#
+#   tools\xrsim-run.ps1 -Path tools\xrsim\hud-panel.xrs -Dir D:\dvr-data\xrsim
+reset
+@mod stereo reentry
+@frames 240
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+
+# Off (the default): the game draws its HUD into the frame and there is no quad.
+@mod hud off
+@frames 120
+@assert quadLayers eq 0
+@shot hud_off
+
+# On: the HUD leaves the frame and arrives as a second layer.
+@mod hud on
+@frames 180
+@assert projectionViews eq 2
+@assert quadLayers ge 1
+@assert layersLastFrame ge 2
+@shot hud_on
+# The world must be untouched by the redirect: the eyes still fill the frame.
+@assert capNonBlackL ge 30
+@assert capNonBlackR ge 30
+
+# And it goes away again cleanly.
+@mod hud off
+@frames 120
+@assert quadLayers eq 0

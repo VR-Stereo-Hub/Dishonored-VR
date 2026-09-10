@@ -31,6 +31,7 @@ static void FrameDumpRequest(const char* what)
         Log("dump: unknown target '%s' (frame|capture|eyes)", what);
     else
         Log("dump: %s requested -> %s", what, dvr::paths::dumps_dir());
+    if (strstr(what, "hud")) { g_dumpReqHud = 1; Log("dump: hud requested"); }
 }
 
 // Four lines of header and no library: top-down BGRA.
@@ -138,7 +139,7 @@ static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex)
 // Present thread, after the eyes are rendered and before they are submitted.
 static void FrameDumpTick(IDirect3DDevice9* dev)
 {
-    if (!g_dumpReqCapture && !g_dumpReqEyes) return;
+    if (!g_dumpReqCapture && !g_dumpReqEyes && !g_dumpReqHud) return;
     char path[MAX_PATH];
     if (g_dumpReqCapture) {
         g_dumpReqCapture = 0;
@@ -149,6 +150,14 @@ static void FrameDumpTick(IDirect3DDevice9* dev)
             snprintf(path, MAX_PATH, "%s\\capture_%lu_%ux%u.bmp", dvr::paths::dumps_dir(), (unsigned long)g_frame, cw, ch);
             Log("dump: capture %s", DumpWriteBmp(path, px, cw, ch, cw * 4) ? path : "FAILED");
         } else Log("dump: no capture yet");
+    }
+    if (g_dumpReqHud) {
+        g_dumpReqHud = 0;
+        snprintf(path, MAX_PATH, "%s\\hud_%lu.png", dvr::paths::dumps_dir(), (unsigned long)g_frame);
+        ID3D11Texture2D* t = dvr::hudcap::panel_texture();
+        Log("dump: hud %s -> %s", path,
+            !t ? "FAILED (no panel texture - is [Hud] Panel on?)"
+               : DumpTexturePng(path, t) ? "queued (the dump thread writes it)" : "FAILED");
     }
     if (g_dumpReqEyes) {
         // The pair is a left THEN its right (one tick's two draws): under a

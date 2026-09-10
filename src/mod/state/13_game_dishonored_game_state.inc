@@ -181,6 +181,74 @@ static bool   g_menuGhostByRate  = false;   // [Menu] GhostClearByRate
 static double g_menuGhostQuietMs = 400.0;   // [Menu] GhostQuietMs
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
+// 41.2 (session 10): PostRender dispatches, for the draw census. The HUD is
+// drawn from inside this dispatch, and under `stereo reentry` the viewport
+// draw root runs TWICE per tick, so this against the viewport-draw count says
+// whether the HUD is drawn once or twice. Game thread writes, present reads.
+static volatile LONG g_pePostRender = 0;
+// 41.2 (session 10): the gameplay verdict's last answer, so a second reader
+// (the HUD panel's gate) costs nothing and never logs a second time.
+static bool g_verdictLast = false;
+// 41.2 (session 10): `dump hud` - the panel's own texture, as the runtime
+// would see it. The one instrument that says whether a wrong-looking panel is
+// a bad redirect, a bad copy or a bad quad.
+static int g_dumpReqHud = 0;
+// 41.2 (session 10): [Cine] Mode. quad (default, and what has always
+// happened) drops the gameplay verdict while the cinematic latch is up, so
+// the re-entry parks its second draw and the runtime layer falls to its
+// head-locked cinematic quad: one image, both eyes, no stereo. stereo keeps
+// the projection and the eye pair through the cutscene. The engine's matinee
+// camera does not follow the head either way - only the fallback head path is
+// held during a cinematic, and the script-lane write lands on a camera the
+// cutscene ignores - so `stereo` buys depth, not look-around, and whether
+// that is comfortable is a headset question.
+static bool g_cineStereoMode = false;
+// 41.2 (session 10): whether the HUD panel stays live through a cutscene.
+// It only bites under Mode=stereo (under quad the verdict is false anyway, so
+// the panel is down and the subtitles ride the cinematic quad with the rest of
+// the frame). This IS the subtitle decision: on, the subtitles are on the
+// panel, one image in both eyes, which is the runtime layer's own documented
+// stereo-correct choice; off, they stay in each eye's frame, where the two
+// eyes are captured from different game frames and text can double.
+static bool g_cineHudPanel = true;
+// 41.2 (session 10, headset report): whether the cutscene SCREEN follows the
+// head. It must not, and it did. [Screen] HeadLocked=1 ships because a gameplay
+// mono screen wants to stay in front of your eyes, and the runtime layer's quad
+// takes that flag for EVERY quad it shows - including the one a cutscene lands
+// on. So a cutscene was glued to the face and swung with every head turn, which
+// is exactly what a cinema screen must not do. The runtime's own comment says
+// cinematic scenes were meant to keep the world-locked space; our global flag
+// was overriding that intent. The game side now parks the flag for the length
+// of the cutscene and restores whatever the ini asked for afterwards - no edit
+// to the runtime layer, just its existing setter driven at the right moments.
+static bool g_cineHeadLocked = false;      // [Cine] HeadLocked
+// 41.2 (session 10, the tester's ask): in-game menus (pause, journal, shop) on
+// the HUD panel with the projection kept, instead of dropping the whole frame
+// to the head-locked mono screen. The menu is drawn by exactly the class the
+// redirect claims (measured, run 46-02: 10 buckets, all blended, all to the
+// backbuffer), so no classifier change is needed - only the gate has to stop
+// treating an in-game menu as "not gameplay". The MAIN menu is untouched: it
+// has no live pawn and carries its own positive signal, and it keeps the
+// screen. What the WORLD does behind a paused menu is the stereo method's
+// business (a frozen camera may fall to single draws); the panel gate has its
+// own fallback for that so the menu never disappears.
+static bool g_hudMenuOnPanel = true;
+// 41.2 (session 10, headset report): when an in-game menu CLOSES, the view
+// pipeline is silent for a few presents until its first dispatch after the
+// resume, and the verdict fell to FALSE in that gap - the runtime dropped the
+// projection to its screen and brought it straight back, which the player saw
+// as the stereo "reloading" on every resume. The gap is the menu's, not a
+// starved pipeline's: hold the menu's stand-in for this long after it closes.
+static double g_menuClosedMs = -1e9;
+// A menu flag is event history, and a ghost of it fires during a LOAD with no
+// menu on screen (Dis_OpenPauseMenu, measured in VR-62). A stand-in that trusts
+// the flag would hold the projection through a loading screen. A REAL pause
+// menu is entered from live gameplay, so the stand-in is granted only to a menu
+// that OPENED while the view pipeline was live, and it is kept for that menu.
+static bool g_menuFromLive = false;
+static const double kMenuCloseGraceMs = 1500.0;
+static bool g_screenHeadLockedCfg = true;  // [Screen] HeadLocked, as configured
+static int  g_screenHeadLockedNow = -1;    // what the runtime was last told
 static bool CylTruthLive();              // fwd
 // per-eye frustum + eye offsets, cached by BuildEyeQuads for the panel math
 static float g_eyeFr[2][4];           // l, r, t, b

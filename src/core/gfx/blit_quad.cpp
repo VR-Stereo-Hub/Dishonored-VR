@@ -27,7 +27,15 @@ const char* kSrc =
     "}\n"
     "Texture2D srcTex : register(t0);\n"
     "SamplerState samp : register(s0);\n"
-    "float4 psmain(VSOut i) : SV_Target { return float4(srcTex.Sample(samp, i.uv).rgb, 1.0); }\n";
+    "float4 psmain(VSOut i) : SV_Target { return float4(srcTex.Sample(samp, i.uv).rgb, 1.0); }\n"
+    // 41.2: the HUD panel's repair. Its source is a target cleared to black
+    // with the HUD drawn over it, so the colour is already premultiplied and
+    // black is "nothing there"; alpha = max(r,g,b) turns that into the
+    // coverage the compositor wants, and gives the original's additive look.
+    "float4 psalpha(VSOut i) : SV_Target {\n"
+    "    float3 c = srcTex.Sample(samp, i.uv).rgb;\n"
+    "    return float4(c, max(c.r, max(c.g, c.b)));\n"
+    "}\n";
 
 } // namespace
 
@@ -58,6 +66,20 @@ bool BlitQuad::init(ID3D11Device* dev) {
     HRESULT hr = dev->CreateVertexShader(vsb->GetBufferPointer(), vsb->GetBufferSize(), nullptr, &vs_);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(psb->GetBufferPointer(), psb->GetBufferSize(), nullptr, &ps_);
     vsb->Release(); psb->Release();
+    // The alpha-repair variant is optional: a failure here costs the HUD panel
+    // its transparency, not the frame, so it logs and leaves the plain path up.
+    {
+        ID3DBlob* pab = nullptr;
+        if (SUCCEEDED(compile(kSrc, strlen(kSrc), nullptr, nullptr, nullptr, "psalpha", "ps_4_0", 0, 0, &pab, &err))) {
+            if (FAILED(dev->CreatePixelShader(pab->GetBufferPointer(), pab->GetBufferSize(), nullptr, &psAlpha_)))
+                DVR_WARN("blit: the alpha-repair pixel shader would not create - the HUD panel would be opaque");
+            pab->Release();
+        } else {
+            DVR_WARN("blit: alpha-repair PS compile failed: %s",
+                     err ? (const char*)err->GetBufferPointer() : "?");
+            if (err) { err->Release(); err = nullptr; }
+        }
+    }
     if (FAILED(hr)) { failed_ = true; DVR_ERROR("blit: shader objects failed (0x%08lx)", (unsigned long)hr); return false; }
 
     D3D11_SAMPLER_DESC sd = {};
@@ -87,13 +109,14 @@ void BlitQuad::shutdown() {
     if (blend_) { blend_->Release(); blend_ = nullptr; }
     if (raster_) { raster_->Release(); raster_ = nullptr; }
     if (sampler_) { sampler_->Release(); sampler_ = nullptr; }
+    if (psAlpha_) { psAlpha_->Release(); psAlpha_ = nullptr; }
     if (ps_) { ps_->Release(); ps_ = nullptr; }
     if (vs_) { vs_->Release(); vs_ = nullptr; }
     ready_ = false;
 }
 
 void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
-                    ID3D11RenderTargetView* dst, uint32_t w, uint32_t h) {
+                    ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, bool alphaRepair) {
     if (!ready_ || !ctx || !src || !dst) return;
     D3D11_VIEWPORT vp = {0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f};
     ctx->RSSetViewports(1, &vp);
@@ -105,7 +128,7 @@ void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
     ctx->IASetInputLayout(nullptr);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ctx->VSSetShader(vs_, nullptr, 0);
-    ctx->PSSetShader(ps_, nullptr, 0);
+    ctx->PSSetShader(alphaRepair && psAlpha_ ? psAlpha_ : ps_, nullptr, 0);
     ctx->PSSetShaderResources(0, 1, &src);
     ctx->PSSetSamplers(0, 1, &sampler_);
     ctx->Draw(3, 0);

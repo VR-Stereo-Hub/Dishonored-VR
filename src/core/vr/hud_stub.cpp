@@ -17,6 +17,7 @@ std::atomic<bool> g_postfxRtOnly{true};
 std::atomic<bool> g_postfxCineSize{false};
 std::atomic<bool> g_restoreRt{true};
 std::atomic<int> g_dumpEdge{0}, g_dumpCount{0};
+std::atomic<bool> g_gate{false};
 } // namespace
 
 ID3D11ShaderResourceView* srv(ID3D11DeviceContext*) { return nullptr; }
@@ -25,7 +26,12 @@ bool redirected_this_interval() { return false; }
 
 void set_enabled(bool on) { g_enabled.store(on, std::memory_order_relaxed); }
 bool enabled() { return g_enabled.load(std::memory_order_relaxed); }
-void set_gate(bool) {}
+// 41.2 (session 10): the runtime computes this every present and the stub used
+// to discard it. It is the only signal that says a stereo GAMEPLAY frame is
+// flowing (projection mode AND an eye tag popped), which is exactly the gate a
+// HUD redirect wants, so the stub REMEMBERS it now. Still no capture in here.
+void set_gate(bool on) { g_gate.store(on, std::memory_order_relaxed); }
+bool gate() { return g_gate.load(std::memory_order_relaxed); }
 
 void set_bars_hidden(bool on) { g_barsHidden.store(on, std::memory_order_relaxed); }
 bool bars_hidden() { return g_barsHidden.load(std::memory_order_relaxed); }
