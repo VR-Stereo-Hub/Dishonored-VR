@@ -1882,6 +1882,11 @@ struct MpDrawCtx {
     float r[3], u[3], f[3];     // camera basis, from the ViewProjection rows
     float col[3][3], t[3];      // LocalToWorld, columns and translation
     float projRight;            // L's translation on the right axis (telemetry)
+    // VR-69: objectId is the geometry the observer pairs on - not a position,
+    // because a position is not an identity. drawId already exists below and is
+    // already stamped once per ORIGINAL draw at the end of MpAcquireCtx: the
+    // identity the broken probe needed was in this context all along.
+    uint64_t objectId;
     // VR-69 phase A: the camera recovered from this draw's own ViewProjection,
     // in the MATRIX'S input space. NOT differenced against anything - there is
     // no established head centre to difference it against, and inventing one is
@@ -2034,6 +2039,8 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
     // So Phase A records the recovered camera and stops. No difference, no
     // offset, no placement effect. Establishing the reference is Phase B's job
     // and it needs captured packets, not another guess.
+    c->objectId = 0;   // MsDraw fills it - it holds the geometry, this does not
+
     c->eyeMeasOk = false;
     c->eyeCamR = c->eyeCamU = c->eyeCamF = 0.0f;
     c->eyeMeasWhy = "not attempted";
@@ -2510,79 +2517,42 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         if (g_mpEyeFromPass) eyeUse = truth;
     }
 
-    // ================== PHASE B: WHERE DOES THE EYE LIVE? ==================
+    // ============ THE EYE-PAIR OBSERVER (VR-69, validated) ============
     //
-    // Question 1 of the review's Phase B, and everything else waits on it:
-    // which input origin do VP and LocalToWorld use, and WHERE IS THE EYE
-    // TRANSLATION? Until that is known, any reference we subtract is a guess -
-    // which is how the last three attempts went wrong.
+    // The question is still Phase B's: which input origin do VP and
+    // LocalToWorld use, and where is the eye translation? The previous probe
+    // could not ask it - it compared one draw context with ITSELF, because this
+    // function is called once per hand range from a loop that shares a single
+    // context, and it returned 105,816 of 105,816 identical with 0.00 variance.
     //
-    // It needs no packet files and no offline analysis. The same object is
-    // drawn once per eye. Capture the matrices for one draw, and when the SAME
-    // object comes round again in the same tick with the other eye, difference
-    // them:
+    // eye_observer.h is that logic rebuilt to make the defect impossible rather
+    // than unlikely, and eye_observer_test.h proves it on the SHIPPED header
+    // before it comes near a headset. Its first case is this exact call
+    // pattern, and it must refuse to pair; its last offers one draw a hundred
+    // times and asserts the population still reads one draw.
     //
-    //   * VP changed, LocalToWorld did not  -> the eye lives in the VIEW matrix,
-    //     the recovered camera is meaningful, and the input space is shared.
-    //   * LocalToWorld changed, VP did not  -> the eye is already baked into the
-    //     object's own transform. The matrix recovery cannot see it and Phase A's
-    //     whole approach is dead.
-    //   * BOTH changed                      -> the input space is camera-relative
-    //     as the notes suggest, and the eye is split across both. Then the
-    //     reference must be expressed in the draw's space, not the world's.
-    //   * NEITHER changed                   -> the two draws are the same view;
-    //     the eye decision was wrong, or this is a mono pass.
-    //
-    // All four are answers. There is no outcome where this prints nothing
-    // useful, which is the property the last three instruments lacked.
-    //
-    // The object key is LocalToWorld's own translation quantised, which is
-    // stable for one object within a tick and different between objects. It is
-    // deliberately NOT the contract - the contract is the thing under suspicion
-    // elsewhere and must not gate this.
+    // Four outcomes, all answers, and NEITHER is reachable and tested - an
+    // observer that can only confirm is what the last four were.
     if (g_mpEyeMatrixDiag) {
-        const float kq = 0.05f;
-        const long k0 = (long)(c->t[0] / kq), k1 = (long)(c->t[1] / kq), k2 = (long)(c->t[2] / kq);
-        // The VP and L2W signatures: a cheap scalar each, enough to say CHANGED
-        // or NOT without storing sixteen floats per draw.
-        // c->vp / c->l2w are kept flat (16 floats) precisely so a diagnostic can
-        // diff them - the comment at their declaration says so.
-        float vpSig = 0.0f, l2wSig = 0.0f;
-        for (int e = 0; e < 16; ++e) { vpSig += c->vp[e] * (float)(1 + e); l2wSig += c->l2w[e] * (float)(1 + e); }
-
-        static long  s_k0 = 0x7fffffff, s_k1 = 0, s_k2 = 0;
-        static float s_vpSig = 0.0f, s_l2wSig = 0.0f, s_camR = 0.0f, s_projRight = 0.0f;
-        static bool  s_have = false;
-
-        if (s_have && k0 == s_k0 && k1 == s_k1 && k2 == s_k2) {
-            const float dVp  = vpSig  - s_vpSig;
-            const float dL2w = l2wSig - s_l2wSig;
-            const bool vpMoved  = fabsf(dVp)  > 1e-4f;
-            const bool l2wMoved = fabsf(dL2w) > 1e-4f;
-            const float halfIpdUU = 0.5f * g_ipdM * k;
-            InterlockedIncrement(&g_mpPbPairs);
-            if (vpMoved && !l2wMoved)      InterlockedIncrement(&g_mpPbVpOnly);
-            else if (!vpMoved && l2wMoved) InterlockedIncrement(&g_mpPbL2wOnly);
-            else if (vpMoved && l2wMoved)  InterlockedIncrement(&g_mpPbBoth);
-            else                           InterlockedIncrement(&g_mpPbNeither);
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
-                "ms/palette/wheretheeye: same object drawn twice - VP %s, LocalToWorld %s. Recovered camera "
-                "along right moved %+.2f uu, the object's own position moved %+.2f uu, half-IPD is %.2f uu. "
-                "Totals: VP only %ld, L2W only %ld, BOTH %ld, NEITHER %ld, of %ld pairs. VP ONLY means the eye "
-                "lives in the view matrix and the recovery is meaningful. L2W ONLY means the eye is baked into "
-                "the object transform and the matrix approach is DEAD. BOTH means the input space is "
-                "camera-relative and any reference must be expressed in the draw's space, never the world's. "
-                "NEITHER means these two draws are one view - a wrong eye decision, or a mono pass.",
-                vpMoved ? "CHANGED" : "same", l2wMoved ? "CHANGED" : "same",
-                c->eyeCamR - s_camR, c->projRight - s_projRight, halfIpdUU,
-                g_mpPbVpOnly, g_mpPbL2wOnly, g_mpPbBoth, g_mpPbNeither, g_mpPbPairs);
-            s_have = false;   // one comparison per pair, not a running chain
-        } else {
-            s_k0 = k0; s_k1 = k1; s_k2 = k2;
-            s_vpSig = vpSig; s_l2wSig = l2wSig;
-            s_camR = c->eyeCamR; s_projRight = c->projRight;
-            s_have = true;
-        }
+        dvr::eyeobs::Sample smp;
+        smp.drawId = (uint64_t)c->drawId;
+        smp.objectId = c->objectId;
+        memcpy(smp.vp, c->vp, sizeof(smp.vp));
+        memcpy(smp.l2w, c->l2w, sizeof(smp.l2w));
+        const dvr::eyeobs::Verdict v = g_mpEyeObs.offer(smp);
+        const dvr::eyeobs::Counts& n = g_mpEyeObs.c;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "ms/palette/eyepair: %s | POPULATION samples %u over %u DISTINCT draws, %u pairs formed, refused "
+            "%u same-draw / %u other-object | VP only %u, L2W only %u, BOTH %u, NEITHER %u | last maxVp %.4f "
+            "at %d, maxL2w %.4f at %d. Read the population first: pairs must be far below samples, and if "
+            "distinct draws equals samples the two hand ranges are not both reaching here. VP ONLY means the "
+            "eye is in the view matrix; L2W ONLY means it is in the object transform; BOTH means a "
+            "camera-relative input space; NEITHER over DISTINCT draws means these really are one view.",
+            dvr::eyeobs::verdict_name(v), n.samples, n.distinctDraws, n.pairs,
+            n.refusedSameDraw, n.refusedOtherObject,
+            n.vpOnly, n.l2wOnly, n.both, n.neither,
+            g_mpEyeObs.lastVp.maxAbs, g_mpEyeObs.lastVp.maxIndex,
+            g_mpEyeObs.lastL2w.maxAbs, g_mpEyeObs.lastL2w.maxIndex);
     }
 
     // PHASE A DIAGNOSTIC. Records only. It cannot move a weapon: there is no
@@ -3119,6 +3089,12 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     if (g_mpWorld) {
         g_mpDrawsEntered++;
         if (MpAcquireCtx(dev, &ctx)) {
+            // The geometry IS the object, and MsDraw already has it - no device
+            // getters, no COM refcounting on the draw path, and not the contract,
+            // which is under suspicion elsewhere and must not gate this.
+            ctx.objectId = ((uint64_t)(uint32_t)baseVertex << 40) ^
+                           ((uint64_t)numVertices << 20) ^ (uint64_t)primCount ^
+                           ((uint64_t)startIndex << 8);
             g_mpDrawsSampled++;
             MpDrawCompare(&ctx);
         } else {

@@ -824,3 +824,8 @@ static LONG g_mpEyeMeasUsed = 0, g_mpEyeMeasAgree = 0, g_mpEyeMeasDiffer = 0, g_
 // VR-69 phase B: where the eye translation lives. Counted over pairs of draws of
 // the SAME object, one per eye. All four outcomes are answers.
 static LONG g_mpPbPairs = 0, g_mpPbVpOnly = 0, g_mpPbL2wOnly = 0, g_mpPbBoth = 0, g_mpPbNeither = 0;
+// VR-69: the validated eye-pair observer. It pairs on g_mpDrawSeq, which ALREADY
+// EXISTED and is already stamped once per original draw at the end of
+// MpAcquireCtx - the identity the broken probe needed was in the context the
+// whole time and it used a quantised position instead.
+static dvr::eyeobs::Observer g_mpEyeObs;

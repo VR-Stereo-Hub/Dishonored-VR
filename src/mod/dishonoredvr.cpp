@@ -32,6 +32,8 @@
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
 #include "core/framework/perf.h"
+#include "game/dishonored/hands/eye_observer.h"      // VR-69: the validated eye-pair observer
+#include "game/dishonored/hands/eye_observer_test.h" // and its suite, run at init
 #include "core/gfx/stereo.h"
 #include "core/vr/pose_record.h"
 #include "core/gfx/capture.h"
