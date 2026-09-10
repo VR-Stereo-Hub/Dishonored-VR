@@ -4645,3 +4645,20 @@ entire pre-clamp field exactly equals that writer's own previous write on the
 same object/field. Its bounded camera/clamp-rebase log establishes execution;
 actual correlation with the remaining headset symptom is still pending.
 See DOWNWARD_CLAMP_REVIEW.md for the evidence, scope and rollback baseline.
+
+## VR-69: stability confirmed, projectile reticle aim restored (2026-09-10)
+
+The 417bfad9 run contains eight camera/clamp-rebase entries and the tester confirms
+the residual downward-motion flicker is gone. The successful log is preserved
+locally under build/session-handoff-2026-09-10; its build/hash match the candidate.
+
+That same run resolves motionaim=1 and redirects DisProjectile_Arrow from
+view (-0.81,-0.59,-0.09) to hand (-0.51,-0.05,0.86), then again to
+(0.55,0.32,0.77), followed by velocity steering. motion_aim.cpp is identical to
+b38519c3 and e8ca4682; the later aim-ray experiment is not in the installed build.
+The requested native-reticle restoration is an ini-only change: MotionAim.Enabled
+1 -> 0. Exactly one byte changed; the confirmed DLL hash is unchanged. Both the
+motion tick and fire-window arming are gated, so the next fresh launch leaves
+projectiles to the game. The actual post-reset shot verdict is pending.
+
+The full integration boundary and handoff are in SESSION_HANDOFF_2026-09-10.md.

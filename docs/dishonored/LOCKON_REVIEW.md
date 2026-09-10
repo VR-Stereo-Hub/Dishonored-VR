@@ -11,6 +11,10 @@ brief and is accepted for now. The remaining downward-character-motion flicker,
 the exact writer interaction reproduced on the host, and the isolated next
 candidate are in [DOWNWARD_CLAMP_REVIEW.md](DOWNWARD_CLAMP_REVIEW.md).
 
+Final update: the `417bfad9` downward-clamp candidate is also headset-confirmed.
+The complete session and reticle-aim configuration reset are recorded in
+[SESSION_HANDOFF_2026-09-10.md](SESSION_HANDOFF_2026-09-10.md).
+
 ## Provenance, verified against GitHub and local history
 
 | Piece | PR / merge | Relevant detail |

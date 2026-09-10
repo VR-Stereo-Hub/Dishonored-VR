@@ -1,6 +1,26 @@
 # Status
 
-## CURRENT (2026-09-10): eye restore confirmed; downward clamp candidate installed
+## CURRENT (2026-09-10): stability confirmed; reticle aim reset; handoff ready
+
+The tester confirmed `417bfad9` eliminates the remaining downward-motion flicker.
+Its log identifies the correct build and records eight `camera/clamp-rebase`
+executions. Head-turn stability and weapon swaps were already confirmed on its
+parent. Brief startup settling remains accepted.
+
+The final crossbow complaint is supported by logged projectile redirection from
+the view ray to an upward/backward hand ray. The installed motion_aim.cpp is
+unchanged from the earlier baseline. Only `[MotionAim] Enabled=1` was changed to
+0 in the installed ini, restoring native reticle aiming on next launch. Exact
+one-byte diff verified; the confirmed DLL is unchanged. Reticle shot verification
+is pending. No rebuild or further gameplay-code change was made for aiming.
+
+Full handoff: `dishonored/SESSION_HANDOFF_2026-09-10.md`. It includes source/PR
+provenance, test results, the confirmed binary/configuration, backups, and the
+important distinction between the installed diagnostic and the later integration
+branch. PR #33 already exists; finishing its review/integration and mainline merge
+is handed over. This final handoff is local; no further push or merge was performed.
+
+## Earlier candidate (2026-09-10): downward clamp before its visual result
 
 The `b3a1ff46` headset run confirmed stable world/weapon head turns and stable
 weapon attachment after startup, including equipment swaps. The remaining

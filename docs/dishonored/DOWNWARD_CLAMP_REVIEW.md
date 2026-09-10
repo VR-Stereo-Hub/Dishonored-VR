@@ -3,6 +3,12 @@
 2026-09-10. Candidate based on the headset-confirmed `b3a1ff46`, without later
 integration changes. Brief startup settling is accepted for now.
 
+Final result: `417bfad9` is headset-confirmed for the remaining downward-motion
+flicker. The matching log contains all eight bounded `camera/clamp-rebase` entries,
+so the corrected sequence executed. The historical setup and predictions below
+are retained as the record. The subsequent reticle-aim reset changes only the
+installed ini; see SESSION_HANDOFF_2026-09-10.md for the final state and merge gate.
+
 ## Confirmed baseline and remaining observation
 
 The eye restore eliminated sustained weapon flicker and equipment-swap flicker
