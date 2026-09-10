@@ -2,6 +2,13 @@
 
 ### Fixed
 
+- **Weapon eye correction survives queued draws and downward camera clamps
+  (VR-69, PR #33).** The restored render-side decision no longer resets when a
+  newer script tick changes its stereo state. A Z-only ceiling clamp now preserves
+  ownership of the previous camera offset, preventing repeated eye displacement.
+  The controlled headset build retained stable head turns and weapon swaps and
+  eliminated the reported descent/crouch flicker. Brief startup settling remains.
+
 - **The arms and weapon no longer follow your head (VR-30).** Turning your head
   leaves the viewmodel where it is; the right stick still turns you; doing both
   at once works. The mod now intercepts the engine's own body-facing operation
@@ -10,6 +17,12 @@
   `[Camera] ArmBodyFacing=1` enables it; `arms facing off` is the live A/B.
 
 ### Upgrading
+
+- Retired `PaletteEyeAlternate` and `PaletteEyeFromPass` settings no longer select
+  the active weapon eye decision. `PaletteEyeOffset` remains available.
+- To use the game's native reticle direction, set `[MotionAim] Enabled=0`.
+  This is the final local configuration; the generated default is unchanged.
+  The working DLL was retained, and post-reset shot verification is pending.
 
 - **`[Camera] BodyYawLock` is removed.** It was measured futile (4 of 186 writes
   survived to the next dispatch) and is superseded by `ArmBodyFacing`. Delete the

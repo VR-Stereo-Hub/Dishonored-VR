@@ -1,5 +1,124 @@
 # Status
 
+## CURRENT (2026-09-10): PR #33 stability fixes, merge authorized
+
+The final controlled build `417bfad9` is headset-confirmed for head-turn stability,
+weapon lock through swaps, and the downward-motion flicker fix. PR #33 carries
+the same two corrective changes on current VR-Main, plus regression tests and
+the full evidence/handoff. The user explicitly authorized completing the PR and
+merging it to VR-Main. This supersedes the earlier plan to hand off the merge.
+
+The installed DLL remains the confirmed `417bfad9` binary. Only `[MotionAim]
+Enabled=0 was applied afterward to restore native reticle aiming. No global
+aiming default changed; the next reticle shot remains unverified. The source
+integration builds and passes host checks, but it is not the exact historical
+binary used for the headset verdict. Preserve that distinction when packaging.
+
+Next: verify the reticle shot on next launch, and verify any newly built mainline
+package against the preserved working binary/configuration. No release is declared.
+The session handoff and local backup manifest remain the complete provenance.
+
+## CURRENT (2026-09-10): stability confirmed; reticle aim reset; handoff ready
+
+The tester confirmed `417bfad9` eliminates the remaining downward-motion flicker.
+Its log identifies the correct build and records eight `camera/clamp-rebase`
+executions. Head-turn stability and weapon swaps were already confirmed on its
+parent. Brief startup settling remains accepted.
+
+The final crossbow complaint is supported by logged projectile redirection from
+the view ray to an upward/backward hand ray. The installed motion_aim.cpp is
+unchanged from the earlier baseline. Only `[MotionAim] Enabled=1` was changed to
+0 in the installed ini, restoring native reticle aiming on next launch. Exact
+one-byte diff verified; the confirmed DLL is unchanged. Reticle shot verification
+is pending. No rebuild or further gameplay-code change was made for aiming.
+
+Full handoff: `dishonored/SESSION_HANDOFF_2026-09-10.md`. It includes source/PR
+provenance, test results, the confirmed binary/configuration, backups, and the
+important distinction between the installed diagnostic and the later integration
+branch. PR #33 already exists; finishing its review/integration and mainline merge
+is handed over. This final handoff is local; no further push or merge was performed.
+
+## Earlier candidate (2026-09-10): downward clamp before its visual result
+
+The `b3a1ff46` headset run confirmed stable world/weapon head turns and stable
+weapon attachment after startup, including equipment swaps. The remaining
+flicker was specific to downward character movement (crouch, descending slopes,
+falling); tracked head/controller vertical movement did not reproduce it.
+Brief startup settling is accepted for this task.
+
+Installed candidate `vr33-hands-working-60-g417bfad9` starts directly from that
+confirmed build. It fixes one interaction: FovLeverApply's Z-only ceiling write
+could invalidate the camera writer's whole-vector ownership check and accumulate
+old eye offsets in X/Y. The clamp now retains that ownership only for an exact
+previous write to the same camera and field. Ceiling/easing, eye selection,
+pose lag, weapon contracts and settings are unchanged. Details and counterexamples:
+`dishonored/DOWNWARD_CLAMP_REVIEW.md`.
+
+Nineteen production-function clamp checks pass (the old raw clamp fails six),
+as do the nine eye checks, 88 frame checks, release build, lint and export check.
+The integration branch also builds. The installed candidate is the controlled
+historical-base build, not the later mainline integration. Its SHA-256 is
+`1781FDAA987233F5E2E9A0A448A4CB47E1A4AE595FD2D0A99AF1C9C7C722D762`.
+Installed hash and x86 machine type were verified; ini bytes are unchanged.
+
+The confirmed DLL, ini and log are saved in `build/vr69-bisect/before-downward-clamp`.
+The new game run is pending; no simulator game run or headset result is claimed.
+Next: compare downward movement with ascent/head turns/equipment swaps, and read
+the bounded `camera/clamp-rebase` evidence. Restore `b3a1ff46` if any previously
+working behavior regresses. PR #33 remains draft; nothing is merged.
+
+## Earlier candidate (2026-09-10): eye-decision restore before its visual result
+
+The first comparison preserved world/weapon head-turn stability but reproduced
+persistent stereo weapon flicker, outward in each eye, with occasional longer
+displacements and apparent size changes. Its log keeps three active weapon
+contracts but reports 8,538 unknown-eye placement evaluations out of 143,598,
+with zero large-step ambiguities. That narrows the next controlled change to
+the eye decision rather than assuming the weapon repeatedly lost its contract.
+
+The installed second comparison is `vr33-hands-working-59-gb3a1ff46`: the first
+candidate (`08cbb368`, source equivalent to its earlier dirty build) plus the
+pre-regression `MpEyeForPresent` and `MpWorldTarget` bodies. Candidate recovery,
+contract lifecycle, capture, runtime and the clean weapon-pose-lag port are
+unchanged from the first run. The inactive eye experiment remains in legacy
+source. Ini/settings are unchanged; the game was not launched by the agent.
+
+The real production eye-decision function fails five host assertions before
+the restore and passes all nine afterwards, including delayed stereo draws
+after a script-side single-draw tick. All 88 existing desk tests, normal and
+legacy release builds, and the x86 export check pass. The normal DLL was staged
+before the legacy check and its installed hash verified. This verifies the code
+path, not the final visible result.
+
+The first-result log and ini are preserved under `build/vr69-bisect/first-result`;
+the first DLL and original pre-comparison DLL remain backed up. Full provenance
+and next decision gates are in `dishonored/LOCKON_REVIEW.md`. Next evidence:
+whether the outward ghost/displacement stops while head-turn stability stays
+correct. No branches were removed and VR-Main was not merged.
+
+## Earlier comparison (2026-09-10): setup before the first result
+
+VR-69 is now following the three-system comparison in `dishonored/LOCKON_REVIEW.md`.
+The installed candidate is `9fe2af45` plus the exact clean weapon-pose patch
+`22f275ba`: candidate/contract work from PR #26, with Hands PoseLag=2 and the
+existing Pace Lag=2 setting. No eye-decision changes were added. Release/x86
+build, all 88 desk cases, nine exports and lint passed. The DLL hash was checked
+after installation; the installed ini was not changed. The game was not launched.
+
+The previous DLL, ini, launch file and available logs are preserved under
+`build/vr69-bisect/before-first-candidate`. Candidate source, patch and manifest
+are under `build/vr69-bisect`; these local artifacts are not committed. Next
+evidence needed: whether the weapons settle and stay settled while playing,
+whether flicker returns on swaps/loads, and whether world or weapon judder occurs.
+The final combined fix is not established by this build.
+
+Important review correction: PR #27 also contains `fc343404`, which preserves
+live stowed weapon contracts. Weapon lock work is spread across PRs #26 and #27,
+so a clean first comparison is not proof that swap retention is complete. PR #32
+was already closed. No branch was deleted and VR-Main was not changed. The
+integration branch is `claude/vr-69-combined-stability`; the first diagnostic
+candidate lives in an isolated detached worktree.
+
 ## CURRENT (2026-09-09, evening): the WEAPON judder is fixed too
 
 **`[Hands] PoseLag=2`.** Headset-confirmed by a reversing A/B/A/B. The tester's

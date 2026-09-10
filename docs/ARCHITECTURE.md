@@ -629,3 +629,14 @@ with its value**, including the one the reader is least likely to suspect. This
 warning named the route already measured inert and stayed silent about the route
 that decides, and a session was spent on the former.
 
+
+### 2026-09-10: retain ownership across the camera ceiling clamp (VR-69)
+
+The eye/position writer removes its own previous offset only when the camera
+field still matches the previous write. FovLeverApply's Z clamp is another mod
+write to that same field; treating it as an engine recompute lets old X/Y eye
+offsets become part of the next base. Route that clamp through the camera writer
+and reconcile only an exact prior write to the same object and field. Preserve
+fresh engine vectors and all existing ceiling values/easing. This avoids a new
+per-axis inference and is verified by failing legacy controls, passing production
+function tests, and the 417bfad9 headset result. See DOWNWARD_CLAMP_REVIEW.md.

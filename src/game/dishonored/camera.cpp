@@ -55,6 +55,8 @@ bool  g_c5Ok = false;
 // recompute is re-based instead of accumulated, and restored on release.
 struct Writer {
     bool  lastOk = false;
+    uint8_t* camera = nullptr;    // identity of the field represented by last
+    uint32_t fieldOff = 0;
     float last[3] = {0, 0, 0};      // the value we wrote
     float lastOff[3] = {0, 0, 0};   // the offset inside it
     uint32_t writes = 0;
@@ -142,9 +144,30 @@ bool write_offset(uint8_t* cam, uint32_t fieldOff, const float off[3], Writer& w
         v[i] = w.last[i];
     }
     w.lastOk = true;
+    w.camera = cam;
+    w.fieldOff = fieldOff;
     ++w.writes;
     if (outBase) memcpy(outBase, base, sizeof(base));
     return true;
+}
+
+// A second mod writer may clamp Z between our offset writes. Only reconcile
+// a field that is still exactly our own write on the same camera. An engine
+// recompute (including a Z-only change) must remain a fresh base.
+bool clamp_written_z(uint8_t* cam, uint32_t fieldOff, float zmax, Writer* w) {
+    if (!cam || !RangeReadable(cam + fieldOff, 12)) return false;
+    float* v = (float*)(cam + fieldOff);
+    if (!(v[2] > zmax)) return false;
+    const bool ours = w && w->lastOk && w->camera == cam && w->fieldOff == fieldOff &&
+                      v[0] == w->last[0] && v[1] == w->last[1] && v[2] == w->last[2];
+    if (ours) {
+        // Preserve the original base: the clamp is part of the mod's offset,
+        // not a new engine translation containing an old eye offset in X/Y.
+        w->lastOff[2] += zmax - v[2];
+        w->last[2] = zmax;
+    }
+    v[2] = zmax;
+    return ours;
 }
 
 // ---- the postest (positional instrument) -------------------------------------
@@ -461,6 +484,18 @@ const char* pos_lane_name() {
 }
 
 void set_eye_ceiling(float zMax, bool on) { g_ceilZ = zMax; g_ceilOn = on; }
+
+void clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax) {
+    Writer* w = !g_et.active && g_field >= 0 && kFields[g_field].off == fieldOff
+                    ? &g_eyeWriter : nullptr;
+    if (clamp_written_z(camObj, fieldOff, zMax, w)) {
+        DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 8,
+            "camera/clamp-rebase: preserved the previous eye/position offset "
+            "after a Z clamp on camera+0x%x; offset=(%.3f %.3f %.3f) uu, "
+            "clampedZ=%.3f. Same camera, same field, exact previous write.",
+            fieldOff, w->lastOff[0], w->lastOff[1], w->lastOff[2], zMax);
+    }
+}
 
 // ---- the writer (script lane) -----------------------------------------------------------
 bool apply_offsets(uint8_t* camObj) {

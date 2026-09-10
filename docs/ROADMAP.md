@@ -1,5 +1,14 @@
 # Roadmap
 
+## VR-69 stability correction (2026-09-10)
+
+- [x] Restore render-side weapon eye correction without the live script mono reset.
+- [x] Preserve camera offset ownership through the mod's downward Z clamp.
+- [x] Verify both changes in controlled headset builds, including weapon swaps
+      and downward movement; preserve the confirmed DLL and configuration.
+- [ ] Verify a newly packaged mainline integration and the subsequent reticle-aim
+      setting. The source merge is not a release or a new-binary headset verdict.
+
 41.0 restarts the render on a native D3D9 game: the DXVK fork and the side-by-side pipeline
 are gone, one OpenXR runtime layer serves every headset, and stereo is rebuilt as a LADDER of
 methods on one seam (docs/ARCHITECTURE.md, "The stereo ladder"). Every milestone below is

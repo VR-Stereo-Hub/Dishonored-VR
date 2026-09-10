@@ -5150,3 +5150,64 @@ Open. Recorded so the next attempt starts from evidence.
   rather than the gameplay window reported a shift that does not exist, and
   summary windows joined by eye rather than by timestamp produced a table where
   no row's GPU span belonged to its own frame rate.
+
+## VR-69: a live script mono flag resets an older render eye (2026-09-10)
+
+The first controlled candidate, `9fe2af45` plus the clean weapon-pose port
+`22f275ba`, retained stable world/weapon head turns but reproduced persistent
+outward weapon flicker in both eyes. Three weapon contracts remained active in
+the recorded summaries. The final palette-eye population was 143,598 evaluations,
+including 8,538 unknown-eye evaluations and zero large-step ambiguities.
+
+`da1d760d` made `MpEyeForPresent` read `g_sdDoublingNow`, a live script-side
+state, and clear the render-side eye and its previous sample when false. A
+queued stereo draw need not belong to the latest script-side decision. This
+branch remains active with PaletteEyeAlternate=0, so the earlier negative
+alternation test did not exclude it. Unknown eye omits the half-IPD correction,
+which moves a right-eye target right and a left-eye target left relative to their
+corrected positions. That fits the report without a model-scale change, but
+aggregate counters do not prove event-by-event visual correspondence.
+
+`tools/palette-eye-host.ps1` compiles the production function with independent
+script/render inputs. The first-candidate function fails five assertions; the
+restored pre-#26 function passes all nine, including queued draws after a new
+single-draw script tick. The restore also keeps the original large-step refusal
+and per-present decision reuse. This tests a state transition, not all engine
+view association. The second diagnostic is `b3a1ff46`, with camera/capture/pose
+and candidate-contract behavior unchanged from the first. Its visible verdict
+is pending. The retired experiment is preserved under `src/legacy/vr69`.
+
+## VR-69: a ceiling write can invalidate camera offset ownership (2026-09-10)
+
+After the eye restore at b3a1ff46, headset feedback confirms stable head turns
+and weapon swaps, with residual flicker during downward character movement.
+FovLeverApply clamps only Z in the selected camera field before apply_offsets.
+The camera Writer recognizes a persistent field by all three coordinates; a
+mod-owned Z clamp breaks that comparison and lets the next eye offset accumulate
+on X/Y from the previous offset. The production writer reproduces this on the
+host: the original clamp fails six of 19 checks; the ownership-preserving clamp
+passes all 19. Fresh engine vectors and other objects/fields retain their old
+behavior. No new engine address or offset is introduced.
+
+417bfad9 changes the clamp call to preserve the original base only when the
+entire pre-clamp field exactly equals that writer's own previous write on the
+same object/field. Its bounded camera/clamp-rebase log establishes execution;
+actual correlation with the remaining headset symptom is still pending.
+See DOWNWARD_CLAMP_REVIEW.md for the evidence, scope and rollback baseline.
+
+## VR-69: stability confirmed, projectile reticle aim restored (2026-09-10)
+
+The 417bfad9 run contains eight camera/clamp-rebase entries and the tester confirms
+the residual downward-motion flicker is gone. The successful log is preserved
+locally under build/session-handoff-2026-09-10; its build/hash match the candidate.
+
+That same run resolves motionaim=1 and redirects DisProjectile_Arrow from
+view (-0.81,-0.59,-0.09) to hand (-0.51,-0.05,0.86), then again to
+(0.55,0.32,0.77), followed by velocity steering. motion_aim.cpp is identical to
+b38519c3 and e8ca4682; the later aim-ray experiment is not in the installed build.
+The requested native-reticle restoration is an ini-only change: MotionAim.Enabled
+1 -> 0. Exactly one byte changed; the confirmed DLL hash is unchanged. Both the
+motion tick and fire-window arming are gated, so the next fresh launch leaves
+projectiles to the game. The actual post-reset shot verdict is pending.
+
+The full integration boundary and handoff are in SESSION_HANDOFF_2026-09-10.md.
