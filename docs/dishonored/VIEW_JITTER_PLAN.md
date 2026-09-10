@@ -1,216 +1,340 @@
-# The view lane, not the palette - plan for review (VR-69, 2026-09-09)
+# Shared world/weapon jitter: revised investigation plan (VR-69)
 
-**Status: plan. Nothing built for it.** Written after a full session inside the
-palette's per-eye correction produced five attempts and no fix, and after two
-measurements that together say the palette is the wrong place to be looking.
+2026-09-09. Reviewed against source at `2065cfd3` and the latest available run.
+This replaces the earlier camera-only proposal. No new rendering behavior is
+authorized by this plan review, and no game launch or installation was performed.
 
----
+## 1. Objective and decision
 
-## 0. What is wanted, and where things stand
+Find and remove the fault that produces the reported synchronized world jitter
+and left-eye weapon flicker, while preserving correct weapon size/depth,
+attachment, controller motion and the confirmed pose-lag fixes.
 
-> **Fix the CORE of the weapon flickering, once, so all the flicker bugs fall to
-> the same change.**
+Prioritize the shared rendering and presentation path. Keep palette placement
+behavior unchanged during this investigation. That is experimental discipline,
+not a finding that the palette or its state handling has been exonerated.
 
-**The mod is currently worse to play than at the start of the session.** Real
-fixes landed - render size, head-turn judder, weapon judder, the large weapon
-flicker and double image, correct weapon scale and depth - but a residual
-left-eye flicker remains and the churn around it has made the experience net
-worse. That is the thing to fix.
+The new perceptual observation is a useful reason to broaden the investigation.
+It does not locate the fault exclusively in the camera. A shared disturbance can
+originate in camera/view construction, image capture/pairing, submission metadata,
+presentation timing, or downstream reprojection. A shared-state or scheduling
+side effect from a mesh hook also remains possible.
 
-**Do not propose another change inside the per-eye correction.** Five have been
-tried; the evidence below is why none of them could have worked.
+The Phase B zero-change result does not prove that the draw matrices lack eye
+information. Its implementation can compare a context with itself and excludes
+some changing transforms from its pair population. Repair the interpretation
+before deriving another architecture change from it.
 
----
+## 2. What the Phase B counter actually measured
 
-## 1. The two measurements that redirect this
-
-### 1.1 The weapon draws carry no per-eye difference at all
-
-The Phase B probe pairs consecutive draws of the same object and asks which
-matrix differs:
+The run reports:
 
 ```
 VP only 0, L2W only 0, BOTH 0, NEITHER 105816, of 105816 pairs
 ```
 
-VP identical, LocalToWorld identical, recovered camera moved 0.00 uu, object
-position moved 0.00 uu, against a half-IPD of 3.15 uu. **Not one exception.**
+These are **selected placement-evaluation comparisons**, not independently
+identified left/right view pairs. Four implementation details invalidate the
+stronger interpretation.
 
-**Two conclusions, of different strengths.**
+### Same-context comparisons can be constructed inside one draw
 
-*Strong:* recovering the eye from these matrices is impossible. There is no
-per-eye information in them. `PaletteEyeFromMatrix` is closed by measurement.
+`mesh_split.cpp:3121` acquires one `MpDrawCtx` before the hand/range loop.
+`MpWorldTarget(&ctx, ...)` is called within that loop at approximately line 3160,
+and the Phase B probe runs inside that function.
 
-*Weaker, and stated as the instrument's limitation:* 100 % of 105,816 is not a
-decision going wrong - that would be intermittent. The probe pairs CONSECUTIVE
-draws of one object, so what it caught is one object drawn more than once within
-**one view** - the duplicate passes `VR-33-HANDS-AND-WEAPONS.md` section 8
-documents - not the two eyes. **It has not measured a left/right pair at all.**
+The current log explicitly reports two ranges. When both evaluations reach the
+probe, it can store the context for one range and compare the exact same context
+for the other. No second original draw, duplicate material pass or opposite eye
+is required. The probe then clears its saved sample, ready to repeat this on the
+next original draw. Eye-dependent changes between original draws can go completely
+unexamined.
 
-What survives: at the site where the per-eye correction is applied, consecutive
-draws of one object share a view, and the correction is applied per DRAW to
-draws that are not per-eye.
+This is stronger than the draft's duplicate-pass caveat: duplicate passes have
+not been established as the explanation of the counter either.
 
-### 1.2 The world jitters when the weapons flicker
+### The matching key depends on the quantity being tested
 
-Reported in the same run, unprompted:
+The key is the quantized LocalToWorld translation, with 0.05-unit bins. An eye
+translation that changes those bins makes the samples fail the match and replaces
+the saved candidate. The probe therefore selects against detecting precisely the
+LocalToWorld translation change it is supposed to find.
 
-> when moving my head around, there is a slight amount of world geometry jitter
-> every time the weapons flicker
+A translation is also not an object identity. Distinct objects can share it,
+while the same object can move. There is no pair ID, original-draw ID, validated
+eye, pass identity, or same-tick check in this comparison.
 
-**Weapon placement cannot move world geometry.** The palette correction touches
-the hand and weapon meshes and nothing else. A shared moment therefore means a
-shared cause **upstream of both** - in the view or the camera - and the palette
-is downstream of it.
+### Equal scalar signatures do not prove equal matrices
 
-That single observation is worth more than every counter in this session,
-because it is the first evidence that the thing being corrected is not the thing
-that is wrong.
+Each matrix is reduced to `sum(matrix[i] * (i + 1))`. Different matrices can
+produce the same sum: adding 2 to element 0 and subtracting 1 from element 1
+cancels exactly. Float rounding and a fixed threshold introduce further loss.
 
-**It is a perceptual report and it has not been instrumented.** The plan's first
-job is to establish whether the synchronisation is real and how tight it is, not
-to assume it.
+Consequently, even the statement that all sixteen elements were identical is
+stronger than the instrument establishes. Compare the actual elements with
+declared tolerances and report the largest difference and its location.
 
----
+### The printed displacement is not an all-sample maximum
 
-## 2. Why five attempts inside the palette all failed
+The +0.00 recovered-camera and object-position differences are the current
+comparison on a rate-limited line. No min/max distribution for those differences
+establishes that every comparison had zero displacement. The last 105,816 total
+was printed after gameplay had entered the menu.
 
-For the reviewer's context, and because the pattern matters more than the list:
+The defensible conclusion is: **the selected comparisons did not change either
+weighted matrix signature beyond the probe's threshold**. Neither absence of
+per-eye information nor absence of stereo drawing follows.
 
-| Attempt | What it did | Outcome |
+The unsafe matrix-offset implementation remains retired for the reasons in
+[FLICKER_ROOT_REVIEW.md](FLICKER_ROOT_REVIEW.md). This result does not establish
+a general impossibility theorem about using draw matrices. Do not restart that
+behavioral experiment as part of this shared-jitter investigation.
+
+### Local checks of the probe
+
+Four synthetic checks were run without launching the game:
+
+* Alternating eye matrices separated by 6.3 units, evaluated twice per original
+  context, produce 100 comparisons and 100 NEITHER results.
+* Sampling each such view only once produces zero matched pairs because the
+  translation key changes.
+* Different matrices with cancelling weighted sums produce NEITHER.
+* Distinct objects at the same position can be paired.
+
+Reproduction: `node build/view-jitter-review-2026-09-09/probe-fixtures.js`.
+The script and results are ignored local artifacts with synthetic inputs only.
+They demonstrate limitations of the probe, not the cause of headset flicker.
+
+## 3. What the existing run already answers
+
+The preserved log is
+`build/view-jitter-review-2026-09-09/vr69-view-original.log`, 1,679,625 bytes,
+SHA-256 `5DF20EA6A9EC7F93A4189B6704D4383EC3B64231F19AC24966364C342FA4568A`.
+It identifies `vr33-hands-working-99-g474fb4fa-dirty`, built at 19:43:59.
+The dirty tag means an exact correspondence to the reviewed commit is not proven.
+
+Gameplay is logged from 38937078 through 39069312, **132.234 seconds**. Keep
+startup, that interval and the subsequent menu separate.
+
+| Existing evidence | Supported conclusion | Limitation |
 |---|---|---|
-| Delta inference (original) | eye from the sideways step between draws | holds a stale answer when the step is unreadable |
-| `PaletteEyeFromPass` | eye from the drawing pass on the stack | **0 executions in 83,400 draws** - wrong thread |
-| `PaletteEyeOffset=0` | apply no offset | flicker gone, stereo depth gone, weapons looked enormous |
-| `PaletteEyeFromMeasured` (+ sign) | eye from the stereo method's reconciled tag | fixed the LARGE flicker and the double image; residual remained |
-| `HoldSameEye` | hold the pair on a same-eye repeat | **falsified** - zero holds fired, flicker unchanged |
-| `PaletteEyeFromMatrix` | recover the eye from the draw's own matrices | **impossible** - the matrices carry no eye |
+| Every printed `p2write refused` lifetime total is zero; no refusal warning | The explicitly refused second-eye write is not supported as this run's recurring cause | A successful write does not prove the intended view consumed it |
+| Stall-skip counter rises from 0 near gameplay entry to 158 at 39069109 | The game-side guard repeatedly chose a single draw because no Present had advanced since the preceding draw | This is a liveness condition, not a measurement of a long CPU/GPU stall |
+| No-frame held-layer counter reaches 158 at 39068968; black remains zero | The runtime repeatedly reused a saved layer instead of assembling a new textured layer | These are not 158 proven visible flickers or 158 same-eye holds |
+| Normal stereo summaries show healthy ages and zero aborts/stale-eye events in settled play | The normal fresh stereo path does not show the previously named stale-eye mechanism | Held-layer submissions do not pass through all those same counters |
+| Positional tracking owner is `camera (auto)` | The camera lane is the active positional route | Confirm final runtime state and any overrides in a new diagnostic |
+| Runtime period reports 11.11 ms with no reported changes | This run reports a 90 Hz application period | Do not describe it as the earlier 80 Hz run or use it as an SSW-active flag |
+| `[Pace] Lag=2`, `[Hands] PoseLag=2 PoseLagAb=0` | Both successful lag choices are retained | Preserve them throughout the new test |
 
-Every one tried to make the eye decision more reliable. Section 1.1 says the
-information is not present at that site, and 1.2 says the symptom is not
-confined to what that decision controls.
+The last two stall/hold totals are consistent with the source path:
 
-### Three method failures worth not repeating
+```
+no Present progress at game-side gate
+ -> single gameplay draw / zero tag
+ -> untagged delivery
+ -> HoldUntagged
+ -> no texture handed to on_present_end
+ -> saved layer resubmitted
+```
 
-Recorded because the reviewer has caught each of them and they are the reason
-this plan proposes measurement before code:
+This is a concrete lead, approximately 1.2 counter increments per second over the
+gameplay interval. Equal totals and a similar symptom frequency do not prove
+one-to-one correspondence or causation. Establish that correspondence by view
+and image IDs, then correlate it with visible events. Do not disable the guard
+or HoldUntagged before checking why it fires and what its output contains.
 
-* **A mechanism that predicted the symptom was built before it was measured**,
-  three times. Each was falsified by its own instrument within one run.
-* **A counter that moved was believed without asking what else would move it the
-  same way.** Agreement went 0.2 % -> 97.9 % on a sign flip; in an alternating
-  stream, "one publication late" and "opposite convention" produce identical
-  counts, and `scene_draw.cpp` declares pass 1 LEFT and pass 2 RIGHT outright,
-  so the conventions never disagreed.
-* **An engine field was used from a neighbouring file's stale comment**, when
-  `ENGINE_NOTES` had already measured it as a fixed offset vector and retired
-  it - and the instrument printed the retired constant on its own first line.
+### Corrections to the camera candidate list
 
----
+* The measured field `camera+0x330` holds camera position; c5 is its negation
+  under the documented world-pass convention. The draft inverted both again.
+  Preserve the later correction in ENGINE_NOTES, not the superseded sign table.
+* `camera::render_pos` exposes the latest recorded c5 sample. It is not an
+  identity-bound description of an arbitrary draw, nor a complete view transform.
+  Position alone cannot detect rotation, FOV or viewport changes.
+* The relevant hook is `core/framework/vs_const_hook.cpp`, and the active writer
+  is `camera::apply_offsets`. The refusal counter is owned by scene_draw.cpp.
+* The positional LeanVP arm requires the VP lane. With the observed camera owner,
+  it is not the first explanation to pursue. Check its actual execution count
+  before treating it as active. A separate legacy head-matrix arm has different
+  conditions; do not infer its state from an unrelated heartbeat's inject label.
+* Repeated camera writes do not automatically accumulate another IPD:
+  `current_base` removes the previous offset when the field still equals the
+  last write, then `write_offset` applies base plus the new offset. A double-offset
+  hypothesis must show incorrect base detection or an intervening writer.
+* The camera log uses 108 units/metre and half-IPD about 3.41 units, while the
+  placement probe uses half-IPD about 3.15. Use the relevant coordinate scale
+  when checking camera separation; the difference is not itself a flicker cause.
 
-## 3. What the view lane already contains
+## 4. Interpret the world/weapon observation without over-localizing it
 
-The reviewer will know some of this; collected so the plan is self-contained.
+Treat the reported simultaneous jitter as evidence worth testing now. An
+uninstrumented repeat run would add confidence in the perception but would not
+identify the failing stage, so it need not be a prerequisite for preparing a
+better diagnostic.
 
-| Piece | Where | Note |
-|---|---|---|
-| Per-eye camera write | `camera+0x330`, negated (`kPovOffs[0]`) | measured HONOURED 119/120; c5 is its negation and IS the camera world position |
-| The camera seam | `camera.h` / `apply_eye_offset` | writes eye displacement, positional tracking, possibly a ceiling clamp into the active field |
-| Render-side truth | `camera::render_pos` - c5 of the last draw | the position the renderer actually used |
-| Stereo pass eyes | `scene_draw.cpp:369,424` | pass 2 = RIGHT (+1), pass 1 = LEFT (-1), declared |
-| Tag reconciliation | `reentry.cpp` c5 pairing + tag ring | agree/disagree counters exist; ~3 % disagreement in settled gameplay |
-| Pose selection | `[Pace] Lag=2`, `[Hands] PoseLag=2` | both headset-confirmed, **must be preserved** |
-| The lean/positional patch | `core/framework/vs_const.cpp` LeanVP | patches c0 view-projection |
+A correctly scoped palette transform changes only the affected mesh. That does
+not imply that all effects of its hook are mesh-local: shader constants, viewport,
+bindings and GPU time are shared resources. The code itself restores palette
+constants because subsequent draws would otherwise inherit them. No state leak
+has been demonstrated here; exclude the absolute claim, not the subsystem.
 
-**Candidates that could move BOTH the world and the weapon**, in rough order of
-how cheaply they can be separated:
+Similarly, both world and weapons are present in the final eye image. Image reuse,
+incorrect image/pose association, an eye-pair error or a presentation disturbance
+can affect both after the camera and palette have finished.
 
-1. **The per-eye camera write landing late or twice.** The seam writes
-   `camera+0x330` on the script lane at dispatch cadence and the notes say it
-   must be rewritten every dispatch. A missed or doubled write moves the whole
-   rendered view, world included.
-2. **The positional/lean patch** (`LeanVP` on c0). It patches the view-projection
-   directly, so an inconsistent application shifts everything drawn under it.
-3. **A pass running from the previous pass's camera.** `reentry.cpp` already logs
-   `pass 2's eye write REFUSED by the camera seam ... both eyes carry one view`.
-   That is a named, counted, existing condition that would move world and weapon
-   together, in one eye.
-4. **Positional tracking or the crouch clamp** perturbing the camera between the
-   two passes.
+The submitted projection view describes the camera pose and FOV used for an eye
+image; these therefore belong in the audit alongside the rendered view.
+[OpenXR projection-view definition](https://registry.khronos.org/OpenXR/specs/1.0/man/html/XrCompositionLayerProjectionView.html).
 
-**Candidate 3 has an existing counter and should be read before anything is
-built.** It is the closest match to a one-eye symptom that moves everything.
+Saving a layer description also does not preserve a historical pixel pair if a
+referenced swapchain has since released a newer image. OpenXR uses each
+swapchain's latest released image. Include the actual content IDs in held-layer
+diagnostics.
+[OpenXR rendering specification](https://registry.khronos.org/OpenXR/specs/1.0-khr/html/xrspec.html#rendering).
 
----
+Neither this observation nor a clean camera-state trace establishes a network or
+encoder fault. Continue from the first stage at which the image or metadata departs
+from the expected result.
 
-## 4. Proposed first step: establish the correlation before explaining it
+## 5. Revised first diagnostic: where does the shared disturbance first appear?
 
-No behaviour change. One question: **is the world jitter genuinely synchronised
-with the weapon flicker, and what else is true at that moment?**
+No placement or camera behavior change. Use a bounded record spanning both the
+rendered view and the final image submission.
 
-* Detect the flicker moment from something already measured - the eye decision
-  changing against its recent run, or the per-eye correction's applied sign
-  flipping between consecutive draws of the same object.
-* At that moment, record the view lane's state: the last `camera+0x330` write and
-  its age, `render_pos` (c5) and its delta from the previous present, whether
-  pass 2's eye write was refused, the tag ring's verdict, the lean patch's
-  applied value, and the present/pass identity.
-* Keep a small ring and print a bounded summary - not a per-draw log.
+### Independent event detection
 
-**What each outcome would mean:**
+Do not define a flicker as an eye sign changing. Correct stereo alternates signs,
+and a suspect sign cannot serve as the truth that labels a visible event.
 
-| Observation at flicker moments | Reading |
+Keep a short rolling record, with an optional user event marker and independent
+automatic triggers for view residuals, source-image discontinuities, missing/
+repeated image IDs, gate-to-hold transitions and image/pose mismatches. Label these
+as candidate events, not confirmed flickers. Retain normal control intervals and
+events where the suspect eye decision agrees.
+
+For visual confirmation, track several stationary world features and weapon/
+hand anchors in each eye separately. Compare successive samples of the **same
+validated eye**, accounting for expected head and game-camera motion. Distinguish
+translation, rotation, disappearance/duplication, and an entire held image. A
+single anchor can be occluded or animated; retain confidence and ambiguity.
+
+Use source-eye images before capture processing and the submitted eye images
+where practical. A pinned desktop mirror does not represent both eyes or prove
+what the headset displayed. If source/submitted images are clean during a reported
+event, examine runtime timing and headset output rather than dismissing the report.
+Measure capture overhead and avoid making recording itself the new hitch source.
+
+### Record the chain, not a bag of latest globals
+
+For the same candidate event, retain:
+
+1. Game decision/pair ID; requested eye; camera base, requested offsets, clamp
+   result, successful write value and time; explicit pass-2 refusal reason.
+2. Original render-draw/view identity, pass category, observed position,
+   orientation/projection, FOV and viewport; actual post-hook constants. Record
+   the identity and age of each contributing upload, including partial uploads.
+3. Effective hand/weapon correction and object identity as observers only, plus
+   relevant state before and after the hook when testing a suspected leak.
+4. Capture serial, slot generation, delivered eye/record, method tag arbitration,
+   freshness and hold reason. Distinguish a reusable slot from the image in it.
+5. Per-eye last successful copy/release content IDs, submitted pose/FOV records,
+   pair-open state, layer type, predicted display time and actual submission
+   timing. Include fresh, held, mono and keepalive paths in the population.
+
+The existing world VP recorder observes uploads before the later LeanVP/head
+patch branch. Do not assume that pre-hook record equals the constants ultimately
+consumed by the draw. Bind observations to a qualified pass and final state;
+a latest c5/VP lookup can otherwise recreate the same association error.
+
+Reuse existing pose, pair and capture records where possible. Do not introduce
+another global current-eye opinion. Emit reason counts and coverage, with bounded
+ring dumps, cooldown and dropped-record counts. No per-draw synchronous disk I/O
+or unbounded GPU readback. Ordinary launches should provide useful summaries
+without requiring the tester to operate the command harness.
+
+### First-stage decision table
+
+| Earliest independently verified anomaly | Next investigation |
 |---|---|
-| c5 moves by ~IPD when it should not, or not at all when it should | the per-eye camera write is the shared cause - candidate 1 |
-| `pass 2's eye write REFUSED` coincides | candidate 3, and it is already counted |
-| The lean/positional patch differs between the two passes | candidate 2 |
-| Nothing in the view lane moves | the synchronisation is coincidence or perceptual, and this plan is wrong |
+| Wrong camera/view reaches both world and weapon source draws | Camera write ownership, base/clamp, view association or executed projection patch |
+| World is stable before mesh work but changes after shared-state mutation | Hook state restoration or scope, with observed state/output evidence |
+| Source views are correct; capture/output uses stale or wrong content | Capture fences, slot lifetime, delivery and eye pairing |
+| Images are correct; final poses/FOV or per-eye content IDs do not match | Submission association, held-layer and pair handling |
+| Complete pairs are valid but held/new-frame cadence coincides with the symptom | Game/render scheduling and runtime presentation timing |
+| Only the weapon source image changes | Placement, animation or object/pass correction remains open |
+| Measured source/submission chain is clean while headset output jitters | Downstream timing/reprojection/display, or missing coverage in the trace |
+| Camera counters are unchanged but no visual/stage evidence was captured | Inconclusive; not proof of coincidence |
 
-**The last row is the point.** The instrument must be able to say the world
-jitter is unrelated, or it is another instrument that can only confirm.
+A c5 discontinuity is a trigger, not a verdict that the camera writer caused it.
+Expected IPD alternation, ordinary movement, a misidentified sample and a genuine
+wrong write can all change it. Likewise, a zero c5 delta does not imply zero
+rotation or unchanged presentation.
 
----
+## 6. Verification before a headset run
 
-## 5. Explicit non-goals
+Validate the observer in synthetic fixtures and the existing simulator first.
+No user headset run is needed to discover another self-comparison bug.
 
-* **No change inside the per-eye correction.** Section 2 is why.
-* **No change to `[Pace] Lag=2` or `[Hands] PoseLag=2`.** Both headset-confirmed;
-  an A/B left armed on the latter already contaminated four runs.
-* **No new engine field without a `patterns.h` entry and measured semantics.**
-* **Not the weapon-swap flicker or the contract re-match** - object identity, a
-  separate problem, and `wa/key:` has now been read once (a `bolt_01` re-match on
-  `vb ib numVerts primCount`).
-* **Not the load-in flicker**, unless the view lane turns out to explain it.
+Required controls:
 
----
+* One original context evaluated for two hand ranges must produce one original
+  draw observation, not a purported eye pair.
+* Distinct views with known eye separation must be compared even when LocalToWorld
+  translation changes; pairing uses object/view identity, not the tested value.
+* Elementwise comparisons must detect cancelling-signature matrix changes.
+* A correct eye alternation must not count as flicker. Unknown eye and missing
+  records must remain explicit rather than counted as agreement.
+* Diagnostic copies with wrong eye, old pose, altered FOV or wrong capture serial
+  must trip the relevant comparison. A valid old image with its matching old
+  pose must be classified separately from an image/pose mismatch.
+* Exercise normal pairs, between-pair holds, and a hold after one eye has already
+  been released. Inspect simulated images and verify latest-release semantics.
+* Check camera-base handling for repeated writes and intervening engine writes.
+  An unchanged repeated write should not be labelled a doubled offset.
+* Validate every final submission path, not only fresh stereo layers; report
+  unmatched events and observer overhead.
 
-## 6. Questions for the reviewer
+These tests establish instrument sensitivity and scope. They do not establish
+the human-visible cause without event correlation.
 
-1. **Is the world/weapon synchronisation worth this much weight** on one
-   perceptual report, or should it be confirmed by a second run first?
-2. **Is candidate 3 - a pass running from the previous pass's camera - already
-   sufficiently instrumented** to be checked from an existing log rather than a
-   new build? If so that is free and should come first.
-3. **What is the right flicker DETECTOR?** Deriving it from the eye decision
-   risks circularity, since that decision is a suspect. Is there an independent
-   trigger - a c5 discontinuity, a projected-anchor jump - that would not beg the
-   question?
-4. **Does the Phase B result generalise the way section 1.1 claims**, or is
-   "consecutive draws of one object share a view" over-read from a probe that
-   never paired the eyes?
-5. **Anything in section 3's candidate list that is already excluded** by prior
-   measurement, so it is not re-derived.
+## 7. Headset experiment and conditional fix
 
----
+Keep the current selected resolution, refresh and SSW mode fixed and record
+their resolved values. This reviewed log reports a 90 Hz period, unlike earlier
+80 Hz runs; do not silently combine their budgets. Preserve `[Pace] Lag=2`,
+`[Hands] PoseLag=2`, and disabled automatic lag A/B.
 
-## 7. Constraints
+Use a familiar scene with nearby stationary geometry and both weapons visible.
+Separate stationary, head rotation, head translation, controller movement and
+stick movement intervals. Keep loading and equipment changes in separate windows.
+Determine whether the world event is also left-only and whether the hand, weapon
+and nearby geometry move together.
 
-* One behavioural change per build; broken three times this session, one run lost
-  each time.
-* Every new render lever default OFF with a live A/B; an experiment left armed
-  contaminates every measurement after it.
-* Instruments must be able to fail their own hypothesis, and must be checked for
-  circularity **before** the headset run.
-* The tester runs the game, not the harness: diagnostics ship enabled and must be
-  readable from `dishonored_vr.log`.
-* Never commit game-derived captures.
+First correlate the observed event with the recorded gate/hold and camera-to-
+submission chain. Change only the boundary shown to fail, behind a default-OFF
+live lever. Do not disable the present-progress guard or untagged hold merely
+because their counters correlate; those safeguards prevent other known failures.
+
+A fix is accepted when the visible disturbance and its measured cause improve
+together and return in a reversing comparison, without losing weapon size/depth,
+attachment, tracking, stereo world stability or load-transition behavior.
+A clean counter without visual improvement is not completion.
+
+## 8. Answers to the review questions
+
+1. **Weight of the shared-jitter report:** sufficient to prioritize shared rendering
+   and presentation, insufficient to declare a camera-only cause.
+2. **Candidate 3:** already checked. The named pass-2 write-refusal counter is zero
+   in this run. Wrong-view consumption after a successful write remains untested.
+3. **Detector:** independent same-eye visual evidence plus a multi-trigger bounded
+   trace; never use the eye decision alone to define the symptom.
+4. **Does Phase B generalize?** No. Same-context comparisons, selection by translation,
+   scalar collisions and missing view identity prevent either proposed conclusion.
+5. **Existing exclusions and priorities:** positional LeanVP is deprioritized by
+   the resolved camera lane; explicit refused second-eye writes are unsupported.
+   Present-progress skips and held-layer resubmissions are active and belong near
+   the front of the investigation, alongside correctly associated view observations.
+
+The next deliverable is a verified observer of the existing paths and one
+correlated event, followed by a cause-specific correction. The plan does not
+require another speculative per-eye placement change.

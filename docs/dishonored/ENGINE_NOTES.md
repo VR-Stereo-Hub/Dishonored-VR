@@ -4663,7 +4663,19 @@ its screen direction is a STALE IMAGE. `ages L=2 R=0` and
 fault and its own ticket; the weapon is only what makes it visible, because the
 world is nearly static under reprojection and a hand-held object is not.
 
-## THE WEAPON DRAWS CARRY NO PER-EYE DIFFERENCE AT ALL (VR-69 phase B, 2026-09-09)
+## Phase B matrix probe: original interpretation, superseded (VR-69, 2026-09-09)
+
+**Correction after source review:** the conclusions below are not established.
+The probe runs inside the hand/range loop and can compare the same original draw
+context with itself. It keys matches on the LocalToWorld translation it is trying
+to test and compares weighted sums rather than all matrix elements. The 105,816
+NEITHER results therefore do not prove absent eye information or duplicate passes.
+Synthetic replay reproduces an all-NEITHER result with distinct alternating eye
+matrices. The synchronized world/weapon report also does not locate the fault
+exclusively upstream: shared image delivery, submission and timing remain open.
+See [VIEW_JITTER_PLAN.md](VIEW_JITTER_PLAN.md) for the corrected evidence, the
+zero pass-2 refusal counter, and the active present-progress/held-layer lead.
+The original interpretation is retained below as the hypothesis history.
 
 The Phase B probe pairs consecutive draws of the same object and asks which
 matrix changed. Over a full run:
