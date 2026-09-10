@@ -388,7 +388,29 @@ static bool DvrGameplayVerdict()
     // menu's, not a starved pipeline's or a loading screen's - a loading screen
     // has no menu flag up. So under the lever an in-game menu stands in for
     // the view term; the first fresh dispatch after it is live at once anyway.
-    const bool viewTerm = viewLive || (g_hudMenuOnPanel && inGameMenu);
+    // The resume gap (see g_menuClosedMs): an in-game menu that just closed
+    // keeps standing in for the view term until the pipeline speaks again.
+    {
+        static bool menuWas = false;
+        if (!menuWas && inGameMenu) {
+            g_menuFromLive = viewLive;
+            if (g_hudMenuOnPanel)
+                Log("hud: in-game menu opened %s - %s", viewLive ? "from LIVE gameplay" : "with the view pipeline SILENT",
+                    viewLive ? "it rides the panel and the projection holds"
+                             : "a ghost flag on a load or a transition: the screen, as before");
+        }
+        if (menuWas && !inGameMenu) {
+            g_menuClosedMs = MaimNowMs();
+            if (g_hudMenuOnPanel)
+                Log("hud: in-game menu closed - the projection is held for up to %.0f ms while the "
+                    "view pipeline resumes, so the resume does not reload the stereo",
+                    kMenuCloseGraceMs);
+        }
+        menuWas = inGameMenu;
+    }
+    const bool menuGrace = g_hudMenuOnPanel && g_menuFromLive && !g_mainMenu && pawn &&
+                           (MaimNowMs() - g_menuClosedMs) < kMenuCloseGraceMs;
+    const bool viewTerm = viewLive || (g_hudMenuOnPanel && inGameMenu && g_menuFromLive) || menuGrace;
     const bool verdict = pawn && !menuTerm && !g_mainMenu && !cineTerm && viewTerm;
 
     // 41.1: name the gate that flipped. A false verdict drops the runtime's
@@ -519,9 +541,10 @@ static void DvrGameTick(IDirect3DDevice9* self)
         // An in-game menu on the panel: the paused camera can leave presents
         // untagged, which drops the runtime's own gate; the projection layer
         // is still up, so the panel is still shown, and the menu must be on it.
-        dvr::hudcap::set_menu_override(g_hudMenuOnPanel && (g_menuOpen || g_inMenu) &&
-                                       !g_mainMenu && g_verdictLast &&
-                                       dvr::stereo::wants_projection());
+        dvr::hudcap::set_menu_override(g_hudMenuOnPanel && g_menuFromLive && !g_mainMenu &&
+                                       g_verdictLast && dvr::stereo::wants_projection() &&
+                                       (g_menuOpen || g_inMenu ||
+                                        (MaimNowMs() - g_menuClosedMs) < kMenuCloseGraceMs));
         // 41.2 (session 10): a cutscene's screen stands in the ROOM, not on your
         // face. Only the cinematic latch does this - a menu or a loading screen
         // still wants the head-locked panel in front of you.

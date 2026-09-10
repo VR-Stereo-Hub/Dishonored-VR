@@ -233,6 +233,20 @@ static bool g_cineHeadLocked = false;      // [Cine] HeadLocked
 // business (a frozen camera may fall to single draws); the panel gate has its
 // own fallback for that so the menu never disappears.
 static bool g_hudMenuOnPanel = true;
+// 41.2 (session 10, headset report): when an in-game menu CLOSES, the view
+// pipeline is silent for a few presents until its first dispatch after the
+// resume, and the verdict fell to FALSE in that gap - the runtime dropped the
+// projection to its screen and brought it straight back, which the player saw
+// as the stereo "reloading" on every resume. The gap is the menu's, not a
+// starved pipeline's: hold the menu's stand-in for this long after it closes.
+static double g_menuClosedMs = -1e9;
+// A menu flag is event history, and a ghost of it fires during a LOAD with no
+// menu on screen (Dis_OpenPauseMenu, measured in VR-62). A stand-in that trusts
+// the flag would hold the projection through a loading screen. A REAL pause
+// menu is entered from live gameplay, so the stand-in is granted only to a menu
+// that OPENED while the view pipeline was live, and it is kept for that menu.
+static bool g_menuFromLive = false;
+static const double kMenuCloseGraceMs = 1500.0;
 static bool g_screenHeadLockedCfg = true;  // [Screen] HeadLocked, as configured
 static int  g_screenHeadLockedNow = -1;    // what the runtime was last told
 static bool CylTruthLive();              // fwd
