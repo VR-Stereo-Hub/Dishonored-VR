@@ -4662,3 +4662,47 @@ its screen direction is a STALE IMAGE. `ages L=2 R=0` and
 `pushed eye +1 TWICE in a row (68)` over ~84 s name it. That is a stereo-method
 fault and its own ticket; the weapon is only what makes it visible, because the
 world is nearly static under reprojection and a hand-held object is not.
+
+## THE WEAPON DRAWS CARRY NO PER-EYE DIFFERENCE AT ALL (VR-69 phase B, 2026-09-09)
+
+The Phase B probe pairs consecutive draws of the same object and asks which
+matrix changed. Over a full run:
+
+```
+VP only 0, L2W only 0, BOTH 0, NEITHER 105816, of 105816 pairs
+```
+
+**Not one exception.** VP identical, LocalToWorld identical, the recovered camera
+moved 0.00 uu and the object's own position moved 0.00 uu, against a half-IPD of
+3.15 uu.
+
+### What it means, and what it does not
+
+**The matrix approach to recovering the eye is DEAD.** Whatever these paired
+draws are, they carry no per-eye information whatsoever - so no amount of
+algebra on `vp` or `l2w` at this site can recover an eye. The whole
+`PaletteEyeFromMatrix` direction is closed by measurement rather than by
+argument.
+
+**But 100 % of 105,816 is not "a wrong eye decision".** That would be
+intermittent. A total is an instrument limitation: the probe pairs CONSECUTIVE
+draws of the same object, and what it is catching is the same object drawn more
+than once within ONE view - the duplicate passes `VR-33-HANDS-AND-WEAPONS.md`
+section 8 already documents - not the left and right eyes.
+
+So the honest reading is narrower than the counter looks: **at the site where
+the per-eye correction is applied, consecutive draws of one object share a
+view.** The correction is being applied per DRAW to draws that are not per-eye.
+That is why an eye had to be decided at all, and why every attempt to decide it
+better has failed - the information is not present at that site.
+
+### The observation that came with it
+
+Reported in the same run: **the world geometry jitters slightly every time the
+weapons flicker.** The two are synchronised.
+
+That is the most useful thing in this session. Weapon placement cannot move
+world geometry - so a shared moment means a shared cause UPSTREAM of both, in
+the view or the camera, not in the palette. Every hypothesis so far has been
+inside the palette's per-eye correction, and this says the palette is
+downstream of whatever is actually wrong.
