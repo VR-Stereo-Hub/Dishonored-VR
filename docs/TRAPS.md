@@ -89,6 +89,23 @@ BEFORE the build.
 > flicker have now died to instruments that could not have confirmed them
 > either.
 
+**FOUR instruments in one session, and the same defect each time (2026-09-09).**
+A probe compared a draw context with itself, because `MpWorldTarget` is called
+once per hand range from a loop that shares one `MpDrawCtx`. It returned
+105,816 of 105,816 identical with exactly 0.00 variance - which is what comparing
+an object to itself produces - and that was read as a finding about stereo.
+
+The four, in order: an audit that could only print zero because both its inputs
+came from one pose consume; a publication stamp that measured the producer when
+the question was about the consumer; a hold whose fault never fired while the
+symptom continued; and this one, whose population was a single object.
+
+> **Verify the POPULATION before reading the number.** Every one failed the same
+> way - not the arithmetic, not the threshold, but *what was actually in the
+> sample*. Print the population's identity on the line: how many distinct
+> objects, views and eyes, so a sample of one cannot look like a sample of a
+> hundred thousand.
+
 ### What to do before touching a key
 
 1. **Find every place the value can live.** Grep for the key name across `src/`,
