@@ -55,6 +55,15 @@ static void WriteDefaultIni(const char* ini)
         "; other flicker gone. 0 = OFF, the pre-41.1 behaviour, and the A/B for it.\n"
         "; `stereo hold <n>` live; `stereo status` and the beat report how many were held.\n"
         "HoldUntagged=3\n"
+        "; HoldKeepsPair (VR-69): what a FRAME-LESS present does when it arrives between\n"
+        "; a LEFT present and its RIGHT. The left leaves the XR frame open for the right\n"
+        "; to complete; a present with no texture used to fall through, re-submit the\n"
+        "; PREVIOUS pair and end that frame - spending the display slot on an already\n"
+        "; shown pair and stranding the fresh left. 1 = keep the pair open and let the\n"
+        "; right complete it normally (default). 0 = the pre-VR-69 behaviour, and the A/B\n"
+        "; for it. The beat line reports frameless/framelessPair/pairKept with their\n"
+        "; population, so a zero in framelessPair kills this mechanism on its own line.\n"
+        "HoldKeepsPair=1\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -545,6 +554,17 @@ static void LoadConfig()
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 3, ini));
+        // VR-69: logged with where it came from - a lever that changes what the
+        // headset shows and does not print its resolved value is the stale-setting
+        // trap (docs/TRAPS.md section 1), which has now cost three sessions.
+        {
+            const int hkp = GetPrivateProfileIntA("Stereo", "HoldKeepsPair", 1, ini);
+            const bool fromIni = GetPrivateProfileIntA("Stereo", "HoldKeepsPair", -1, ini) != -1;
+            dvr::vr::set_hold_keeps_pair(hkp);
+            DVR_INFO("config: [Stereo] HoldKeepsPair=%d - %s (1 = a frame-less present keeps an open "
+                     "LEFT pair open for its right; 0 = it closes the pair with the previous frame)",
+                     hkp, fromIni ? "from the installed ini" : "the compiled default (the key is absent)");
+        }
         // VR-69: the SAME-eye repeat. One eye gets no copy and goes a frame
         // stale while the other is current (measured: ages L=2 R=0), which a
         // headset saw as a one-frame weapon jump in the LEFT eye alone.

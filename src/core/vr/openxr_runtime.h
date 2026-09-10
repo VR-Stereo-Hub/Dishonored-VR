@@ -494,6 +494,10 @@ struct PairProbe {
     uint32_t acqFail = 0;        // xrAcquireSwapchainImage failures
     uint32_t waitFail = 0;       // xrWaitSwapchainImage failures (release still runs)
     uint32_t untaggedProj = 0;   // untagged presents captured in projection mode
+    // VR-69: frame-less presents (a hold, or a grab that delivered nothing) and
+    // the subset that found a LEFT pair open - the only ones that could close
+    // somebody else's pair. pairKept = the subset [Stereo] HoldKeepsPair saved.
+    uint32_t frameless = 0, framelessPair = 0, pairKept = 0;
     uint32_t eatenNoFrame = 0;   // 41.1 (Dishonored): tags popped by a present that opened no frame (cumulative)
     uint32_t rebuilds = 0;       // swapchain destroy/recreate cycles
     uint32_t stereoSubmits = 0;  // submits with both eyes valid
@@ -551,6 +555,11 @@ uint32_t pair_stale_submits();
 int present_phases_last(uint32_t* out, int cap);   // returns the count filled
 const char* present_phase_name(int i);
 bool pair_open();
+// VR-69: [Stereo] HoldKeepsPair. 1 = a frame-less present that finds a LEFT
+// pair open returns without closing the XR frame (the right completes the pair
+// from the same locate); 0 = the pre-VR-69 behaviour.
+void set_hold_keeps_pair(int on);
+int  hold_keeps_pair();
 uint32_t pace_timeouts();
 
 // --- M7: the aim laser ------------------------------------------------------

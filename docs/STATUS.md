@@ -1,5 +1,101 @@
 # Status
 
+## CURRENT (2026-09-09, second session): Phase 0 answered, and a new candidate
+
+**Branch `claude/vr-57-crosshair-on-the-weapon-ray`, pushed, NOT merged, no PR.**
+Installed and awaiting one headset run.
+
+### Phase 0 of the flicker plan is ANSWERED, from artifacts alone
+
+Both engine boundaries the writer-to-view identity plan asked for exist, and one
+was already hooked. Detail and the numbers are in `ENGINE_NOTES.md`,
+"PHASE 0 ANSWERED".
+
+* **Producer**: `FViewport::Draw` (`kViewportDraw`, 0x005fc5b0) from
+  `UGameEngine::Tick`'s call site, game thread (tid 62856). One call = one view
+  family. The re-entry method already wraps it.
+* **Consumer**: D3D9 `BeginScene`, which UE3's D3D9 RHI issues on the render
+  thread for that view family. **1.0 per present in 100 % of presents, in all 22
+  windows of one log and all 53 of the other.** Presents = 2x ticks, so it is 1:1
+  with the view family.
+* **The scope is exact**: palette draws and `Present` share tid 62148, so
+  `BeginScene ... palette draws ... Present` contains the draws of exactly one
+  engine view. Every earlier attempt reached for the game thread (no stack, 0 of
+  83,400 draws) or for Present (too late). `BeginScene` is the only point that is
+  on the right thread AND early enough - and it was only ever a perf marker.
+
+What is still missing is the verification: `BeginScene` gives SCOPE, not identity.
+One push per view family against one pop per BeginScene is FIFO order inside the
+engine's own command stream, which is falsifiable by counting. That count is the
+remaining Phase 0 work and it has not been built.
+
+### And a candidate that is not a placement fault at all
+
+The residual moves world geometry WITH the hands and the weapon. Nothing in the
+placement family can do that. This can, because it is the whole submitted frame:
+
+**A frame-less present closes somebody else's pair.** The LEFT present leaves the
+XR frame open for the RIGHT to complete. A present that hands in no texture (a
+`HoldUntagged` hold, a same-eye hold, a grab that delivered nothing) reaches
+`on_present_end` anyway, consumes the open pair, finds `layerCount == 0`, and
+re-submits the PREVIOUS pair's layer to end the frame. The slot is spent on an
+already-shown pair; the fresh left released a present earlier never appears in its
+own pair.
+
+**Rate, with its population**: `held=332` over 139 s = **2.4/s**, and the beat's
+`none/s` reads 1-3 across the majority of 53 windows. The reported symptom is 1-2
+times a second.
+
+**Why nothing saw it**: `aborts=0`, `staleEye L=0 R=0`, `eaten=0` in all 53
+windows, and zero `STALE . EYE` lines in either log - all truthful, all keyed on a
+tag being pushed or a submit happening, and a held present does neither.
+
+### Shipped this session, default ON, awaiting the run
+
+* `[Stereo] HoldKeepsPair=1` - a frame-less present that finds a pair open returns
+  without closing the XR frame; the right completes the pair from the same locate.
+  The 500 ms `kPairHoldMaxMs` guard still reclaims a stranded pair. The resolved
+  value and its provenance are logged (`config: [Stereo] HoldKeepsPair=...`).
+* The beat line now prints `frameless / onOpenPair / kept` with the population it
+  was counted over. **`onOpenPair=0` with `frameless>0` kills the hypothesis on
+  its own line** - that is the unwelcome answer it is built to be able to print.
+
+### CLOSED BY MEASUREMENT - do not re-try these
+
+| Approach | Why it is dead |
+|---|---|
+| Eye from the palette's delta inference | holds a stale answer; full-IPD displacement |
+| Eye from the drawing pass | **0 executions in 83,400 draws** - wrong thread |
+| No eye offset at all | flicker gone, stereo depth gone, weapons look enormous |
+| Eye from the stereo method's tag | fixed the LARGE flicker; residual remains; association unproven |
+| A same-eye hold | falsified - zero holds fired, symptom unchanged |
+| Recovery from the draw's own matrices | no fixed origin; the input space moves with the camera |
+| **Absolute position agreement (writer vs c5)** | **tried 2026-09-03**: fails while WALKING, dropped a third of left tags, invisible on a stationary simulator |
+| The held-layer partial pair | counterprediction FAILS - `aborts=0` across 22 summaries while holds ran at 1.33/s |
+
+### Next steps
+
+1. **Read `frameless / onOpenPair / kept` from the next run's log.** If
+   `onOpenPair` is 0, the candidate is dead and Phase 0's FIFO verification is the
+   whole job. If it runs at 1-2/s, it is the first mechanism whose rate, scope and
+   invisibility all match the symptom.
+2. **Finish Phase 0**: push one record per `FViewport::Draw`, pop it at
+   `BeginScene`, and count pushes against pops per window. Equal counts across a
+   whole run is what makes the FIFO an identity rather than an assumption.
+3. VR-57 the crosshair: step 1 done (`aim_ray.cpp`); steps 2-6 need the dot.
+4. VR-67 performance: the 57/s window's split, not a resolution change.
+
+### Installed and known-good
+
+2750x2850, `VirtualMode=1`, `[Pace] Lag=2`, `[Hands] PoseLag=2`,
+`PaletteEyeOffset=1`, `PaletteEyeFromMeasured=1`, `PaletteEyeMeasSign=-1`,
+`GamepadOnly=0`, 90 Hz. `[Stereo] HoldKeepsPair` is absent from the installed ini,
+so it runs on the compiled default 1 and says so in the log.
+
+---
+
+## Superseded: the first 2026-09-09 session
+
 ## CURRENT (2026-09-09, end of session): the flicker hunt, and what is now closed
 
 **Branch `claude/vr-57-crosshair-on-the-weapon-ray`, pushed, NOT merged, no PR.**

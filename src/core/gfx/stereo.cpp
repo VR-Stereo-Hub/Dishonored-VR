@@ -208,6 +208,24 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
                      p.eatenNoFrame - q.eatenNoFrame, s,
                      submits == 0 ? " (stereoSubmits 0 this window: the quad screen or an untagged stream - "
                                     "the ages read 0 by design)" : "");
+            // VR-69: the FRAME-LESS present, with its population on the line.
+            // A present that hands in no texture (a HoldUntagged hold, a same-eye
+            // hold, a grab that delivered nothing) is harmless UNLESS it arrives
+            // between a LEFT present and its RIGHT: the left leaves the XR frame
+            // open, and the zero-layer path used to close it with the PREVIOUS
+            // pair. onOpenPair is the only subset that can do that, and kept is
+            // how many the lever caught. onOpenPair=0 while frameless>0 kills the
+            // mechanism outright - the unwelcome answer this line can print.
+            const uint32_t dFrameless = p.frameless - q.frameless;
+            const uint32_t dOnPair = p.framelessPair - q.framelessPair;
+            const uint32_t dKept = p.pairKept - q.pairKept;
+            DVR_INFO("stereo: frameless presents=%u this window, of which onOpenPair=%u, kept=%u (HoldKeepsPair=%d) "
+                     "| population: %u present(s) out this window, %u of them stereo submits. A frame-less "
+                     "present that finds no pair open is harmless; onOpenPair is the subset that would otherwise "
+                     "have closed a LEFT pair with the previous frame's layer. onOpenPair=0 with frameless>0 "
+                     "means this mechanism is not running.",
+                     dFrameless, dOnPair, dKept, dvr::vr::hold_keeps_pair(),
+                     (unsigned)g_beatOut + (unsigned)g_beatNone, submits);
         }
         // The RATE line (41.1, session 13): the headset's own cadence next to
         // ours, on one line, because "the game outruns the headset and the

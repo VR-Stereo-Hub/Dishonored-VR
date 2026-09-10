@@ -4892,3 +4892,122 @@ this well have already been falsified.
   bookkeeping, and the field already carries engine motion, tracking and a
   ceiling clamp. Under a clamp, `E - H` need not equal the requested eye vector
   at all.
+
+## PHASE 0 ANSWERED: THE RENDER-THREAD VIEW BOUNDARY IS `BeginScene` (VR-69, 2026-09-09)
+
+Derived entirely from the run artifacts already on disk - no new run, no new
+engine address. Both boundaries the writer-to-view identity plan asked for exist
+and one of them was already hooked.
+
+### The producer
+
+`FViewport::Draw` at `kViewportDraw` (0x005fc5b0), reached from
+`UGameEngine::Tick`'s single call site (0x006330da), on the GAME thread. One call
+builds one view family and enqueues the render commands for it. The re-entry
+method already wraps this call site, so the mod owns the producer boundary
+outright and has since 41.1.
+
+### The consumer
+
+D3D9 `BeginScene`, which UE3's D3D9 RHI issues from `RHIBeginDrawingViewport`
+when the render thread executes that view family's BeginDrawing command.
+
+Measured across every perf window of both 2026-09-09 headset runs:
+
+```
+marker=BeginScene(BeginScene 1.0/present in 291 of 291, SRT 47.5/present)
+marker=BeginScene(BeginScene 1.0/present in 530 of 530, SRT 50.2/present)
+```
+
+**1.0 BeginScene per present, in 100 % of presents, in every window sampled.**
+Under re-entry presents = 2x ticks = one per `FViewport::Draw`, so `BeginScene` is
+1:1 with the view family. Population: 22 windows in `dishonored_vr.log`, 53 in
+`dishonored_vr.prev.log`; no window disagreed.
+
+### And the scope is exact
+
+The lane line says where the draws live:
+
+```
+ms/palette/lane: pose published on thread 62148, draws consume on thread 62148
+reentry: ... drawTid=62856 presentTid=62148
+```
+
+The palette draws and `Present` share tid 62148 (the render thread);
+`FViewport::Draw` runs on 62856 (the game thread). So
+`BeginScene ... palette draws ... Present` is a render-thread scope containing the
+draws of exactly ONE engine view.
+
+This is why every previous attempt failed the same way. They tried to reach the
+palette draw either from the game thread (no stack to look up - 0 executions in
+83,400 draws) or from `Present` (too late; the draws already happened).
+`BeginScene` is on the right thread AND early enough, and it had only ever been
+used as a perf marker.
+
+What it still is not: `BeginScene` gives SCOPE, not identity. Pairing the game
+thread's push with the render thread's pop is FIFO order - but FIFO order inside
+the engine's own command stream, one push per view family and one pop per
+BeginScene, which is falsifiable by counting. That verification is the remaining
+Phase 0 work.
+
+## A FRAME-LESS PRESENT CLOSES SOMEBODY ELSE'S PAIR (VR-69, 2026-09-09)
+
+Found while establishing the boundary above, and it fits the residual symptom
+better than anything in the placement family - because it is not a placement
+fault at all, which is what the world geometry disturbing WITH the hands and the
+weapon has been saying.
+
+Under re-entry the LEFT-tagged present captures its eye, releases the swapchain
+image and leaves the XR frame OPEN (`g_srPairOpen`); the RIGHT present completes
+the pair from the same locate. A present that hands in NO texture - a
+`[Stereo] HoldUntagged` hold, a same-eye hold, a grab that delivered nothing -
+still reaches `on_present_end`, and there:
+
+* `pairSecond = g_srPairOpen` consumed the open pair,
+* the layer assembly sits inside `if (backbuffer)` and was skipped,
+* so `layerCount == 0` and the zero-layer path re-submitted the PREVIOUS pair's
+  layer and ended the frame.
+
+The display slot is spent re-showing a pair the player has already seen, and the
+fresh left image released one present earlier is never shown in its own pair.
+
+### The rate, with its population
+
+`dishonored_vr.prev.log`: `held=332` over 40426625 -> 40565781 ms = 139 s, so
+**2.4 frame-less presents per second**. The stereo beat agrees from the other
+side: `none/s` reads 1-3 in the majority of the 53 windows.
+
+The reported symptom is a whole-scene disturbance 1-2 times a second. The rate
+matches, and unlike every placement hypothesis this one moves world geometry, the
+weapon and the hands together by construction, because it is the whole submitted
+frame.
+
+### Why nothing saw it
+
+Across all 53 windows of that run: `aborts=0 (left=0 untagged=0 expired=0)`,
+`staleEye L=0 R=0`, `eaten=0`, and zero `STALE . EYE` lines in either log. Every
+one of those counters is truthful. They are all keyed on a tag being PUSHED or a
+submit HAPPENING, and a held present does neither: `sr_push_eye` is never reached
+because `end_frame` returned false before it.
+
+That is the fourth instrument in two days whose population excluded the event it
+existed to catch (docs/TRAPS.md section 2).
+
+### The lever, and what would kill the hypothesis
+
+`[Stereo] HoldKeepsPair` (default 1): a frame-less present that finds a pair open
+returns without closing the XR frame, so the right present completes the pair from
+the same locate exactly as it would with no hold at all. The 500 ms
+`kPairHoldMaxMs` guard in the pacing path still reclaims a stranded pair.
+
+The beat line prints the population it is counted over:
+
+```
+stereo: frameless presents=N this window, of which onOpenPair=M, kept=K (HoldKeepsPair=1)
+        | population: P present(s) out this window, S of them stereo submits
+```
+
+**`onOpenPair=0` with `frameless>0` kills this mechanism outright**, on its own
+line, without needing anyone to interpret it. A frame-less present that finds no
+pair open takes the pre-existing `!g_frameOpen` early return and is harmless; only
+the subset that lands mid-pair can do damage, and that subset now has a number.

@@ -469,6 +469,27 @@ std::atomic<uint32_t> g_zeroLayerHeld{0}, g_zeroLayerBlack{0};
 std::atomic<uint32_t> g_pmCap[2] = {};       // SR captures per eye
 std::atomic<uint32_t> g_pmAcqFail{0}, g_pmWaitFail{0};
 std::atomic<uint32_t> g_pmUntaggedProj{0};   // untagged present captured in projection mode
+// VR-69 (2026-09-09): the FRAME-LESS present, split by whether it landed on an
+// OPEN LEFT PAIR. A present that hands in no texture (a HoldUntagged hold, a
+// same-eye hold, a grab that delivered nothing) still reaches on_present_end,
+// and if the previous LEFT-tagged present left the XR frame open, the zero-layer
+// path CLOSES that frame with the PREVIOUS pair's layer: the display slot is
+// spent on an already-shown pair and the fresh left image released a present
+// earlier is never shown in its own pair. Nothing counted this - aborts,
+// abortLeft and staleEye all read a truthful zero, because no tag was pushed
+// and no submit happened.
+//
+// The POPULATION is printed with the number: frameless = every frame-less
+// present, framelessPair = the subset that found a pair open (the only ones
+// that can do harm), pairKept = the subset the lever actually protected. If
+// framelessPair reads 0 while holds run, this mechanism is dead and the line
+// says so itself.
+std::atomic<uint32_t> g_pmFrameless{0}, g_pmFramelessPair{0}, g_pmPairKept{0};
+// [Stereo] HoldKeepsPair (default 1): a frame-less present that finds a pair
+// open returns without closing the XR frame, so the RIGHT present completes the
+// pair from the same locate, exactly as it would with no hold at all. 0 = the
+// pre-VR-69 behaviour (the hold closes the pair).
+std::atomic<int> g_holdKeepsPair{1};
 // 41.1 (Dishonored, session 8): a tag popped by a present that opened no XR
 // frame (the pace guard, a session hold, a handoff timeout): its sibling then
 // stands alone in the next pair. Counted so the method's STALE line can name
@@ -3671,6 +3692,35 @@ void on_present_end(ID3D11Texture2D* frame) {
         return;
     }
     g_lastIdleLogMs = 0; // submitting again - re-arm the idle heartbeat
+
+    // VR-69: a frame-less present must not close somebody else's pair.
+    //
+    // The LEFT-tagged present captured its eye, released the image and left the
+    // XR frame open for the RIGHT to complete. A present arriving between them
+    // with NO texture would fall through to the zero-layer path, re-submit the
+    // PREVIOUS pair's layer and end the frame. Returning here leaves the pair
+    // exactly as the left present left it; the 500 ms hold guard in the pacing
+    // path still reclaims it if the right never comes.
+    if (!frame) {
+        g_pmFrameless.fetch_add(1, std::memory_order_relaxed);
+        if (g_srPairOpen) {
+            g_pmFramelessPair.fetch_add(1, std::memory_order_relaxed);
+            if (g_holdKeepsPair.load(std::memory_order_relaxed)) {
+                g_pmPairKept.fetch_add(1, std::memory_order_relaxed);
+                DVR_LOG_EVERY_MS(::dvr::log::Cat::openxr, ::dvr::log::Level::Info, 3000,
+                        "xr: frame-less present landed on an OPEN pair - KEPT it open (%u of %u frame-less presents "
+                        "have found a pair open; %u kept). The right present completes the pair from the same locate. "
+                        "[Stereo] HoldKeepsPair=0 restores the old behaviour, which closed the pair with the "
+                        "previous frame's layer.",
+                        g_pmFramelessPair.load(std::memory_order_relaxed),
+                        g_pmFrameless.load(std::memory_order_relaxed),
+                        g_pmPairKept.load(std::memory_order_relaxed));
+                composite_hud();
+                return;
+            }
+        }
+    }
+
     bool pairSecond = g_srPairOpen; // this present completes an open pair
     g_srPairOpen = false;
     g_frameOpen = false; // the pair-hold path below re-arms both
@@ -5912,6 +5962,8 @@ int present_phases_last(uint32_t* out, int cap) {
 }
 const char* present_phase_name(int i) { return (i >= 0 && i < kPhCount) ? kPhaseNames[i] : "?"; }
 bool pair_open() { return g_srPairOpen; }
+void set_hold_keeps_pair(int on) { g_holdKeepsPair.store(on ? 1 : 0, std::memory_order_relaxed); }
+int  hold_keeps_pair() { return g_holdKeepsPair.load(std::memory_order_relaxed); }
 uint32_t pace_timeouts() { return g_paceTimeouts.load(std::memory_order_relaxed); }
 
 static void pair_probe_fill(PairProbe* out, bool drain);
@@ -5942,6 +5994,9 @@ static void pair_probe_fill(PairProbe* out, bool drain) {
     out->acqFail = g_pmAcqFail.load(std::memory_order_relaxed);
     out->waitFail = g_pmWaitFail.load(std::memory_order_relaxed);
     out->untaggedProj = g_pmUntaggedProj.load(std::memory_order_relaxed);
+    out->frameless = g_pmFrameless.load(std::memory_order_relaxed);
+    out->framelessPair = g_pmFramelessPair.load(std::memory_order_relaxed);
+    out->pairKept = g_pmPairKept.load(std::memory_order_relaxed);
     out->eatenNoFrame = g_srEatenNoFrame.load(std::memory_order_relaxed);
     out->rebuilds = g_pmRebuilds.load(std::memory_order_relaxed);
     out->stereoSubmits = g_pmStereoSubmits.load(std::memory_order_relaxed);
@@ -6079,6 +6134,8 @@ uint32_t pair_stale_submits() { return 0; }
 int present_phases_last(uint32_t*, int) { return 0; }
 const char* present_phase_name(int) { return "?"; }
 bool pair_open() { return false; }
+void set_hold_keeps_pair(int) {}
+int  hold_keeps_pair() { return 0; }
 uint32_t pace_timeouts() { return 0; }
 void draw_debug_ui() {}
 bool get_head_pose(HeadPose&) { return false; }
