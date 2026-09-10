@@ -368,6 +368,9 @@ candidate):**
 | 0x350 `kPovOffs[1]` | (53.6, -4735.0, 3036.1), also -c5 in form | DISCARDED 120/120 (c5 moved -2.2 uu, mean) |
 | 0x374 `kPovOffs[2]` | (53.6, -4835.0, 3036.1), also -c5 in form | DISCARDED 120/120 (0.0) |
 
+**Historical interpretation below is superseded by "The camera field holds the
+POSITION, c5 is its negation" later in this file. Do not implement its sign.**
+
 So: c5 IS the camera world position (it equals minus 0x330 to the decimal), and **camera+0x330
 is the eye-offset write point**: a value written there on the script lane at dispatch cadence
 is what the renderer draws from, in NEGATED form. The seam's field table carries the sign
@@ -447,7 +450,8 @@ pairwise dots 0.000 (UE3: X forward, Y right, Z up).
 Lean/crouch/roomscale used to ride the c0 view-projection patch (`LeanVP`), a matrix patch
 the renderer's attachments do not follow. `[PosTrack] Lane=vp|camera` (default vp, the
 shipped path; `postrack lane <l>` live) moves the offset onto the camera seam's write: ONE
-write per dispatch of `base - (eye + position)` into camera+0x330, the position offset
+write per dispatch of `base + (eye + position)` into camera+0x330 (the corrected
+position-field sign; c5 negates it), the position offset
 resolved along the basis rows. The seam is the single owner of the offset (TrackHead
 publishes it there; both lanes read it there), and the `camera postest <R> [U] [F]`
 instrument overrides it with a commanded triple, takes 45 presents of c5 baseline at zero,
@@ -4833,3 +4837,58 @@ camera-relative world frame" rather than resting on it.
 Reported in the same run: the hands flicker, not only the weapons. Consistent -
 both go through this placement - and it widens the symptom to everything the
 palette places, alongside the world jitter that accompanies it.
+
+## "READ THE EYE FROM THE WRITER" WAS ALREADY TRIED, AND WHY IT FAILED (VR-69, 2026-09-09)
+
+Recorded because a plan proposed it as new, and the answer was already in this
+file at the first headset run of 2026-09-03.
+
+**The writer's own position WAS carried with the tags and compared against c5.**
+`scene_draw.cpp:357,430` still calls `camera::last_written_pos`; the history is
+in `reentry.cpp:101-109`. The consumer required the written position and c5 to
+agree within 2 uu.
+
+**It failed while WALKING**, and only while walking:
+
+```
+c5 5692.0 6376.0  vs  written 5689.5 6375.8   (~2.5 uu along the heading,
+                                               the eye offset intact)
+L/s=36  R/s=54  mono/s=18
+```
+
+The engine moves the camera by a tick of travel AFTER the seam's write, so the
+absolute positions disagree while the EYE TERM is perfectly correct. A third of
+LEFT tags were rejected on that basis, every rejection broke a pair, and the
+runtime showed one image to both eyes for that frame. **Every simulator run had
+stood still, so every simulator run passed.**
+
+### What this rules out, and what it does not
+
+* **Absolute position agreement is not an identity test.** Dead, measured.
+* **The writer's record is not useless** - the eye term inside it was correct
+  throughout. What is missing is a way to know WHICH VIEW a draw consumes, and a
+  position comparison cannot supply it.
+
+### The asymmetry has a structural origin, and it is the same eye
+
+The +1 present's write happens in the stub immediately before its draw and
+**always matched**. The -1 present's write is separated from its draw by a tick
+of engine travel and is the one that failed.
+
+**The left eye is structurally the one whose write is furthest from its draw**,
+and the left eye is the one that flickers now. That is a coincidence worth
+recording and NOT worth building on yet - three mechanisms that fit the symptom
+this well have already been falsified.
+
+### The other corrections that came with it
+
+* **The sign is obsolete in the plan.** `apply_offsets` writes `base + offset`
+  and c5 is negated (`kFields` sign +1, c5Sign -1). The `base - offset` form was
+  superseded by the picture-based sign correction earlier in this file.
+* **The seam writes on camera dispatches, not once per view** - about 19 writes
+  per present in one measured configuration - so a write sequence cannot be
+  renamed a pass id.
+* **`base` is not a proven head centre.** `current_base` is rebasing
+  bookkeeping, and the field already carries engine motion, tracking and a
+  ceiling clamp. Under a clamp, `E - H` need not equal the requested eye vector
+  at all.

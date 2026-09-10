@@ -7,13 +7,14 @@
 // FOV is the lever (fov_lever.cpp: kLevCtrl/kLevCam every dispatch, with
 // 0x53c as the read-only sensor of what the engine rendered). The EYE
 // POSITION - +/- IPD/2 along the camera's right axis - is the seam's own
-// write: camera+0x330 (which holds -position) was MEASURED by `camera
-// eyetest` on 2026-09-02 (HONOURED 119/120; ENGINE_NOTES, "The per-eye camera
-// seam"). Positional tracking rides the same write on the camera lane (below).
+// write: camera+0x330 holds world position; c5 is its negation. The sign was
+// corrected by the 2026-09-03 picture test (ENGINE_NOTES, "The camera field
+// holds the POSITION"). Positional tracking rides the same write (below).
 //
 // Lanes: the writers run on the SCRIPT lane (the ProcessEvent hook's camera
-// pass, right after the lever); the render-side readback (vertex constant c5,
-// the camera world position of the draw) arrives on the present thread.
+// pass, right after the lever); the render-side observation (vertex constant
+// c5, the negated camera position on qualified passes) arrives on the render
+// lane. The latest observation does not identify a particular queued view.
 // Everything here is plain state behind those two entry points.
 #pragma once
 #include <stdint.h>
@@ -45,7 +46,8 @@ float fov_deg();
 void  note_rendered_fov(float deg);    // fov_lever.cpp, from the 0x53c sensor
 float rendered_fov_deg();
 
-// The render-side truth: c5 of the last draw (vs_const_hook.cpp).
+// Latest observed raw c5 upload (vs_const_hook.cpp), not a draw-specific view
+// record. On qualified camera passes it is NEGATED world camera position.
 void note_render_pos(const float pos[3]);
 bool render_pos(float out[3]);
 
@@ -97,9 +99,11 @@ bool second_pass_for_current_thread();
 // alternating between two camera positions" stops being argued from counters
 // that cannot see it. Ticks from eyetest_present_tick.
 void eye_trace_tick();
-// The camera POSITION the writer produced last (world uu, position form,
-// whatever the field's sign), so a present can prove which write it carries
-// against its c5. False before the first write.
+// Latest writer result converted to EXPECTED C5 SIGN, not positive world
+// position. Telemetry only: the engine can move the camera after this write,
+// and equality does not prove view identity. Not a coherent cross-thread
+// snapshot; do not use it to select a palette draw's placement record.
+// False when no current write is retained.
 bool last_written_pos(float out[3]);
 // Counts c5 uploads (note_render_pos calls): a serial that does not move
 // between two root calls means no scene was drawn (a loading screen).

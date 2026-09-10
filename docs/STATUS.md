@@ -1,5 +1,23 @@
 # Status
 
+## VR-69 implementation review (2026-09-09): writer identity prerequisite
+
+The proposed writer-based weapon correction has not been implemented or installed.
+Review found the earlier 2026-09-03 failure: matching the written camera position
+to c5 dropped left-eye tags while walking because the engine moved the camera
+after the write. The position already travels in reentry tags; it is telemetry,
+not an independent render-view identity. The default field holds positive world
+position and c5 negates it; stale API and method comments are corrected.
+
+Next: establish a verified engine-view token across construction, render-queue
+consumption and original draw scope before adding a placement consumer. The
+existing script pair ID, Present record and palette draw ID do not provide that
+transport. Full gate, reference/clamp semantics and required tests are in
+`dishonored/FLICKER_IMPLEMENTATION_PLAN.md`. No new headset run is requested for
+an observer whose association mechanism is still missing. World jitter remains
+part of the shared-flicker objective. This review changes documentation/comments
+only; existing settings, binaries and placement behavior remain as before.
+
 ## CURRENT (2026-09-09, evening): the WEAPON judder is fixed too
 
 **`[Hands] PoseLag=2`.** Headset-confirmed by a reversing A/B/A/B. The tester's

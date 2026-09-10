@@ -17,11 +17,11 @@
 // skews). The runtime's pair pacing (a LEFT present holds the XR frame open,
 // the RIGHT completes it) does the rest.
 //
-// THE PAIRING PROOF. Each tag carries the camera position the writer
-// produced; the present compares it with the c5 the constant hook captured
-// for the frame it is about to show and DROPS a tag that does not match
-// (counted as tagMismatch) - a present from another draw caller, a movie or a
-// Reset would otherwise eat a tag and swap the eyes.
+// WRITER POSITION IS TELEMETRY. Each tag carries the writer result in c5
+// sign. Dropping tags on position disagreement mis-paired a walking player
+// (2026-09-03): the engine can move the camera after the write. The current
+// method reconciles queue order with the within-pair c5 step; neither gives
+// earlier palette draws an independently transported engine-view identity.
 //
 // FAIL SOFT. select("reentry") is accepted only when the game side verifies
 // the root's bytes; a fault in the second draw poisons the game side, and the
