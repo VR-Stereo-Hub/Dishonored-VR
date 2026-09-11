@@ -143,6 +143,7 @@ static void ArmsToggle()
         for (int i = 0; i < g_fpCandN; i++) {
             FpCand* k = &g_fpCand[i];
             if (FpIsViewModel(k)) continue;
+            if (!k->owned) continue;                 // VR-73: never cull the world
             if (!LooksLikeObj(k->obj) || !FpFieldsLookRight(k->obj)) continue;
             if (strstr(k->asset, "Skm_Player")) continue;
             if (strstr(k->asset, "crossbow")) continue;

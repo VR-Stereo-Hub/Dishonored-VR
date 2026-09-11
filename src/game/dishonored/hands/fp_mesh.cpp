@@ -40,6 +40,27 @@ static bool FpIsViewModel(const FpCand* k)
 }
 
 
+// VR-73 DISCOVERY IS NOT OWNERSHIP. The collector finds skeletal components by
+// walking pointers out from the pawn, and a pawn standing on a mesh points at
+// that mesh: the intro boat's 'SkeletalMeshComponent0' (EmpressBoat_anim) was
+// collected mid-ride in every failing run, had its BlockActors cleared, and the
+// player and the NPCs on it dropped through when the lift actor was destroyed.
+// Every transform write therefore goes through here: only a component the
+// ENGINE says belongs to the player may be written, and its values are saved
+// the first time so a restore puts back what was there, not zeros.
+static bool FpMayWrite(FpCand* k)
+{
+    if (!k || !k->owned || !k->obj) return false;
+    if (!k->xfWrote) {
+        const int32_t* r = (const int32_t*)(k->obj + kMeshRot);
+        const float*   T = (const float*)(k->obj + kMeshTrans);
+        for (int q = 0; q < 3; q++) { k->xfRot0[q] = r[q]; k->xfTrans0[q] = T[q]; }
+        k->xfWrote = true;
+    }
+    return true;
+}
+
+
 // Corvo holds the blade in his right hand and everything else in his left.
 // The "owner" class was just whichever node the walk arrived from - it read
 // PowerBlink for every single item, which is exactly why the sword stayed
@@ -170,6 +191,7 @@ static void FpCommandAll(float yawDeg, float pitchDeg)
     for (int i = 0; i < g_fpCandN; i++) {
         uint8_t* o = g_fpCand[i].obj;
         if (!LooksLikeObj(o) || !FpFieldsLookRight(o)) continue;
+        if (!FpMayWrite(&g_fpCand[i])) continue;   // VR-73: owned components only
         int32_t* r = (int32_t*)(o + kMeshRot);
         r[0] = (int32_t)(pitchDeg / 57.2958f * kUEPerRad);
         r[1] = (int32_t)(yawDeg   / 57.2958f * kUEPerRad);
@@ -354,14 +376,27 @@ static void FpRestoreRotation()
 {
     FpZero(&g_fpWritten);
     FpZero(&g_fpWritten2);
+    // VR-73: this used to zero the relative rotation AND translation of EVERY
+    // candidate on every collect - including components the mod never wrote and
+    // did not own (the intro boat's mesh among them). Only what FpMayWrite
+    // recorded is put back, and it goes back to the value it had, not to zero.
+    static int said = 0;
     for (int i = 0; i < g_fpCandN; i++) {
-        g_fpCand[i].lastCmdY = g_fpCand[i].lastCmdP = g_fpCand[i].lastCmdR = 0.0f;
-        uint8_t* o = g_fpCand[i].obj;
+        FpCand* k = &g_fpCand[i];
+        k->lastCmdY = k->lastCmdP = k->lastCmdR = 0.0f;
+        if (!k->xfWrote) continue;
+        k->xfWrote = false;
+        uint8_t* o = k->obj;
         if (!o || !LooksLikeObj(o) || !FpFieldsLookRight(o)) continue;
         int32_t* r = (int32_t*)(o + kMeshRot);
-        r[0] = 0; r[1] = 0; r[2] = 0;
         float* T = (float*)(o + kMeshTrans);
-        T[0] = T[1] = T[2] = 0.0f;
+        for (int q = 0; q < 3; q++) { r[q] = k->xfRot0[q]; T[q] = k->xfTrans0[q]; }
+        if (said < 16) {
+            ++said;
+            Log("handmesh: restored '%s' asset=%s to its own transform - rot (%d %d %d) trans "
+                "(%.1f %.1f %.1f)", k->name, k->asset, (int)k->xfRot0[0], (int)k->xfRot0[1],
+                (int)k->xfRot0[2], k->xfTrans0[0], k->xfTrans0[1], k->xfTrans0[2]);
+        }
     }
 }
 
@@ -572,6 +607,45 @@ static void FpEnsureCandidates(const char* why)
 }
 
 
+// VR-73: who the ENGINE says a component belongs to. ActorComponent.Owner names
+// the actor; Actor.Owner is followed up to four hops, because a weapon's view
+// model belongs to an inventory item that belongs to the pawn. Owned means that
+// chain reaches the possessed pawn or one of the two held items. The offsets are
+// resolved by name once; if either cannot be found every candidate reads as
+// foreign, so the mod writes nothing - fail soft, and the log says why.
+static bool FpOwnedByPlayer(uint8_t* comp, uint8_t* pawn, char* who, size_t whoN)
+{
+    static int state = 0;              // 0 unresolved, 1 resolved, -1 not found
+    static uint32_t compOwner = 0, actorOwner = 0;
+    if (!state) {
+        compOwner  = FindPropOffset("ActorComponent", "Owner");
+        actorOwner = FindPropOffset("Actor", "Owner");
+        state = (compOwner && actorOwner) ? 1 : -1;
+        Log("handmesh/owner: ActorComponent.Owner %s (+0x%x), Actor.Owner %s (+0x%x)%s",
+            compOwner ? "found" : "NOT FOUND", compOwner, actorOwner ? "found" : "NOT FOUND",
+            actorOwner, state == 1 ? " - candidate writes are limited to components the player owns"
+                                   : " - EVERY candidate reads as foreign, so no collision or "
+                                     "transform write will happen (fail soft)");
+    }
+    _snprintf(who, whoN, "%s", state == 1 ? "none" : "unresolved");
+    who[whoN - 1] = 0;
+    if (state != 1 || !comp || !RangeReadable(comp + compOwner, 4)) return false;
+    uint8_t* a = *(uint8_t**)(comp + compOwner);
+    if (!LooksLikeObj(a)) return false;
+    const char* first = ObjClassName(a);
+    _snprintf(who, whoN, "%s", first ? first : "?");
+    who[whoN - 1] = 0;
+    for (int hop = 0; hop < 4 && a && LooksLikeObj(a); ++hop) {
+        if (a == pawn || a == g_rflHeldObj[1] || a == g_rflHeldObj[2]) return true;
+        if (!RangeReadable(a + actorOwner, 4)) break;
+        uint8_t* up = *(uint8_t**)(a + actorOwner);
+        if (up == a) break;
+        a = up;
+    }
+    return false;
+}
+
+
 static void FpCollect()
 {
     FpRestoreRotation();
@@ -649,6 +723,8 @@ static void FpCollect()
                 snprintf(k->owner, sizeof(k->owner), "%s", oc ? oc : "?");
                 const char* as = FpAssetName(c);
                 snprintf(k->asset, sizeof(k->asset), "%s", as ? as : "?");
+                k->owned = FpOwnedByPlayer(c, pawn, k->ownedBy, sizeof(k->ownedBy));
+                k->xfWrote = false;   // the collect's own restore already ran
             }
             // expand only through things that can OWN a view model
             if (tail < 160 &&
@@ -722,14 +798,27 @@ static void FpCollect()
         Log("handmesh: ==== %d view model(s) ==== (candidate revision %u, for "
             "equipment revision %u)", g_fpCandN, g_fpCandRev, g_rflEquipRev);
         for (int i = 0; i < g_fpCandN; i++)
-            Log("handmesh:   [%d] '%s' asset=%s%s", i, g_fpCand[i].name,
+            Log("handmesh:   [%d] '%s' asset=%s%s | owner %s%s", i, g_fpCand[i].name,
                 g_fpCand[i].asset,
                 FpIsViewModel(&g_fpCand[i])
                     ? (FpHandFor(&g_fpCand[i]) ? "  <- RIGHT hand" : "  <- LEFT hand")
-                    : "");
-        // 38.23: the crouch wall - driven meshes must never block movement
-        for (int i = 0; i < g_fpCandN; i++)
-            FpNoBlock(g_fpCand[i].obj, g_fpCand[i].name);
+                    : "",
+                g_fpCand[i].ownedBy,
+                g_fpCand[i].owned ? " (the player's)" : " - FOREIGN, never written");
+        // 38.23: the crouch wall - driven meshes must never block movement.
+        // VR-73: and ONLY the player's. A foreign component keeps its collision.
+        static int foreignSaid = 0;
+        for (int i = 0; i < g_fpCandN; i++) {
+            if (g_fpCand[i].owned) {
+                FpNoBlock(g_fpCand[i].obj, g_fpCand[i].name);
+            } else if (foreignSaid < 40) {
+                ++foreignSaid;
+                Log("collision: LEFT ALONE on '%s' asset=%s - its owner is %s, not the player. "
+                    "The walk discovered it; discovery is not ownership (VR-73)%s",
+                    g_fpCand[i].name, g_fpCand[i].asset, g_fpCand[i].ownedBy,
+                    foreignSaid == 40 ? ". Later ones are not printed." : "");
+            }
+        }
     }
 }
 
@@ -889,6 +978,7 @@ static uint8_t* FpDrive(int idx, int hand)
     if (pitchU >  16000) pitchU =  16000;
     if (pitchU < -16000) pitchU = -16000;
 
+    if (!FpMayWrite(k)) return NULL;         // VR-73: owned components only
     int32_t* r = (int32_t*)(mesh + kMeshRot);
     r[0] = pitchU; r[1] = yawU;
     // 30.23: ALWAYS write the extracted roll. In roll-free mode Q was built

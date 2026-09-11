@@ -355,7 +355,30 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // HUD lived here; the wrist HUD went with the fork in 41.0)
                 if (!strcmp(nm, "OnToggleCinematicMode")) {   // 38.65
                     g_cineNow = !g_cineNow;
-                    if (g_cineNow) g_cineOnMs = MaimNowMs();
+                    g_cineCtrl = (uint8_t*)obj;              // VR-73: read THIS object's locks
+                    if (g_cineNow) {
+                        g_cineOnMs = MaimNowMs();
+                        g_cineFlagSeen1 = false;             // VR-73: a fresh latch
+                        g_cineFlag0Ms = 0.0;
+                        g_cineLastMask = -1;
+                    }
+                    if (!g_cineFlagState) {                  // VR-73: once, on the game thread
+                        const bool a = FindBoolProp("PlayerController", "bCinematicMode",
+                                                    &g_cineFlagOff, &g_cineFlagMask);
+                        g_cineMoveOff = FindPropOffset("PlayerController", "bIgnoreMoveInput");
+                        const bool c = FindBoolProp("PlayerController", "bCinemaDisableInputMove",
+                                                    &g_cineDisMoveOff, &g_cineDisMoveMask);
+                        const bool d = FindBoolProp("DishonoredPlayerController", "m_bInputIgnoreInput_Cinematic",
+                                                    &g_cineDisIgnOff, &g_cineDisIgnMask);
+                        g_cineFlagState = (a || g_cineMoveOff || c || d) ? 1 : -1;
+                        Log("cine/truth: engine locks resolved - bCinematicMode %s (+0x%x), bIgnoreMoveInput %s "
+                            "(+0x%x), bCinemaDisableInputMove %s (+0x%x), m_bInputIgnoreInput_Cinematic %s (+0x%x) "
+                            "- %s", a ? "found" : "NOT FOUND", g_cineFlagOff, g_cineMoveOff ? "found" : "NOT FOUND",
+                            g_cineMoveOff, c ? "found" : "NOT FOUND", g_cineDisMoveOff, d ? "found" : "NOT FOUND",
+                            g_cineDisIgnOff, g_cineFlagState == 1
+                                ? "the latch can now be cleared by the engine's own state"
+                                : "none found, the latch stays a parity toggle (pre-VR-73 behaviour)");
+                    }
                     Log("cine: %s - synthesized inputs %s",
                         g_cineNow ? "ON" : "off",
                         g_cineNow ? "PARKED (pause still works)" : "live");

@@ -1,5 +1,62 @@
 # Status
 
+## CURRENT (2026-09-11): the intro boat is fixed end to end (VR-73, PR #35)
+
+Both VR-73 fixes are headset-confirmed: no fall at the dock (`671ea554`), and the arrival's
+stuck mono quad now clears by itself (`d0697d25`) - the arrival toggle turned out not to
+start a cinematic at all (every engine lock read 0), so the latch clears after its 2 s
+no-lock window; that window is the brief mono spell still visible. A real cutscene just
+after (locks set) stays on the head-locked quad until it ends, as designed.
+
+Next: VR-75 (cutscenes in stereo, mono only for menus; shorten the no-lock window), not
+in PR #35. Still owed from VR-73: a weapon view model's owner verdict with a weapon drawn,
+and a crawl under furniture (38.23 crouch wall). VR-74: the main-menu view under the ground.
+The next session is a residual one-frame flicker of the hands and weapons (a rightward
+shift, clearest on the desktop mirror) - an investigation with a log marker key.
+
+## Earlier (2026-09-10, night): boat fall FIXED in the headset; arrival mono fix pending (VR-73)
+
+The ownership fix (`671ea554`) is headset-confirmed: no fall, and the log shows the boat
+listed FOREIGN and never CLEARED. The same arrival then exposed the cinematic latch stuck
+ON (mono quad until a pause). Clearing it on `bCinematicMode` alone failed in the
+headset (the flag never read 1). The current build reads four engine input locks on the
+toggle's own object and clears the latch after they release, or when none appears within
+2 s of the toggle; unverified, not yet run (no headset session left on 2026-09-10).
+
+What the arrival is, from the tester: not a camera cutscene but a scripted moment where the
+game holds the player still - movement (left stick) is locked by the game, looking around
+(right stick, head) still works - and then hands control back. So the next run should
+show one of the movement locks (`bIgnoreMoveInput`, `bCinemaDisableInputMove` or
+`m_bInputIgnoreInput_Cinematic`) reading set at the arrival and clearing when control
+returns, followed by `cine: latch cleared - the engine's input locks were set ...`. If
+instead the log says no lock was set within 2 s, the movement lock lives somewhere these
+four fields do not cover. Open design question for after that run: the latch shows the
+head-locked mono quad for the whole scripted moment; a look-around moment may be better
+kept in stereo.
+
+Next run: the prologue again without pausing - pass is stereo and movement returning by
+themselves after the arrival, and still no fall. Still owed: a weapon view model's owner
+verdict with weapons drawn, and a crawl under furniture (38.23 crouch wall).
+
+## Earlier (2026-09-10, night): the intro boat fall is the hand collector (VR-73)
+
+New game, prologue: at the top of the water lock the player and the NPCs on the boat drop
+through it when the arrival script destroys the lift actor; the NPCs die and the mission
+fails. It reproduces on both machines and not with the mod off. The hand system's
+candidate walk reaches the boat's own mesh (`EmpressBoat_anim`) through the pawn standing
+on it and cleared its `BlockActors` mid-ride in every failing run - a regression from
+`a6e00a6f`, which made that walk re-run from the script tick. Branch
+`claude/vr-73-boat-dock-fall` restricts every candidate write to components whose engine
+Owner chain reaches the player, and restores only what was written, to its prior value.
+Details and the four falsified leads: ENGINE_NOTES, VR-73.
+
+Next: one headset run of the prologue on this build with the tested ini unchanged. The
+log must show both Owner offsets found, the boat listed as FOREIGN and never CLEARED, and
+the body mesh and view models listed as the player's; then the arrival keeps everyone on
+the boat. Watch crawling for a returning crouch wall. The main-menu camera dropping under
+the ground (`camera/clamp-rebase` with a -4154 uu offset) is a separate fault, not fixed
+here.
+
 ## CURRENT (2026-09-10, late): the shipped defaults match the tested configuration (VR-72)
 
 A fresh install of VR-Main resolved a different, unstable configuration from the

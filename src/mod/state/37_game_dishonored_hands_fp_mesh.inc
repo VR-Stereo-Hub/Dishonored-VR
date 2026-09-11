@@ -26,7 +26,12 @@ struct FpCand { uint8_t* obj; char name[40]; char cls[52]; char owner[52]; char 
                 float einv[9];               // world motion -> written T
                 bool  haveE;
                 float ddSave[2];             // draw distances before culling
-                bool  ddCulled; }; 
+                bool  ddCulled;
+                // VR-73: whether the ENGINE says the player owns this component
+                // (ActorComponent.Owner -> Actor.Owner chain), and the transform
+                // it had before the first write, so a restore returns it.
+                bool  owned; char ownedBy[52];
+                bool  xfWrote; int32_t xfRot0[3]; float xfTrans0[3]; };
 static FpCand   g_fpCand[24];
 static int      g_fpCandN = 0;
 static void FpNoBlock(uint8_t* comp, const char* nm);   // 38.23, defined below
