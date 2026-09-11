@@ -397,6 +397,9 @@ static void PcRefreshLayout(IDirect3DDevice9* dev);
 struct MpDrawCtx;
 static void MpDrawCompare(const MpDrawCtx* c);
 static void MpEyeForPresent(const MpDrawCtx* c);
+static void MfNoteTag(void);
+static void MfNoteWeapon(bool found);
+static void MfMarker(void);
 static void MpOnReset(void);
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
