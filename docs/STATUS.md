@@ -1,5 +1,24 @@
 # Status
 
+## CURRENT (2026-09-10, night): the intro boat fall is the hand collector (VR-73, unverified)
+
+New game, prologue: at the top of the water lock the player and the NPCs on the boat drop
+through it when the arrival script destroys the lift actor; the NPCs die and the mission
+fails. It reproduces on both machines and not with the mod off. The hand system's
+candidate walk reaches the boat's own mesh (`EmpressBoat_anim`) through the pawn standing
+on it and cleared its `BlockActors` mid-ride in every failing run - a regression from
+`a6e00a6f`, which made that walk re-run from the script tick. Branch
+`claude/vr-73-boat-dock-fall` restricts every candidate write to components whose engine
+Owner chain reaches the player, and restores only what was written, to its prior value.
+Details and the four falsified leads: ENGINE_NOTES, VR-73.
+
+Next: one headset run of the prologue on this build with the tested ini unchanged. The
+log must show both Owner offsets found, the boat listed as FOREIGN and never CLEARED, and
+the body mesh and view models listed as the player's; then the arrival keeps everyone on
+the boat. Watch crawling for a returning crouch wall. The main-menu camera dropping under
+the ground (`camera/clamp-rebase` with a -4154 uu offset) is a separate fault, not fixed
+here.
+
 ## CURRENT (2026-09-10, late): the shipped defaults match the tested configuration (VR-72)
 
 A fresh install of VR-Main resolved a different, unstable configuration from the

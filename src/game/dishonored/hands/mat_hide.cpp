@@ -338,6 +338,11 @@ static void MatAutoBuildPlan()
         nSec[c] = 0; nLods[c] = 0;
         FpCand* k = &g_fpCand[c];
         if (!LooksLikeObj(k->obj)) continue;
+        if (!k->owned) {                     // VR-73: never hide the world's sections
+            Log("mat/auto: component [%d] '%s' belongs to %s, not the player - not queued",
+                c, k->asset, k->ownedBy);
+            continue;
+        }
         const int nEng = MatNumElements(k->obj);
         if (nEng <= 0) {
             Log("mat/auto: component [%d] '%s' reports %d section(s) - skipped",

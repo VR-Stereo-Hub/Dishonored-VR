@@ -628,3 +628,16 @@ calibration and migration STATE keeps its loader fallback (`NeutralSaved`,
 `CrouchMaskVer`) - only settings follow the tested values - while the literal carries
 the tested calibration so a fresh install starts from a working one. `[Paths] DataDir`
 is machine-specific and never ships.
+
+### 2026-09-10: writing a component requires engine ownership (VR-73)
+
+The first-person candidate list is built by a pointer walk out from the pawn, and the
+walk reaches whatever the pawn points at, including the mesh it is standing on. Being
+on the list used to be enough to have collision cleared and relative transforms zeroed,
+which turned off the intro boat's collision. The licence to write is now the engine's
+own `ActorComponent.Owner` chain reaching the pawn or a held item, not discovery and
+not a name. Restores return the value recorded before our first write rather than zero,
+and touch only what was written. Rejected: a blacklist of the boat's asset name (the same
+walk also reaches doors and props), and switching off re-collection (it is what keeps
+weapons attached after loads and swaps). If the Owner offsets cannot be resolved, nothing
+is written; losing the 38.23 crouch-wall clear is the lesser failure.

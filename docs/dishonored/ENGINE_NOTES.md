@@ -4662,3 +4662,62 @@ motion tick and fire-window arming are gated, so the next fresh launch leaves
 projectiles to the game. The actual post-reset shot verdict is pending.
 
 The full integration boundary and handoff are in SESSION_HANDOFF_2026-09-10.md.
+
+## VR-73: THE HAND COLLECTOR TURNED OFF THE INTRO BOAT'S COLLISION (2026-09-10)
+
+**Symptom.** New game, prologue: at the top of the water lock, when the arrival script
+destroys the lift actor (`OnDestroy` on `InterpActor`), the player and the NPCs on the
+boat drop about 570 uu into the water (`pawnZ 2406.8 -> 2031.1 -> 1838.4`); the NPCs die
+and the mission fails. Both developer machines. A mod-off control (`disable_vr.txt`, same
+game config) does not fall.
+
+**The mutation.** `FpCollect` finds skeletal components by walking pointers out from the
+pawn (depth < 3, every 4-byte field). A pawn standing on the boat points at the boat's
+mesh, so the boat is one hop away. In all four failing runs, minutes into the ride:
+
+```
+handmesh:   [0] 'SkeletalMeshComponent0' asset=EmpressBoat_anim
+collision: BlockActors CLEARED on 'SkeletalMeshComponent0' - a hand-driven mesh can no longer block movement
+```
+
+Two unconditional writes hit every candidate: `FpNoBlock` (the 38.23 crouch-wall fix,
+clearing `BlockNonZeroExtent`/`BlockActors`) and `FpRestoreRotation`, which zeroed the
+relative Rotation (`+0x19c`) and Translation (`+0x190`) of every candidate at the start
+of every collect, whether the mod had ever written it or not. The same logs also list
+`CorvoMask_world`, `FeatherDuster` and several doors as candidates: the collector
+reaches world props generally, not just this boat. `FpIsViewModel` is a name test
+(`pPlayerMesh`) and never established ownership.
+
+**Why it is a regression.** Until `a6e00a6f` (2026-09-09, the candidate list's owner)
+every `FpCollect` call site was a one-shot and the per-frame refresh sat behind a
+hand-mesh gate that was off in the shipped configuration, so a whole session saw one
+collect, normally before the boat mattered. `FpEnsureCandidates` re-collects from the
+script tick whenever the list is empty or the equipment changed, and it runs above the
+`g_handMesh` early return in `ApplyHandToMesh` (`BoneVisTick`), so it is live even with
+the hand drive off. `b38519c3` does not contain `a6e00a6f`.
+
+**Fix (unverified in a headset).** Ownership is read from the engine, not inferred from
+the walk: `ActorComponent.Owner` and `Actor.Owner` are resolved by name
+(`FindPropOffset`), and a candidate is owned when that chain reaches the possessed pawn
+or one of the two held items within four hops (`FpOwnedByPlayer`, `fp_mesh.cpp`). Every
+candidate line now logs `| owner <class> (the player's)` or `- FOREIGN, never written`.
+Collision is cleared only on owned candidates (`collision: LEFT ALONE on ...` otherwise);
+the transform writers (`FpDrive`, the calibration probe `FpCommandAll`) write only owned
+candidates and record the prior transform on the first write (`FpMayWrite`), and
+`FpRestoreRotation` returns only what was recorded, to its recorded value. The arm-hide
+cull and the automatic material census skip foreign candidates too. If either Owner
+offset is not found, every candidate reads as foreign and nothing is written - the log
+says so (`handmesh/owner: ... NOT FOUND`).
+
+**What to verify.** The owner line resolves both offsets; `EmpressBoat_anim` lists as
+FOREIGN and never appears in a `collision: ... CLEARED` line; `Skm_Player` and the view
+models list as the player's (if they do not, the 38.23 crouch wall can come back - watch
+for crawl wedging); the arrival keeps everyone on the boat.
+
+**Falsified on the way, one headset run each** (evidence and logs in the VR-73 ticket):
+settings differences between the machines; the stock frame-rate bug on this boat
+(mod-off control did not fall); the re-entry second draw and its tick rate (`[Stereo]
+Armed=0` still fell at 74-90 ticks/s); a stale virtual-pad A read as held through the
+570 ms seat-in hitch (a guard serving a neutral pad still fell, and itself produced
+`Dis_Jump_ButtonDown`; the runs without it log no jump at the seat-in). The slow Z
+descent at gameplay start is the water lock lifting the boat, not the boat sinking.
