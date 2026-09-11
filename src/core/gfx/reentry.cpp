@@ -30,6 +30,7 @@
 // would destroy its verdict); `stereo mono` restores the call site.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/stereo.h"
+#include "core/gfx/desktop_eye.h"
 
 #include "core/framework/status.h"
 #include "core/gfx/blit_quad.h"
@@ -357,6 +358,7 @@ public:
         } else {
             ++g_tagUntagged;
         }
+        dvr::desktop_eye::note_drawn_eye(eye); // VR-76: current pixels, before capture delivery
         dvr::capture::set_pending_tag(eye);
         // VR-65: and the record the draw was rendered with, onto the same slot
         // the pixels land in. An untagged present carries 0, which the audit
@@ -377,7 +379,7 @@ public:
             blit_.draw(d.ctx11, src, rtv_, w, h);
             // 41.2 (VR-31): our own hands, over the game image and under the
             // F10 panel. The eye is the tag of the pixels JUST blitted, which
-            // is NOT `eye` (the eye the next game draw will render) - one line
+            // is NOT `eye` (the eye of the current D3D9 backbuffer) - one line
             // apart, and confusing them is the stale-eye fault in miniature.
             if (HandDrawFn hd = hand_draw())
                 hd(d.dev11, d.ctx11, rtv_, w, h,

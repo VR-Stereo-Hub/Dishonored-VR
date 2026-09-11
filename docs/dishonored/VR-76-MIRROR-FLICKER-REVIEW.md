@@ -376,3 +376,13 @@ cannot fail its own hypothesis is not evidence (step 1 must fail the old code;
 step 2e must be able to read "same" and "0"); a counter is not evidence until you
 know its population (step 3 requires bursts to have occurred); a verified write is
 not an honoured one (the pass is the picture on the window, not the counters).
+
+## Implementation review follow-up (2026-09-11)
+
+The candidate implementation and review answers are in
+[VR-76-CODEX-HANDOFF.md](VR-76-CODEX-HANDOFF.md). This original proposal is kept
+as the record of the pre-change reasoning. Corrections: shared latency depends
+on SharedWait; mirror_present has an internal zero guard; pairHold returns before
+the normal tail; composite_hud is currently a no-op; startup/resource lifetime
+needs an explicit warmup exception; clustered marker windows do not justify the
+quoted independent-trial p-value. The installed draw policy awaits user testing.

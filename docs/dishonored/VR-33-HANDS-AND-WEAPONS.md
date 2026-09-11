@@ -590,3 +590,21 @@ however it looks.
 * **A printf whose arguments stopped matching its format.** Two edits each added
   the same segment; every value after that point was shifted, and decisions were
   read from numbers that were not what they were labelled.
+
+### VR-76 marker desktop suffix
+
+The V-marker numeric rows now append `desk=source:draw/tag/action/shown`, for
+example `desk=d:L/0/S/L`. Source d/t means current-draw/legacy-tag policy. Draw
+and tag are the current backbuffer classification and this present's delivered
+eye. Action S/B/N/F means successful snapshot, successful re-blit, no copy or
+failed operation. Shown is inferred from copy provenance; it is not a pixel read.
+Unknown identity is 0 and missing history/callback is ?. An F invalidates any
+claim of correct final pixels. The join uses draw counter +1, when those draws
+reach Present, independently of the old marker's measured tag offset. The most
+recent row may not have reached its mirror callback when V is sampled.
+
+`desktopeye:` prints the accompanying 15-second population and old-policy shadow.
+A draw-mode pass needs real single-draw ticks and legacy shadow raw leaks in the
+window, no unexpected right output or copy failures, and no visual mirror jump.
+Startup and post-reset right output is separately counted as warmup. See
+`VR-76-CODEX-HANDOFF.md`; the headset symptom remains a separate user test.

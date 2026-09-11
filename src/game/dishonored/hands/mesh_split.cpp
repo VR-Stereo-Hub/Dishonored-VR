@@ -2103,8 +2103,8 @@ static bool MpSourceFrame(int cls, const float* pal, UINT count,
 // leaves the eye UNKNOWN rather than guessed. Unknown means no offset, which
 // is the consistent head-centre placement rather than a full IPD of error.
 // VR-76: THE FLICKER HISTORY. The tester reports the hands and the held weapon
-// jumping RIGHT for a single frame, clearest on the desktop mirror (which pins
-// the LEFT eye). Every line on this path is rate-limited, so a one-frame fault
+// jumping RIGHT for a single frame, clearest on the desktop mirror. Its legacy
+// tag policy can pin RIGHT with delayed capture. A one-frame fault previously
 // left nothing in the log. This ring keeps what the placement did on each
 // present of the last few seconds and prints it only when the tester presses
 // the marker key (V, hotkeys.cpp). Nothing here changes a draw.
@@ -2314,14 +2314,22 @@ static void MfMarker(void)
     }
     // Numbers: present tag/eye why | jump d | projRight | hand targets on the right axis | pose gen.
     for (int i = 0; i < n; i += 5) {
-        char line[512]; int w = 0; line[0] = 0;
-        for (int k = i; k < i + 5 && k < n && w < (int)sizeof(line) - 110; k++) {
+        char line[1024]; int w = 0; line[0] = 0;
+        for (int k = i; k < i + 5 && k < n && w < (int)sizeof(line) - 180; k++) {
             const MfRec& r = rec[k];
-            w += _snprintf(line + w, sizeof(line) - w, " | #%u %c/%c%c d%+.2f pr%+.2f tR %+.2f%s/%+.2f%s g%u",
+            // These draws reach Present r.present+1. This join is independent
+            // of the measured offset used for the delivered texture's tag.
+            dvr::desktop_eye::Record mirror;
+            const bool haveMirror = dvr::desktop_eye::record_for(r.present + 1, mirror);
+            w += _snprintf(line + w, sizeof(line) - w, " | #%u %c/%c%c d%+.2f pr%+.2f tR %+.2f%s/%+.2f%s g%u desk=%c:%c/%c/%c/%c",
                            r.present, MfEyeChar(MfTagFor(r.present, best)), MfEyeChar(r.eye), r.why,
                            (double)r.d, (double)r.projRight,
                            (double)r.tR[0], r.placed[0] ? "" : "x", (double)r.tR[1], r.placed[1] ? "" : "x",
-                           r.poseGen);
+                           r.poseGen, haveMirror ? mirror.source : '?',
+                           haveMirror ? MfEyeChar(mirror.draw) : '?',
+                           haveMirror ? MfEyeChar(mirror.tag) : '?',
+                           haveMirror ? mirror.action : '?',
+                           haveMirror ? MfEyeChar(mirror.shown) : '?');
         }
         line[sizeof(line) - 1] = 0;
         DVR_WARN("marker #%u n -%.0fms%s", g_mfMarks, now - rec[i].ms, line);

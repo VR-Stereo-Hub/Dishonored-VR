@@ -653,3 +653,22 @@ the toggle (the dispatch did not start a cinematic) - and never to set it. Follo
 locks outright was rejected for this change: it would alter every scene the latch already
 handles, including the boat seat-in, where their values during the ride are unmeasured.
 `bCinematicMode` alone was tried first and never read 1 at the arrival.
+
+### 2026-09-11: desktop pin identity follows the current draw (VR-76)
+
+The headset consumes a delivered D3D11 texture and its matching tag; the desktop
+pin consumes the live D3D9 backbuffer. Delayed capture makes those two identities
+differ by one present. The host now publishes the method's resolved current eye
+before capture and optionally pins by it (`DesktopEyeSource=draw`, tree default
+tag). Unknown draws hold three presents, then release and invalidate the pin.
+Surface validity is reset with resource lifetime and source changes.
+
+Keep the runtime hook before composite_hud, after capture, on all three paths:
+no-frame, pairHold early return, and normal completion. Permit zero delivered tags
+inside mirror_present. No intervening runtime work writes the D3D9 backbuffer;
+composite_hud is currently a no-op. This small host-seam change preserves the
+future HUD ordering without coupling OpenXR to the pin's source policy.
+
+The offline policy and actual copy module pass host checks. The candidate is
+installed with draw enabled for user-run testing; no headset verdict is claimed.
+See `dishonored/VR-76-CODEX-HANDOFF.md` for validation and remaining questions.

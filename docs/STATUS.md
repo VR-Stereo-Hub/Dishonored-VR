@@ -1,6 +1,29 @@
 # Status
 
-## CURRENT (2026-09-11): the intro boat is fixed end to end (VR-73, PR #35)
+## CURRENT (2026-09-11): VR-76 mirror candidate installed, user testing pending
+
+The desktop pin can now use the current draw's eye instead of a delayed capture
+tag. All runtime present paths, including pairHold and zero tags, reach the
+post-capture hook. Unknown frames hold briefly; surface lifetime and source
+switches invalidate the pin. New V-marker fields and window counters report
+current/delivered identity, old-policy raw leaks, successful actions and failures.
+
+Installed build `vr33-hands-working-95-g18d39cee-dirty`, SHA256
+`264038D60BFBF6098328B8A4F034DD9BFF5EF4B9A6B0061917EB61FEFE1BC489`.
+Only installed ini addition: `[VR] DesktopEyeSource=draw`; tree default remains
+tag. Release build, 79,339 policy assertions, 72 copy-module assertions, exports,
+frame tests and standalone simulator self-test passed. No completed in-game
+simulator or headset validation. All further game launches/tests belong to the
+user. Earlier launch attempt was cancelled; logs preserved in local build data.
+
+Next: user-run mirror test with real bursts and legacy shadow leaks, then a
+separate headset-only verdict. Keep VR-76 open until then. VR-77 burst generation
+and VR-75 cutscene changes remain separate. Full Claude handoff, review
+corrections, backup paths and installed hashes:
+`dishonored/VR-76-CODEX-HANDOFF.md`. Source changes are uncommitted in this branch.
+
+
+## Earlier (2026-09-11): the intro boat is fixed end to end (VR-73, PR #35)
 
 Both VR-73 fixes are headset-confirmed: no fall at the dock (`671ea554`), and the arrival's
 stuck mono quad now clears by itself (`d0697d25`) - the arrival toggle turned out not to

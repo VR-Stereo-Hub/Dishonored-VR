@@ -1,5 +1,13 @@
 # Roadmap
 
+## VR-76 mirror correction (2026-09-11)
+
+- [x] Reproduce delayed-tag eye switching offline and implement current-draw pin.
+- [x] Validate policy, actual copy module, 32-bit build and standalone simulator.
+- [x] Install candidate with only DesktopEyeSource=draw added to the tested ini.
+- [ ] User mirror test with single-draw bursts and counterfactual raw leaks.
+- [ ] Separate user headset test; no closure before its result.
+
 ## VR-69 stability correction (2026-09-10)
 
 - [x] Restore render-side weapon eye correction without the live script mono reset.

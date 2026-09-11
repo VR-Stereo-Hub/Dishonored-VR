@@ -432,6 +432,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             dvr::stereo::reentry_push_tag_rec(-1, posOk ? pos : NULL,
                                               SdOpenPoseRecord(-1, g_sdPairId, false));
         } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
+            dvr::desktop_eye::note_single_draw(); // VR-76: actual ticks, not rate-limited log lines
             // A single GAMEPLAY draw while the method pops: one push per draw,
             // so its present cannot eat the next tick's -1 (the header's ONE
             // PUSH). Not in menus: their draws outnumber their presents and
