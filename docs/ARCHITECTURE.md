@@ -641,3 +641,15 @@ and touch only what was written. Rejected: a blacklist of the boat's asset name 
 walk also reaches doors and props), and switching off re-collection (it is what keeps
 weapons attached after loads and swaps). If the Owner offsets cannot be resolved, nothing
 is written; losing the 38.23 crouch-wall clear is the lesser failure.
+
+### 2026-09-10: the cinematic latch is cleared by the engine's flag, not only by parity (VR-73)
+
+The latch that parks synthesized input and drops the headset to the mono quad flips on
+each `OnToggleCinematicMode`, but that action has separate Enable, Disable and Toggle
+inputs, so parity drifts; the prologue arrival left it ON through gameplay. The engine's
+own input locks, read on the object the toggle was dispatched on, are now allowed to
+CLEAR it - after a lock was seen and then released, or when no lock appears within 2 s of
+the toggle (the dispatch did not start a cinematic) - and never to set it. Following the
+locks outright was rejected for this change: it would alter every scene the latch already
+handles, including the boat seat-in, where their values during the ride are unmeasured.
+`bCinematicMode` alone was tried first and never read 1 at the arrival.

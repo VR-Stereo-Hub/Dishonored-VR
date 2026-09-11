@@ -181,6 +181,21 @@ static bool   g_menuGhostByRate  = false;   // [Menu] GhostClearByRate
 static double g_menuGhostQuietMs = 400.0;   // [Menu] GhostQuietMs
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
+// VR-73: the engine's own input locks. The latch above is a parity flip of
+// OnToggleCinematicMode, but that action has Enable, Disable and Toggle inputs,
+// and at the Dunwall Tower arrival the flip left the headset on the mono quad
+// (and the pad parked) until a pause. Every toggle ends in SetCinematicMode, so
+// after one has run these fields ARE the game's state; they may only CLEAR the
+// latch. Read on the object the toggle was dispatched on.
+static uint32_t g_cineFlagOff = 0, g_cineFlagMask = 0;     // PlayerController.bCinematicMode
+static uint32_t g_cineMoveOff = 0;                         // PlayerController.bIgnoreMoveInput (byte counter)
+static uint32_t g_cineDisMoveOff = 0, g_cineDisMoveMask = 0; // PlayerController.bCinemaDisableInputMove
+static uint32_t g_cineDisIgnOff = 0, g_cineDisIgnMask = 0; // DishonoredPlayerController.m_bInputIgnoreInput_Cinematic
+static int      g_cineFlagState = 0;         // 0 unresolved, 1 at least one field resolved, -1 none
+static uint8_t* g_cineCtrl      = NULL;      // the object the last toggle was dispatched on
+static bool     g_cineFlagSeen1 = false;     // a lock read set since the latch last went ON
+static double   g_cineFlag0Ms   = 0.0;       // when every lock first read clear after that
+static int      g_cineLastMask  = -1;        // the lock set last logged, for change-only lines
 static bool CylTruthLive();              // fwd
 // per-eye frustum + eye offsets, cached by BuildEyeQuads for the panel math
 static float g_eyeFr[2][4];           // l, r, t, b

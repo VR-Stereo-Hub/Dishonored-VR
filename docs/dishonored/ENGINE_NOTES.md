@@ -4721,3 +4721,70 @@ Armed=0` still fell at 74-90 ticks/s); a stale virtual-pad A read as held throug
 570 ms seat-in hitch (a guard serving a neutral pad still fell, and itself produced
 `Dis_Jump_ButtonDown`; the runs without it log no jump at the seat-in). The slow Z
 descent at gameplay start is the water lock lifting the boat, not the boat sinking.
+
+**Headset result, 2026-09-10 22:21 (commit `671ea554`, tested ini):** no fall. The log
+resolves both offsets (`ActorComponent.Owner +0x48`, `Actor.Owner +0x10c`), lists the
+boat as `owner SkeletalMeshActorMAT - FOREIGN, never written` with `collision: LEFT
+ALONE`, prints no `CLEARED` line all session, and lists `Skm_Player` as the player's.
+Still unseen: a weapon view model's verdict (none was collected in the prologue).
+
+### The cinematic latch stuck ON at the arrival
+
+With the fall gone, the same moment showed a second fault: the arrival raised the
+latch (`cine: ON`), the headset went to the head-locked mono quad, and it stayed there
+while the player walked and pressed buttons, until a pause and resume cleared it
+(`cine: latch cleared - a loading screen`, 14 s later).
+
+The latch is a parity flip on every `OnToggleCinematicMode`. The engine's handler
+(`PlayerController`) reads the Kismet action's three inputs - Enable, Disable, Toggle -
+and calls `SetCinematicMode`, which sets `PlayerController.bCinematicMode`
+(`DishonoredPlayerController` overrides `SetCinematicMode` and calls a native). A
+parity flip is only right if every Enable is answered by exactly one more dispatch; the
+seat-in sends two in one millisecond and the arrival sends one. The ProcessEvent hook
+also sees the call before the handler runs, so the flag cannot be read at the event.
+
+First attempt (falsified 22:32): clear the latch when `bCinematicMode` (`+0x38c mask
+0x8000`) had read 1 and then 0. It never read 1 in the 5 s after the arrival toggle
+(`cine/truth: bCinematicMode has not read 1`) and the quad stayed until a pause. Since
+every `OnToggleCinematicMode` ends in `SetCinematicMode`, which assigns that flag, a flag
+that never reads 1 means either the arrival dispatch was not an Enable (the parity flip
+raised the latch by mistake) or the wrong object was read (`g_peCtrl` rather than the
+object the event was dispatched on). The "left stick does nothing" during the stuck
+quad is consistent with the mod's own pad park, which the latch drives.
+
+Fix (unverified): read four engine locks on the object the toggle was dispatched on -
+`PlayerController.bCinematicMode`, the `bIgnoreMoveInput` counter (`IgnoreMoveInput`
+adds or removes one, floored at 0), `bCinemaDisableInputMove`, and
+`DishonoredPlayerController.m_bInputIgnoreInput_Cinematic` (set only natively) - polled
+from `CineActive` every present, logged on change with the object's class. They may only
+CLEAR the latch: after any lock read set, all clear for 250 ms; or no lock set at all in
+the 2 s after the toggle. Raising the latch is unchanged, so the seat-in (ON and off in
+one millisecond) behaves as before. If the objects or offsets are wrong, the change lines
+show it, and the second rule would clear a real cinematic's latch after 2 s - watch for
+that in the first cutscene run.
+
+What the arrival is (tester observation, 2026-09-10): a scripted hold, not a camera
+cutscene. The game locks movement for a few seconds - the left stick does nothing - while
+looking around with the right stick and the head still works, then hands control back.
+That is a movement lock without a look lock, which predicts `bIgnoreMoveInput` (or one of
+the other two movement fields) set during the hold and `bCinemaDisableInputLook`-style
+look locks clear.
+
+**Headset result, 2026-09-11 (build `vr33-hands-working-93-g1927118c-dirty`, the code of
+`d0697d25`): fixed** - stereo and movement came back by themselves at the arrival, no
+fall. Offsets: `bCinematicMode +0x38c`, `bIgnoreMoveInput +0x39d`,
+`bCinemaDisableInputMove +0x38c` (another bit of the same word),
+`m_bInputIgnoreInput_Cinematic +0x610`. What the log shows, and what it corrects above:
+
+* The arrival toggle read every lock 0 on the first poll (`0.0 s after the latch went
+  ON`), and the latch cleared by the no-lock rule after 2.0 s. So the arrival dispatch was
+  NOT an Enable: the parity flip had raised the latch by mistake, which is also why
+  `bCinematicMode` alone never read 1. The 2 s window is the short mono spell still seen.
+* A real cutscene shortly after (no looking around) read `bCinematicMode=1
+  bIgnoreMoveInput=2 bCinemaDisableInputMove=1 m_bInputIgnoreInput_Cinematic=0` on the
+  first poll and kept the head-locked quad until a loading screen, as designed.
+* The opening look-around hold on the boat stayed in stereo throughout.
+
+Follow-ups, deliberately not in this change: cutscenes in stereo with mono reserved for
+menus, and a no-lock window far shorter than 2 s (a real Enable reads set on the first
+poll) - VR-75.

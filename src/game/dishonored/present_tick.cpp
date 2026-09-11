@@ -495,6 +495,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         ResVerdictTick();  // 41.1: the render size against the picker's ask, once per size
         SceneProbePresentTick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
+        (void)CineActive();   // VR-73: the latch's engine-flag clear runs every present, pad or not
         UpdateVirtualPad();
         FrameDumpTick(self);
         // UE3 probe: automatic at ~frame 900 and ~frame 14400, or F9 on demand

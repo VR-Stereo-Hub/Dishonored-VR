@@ -18,6 +18,56 @@ static bool CineActive()
         g_cineNow = false;
         Log("cine: latch expired after 8 min - inputs live again");
     }
+    // VR-73: the engine's own input locks may CLEAR the latch, never set it.
+    // Every OnToggleCinematicMode ends in SetCinematicMode, so once one has run
+    // these fields are the game's state, not a guess. Two ways to clear:
+    //   - a lock read set since the latch went ON, then all read clear for 250 ms;
+    //   - no lock read set at all in the 2 s after the toggle: that dispatch was
+    //     not an Enable, and the parity flip raised the latch by mistake.
+    if (g_cineNow && g_cineFlagState == 1) {
+        uint8_t* pc = (g_cineCtrl && LooksLikeObj(g_cineCtrl)) ? g_cineCtrl : g_peCtrl;
+        if (pc && LooksLikeObj(pc)) {
+            int mask = 0;
+            unsigned moveN = 0;
+            if (g_cineFlagOff && RangeReadable(pc + g_cineFlagOff, 4) &&
+                (*(uint32_t*)(pc + g_cineFlagOff) & g_cineFlagMask)) mask |= 1;
+            if (g_cineMoveOff && RangeReadable(pc + g_cineMoveOff, 1)) {
+                moveN = *(uint8_t*)(pc + g_cineMoveOff);
+                if (moveN) mask |= 2;
+            }
+            if (g_cineDisMoveOff && RangeReadable(pc + g_cineDisMoveOff, 4) &&
+                (*(uint32_t*)(pc + g_cineDisMoveOff) & g_cineDisMoveMask)) mask |= 4;
+            if (g_cineDisIgnOff && RangeReadable(pc + g_cineDisIgnOff, 4) &&
+                (*(uint32_t*)(pc + g_cineDisIgnOff) & g_cineDisIgnMask)) mask |= 8;
+            const double now = MaimNowMs();
+            if (mask != g_cineLastMask) {
+                g_cineLastMask = mask;
+                const char* cn = ObjClassName(pc);
+                Log("cine/truth: engine locks now bCinematicMode=%d bIgnoreMoveInput=%u bCinemaDisableInputMove=%d "
+                    "m_bInputIgnoreInput_Cinematic=%d on %s (%s) %.1f s after the latch went ON",
+                    (mask & 1) ? 1 : 0, moveN, (mask & 4) ? 1 : 0, (mask & 8) ? 1 : 0, cn ? cn : "?",
+                    pc == g_peCtrl ? "the latched controller" : "NOT the latched controller",
+                    (now - g_cineOnMs) / 1000.0);
+            }
+            if (mask) {
+                g_cineFlagSeen1 = true;
+                g_cineFlag0Ms = 0.0;
+            } else {
+                if (g_cineFlag0Ms <= 0.0) g_cineFlag0Ms = now;
+                if (g_cineFlagSeen1 && now - g_cineFlag0Ms >= 250.0) {
+                    g_cineNow = false;
+                    Log("cine: latch cleared - the engine's input locks were set and have read clear for %.0f ms, "
+                        "%.1f s after the latch went ON; the matching off-toggle never arrived (VR-73)",
+                        now - g_cineFlag0Ms, (now - g_cineOnMs) / 1000.0);
+                } else if (!g_cineFlagSeen1 && now - g_cineOnMs >= 2000.0) {
+                    g_cineNow = false;
+                    Log("cine: latch cleared - no engine input lock was set in the %.1f s after the toggle, so "
+                        "that dispatch did not start a cinematic and the parity flip raised the latch by mistake "
+                        "(VR-73)", (now - g_cineOnMs) / 1000.0);
+                }
+            }
+        }
+    }
     return g_cineNow;
 }
 
