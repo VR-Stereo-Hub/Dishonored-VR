@@ -5,8 +5,8 @@
 - [x] Reproduce delayed-tag eye switching offline and implement current-draw pin.
 - [x] Validate policy, actual copy module, 32-bit build and standalone simulator.
 - [x] Install candidate with only DesktopEyeSource=draw added to the tested ini.
-- [ ] User mirror test with single-draw bursts and counterfactual raw leaks.
-- [ ] Separate user headset test; no closure before its result.
+- [x] User test with single-draw bursts and counterfactual raw leaks (1,400 ticks, 1,397 shadow leaks, 0 failures).
+- [x] Headset play through the prologue to the hub: no remaining jump; `draw` is the default.
 
 ## VR-69 stability correction (2026-09-10)
 

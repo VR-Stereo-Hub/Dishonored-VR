@@ -1,6 +1,27 @@
 # Status
 
-## CURRENT (2026-09-11): VR-76 mirror candidate installed, user testing pending
+## CURRENT (2026-09-11, later): the last hand/weapon flicker is fixed (VR-76)
+
+The one-frame rightward jump of the hands and weapon is gone. The tester played the
+prologue through to the hub on `vr33-hands-working-95-g18d39cee-dirty` with
+`[VR] DesktopEyeSource=draw` and saw no remaining jump. That run's log: 106
+`desktopeye:` windows, 1,400 single-draw ticks, 1,397 raw leaks counted by the
+old-policy shadow, one right frame shown under `draw` (startup warmup), zero copy
+failures. The tree default is now `draw` (module, loader fallback, generated ini,
+golden); `tag` stays as the A/B. Merge to VR-Main was authorized for PR #35
+(VR-73) and the VR-76 PR together.
+
+Found in the same run, ticketed and deliberately not fixed: VR-78 (crouched, head
+pitch moves the view the wrong way vertically), VR-79 (an object hidden from one
+eye vanishes from both), VR-80 (after closing a note, a rare sustained both-eye
+flicker; the log shows the tag stream resuming one-sided). Still open: VR-77
+(single-draw bursts, the trigger of the mirror leak and a source of held frames),
+VR-75 (cutscenes in stereo, not started), VR-74 (main-menu view under the ground).
+
+Next: pick from VR-80, VR-78, VR-77, VR-79, VR-75. The `V` marker stays in the
+build for the next reproduction.
+
+## Earlier (2026-09-11): VR-76 mirror candidate installed, user testing pending
 
 The desktop pin can now use the current draw's eye instead of a delayed capture
 tag. All runtime present paths, including pairHold and zero tags, reach the

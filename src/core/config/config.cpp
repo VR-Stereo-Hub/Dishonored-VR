@@ -278,8 +278,8 @@ static void WriteDefaultIni(const char* ini)
         "; FpsCap pins the game to a rate (0 = off): 72 with VD at 72 Hz, 45 at 90.\n"
         "FpsCap=0\n"
         "; DesktopEyeSource=tag|draw: draw pins by current backbuffer identity (VR-76).\n"
-        "; Live A/B: desktopeye draw|tag. tag keeps legacy behavior pending headset validation.\n"
-        "DesktopEyeSource=tag\n"
+        "; Live A/B: desktopeye draw|tag. tag is the legacy pin, which leaks the other eye under shared capture.\n"
+        "DesktopEyeSource=draw\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
         "; shim manifest). Empty = %%LOCALAPPDATA%%\\DishonoredVR. Set it to a folder the\n"
@@ -2053,7 +2053,7 @@ static void LoadConfig()
         {
             char source[32] = "";
             GetPrivateProfileStringA("VR", "DesktopEyeSource", "", source, sizeof(source), ini);
-            dvr::desktop_eye::set_source(source[0] ? source : "tag",
+            dvr::desktop_eye::set_source(source[0] ? source : "draw",
                 source[0] ? ini : "compiled default (ini key absent)");
         }
         // ApiLayerGuard runs before LoadConfig and reads this key itself; the

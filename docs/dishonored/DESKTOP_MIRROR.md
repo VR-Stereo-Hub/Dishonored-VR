@@ -49,7 +49,10 @@ invalidates the pin and releases menus/loads. A new surface, a source toggle or
 a failed snapshot requires a successful left snapshot before re-blitting. The
 first right frame after such a boundary can pass through; it is counted as warmup.
 
-The tree default is `tag` pending user testing. Live A/B is `desktopeye draw|tag`;
+The tree default is `draw` since the 2026-09-11 headset run: playing the prologue
+through to the hub showed no remaining jump, and its log counted 1,397 old-policy
+raw leaks against one warmup right frame and no copy failures under `draw`.
+`tag` remains the legacy A/B. Live A/B is `desktopeye draw|tag`;
 `desktopeye status` reports the resolved policy. Save As Defaults persists it.
 The existing `vrmirror on|off` gates the runtime hook separately. The old
 `[VR] DesktopEye` key was documented but never parsed; it is not a working ini

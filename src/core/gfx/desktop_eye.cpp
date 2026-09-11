@@ -14,7 +14,7 @@ IDirect3DSurface9* g_held = nullptr;
 UINT g_w = 0, g_h = 0;
 D3DFORMAT g_fmt = D3DFMT_UNKNOWN;
 bool g_on = true, g_refused = false;
-Source g_source = Source::Tag; // new render lever defaults off
+Source g_source = Source::Draw; // VR-76: headset-confirmed 2026-09-11; tag is the A/B
 Policy g_policy, g_old;
 int g_oldShown = 0;
 uint32_t g_present = 0;
