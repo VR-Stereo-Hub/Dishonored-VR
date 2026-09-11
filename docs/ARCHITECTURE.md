@@ -611,3 +611,20 @@ and reconcile only an exact prior write to the same object and field. Preserve
 fresh engine vectors and all existing ceiling values/easing. This avoids a new
 per-axis inference and is verified by failing legacy controls, passing production
 function tests, and the 417bfad9 headset result. See DOWNWARD_CLAMP_REVIEW.md.
+
+### 2026-09-10: the tested machine's ini is the shipped default (VR-72)
+
+The defaults are two layers and both had drifted: the `WriteDefaultIni` literal a
+fresh install writes, and the fallback each loader call takes when a key is absent.
+They were set together from the headset-confirmed machine's ini, because a fix
+confirmed with one configuration is not delivered if a fresh install resolves another.
+
+Three choices are deliberate. The render levers in that configuration (the bone
+palette, weapon placement, the per-eye weapon offset) now ship ON, an exception to
+new levers shipping OFF: they are not new, they are the confirmed configuration, and
+each keeps its live toggle. The config version is not bumped, because a bump rewrites
+every tuned ini wholesale (VR-11), so existing installs keep their values. And
+calibration and migration STATE keeps its loader fallback (`NeutralSaved`,
+`CrouchMaskVer`) - only settings follow the tested values - while the literal carries
+the tested calibration so a fresh install starts from a working one. `[Paths] DataDir`
+is machine-specific and never ships.

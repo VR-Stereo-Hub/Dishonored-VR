@@ -1,5 +1,24 @@
 # Status
 
+## CURRENT (2026-09-10, late): the shipped defaults match the tested configuration (VR-72)
+
+A fresh install of VR-Main resolved a different, unstable configuration from the
+headset-confirmed machine: world pose lag 1, both automatic A/B experiments on, the
+bone palette and weapon placement off, motion aim on and gamepad-only on. Branch
+`claude/vr-72-fresh-install-defaults` sets the generated default ini and the loader
+fallbacks from that machine's ini (226 keys added, 5 values and 15 fallbacks
+changed); the regenerated golden resolves every key to the tested value.
+`tests/golden/known-good-2026-09-10-stability.ini` records the ini itself. No
+config-version bump, so existing inis are untouched (VR-11).
+
+Not in the headset yet: the build carrying these defaults has not been launched. The
+installed DLL is still the confirmed `417bfad9` diagnostic, whose ini already holds
+these values.
+
+Also reported: on the other developer's VR-Main build the player and nearby NPCs fall
+through the intro boat as it docks. The confirmed configuration is not reported to do
+this. Not yet ticketed.
+
 ## CURRENT (2026-09-10): PR #33 stability fixes, merge authorized
 
 The final controlled build `417bfad9` is headset-confirmed for head-turn stability,
