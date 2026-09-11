@@ -1,5 +1,15 @@
 ## Unreleased
 
+### Changed
+
+- **A fresh install now gets the headset-confirmed configuration (VR-72).** The
+  generated default ini and the loader fallbacks were set from the tested machine's
+  ini: world pose lag 2, both automatic A/B experiments off, the bone palette and
+  weapon placement on with the per-eye weapon offset, native projectile aim, hands
+  and motion controls on (`[Mode] GamepadOnly=0`), and the F10 panel's saved keys.
+  An existing ini is not rewritten (no config-version bump), so it keeps its values;
+  delete it to take the new defaults, then recapture your own hand calibration.
+
 ### Fixed
 
 - **Weapon eye correction survives queued draws and downward camera clamps
@@ -20,9 +30,9 @@
 
 - Retired `PaletteEyeAlternate` and `PaletteEyeFromPass` settings no longer select
   the active weapon eye decision. `PaletteEyeOffset` remains available.
-- To use the game's native reticle direction, set `[MotionAim] Enabled=0`.
-  This is the final local configuration; the generated default is unchanged.
-  The working DLL was retained, and post-reset shot verification is pending.
+- A fresh ini now aims projectiles natively (`[MotionAim] Enabled=0`, VR-72). An
+  existing ini keeps its own value; set it to 0 for the game's reticle direction.
+  Post-reset shot verification is still pending.
 
 - **`[Camera] BodyYawLock` is removed.** It was measured futile (4 of 186 writes
   survived to the next dispatch) and is superseded by `ArmBodyFacing`. Delete the

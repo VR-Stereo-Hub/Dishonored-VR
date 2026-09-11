@@ -55,6 +55,8 @@ static void WriteDefaultIni(const char* ini)
         "; other flicker gone. 0 = OFF, the pre-41.1 behaviour, and the A/B for it.\n"
         "; `stereo hold <n>` live; `stereo status` and the beat report how many were held.\n"
         "HoldUntagged=3\n"
+        "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
+        "LagAB=0\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -79,7 +81,7 @@ static void WriteDefaultIni(const char* ini)
         "; m_Weight, m_TargetWeight and m_bActive are all written every dispatch, because the\n"
         "; game pulls the target back to 0 about 60 ms after raising it on its own.\n"
         "; `arms disable <0..1>` and `arms disable off` are the live A/B.\n"
-        "ArmDisableWeight=-1\n"
+        "ArmDisableWeight=1\n"
         "; ArmLookAtStrength (VR-30): the YAW candidate. ArmDisableWeight above took the\n"
         "; arms' VERTICAL follow and left the horizontal alone, and forcing the settings\n"
         "; weights on top of it added nothing - so both of those act on one channel and\n"
@@ -105,6 +107,10 @@ static void WriteDefaultIni(const char* ini)
         "; 1.0 = hold still, 0.5 = follow at half rate (tune by feel), 0 = write a zero offset\n"
         "; as a control, -1 = off. `arms yaw <0..2>` and `arms yaw off` are the live A/B.\n"
         "ArmCounterYaw=-1\n"
+        "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
+        "BodyYawLock=-1\n"
+        "ArmStripMeshRot=-1\n"
+        "ArmBodyFacing=1\n"
         "[Capture]\n"
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
@@ -147,7 +153,7 @@ static void WriteDefaultIni(const char* ini)
         "; `vrpace sync off` are the live A/B; judge it in the headset before saving.\n"
         "Ahead=0\n"
         "Strict=0\n"
-        "Lag=1\n"
+        "Lag=2\n"
         "SyncHz=0\n"
         "[Perf]\n"
         "; The tick budget (core/framework/perf): Instruments=1 keeps one record per present\n"
@@ -172,7 +178,7 @@ static void WriteDefaultIni(const char* ini)
         "; max and how many intervals ran over twice the median). A window MEAN cannot see a\n"
         "; frame drop, which is why this exists. Nothing about what is rendered changes, and\n"
         "; the baseline is restored when the plan ends. `perf ab status|off|restart|seg <ms>`.\n"
-        "Ab=1\n"
+        "Ab=0\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -259,7 +265,7 @@ static void WriteDefaultIni(const char* ini)
         "; scaled. Head tracking, positional tracking and the FOV lever keep\n"
         "; working. Default 1 while the render is being fitted - set 0 to\n"
         "; get the motion controls back.\n"
-        "GamepadOnly=1\n"
+        "GamepadOnly=0\n"
         "[VR]\n"
         "; Runtime=auto tries the 32-bit OpenXR runtime the system registers (Virtual\n"
         "; Desktop's VDXR, Oculus) and falls back to the bundled SteamVR shim\n"
@@ -342,7 +348,7 @@ static void WriteDefaultIni(const char* ini)
         "; 5 deg steps; the log prints the value - copy your favorite here).\n"
         "; FlipRight/FlipUp=1 mirror the ray if left/right or up/down aim is\n"
         "; reversed. End key = toggle on/off live.\n"
-        "Enabled=1\n"
+        "Enabled=0\n"
         "Hand=left\n"
         "PitchOffsetDeg=40\n"
         "WindowMs=1200\n"
@@ -431,6 +437,30 @@ static void WriteDefaultIni(const char* ini)
         "WpnYaw=0\n"
         "WpnPitch=0\n"
         "WpnRoll=0\n"
+        "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
+        "LTrimX=0.0\n"
+        "RTrimX=0.0\n"
+        "LTrimY=0.0\n"
+        "RTrimY=0.0\n"
+        "LTrimZ=0.0\n"
+        "RTrimZ=0.0\n"
+        "Weapon2Regs=0\n"
+        "WeaponHand=1\n"
+        "Weapon2Hand=0\n"
+        "RightArmFirstBone=0\n"
+        "RightArmLastBone=0\n"
+        "ShowRings=0\n"
+        "RingSizeMeters=0.045\n"
+        "FollowHeadYaw=1.00\n"
+        "FollowHeadPitch=0.00\n"
+        "Axis0Source=2\n"
+        "Axis0Flip=0\n"
+        "Axis1Source=0\n"
+        "Axis1Flip=0\n"
+        "Axis2Source=1\n"
+        "Axis2Flip=0\n"
+        "RouteByDrawOrder=0\n"
+        "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
         "; PoseLag (41.2, VR-68): which generation of the head the hand and the weapon are\n"
         "; normalised against. The engine renders a frame from the head TWO locate generations\n"
@@ -443,6 +473,212 @@ static void WriteDefaultIni(const char* ini)
         "; PoseLagAb=1 walks 0/2/0/2 on 15 s segments so the comparison can be felt again.\n"
         "PoseLag=2\n"
         "PoseLagAb=0\n"
+        "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
+        "Enabled=1\n"
+        "FromControllers=1\n"
+        "WorldSpace=0\n"
+        "WorldRotation=0\n"
+        "Position=1\n"
+        "Rotation=0\n"
+        "RemoveMeshRotation=0\n"
+        "CameraLookAtStrength=1.00\n"
+        "LeftControlStrength=1.00\n"
+        "RightControlStrength=1.00\n"
+        "CrouchOffLFwd=0.0\n"
+        "CrouchOffLRight=0.0\n"
+        "CrouchOffLUp=0.0\n"
+        "CrouchOffRFwd=0.0\n"
+        "CrouchOffRRight=0.0\n"
+        "CrouchOffRUp=0.0\n"
+        "PerStanceTrim=1\n"
+        "BlockOffLFwd=0.0\n"
+        "BlockOffLRight=0.0\n"
+        "BlockOffLUp=0.0\n"
+        "BlockOffRFwd=0.0\n"
+        "BlockOffRRight=0.0\n"
+        "BlockOffRUp=0.0\n"
+        "BlockTrim=1\n"
+        "CrouchSource=3\n"
+        "CrouchDropUU=20\n"
+        "CrouchHoldMs=250\n"
+        "CrouchDiag=0\n"
+        "CrouchToggle=1\n"
+        "CrouchButtonMask=8192\n"
+        "CrouchMaskVer=2\n"
+        "GraftRotation=0\n"
+        "GraftRotSpace=0\n"
+        "GraftHeadComp=1\n"
+        "GraftAimAbs=1\n"
+        "GraftHeadFollowYaw=1.50\n"
+        "GraftHeadFollowPitch=1.50\n"
+        "RotSignYaw=1\n"
+        "RotSignPitch=1\n"
+        "AddToAnim=1\n"
+        "ScaleUU=50.0\n"
+        "ClampUU=120.0\n"
+        "Space=3\n"
+        "Strength=1.00\n"
+        "CounterHeadYaw=0.00\n"
+        "HandSize=1.00\n"
+        "WorldScaleUU=100\n"
+        "RollGain=1.00\n"
+        "LTrimFwd=0.0\n"
+        "LTrimRight=0.0\n"
+        "LTrimUp=0.0\n"
+        "RTrimFwd=0.0\n"
+        "RTrimRight=0.0\n"
+        "RTrimUp=0.0\n"
+        "NeutralLRight=-0.1086\n"
+        "NeutralLUp=-0.1632\n"
+        "NeutralLFwd=0.3664\n"
+        "NeutralRRight=0.1721\n"
+        "NeutralRUp=-0.2383\n"
+        "NeutralRFwd=0.3879\n"
+        "NeutralSaved=1\n"
+        "BoneQuery=0\n"
+        "HandMoveTest=0\n"
+        "DrawCensus=1\n"
+        "MatCycle=0\n"
+        "Palette=1\n"
+        "PaletteAmount=20.0\n"
+        "PaletteAxis=1\n"
+        "PaletteHand=0\n"
+        "PaletteYawFix=0\n"
+        "PaletteFrameProbe=0\n"
+        "PaletteWorld=1\n"
+        "PaletteDepthRange=1\n"
+        "PaletteEyeOffset=1\n"
+        "PaletteEyeAlternate=0\n"
+        "PaletteEyeFromMeasured=0\n"
+        "PaletteEyeHunt=0\n"
+        "PaletteCapture=0\n"
+        "PaletteAbsolute=0\n"
+        "PaletteDrive=0\n"
+        "PaletteDriveGain=1.00\n"
+        "PaletteStep=0\n"
+        "PaletteRotate=1\n"
+        "WeaponId=0\n"
+        "WeaponIdMs=1500\n"
+        "PaletteFrameTol=0.0200\n"
+        "GripLX=24.2129\n"
+        "GripLY=62.2162\n"
+        "GripLZ=-53.6683\n"
+        "GripRX=29.5207\n"
+        "GripRY=-47.6272\n"
+        "GripRZ=22.4724\n"
+        "PaletteSweep=0\n"
+        "PaletteSweepSeconds=3.0\n"
+        "GripLVersion=2\n"
+        "GripLParity=-1\n"
+        "GripRVersion=2\n"
+        "GripRParity=-1\n"
+        "TrimTZ=0.0120\n"
+        "Adjust=1\n"
+        "AdjStepT=1\n"
+        "AdjStepR=3\n"
+        "TrimLTX=0.0000\n"
+        "TrimLRX=0.00\n"
+        "TrimLTY=0.0200\n"
+        "TrimLRY=0.00\n"
+        "TrimLTZ=0.0320\n"
+        "TrimLRZ=0.00\n"
+        "TrimRTX=-0.0400\n"
+        "TrimRRX=0.00\n"
+        "TrimRTY=0.0000\n"
+        "TrimRRY=0.00\n"
+        "TrimRTZ=0.0120\n"
+        "TrimRRZ=0.00\n"
+        "AttachWeapons=1\n"
+        "AttachSwordHand=1\n"
+        "AttachCrossbowHand=0\n"
+        "ModelScale=1.00\n"
+        "AttachAngleTol=0.25\n"
+        "AttachPosTol=1.00\n"
+        "AttachMargin=4.0\n"
+        "AttachMaxTry=3000\n"
+        "AttachGhostFix=1\n"
+        "AttachProbe=1\n"
+        "AttachProbeBudget=400\n"
+        "AttachSnapshotMaxMs=100\n"
+        "[Blink]\n"
+        "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
+        "ControllerAim=0\n"
+        "Marker=1\n"
+        "ReachMode=2\n"
+        "ReachUU=0\n"
+        "NearUU=150\n"
+        "PitchNearDeg=-55.0\n"
+        "PitchFarDeg=-5.0\n"
+        "MarkerPullbackUU=60\n"
+        "AimAtSource=1\n"
+        "OptVer=3\n"
+        "[Overlay]\n"
+        "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
+        "DevTools=0\n"
+        "[VRHands]\n"
+        "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
+        "Enabled=0\n"
+        "HideGameArms=0\n"
+        "Scale=1.00\n"
+        "LeftModel=2\n"
+        "RightModel=1\n"
+        "FollowEquipped=1\n"
+        "HideStaticParts=1\n"
+        "HideStaticRadiusUU=70\n"
+        "M1Yaw=0.0\n"
+        "M1PosX=0.0000\n"
+        "M1Pitch=0.0\n"
+        "M1PosY=0.0000\n"
+        "M1Roll=0.0\n"
+        "M1PosZ=0.0000\n"
+        "M2Yaw=0.0\n"
+        "M2PosX=0.0000\n"
+        "M2Pitch=0.0\n"
+        "M2PosY=0.0000\n"
+        "M2Roll=0.0\n"
+        "M2PosZ=0.0000\n"
+        "M3Yaw=0.0\n"
+        "M3PosX=0.0000\n"
+        "M3Pitch=0.0\n"
+        "M3PosY=0.0000\n"
+        "M3Roll=0.0\n"
+        "M3PosZ=0.0000\n"
+        "M4Yaw=0.0\n"
+        "M4PosX=0.0000\n"
+        "M4Pitch=0.0\n"
+        "M4PosY=0.0000\n"
+        "M4Roll=0.0\n"
+        "M4PosZ=0.0000\n"
+        "M5Yaw=0.0\n"
+        "M5PosX=0.0000\n"
+        "M5Pitch=0.0\n"
+        "M5PosY=0.0000\n"
+        "M5Roll=0.0\n"
+        "M5PosZ=0.0000\n"
+        "M6Yaw=0.0\n"
+        "M6PosX=0.0000\n"
+        "M6Pitch=0.0\n"
+        "M6PosY=0.0000\n"
+        "M6Roll=0.0\n"
+        "M6PosZ=0.0000\n"
+        "M7Yaw=0.0\n"
+        "M7PosX=0.0000\n"
+        "M7Pitch=0.0\n"
+        "M7PosY=0.0000\n"
+        "M7Roll=0.0\n"
+        "M7PosZ=0.0000\n"
+        "LPosX=0.0000\n"
+        "LYaw=0.0\n"
+        "LPosY=0.0000\n"
+        "LPitch=0.0\n"
+        "LPosZ=0.0000\n"
+        "LRoll=0.0\n"
+        "RPosX=0.0000\n"
+        "RYaw=0.0\n"
+        "RPosY=0.0000\n"
+        "RPitch=0.0\n"
+        "RPosZ=0.0000\n"
+        "RRoll=0.0\n"
         "[HeadInject]\n"
         "; (legacy, unused)\n"
         "FlipYaw=1\n"
@@ -561,7 +797,7 @@ static void LoadConfig()
             Log("config: [Camera] ArmFollowWeight=%.2f is out of range (-1 = off, 0..1) - left OFF", afw);
         else if (afw >= 0.0f)
             ArmFollowSetForce(afw, "ini");
-        const float adw = IniFloat(ini, "Camera", "ArmDisableWeight", -1.0f);
+        const float adw = IniFloat(ini, "Camera", "ArmDisableWeight", 1.0f);
         if (adw > 1.0f)
             Log("config: [Camera] ArmDisableWeight=%.2f is out of range (-1 = off, 0..1) - left OFF", adw);
         else if (adw >= 0.0f)
@@ -580,7 +816,7 @@ static void LoadConfig()
         else if (acy >= 0.0f)
             ArmFollowSetCounterYaw(acy, "ini");
         // VR-30: the core fix - hold the body instead of correcting the arms
-        const float fac = IniFloat(ini, "Camera", "ArmBodyFacing", -1.0f);
+        const float fac = IniFloat(ini, "Camera", "ArmBodyFacing", 1.0f);
         if (fac >= 0.0f) ArmFollowSetFacing(fac, "ini");
         const float asr = IniFloat(ini, "Camera", "ArmStripMeshRot", -1.0f);
         if (asr >= 0.0f) ArmFollowSetStripRot(asr, "ini");
@@ -726,7 +962,7 @@ static void LoadConfig()
     if (g_padDeadzone < 0.0f)  g_padDeadzone = 0.0f;
     if (g_padDeadzone > 0.6f)  g_padDeadzone = 0.6f;
     g_fireTraceEnabled = IniFloat(ini, "Debug", "FireTrace", 1) != 0.0f;
-    g_maimEnabled  = IniFloat(ini, "MotionAim", "Enabled", 1) != 0.0f;
+    g_maimEnabled  = IniFloat(ini, "MotionAim", "Enabled", 0) != 0.0f;
     {
         char hb[32];
         GetPrivateProfileStringA("MotionAim", "Hand", "left", hb, sizeof(hb), ini);
@@ -1004,7 +1240,7 @@ static void LoadConfig()
     // 32.12: a saved neutral means the hands land in the same place every
     // launch, so the trim is calibrated once and then left alone.
     // 32.27: MEASURED WORKING - Blink lands where the controller points.
-    g_blkAimOnCfg = IniFloat(ini, "Blink", "ControllerAim", 1) != 0.0f;
+    g_blkAimOnCfg = IniFloat(ini, "Blink", "ControllerAim", 0) != 0.0f;
     // 32.32: back ON by default. The user's key fact - the centre-blindness
     // predates controller aiming and started when stereo went in - rules out
     // "the point has no surface under it" as the cause. It is the draw's
@@ -1137,7 +1373,7 @@ static void LoadConfig()
     // VR-31 route (d): the automatic hide/restore A/B. Ships ON and undoes
     // itself; MatAuto=0 leaves the census read-only.
     g_matAutoCfg      = IniFloat(ini, "Hands", "MatAuto", 0) != 0.0f;
-    g_matCycleCfg     = IniFloat(ini, "Hands", "MatCycle", 1) != 0.0f;
+    g_matCycleCfg     = IniFloat(ini, "Hands", "MatCycle", 0) != 0.0f;
     // 41.2 (VR-31) route (b) step 1. ON for the test sessions: read-only until
     // a numpad key is pressed, and a run that shows nothing is itself the
     // answer. Reverts to OFF when the arm/hand split is settled.
@@ -1184,12 +1420,13 @@ static void LoadConfig()
     g_hmAxis          = (int)IniFloat(ini, "Hands", "HandMoveAxis", 0);
     if (g_hmAxis < 0 || g_hmAxis > 2) g_hmAxis = 0;
 #endif
-    // VR-33: the draw-scoped bone palette. A RENDER LEVER, so it ships OFF
-    // with a live A/B - Palette=0 leaves MsDraw issuing the single merged draw
-    // it always did, and nothing in the frame path changes.
-    g_mpOn            = IniFloat(ini, "Hands", "Palette", 0) != 0.0f;
+    // VR-33: the draw-scoped bone palette. A RENDER LEVER with a live A/B -
+    // Palette=0 leaves MsDraw issuing the single merged draw it always did, and
+    // nothing in the frame path changes. VR-72: it ships ON with the rest of the
+    // headset-confirmed configuration the defaults now match (see ARCHITECTURE).
+    g_mpOn            = IniFloat(ini, "Hands", "Palette", 1) != 0.0f;
 #if DVR_WITH_LEGACY
-    g_mpAmount        = IniFloat(ini, "Hands", "PaletteAmount", 12.0f);
+    g_mpAmount        = IniFloat(ini, "Hands", "PaletteAmount", 20.0f);
     g_mpAxis          = (int)IniFloat(ini, "Hands", "PaletteAxis", 1);
     if (g_mpAxis < 0 || g_mpAxis > 2) g_mpAxis = 1;
     g_mpHand          = (int)IniFloat(ini, "Hands", "PaletteHand", 0);
@@ -1198,10 +1435,10 @@ static void LoadConfig()
     g_mpDriveGain     = IniFloat(ini, "Hands", "PaletteDriveGain", 1.0f);
     if (g_mpDriveGain < 0.05f) g_mpDriveGain = 0.05f;
     if (g_mpDriveGain > 5.0f)  g_mpDriveGain = 5.0f;
-    g_mpWorld         = IniFloat(ini, "Hands", "PaletteWorld", 0) != 0.0f;
+    g_mpWorld         = IniFloat(ini, "Hands", "PaletteWorld", 1) != 0.0f;
     g_mpEyeHunt       = IniFloat(ini, "Hands", "PaletteEyeHunt", 0) != 0.0f;
-    g_mpDepth         = IniFloat(ini, "Hands", "PaletteDepthRange", 0) != 0.0f;
-    g_mpEyeOffset     = IniFloat(ini, "Hands", "PaletteEyeOffset", 0) != 0.0f;
+    g_mpDepth         = IniFloat(ini, "Hands", "PaletteDepthRange", 1) != 0.0f;
+    g_mpEyeOffset     = IniFloat(ini, "Hands", "PaletteEyeOffset", 1) != 0.0f;
 #if DVR_WITH_LEGACY
     g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
 #endif
@@ -1214,11 +1451,11 @@ static void LoadConfig()
     // rule for a new render lever; the installed ini turns it on for the run
     // that is testing it, and the previous stage stays reachable by turning it
     // back off.
-    g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 0) != 0.0f;
+    g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.
-    g_waOn            = IniFloat(ini, "Hands", "AttachWeapons", 0) != 0.0f;
+    g_waOn            = IniFloat(ini, "Hands", "AttachWeapons", 1) != 0.0f;
     g_waSwordHand     = (int)IniFloat(ini, "Hands", "AttachSwordHand", 1);
     g_waXbowHand      = (int)IniFloat(ini, "Hands", "AttachCrossbowHand", 0);
     g_waAngTolDeg     = IniFloat(ini, "Hands", "AttachAngleTol", 0.25f);
@@ -1309,10 +1546,11 @@ static void LoadConfig()
     // a second; the submission join must report exactly that error and must
     // return to zero after. Without it, a join that reports zero has not been
     // shown capable of reporting anything else. PoseSelfTestRecords=0 disables.
-    // VR-65: the announced lag comparison. ON for this build only - it is the
-    // discriminator the refusing render leg cannot supply, it changes nothing but
-    // the pose-history selection, and it restores the baseline by itself.
-    dvr::vr::set_lag_ab(IniFloat(ini, "Stereo", "LagAB", 1) != 0.0f,
+    // VR-65: the announced lag comparison. It was the discriminator the refusing
+    // render leg could not supply; its answer (lag 2) now ships as [Pace] Lag, so
+    // the comparison ships OFF (VR-72) and LagAB=1 walks it again. It changes
+    // nothing but the pose-history selection and restores the baseline by itself.
+    dvr::vr::set_lag_ab(IniFloat(ini, "Stereo", "LagAB", 0) != 0.0f,
                         (uint32_t)IniFloat(ini, "Stereo", "LagABSegMs", 20000));
     dvr::pose::configure_controls(
         (uint32_t)IniFloat(ini, "Stereo", "PoseControlsAfter", 60),
@@ -1340,7 +1578,7 @@ static void LoadConfig()
     // previous present's answer. The method presents the eyes alternately, so
     // holding is the one choice guaranteed wrong; 12% of presents took that path
     // in the flicker run. OFF restores the hold for a direct comparison.
-    g_mpEyeAlternate = IniFloat(ini, "Hands", "PaletteEyeAlternate", 1) != 0.0f;
+    g_mpEyeAlternate = IniFloat(ini, "Hands", "PaletteEyeAlternate", 0) != 0.0f;
     // How long a contract may keep refusing after its component disappears
     // before it is retired so the matcher can re-adopt. 90 presents is about a
     // second at 90 Hz - long enough that a one-frame snapshot gap is not a
@@ -1883,7 +2121,9 @@ static void LoadConfig()
     // a weapon that follow a mis-scaled world give the eye a second, wrong
     // reference for how big things are, and every hand calibration is one
     // more variable in a run that is supposed to be measuring one. So the
-    // controllers stay a plain gamepad until the render is settled.
+    // controllers stayed a plain gamepad until the render was settled.
+    // VR-72: it ships 0 now - the headset-confirmed configuration runs the hands,
+    // weapon placement and motion controls - and 1 remains the bisector it was.
     //
     // What stays ON deliberately: head tracking and its rotation writes,
     // positional head tracking, the FOV lever, and the virtual gamepad. This
@@ -1892,7 +2132,7 @@ static void LoadConfig()
     // The author's process rules say motion crouch and hands "must never stop
     // working". This does not retire them: it is one key, it logs loudly, and
     // the code is untouched. Set GamepadOnly=0 to get them all back.
-    g_gamepadOnly = IniFloat(ini, "Mode", "GamepadOnly", 1) != 0.0f;
+    g_gamepadOnly = IniFloat(ini, "Mode", "GamepadOnly", 0) != 0.0f;
     if (g_gamepadOnly) {
         g_skcDrive     = false;    // no SkelControl hand writes
         g_handMesh     = false;    // no hand mesh collect/drive
