@@ -192,6 +192,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     devs.dev9 = self;
     if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
     dvr::stereo::FrameOutput out;
+    dvr::desktop_eye::begin_present(g_count);
     dvr::stereo::end_frame(devs, out);
     dvr::perf::stamp(dvr::perf::kAfterEnd);
     if (out.tex) ++g_submits;

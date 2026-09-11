@@ -97,6 +97,22 @@ static void StereoUpdate()
         f2Was = f2;
     }
 
+    // VR-76: V stamps the FLICKER MARKER - press it right after seeing the
+    // hands jump. V is unbound in both of the game's binding sections and no
+    // other mod key uses a letter. It only logs (MfMarker, mesh_split.cpp),
+    // and only while the game window is in front, so typing a V into another
+    // window does not plant a false marker.
+    {
+        static bool vWas = false;
+        const bool v = (GetAsyncKeyState('V') & 0x8000) != 0;
+        if (v && !vWas) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+            if (pid == GetCurrentProcessId()) MfMarker();
+        }
+        vWas = v;
+    }
+
     // 30.37: live WORLD SCALE (game units per meter). One knob drives both
     // stereo separation and positional parallax, so all depth cues agree.
     // PageUp = world feels bigger (scale down), PageDown = world smaller.

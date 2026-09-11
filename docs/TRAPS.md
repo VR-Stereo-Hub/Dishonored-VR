@@ -69,6 +69,25 @@ the ticket was filed blaming "something outside both files".
 
 ---
 
+### VR-76: delivered-pixel tags do not identify the live backbuffer
+
+A tag can be correct for its consumer and wrong for another image. Shared
+capture at SharedWait=0 and deferred capture return previous-present pixels
+with their own tag. The desktop pin was applying that tag to the current D3D9
+backbuffer: it held the right eye and leaked raw left frames after single draws.
+Keep current-draw and delivered-texture identities separate. SharedWait=1 is
+current delivery, so the mode name alone does not establish latency.
+
+Moving an action to a common-looking tail is insufficient: pairHold returns
+early after the first-eye capture, and mirror_present had its own zero-tag
+guard. Follow every return and every nested guard. A lifetime snapshot counter
+also does not prove a newly recreated surface contains valid pixels. The host
+suite exercises these surface lifetime boundaries and reproduces the old leak.
+
+The marker windows overlap and flickers cluster. Raising the 42% baseline rate
+to the 37th power assumes independence the sample does not have. Keep the timing
+correlation, discard the p-value. See `dishonored/VR-76-CODEX-HANDOFF.md`.
+
 ## 2. Instruments that could not fail their own hypothesis
 
 Every one of these produced a confident number that meant nothing. They are

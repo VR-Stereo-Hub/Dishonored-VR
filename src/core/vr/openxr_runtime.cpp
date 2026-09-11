@@ -1919,11 +1919,9 @@ void release_mirror() {
 // The D3D9 pin, installed by the host (see set_mirror_hook).
 MirrorHook g_mirrorHook = nullptr;
 
-// The eye pin for one present (see the block comment at the globals). Uses
-// the game device straight off the backbuffer, so it works with or without a
-// live XR session. eyeSign: -1 = this backbuffer is the LEFT eye (snapshot),
-// +1 = RIGHT eye (re-blit the held left over it - call only AFTER the right
-// eye's XR capture), 0 = mono (nothing to pin).
+// The host pin for one present, with or without a live XR session. eyeSign
+// identifies the delivered texture, not necessarily the current backbuffer.
+// The host owns the source policy. Always call after capture, including 0.
 void mirror_present(int eyeSign) {
     // 41.2 (Dishonored): IMPLEMENTED. The pin is a D3D9 StretchRect and this
     // file has no D3D9 device, so the host installs the hook and
@@ -1932,9 +1930,11 @@ void mirror_present(int eyeSign) {
     // counted, and its own comment said so; the consequence was that the game
     // window showed L,R,L,R under a working sequential stereo stream and a
     // recording of it looked exactly like alternate-eye rendering.
-    if (eyeSign == 0 || !g_mirror.load(std::memory_order_relaxed)) return;
+    // 41.2 (Dishonored, VR-76): zero delivered tags still need the host pin;
+    // the host's current backbuffer can carry a tagged eye on this present.
+    if (!g_mirror.load(std::memory_order_relaxed)) return;
     if (eyeSign < 0) g_mirrorHolds.fetch_add(1, std::memory_order_relaxed);
-    else g_mirrorBlits.fetch_add(1, std::memory_order_relaxed);
+    else if (eyeSign > 0) g_mirrorBlits.fetch_add(1, std::memory_order_relaxed);
     if (g_mirrorHook) g_mirrorHook(eyeSign);
 }
 
@@ -3798,10 +3798,8 @@ void on_present_end(ID3D11Texture2D* frame) {
     // stereo gameplay frames flow (menus stop the eye tags -> gate drops).
     dvr::hud::set_gate(srFrame);
 
-    // Mirror, left half: snapshot the LEFT eye before anything else runs
-    // (read-only - the XR eye capture below is unaffected). The right half
-    // runs after the capture block, once the right eye is safely captured.
-    if (srSign < 0) mirror_present(srSign);
+    // 41.2 (Dishonored, VR-76): the host may re-blit on ANY delivered sign.
+    // Both exit paths below call it after capture, before the HUD hook.
 
     // Pair-pacing bookkeeping and the hold decision. A LEFT-tagged present
     // holds the frame open for its RIGHT sibling; anything unexpected on the
@@ -4096,6 +4094,7 @@ void on_present_end(ID3D11Texture2D* frame) {
                         XRLOG("xr: pair pacing live (one waitFrame per eye "
                                 "pair)");
                     backbuffer->Release();
+                    mirror_present(srSign); // 41.2 (Dishonored): pair's first present also reaches the window
                     composite_hud();
                     return;
                 }
@@ -4415,12 +4414,11 @@ void on_present_end(ID3D11Texture2D* frame) {
         }
     }
 
-    // Mirror, right half: the right eye's XR capture is done (or was skipped
-    // this present) - pin the backbuffer to the held left image before the
-    // real Present displays it. The window HUD composite comes after (the
-    // re-blit would overwrite it).
+    // 41.2 (Dishonored, VR-76): every remaining present, including zero tags.
+    // The D3D11 capture is done; the D3D9 backbuffer is still the current draw.
+    // Keep the pin before the HUD hook (currently a no-op in this host).
     int64_t tComp = phase_now();
-    if (srSign > 0) mirror_present(srSign);
+    mirror_present(srSign);
     composite_hud();
     phase_record(kPhComposite, tComp);
 

@@ -1036,6 +1036,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     ctx.pose = g_mpPosePub;
     LeaveCriticalSection(&g_mpPoseCs);
     const WaCommon* views[2] = {WaCommonFor(0, &ctx), WaCommonFor(1, &ctx)};
+    MfNoteWeapon(views[0] || views[1]);   // VR-76: the flicker history
     if (!views[0] && !views[1]) {
         InterlockedIncrement(&g_waNoCommon); return false;
     }

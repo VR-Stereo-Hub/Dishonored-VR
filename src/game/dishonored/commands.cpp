@@ -496,6 +496,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("blink", (bool)g_blkAimOnCfg); w.kv("melee", (bool)g_meleeOn);
     w.kv("fovLever", (double)g_fovLever);
     w.kv("fpsCap", (double)g_fpsCap);
+    dvr::desktop_eye::status(w);
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);

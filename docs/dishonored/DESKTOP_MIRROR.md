@@ -34,30 +34,45 @@ what alternate-eye rendering looks like on a flat screen.
 no eye policy at all. That distinction is the whole finding: the diagnosis had
 been aimed at the headset path for several sessions.
 
-## 2. The fix, and where its two halves live
+## 2. The pin and the delivered-eye correction (VR-76)
 
-`core/gfx/desktop_eye.cpp` pins the window to one eye:
+The original implementation snapshots on a delivered left tag and re-blits on
+right. That tag identifies the headset texture. With deferred capture or shared
+capture at `SharedWait=0`, it describes the previous present, while the pin reads
+the current D3D9 backbuffer. A steady stream therefore pins RIGHT, and a zero
+delivered tag after a single-draw tick lets a raw LEFT frame reach the window.
+Sync and shared at `SharedWait=1` have current-frame delivery.
 
-1. On the **left** eye's present, snapshot the backbuffer.
-2. On the **right** eye's present, re-blit that snapshot over it - **after**
-   that eye's XR capture, never before.
+`[VR] DesktopEyeSource=draw` instead snapshots a resolved current left draw and
+re-blits on right or up to three consecutive unknown draws. The fourth unknown
+invalidates the pin and releases menus/loads. A new surface, a source toggle or
+a failed snapshot requires a successful left snapshot before re-blitting. The
+first right frame after such a boundary can pass through; it is counted as warmup.
 
-The ordering is the load-bearing part. The right eye's pixels must reach the
-headset untouched; only the copy the desktop shows is overwritten.
+The tree default is `draw` since the 2026-09-11 headset run: playing the prologue
+through to the hub showed no remaining jump, and its log counted 1,397 old-policy
+raw leaks against one warmup right frame and no copy failures under `draw`.
+`tag` remains the legacy A/B. Live A/B is `desktopeye draw|tag`;
+`desktopeye status` reports the resolved policy. Save As Defaults persists it.
+The existing `vrmirror on|off` gates the runtime hook separately. The old
+`[VR] DesktopEye` key was documented but never parsed; it is not a working ini
+switch. `desktopeye on|off` controls the host copy module live.
 
-**The runtime layer owns the WHEN, the new module owns the HOW.** The call
-sites in `openxr_runtime.cpp` already sit on the correct side of each capture,
-so that file gains a hook pointer and nothing else. This is deliberate:
-`openxr_runtime.cpp` is a 5k-line proven layer kept as close to the BioShock
-copy as the D3D9 host allows, and the project's rule is that fixes port between
-the two projects only while the rest stays verbatim. A desktop-mirror policy is
-not a seam that layer already has, so it does not acquire one.
+**The runtime layer owns WHEN; the desktop module owns HOW.** Each present
+reaches one of three post-capture hook sites: no XR frame open, first eye held
+open for pairing, or normal completion. All permit a delivered 0. The early
+left-only call was removed because draw mode can re-blit even when the delivered
+tag is left. Every hook precedes `composite_hud`, which is currently a no-op.
+The intervening runtime capture work operates on D3D11 textures, not the current
+D3D9 backbuffer, so the later snapshot still reads the intended game pixels.
 
-**The surface is `D3DPOOL_DEFAULT`, released in `on_reset` before the game's
-Reset.** That is the hkReset law: a default-pool object still held at Reset
-makes the game's Reset fail forever.
+The surface is `D3DPOOL_DEFAULT`, released before the game's Reset. Held-image
+validity belongs to that surface, not to lifetime snapshot counts. Reset, resize,
+device changes and source switches invalidate it.
 
-`[VR] DesktopEye` is the lever, default ON.
+Implementation details, review corrections, hashes, validation and pending tests:
+[VR-76 handoff](VR-76-CODEX-HANDOFF.md). This is an installed candidate fix with
+no headset verdict yet.
 
 ## 3. The pause-menu session loss (VR-54)
 
@@ -124,11 +139,12 @@ an ini when it guesses wrong.
 
 ## 6. Reading the log
 
-**`desktopeye:`**, every 15 s. Snapshot and re-blit counts should be **equal
-and non-zero**. Equal-and-zero means the pin is armed but no stereo pair is
-reaching it, which is normal in a menu. Unequal means one half of the pair is
-being missed and the window will still alternate.
-
+**`desktopeye:`**, every 15 s, reports actual window deltas: current L/R/0,
+delivered tag same/opposite/zero, single gameplay ticks, old-policy shadow
+changes/raw leaks, successful copies, shown-right/unknown, warmup and failures.
+Equal snapshot/blit counts cannot prove that the held eye is the correct one.
+The shadow assumes successful copies; actual shown-eye values are inferred from
+copy provenance, not measured pixels. See the handoff for the field definitions.
 **`stereo: beat`** carries `L/s` and `R/s`, which **read 0 by design on the
 mono screen** - the line says so on the line, because two heartbeat counters
 reading zero by design were read as "the hands are dead" by three separate
@@ -143,7 +159,7 @@ Everything below. None of it is verified.
 
 - The game window shows **one view, no alternation**, while the headset keeps
   correct stereo depth.
-- `desktopeye:` counts equal and non-zero.
+- Draw source active, real bursts and old-policy raw leaks observed, no unexpected right output or copy failures.
 - Open and close the pause menu several times: no `XR_ERROR_HANDLE_INVALID`, no
   session teardown.
 

@@ -2102,6 +2102,242 @@ static bool MpSourceFrame(int cls, const float* pal, UINT count,
 // not enough: the band is bounded on both sides, and anything outside it
 // leaves the eye UNKNOWN rather than guessed. Unknown means no offset, which
 // is the consistent head-centre placement rather than a full IPD of error.
+// VR-76: THE FLICKER HISTORY. The tester reports the hands and the held weapon
+// jumping RIGHT for a single frame, clearest on the desktop mirror. Its legacy
+// tag policy can pin RIGHT with delayed capture. A one-frame fault previously
+// left nothing in the log. This ring keeps what the placement did on each
+// present of the last few seconds and prints it only when the tester presses
+// the marker key (V, hotkeys.cpp). Nothing here changes a draw.
+//
+// One record per present that drew the hands: the eye decision and why, the
+// jump it was decided from, and where each hand's target landed on the draw's
+// right axis. The runtime's own eye tag comes from a second ring filled on the
+// present lane, so the two can disagree on the page.
+struct MfRec {
+    uint32_t present;        // dvr::frame::count() while the draws ran
+    double   ms;             // MaimNowMs() at the first hand draw
+    float    d, projRight, ipdUU;
+    float    tR[2];          // placed target on the right axis, uu (last draw of the present)
+    uint32_t poseGen;
+    int8_t   eye;            // g_mpEyeState after the decision: -1 L, +1 R, 0 unknown
+    char     why;            // T toggled, S same eye kept, A ambiguous, F first sample
+    uint8_t  placed[2], refused[2];
+    uint8_t  waHit, waMiss;  // later draws that did / did not find this present's correction
+};
+static const int kMfRing = 1024;
+static const double kMfWindowMs = 2500.0;
+static MfRec     g_mfRing[kMfRing];
+static int       g_mfHead = -1;              // the newest record, -1 = none yet
+static uint32_t  g_mfTagCount[kMfRing];      // dvr::frame::count() at the game tick
+static int8_t    g_mfTagSign[kMfRing];       // last_output().eyeSign read there
+static int       g_mfTagHead = -1;
+static uint32_t  g_mfMarks = 0;
+
+static MfRec* MfCur()
+{
+    if (g_mfHead < 0) return NULL;
+    MfRec* r = &g_mfRing[g_mfHead];
+    return (r->present == (uint32_t)dvr::frame::count()) ? r : NULL;
+}
+
+static void MfOpen(uint32_t pres, const MpDrawCtx* c, char why, float d, float ipdUU)
+{
+    g_mfHead = (g_mfHead + 1) % kMfRing;
+    MfRec* r = &g_mfRing[g_mfHead];
+    memset(r, 0, sizeof(*r));
+    r->present = pres; r->ms = MaimNowMs();
+    r->d = d; r->projRight = c->projRight; r->ipdUU = ipdUU;
+    r->poseGen = c->pose.gen;
+    r->eye = (int8_t)g_mpEyeState; r->why = why;
+}
+
+static void MfNoteHand(int hand, const MpDrawCtx* c, const float* dcam)
+{
+    MfRec* r = MfCur();
+    if (!r || hand < 0 || hand > 1) return;
+    r->tR[hand] = dcam[0]*c->r[0] + dcam[1]*c->r[1] + dcam[2]*c->r[2];
+    if (r->placed[hand] < 255) r->placed[hand]++;
+}
+
+static void MfNoteRefused(int hand)
+{
+    MfRec* r = MfCur();
+    if (!r || hand < 0 || hand > 1) return;
+    if (r->refused[hand] < 255) r->refused[hand]++;
+}
+
+static void MfNoteWeapon(bool found)
+{
+    MfRec* r = MfCur();
+    if (!r) return;
+    if (found) { if (r->waHit < 255) r->waHit++; }
+    else if (r->waMiss < 255) r->waMiss++;
+}
+
+// Present lane, once per present from DvrGameTick. last_output() there is the
+// PREVIOUS present's; which draws that present carried is an offset the marker
+// measures rather than assumes (see MfTagFor's callers).
+static void MfNoteTag(void)
+{
+    const int i = (g_mfTagHead + 1) % kMfRing;
+    g_mfTagCount[i] = (uint32_t)dvr::frame::count();
+    g_mfTagSign[i]  = (int8_t)dvr::stereo::last_output().eyeSign;
+    g_mfTagHead = i;
+}
+
+// The runtime tag recorded at game tick (present + off); -2 = not in the ring.
+static int MfTagFor(uint32_t present, int off)
+{
+    if (g_mfTagHead < 0) return -2;
+    const uint32_t want = present + (uint32_t)off;
+    const uint32_t headCount = g_mfTagCount[g_mfTagHead];
+    if (want > headCount || headCount - want >= (uint32_t)kMfRing) return -2;
+    const int i = (g_mfTagHead + kMfRing - (int)(headCount - want)) % kMfRing;
+    return (g_mfTagCount[i] == want) ? g_mfTagSign[i] : -2;
+}
+
+static char MfEyeChar(int e) { return e == -2 ? '?' : e < 0 ? 'L' : e > 0 ? 'R' : '0'; }
+
+// The marker. One labelled line, then the history of the window before it.
+static void MfMarker(void)
+{
+    ++g_mfMarks;
+    SYSTEMTIME st; GetLocalTime(&st);
+    const uint32_t pres = (uint32_t)dvr::frame::count();
+    const double now = MaimNowMs();
+    DVR_WARN("MARKER #%u (V) at %02u:%02u:%02u.%03u | present #%u | the tester saw the hands jump just "
+             "before this line; the flicker history below covers the %.1f s before it",
+             g_mfMarks, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, pres, kMfWindowMs / 1000.0);
+
+    // Oldest first, inside the window.
+    static MfRec rec[kMfRing];
+    int n = 0;
+    if (g_mfHead >= 0) {
+        int back = 0;
+        for (; back < kMfRing; back++) {
+            const MfRec& r = g_mfRing[(g_mfHead + kMfRing - back) % kMfRing];
+            if (r.present == 0 || r.present > pres || now - r.ms > kMfWindowMs) break;
+        }
+        for (int k = back - 1; k >= 0; k--) rec[n++] = g_mfRing[(g_mfHead + kMfRing - k) % kMfRing];
+    }
+    if (n == 0) {
+        DVR_WARN("marker #%u: NO hand draws in the last %.1f s - the placement did not run, so this flicker "
+                 "cannot be the palette placement (or the hands were not on screen)",
+                 g_mfMarks, kMfWindowMs / 1000.0);
+        ::dvr::log::flush();
+        return;
+    }
+
+    // Which game tick's tag belongs to which draws is MEASURED: the offset
+    // whose tags agree with the placement's own eye decisions. A healthy run
+    // reads near 100 % at one offset and near 0 % at its neighbours; no clear
+    // winner means the tags cannot be aligned and the tag rows mean nothing.
+    int agree[4] = {0, 0, 0, 0}, total[4] = {0, 0, 0, 0};
+    for (int off = 1; off <= 3; off++)
+        for (int i = 0; i < n; i++) {
+            const int t = MfTagFor(rec[i].present, off);
+            if (t == -2 || t == 0 || rec[i].eye == 0) continue;
+            total[off]++;
+            if (t == rec[i].eye) agree[off]++;
+        }
+    int best = 2;
+    for (int off = 1; off <= 3; off++)
+        if (total[off] && (!total[best] || agree[off] * total[best] > agree[best] * total[off])) best = off;
+    const float ipd = rec[n - 1].ipdUU;
+    DVR_WARN("marker #%u: %d present(s) drew the hands, #%u..#%u (%.0f ms) | draws on %s lane | runtime tag "
+             "offset +1 agrees %d/%d, +2 %d/%d, +3 %d/%d -> using +%d | IPD %.2f uu | healthy: tag and eye both "
+             "alternate L/R and match, why is all T, tR alternates by about one IPD",
+             g_mfMarks, n, rec[0].present, rec[n - 1].present, now - rec[0].ms,
+             (g_mpDrawTid == 0) ? "an unrecorded" : (GetCurrentThreadId() == g_mpDrawTid) ? "this (the marker's)" : "ANOTHER",
+             agree[1], total[1], agree[2], total[2], agree[3], total[3], best, (double)ipd);
+
+    // THE FILTER, stated as one. Zero flagged means no logged placement
+    // quantity differed on any present in the window, which points the fault
+    // outside the placement arithmetic.
+    int flagged = 0, printed = 0;
+    for (int i = 0; i < n; i++) {
+        const MfRec& r = rec[i];
+        const int t = MfTagFor(r.present, best);
+        char why[160]; int w = 0; why[0] = 0;
+        if (t != -2 && t != 0 && r.eye != t)
+            w += _snprintf(why + w, sizeof(why) - w, " eye %c but tag %c;", MfEyeChar(r.eye), MfEyeChar(t));
+        if (r.why != 'T')
+            w += _snprintf(why + w, sizeof(why) - w, " decision %c;", r.why);
+        if (r.refused[0] || r.refused[1])
+            w += _snprintf(why + w, sizeof(why) - w, " refused %u/%u;", r.refused[0], r.refused[1]);
+        if (r.waMiss)
+            w += _snprintf(why + w, sizeof(why) - w, " weapon miss %u;", r.waMiss);
+        for (int h = 0; h < 2 && i >= 2 && i + 2 < n; h++) {
+            const MfRec& a = rec[i - 2]; const MfRec& b = rec[i + 2];
+            if (!r.placed[h] || !a.placed[h] || !b.placed[h] || a.eye != r.eye || b.eye != r.eye) continue;
+            const float dev = r.tR[h] - 0.5f * (a.tR[h] + b.tR[h]);
+            if (fabsf(dev) > 0.35f * ipd)
+                w += _snprintf(why + w, sizeof(why) - w, " hand %d tR %+.2f uu off its same-eye neighbours;", h, (double)dev);
+        }
+        if (w <= 0) continue;
+        why[sizeof(why) - 1] = 0;
+        flagged++;
+        if (printed < 30) {
+            printed++;
+            DVR_WARN("marker #%u flag: #%u %.0f ms before the marker:%s", g_mfMarks, r.present, now - r.ms, why);
+        }
+    }
+    DVR_WARN("marker #%u: %d present(s) flagged (%d printed) - a flag is a tag/eye disagreement, a decision "
+             "other than T, a refused hand, a weapon miss, or a target more than %.2f uu (0.35 IPD) off its "
+             "same-eye neighbours", g_mfMarks, flagged, printed, (double)(0.35f * ipd));
+
+    // THE ENUMERATION: every present in the window, unfiltered.
+    // Timeline rows: one character per present number, '.' = no hand draw.
+    {
+        char tagRow[128], eyeRow[128], whyRow[128];
+        int col = 0; uint32_t rowStart = rec[0].present, p = rec[0].present;
+        int i = 0;
+        while (i < n) {
+            const bool have = (rec[i].present == p);
+            const int t = MfTagFor(p, best);
+            tagRow[col] = MfEyeChar(t);
+            eyeRow[col] = have ? MfEyeChar(rec[i].eye) : '.';
+            whyRow[col] = have ? rec[i].why : '.';
+            col++;
+            if (have) i++;
+            p++;
+            if (col == 100 || i == n || (i < n && rec[i].present - p > 50)) {
+                tagRow[col] = eyeRow[col] = whyRow[col] = 0;
+                DVR_WARN("marker #%u rows from #%u: tag %s", g_mfMarks, rowStart, tagRow);
+                DVR_WARN("marker #%u rows from #%u: eye %s", g_mfMarks, rowStart, eyeRow);
+                DVR_WARN("marker #%u rows from #%u: why %s", g_mfMarks, rowStart, whyRow);
+                col = 0;
+                if (i < n && rec[i].present - p > 50) p = rec[i].present;   // a long gap: skip it
+                rowStart = p;
+            }
+        }
+    }
+    // Numbers: present tag/eye why | jump d | projRight | hand targets on the right axis | pose gen.
+    for (int i = 0; i < n; i += 5) {
+        char line[1024]; int w = 0; line[0] = 0;
+        for (int k = i; k < i + 5 && k < n && w < (int)sizeof(line) - 180; k++) {
+            const MfRec& r = rec[k];
+            // These draws reach Present r.present+1. This join is independent
+            // of the measured offset used for the delivered texture's tag.
+            dvr::desktop_eye::Record mirror;
+            const bool haveMirror = dvr::desktop_eye::record_for(r.present + 1, mirror);
+            w += _snprintf(line + w, sizeof(line) - w, " | #%u %c/%c%c d%+.2f pr%+.2f tR %+.2f%s/%+.2f%s g%u desk=%c:%c/%c/%c/%c",
+                           r.present, MfEyeChar(MfTagFor(r.present, best)), MfEyeChar(r.eye), r.why,
+                           (double)r.d, (double)r.projRight,
+                           (double)r.tR[0], r.placed[0] ? "" : "x", (double)r.tR[1], r.placed[1] ? "" : "x",
+                           r.poseGen, haveMirror ? mirror.source : '?',
+                           haveMirror ? MfEyeChar(mirror.draw) : '?',
+                           haveMirror ? MfEyeChar(mirror.tag) : '?',
+                           haveMirror ? mirror.action : '?',
+                           haveMirror ? MfEyeChar(mirror.shown) : '?');
+        }
+        line[sizeof(line) - 1] = 0;
+        DVR_WARN("marker #%u n -%.0fms%s", g_mfMarks, now - rec[i].ms, line);
+    }
+    DVR_WARN("marker #%u end", g_mfMarks);
+    ::dvr::log::flush();
+}
+
 // VR-69: restore the pre-regression render-side decision. A live script
 // doubling flag cannot identify an older queued render view.
 static void MpEyeForPresent(const MpDrawCtx* c)
@@ -2115,23 +2351,29 @@ static void MpEyeForPresent(const MpDrawCtx* c)
     if (!g_mpEyeHavePrev) {
         g_mpEyeHavePrev = true; g_mpEyePrevFirst = c->projRight;
         g_mpEyeState = 0;                        // nothing to compare against yet
+        MfOpen(pres, c, 'F', 0.0f, ipdUU);
         return;
     }
     const float d = c->projRight - g_mpEyePrevFirst;
     const float ad = fabsf(d);
+    char why;
     if (ad > 0.45f * ipdUU && ad < 2.0f * ipdUU) {
         // The eye changed. The SIGN gives it absolutely, with no vote: the
         // smaller right-axis projection is the right eye.
         g_mpEyeState = (d < 0.0f) ? +1 : -1;
         g_mpEyeToggles++;
+        why = 'T';
     } else if (ad <= 0.45f * ipdUU) {
         // Same eye as the previous Present - or too small to tell apart.
         g_mpEyeSame++;
+        why = 'S';
     } else {
         g_mpEyeState = 0;                        // head moved too far to judge
         g_mpEyeAmbiguous++;
+        why = 'A';
     }
     g_mpEyePrevFirst = c->projRight;
+    MfOpen(pres, c, why, d, ipdUU);              // VR-76: after the decision the draws use
 }
 
 #if DVR_WITH_LEGACY
@@ -2428,6 +2670,7 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
           targetLocal[j] = c->col[j][0]*d[0] + c->col[j][1]*d[1] + c->col[j][2]*d[2]; }
     memcpy(g_mpLastTargetLocal[hand], targetLocal, sizeof(targetLocal));
     memcpy(g_mpLastPCam[hand], dcam, sizeof(dcam));
+    MfNoteHand(hand, c, dcam);                   // VR-76: the flicker history
     return true;
 }
 
@@ -2782,6 +3025,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         // read as "the feature does not work".
                         g_mpWorldWhy = why;
                         InterlockedIncrement(&g_mpWorldRefused);
+                        MfNoteRefused(hIdx);     // VR-76: the flicker history
                         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
                             "ms/palette/world: hand %d NOT placed - %s. The "
                             "engine's own hand is drawn instead.", hIdx, why);

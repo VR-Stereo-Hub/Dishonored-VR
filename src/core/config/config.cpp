@@ -277,6 +277,9 @@ static void WriteDefaultIni(const char* ini)
         "XrHaptics=1\n"
         "; FpsCap pins the game to a rate (0 = off): 72 with VD at 72 Hz, 45 at 90.\n"
         "FpsCap=0\n"
+        "; DesktopEyeSource=tag|draw: draw pins by current backbuffer identity (VR-76).\n"
+        "; Live A/B: desktopeye draw|tag. tag is the legacy pin, which leaks the other eye under shared capture.\n"
+        "DesktopEyeSource=draw\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
         "; shim manifest). Empty = %%LOCALAPPDATA%%\\DishonoredVR. Set it to a folder the\n"
@@ -2047,6 +2050,12 @@ static void LoadConfig()
         g_vrKeepAlive = GetPrivateProfileIntA("Screen", "KeepAliveUnfocused", 1, ini) != 0; // 38.78
         g_chainStamp = GetPrivateProfileIntA("HeadTrack", "ChainStamp", 1, ini) != 0; // 38.88
         g_fpsCap = IniFloat(ini, "VR", "FpsCap", 0.0f);                  // 38.14
+        {
+            char source[32] = "";
+            GetPrivateProfileStringA("VR", "DesktopEyeSource", "", source, sizeof(source), ini);
+            dvr::desktop_eye::set_source(source[0] ? source : "draw",
+                source[0] ? ini : "compiled default (ini key absent)");
+        }
         // ApiLayerGuard runs before LoadConfig and reads this key itself; the
         // read here only keeps the global in step for the ini rewrite.
         g_algGuard = IniFloat(ini, "VR", "DisableBadApiLayers", 1) != 0.0f;
@@ -2637,6 +2646,7 @@ static void OverlaySaveDefaults()
     }
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
+    WritePrivateProfileStringA("VR", "DesktopEyeSource", dvr::desktop_eye::source_name(), ini);
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());
       WritePrivateProfileStringA("Stereo", "HoldUntagged", hv, ini); }

@@ -444,6 +444,27 @@ place or nothing at all. That asymmetry is the whole story of this ticket.
   a different problem from failing to attach them.
 * `wa/census` accounts for every piece of the view model, corrected or not.
 
+**The flicker marker (VR-76).** `V` in the game window writes `MARKER #N (V)`
+with the wall-clock time, then the placement history of the 2.5 s before it -
+nothing else. Every other line on this path is rate-limited, so a one-frame
+fault leaves no trace without it. Per present that drew the hands:
+
+* `tag` - the runtime's eye for that present; `eye` - the placement's own
+  decision; `why` - `T` toggled, `S` same eye kept, `A` ambiguous (no offset),
+  `F` first sample; `.` - no hand draw that present.
+* The header says which game tick's tag lines up with the draws (`+1/+2/+3
+  agrees a/b`). One offset near 100 % is required; without a clear winner the
+  tag row means nothing.
+* `tR` - each hand's placed target on the draw's right axis, in uu (`x` = not
+  placed). Healthy alternates by about one IPD between presents.
+* `flag` lines are a FILTER (tag/eye disagreement, a decision other than `T`, a
+  refused hand, a weapon miss, a target 0.35 IPD off its same-eye neighbours).
+  The `n` rows are the unfiltered enumeration behind it.
+
+The mirror pins the LEFT eye (DESKTOP_MIRROR.md). In the left eye an unknown or
+wrong eye decision places the hands to the LEFT, so a rightward jump on the
+mirror is not that fault unless the rows show otherwise.
+
 ---
 
 ## 7. What is still open
@@ -569,3 +590,21 @@ however it looks.
 * **A printf whose arguments stopped matching its format.** Two edits each added
   the same segment; every value after that point was shifted, and decisions were
   read from numbers that were not what they were labelled.
+
+### VR-76 marker desktop suffix
+
+The V-marker numeric rows now append `desk=source:draw/tag/action/shown`, for
+example `desk=d:L/0/S/L`. Source d/t means current-draw/legacy-tag policy. Draw
+and tag are the current backbuffer classification and this present's delivered
+eye. Action S/B/N/F means successful snapshot, successful re-blit, no copy or
+failed operation. Shown is inferred from copy provenance; it is not a pixel read.
+Unknown identity is 0 and missing history/callback is ?. An F invalidates any
+claim of correct final pixels. The join uses draw counter +1, when those draws
+reach Present, independently of the old marker's measured tag offset. The most
+recent row may not have reached its mirror callback when V is sampled.
+
+`desktopeye:` prints the accompanying 15-second population and old-policy shadow.
+A draw-mode pass needs real single-draw ticks and legacy shadow raw leaks in the
+window, no unexpected right output or copy failures, and no visual mirror jump.
+Startup and post-reset right output is separately counted as warmup. See
+`VR-76-CODEX-HANDOFF.md`; the headset symptom remains a separate user test.

@@ -1,5 +1,6 @@
 #define DVR_CAT ::dvr::log::Cat::cmd
 #include "core/framework/command.h"
+#include "core/gfx/desktop_eye.h"
 #include "core/framework/perf.h"
 #include "core/framework/status.h"
 #include "core/util/log.h"
@@ -56,6 +57,16 @@ uint32_t sequence() { return g_seq; }
 
 bool core_command(const char* cmd, const char* args)
 {
+    if (!strcmp(cmd, "desktopeye")) {
+        if (!strcmp(args, "on")) dvr::desktop_eye::set_enabled(true);
+        else if (!strcmp(args, "off")) dvr::desktop_eye::set_enabled(false);
+        else if (!strcmp(args, "draw") || !strcmp(args, "tag"))
+            dvr::desktop_eye::set_source(args, "command seam");
+        else if (args[0] && strcmp(args, "status"))
+            DVR_WARN("desktopeye: usage - desktopeye draw|tag|on|off|status");
+        dvr::desktop_eye::log_status();
+        return true;
+    }
     if (!strcmp(cmd, "status")) {
         dvr::status::write_now();
         DVR_INFO("status written to %s", dvr::status::path());
