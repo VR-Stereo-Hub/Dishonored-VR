@@ -36,14 +36,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Set 1 make codes. Extended keys would need KEYEVENTF_EXTENDEDKEY as well;
-# none of the keys here are extended.
+# Set 1 make codes. The arrow keys are EXTENDED keys (the E0 prefix on the wire):
+# without KEYEVENTF_EXTENDEDKEY the same code is the keypad digit, which a menu
+# ignores. Needed to walk the main menu's horizontal item bar (New Game is one
+# Right from Continue) and the pause menu's vertical list.
 $scans = @{
     'space'  = 0x39; 'enter' = 0x1C; 'return' = 0x1C; 'escape' = 0x01; 'esc' = 0x01
     'tab'    = 0x0F; 'e'     = 0x12; 'f'      = 0x21; 'y'      = 0x15; 'n'   = 0x31
     'f9'     = 0x43; 'f10'   = 0x44; 'f11'    = 0x57; 'f12'    = 0x58
     '1'      = 0x02; '2'     = 0x03; '3'      = 0x04
+    'up'     = 0x48; 'down'  = 0x50; 'left'   = 0x4B; 'right'  = 0x4D
 }
+$extendedKeys = @('up', 'down', 'left', 'right')
+$Extended = $false
 
 if ($Scan -eq 0) {
     if (-not $Key) { throw "give -Key <name> or -Scan <code>" }
@@ -53,6 +58,7 @@ if ($Scan -eq 0) {
               "Or pass -Scan <set-1 make code>."
     }
     $Scan = $scans[$k]
+    if ($extendedKeys -contains $k) { $Extended = $true }
 }
 
 Add-Type -ErrorAction SilentlyContinue @'
@@ -91,13 +97,16 @@ if (-not $NoFocus -and $p.MainWindowHandle -ne [IntPtr]::Zero) {
     Start-Sleep -Milliseconds 400
 }
 
-$KEYEVENTF_SCANCODE = 0x0008
-$KEYEVENTF_KEYUP    = 0x0002
+$KEYEVENTF_SCANCODE    = 0x0008
+$KEYEVENTF_KEYUP       = 0x0002
+$KEYEVENTF_EXTENDEDKEY = 0x0001
+$flags = $KEYEVENTF_SCANCODE
+if ($Extended) { $flags = $flags -bor $KEYEVENTF_EXTENDEDKEY }
 
 for ($i = 0; $i -lt $Repeat; $i++) {
-    [BvrKey]::keybd_event(0, [byte]$Scan, $KEYEVENTF_SCANCODE, [UIntPtr]::Zero)
+    [BvrKey]::keybd_event(0, [byte]$Scan, $flags, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds $HoldMs
-    [BvrKey]::keybd_event(0, [byte]$Scan, $KEYEVENTF_SCANCODE -bor $KEYEVENTF_KEYUP, [UIntPtr]::Zero)
+    [BvrKey]::keybd_event(0, [byte]$Scan, $flags -bor $KEYEVENTF_KEYUP, [UIntPtr]::Zero)
     if ($i -lt $Repeat - 1) { Start-Sleep -Milliseconds $Delay }
 }
 
