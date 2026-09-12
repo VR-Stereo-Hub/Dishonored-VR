@@ -3,6 +3,7 @@
 #include "game/dishonored/fire_aim_math.h"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 static int checks=0;
 static void check(bool b){++checks;if(!b){std::printf("FAIL %d\n",checks);std::exit(1);}}
@@ -41,6 +42,32 @@ int main(){
         float length=0;for(int i=0;i<3;++i)length+=(sol.target[i]-spawn[i])*(sol.target[i]-spawn[i]);length=std::sqrt(length);
         for(int i=0;i<3;++i)check(std::fabs(spawn[i]+length*sol.direction[i]-sol.target[i])<0.001f);
     }
+    // VR-57: the CANDIDATE selection. Mirrors BrIsLoadedProjectile exactly; if the
+    // two drift this test is worthless, so it is kept adjacent to it in review.
+    // The names are the ones the renderer actually reported in the confirmed run.
+    {
+        auto candidate=[](const char* a)->bool{
+            if(!a||!*a)return false;
+            if(!_stricmp(a,"bolt_01"))return true;
+            if(!_strnicmp(a,"Bolt",4))return true;
+            if(std::strstr(a,"bullet")||std::strstr(a,"Bullet"))return true;
+            return false;
+        };
+        // accepted: every loaded projectile seen in the run
+        check(candidate("bolt_01"));
+        check(candidate("Bolt_Flare"));
+        check(candidate("Gun_bullet_regular"));
+        // REFUSED: the weapon bodies. This is the row that matters - aiming from a
+        // crossbow body would point the shot along its bow arms, across the barrel.
+        check(!candidate("crossbow_01"));
+        check(!candidate("Wpn_PlyGunElite"));
+        check(!candidate("Wpn_PlySword01"));
+        check(!candidate("EliteGun"));
+        check(!candidate("Skm_Player"));
+        check(!candidate(""));
+        check(!candidate(nullptr));
+    }
+
     for(int j=0;j<128;++j)for(int i=0;i<3;++i)points[j][i]=(j&(1<<i))?1.0f:-1.0f;
     check(!bolt_axis(points,128,a)); // wide/ambiguous geometry must never aim
     points[0][0]=std::numeric_limits<float>::quiet_NaN();check(!bolt_axis(points,128,a));

@@ -52,6 +52,13 @@ static int WaHandFor(const char* asset, bool* known)
     if (asset && (strstr(asset, "crossbow") || strstr(asset, "Crossbow") ||
                   strstr(asset, "bolt")     || strstr(asset, "Bolt")))
         return g_waXbowHand;
+    // VR-57: the pistol and its loaded bullet ride the same hand as the crossbow -
+    // they are the ranged slot. Named rather than left to fall through, so the
+    // answer is KNOWN instead of defaulted: `Gun_bullet_regular` is the pistol's
+    // equivalent of `bolt_01`, and the model-ray measurement needs a known hand.
+    if (asset && (strstr(asset, "bullet") || strstr(asset, "Bullet") ||
+                  strstr(asset, "Gun")    || strstr(asset, "gun")))
+        return g_waXbowHand;
     if (known) *known = false;
     return g_waXbowHand;
 }

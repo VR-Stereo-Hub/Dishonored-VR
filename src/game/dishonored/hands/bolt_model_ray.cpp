@@ -20,8 +20,39 @@ struct BrGeometry {
     uint64_t tried=0;
 };
 static BrGeometry g_brGeom[2];
+// WHICH meshes are candidates. A NAME test only, and the name is not what makes
+// this safe: the geometry gates below are. Rigid single-bone skinning, 16:1 axial
+// variance, an unambiguous forward sign, bounded counts and validated index ranges
+// all still apply, so a weapon BODY cannot be aimed from even if one were named -
+// a crossbow's widest axis is its bow arms, across the barrel, and it fails 16:1.
+//
+// The loaded projectile IS the barrel axis, for every ranged weapon in this game.
+// The pistol already has one: asset `Gun_bullet_regular` on component pBulletMesh,
+// exactly as the crossbow has `bolt_01` on pArrowMesh_HighRes. Only the regular
+// bolt was accepted before, which is why the pistol and the poison bolt had no
+// laser and fired to head aim - the fallback was correct, the gate was not.
+static bool BrIsLoadedProjectile(const char* a)
+{
+    if (!a || !*a) return false;
+    if (!_stricmp(a, "bolt_01")) return true;
+    if (!_strnicmp(a, "Bolt", 4)) return true;          // Bolt_Flare and the variants
+    if (strstr(a, "bullet") || strstr(a, "Bullet")) return true;   // Gun_bullet_regular
+    return false;
+}
+
 static void BrRefuse(const char* why) {
     DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,5000,"modelray: unavailable: %s",why);
+}
+// The same, naming the asset. A candidate that fails must say WHICH asset and
+// WHICH test, or an unmeasurable ammunition type looks identical to the feature
+// being switched off.
+static void BrRefuseAsset(const char* asset, const char* why) {
+    DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,5000,
+        "modelray: '%s' REFUSED: %s. The guide is off and firing keeps the engine's "
+        "own aim for this weapon - that is the honest fallback, not a fix. Accepted "
+        "candidates are the loaded bolt and the loaded bullet; a weapon body is "
+        "deliberately never one, because its longest axis is not its barrel.",
+        asset ? asset : "?", why);
 }
 static bool BrReadGeometry(IDirect3DDevice9* dev,WaMesh* w,BrGeometry& g) {
     g={};g.vb=w->vb;g.ib=w->ib;g.decl=w->decl;g.offset=w->streamOffset;
@@ -82,7 +113,7 @@ static bool BrReadGeometry(IDirect3DDevice9* dev,WaMesh* w,BrGeometry& g) {
     ib->Release();vb->Release();return ok;
 }
 static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT regs,const dvr::hf::Xform& delta) {
-    if(!dvr::aim::model_ray_requested()||strcmp(w->asset,"bolt_01")||w->hand<0||w->hand>1)return;
+    if(!dvr::aim::model_ray_requested()||!BrIsLoadedProjectile(w->asset)||w->hand<0||w->hand>1)return;
     const WaCommon* wc=WaCommonFor(w->hand,nullptr);
     if(!wc||!w->heldOk||w->heldPresent!=(uint32_t)dvr::frame::count()||!w->lastL2WOk)return;
     // Only the color view, and only a currently verified HELD instance. No shadow/world samples.
@@ -100,7 +131,12 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     auto& g=g_brGeom[w->hand];const uint64_t now=GetTickCount64();
     const bool same=g.vb==w->vb&&g.ib==w->ib&&g.decl==w->decl&&g.stride==w->stride&&g.offset==w->streamOffset&&
         g.start==w->startIndex&&g.count==w->numVerts&&g.prims==w->primCount&&g.base==w->baseVertex&&g.minIndex==w->minIndex;
-    if(!same||(!g.ok&&now-g.tried>5000))if(!BrReadGeometry(dev,w,g)){BrRefuse("loaded bolt is not a supported rigid elongated mesh");return;}
+    if(!same||(!g.ok&&now-g.tried>5000))if(!BrReadGeometry(dev,w,g)){
+            BrRefuseAsset(w->asset,"not a supported rigid elongated mesh (needs single-bone "
+                                   "rigid skinning, 16:1 axial variance, and a readable "
+                                   "position/weight/index layout)");
+            return;
+        }
     if(!g.ok||g.bone<0||(UINT)(g.bone*3+3)>regs)return;
     dvr::hf::Xform skin;const float* b=palette+g.bone*12;
     for(int r=0;r<3;++r){for(int c=0;c<3;++c)skin.r.m[r*3+c]=b[r*4+c];skin.t[r]=b[r*4+3];}
@@ -111,9 +147,18 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     const auto native=dvr::hf::xform_mul(draw,skin);
     if(!g.sign){float dir[3];dvr::hf::mulv3(native.r,g.axis.dir,dir);float len=0,dot=0;
         for(int i=0;i<3;++i){len+=dir[i]*dir[i];dot+=dir[i]*wc->forward[i];}
-        if(len<1e-8f||fabsf(dot)/sqrtf(len)<0.7f){BrRefuse("cannot resolve bolt forward sign in native view");return;}
+        if(len<1e-8f||fabsf(dot)/sqrtf(len)<0.7f){
+            BrRefuseAsset(w->asset,"its forward sign is ambiguous against the native view "
+                                   "(the fitted axis is more than 45 degrees off the weapon's "
+                                   "own forward, so which end is the tip cannot be decided)");
+            return;
+        }
         g.sign=dot>0?1:-1;
-        Log("modelray: measured loaded bolt axis, rigid slot %d, variance ratio %.1f, length %.3f, sign %d",g.bone,g.axis.ratio,g.axis.high-g.axis.low,g.sign);
+        Log("modelray: measured '%s' axis - rigid slot %d, variance ratio %.1f (16:1 "
+            "required), length %.3f, sign %+d. This is the loaded projectile's own "
+            "lengthwise axis carried through the same transforms that draw it, so it "
+            "is the barrel direction rather than an offset chosen by eye.",
+            w->asset,g.bone,g.axis.ratio,g.axis.high-g.axis.low,g.sign);
     }
     dvr::hf::Xform invPalm;
     if(!dvr::wf::inverse(wc->palm,&invPalm)||wc->unitsPerMeter<1)return;
