@@ -366,8 +366,8 @@ static void AsWhySummary(char* out, size_t cap)
 // measured on both sides of the mapping, so a disagreement is proof the
 // mapping is wrong, not an opinion about where a hand looks.
 static float* g_asRelOut = NULL;   // the head-relative triple, for the log
-static bool AsHandDirGame(float* dirOut, float* xrDeg, float* gameDeg,
-                          const char** why)
+static bool AsHandDirGame(float* dirOut, float* offsetGameOut, float* xrDeg,
+                          float* gameDeg, const char** why)
 {
     dvr::vr::HeadPose head;
     if (!dvr::vr::peek_head_pose(head)) { *why = "no head pose"; return false; }
@@ -410,6 +410,26 @@ static bool AsHandDirGame(float* dirOut, float* xrDeg, float* gameDeg,
     if (xrDeg)   *xrDeg   = acosf(cx < -1.0f ? -1.0f : (cx > 1.0f ? 1.0f : cx)) * 57.2957795f;
     if (gameDeg) *gameDeg = acosf(cg < -1.0f ? -1.0f : (cg > 1.0f ? 1.0f : cg)) * 57.2957795f;
     if (g_asRelOut) { g_asRelOut[0] = rel[0]; g_asRelOut[1] = rel[1]; g_asRelOut[2] = rel[2]; }
+
+    // THE ORIGIN, and why the beam and the bolt disagreed. The shot was aimed
+    // at a point measured from the CAMERA while the beam is drawn from the
+    // CONTROLLER. Two parallel rays from origins ~40 cm apart hit different
+    // places, and the closer the target the worse it is - which is exactly the
+    // "sometimes a bit off" in the 2026-09-11 run. So the hand's offset from
+    // the head travels with the direction, in the same head-relative triple
+    // mapped by the same basis, and the aim point is measured from THERE.
+    if (offsetGameOut) {
+        const float dxr[3] = { apos[0] - head.px, apos[1] - head.py, apos[2] - head.pz };
+        const float relPos[3] = { V3Dot(dxr, right), V3Dot(dxr, up), V3Dot(dxr, headFwd) };
+        const float cp = cosf(g_viewPitchRad), sp = sinf(g_viewPitchRad);
+        const float cy = cosf(g_viewYawRad),   sy = sinf(g_viewYawRad);
+        const float F[3] = {  cp*cy,  cp*sy,  sp };
+        const float R[3] = { -sy,     cy,     0  };
+        const float U[3] = { -sp*cy, -sp*sy,  cp };
+        const float uuPerM = (g_posScaleUU > 1.0f) ? g_posScaleUU : 100.0f;
+        for (int i = 0; i < 3; i++)
+            offsetGameOut[i] = (F[i]*relPos[2] + R[i]*relPos[0] + U[i]*relPos[1]) * uuPerM;
+    }
     *why = "ready";
     return true;
 }
@@ -466,11 +486,11 @@ static void AimSeamDrive(void)
     if (!LooksLikeObj(ctx)) { g_asCtx = NULL; AsRefuse("the context stopped reading as a UObject"); return; }
     if (!AsIsProjectileCtx(ObjClassName(ctx))) { g_asCtx = NULL; AsRefuse("the context changed class"); return; }
 
-    float dir[3], relDbg[3] = {0, 0, 0};
+    float dir[3], relDbg[3] = {0, 0, 0}, handOff[3] = {0, 0, 0};
     float xrDeg = -1.0f, gameDeg = -1.0f;
     const char* rayWhy = "?";
     g_asRelOut = relDbg;
-    if (!AsHandDirGame(dir, &xrDeg, &gameDeg, &rayWhy)) {
+    if (!AsHandDirGame(dir, handOff, &xrDeg, &gameDeg, &rayWhy)) {
         AsRefuse(rayWhy); return;
     }
     // The mapping's own falsification. If the angle off the head in XR and the
@@ -532,7 +552,7 @@ static void AimSeamDrive(void)
                 V3Cross(right, viewFwd, up); V3Norm(up);
                 // the engine's right row points the other way round the cross
                 right[0] = -right[0]; right[1] = -right[1]; right[2] = -right[2];
-                const float f = V3Dot(dir, viewFwd);
+                const float f = V3Dot(dir, viewFwd);   // the ray's own depth in view axes
                 if (f > 0.15f && tanH > 0.01f && tanV > 0.01f) {
                     proj[0] = (V3Dot(dir, right) / f) / tanH;
                     proj[1] = (V3Dot(dir, up) / f) / tanV;
@@ -558,9 +578,18 @@ static void AimSeamDrive(void)
         }
     }
 
-    const float pos[3] = { cam[0] + dir[0] * g_asDriveDistUU,
-                           cam[1] + dir[1] * g_asDriveDistUU,
-                           cam[2] + dir[2] * g_asDriveDistUU };
+    // The aim point the beam's own dot sits on: the CONTROLLER's position, along
+    // the ray, at the distance the crosshair lever draws that dot. Zero in
+    // DriveDistanceUU means "follow the beam", which is the only setting that
+    // cannot disagree with what the player sees.
+    const float uuPerM = (g_posScaleUU > 1.0f) ? g_posScaleUU : 100.0f;
+    const float distUU = (g_asDriveDistUU > 0.0f)
+                       ? g_asDriveDistUU
+                       : dvr::aim::config().distanceM * uuPerM;
+    const float origin[3] = { cam[0] + handOff[0], cam[1] + handOff[1], cam[2] + handOff[2] };
+    const float pos[3] = { origin[0] + dir[0] * distUU,
+                           origin[1] + dir[1] * distUU,
+                           origin[2] + dir[2] * distUU };
     *(uint32_t*)(at + 0x04) = 1u;          // m_bFound
     memcpy(at + 0x08, pos, 12);            // m_AimPos
     memcpy(at + 0x14, dir, 12);            // m_AimDir
@@ -582,7 +611,8 @@ static void AimSeamDrive(void)
             "dot(view)=%+.3f | rel right/up/fwd (%+.3f %+.3f %+.3f) | off the head in XR "
             "%.1f deg, off the view in game %.1f deg (these must agree; that is the "
             "mapping's own check, and it does NOT catch a left/right mirror) | "
-            "aimPos (%.0f %.0f %.0f) at %.0f uu along the ray | "
+            "aimPos (%.0f %.0f %.0f) at %.0f uu along the ray from the CONTROLLER "
+            "(its offset from the head is %.0f uu) | "
             "projected (%.3f %.3f)%s | %ld write(s), %ld refused [%s], the game "
             "rewrote the cache under us %ld time(s). Projection check against the "
             "engine's own sample: mine (%.3f %.3f) vs its (%.3f %.3f), error %.4f "
@@ -595,7 +625,9 @@ static void AimSeamDrive(void)
             dir[0], dir[1], dir[2], V3Dot(dir, viewF), relDbg[0], relDbg[1], relDbg[2],
             xrDeg, gameDeg,
             pos[0], pos[1], pos[2],
-            (double)g_asDriveDistUU, (double)proj[0], (double)proj[1],
+            (double)distUU,
+            (double)sqrtf(handOff[0]*handOff[0] + handOff[1]*handOff[1] + handOff[2]*handOff[2]),
+            (double)proj[0], (double)proj[1],
             projOk ? "" : " NOT WRITTEN (behind the view or no FOV)",
             g_asWrites, g_asWriteRefused, whySummary, g_asOverwritten,
             (double)g_asProjMine[0], (double)g_asProjMine[1],
