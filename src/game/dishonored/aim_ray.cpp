@@ -62,6 +62,22 @@ void tick(bool gameplay, bool projectionWanted) {
                           sample.generation, sample.stampMs, now);
     }
     auto out = visual(g_ray, g_config.dot, g_config.laser, g_config.distanceM, g_config.sizeDeg);
+    if (g_config.bothPoses) {
+        // BOTH rays, with the two ENDPOINTS published first so a tight layer
+        // budget cannot drop the second one and hide half the comparison.
+        // The fat dot and beam are the AIM pose, the small ones the GRIP pose.
+        const Ray gripRay = from_pose(g_config.hand, sample.gripValid, sample.gripPos,
+                                      sample.gripQuat, sample.generation, sample.stampMs, now);
+        out = visual(g_ray, g_config.dot, false, g_config.distanceM, g_config.sizeDeg);
+        visual_append(out, gripRay, g_config.dot, false, g_config.distanceM,
+                      g_config.sizeDeg * 0.6f);
+        visual_append(out, g_ray, false, g_config.laser, g_config.distanceM, g_config.sizeDeg);
+        visual_append(out, gripRay, false, g_config.laser, g_config.distanceM,
+                      g_config.sizeDeg * 0.6f);
+        out.enabled = g_config.dot || g_config.laser;
+        out.valid = g_ray.ok;
+        out.generation = g_ray.gen; out.sampleMs = g_ray.sampleMs;
+    }
     dvr::vr::set_aim_visual(out);
     if (std::strcmp(g_lastWhy, g_ray.why)) {
         DVR_INFO("crosshair: ray %s (hand=%s, gen=%u); %s", g_ray.why,

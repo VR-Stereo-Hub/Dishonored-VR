@@ -2,7 +2,8 @@
 #pragma once
 #include <stdint.h>
 namespace dvr::vr {
-constexpr int kAimVisualPoints = 5; // endpoint first, then four beam markers
+constexpr int kAimVisualPoints = 10; // one ray: endpoint + four markers; two when
+                                     // [Crosshair] BothPoses compares aim against grip
 struct AimVisualPoint { float pos[3] = {}; float sizeDeg = 0.5f; bool dot = false; };
 struct AimVisualConfig {
     bool enabled = false;

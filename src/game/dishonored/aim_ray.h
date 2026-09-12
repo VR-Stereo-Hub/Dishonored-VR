@@ -41,6 +41,9 @@ inline Ray from_pose(int hand, bool valid, const float pos[3], const float quat[
     for (int i = 0; i < 3; ++i) r.originXr[i] = pos[i];
     r.ok = true; r.why = "ready"; return r;
 }
+inline void visual_append(dvr::vr::AimVisualConfig& out, const Ray& ray, bool dot,
+                          bool beam, float distance, float size);
+
 inline dvr::vr::AimVisualConfig visual(const Ray& ray, bool dot, bool beam,
                                       float distance, float size) {
     dvr::vr::AimVisualConfig out;
@@ -61,7 +64,31 @@ inline dvr::vr::AimVisualConfig visual(const Ray& ray, bool dot, bool beam,
     }
     return out;
 }
-struct Config { bool dot = false, laser = false; int hand = 0; float distanceM = 8, sizeDeg = 0.5f; };
+// The SECOND ray, for the pose A/B. Same geometry, appended into the same
+// publication so both beams are one layer budget and one freshness stamp.
+// The tester reports the beam pointing nowhere near the controller while the
+// shot derived from the same pose lands roughly right, and reading the code
+// has not settled it: drawing the runtime's OTHER pose beside it lets the
+// headset name the correct one in one look.
+inline void visual_append(dvr::vr::AimVisualConfig& out, const Ray& ray, bool dot,
+                          bool beam, float distance, float size) {
+    if (!ray.ok || !(dot || beam)) return;
+    if (!std::isfinite(distance) || distance < 0.5f || distance > 50.0f ||
+        !std::isfinite(size) || size < 0.05f || size > 2.0f) return;
+    auto point = [&](float along, float angular, bool endpoint) {
+        if (out.count >= dvr::vr::kAimVisualPoints) return;
+        auto& p = out.points[out.count++]; p.dot = endpoint; p.sizeDeg = angular;
+        for (int a = 0; a < 3; ++a) p.pos[a] = ray.originXr[a] + along * ray.dirXr[a];
+    };
+    if (dot) point(distance, size, true);
+    if (beam) for (int i = 0; i < 4; ++i) {
+        const float along = 0.25f * std::pow((distance * 0.8f) / 0.25f, i / 3.0f);
+        point(along, size * 0.5f, false);
+    }
+}
+
+struct Config { bool dot = false, laser = false; int hand = 0; float distanceM = 8, sizeDeg = 0.5f;
+                bool bothPoses = false; };   // draw the GRIP ray too, at half size
 Config config();
 void configure(const Config& cfg, const char* origin);
 Ray ray(); // most recent present-thread snapshot, no recomputation

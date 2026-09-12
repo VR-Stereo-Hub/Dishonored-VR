@@ -351,6 +351,9 @@ static void WriteDefaultIni(const char* ini)
         "DistanceM=8.0\n"
         "SizeDeg=0.5\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
+        "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60%\n"
+        "; size, so a headset can name which one lies along the controller.\n"
+        "BothPoses=0\n"
         "HideGame=0\n"
         "[MotionAim]\n"
         "; Stage 7.3: hand-aimed projectile weapons (crossbow bolts, pistol\n"
@@ -1018,6 +1021,7 @@ static void LoadConfig()
         crosshair.hand = !_stricmp(hand, "left") ? 0 : !_stricmp(hand, "right") ? 1 : -1;
         crosshair.distanceM = IniFloat(ini, "Crosshair", "DistanceM", 8.0f);
         crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.5f);
+        crosshair.bothPoses = GetPrivateProfileIntA("Crosshair", "BothPoses", 0, ini) != 0;
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
