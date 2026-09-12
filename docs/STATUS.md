@@ -1,6 +1,22 @@
 # Status
 
-## CURRENT (2026-09-12, end of branch): the crossbow aims from its own barrel (VR-57)
+## CURRENT (2026-09-12): MERGED to VR-Main. Next: the pistol's fire seam
+
+PR #37 and #38 are merged (VR-Main at `866e5c43`). The crossbow aims from its own
+barrel and the work is on the main line; both branches are done.
+
+**The single next job: pistol shots follow head aim.** The native fire hook installs
+for the player's CROSSBOW firing context only - it says so on installation,
+`fireaim: INSTALLED at 0x00c38bbb -> ... player crossbow firing context only` - so no
+guide can move a pistol shot. The pistol's GUIDE is already correct, since it shares
+the latched bolt axis, so this is purely the fire seam: trace the pistol's pre-spawn
+join the way `0x00C38BBB` was traced for the crossbow, verify its bytes, and aim it at
+the same published endpoint through the same solver. Everything downstream already
+exists and is tested.
+
+Start from `dishonored/VR-57-MODEL-RAY.md` section 7 and `ENGINE_NOTES`'s VR-57 section.
+
+## Earlier (2026-09-12, end of branch): the crossbow aims from its own barrel (VR-57)
 
 `claude/vr-57-laser-to-bolt`, off `claude/vr-57-crosshair-on-hand-ray`. Headset
 confirmed by the tester: the guide sits on the crossbow's bolt line, the bolt lands on
