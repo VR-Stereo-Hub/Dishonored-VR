@@ -65,6 +65,7 @@ struct BrGeometry {
     // applied to the axis at the same time.
     float pendOrigin[3]={},pendDir[3]={};
     int   pendVotes=0;
+    uint64_t pendFirstMs=0;   // frames are not time; the window must span both
     bool fromBody=false;          // true = fitted from the weapon mesh, not a projectile
     float palmOrigin[3]={},palmDir[3]={};
     bool haveRay=false;
@@ -359,7 +360,27 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     if(!std::isfinite(len)||len<1e-8f)return;
     dvr::hands::ModelRaySnapshot out;out.ok=true;out.sampleMs=now;
     for(int i=0;i<3;++i){out.originPalm[i]=(p[i]+posed.t[i])/wc->unitsPerMeter;out.dirPalm[i]=d[i]/sqrtf(len);
-        if(!std::isfinite(out.originPalm[i])||fabsf(out.originPalm[i])>2)return;}
+        if(!std::isfinite(out.originPalm[i]))return;}
+    // THE TIP MUST BE WITHIN REACH OF THE PALM.
+    //
+    // The old bound allowed 2 metres PER AXIS - up to 3.4 m from the hand - while a
+    // bolt tip sits about 0.41 m away (44.5 units at ~108 per metre). That slack is
+    // what let a wrong origin be latched at startup: the direction can pass its own
+    // check while the origin is metres out, and a dot placed 8 m along a good
+    // direction from a bad origin lands a long way from the barrel. Measured as a
+    // DISTANCE, not per axis, because a per-axis bound admits a corner.
+    {
+        float r2=0;for(int i=0;i<3;++i)r2+=out.originPalm[i]*out.originPalm[i];
+        const float reach=sqrtf(r2);
+        if(!(reach<0.8f)){
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
+                "modelray: candidate REJECTED - its origin is %.2f m from the palm, past "
+                "the 0.80 m a held bolt's tip can reach. The direction can be right while "
+                "the origin is metres out, and that is what put the guide in the wrong "
+                "place at startup.",(double)reach);
+            return;
+        }
+    }
     measured[w->hand]=wc->present;
     // CONFIRM ACROSS FRAMES. A seated bolt reproduces the same palm-frame ray; one
     // being reloaded does not, so consecutive candidates disagree and none is
@@ -378,14 +399,18 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
         if(agree) ++g.pendVotes;
         else {
             for(int i=0;i<3;++i){g.pendOrigin[i]=out.originPalm[i];g.pendDir[i]=out.dirPalm[i];}
-            g.pendVotes=1;
+            g.pendVotes=1;g.pendFirstMs=now;
         }
-        if(g.pendVotes<5){
+        // FRAMES ARE NOT TIME. Five frames can pass in 50 ms, which a brief
+        // stable-but-wrong pose at startup can hold through. The window has to span
+        // real time as well, so a transient cannot satisfy it.
+        if(g.pendVotes<5||now-g.pendFirstMs<300){
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
                 "modelray: candidate axis not yet stable (%d of 5 agreeing frames). A "
                 "seated bolt reproduces the same palm-frame ray every frame; one being "
                 "reloaded does not, and a single frame taken mid-reload would become "
-                "the session's ray. Waiting for it to settle.",g.pendVotes);
+                "the session's ray. Waiting for it to settle (%llu of 300 ms).",
+                g.pendVotes,(unsigned long long)(now-g.pendFirstMs));
             return;
         }
     }
