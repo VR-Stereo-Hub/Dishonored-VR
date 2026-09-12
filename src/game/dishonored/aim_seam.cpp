@@ -541,6 +541,11 @@ static void ShResolveRot(void)
     g_shRotResolved = true;
     g_shRotOffPc   = FindPropOffset("Actor", "Rotation");
     g_shRotOffPawn = g_shRotOffPc;   // same property, different object
+    Log("aimshot/cand: latches ctrl=%s pawn=%s (these are the ProcessEvent "
+        "observer's, filled every dispatch; g_pcObj is only filled by the camera "
+        "FALLBACK and is NULL in a healthy run, which is why both of these refused "
+        "on every shot of the first attempt)",
+        g_peCtrl ? "live" : "NULL", g_pePawn ? "live" : "NULL");
     Log("aimshot/cand: Actor.Rotation resolved by name at +0x%x (%s). The camera "
         "entries stay the literals the mod already writes (0x9c POV, 0xd0 cache); "
         "the retired kPcRotBase is deliberately NOT reused on the controller.",
@@ -597,11 +602,17 @@ static void ShSampleCands(ShRec* h, bool second)
             if (!second) for (int k = 0; k < 3; k++) h->candRaw[kShCamCache][k] = raw[k];
         }
     }
-    if (g_pcObj && ShReadRot(g_pcObj, g_shRotOffPc, raw, fw[kShPcRot])) {
+    // g_peCtrl / g_pePawn, not g_pcObj / g_fpPawn. The first run refused both of
+    // these candidates on every shot: g_pcObj is only ever filled by
+    // FindPlayerController inside RotInjectTick, which returns early while the
+    // script path owns the camera - so in a healthy run it is NULL - and g_fpPawn
+    // is written only by legacy code that ships off. The latches the ProcessEvent
+    // observer keeps are the ones the engine itself hands us, every dispatch.
+    if (g_peCtrl && ShReadRot(g_peCtrl, g_shRotOffPc, raw, fw[kShPcRot])) {
         ok[kShPcRot] = true;
         if (!second) for (int k = 0; k < 3; k++) h->candRaw[kShPcRot][k] = raw[k];
     }
-    if (g_fpPawn && ShReadRot((uint8_t*)g_fpPawn, g_shRotOffPawn, raw, fw[kShPawnRot])) {
+    if (g_pePawn && ShReadRot(g_pePawn, g_shRotOffPawn, raw, fw[kShPawnRot])) {
         ok[kShPawnRot] = true;
         if (!second) for (int k = 0; k < 3; k++) h->candRaw[kShPawnRot][k] = raw[k];
     }
