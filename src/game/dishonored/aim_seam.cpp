@@ -595,6 +595,19 @@ static void ShReport(ShRec* h, const char* cn)
     const float transUU = sqrtf(V3Dot(trans, trans));
     const float uuPerM = (g_posScaleUU > 1.0f) ? g_posScaleUU : 100.0f;
 
+    // SELF AUDIT. The controller origin and the launch point are both on the
+    // player, so the gap between them is under a metre or so when the camera
+    // position is in the right terms. A gap in the hundreds of metres is a sign
+    // or space error in that origin, not a bad shot, and every angle and miss on
+    // this line is then meaningless. It is called out rather than left to be
+    // read as a result: this is how the c5 negation was found.
+    const char* originWarn = "";
+    if (sqrtf(V3Dot(dS, dS)) > 4.0f * uuPerM)
+        originWarn = " *** THE CONTROLLER ORIGIN IS IMPLAUSIBLE: it is more than 4 m from "
+                     "the launch point, so it is not on the player. Every angle and the "
+                     "miss on this line are derived from it and mean NOTHING until it is "
+                     "fixed. A gap of about twice the player's distance from the world "
+                     "origin is a SIGN error in the camera position. ***";
     Log("aimshot #%d: %s | stage %d = %s, %.0f ms after first sight | "
         "ray gen %u age %.0f ms, drive %s | "
         "MISS AT THE DOT %s%.1f uu (%.2f m)%s <- THIS is the acceptance number, not the angle | "
@@ -606,14 +619,14 @@ static void ShReport(ShRec* h, const char* cn)
         "the second means it aimed through the point, which HITS the dot when the "
         "point is the dot) | signed residual horiz %+.2f vert %+.2f deg (a mirror "
         "shows as a sign flip here and nowhere else) | speed %.0f | P at %.0f uu, "
-        "T at %.0f uu",
+        "T at %.0f uu%s",
         h->id, cn ? cn : "?", h->stage, stageName,
         h->lastMs - h->firstMs, r->gen, h->rayAgeMs, r->wrote ? "WROTE this solve" : "off (baseline)",
         miss < 0.0f ? "NOT MEASURED - " : "", miss < 0.0f ? 0.0f : miss,
         miss < 0.0f ? 0.0f : miss / uuPerM, miss < 0.0f ? missWhy : "",
         h->S[0], h->S[1], h->S[2], r->H[0], r->H[1], r->H[2],
         sqrtf(V3Dot(dS, dS)), transUU, degD, degP, residH, residV,
-        h->speed, r->distP, r->distT);
+        h->speed, r->distP, r->distT, originWarn);
     h->reported = true;
     ++g_shCompleted;
 }
@@ -736,7 +749,7 @@ static bool AimSeamSolve(ShRay* out)
     // solve the drive would have refused. It does NOT catch a left/right mirror.
     if (fabsf(xrDeg - gameDeg) > 5.0f) return false;
     float cam[3];
-    if (!dvr::camera::render_pos(cam)) return false;
+    if (!dvr::camera::render_pos_world(cam)) return false;
 
     const float uuPerM = (g_posScaleUU > 1.0f) ? g_posScaleUU : 100.0f;
     out->distT = dvr::aim::config().distanceM * uuPerM;   // the VISIBLE dot
@@ -839,7 +852,7 @@ static void AimSeamDrive(void)
         return;
     }
     float cam[3];
-    if (!dvr::camera::render_pos(cam)) { AsRefuse("no camera position published yet"); return; }
+    if (!dvr::camera::render_pos_world(cam)) { AsRefuse("no camera position published yet"); return; }
 
     const float viewFwd[3] = { cosf(g_viewPitchRad) * cosf(g_viewYawRad),
                                cosf(g_viewPitchRad) * sinf(g_viewYawRad),
