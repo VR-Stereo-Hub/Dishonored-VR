@@ -248,3 +248,43 @@ The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 | `docs/dishonored/DESKTOP_MIRROR.md` | The counter reading that was retracted, and why the eye pin is not in the runtime layer. |
 | `docs/ARCHITECTURE.md` decision log | Why each non-obvious choice was made, dated. |
 | `docs/CODE_REVIEW.md` | Every finding from the review of the original single file, with its disposition. |
+
+### VR-57: an existing visual API can still violate the one-ray contract
+
+The legacy laser fetches its own pose and trims; the aim-dot API accepts a final
+point. Calling both does not make them consumers of identical ray data. The new
+guide publishes explicit endpoint/beam points from one immutable ray. Original
+sample age must also travel with that publication, or repeated publishes keep a
+stale pose falsely fresh.
+
+The existing visual block precedes held-layer recovery. A dot wired only there
+would disappear on single-draw holds. Submit opportunity, pair-open deferral,
+actual projection layer, built quad and successful xrEndFrame are distinct
+populations. Log each, and never infer visibility from a publish counter alone.
+A grip/aim angle near zero is not proof of a runtime bug; a hand correction
+matrix is not a calibrated barrel direction. See the VR-57 implementation review.
+
+### VR-57: do the geometry before the headset run, not after it
+
+Build 111 shipped a head-anchored control dot at TWO distances on one ray from
+the view midpoint, with the written prediction that they would appear concentric
+and that a separation would mean the dots and the compositor disagreed about
+where the head IS. **That prediction was geometrically impossible.** Two points
+at different depths on a CYCLOPEAN ray cannot project to the same point in either
+eye: each eye is offset laterally, so the nearer point is displaced outward by
+`atan(ipd/2 / d)`. At the measured 63.2 mm IPD that is 1.21 deg at 1.5 m against
+0.23 deg at 8 m - a 1.0 deg split, right of the far dot in the left eye and left
+of it in the right, which is precisely what the headset showed and what was
+briefly read as a finding.
+
+It cost nothing only because the FAR dot answered the question on its own. The
+rule it belongs to is already in this file, in a different costume: an instrument
+whose predicted outcomes have not been worked through cannot distinguish the
+answers it claims to. **Write the arithmetic for every branch of the prediction
+table before the run, including the branches you expect not to take.**
+
+The same run also printed `TAG vs LOCATED: worst 180.00 deg` on every present
+where the layer was a quad rather than a projection. That is an uninitialised
+quaternion, not a measurement - the projection views are only filled on the
+projection path. A number printed outside the population it describes is still a
+number, and it reads as a catastrophic finding. The line now refuses instead.

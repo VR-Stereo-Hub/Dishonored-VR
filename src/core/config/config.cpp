@@ -341,6 +341,27 @@ static void WriteDefaultIni(const char* ini)
         "Mode=cancel\n"
         "PivotBelowM=0.321\n"
         "PivotBehindM=0.062\n"
+        "[Crosshair]\n"
+        "; VR-57: visual controller guide only; shots and native reticle unchanged.\n"
+        "; Dot/beam share one runtime AIM-pose ray. Fixed distance, no surface trace.\n"
+        "; Live: F10 Aim, or crosshair dot|laser on|off, hand left|right.\n"
+        "Dot=0\n"
+        "Laser=0\n"
+        "Hand=left\n"
+        "DistanceM=8.0\n"
+        "SizeDeg=0.5\n"
+        "; Reserved; hiding the game reticle is not implemented in this step.\n"
+        "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60%\n"
+        "; size, so a headset can name which one lies along the controller.\n"
+        "BothPoses=0\n"
+        "; VR-57 test 1: ControlDot=1 draws a HEAD-anchored dot straight ahead of the\n"
+        "; view at 1.50 m and at DistanceM, with no controller anywhere in it. Both\n"
+        "; must land on one screen point, and that point on the centre of the game's\n"
+        "; own rendered image. Off the centre means the projection layer is misaligned\n"
+        "; with the world it carries; on the centre puts the controller ray back under\n"
+        "; suspicion. `crosshair control on|off` switches it live.\n"
+        "ControlDot=0\n"
+        "HideGame=0\n"
         "[MotionAim]\n"
         "; Stage 7.3: hand-aimed projectile weapons (crossbow bolts, pistol\n"
         "; bullets, grenades). After you pull the fire trigger, the freshly\n"
@@ -358,6 +379,44 @@ static void WriteDefaultIni(const char* ini)
         "MaxDistUU=900\n"
         "FlipRight=0\n"
         "FlipUp=0\n"
+        "[Aim]\n"
+        "; VR-57 step 2, READ-ONLY. SeamProbe=1 samples the game's own aim-assist\n"
+        "; cache four times a second and logs it (aimseam: lines): the tick tag,\n"
+        "; whether a target was found, its world position and direction, the\n"
+        "; projected screen point, and how far that direction sits from the view\n"
+        "; and from the controller ray. It answers where the shot's direction\n"
+        "; comes from before anything writes it. Nothing the game reads is\n"
+        "; written. SeamVerbose=1 also logs the instances whose tick tag is not\n"
+        "; moving (the NPC contexts), which is the control.\n"
+        "SeamProbe=0\n"
+        "SeamVerbose=0\n"
+        "; DriveFromHand=1 (VR-57 step 3) WRITES that cache from the controller\n"
+        "; ray instead of reading it: the found flag, the aim position and the aim\n"
+        "; direction, leaving the tick tag, the projected screen point and the\n"
+        "; tracking flag alone. It is the test of whether the fire path reads this\n"
+        "; cache at all - if the bolt still follows the crosshair, it does not.\n"
+        "; DriveDistanceUU is how far along the ray the written aim point sits.\n"
+        "DriveFromHand=0\n"
+        "DriveDistanceUU=800\n"
+        "; ShotProbe (VR-57 Phase 1) measures what the fired bolt actually did against\n"
+        "; what the controller asked for. READ-ONLY: it never writes to the game. The\n"
+        "; number it exists to print is the MISS at the plane of the visible dot, in\n"
+        "; units and metres - not the angle between the bolt and the ray, because a bolt\n"
+        "; launched parallel to the ray from a muzzle offset from the controller misses\n"
+        "; the dot by the whole transverse gap at zero angle. Works with DriveFromHand\n"
+        "; either way, and the drive-off run is the baseline.\n"
+        "ShotProbe=0\n"
+        "; FireWatch (VR-57 Phase B) records named script dispatches - anything whose\n"
+        "; name mentions Aim, Fire, Shoot, Launch, Projectile or ViewPoint - and prints\n"
+        "; the ones preceding each scored bolt, with the caller that made them. READ-ONLY.\n"
+        "; The crossbow fire path is native, but Pawn.GetBaseAimRotation is a script\n"
+        "; event, and a native caller reaching a script event goes through ProcessEvent -\n"
+        "; so if the shot asks the pawn for an aim, the ask is visible by name. An empty\n"
+        "; list is a real answer: the seam is wholly native. Needs ShotProbe=1.\n"
+        "FireWatch=0\n"
+        "; Native crossbow launch direction, converging from the muzzle to the controller dot.\n"
+        "; Independent of the old HUD cache drive and MotionAim; live toggle in F10 Aim.\n"
+        "FireFromHand=0\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -966,6 +1025,50 @@ static void LoadConfig()
     if (g_padDeadzone > 0.6f)  g_padDeadzone = 0.6f;
     g_fireTraceEnabled = IniFloat(ini, "Debug", "FireTrace", 1) != 0.0f;
     g_maimEnabled  = IniFloat(ini, "MotionAim", "Enabled", 0) != 0.0f;
+    g_asOn      = IniFloat(ini, "Aim", "SeamProbe", 0) != 0.0f;    // VR-57: read-only fire-seam probe
+    g_asVerbose = IniFloat(ini, "Aim", "SeamVerbose", 0) != 0.0f;
+    if (g_asOn)
+        Log("config: [Aim] SeamProbe=1 - sampling the game's own aim-assist cache "
+            "four times a second (read-only, aimseam: lines)%s",
+            g_asVerbose ? "; verbose: quiet instances logged too" : "");
+    g_asDrive = IniFloat(ini, "Aim", "DriveFromHand", 0) != 0.0f;
+    g_asDriveDistUU = IniFloat(ini, "Aim", "DriveDistanceUU", 800.0f);
+    g_shOn = GetPrivateProfileIntA("Aim", "ShotProbe", 0, ini) != 0;
+    g_fwOn = GetPrivateProfileIntA("Aim", "FireWatch", 0, ini) != 0;
+    FireAimSet(GetPrivateProfileIntA("Aim", "FireFromHand", 0, ini) != 0, "ini");
+    if (g_fwOn)
+        Log("config: [Aim] FireWatch=1 - read-only. Named script dispatches before each "
+            "bolt are recorded and printed. It proves ORDER and PRESENCE only; an empty "
+            "list means the fire path asks nothing through script. ShotProbe is %s, and "
+            "this needs it to have shots to print against.", g_shOn ? "on" : "OFF - "
+            "turn it on or nothing will print");
+    if (g_shOn)
+        Log("config: [Aim] ShotProbe=1 - read-only bolt measurement is ON. It writes "
+            "nothing to the game. The acceptance number it prints is the MISS at the "
+            "visible dot's plane, not the bolt/ray angle; the drive is %s, and a "
+            "drive-off run is the baseline.", g_asDrive ? "also ON" : "off");
+    if (g_asDriveDistUU < 50.0f || g_asDriveDistUU > 20000.0f) g_asDriveDistUU = 800.0f;
+    if (g_asDrive)
+        Log("config: [Aim] DriveFromHand=1 - the controller ray is WRITTEN into the "
+            "equipped weapon's aim-assist cache at %.0f uu. Shots may change; "
+            "MotionAim stays separate and is %s.", (double)g_asDriveDistUU,
+            g_maimEnabled ? "ALSO ON (turn it off: they fight)" : "off");
+    {
+        dvr::aim::Config crosshair;
+        crosshair.dot = GetPrivateProfileIntA("Crosshair", "Dot", 0, ini) != 0;
+        crosshair.laser = GetPrivateProfileIntA("Crosshair", "Laser", 0, ini) != 0;
+        char hand[32]; GetPrivateProfileStringA("Crosshair", "Hand", "left", hand, sizeof(hand), ini);
+        crosshair.hand = !_stricmp(hand, "left") ? 0 : !_stricmp(hand, "right") ? 1 : -1;
+        crosshair.distanceM = IniFloat(ini, "Crosshair", "DistanceM", 8.0f);
+        crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.5f);
+        crosshair.bothPoses = GetPrivateProfileIntA("Crosshair", "BothPoses", 0, ini) != 0;
+        crosshair.controlDot = GetPrivateProfileIntA("Crosshair", "ControlDot", 0, ini) != 0;
+        dvr::aim::configure(crosshair, ini);
+        if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
+            Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
+        if (g_maimEnabled && (crosshair.dot || crosshair.laser))
+            Log("crosshair: MotionAim is ON independently; this guide does not control its projectile ray");
+    }
     {
         char hb[32];
         GetPrivateProfileStringA("MotionAim", "Hand", "left", hb, sizeof(hb), ini);
@@ -2647,6 +2750,18 @@ static void OverlaySaveDefaults()
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("VR", "DesktopEyeSource", dvr::desktop_eye::source_name(), ini);
+    {
+        const auto crosshair = dvr::aim::config();
+        WritePrivateProfileStringA("Aim", "FireFromHand", FireAimEnabled() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Crosshair", "Dot", crosshair.dot ? "1" : "0", ini);
+        WritePrivateProfileStringA("Crosshair", "Laser", crosshair.laser ? "1" : "0", ini);
+        WritePrivateProfileStringA("Crosshair", "Hand", crosshair.hand ? "right" : "left", ini);
+        WritePrivateProfileStringA("Crosshair", "ControlDot", crosshair.controlDot ? "1" : "0", ini);
+        _snprintf(v, 64, "%.3f", crosshair.distanceM);
+        WritePrivateProfileStringA("Crosshair", "DistanceM", v, ini);
+        _snprintf(v, 64, "%.3f", crosshair.sizeDeg);
+        WritePrivateProfileStringA("Crosshair", "SizeDeg", v, ini);
+    }
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());
       WritePrivateProfileStringA("Stereo", "HoldUntagged", hv, ini); }

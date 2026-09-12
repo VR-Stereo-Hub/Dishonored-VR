@@ -672,3 +672,27 @@ future HUD ordering without coupling OpenXR to the pin's source policy.
 The offline policy and actual copy module pass host checks. The candidate is
 installed with draw enabled for user-run testing; no headset verdict is claimed.
 See `dishonored/VR-76-CODEX-HANDOFF.md` for validation and remaining questions.
+
+### 2026-09-11: one-ray controller guide, explicit points at the runtime seam (VR-57)
+
+The game adapter owns a validated XR aim-pose ray and computes its fixed-distance
+endpoint and four beam markers. The runtime only billboards explicit points in
+LOCAL space. Reusing the legacy laser's independent pose/trim derivation would
+violate the one-ray contract. The point billboard geometry and soft texture are
+shared instead; no game-space conversion or projectile write is introduced.
+
+The new consumer runs after the held-layer fallback. Placing it at the old laser
+block would remove the guide on HoldUntagged frames and create a new visual
+flicker. Actual projection type, sample/publication freshness, runtime/array layer
+limits and successful image publication all gate the added layers. Outcomes are
+counted through xrEndFrame. F10 Aim and the command seam share configuration.
+See `dishonored/VR-57-CODEX-HANDOFF.md`. No visual verdict yet; the user tests.
+
+## 2026-09-12: native crossbow direction before spawn (VR-57)
+
+Use the verified native stack direction at the common spawn join, instead of
+swapping global camera/controller rotations or retaining a projectile pointer.
+Both spawn rotation and velocity initialization consume this local. Converge the
+selected spawn position on the existing fixed-distance hand endpoint. Earlier
+trace/assist decisions remain outside this change. See
+`dishonored/VR-57-NATIVE-FIRE-HANDOFF.md` for proof and limitations.

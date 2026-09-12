@@ -1,5 +1,33 @@
 # Roadmap
 
+## VR-57 native launch (2026-09-12)
+
+- [x] Derive and byte-verify the native crossbow pre-spawn direction consumer.
+- [x] Implement guarded hand endpoint convergence; validate x86 bridge and geometry offline.
+- [ ] Confirm launch behavior during user play; no runtime verdict yet.
+
+## VR-57 hand aiming (2026-09-12)
+
+- [x] One ray from the runtime's AIM pose, with its own mapping check.
+- [x] Dot and beam drawn from it; both controller poses drawable for comparison.
+- [x] The game's aim-assist cache found, read, and written from the ray.
+- [x] Measured: the ray maps exactly; the grip pose points 74-84 deg up; the
+      layer budget draws every point.
+- [ ] The beam does not lie along the controller in the headset - test the
+      compositor-versus-world alignment (head-anchored control dot, FOV audit,
+      submitted view pose) before doubting the ray again.
+- [ ] The aim assist clamps shots back toward its own crosshair; decide whether
+      to drive its input, widen it, or disable it per the tester's choice.
+- [ ] The weapon model's barrel axis, so the model points along the ray.
+
+## VR-57 visual aiming guide (2026-09-11)
+
+- [x] Review the prior failure and preserve one ray for dot and beam.
+- [x] Implement fixed-distance XR visuals, F10/seam controls and renderer outcomes.
+- [x] Host-test ray/compositor paths, build x86 and install with MotionAim off.
+- [ ] User headset test: guide appears and follows the selected controller.
+- [ ] Separate static crossbow-barrel alignment test before trace/projectile work.
+
 ## VR-76 mirror correction (2026-09-11)
 
 - [x] Reproduce delayed-tag eye switching offline and implement current-draw pin.

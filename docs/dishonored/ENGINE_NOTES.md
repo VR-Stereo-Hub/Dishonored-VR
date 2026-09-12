@@ -4788,3 +4788,42 @@ fall. Offsets: `bCinematicMode +0x38c`, `bIgnoreMoveInput +0x39d`,
 Follow-ups, deliberately not in this change: cutscenes in stereo with mono reserved for
 menus, and a no-lock window far shorter than 2 s (a real Enable reads set on the first
 poll) - VR-75.
+
+## VR-57 native crossbow fire seam (offline derivation, 2026-09-12)
+
+The read-only FireWatch is not needed to find this seam. Offline analysis of the
+installed PE followed the FireCrossbow class metadata at 0x01361928 to constructor
+0x00C29DB0. It installs the context vtable at 0x01172C80; the entry at 0x01172E30
+is the native firing routine 0x00C38230. No generic UE3 firing assumption is used.
+
+The function resolves its source pawn via 0x00BFF440 and stores it at EBP-0x54.
+It computes two possible spawn positions, joining at 0x00C38BBB. At this join,
+EBP-0xB8 holds the selected spawn position and EBP-0xAC the chosen unit direction.
+The direction is converted to a rotator by the call at 0x00C38BD0, followed by
+spawn at 0x00C38BF4. At 0x00C38DB6 the same direction local is passed to the
+projectile initializer through vtable offset 0x3A4. The Arrow constructor at
+0x00C57A90 installs vtable 0x011851E8, whose 0x3A4 slot selects 0x00C54E70.
+That wrapper calls 0x00C540A0: the direction argument is multiplied by the speed
+arguments and written to Velocity at +0x1B4/+0x1B8/+0x1BC, at
+0x00C54152/0x00C5416B/0x00C54171. The initializer also derives actor orientation
+from that same direction. This is initialization, not later steering.
+
+The hook at the common join replaces only the local direction with
+normalize(controllerEndpoint - selectedSpawn), before either consumer. It does
+not write Actor.Rotation, change the spawn position, change speed, or retain a
+projectile pointer. The bridge preserves flags, integer registers, x87/MXCSR/XMM
+state and replays the six displaced bytes. Live source-pawn possession and the
+exact FireCrossbow context vtable gate the write. The initializer call bytes are
+also checked before installation. Runtime behavior remains untested by this
+session: no game or simulator launch is authorized.
+
+The native cache helper 0x00C14460 compares the cache tick tag at context+0xD0
+against the current native tag and can refill the cache before returning it.
+The firing routine calls it through 0x00C14640. Thus the categorical claim that
+the aim cache is never read by firing is incorrect. The failed earlier writes
+still justify bypassing that writer; no blind tag changes are introduced.
+
+Known scope: native target/obstruction selection happens before this hook, and
+native homing/assist setup may happen afterward. This candidate fixes launch
+convergence; it does not claim controller-based tracing, assist removal, ballistic
+impact prediction, or weapon-model alignment. Those behaviors remain separate.

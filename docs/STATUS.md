@@ -1,6 +1,119 @@
 # Status
 
-## CURRENT (2026-09-11, later): the last hand/weapon flicker is fixed (VR-76)
+## CURRENT (2026-09-12): native crossbow hand-aim candidate (VR-57)
+
+Implemented the byte-verified native pre-spawn firing hook. It aims the existing
+spawn position at the controller dot endpoint before the engine builds rotation
+and velocity. No camera/body rotation swapping or retained projectile pointers.
+The x86 build and offline geometry/bridge/compositor tests pass. The candidate is
+installed with FireFromHand on, legacy/cache drive and diagnostic probes off.
+No game or simulator was launched; runtime behavior remains unverified.
+
+Next: user play when ready; weapon alignment, native traces and assist are separate.
+The complete implementation and evidence are in
+[dishonored/VR-57-NATIVE-FIRE-HANDOFF.md](dishonored/VR-57-NATIVE-FIRE-HANDOFF.md).
+
+
+## Earlier (2026-09-12, later): the projection layer is aligned; the ray is the suspect (VR-57)
+
+Build 111 added a HEAD-anchored control dot - straight ahead of the located view,
+no controller anywhere in it - and the layer-alignment numbers beside it. One
+headset launch settled all three tests in `dishonored/VR-57-AIM-PIPELINE.md`
+section 7, and **all three came back clean**:
+
+* the control dot sits on the game's own crosshair (tester),
+* the claimed fov equals the fov the game rendered (108.07 vs 108.07 deg, tan
+  1.3780 vs 1.3780, src=readback),
+* the layer's pose tag equals the located pose with the head still (0.00 deg,
+  0.000 m at poseLag 2).
+
+So the compositor quads and the rendered world DO share a frame. The leading
+hypothesis is falsified and the controller ray is back under suspicion. The
+control dot is kept as the calibrated reference.
+
+Two side findings, both consistent. The game's crosshair LAGS the head while the
+control dot does not, because the crosshair is painted into an image submitted
+with a pose two generations old and a 2D HUD element cannot be reprojected - so
+the game's crosshair is only a valid reference while the head is still. And bolts
+landed at that crosshair, which is expected: `DriveFromHand` was off for this run
+on purpose, since it moves the reference.
+
+One mistake, recorded in `TRAPS.md`: the control dot shipped at two distances with
+the written prediction that they would appear concentric. Two points at different
+depths on a cyclopean ray cannot coincide in either eye - at the measured 63.2 mm
+IPD they split by 1.0 deg, outward in each eye, which is what the headset showed.
+The near dot is removed.
+
+Next: build 112 draws the controller dot and the control dot together at 8 m. The
+tester sights along the controller at the control dot and the separation is the
+pose error, measured against a reference that has now been confirmed. The beat
+prints the prediction in degrees (`DOT APPEARS az/el`) so the report can refute
+it. The two remaining candidates are a genuinely wrong aim pose and a comparison
+made against the separately-rotated weapon MODEL rather than the controller; the
+second is the stronger and is what 112 separates.
+
+## Earlier (2026-09-12): hand aiming - the ray is right, the drawn beam is not (VR-57)
+
+The full pipeline, every measurement and the leads are in
+`dishonored/VR-57-AIM-PIPELINE.md`. Read that first; this is the summary.
+
+Built on `claude/vr-57-crosshair-on-hand-ray` (builds 100-110, nothing merged):
+one aim ray from the runtime's AIM pose, a dot and beam drawn from it as
+compositor quads, a read-only probe of the game's own aim-assist cache, and a
+lever that WRITES that cache from the ray so the shot follows the controller.
+
+What holds: the game computes the fire direction itself, and its equipped
+weapon caches the assist result per tick (`DisItemContext_FireCrossbow`,
+`m_CachedAimAssistPos` at +0x00d0) with a direction that tracks the view
+(dot +0.998) and a projected screen point. Writing it moves the shot; 485,083
+writes, zero refused. The ray's mapping into game axes is exact - the angle off
+the head in XR equals the angle off the view in game (30.0/30.0, 25.3/25.3).
+
+What does not: the tester reports the beam sitting about 45 deg left and 10-20
+deg up from where the controller points, while the same ray measures near
+straight ahead when the arm is extended and still (az -12, el +5 over 36 steady
+samples). The dots are placed at the controller's own position along that ray,
+and the layer budget draws all 10 points, so the suspect is the alignment
+between compositor quads and the game's RENDERED WORLD (the claimed FOV, the
+submitted view poses, the eye tag) rather than the ray. Shots are also pulled
+back toward the game's crosshair from either side, which is the aim assist
+clamping how far it will move a shot.
+
+Next, in order: a head-anchored control dot (if that also sits wrong, the ray is
+exonerated and the fault is the layer), the FOV audit against the game's own
+rendered FOV, then the submitted view pose. Then the assist clamp, then the
+barrel axis for the model. Fresh leads to mine in the decompiled scripts are
+listed in the pipeline doc, section 9.
+
+The weapon model is separately rotated from the controller; SHIFT+F7 improved
+it and the numpad adjust finishes it. A crash after a pause menu is recorded but
+not attributed: the same d3d9 signature appears in runs from 2026-09-03 and
+2026-09-09. The write is now gated to gameplay regardless.
+
+## CURRENT (2026-09-11): VR-57 visual controller guide installed, user test pending
+
+Step 1 on `claude/vr-57-crosshair-on-hand-ray` publishes a fixed-distance dot and
+four beam markers from one validated XR aim-pose ray. F10 Aim and `crosshair`
+commands control both. The runtime adds explicit points after held-projection
+recovery, with freshness, budget and submission-result telemetry. MotionAim stays
+off; shots, native reticle, Blink and hand placement retain existing behavior.
+
+Installed `vr33-hands-working-100-geb8f27d4-dirty`, SHA256
+`F1164C5F354F9501DE4AD612EA37A5EB5AE126A6C1ABFD86BBA7A807CF1C9DD4`.
+Only new Crosshair settings were appended: dot/laser on, left hand, 8m, 0.5deg.
+Tree dot/laser defaults are off. Release build, 70,234 aim/compositor host
+assertions, mirror regression, hand/weapon tests and exports passed. No game or
+simulator launch. The guide appears only in the headset compositor, not the
+D3D9 desktop mirror. Source changes remain uncommitted for review.
+
+Next: user tests appearance/controller following, then static barrel alignment
+on a separate launch. The old failed shot direction is not yet isolated to pose
+choice; no measured weapon-axis comparison is invented. Full review answers,
+installed hashes, backups, instrumentation and testing:
+`dishonored/VR-57-CODEX-HANDOFF.md`. Trace and actual projectile aiming come later.
+
+
+## Earlier (2026-09-11, later): the last hand/weapon flicker is fixed (VR-76)
 
 The one-frame rightward jump of the hands and weapon is gone. The tester played the
 prologue through to the hub on `vr33-hands-working-95-g18d39cee-dirty` with

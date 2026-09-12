@@ -114,6 +114,42 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             break;
         }
     }
+    // VR-57 Phase B: record named dispatches that could be the fire path asking
+    // for an aim. Top level, its own lever, no dependence on any other feature.
+    // The name test is a cheap substring over a name already resolved for other
+    // reasons; the ring is fixed size and holds scalars only.
+    if (g_fwOn && peNameIdx != 0xffffffffu) {
+        const char* fn = RealName(peNameIdx);
+        if (fn && (strstr(fn, "Aim") || strstr(fn, "Fire") || strstr(fn, "Shoot") ||
+                   strstr(fn, "Launch") || strstr(fn, "Projectile") ||
+                   strstr(fn, "ViewPoint") || strstr(fn, "ViewRotation"))) {
+            FwEvt& e = g_fwRing[g_fwN % kFwRing];
+            e.ms = MaimNowMs();
+            e.nameIdx = peNameIdx;
+            e.cls = (obj && !((uintptr_t)obj & 3) && RangeReadable(obj, kClassOff + 4))
+                        ? ObjClassName((uint8_t*)obj) : NULL;
+            e.callerRva = peCallerRet > 0x400000u ? peCallerRet - 0x400000u : peCallerRet;
+            ++g_fwN; ++g_fwRecorded;
+        }
+    }
+
+    // VR-57 Phase 1: the bolt probe. TOP LEVEL on purpose. Its first home was
+    // inside the MotionAim arming window (`now < g_maimArmedUntil`), which is only
+    // ever set while MotionAim is ENABLED - and it ships disabled, so the probe
+    // counted 0 projectile dispatches against 5 bolts actually fired. That is this
+    // project's own recorded failure: an instrument sitting behind a leg that
+    // refuses. It now depends on nothing but its own lever.
+    //
+    // Read-only. The engine is inside a synchronous dispatch on this object, so
+    // scalars are copied here and the pointer is never retained. Deliberately NOT
+    // rate limited: the velocity arrives a dispatch or two after the spawn, and a
+    // 250 ms gate would skip the only sighting that carries it.
+    if (g_shOn && obj && !((uintptr_t)obj & 3) && RangeReadable(obj, kClassOff + 4)) {
+        const char* shCn = ObjClassName((uint8_t*)obj);
+        if (shCn && (!strncmp(shCn, "DisProjectile", 13) || !strcmp(shCn, "DisBullet") ||
+                     !strncmp(shCn, "DisGrenade", 10)))
+            AimShotSee((uint8_t*)obj, shCn, MaimNowMs());
+    }
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
@@ -129,6 +165,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     }
     ArmFollowTick();                              // VR-30: the arm-follow probe (read-only, finds its own camera)
     PrTick();                                     // VR-33: the pose/socket report - SCRIPT LANE, where the objects are coherent
+    AimSeamTick();                                // VR-57: where the shot's direction comes from (read-only)
+    AimSeamDrive();                               // VR-57: drive that cache from the controller ray ([Aim] DriveFromHand)
 #if DVR_WITH_LEGACY
     BqTick();                                     // VR-33 step 1b: the bone queries, consumed on this lane only
 #endif
@@ -759,6 +797,7 @@ static bool InstallProcessEventHook()
     FlushInstructionCache(GetCurrentProcess(), at, 5);
 
     g_peInstalled = true;
+    FireAimInstall(); // separate byte-verified native seam, independent of probes
     Log("script: ProcessEvent hooked at 0x%08x (stub %p) - listening for named events",
         (unsigned)kProcessEvent, (void*)g_peStub);
     return true;

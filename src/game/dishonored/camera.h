@@ -48,6 +48,14 @@ float rendered_fov_deg();
 // The render-side truth: c5 of the last draw (vs_const_hook.cpp).
 void note_render_pos(const float pos[3]);
 bool render_pos(float out[3]);
+// The same sample in WORLD terms. c5 carries the camera position NEGATED on this
+// build, which is measured, not assumed: VR-57's bolt probe printed the launch
+// point and our derived controller origin side by side and they came out as exact
+// mirrors through the world origin on all three axes, five shots running, while
+// the engine's own camZ (the eyeclamp line) matched the POSITIVE value. Anything
+// that needs a world POINT must use this; render_pos stays raw for the consumers
+// that only ever difference c5 against itself, where a global sign would cancel.
+bool render_pos_world(float out[3]);
 
 // Positional tracking (lean, crouch, roomscale) on the seam (S1). The offset
 // is a VIEW-SPACE displacement in uu (right, up, forward), published every
