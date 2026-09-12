@@ -50,6 +50,21 @@ struct BrGeometry {
     // The sign is latched once and then aimed with forever, so it must not be latched
     // from a transitional frame. It is confirmed across samples before adoption.
     int pendingSign=0,signVotes=0;
+    // THE AXIS ITSELF MUST BE STABLE BEFORE IT IS LATCHED.
+    //
+    // One measurement, kept forever, is only safe if that measurement was taken
+    // while the bolt was SEATED. During a reload the bolt is animated - drawn back,
+    // loaded - so its pose relative to the palm is not the firing pose, and a single
+    // frame taken then becomes the session's ray. That is what happened: the crossbow
+    // started correct and moved to a wrong position during a reload, and not the
+    // first reload, because by then the axis had not yet been latched.
+    //
+    // A seated bolt gives the SAME palm-frame ray every frame; a moving one does not.
+    // So candidates must agree with each other before one is adopted. This is the
+    // same discipline already applied to the forward sign, which should have been
+    // applied to the axis at the same time.
+    float pendOrigin[3]={},pendDir[3]={};
+    int   pendVotes=0;
     bool fromBody=false;          // true = fitted from the weapon mesh, not a projectile
     float palmOrigin[3]={},palmDir[3]={};
     bool haveRay=false;
@@ -346,13 +361,42 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     for(int i=0;i<3;++i){out.originPalm[i]=(p[i]+posed.t[i])/wc->unitsPerMeter;out.dirPalm[i]=d[i]/sqrtf(len);
         if(!std::isfinite(out.originPalm[i])||fabsf(out.originPalm[i])>2)return;}
     measured[w->hand]=wc->present;
+    // CONFIRM ACROSS FRAMES. A seated bolt reproduces the same palm-frame ray; one
+    // being reloaded does not, so consecutive candidates disagree and none is
+    // adopted until the animation has finished and the bolt is at rest.
+    {
+        bool agree=g.pendVotes>0;
+        if(agree){
+            float dot=0,dist=0;
+            for(int i=0;i<3;++i){
+                dot+=out.dirPalm[i]*g.pendDir[i];
+                const float e=out.originPalm[i]-g.pendOrigin[i];dist+=e*e;
+            }
+            // about 1 degree of direction and 1 cm of origin
+            agree=dot>0.99985f&&sqrtf(dist)<0.01f;
+        }
+        if(agree) ++g.pendVotes;
+        else {
+            for(int i=0;i<3;++i){g.pendOrigin[i]=out.originPalm[i];g.pendDir[i]=out.dirPalm[i];}
+            g.pendVotes=1;
+        }
+        if(g.pendVotes<5){
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
+                "modelray: candidate axis not yet stable (%d of 5 agreeing frames). A "
+                "seated bolt reproduces the same palm-frame ray every frame; one being "
+                "reloaded does not, and a single frame taken mid-reload would become "
+                "the session's ray. Waiting for it to settle.",g.pendVotes);
+            return;
+        }
+    }
     for(int i=0;i<3;++i){g.palmOrigin[i]=out.originPalm[i];g.palmDir[i]=out.dirPalm[i];}
     g.haveRay=true;
     Log("modelray: '%s' axis LATCHED from weapon '%s' (%s) - it is now the shared ray for "
         "EVERY weapon and every ammunition for the rest of the session, including the "
         "pistol. Nothing discards it - not a weapon switch, not a reload - so it "
         "cannot be inverted by a switch, and it still follows the hand trim because "
-        "it is stored in the palm frame.",
+        "it is stored in the palm frame. Confirmed over 5 agreeing frames, so it was "
+        "measured from a seated bolt rather than one mid-reload.",
         w->asset,g.weapon[0]?g.weapon:"?",
         g.fromBody?"from the WEAPON MESH, aimed from its centre - the fallback for a "
                    "weapon with no visible loaded projectile"
