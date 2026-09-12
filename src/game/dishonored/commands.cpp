@@ -282,6 +282,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
     if (!strcmp(cmd, "crosshair")) { dvr::aim::command(args); return true; }
+    if (!strcmp(cmd, "fireaim")) {
+        bool on;
+        if (DvrOnOff(args,&on)) FireAimSet(on,"command seam");
+        else Log("fireaim: %s; use fireaim on|off",FireAimEnabled()?"ON":"off");
+        return true;
+    }
     if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
     if (!strcmp(cmd, "vrinput")) {
         if (DvrOnOff(args, &b)) { g_padEnabled = b; Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }

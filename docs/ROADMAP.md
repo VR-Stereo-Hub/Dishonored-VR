@@ -1,5 +1,11 @@
 # Roadmap
 
+## VR-57 native launch (2026-09-12)
+
+- [x] Derive and byte-verify the native crossbow pre-spawn direction consumer.
+- [x] Implement guarded hand endpoint convergence; validate x86 bridge and geometry offline.
+- [ ] Confirm launch behavior during user play; no runtime verdict yet.
+
 ## VR-57 hand aiming (2026-09-12)
 
 - [x] One ray from the runtime's AIM pose, with its own mapping check.

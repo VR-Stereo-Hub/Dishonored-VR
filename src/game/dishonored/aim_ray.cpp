@@ -8,11 +8,16 @@
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
+#include <atomic>
 
 namespace dvr::aim {
 namespace {
 Config g_config;
 Ray g_ray;
+std::mutex g_fireMutex;
+FireFrame g_fireFrame;
+std::atomic<bool> g_fireRequested{false};
 const char* g_lastWhy = "";
 uint64_t g_lastBeat = 0;
 dvr::vr::AimVisualStats g_previous;
@@ -27,7 +32,7 @@ void log_status() {
              c.refusedNoViews, c.refusedNoTexture, c.refusedBudget, c.refusedGeometry);
     DVR_INFO("crosshair: dot=%d laser=%d hand=%s fixed=%.2fm size=%.2fdeg ray=%s "
              "gen=%u renderer=%s publishes=%u submitted=%u dotFrames=%u beamFrames=%u "
-             "runtimeLayerLimit=%u; guide only, no trace or projectile writes",
+             "runtimeLayerLimit=%u; fixed-distance guide; FireFromHand separately controls native launch",
              g_config.dot, g_config.laser, g_config.hand ? "right" : "left",
              g_config.distanceM, g_config.sizeDeg, g_ray.why, g_ray.gen,
              dvr::vr::aim_visual_result_name(s.last), s.publishes, s.submitted,
@@ -35,7 +40,9 @@ void log_status() {
 }
 } // namespace
 Config config() { return g_config; }
-Ray ray() { return g_ray; }
+FireFrame fire_frame() { std::lock_guard<std::mutex> lock(g_fireMutex); return g_fireFrame; }
+Ray ray() { return fire_frame().ray; }
+void request_fire_ray(bool enabled) { g_fireRequested.store(enabled); }
 void configure(const Config& cfg, const char* origin) {
     if (cfg.hand < 0 || cfg.hand > 1 || !std::isfinite(cfg.distanceM) ||
         !std::isfinite(cfg.sizeDeg) || cfg.distanceM < 0.5f || cfg.distanceM > 50 ||
@@ -46,13 +53,14 @@ void configure(const Config& cfg, const char* origin) {
     }
     g_config = cfg;
     g_ray = Ray{};
+    { std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame = {}; }
     dvr::vr::set_aim_visual({}); // discard prior hand/config immediately, even mid-frame F10
     // The control dot is head-anchored and lives entirely in the runtime: it must
     // keep drawing when the hand ray is refused, which is half of what it is for.
     dvr::vr::set_control_dot({cfg.controlDot, 1.5f, cfg.distanceM, cfg.sizeDeg});
     g_lastWhy = "";
     DVR_INFO("crosshair: config from %s Dot=%d Laser=%d Hand=%s DistanceM=%.2f SizeDeg=%.2f "
-             "ControlDot=%d (XR LOCAL fixed-distance guide; native shots/reticle unchanged%s)",
+             "ControlDot=%d (XR LOCAL fixed-distance guide; FireFromHand independently controls launch%s)",
              origin, cfg.dot, cfg.laser, cfg.hand ? "right" : "left", cfg.distanceM,
              cfg.sizeDeg, cfg.controlDot,
              cfg.controlDot ? "; the CONTROL dot is head-anchored straight ahead at "
@@ -62,7 +70,7 @@ void configure(const Config& cfg, const char* origin) {
 }
 void tick(bool gameplay, bool projectionWanted) {
     const auto now = GetTickCount64();
-    const bool armed = g_config.dot || g_config.laser || g_config.controlDot;
+    const bool armed = g_config.dot || g_config.laser || g_config.controlDot || g_fireRequested.load();
     dvr::vr::HandAimSample sample;
     g_ray = Ray{}; g_ray.hand = g_config.hand;
     if (!armed) g_ray.why = "off";
@@ -76,6 +84,16 @@ void tick(bool gameplay, bool projectionWanted) {
         g_ray = from_pose(g_config.hand, sample.aimValid, sample.aimPos, sample.aimQuat,
                           sample.generation, sample.stampMs, now);
     }
+    FireFrame frame;
+    frame.ray = g_ray; frame.distanceM = g_config.distanceM;
+    dvr::vr::HeadPose fireHead;
+    if (g_ray.ok && dvr::vr::peek_head_pose(fireHead)) {
+        frame.headValid = true;
+        frame.headPos[0] = fireHead.px; frame.headPos[1] = fireHead.py; frame.headPos[2] = fireHead.pz;
+        frame.headQuat[0] = fireHead.qx; frame.headQuat[1] = fireHead.qy;
+        frame.headQuat[2] = fireHead.qz; frame.headQuat[3] = fireHead.qw;
+    }
+    { std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame = frame; }
     // controlDot never reaches this publication: it is built in the runtime from the
     // located views, so it cannot borrow the hand ray's freshness or its validity.
     auto out = visual(g_ray, g_config.dot, g_config.laser, g_config.distanceM, g_config.sizeDeg);
@@ -229,7 +247,7 @@ void command(const char* args) {
 }
 void draw_ui() {
     auto cfg = config(); bool changed = false;
-    ImGui::TextWrapped("Controller pointing guide. Fixed distance; shots still use the game's aim.");
+    ImGui::TextWrapped("Controller pointing guide at a fixed distance. The crossbow toggle above aims its launch through this endpoint.");
     changed |= ImGui::Checkbox("Controller dot", &cfg.dot);
     changed |= ImGui::Checkbox("Controller beam", &cfg.laser);
     changed |= ImGui::RadioButton("Left hand", &cfg.hand, 0); ImGui::SameLine();
@@ -237,10 +255,8 @@ void draw_ui() {
     changed |= ImGui::SliderFloat("Guide distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
     changed |= ImGui::SliderFloat("Dot size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
     changed |= ImGui::Checkbox("CONTROL dot (head-anchored, no controller)", &cfg.controlDot);
-    ImGui::TextWrapped("The control dot is drawn straight ahead of the head at 1.50 m and "
-                       "the guide distance. Both must land on ONE point, and that point on "
-                       "the centre of the game's own image. Off-centre means the layer, not "
-                       "the ray.");
+    ImGui::TextWrapped("The larger control dot marks the head direction at the guide distance. "
+                       "The controller dot is a fixed endpoint, not a predicted ballistic impact.");
     if (changed) configure(cfg,"F10 Aim");
     ImGui::TextWrapped("Ray: %s. Renderer: %s.", g_ray.why,
         dvr::vr::aim_visual_result_name(dvr::vr::aim_visual_stats().last));

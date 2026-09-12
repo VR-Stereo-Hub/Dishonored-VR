@@ -75,6 +75,8 @@ static void OverlayFrame()
 
     if (!ImGui::BeginTabBar("vrtabs")) { ImGui::End(); return; }
     if (ImGui::BeginTabItem("Aim")) {
+        bool fire = FireAimEnabled();
+        if (ImGui::Checkbox("Aim crossbow from controller", &fire)) FireAimSet(fire,"F10");
         dvr::aim::draw_ui();
         ImGui::EndTabItem();
     }
