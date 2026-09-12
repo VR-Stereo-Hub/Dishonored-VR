@@ -68,6 +68,39 @@ int main(){
         check(!candidate(nullptr));
     }
 
+    // VR-57: the projectile must belong to the EQUIPPED weapon. Mirrors
+    // BrProjectileMatchesWeapon. The crossbow was perfect until the pistol was
+    // equipped, at which point a bolt draw was measured and stored as the pistol's
+    // axis and signed against the pistol's forward - mirroring both weapons. The
+    // asserted row is the one that actually happened: bolt_01 against EliteGun.
+    {
+        auto pair=[](const char* proj,const char* weapon)->bool{
+            if(!proj||!*proj||!weapon||!*weapon)return false;
+            const bool pb=!_stricmp(proj,"bolt_01")||!_strnicmp(proj,"Bolt",4);
+            const bool pu=std::strstr(proj,"bullet")||std::strstr(proj,"Bullet");
+            const bool wx=std::strstr(weapon,"crossbow")||std::strstr(weapon,"Crossbow");
+            const bool wg=std::strstr(weapon,"Gun")||std::strstr(weapon,"gun")||std::strstr(weapon,"Elite");
+            if(pb)return wx;
+            if(pu)return wg;
+            return false;
+        };
+        // the pairings that are real
+        check(pair("bolt_01","crossbow_01"));
+        check(pair("Bolt_Flare","crossbow_01"));
+        check(pair("Gun_bullet_regular","Wpn_PlyGunElite"));
+        check(pair("Gun_bullet_regular","EliteGun"));
+        // THE BUG: a bolt must never be measured under a gun, or either way round
+        check(!pair("bolt_01","EliteGun"));
+        check(!pair("bolt_01","Wpn_PlyGunElite"));
+        check(!pair("Bolt_Flare","EliteGun"));
+        check(!pair("Gun_bullet_regular","crossbow_01"));
+        // an unknown or absent weapon refuses rather than adopting under nothing
+        check(!pair("bolt_01",""));
+        check(!pair("bolt_01",nullptr));
+        check(!pair("bolt_01","Wpn_PlySword01"));
+        check(!pair("bolt_01","Skm_Player"));
+    }
+
     for(int j=0;j<128;++j)for(int i=0;i<3;++i)points[j][i]=(j&(1<<i))?1.0f:-1.0f;
     check(!bolt_axis(points,128,a)); // wide/ambiguous geometry must never aim
     points[0][0]=std::numeric_limits<float>::quiet_NaN();check(!bolt_axis(points,128,a));

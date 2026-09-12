@@ -83,6 +83,32 @@ static bool BrIsLoadedProjectile(const char* a)
 //
 // Kept deliberately narrow and excluded from the strict path: the body ref, and
 // anything that is a projectile, are not weapon bodies.
+// DOES THIS PROJECTILE BELONG TO THE EQUIPPED WEAPON?
+//
+// It was never asked, and that is the whole fault. A `bolt_01` draw happens even
+// with the pistol equipped, so the crossbow's bolt was measured and stored as the
+// PISTOL's ray - the log caught it exactly: "'bolt_01' axis adopted for weapon
+// 'EliteGun'". Worse, its forward sign was then resolved against the pistol's
+// forward, which is how the two weapons ended up mirrored: left and up on one,
+// right and down on the other. Switching back handed the crossbow that corrupted
+// result.
+//
+// A name pairing is the right tool here and not a guess: "is this the loaded
+// ammunition of this weapon" is a question about game content, and the content
+// answers it. An UNKNOWN weapon refuses rather than measuring against nothing,
+// which is what let a bolt be adopted under a gun in the first place.
+static bool BrProjectileMatchesWeapon(const char* proj,const char* weapon)
+{
+    if(!proj||!*proj||!weapon||!*weapon)return false;
+    const bool projBolt  = !_stricmp(proj,"bolt_01")||!_strnicmp(proj,"Bolt",4);
+    const bool projBullet= strstr(proj,"bullet")||strstr(proj,"Bullet");
+    const bool wpnXbow   = strstr(weapon,"crossbow")||strstr(weapon,"Crossbow");
+    const bool wpnGun    = strstr(weapon,"Gun")||strstr(weapon,"gun")||strstr(weapon,"Elite");
+    if(projBolt)  return wpnXbow;
+    if(projBullet)return wpnGun;
+    return false;
+}
+
 static bool BrIsWeaponBody(const char* a)
 {
     if (!a || !*a) return false;
@@ -247,6 +273,19 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     // the CONTROLLER ray rather than the head, so it still aims where it is pointed.
     const bool body=false;
     if(!isProjectile)return;
+    // The projectile must be THIS weapon's. Without this a bolt drawn while the
+    // pistol is equipped was measured as the pistol's axis and signed against the
+    // pistol's forward, mirroring both weapons.
+    if(!BrProjectileMatchesWeapon(w->asset,g.weapon)){
+        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,5000,
+            "modelray: '%s' is not the loaded ammunition of the equipped weapon "
+            "'%s', so it is NOT measured. Measuring it would store one weapon's "
+            "barrel as another's and resolve its sign against the wrong forward. "
+            "An empty weapon name also refuses: the axis waits for the weapon's own "
+            "draw to name it rather than being adopted under nothing.",
+            w->asset,g.weapon[0]?g.weapon:"(not yet known this frame)");
+        return;
+    }
     const bool same=g.vb==w->vb&&g.ib==w->ib&&g.decl==w->decl&&g.stride==w->stride&&g.offset==w->streamOffset&&
         g.start==w->startIndex&&g.count==w->numVerts&&g.prims==w->primCount&&g.base==w->baseVertex&&g.minIndex==w->minIndex;
         // A weapon body only needs a DOMINANT axis; a bolt must be nearly 1D. The
