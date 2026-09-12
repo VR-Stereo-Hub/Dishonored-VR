@@ -616,6 +616,13 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 }
                 if (cn && (!strncmp(cn, "DisProjectile", 13) || !strcmp(cn, "DisBullet") ||
                            !strncmp(cn, "DisGrenade", 10))) {
+                    // VR-57 Phase 1: read-only, every dispatch. The engine is inside
+                    // a synchronous call on this object, so scalars are safe to copy
+                    // and nothing is retained. Unlike MaimCatch below it never
+                    // writes, and it is NOT rate limited: the velocity arrives a
+                    // dispatch or two after the spawn and a 250 ms gate would miss
+                    // the only sighting that carries it.
+                    AimShotSee((uint8_t*)obj, cn, now);
                     static uint8_t* lastObj = NULL;
                     static double   lastAt  = 0;
                     if (obj != lastObj || now - lastAt > 250.0) {

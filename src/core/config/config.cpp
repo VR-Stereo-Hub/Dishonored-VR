@@ -398,6 +398,14 @@ static void WriteDefaultIni(const char* ini)
         "; DriveDistanceUU is how far along the ray the written aim point sits.\n"
         "DriveFromHand=0\n"
         "DriveDistanceUU=800\n"
+        "; ShotProbe (VR-57 Phase 1) measures what the fired bolt actually did against\n"
+        "; what the controller asked for. READ-ONLY: it never writes to the game. The\n"
+        "; number it exists to print is the MISS at the plane of the visible dot, in\n"
+        "; units and metres - not the angle between the bolt and the ray, because a bolt\n"
+        "; launched parallel to the ray from a muzzle offset from the controller misses\n"
+        "; the dot by the whole transverse gap at zero angle. Works with DriveFromHand\n"
+        "; either way, and the drive-off run is the baseline.\n"
+        "ShotProbe=0\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -1014,6 +1022,12 @@ static void LoadConfig()
             g_asVerbose ? "; verbose: quiet instances logged too" : "");
     g_asDrive = IniFloat(ini, "Aim", "DriveFromHand", 0) != 0.0f;
     g_asDriveDistUU = IniFloat(ini, "Aim", "DriveDistanceUU", 800.0f);
+    g_shOn = GetPrivateProfileIntA("Aim", "ShotProbe", 0, ini) != 0;
+    if (g_shOn)
+        Log("config: [Aim] ShotProbe=1 - read-only bolt measurement is ON. It writes "
+            "nothing to the game. The acceptance number it prints is the MISS at the "
+            "visible dot's plane, not the bolt/ray angle; the drive is %s, and a "
+            "drive-off run is the baseline.", g_asDrive ? "also ON" : "off");
     if (g_asDriveDistUU < 50.0f || g_asDriveDistUU > 20000.0f) g_asDriveDistUU = 800.0f;
     if (g_asDrive)
         Log("config: [Aim] DriveFromHand=1 - the controller ray is WRITTEN into the "

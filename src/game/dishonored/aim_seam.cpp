@@ -357,6 +357,7 @@ static void AsLogPoses(void)
 
 static void AimSeamTick(void)
 {
+    AimShotBeat(MaimNowMs());            // VR-57 Phase 1: populations, drive or not
     if (!g_asOn && !g_asDrive) return;   // the drive needs the walk to latch the context
     const double now = MaimNowMs();
     if (now - g_asLastMs < 250.0) return;
@@ -507,6 +508,257 @@ static bool AsHandDirGame(float* dirOut, float* offsetGameOut, float* xrDeg,
     return true;
 }
 
+
+// ---- VR-57 Phase 1: THE SHOT PROBE (read-only) -------------------------------
+//
+// See the state block for the seam, the offsets, and why there are two stages.
+// Called from the ProcessEvent observer while the engine is inside a synchronous
+// dispatch on this projectile. Copies scalars and returns; never writes, never
+// keeps the pointer.
+
+// Plausibility, not trust. The offsets were derived against this build for other
+// work, and a wrong one must be countable rather than silently believable.
+static bool ShReadVec(uint8_t* o, unsigned off, float* v, float lo, float hi)
+{
+    const float* f = (const float*)(o + off);
+    float m = 0.0f;
+    for (int i = 0; i < 3; i++) {
+        if (!MpFinite(f[i])) return false;
+        v[i] = f[i]; m += f[i] * f[i];
+    }
+    m = sqrtf(m);
+    return m >= lo && m <= hi;
+}
+
+// A frame built on the controller ray, so a residual can be SIGNED. An unsigned
+// angle cannot tell a mirror from a match, which is the one failure the mapping's
+// own check is documented as unable to see.
+static void ShFrame(const float* d, float* right, float* up)
+{
+    const float zUp[3] = { 0.0f, 0.0f, 1.0f };    // game axes: Z is up
+    V3Cross(d, zUp, right);
+    if (V3Norm(right) < 0.2f) { right[0] = 1.0f; right[1] = right[2] = 0.0f; }
+    V3Cross(right, d, up); V3Norm(up);
+}
+
+static void ShReport(ShRec* h, const char* cn)
+{
+    const ShRay* r = &h->ray;
+    const char* stageName = (h->stage >= 1) ? "MEASURED VELOCITY"
+                                            : "spawn-forward PROXY (velocity not filled yet)";
+    // b: what the bolt actually did. At stage 0 this is the spawn forward, which
+    // is a proxy and is labelled as one on the line.
+    float b[3];
+    if (h->stage >= 1) { for (int i = 0; i < 3; i++) b[i] = h->vel[i] / h->speed; }
+    else               { for (int i = 0; i < 3; i++) b[i] = h->fwd0[i]; }
+    if (V3Norm(b) < 0.5f) return;
+
+    // Model 1: the engine read our DIRECTION. Model 2: it aimed from its own
+    // muzzle THROUGH our point. Both are carried; neither is assumed.
+    float toP[3] = { r->P[0] - h->S[0], r->P[1] - h->S[1], r->P[2] - h->S[2] };
+    const bool haveP = V3Norm(toP) > 0.5f;
+    const float cD = V3Dot(b, r->d);
+    const float cP = haveP ? V3Dot(b, toP) : 0.0f;
+    const float degD = acosf(cD < -1.0f ? -1.0f : (cD > 1.0f ? 1.0f : cD)) * 57.2957795f;
+    const float degP = haveP ? acosf(cP < -1.0f ? -1.0f : (cP > 1.0f ? 1.0f : cP)) * 57.2957795f
+                             : -1.0f;
+
+    float right[3], up[3]; ShFrame(r->d, right, up);
+    const float residH = atan2f(V3Dot(b, right), V3Dot(b, r->d)) * 57.2957795f;
+    const float vu = V3Dot(b, up);
+    const float residV = asinf(vu < -1.0f ? -1.0f : (vu > 1.0f ? 1.0f : vu)) * 57.2957795f;
+
+    // THE ACCEPTANCE NUMBER: how far the launch line passes from the dot the
+    // player sees, at the plane through that dot. Refused rather than faked when
+    // its own inputs are degenerate - a zero printed there would read as a hit.
+    float miss = -1.0f; const char* missWhy = "ok";
+    float toT[3] = { r->T[0] - h->S[0], r->T[1] - h->S[1], r->T[2] - h->S[2] };
+    const float den = V3Dot(b, r->d);
+    if (den < 0.2f) { missWhy = "the bolt is not travelling along the ray axis"; ++g_shMissExcluded; }
+    else {
+        const float t = V3Dot(toT, r->d) / den;
+        if (!(t > 1.0f) || !MpFinite(t)) { missWhy = "the dot's plane is behind the launch point"; ++g_shMissExcluded; }
+        else {
+            float at[3];
+            for (int i = 0; i < 3; i++) at[i] = h->S[i] + t * b[i] - r->T[i];
+            miss = sqrtf(V3Dot(at, at));
+            if (!MpFinite(miss)) { miss = -1.0f; missWhy = "nonfinite"; ++g_shMissExcluded; }
+        }
+    }
+    // The transverse part of the launch/controller origin gap: the miss a
+    // perfectly parallel bolt cannot avoid, and the number a direction-only fix
+    // would leave behind.
+    float dS[3] = { h->S[0] - r->H[0], h->S[1] - r->H[1], h->S[2] - r->H[2] };
+    const float along = V3Dot(dS, r->d);
+    float trans[3];
+    for (int i = 0; i < 3; i++) trans[i] = dS[i] - along * r->d[i];
+    const float transUU = sqrtf(V3Dot(trans, trans));
+    const float uuPerM = (g_posScaleUU > 1.0f) ? g_posScaleUU : 100.0f;
+
+    Log("aimshot #%d: %s | stage %d = %s, %.0f ms after first sight | "
+        "ray gen %u age %.0f ms, drive %s | "
+        "MISS AT THE DOT %s%.1f uu (%.2f m)%s <- THIS is the acceptance number, not the angle | "
+        "launch S (%.0f %.0f %.0f), controller H (%.0f %.0f %.0f), gap %.0f uu of which "
+        "%.0f uu is TRANSVERSE (the miss a perfectly parallel bolt keeps) | "
+        "angle to our DIRECTION %.2f deg, angle to muzzle->our POINT %.2f deg "
+        "(near 0 for the first means the engine used the direction and the bolt runs "
+        "parallel to the ray, which misses the dot by the transverse gap; near 0 for "
+        "the second means it aimed through the point, which HITS the dot when the "
+        "point is the dot) | signed residual horiz %+.2f vert %+.2f deg (a mirror "
+        "shows as a sign flip here and nowhere else) | speed %.0f | P at %.0f uu, "
+        "T at %.0f uu",
+        h->id, cn ? cn : "?", h->stage, stageName,
+        h->lastMs - h->firstMs, r->gen, h->rayAgeMs, r->wrote ? "WROTE this solve" : "off (baseline)",
+        miss < 0.0f ? "NOT MEASURED - " : "", miss < 0.0f ? 0.0f : miss,
+        miss < 0.0f ? 0.0f : miss / uuPerM, miss < 0.0f ? missWhy : "",
+        h->S[0], h->S[1], h->S[2], r->H[0], r->H[1], r->H[2],
+        sqrtf(V3Dot(dS, dS)), transUU, degD, degP, residH, residV,
+        h->speed, r->distP, r->distT);
+    h->reported = true;
+    ++g_shCompleted;
+}
+
+// The seam. Read-only; the engine owns this object and is inside a call on it.
+static void AimShotSee(uint8_t* o, const char* cn, double now)
+{
+    if (!g_shOn || !o) return;
+    ++g_shDispatches;
+    if (!RangeReadable(o, 0x220)) { ++g_shBadRead; return; }
+
+    int slot = -1;
+    for (int i = 0; i < g_shRecN && i < kShMax; i++)
+        if (g_shRec[i].obj == o) { slot = i; break; }
+
+    if (slot < 0) {
+        // FIRST SIGHT. Position and spawn forward are valid here; velocity is
+        // not, because the engine fills it after announcing the projectile.
+        float S[3], fwd[3];
+        if (!ShReadVec(o, 0x80, S, 1.0f, 3.0e6f)) { ++g_shBadRead; return; }
+        if (!ShReadVec(o, 0x50, fwd, 0.5f, 1.5f)) {
+            int32_t* r = (int32_t*)(o + 0x9c);
+            const float pt = (float)r[0] / 10430.378f, yw = (float)r[1] / 10430.378f;
+            fwd[0] = cosf(pt) * cosf(yw); fwd[1] = cosf(pt) * sinf(yw); fwd[2] = sinf(pt);
+            if (V3Norm(fwd) < 0.5f) { ++g_shBadRead; return; }
+        }
+        if (g_shRecN < kShMax) slot = g_shRecN++;
+        else {
+            int oldest = 0;
+            for (int i = 1; i < kShMax; i++)
+                if (g_shRec[i].firstMs < g_shRec[oldest].firstMs) oldest = i;
+            if (!g_shRec[oldest].reported) ++g_shEvicted;
+            slot = oldest;
+        }
+        ShRec* h = &g_shRec[slot];
+        memset(h, 0, sizeof(*h));
+        h->obj = o; h->id = g_shNextId++; h->firstMs = h->lastMs = now; h->sights = 1;
+        for (int i = 0; i < 3; i++) { h->S[i] = S[i]; h->fwd0[i] = fwd[i]; }
+        h->stage = 0;
+        // Match the shot to the solve that was live when it spawned: the newest
+        // one at or before this sighting, with its age on the record. "Unknown"
+        // is a real answer and is counted.
+        const int n = g_shRayN < kShRayHist ? g_shRayN : kShRayHist;
+        double best = -1.0;
+        for (int i = 0; i < n; i++) {
+            const ShRay* c = &g_shRay[(g_shRayN - 1 - i + kShRayHist * 4) % kShRayHist];
+            if (!c->ok || c->ms > now) continue;
+            if (c->ms > best) { best = c->ms; h->ray = *c; h->haveRay = true; }
+        }
+        if (!h->haveRay) { ++g_shNoRay; ++g_shFirstSights;
+            Log("aimshot #%d: NO usable controller solve within the last %d script "
+                "ticks, so this shot cannot be scored. Launch S (%.0f %.0f %.0f). "
+                "Counted, not dropped.", h->id, kShRayHist, S[0], S[1], S[2]);
+            return;
+        }
+        h->rayAgeMs = now - h->ray.ms;
+        ++g_shFirstSights;
+        return;
+    }
+
+    // A LATER SIGHT: the velocity should be filled by now. This is the only
+    // stage that is evidence about where the bolt actually went.
+    ShRec* h = &g_shRec[slot];
+    h->lastMs = now; ++h->sights; ++g_shSecondSights;
+    if (h->reported || !h->haveRay) return;
+    float v[3];
+    if (!ShReadVec(o, 0x1b4, v, 500.0f, 3.0e6f)) return;   // not filled yet, wait
+    for (int i = 0; i < 3; i++) h->vel[i] = v[i];
+    h->speed = sqrtf(V3Dot(v, v));
+    h->stage = 1;
+    ShReport(h, cn);
+}
+
+// The populations, so no number above can be read without knowing what it is out
+// of. Printed even when every one of them is zero, which is what "the probe is on
+// and nothing has been fired" looks like.
+static void AimShotBeat(double now)
+{
+    if (!g_shOn || now - g_shBeatMs < 5000.0) return;
+    g_shBeatMs = now;
+    Log("aimshot/pop: projectile dispatches %ld, first sights %ld, later sights %ld, "
+        "scored %ld | unscored: no controller solve %ld, offsets implausible %ld, "
+        "evicted before the velocity arrived %ld, miss metric refused %ld | ray "
+        "history %d of %d slots | drive is %s. A scored count of 0 with first "
+        "sights above 0 means every bolt was seen but none reached a filled "
+        "velocity - that is the timing assumption failing, not a clean run.",
+        g_shDispatches, g_shFirstSights, g_shSecondSights, g_shCompleted,
+        g_shNoRay, g_shBadRead, g_shEvicted, g_shMissExcluded,
+        g_shRayN < kShRayHist ? g_shRayN : kShRayHist, kShRayHist,
+        g_asDrive ? "ON" : "off (baseline)");
+}
+
+// ---- THE SOLVE, shared by the drive and the shot probe -----------------------
+//
+// Everything the drive needs to decide WHERE, with no writing. Split out because
+// the shot probe needs the same four quantities with the drive switched OFF: a
+// baseline run has to be able to show a bolt/controller discrepancy, and an
+// instrument that can only reproduce its own input ray proves nothing.
+//
+// H is the controller's position mapped into game space, d its direction, P the
+// point the drive would write, and T the endpoint of the dot the PLAYER SEES.
+// P and T are separate on purpose: a distance experiment must not be able to
+// silently redefine the target it is scored against.
+static bool AimSeamSolve(ShRay* out)
+{
+    out->ok = false; out->ms = MaimNowMs(); out->wrote = false;
+    const dvr::aim::Ray pub = dvr::aim::ray();
+    out->gen = pub.gen; out->sampleMs = pub.sampleMs;
+
+    float dir[3], handOff[3] = {0, 0, 0};
+    float xrDeg = -1.0f, gameDeg = -1.0f;
+    const char* why = "?";
+    if (!AsHandDirGame(dir, handOff, &xrDeg, &gameDeg, &why)) return false;
+    // The mapping's own falsification, kept here so the probe cannot record a
+    // solve the drive would have refused. It does NOT catch a left/right mirror.
+    if (fabsf(xrDeg - gameDeg) > 5.0f) return false;
+    float cam[3];
+    if (!dvr::camera::render_pos(cam)) return false;
+
+    const float uuPerM = (g_posScaleUU > 1.0f) ? g_posScaleUU : 100.0f;
+    out->distT = dvr::aim::config().distanceM * uuPerM;   // the VISIBLE dot
+    out->distP = (g_asDriveDistUU > 0.0f) ? g_asDriveDistUU : out->distT;
+    for (int i = 0; i < 3; i++) {
+        out->d[i] = dir[i];
+        out->H[i] = cam[i] + handOff[i];
+        out->P[i] = out->H[i] + dir[i] * out->distP;
+        out->T[i] = out->H[i] + dir[i] * out->distT;
+    }
+    out->ok = true;
+    return true;
+}
+
+// The bounded history the shot probe matches a bolt against. A one-second log
+// line or "the latest ray when the bolt was noticed" does not identify the input
+// a shot actually used, so each solve is kept with its own stamp.
+static void ShRayPush(bool wrote)
+{
+    if (!g_shOn) return;
+    ShRay r;
+    AimSeamSolve(&r);
+    r.wrote = wrote;
+    g_shRay[g_shRayN % kShRayHist] = r;
+    ++g_shRayN;
+}
+
 // ---- DRIVING IT (VR-57 step 3, [Aim] DriveFromHand) -------------------------
 //
 // The probe established (2026-09-11, build 103-gdf52d9f3) that the equipped
@@ -535,7 +787,10 @@ static bool AsHandDirGame(float* dirOut, float* offsetGameOut, float* xrDeg,
 // which is expected every tick and is NOT evidence either way by itself.
 static void AimSeamDrive(void)
 {
-    if (!g_asDrive) return;
+    // The shot probe needs a solve on every script tick even with the drive OFF,
+    // or a baseline run has nothing to match a bolt against. Pushed before the
+    // gameplay gate so a refused solve is recorded as refused.
+    if (!g_asDrive) { ShRayPush(false); return; }
     // GAMEPLAY ONLY. The 2026-09-11 run crashed seven seconds after the pause
     // menu opened, and the same instant the log shows the game leaving
     // gameplay: weapon contracts dropped, hand candidates dropped. Those are
@@ -671,6 +926,11 @@ static void AimSeamDrive(void)
     memcpy(g_asLastDir, dir, sizeof(g_asLastDir));
     ++g_asWrites;
     g_asWriteWhy = "writing";
+    // Banked AFTER the write, flagged as written, so a shot can be matched to the
+    // solve that was actually in the cache rather than to a solve that was only
+    // computed. The push re-solves rather than reusing the locals above: if those
+    // two ever disagree the probe's own numbers would be the ones lying.
+    ShRayPush(true);
 
     const double now = MaimNowMs();
     if (now - g_asWriteLogMs > 1000.0) {
