@@ -207,11 +207,21 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
         AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
         return;
     }
-    // Nothing stored yet, so this draw has to be a candidate we can MEASURE: a
-    // loaded projectile (precise, aimed from its tip) or the weapon body itself
-    // (the fallback, aimed from its centre). A projectile is always preferred.
-    const bool body=!isProjectile&&BrIsWeaponBody(w->asset);
-    if(!isProjectile&&!body)return;
+    // MEASURED FROM A LOADED PROJECTILE ONLY.
+    //
+    // Fitting the weapon BODY was tried and removed the same hour, because it cannot
+    // work through this reader: the geometry path accepts at most 1024 vertices and
+    // the weapon meshes measured 1961 for the crossbow, 2481 for the sword and up to
+    // 6330 elsewhere, so every body was rejected by the size check before any axis
+    // was fitted - the refusal even quoted the variance test it never reached. They
+    // are also skinned to more than one bone, which the single-slot rigid transform
+    // this uses cannot carry. Making it work needs vertex subsampling and multi-bone
+    // handling, which is its own piece of work and is not this.
+    //
+    // Nothing is lost by refusing: a weapon with no measurable axis now falls back to
+    // the CONTROLLER ray rather than the head, so it still aims where it is pointed.
+    const bool body=false;
+    if(!isProjectile)return;
     const bool same=g.vb==w->vb&&g.ib==w->ib&&g.decl==w->decl&&g.stride==w->stride&&g.offset==w->streamOffset&&
         g.start==w->startIndex&&g.count==w->numVerts&&g.prims==w->primCount&&g.base==w->baseVertex&&g.minIndex==w->minIndex;
         // A weapon body only needs a DOMINANT axis; a bolt must be nearly 1D. The
