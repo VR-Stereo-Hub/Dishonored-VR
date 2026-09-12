@@ -33,6 +33,23 @@ struct BrGeometry {
     // measured it stays true without the projectile being drawn again, which also
     // removes the dropout while no projectile is on screen.
     char weapon[64]={};
+    // THE CACHE KEY IS THE ENGINE'S EQUIPPED ITEM, not a name.
+    //
+    // Keying on the weapon's asset name did not work: the name is resolved from the
+    // component table and comes back EMPTY on the projectile's own draw, which is the
+    // draw that measures. So the axis was adopted under weapon '?' and the name was
+    // filled in later by whichever draw happened next - meaning after a weapon switch
+    // the stored name and the stored axis could belong to two different weapons. The
+    // tester saw the consequence directly: the crossbow came back mirrored to the
+    // other side after a trip to the pistol.
+    //
+    // g_rflHeldObj is what the engine says is equipped in that hand. It changes
+    // exactly when the weapon changes, needs no name matching, and is identical on
+    // every draw of the frame including the projectile's.
+    void* heldObj=nullptr;
+    // The sign is latched once and then aimed with forever, so it must not be latched
+    // from a transitional frame. It is confirmed across samples before adoption.
+    int pendingSign=0,signVotes=0;
     bool fromBody=false;          // true = fitted from the weapon mesh, not a projectile
     float palmOrigin[3]={},palmDir[3]={};
     bool haveRay=false;
@@ -161,6 +178,15 @@ static const char* BrWeaponFor(const WaCommon* wc,int hand)
     return "";
 }
 
+// The engine's equipped item for a hand. Slot 1 is the primary, slot 2 the
+// secondary, and the two hand assignments say which is which.
+static void* BrHeldFor(int hand)
+{
+    const int slot=(hand==g_waXbowHand)?2:1;
+    uint8_t* o=g_rflHeldObj[slot];
+    return (o&&LooksLikeObj(o))?o:nullptr;
+}
+
 static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT regs,const dvr::hf::Xform& delta) {
     if(!dvr::aim::model_ray_requested()||w->hand<0||w->hand>1)return;
     const bool isProjectile=BrIsLoadedProjectile(w->asset);
@@ -181,22 +207,21 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     auto& g=g_brGeom[w->hand];const uint64_t now=GetTickCount64();
     // THE WEAPON DECIDES, not the ammunition. A different weapon invalidates the
     // axis; a different projectile in the SAME weapon does not.
-    const char* weapon=BrWeaponFor(wc,w->hand);
-    // AN EMPTY NAME IS NOT A DIFFERENT WEAPON. This discarded the axis on every
-    // frame: the projectile's own draw reports no weapon name, so an empty stored
-    // name compared as a mismatch, the measurement was thrown away and taken again
-    // forever - 408 adoptions in one run, all of them for weapon '?'. Fill an empty
-    // name in; only a genuine change between two KNOWN names resets anything.
-    if(weapon[0]){
-        if(!g.weapon[0]) strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
-        else if(strncmp(g.weapon,weapon,sizeof(g.weapon)-1)){
-            const bool had=g.haveRay;
-            g={};
-            strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
-            if(had)Log("modelray: weapon changed to '%s' - the stored axis is "
-                       "discarded and will be measured again for this weapon.",weapon);
-        }
+    // THE EQUIPPED ITEM decides, and it is the same on every draw of the frame - so
+    // the axis and the identity it is stored under can no longer disagree.
+    void* held=BrHeldFor(w->hand);
+    if(held&&g.heldObj&&held!=g.heldObj){
+        const bool had=g.haveRay;
+        g={};
+        g.heldObj=held;
+        if(had)Log("modelray: the equipped item in that hand changed - the stored axis "
+                   "is discarded and will be measured again for the new weapon.");
+    } else if(held&&!g.heldObj){
+        g.heldObj=held;
     }
+    // The NAME is still recorded, for the log only. It is never the cache key.
+    const char* weapon=BrWeaponFor(wc,w->hand);
+    if(weapon[0]&&!g.weapon[0]) strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
     // PUBLISH FROM ANY DRAW OF THIS HAND. The stored ray is in the palm frame and so
     // does not depend on the pose or on which mesh is being drawn; republishing it
     // needs no transform, no geometry and no verified instance. Gating this on the
@@ -244,13 +269,23 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     const auto native=dvr::hf::xform_mul(draw,skin);
     if(!g.sign){float dir[3];dvr::hf::mulv3(native.r,g.axis.dir,dir);float len=0,dot=0;
         for(int i=0;i<3;++i){len+=dir[i]*dir[i];dot+=dir[i]*wc->forward[i];}
-        if(len<1e-8f||fabsf(dot)/sqrtf(len)<0.7f){
+        // CONFIRM, do not latch on one frame. The sign decides which END of the axis
+        // is the muzzle, it is kept for the life of the weapon, and a single
+        // transitional frame - a weapon switch is exactly that - used to be enough to
+        // fix it backwards. The margin is raised from 0.70 to 0.85 and two
+        // consecutive frames must agree before it is adopted.
+        if(len>1e-8f&&fabsf(dot)/sqrtf(len)>=0.85f){
+            const int vote=dot>0?1:-1;
+            if(g.pendingSign==vote) ++g.signVotes; else { g.pendingSign=vote; g.signVotes=1; }
+            if(g.signVotes<2) return;   // not yet confirmed; try again next draw
+        }
+        if(len<1e-8f||fabsf(dot)/sqrtf(len)<0.85f){
             BrRefuseAsset(w->asset,"its forward sign is ambiguous against the native view "
                                    "(the fitted axis is more than 45 degrees off the weapon's "
                                    "own forward, so which end is the tip cannot be decided)");
             return;
         }
-        g.sign=dot>0?1:-1;
+        g.sign=g.pendingSign;
         g.fromBody=body;
         Log("modelray: measured '%s' axis - rigid slot %d, variance ratio %.1f (16:1 "
             "required), length %.3f, sign %+d. This is the loaded projectile's own "
