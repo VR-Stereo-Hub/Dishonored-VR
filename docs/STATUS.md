@@ -1,6 +1,32 @@
 # Status
 
-## CURRENT (2026-09-12): MERGED to VR-Main. Next: the pistol's fire seam
+## CURRENT (2026-09-12): the pistol's fire seam is hooked, UNVERIFIED (VR-82)
+
+`claude/vr-82-pistol-fire-seam`, off VR-Main. The pistol's native firing routine was
+traced offline and hooked at its own pre-spawn join, so pistol shots now go through the
+same published ray and the same solver as the crossbow's. Built, installed, 6115 offline
+checks pass. **No game or simulator has been launched: runtime behaviour is untested.**
+
+The derivation re-walked the crossbow's route and reproduced every one of its published
+numbers before trusting any pistol number. Full table in ENGINE_NOTES, "VR-82 native
+pistol fire seam"; the design is `dishonored/VR-82-PISTOL-FIRE-SEAM.md`.
+
+The one real difference from the crossbow, and the reason this was not a one-line change:
+the pistol derives its spawn POSITION from the aim direction, standing the bullet off by
+`m_fBulletSpawnDistance` (150 uu). Position and direction are one decision, so the hook
+reconstructs the engine's own origin, aims from there, and rebuilds the standoff along the
+corrected direction. Two traps are recorded in TRAPS: the join cannot go where it looks
+like it should, because a later native call takes the direction local by address; and a
+refusal line that prints a number must be checked against the case it explains.
+
+`[Aim] FireFromHand` still switches both weapons at once - `fireaim on|off` on the seam,
+or the F10 Aim checkbox, now labelled for both. The per-shot log line names the weapon.
+
+**Next: the first headset run.** One question only - with the pistol equipped, does a shot
+land on the laser dot. The log line to read is `fireaim #n pistol:`; a run where the hook
+declines prints the reason and the numbers instead.
+
+## Earlier (2026-09-12): MERGED to VR-Main, crossbow done
 
 PR #37 and #38 are merged (VR-Main at `866e5c43`). The crossbow aims from its own
 barrel and the work is on the main line; both branches are done.

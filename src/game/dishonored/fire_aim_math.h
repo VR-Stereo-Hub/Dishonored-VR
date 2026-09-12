@@ -1,4 +1,4 @@
-// Pure crossbow launch geometry. No engine objects or writes.
+// Pure launch geometry. No engine objects or writes.
 #pragma once
 #include "game/dishonored/aim_ray.h"
 namespace dvr::fireaim {
@@ -52,6 +52,56 @@ inline bool solve(const aim::FireFrame& f, uint64_t now, float yaw, float pitch,
     }
     if (!finite3(s.target) || !std::isfinite(gap2) || gap2>16*scale*scale ||
         dot(s.direction,s.direction)<0.01f*scale*scale || !normalize(s.direction)) return false;
+    out=s; return true;
+}
+
+// VR-82. The pistol stands its bullet off from the origin ALONG THE AIM
+// DIRECTION - spawn = origin + dir * m_fBulletSpawnDistance - so the position
+// and the direction are one decision, not two. Correcting only the direction
+// would leave the bullet starting up to that distance along the old head
+// direction, which can place its first frame inside geometry the aim line
+// never crossed.
+//
+// So reconstruct the origin the engine used, aim from THERE, and re-derive the
+// standoff along the corrected direction. This is the engine's own formula with
+// our direction substituted; it introduces no constant of its own.
+//
+// nativeDir must be the direction the standoff was BUILT from, not the one the
+// spawn rotation will consume - a later native call can rewrite the latter.
+struct StandoffSolution { Solution ray; float origin[3] = {}, spawn[3] = {}; float reach = 0; };
+inline bool solve_standoff(const aim::FireFrame& f, uint64_t now, float yaw, float pitch,
+                           const float* camera, float scale, const float* nativeSpawn,
+                           const float* nativeDir, float standoff, StandoffSolution& out,
+                           const char** why = nullptr, float* reachOut = nullptr) {
+    // reachOut is filled as soon as the reach is known, INCLUDING on the refusal
+    // that the reach causes - a refusal line that could only ever print zero
+    // would not be evidence of anything. It stays negative when never computed.
+    if (reachOut) *reachOut = -1;
+    auto no = [&](const char* reason) { if (why) *why = reason; return false; };
+    if (!finite3(nativeSpawn) || !finite3(nativeDir)) return no("spawn or direction not finite");
+    if (!std::isfinite(standoff) || standoff < 0 || standoff > 1000)
+        return no("bullet spawn distance out of range");
+    const float n = dot(nativeDir,nativeDir);
+    if (!std::isfinite(n) || n < 0.5f || n > 1.5f) return no("standoff direction is not unit");
+    StandoffSolution s;
+    for (int i=0;i<3;++i) s.origin[i] = nativeSpawn[i] - nativeDir[i]*standoff;
+    if (!finite3(s.origin)) return no("reconstructed origin not finite");
+    // Aiming from the reconstructed origin makes solve()'s reach check compare
+    // the controller ray's origin against the engine's own, not against a point
+    // already displaced by the standoff.
+    if (!solve(f,now,yaw,pitch,camera,scale,s.origin,s.ray)) return no("stale/invalid ray, basis or origin");
+    float toTarget[3];
+    for (int i=0;i<3;++i) toTarget[i] = s.ray.target[i]-s.origin[i];
+    s.reach = std::sqrt(dot(toTarget,toTarget));
+    if (reachOut) *reachOut = s.reach;
+    // A standoff that reaches the aim point would spawn the bullet ON or PAST
+    // the thing it is aimed at, and past it the launch direction is reversed.
+    // Half the reach is the bound: it keeps the bullet in the near half of its
+    // own aim line at every dot distance the lever allows.
+    if (!std::isfinite(s.reach) || standoff > 0.5f*s.reach)
+        return no("bullet spawn distance reaches the aim point");
+    for (int i=0;i<3;++i) s.spawn[i] = s.origin[i] + s.ray.direction[i]*standoff;
+    if (!finite3(s.spawn)) return no("standoff position not finite");
     out=s; return true;
 }
 } // namespace dvr::fireaim
