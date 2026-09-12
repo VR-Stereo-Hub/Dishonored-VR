@@ -530,6 +530,85 @@ static bool ShReadVec(uint8_t* o, unsigned off, float* v, float lo, float hi)
     return m >= lo && m <= hi;
 }
 
+// Phase A0: the candidate rotations. Resolved BY NAME through the engine's own
+// property table, never by a borrowed offset - patterns.h records that copying the
+// camera's 0x9c onto a PlayerController read a float as a rotator and pinned the
+// pawn's yaw until the arms froze. A candidate that will not resolve is refused and
+// counted, not guessed.
+static void ShResolveRot(void)
+{
+    if (g_shRotResolved) return;
+    g_shRotResolved = true;
+    g_shRotOffPc   = FindPropOffset("Actor", "Rotation");
+    g_shRotOffPawn = g_shRotOffPc;   // same property, different object
+    Log("aimshot/cand: Actor.Rotation resolved by name at +0x%x (%s). The camera "
+        "entries stay the literals the mod already writes (0x9c POV, 0xd0 cache); "
+        "the retired kPcRotBase is deliberately NOT reused on the controller.",
+        g_shRotOffPc, g_shRotOffPc ? "usable" : "UNRESOLVED - that candidate is refused");
+}
+
+// A rotator is three int32 in UE units. Integers wrap and unrelated bytes can look
+// plausible, so this is a REJECTION filter and not proof of layout: it only refuses
+// what cannot be a rotator, and the raw values are logged so a wrong field is
+// visible rather than quietly believed.
+static bool ShReadRot(uint8_t* obj, uint32_t off, int32_t* raw, float* fwd)
+{
+    if (!obj || !off || !RangeReadable(obj + off, 12)) return false;
+    const int32_t* r = (const int32_t*)(obj + off);
+    raw[0] = r[0]; raw[1] = r[1]; raw[2] = r[2];
+    // A float read as an int32 lands in the hundreds of millions or worse; a UE
+    // rotator's components are meaningful modulo 65536 but the engine keeps them
+    // in a far smaller band in practice. Refuse the obviously-not-a-rotator.
+    for (int i = 0; i < 3; i++)
+        if (raw[i] > 40000000 || raw[i] < -40000000) return false;
+    const float pitch = (float)raw[0] / kUEPerRad, yaw = (float)raw[1] / kUEPerRad;
+    fwd[0] = cosf(pitch) * cosf(yaw);
+    fwd[1] = cosf(pitch) * sinf(yaw);
+    fwd[2] = sinf(pitch);
+    return V3Norm(fwd) > 0.5f;
+}
+
+// Which head writer is live. The script path owns the camera normally and
+// RotInjectTick is its fallback, gated on the script path having gone quiet for
+// 750 ms - and that fallback writes the RETIRED controller entries, which would
+// make the controller candidate partly our own write. It has to be on the record
+// per shot, not assumed.
+static int ShWriterNow(void)
+{
+    if (!g_rotInject) return 0;
+    if (g_scriptHeadOK && (MaimNowMs() - g_scriptHeadMs) < 750.0) return 1;
+    return 2;
+}
+
+static void ShSampleCands(ShRec* h, bool second)
+{
+    ShResolveRot();
+    bool* ok   = second ? h->candOk2  : h->candOk;
+    float (*fw)[3] = second ? h->candFwd2 : h->candFwd;
+    for (int i = 0; i < kShCandN; i++) ok[i] = false;
+    int32_t raw[3];
+    if (CamStillValid() && g_camObj) {
+        if (ShReadRot(g_camObj, kCamRotBase[0], raw, fw[kShCamPov])) {
+            ok[kShCamPov] = true;
+            if (!second) for (int k = 0; k < 3; k++) h->candRaw[kShCamPov][k] = raw[k];
+        }
+        if (ShReadRot(g_camObj, kCamRotBase[1], raw, fw[kShCamCache])) {
+            ok[kShCamCache] = true;
+            if (!second) for (int k = 0; k < 3; k++) h->candRaw[kShCamCache][k] = raw[k];
+        }
+    }
+    if (g_pcObj && ShReadRot(g_pcObj, g_shRotOffPc, raw, fw[kShPcRot])) {
+        ok[kShPcRot] = true;
+        if (!second) for (int k = 0; k < 3; k++) h->candRaw[kShPcRot][k] = raw[k];
+    }
+    if (g_fpPawn && ShReadRot((uint8_t*)g_fpPawn, g_shRotOffPawn, raw, fw[kShPawnRot])) {
+        ok[kShPawnRot] = true;
+        if (!second) for (int k = 0; k < 3; k++) h->candRaw[kShPawnRot][k] = raw[k];
+    }
+    if (!second)
+        for (int i = 0; i < kShCandN; i++) if (!ok[i]) ++g_shCandRefused[i];
+}
+
 // A frame built on the controller ray, so a residual can be SIGNED. An unsigned
 // angle cannot tell a mirror from a match, which is the one failure the mapping's
 // own check is documented as unable to see.
@@ -538,6 +617,12 @@ static void ShFrame(const float* d, float* right, float* up)
     const float zUp[3] = { 0.0f, 0.0f, 1.0f };    // game axes: Z is up
     V3Cross(d, zUp, right);
     if (V3Norm(right) < 0.2f) { right[0] = 1.0f; right[1] = right[2] = 0.0f; }
+    // THE SIGN. cross(forward, worldUp) points the opposite way from the engine's
+    // own right row - the projection code a few hundred lines up negates exactly
+    // this cross for exactly that reason. Without the negation the magnitudes were
+    // right and every left/right label was backwards, which an unsigned angle
+    // comparison can never catch.
+    right[0] = -right[0]; right[1] = -right[1]; right[2] = -right[2];
     V3Cross(right, d, up); V3Norm(up);
 }
 
@@ -616,6 +701,65 @@ static void ShReport(ShRec* h, const char* cn)
                      "miss on this line are derived from it and mean NOTHING until it is "
                      "fixed. A gap of about twice the player's distance from the world "
                      "origin is a SIGN error in the camera position. ***";
+    // THE COMPARISON. An angle near zero means the bolt is CONSISTENT WITH that
+    // rotation, never that the fire path read it: two candidates can share an
+    // upstream producer, and the local Pawn.GetBaseAimRotation returns the player
+    // VIEW POINT rather than any of these fields directly. The pairwise spread is
+    // printed beside the errors so "two candidates agree" is visible instead of
+    // being inferred from two similar numbers, and a run where they all agree is
+    // reported as INDISTINGUISHABLE rather than as an identification.
+    char cands[768]; int cn2 = 0; cands[0] = 0;
+    float candDeg[kShCandN];
+    for (int i = 0; i < kShCandN; i++) {
+        candDeg[i] = -1.0f;
+        if (h->candOk[i]) {
+            const float c = V3Dot(b, h->candFwd[i]);
+            candDeg[i] = acosf(c < -1.0f ? -1.0f : (c > 1.0f ? 1.0f : c)) * 57.2957795f;
+        }
+        float drift = -1.0f;
+        if (h->candOk[i] && h->candOk2[i]) {
+            const float c2 = V3Dot(h->candFwd[i], h->candFwd2[i]);
+            drift = acosf(c2 < -1.0f ? -1.0f : (c2 > 1.0f ? 1.0f : c2)) * 57.2957795f;
+        }
+        if (cn2 < (int)sizeof(cands) - 140)
+            cn2 += _snprintf(cands + cn2, sizeof(cands) - cn2,
+                "%s%s: %s%.2f deg%s (raw p/y/r %d/%d/%d, moved %.2f deg by the "
+                "observation)", cn2 ? " | " : "", kShCandName[i],
+                h->candOk[i] ? "" : "REFUSED ", candDeg[i] < 0 ? 0.0f : candDeg[i],
+                h->candOk[i] ? "" : " - unresolved or not a rotator",
+                h->candRaw[i][0], h->candRaw[i][1], h->candRaw[i][2],
+                drift < 0 ? 0.0f : drift);
+    }
+    // Are any two of them within noise of each other? If so nothing here can
+    // separate them and saying which one "matched" would be a coin toss.
+    float worstPair = -1.0f; int pa = -1, pb = -1;
+    for (int i = 0; i < kShCandN; i++) for (int j = i + 1; j < kShCandN; j++) {
+        if (!h->candOk[i] || !h->candOk[j]) continue;
+        const float c = V3Dot(h->candFwd[i], h->candFwd[j]);
+        const float dg = acosf(c < -1.0f ? -1.0f : (c > 1.0f ? 1.0f : c)) * 57.2957795f;
+        if (worstPair < 0.0f || dg < worstPair) { worstPair = dg; pa = i; pb = j; }
+    }
+    static const char* const kWriter[] = {"NONE (head rotation writes are off)",
+        "script path (writes the camera POV; the retired controller entries are NOT touched)",
+        "FALLBACK RotInjectTick - IT WRITES THE RETIRED CONTROLLER ENTRIES, so the "
+        "controller candidate is partly our own write on this shot"};
+    Log("aimshot/cand #%d: %s || closest pair %s and %s differ by %.2f deg - a "
+        "separation smaller than the stationary spread means these candidates are "
+        "INDISTINGUISHABLE on this shot and naming one would be a coin toss. Head "
+        "writer: %s.",
+        h->id, cands,
+        pa >= 0 ? kShCandName[pa] : "?", pb >= 0 ? kShCandName[pb] : "?",
+        worstPair < 0.0f ? -1.0f : worstPair,
+        kWriter[h->writerAtShot >= 0 && h->writerAtShot <= 2 ? h->writerAtShot : 0]);
+
+    // The parallel counterfactual the acceptance gate needs: the miss a bolt that
+    // merely ran PARALLEL to the ray would keep. A shot can only demonstrate
+    // convergence where this exceeds the tolerance and the real miss does not.
+    Log("aimshot/gate #%d: parallel counterfactual %.1f uu (%.2f m) against the "
+        "0.25 m bar. A shot where this is itself under the bar CANNOT demonstrate "
+        "convergence, because a displaced parallel launch would pass too.",
+        h->id, transUU, transUU / uuPerM);
+
     Log("aimshot #%d: %s | stage %d = %s, %.0f ms after first sight | "
         "ray gen %u age %.0f ms, drive %s | "
         "MISS AT THE DOT %s%.1f uu (%.2f m)%s <- THIS is the acceptance number, not the angle | "
@@ -649,9 +793,31 @@ static void AimShotSee(uint8_t* o, const char* cn, double now)
     ++g_shDispatches;
     if (!RangeReadable(o, 0x220)) { ++g_shBadRead; return; }
 
+    // Ownership. The class filter admits grenades, bullets and anything an enemy
+    // fires; only the player's ordinary crossbow bolt is scored. A count that
+    // happens to match the tester's in a quiet room is not an ownership proof.
+    if (!cn || strcmp(cn, "DisProjectile_Arrow")) { ++g_shForeign; return; }
+
+    // IDENTITY. The engine pools projectiles, so an address is reused: the same
+    // slot can be a different shot. The epoch plus the first-sight position is the
+    // identity, and an address that matches while the position has jumped is a NEW
+    // projectile rather than a later sighting of the old one.
     int slot = -1;
     for (int i = 0; i < g_shRecN && i < kShMax; i++)
-        if (g_shRec[i].obj == o) { slot = i; break; }
+        if (g_shRec[i].obj == o && g_shRec[i].epoch == g_shEpoch) { slot = i; break; }
+    if (slot >= 0) {
+        float nowPos[3];
+        if (ShReadVec(o, 0x80, nowPos, 1.0f, 3.0e6f)) {
+            const ShRec* e = &g_shRec[slot];
+            float dx = nowPos[0]-e->spawnLoc[0], dy = nowPos[1]-e->spawnLoc[1],
+                  dz = nowPos[2]-e->spawnLoc[2];
+            const float moved = sqrtf(dx*dx + dy*dy + dz*dz);
+            // A bolt at 20000 uu/s covers a lot in a tick, so this bound is
+            // generous: it only catches a REUSED slot that has jumped back to a
+            // fresh muzzle, which is a new shot wearing an old address.
+            if (e->reported && moved < 200.0f) { ++g_shAmbiguous; return; }
+        }
+    }
 
     if (slot < 0) {
         // FIRST SIGHT. Position and spawn forward are valid here; velocity is
@@ -675,6 +841,8 @@ static void AimShotSee(uint8_t* o, const char* cn, double now)
         ShRec* h = &g_shRec[slot];
         memset(h, 0, sizeof(*h));
         h->obj = o; h->id = g_shNextId++; h->firstMs = h->lastMs = now; h->sights = 1;
+        h->epoch = g_shEpoch;
+        for (int i = 0; i < 3; i++) h->spawnLoc[i] = S[i];
         for (int i = 0; i < 3; i++) { h->S[i] = S[i]; h->fwd0[i] = fwd[i]; }
         h->stage = 0;
         // Match the shot to the solve that was live when it spawned: the newest
@@ -682,11 +850,19 @@ static void AimShotSee(uint8_t* o, const char* cn, double now)
         // is a real answer and is counted.
         const int n = g_shRayN < kShRayHist ? g_shRayN : kShRayHist;
         double best = -1.0;
+        bool sawStale = false;
         for (int i = 0; i < n; i++) {
             const ShRay* c = &g_shRay[(g_shRayN - 1 - i + kShRayHist * 4) % kShRayHist];
             if (!c->ok || c->ms > now) continue;
+            // The AGE BOUND. Without it a bolt marries a solve from seconds back and
+            // the association reads as tight as a real one. 24 slots is a count of
+            // script dispatches, not a span of time.
+            if (now - c->ms > kShRayMaxAgeMs) { sawStale = true; continue; }
             if (c->ms > best) { best = c->ms; h->ray = *c; h->haveRay = true; }
         }
+        if (sawStale && !h->haveRay) ++g_shStaleRay;
+        h->writerAtShot = ShWriterNow();
+        ShSampleCands(h, false);
         if (!h->haveRay) { ++g_shNoRay; ++g_shFirstSights;
             Log("aimshot #%d: NO usable controller solve within the last %d script "
                 "ticks, so this shot cannot be scored. Launch S (%.0f %.0f %.0f). "
@@ -708,6 +884,7 @@ static void AimShotSee(uint8_t* o, const char* cn, double now)
     for (int i = 0; i < 3; i++) h->vel[i] = v[i];
     h->speed = sqrtf(V3Dot(v, v));
     h->stage = 1;
+    ShSampleCands(h, true);   // the same candidates at the observation, not only at first sight
     ShReport(h, cn);
 }
 
@@ -719,13 +896,18 @@ static void AimShotBeat(double now)
     if (!g_shOn || now - g_shBeatMs < 5000.0) return;
     g_shBeatMs = now;
     Log("aimshot/pop: projectile dispatches %ld, first sights %ld, later sights %ld, "
-        "scored %ld | unscored: no controller solve %ld, offsets implausible %ld, "
-        "evicted before the velocity arrived %ld, miss metric refused %ld | ray "
+        "scored %ld | unscored: no controller solve %ld, solve too old %ld, not the "
+        "player's crossbow bolt %ld, pooled-address identity unresolved %ld, offsets "
+        "implausible %ld, evicted before the velocity arrived %ld, miss metric "
+        "refused %ld | candidates refused camPOV/camCache/pcRot/pawnRot "
+        "%ld/%ld/%ld/%ld | ray "
         "history %d of %d slots | drive is %s.%s A scored count of 0 with first "
         "sights above 0 means every bolt was seen but none reached a filled "
         "velocity - that is the timing assumption failing, not a clean run.",
         g_shDispatches, g_shFirstSights, g_shSecondSights, g_shCompleted,
-        g_shNoRay, g_shBadRead, g_shEvicted, g_shMissExcluded,
+        g_shNoRay, g_shStaleRay, g_shForeign, g_shAmbiguous, g_shBadRead,
+        g_shEvicted, g_shMissExcluded,
+        g_shCandRefused[0], g_shCandRefused[1], g_shCandRefused[2], g_shCandRefused[3],
         g_shRayN < kShRayHist ? g_shRayN : kShRayHist, kShRayHist,
         g_asDrive ? "ON" : "off (baseline)",
         g_shDispatches == 0

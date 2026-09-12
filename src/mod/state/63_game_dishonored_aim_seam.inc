@@ -69,6 +69,11 @@ struct ShRay {
     float   distP, distT;               // uu
     bool    wrote;                      // did the drive write this solve
 };
+// Phase A0: the solve association has to carry an AGE BOUND. Picking the newest
+// solve at or before a sighting is an association and not the input the shot
+// consumed, and without a cap it will happily marry a bolt to a solve from
+// seconds earlier. 24 slots is a count of script dispatches, not a duration.
+static const double kShRayMaxAgeMs = 150.0;
 static ShRay    g_shRay[kShRayHist] = {};
 static int      g_shRayN = 0;           // monotonic; index is (n-1) % kShRayHist
 static const int kShMax = 6;            // in-flight projectiles tracked
@@ -85,6 +90,28 @@ struct ShRec {
     float    speed;
     int      stage;                     // 0 = forward proxy only, 1 = velocity measured
     bool     reported;
+    // Phase A0 identity. An address alone can merge two shots or suppress the
+    // second as already reported, because the engine pools projectiles.
+    uint32_t epoch;          // gameplay epoch; an address from a previous one is void
+    float    spawnLoc[3];    // first-sight position, part of the identity
+    bool     ambiguous;      // identity could not be established; counted, not scored
+    // The candidate rotations, sampled at first sight AND again at the velocity
+    // observation, because comparing a fresh rotation against an older bolt and
+    // calling them simultaneous is how a frame question gets answered wrongly.
+    bool     candOk[4];
+    float    candFwd[4][3];
+    int32_t  candRaw[4][3];
+    bool     candOk2[4];
+    float    candFwd2[4][3];
+    int      writerAtShot;   // which head writer was live: 0 none, 1 script, 2 fallback
+};
+// The candidates, in one order used everywhere so a log column cannot drift.
+enum ShCand { kShCamPov = 0, kShCamCache = 1, kShPcRot = 2, kShPawnRot = 3, kShCandN = 4 };
+static const char* const kShCandName[kShCandN] = {
+    "cameraPOV(0x9c, WRITTEN by the mod from the head)",
+    "cameraCache(0xd0, also written)",
+    "playerController Actor.Rotation (resolved by name)",
+    "pawn Actor.Rotation (the body, resolved by name)"
 };
 static ShRec    g_shRec[kShMax] = {};
 static int      g_shRecN = 0;
@@ -100,3 +127,10 @@ static long     g_shBadRead = 0;        // offsets failed plausibility
 static long     g_shEvicted = 0;        // pushed out of the ring before stage 1
 static long     g_shMissExcluded = 0;   // the miss metric refused its own inputs
 static double   g_shBeatMs = 0.0;
+static long     g_shStaleRay = 0;       // association refused on age
+static long     g_shForeign = 0;        // not the player's ordinary crossbow bolt
+static long     g_shAmbiguous = 0;      // pooled-address identity unresolved
+static uint32_t g_shEpoch = 1;          // bumped on load/possession/weapon change
+static uint32_t g_shRotOffPc = 0, g_shRotOffPawn = 0;   // Actor.Rotation, by name
+static bool     g_shRotResolved = false;
+static long     g_shCandRefused[kShCandN] = {};
