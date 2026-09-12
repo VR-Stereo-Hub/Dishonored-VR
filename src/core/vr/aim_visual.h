@@ -23,6 +23,25 @@ struct AimVisualStats {
     AimVisualResult last = AimVisualResult::Off;
     uint32_t generation = 0, layerLimit = 0;
 };
+// VR-57 test 1: the HEAD-anchored control dot. Placed straight ahead of the
+// LOCATED view, not from any controller, so it removes the hand from the loop
+// entirely. Two distances along the same ray from the head: on screen they must
+// land on the same point, and that point must be the centre of the game's own
+// rendered image. A control dot that sits wrong exonerates the aim ray and names
+// the projection layer's alignment as the fault; one that sits right puts the
+// ray back under suspicion. Built inside the runtime because only the runtime
+// owns the located views the compositor itself composites against.
+struct ControlDotConfig {
+    bool on = false;
+    float nearM = 1.5f, farM = 8.0f, sizeDeg = 0.5f;
+};
+struct ControlDotStats {
+    uint32_t frames = 0, dots = 0, refusedNoProjection = 0, refusedNoViews = 0,
+             refusedNoTexture = 0, refusedBudget = 0, refusedGeometry = 0;
+};
+void set_control_dot(const ControlDotConfig& cfg);
+ControlDotStats control_dot_stats();
+
 // All three APIs run on the present thread (including the F10 draw callback).
 void set_aim_visual(const AimVisualConfig& cfg);
 AimVisualStats aim_visual_stats();

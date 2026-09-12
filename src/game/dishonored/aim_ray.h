@@ -88,7 +88,10 @@ inline void visual_append(dvr::vr::AimVisualConfig& out, const Ray& ray, bool do
 }
 
 struct Config { bool dot = false, laser = false; int hand = 0; float distanceM = 8, sizeDeg = 0.5f;
-                bool bothPoses = false; };   // draw the GRIP ray too, at half size
+                bool bothPoses = false;      // draw the GRIP ray too, at half size
+                bool controlDot = false; };  // VR-57 test 1: the HEAD-anchored control
+                                             // dot, which no controller enters. See
+                                             // core/vr/aim_visual.h for what it settles.
 Config config();
 void configure(const Config& cfg, const char* origin);
 Ray ray(); // most recent present-thread snapshot, no recomputation

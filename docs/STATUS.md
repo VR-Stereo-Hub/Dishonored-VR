@@ -1,6 +1,44 @@
 # Status
 
-## CURRENT (2026-09-12): hand aiming - the ray is right, the drawn beam is not (VR-57)
+## CURRENT (2026-09-12, later): the projection layer is aligned; the ray is the suspect (VR-57)
+
+Build 111 added a HEAD-anchored control dot - straight ahead of the located view,
+no controller anywhere in it - and the layer-alignment numbers beside it. One
+headset launch settled all three tests in `dishonored/VR-57-AIM-PIPELINE.md`
+section 7, and **all three came back clean**:
+
+* the control dot sits on the game's own crosshair (tester),
+* the claimed fov equals the fov the game rendered (108.07 vs 108.07 deg, tan
+  1.3780 vs 1.3780, src=readback),
+* the layer's pose tag equals the located pose with the head still (0.00 deg,
+  0.000 m at poseLag 2).
+
+So the compositor quads and the rendered world DO share a frame. The leading
+hypothesis is falsified and the controller ray is back under suspicion. The
+control dot is kept as the calibrated reference.
+
+Two side findings, both consistent. The game's crosshair LAGS the head while the
+control dot does not, because the crosshair is painted into an image submitted
+with a pose two generations old and a 2D HUD element cannot be reprojected - so
+the game's crosshair is only a valid reference while the head is still. And bolts
+landed at that crosshair, which is expected: `DriveFromHand` was off for this run
+on purpose, since it moves the reference.
+
+One mistake, recorded in `TRAPS.md`: the control dot shipped at two distances with
+the written prediction that they would appear concentric. Two points at different
+depths on a cyclopean ray cannot coincide in either eye - at the measured 63.2 mm
+IPD they split by 1.0 deg, outward in each eye, which is what the headset showed.
+The near dot is removed.
+
+Next: build 112 draws the controller dot and the control dot together at 8 m. The
+tester sights along the controller at the control dot and the separation is the
+pose error, measured against a reference that has now been confirmed. The beat
+prints the prediction in degrees (`DOT APPEARS az/el`) so the report can refute
+it. The two remaining candidates are a genuinely wrong aim pose and a comparison
+made against the separately-rotated weapon MODEL rather than the controller; the
+second is the stronger and is what 112 separates.
+
+## Earlier (2026-09-12): hand aiming - the ray is right, the drawn beam is not (VR-57)
 
 The full pipeline, every measurement and the leads are in
 `dishonored/VR-57-AIM-PIPELINE.md`. Read that first; this is the summary.
