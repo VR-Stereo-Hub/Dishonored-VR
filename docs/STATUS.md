@@ -1,5 +1,43 @@
 # Status
 
+## CURRENT (2026-09-12): hand aiming - the ray is right, the drawn beam is not (VR-57)
+
+The full pipeline, every measurement and the leads are in
+`dishonored/VR-57-AIM-PIPELINE.md`. Read that first; this is the summary.
+
+Built on `claude/vr-57-crosshair-on-hand-ray` (builds 100-110, nothing merged):
+one aim ray from the runtime's AIM pose, a dot and beam drawn from it as
+compositor quads, a read-only probe of the game's own aim-assist cache, and a
+lever that WRITES that cache from the ray so the shot follows the controller.
+
+What holds: the game computes the fire direction itself, and its equipped
+weapon caches the assist result per tick (`DisItemContext_FireCrossbow`,
+`m_CachedAimAssistPos` at +0x00d0) with a direction that tracks the view
+(dot +0.998) and a projected screen point. Writing it moves the shot; 485,083
+writes, zero refused. The ray's mapping into game axes is exact - the angle off
+the head in XR equals the angle off the view in game (30.0/30.0, 25.3/25.3).
+
+What does not: the tester reports the beam sitting about 45 deg left and 10-20
+deg up from where the controller points, while the same ray measures near
+straight ahead when the arm is extended and still (az -12, el +5 over 36 steady
+samples). The dots are placed at the controller's own position along that ray,
+and the layer budget draws all 10 points, so the suspect is the alignment
+between compositor quads and the game's RENDERED WORLD (the claimed FOV, the
+submitted view poses, the eye tag) rather than the ray. Shots are also pulled
+back toward the game's crosshair from either side, which is the aim assist
+clamping how far it will move a shot.
+
+Next, in order: a head-anchored control dot (if that also sits wrong, the ray is
+exonerated and the fault is the layer), the FOV audit against the game's own
+rendered FOV, then the submitted view pose. Then the assist clamp, then the
+barrel axis for the model. Fresh leads to mine in the decompiled scripts are
+listed in the pipeline doc, section 9.
+
+The weapon model is separately rotated from the controller; SHIFT+F7 improved
+it and the numpad adjust finishes it. A crash after a pause menu is recorded but
+not attributed: the same d3d9 signature appears in runs from 2026-09-03 and
+2026-09-09. The write is now gated to gameplay regardless.
+
 ## CURRENT (2026-09-11): VR-57 visual controller guide installed, user test pending
 
 Step 1 on `claude/vr-57-crosshair-on-hand-ray` publishes a fixed-distance dot and
