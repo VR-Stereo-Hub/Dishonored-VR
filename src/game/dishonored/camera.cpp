@@ -435,6 +435,15 @@ bool render_pos(float out[3]) {
     out[0] = g_c5[0]; out[1] = g_c5[1]; out[2] = g_c5[2];
     return true;
 }
+// See the header for the measurement. The negation is applied in ONE place so a
+// consumer cannot half-apply it, and the bolt probe prints the launch-to-origin
+// gap every shot: if this sign is ever wrong the gap reads in hundreds of metres
+// instead of under one, which is exactly how it was found.
+bool render_pos_world(float out[3]) {
+    if (!render_pos(out)) return false;
+    out[0] = -out[0]; out[1] = -out[1]; out[2] = -out[2];
+    return true;
+}
 
 // ---- positional tracking: the offset, the lane, the ceiling ------------------------------
 void set_position_offset_uu(float right, float up, float fwd) {
