@@ -406,6 +406,14 @@ static void WriteDefaultIni(const char* ini)
         "; the dot by the whole transverse gap at zero angle. Works with DriveFromHand\n"
         "; either way, and the drive-off run is the baseline.\n"
         "ShotProbe=0\n"
+        "; FollowHandTrim (VR-57): transport the hand trim onto the published aim ray,\n"
+        "; so tuning the hand with the numpad carries the dot, the beam and the shot\n"
+        "; with it instead of leaving them on the physical controller. The whole ray\n"
+        "; moves - it rotates about the untrimmed palm origin and then takes the\n"
+        "; trim translation - so it stays attached to the hand the way the weapon does.\n"
+        "; It is NOT a measured barrel axis: any baseline offset between the AIM pose\n"
+        "; and the barrel is preserved. Off returns the AIM-pose ray untouched.\n"
+        "FollowHandTrim=0\n"
         "; FireWatch (VR-57 Phase B) records named script dispatches - anything whose\n"
         "; name mentions Aim, Fire, Shoot, Launch, Projectile or ViewPoint - and prints\n"
         "; the ones preceding each scored bolt, with the caller that made them. READ-ONLY.\n"
@@ -1909,6 +1917,8 @@ static void LoadConfig()
                 (double)(seedT[0]*1000.0f), (double)(seedT[1]*1000.0f),
                 (double)(seedT[2]*1000.0f),
                 (double)seedR[0], (double)seedR[1], (double)seedR[2]);
+        MpPublishHandCal(0);
+        MpPublishHandCal(1);
         Log("config: hand trim bounds - rotation +-%.0f deg per axis (raised from "
             "%.0f, which measurably prevented further adjustment), translation "
             "+-%.2f m. One limit serves the ini load and the numpad adjustment, so "
@@ -1925,6 +1935,22 @@ static void LoadConfig()
             (double)(g_mpTrimT[1][0]*1000.0f), (double)(g_mpTrimT[1][1]*1000.0f),
             (double)(g_mpTrimT[1][2]*1000.0f),
             (double)g_mpTrimR[1][0], (double)g_mpTrimR[1][1], (double)g_mpTrimR[1][2]);
+    }
+
+    // VR-57: FollowHandTrim. The published ray is transported by the hand's own
+    // trim, so tuning the hand carries the guide and the shot with it. Default OFF
+    // in new configurations; off returns the AIM-pose ray untouched.
+    {
+        dvr::aim::Config ch = dvr::aim::config();
+        ch.followHandTrim = GetPrivateProfileIntA("Aim", "FollowHandTrim", 0, ini) != 0;
+        dvr::aim::configure(ch, ini);
+        Log("config: [Aim] FollowHandTrim=%d - %s. This is NOT a measured barrel "
+            "axis or muzzle position: it transports the hand trim onto the existing "
+            "AIM-pose ray, so any baseline offset between that ray and the weapon's "
+            "barrel is preserved, not removed.",
+            ch.followHandTrim ? 1 : 0,
+            ch.followHandTrim ? "the ray follows the hand trim"
+                              : "the ray is the AIM pose, unchanged");
     }
 
     // THE MODEL SCALE. Hands and held weapons, one uniform factor.

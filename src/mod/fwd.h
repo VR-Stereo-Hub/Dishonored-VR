@@ -397,6 +397,9 @@ static void PcRefreshLayout(IDirect3DDevice9* dev);
 struct MpDrawCtx;
 static void MpDrawCompare(const MpDrawCtx* c);
 static void MpEyeForPresent(const MpDrawCtx* c);
+// VR-57: the hand calibration snapshot. config.cpp and the draw both publish it,
+// and both are included before its definition.
+static void MpPublishHandCal(int hand);
 static void AimSeamTick(void);
 static void AimSeamDrive(void);
 static bool FireAimInstall();

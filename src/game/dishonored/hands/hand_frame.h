@@ -501,6 +501,105 @@ static inline Mat3 euler_xyz_deg_to_mat(float xd, float yd, float zd)
     return mul3(Rz, mul3(Ry, Rx));
 }
 
+// ---- VR-57: transporting the hand trim onto the XR aim ray -------------------
+//
+// The hand is drawn with `palm_target` = [ O_C * G * Trim.r | d_cam + (O_C*G)*Trim.t ],
+// where O_C = B * F * transpose(R_H) * R_C. The published aim ray lives in XR
+// LOCAL, so the trim cannot simply be applied across the two spaces - the change
+// of basis has to be derived. Writing M = B * F * transpose(R_H) so that O_C = M*R_C:
+//
+//     D_C  = (O_C*G) * Trim.r * transpose(O_C*G)        the trim as a camera-space rotation
+//     D_XR = transpose(M) * D_C * M
+//          = (R_C*G) * Trim.r * transpose(R_C*G)
+//
+// The M terms cancel because B, F and transpose(R_H) are each orthogonal, so M is
+// orthogonal - possibly IMPROPER, which is fine and is exactly why this is written
+// with full matrices and transposes instead of quaternions. That cancellation is
+// what lets the transport run on the present lane without reading a draw basis.
+//
+// Q = R_C*G may be improper; D_XR is proper regardless, because
+// det(Q * Trim.r * Qt) = det(Q) * 1 * det(Q) = +1. It is CHECKED rather than
+// assumed.
+//
+// R_C is the controller GRIP orientation the hand is built from, NOT the AIM
+// orientation the ray is seeded with. Those are different poses, 60 degrees apart
+// on this hardware, and substituting one for the other silently rotates the result.
+//
+// THE WHOLE RAY MOVES, not just its direction. A direction-only rotation does not
+// follow a translated hand, and it pivots about nothing in particular. This rotates
+// about the untrimmed palm origin and then applies the trim's own translation, so
+// the ray stays attached to the hand the way the weapon does.
+struct FollowTrimIn {
+    Mat3  R_C;            // grip orientation, XR LOCAL
+    float p0[3];          // untrimmed palm origin, XR LOCAL metres (the grip position)
+    Mat3  G;              // the grip calibration the DRAW uses, parity included
+    float trimRdeg[3];    // degrees, same axes and order as the draw's trim
+    float trimTm[3];      // metres, in the palm frame, same as palm_target's Trim.t
+    float origin0[3];     // the AIM-pose ray, XR LOCAL
+    float dir0[3];
+};
+struct FollowTrimOut {
+    float origin[3] = {}, dir[3] = {};
+    bool  identity = false;       // the trim was exactly zero; inputs returned unchanged
+    const char* why = "not computed";
+};
+
+static inline bool follow_trim_ray(const FollowTrimIn& in, FollowTrimOut& out)
+{
+    for (int i = 0; i < 3; i++) {
+        if (!(in.p0[i] == in.p0[i]) || !(in.origin0[i] == in.origin0[i]) ||
+            !(in.dir0[i] == in.dir0[i]) || !(in.trimRdeg[i] == in.trimRdeg[i]) ||
+            !(in.trimTm[i] == in.trimTm[i])) { out.why = "nonfinite input"; return false; }
+    }
+    for (int i = 0; i < 9; i++)
+        if (!(in.R_C.m[i] == in.R_C.m[i]) || !(in.G.m[i] == in.G.m[i])) {
+            out.why = "nonfinite grip or pose"; return false;
+        }
+    // EXACT identity when there is nothing to transport. Returning the inputs
+    // untouched keeps an off-by-default build bit for bit what it was, and makes
+    // the A/B honest. Zeroing only the rotation is NOT this test: a nonzero
+    // translation must still move the ray.
+    const bool zeroR = in.trimRdeg[0] == 0.0f && in.trimRdeg[1] == 0.0f && in.trimRdeg[2] == 0.0f;
+    const bool zeroT = in.trimTm[0] == 0.0f && in.trimTm[1] == 0.0f && in.trimTm[2] == 0.0f;
+    if (zeroR && zeroT) {
+        for (int i = 0; i < 3; i++) { out.origin[i] = in.origin0[i]; out.dir[i] = in.dir0[i]; }
+        out.identity = true; out.why = "zero trim, ray returned unchanged";
+        return true;
+    }
+
+    const Mat3 Q  = mul3(in.R_C, in.G);
+    const Mat3 Tr = euler_xyz_deg_to_mat(in.trimRdeg[0], in.trimRdeg[1], in.trimRdeg[2]);
+    const Mat3 D  = mul3(mul3(Q, Tr), transpose3(Q));
+    if (orthonormal_err(D) > 1.0e-3f) { out.why = "the transported trim is not a rotation"; return false; }
+    // Proper, not merely orthogonal: an improper D would mirror the ray.
+    const float det =
+        D.m[0]*(D.m[4]*D.m[8] - D.m[5]*D.m[7]) -
+        D.m[1]*(D.m[3]*D.m[8] - D.m[5]*D.m[6]) +
+        D.m[2]*(D.m[3]*D.m[7] - D.m[4]*D.m[6]);
+    if (det < 0.9f || det > 1.1f) { out.why = "the transported trim is improper"; return false; }
+
+    float tOff[3];
+    mulv3(Q, in.trimTm, tOff);                  // the trim's translation, palm frame -> XR
+    float rel[3], rot[3];
+    for (int i = 0; i < 3; i++) rel[i] = in.origin0[i] - in.p0[i];
+    mulv3(D, rel, rot);                         // rotate about the UNTRIMMED palm origin
+    float d1[3];
+    mulv3(D, in.dir0, d1);
+    const float n = sqrtf(d1[0]*d1[0] + d1[1]*d1[1] + d1[2]*d1[2]);
+    if (!(n > 1.0e-4f) || !(n == n)) { out.why = "the transported direction is degenerate"; return false; }
+    for (int i = 0; i < 3; i++) {
+        out.origin[i] = in.p0[i] + tOff[i] + rot[i];
+        out.dir[i]    = d1[i] / n;
+    }
+    for (int i = 0; i < 3; i++)
+        if (!(out.origin[i] == out.origin[i]) || !(out.dir[i] == out.dir[i])) {
+            out.why = "nonfinite result"; return false;
+        }
+    out.identity = false; out.why = "ready";
+    return true;
+}
+
+
 static inline void mat_to_euler_xyz_deg(const Mat3& r, float* xd, float* yd, float* zd)
 {
     const float k = 57.29577951f;

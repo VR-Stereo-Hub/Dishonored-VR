@@ -1,5 +1,6 @@
 #define DVR_CAT ::dvr::log::Cat::present
 #include "game/dishonored/aim_ray.h"
+#include "game/dishonored/hands/hand_frame.h"   // VR-57: follow_trim_ray
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
 #include "core/framework/status.h"
@@ -21,6 +22,11 @@ std::atomic<bool> g_fireRequested{false};
 const char* g_lastWhy = "";
 uint64_t g_lastBeat = 0;
 dvr::vr::AimVisualStats g_previous;
+// VR-57 FollowHandTrim: why the transport did or did not happen, and which
+// calibration revision it used. Present lane only.
+const char* g_followWhy = "off";
+bool        g_followUsed = false;
+uint32_t    g_followRev = 0;
 void log_status() {
     const auto s = dvr::vr::aim_visual_stats();
     const auto c = dvr::vr::control_dot_stats();
@@ -94,6 +100,60 @@ void tick(bool gameplay, bool projectionWanted) {
         frame.headQuat[2] = fireHead.qz; frame.headQuat[3] = fireHead.qw;
     }
     { std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame = frame; }
+    // VR-57: THE TRANSPORT. One place, before BOTH publications, so the visual and
+    // fire_frame() cannot diverge and no consumer re-reads the AIM pose to rebuild
+    // the old ray behind our back.
+    //
+    // R_C and the untrimmed palm origin come from g_devPose[3+hand], the GRIP pose
+    // the hand is actually built from - not the AIM pose this ray is seeded with.
+    // They are 60 degrees apart on this hardware and substituting one silently
+    // rotates everything.
+    g_followWhy = "off";
+    g_followUsed = false;
+    if (g_config.followHandTrim && g_ray.ok) {
+        const int h = g_config.hand;
+        const dvr::hands::TrimSnapshot cal = dvr::hands::trim_snapshot(h);
+        if (!cal.ok) {
+            g_followWhy = cal.why;
+        } else {
+            dvr::hf::FollowTrimIn in;
+            for (int i = 0; i < 9; i++) { in.R_C.m[i] = cal.R_C[i]; in.G.m[i] = cal.G[i]; }
+            for (int r = 0; r < 3; r++) {
+                in.p0[r]       = cal.p0[r];
+                in.trimRdeg[r] = cal.trimRdeg[r];
+                in.trimTm[r]   = cal.trimTm[r];
+                in.origin0[r]  = g_ray.originXr[r];
+                in.dir0[r]     = g_ray.dirXr[r];
+            }
+            dvr::hf::FollowTrimOut outT;
+            if (!dvr::hf::follow_trim_ray(in, outT)) {
+                g_followWhy = outT.why;
+                // REFUSE the ray rather than publish the untransported one while the
+                // mode claims to follow the hand. A guide that silently shows the
+                // controller while firing consumes something else is worse than no
+                // guide, and the native fire hook keeps native aim through its own
+                // guards when the ray is invalid.
+                g_ray.ok = false;
+                g_ray.why = "follow-hand-trim refused";
+            } else {
+                for (int r = 0; r < 3; r++) {
+                    g_ray.originXr[r] = outT.origin[r];
+                    g_ray.dirXr[r]    = outT.dir[r];
+                }
+                g_followUsed = !outT.identity;
+                g_followRev  = cal.revision;
+                g_followWhy  = outT.identity ? "zero trim, ray unchanged"
+                                             : "following the hand trim";
+            }
+        }
+        if (!g_followUsed && g_ray.ok && std::strcmp(g_followWhy, "zero trim, ray unchanged"))
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+                "crosshair/follow: FollowHandTrim is on but the ray is NOT following "
+                "the hand - %s. The guide and the shot are both still the AIM pose, "
+                "which is the honest fallback and not the requested mode.",
+                g_followWhy);
+    }
+
     // controlDot never reaches this publication: it is built in the runtime from the
     // located views, so it cannot borrow the hand ray's freshness or its validity.
     auto out = visual(g_ray, g_config.dot, g_config.laser, g_config.distanceM, g_config.sizeDeg);
@@ -186,6 +246,13 @@ void tick(bool gameplay, bool projectionWanted) {
             }
         }
     }
+    DVR_INFO("crosshair: follow-hand-trim %s - %s (calibration revision %u). When "
+             "this is following, the dot, the beam and the native shot all move with "
+             "the hand trim because they consume ONE published ray; when it is not, "
+             "they are all the AIM pose. It does not make the beam and the bolt the "
+             "same line: the bolt still starts at the engine's own spawn point.",
+             g_config.followHandTrim ? "ENABLED" : "off",
+             g_followUsed ? "following the hand" : g_followWhy, g_followRev);
     DVR_INFO("crosshair: POINTS az %+.1f el %+.1f deg | DOT APPEARS az %+.1f el %+.1f deg "
              "(%s; positive az is the head's RIGHT, and the head-anchored control dot is "
              "at 0,0 by construction). DOT APPEARS is the separation between the two dots "
@@ -228,7 +295,10 @@ void command(const char* args) {
         if ((!std::strcmp(a,"dot") || !std::strcmp(a,"laser")) &&
             (!std::strcmp(b,"on") || !std::strcmp(b,"off"))) {
             (a[0]=='d' ? cfg.dot : cfg.laser) = !std::strcmp(b,"on"); changed = true;
-        } else if (!std::strcmp(a,"control") &&
+        } else if (!std::strcmp(a,"follow") &&
+               (!std::strcmp(b,"on") || !std::strcmp(b,"off"))) {
+        cfg.followHandTrim = !std::strcmp(b,"on"); changed = true;
+    } else if (!std::strcmp(a,"control") &&
                    (!std::strcmp(b,"on") || !std::strcmp(b,"off"))) {
             cfg.controlDot = !std::strcmp(b,"on"); changed = true;
         } else if (!std::strcmp(a,"hand") && (!std::strcmp(b,"left") || !std::strcmp(b,"right"))) {
@@ -242,6 +312,7 @@ void command(const char* args) {
     }
     if (changed) configure(cfg,"command seam");
     else DVR_WARN("crosshair: status | dot on|off | laser on|off | control on|off | "
+                  "follow on|off | "
                   "hand left|right | distance 0.5..50 | size 0.05..2");
     log_status();
 }
@@ -254,6 +325,10 @@ void draw_ui() {
     changed |= ImGui::RadioButton("Right hand", &cfg.hand, 1);
     changed |= ImGui::SliderFloat("Guide distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
     changed |= ImGui::SliderFloat("Dot size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
+    changed |= ImGui::Checkbox("Ray follows the hand trim", &cfg.followHandTrim);
+    ImGui::TextWrapped("On, the dot, beam and shot move with the numpad hand trim "
+                       "instead of the bare controller. Not a measured barrel axis: "
+                       "it carries the trim onto the existing aim ray.");
     changed |= ImGui::Checkbox("CONTROL dot (head-anchored, no controller)", &cfg.controlDot);
     ImGui::TextWrapped("The larger control dot marks the head direction at the guide distance. "
                        "The controller dot is a fixed endpoint, not a predicted ballistic impact.");
@@ -267,6 +342,8 @@ void status(dvr::status::Writer& w) {
     w.obj("crosshair"); w.kv("dot",g_config.dot); w.kv("laser",g_config.laser);
     w.kv("hand",g_config.hand ? "right" : "left");
     w.kv("controlDot",g_config.controlDot);
+    w.kv("followHandTrim",g_config.followHandTrim);
+    w.kv("followingHand",g_followUsed); w.kv("followWhy",g_followWhy);
     {   const auto c = dvr::vr::control_dot_stats();
         w.kv("controlDotFrames",(unsigned long)c.frames);
         w.kv("controlDotsDrawn",(unsigned long)c.dots); }
