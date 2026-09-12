@@ -3597,6 +3597,16 @@ AimVisualResult build_aim_visual(XrCompositionLayerQuad* quads,
     if (!g_viewsValid || g_space == XR_NULL_HANDLE) return AimVisualResult::NoViews;
     if (g_laserSwapchain == XR_NULL_HANDLE || !g_laserDot) return AimVisualResult::NoTexture;
     const int budget = aim_visual_budget((int)count, (int)g_aimLayerLimit, capacity);
+    // 41.2 (Dishonored, VR-57): the budget decides how much of the guide is
+    // drawn at all, and a run reported "only one beam" while this silently
+    // allowed two points. It is printed with its terms so a short beam reads as
+    // a layer budget rather than as a wrong ray.
+    DVR_LOG_EVERY_MS(::dvr::log::Cat::present, ::dvr::log::Level::Info, 5000,
+        "crosshair/budget: %d point(s) wanted, %d drawn - layers already used %u, "
+        "the runtime's maxLayerCount %u, this array %d. A budget below the point "
+        "count is why a beam shows as one or two dots.",
+        (int)cfg.count, budget < (int)cfg.count ? budget : (int)cfg.count,
+        count, g_aimLayerLimit, capacity);
     if (!budget) return AimVisualResult::Budget;
     uint32_t built = 0;
     bool skippedPoint = false;

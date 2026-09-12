@@ -304,7 +304,30 @@ static void AsLogPoses(void)
     if (V3Norm(right) < 0.2f) return;
     float up[3]; V3Cross(right, headFwd, up); V3Norm(up);
 
-    char line[512]; int n = 0; line[0] = 0;
+    char line[640]; int n = 0; line[0] = 0;
+    // POSITIONS FIRST. Direction has been measured and looks right (a
+    // controller held straight ahead reads az +1 el -3), so the remaining way
+    // for the beam to miss is WHERE its dots are placed: they sit at the aim
+    // pose's own position plus the ray, in XR LOCAL metres, and if that origin
+    // is not the controller the far dot lands somewhere unrelated while the
+    // direction is still correct.
+    {
+        float ap[3], aq[4];
+        const int h = dvr::aim::config().hand;
+        const bool have = dvr::vr::input_get_hand_pose(h, true, ap, aq);
+        float d[3] = {0, 0, 0};
+        if (have) dvr::xrmath::quat_rotate(aq[0], aq[1], aq[2], aq[3], fwdLocal, d);
+        const float dist = dvr::aim::config().distanceM;
+        n += _snprintf(line + n, sizeof(line) - n,
+                       "head xr (%+.2f %+.2f %+.2f) | %s aim xr (%+.2f %+.2f %+.2f) "
+                       "%s| far dot lands at (%+.2f %+.2f %+.2f), which is (%+.2f %+.2f %+.2f) "
+                       "from the head | ", head.px, head.py, head.pz, h ? "R" : "L",
+                       have ? ap[0] : 0.0f, have ? ap[1] : 0.0f, have ? ap[2] : 0.0f,
+                       have ? "" : "(NO POSE) ",
+                       ap[0] + dist * d[0], ap[1] + dist * d[1], ap[2] + dist * d[2],
+                       ap[0] + dist * d[0] - head.px, ap[1] + dist * d[1] - head.py,
+                       ap[2] + dist * d[2] - head.pz);
+    }
     for (int hand = 0; hand < 2; ++hand) {
         for (int aimPose = 1; aimPose >= 0; --aimPose) {
             float pos[3], q[4];
