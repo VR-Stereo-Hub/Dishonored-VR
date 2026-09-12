@@ -797,6 +797,7 @@ static bool InstallProcessEventHook()
     FlushInstructionCache(GetCurrentProcess(), at, 5);
 
     g_peInstalled = true;
+    FireAimInstall(); // separate byte-verified native seam, independent of probes
     Log("script: ProcessEvent hooked at 0x%08x (stub %p) - listening for named events",
         (unsigned)kProcessEvent, (void*)g_peStub);
     return true;

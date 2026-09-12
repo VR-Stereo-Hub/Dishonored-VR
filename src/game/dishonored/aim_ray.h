@@ -95,6 +95,16 @@ struct Config { bool dot = false, laser = false; int hand = 0; float distanceM =
 Config config();
 void configure(const Config& cfg, const char* origin);
 Ray ray(); // most recent present-thread snapshot, no recomputation
+// One publication for the visual ray and native firing consumer. The head
+// basis is sampled on the present lane alongside the hand, not fetched at fire.
+struct FireFrame {
+    Ray ray;
+    bool headValid = false;
+    float headPos[3] = {}, headQuat[4] = {};
+    float distanceM = 8;
+};
+FireFrame fire_frame();
+void request_fire_ray(bool enabled); // sampling independent of Dot/Laser toggles
 void tick(bool gameplay, bool projectionWanted);
 void command(const char* args);
 void draw_ui();

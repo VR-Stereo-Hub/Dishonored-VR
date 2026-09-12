@@ -687,3 +687,12 @@ flicker. Actual projection type, sample/publication freshness, runtime/array lay
 limits and successful image publication all gate the added layers. Outcomes are
 counted through xrEndFrame. F10 Aim and the command seam share configuration.
 See `dishonored/VR-57-CODEX-HANDOFF.md`. No visual verdict yet; the user tests.
+
+## 2026-09-12: native crossbow direction before spawn (VR-57)
+
+Use the verified native stack direction at the common spawn join, instead of
+swapping global camera/controller rotations or retaining a projectile pointer.
+Both spawn rotation and velocity initialization consume this local. Converge the
+selected spawn position on the existing fixed-distance hand endpoint. Earlier
+trace/assist decisions remain outside this change. See
+`dishonored/VR-57-NATIVE-FIRE-HANDOFF.md` for proof and limitations.

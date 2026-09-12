@@ -33,7 +33,10 @@ XRAPI_ATTR XrResult XRAPI_CALL xrWaitSwapchainImage(XrSwapchain,const XrSwapchai
 XRAPI_ATTR XrResult XRAPI_CALL xrReleaseSwapchainImage(XrSwapchain,const XrSwapchainImageReleaseInfo*) {
     ++imageReleases; return releaseOk ? XR_SUCCESS : XR_ERROR_RUNTIME_FAILURE;
 }
+// Rendering tests do not need the extracted production diagnostic logger.
+#define DVR_LOG_EVERY_MS(...) ((void)0)
 #include "aim_visual_bodies.inc"
+#undef DVR_LOG_EVERY_MS
 static unsigned checks=0;
 static void check(bool yes,const char* why) {++checks;if(!yes){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
 static bool near(float a,float b) {return std::abs(a-b)<0.0001f;}

@@ -67,6 +67,19 @@ static const uint32_t  kCamLoc2  = 0xC4;   // cached POV loc 2
 // pawn's. Left here only because the camera entry below still needs the values.
 static const uint32_t kPcRotBase[]  = { 0x9c, 0xd0 };   // RETIRED - see above
 static const uint32_t kCamRotBase[] = { 0x9c, 0xd0 };   // camera POV + its cache
+
+// VR-57: FireCrossbow's final spawn arguments, after both spawn-location
+// branches converge, before vector->rotator, SpawnActor and velocity init.
+// Derived offline from the class constructor/vtable and the initializer's
+// direction*speed stores. See ENGINE_NOTES, VR-57 native crossbow fire seam.
+static const uintptr_t kCrossbowSpawnAim = 0x00C38BBB;
+static const uint8_t kCrossbowSpawnAimBytes[] = {0x8B,0x4D,0xAC,0x57,0x57,0x51};
+static const int kCrossbowSourceLocal = -0x54; // native source pawn
+static const int kCrossbowSpawnLocal = -0xB8;  // float3, chosen spawn position
+static const int kCrossbowDirectionLocal = -0xAC; // float3, used for spawn and init
+static const uintptr_t kCrossbowContextVtable = 0x01172C80;
+static const uintptr_t kCrossbowInitCall = 0x00C38DB6;
+static const uint8_t kCrossbowInitCallBytes[] = {0xFF,0xD0,0xF6,0x86,0xD4,0,0,0,1};
 static const uint32_t kPovOffs[3] = {0x330, 0x350, 0x374};
 static const uint32_t kFovCands[4] = {0x53c, 0x540, 0x564, 0x254};
 static const uint32_t kLevCtrl[3] = {0x3ac, 0x3b0, 0x3b4};   // FOVAngle/Desired/Default
@@ -148,4 +161,3 @@ static const uint32_t kMeshTrans = 0x190;
 static const uint32_t kMeshRot   = 0x19c;
 static const uint32_t kMeshScale = 0x1a8;
 static const uint32_t kMeshScl3D = 0x1ac;
-

@@ -1,6 +1,20 @@
 # Status
 
-## CURRENT (2026-09-12, later): the projection layer is aligned; the ray is the suspect (VR-57)
+## CURRENT (2026-09-12): native crossbow hand-aim candidate (VR-57)
+
+Implemented the byte-verified native pre-spawn firing hook. It aims the existing
+spawn position at the controller dot endpoint before the engine builds rotation
+and velocity. No camera/body rotation swapping or retained projectile pointers.
+The x86 build and offline geometry/bridge/compositor tests pass. The candidate is
+installed with FireFromHand on, legacy/cache drive and diagnostic probes off.
+No game or simulator was launched; runtime behavior remains unverified.
+
+Next: user play when ready; weapon alignment, native traces and assist are separate.
+The complete implementation and evidence are in
+[dishonored/VR-57-NATIVE-FIRE-HANDOFF.md](dishonored/VR-57-NATIVE-FIRE-HANDOFF.md).
+
+
+## Earlier (2026-09-12, later): the projection layer is aligned; the ray is the suspect (VR-57)
 
 Build 111 added a HEAD-anchored control dot - straight ahead of the located view,
 no controller anywhere in it - and the layer-alignment numbers beside it. One
