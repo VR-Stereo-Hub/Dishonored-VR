@@ -124,7 +124,12 @@ void tick(bool gameplay, bool projectionWanted) {
         for(int i=0;i<9;++i){rc.m[i]=cal.R_C[i];g.m[i]=cal.G[i];}
         float mo[3],md[3];
         if(cal.ok && std::isfinite(cal.handToWorldScale) && cal.handToWorldScale>0 &&
-           model.ok && now>=model.sampleMs && now-model.sampleMs<=250 &&
+           // NO FRESHNESS TEST on a latched axis. It is a palm-frame constant, so it
+           // cannot go stale, and requiring it to be re-published within 250 ms made
+           // the guide disappear whenever no weapon draw reached the measurement code -
+           // until the next shot drew a bolt and revived it. The live inputs are the
+           // grip pose and the trim, which are validated through `cal` above.
+           model.ok && model.latched &&
            dvr::hf::palm_ray_to_xr(rc,g,cal.p0,cal.trimRdeg,cal.trimTm,
                                    model.originPalm,model.dirPalm,mo,md)) {
             for(int i=0;i<3;++i){

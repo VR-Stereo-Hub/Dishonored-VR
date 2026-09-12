@@ -28,7 +28,16 @@ struct TrimSnapshot {
 TrimSnapshot trim_snapshot(int hand);
 struct ModelRaySnapshot {
     float originPalm[3]={}, dirPalm[3]={}; // metres, corrected palm frame
-    uint64_t sampleMs=0;
+    uint64_t sampleMs=0;   // when it was published; NOT a validity window, see latched
+    // A LATCHED AXIS IS A CONSTANT, NOT A SAMPLE.
+    //
+    // The palm-frame ray does not depend on the pose, so once measured it is true for
+    // the rest of the session and cannot go stale. Treating it as a sample with a
+    // 250 ms window meant it "expired" whenever no weapon draw happened to reach the
+    // measurement code, and the guide vanished until the next shot drew a bolt again.
+    // The live part of the final ray is the grip pose and trim, which carry their own
+    // validity; this part is fixed.
+    bool latched=false;
     bool ok=false;
 };
 ModelRaySnapshot model_ray_snapshot(int hand);
