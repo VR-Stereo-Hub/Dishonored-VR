@@ -29,6 +29,7 @@ dvr::vr::AimVisualStats g_previous;
 const char* g_followWhy = g_config.modelRay ? "model geometry overrides trim transport" : "off";
 bool        g_followUsed = false;
 uint32_t    g_followRev = 0;
+bool        g_modelRayUsed = false;   // the measured axis supplied this frame's ray
 void log_status() {
     const auto s = dvr::vr::aim_visual_stats();
     const auto c = dvr::vr::control_dot_stats();
@@ -102,9 +103,41 @@ void tick(bool gameplay, bool projectionWanted) {
     // the hand is actually built from - not the AIM pose this ray is seeded with.
     // They are 60 degrees apart on this hardware and substituting one silently
     // rotates everything.
-    g_followWhy = g_config.modelRay ? "model geometry overrides trim transport" : "off";
+    g_followWhy = "off";
     g_followUsed = false;
-    if (!g_config.modelRay && g_config.followHandTrim && g_ray.ok) {
+    // THE LADDER, in precedence order, and it never ends at head aim.
+    //
+    // 1. the measured model axis, when the weapon has one
+    // 2. the controller ray carried by the hand trim, when it does not
+    //
+    // Falling back to the engine's own HEAD aim was the old behaviour and it was
+    // wrong as a fallback: a weapon with no measurable geometry is still held in a
+    // tracked hand, so the hand's own ray is always a better answer than the head's.
+    // The pistol is the case that proves it - its loaded bullet has no usable
+    // transform and its body mesh is far past the geometry reader's limits, so it
+    // will never have a measured axis, and it should still aim where it is pointed.
+    bool modelUsed = false;
+    if (g_config.modelRay && g_ray.ok) {
+        const auto model=dvr::hands::model_ray_snapshot(g_config.hand);
+        const auto cal=dvr::hands::trim_snapshot(g_config.hand);
+        dvr::hf::Mat3 rc,g;
+        for(int i=0;i<9;++i){rc.m[i]=cal.R_C[i];g.m[i]=cal.G[i];}
+        float mo[3],md[3];
+        if(cal.ok && std::isfinite(cal.handToWorldScale) && cal.handToWorldScale>0 &&
+           model.ok && now>=model.sampleMs && now-model.sampleMs<=250 &&
+           dvr::hf::palm_ray_to_xr(rc,g,cal.p0,cal.trimRdeg,cal.trimTm,
+                                   model.originPalm,model.dirPalm,mo,md)) {
+            for(int i=0;i<3;++i){
+                g_ray.originXr[i]=cal.headPos[i]+cal.handToWorldScale*(mo[i]-cal.headPos[i]);
+                g_ray.dirXr[i]=md[i];
+            }
+            g_ray.why="measured model axis";
+            modelUsed = true;
+        }
+    }
+    g_modelRayUsed = modelUsed;
+
+    if (!modelUsed && g_config.followHandTrim && g_ray.ok) {
         const int h = g_config.hand;
         const dvr::hands::TrimSnapshot cal = dvr::hands::trim_snapshot(h);
         if (!cal.ok) {
@@ -149,20 +182,6 @@ void tick(bool gameplay, bool projectionWanted) {
                 g_followWhy);
     }
 
-    if (g_config.modelRay && g_ray.ok) {
-        const auto model=dvr::hands::model_ray_snapshot(g_config.hand);
-        const auto cal=dvr::hands::trim_snapshot(g_config.hand);
-        dvr::hf::Mat3 rc,g;
-        for(int i=0;i<9;++i){rc.m[i]=cal.R_C[i];g.m[i]=cal.G[i];}
-        if(!cal.ok || !std::isfinite(cal.handToWorldScale) || cal.handToWorldScale<=0 || !model.ok || now<model.sampleMs || now-model.sampleMs>250 ||
-           !dvr::hf::palm_ray_to_xr(rc,g,cal.p0,cal.trimRdeg,cal.trimTm,
-                                  model.originPalm,model.dirPalm,g_ray.originXr,g_ray.dirXr)) {
-            g_ray.ok=false;g_ray.why="loaded bolt geometry unavailable/stale";
-        } else {
-            for(int i=0;i<3;++i)g_ray.originXr[i]=cal.headPos[i]+cal.handToWorldScale*(g_ray.originXr[i]-cal.headPos[i]);
-            g_ray.why="measured loaded bolt axis";
-        }
-    }
     FireFrame frame;
     frame.ray = g_ray; frame.distanceM = g_config.distanceM;
     dvr::vr::HeadPose fireHead;
@@ -265,6 +284,16 @@ void tick(bool gameplay, bool projectionWanted) {
             }
         }
     }
+    DVR_INFO("crosshair: ray source = %s. The ladder is the measured model axis "
+             "first, then the controller ray carried by the hand trim, and it never "
+             "falls back to the head: a weapon with no measurable geometry is still "
+             "held in a tracked hand. A weapon whose mesh the geometry reader cannot "
+             "take - the pistol's is far past its vertex limit - therefore still aims "
+             "where it is pointed.",
+             g_modelRayUsed ? "MEASURED MODEL AXIS"
+                            : (g_config.modelRay ? "controller ray (no measured axis "
+                                                   "for this weapon)"
+                                                 : "controller ray (model ray off)"));
     DVR_INFO("crosshair: follow-hand-trim %s - %s (calibration revision %u). When "
              "this is following, the dot, the beam and the native shot all move with "
              "the hand trim because they consume ONE published ray; when it is not, "
@@ -366,6 +395,7 @@ void status(dvr::status::Writer& w) {
     w.kv("controlDot",g_config.controlDot);
     w.kv("followHandTrim",g_config.followHandTrim);
     w.kv("modelRay",g_config.modelRay);
+    w.kv("modelRayUsed",g_modelRayUsed);
     w.kv("followingHand",g_followUsed); w.kv("followWhy",g_followWhy);
     {   const auto c = dvr::vr::control_dot_stats();
         w.kv("controlDotFrames",(unsigned long)c.frames);

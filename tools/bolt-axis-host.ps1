@@ -27,9 +27,25 @@ try {
 # Regression: the implementation that introduced FollowHandTrim published firing
 # before transport. Keep this actual integration ordering in addition to math tests.
 $pipeline=Get-Content (Join-Path $repo 'src/game/dishonored/aim_ray.cpp') -Raw
-$transport=$pipeline.IndexOf('if (!g_config.modelRay && g_config.followHandTrim')
+# The INVARIANT, not the old sequence. What must hold is that every block which can
+# change the ray runs BEFORE the single fire publication, and that the visual is
+# built AFTER it - so the guide and the shot cannot be given different rays, which
+# is the defect this guard was added for. The precedence between the two ray sources
+# was deliberately inverted afterwards (measured model axis first, controller ray as
+# the fallback), so pinning their order would pin a decision rather than a contract.
 $model=$pipeline.IndexOf('if (g_config.modelRay && g_ray.ok)')
+$transport=$pipeline.IndexOf('if (!modelUsed && g_config.followHandTrim')
 $publication=$pipeline.IndexOf('g_fireFrame = frame;')
 $visual=$pipeline.IndexOf('auto out = visual(g_ray,')
-if($transport -lt 0 -or $model -lt $transport -or $publication -lt $model -or $visual -lt $publication){throw 'Visual/fire publication regression'}
+if($model -lt 0){throw 'model ray block not found'}
+if($transport -lt 0){throw 'controller-ray fallback block not found'}
+if($publication -lt 0 -or $visual -lt 0){throw 'publication or visual not found'}
+if($publication -lt $model){throw 'fire published before the model ray could change it'}
+if($publication -lt $transport){throw 'fire published before the controller fallback could change it'}
+if($visual -lt $publication){throw 'visual built before the fire publication - they can diverge'}
+# And the fallback must be reachable: a model-ray miss must NOT invalidate the ray,
+# or the fallback below it can never run and the shot returns to head aim.
+if($pipeline.Contains('g_ray.ok=false;g_ray.why="loaded bolt geometry unavailable/stale"')){
+    throw 'a model-ray miss still invalidates the ray, so the controller fallback is dead'
+}
 exit $eyeExit
