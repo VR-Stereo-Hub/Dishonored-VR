@@ -114,6 +114,23 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             break;
         }
     }
+    // VR-57 Phase 1: the bolt probe. TOP LEVEL on purpose. Its first home was
+    // inside the MotionAim arming window (`now < g_maimArmedUntil`), which is only
+    // ever set while MotionAim is ENABLED - and it ships disabled, so the probe
+    // counted 0 projectile dispatches against 5 bolts actually fired. That is this
+    // project's own recorded failure: an instrument sitting behind a leg that
+    // refuses. It now depends on nothing but its own lever.
+    //
+    // Read-only. The engine is inside a synchronous dispatch on this object, so
+    // scalars are copied here and the pointer is never retained. Deliberately NOT
+    // rate limited: the velocity arrives a dispatch or two after the spawn, and a
+    // 250 ms gate would skip the only sighting that carries it.
+    if (g_shOn && obj && !((uintptr_t)obj & 3) && RangeReadable(obj, kClassOff + 4)) {
+        const char* shCn = ObjClassName((uint8_t*)obj);
+        if (shCn && (!strncmp(shCn, "DisProjectile", 13) || !strcmp(shCn, "DisBullet") ||
+                     !strncmp(shCn, "DisGrenade", 10)))
+            AimShotSee((uint8_t*)obj, shCn, MaimNowMs());
+    }
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
@@ -616,13 +633,6 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 }
                 if (cn && (!strncmp(cn, "DisProjectile", 13) || !strcmp(cn, "DisBullet") ||
                            !strncmp(cn, "DisGrenade", 10))) {
-                    // VR-57 Phase 1: read-only, every dispatch. The engine is inside
-                    // a synchronous call on this object, so scalars are safe to copy
-                    // and nothing is retained. Unlike MaimCatch below it never
-                    // writes, and it is NOT rate limited: the velocity arrives a
-                    // dispatch or two after the spawn and a 250 ms gate would miss
-                    // the only sighting that carries it.
-                    AimShotSee((uint8_t*)obj, cn, now);
                     static uint8_t* lastObj = NULL;
                     static double   lastAt  = 0;
                     if (obj != lastObj || now - lastAt > 250.0) {

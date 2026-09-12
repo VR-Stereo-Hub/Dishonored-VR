@@ -697,13 +697,18 @@ static void AimShotBeat(double now)
     Log("aimshot/pop: projectile dispatches %ld, first sights %ld, later sights %ld, "
         "scored %ld | unscored: no controller solve %ld, offsets implausible %ld, "
         "evicted before the velocity arrived %ld, miss metric refused %ld | ray "
-        "history %d of %d slots | drive is %s. A scored count of 0 with first "
+        "history %d of %d slots | drive is %s.%s A scored count of 0 with first "
         "sights above 0 means every bolt was seen but none reached a filled "
         "velocity - that is the timing assumption failing, not a clean run.",
         g_shDispatches, g_shFirstSights, g_shSecondSights, g_shCompleted,
         g_shNoRay, g_shBadRead, g_shEvicted, g_shMissExcluded,
         g_shRayN < kShRayHist ? g_shRayN : kShRayHist, kShRayHist,
-        g_asDrive ? "ON" : "off (baseline)");
+        g_asDrive ? "ON" : "off (baseline)",
+        g_shDispatches == 0
+            ? " DISPATCHES ARE ZERO: if anything has been fired then the probe is not"
+              " being reached at all and no number here means anything. That is a"
+              " broken seam, not a quiet run."
+            : "");
 }
 
 // ---- THE SOLVE, shared by the drive and the shot probe -----------------------
