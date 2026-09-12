@@ -4828,6 +4828,68 @@ native homing/assist setup may happen afterward. This candidate fixes launch
 convergence; it does not claim controller-based tracing, assist removal, ballistic
 impact prediction, or weapon-model alignment. Those behaviors remain separate.
 
+## VR-82 native pistol fire seam (offline derivation, 2026-09-12)
+
+The crossbow route above, re-walked for the pistol against the same image
+(SHA256 `66443f3d...e17e`). Every published crossbow number was reproduced by the
+re-walk before any pistol number was trusted, which is the only reason to believe
+the pistol's: class metadata `0x01361928`, constructor `0x00C29DB0`, context
+vtable `0x01172C80`, firing routine `0x00C38230`, all recovered exactly.
+
+`DisItemContext_FirePistol` and `DisItemContext_FireCrossbow` both extend
+`DisItemContext_ProjectileAttack`, and their native halves are laid out the same
+way. Class names are UTF-16 in `.rdata`; the metadata struct is the dword that
+points at one, its `+0x14` is the constructor, and the constructor's `mov [esi],imm`
+installs the context vtable whose `+0x1B0` slot is the firing routine.
+
+| | crossbow | pistol |
+|---|---|---|
+| class metadata | `0x01361928` | `0x01361AE0` |
+| constructor | `0x00C29DB0` | `0x00C29E00` |
+| context vtable | `0x01172C80` | `0x01172E60` |
+| firing routine (vtable +0x1B0) | `0x00C38230` | `0x00C2A3E0` |
+| source pawn (`0x00BFF440`) | `0x00C38276` -> `ebp-0x54` | `0x00C2A417` -> `ebp-0x1C` |
+| aim cache (`0x00C14640`) | `0x00C3832A` | `0x00C2A443` |
+| vector -> rotator (`0x0040D260`) | `0x00C38BD0` | `0x00C2A543` |
+| SpawnActor (`0x00C66070`) | `0x00C38BF4` | `0x00C2A57A` |
+| projectile initializer, vtable `+0x3A4` | `0x00C38DB6` | `0x00C2A611` |
+| pre-spawn join (the hook) | `0x00C38BBB` | `0x00C2A53C` |
+
+`0x00C2A3E0` is `ret 4`, 468 instructions. **The initializer slot is the same
+`+0x3A4`** even though the projectiles differ (`DisBullet` against an Arrow), and
+both call it with the direction local pushed twice by address, so everything
+downstream of a direction write was already traced by the crossbow work.
+
+**The pistol derives its spawn POSITION from the aim direction; the crossbow does
+not.** At `0x00C2A468`..`0x00C2A4BF`:
+
+```
+spawn = origin + dir * [tweaks + 0x420]
+```
+
+where `[tweaks+0x420]` is `DisTweaks_FirePistol::m_fBulletSpawnDistance`, shipped
+at 150.0, and `tweaks` is `[esi+0xA4]` cached in `ebp-0x18`. So position and
+direction are one decision. Writing only the direction would stand the bullet off
+150 units along the OLD direction and then aim it from there - it would still
+converge on the target, but it could begin its flight inside geometry the aim line
+never crossed. The mod reconstructs the engine's origin (`spawn - dir*dist`), aims
+from there, and rebuilds the standoff along the corrected direction.
+
+**The direction local is written after the aim cache returns.** `ebp-0x48` is
+passed BY ADDRESS to `0x00BFFBA0` at `0x00C2A51A`, which can still write it, so a
+hook placed at the natural-looking spot - just after the aim cache - is
+overwritten and changes nothing while its counter moves. `ebp-0x60`, the original
+unit aim direction the standoff was built from, is written once by the aim-cache
+out-param and never again, which is why the reconstruction reads that and not the
+rotation local.
+
+Locals at the join, all verified written-once before it: `ebp-0x54` spawn
+position, `ebp-0x48` direction, `ebp-0x60` original aim direction, `ebp-0x18`
+tweaks, `ebp-0x1C` source pawn, `ebp-0x6C` the rotator out-param.
+
+Constants and displaced bytes are in `patterns.h`; the design is
+`dishonored/VR-82-PISTOL-FIRE-SEAM.md`.
+
 ## VR-57: the view model's aimable geometry, and what it costs to read
 
 Measured 2026-09-12 while building the model ray. Every number here came from a log

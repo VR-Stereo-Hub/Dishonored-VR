@@ -6,7 +6,13 @@
 #include <limits>
 #include <initializer_list>
 static int checks=0;
-static void check(bool ok) { ++checks; if(!ok){std::printf("FAIL check %d\n",checks);std::exit(1);} }
+// A failing check names its own line: "FAIL check 3390" alone sent one session
+// counting assertions by hand to find out which one it was.
+static void checkAt(bool ok,int line) {
+    ++checks;
+    if(!ok){std::printf("FAIL check %d at line %d\n",checks,line);std::exit(1);}
+}
+#define check(ok) checkAt((ok),__LINE__)
 static bool closeEnough(float a,float b,float e=0.003f) {return std::fabs(a-b)<e;}
 
 // Execute the actual production bridge against a fake native stack. The callback
@@ -35,7 +41,28 @@ static void __cdecl FireAimHandler(unsigned context,unsigned char* frame) {
         xorps xmm7,xmm7
     }
 }
-static uintptr_t g_fireAimResume;
+static unsigned pistolArgsSeen[3],pistolRegs[7],pistolEcx,pistolFlagsBefore,pistolFlagsAfter;
+static unsigned pistolHandlerCalls;
+static bool pistolHandlerWrite;
+static void __cdecl PistolAimHandler(unsigned context,unsigned char* frame) {
+    ++pistolHandlerCalls;
+    check(context==0x12345678);check(frame==(unsigned char*)frameAddr);
+    // The pistol writes TWO locals: the direction and the standoff position.
+    if(pistolHandlerWrite){*(float*)(frame-0x48)=0.75f;*(float*)(frame-0x54)=0.25f;}
+    __asm {
+        fninit
+        fldz
+        xorps xmm0,xmm0
+        xorps xmm1,xmm1
+        xorps xmm2,xmm2
+        xorps xmm3,xmm3
+        xorps xmm4,xmm4
+        xorps xmm5,xmm5
+        xorps xmm6,xmm6
+        xorps xmm7,xmm7
+    }
+}
+static uintptr_t g_fireAimResume,g_pistolAimResume;
 #include "game/dishonored/fire_aim_stub.h"
 __declspec(naked) static void Resume() {
     __asm {
@@ -57,6 +84,60 @@ __declspec(naked) static void Resume() {
         popad
         popfd
         ret
+    }
+}
+// The pistol's replay differs: it pushes the rotator's address and leaves ECX
+// holding the direction local's, which the vector->rotator call consumes as its
+// `this`. Getting either wrong would spawn a bullet with a garbage rotation.
+__declspec(naked) static void PistolResume() {
+    __asm {
+        pushfd
+        pop pistolFlagsAfter
+        fxsave afterFx
+        mov pistolEcx,ecx
+        mov pistolRegs[0],eax
+        mov pistolRegs[4],ebx
+        mov pistolRegs[12],edx
+        mov pistolRegs[16],esi
+        mov pistolRegs[20],edi
+        mov pistolRegs[24],ebp
+        pop pistolArgsSeen[0]
+        mov esp,savedEsp
+        fxrstor originalFx
+        popad
+        popfd
+        ret
+    }
+}
+__declspec(naked) static void RunPistolBridge() {
+    __asm {
+        pushfd
+        pushad
+        mov savedEsp,esp
+        fxsave originalFx
+        fninit
+        fld1
+        fldpi
+        movaps xmm0,xmmSeed
+        movaps xmm1,xmmSeed
+        movaps xmm2,xmmSeed
+        movaps xmm3,xmmSeed
+        movaps xmm4,xmmSeed
+        movaps xmm5,xmmSeed
+        movaps xmm6,xmmSeed
+        movaps xmm7,xmmSeed
+        fxsave beforeFx
+        mov eax,101
+        mov ebx,202
+        mov ecx,303
+        mov edx,404
+        mov esi,12345678h
+        mov edi,606
+        mov ebp,frameAddr
+        stc
+        pushfd
+        pop pistolFlagsBefore
+        jmp PistolAimThunk
     }
 }
 __declspec(naked) static void RunBridge() {
@@ -130,6 +211,91 @@ int main() {
     f.ray.sampleMs=800;rejects();f.ray.sampleMs=2000;rejects();
     f.distanceM=std::numeric_limits<float>::quiet_NaN();rejects();
     f.ray.originXr[0]=100;rejects();f.headQuat[1]=0;f.headQuat[3]=0;rejects();
+    // ---- VR-82: the pistol's standoff pair -------------------------------
+    // The bullet is spawned along the aim direction, so the position and the
+    // direction are one decision. These checks fail if they ever come apart.
+    f=good;
+    // 864 uu is the reach at distanceM 8 and scale 108, so 432 is the bound and
+    // every value here is inside it. The bound itself is tested below.
+    for(float standoff: {0.0f,1.0f,150.0f,400.0f}) {
+        for(int yi=-4;yi<=4;++yi) for(int pi=-2;pi<=2;++pi) {
+            const float yaw=yi*0.5f,pitch=pi*0.3f;
+            // Build the native pair the way the engine does, from an arbitrary
+            // direction that is NOT where the controller points.
+            float nativeDir[3]={0.6f,-0.8f,0.0f};
+            float origin[3]={15000,8054,2790},nativeSpawn[3];
+            for(int a=0;a<3;++a) nativeSpawn[a]=origin[a]+nativeDir[a]*standoff;
+            fireaim::StandoffSolution p;
+            check(fireaim::solve_standoff(f,1010,yaw,pitch,camera,108,nativeSpawn,
+                                          nativeDir,standoff,p));
+            // The engine's origin is recovered exactly.
+            for(int a=0;a<3;++a) check(closeEnough(p.origin[a],origin[a],0.01f));
+            // The standoff distance is preserved, not invented.
+            float d[3];for(int a=0;a<3;++a)d[a]=p.spawn[a]-p.origin[a];
+            check(closeEnough(std::sqrt(fireaim::dot(d,d)),standoff,0.01f));
+            // The corrected spawn lies ON the line origin->target: the bullet
+            // starts on the line it flies along, which is the whole point.
+            float toT[3];for(int a=0;a<3;++a)toT[a]=p.ray.target[a]-p.origin[a];
+            check(fireaim::normalize(toT));
+            if(standoff>0){float sd[3]={d[0],d[1],d[2]};check(fireaim::normalize(sd));
+                check(fireaim::dot(sd,toT)>0.9999f);}
+            else for(int a=0;a<3;++a) check(closeEnough(p.spawn[a],origin[a],0.01f));
+            // And the direction still points from the SPAWN at the target.
+            float fromSpawn[3];for(int a=0;a<3;++a)fromSpawn[a]=p.ray.target[a]-p.spawn[a];
+            check(fireaim::normalize(fromSpawn));
+            check(fireaim::dot(fromSpawn,p.ray.direction)>0.9999f);
+            check(closeEnough(fireaim::dot(p.ray.direction,p.ray.direction),1.0f,0.001f));
+        }
+    }
+    // Refusals. Each must leave the caller's solution untouched, so a refusal
+    // can never be mistaken for a write.
+    {
+        float nativeDir[3]={0,0,1},nativeSpawn[3]={15000,8054,2950};
+        const char* lastWhy=nullptr; float lastReach=0;
+        auto standoffRejects=[&](const float* dir,const float* sp,float st){
+            fireaim::StandoffSolution untouched;untouched.spawn[0]=123;
+            lastWhy=nullptr;lastReach=0;
+            check(!fireaim::solve_standoff(f,1010,0,0,camera,108,sp,dir,st,untouched,
+                                           &lastWhy,&lastReach));
+            check(untouched.spawn[0]==123);
+            check(lastWhy!=nullptr); // every refusal names itself
+        };
+        const float nan=std::numeric_limits<float>::quiet_NaN();
+        const float inf=std::numeric_limits<float>::infinity();
+        standoffRejects(nativeDir,nativeSpawn,nan);
+        standoffRejects(nativeDir,nativeSpawn,inf);
+        standoffRejects(nativeDir,nativeSpawn,-1.0f);
+        standoffRejects(nativeDir,nativeSpawn,1001.0f);
+        const float notUnit[3]={0,0,4};       standoffRejects(notUnit,nativeSpawn,150);
+        const float zeroDir[3]={0,0,0};       standoffRejects(zeroDir,nativeSpawn,150);
+        const float nanDir[3]={0,nan,1};      standoffRejects(nanDir,nativeSpawn,150);
+        const float nanSpawn[3]={15000,nan,0};standoffRejects(nativeDir,nanSpawn,150);
+        // A stale ray must refuse here exactly as it does for the crossbow, and
+        // the reach must read -1 because the ray never resolved far enough to
+        // compute one. A refusal line that could only print zero is not evidence.
+        const auto keep=f; f.ray.sampleMs=800;
+        standoffRejects(nativeDir,nativeSpawn,150);
+        check(lastReach==-1.0f);
+        f=keep;
+        // The overshoot bound. Reach here is 864 uu, so 432 is the edge: a
+        // standoff past it would spawn the bullet at or beyond its own target,
+        // where the launch direction reverses.
+        {
+            float unit[3]={0,0,1},sp[3];
+            for(int a=0;a<3;++a) sp[a]=camera[a]+unit[a]*500;
+            standoffRejects(unit,sp,500);
+            check(lastReach>800&&lastReach<900); // the real reach, not a placeholder
+            fireaim::StandoffSolution ok;
+            for(int a=0;a<3;++a) sp[a]=camera[a]+unit[a]*400;
+            check(fireaim::solve_standoff(f,1010,0,0,camera,108,sp,unit,400,ok));
+            check(ok.reach>800&&ok.reach<900);
+            // Just inside and just outside the bound, from the same geometry.
+            for(int a=0;a<3;++a) sp[a]=camera[a]+unit[a]*(0.49f*ok.reach);
+            check(fireaim::solve_standoff(f,1010,0,0,camera,108,sp,unit,0.49f*ok.reach,ok));
+            for(int a=0;a<3;++a) sp[a]=camera[a]+unit[a]*(0.51f*ok.reach);
+            standoffRejects(unit,sp,0.51f*ok.reach);
+        }
+    }
     frameAddr=(unsigned)(fakeFrame+256);*(unsigned*)(frameAddr-0x54)=source;
     g_fireAimResume=(uintptr_t)&Resume;
     for(int i=0;i<100;++i) {
@@ -145,5 +311,25 @@ int main() {
         check(*(float*)(frameAddr-0xAC)==(handlerWrite?0.75f:1.0f));
     }
     check(handlerCalls==100);
-    std::printf("fire-aim: %d geometry, refusal and production x86 bridge checks passed\n",checks);
+    // The pistol's own bridge. Same preservation contract, different replay:
+    // one pushed dword (the rotator's address) and ECX left on the direction.
+    g_pistolAimResume=(uintptr_t)&PistolResume;
+    for(int i=0;i<100;++i) {
+        pistolHandlerWrite=(i&1)!=0;
+        *(float*)(frameAddr-0x48)=1;*(float*)(frameAddr-0x54)=2;
+        RunPistolBridge();
+        check(pistolRegs[0]==101&&pistolRegs[1]==202&&pistolRegs[3]==404);
+        check(pistolRegs[4]==0x12345678&&pistolRegs[5]==606&&pistolRegs[6]==frameAddr);
+        check(pistolArgsSeen[0]==frameAddr-0x6C); // the rotator out-param
+        check(pistolEcx==frameAddr-0x48);         // the direction, as `this`
+        check(pistolFlagsBefore==pistolFlagsAfter);
+        check(!std::memcmp(beforeFx,afterFx,8)); // x87 control/status/tag
+        check(!std::memcmp(beforeFx+24,afterFx+24,8)); // MXCSR
+        check(!std::memcmp(beforeFx+32,afterFx+32,256)); // x87 + XMM values
+        check(*(float*)(frameAddr-0x48)==(pistolHandlerWrite?0.75f:1.0f));
+        check(*(float*)(frameAddr-0x54)==(pistolHandlerWrite?0.25f:2.0f));
+    }
+    check(pistolHandlerCalls==100);
+    std::printf("fire-aim: %d geometry, refusal and production x86 bridge checks passed "
+                "(crossbow and pistol)\n",checks);
 }

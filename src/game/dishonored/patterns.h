@@ -80,6 +80,29 @@ static const int kCrossbowDirectionLocal = -0xAC; // float3, used for spawn and 
 static const uintptr_t kCrossbowContextVtable = 0x01172C80;
 static const uintptr_t kCrossbowInitCall = 0x00C38DB6;
 static const uint8_t kCrossbowInitCallBytes[] = {0xFF,0xD0,0xF6,0x86,0xD4,0,0,0,1};
+
+// VR-82: the pistol's equivalent seam, derived offline by re-walking the route
+// above and reproducing every published crossbow number first. See
+// docs/dishonored/VR-82-PISTOL-FIRE-SEAM.md and ENGINE_NOTES.
+//
+// The join sits AFTER 0x00BFFBA0, which receives the direction local by address
+// and can still write it. A hook placed at the natural-looking spot - right
+// after the aim cache returns - would be overwritten and would change nothing
+// while its counter moved. Do not move this address earlier.
+static const uintptr_t kPistolSpawnAim = 0x00C2A53C;
+static const uint8_t kPistolSpawnAimBytes[] = {0x8D,0x4D,0x94,0x51,0x8D,0x4D,0xB8};
+static const int kPistolSourceLocal = -0x1C;    // native source pawn
+static const int kPistolSpawnLocal = -0x54;     // float3, chosen spawn position
+static const int kPistolDirectionLocal = -0x48; // float3, used for spawn and init
+static const int kPistolAimDirLocal = -0x60;    // float3, the ORIGINAL unit aim dir
+static const int kPistolTweaksLocal = -0x18;    // the DisTweaks_FirePistol object
+static const uintptr_t kPistolContextVtable = 0x01172E60;
+static const uintptr_t kPistolInitCall = 0x00C2A611;
+static const uint8_t kPistolInitCallBytes[] = {0xFF,0xD2,0x8B,0x06,0x8B,0x90,0x48,1,0,0};
+// DisTweaks_FirePistol::m_fBulletSpawnDistance. The routine multiplies the aim
+// direction by this and adds it to the origin to get the spawn position, which
+// is the whole reason the pistol needs its own solver entry point.
+static const uint32_t kPistolSpawnDistOff = 0x420;
 static const uint32_t kPovOffs[3] = {0x330, 0x350, 0x374};
 static const uint32_t kFovCands[4] = {0x53c, 0x540, 0x564, 0x254};
 static const uint32_t kLevCtrl[3] = {0x3ac, 0x3b0, 0x3b4};   // FOVAngle/Desired/Default

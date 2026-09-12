@@ -304,6 +304,40 @@ The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 > the identity of what it measured. An instrument that cannot fail its own
 > hypothesis is not evidence. Name the owner before the result.
 
+### A refusal line whose number can only ever read zero (VR-82, caught in review)
+
+The pistol's fire hook refuses when the bullet's standoff distance would reach
+the aim point, and the refusal was written to print the reach that caused it. But
+the reach lived in the solution struct, which by contract is only written on
+SUCCESS - so the line would have printed `reach=0.00` on every refusal it ever
+made, including the one whose whole subject is that number.
+
+It would have looked like evidence. It would have been a constant. The fix is an
+explicit out-parameter filled the moment the reach is known, refusal included,
+initialised to `-1` for the paths that never compute one, with the log naming what
+`-1` means on the line. Caught before the build shipped, but only because the
+value was checked against the case it was supposed to explain.
+
+> **If a refusal prints a number, ask what that number reads when the refusal
+> fires.** A field that is only populated on the success path is zero on every
+> line you will actually read.
+
+### A hook placed before a call that takes the local by address (VR-82)
+
+The pistol's firing routine reads its aim direction from the native cache, and the
+obvious hook site is right after that call returns. It is wrong: the direction
+local is passed BY ADDRESS to a later call, which can still write it. A hook there
+installs, fires, increments its counter, logs a successful write - and changes
+nothing, because the engine overwrites the value afterwards.
+
+This is the same shape as the graveyard's other worst entries: the write is real,
+the acceptance is not. It was found by listing every write to each local between
+the function's entry and the candidate join before choosing the join, which took
+one pass over a disassembly the session already had open.
+
+> **Before hooking a stack local, list every write to it up to the join, and
+> count `lea`-then-push as a write.** A verified write is not an honoured one.
+
 ---
 
 ## 3. Plans that were tried and failed

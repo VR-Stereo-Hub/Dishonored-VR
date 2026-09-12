@@ -8,12 +8,26 @@ Dishonored VR - quick start (41.0, the foundation build of the new render)
    a fine start; the headset shows the game window's frame). A release before
    41.0 set ResX=4032 ResY=2268 in DishonoredEngine.ini and DishonoredCompat.ini;
    put a normal size back.
-3. Launch the game from Steam.
+3. Run the game once so it writes its config, then apply the game-side settings
+   the mod expects, from the folder you unzipped:
+
+       powershell -ExecutionPolicy Bypass -File setup-game-ini.ps1 -VRBaseline
+
+   It backs each file up first, changes four values (engine frame smoothing,
+   depth of field, the engine's vsync, and mouse smoothing), and prints what it
+   changed. It is safe to run twice. The game REWRITES these whenever you use
+   its own video options, so run it again after visiting them. Everything else
+   the mod sets itself: the settings in dishonored_vr.ini already ship at the
+   values this build was tuned and tested at, so a fresh install matches the
+   development machine without any editing.
+4. Launch the game from Steam.
    - Quest via Virtual Desktop: start VD streaming with VDXR as the OpenXR
-     runtime. 72 Hz, SSW off.
+     runtime. 90 Hz, SSW off. 90 is deliberate and is not "as high as it goes":
+     a higher refresh measured WORSE here, because the frame cost lands the
+     cadence on a bad beat. Start at 90.
    - SteamVR headsets (Vive, Index, WMR through SteamVR): start SteamVR first;
      the mod uses the bundled shim (dvr_steamvr32.dll).
-4. F5 recenters, F10 opens the settings overlay (screen distance and width).
+5. F5 recenters, F10 opens the settings overlay (screen distance and width).
    Turn Motion Blur off in the game's options.
 
 What you get in 41.0: the game on a head-locked screen in both eyes, head
