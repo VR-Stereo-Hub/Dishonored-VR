@@ -45,13 +45,6 @@ inline bool bolt_axis_ratio(const float (*points)[3], int n, float minRatio, Bol
 inline bool bolt_axis(const float (*points)[3], int n, BoltAxis& result) {
     return bolt_axis_ratio(points, n, 16.0f, result);
 }
-// The CENTRE of the fitted mesh with the axis direction - what a weapon body aims
-// from. Asked for directly: using the middle rather than an end keeps a pistol, a
-// grenade, a tool and a power feeling like the same gesture, because the origin
-// stops depending on the silhouette's length.
-inline void bolt_middle(const BoltAxis& a, int sign, float* point, float* direction) {
-    for(int i=0;i<3;++i){point[i]=a.center[i];direction[i]=a.dir[i]*sign;}
-}
 inline void bolt_tip(const BoltAxis& a, int sign, float* point, float* direction) {
     for(int i=0;i<3;++i){point[i]=a.center[i]+a.dir[i]*(sign>0?a.high:a.low);direction[i]=a.dir[i]*sign;}
 }
