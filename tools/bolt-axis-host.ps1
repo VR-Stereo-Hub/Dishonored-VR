@@ -34,7 +34,7 @@ $pipeline=Get-Content (Join-Path $repo 'src/game/dishonored/aim_ray.cpp') -Raw
 # was deliberately inverted afterwards (measured model axis first, controller ray as
 # the fallback), so pinning their order would pin a decision rather than a contract.
 $model=$pipeline.IndexOf('if (g_config.modelRay && g_ray.ok)')
-$transport=$pipeline.IndexOf('if (!modelUsed && g_config.followHandTrim')
+$transport=$pipeline.IndexOf('if (!modelUsed && !g_config.modelRay && g_config.followHandTrim')
 $publication=$pipeline.IndexOf('g_fireFrame = frame;')
 $visual=$pipeline.IndexOf('auto out = visual(g_ray,')
 if($model -lt 0){throw 'model ray block not found'}
@@ -43,9 +43,14 @@ if($publication -lt 0 -or $visual -lt 0){throw 'publication or visual not found'
 if($publication -lt $model){throw 'fire published before the model ray could change it'}
 if($publication -lt $transport){throw 'fire published before the controller fallback could change it'}
 if($visual -lt $publication){throw 'visual built before the fire publication - they can diverge'}
-# And the fallback must be reachable: a model-ray miss must NOT invalidate the ray,
-# or the fallback below it can never run and the shot returns to head aim.
-if($pipeline.Contains('g_ray.ok=false;g_ray.why="loaded bolt geometry unavailable/stale"')){
-    throw 'a model-ray miss still invalidates the ray, so the controller fallback is dead'
+# The controller ray is the fallback for ModelRay being OFF. While ModelRay is ON and
+# the axis has not latched yet, NO guide is shown - showing the controller ray there
+# puts it in the wrong place and then moves it when the latch lands, which is the one
+# behaviour the tester asked never to happen. Both halves are asserted.
+if(-not $pipeline.Contains('waiting for the shared bolt axis to settle')){
+    throw 'a pending model axis no longer suppresses the guide; it will jump when the axis latches'
+}
+if(-not $pipeline.Contains('!modelUsed && !g_config.modelRay && g_config.followHandTrim')){
+    throw 'the controller fallback is no longer gated on ModelRay being off'
 }
 exit $eyeExit
