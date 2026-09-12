@@ -114,6 +114,25 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             break;
         }
     }
+    // VR-57 Phase B: record named dispatches that could be the fire path asking
+    // for an aim. Top level, its own lever, no dependence on any other feature.
+    // The name test is a cheap substring over a name already resolved for other
+    // reasons; the ring is fixed size and holds scalars only.
+    if (g_fwOn && peNameIdx != 0xffffffffu) {
+        const char* fn = RealName(peNameIdx);
+        if (fn && (strstr(fn, "Aim") || strstr(fn, "Fire") || strstr(fn, "Shoot") ||
+                   strstr(fn, "Launch") || strstr(fn, "Projectile") ||
+                   strstr(fn, "ViewPoint") || strstr(fn, "ViewRotation"))) {
+            FwEvt& e = g_fwRing[g_fwN % kFwRing];
+            e.ms = MaimNowMs();
+            e.nameIdx = peNameIdx;
+            e.cls = (obj && !((uintptr_t)obj & 3) && RangeReadable(obj, kClassOff + 4))
+                        ? ObjClassName((uint8_t*)obj) : NULL;
+            e.callerRva = peCallerRet > 0x400000u ? peCallerRet - 0x400000u : peCallerRet;
+            ++g_fwN; ++g_fwRecorded;
+        }
+    }
+
     // VR-57 Phase 1: the bolt probe. TOP LEVEL on purpose. Its first home was
     // inside the MotionAim arming window (`now < g_maimArmedUntil`), which is only
     // ever set while MotionAim is ENABLED - and it ships disabled, so the probe

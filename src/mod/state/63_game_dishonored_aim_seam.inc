@@ -134,3 +134,31 @@ static uint32_t g_shEpoch = 1;          // bumped on load/possession/weapon chan
 static uint32_t g_shRotOffPc = 0, g_shRotOffPawn = 0;   // Actor.Rotation, by name
 static bool     g_shRotResolved = false;
 static long     g_shCandRefused[kShCandN] = {};
+
+// ---- VR-57 Phase B: WHAT THE ENGINE DID JUST BEFORE THE BOLT -----------------
+//
+// The crossbow's fire path is native: DisWepCrossbow, DishonoredWeapon_Ranged and
+// DisItemContext_FireCrossbow are 4 to 39 lines of pure declarations between them,
+// and neither GetAdjustedAim nor ProjectileFire exists anywhere in the decompiled
+// tree, so Dishonored does not use the stock UE3 script fire path. There is no
+// function name on those classes to resolve.
+//
+// But Pawn.GetBaseAimRotation IS a script event with a body (Engine/Pawn.uc:546),
+// and in UE3 a NATIVE caller reaching a script event goes through ProcessEvent. So
+// if the fire path asks the pawn for its aim, that ask is visible here by name -
+// no disassembly, no address to derive, no retained pointer.
+//
+// This records the last named dispatches before each bolt and prints them when the
+// bolt appears. It proves ORDER and PRESENCE, not consumption: a call landing
+// before a shot is a candidate consumer and nothing more. Read-only.
+static const int kFwRing = 48;
+struct FwEvt {
+    double   ms;
+    uint32_t nameIdx;
+    const char* cls;      // class name pointer from the engine's own tables
+    uint32_t callerRva;   // who called ProcessEvent, for telling one caller from another
+};
+static FwEvt    g_fwRing[kFwRing] = {};
+static int      g_fwN = 0;          // monotonic
+static long     g_fwRecorded = 0;   // dispatches that matched the watch list
+static bool     g_fwOn = false;     // [Aim] FireWatch; ships 0
