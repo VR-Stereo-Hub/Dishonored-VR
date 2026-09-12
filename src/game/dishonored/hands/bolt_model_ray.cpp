@@ -229,61 +229,62 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     if(!sameTarget||vp.X!=wc->viewport.X||vp.Y!=wc->viewport.Y||
        vp.Width!=wc->viewport.Width||vp.Height!=wc->viewport.Height)return;
     static uint32_t measured[2]={~0u,~0u};
-    if(measured[w->hand]==wc->present)return;
     auto& g=g_brGeom[w->hand];const uint64_t now=GetTickCount64();
-    // THE WEAPON DECIDES, not the ammunition. A different weapon invalidates the
-    // axis; a different projectile in the SAME weapon does not.
-    // THE EQUIPPED ITEM decides, and it is the same on every draw of the frame - so
-    // the axis and the identity it is stored under can no longer disagree.
-    void* held=BrHeldFor(w->hand);
-    if(held&&g.heldObj&&held!=g.heldObj){
-        const bool had=g.haveRay;
-        g={};
-        g.heldObj=held;
-        if(had)Log("modelray: the equipped item in that hand changed - the stored axis "
-                   "is discarded and will be measured again for the new weapon.");
-    } else if(held&&!g.heldObj){
-        g.heldObj=held;
-    }
-    // The NAME is still recorded, for the log only. It is never the cache key.
-    const char* weapon=BrWeaponFor(wc,w->hand);
-    if(weapon[0]&&!g.weapon[0]) strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
-    // PUBLISH FROM ANY DRAW OF THIS HAND. The stored ray is in the palm frame and so
-    // does not depend on the pose or on which mesh is being drawn; republishing it
-    // needs no transform, no geometry and no verified instance. Gating this on the
-    // weapon's own draw is what left the guide stale and fell back to head aim.
+
+    // ONE AXIS, MEASURED ONCE, USED BY EVERY WEAPON.
+    //
+    // This replaces per-weapon measurement, and it replaces it because per-weapon
+    // measurement kept breaking in ways that each fix only moved. The crossbow was
+    // correct until a weapon switch, then came back inverted; the axis was being
+    // stored under one weapon and measured from another's projectile, and its
+    // forward sign was resolved against whichever weapon happened to be in hand at
+    // that instant. Every attempt to bookkeep that correctly added a condition and
+    // another way to get it wrong.
+    //
+    // The regular bolt is the one piece of geometry here that is unambiguous: 335:1
+    // axial variance, 44.5 units long, and it is the barrel line of a ranged weapon
+    // held in the ordinary way. Every ranged weapon in this game is held the same
+    // way, so ONE measured forward serves all of them, and it is the player's hand
+    // that the ray has to follow rather than any particular silhouette.
+    //
+    // So: measure strictly, from the regular bolt only and only while the crossbow
+    // is actually equipped, then LATCH it for the session and use it for every
+    // weapon. Nothing discards it - not a weapon switch, not an ammunition change,
+    // not a reload. An axis that cannot be discarded cannot be inverted by a switch,
+    // which is the entire class of fault this removes.
+    //
+    // It still moves with the hand: the stored ray is in the palm frame, so the trim
+    // carries it exactly as it carries the weapon.
     if(g.haveRay){
         dvr::hands::ModelRaySnapshot out;out.ok=true;out.sampleMs=now;
         for(int i=0;i<3;++i){out.originPalm[i]=g.palmOrigin[i];out.dirPalm[i]=g.palmDir[i];}
         AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
         return;
     }
-    // MEASURED FROM A LOADED PROJECTILE ONLY.
-    //
-    // Fitting the weapon BODY was tried and removed the same hour, because it cannot
-    // work through this reader: the geometry path accepts at most 1024 vertices and
-    // the weapon meshes measured 1961 for the crossbow, 2481 for the sword and up to
-    // 6330 elsewhere, so every body was rejected by the size check before any axis
-    // was fitted - the refusal even quoted the variance test it never reached. They
-    // are also skinned to more than one bone, which the single-slot rigid transform
-    // this uses cannot carry. Making it work needs vertex subsampling and multi-bone
-    // handling, which is its own piece of work and is not this.
-    //
-    // Nothing is lost by refusing: a weapon with no measurable axis now falls back to
-    // the CONTROLLER ray rather than the head, so it still aims where it is pointed.
+    if(measured[w->hand]==wc->present)return;
+
+    // Nothing latched yet. Only the regular bolt may supply it, and only while the
+    // crossbow is the equipped weapon - the sign is resolved against the equipped
+    // weapon's forward, so measuring while anything else is held is what produced a
+    // mirrored axis.
+    const char* weapon=BrWeaponFor(wc,w->hand);
+    if(weapon[0]&&!g.weapon[0]) strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
     const bool body=false;
-    if(!isProjectile)return;
-    // The projectile must be THIS weapon's. Without this a bolt drawn while the
-    // pistol is equipped was measured as the pistol's axis and signed against the
-    // pistol's forward, mirroring both weapons.
-    if(!BrProjectileMatchesWeapon(w->asset,g.weapon)){
+    if(_stricmp(w->asset,"bolt_01")){
+        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,10000,
+            "modelray: waiting for the regular bolt to measure the shared axis; '%s' "
+            "is not it. One axis serves every weapon, so only the clearest geometry "
+            "is allowed to define it - equip the crossbow with ordinary bolts once "
+            "and it is latched for the session.",w->asset);
+        return;
+    }
+    if(!BrProjectileMatchesWeapon(w->asset,weapon)){
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,5000,
-            "modelray: '%s' is not the loaded ammunition of the equipped weapon "
-            "'%s', so it is NOT measured. Measuring it would store one weapon's "
-            "barrel as another's and resolve its sign against the wrong forward. "
-            "An empty weapon name also refuses: the axis waits for the weapon's own "
-            "draw to name it rather than being adopted under nothing.",
-            w->asset,g.weapon[0]?g.weapon:"(not yet known this frame)");
+            "modelray: the regular bolt is drawn but the equipped weapon is '%s', so "
+            "it is NOT measured. The forward sign is resolved against the equipped "
+            "weapon, and measuring a bolt while a gun is held is what stored one "
+            "weapon's barrel as another's and mirrored both.",
+            weapon[0]?weapon:"(not yet known this frame)");
         return;
     }
     const bool same=g.vb==w->vb&&g.ib==w->ib&&g.decl==w->decl&&g.stride==w->stride&&g.offset==w->streamOffset&&
@@ -347,10 +348,11 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     measured[w->hand]=wc->present;
     for(int i=0;i<3;++i){g.palmOrigin[i]=out.originPalm[i];g.palmDir[i]=out.dirPalm[i];}
     g.haveRay=true;
-    Log("modelray: '%s' axis adopted for weapon '%s' (%s) - this ray is now held for "
-        "EVERY projectile this weapon loads, so changing ammunition cannot move it, "
-        "and it survives frames where no projectile is drawn because it is stored in "
-        "the palm frame. It is discarded when the weapon changes.",
+    Log("modelray: '%s' axis LATCHED from weapon '%s' (%s) - it is now the shared ray for "
+        "EVERY weapon and every ammunition for the rest of the session, including the "
+        "pistol. Nothing discards it - not a weapon switch, not a reload - so it "
+        "cannot be inverted by a switch, and it still follows the hand trim because "
+        "it is stored in the palm frame.",
         w->asset,g.weapon[0]?g.weapon:"?",
         g.fromBody?"from the WEAPON MESH, aimed from its centre - the fallback for a "
                    "weapon with no visible loaded projectile"
