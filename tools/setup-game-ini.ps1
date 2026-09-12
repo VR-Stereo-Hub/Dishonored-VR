@@ -1,5 +1,6 @@
 # setup-game-ini.ps1 - the one-time game config the mod needs.
 #
+#   .\setup-game-ini.ps1 -VRBaseline            the game-side settings the mod expects
 #   .\setup-game-ini.ps1 -Console               enable the console (F1 in game, then ~)
 #   .\setup-game-ini.ps1 -Restore               put the newest backup back
 #
@@ -15,6 +16,7 @@
 #
 # Ships in the release zip; PowerShell 5.1, pure ASCII, CRLF.
 param(
+    [switch]$VRBaseline,
     [switch]$Console,
     [switch]$Restore,
     [string]$ConfigDir = ""
@@ -43,6 +45,74 @@ if ($Restore) {
     return
 }
 
+# Set one key inside ONE section. The same key name lives in more than one
+# section of DishonoredEngine.ini - Fullscreen and DepthOfField are both in
+# [SystemSettings] and [SystemSettingsMobile] - so a file-wide match would edit
+# the wrong line and leave the real one untouched. Returns $true if it changed
+# anything. Reports what it saw, so a drifted value is visible rather than
+# silently overwritten.
+function Set-IniKeyInSection($path, $section, $key, $value) {
+    $lines = [System.IO.File]::ReadAllLines($path)
+    $inSection = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        if ($line -match '^\s*\[(.+)\]\s*$') {
+            $inSection = ($matches[1] -eq $section)
+            continue
+        }
+        if (-not $inSection) { continue }
+        if ($line -match "^\s*$([regex]::Escape($key))\s*=\s*(.*?)\s*$") {
+            $had = $matches[1]
+            if ($had -ceq $value) {
+                Write-Host ("  [{0}] {1}={2} already set" -f $section, $key, $value)
+                return $false
+            }
+            $lines[$i] = "$key=$value"
+            Write-Host ("  [{0}] {1}: {2} -> {3}" -f $section, $key, $had, $value)
+            [System.IO.File]::WriteAllLines($path, $lines)
+            return $true
+        }
+    }
+    throw "could not find $key in [$section] of $path - the file is not the shape this expects, nothing was written"
+}
+
+if ($VRBaseline) {
+    # The game-side settings the mod expects, and why each one is here. These
+    # are the ONLY four; everything else the mod drives itself, so do not add
+    # to this list without a measured reason.
+    #
+    #   bSmoothFrameRate       the engine's frame smoothing fights the headset's
+    #                          own pacing; leaving it on produces judder the mod
+    #                          cannot correct from outside.
+    #   DepthOfField           a post effect applied to a MONO image; in stereo
+    #                          it blurs by screen position, not by eye depth.
+    #   UseVsync               the mod presents without vsync anyway via
+    #                          [Perf] ForceNoVSync, and leaving the engine's on
+    #                          adds a second wait against the compositor's.
+    #   bEnableMouseSmoothing  head tracking writes ProcessViewRotation directly,
+    #                          but mouse emulation is still the fallback path,
+    #                          and smoothing there lags the head.
+    #
+    # NOT set here: [SystemSettings] Fullscreen. VirtualMode creates the device
+    # windowed with the backbuffer kept whatever it says, so forcing it would be
+    # a line that changes nothing and drifts back after any visit to the game's
+    # video options.
+    Backup $engine
+    Backup $input
+    $changed = $false
+    Write-Host "VR baseline:"
+    $changed = (Set-IniKeyInSection $engine "Engine.Engine"     "bSmoothFrameRate"      "FALSE") -or $changed
+    $changed = (Set-IniKeyInSection $engine "SystemSettings"    "DepthOfField"          "False") -or $changed
+    $changed = (Set-IniKeyInSection $engine "SystemSettings"    "UseVsync"              "False") -or $changed
+    $changed = (Set-IniKeyInSection $input  "Engine.PlayerInput" "bEnableMouseSmoothing" "FALSE") -or $changed
+    if ($changed) {
+        Write-Host "VR baseline applied. The game REWRITES these when you use its own video"
+        Write-Host "options, so re-run this after visiting them."
+    } else {
+        Write-Host "VR baseline already in place, nothing written."
+    }
+}
+
 if ($Console) {
     Backup $input
     $lines = Get-Content $input
@@ -55,6 +125,6 @@ if ($Console) {
     Write-Host "console bind added after the Zero binding: press F1 in game once, then ~ opens the console"
 }
 
-if (-not $Console) {
-    Write-Host "nothing to do - pass -Console (or -Restore)"
+if (-not $Console -and -not $VRBaseline) {
+    Write-Host "nothing to do - pass -VRBaseline or -Console (or -Restore)"
 }
