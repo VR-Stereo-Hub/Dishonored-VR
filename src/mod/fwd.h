@@ -399,6 +399,8 @@ static void MpDrawCompare(const MpDrawCtx* c);
 static void MpEyeForPresent(const MpDrawCtx* c);
 static void AimSeamTick(void);
 static void AimSeamDrive(void);
+static void AimShotSee(uint8_t* o, const char* cn, double now);   // VR-57 Phase 1
+static void AimShotBeat(double now);
 static void MfNoteTag(void);
 static void MfNoteWeapon(bool found);
 static void MfMarker(void);
