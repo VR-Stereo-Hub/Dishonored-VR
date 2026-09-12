@@ -88,6 +88,92 @@ The marker windows overlap and flickers cluster. Raising the 42% baseline rate
 to the 37th power assumes independence the sample does not have. Keep the timing
 correlation, discard the p-value. See `dishonored/VR-76-CODEX-HANDOFF.md`.
 
+### A save that persists a whole block of defaults, with one wrong literal in it
+
+**2026-09-12. It stopped the weapons tracking the hands, which is the one thing
+the original author's rules say must never break.**
+
+`AttachRigRadius` had never been in the installed ini, so it took its compiled
+default of 200. An ini save then wrote out the entire `Attach*` block - every key
+that had been absent - and all of them landed on their correct defaults except
+that one, which was written as **2**. The value 2 belongs to
+`AttachHeldMaxPresents` and `AttachRefMaxPresents`, which sit immediately beside
+it in the same block.
+
+At 2 the gate asks whether a weapon is within 2 units of the body mesh before it
+counts as part of the view model. The crossbow measured 157. So every weapon was
+refused as "not a member" and none was moved to the hand, while the HANDS kept
+placing normally - `placed` climbed past 34,000 in the same run. A subsystem was
+dead and the nearest counter said everything was fine.
+
+Three things made it hard to see, and each is the lesson:
+
+* **The loader clamps the value to a minimum of 10, and the log prints the
+  CLAMPED number.** The run said "past the 10 uu rig radius" while the file said
+  2. Neither number was the default, and the one in the log was not the one
+  written. *Log the requested value beside the effective one, or a reader cannot
+  tell a clamp from a setting.*
+* **An absent key and a key at its default are not the same thing.** Absent means
+  the compiled default applies and a save will materialise it. Once materialised
+  it is a value somebody can get wrong, and it beats every compiled default
+  afterwards. This is the stale-setting class from section 1 arriving by a new
+  route: not an edit in the wrong place, but a SAVE of a place nobody had edited.
+* **Offline tests cannot catch it.** 73,822 host checks passed on that build. The
+  fault was entirely in a config value, and the geometry maths they exercise was
+  correct the whole time.
+
+> **Diff the installed ini against the previous one on every install**, not just
+> the keys you meant to change. A save can write keys you never touched, and a
+> wrong literal in one of them reads as a broken subsystem rather than as a
+> setting.
+
+### VR-57: a constant is not a sample, and other ways a correct value was thrown away
+
+2026-09-12. The model-ray work produced a run of faults that were all the same shape:
+the MEASUREMENT was right and the machinery around it discarded, expired or corrupted
+it. Each one cost a headset run, and each was found from the tester's own description
+rather than from the code.
+
+* **A constant was published as a sample.** The latched palm-frame axis does not depend
+  on the pose, so it cannot go stale - but it was stamped with a time and the consumer
+  demanded a republish within 250 ms. That republish only happens when a weapon draw
+  reaches the measurement code, which is not continuous, so a perfectly valid value
+  EXPIRED and the guide vanished until the next shot drew a bolt. *Ask whether a value
+  is a reading or a fact. A fact does not need a freshness window, and giving it one
+  invents a failure.*
+* **A one-shot latch was taken during an animation.** The measurement could land while
+  the bolt was being reloaded, when its pose relative to the palm is not the firing
+  pose, and that one frame became the session's ray. A latch is only as good as the
+  instant it captured: candidates must agree with each other first.
+* **Frames are not time.** Five agreeing frames can pass in 50 ms, which a transient
+  holds through easily. A stability window needs both a count and a duration.
+* **A per-axis bound admits a corner.** "Within 2 metres on each axis" is 3.4 m away in
+  the diagonal, for a bolt tip that sits 0.41 m from the palm. Bound a distance as a
+  distance.
+* **A name arrives empty on the draw that needs it.** The equipped weapon's name is
+  resolved from the component table and is EMPTY on the projectile's own draw - the
+  draw that measures. Treating empty as "different" discarded the axis every frame:
+  408 adoptions in one run, all under weapon `'?'`.
+* **Nothing asked whether the projectile belonged to the equipped weapon.** A bolt is
+  drawn while the pistol is out, so the crossbow's bolt was measured and stored as the
+  pistol's axis and signed against the pistol's forward, mirroring both weapons. The
+  log said it plainly: `'bolt_01' axis adopted for weapon 'EliteGun'`.
+* **A guard asserted the opposite of the intent it was added for.** A publication-order
+  check was written to insist that a model-ray miss must NOT invalidate the ray. When
+  the right behaviour turned out to be the reverse - suppress the guide while the axis
+  is pending, rather than show a ray that will jump - the guard passed while the
+  behaviour was wrong. *A guard that encodes a decision rather than a contract will
+  defend the decision after it stops being right.*
+* **A refusal named a gate it never reached.** Weapon bodies were reported as failing a
+  16:1 variance test when the 1024-vertex size check had rejected them first, which
+  sent the investigation after the wrong property. *Say which gate refused, not which
+  gate exists.*
+
+> The through-line: **when a measured value behaves intermittently, suspect the
+> bookkeeping around it before the measurement.** Three successive fixes here went into
+> keying, caching and freshness, and the measurement had been correct since the first
+> one.
+
 ## 2. Instruments that could not fail their own hypothesis
 
 Every one of these produced a confident number that meant nothing. They are

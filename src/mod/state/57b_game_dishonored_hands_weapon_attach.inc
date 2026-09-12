@@ -103,6 +103,10 @@ struct WaComp {
     int           hand;
 };
 struct WaCommon {
+    dvr::hf::Xform palm;
+    float forward[3];
+    float unitsPerMeter;
+    void* target; D3DVIEWPORT9 viewport;
     dvr::hf::Xform D;          // camera-relative world space
     dvr::hf::Xform L_hand;     // the hand draw's own transform, for the bridge
     uint32_t present;          // dvr::frame::count() when it was built
@@ -621,3 +625,10 @@ static LONG g_waStaleComp = 0, g_waBudgetSkip = 0, g_waNoBridge = 0;
 static float g_waNearestScore[2] = { FLT_MAX, FLT_MAX };
 static float g_waNearestAngle[2] = {}, g_waNearestPos[2] = {}, g_waNearestScale[2] = {};
 static char g_waNearestName[2][64] = {};
+
+// VR-57: the measured model axis, handed from the DRAW that measures it to the
+// script lane that writes it to the ini. Declared here because both mesh_split.cpp
+// (which does the writing, beside the grip save) and bolt_model_ray.cpp (which does
+// the measuring) are compiled into the unity build in that order.
+static volatile LONG g_brSaveReq = 0;
+static float g_brSaveOrigin[2][3] = {}, g_brSaveDir[2][3] = {};

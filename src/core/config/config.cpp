@@ -345,7 +345,7 @@ static void WriteDefaultIni(const char* ini)
         "; VR-57: visual controller guide only; shots and native reticle unchanged.\n"
         "; Dot/beam share one runtime AIM-pose ray. Fixed distance, no surface trace.\n"
         "; Live: F10 Aim, or crosshair dot|laser on|off, hand left|right.\n"
-        "Dot=0\n"
+        "Dot=1\n"
         "Laser=0\n"
         "Hand=left\n"
         "DistanceM=8.0\n"
@@ -406,6 +406,16 @@ static void WriteDefaultIni(const char* ini)
         "; the dot by the whole transverse gap at zero angle. Works with DriveFromHand\n"
         "; either way, and the drive-off run is the baseline.\n"
         "ShotProbe=0\n"
+        "; FollowHandTrim (VR-57): transport the hand trim onto the published aim ray,\n"
+        "; so tuning the hand with the numpad carries the dot, the beam and the shot\n"
+        "; with it instead of leaving them on the physical controller. The whole ray\n"
+        "; moves - it rotates about the untrimmed palm origin and then takes the\n"
+        "; trim translation - so it stays attached to the hand the way the weapon does.\n"
+        "; It is NOT a measured barrel axis: any baseline offset between the AIM pose\n"
+        "; and the barrel is preserved. Off returns the AIM-pose ray untouched.\n"
+        "FollowHandTrim=1\n"
+        "; ModelRay: measure the loaded bolt geometry; overrides FollowHandTrim.\n"
+        "ModelRay=1\n"
         "; FireWatch (VR-57 Phase B) records named script dispatches - anything whose\n"
         "; name mentions Aim, Fire, Shoot, Launch, Projectile or ViewPoint - and prints\n"
         "; the ones preceding each scored bolt, with the caller that made them. READ-ONLY.\n"
@@ -416,7 +426,7 @@ static void WriteDefaultIni(const char* ini)
         "FireWatch=0\n"
         "; Native crossbow launch direction, converging from the muzzle to the controller dot.\n"
         "; Independent of the old HUD cache drive and MotionAim; live toggle in F10 Aim.\n"
-        "FireFromHand=0\n"
+        "FireFromHand=1\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -622,14 +632,35 @@ static void WriteDefaultIni(const char* ini)
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
-        "GripLX=24.2129\n"
-        "GripLY=62.2162\n"
-        "GripLZ=-53.6683\n"
-        "GripRX=29.5207\n"
-        "GripRY=-47.6272\n"
-        "GripRZ=22.4724\n"
+        "GripLX=16.2230\n"
+        "GripLY=53.3325\n"
+        "GripLZ=-101.2634\n"
+        "GripRX=82.9366\n"
+        "GripRY=-31.1034\n"
+        "GripRZ=-19.5772\n"
         "PaletteSweep=0\n"
         "PaletteSweepSeconds=3.0\n"
+        "; The MEASURED MODEL AXIS (VR-57), and the grip it was measured against.\n"
+        "; This is the crossbow bolt's own lengthwise axis in the palm frame - the barrel\n"
+        "; line - so the guide and the shot sit on the weapon instead of on the bare\n"
+        "; controller. It can only be MEASURED from a drawn crossbow bolt, so shipping it\n"
+        "; means a first launch, or a save loaded with the pistol out, has a correct laser\n"
+        "; immediately rather than none until the crossbow is equipped.\n"
+        ";\n"
+        "; It ships as a MATCHED PAIR with Grip* above: the grip defines the palm frame the\n"
+        "; axis is expressed in, so a different grip makes this record meaningless and the\n"
+        "; loader discards it (saying so, with both values) and measures again. Hand TRIM\n"
+        "; changes are fine and need no new record - the frame is rebuilt from the current\n"
+        "; trim every time, which is why tuning the hand carries the laser with it.\n"
+        "ModelAxisLOX=-0.164994\n"
+        "ModelAxisLDX=-0.153351\n"
+        "ModelAxisLGX=16.2230\n"
+        "ModelAxisLOY=0.232584\n"
+        "ModelAxisLDY=0.735209\n"
+        "ModelAxisLGY=53.3325\n"
+        "ModelAxisLOZ=0.237439\n"
+        "ModelAxisLDZ=0.660266\n"
+        "ModelAxisLGZ=-101.2634\n"
         "GripLVersion=2\n"
         "GripLParity=-1\n"
         "GripRVersion=2\n"
@@ -639,17 +670,17 @@ static void WriteDefaultIni(const char* ini)
         "AdjStepT=1\n"
         "AdjStepR=3\n"
         "TrimLTX=0.0000\n"
-        "TrimLRX=0.00\n"
+        "TrimLRX=5.00\n"
         "TrimLTY=0.0200\n"
-        "TrimLRY=0.00\n"
-        "TrimLTZ=0.0320\n"
-        "TrimLRZ=0.00\n"
-        "TrimRTX=-0.0400\n"
-        "TrimRRX=0.00\n"
+        "TrimLRY=7.00\n"
+        "TrimLTZ=0.0520\n"
+        "TrimLRZ=1.00\n"
+        "TrimRTX=0.0200\n"
+        "TrimRRX=-53.00\n"
         "TrimRTY=0.0000\n"
-        "TrimRRY=0.00\n"
+        "TrimRRY=35.00\n"
         "TrimRTZ=0.0120\n"
-        "TrimRRZ=0.00\n"
+        "TrimRRZ=4.00\n"
         "AttachWeapons=1\n"
         "AttachSwordHand=1\n"
         "AttachCrossbowHand=0\n"
@@ -1850,6 +1881,10 @@ static void LoadConfig()
         // trim already dialled in by hand is not silently thrown away, and the
         // migration is logged rather than done quietly.
         static const char* axn[3] = { "X", "Y", "Z" };
+        // VR-57: a local finite test. MpFinite lives in a translation unit the
+        // unity build includes AFTER this one, and a NaN must be refused before
+        // the clamp because every comparison against it is false.
+        struct Fin { static bool ok(float v) { return v == v && v > -1.0e30f && v < 1.0e30f; } };
         float seedT[3], seedR[3];
         bool  seeded = false;
         for (int a = 0; a < 3; a++) {
@@ -1865,13 +1900,35 @@ static void LoadConfig()
             for (int a = 0; a < 3; a++) {
                 char k[32];
                 _snprintf(k, sizeof(k), "Trim%sT%s", sfx, axn[a]);
-                g_mpTrimT[h][a] = IniFloat(ini, "Hands", k, seedT[a]);
+                const float reqT = IniFloat(ini, "Hands", k, seedT[a]);
                 _snprintf(k, sizeof(k), "Trim%sR%s", sfx, axn[a]);
-                g_mpTrimR[h][a] = IniFloat(ini, "Hands", k, seedR[a]);
-                if (g_mpTrimT[h][a] >  0.25f) g_mpTrimT[h][a] =  0.25f;
-                if (g_mpTrimT[h][a] < -0.25f) g_mpTrimT[h][a] = -0.25f;
-                if (g_mpTrimR[h][a] >  45.0f) g_mpTrimR[h][a] =  45.0f;
-                if (g_mpTrimR[h][a] < -45.0f) g_mpTrimR[h][a] = -45.0f;
+                const float reqR = IniFloat(ini, "Hands", k, seedR[a]);
+                // VR-57: nonfinite is refused BEFORE clamping, because clamping a
+                // NaN keeps the NaN - every comparison against it is false. The
+                // seed keys reach here too, so they get the same validation rather
+                // than a second set of rules.
+                g_mpTrimT[h][a] = Fin::ok(reqT) ? reqT : 0.0f;
+                g_mpTrimR[h][a] = Fin::ok(reqR) ? reqR : 0.0f;
+                if (!Fin::ok(reqT) || !Fin::ok(reqR))
+                    Log("config: [Hands] Trim%s axis %s had a nonfinite value "
+                        "(T %g, R %g); that axis is zeroed rather than clamped, "
+                        "because a clamp cannot bound a NaN.", sfx, axn[a],
+                        (double)reqT, (double)reqR);
+                if (g_mpTrimT[h][a] >  kMpTrimPosLimit) g_mpTrimT[h][a] =  kMpTrimPosLimit;
+                if (g_mpTrimT[h][a] < -kMpTrimPosLimit) g_mpTrimT[h][a] = -kMpTrimPosLimit;
+                if (g_mpTrimR[h][a] >  kMpTrimRotLimit) g_mpTrimR[h][a] =  kMpTrimRotLimit;
+                if (g_mpTrimR[h][a] < -kMpTrimRotLimit) g_mpTrimR[h][a] = -kMpTrimRotLimit;
+                // Requested against effective, so a clamp on LOAD is visible. A
+                // value tuned live and then bounded by the next load is exactly
+                // the fault that made one shared limit necessary.
+                if (g_mpTrimT[h][a] != reqT && Fin::ok(reqT))
+                    Log("config: [Hands] Trim%sT%s requested %+.4f, effective "
+                        "%+.4f m (bound +-%.2f)", sfx, axn[a], (double)reqT,
+                        (double)g_mpTrimT[h][a], (double)kMpTrimPosLimit);
+                if (g_mpTrimR[h][a] != reqR && Fin::ok(reqR))
+                    Log("config: [Hands] Trim%sR%s requested %+.2f, effective "
+                        "%+.2f deg (bound +-%.0f)", sfx, axn[a], (double)reqR,
+                        (double)g_mpTrimR[h][a], (double)kMpTrimRotLimit);
             }
         }
         if (seeded)
@@ -1883,6 +1940,14 @@ static void LoadConfig()
                 (double)(seedT[0]*1000.0f), (double)(seedT[1]*1000.0f),
                 (double)(seedT[2]*1000.0f),
                 (double)seedR[0], (double)seedR[1], (double)seedR[2]);
+        MpPublishHandCal(0);
+        MpPublishHandCal(1);
+        Log("config: hand trim bounds - rotation +-%.0f deg per axis (raised from "
+            "%.0f, which measurably prevented further adjustment), translation "
+            "+-%.2f m. One limit serves the ini load and the numpad adjustment, so "
+            "a live value cannot be clamped back by the next load.",
+            (double)kMpTrimRotLimit, (double)kMpTrimRotNotice,
+            (double)kMpTrimPosLimit);
         Log("config: hand trim LOADED - left translation (%+.1f %+.1f %+.1f) mm "
             "rotation (%+.2f %+.2f %+.2f) deg | right translation "
             "(%+.1f %+.1f %+.1f) mm rotation (%+.2f %+.2f %+.2f) deg. All zero "
@@ -1893,6 +1958,79 @@ static void LoadConfig()
             (double)(g_mpTrimT[1][0]*1000.0f), (double)(g_mpTrimT[1][1]*1000.0f),
             (double)(g_mpTrimT[1][2]*1000.0f),
             (double)g_mpTrimR[1][0], (double)g_mpTrimR[1][1], (double)g_mpTrimR[1][2]);
+    }
+
+    // VR-57: RESTORE A PREVIOUSLY MEASURED MODEL AXIS.
+    //
+    // It can only be measured from a drawn crossbow bolt, so a session that loads a
+    // save with the pistol out never measures one and had no guide at all. The ray is
+    // a palm-frame constant, so it is written down on first measurement and restored
+    // here as the fallback.
+    //
+    // It is accepted only if the grip it was measured against still matches: the grip
+    // defines the palm frame the ray is expressed in, so a recalibration invalidates
+    // it. Hand TRIM changes are fine and need no check - the frame is rebuilt from the
+    // current trim every time the ray is used, which is why tuning carries it.
+    {
+        static const char* const ax[3] = { "X", "Y", "Z" };
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            float o[3], d[3], gsaved[3];
+            bool have = true;
+            for (int a2 = 0; a2 < 3 && have; a2++) {
+                char k[40];
+                _snprintf(k, sizeof(k), "ModelAxis%sO%s", sfx, ax[a2]);
+                o[a2] = IniFloat(ini, "Hands", k, 9999.0f);
+                _snprintf(k, sizeof(k), "ModelAxis%sD%s", sfx, ax[a2]);
+                d[a2] = IniFloat(ini, "Hands", k, 9999.0f);
+                _snprintf(k, sizeof(k), "ModelAxis%sG%s", sfx, ax[a2]);
+                gsaved[a2] = IniFloat(ini, "Hands", k, 9999.0f);
+                if (o[a2] > 9000.0f || d[a2] > 9000.0f || gsaved[a2] > 9000.0f) have = false;
+            }
+            if (!have) continue;
+            float gripDrift = 0.0f;
+            for (int a2 = 0; a2 < 3; a2++) {
+                const float e = gsaved[a2] - g_mpGripDeg[h][a2];
+                gripDrift += e < 0 ? -e : e;
+            }
+            if (gripDrift > 0.5f) {
+                Log("config: the %s hand has a stored model axis measured against grip "
+                    "(%.2f %.2f %.2f) but the grip is now (%.2f %.2f %.2f), %.2f deg "
+                    "apart. The grip DEFINES the palm frame the axis is expressed in, "
+                    "so the record is discarded rather than aimed through a frame that "
+                    "no longer exists. It will be measured again from the crossbow.",
+                    h ? "right" : "left", (double)gsaved[0], (double)gsaved[1],
+                    (double)gsaved[2], (double)g_mpGripDeg[h][0],
+                    (double)g_mpGripDeg[h][1], (double)g_mpGripDeg[h][2],
+                    (double)gripDrift);
+                continue;
+            }
+            dvr::hands::preload_model_ray(h, o, d);
+            Log("config: the %s hand's model axis RESTORED - origin (%.4f %.4f %.4f) m, "
+                "direction (%.4f %.4f %.4f). A session that never equips the crossbow "
+                "now has a guide from the first frame instead of none. It is bounded on "
+                "load exactly as a live measurement is, so an edited record cannot "
+                "install a ray a measurement would have refused.",
+                h ? "right" : "left", (double)o[0], (double)o[1], (double)o[2],
+                (double)d[0], (double)d[1], (double)d[2]);
+        }
+    }
+
+    // VR-57: FollowHandTrim. The published ray is transported by the hand's own
+    // trim, so tuning the hand carries the guide and the shot with it. Default OFF
+    // in new configurations; off returns the AIM-pose ray untouched.
+    {
+        dvr::aim::Config ch = dvr::aim::config();
+        ch.followHandTrim = GetPrivateProfileIntA("Aim", "FollowHandTrim", 0, ini) != 0;
+        ch.modelRay = GetPrivateProfileIntA("Aim", "ModelRay", 0, ini) != 0;
+        dvr::aim::configure(ch, ini);
+        Log("config: [Aim] FollowHandTrim=%d - %s. This is NOT a measured barrel "
+            "axis or muzzle position: it transports the hand trim onto the existing "
+            "AIM-pose ray, so any baseline offset between that ray and the weapon's "
+            "barrel is preserved, not removed.",
+            ch.followHandTrim ? 1 : 0,
+            ch.followHandTrim ? "the ray follows the hand trim"
+                              : "the ray is the AIM pose, unchanged");
     }
 
     // THE MODEL SCALE. Hands and held weapons, one uniform factor.
@@ -2753,6 +2891,8 @@ static void OverlaySaveDefaults()
     {
         const auto crosshair = dvr::aim::config();
         WritePrivateProfileStringA("Aim", "FireFromHand", FireAimEnabled() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Aim", "ModelRay", dvr::aim::config().modelRay ? "1" : "0", ini);
+        WritePrivateProfileStringA("Aim", "FollowHandTrim", dvr::aim::config().followHandTrim ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Dot", crosshair.dot ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Laser", crosshair.laser ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Hand", crosshair.hand ? "right" : "left", ini);

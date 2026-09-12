@@ -1,5 +1,7 @@
 #define DVR_CAT ::dvr::log::Cat::present
 #include "game/dishonored/aim_ray.h"
+#include "game/dishonored/hands/bolt_axis.h"
+#include "game/dishonored/hands/hand_frame.h"   // VR-57: follow_trim_ray
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
 #include "core/framework/status.h"
@@ -18,9 +20,16 @@ Ray g_ray;
 std::mutex g_fireMutex;
 FireFrame g_fireFrame;
 std::atomic<bool> g_fireRequested{false};
+std::atomic<bool> g_modelRequested{false};
 const char* g_lastWhy = "";
 uint64_t g_lastBeat = 0;
 dvr::vr::AimVisualStats g_previous;
+// VR-57 FollowHandTrim: why the transport did or did not happen, and which
+// calibration revision it used. Present lane only.
+const char* g_followWhy = g_config.modelRay ? "model geometry overrides trim transport" : "off";
+bool        g_followUsed = false;
+uint32_t    g_followRev = 0;
+bool        g_modelRayUsed = false;   // the measured axis supplied this frame's ray
 void log_status() {
     const auto s = dvr::vr::aim_visual_stats();
     const auto c = dvr::vr::control_dot_stats();
@@ -40,6 +49,7 @@ void log_status() {
 }
 } // namespace
 Config config() { return g_config; }
+bool model_ray_requested() { return g_modelRequested.load(); }
 FireFrame fire_frame() { std::lock_guard<std::mutex> lock(g_fireMutex); return g_fireFrame; }
 Ray ray() { return fire_frame().ray; }
 void request_fire_ray(bool enabled) { g_fireRequested.store(enabled); }
@@ -52,6 +62,7 @@ void configure(const Config& cfg, const char* origin) {
                  origin, cfg.hand, cfg.distanceM, cfg.sizeDeg); return;
     }
     g_config = cfg;
+    g_modelRequested.store(cfg.modelRay);
     g_ray = Ray{};
     { std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame = {}; }
     dvr::vr::set_aim_visual({}); // discard prior hand/config immediately, even mid-frame F10
@@ -84,6 +95,116 @@ void tick(bool gameplay, bool projectionWanted) {
         g_ray = from_pose(g_config.hand, sample.aimValid, sample.aimPos, sample.aimQuat,
                           sample.generation, sample.stampMs, now);
     }
+    // VR-57: THE TRANSPORT. One place, before BOTH publications, so the visual and
+    // fire_frame() cannot diverge and no consumer re-reads the AIM pose to rebuild
+    // the old ray behind our back.
+    //
+    // R_C and the untrimmed palm origin come from g_devPose[3+hand], the GRIP pose
+    // the hand is actually built from - not the AIM pose this ray is seeded with.
+    // They are 60 degrees apart on this hardware and substituting one silently
+    // rotates everything.
+    g_followWhy = "off";
+    g_followUsed = false;
+    // THE LADDER, in precedence order, and it never ends at head aim.
+    //
+    // 1. the measured model axis, when the weapon has one
+    // 2. the controller ray carried by the hand trim, when it does not
+    //
+    // Falling back to the engine's own HEAD aim was the old behaviour and it was
+    // wrong as a fallback: a weapon with no measurable geometry is still held in a
+    // tracked hand, so the hand's own ray is always a better answer than the head's.
+    // The pistol is the case that proves it - its loaded bullet has no usable
+    // transform and its body mesh is far past the geometry reader's limits, so it
+    // will never have a measured axis, and it should still aim where it is pointed.
+    bool modelUsed = false;
+    if (g_config.modelRay && g_ray.ok) {
+        const auto model=dvr::hands::model_ray_snapshot(g_config.hand);
+        const auto cal=dvr::hands::trim_snapshot(g_config.hand);
+        dvr::hf::Mat3 rc,g;
+        for(int i=0;i<9;++i){rc.m[i]=cal.R_C[i];g.m[i]=cal.G[i];}
+        float mo[3],md[3];
+        if(cal.ok && std::isfinite(cal.handToWorldScale) && cal.handToWorldScale>0 &&
+           // NO FRESHNESS TEST on a latched axis. It is a palm-frame constant, so it
+           // cannot go stale, and requiring it to be re-published within 250 ms made
+           // the guide disappear whenever no weapon draw reached the measurement code -
+           // until the next shot drew a bolt and revived it. The live inputs are the
+           // grip pose and the trim, which are validated through `cal` above.
+           model.ok && model.latched &&
+           dvr::hf::palm_ray_to_xr(rc,g,cal.p0,cal.trimRdeg,cal.trimTm,
+                                   model.originPalm,model.dirPalm,mo,md)) {
+            for(int i=0;i<3;++i){
+                g_ray.originXr[i]=cal.headPos[i]+cal.handToWorldScale*(mo[i]-cal.headPos[i]);
+                g_ray.dirXr[i]=md[i];
+            }
+            g_ray.why="measured model axis";
+            modelUsed = true;
+        }
+    }
+    g_modelRayUsed = modelUsed;
+
+    // WAITING FOR THE AXIS IS NOT A REASON TO SHOW THE OTHER RAY.
+    //
+    // The controller ray carries the AIM-pose baseline offset, so showing it while the
+    // model axis is still settling guarantees a visible jump the moment the axis
+    // latches - which is exactly what the tester saw: correct for a second, then far
+    // to the left for four or five, then correct again as the latch landed. The
+    // apparent "correction" was the latch arriving, not a fault healing.
+    //
+    // So the controller ray is the fallback for ModelRay being OFF, not for ModelRay
+    // being on and not yet ready. While it is pending, no guide is shown at all. No
+    // guide is honest; a guide in the wrong place that later moves is not, and the
+    // stated requirement is that a laser which starts correct must never move.
+    if (g_config.modelRay && !modelUsed && g_ray.ok) {
+        g_ray.ok = false;
+        g_ray.why = "waiting for the shared bolt axis to settle (equip the crossbow "
+                    "with ordinary bolts once; no guide is shown until it is measured, "
+                    "so it cannot appear in the wrong place and then move)";
+    }
+    if (!modelUsed && !g_config.modelRay && g_config.followHandTrim && g_ray.ok) {
+        const int h = g_config.hand;
+        const dvr::hands::TrimSnapshot cal = dvr::hands::trim_snapshot(h);
+        if (!cal.ok) {
+            g_followWhy = cal.why;
+            g_ray.ok = false; g_ray.why = cal.why;
+        } else {
+            dvr::hf::FollowTrimIn in;
+            for (int i = 0; i < 9; i++) { in.R_C.m[i] = cal.R_C[i]; in.G.m[i] = cal.G[i]; }
+            for (int r = 0; r < 3; r++) {
+                in.p0[r]       = cal.p0[r];
+                in.trimRdeg[r] = cal.trimRdeg[r];
+                in.trimTm[r]   = cal.trimTm[r];
+                in.origin0[r]  = g_ray.originXr[r];
+                in.dir0[r]     = g_ray.dirXr[r];
+            }
+            dvr::hf::FollowTrimOut outT;
+            if (!dvr::hf::follow_trim_ray(in, outT)) {
+                g_followWhy = outT.why;
+                // REFUSE the ray rather than publish the untransported one while the
+                // mode claims to follow the hand. A guide that silently shows the
+                // controller while firing consumes something else is worse than no
+                // guide, and the native fire hook keeps native aim through its own
+                // guards when the ray is invalid.
+                g_ray.ok = false;
+                g_ray.why = "follow-hand-trim refused";
+            } else {
+                for (int r = 0; r < 3; r++) {
+                    g_ray.originXr[r] = outT.origin[r];
+                    g_ray.dirXr[r]    = outT.dir[r];
+                }
+                g_followUsed = !outT.identity;
+                g_followRev  = cal.revision;
+                g_followWhy  = outT.identity ? "zero trim, ray unchanged"
+                                             : "following the hand trim";
+            }
+        }
+        if (!g_followUsed && g_ray.ok && std::strcmp(g_followWhy, "zero trim, ray unchanged"))
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
+                "crosshair/follow: FollowHandTrim is on but the ray is NOT following "
+                "the hand - %s. The shared ray is unavailable; "
+                "native firing retains its original direction.",
+                g_followWhy);
+    }
+
     FireFrame frame;
     frame.ray = g_ray; frame.distanceM = g_config.distanceM;
     dvr::vr::HeadPose fireHead;
@@ -186,6 +307,25 @@ void tick(bool gameplay, bool projectionWanted) {
             }
         }
     }
+    DVR_INFO("crosshair: ray source = %s. The ladder is the measured model axis "
+             "first, then the controller ray carried by the hand trim, and it never "
+             "falls back to the head: a weapon with no measurable geometry is still "
+             "held in a tracked hand. A weapon whose mesh the geometry reader cannot "
+             "take - the pistol's is far past its vertex limit - therefore still aims "
+             "where it is pointed.",
+             g_modelRayUsed ? "MEASURED MODEL AXIS"
+                            : (g_config.modelRay ? "controller ray (no measured axis "
+                                                   "for this weapon)"
+                                                 : "controller ray (model ray off)"));
+    DVR_INFO("crosshair: follow-hand-trim %s - %s (calibration revision %u). When "
+             "this is following, the dot, the beam and the native shot all move with "
+             "the hand trim because they consume ONE published ray; when it is not, "
+             "the shared ray may be refused. It does not make the beam and the bolt the "
+             "same line: the bolt still starts at the engine's own spawn point.",
+             g_config.followHandTrim ? "ENABLED" : "off",
+             g_followUsed ? "following the hand" : g_followWhy, g_followRev);
+    DVR_INFO("modelray: %s; ray=%s; model axis is derived from held bolt geometry, not AIM pose",
+             g_config.modelRay ? "ENABLED" : "off", g_ray.why);
     DVR_INFO("crosshair: POINTS az %+.1f el %+.1f deg | DOT APPEARS az %+.1f el %+.1f deg "
              "(%s; positive az is the head's RIGHT, and the head-anchored control dot is "
              "at 0,0 by construction). DOT APPEARS is the separation between the two dots "
@@ -199,7 +339,7 @@ void tick(bool gameplay, bool projectionWanted) {
                                     "the head: every number on this line is meaningless");
     DVR_INFO("crosshair: hand=%s gen=%u age=%llu ms ray=%s aim=(%+.3f,%+.3f,%+.3f) "
              "grip=(%+.3f,%+.3f,%+.3f) aimGripDeg=%.2f (-1=unavailable; near zero is possible, not proof of aliasing) "
-             "fixed=%.2fm barrelAngle=UNMEASURED (no calibrated weapon axis) "
+             "fixed=%.2fm axisSource: see modelray status "
              "window publish=%u submit=%u dot=%u beam=%u renderer=%s",
              g_config.hand ? "right" : "left", g_ray.gen, sample.stampMs ? now-sample.stampMs : 0,
              g_ray.why, g_ray.dirXr[0], g_ray.dirXr[1], g_ray.dirXr[2],
@@ -228,7 +368,10 @@ void command(const char* args) {
         if ((!std::strcmp(a,"dot") || !std::strcmp(a,"laser")) &&
             (!std::strcmp(b,"on") || !std::strcmp(b,"off"))) {
             (a[0]=='d' ? cfg.dot : cfg.laser) = !std::strcmp(b,"on"); changed = true;
-        } else if (!std::strcmp(a,"control") &&
+        } else if (!std::strcmp(a,"follow") &&
+               (!std::strcmp(b,"on") || !std::strcmp(b,"off"))) {
+        cfg.followHandTrim = !std::strcmp(b,"on"); changed = true;
+    } else if (!std::strcmp(a,"control") &&
                    (!std::strcmp(b,"on") || !std::strcmp(b,"off"))) {
             cfg.controlDot = !std::strcmp(b,"on"); changed = true;
         } else if (!std::strcmp(a,"hand") && (!std::strcmp(b,"left") || !std::strcmp(b,"right"))) {
@@ -242,6 +385,7 @@ void command(const char* args) {
     }
     if (changed) configure(cfg,"command seam");
     else DVR_WARN("crosshair: status | dot on|off | laser on|off | control on|off | "
+                  "follow on|off | "
                   "hand left|right | distance 0.5..50 | size 0.05..2");
     log_status();
 }
@@ -254,6 +398,11 @@ void draw_ui() {
     changed |= ImGui::RadioButton("Right hand", &cfg.hand, 1);
     changed |= ImGui::SliderFloat("Guide distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
     changed |= ImGui::SliderFloat("Dot size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
+    changed |= ImGui::Checkbox("Ray follows the hand trim", &cfg.followHandTrim);
+    changed |= ImGui::Checkbox("Ray from loaded bolt geometry", &cfg.modelRay);
+    ImGui::TextWrapped("On, the dot, beam and shot move with the numpad hand trim "
+                       "instead of the bare controller. Not a measured barrel axis: "
+                       "it carries the trim onto the existing aim ray.");
     changed |= ImGui::Checkbox("CONTROL dot (head-anchored, no controller)", &cfg.controlDot);
     ImGui::TextWrapped("The larger control dot marks the head direction at the guide distance. "
                        "The controller dot is a fixed endpoint, not a predicted ballistic impact.");
@@ -267,6 +416,10 @@ void status(dvr::status::Writer& w) {
     w.obj("crosshair"); w.kv("dot",g_config.dot); w.kv("laser",g_config.laser);
     w.kv("hand",g_config.hand ? "right" : "left");
     w.kv("controlDot",g_config.controlDot);
+    w.kv("followHandTrim",g_config.followHandTrim);
+    w.kv("modelRay",g_config.modelRay);
+    w.kv("modelRayUsed",g_modelRayUsed);
+    w.kv("followingHand",g_followUsed); w.kv("followWhy",g_followWhy);
     {   const auto c = dvr::vr::control_dot_stats();
         w.kv("controlDotFrames",(unsigned long)c.frames);
         w.kv("controlDotsDrawn",(unsigned long)c.dots); }

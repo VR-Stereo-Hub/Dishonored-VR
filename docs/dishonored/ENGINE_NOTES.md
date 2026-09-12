@@ -4827,3 +4827,49 @@ Known scope: native target/obstruction selection happens before this hook, and
 native homing/assist setup may happen afterward. This candidate fixes launch
 convergence; it does not claim controller-based tracing, assist removal, ballistic
 impact prediction, or weapon-model alignment. Those behaviors remain separate.
+
+## VR-57: the view model's aimable geometry, and what it costs to read
+
+Measured 2026-09-12 while building the model ray. Every number here came from a log
+line in a real run, not from a guess.
+
+**`c5` carries the camera position NEGATED.** The render-side camera constant is minus
+the world position on this build. Found by printing a bolt's launch point beside the
+controller origin derived from `c5`: launch (15195 8100 2868) against origin
+(-15053 -8230 -2854) - an exact mirror through the world origin on all three axes,
+five shots running, while the engine's own `camZ` in the same run read **+2879**. The
+negation is applied in one accessor (`camera::render_pos_world`); `render_pos` stays
+raw for the two re-entry consumers that only difference it against itself, where a
+global sign cancels.
+
+**Asset names are not mesh identities.** `bolt_01` covers more than one mesh: the same
+asset name measured at **length 44.531** (variance ratio 335.3) and at **length
+20.708** (ratio 39.8) in a single run. The regular and the poison bolt are different
+shapes sharing a name, so anything keyed on the name alone will silently mix them.
+
+**The view model's components and their assets**, as the renderer reports them:
+
+| Component | Asset | Notes |
+|---|---|---|
+| `pArrowMesh_HighRes` | `bolt_01`, `Bolt_Flare` | the loaded bolt; 257 verts; the only reliably aimable geometry |
+| `pBulletMesh` | `Gun_bullet_regular` | the pistol's loaded bullet. MEMBER but its component transform reads ALL ZEROS, so it can never be a verified held instance |
+| `pPlayerMesh` | `crossbow_01`, `Wpn_PlyGunElite`, `Wpn_PlySword01` | the weapon bodies |
+| `pMesh` | `EliteGun`, `Skm_Player` | the gun, the player body |
+
+**Weapon bodies are too big for the skinned-geometry reader**, which accepts at most
+1024 vertices: `crossbow_01` is **1961**, `Wpn_PlySword01` **2481**, and other
+view-model draws reach **6330**. They are also skinned to more than one bone. So a
+weapon body cannot supply an axis through that path at all, and a refusal that quotes
+the variance test is misleading - the size check rejected it first.
+
+**The native crossbow fire hook is weapon-specific.** It installs at the crossbow's
+pre-spawn join and announces itself as `player crossbow firing context only`, so the
+pistol's shots are not hooked and follow the engine's own aim. The pistol's fire path
+is a separate address and is not yet traced.
+
+**`AttachRigRadius` is clamped to a minimum of 10 and the log prints the CLAMPED
+value.** An ini carrying 2 therefore produced "past the 10 uu rig radius" while the
+file said 2 and the default was 200. At that bound every weapon is refused as not
+being on the view model, and the hands keep placing normally - so the symptom is
+"weapons stop tracking" with every nearby counter healthy.
+

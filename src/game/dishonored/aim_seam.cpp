@@ -820,7 +820,7 @@ static void ShReport(ShRec* h, const char* cn)
         "shows as a sign flip here and nowhere else) | speed %.0f | P at %.0f uu, "
         "T at %.0f uu%s",
         h->id, cn ? cn : "?", h->stage, stageName,
-        h->lastMs - h->firstMs, r->gen, h->rayAgeMs, r->wrote ? "WROTE this solve" : "off (baseline)",
+        h->lastMs - h->firstMs, r->gen, h->rayAgeMs, r->wrote ? "WROTE this solve" : "cache off; native fire is independent",
         miss < 0.0f ? "NOT MEASURED - " : "", miss < 0.0f ? 0.0f : miss,
         miss < 0.0f ? 0.0f : miss / uuPerM, miss < 0.0f ? missWhy : "",
         h->S[0], h->S[1], h->S[2], r->H[0], r->H[1], r->H[2],

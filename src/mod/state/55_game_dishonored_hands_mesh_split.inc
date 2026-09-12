@@ -697,6 +697,47 @@ static float    g_mpTrimT[2][3] = { { 0.0f, 0.0f, 0.0f },   // metres, palm fram
                                     { 0.0f, 0.0f, 0.0f } };
 static float    g_mpTrimR[2][3] = { { 0.0f, 0.0f, 0.0f },   // degrees, XYZ
                                     { 0.0f, 0.0f, 0.0f } };
+// VR-57: ONE limit for both the numpad adjustment and the ini load. They were two
+// separate 45.0f literals, and raising only the numpad's would have let a value be
+// tuned that the next load silently clamped back - the stale-setting class this
+// project has already lost two sessions to.
+//
+// Raised from 45 to 180 per axis because 45 demonstrably prevented further
+// adjustment: the tester's right hand sat at RX -45.00 and RY +45.00 together with
+// 46 clamp events in one session. That saturation proves only that the CONTROL
+// stopped, not that a calibration had converged and not that a grip is wrong, so
+// the old advice to recalibrate is gone with it.
+//
+// Translation keeps its own bound: this changes rotation only.
+static const float kMpTrimRotLimit = 180.0f;
+static const float kMpTrimPosLimit = 0.25f;
+// Where the old bound sat. Crossing it is worth one rate-limited NOTICE and is not
+// an error: a large trim is retained, not refused.
+static const float kMpTrimRotNotice = 45.0f;
+
+// ---- VR-57: the hand calibration snapshot the AIM lane reads ------------------
+//
+// The grip is solved ON A DRAW (render thread) and the trims change from the
+// numpad and the ini, while the ray is published on the PRESENT lane. So the
+// readers cannot walk the mutable matrices: an immutable copy is published under
+// a lock whenever anything in it changes, with a revision so a reader can say
+// which version it used and two halves of one calibration can never be mixed.
+//
+// The lock is held only to copy scalars. No XR call, no logging and no engine
+// work happens inside it.
+struct MpHandCal {
+    dvr::hf::Mat3 G;            // the grip the DRAW uses, parity included
+    float trimRdeg[3];
+    float trimTm[3];            // metres, palm frame
+    bool  haveGrip;             // false = uncalibrated; the draw substitutes a
+                                // parity default that needs the draw basis, which
+                                // the present lane cannot reproduce
+    uint32_t revision;
+};
+static SRWLOCK   g_mpCalLock = SRWLOCK_INIT;
+static MpHandCal g_mpCal[2] = {};
+static uint32_t  g_mpCalRev = 0;
+
 
 // ===========================================================================
 // THE NUMPAD ADJUST (VR-33). Adopted key for key from the maintainer's own

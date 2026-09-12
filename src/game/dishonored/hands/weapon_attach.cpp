@@ -52,6 +52,13 @@ static int WaHandFor(const char* asset, bool* known)
     if (asset && (strstr(asset, "crossbow") || strstr(asset, "Crossbow") ||
                   strstr(asset, "bolt")     || strstr(asset, "Bolt")))
         return g_waXbowHand;
+    // VR-57: the pistol and its loaded bullet ride the same hand as the crossbow -
+    // they are the ranged slot. Named rather than left to fall through, so the
+    // answer is KNOWN instead of defaulted: `Gun_bullet_regular` is the pistol's
+    // equivalent of `bolt_01`, and the model-ray measurement needs a known hand.
+    if (asset && (strstr(asset, "bullet") || strstr(asset, "Bullet") ||
+                  strstr(asset, "Gun")    || strstr(asset, "gun")))
+        return g_waXbowHand;
     if (known) *known = false;
     return g_waXbowHand;
 }
@@ -269,6 +276,10 @@ static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& 
     for (int i = 0; i < 3; i++) L.t[i] = c->t[i];
 
     WaCommon w = {};
+    w.palm = g_mpPalmTarget[hand];
+    w.target = c->target; w.viewport = c->viewport;
+    memcpy(w.forward, c->f, sizeof(w.forward));
+    w.unitsPerMeter = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
     w.L_hand  = L;
     dvr::hf::Xform invL;
     if (!dvr::wf::inverse(L, &invL)) return;
@@ -393,6 +404,8 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
 }
 
 
+#include "game/dishonored/hands/bolt_model_ray.cpp"
+
 // ---- recognition by buffer identity -----------------------------------------
 
 // Apply a known delta to whatever palette this shader declares. Shared by the
@@ -444,6 +457,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
     if (SUCCEEDED(drawHr)) {
         InterlockedIncrement(&g_waSucceeded);
         InterlockedIncrement(&w->placed);
+        BrMeasure(dev, w, source, (UINT)cnt, delta);
     }
     if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, source, (UINT)cnt))) {
         InterlockedIncrement(&g_waRestoreFail);
@@ -1369,7 +1383,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     const HRESULT drawHr = dvr::frame::orig_draw_indexed(dev, type, baseVertex,
         minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
-    if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); }
+    if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
     if (changedVp && FAILED(dev->SetViewport(&savedVp))) InterlockedIncrement(&g_waRestoreFail);
     if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waRestoreFail);

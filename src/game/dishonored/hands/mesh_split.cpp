@@ -2526,6 +2526,7 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
                                                 ~(LONG)(1 << hand));
             if (capPrev & (1 << hand)) {
                 g_mpGrip[hand] = dvr::hf::grip_solve(O_C, c->R_L, R_src);
+                MpPublishHandCal(hand);   // VR-57: the AIM lane reads a copy, not this
                 g_mpGripId[hand] = nowId;
                 g_mpGripFromIni[hand] = false;
                 g_mpGripHave[hand] = true;
@@ -3331,6 +3332,67 @@ static void MpDriveTick(void)
 // The four adjust modes, named the way the log has to name them: which hand,
 // and whether the keys are moving it or turning it. A mode INDEX in a log is
 // no use to somebody in a headset who cannot read the log while pressing.
+// Called from every writer: the grip solve, the ini load and the numpad adjust.
+static void MpPublishHandCal(int hand)
+{
+    if (hand < 0 || hand > 1) return;
+    MpHandCal c;
+    c.G = g_mpGrip[hand];
+    for (int i = 0; i < 3; i++) {
+        c.trimRdeg[i] = g_mpTrimR[hand][i];
+        c.trimTm[i]   = g_mpTrimT[hand][i];
+    }
+    c.haveGrip = g_mpGripHave[hand];
+    AcquireSRWLockExclusive(&g_mpCalLock);
+    c.revision = ++g_mpCalRev;
+    g_mpCal[hand] = c;
+    ReleaseSRWLockExclusive(&g_mpCalLock);
+}
+static bool MpReadHandCal(int hand, MpHandCal* out)
+{
+    if (hand < 0 || hand > 1 || !out) return false;
+    AcquireSRWLockShared(&g_mpCalLock);
+    *out = g_mpCal[hand];
+    ReleaseSRWLockShared(&g_mpCalLock);
+    return out->revision != 0;
+}
+
+// The accessor aim_ray.cpp calls. Defined here because this is the translation
+// unit that owns the grip, the trims and the device poses.
+namespace dvr::hands {
+TrimSnapshot trim_snapshot(int hand)
+{
+    TrimSnapshot s{};
+    if (!g_mpRotate) { s.why = "hand rotation disabled"; return s; }
+    if (hand < 0 || hand > 1) { s.why = "invalid hand"; return s; }
+    MpHandCal cal;
+    if (!MpReadHandCal(hand, &cal)) { s.why = "no calibration snapshot published yet"; return s; }
+    if (!cal.haveGrip) {
+        // The draw substitutes a parity-matched default derived from its OWN basis
+        // when a hand is uncalibrated. The present lane cannot reproduce that, and
+        // inventing one or reusing a stale draw would be a guess presented as a
+        // measurement - so this refuses instead.
+        s.why = "the hand has no grip calibration (SHIFT+F7); the draw's parity "
+                "default needs a draw basis this lane cannot see";
+        return s;
+    }
+    if (!g_devPoseOk[0] || !g_devPoseOk[3 + hand]) {
+        s.why = "the head or grip pose is not tracking"; return s;
+    }
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) s.R_C[r * 3 + c] = g_devPose[3 + hand][r][c];
+        s.p0[r] = g_devPose[3 + hand][r][3];
+        s.headPos[r] = g_devPose[0][r][3];
+    }
+    for (int i = 0; i < 9; i++) s.G[i] = cal.G.m[i];
+    for (int i = 0; i < 3; i++) { s.trimRdeg[i] = cal.trimRdeg[i]; s.trimTm[i] = cal.trimTm[i]; }
+    s.handToWorldScale = ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain) / g_posScaleUU;
+    s.revision = cal.revision;
+    s.ok = true; s.why = "ready";
+    return s;
+}
+} // namespace dvr::hands
+
 static const char* MpAdjModeName(int m)
 {
     switch (m) {
@@ -3372,6 +3434,40 @@ static const char* kMpAdjKeyName[6] = { "Numpad 8", "Numpad 2", "Numpad 6",
 
 static void MpCalibTick(void)
 {
+    // VR-57: write down a freshly measured model axis, with the grip it was measured
+    // against so a later recalibration invalidates it rather than silently aiming
+    // through a frame that no longer exists.
+    {
+        const LONG ms = InterlockedExchange(&g_brSaveReq, 0);
+        for (int h = 0; h < 2 && ms; h++) {
+            if (!(ms & (1 << h))) continue;
+            const char* sfx = h ? "R" : "L";
+            static const char* const ax[3] = { "X", "Y", "Z" };
+            char key[40], v[64];
+            for (int a2 = 0; a2 < 3; a2++) {
+                _snprintf(key, sizeof(key), "ModelAxis%sO%s", sfx, ax[a2]);
+                _snprintf(v, sizeof(v), "%.6f", (double)g_brSaveOrigin[h][a2]);
+                ConfigWriteKey("Hands", key, v, "the model axis measurement");
+                _snprintf(key, sizeof(key), "ModelAxis%sD%s", sfx, ax[a2]);
+                _snprintf(v, sizeof(v), "%.6f", (double)g_brSaveDir[h][a2]);
+                ConfigWriteKey("Hands", key, v, "the model axis measurement");
+                // The grip defines the palm frame the ray is expressed in.
+                _snprintf(key, sizeof(key), "ModelAxis%sG%s", sfx, ax[a2]);
+                _snprintf(v, sizeof(v), "%.4f", (double)g_mpGripDeg[h][a2]);
+                ConfigWriteKey("Hands", key, v, "the model axis measurement");
+            }
+            Log("modelray: SAVED the %s hand's axis - origin (%.4f %.4f %.4f) m, "
+                "direction (%.4f %.4f %.4f), measured against grip "
+                "(%.2f %.2f %.2f). A future launch that never equips the crossbow "
+                "restores this instead of showing no guide.",
+                h ? "right" : "left",
+                (double)g_brSaveOrigin[h][0], (double)g_brSaveOrigin[h][1],
+                (double)g_brSaveOrigin[h][2], (double)g_brSaveDir[h][0],
+                (double)g_brSaveDir[h][1], (double)g_brSaveDir[h][2],
+                (double)g_mpGripDeg[h][0], (double)g_mpGripDeg[h][1],
+                (double)g_mpGripDeg[h][2]);
+        }
+    }
     // Save a freshly solved grip, once, per side.
     const LONG save = InterlockedExchange(&g_mpGripSaveReq, 0);
     if (save) {
@@ -3459,15 +3555,34 @@ static void MpCalibTick(void)
 
     // Clamp, and SAY SO. A silent clamp reads in a headset as "the key did
     // nothing", which is the same symptom as a dead binding.
-    const float lim = rot ? 45.0f : 0.25f;
+    // VR-57: the SHARED limit, so the ini load cannot clamp back what was tuned.
+    const float lim = rot ? kMpTrimRotLimit : kMpTrimPosLimit;
     bool clamped = false;
     if (*cell >  lim) { *cell =  lim; clamped = true; }
     if (*cell < -lim) { *cell = -lim; clamped = true; }
     if (clamped)
-        Log("ms/palette/adjust: CLAMPED at %+.2f %s. The key IS working and the "
-            "trim will not go further. A correction this large is a wrong grip "
-            "calibration rather than a trim - press SHIFT+F7 again.",
-            (double)(*cell * (rot ? 1.0f : 100.0f)), rot ? "deg" : "cm");
+        Log("ms/palette/adjust: at the limit - %s hand %s axis %s is %+.2f %s and "
+            "will not go further (bound +-%.2f). The key IS working.",
+            h ? "RIGHT" : "LEFT", rot ? "rotation" : "position",
+            ax == 0 ? "X" : ax == 1 ? "Y" : "Z",
+            (double)(*cell * (rot ? 1.0f : 100.0f)), rot ? "deg" : "cm",
+            (double)(lim * (rot ? 1.0f : 100.0f)));
+    // Crossing the OLD bound is a neutral notice, not a diagnosis. Saturation
+    // proved the control stopped; it never proved the grip was wrong, so this no
+    // longer asserts a calibration fault or asks for SHIFT+F7. Rate limited, and
+    // only on the crossing, so it cannot appear per draw.
+    if (rot) {
+        const bool wasBig = fabsf(before)  > kMpTrimRotNotice;
+        const bool nowBig = fabsf(*cell)   > kMpTrimRotNotice;
+        if (nowBig && !wasBig)
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                "ms/palette/adjust: large hand trim; retained. %s hand rotation "
+                "axis %s passed %+.0f deg (now %+.2f, bound +-%.0f). This is "
+                "allowed and is kept - it is not evidence of a bad calibration.",
+                h ? "RIGHT" : "LEFT", ax == 0 ? "X" : ax == 1 ? "Y" : "Z",
+                (double)kMpTrimRotNotice, (double)*cell,
+                (double)kMpTrimRotLimit);
+    }
 
     // DOES THIS PRESS REACH THE HANDS? The trim is only applied through
     // palm_target, which is on the ROTATION path. With rotation refused the
@@ -3481,6 +3596,7 @@ static void MpCalibTick(void)
             "still saved and will apply the moment rotation starts placing.",
             g_mpRotRefused, g_mpRotWhy);
 
+    MpPublishHandCal(h);   // VR-57: the ray follows the trim, so it needs this now
     // Write back under the per-hand key so a restart brings it back.
     static const char* tk[3] = { "TX", "TY", "TZ" };
     static const char* rk[3] = { "RX", "RY", "RZ" };
