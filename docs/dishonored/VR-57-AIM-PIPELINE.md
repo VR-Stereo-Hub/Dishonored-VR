@@ -61,6 +61,8 @@ declare the data; the behaviour is in the exe.
 | Both poses drawn for comparison | `aim_ray.cpp` | `[Crosshair] BothPoses` |
 | Read-only probe of the game's aim cache | `game/dishonored/aim_seam.cpp` | `[Aim] SeamProbe`, `SeamVerbose` |
 | Writing that cache from the ray | same | `[Aim] DriveFromHand`, `DriveDistanceUU` (0 = follow the beam) |
+| The head-anchored control dot (the reference) | `core/vr/openxr_runtime.cpp` `build_control_dots` | `[Crosshair] ControlDot` |
+| Layer alignment: tag vs located pose, claim vs rendered fov | same, `log_layer_alignment` | prints with `ControlDot` |
 | F10 Aim tab, `crosshair ...` seam word | `core/ui/overlay.cpp`, `commands.cpp` | - |
 
 All default OFF in the tree. The tester's installed ini has `Dot=1 Laser=1
@@ -123,7 +125,34 @@ Read from `tools/uscript/dishonored` (gitignored, never copied into this tree).
    movement. That is what a ray-anchored crosshair should do; the lag is the
    HUD's own smoothing.
 
-## 7. The leading hypothesis for the beam, and how to kill it
+## 7. The leading hypothesis for the beam - KILLED 2026-09-12
+
+All three tests below were run in one headset launch on build 111 and **all three
+came back clean. The projection layer is aligned with the world it carries.** The
+hypothesis in this section is falsified and the controller ray is back under
+suspicion. The section is kept because the control dot it produced is now the
+calibrated reference everything else is measured against.
+
+| Test | Result | How |
+|---|---|---|
+| 1. A dot straight ahead of the HEAD at 8 m | **Sits on the game's own crosshair** | Tester, build 111. No controller in the loop. |
+| 2. Claimed fov against the fov the game rendered | **Equal**: 108.07 vs 108.07 deg, tan 1.3780 vs 1.3780, src=readback | `crosshair/control` line, same run |
+| 3. The layer's pose tag against the located pose | **0.00 deg, 0.000 m** with the head still, at poseLag 2 | same line |
+
+Two further observations from the same run, both consistent and neither a fault:
+
+* **The game's own crosshair lags the head; the control dot does not.** The
+  crosshair is painted into the game's image, which is submitted with a pose two
+  generations old, and a 2D HUD element cannot be reprojected back onto the head.
+  The compositor quad is placed for the display-time pose. So the control dot is
+  the *better* instrument for where the player is looking, and **the game's
+  crosshair is only a valid reference while the head is still.**
+* **Bolts land at the game's crosshair.** Expected: this run had
+  `[Aim] DriveFromHand=0`, so the game aimed from the head. The drive was turned
+  off on purpose, because it moves the very crosshair the control dot was being
+  compared against.
+
+### What the hypothesis was, and why it was plausible
 
 **The compositor quads and the rendered world do not share a frame.** The world
 arrives as a projection layer built by the stereo method from the game's own
@@ -150,6 +179,31 @@ What would settle it, in order:
    measures this class of fault).
 
 Only if all three come back clean should the aim pose itself be doubted again.
+**They did. It is.**
+
+### What is left, now the layer is exonerated
+
+The dot is placed at the controller's position plus the ray, so its on-screen
+bearing from the head is the bearing of `(hand - head) + distance * dir`, not the
+bearing of `dir`. With the hand about 0.7 m from the head and the dot at 8 m that
+term can move the dot by at most about `atan(0.7 / 8)`, roughly 5 deg. So a
+correct ray cannot put the dot 45 deg off, and two candidates remain:
+
+1. **The aim pose is genuinely wrong by tens of degrees.** Against it: held
+   extended and steady the ray reads az -12 el +5 off the head, not -45.
+2. **The comparison is against the WEAPON MODEL, not the controller.** The model
+   is separately rotated from the controller and is known to be (section 6 item 3:
+   the stored grip is `GripL 24.2, 62.2, -53.7` with `TrimLRX 23`). A beam that is
+   correct and a model that is rotated 30-45 deg from the hand produce exactly the
+   report "the beam does not lie along the controller", and nothing in the reports
+   so far distinguishes the two.
+
+Candidate 2 is now the stronger of the two and it is what build 112 tests: the
+controller dot and the head-anchored control dot are drawn together at the same
+distance, and the tester sights along the controller at the control dot. The
+separation between the two dots is the pose error, read against a reference that
+has been confirmed in a headset. The beat line prints the prediction in degrees
+(`DOT APPEARS az/el`) so the report can refute it rather than agree with it.
 
 ## 8. Ruled out, with evidence - do not re-walk
 
@@ -165,6 +219,15 @@ Only if all three come back clean should the aim pose itself be doubted again.
 * Post-spawn projectile steering as the mechanism for hand aim: the engine
   computes the fire direction; steering after the fact is what shoots up and
   behind.
+* **The layer alignment**, as of 2026-09-12: all three tests in section 7 clean.
+* **Two dots at different depths on one cyclopean ray as a control for head
+  POSITION.** They cannot coincide in either eye. Both are built from the view
+  midpoint, so each eye sees the nearer one displaced outward by
+  `atan(ipd/2 / d)` - at the measured 63.2 mm that is 1.21 deg at 1.5 m against
+  0.23 deg at 8 m, a 1.0 deg split, right of the far dot in the left eye and left
+  of it in the right. That is exactly what the headset showed and it was briefly
+  read as a finding. The near dot was removed; the arithmetic should have been
+  done before the run.
 
 ## 9. Leads in the decompiled scripts, for the next session
 

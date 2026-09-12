@@ -354,6 +354,13 @@ static void WriteDefaultIni(const char* ini)
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60%\n"
         "; size, so a headset can name which one lies along the controller.\n"
         "BothPoses=0\n"
+        "; VR-57 test 1: ControlDot=1 draws a HEAD-anchored dot straight ahead of the\n"
+        "; view at 1.50 m and at DistanceM, with no controller anywhere in it. Both\n"
+        "; must land on one screen point, and that point on the centre of the game's\n"
+        "; own rendered image. Off the centre means the projection layer is misaligned\n"
+        "; with the world it carries; on the centre puts the controller ray back under\n"
+        "; suspicion. `crosshair control on|off` switches it live.\n"
+        "ControlDot=0\n"
         "HideGame=0\n"
         "[MotionAim]\n"
         "; Stage 7.3: hand-aimed projectile weapons (crossbow bolts, pistol\n"
@@ -1022,6 +1029,7 @@ static void LoadConfig()
         crosshair.distanceM = IniFloat(ini, "Crosshair", "DistanceM", 8.0f);
         crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.5f);
         crosshair.bothPoses = GetPrivateProfileIntA("Crosshair", "BothPoses", 0, ini) != 0;
+        crosshair.controlDot = GetPrivateProfileIntA("Crosshair", "ControlDot", 0, ini) != 0;
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
@@ -2714,6 +2722,7 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Crosshair", "Dot", crosshair.dot ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Laser", crosshair.laser ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Hand", crosshair.hand ? "right" : "left", ini);
+        WritePrivateProfileStringA("Crosshair", "ControlDot", crosshair.controlDot ? "1" : "0", ini);
         _snprintf(v, 64, "%.3f", crosshair.distanceM);
         WritePrivateProfileStringA("Crosshair", "DistanceM", v, ini);
         _snprintf(v, 64, "%.3f", crosshair.sizeDeg);

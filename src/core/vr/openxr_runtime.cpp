@@ -97,6 +97,15 @@ constexpr int kMaxLaserDots = 8;
 // VR-57: only the present thread publishes/reads these whole snapshots.
 AimVisualConfig g_aimVisual;
 AimVisualStats g_aimVisualStats;
+// VR-57 test 1: the head-anchored control dot (see aim_visual.h). Atomics because
+// the config arrives on the script lane and is consumed at the submission site.
+std::atomic<bool> g_ctlDotOn{false};
+std::atomic<float> g_ctlDotNearM{1.5f};
+std::atomic<float> g_ctlDotFarM{8.0f};
+std::atomic<float> g_ctlDotSizeDeg{0.5f};
+ControlDotStats g_ctlDotStats;
+float g_lastClaimHfov = 0.0f;   // present thread only: the hfov this present claimed
+int g_lastClaimSrc = 1;         // and which source produced it (see kSrc)
 uint64_t g_aimVisualPublishedMs = 0;
 uint32_t g_aimLayerLimit = 0;
 constexpr uint32_t kLaserTexSize = 64;
@@ -3628,6 +3637,148 @@ AimVisualResult build_aim_visual(XrCompositionLayerQuad* quads,
         layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quads[i]);
     return AimVisualResult::Submitted;
 }
+// VR-57 test 1: the HEAD-anchored control dot, and the layer-alignment readout.
+//
+// ONE dot straight ahead of the LOCATED view. Because that ray is the view's own
+// forward, it must land on the centre of the game's rendered image. No controller
+// enters this, so both outcomes are informative: a control dot sitting off the
+// game's own crosshair exonerates the aim ray and names the projection layer, and
+// one sitting on it puts the ray back under suspicion.
+//
+// ANSWERED 2026-09-12: it sits on the game's crosshair. The layer is aligned and
+// the ray is back under suspicion. The dot is kept as the calibrated REFERENCE
+// the controller ray is now measured against.
+//
+// A SECOND dot at a nearer distance on the same ray is NOT a control for head
+// position and was removed. Both dots are built from the cyclopean midpoint, so
+// each EYE sees the nearer one displaced outward by atan(ipd/2 / d) - at 63.2 mm
+// that is 1.21 deg at 1.5 m against 0.23 deg at 8 m, a 1.0 deg split, right of
+// the far dot in the left eye and left of it in the right. That was observed and
+// read as a finding before the arithmetic was done. Two dots at different depths
+// on a cyclopean ray CANNOT coincide in either eye; the prediction that they
+// would was geometrically impossible.
+//
+// Built from g_views, the same located pair build_aim_point billboards against
+// and the same pair the compositor composites this frame - so the instrument is
+// NOT circular against the question it asks, which is whether the PROJECTION
+// LAYER (its own pose tag and claimed fov) agrees with those views.
+uint32_t build_control_dots(XrCompositionLayerQuad* quads,
+    const XrCompositionLayerBaseHeader** layers, uint32_t& count, int capacity,
+    bool& imagePublished) {
+    if (!g_ctlDotOn.load(std::memory_order_relaxed)) return 0;
+    ++g_ctlDotStats.frames;
+    if (!count || layers[0]->type != XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
+        ++g_ctlDotStats.refusedNoProjection; return 0;
+    }
+    if (!g_viewsValid || g_space == XR_NULL_HANDLE) {
+        ++g_ctlDotStats.refusedNoViews; return 0;
+    }
+    if (g_laserSwapchain == XR_NULL_HANDLE || !g_laserDot) {
+        ++g_ctlDotStats.refusedNoTexture; return 0;
+    }
+    if (aim_visual_budget((int)count, (int)g_aimLayerLimit, capacity) < 2) {
+        ++g_ctlDotStats.refusedBudget; return 0;
+    }
+    // The view midpoint and the nlerp of the two eye orientations: the same
+    // construction parallel_eye_tag uses for the layer tag, so a difference
+    // between dot and world cannot be an averaging convention.
+    const XrPosef mid = parallel_eye_tag(g_views[0].pose, g_views[1].pose, 0, 0.0f);
+    const float fwdLocal[3] = {0.0f, 0.0f, -1.0f};
+    float fwd[3];
+    dvr::xrmath::quat_rotate(mid.orientation.x, mid.orientation.y, mid.orientation.z,
+                             mid.orientation.w, fwdLocal, fwd);
+    const float size = g_ctlDotSizeDeg.load(std::memory_order_relaxed);
+    const float dist = g_ctlDotFarM.load(std::memory_order_relaxed);
+    uint32_t built = 0;
+    if (std::isfinite(dist) && dist >= 0.3f && dist <= 50.0f) {
+        const float p[3] = {mid.position.x + dist * fwd[0],
+                            mid.position.y + dist * fwd[1],
+                            mid.position.z + dist * fwd[2]};
+        float len = 0;
+        // Twice the angular size of the controller dot, so which is which needs
+        // no guessing: the BIG one is the head, the small one the controller.
+        if (build_aim_point(p, size * 2.0f, &quads[built], len)) ++built;
+        else ++g_ctlDotStats.refusedGeometry;
+    }
+    if (!built) return 0;
+    if (!imagePublished && !(imagePublished = publish_laser_image())) return 0;
+    for (uint32_t i = 0; i < built; ++i)
+        layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quads[i]);
+    g_ctlDotStats.dots += built;
+    return built;
+}
+
+// The two numbers the control dot cannot see, printed beside it so one launch
+// settles all of section 7 of the pipeline doc. Each says what would move it.
+void log_layer_alignment(const XrCompositionLayerProjectionView* pv, bool projectionLayer,
+                         float hfovDeg, int hfovSrc, uint32_t builtControlDots) {
+    if (!g_ctlDotOn.load(std::memory_order_relaxed) || !g_viewsValid) return;
+    // projViews is filled only on the projection path. Reading it otherwise
+    // reported a flat 180 deg, which is an uninitialised quaternion and not a
+    // measurement: print the refusal instead of the number.
+    if (!projectionLayer) {
+        DVR_LOG_EVERY_MS(::dvr::log::Cat::openxr, ::dvr::log::Level::Info, 5000,
+            "crosshair/control: layer0 is not a projection this present, so no dot is "
+            "drawn and TAG vs LOCATED is NOT MEASURED (the projection views were never "
+            "filled). Refused so far: noproj=%u.", g_ctlDotStats.refusedNoProjection);
+        return;
+    }
+    // Test 3: the pose the layer is TAGGED with against the pose that was
+    // LOCATED for this display time. Under PoseLag this is EXPECTED to differ by
+    // the head rotation across the lag, so the line prints the lag that produced
+    // it; a difference that does not fall to near zero with the head still is the
+    // fault, and a head held still is how the unwelcome answer gets printed.
+    float worstDeg = 0.0f, worstPosM = 0.0f;
+    for (int e = 0; e < 2; ++e) {
+        const XrQuaternionf& a = pv[e].pose.orientation;
+        const XrQuaternionf& b = g_views[e].pose.orientation;
+        float d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+        d = d < 0.0f ? -d : d;
+        if (d > 1.0f) d = 1.0f;
+        const float deg = 2.0f * acosf(d) * 57.29578f;
+        if (deg > worstDeg) worstDeg = deg;
+        const float dx = pv[e].pose.position.x - g_views[e].pose.position.x;
+        const float dy = pv[e].pose.position.y - g_views[e].pose.position.y;
+        const float dz = pv[e].pose.position.z - g_views[e].pose.position.z;
+        const float m = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (m > worstPosM) worstPosM = m;
+    }
+    // Test 2: the fov the layer CLAIMS against the fov the game says it
+    // RENDERED. Equal means a world feature at a true angle is displayed at that
+    // angle; unequal scales every off-centre angle by the ratio of the tangents,
+    // an error that GROWS away from the centre.
+    const float rendered = g_renderedHfov.load(std::memory_order_relaxed);
+    const float tanClaim = tanf(hfovDeg * 0.5f / 57.29578f);
+    const float tanRend = rendered > 0.0f ? tanf(rendered * 0.5f / 57.29578f) : 0.0f;
+    static const char* const kSrc[] = {"readback", "fallback", "manual", "live"};
+    DVR_LOG_EVERY_MS(::dvr::log::Cat::openxr, ::dvr::log::Level::Info, 1000,
+        "crosshair/control: %u dot(s) this frame (layer0=%s); view mid "
+        "(%+.2f %+.2f %+.2f) at %.2fm (one dot; a second at %.2fm was removed - on a "
+        "cyclopean ray each eye sees the nearer one displaced outward, which is "
+        "parallax and not a fault). TAG vs LOCATED: worst %.2f deg, "
+        "%.3f m (poseLag L=%d R=%d - a lag makes this NONZERO while the head turns "
+        "and it must fall to near 0 with the head still). CLAIM vs RENDERED hfov: "
+        "%.2f vs %.2f deg (tan %.4f vs %.4f, src=%s; equal means an off-centre "
+        "world angle is displayed at its true angle, unequal scales it by the "
+        "tangent ratio and the error grows away from the centre; rendered 0 means "
+        "the game has not reported one yet). Frames %u dots %u refused: "
+        "noproj=%u noviews=%u notex=%u budget=%u geom=%u.",
+        builtControlDots,
+        projectionLayer ? "projection"
+                        : "quad/none - the control dot draws only over a projection layer",
+        (g_views[0].pose.position.x + g_views[1].pose.position.x) * 0.5f,
+        (g_views[0].pose.position.y + g_views[1].pose.position.y) * 0.5f,
+        (g_views[0].pose.position.z + g_views[1].pose.position.z) * 0.5f,
+        g_ctlDotFarM.load(std::memory_order_relaxed),
+        g_ctlDotNearM.load(std::memory_order_relaxed),
+        worstDeg, worstPosM, g_eyePoseLag[0], g_eyePoseLag[1],
+        hfovDeg, rendered, tanClaim, tanRend,
+        kSrc[hfovSrc >= 0 && hfovSrc < 4 ? hfovSrc : 1],
+        g_ctlDotStats.frames, g_ctlDotStats.dots, g_ctlDotStats.refusedNoProjection,
+        g_ctlDotStats.refusedNoViews, g_ctlDotStats.refusedNoTexture,
+        g_ctlDotStats.refusedBudget, g_ctlDotStats.refusedGeometry);
+}
+
 uint32_t build_aim_dot_layer(XrCompositionLayerQuad* quad) {
     return build_aim_dot_slot(quad, 0);
 }
@@ -3757,6 +3908,7 @@ void on_present_end(ID3D11Texture2D* frame) {
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
     XrCompositionLayerQuad laserQuads[kMaxLaserDots] = {};
     XrCompositionLayerQuad aimVisualQuads[kAimVisualPoints] = {};
+    XrCompositionLayerQuad controlDotQuads[2] = {};
     bool aimImagePublished = false; // shared texture may be published only once
     XrCompositionLayerQuad dotQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerQuad dot2Quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
@@ -3766,7 +3918,8 @@ void on_present_end(ID3D11Texture2D* frame) {
     // BOTH slots share the kMaxLaserDots budget - then up to two aim dots, the
     // s51 hand ref quad and the HUD quad (worst case 13 of the 16 runtimes
     // must accept).
-    const XrCompositionLayerBaseHeader* layers[1 + kMaxLaserDots + 4] = {};
+    // VR-57: +2 for the head-anchored control dots.
+    const XrCompositionLayerBaseHeader* layers[1 + kMaxLaserDots + 6] = {};
     uint32_t layerCount = 0;
 
     // Claim the fov the game actually rendered with (adapter readback);
@@ -4192,6 +4345,10 @@ void on_present_end(ID3D11Texture2D* frame) {
                     // TAGGED with, logged on change. The flat gate compares
                     // them against tangents recovered from dumpframe cb0.
                     float tanClaimH = tanf(halfH), tanClaimV = tanf(halfV);
+                    // VR-57: the claim this present submitted, for the control
+                    // dot's alignment line, which runs past this scope.
+                    g_lastClaimHfov = hfovDeg;
+                    g_lastClaimSrc = hfovSrc;
                     if (tanClaimH != g_auditTanH.load(std::memory_order_relaxed) ||
                         tanClaimV != g_auditTanV.load(std::memory_order_relaxed) ||
                         hfovSrc != g_auditFovSrc.load(std::memory_order_relaxed)) {
@@ -4665,6 +4822,13 @@ void on_present_end(ID3D11Texture2D* frame) {
     AimVisualResult visualResult = build_aim_visual(aimVisualQuads, layers,
         layerCount, (int)(sizeof(layers) / sizeof(layers[0])),
         aimImagePublished, visualDots, visualBeam);
+    // VR-57 test 1: the head-anchored control dot, and the alignment numbers
+    // beside it. Same hold-fallback position as the aim visual, for the same
+    // reason: a single-draw hold must not blink the control off.
+    const uint32_t controlDots = build_control_dots(controlDotQuads, layers,
+        layerCount, (int)(sizeof(layers) / sizeof(layers[0])), aimImagePublished);
+    log_layer_alignment(projViews, g_lastLayer == 2, g_lastClaimHfov, g_lastClaimSrc,
+                        controlDots);
 
     XrFrameEndInfo fei{XR_TYPE_FRAME_END_INFO};
     fei.displayTime = g_frameState.predictedDisplayTime;
@@ -5885,6 +6049,14 @@ int current_eye_sign() {
     return g_aerEyeSign.load(std::memory_order_relaxed);
 }
 
+void set_control_dot(const ControlDotConfig& cfg) {
+    g_ctlDotOn.store(cfg.on, std::memory_order_relaxed);
+    g_ctlDotNearM.store(cfg.nearM, std::memory_order_relaxed);
+    g_ctlDotFarM.store(cfg.farM, std::memory_order_relaxed);
+    g_ctlDotSizeDeg.store(cfg.sizeDeg, std::memory_order_relaxed);
+}
+ControlDotStats control_dot_stats() { return g_ctlDotStats; }
+
 void set_aim_visual(const AimVisualConfig& cfg) {
     g_aimVisual = cfg;
     g_aimVisualPublishedMs = GetTickCount64();
@@ -6252,6 +6424,8 @@ void sr_push_eye(int) {}
 void set_laser(const LaserConfig&) {}
 void set_aim_visual(const AimVisualConfig&) {}
 AimVisualStats aim_visual_stats() { return {}; }
+void set_control_dot(const ControlDotConfig&) {}
+ControlDotStats control_dot_stats() { return {}; }
 void set_aim_dot(const AimDotConfig&) {}
 void set_hud_quad(float, float, float) {}
 void get_hud_quad(float* d, float* w, float* u) {
