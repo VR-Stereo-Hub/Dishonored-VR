@@ -277,3 +277,61 @@ from hypotheses, identifies the independent visual/drive samples and
 pre-dispatch write, replaces speculative actor polling with an observation whose
 lifetime is verified, and makes the distance sweep conditional. No source, DLL
 or ini was changed.
+
+---
+
+## 9. Measured so far (appended as runs land)
+
+### Phase 1 baseline, 2026-09-12, `DriveFromHand=0`
+
+**Run A, the seam was dead.** 5 bolts fired, **0 projectile dispatches counted.**
+The probe call sat inside the MotionAim arming window, which is only set while
+MotionAim is enabled and it ships disabled. Caught in one run only because the
+populations print while zero. Moved to the observer's top level. No measurement
+from this run is usable and none was taken.
+
+**Run B, the origin was negated.** 5 fired, 5 scored, count matched. Every shot:
+
+```
+launch point      (15195  8100  2868)
+controller origin (-15053 -8230 -2854)    gap 348 m, 316 m of it transverse
+```
+
+An exact mirror through the world origin on all three axes, while the engine's own
+`camZ` on the same run read **+2879**. `c5` carries the camera position NEGATED on
+this build. The drive builds its written aim POINT from that origin, so the point
+has been on the far side of the world origin for every drive run to date. The
+written DIRECTION was never affected. **Every earlier conclusion about which of the
+two the engine reads was drawn against a broken point and is withdrawn.**
+
+**Run C, after the fix.** 5 fired, 5 scored, count matched, no implausibility
+warning:
+
+| Quantity | Reading |
+|---|---|
+| launch point to controller origin | **52 to 81 uu (0.5 to 0.8 m)** |
+| of which transverse | 29 to 67 uu (0.27 to 0.62 m) |
+| bolt to controller ray | 81 to 101 deg, sign following which way the controller pointed |
+| bolt to muzzle-through-point | 85 to 103 deg |
+| measured speed | 19994 to 20003, stable |
+| miss at the dot | **refused on all five** |
+
+Three things follow.
+
+1. **The fix holds.** Three orders of magnitude, and the audit line stayed quiet.
+2. **The two launch models are now nearly inseparable**, 0.3 to 4.5 deg apart,
+   precisely because the muzzle and the controller are now in almost the same
+   place. They were easy to tell apart only while the origin was wrong. The
+   conditional distance experiment is the thing that separates them.
+3. **The transverse gap is the floor on a direction-only fix.** A quarter to two
+   thirds of a metre at the 8 m dot is a few degrees of visible miss, so "the
+   engine read our direction" is not automatically good enough.
+
+**And the gate's own wording was wrong.** It asked for the miss at the dot to be
+LARGE in the baseline. It cannot be: with the bolt 81 to 101 deg off the ray, the
+intersection with the dot's plane is ill conditioned, and the metric declines
+rather than inventing a number - which is what it was built to do. The discrepancy
+the gate wanted is real and is carried by the angle. A baseline asking for a
+computable miss has to point the controller MODERATELY off the gaze, not 90 deg
+off, so that `dot(b, d)` stays well clear of the refusal threshold whichever way
+the drive behaves. That is how the next run is set up.
