@@ -88,6 +88,18 @@ static bool AsPlausible(const AsCache& c, const char** why)
     return true;
 }
 
+
+// Only the PROJECTILE family owns this cache. The sword's contexts live at the
+// same offset with different fields, and reading them produced the nonsense
+// ("m_AimPos is not a world position") in the 2026-09-11 run. Name-based, and
+// the name is printed, so a class this misses is visible rather than silent.
+static bool AsIsProjectileCtx(const char* cn)
+{
+    return cn && strstr(cn, "ItemContext_") &&
+           (strstr(cn, "FireCrossbow") || strstr(cn, "FirePistol") ||
+            strstr(cn, "ProjectileAttack") || strstr(cn, "Throw"));
+}
+
 // Per-pointer tick memory, so "advanced" is a fact about the object rather
 // than an artefact of when the probe last looked it up.
 static int32_t* AsTagSlot(uint8_t* obj)
@@ -201,11 +213,20 @@ static int AsWalkInventory(uint32_t cacheOff, const float* viewF,
                 if (!RangeReadable(cdata + (size_t)k * 4, 4)) break;
                 uint8_t* ctx = *(uint8_t**)(cdata + (size_t)k * 4);
                 if (!LooksLikeObj(ctx)) continue;
+                const char* ccn = ObjClassName(ctx);
+                if (!AsIsProjectileCtx(ccn)) {
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+                        "aimseam: EQUIPPED %s context %d is %s - not a projectile "
+                        "context, so this offset holds a different field on it and "
+                        "is not read", icn ? icn : "?", k, ccn ? ccn : "?");
+                    continue;
+                }
                 char label[96];
                 _snprintf(label, sizeof(label), "EQUIPPED %s primary context %d of %d",
                           icn ? icn : "?", k, cnum);
                 label[sizeof(label) - 1] = 0;
                 AsLogOne(label, ctx, cacheOff, viewF, handF, haveHand);
+                g_asCtx = ctx; g_asCtxOff = cacheOff; g_asCtxMs = MaimNowMs();
                 ++read;
             }
         }
@@ -298,5 +319,94 @@ static void AimSeamTick(void)
         now - g_asScanMs > 10000.0) {
         g_asScanMs = now;
         AsScan(cacheOff, viewF, handF, haveHand);
+    }
+}
+
+
+// ---- DRIVING IT (VR-57 step 3, [Aim] DriveFromHand) -------------------------
+//
+// The probe established (2026-09-11, build 103-gdf52d9f3) that the equipped
+// crossbow's context caches the assist's answer every tick, that its direction
+// sits on the VIEW (dot +0.996 to +0.998 across every sample that found a
+// target), and that it carries a projected screen point. This writes the
+// controller ray into that cache instead.
+//
+// What it writes: the found flag, the aim position (the camera's own render
+// position plus the ray at [Aim] DriveDistanceUU) and the aim direction. What
+// it deliberately does NOT write:
+//   * m_TickTag - the game's freshness stamp. Inventing one could read as
+//     this-tick or as stale to code that has not been read; leaving it alone
+//     means the write rides whatever the game already considers current.
+//   * m_ProjectedAimPos - the crosshair's own placement stays the game's.
+//     Whether the crosshair follows anyway is one thing the run answers.
+//   * m_bWillTrack - homing stays off.
+//
+// It runs on the script lane on EVERY dispatch rather than on the probe's
+// quarter second, because a shot can leave on any tick and a cache written
+// four times a second would be stale for most of them.
+//
+// It can be wrong in a way this cannot see: the fire path may recompute the
+// assist rather than read this cache. That is what the run decides. The
+// read-back below reports how often the game overwrote the previous write,
+// which is expected every tick and is NOT evidence either way by itself.
+static void AimSeamDrive(void)
+{
+    if (!g_asDrive) return;
+    uint8_t* ctx = g_asCtx;
+    if (!ctx || !g_asCtxOff) { g_asWriteWhy = "no equipped projectile context found yet"; return; }
+    if (!LooksLikeObj(ctx)) { g_asCtx = NULL; g_asWriteWhy = "the context stopped reading as a UObject"; return; }
+    if (!AsIsProjectileCtx(ObjClassName(ctx))) { g_asCtx = NULL; g_asWriteWhy = "the context changed class"; return; }
+
+    float rel[3], dir[3];
+    if (!MaimHandRel(rel)) { ++g_asWriteRefused; g_asWriteWhy = "no controller pose"; return; }
+    MaimDirFromView(g_viewYawRad, g_viewPitchRad, rel, dir);
+    const float n = sqrtf(V3Dot(dir, dir));
+    if (!(n > 0.5f && n < 2.0f)) { ++g_asWriteRefused; g_asWriteWhy = "the hand ray is not a unit direction"; return; }
+    for (int i = 0; i < 3; i++) dir[i] /= n;
+    float cam[3];
+    if (!dvr::camera::render_pos(cam)) { ++g_asWriteRefused; g_asWriteWhy = "no camera position published yet"; return; }
+
+    uint8_t* at = ctx + g_asCtxOff;
+    if (!RangeReadable(at, kAsCacheBytes)) { ++g_asWriteRefused; g_asWriteWhy = "the cache is not readable"; return; }
+
+    // Read before writing: did the game overwrite what we put there last time?
+    AsCache before;
+    const bool haveBefore = AsRead(at, &before);
+    if (haveBefore && g_asWrites > 0) {
+        float d = 0.0f;
+        for (int i = 0; i < 3; i++) d += fabsf(before.aimDir[i] - g_asLastDir[i]);
+        if (d > 0.01f) ++g_asOverwritten;
+    }
+
+    const float pos[3] = { cam[0] + dir[0] * g_asDriveDistUU,
+                           cam[1] + dir[1] * g_asDriveDistUU,
+                           cam[2] + dir[2] * g_asDriveDistUU };
+    *(uint32_t*)(at + 0x04) = 1u;          // m_bFound
+    memcpy(at + 0x08, pos, 12);            // m_AimPos
+    memcpy(at + 0x14, dir, 12);            // m_AimDir
+    *(uint32_t*)(at + 0x28) = 0u;          // m_bWillTrack: no homing
+    memcpy(g_asLastDir, dir, sizeof(g_asLastDir));
+    ++g_asWrites;
+    g_asWriteWhy = "writing";
+
+    const double now = MaimNowMs();
+    if (now - g_asWriteLogMs > 1000.0) {
+        g_asWriteLogMs = now;
+        const float viewF[3] = { cosf(g_viewPitchRad) * cosf(g_viewYawRad),
+                                 cosf(g_viewPitchRad) * sinf(g_viewYawRad),
+                                 sinf(g_viewPitchRad) };
+        const char* cn = ObjClassName(ctx);
+        Log("aimseam/drive: wrote the hand ray into %s tick %d | dir (%+.3f %+.3f %+.3f) "
+            "dot(view)=%+.3f | aimPos (%.0f %.0f %.0f) at %.0f uu along the ray | "
+            "%ld write(s), %ld refused (%s), the game rewrote the cache under us "
+            "%ld time(s). Rewrites are EXPECTED (it recomputes every tick) and are "
+            "not evidence by themselves. What the run decides: whether the BOLT "
+            "follows this ray or still the crosshair - if it still follows the "
+            "crosshair, the fire path does not read this cache and the seam is "
+            "elsewhere.",
+            cn ? cn : "?", haveBefore ? before.tickTag : -1,
+            dir[0], dir[1], dir[2], V3Dot(dir, viewF), pos[0], pos[1], pos[2],
+            (double)g_asDriveDistUU, g_asWrites, g_asWriteRefused, g_asWriteWhy,
+            g_asOverwritten);
     }
 }

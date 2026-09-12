@@ -398,6 +398,7 @@ struct MpDrawCtx;
 static void MpDrawCompare(const MpDrawCtx* c);
 static void MpEyeForPresent(const MpDrawCtx* c);
 static void AimSeamTick(void);
+static void AimSeamDrive(void);
 static void MfNoteTag(void);
 static void MfNoteWeapon(bool found);
 static void MfMarker(void);

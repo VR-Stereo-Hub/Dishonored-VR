@@ -380,6 +380,14 @@ static void WriteDefaultIni(const char* ini)
         "; moving (the NPC contexts), which is the control.\n"
         "SeamProbe=0\n"
         "SeamVerbose=0\n"
+        "; DriveFromHand=1 (VR-57 step 3) WRITES that cache from the controller\n"
+        "; ray instead of reading it: the found flag, the aim position and the aim\n"
+        "; direction, leaving the tick tag, the projected screen point and the\n"
+        "; tracking flag alone. It is the test of whether the fire path reads this\n"
+        "; cache at all - if the bolt still follows the crosshair, it does not.\n"
+        "; DriveDistanceUU is how far along the ray the written aim point sits.\n"
+        "DriveFromHand=0\n"
+        "DriveDistanceUU=800\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -994,6 +1002,14 @@ static void LoadConfig()
         Log("config: [Aim] SeamProbe=1 - sampling the game's own aim-assist cache "
             "four times a second (read-only, aimseam: lines)%s",
             g_asVerbose ? "; verbose: quiet instances logged too" : "");
+    g_asDrive = IniFloat(ini, "Aim", "DriveFromHand", 0) != 0.0f;
+    g_asDriveDistUU = IniFloat(ini, "Aim", "DriveDistanceUU", 800.0f);
+    if (g_asDriveDistUU < 50.0f || g_asDriveDistUU > 20000.0f) g_asDriveDistUU = 800.0f;
+    if (g_asDrive)
+        Log("config: [Aim] DriveFromHand=1 - the controller ray is WRITTEN into the "
+            "equipped weapon's aim-assist cache at %.0f uu. Shots may change; "
+            "MotionAim stays separate and is %s.", (double)g_asDriveDistUU,
+            g_maimEnabled ? "ALSO ON (turn it off: they fight)" : "off");
     {
         dvr::aim::Config crosshair;
         crosshair.dot = GetPrivateProfileIntA("Crosshair", "Dot", 0, ini) != 0;
