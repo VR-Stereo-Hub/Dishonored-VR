@@ -1,162 +1,299 @@
-# Plan: find the rotation the shot is fired from (VR-57)
+# Plan: identify and decouple the crossbow's firing aim (VR-57)
 
-2026-09-12, for review before implementation. Follows
-[VR-57-BOLT-PLAN.md](VR-57-BOLT-PLAN.md), whose Phase 1 is complete and whose
-Phase 2 this selects from. Scope: name the field the fire direction comes from,
-then aim the bolt from the controller without moving the view. The aim assist and
-the weapon model stay out.
+2026-09-12. Revised against `859d7d82` on
+`claude/vr-57-crosshair-on-hand-ray`. This is a documentation review only.
+No source, DLL or ini changes; the user performs game testing.
 
----
+Follows [VR-57-BOLT-PLAN.md](VR-57-BOLT-PLAN.md). Scope: identify the crossbow's
+actual aim consumer, then direct the bolt through the controller dot without
+changing the view or body-facing behavior. Assist changes, weapon-model alignment,
+pistol, Blink and powers remain separate work. Keep both dots.
 
-## 1. What Phase 1 established
+## 1. What the recent runs establish
 
-The bolt probe works and its answers are measured, not inferred. Populations
-matched the tester's own count on three consecutive runs (5/5, 5/5, 6/6).
+The supplied findings report matching fired/scored populations on three runs
+(5/5, 5/5, 6/6). The camera-origin sign correction reduced the launch/controller
+gap from hundreds of metres to 0.5-0.8 m. With the cache drive enabled, the native
+reticle followed the controller while off-gaze bolts remained about 21-23 degrees
+from the requested direction, with 3.0-3.3 m endpoint miss. Near gaze, reported
+miss was 0.06-0.10 m. These are useful distinctions; the new plan should build on
+them rather than repeat the cache experiment.
 
-| Finding | Evidence |
+**Decision: stop using the existing cache writer as the proposed firing seam.**
+Keep `DriveFromHand=0` during source identification. Do not increase its cadence
+or experiment blindly with `m_TickTag`.
+
+The evidence supports a narrower conclusion than the original plan: the tested
+write affects the reticle and does not control those shots. It does not prove
+`m_AimDir`/`m_AimPos` are never read anywhere in the firing path. A refill, another
+context, conditional use or a downstream override could produce the same result.
+Only a reader trace establishes that stronger claim. There is no need to resolve
+it before pursuing a better firing seam.
+
+The crosshair's periodic downward excursion remains an observation, not a measured
+refill cadence. Keep it separate from source identification.
+
+Counts and headset results above are carried forward from the supplied plan and
+repository notes; raw run logs were not reanalysed in this review. The code checks
+below identify limits on what the current probe can establish.
+
+## 2. Comparison narrows the candidates; it does not identify a reader
+
+Keep all three candidate families. Log the two camera entries separately, rather
+than treating them as one already-verified value.
+
+| Candidate family | Observation and limits |
 |---|---|
-| The camera position arrives NEGATED in c5 | controller origin was the exact mirror of the launch point through the world origin on 5 of 5 shots, while the engine's own `camZ` read positive. Fixed; the gap is now 0.5 to 0.8 m. |
-| **The aim cache is the HUD's input, not the shot's** | with the drive ON the game's crosshair follows the controller dot (tester watched it), while the bolt leaves along the head. At ~20 deg off-gaze the bolt came out 21 to 23 deg from our written direction and missed the dot by 3.0 to 3.3 m; along the gaze the same shots landed 0.06 to 0.10 m out. |
-| The acceptance metric is sound | 0.06 m when the ray and the shot agree, refused (not faked) when the bolt sits near-perpendicular to the ray. |
-| The write counter was never evidence | 485,083 unrefused writes sat beside a bolt that ignored every one. **Withdrawn as evidence about the firing consumer**, as the review said it should be. |
+| Camera rotation | Read the camera-object entries named by `kCamRotBase`, with distinct labels for POV/cache. Also retain the published `g_viewYawRad/g_viewPitchRad` as a separate last-write record. A publication is not a readback of the camera at firing. |
+| PlayerController rotation | Resolve `Actor.Rotation` on the live possessed controller. A different address from the camera does not establish independence: one may feed the other. |
+| Pawn rotation | Resolve the same property on the possessed pawn. Visible body/arms orientation can include mesh, animation and mod transforms; it does not directly measure this field. |
 
-So `m_CachedAimAssistPos` feeds the reticle and `m_ProjectedAimPos` is honoured,
-while `m_AimDir` and `m_AimPos` are not read by the fire path at all. Writing that
-cache can never aim the bolt.
+Do not drop the pawn because its visible model faces left. The prediction is:
+**if the measured pawn forward differs from the bolt beyond observation noise,
+raw pawn forward is inconsistent with those shots.** That does not rule out a
+pawn aim function that consults its controller or view.
 
-Unexplained and recorded: the crosshair drops below the dot once or twice a second
-and climbs back. The shape fits the game refilling the cache with its own
-head-derived answer between our writes, but the cadence has not been measured and
-no mechanism is claimed.
+Two relevant code corrections:
 
-## 2. The question this plan answers
+* The local `Engine/Pawn.uc` implementation of `GetBaseAimRotation` contains a
+  controller `GetPlayerViewPoint` path and a pawn-rotation fallback. Therefore the
+  generic assumption that base aim necessarily means PlayerController's
+  `Actor.Rotation`, independent of the camera, is not a foundation for this fix.
+  The native Dishonored crossbow path and applicable overrides still need tracing.
+* `ApplyHeadToViewRotation` edits view-rotation event parameters and publishes
+  `g_viewYawRad/g_viewPitchRad`. The separate `RotInjectTick` fallback writes
+  camera fields and still references retired `kPcRotBase` entries on the
+  controller. Record which writer is active; do not claim head tracking only
+  writes a camera field. Do not enable or copy the fallback for this experiment.
+  If it is active and contaminates the comparison, address that as a separate
+  prerequisite, not an unrecorded change to this run.
 
-**Which rotation does the fire direction come from?** The probe measures the
-bolt's launch direction `b` directly, so the test is a comparison, not a search.
+An angle match means **consistent with**, not **read from**. Identical rotations
+can share an upstream producer. None may match if the fire path uses another
+cache, an adjusted aim, an offset target point, or a different sampling time.
+A valid "none match" result must not be treated as a failed probe automatically.
 
-Three candidates, and all three are already reachable - nothing needs deriving:
+## 3. Phase A0: qualify the observation before selecting a writer
 
-| Candidate | Where it lives | Already in the mod? |
-|---|---|---|
-| The camera's POV rotation | `kCamRotBase` = `{0x9c, 0xd0}` on the camera object | YES, the mod WRITES it from the head; `g_viewYawRad` is published from that same write |
-| The PlayerController's `Actor.Rotation` | resolved by name | YES, `FindPropOffset("Actor","Rotation")` is already used (`g_yawRotOff`, `g_afActorRotOff`) |
-| The Pawn's `Actor.Rotation` (the body) | same property on the pawn | YES, same resolver; VR-30's body-yaw hold already touches it |
+Extend the existing read-only probe, without reopening the origin fix. The current
+implementation has useful velocity observations but is not yet a verified launch
+consumer trace:
 
-This distinction is the whole point. In UE3 a weapon's fire direction usually
-comes from the controller's rotation by way of the base aim rotation, **not** from
-the camera's POV. The mod drives the view by writing the CAMERA's POV. If those
-are different fields here, then the shot can be aimed from the controller without
-the view moving at all - which is exactly what VR needs, and it is an engine-side
-write, so attachments follow for free rather than being patched afterwards.
+| Current implementation | Required qualification for the next comparison |
+|---|---|
+| `AimShotSee` records position on first projectile dispatch and velocity on a later dispatch | First sight is not proven spawn time, and later velocity is not automatically initial velocity. Record both event names/call sites, timestamps and positions. Use stationary shots and bound observation delay; do not extrapolate a post-collision or late-flight velocity from the first position as a measured launch line. |
+| `ShRec` matches by object address across calls; declared name/class fields are not populated | Reads use the current dispatch's live argument, which avoids off-call dereferences, but address reuse can merge shots or suppress them as already reported. Establish a verified spawn/reinitialization identity and gameplay epoch, including pooled reuse. If identity is ambiguous, exclude/count it. |
+| The top-level filter includes projectile, bullet and grenade classes | Confirm player ownership and ordinary crossbow bolt class before scoring. Matching a short quiet run's count does not prove this filter excludes enemy shots. |
+| The history selects the newest valid solve before first sight, without a maximum age | Label this an association, not the input consumed at fire. Record sample/solve/observation ages separately and reject stale or cross-epoch matches. Twenty-four dispatches are not a fixed number of game ticks or milliseconds. |
+| `AimSeamSolve` copies the visual ray's generation but obtains direction via a new pose fetch | That label does not identify the pose used for the solve. Record the actual snapshot used; do not claim visual/drive identity until publication is coherent. |
+| `ShRayPush(true)` recomputes after the write | It is not an exact copy of the written values. Any later write/consumer experiment must record the original locals, not a second solve tagged as written. This is dormant with the drive off. |
 
-There is already evidence the candidates are NOT interchangeable, and it cost a
-session: `patterns.h` records that `0x9c` on a PlayerController is a float, not a
-rotator, that it was copied from the camera's entry, and that reading it pinned the
-pawn's yaw to a constant so the arms froze and the stick could not turn. The
-retired `kPcRotBase` is still in the file as the warning.
+Reset pending associations on load, possession/weapon change, gameplay exit and
+probe re-arm. Keep scalar history bounded; never dereference a remembered actor
+address outside a verified live call. Preserve population counts for unscored,
+late, foreign, reused/ambiguous and invalid samples.
 
-### What the tester's own reports already constrain
+Snapshot the candidate rotations together at first sight and again at velocity
+observation; include the earlier associated view record separately. Do not compare
+a new rotation with an old bolt and label them simultaneous. Stable values across
+the interval allow a stationary comparison; dynamic causality still requires the
+actual fire/initialization boundary.
 
-The bolt goes to the HEAD crosshair. The tester also reports the body facing 20 to
-45 deg left of the headset. So if the shot were taken from the PAWN's rotation the
-bolt would land 20 to 45 deg left of the head crosshair, and it does not.
+Validate `Actor.Rotation` through reflected property owner/type/struct size where
+available, class/possession and range checks, plus known motion response. A plausible
+three-int range cannot prove a Rotator layout: integers wrap, and unrelated bytes
+can look plausible. Decode signed/wrapped yaw/pitch consistently; retain raw values
+and roll even though forward direction ignores roll. Readability checks do not
+prove lifetime or semantics. Refuse unresolved candidates rather than borrowing a
+camera offset for a controller.
 
-That makes a prediction worth writing down before the run: **the shot is NOT
-pawn-rotation-derived.** It should agree with either the camera POV or the
-controller's rotation, and if the controller's rotation tracks the head rather than
-the body, those two are indistinguishable on this evidence and the run must
-separate them by value, not by eye.
+Also verify signed-axis conventions offline. `ShFrame` currently forms horizontal
+with `cross(d, worldUp)`, opposite the positive-right row used by the game-space
+mapping for horizontal forward. Label or correct that sign before presenting
+left/right residuals as a calibrated direction. Unsigned angle comparisons alone
+do not detect this discrepancy.
 
-## 3. Phase A: name the source, read-only
+## 4. Phase A1: distinguish rotation values, read-only
 
-One candidate, no writes, `ShotProbe=1`, `DriveFromHand=0` (the cache write is
-now known not to reach the bolt, so leaving it on only adds a moving part).
+Candidate settings: `ShotProbe=1`, `DriveFromHand=0`, `MotionAim.Enabled=0`.
+Keep dots, dot distance, body-facing controls, assist settings and stereo settings
+fixed. Log their effective values and active head-writer path.
 
-Resolve `Actor.Rotation` on the player controller and on the pawn by NAME, read
-the camera POV rotator from the fields the mod already writes, and add to every
-shot record the angle between the measured bolt direction `b` and the forward of
-each. Also log the three rotators themselves, as yaw and pitch in degrees, and
-their pairwise differences, so "two candidates agree" is visible rather than
-inferred from two similar angles.
+For each qualified player-crossbow observation, log:
 
-Acceptance for this phase is not a small number, it is a DISTINGUISHING one: the
-run must show at least one candidate near zero and say whether any two of them are
-within noise of each other. If all three agree to within a degree the phase has
-failed to separate them and the next step is to make them disagree deliberately -
-turn the body away from the head with the stick and fire again, which is free and
-which the tester can do in the same session.
+* Raw and decoded rotations, forward vectors and validity for each candidate.
+* Total and signed bolt-to-candidate angular errors, candidate-to-candidate
+  differences, and first-sight-to-later-observation change for each candidate.
+* Event/time/identity provenance, speed, observation delay and counted exclusions.
 
-Guards, because two of these fields have already caused a freeze when misread:
-verify each resolved offset is a rotator by range (three int32 whose values behave
-as `kUEPerRad` angles) before trusting it, log the raw values on first read, and
-refuse rather than guess when a resolve fails. Nothing is written in this phase, so
-a wrong offset costs a bad log line and not a pinned pawn.
+First try stationary, ordinary shots with head and body naturally separated.
+Use a small repeated batch, for example five qualified shots per distinct pose.
+Include a changed head pitch as well as yaw; visible body yaw alone cannot separate
+all aim behavior. Keep the controller moderately off gaze so the endpoint metric
+remains well conditioned, rather than aiming about 90 degrees away.
 
-## 4. Phase B: aim from the controller, branched on Phase A
+If needed, the user can change head/stick orientation and let it settle before
+another batch. **Stick turning is not guaranteed to separate camera and controller.**
+Inspect the logged pairwise difference first. If they still track together, record
+an indistinguishable group and proceed to native tracing; do not spend repeated
+launches trying the same uninformative maneuver or inject arbitrary rotations.
 
-Only one of these gets built, and which one is decided by Phase A's numbers.
+Set the comparison noise bound from stationary sample variation and observation
+age before using the result to select a candidate. A useful distinction requires
+candidate separation comfortably larger than that uncertainty. Do not reuse the
+endpoint tolerance as a source-identification threshold.
 
-### B1, if the shot reads a rotation the VIEW does not use
+Outcomes are: one candidate consistent, multiple indistinguishable candidates,
+none consistent, or inadequate observation. All are legitimate. This phase ranks
+leads; **none of its outcomes alone authorizes a write to Actor.Rotation.**
 
-Write that field from the controller ray. Engine-side, so the muzzle, the
-attachments and any trace the engine does all follow one value, which is the rule
-this project already paid for. Ships default OFF with a live A/B, and the probe's
-miss at the dot is the acceptance number.
+## 5. Phase B: locate the actual consumer before changing behavior
 
-Risks to design for rather than discover: the field is shared with body facing and
-`FaceRotation`, so a write must be scoped to what the shot reads and must not pin
-the pawn's yaw (the recorded freeze). The body-yaw hold and the arm-follow code
-already read `Actor.Rotation`; a write has to be reconciled with both, not layered
-on top. And a rotation written every tick is not the same as one written for the
-tick that fires - the cheaper and safer shape may be the latter, which needs a fire
-event to hang on.
+Follow the strongest lead into the native crossbow fire/initialization path.
+When values are indistinguishable, trace the call/data flow that selects the aim
+instead of naming whichever field happened to match first.
 
-### B2, if the shot reads the same POV rotation as the view
+Observe naturally occurring calls and verified return/output values where possible.
+`GetBaseAimRotation` and `GetPlayerViewPoint` are local leads; `GetAdjustedAimFor`
+is a search lead, not a verified available Dishonored seam. Do not issue synthetic
+aim calls and count them as the firing path, or assume all native calls pass through
+ProcessEvent. A verified direct native call may require a separate hook.
 
-Then there is no field to write without moving the picture, and the options are
-worse. A transient swap around the fire tick needs a verified fire seam, a
-guaranteed restore on every path including an early return, and proof the view did
-not flick. Before building that, re-check whether the engine offers a separate aim
-rotation at all (`GetAdjustedAimFor`, `GetBaseAimRotation` and the weapon's own
-fire are the names to resolve), because a one-tick rotation swap on the field the
-camera uses is the most dangerous change proposed in this whole investigation and
-should be the last resort, not the first attempt.
+Before choosing an intervention, document:
 
-### Not the route, with reasons
+1. The concrete instruction/call consuming aim for this player's crossbow, its
+   calling convention, parameter/return layout and timing relative to projectile
+   position/velocity initialization.
+2. Whether it reads a raw rotator, a function result, a direction, or an aim point;
+   any adjustment between that value and the measured velocity.
+3. Other consumers of the proposed field/result: camera, FaceRotation, body-yaw
+   bookkeeping, arm-follow, movement and other weapons. Verify relevant downstream
+   behavior rather than inferring independence from different memory addresses.
 
-* **Post-spawn steering of the projectile's velocity.** In the graveyard, and the
-  probe now explains why it looked arbitrary: the engine fills velocity AFTER
-  announcing the projectile, so a write at first sight is overwritten and a later
-  write fights whatever else is integrating. It also cannot fix the start point.
-* **Writing the aim cache harder, or writing `m_TickTag`.** The cache is the HUD's.
-  No cadence or freshness change to a field the fire path does not read can move
-  the bolt, and the review's refusal of a blind tag A/B stands.
+The legacy `aim_watch.cpp` is historical tooling, not a ready reader probe. It
+watches writes to a hard-coded projectile yaw, retains an address and changes
+thread debug registers. Its recorded stack-looking values are leads, not verified
+callers. Do not re-enable it wholesale or call writer hits proof of the aim reader.
+Any adapted watch needs a separately verified target, lifetime, thread coverage,
+cleanup and a bounded observation window.
 
-## 5. What "done" means here
+The existing cache writer remains off. A matching rotation is not a reason to
+write it continuously and see whether the view moves.
 
-Unchanged from the bolt plan: the miss at the plane of the visible dot, inside a
-tolerance fixed in advance, with the populations and the origin audit clean, the
-tester confirming the bolt goes where the small dot is, and no new flicker or
-pause/load regression. The assist may still pull shots; that is reported as a
-remaining failure and not folded into this result.
+## 6. Phase C: intervene at the narrowest verified aim boundary
 
-Tolerance proposed now, before any number is seen: the launch line should pass
-within **0.25 m** of the dot at 8 m, which is about 1.8 deg and is inside the
-transverse muzzle/controller gap already measured (0.27 to 0.62 m) - so meeting it
-implies the shot converges on the dot rather than merely running parallel to the
-ray. A direction-only fix cannot meet it, which is deliberate.
+Preferred order:
 
-## 6. Questions for review
+1. Override a verified shot-specific aim argument/result before the engine
+   initializes this player's ordinary crossbow bolt. Keep camera/body state intact.
+2. If the consumer truly requires persistent state, establish why and audit its
+   other readers before proposing a dedicated write. Continuous Actor.Rotation
+   replacement is not the default.
+3. Shared-state swapping is a last-resort design review, not an automatic branch
+   when bolt and camera values agree. A matching camera value does not prove that
+   a shot-specific aim result cannot be intercepted downstream.
 
-1. Is Phase A's three-way comparison the right separation, or should the pawn
-   candidate be dropped on the tester's own evidence and the run spend its
-   attention on distinguishing the camera POV from the controller rotation by
-   deliberately turning the body away from the head?
-2. For B1, is a write scoped to the firing tick preferable to a continuous one,
-   given the body-yaw hold and arm-follow already read `Actor.Rotation`? A
-   per-tick write is simpler to reason about but collides with more code.
-3. Is the 0.25 m tolerance at 8 m the right bar, and should it be stated as an
-   angle instead so it does not quietly change when the dot distance does?
-4. The crosshair dip: worth its own measurement now (it is the only direct
-   evidence of the refill cadence, which B1 may also have to race), or left until
-   the bolt is fixed?
+Scope to the synchronous consumer call, **not an entire firing tick**. Preserve
+normal behavior on invalid tracking, stale data, wrong weapon, unknown ownership,
+menus or unresolved contracts. Retain an independent default-off/live control for
+the new firing override. One behavioral change per candidate.
+
+If a shared rotation swap is unavoidable, document exact save/restore boundaries,
+nested/reentrant calls, all normal/exception exits, object lifetime and concurrent
+or reentrant camera/body readers. Restoring bytes cannot undo camera caches or
+other side effects created during the swap. A same-thread restore or RAII wrapper
+alone does not prove safety. If readers cannot be excluded or restore cannot be
+guaranteed, do not ship that design. Never leave the camera changed until next tick.
+
+### The value to supply must converge on the dot
+
+Keep the bolt plan's definitions: `H` is the mapped hand origin, `d` the controller
+direction, `T = H + L*d` the visible endpoint, `S` the actual firing origin.
+If the verified consumer takes a launch direction/rotator from `S`, the target
+value is derived from `normalize(T-S)`, not simply `d`. If it consumes a point,
+supply `T` through that contract and measure the resulting direction.
+
+Obtain `S` from the verified fire path before the override. If changing aim also
+changes muzzle position, trace that order and measure the resulting `S`; do not
+use the previous bolt's position or a guessed offset. This is a prerequisite for
+an endpoint fix, not a post-spawn correction. Do not move the spawn to the hand.
+
+Engine-side aiming does not guarantee muzzle meshes, attachments or traces all
+follow automatically. A narrow shot override may deliberately leave the body and
+weapon model unchanged. Measure firing/trace behavior and keep model alignment a
+separate task. Never restore post-spawn steering to compensate for an unknown seam.
+
+## 7. Acceptance: keep the 0.25 m bar, remove the false guarantee
+
+Retain **0.25 m launch-line miss at the 8 m visible endpoint** as the proposed
+first alignment gate, not as pixel-perfect or ballistic-impact accuracy. Its
+approximate angle is 1.79 degrees only under the corresponding simple geometry;
+with displaced origins, report the actual muzzle-to-target angle and endpoint miss.
+Keep physical miss as the primary metric. Other dot depths need explicit criteria,
+not a silent substitution of a constant angular tolerance.
+
+A historical transverse gap of 0.27-0.62 m does not guarantee that every future
+direction-only shot fails a 0.25 m test. Pose, muzzle position and uncertainty can
+change, and the smallest reported gap clears the threshold by only 0.02 m.
+For every validation shot compute the parallel counterfactual:
+
+```text
+parallelMiss = length((S-H) - dot(S-H,d)*d)
+```
+
+Use deliberately separated poses where `parallelMiss` exceeds 0.25 m by more than
+the measured uncertainty. Require actual endpoint miss to pass while that
+counterfactual fails. Include both horizontal sides and a vertical offset. If the
+two models are within uncertainty, that shot cannot demonstrate convergence.
+
+Set sample counts, usable observation age and uncertainty rules before evaluating
+the behavioral candidate. Require all qualified shots in each prescribed condition
+to meet the gate; report failures and exclusions rather than discarding them.
+At least five qualified shots per selected distinguishing condition is an initial
+protocol, not a statistical guarantee. First qualify stationary behavior; test
+movement separately with coherent timing records.
+
+A launch-line test uses the bolt plan's plane-intersection metric and refuses
+ill-conditioned cases. It is not proof of later impact through gravity, collision
+or homing. Assist settings remain fixed; target-dependent misses are reported as
+remaining failures, not excused as a completed user-visible aiming feature.
+
+The user must also confirm both-eye view stability, continued stick/body/arm
+behavior and clean pause/load/re-arm behavior. Instrument actual camera output and
+writer identity around shots; an unchanged `g_viewYawRad` alone cannot prove no
+view flicker. Do not merge before those results.
+
+## 8. Crosshair dip, implementation handoff and review answers
+
+Leave the dip outside the firing-source experiment. Keep its existing observation
+record; investigate its cadence separately if it persists with `DriveFromHand=0`
+or prevents using the independent dots. Do not treat a HUD-cache cadence as a
+scheduler for the native firing consumer.
+
+Each implementation candidate needs relevant offline tests (rotator wrap/signs,
+snapshot timing, reuse/ownership rejection and converging versus parallel launch),
+lint, an x86 Release build and the installed build/hash/settings recorded. Keep
+existing working visuals and stereo unchanged. The user launches/tests; never
+launch the game or simulator, or automatically restore an older DLL. No merge to
+`VR-Main` without explicit authorization.
+
+Answers to the original questions:
+
+1. **Keep the pawn candidate.** The visible model is not a readback of its actor
+   rotation, and logging one more qualified field is cheap. Separate candidates
+   by measured values; do not promise stick turning will separate camera/controller.
+2. **Prefer a shot-specific argument/result at a verified consumer.** A firing
+   tick is too broad, and continuous rotation writes conflict with more systems.
+   Correlation alone is insufficient for either write.
+3. **Keep 0.25 m at 8 m as a provisional alignment gate.** Report both metres and
+   angle, and add a per-shot parallel counterfactual with uncertainty margin.
+   The threshold alone cannot prove convergence.
+4. **Defer the dip measurement.** It is not evidence of the new consumer's timing.
+   Revisit separately if it persists with the cache writer disabled.
+
+For Claude: this revision preserves the successful origin correction and measured
+head/controller discrepancy. It replaces the HUD-only claim with the supported
+result, qualifies the later-event velocity probe, distinguishes value correlation
+from native consumption, corrects the local base-aim/head-writer assumptions, and
+requires a shot-specific convergence fix rather than a speculative actor rotation
+write. This revision changes only this plan.
