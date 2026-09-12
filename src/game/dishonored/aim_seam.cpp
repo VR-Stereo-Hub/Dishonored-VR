@@ -563,6 +563,14 @@ static void ShReport(ShRec* h, const char* cn)
     const float degP = haveP ? acosf(cP < -1.0f ? -1.0f : (cP > 1.0f ? 1.0f : cP)) * 57.2957795f
                              : -1.0f;
 
+    // THE THIRD CANDIDATE. Neither of the two launch models is the only option:
+    // the engine may ignore what we wrote entirely and take the shot from the
+    // VIEW. That outcome is indistinguishable from "our write was not read" and
+    // must be measurable, or a bolt that never moved would keep being scored
+    // against models it was never following.
+    const float cV = V3Dot(b, r->viewF);
+    const float degV = acosf(cV < -1.0f ? -1.0f : (cV > 1.0f ? 1.0f : cV)) * 57.2957795f;
+
     float right[3], up[3]; ShFrame(r->d, right, up);
     const float residH = atan2f(V3Dot(b, right), V3Dot(b, r->d)) * 57.2957795f;
     const float vu = V3Dot(b, up);
@@ -613,7 +621,10 @@ static void ShReport(ShRec* h, const char* cn)
         "MISS AT THE DOT %s%.1f uu (%.2f m)%s <- THIS is the acceptance number, not the angle | "
         "launch S (%.0f %.0f %.0f), controller H (%.0f %.0f %.0f), gap %.0f uu of which "
         "%.0f uu is TRANSVERSE (the miss a perfectly parallel bolt keeps) | "
-        "angle to our DIRECTION %.2f deg, angle to muzzle->our POINT %.2f deg "
+        "angle to our DIRECTION %.2f deg, angle to muzzle->our POINT %.2f deg, "
+        "angle to the VIEW %.2f deg (a small VIEW angle beside a large one to our "
+        "direction means the shot ignored what we wrote and came from the head - "
+        "that is the write not being READ, whatever the write counter says) "
         "(near 0 for the first means the engine used the direction and the bolt runs "
         "parallel to the ray, which misses the dot by the transverse gap; near 0 for "
         "the second means it aimed through the point, which HITS the dot when the "
@@ -625,7 +636,7 @@ static void ShReport(ShRec* h, const char* cn)
         miss < 0.0f ? "NOT MEASURED - " : "", miss < 0.0f ? 0.0f : miss,
         miss < 0.0f ? 0.0f : miss / uuPerM, miss < 0.0f ? missWhy : "",
         h->S[0], h->S[1], h->S[2], r->H[0], r->H[1], r->H[2],
-        sqrtf(V3Dot(dS, dS)), transUU, degD, degP, residH, residV,
+        sqrtf(V3Dot(dS, dS)), transUU, degD, degP, degV, residH, residV,
         h->speed, r->distP, r->distT, originWarn);
     h->reported = true;
     ++g_shCompleted;
@@ -760,6 +771,9 @@ static bool AimSeamSolve(ShRay* out)
         out->P[i] = out->H[i] + dir[i] * out->distP;
         out->T[i] = out->H[i] + dir[i] * out->distT;
     }
+    out->viewF[0] = cosf(g_viewPitchRad) * cosf(g_viewYawRad);
+    out->viewF[1] = cosf(g_viewPitchRad) * sinf(g_viewYawRad);
+    out->viewF[2] = sinf(g_viewPitchRad);
     out->ok = true;
     return true;
 }

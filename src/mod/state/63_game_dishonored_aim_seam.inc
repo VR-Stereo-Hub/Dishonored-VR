@@ -63,6 +63,9 @@ struct ShRay {
     uint64_t sampleMs;                  // the INPUT sample's own stamp
     bool    ok;
     float   H[3], d[3], P[3], T[3];     // game space: origin, dir, written point, dot
+    float   viewF[3];                   // the VIEW forward at the same instant, so a
+                                        // bolt can be tested against the head as well
+                                        // as against the controller
     float   distP, distT;               // uu
     bool    wrote;                      // did the drive write this solve
 };
