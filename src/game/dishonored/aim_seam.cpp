@@ -118,6 +118,7 @@ static void AsLogOne(const char* label, uint8_t* obj, uint32_t off,
 {
     AsCache c;
     if (!AsRead(obj + off, &c)) return;
+    if (!g_asOn) return;   // drive-only: the walk still latched the context above
     int32_t* slot = AsTagSlot(obj);
     const bool moved = slot ? (c.tickTag != *slot) : false;
     if (slot) *slot = c.tickTag;
@@ -225,8 +226,8 @@ static int AsWalkInventory(uint32_t cacheOff, const float* viewF,
                 _snprintf(label, sizeof(label), "EQUIPPED %s primary context %d of %d",
                           icn ? icn : "?", k, cnum);
                 label[sizeof(label) - 1] = 0;
-                AsLogOne(label, ctx, cacheOff, viewF, handF, haveHand);
                 g_asCtx = ctx; g_asCtxOff = cacheOff; g_asCtxMs = MaimNowMs();
+                AsLogOne(label, ctx, cacheOff, viewF, handF, haveHand);
                 ++read;
             }
         }
@@ -285,7 +286,7 @@ static void AsScan(uint32_t cacheOff, const float* viewF, const float* handF, bo
 
 static void AimSeamTick(void)
 {
-    if (!g_asOn) return;
+    if (!g_asOn && !g_asDrive) return;   // the drive needs the walk to latch the context
     const double now = MaimNowMs();
     if (now - g_asLastMs < 250.0) return;
     g_asLastMs = now;
@@ -322,6 +323,28 @@ static void AimSeamTick(void)
     }
 }
 
+
+// Refusals, counted per REASON. The previous build printed one "why" string
+// beside a total, so 1,125,530 refusals were reported next to the word
+// "writing" - a count whose population was unknowable, which is the exact
+// failure this project keeps writing down.
+static void AsRefuse(const char* why)
+{
+    ++g_asWriteRefused;
+    g_asWriteWhy = why;
+    for (int i = 0; i < g_asWhyN; i++)
+        if (g_asWhyStr[i] == why) { ++g_asWhyCnt[i]; return; }
+    if (g_asWhyN < kAsWhyMax) { g_asWhyStr[g_asWhyN] = why; g_asWhyCnt[g_asWhyN] = 1; ++g_asWhyN; }
+}
+
+static void AsWhySummary(char* out, size_t cap)
+{
+    int n = 0;
+    out[0] = 0;
+    for (int i = 0; i < g_asWhyN && n < (int)cap - 32; i++)
+        n += _snprintf(out + n, cap - n, "%s%s x%ld", n ? ", " : "", g_asWhyStr[i], g_asWhyCnt[i]);
+    out[cap - 1] = 0;
+}
 
 // THE HAND RAY IN THE GAME'S WORLD AXES, built from the runtime's AIM pose.
 //
@@ -420,24 +443,41 @@ static bool AsHandDirGame(float* dirOut, float* xrDeg, float* gameDeg,
 static void AimSeamDrive(void)
 {
     if (!g_asDrive) return;
+    // GAMEPLAY ONLY. The 2026-09-11 run crashed seven seconds after the pause
+    // menu opened, and the same instant the log shows the game leaving
+    // gameplay: weapon contracts dropped, hand candidates dropped. Those are
+    // raw pointers into objects the game destroys, and this module holds one
+    // too. A destroyed object's memory usually stays mapped, so it still reads
+    // as plausible - which is how a write into freed memory happens without a
+    // single guard noticing. The pointer is dropped with the rest of them.
+    if (!CylTruthLive() || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow) {
+        if (g_asCtx) {
+            g_asCtx = NULL; g_asCtxOff = 0;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                "aimseam/drive: the game left gameplay - the context pointer is "
+                "dropped rather than written to (a destroyed object still reads "
+                "as plausible while its memory stays mapped)");
+        }
+        AsRefuse("not gameplay");
+        return;
+    }
     uint8_t* ctx = g_asCtx;
-    if (!ctx || !g_asCtxOff) { g_asWriteWhy = "no equipped projectile context found yet"; return; }
-    if (!LooksLikeObj(ctx)) { g_asCtx = NULL; g_asWriteWhy = "the context stopped reading as a UObject"; return; }
-    if (!AsIsProjectileCtx(ObjClassName(ctx))) { g_asCtx = NULL; g_asWriteWhy = "the context changed class"; return; }
+    if (!ctx || !g_asCtxOff) { AsRefuse("no equipped projectile context yet"); return; }
+    if (!LooksLikeObj(ctx)) { g_asCtx = NULL; AsRefuse("the context stopped reading as a UObject"); return; }
+    if (!AsIsProjectileCtx(ObjClassName(ctx))) { g_asCtx = NULL; AsRefuse("the context changed class"); return; }
 
     float dir[3], relDbg[3] = {0, 0, 0};
     float xrDeg = -1.0f, gameDeg = -1.0f;
     const char* rayWhy = "?";
     g_asRelOut = relDbg;
     if (!AsHandDirGame(dir, &xrDeg, &gameDeg, &rayWhy)) {
-        ++g_asWriteRefused; g_asWriteWhy = rayWhy; return;
+        AsRefuse(rayWhy); return;
     }
     // The mapping's own falsification. If the angle off the head in XR and the
     // angle off the view in the game disagree, the direction below is wrong
     // whatever it looks like, so it is not written.
     if (fabsf(xrDeg - gameDeg) > 5.0f) {
-        ++g_asWriteRefused;
-        g_asWriteWhy = "the XR and game angles disagree - the mapping is wrong";
+        AsRefuse("the XR and game angles disagree - the mapping is wrong");
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 2000,
             "aimseam/drive: REFUSED - the aim ray sits %.1f deg off the head in XR "
             "but the mapped direction sits %.1f deg off the view in the game. Those "
@@ -446,10 +486,13 @@ static void AimSeamDrive(void)
         return;
     }
     float cam[3];
-    if (!dvr::camera::render_pos(cam)) { ++g_asWriteRefused; g_asWriteWhy = "no camera position published yet"; return; }
+    if (!dvr::camera::render_pos(cam)) { AsRefuse("no camera position published yet"); return; }
 
+    const float viewFwd[3] = { cosf(g_viewPitchRad) * cosf(g_viewYawRad),
+                               cosf(g_viewPitchRad) * sinf(g_viewYawRad),
+                               sinf(g_viewPitchRad) };
     uint8_t* at = ctx + g_asCtxOff;
-    if (!RangeReadable(at, kAsCacheBytes)) { ++g_asWriteRefused; g_asWriteWhy = "the cache is not readable"; return; }
+    if (!RangeReadable(at, kAsCacheBytes)) { AsRefuse("the cache is not readable"); return; }
 
     // Read before writing: did the game overwrite what we put there last time?
     AsCache before;
@@ -460,12 +503,68 @@ static void AimSeamDrive(void)
         if (d > 0.01f) ++g_asOverwritten;
     }
 
+
+    // THE CROSSHAIR'S OWN FIELD. Without it the HUD kept computing its own
+    // point while the shot followed ours, which is what "the crosshair went
+    // off doing its own thing" was. The formula is normalised device
+    // coordinates: the ray's offset from the view axis over the half-FOV
+    // tangent, vertical scaled by the render's aspect.
+    //
+    // It is CALIBRATED against the game's own numbers rather than asserted: on
+    // every tick the game refills the cache itself, the same formula is run
+    // against ITS direction and compared with ITS projected point, and the
+    // error is logged. A formula that disagrees with the engine's own answer is
+    // wrong however plausible it looks.
+    float proj[2] = { 0.0f, 0.0f };
+    bool projOk = false;
+    {
+        float fovDeg = dvr::camera::rendered_fov_deg();
+        if (!(fovDeg > 20.0f && fovDeg < 170.0f)) fovDeg = dvr::camera::fov_deg();
+        if (fovDeg > 20.0f && fovDeg < 170.0f) {
+            const float tanH = tanf(fovDeg * 0.5f * 3.14159265f / 180.0f);
+            const uint32_t rw = dvr::capture::width(), rh = dvr::capture::height();
+            const float aspect = (rw > 0 && rh > 0) ? (float)rh / (float)rw : 1.0f;
+            const float tanV = tanH * aspect;
+            float right[3], up[3];
+            const float upW[3] = { 0.0f, 0.0f, 1.0f };   // game axes: Z is up
+            V3Cross(viewFwd, upW, right);
+            if (V3Norm(right) > 0.2f) {
+                V3Cross(right, viewFwd, up); V3Norm(up);
+                // the engine's right row points the other way round the cross
+                right[0] = -right[0]; right[1] = -right[1]; right[2] = -right[2];
+                const float f = V3Dot(dir, viewFwd);
+                if (f > 0.15f && tanH > 0.01f && tanV > 0.01f) {
+                    proj[0] = (V3Dot(dir, right) / f) / tanH;
+                    proj[1] = (V3Dot(dir, up) / f) / tanV;
+                    projOk = MpFinite(proj[0]) && MpFinite(proj[1]) &&
+                             fabsf(proj[0]) < 8.0f && fabsf(proj[1]) < 8.0f;
+                }
+                // the calibration: the same formula on the GAME's own sample
+                if (haveBefore && before.found && projOk) {
+                    const float bl = sqrtf(V3Dot(before.aimDir, before.aimDir));
+                    const float bf = (bl > 0.5f) ? V3Dot(before.aimDir, viewFwd) / bl : 0.0f;
+                    if (bf > 0.15f) {
+                        const float bx = (V3Dot(before.aimDir, right) / bl / bf) / tanH;
+                        const float by = (V3Dot(before.aimDir, up) / bl / bf) / tanV;
+                        g_asProjErr = fabsf(bx - before.projected[0]) +
+                                      fabsf(by - before.projected[1]);
+                        g_asProjMine[0] = bx; g_asProjMine[1] = by;
+                        g_asProjGame[0] = before.projected[0];
+                        g_asProjGame[1] = before.projected[1];
+                        g_asProjSamples++;
+                    }
+                }
+            }
+        }
+    }
+
     const float pos[3] = { cam[0] + dir[0] * g_asDriveDistUU,
                            cam[1] + dir[1] * g_asDriveDistUU,
                            cam[2] + dir[2] * g_asDriveDistUU };
     *(uint32_t*)(at + 0x04) = 1u;          // m_bFound
     memcpy(at + 0x08, pos, 12);            // m_AimPos
     memcpy(at + 0x14, dir, 12);            // m_AimDir
+    if (projOk) memcpy(at + 0x20, proj, 8);   // m_ProjectedAimPos: the crosshair
     *(uint32_t*)(at + 0x28) = 0u;          // m_bWillTrack: no homing
     memcpy(g_asLastDir, dir, sizeof(g_asLastDir));
     ++g_asWrites;
@@ -478,13 +577,16 @@ static void AimSeamDrive(void)
                                  cosf(g_viewPitchRad) * sinf(g_viewYawRad),
                                  sinf(g_viewPitchRad) };
         const char* cn = ObjClassName(ctx);
+        char whySummary[256]; AsWhySummary(whySummary, sizeof(whySummary));
         Log("aimseam/drive: wrote the AIM-pose ray into %s tick %d | dir (%+.3f %+.3f %+.3f) "
             "dot(view)=%+.3f | rel right/up/fwd (%+.3f %+.3f %+.3f) | off the head in XR "
             "%.1f deg, off the view in game %.1f deg (these must agree; that is the "
             "mapping's own check, and it does NOT catch a left/right mirror) | "
             "aimPos (%.0f %.0f %.0f) at %.0f uu along the ray | "
-            "%ld write(s), %ld refused (%s), the game rewrote the cache under us "
-            "%ld time(s). Rewrites are EXPECTED (it recomputes every tick) and are "
+            "projected (%.3f %.3f)%s | %ld write(s), %ld refused [%s], the game "
+            "rewrote the cache under us %ld time(s). Projection check against the "
+            "engine's own sample: mine (%.3f %.3f) vs its (%.3f %.3f), error %.4f "
+            "over %ld sample(s) - above about 0.05 the crosshair formula is wrong. Rewrites are EXPECTED (it recomputes every tick) and are "
             "not evidence by themselves. What the run decides: whether the BOLT "
             "follows this ray or still the crosshair - if it still follows the "
             "crosshair, the fire path does not read this cache and the seam is "
@@ -493,7 +595,11 @@ static void AimSeamDrive(void)
             dir[0], dir[1], dir[2], V3Dot(dir, viewF), relDbg[0], relDbg[1], relDbg[2],
             xrDeg, gameDeg,
             pos[0], pos[1], pos[2],
-            (double)g_asDriveDistUU, g_asWrites, g_asWriteRefused, g_asWriteWhy,
-            g_asOverwritten);
+            (double)g_asDriveDistUU, (double)proj[0], (double)proj[1],
+            projOk ? "" : " NOT WRITTEN (behind the view or no FOV)",
+            g_asWrites, g_asWriteRefused, whySummary, g_asOverwritten,
+            (double)g_asProjMine[0], (double)g_asProjMine[1],
+            (double)g_asProjGame[0], (double)g_asProjGame[1],
+            (double)g_asProjErr, g_asProjSamples);
     }
 }
