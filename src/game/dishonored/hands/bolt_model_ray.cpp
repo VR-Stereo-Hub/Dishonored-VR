@@ -33,6 +33,7 @@ struct BrGeometry {
     // measured it stays true without the projectile being drawn again, which also
     // removes the dropout while no projectile is on screen.
     char weapon[64]={};
+    bool fromBody=false;          // true = fitted from the weapon mesh, not a projectile
     float palmOrigin[3]={},palmDir[3]={};
     bool haveRay=false;
 };
@@ -57,6 +58,22 @@ static bool BrIsLoadedProjectile(const char* a)
     return false;
 }
 
+// A WEAPON BODY, as the fallback when a weapon has no visible loaded projectile.
+// The pistol is the case that forced this: its loaded bullet is reported by the
+// attach as a member whose component transform is UNREADABLE, all zeros, so it can
+// never be a verified instance and no projectile axis exists for it. Its own mesh
+// does have a readable transform.
+//
+// Kept deliberately narrow and excluded from the strict path: the body ref, and
+// anything that is a projectile, are not weapon bodies.
+static bool BrIsWeaponBody(const char* a)
+{
+    if (!a || !*a) return false;
+    if (BrIsLoadedProjectile(a)) return false;
+    if (strstr(a, "Skm_Player")) return false;       // the body mesh, the bridge anchor
+    return true;
+}
+
 static void BrRefuse(const char* why) {
     DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,5000,"modelray: unavailable: %s",why);
 }
@@ -71,7 +88,7 @@ static void BrRefuseAsset(const char* asset, const char* why) {
         "deliberately never one, because its longest axis is not its barrel.",
         asset ? asset : "?", why);
 }
-static bool BrReadGeometry(IDirect3DDevice9* dev,WaMesh* w,BrGeometry& g) {
+static bool BrReadGeometry(IDirect3DDevice9* dev,WaMesh* w,BrGeometry& g,float minRatio) {
     g={};g.vb=w->vb;g.ib=w->ib;g.decl=w->decl;g.offset=w->streamOffset;
     g.stride=w->stride;g.start=w->startIndex;g.count=w->numVerts;g.prims=w->primCount;
     g.base=w->baseVertex;g.minIndex=w->minIndex;g.tried=GetTickCount64();
@@ -124,7 +141,7 @@ static bool BrReadGeometry(IDirect3DDevice9* dev,WaMesh* w,BrGeometry& g) {
             bone=chosen;memcpy(points[n++],v+pos.off,12);
         }
         vb->Unlock();
-        if(!valid||!dvr::hf::bolt_axis(points,n,g.axis))break;
+        if(!valid||!dvr::hf::bolt_axis_ratio(points,n,minRatio,g.axis))break;
         g.bone=bone;g.ok=true;ok=true;
     }while(false);
     ib->Release();vb->Release();return ok;
@@ -165,33 +182,43 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     // THE WEAPON DECIDES, not the ammunition. A different weapon invalidates the
     // axis; a different projectile in the SAME weapon does not.
     const char* weapon=BrWeaponFor(wc,w->hand);
-    if(weapon[0]&&strncmp(g.weapon,weapon,sizeof(g.weapon)-1)){
-        const bool had=g.haveRay;
-        g={};
-        strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
-        if(had)Log("modelray: weapon changed to '%s' - the stored axis is discarded "
-                   "and will be re-measured from this weapon's own loaded projectile.",
-                   weapon);
-    }
-    // REFRESH. The stored ray is in the palm frame and so does not depend on the
-    // pose, which means any draw of this weapon can keep it current - the
-    // projectile does not have to be on screen. This is what stops the guide
-    // blinking out mid-reload, and it is not a new measurement: the values are the
-    // ones already measured for this weapon.
-    if(!isProjectile){
-        if(g.haveRay&&g.weapon[0]&&wc->unitsPerMeter>=1){
-            dvr::hands::ModelRaySnapshot out;out.ok=true;out.sampleMs=now;
-            for(int i=0;i<3;++i){out.originPalm[i]=g.palmOrigin[i];out.dirPalm[i]=g.palmDir[i];}
-            AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
+    // AN EMPTY NAME IS NOT A DIFFERENT WEAPON. This discarded the axis on every
+    // frame: the projectile's own draw reports no weapon name, so an empty stored
+    // name compared as a mismatch, the measurement was thrown away and taken again
+    // forever - 408 adoptions in one run, all of them for weapon '?'. Fill an empty
+    // name in; only a genuine change between two KNOWN names resets anything.
+    if(weapon[0]){
+        if(!g.weapon[0]) strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
+        else if(strncmp(g.weapon,weapon,sizeof(g.weapon)-1)){
+            const bool had=g.haveRay;
+            g={};
+            strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
+            if(had)Log("modelray: weapon changed to '%s' - the stored axis is "
+                       "discarded and will be measured again for this weapon.",weapon);
         }
+    }
+    // PUBLISH FROM ANY DRAW OF THIS HAND. The stored ray is in the palm frame and so
+    // does not depend on the pose or on which mesh is being drawn; republishing it
+    // needs no transform, no geometry and no verified instance. Gating this on the
+    // weapon's own draw is what left the guide stale and fell back to head aim.
+    if(g.haveRay){
+        dvr::hands::ModelRaySnapshot out;out.ok=true;out.sampleMs=now;
+        for(int i=0;i<3;++i){out.originPalm[i]=g.palmOrigin[i];out.dirPalm[i]=g.palmDir[i];}
+        AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
         return;
     }
-    // Already measured for THIS weapon: do not re-measure from another bolt, or the
-    // dot moves when the ammunition does.
-    if(g.haveRay)return;
+    // Nothing stored yet, so this draw has to be a candidate we can MEASURE: a
+    // loaded projectile (precise, aimed from its tip) or the weapon body itself
+    // (the fallback, aimed from its centre). A projectile is always preferred.
+    const bool body=!isProjectile&&BrIsWeaponBody(w->asset);
+    if(!isProjectile&&!body)return;
     const bool same=g.vb==w->vb&&g.ib==w->ib&&g.decl==w->decl&&g.stride==w->stride&&g.offset==w->streamOffset&&
         g.start==w->startIndex&&g.count==w->numVerts&&g.prims==w->primCount&&g.base==w->baseVertex&&g.minIndex==w->minIndex;
-    if(!same||(!g.ok&&now-g.tried>5000))if(!BrReadGeometry(dev,w,g)){
+        // A weapon body only needs a DOMINANT axis; a bolt must be nearly 1D. The
+    // strict threshold is what keeps a body from ever being read as a barrel on the
+    // precise path, so it is relaxed only where a body is what we asked for.
+    const float minRatio=body?3.0f:16.0f;
+    if(!same||(!g.ok&&now-g.tried>5000))if(!BrReadGeometry(dev,w,g,minRatio)){
             BrRefuseAsset(w->asset,"not a supported rigid elongated mesh (needs single-bone "
                                    "rigid skinning, 16:1 axial variance, and a readable "
                                    "position/weight/index layout)");
@@ -214,6 +241,7 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
             return;
         }
         g.sign=dot>0?1:-1;
+        g.fromBody=body;
         Log("modelray: measured '%s' axis - rigid slot %d, variance ratio %.1f (16:1 "
             "required), length %.3f, sign %+d. This is the loaded projectile's own "
             "lengthwise axis carried through the same transforms that draw it, so it "
@@ -223,7 +251,9 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     dvr::hf::Xform invPalm;
     if(!dvr::wf::inverse(wc->palm,&invPalm)||wc->unitsPerMeter<1)return;
     const auto posed=dvr::hf::xform_mul(invPalm,dvr::hf::xform_mul(draw,dvr::hf::xform_mul(delta,skin)));
-    float tip[3],axis[3],p[3],d[3];dvr::hf::bolt_tip(g.axis,g.sign,tip,axis);
+    float tip[3],axis[3],p[3],d[3];
+    if(g.fromBody) dvr::hf::bolt_middle(g.axis,g.sign,tip,axis);
+    else           dvr::hf::bolt_tip(g.axis,g.sign,tip,axis);
     dvr::hf::mulv3(posed.r,tip,p);dvr::hf::mulv3(posed.r,axis,d);
     float len=0;for(int i=0;i<3;++i)len+=d[i]*d[i];
     if(!std::isfinite(len)||len<1e-8f)return;
@@ -233,10 +263,13 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     measured[w->hand]=wc->present;
     for(int i=0;i<3;++i){g.palmOrigin[i]=out.originPalm[i];g.palmDir[i]=out.dirPalm[i];}
     g.haveRay=true;
-    Log("modelray: '%s' axis adopted for weapon '%s' - this ray is now held for "
+    Log("modelray: '%s' axis adopted for weapon '%s' (%s) - this ray is now held for "
         "EVERY projectile this weapon loads, so changing ammunition cannot move it, "
         "and it survives frames where no projectile is drawn because it is stored in "
         "the palm frame. It is discarded when the weapon changes.",
-        w->asset,g.weapon[0]?g.weapon:"?");
+        w->asset,g.weapon[0]?g.weapon:"?",
+        g.fromBody?"from the WEAPON MESH, aimed from its centre - the fallback for a "
+                   "weapon with no visible loaded projectile"
+                 :"from the loaded PROJECTILE, aimed from its tip - the precise path");
     AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
 }

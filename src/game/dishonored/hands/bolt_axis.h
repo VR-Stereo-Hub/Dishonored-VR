@@ -4,7 +4,15 @@
 #include <cmath>
 namespace dvr::hf {
 struct BoltAxis { float center[3]={}, dir[3]={}, low=0, high=0, ratio=0; };
-inline bool bolt_axis(const float (*points)[3], int n, BoltAxis& result) {
+// VR-57: the variance ratio is a PARAMETER now, because two different things are
+// being fitted. A loaded bolt is nearly one-dimensional and must clear 16:1 - that
+// strictness is what stops a weapon body being mistaken for a barrel. A weapon body
+// fitted deliberately, as the fallback for a weapon with no visible projectile,
+// only needs a dominant axis; a pistol has a grip at right angles to its barrel and
+// will never reach 16:1. The caller says which it is asking for, and the ORIGIN it
+// uses differs too: a bolt is aimed from its tip, a weapon body from its centre,
+// which is insensitive to how long the mesh happens to be.
+inline bool bolt_axis_ratio(const float (*points)[3], int n, float minRatio, BoltAxis& result) {
     if(n<16 || n>1024) return false;
     BoltAxis a;
     for(int j=0;j<n;++j) for(int i=0;i<3;++i) {
@@ -25,12 +33,24 @@ inline bool bolt_axis(const float (*points)[3], int n, BoltAxis& result) {
     float along=0;for(int r=0;r<3;++r)for(int c=0;c<3;++c)along+=a.dir[r]*cov[r][c]*a.dir[c];
     const float transverse=cov[0][0]+cov[1][1]+cov[2][2]-along;
     a.ratio=along/(transverse>1e-6f?transverse:1e-6f);
-    if(a.ratio<16 || !std::isfinite(a.ratio))return false;
+    if(a.ratio<minRatio || !std::isfinite(a.ratio))return false;
     a.low=1e20f;a.high=-1e20f;
     for(int j=0;j<n;++j){float t=0;for(int i=0;i<3;++i)t+=(points[j][i]-a.center[i])*a.dir[i];
         if(t<a.low)a.low=t;if(t>a.high)a.high=t;}
     if(a.high-a.low<0.01f)return false;
     result=a;return true;
+}
+// The original name, at the strict bolt threshold, so every existing caller and
+// test keeps its exact meaning.
+inline bool bolt_axis(const float (*points)[3], int n, BoltAxis& result) {
+    return bolt_axis_ratio(points, n, 16.0f, result);
+}
+// The CENTRE of the fitted mesh with the axis direction - what a weapon body aims
+// from. Asked for directly: using the middle rather than an end keeps a pistol, a
+// grenade, a tool and a power feeling like the same gesture, because the origin
+// stops depending on the silhouette's length.
+inline void bolt_middle(const BoltAxis& a, int sign, float* point, float* direction) {
+    for(int i=0;i<3;++i){point[i]=a.center[i];direction[i]=a.dir[i]*sign;}
 }
 inline void bolt_tip(const BoltAxis& a, int sign, float* point, float* direction) {
     for(int i=0;i<3;++i){point[i]=a.center[i]+a.dir[i]*(sign>0?a.high:a.low);direction[i]=a.dir[i]*sign;}
