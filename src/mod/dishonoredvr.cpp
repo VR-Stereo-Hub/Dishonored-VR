@@ -109,6 +109,7 @@
 #include "mod/state/60_game_dishonored_ue3_reflect.inc"
 #include "mod/state/61_game_dishonored_startup.inc"
 #include "mod/state/62_game_dishonored_ue3_ui_state.inc"
+#include "mod/state/63_game_dishonored_aim_seam.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
@@ -224,6 +225,9 @@
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/uobject.cpp"
 #include "game/dishonored/ue3/reflect.cpp"
+
+// VR-57: the fire-direction probe (read-only); needs reflect.cpp's resolver above.
+#include "game/dishonored/aim_seam.cpp"
 #include "game/dishonored/ue3/ui_state.cpp"
 #include "game/dishonored/startup.cpp"
 #undef DVR_CAT

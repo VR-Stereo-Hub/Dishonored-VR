@@ -129,6 +129,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     }
     ArmFollowTick();                              // VR-30: the arm-follow probe (read-only, finds its own camera)
     PrTick();                                     // VR-33: the pose/socket report - SCRIPT LANE, where the objects are coherent
+    AimSeamTick();                                // VR-57: where the shot's direction comes from (read-only)
 #if DVR_WITH_LEGACY
     BqTick();                                     // VR-33 step 1b: the bone queries, consumed on this lane only
 #endif

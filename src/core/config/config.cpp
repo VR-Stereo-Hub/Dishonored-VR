@@ -369,6 +369,17 @@ static void WriteDefaultIni(const char* ini)
         "MaxDistUU=900\n"
         "FlipRight=0\n"
         "FlipUp=0\n"
+        "[Aim]\n"
+        "; VR-57 step 2, READ-ONLY. SeamProbe=1 samples the game's own aim-assist\n"
+        "; cache four times a second and logs it (aimseam: lines): the tick tag,\n"
+        "; whether a target was found, its world position and direction, the\n"
+        "; projected screen point, and how far that direction sits from the view\n"
+        "; and from the controller ray. It answers where the shot's direction\n"
+        "; comes from before anything writes it. Nothing the game reads is\n"
+        "; written. SeamVerbose=1 also logs the instances whose tick tag is not\n"
+        "; moving (the NPC contexts), which is the control.\n"
+        "SeamProbe=0\n"
+        "SeamVerbose=0\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -977,6 +988,12 @@ static void LoadConfig()
     if (g_padDeadzone > 0.6f)  g_padDeadzone = 0.6f;
     g_fireTraceEnabled = IniFloat(ini, "Debug", "FireTrace", 1) != 0.0f;
     g_maimEnabled  = IniFloat(ini, "MotionAim", "Enabled", 0) != 0.0f;
+    g_asOn      = IniFloat(ini, "Aim", "SeamProbe", 0) != 0.0f;    // VR-57: read-only fire-seam probe
+    g_asVerbose = IniFloat(ini, "Aim", "SeamVerbose", 0) != 0.0f;
+    if (g_asOn)
+        Log("config: [Aim] SeamProbe=1 - sampling the game's own aim-assist cache "
+            "four times a second (read-only, aimseam: lines)%s",
+            g_asVerbose ? "; verbose: quiet instances logged too" : "");
     {
         dvr::aim::Config crosshair;
         crosshair.dot = GetPrivateProfileIntA("Crosshair", "Dot", 0, ini) != 0;
