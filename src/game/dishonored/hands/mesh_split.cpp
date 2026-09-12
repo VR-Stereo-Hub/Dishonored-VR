@@ -3434,6 +3434,40 @@ static const char* kMpAdjKeyName[6] = { "Numpad 8", "Numpad 2", "Numpad 6",
 
 static void MpCalibTick(void)
 {
+    // VR-57: write down a freshly measured model axis, with the grip it was measured
+    // against so a later recalibration invalidates it rather than silently aiming
+    // through a frame that no longer exists.
+    {
+        const LONG ms = InterlockedExchange(&g_brSaveReq, 0);
+        for (int h = 0; h < 2 && ms; h++) {
+            if (!(ms & (1 << h))) continue;
+            const char* sfx = h ? "R" : "L";
+            static const char* const ax[3] = { "X", "Y", "Z" };
+            char key[40], v[64];
+            for (int a2 = 0; a2 < 3; a2++) {
+                _snprintf(key, sizeof(key), "ModelAxis%sO%s", sfx, ax[a2]);
+                _snprintf(v, sizeof(v), "%.6f", (double)g_brSaveOrigin[h][a2]);
+                ConfigWriteKey("Hands", key, v, "the model axis measurement");
+                _snprintf(key, sizeof(key), "ModelAxis%sD%s", sfx, ax[a2]);
+                _snprintf(v, sizeof(v), "%.6f", (double)g_brSaveDir[h][a2]);
+                ConfigWriteKey("Hands", key, v, "the model axis measurement");
+                // The grip defines the palm frame the ray is expressed in.
+                _snprintf(key, sizeof(key), "ModelAxis%sG%s", sfx, ax[a2]);
+                _snprintf(v, sizeof(v), "%.4f", (double)g_mpGripDeg[h][a2]);
+                ConfigWriteKey("Hands", key, v, "the model axis measurement");
+            }
+            Log("modelray: SAVED the %s hand's axis - origin (%.4f %.4f %.4f) m, "
+                "direction (%.4f %.4f %.4f), measured against grip "
+                "(%.2f %.2f %.2f). A future launch that never equips the crossbow "
+                "restores this instead of showing no guide.",
+                h ? "right" : "left",
+                (double)g_brSaveOrigin[h][0], (double)g_brSaveOrigin[h][1],
+                (double)g_brSaveOrigin[h][2], (double)g_brSaveDir[h][0],
+                (double)g_brSaveDir[h][1], (double)g_brSaveDir[h][2],
+                (double)g_mpGripDeg[h][0], (double)g_mpGripDeg[h][1],
+                (double)g_mpGripDeg[h][2]);
+        }
+    }
     // Save a freshly solved grip, once, per side.
     const LONG save = InterlockedExchange(&g_mpGripSaveReq, 0);
     if (save) {

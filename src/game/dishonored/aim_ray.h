@@ -41,6 +41,20 @@ struct ModelRaySnapshot {
     bool ok=false;
 };
 ModelRaySnapshot model_ray_snapshot(int hand);
+// VR-57: PERSIST THE MEASURED AXIS ACROSS LAUNCHES.
+//
+// The axis can only be measured from a drawn crossbow bolt, so a session that never
+// equips the crossbow never gets one - loading a save with the pistol out left no
+// guide at all. The measured ray is a palm-frame constant, which is exactly the kind
+// of thing that can be written down, so it is saved on first measurement and
+// restored at startup as the fallback.
+//
+// It survives hand tuning, because it is expressed in the palm frame and that frame
+// is rebuilt from the CURRENT trim every time it is used. It does NOT survive a grip
+// recalibration, which redefines the frame itself, so the grip it was measured
+// against is stored with it and a mismatch discards it.
+void preload_model_ray(int hand, const float* originPalm, const float* dirPalm);
+void forget_model_ray(const char* why);
 } // namespace dvr::hands
 namespace dvr::aim {
 struct Ray {

@@ -71,6 +71,32 @@ struct BrGeometry {
     bool haveRay=false;
 };
 static BrGeometry g_brGeom[2];
+
+namespace dvr::hands {
+void preload_model_ray(int hand,const float* originPalm,const float* dirPalm)
+{
+    if(hand<0||hand>1||!originPalm||!dirPalm)return;
+    float r2=0,n2=0;
+    for(int i=0;i<3;++i){r2+=originPalm[i]*originPalm[i];n2+=dirPalm[i]*dirPalm[i];}
+    // The same bounds a fresh measurement must pass, so a hand-edited or corrupt
+    // record cannot install a ray that a live measurement would have refused.
+    if(!(sqrtf(r2)<0.8f)||!(n2>0.9f&&n2<1.1f))return;
+    auto& g=g_brGeom[hand];
+    for(int i=0;i<3;++i){g.palmOrigin[i]=originPalm[i];g.palmDir[i]=dirPalm[i]/sqrtf(n2);}
+    g.haveRay=true;
+    ModelRaySnapshot out;out.ok=true;out.latched=true;out.sampleMs=GetTickCount64();
+    for(int i=0;i<3;++i){out.originPalm[i]=g.palmOrigin[i];out.dirPalm[i]=g.palmDir[i];}
+    AcquireSRWLockExclusive(&g_brLock);g_brRay[hand]=out;ReleaseSRWLockExclusive(&g_brLock);
+}
+void forget_model_ray(const char* why)
+{
+    AcquireSRWLockExclusive(&g_brLock);
+    for(int h=0;h<2;++h){g_brGeom[h]={};g_brRay[h]=ModelRaySnapshot();}
+    ReleaseSRWLockExclusive(&g_brLock);
+    Log("modelray: the stored axis is discarded - %s. It will be measured again from "
+        "the crossbow's ordinary bolt.",why?why:"requested");
+}
+} // namespace dvr::hands
 // WHICH meshes are candidates. A NAME test only, and the name is not what makes
 // this safe: the geometry gates below are. Rigid single-bone skinning, 16:1 axial
 // variance, an unambiguous forward sign, bounded counts and validated index ranges
@@ -416,6 +442,11 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     }
     for(int i=0;i<3;++i){g.palmOrigin[i]=out.originPalm[i];g.palmDir[i]=out.dirPalm[i];}
     g.haveRay=true;
+    // Ask the script lane to write it down. A session that never equips the crossbow
+    // cannot measure one, so the record is what gives it a guide at all.
+    for(int i=0;i<3;++i){g_brSaveOrigin[w->hand][i]=out.originPalm[i];
+                         g_brSaveDir[w->hand][i]=out.dirPalm[i];}
+    InterlockedOr(&g_brSaveReq,(LONG)(1<<w->hand));
     Log("modelray: '%s' axis LATCHED from weapon '%s' (%s) - it is now the shared ray for "
         "EVERY weapon and every ammunition for the rest of the session, including the "
         "pistol. Nothing discards it - not a weapon switch, not a reload - so it "
