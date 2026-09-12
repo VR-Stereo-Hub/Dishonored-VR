@@ -323,6 +323,74 @@ static void AimSeamTick(void)
 }
 
 
+// THE HAND RAY IN THE GAME'S WORLD AXES, built from the runtime's AIM pose.
+//
+// The 2026-09-11 drive run wrote directions with a large +Z (up) component -
+// dir (+0.491 -0.119 +0.863), dot(view) +0.51 - which is the "up and behind"
+// the old motion aim has always shot. The cause is the ray it was built from:
+// MaimHandRel -> HandRelFull reads g_devPose, which present_tick fills from
+// the GRIP pose, then tilts it by [MotionAim] PitchOffsetDeg (40 degrees) and
+// can mirror it. The grip is the handle, not a pointing axis.
+//
+// This builds the ray the runtime already publishes for pointing, with no
+// offset and no flips, and expresses it in the same head-relative triple the
+// game-space mapping wants: {right, up, forward} against a ROLL-FREE head
+// frame, because the game camera has no roll.
+//
+// THE CHECK THAT CAN FAIL IT: the angle between the aim ray and the head's
+// forward in XR space must equal the angle between the direction this returns
+// and the view's forward in game space. Those are the same physical angle
+// measured on both sides of the mapping, so a disagreement is proof the
+// mapping is wrong, not an opinion about where a hand looks.
+static float* g_asRelOut = NULL;   // the head-relative triple, for the log
+static bool AsHandDirGame(float* dirOut, float* xrDeg, float* gameDeg,
+                          const char** why)
+{
+    dvr::vr::HeadPose head;
+    if (!dvr::vr::peek_head_pose(head)) { *why = "no head pose"; return false; }
+    const int hand = dvr::aim::config().hand;
+    float apos[3], aq[4];
+    if (!dvr::vr::input_get_hand_pose(hand, true, apos, aq)) {
+        *why = "no AIM pose for that hand"; return false;
+    }
+    const float fwdLocal[3] = { 0.0f, 0.0f, -1.0f };
+    float aim[3], headFwd[3];
+    dvr::xrmath::quat_rotate(aq[0], aq[1], aq[2], aq[3], fwdLocal, aim);
+    dvr::xrmath::quat_rotate(head.qx, head.qy, head.qz, head.qw, fwdLocal, headFwd);
+    if (V3Norm(aim) < 0.5f || V3Norm(headFwd) < 0.5f) {
+        *why = "a pose rotated to a degenerate direction"; return false;
+    }
+
+    // The roll-free head frame, in XR axes (right +X, up +Y, forward -Z).
+    const float upW[3] = { 0.0f, 1.0f, 0.0f };
+    float right[3]; V3Cross(headFwd, upW, right);
+    if (V3Norm(right) < 0.2f) { *why = "the head is looking straight up or down"; return false; }
+    float up[3]; V3Cross(right, headFwd, up); V3Norm(up);
+
+    // {right, up, forward} against that frame. In XR's right-handed axes
+    // (forward x worldUp) already points RIGHT, which is why HandRelFull takes
+    // this dot unnegated too; [MotionAim] FlipRight exists because that sign
+    // was once in doubt, and it stays 0 here.
+    //
+    // NOTE what the angle check below CANNOT catch: a left/right mirror has the
+    // same angle off the head, so it passes. The headset is what decides that
+    // one - a mirrored ray sends the shot to the wrong side of the view.
+    float rel[3] = { V3Dot(aim, right), V3Dot(aim, up), V3Dot(aim, headFwd) };
+    MaimDirFromView(g_viewYawRad, g_viewPitchRad, rel, dirOut);
+    const float n = V3Norm(dirOut);
+    if (!(n > 0.5f && n < 2.0f)) { *why = "the mapped direction is not unit"; return false; }
+
+    const float viewF[3] = { cosf(g_viewPitchRad) * cosf(g_viewYawRad),
+                             cosf(g_viewPitchRad) * sinf(g_viewYawRad),
+                             sinf(g_viewPitchRad) };
+    const float cx = V3Dot(aim, headFwd), cg = V3Dot(dirOut, viewF);
+    if (xrDeg)   *xrDeg   = acosf(cx < -1.0f ? -1.0f : (cx > 1.0f ? 1.0f : cx)) * 57.2957795f;
+    if (gameDeg) *gameDeg = acosf(cg < -1.0f ? -1.0f : (cg > 1.0f ? 1.0f : cg)) * 57.2957795f;
+    if (g_asRelOut) { g_asRelOut[0] = rel[0]; g_asRelOut[1] = rel[1]; g_asRelOut[2] = rel[2]; }
+    *why = "ready";
+    return true;
+}
+
 // ---- DRIVING IT (VR-57 step 3, [Aim] DriveFromHand) -------------------------
 //
 // The probe established (2026-09-11, build 103-gdf52d9f3) that the equipped
@@ -357,12 +425,26 @@ static void AimSeamDrive(void)
     if (!LooksLikeObj(ctx)) { g_asCtx = NULL; g_asWriteWhy = "the context stopped reading as a UObject"; return; }
     if (!AsIsProjectileCtx(ObjClassName(ctx))) { g_asCtx = NULL; g_asWriteWhy = "the context changed class"; return; }
 
-    float rel[3], dir[3];
-    if (!MaimHandRel(rel)) { ++g_asWriteRefused; g_asWriteWhy = "no controller pose"; return; }
-    MaimDirFromView(g_viewYawRad, g_viewPitchRad, rel, dir);
-    const float n = sqrtf(V3Dot(dir, dir));
-    if (!(n > 0.5f && n < 2.0f)) { ++g_asWriteRefused; g_asWriteWhy = "the hand ray is not a unit direction"; return; }
-    for (int i = 0; i < 3; i++) dir[i] /= n;
+    float dir[3], relDbg[3] = {0, 0, 0};
+    float xrDeg = -1.0f, gameDeg = -1.0f;
+    const char* rayWhy = "?";
+    g_asRelOut = relDbg;
+    if (!AsHandDirGame(dir, &xrDeg, &gameDeg, &rayWhy)) {
+        ++g_asWriteRefused; g_asWriteWhy = rayWhy; return;
+    }
+    // The mapping's own falsification. If the angle off the head in XR and the
+    // angle off the view in the game disagree, the direction below is wrong
+    // whatever it looks like, so it is not written.
+    if (fabsf(xrDeg - gameDeg) > 5.0f) {
+        ++g_asWriteRefused;
+        g_asWriteWhy = "the XR and game angles disagree - the mapping is wrong";
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 2000,
+            "aimseam/drive: REFUSED - the aim ray sits %.1f deg off the head in XR "
+            "but the mapped direction sits %.1f deg off the view in the game. Those "
+            "are the same physical angle, so the mapping is wrong and nothing is "
+            "written.", xrDeg, gameDeg);
+        return;
+    }
     float cam[3];
     if (!dvr::camera::render_pos(cam)) { ++g_asWriteRefused; g_asWriteWhy = "no camera position published yet"; return; }
 
@@ -396,8 +478,11 @@ static void AimSeamDrive(void)
                                  cosf(g_viewPitchRad) * sinf(g_viewYawRad),
                                  sinf(g_viewPitchRad) };
         const char* cn = ObjClassName(ctx);
-        Log("aimseam/drive: wrote the hand ray into %s tick %d | dir (%+.3f %+.3f %+.3f) "
-            "dot(view)=%+.3f | aimPos (%.0f %.0f %.0f) at %.0f uu along the ray | "
+        Log("aimseam/drive: wrote the AIM-pose ray into %s tick %d | dir (%+.3f %+.3f %+.3f) "
+            "dot(view)=%+.3f | rel right/up/fwd (%+.3f %+.3f %+.3f) | off the head in XR "
+            "%.1f deg, off the view in game %.1f deg (these must agree; that is the "
+            "mapping's own check, and it does NOT catch a left/right mirror) | "
+            "aimPos (%.0f %.0f %.0f) at %.0f uu along the ray | "
             "%ld write(s), %ld refused (%s), the game rewrote the cache under us "
             "%ld time(s). Rewrites are EXPECTED (it recomputes every tick) and are "
             "not evidence by themselves. What the run decides: whether the BOLT "
@@ -405,7 +490,9 @@ static void AimSeamDrive(void)
             "crosshair, the fire path does not read this cache and the seam is "
             "elsewhere.",
             cn ? cn : "?", haveBefore ? before.tickTag : -1,
-            dir[0], dir[1], dir[2], V3Dot(dir, viewF), pos[0], pos[1], pos[2],
+            dir[0], dir[1], dir[2], V3Dot(dir, viewF), relDbg[0], relDbg[1], relDbg[2],
+            xrDeg, gameDeg,
+            pos[0], pos[1], pos[2],
             (double)g_asDriveDistUU, g_asWrites, g_asWriteRefused, g_asWriteWhy,
             g_asOverwritten);
     }
