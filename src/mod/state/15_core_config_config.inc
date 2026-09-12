@@ -81,7 +81,7 @@ static uint32_t g_launchW = 0, g_launchH = 0;       // the ask the launch file c
 static bool     g_launchFull = true;
 static bool     g_launchVirtual = false;            // the file asked for VirtualMode (wins over the ini)
 static const char* kBuildTag = "41.0";
-static const int kConfigVersion = 10; // bump to refresh users' ini with new defaults
+static const int kConfigVersion = 11; // bump to refresh users' ini with new defaults
 
 // Load config exactly once, lazily, from OUTSIDE the loader lock (first export
 // call). Safe to call repeatedly; only the first does work.

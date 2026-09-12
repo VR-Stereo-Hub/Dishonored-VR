@@ -1,5 +1,37 @@
 # Status
 
+## CURRENT (2026-09-12, end of branch): the crossbow aims from its own barrel (VR-57)
+
+`claude/vr-57-laser-to-bolt`, off `claude/vr-57-crosshair-on-hand-ray`. Headset
+confirmed by the tester: the guide sits on the crossbow's bolt line, the bolt lands on
+it for all three bolt types, it follows the numpad hand trim, it holds across weapon
+switches and reloads, and it survives a relaunch including a save loaded with the
+pistol out. Full write-up in `dishonored/VR-57-MODEL-RAY.md`.
+
+What ships ON by default now, with the tester's own calibration baked in as the
+default: `[Aim] ModelRay`, `FollowHandTrim`, `FireFromHand`, `[Crosshair] Dot`, and the
+measured `[Hands] ModelAxisL*` paired with the grip it was measured against. A first
+launch therefore has a correct guide rather than none. `kConfigVersion` is bumped to 11
+so an existing install picks the new defaults up. The deliberate exception to
+default-OFF is argued in the feature doc.
+
+Two earlier branch items also landed: the hand trim's rotation range went from 45 to
+180 degrees per axis, with one shared limit so the ini load can no longer clamp back
+what the numpad tuned; and `c5` is now read in world terms, having been found to carry
+the camera position NEGATED, which had put every written aim point 348 m away.
+
+Next, and the reason for the next session: **pistol shots still follow head aim.** The
+native fire hook installs for the player's crossbow firing context only, so nothing
+the guide does moves them. Its fire path needs tracing and hooking on its own address.
+The pistol's GUIDE is already correct - it shares the bolt axis - so this is purely the
+fire seam.
+
+Also open and untouched: the aim assist's pull toward the game's own solution, a
+measured axis for weapons with no usable projectile (needs vertex subsampling and
+multi-bone handling past the reader's 1024-vertex limit), and the VR-77/78/79/80/81 and
+VR-75 items carried from before.
+
+
 ## CURRENT (2026-09-12): native crossbow hand-aim candidate (VR-57)
 
 Implemented the byte-verified native pre-spawn firing hook. It aims the existing

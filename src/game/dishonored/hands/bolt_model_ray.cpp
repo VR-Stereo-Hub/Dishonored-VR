@@ -66,7 +66,6 @@ struct BrGeometry {
     float pendOrigin[3]={},pendDir[3]={};
     int   pendVotes=0;
     uint64_t pendFirstMs=0;   // frames are not time; the window must span both
-    bool fromBody=false;          // true = fitted from the weapon mesh, not a projectile
     float palmOrigin[3]={},palmDir[3]={};
     bool haveRay=false;
 };
@@ -117,28 +116,18 @@ static bool BrIsLoadedProjectile(const char* a)
     return false;
 }
 
-// A WEAPON BODY, as the fallback when a weapon has no visible loaded projectile.
-// The pistol is the case that forced this: its loaded bullet is reported by the
-// attach as a member whose component transform is UNREADABLE, all zeros, so it can
-// never be a verified instance and no projectile axis exists for it. Its own mesh
-// does have a readable transform.
-//
-// Kept deliberately narrow and excluded from the strict path: the body ref, and
-// anything that is a projectile, are not weapon bodies.
 // DOES THIS PROJECTILE BELONG TO THE EQUIPPED WEAPON?
 //
-// It was never asked, and that is the whole fault. A `bolt_01` draw happens even
-// with the pistol equipped, so the crossbow's bolt was measured and stored as the
-// PISTOL's ray - the log caught it exactly: "'bolt_01' axis adopted for weapon
-// 'EliteGun'". Worse, its forward sign was then resolved against the pistol's
-// forward, which is how the two weapons ended up mirrored: left and up on one,
-// right and down on the other. Switching back handed the crossbow that corrupted
-// result.
+// It was not asked once, and that was the whole of a mirroring fault: a bolt is drawn
+// even with the pistol equipped, so the crossbow's bolt was measured and stored as
+// the PISTOL's axis - "'bolt_01' axis adopted for weapon 'EliteGun'" in the log - and
+// its forward sign resolved against the pistol's forward, leaving the two weapons
+// mirrored and the crossbow corrupted after a switch.
 //
-// A name pairing is the right tool here and not a guess: "is this the loaded
-// ammunition of this weapon" is a question about game content, and the content
-// answers it. An UNKNOWN weapon refuses rather than measuring against nothing,
-// which is what let a bolt be adopted under a gun in the first place.
+// A name pairing is the right tool rather than a guess: "is this the loaded ammunition
+// of this weapon" is a question about game content and the content answers it. An
+// unknown or not-yet-named weapon refuses, which is what let a bolt be adopted under a
+// gun in the first place.
 static bool BrProjectileMatchesWeapon(const char* proj,const char* weapon)
 {
     if(!proj||!*proj||!weapon||!*weapon)return false;
@@ -149,14 +138,6 @@ static bool BrProjectileMatchesWeapon(const char* proj,const char* weapon)
     if(projBolt)  return wpnXbow;
     if(projBullet)return wpnGun;
     return false;
-}
-
-static bool BrIsWeaponBody(const char* a)
-{
-    if (!a || !*a) return false;
-    if (BrIsLoadedProjectile(a)) return false;
-    if (strstr(a, "Skm_Player")) return false;       // the body mesh, the bridge anchor
-    return true;
 }
 
 static void BrRefuse(const char* why) {
@@ -311,7 +292,6 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     // mirrored axis.
     const char* weapon=BrWeaponFor(wc,w->hand);
     if(weapon[0]&&!g.weapon[0]) strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
-    const bool body=false;
     if(_stricmp(w->asset,"bolt_01")){
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,10000,
             "modelray: waiting for the regular bolt to measure the shared axis; '%s' "
@@ -331,10 +311,10 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     }
     const bool same=g.vb==w->vb&&g.ib==w->ib&&g.decl==w->decl&&g.stride==w->stride&&g.offset==w->streamOffset&&
         g.start==w->startIndex&&g.count==w->numVerts&&g.prims==w->primCount&&g.base==w->baseVertex&&g.minIndex==w->minIndex;
-        // A weapon body only needs a DOMINANT axis; a bolt must be nearly 1D. The
-    // strict threshold is what keeps a body from ever being read as a barrel on the
-    // precise path, so it is relaxed only where a body is what we asked for.
-    const float minRatio=body?3.0f:16.0f;
+        // A bolt must be nearly one-dimensional. This strictness is the thing that stops
+    // any other mesh being read as a barrel, and it is why a weapon BODY can never
+    // supply an axis here - see the note above on why that was tried and removed.
+    const float minRatio=16.0f;
     if(!same||(!g.ok&&now-g.tried>5000))if(!BrReadGeometry(dev,w,g,minRatio)){
             BrRefuseAsset(w->asset,"not a supported rigid elongated mesh (needs single-bone "
                                    "rigid skinning, 16:1 axial variance, and a readable "
@@ -368,7 +348,6 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
             return;
         }
         g.sign=g.pendingSign;
-        g.fromBody=body;
         Log("modelray: measured '%s' axis - rigid slot %d, variance ratio %.1f (16:1 "
             "required), length %.3f, sign %+d. This is the loaded projectile's own "
             "lengthwise axis carried through the same transforms that draw it, so it "
@@ -379,8 +358,7 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     if(!dvr::wf::inverse(wc->palm,&invPalm)||wc->unitsPerMeter<1)return;
     const auto posed=dvr::hf::xform_mul(invPalm,dvr::hf::xform_mul(draw,dvr::hf::xform_mul(delta,skin)));
     float tip[3],axis[3],p[3],d[3];
-    if(g.fromBody) dvr::hf::bolt_middle(g.axis,g.sign,tip,axis);
-    else           dvr::hf::bolt_tip(g.axis,g.sign,tip,axis);
+    dvr::hf::bolt_tip(g.axis,g.sign,tip,axis);
     dvr::hf::mulv3(posed.r,tip,p);dvr::hf::mulv3(posed.r,axis,d);
     float len=0;for(int i=0;i<3;++i)len+=d[i]*d[i];
     if(!std::isfinite(len)||len<1e-8f)return;
@@ -447,15 +425,12 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     for(int i=0;i<3;++i){g_brSaveOrigin[w->hand][i]=out.originPalm[i];
                          g_brSaveDir[w->hand][i]=out.dirPalm[i];}
     InterlockedOr(&g_brSaveReq,(LONG)(1<<w->hand));
-    Log("modelray: '%s' axis LATCHED from weapon '%s' (%s) - it is now the shared ray for "
+    Log("modelray: '%s' axis LATCHED from weapon '%s' - it is now the shared ray for "
         "EVERY weapon and every ammunition for the rest of the session, including the "
         "pistol. Nothing discards it - not a weapon switch, not a reload - so it "
         "cannot be inverted by a switch, and it still follows the hand trim because "
         "it is stored in the palm frame. Confirmed over 5 agreeing frames, so it was "
         "measured from a seated bolt rather than one mid-reload.",
-        w->asset,g.weapon[0]?g.weapon:"?",
-        g.fromBody?"from the WEAPON MESH, aimed from its centre - the fallback for a "
-                   "weapon with no visible loaded projectile"
-                 :"from the loaded PROJECTILE, aimed from its tip - the precise path");
+        w->asset,g.weapon[0]?g.weapon:"?");
     AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
 }
