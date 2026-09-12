@@ -88,6 +88,45 @@ The marker windows overlap and flickers cluster. Raising the 42% baseline rate
 to the 37th power assumes independence the sample does not have. Keep the timing
 correlation, discard the p-value. See `dishonored/VR-76-CODEX-HANDOFF.md`.
 
+### A save that persists a whole block of defaults, with one wrong literal in it
+
+**2026-09-12. It stopped the weapons tracking the hands, which is the one thing
+the original author's rules say must never break.**
+
+`AttachRigRadius` had never been in the installed ini, so it took its compiled
+default of 200. An ini save then wrote out the entire `Attach*` block - every key
+that had been absent - and all of them landed on their correct defaults except
+that one, which was written as **2**. The value 2 belongs to
+`AttachHeldMaxPresents` and `AttachRefMaxPresents`, which sit immediately beside
+it in the same block.
+
+At 2 the gate asks whether a weapon is within 2 units of the body mesh before it
+counts as part of the view model. The crossbow measured 157. So every weapon was
+refused as "not a member" and none was moved to the hand, while the HANDS kept
+placing normally - `placed` climbed past 34,000 in the same run. A subsystem was
+dead and the nearest counter said everything was fine.
+
+Three things made it hard to see, and each is the lesson:
+
+* **The loader clamps the value to a minimum of 10, and the log prints the
+  CLAMPED number.** The run said "past the 10 uu rig radius" while the file said
+  2. Neither number was the default, and the one in the log was not the one
+  written. *Log the requested value beside the effective one, or a reader cannot
+  tell a clamp from a setting.*
+* **An absent key and a key at its default are not the same thing.** Absent means
+  the compiled default applies and a save will materialise it. Once materialised
+  it is a value somebody can get wrong, and it beats every compiled default
+  afterwards. This is the stale-setting class from section 1 arriving by a new
+  route: not an edit in the wrong place, but a SAVE of a place nobody had edited.
+* **Offline tests cannot catch it.** 73,822 host checks passed on that build. The
+  fault was entirely in a config value, and the geometry maths they exercise was
+  correct the whole time.
+
+> **Diff the installed ini against the previous one on every install**, not just
+> the keys you meant to change. A save can write keys you never touched, and a
+> wrong literal in one of them reads as a broken subsystem rather than as a
+> setting.
+
 ## 2. Instruments that could not fail their own hypothesis
 
 Every one of these produced a confident number that meant nothing. They are
