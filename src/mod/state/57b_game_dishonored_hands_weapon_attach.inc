@@ -103,6 +103,10 @@ struct WaComp {
     int           hand;
 };
 struct WaCommon {
+    dvr::hf::Xform palm;
+    float forward[3];
+    float unitsPerMeter;
+    void* target; D3DVIEWPORT9 viewport;
     dvr::hf::Xform D;          // camera-relative world space
     dvr::hf::Xform L_hand;     // the hand draw's own transform, for the bridge
     uint32_t present;          // dvr::frame::count() when it was built

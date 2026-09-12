@@ -17,6 +17,8 @@ struct TrimSnapshot {
     float    G[9];            // the grip calibration the DRAW uses, parity included
     float    trimRdeg[3];
     float    trimTm[3];       // metres, palm frame
+    float    headPos[3]={};
+    float    handToWorldScale=1; // palette UU/metre divided by world UU/metre
     uint32_t revision = 0;
     bool     ok = false;      // false = unusable; `why` says which input was missing
     const char* why = "not sampled";
@@ -24,6 +26,12 @@ struct TrimSnapshot {
 // Present lane. Copies scalars under the publisher's lock and returns; it does no
 // XR work, no logging and no engine work while holding it.
 TrimSnapshot trim_snapshot(int hand);
+struct ModelRaySnapshot {
+    float originPalm[3]={}, dirPalm[3]={}; // metres, corrected palm frame
+    uint64_t sampleMs=0;
+    bool ok=false;
+};
+ModelRaySnapshot model_ray_snapshot(int hand);
 } // namespace dvr::hands
 namespace dvr::aim {
 struct Ray {
@@ -112,10 +120,11 @@ struct Config { bool dot = false, laser = false; int hand = 0; float distanceM =
                 bool controlDot = false; 
                 // VR-57: transport the hand trim onto this ray, so tuning the hand
                 // carries the guide and the shot. Off = the AIM pose, untouched.
-                bool followHandTrim = false; };  // VR-57 test 1: the HEAD-anchored control
+                bool modelRay = false; bool followHandTrim = false; };  // VR-57 test 1: the HEAD-anchored control
                                              // dot, which no controller enters. See
                                              // core/vr/aim_visual.h for what it settles.
 Config config();
+bool model_ray_requested();
 void configure(const Config& cfg, const char* origin);
 Ray ray(); // most recent present-thread snapshot, no recomputation
 // One publication for the visual ray and native firing consumer. The head

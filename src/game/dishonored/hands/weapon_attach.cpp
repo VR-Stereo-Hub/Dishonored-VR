@@ -269,6 +269,10 @@ static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& 
     for (int i = 0; i < 3; i++) L.t[i] = c->t[i];
 
     WaCommon w = {};
+    w.palm = g_mpPalmTarget[hand];
+    w.target = c->target; w.viewport = c->viewport;
+    memcpy(w.forward, c->f, sizeof(w.forward));
+    w.unitsPerMeter = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain;
     w.L_hand  = L;
     dvr::hf::Xform invL;
     if (!dvr::wf::inverse(L, &invL)) return;
@@ -393,6 +397,8 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
 }
 
 
+#include "game/dishonored/hands/bolt_model_ray.cpp"
+
 // ---- recognition by buffer identity -----------------------------------------
 
 // Apply a known delta to whatever palette this shader declares. Shared by the
@@ -444,6 +450,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
     if (SUCCEEDED(drawHr)) {
         InterlockedIncrement(&g_waSucceeded);
         InterlockedIncrement(&w->placed);
+        BrMeasure(dev, w, source, (UINT)cnt, delta);
     }
     if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, source, (UINT)cnt))) {
         InterlockedIncrement(&g_waRestoreFail);
@@ -1369,7 +1376,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     const HRESULT drawHr = dvr::frame::orig_draw_indexed(dev, type, baseVertex,
         minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
-    if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); }
+    if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
     if (changedVp && FAILED(dev->SetViewport(&savedVp))) InterlockedIncrement(&g_waRestoreFail);
     if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waRestoreFail);
