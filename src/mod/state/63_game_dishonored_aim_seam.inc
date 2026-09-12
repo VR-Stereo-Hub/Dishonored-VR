@@ -8,3 +8,4 @@ static int      g_asN = 0;
 static uint8_t* g_asObj[kAsMax] = {};
 static int32_t  g_asTag[kAsMax] = {};
 static int32_t  g_asPawnTag = 0x7fffffff;
+static bool     g_asLiveSeen = false;  // a context whose tick tag advanced with a real direction
