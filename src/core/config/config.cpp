@@ -414,6 +414,8 @@ static void WriteDefaultIni(const char* ini)
         "; It is NOT a measured barrel axis: any baseline offset between the AIM pose\n"
         "; and the barrel is preserved. Off returns the AIM-pose ray untouched.\n"
         "FollowHandTrim=0\n"
+        "; ModelRay: measure the loaded bolt geometry; overrides FollowHandTrim.\n"
+        "ModelRay=0\n"
         "; FireWatch (VR-57 Phase B) records named script dispatches - anything whose\n"
         "; name mentions Aim, Fire, Shoot, Launch, Projectile or ViewPoint - and prints\n"
         "; the ones preceding each scored bolt, with the caller that made them. READ-ONLY.\n"
@@ -1943,6 +1945,7 @@ static void LoadConfig()
     {
         dvr::aim::Config ch = dvr::aim::config();
         ch.followHandTrim = GetPrivateProfileIntA("Aim", "FollowHandTrim", 0, ini) != 0;
+        ch.modelRay = GetPrivateProfileIntA("Aim", "ModelRay", 0, ini) != 0;
         dvr::aim::configure(ch, ini);
         Log("config: [Aim] FollowHandTrim=%d - %s. This is NOT a measured barrel "
             "axis or muzzle position: it transports the hand trim onto the existing "
@@ -2811,6 +2814,8 @@ static void OverlaySaveDefaults()
     {
         const auto crosshair = dvr::aim::config();
         WritePrivateProfileStringA("Aim", "FireFromHand", FireAimEnabled() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Aim", "ModelRay", dvr::aim::config().modelRay ? "1" : "0", ini);
+        WritePrivateProfileStringA("Aim", "FollowHandTrim", dvr::aim::config().followHandTrim ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Dot", crosshair.dot ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Laser", crosshair.laser ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Hand", crosshair.hand ? "right" : "left", ini);

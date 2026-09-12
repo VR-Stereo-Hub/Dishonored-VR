@@ -3362,7 +3362,8 @@ static bool MpReadHandCal(int hand, MpHandCal* out)
 namespace dvr::hands {
 TrimSnapshot trim_snapshot(int hand)
 {
-    TrimSnapshot s;
+    TrimSnapshot s{};
+    if (!g_mpRotate) { s.why = "hand rotation disabled"; return s; }
     if (hand < 0 || hand > 1) { s.why = "invalid hand"; return s; }
     MpHandCal cal;
     if (!MpReadHandCal(hand, &cal)) { s.why = "no calibration snapshot published yet"; return s; }
@@ -3381,9 +3382,11 @@ TrimSnapshot trim_snapshot(int hand)
     for (int r = 0; r < 3; r++) {
         for (int c = 0; c < 3; c++) s.R_C[r * 3 + c] = g_devPose[3 + hand][r][c];
         s.p0[r] = g_devPose[3 + hand][r][3];
+        s.headPos[r] = g_devPose[0][r][3];
     }
     for (int i = 0; i < 9; i++) s.G[i] = cal.G.m[i];
     for (int i = 0; i < 3; i++) { s.trimRdeg[i] = cal.trimRdeg[i]; s.trimTm[i] = cal.trimTm[i]; }
+    s.handToWorldScale = ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain) / g_posScaleUU;
     s.revision = cal.revision;
     s.ok = true; s.why = "ready";
     return s;
