@@ -272,7 +272,7 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     // It still moves with the hand: the stored ray is in the palm frame, so the trim
     // carries it exactly as it carries the weapon.
     if(g.haveRay){
-        dvr::hands::ModelRaySnapshot out;out.ok=true;out.sampleMs=now;
+        dvr::hands::ModelRaySnapshot out;out.ok=true;out.latched=true;out.sampleMs=now;
         for(int i=0;i<3;++i){out.originPalm[i]=g.palmOrigin[i];out.dirPalm[i]=g.palmDir[i];}
         AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
         return;
@@ -358,7 +358,7 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     dvr::hf::mulv3(posed.r,tip,p);dvr::hf::mulv3(posed.r,axis,d);
     float len=0;for(int i=0;i<3;++i)len+=d[i]*d[i];
     if(!std::isfinite(len)||len<1e-8f)return;
-    dvr::hands::ModelRaySnapshot out;out.ok=true;out.sampleMs=now;
+    dvr::hands::ModelRaySnapshot out;out.ok=true;out.latched=true;out.sampleMs=now;
     for(int i=0;i<3;++i){out.originPalm[i]=(p[i]+posed.t[i])/wc->unitsPerMeter;out.dirPalm[i]=d[i]/sqrtf(len);
         if(!std::isfinite(out.originPalm[i]))return;}
     // THE TIP MUST BE WITHIN REACH OF THE PALM.
