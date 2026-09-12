@@ -18,6 +18,23 @@ struct BrGeometry {
     int bone=-1,sign=0;
     bool ok=false;
     uint64_t tried=0;
+    // VR-57: which WEAPON this axis was measured for, and the finished palm-frame
+    // ray it produced. Both are keyed on the weapon rather than the projectile on
+    // purpose.
+    //
+    // `bolt_01` is not one mesh: the same asset name measured at length 44.531 and
+    // at 20.708 in one run, so the regular and the poison bolt are different
+    // shapes sharing a name and their tips sit in different places. Re-measuring
+    // per ammunition therefore MOVED the dot when the ammunition changed, which is
+    // exactly what the tester saw. One weapon is one barrel, so the first good
+    // measurement for a weapon is kept until the weapon itself changes.
+    //
+    // And because the stored ray is in the PALM frame it is pose-independent: once
+    // measured it stays true without the projectile being drawn again, which also
+    // removes the dropout while no projectile is on screen.
+    char weapon[64]={};
+    float palmOrigin[3]={},palmDir[3]={};
+    bool haveRay=false;
 };
 static BrGeometry g_brGeom[2];
 // WHICH meshes are candidates. A NAME test only, and the name is not what makes
@@ -112,8 +129,24 @@ static bool BrReadGeometry(IDirect3DDevice9* dev,WaMesh* w,BrGeometry& g) {
     }while(false);
     ib->Release();vb->Release();return ok;
 }
+// Which weapon is in this hand, taken from the component snapshot the attach has
+// already built - no new engine read, and no name guess: a member on this hand that
+// is not a loaded projectile is the weapon.
+static const char* BrWeaponFor(const WaCommon* wc,int hand)
+{
+    if(!wc)return "";
+    for(int i=0;i<wc->componentCount&&i<WA_MAX_COMP;++i){
+        const WaComp* c=&wc->components[i];
+        if(!c->isMember||c->hand!=hand||c->isRef)continue;
+        if(BrIsLoadedProjectile(c->asset))continue;
+        if(c->asset[0])return c->asset;
+    }
+    return "";
+}
+
 static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT regs,const dvr::hf::Xform& delta) {
-    if(!dvr::aim::model_ray_requested()||!BrIsLoadedProjectile(w->asset)||w->hand<0||w->hand>1)return;
+    if(!dvr::aim::model_ray_requested()||w->hand<0||w->hand>1)return;
+    const bool isProjectile=BrIsLoadedProjectile(w->asset);
     const WaCommon* wc=WaCommonFor(w->hand,nullptr);
     if(!wc||!w->heldOk||w->heldPresent!=(uint32_t)dvr::frame::count()||!w->lastL2WOk)return;
     // Only the color view, and only a currently verified HELD instance. No shadow/world samples.
@@ -129,6 +162,33 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     static uint32_t measured[2]={~0u,~0u};
     if(measured[w->hand]==wc->present)return;
     auto& g=g_brGeom[w->hand];const uint64_t now=GetTickCount64();
+    // THE WEAPON DECIDES, not the ammunition. A different weapon invalidates the
+    // axis; a different projectile in the SAME weapon does not.
+    const char* weapon=BrWeaponFor(wc,w->hand);
+    if(weapon[0]&&strncmp(g.weapon,weapon,sizeof(g.weapon)-1)){
+        const bool had=g.haveRay;
+        g={};
+        strncpy(g.weapon,weapon,sizeof(g.weapon)-1);
+        if(had)Log("modelray: weapon changed to '%s' - the stored axis is discarded "
+                   "and will be re-measured from this weapon's own loaded projectile.",
+                   weapon);
+    }
+    // REFRESH. The stored ray is in the palm frame and so does not depend on the
+    // pose, which means any draw of this weapon can keep it current - the
+    // projectile does not have to be on screen. This is what stops the guide
+    // blinking out mid-reload, and it is not a new measurement: the values are the
+    // ones already measured for this weapon.
+    if(!isProjectile){
+        if(g.haveRay&&g.weapon[0]&&wc->unitsPerMeter>=1){
+            dvr::hands::ModelRaySnapshot out;out.ok=true;out.sampleMs=now;
+            for(int i=0;i<3;++i){out.originPalm[i]=g.palmOrigin[i];out.dirPalm[i]=g.palmDir[i];}
+            AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
+        }
+        return;
+    }
+    // Already measured for THIS weapon: do not re-measure from another bolt, or the
+    // dot moves when the ammunition does.
+    if(g.haveRay)return;
     const bool same=g.vb==w->vb&&g.ib==w->ib&&g.decl==w->decl&&g.stride==w->stride&&g.offset==w->streamOffset&&
         g.start==w->startIndex&&g.count==w->numVerts&&g.prims==w->primCount&&g.base==w->baseVertex&&g.minIndex==w->minIndex;
     if(!same||(!g.ok&&now-g.tried>5000))if(!BrReadGeometry(dev,w,g)){
@@ -171,5 +231,12 @@ static void BrMeasure(IDirect3DDevice9* dev,WaMesh* w,const float* palette,UINT 
     for(int i=0;i<3;++i){out.originPalm[i]=(p[i]+posed.t[i])/wc->unitsPerMeter;out.dirPalm[i]=d[i]/sqrtf(len);
         if(!std::isfinite(out.originPalm[i])||fabsf(out.originPalm[i])>2)return;}
     measured[w->hand]=wc->present;
+    for(int i=0;i<3;++i){g.palmOrigin[i]=out.originPalm[i];g.palmDir[i]=out.dirPalm[i];}
+    g.haveRay=true;
+    Log("modelray: '%s' axis adopted for weapon '%s' - this ray is now held for "
+        "EVERY projectile this weapon loads, so changing ammunition cannot move it, "
+        "and it survives frames where no projectile is drawn because it is stored in "
+        "the palm frame. It is discarded when the weapon changes.",
+        w->asset,g.weapon[0]?g.weapon:"?");
     AcquireSRWLockExclusive(&g_brLock);g_brRay[w->hand]=out;ReleaseSRWLockExclusive(&g_brLock);
 }
