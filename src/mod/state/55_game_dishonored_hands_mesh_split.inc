@@ -715,6 +715,30 @@ static const float kMpTrimPosLimit = 0.25f;
 // an error: a large trim is retained, not refused.
 static const float kMpTrimRotNotice = 45.0f;
 
+// ---- VR-57: the hand calibration snapshot the AIM lane reads ------------------
+//
+// The grip is solved ON A DRAW (render thread) and the trims change from the
+// numpad and the ini, while the ray is published on the PRESENT lane. So the
+// readers cannot walk the mutable matrices: an immutable copy is published under
+// a lock whenever anything in it changes, with a revision so a reader can say
+// which version it used and two halves of one calibration can never be mixed.
+//
+// The lock is held only to copy scalars. No XR call, no logging and no engine
+// work happens inside it.
+struct MpHandCal {
+    dvr::hf::Mat3 G;            // the grip the DRAW uses, parity included
+    float trimRdeg[3];
+    float trimTm[3];            // metres, palm frame
+    bool  haveGrip;             // false = uncalibrated; the draw substitutes a
+                                // parity default that needs the draw basis, which
+                                // the present lane cannot reproduce
+    uint32_t revision;
+};
+static SRWLOCK   g_mpCalLock = SRWLOCK_INIT;
+static MpHandCal g_mpCal[2] = {};
+static uint32_t  g_mpCalRev = 0;
+
+
 // ===========================================================================
 // THE NUMPAD ADJUST (VR-33). Adopted key for key from the maintainer's own
 // BioShock Remastered VR mod, because these are the keys the tester already

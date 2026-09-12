@@ -2526,6 +2526,7 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
                                                 ~(LONG)(1 << hand));
             if (capPrev & (1 << hand)) {
                 g_mpGrip[hand] = dvr::hf::grip_solve(O_C, c->R_L, R_src);
+                MpPublishHandCal(hand);   // VR-57: the AIM lane reads a copy, not this
                 g_mpGripId[hand] = nowId;
                 g_mpGripFromIni[hand] = false;
                 g_mpGripHave[hand] = true;
@@ -3331,6 +3332,64 @@ static void MpDriveTick(void)
 // The four adjust modes, named the way the log has to name them: which hand,
 // and whether the keys are moving it or turning it. A mode INDEX in a log is
 // no use to somebody in a headset who cannot read the log while pressing.
+// Called from every writer: the grip solve, the ini load and the numpad adjust.
+static void MpPublishHandCal(int hand)
+{
+    if (hand < 0 || hand > 1) return;
+    MpHandCal c;
+    c.G = g_mpGrip[hand];
+    for (int i = 0; i < 3; i++) {
+        c.trimRdeg[i] = g_mpTrimR[hand][i];
+        c.trimTm[i]   = g_mpTrimT[hand][i];
+    }
+    c.haveGrip = g_mpGripHave[hand];
+    AcquireSRWLockExclusive(&g_mpCalLock);
+    c.revision = ++g_mpCalRev;
+    g_mpCal[hand] = c;
+    ReleaseSRWLockExclusive(&g_mpCalLock);
+}
+static bool MpReadHandCal(int hand, MpHandCal* out)
+{
+    if (hand < 0 || hand > 1 || !out) return false;
+    AcquireSRWLockShared(&g_mpCalLock);
+    *out = g_mpCal[hand];
+    ReleaseSRWLockShared(&g_mpCalLock);
+    return out->revision != 0;
+}
+
+// The accessor aim_ray.cpp calls. Defined here because this is the translation
+// unit that owns the grip, the trims and the device poses.
+namespace dvr::hands {
+TrimSnapshot trim_snapshot(int hand)
+{
+    TrimSnapshot s;
+    if (hand < 0 || hand > 1) { s.why = "invalid hand"; return s; }
+    MpHandCal cal;
+    if (!MpReadHandCal(hand, &cal)) { s.why = "no calibration snapshot published yet"; return s; }
+    if (!cal.haveGrip) {
+        // The draw substitutes a parity-matched default derived from its OWN basis
+        // when a hand is uncalibrated. The present lane cannot reproduce that, and
+        // inventing one or reusing a stale draw would be a guess presented as a
+        // measurement - so this refuses instead.
+        s.why = "the hand has no grip calibration (SHIFT+F7); the draw's parity "
+                "default needs a draw basis this lane cannot see";
+        return s;
+    }
+    if (!g_devPoseOk[0] || !g_devPoseOk[3 + hand]) {
+        s.why = "the head or grip pose is not tracking"; return s;
+    }
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) s.R_C[r * 3 + c] = g_devPose[3 + hand][r][c];
+        s.p0[r] = g_devPose[3 + hand][r][3];
+    }
+    for (int i = 0; i < 9; i++) s.G[i] = cal.G.m[i];
+    for (int i = 0; i < 3; i++) { s.trimRdeg[i] = cal.trimRdeg[i]; s.trimTm[i] = cal.trimTm[i]; }
+    s.revision = cal.revision;
+    s.ok = true; s.why = "ready";
+    return s;
+}
+} // namespace dvr::hands
+
 static const char* MpAdjModeName(int m)
 {
     switch (m) {
@@ -3500,6 +3559,7 @@ static void MpCalibTick(void)
             "still saved and will apply the moment rotation starts placing.",
             g_mpRotRefused, g_mpRotWhy);
 
+    MpPublishHandCal(h);   // VR-57: the ray follows the trim, so it needs this now
     // Write back under the per-hand key so a restart brings it back.
     static const char* tk[3] = { "TX", "TY", "TZ" };
     static const char* rk[3] = { "RX", "RY", "RZ" };

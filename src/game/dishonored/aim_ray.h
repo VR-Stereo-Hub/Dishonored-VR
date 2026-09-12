@@ -5,6 +5,26 @@
 #include "core/util/xr_math.h"
 #include "core/vr/aim_visual.h"
 namespace dvr::status { class Writer; }
+// VR-57: the hand calibration and grip pose the trim transport needs, published by
+// the unity translation unit that owns them. aim_ray.cpp is its own TU and must not
+// reach into those statics, nor copy the calibration/default/trim selection logic -
+// one accessor keeps the lock, the parity handling and the "which grip does the draw
+// actually use" decision in exactly one place.
+namespace dvr::hands {
+struct TrimSnapshot {
+    float    R_C[9];          // grip orientation, XR LOCAL, row major
+    float    p0[3];           // grip position, XR LOCAL metres: the untrimmed palm origin
+    float    G[9];            // the grip calibration the DRAW uses, parity included
+    float    trimRdeg[3];
+    float    trimTm[3];       // metres, palm frame
+    uint32_t revision = 0;
+    bool     ok = false;      // false = unusable; `why` says which input was missing
+    const char* why = "not sampled";
+};
+// Present lane. Copies scalars under the publisher's lock and returns; it does no
+// XR work, no logging and no engine work while holding it.
+TrimSnapshot trim_snapshot(int hand);
+} // namespace dvr::hands
 namespace dvr::aim {
 struct Ray {
     bool ok = false;
@@ -89,7 +109,10 @@ inline void visual_append(dvr::vr::AimVisualConfig& out, const Ray& ray, bool do
 
 struct Config { bool dot = false, laser = false; int hand = 0; float distanceM = 8, sizeDeg = 0.5f;
                 bool bothPoses = false;      // draw the GRIP ray too, at half size
-                bool controlDot = false; };  // VR-57 test 1: the HEAD-anchored control
+                bool controlDot = false; 
+                // VR-57: transport the hand trim onto this ray, so tuning the hand
+                // carries the guide and the shot. Off = the AIM pose, untouched.
+                bool followHandTrim = false; };  // VR-57 test 1: the HEAD-anchored control
                                              // dot, which no controller enters. See
                                              // core/vr/aim_visual.h for what it settles.
 Config config();
