@@ -137,7 +137,25 @@ void tick(bool gameplay, bool projectionWanted) {
     }
     g_modelRayUsed = modelUsed;
 
-    if (!modelUsed && g_config.followHandTrim && g_ray.ok) {
+    // WAITING FOR THE AXIS IS NOT A REASON TO SHOW THE OTHER RAY.
+    //
+    // The controller ray carries the AIM-pose baseline offset, so showing it while the
+    // model axis is still settling guarantees a visible jump the moment the axis
+    // latches - which is exactly what the tester saw: correct for a second, then far
+    // to the left for four or five, then correct again as the latch landed. The
+    // apparent "correction" was the latch arriving, not a fault healing.
+    //
+    // So the controller ray is the fallback for ModelRay being OFF, not for ModelRay
+    // being on and not yet ready. While it is pending, no guide is shown at all. No
+    // guide is honest; a guide in the wrong place that later moves is not, and the
+    // stated requirement is that a laser which starts correct must never move.
+    if (g_config.modelRay && !modelUsed && g_ray.ok) {
+        g_ray.ok = false;
+        g_ray.why = "waiting for the shared bolt axis to settle (equip the crossbow "
+                    "with ordinary bolts once; no guide is shown until it is measured, "
+                    "so it cannot appear in the wrong place and then move)";
+    }
+    if (!modelUsed && !g_config.modelRay && g_config.followHandTrim && g_ray.ok) {
         const int h = g_config.hand;
         const dvr::hands::TrimSnapshot cal = dvr::hands::trim_snapshot(h);
         if (!cal.ok) {
