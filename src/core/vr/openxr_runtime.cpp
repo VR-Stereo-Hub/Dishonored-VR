@@ -5,6 +5,7 @@
 // is where each guard was paid for; do not renumber them.
 
 #include "core/vr/openxr_runtime.h"
+#include "core/vr/aim_visual.h" // 41.2 (Dishonored, VR-57): explicit one-ray visuals
 
 #include "core/util/log.h"
 #include "core/util/clock.h"
@@ -93,6 +94,11 @@ bool data_dir_w(wchar_t* out /*MAX_PATH*/) {
 // layers along the aim ray. Runtimes are only required to accept 16 layers, so
 // the dot count is capped well under that with the game's own layer included.
 constexpr int kMaxLaserDots = 8;
+// VR-57: only the present thread publishes/reads these whole snapshots.
+AimVisualConfig g_aimVisual;
+AimVisualStats g_aimVisualStats;
+uint64_t g_aimVisualPublishedMs = 0;
+uint32_t g_aimLayerLimit = 0;
 constexpr uint32_t kLaserTexSize = 64;
 XrSwapchain g_laserSwapchain = XR_NULL_HANDLE;
 std::vector<XrSwapchainImageD3D11KHR> g_laserImages;
@@ -2248,6 +2254,7 @@ void try_bring_up() {
 
     XrSystemProperties sp{XR_TYPE_SYSTEM_PROPERTIES};
     xrGetSystemProperties(g_instance, g_system, &sp);
+    g_aimLayerLimit = sp.graphicsProperties.maxLayerCount;
     XRLOG("xr: system '%s' (max layers %u)", sp.systemName,
             sp.graphicsProperties.maxLayerCount);
 
@@ -3496,11 +3503,12 @@ bool publish_laser_image() {
     if (XR_FAILED(xrAcquireSwapchainImage(g_laserSwapchain, &ai, &index))) return false;
     XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
     wi.timeout = XR_INFINITE_DURATION;
-    if (XR_SUCCEEDED(xrWaitSwapchainImage(g_laserSwapchain, &wi)))
+    const bool imageReady = XR_SUCCEEDED(xrWaitSwapchainImage(g_laserSwapchain, &wi));
+    if (imageReady)
         g_context->CopyResource(g_laserImages[index].texture, g_laserDot);
     XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-    xrReleaseSwapchainImage(g_laserSwapchain, &ri);
-    return true;
+    const XrResult released = xrReleaseSwapchainImage(g_laserSwapchain, &ri);
+    return imageReady && XR_SUCCEEDED(released); // VR-57: require a valid, released image
 }
 
 // Fill one quad with the aim dot and return 1 if it was built.
@@ -3509,30 +3517,20 @@ bool publish_laser_image() {
 // thread already in XR space, converted from the exact fire-seam ray by
 // game_point_to_xr. All that happens here is billboarding and sizing, so
 // there is no second algebra that can drift from the first.
-uint32_t build_aim_dot_slot(XrCompositionLayerQuad* quad, int slot) {
-    const bool two = (slot == 1);
-    if (!(two ? g_dot2On : g_dotOn).load(std::memory_order_relaxed)) return 0;
-    if (!(two ? g_dot2Valid : g_dotValid).load(std::memory_order_relaxed)) return 0;
-    if (g_laserSwapchain == XR_NULL_HANDLE || !g_laserDot || !g_viewsValid) return 0;
-    // A publish that stopped arriving must not leave a dot floating: the ray
-    // going stale is exactly the state ray_for() refuses to substitute in.
-    uint64_t stamp = (two ? g_dot2StampMs : g_dotStampMs).load(std::memory_order_relaxed);
-    if (stamp == 0 || GetTickCount64() - stamp > kDotStaleMs) return 0;
-
-    float p[3] = {(two ? g_dot2X : g_dotX).load(std::memory_order_relaxed),
-                  (two ? g_dot2Y : g_dotY).load(std::memory_order_relaxed),
-                  (two ? g_dot2Z : g_dotZ).load(std::memory_order_relaxed)};
+// VR-57: shared POINT billboard geometry. No controller, trim or ray algebra.
+bool build_aim_point(const float p[3], float sizeDeg, XrCompositionLayerQuad* quad,
+                     float& distanceFromHead) {
+    if (!std::isfinite(sizeDeg) || sizeDeg <= 0 || sizeDeg > 5) return false;
     float head[3] = {(g_views[0].pose.position.x + g_views[1].pose.position.x) * 0.5f,
                      (g_views[0].pose.position.y + g_views[1].pose.position.y) * 0.5f,
                      (g_views[0].pose.position.z + g_views[1].pose.position.z) * 0.5f};
     float toHead[3] = {head[0] - p[0], head[1] - p[1], head[2] - p[2]};
     float len = sqrtf(toHead[0] * toHead[0] + toHead[1] * toHead[1] + toHead[2] * toHead[2]);
-    if (len < 0.02f) return 0; // inside the head
+    if (!std::isfinite(len) || len < 0.02f) return false; // inside the head
     toHead[0] /= len; toHead[1] /= len; toHead[2] /= len;
 
     constexpr float kDegToRad = 3.14159265f / 180.0f;
-    float sizeRad = (two ? g_dot2SizeDeg : g_dotSizeDeg).load(std::memory_order_relaxed) *
-                    kDegToRad;
+    float sizeRad = sizeDeg * kDegToRad;
 
     XrCompositionLayerQuad& q = *quad;
     q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
@@ -3547,6 +3545,25 @@ uint32_t build_aim_dot_slot(XrCompositionLayerQuad* quad, int slot) {
     float side = 2.0f * len * tanf(sizeRad * 0.5f);
     q.size = {side, side};
 
+    distanceFromHead = len;
+    return true;
+}
+
+uint32_t build_aim_dot_slot(XrCompositionLayerQuad* quad, int slot) {
+    const bool two = (slot == 1);
+    if (!(two ? g_dot2On : g_dotOn).load(std::memory_order_relaxed)) return 0;
+    if (!(two ? g_dot2Valid : g_dotValid).load(std::memory_order_relaxed)) return 0;
+    if (g_laserSwapchain == XR_NULL_HANDLE || !g_laserDot || !g_viewsValid) return 0;
+    // A publish that stopped arriving must not leave a dot floating: the ray
+    // going stale is exactly the state ray_for() refuses to substitute in.
+    uint64_t stamp = (two ? g_dot2StampMs : g_dotStampMs).load(std::memory_order_relaxed);
+    if (stamp == 0 || GetTickCount64() - stamp > kDotStaleMs) return 0;
+
+    float p[3] = {(two ? g_dot2X : g_dotX).load(std::memory_order_relaxed),
+                  (two ? g_dot2Y : g_dotY).load(std::memory_order_relaxed),
+                  (two ? g_dot2Z : g_dotZ).load(std::memory_order_relaxed)};
+    float len = 0;
+    if (!build_aim_point(p, (two ? g_dot2SizeDeg : g_dotSizeDeg).load(std::memory_order_relaxed), quad, len)) return 0;
     if (!g_loggedFirstDot.exchange(true))
         XRLOG("xr: aim dot live (xr %.3f %.3f %.3f, %.2f m from the head) - this is the "
                 "fire-seam ray point, not a reconstruction",
@@ -3554,6 +3571,53 @@ uint32_t build_aim_dot_slot(XrCompositionLayerQuad* quad, int slot) {
     return 1;
 }
 
+// 41.2 (Dishonored, VR-57): explicit visuals and bounded end-to-end outcomes.
+void note_aim_visual(AimVisualResult why, uint32_t dots = 0, uint32_t beam = 0) {
+    if (!g_aimVisual.enabled) return;
+    ++g_aimVisualStats.outcomes[(int)why];
+    // A pair-open present is expected and should not replace the last result
+    // of an actual submission opportunity in the status panel.
+    if (why != AimVisualResult::PairPending) g_aimVisualStats.last = why;
+    if (why == AimVisualResult::Submitted) {
+        ++g_aimVisualStats.submitted;
+        if (dots) ++g_aimVisualStats.dotFrames;
+        if (beam) ++g_aimVisualStats.beamFrames;
+        g_aimVisualStats.generation = g_aimVisual.generation;
+    }
+}
+AimVisualResult build_aim_visual(XrCompositionLayerQuad* quads,
+    const XrCompositionLayerBaseHeader** layers, uint32_t& count, int capacity,
+    bool& imagePublished, uint32_t& dots, uint32_t& beam) {
+    dots = beam = 0;
+    const auto& cfg = g_aimVisual;
+    if (!cfg.enabled) return AimVisualResult::Off;
+    if (!cfg.valid || cfg.count < 1 || cfg.count > kAimVisualPoints) return AimVisualResult::Invalid;
+    if (!aim_visual_fresh(cfg.sampleMs, g_aimVisualPublishedMs, GetTickCount64())) return AimVisualResult::Stale;
+    if (!count || layers[0]->type != XR_TYPE_COMPOSITION_LAYER_PROJECTION) return AimVisualResult::NotProjection;
+    if (!g_viewsValid || g_space == XR_NULL_HANDLE) return AimVisualResult::NoViews;
+    if (g_laserSwapchain == XR_NULL_HANDLE || !g_laserDot) return AimVisualResult::NoTexture;
+    const int budget = aim_visual_budget((int)count, (int)g_aimLayerLimit, capacity);
+    if (!budget) return AimVisualResult::Budget;
+    uint32_t built = 0;
+    bool skippedPoint = false;
+    for (int i = 0; i < cfg.count && (int)built < budget; ++i) {
+        float distance = 0;
+        if (!build_aim_point(cfg.points[i].pos, cfg.points[i].sizeDeg, &quads[built], distance)) {
+            skippedPoint = true; continue;
+        }
+        if (cfg.points[i].dot) ++dots; else ++beam;
+        ++built;
+    }
+    if (!built) return AimVisualResult::NearHead;
+    if (skippedPoint) ++g_aimVisualStats.outcomes[(int)AimVisualResult::NearHead];
+    if (budget < cfg.count) ++g_aimVisualStats.outcomes[(int)AimVisualResult::Budget];
+    if (!imagePublished && !(imagePublished = publish_laser_image())) {
+        dots = beam = 0; return AimVisualResult::ImageFailed;
+    }
+    for (uint32_t i = 0; i < built; ++i)
+        layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quads[i]);
+    return AimVisualResult::Submitted;
+}
 uint32_t build_aim_dot_layer(XrCompositionLayerQuad* quad) {
     return build_aim_dot_slot(quad, 0);
 }
@@ -3632,6 +3696,7 @@ void on_present_end(ID3D11Texture2D* frame) {
     PhaseScope psEnd(kPhPresentEnd); // records on every return path
     phase_heartbeat_maybe(GetTickCount64());
     if (!g_frameOpen) {
+        note_aim_visual(AimVisualResult::NoFrame);
         // No XR frame this present (session gone, or the pace guard skipped
         // it). The game may still be presenting alternating stereo eyes -
         // keep draining the tag ring and keep the window pinned to one eye.
@@ -3681,6 +3746,8 @@ void on_present_end(ID3D11Texture2D* frame) {
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
     XrCompositionLayerQuad laserQuads[kMaxLaserDots] = {};
+    XrCompositionLayerQuad aimVisualQuads[kAimVisualPoints] = {};
+    bool aimImagePublished = false; // shared texture may be published only once
     XrCompositionLayerQuad dotQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerQuad dot2Quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerQuad handQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
@@ -4083,6 +4150,7 @@ void on_present_end(ID3D11Texture2D* frame) {
                 }
 
                 if (pairHold) {
+                    note_aim_visual(AimVisualResult::PairPending);
                     // Left eye captured; submission happens when the RIGHT
                     // present completes this XR frame. Both eye poses come
                     // from this frame's single locate (g_views is untouched
@@ -4436,7 +4504,7 @@ void on_present_end(ID3D11Texture2D* frame) {
         uint32_t handRef = build_hand_ref_quad(&handQuad);
         // ONE acquire feeds every quad that referenced this swapchain, lasers
         // and aim dots alike - two acquires in a frame would be invalid.
-        if ((dots || dots2 || aimDot || aimDot2 || handRef) && !publish_laser_image()) {
+        if ((dots || dots2 || aimDot || aimDot2 || handRef) && !(aimImagePublished = publish_laser_image())) {
             dots = 0;
             dots2 = 0;
             aimDot = 0;
@@ -4580,6 +4648,14 @@ void on_present_end(ID3D11Texture2D* frame) {
                 g_zeroLayerBlack.load(std::memory_order_relaxed));
     }
 
+    // 41.2 (Dishonored, VR-57): AFTER the hold fallback. A single-draw hold
+    // must not blink the controller dot off. These are already-computed XR
+    // points, so neither the compositor nor the beam can invent another ray.
+    uint32_t visualDots = 0, visualBeam = 0;
+    AimVisualResult visualResult = build_aim_visual(aimVisualQuads, layers,
+        layerCount, (int)(sizeof(layers) / sizeof(layers[0])),
+        aimImagePublished, visualDots, visualBeam);
+
     XrFrameEndInfo fei{XR_TYPE_FRAME_END_INFO};
     fei.displayTime = g_frameState.predictedDisplayTime;
     fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -4591,6 +4667,9 @@ void on_present_end(ID3D11Texture2D* frame) {
         PhaseMark mark(kPhEndFrame); // the measured pacer - name it while in flight
         r = xrEndFrame(g_session, &fei);
     }
+    note_aim_visual(XR_FAILED(r) && visualResult == AimVisualResult::Submitted
+                       ? AimVisualResult::EndFailed : visualResult,
+                    XR_SUCCEEDED(r) ? visualDots : 0, XR_SUCCEEDED(r) ? visualBeam : 0);
     phase_record(kPhEndFrame, tEnd);
     {   // The submit's own cost, for the beat's rate line (see g_endFrames).
         const uint32_t efUs = g_phaseLastUs[kPhEndFrame].load(std::memory_order_relaxed);
@@ -5796,6 +5875,16 @@ int current_eye_sign() {
     return g_aerEyeSign.load(std::memory_order_relaxed);
 }
 
+void set_aim_visual(const AimVisualConfig& cfg) {
+    g_aimVisual = cfg;
+    g_aimVisualPublishedMs = GetTickCount64();
+    if (cfg.enabled) ++g_aimVisualStats.publishes;
+    else g_aimVisualStats.last = AimVisualResult::Off;
+}
+AimVisualStats aim_visual_stats() {
+    AimVisualStats s = g_aimVisualStats; s.layerLimit = g_aimLayerLimit; return s;
+}
+
 void set_laser(const LaserConfig& cfg) {
     g_laserOn.store(cfg.enabled, std::memory_order_relaxed);
     g_laserHand.store(cfg.hand ? 1 : 0, std::memory_order_relaxed);
@@ -6151,6 +6240,8 @@ float rendered_hfov_deg() { return 0.0f; }
 int current_eye_sign() { return 0; }
 void sr_push_eye(int) {}
 void set_laser(const LaserConfig&) {}
+void set_aim_visual(const AimVisualConfig&) {}
+AimVisualStats aim_visual_stats() { return {}; }
 void set_aim_dot(const AimDotConfig&) {}
 void set_hud_quad(float, float, float) {}
 void get_hud_quad(float* d, float* w, float* u) {

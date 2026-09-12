@@ -74,6 +74,16 @@ void input_draw_debug_ui();
 // while that hand is not tracked. Meters + quaternion, XR convention.
 bool input_get_hand_pose(int hand, bool aimPose, float* pos3, float* quat4);
 
+// VR-57 present-thread sample: both poses come from the same input_sync.
+// The generation/stamp name that sync, never the caller's current present.
+struct HandAimSample {
+    bool aimValid = false, gripValid = false;
+    float aimPos[3] = {}, aimQuat[4] = {}, gripPos[3] = {}, gripQuat[4] = {};
+    uint32_t generation = 0;
+    uint64_t stampMs = 0;
+};
+HandAimSample input_hand_aim_sample(int hand);
+
 // Session-20 vrrec (BioShock): a sim overlay on the funnel above. While any
 // slot is armed, input_get_hand_pose serves the injected poses to ALL
 // consumers; clear restores the live slots. Game-thread writers.

@@ -1,6 +1,29 @@
 # Status
 
-## CURRENT (2026-09-11, later): the last hand/weapon flicker is fixed (VR-76)
+## CURRENT (2026-09-11): VR-57 visual controller guide installed, user test pending
+
+Step 1 on `claude/vr-57-crosshair-on-hand-ray` publishes a fixed-distance dot and
+four beam markers from one validated XR aim-pose ray. F10 Aim and `crosshair`
+commands control both. The runtime adds explicit points after held-projection
+recovery, with freshness, budget and submission-result telemetry. MotionAim stays
+off; shots, native reticle, Blink and hand placement retain existing behavior.
+
+Installed `vr33-hands-working-100-geb8f27d4-dirty`, SHA256
+`F1164C5F354F9501DE4AD612EA37A5EB5AE126A6C1ABFD86BBA7A807CF1C9DD4`.
+Only new Crosshair settings were appended: dot/laser on, left hand, 8m, 0.5deg.
+Tree dot/laser defaults are off. Release build, 70,234 aim/compositor host
+assertions, mirror regression, hand/weapon tests and exports passed. No game or
+simulator launch. The guide appears only in the headset compositor, not the
+D3D9 desktop mirror. Source changes remain uncommitted for review.
+
+Next: user tests appearance/controller following, then static barrel alignment
+on a separate launch. The old failed shot direction is not yet isolated to pose
+choice; no measured weapon-axis comparison is invented. Full review answers,
+installed hashes, backups, instrumentation and testing:
+`dishonored/VR-57-CODEX-HANDOFF.md`. Trace and actual projectile aiming come later.
+
+
+## Earlier (2026-09-11, later): the last hand/weapon flicker is fixed (VR-76)
 
 The one-frame rightward jump of the hands and weapon is gone. The tester played the
 prologue through to the hub on `vr33-hands-working-95-g18d39cee-dirty` with

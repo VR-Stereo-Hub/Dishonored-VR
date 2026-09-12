@@ -1,5 +1,13 @@
 # Roadmap
 
+## VR-57 visual aiming guide (2026-09-11)
+
+- [x] Review the prior failure and preserve one ray for dot and beam.
+- [x] Implement fixed-distance XR visuals, F10/seam controls and renderer outcomes.
+- [x] Host-test ray/compositor paths, build x86 and install with MotionAim off.
+- [ ] User headset test: guide appears and follows the selected controller.
+- [ ] Separate static crossbow-barrel alignment test before trace/projectile work.
+
 ## VR-76 mirror correction (2026-09-11)
 
 - [x] Reproduce delayed-tag eye switching offline and implement current-draw pin.

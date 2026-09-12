@@ -248,3 +248,18 @@ The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 | `docs/dishonored/DESKTOP_MIRROR.md` | The counter reading that was retracted, and why the eye pin is not in the runtime layer. |
 | `docs/ARCHITECTURE.md` decision log | Why each non-obvious choice was made, dated. |
 | `docs/CODE_REVIEW.md` | Every finding from the review of the original single file, with its disposition. |
+
+### VR-57: an existing visual API can still violate the one-ray contract
+
+The legacy laser fetches its own pose and trims; the aim-dot API accepts a final
+point. Calling both does not make them consumers of identical ray data. The new
+guide publishes explicit endpoint/beam points from one immutable ray. Original
+sample age must also travel with that publication, or repeated publishes keep a
+stale pose falsely fresh.
+
+The existing visual block precedes held-layer recovery. A dot wired only there
+would disappear on single-draw holds. Submit opportunity, pair-open deferral,
+actual projection layer, built quad and successful xrEndFrame are distinct
+populations. Log each, and never infer visibility from a publish counter alone.
+A grip/aim angle near zero is not proof of a runtime bug; a hand correction
+matrix is not a calibrated barrel direction. See the VR-57 implementation review.

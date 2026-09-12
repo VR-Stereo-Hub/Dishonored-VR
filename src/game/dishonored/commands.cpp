@@ -281,6 +281,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "vrpace"))   { dvr::vr::handle_pace_command(args); return true; }
+    if (!strcmp(cmd, "crosshair")) { dvr::aim::command(args); return true; }
     if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
     if (!strcmp(cmd, "vrinput")) {
         if (DvrOnOff(args, &b)) { g_padEnabled = b; Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }
@@ -497,6 +498,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("fovLever", (double)g_fovLever);
     w.kv("fpsCap", (double)g_fpsCap);
     dvr::desktop_eye::status(w);
+    dvr::aim::status(w);
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);

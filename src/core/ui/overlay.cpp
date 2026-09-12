@@ -74,6 +74,10 @@ static void OverlayFrame()
     ImGui::Text("IPD %.0f mm", g_ipdM * 1000.0f);
 
     if (!ImGui::BeginTabBar("vrtabs")) { ImGui::End(); return; }
+    if (ImGui::BeginTabItem("Aim")) {
+        dvr::aim::draw_ui();
+        ImGui::EndTabItem();
+    }
 
     if (ImGui::BeginTabItem("View")) {
     if (ImGui::SliderFloat("world scale (uu/m)", &g_posScaleUU, 10.0f, 200.0f, "%.0f"))

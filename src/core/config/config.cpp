@@ -341,6 +341,17 @@ static void WriteDefaultIni(const char* ini)
         "Mode=cancel\n"
         "PivotBelowM=0.321\n"
         "PivotBehindM=0.062\n"
+        "[Crosshair]\n"
+        "; VR-57: visual controller guide only; shots and native reticle unchanged.\n"
+        "; Dot/beam share one runtime AIM-pose ray. Fixed distance, no surface trace.\n"
+        "; Live: F10 Aim, or crosshair dot|laser on|off, hand left|right.\n"
+        "Dot=0\n"
+        "Laser=0\n"
+        "Hand=left\n"
+        "DistanceM=8.0\n"
+        "SizeDeg=0.5\n"
+        "; Reserved; hiding the game reticle is not implemented in this step.\n"
+        "HideGame=0\n"
         "[MotionAim]\n"
         "; Stage 7.3: hand-aimed projectile weapons (crossbow bolts, pistol\n"
         "; bullets, grenades). After you pull the fire trigger, the freshly\n"
@@ -966,6 +977,20 @@ static void LoadConfig()
     if (g_padDeadzone > 0.6f)  g_padDeadzone = 0.6f;
     g_fireTraceEnabled = IniFloat(ini, "Debug", "FireTrace", 1) != 0.0f;
     g_maimEnabled  = IniFloat(ini, "MotionAim", "Enabled", 0) != 0.0f;
+    {
+        dvr::aim::Config crosshair;
+        crosshair.dot = GetPrivateProfileIntA("Crosshair", "Dot", 0, ini) != 0;
+        crosshair.laser = GetPrivateProfileIntA("Crosshair", "Laser", 0, ini) != 0;
+        char hand[32]; GetPrivateProfileStringA("Crosshair", "Hand", "left", hand, sizeof(hand), ini);
+        crosshair.hand = !_stricmp(hand, "left") ? 0 : !_stricmp(hand, "right") ? 1 : -1;
+        crosshair.distanceM = IniFloat(ini, "Crosshair", "DistanceM", 8.0f);
+        crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.5f);
+        dvr::aim::configure(crosshair, ini);
+        if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
+            Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
+        if (g_maimEnabled && (crosshair.dot || crosshair.laser))
+            Log("crosshair: MotionAim is ON independently; this guide does not control its projectile ray");
+    }
     {
         char hb[32];
         GetPrivateProfileStringA("MotionAim", "Hand", "left", hb, sizeof(hb), ini);
@@ -2647,6 +2672,16 @@ static void OverlaySaveDefaults()
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("VR", "DesktopEyeSource", dvr::desktop_eye::source_name(), ini);
+    {
+        const auto crosshair = dvr::aim::config();
+        WritePrivateProfileStringA("Crosshair", "Dot", crosshair.dot ? "1" : "0", ini);
+        WritePrivateProfileStringA("Crosshair", "Laser", crosshair.laser ? "1" : "0", ini);
+        WritePrivateProfileStringA("Crosshair", "Hand", crosshair.hand ? "right" : "left", ini);
+        _snprintf(v, 64, "%.3f", crosshair.distanceM);
+        WritePrivateProfileStringA("Crosshair", "DistanceM", v, ini);
+        _snprintf(v, 64, "%.3f", crosshair.sizeDeg);
+        WritePrivateProfileStringA("Crosshair", "SizeDeg", v, ini);
+    }
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());
       WritePrivateProfileStringA("Stereo", "HoldUntagged", hv, ini); }

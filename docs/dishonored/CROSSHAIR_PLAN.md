@@ -215,3 +215,15 @@ size (VR-35), and `[Mode] GamepadOnly=0` as a default (VR-40).
   evidence; a counter is not evidence until you know its population.
 * `docs/dishonored/HANDOFF-GINGASVR.md`: one behavioural change per build, and
   never ship a guessed constant as a measured one.
+
+## Implementation review follow-up (2026-09-11)
+
+Step 1 is implemented and installed for user-run testing. See
+[VR-57-CODEX-HANDOFF.md](VR-57-CODEX-HANDOFF.md) for the reviewed decisions,
+implementation, hashes and validation. The original plan above is preserved.
+Key corrections: the legacy weapon uses HandRelFull, not HandRelSnap; grip/trim
+is a hypothesis rather than an isolated cause; no measured barrel axis is
+published; the old laser re-derives a second ray; and the original visual stage
+omits held-frame submissions. The new endpoint and beam share explicit points
+from one ray and are appended after the held projection fallback. The game was
+not launched by the implementation agent. MotionAim remains disabled.

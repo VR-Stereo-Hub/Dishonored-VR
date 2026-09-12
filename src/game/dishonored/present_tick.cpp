@@ -419,6 +419,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
     (void)self;
     g_xrOn = g_vrReady = dvr::frame::xr_live();   // the session, as of this present
     MfNoteTag();   // VR-76: the runtime's eye tag for the flicker history
+    dvr::aim::tick(DvrGameplayVerdict(), dvr::stereo::wants_projection());
         // 30.24: hitch detector. Any Present-to-Present gap over 80 ms gets
         // logged with what was in flight, so "lag spike on swing" becomes a
         // measured correlation instead of a hunch. 41.1 (session 8): the tick

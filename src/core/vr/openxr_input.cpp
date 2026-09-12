@@ -115,6 +115,8 @@ struct HandSlot {
 };
 HandSlot g_hands[2]; // grip pose: 0 = left, 1 = right
 HandSlot g_aims[2];  // aim pose, same indexing
+uint32_t g_handGeneration = 0; // present-thread identity of the completed locate
+uint64_t g_handStampMs = 0;
 
 // Session 20 vrrec: sim overlay ON the funnel. While armed, EVERY consumer of
 // input_get_hand_pose (fire ray, viewmodel, laser) reads the injected poses
@@ -232,6 +234,7 @@ void locate_hand(XrSession session, XrAction poseAction, XrSpace space, XrTime w
 }
 
 void invalidate_hand_slots() {
+    g_handStampMs = 0;
     for (int i = 0; i < 2; ++i) {
         g_hands[i].valid.store(false, std::memory_order_relaxed);
         g_aims[i].valid.store(false, std::memory_order_relaxed);
@@ -538,6 +541,8 @@ void input_sync(XrSession session, XrTime predictedDisplayTime) {
     locate_hand(session, g_poseR, g_gripSpaceR, predictedDisplayTime, g_hands[1]);
     locate_hand(session, g_aimL, g_aimSpaceL, predictedDisplayTime, g_aims[0]);
     locate_hand(session, g_aimR, g_aimSpaceR, predictedDisplayTime, g_aims[1]);
+    g_handGeneration = locate_gen();
+    g_handStampMs = GetTickCount64();
 
     // 41.0 (Dishonored): publish the RAW state. Shaping (deadzone, grip
     // hysteresis, sprint toggle, health hold, slide assist, crouch pulses)
@@ -617,6 +622,15 @@ void input_haptic(int hand, float amp, float durSec) {
 
 bool take_recenter_chord() {
     return g_recenterChord.exchange(false, std::memory_order_relaxed);
+}
+
+HandAimSample input_hand_aim_sample(int hand) {
+    HandAimSample s;
+    if (!g_attached) return s;
+    s.generation = g_handGeneration; s.stampMs = g_handStampMs;
+    s.aimValid = input_get_hand_pose(hand, true, s.aimPos, s.aimQuat);
+    s.gripValid = input_get_hand_pose(hand, false, s.gripPos, s.gripQuat);
+    return s;
 }
 
 bool input_get_hand_pose(int hand, bool aimPose, float* pos3, float* quat4) {
