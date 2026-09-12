@@ -28,3 +28,4 @@ static int      g_asWhyN = 0;
 static float    g_asProjMine[2] = {}, g_asProjGame[2] = {};
 static float    g_asProjErr = -1.0f;
 static long     g_asProjSamples = 0;
+static double   g_asPoseLogMs = 0.0;

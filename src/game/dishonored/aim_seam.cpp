@@ -284,6 +284,54 @@ static void AsScan(uint32_t cacheOff, const float* viewF, const float* handF, bo
         "tick tag advances.", hits, (int)kAsMax);
 }
 
+// WHERE EACH CONTROLLER ACTUALLY POINTS, in degrees off the head. Four rays -
+// both hands, aim pose and grip pose - as azimuth (positive = the head's
+// RIGHT) and elevation (positive = up). The tester reports the beam sitting
+// about 45 degrees left and 10 to 20 degrees up from where the controller is
+// aiming, and no amount of reading settles which ray is which: this prints all
+// four next to the hand the beam and the write are using, so the one that
+// reads near zero while the controller points straight ahead is named.
+static void AsLogPoses(void)
+{
+    dvr::vr::HeadPose head;
+    if (!dvr::vr::peek_head_pose(head)) return;
+    const float fwdLocal[3] = { 0.0f, 0.0f, -1.0f };
+    float headFwd[3];
+    dvr::xrmath::quat_rotate(head.qx, head.qy, head.qz, head.qw, fwdLocal, headFwd);
+    if (V3Norm(headFwd) < 0.5f) return;
+    const float upW[3] = { 0.0f, 1.0f, 0.0f };
+    float right[3]; V3Cross(headFwd, upW, right);
+    if (V3Norm(right) < 0.2f) return;
+    float up[3]; V3Cross(right, headFwd, up); V3Norm(up);
+
+    char line[512]; int n = 0; line[0] = 0;
+    for (int hand = 0; hand < 2; ++hand) {
+        for (int aimPose = 1; aimPose >= 0; --aimPose) {
+            float pos[3], q[4];
+            if (!dvr::vr::input_get_hand_pose(hand, aimPose != 0, pos, q)) {
+                n += _snprintf(line + n, sizeof(line) - n, "%s%s %s: no pose",
+                               n ? " | " : "", hand ? "R" : "L", aimPose ? "aim" : "grip");
+                continue;
+            }
+            float d[3];
+            dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], fwdLocal, d);
+            if (V3Norm(d) < 0.5f) continue;
+            const float f = V3Dot(d, headFwd), r = V3Dot(d, right), u = V3Dot(d, up);
+            const float az = atan2f(r, f) * 57.2957795f;
+            const float el = asinf(u < -1.0f ? -1.0f : (u > 1.0f ? 1.0f : u)) * 57.2957795f;
+            n += _snprintf(line + n, sizeof(line) - n,
+                           "%s%s %s az %+.0f el %+.0f", n ? " | " : "",
+                           hand ? "R" : "L", aimPose ? "aim" : "grip", az, el);
+        }
+    }
+    line[sizeof(line) - 1] = 0;
+    Log("aimseam/poses: %s || the beam and the write both use the %s hand's AIM "
+        "pose. Point that controller straight ahead: its az and el should read "
+        "near zero. A ray reading about -45 az is pointing at the head's LEFT, "
+        "which is what the beam looks like from the report.",
+        line, dvr::aim::config().hand ? "RIGHT" : "LEFT");
+}
+
 static void AimSeamTick(void)
 {
     if (!g_asOn && !g_asDrive) return;   // the drive needs the walk to latch the context
@@ -314,6 +362,8 @@ static void AimSeamTick(void)
     float rel[3];
     const bool haveHand = MaimHandRel(rel);
     if (haveHand) MaimDirFromView(g_viewYawRad, g_viewPitchRad, rel, handF);
+
+    if (now - g_asPoseLogMs > 1000.0) { g_asPoseLogMs = now; AsLogPoses(); }
 
     const int fromInventory = AsWalkInventory(cacheOff, viewF, handF, haveHand);
     if (!g_asLiveSeen && (!fromInventory || g_asVerbose) &&
