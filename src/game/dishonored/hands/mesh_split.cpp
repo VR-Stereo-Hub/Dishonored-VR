@@ -3459,15 +3459,34 @@ static void MpCalibTick(void)
 
     // Clamp, and SAY SO. A silent clamp reads in a headset as "the key did
     // nothing", which is the same symptom as a dead binding.
-    const float lim = rot ? 45.0f : 0.25f;
+    // VR-57: the SHARED limit, so the ini load cannot clamp back what was tuned.
+    const float lim = rot ? kMpTrimRotLimit : kMpTrimPosLimit;
     bool clamped = false;
     if (*cell >  lim) { *cell =  lim; clamped = true; }
     if (*cell < -lim) { *cell = -lim; clamped = true; }
     if (clamped)
-        Log("ms/palette/adjust: CLAMPED at %+.2f %s. The key IS working and the "
-            "trim will not go further. A correction this large is a wrong grip "
-            "calibration rather than a trim - press SHIFT+F7 again.",
-            (double)(*cell * (rot ? 1.0f : 100.0f)), rot ? "deg" : "cm");
+        Log("ms/palette/adjust: at the limit - %s hand %s axis %s is %+.2f %s and "
+            "will not go further (bound +-%.2f). The key IS working.",
+            h ? "RIGHT" : "LEFT", rot ? "rotation" : "position",
+            ax == 0 ? "X" : ax == 1 ? "Y" : "Z",
+            (double)(*cell * (rot ? 1.0f : 100.0f)), rot ? "deg" : "cm",
+            (double)(lim * (rot ? 1.0f : 100.0f)));
+    // Crossing the OLD bound is a neutral notice, not a diagnosis. Saturation
+    // proved the control stopped; it never proved the grip was wrong, so this no
+    // longer asserts a calibration fault or asks for SHIFT+F7. Rate limited, and
+    // only on the crossing, so it cannot appear per draw.
+    if (rot) {
+        const bool wasBig = fabsf(before)  > kMpTrimRotNotice;
+        const bool nowBig = fabsf(*cell)   > kMpTrimRotNotice;
+        if (nowBig && !wasBig)
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                "ms/palette/adjust: large hand trim; retained. %s hand rotation "
+                "axis %s passed %+.0f deg (now %+.2f, bound +-%.0f). This is "
+                "allowed and is kept - it is not evidence of a bad calibration.",
+                h ? "RIGHT" : "LEFT", ax == 0 ? "X" : ax == 1 ? "Y" : "Z",
+                (double)kMpTrimRotNotice, (double)*cell,
+                (double)kMpTrimRotLimit);
+    }
 
     // DOES THIS PRESS REACH THE HANDS? The trim is only applied through
     // palm_target, which is on the ROTATION path. With rotation refused the

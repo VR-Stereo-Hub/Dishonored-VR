@@ -1850,6 +1850,10 @@ static void LoadConfig()
         // trim already dialled in by hand is not silently thrown away, and the
         // migration is logged rather than done quietly.
         static const char* axn[3] = { "X", "Y", "Z" };
+        // VR-57: a local finite test. MpFinite lives in a translation unit the
+        // unity build includes AFTER this one, and a NaN must be refused before
+        // the clamp because every comparison against it is false.
+        struct Fin { static bool ok(float v) { return v == v && v > -1.0e30f && v < 1.0e30f; } };
         float seedT[3], seedR[3];
         bool  seeded = false;
         for (int a = 0; a < 3; a++) {
@@ -1865,13 +1869,35 @@ static void LoadConfig()
             for (int a = 0; a < 3; a++) {
                 char k[32];
                 _snprintf(k, sizeof(k), "Trim%sT%s", sfx, axn[a]);
-                g_mpTrimT[h][a] = IniFloat(ini, "Hands", k, seedT[a]);
+                const float reqT = IniFloat(ini, "Hands", k, seedT[a]);
                 _snprintf(k, sizeof(k), "Trim%sR%s", sfx, axn[a]);
-                g_mpTrimR[h][a] = IniFloat(ini, "Hands", k, seedR[a]);
-                if (g_mpTrimT[h][a] >  0.25f) g_mpTrimT[h][a] =  0.25f;
-                if (g_mpTrimT[h][a] < -0.25f) g_mpTrimT[h][a] = -0.25f;
-                if (g_mpTrimR[h][a] >  45.0f) g_mpTrimR[h][a] =  45.0f;
-                if (g_mpTrimR[h][a] < -45.0f) g_mpTrimR[h][a] = -45.0f;
+                const float reqR = IniFloat(ini, "Hands", k, seedR[a]);
+                // VR-57: nonfinite is refused BEFORE clamping, because clamping a
+                // NaN keeps the NaN - every comparison against it is false. The
+                // seed keys reach here too, so they get the same validation rather
+                // than a second set of rules.
+                g_mpTrimT[h][a] = Fin::ok(reqT) ? reqT : 0.0f;
+                g_mpTrimR[h][a] = Fin::ok(reqR) ? reqR : 0.0f;
+                if (!Fin::ok(reqT) || !Fin::ok(reqR))
+                    Log("config: [Hands] Trim%s axis %s had a nonfinite value "
+                        "(T %g, R %g); that axis is zeroed rather than clamped, "
+                        "because a clamp cannot bound a NaN.", sfx, axn[a],
+                        (double)reqT, (double)reqR);
+                if (g_mpTrimT[h][a] >  kMpTrimPosLimit) g_mpTrimT[h][a] =  kMpTrimPosLimit;
+                if (g_mpTrimT[h][a] < -kMpTrimPosLimit) g_mpTrimT[h][a] = -kMpTrimPosLimit;
+                if (g_mpTrimR[h][a] >  kMpTrimRotLimit) g_mpTrimR[h][a] =  kMpTrimRotLimit;
+                if (g_mpTrimR[h][a] < -kMpTrimRotLimit) g_mpTrimR[h][a] = -kMpTrimRotLimit;
+                // Requested against effective, so a clamp on LOAD is visible. A
+                // value tuned live and then bounded by the next load is exactly
+                // the fault that made one shared limit necessary.
+                if (g_mpTrimT[h][a] != reqT && Fin::ok(reqT))
+                    Log("config: [Hands] Trim%sT%s requested %+.4f, effective "
+                        "%+.4f m (bound +-%.2f)", sfx, axn[a], (double)reqT,
+                        (double)g_mpTrimT[h][a], (double)kMpTrimPosLimit);
+                if (g_mpTrimR[h][a] != reqR && Fin::ok(reqR))
+                    Log("config: [Hands] Trim%sR%s requested %+.2f, effective "
+                        "%+.2f deg (bound +-%.0f)", sfx, axn[a], (double)reqR,
+                        (double)g_mpTrimR[h][a], (double)kMpTrimRotLimit);
             }
         }
         if (seeded)
@@ -1883,6 +1909,12 @@ static void LoadConfig()
                 (double)(seedT[0]*1000.0f), (double)(seedT[1]*1000.0f),
                 (double)(seedT[2]*1000.0f),
                 (double)seedR[0], (double)seedR[1], (double)seedR[2]);
+        Log("config: hand trim bounds - rotation +-%.0f deg per axis (raised from "
+            "%.0f, which measurably prevented further adjustment), translation "
+            "+-%.2f m. One limit serves the ini load and the numpad adjustment, so "
+            "a live value cannot be clamped back by the next load.",
+            (double)kMpTrimRotLimit, (double)kMpTrimRotNotice,
+            (double)kMpTrimPosLimit);
         Log("config: hand trim LOADED - left translation (%+.1f %+.1f %+.1f) mm "
             "rotation (%+.2f %+.2f %+.2f) deg | right translation "
             "(%+.1f %+.1f %+.1f) mm rotation (%+.2f %+.2f %+.2f) deg. All zero "
