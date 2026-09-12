@@ -1939,6 +1939,62 @@ static void LoadConfig()
             (double)g_mpTrimR[1][0], (double)g_mpTrimR[1][1], (double)g_mpTrimR[1][2]);
     }
 
+    // VR-57: RESTORE A PREVIOUSLY MEASURED MODEL AXIS.
+    //
+    // It can only be measured from a drawn crossbow bolt, so a session that loads a
+    // save with the pistol out never measures one and had no guide at all. The ray is
+    // a palm-frame constant, so it is written down on first measurement and restored
+    // here as the fallback.
+    //
+    // It is accepted only if the grip it was measured against still matches: the grip
+    // defines the palm frame the ray is expressed in, so a recalibration invalidates
+    // it. Hand TRIM changes are fine and need no check - the frame is rebuilt from the
+    // current trim every time the ray is used, which is why tuning carries it.
+    {
+        static const char* const ax[3] = { "X", "Y", "Z" };
+        for (int h = 0; h < 2; h++) {
+            const char* sfx = h ? "R" : "L";
+            float o[3], d[3], gsaved[3];
+            bool have = true;
+            for (int a2 = 0; a2 < 3 && have; a2++) {
+                char k[40];
+                _snprintf(k, sizeof(k), "ModelAxis%sO%s", sfx, ax[a2]);
+                o[a2] = IniFloat(ini, "Hands", k, 9999.0f);
+                _snprintf(k, sizeof(k), "ModelAxis%sD%s", sfx, ax[a2]);
+                d[a2] = IniFloat(ini, "Hands", k, 9999.0f);
+                _snprintf(k, sizeof(k), "ModelAxis%sG%s", sfx, ax[a2]);
+                gsaved[a2] = IniFloat(ini, "Hands", k, 9999.0f);
+                if (o[a2] > 9000.0f || d[a2] > 9000.0f || gsaved[a2] > 9000.0f) have = false;
+            }
+            if (!have) continue;
+            float gripDrift = 0.0f;
+            for (int a2 = 0; a2 < 3; a2++) {
+                const float e = gsaved[a2] - g_mpGripDeg[h][a2];
+                gripDrift += e < 0 ? -e : e;
+            }
+            if (gripDrift > 0.5f) {
+                Log("config: the %s hand has a stored model axis measured against grip "
+                    "(%.2f %.2f %.2f) but the grip is now (%.2f %.2f %.2f), %.2f deg "
+                    "apart. The grip DEFINES the palm frame the axis is expressed in, "
+                    "so the record is discarded rather than aimed through a frame that "
+                    "no longer exists. It will be measured again from the crossbow.",
+                    h ? "right" : "left", (double)gsaved[0], (double)gsaved[1],
+                    (double)gsaved[2], (double)g_mpGripDeg[h][0],
+                    (double)g_mpGripDeg[h][1], (double)g_mpGripDeg[h][2],
+                    (double)gripDrift);
+                continue;
+            }
+            dvr::hands::preload_model_ray(h, o, d);
+            Log("config: the %s hand's model axis RESTORED - origin (%.4f %.4f %.4f) m, "
+                "direction (%.4f %.4f %.4f). A session that never equips the crossbow "
+                "now has a guide from the first frame instead of none. It is bounded on "
+                "load exactly as a live measurement is, so an edited record cannot "
+                "install a ray a measurement would have refused.",
+                h ? "right" : "left", (double)o[0], (double)o[1], (double)o[2],
+                (double)d[0], (double)d[1], (double)d[2]);
+        }
+    }
+
     // VR-57: FollowHandTrim. The published ray is transported by the hand's own
     // trim, so tuning the hand carries the guide and the shot with it. Default OFF
     // in new configurations; off returns the AIM-pose ray untouched.
