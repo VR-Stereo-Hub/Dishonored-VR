@@ -406,6 +406,14 @@ static void WriteDefaultIni(const char* ini)
         "; the dot by the whole transverse gap at zero angle. Works with DriveFromHand\n"
         "; either way, and the drive-off run is the baseline.\n"
         "ShotProbe=0\n"
+        "; FireWatch (VR-57 Phase B) records named script dispatches - anything whose\n"
+        "; name mentions Aim, Fire, Shoot, Launch, Projectile or ViewPoint - and prints\n"
+        "; the ones preceding each scored bolt, with the caller that made them. READ-ONLY.\n"
+        "; The crossbow fire path is native, but Pawn.GetBaseAimRotation is a script\n"
+        "; event, and a native caller reaching a script event goes through ProcessEvent -\n"
+        "; so if the shot asks the pawn for an aim, the ask is visible by name. An empty\n"
+        "; list is a real answer: the seam is wholly native. Needs ShotProbe=1.\n"
+        "FireWatch=0\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -1023,6 +1031,13 @@ static void LoadConfig()
     g_asDrive = IniFloat(ini, "Aim", "DriveFromHand", 0) != 0.0f;
     g_asDriveDistUU = IniFloat(ini, "Aim", "DriveDistanceUU", 800.0f);
     g_shOn = GetPrivateProfileIntA("Aim", "ShotProbe", 0, ini) != 0;
+    g_fwOn = GetPrivateProfileIntA("Aim", "FireWatch", 0, ini) != 0;
+    if (g_fwOn)
+        Log("config: [Aim] FireWatch=1 - read-only. Named script dispatches before each "
+            "bolt are recorded and printed. It proves ORDER and PRESENCE only; an empty "
+            "list means the fire path asks nothing through script. ShotProbe is %s, and "
+            "this needs it to have shots to print against.", g_shOn ? "on" : "OFF - "
+            "turn it on or nothing will print");
     if (g_shOn)
         Log("config: [Aim] ShotProbe=1 - read-only bolt measurement is ON. It writes "
             "nothing to the game. The acceptance number it prints is the MISS at the "

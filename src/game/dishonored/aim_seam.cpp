@@ -637,6 +637,38 @@ static void ShFrame(const float* d, float* right, float* up)
     V3Cross(right, d, up); V3Norm(up);
 }
 
+// The dispatches that preceded this bolt, newest first, with the caller that made
+// each one. ORDER AND PRESENCE ONLY: a call arriving before a shot is a candidate
+// for the aim consumer and is not evidence that the shot used its result. An empty
+// list is just as informative - it says the fire path asked nothing through script,
+// and the seam is entirely native.
+static void FwDump(int shotId, double shotMs)
+{
+    if (!g_fwOn) return;
+    const int n = g_fwN < kFwRing ? g_fwN : kFwRing;
+    char line[1400]; int used = 0; line[0] = 0;
+    int shown = 0;
+    for (int i = 0; i < n && used < (int)sizeof(line) - 120; i++) {
+        const FwEvt* e = &g_fwRing[(g_fwN - 1 - i + kFwRing * 8) % kFwRing];
+        if (e->ms <= 0.0 || e->ms > shotMs) continue;
+        const double age = shotMs - e->ms;
+        if (age > 400.0) break;            // bounded window, newest first
+        const char* fn = RealName(e->nameIdx);
+        used += _snprintf(line + used, sizeof(line) - used,
+                          "%s%s on %s (-%.0f ms, caller RVA 0x%06X)",
+                          shown ? " <- " : "", fn ? fn : "?",
+                          e->cls ? e->cls : "?", age, e->callerRva);
+        ++shown;
+    }
+    Log("aimshot/fire #%d: %d named dispatch(es) in the 400 ms before the bolt, "
+        "newest first: %s || ORDER AND PRESENCE ONLY - a call landing before the "
+        "shot is a CANDIDATE consumer, never proof the shot used its result. An "
+        "EMPTY list is equally informative: it means the fire path asked nothing "
+        "through script and the seam is wholly native. %ld recorded this run.",
+        shotId, shown, shown ? line : "(none - nothing matched in that window)",
+        g_fwRecorded);
+}
+
 static void ShReport(ShRec* h, const char* cn)
 {
     const ShRay* r = &h->ray;
@@ -766,6 +798,7 @@ static void ShReport(ShRec* h, const char* cn)
     // The parallel counterfactual the acceptance gate needs: the miss a bolt that
     // merely ran PARALLEL to the ray would keep. A shot can only demonstrate
     // convergence where this exceeds the tolerance and the real miss does not.
+    FwDump(h->id, h->firstMs);
     Log("aimshot/gate #%d: parallel counterfactual %.1f uu (%.2f m) against the "
         "0.25 m bar. A shot where this is itself under the bar CANNOT demonstrate "
         "convergence, because a displaced parallel launch would pass too.",
