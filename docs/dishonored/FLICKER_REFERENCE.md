@@ -83,7 +83,7 @@ pose metadata without reopening the disproved historical theories.
 | Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
 | About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
-| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, the passes' cameras can come out inverted against their tags and the c5 arm then starves the left eye for 10 s or more, with `c5` present. Section 3.14 is the separate zero-`c5` case (VR-97) |
+| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, presents with no draw of their own (untagged or repeated, 4-7 a second) leave the ring one present late, and the c5 arm then starves the left eye for 10 s or more. The writer is exonerated. Section 3.14 is the separate zero-`c5` case (VR-97) |
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
@@ -1013,7 +1013,7 @@ the explanation for after-book flicker in general** (section 3.15): the same
 seconds-long skew happened with `c5` present. The zero-`c5` stretches remain a
 real, separate way to lose the correction.
 
-### 3.15 After a note closes, the passes' cameras come out inverted against their tags (VR-80, measured)
+### 3.15 After a note closes, the tag ring runs one present late behind extra presents (VR-80, measured)
 
 **Symptom identity.** 10 to 15 s of flicker after closing a book the fourth time in
 a row, until the tester quit; the earlier three closes were reported clean or
@@ -1068,6 +1068,36 @@ cannot be the writer fault; a stale field (no writer call between a pass 2 and t
 next pass 1) still can, and reads as a ring -1 carrying a `P2 SAME-WRITE`. Host:
 8 new checks in `tools/zaccount-host.ps1` (50 total); dropping the SAME-WRITE mark
 fails two of them.
+
+**First trace run (build 196 built 14:11:40, same profile, `PairTrace=1`).** Nine
+book closes; the flicker came after the sixth (3535.75 s) and ran until the
+tester paused 24 s later. 24 dumps, 38 overrides.
+
+- **The writer is exonerated.** Every tagged present carried the write its tag
+  names: ring -1 with an eye -1 write, ring +1 with an eye +1 P2 write, no
+  `SAME-WRITE` anywhere, and `write-to-c5` 0.00-0.03 uu on healthy presents.
+- **The ring falls one present behind, and a present with no draw of its own
+  pushes it there.** In an episode, `write-to-c5` reads 6.82 uu - the present's
+  `c5` is the OTHER pass's - until a realign. Of 17 episode starts, 17 are
+  immediately preceded by either an UNTAGGED present that nonetheless shows a new
+  pass-1 image (14; `ring +0`, step +6.82, the ring empty when it popped) or a
+  REPEAT present showing the previous image again (3; step under 0.6 uu, which
+  consumed the next tag). The c5 arm then overrides the wrong tags, which is the
+  `pushed eye +1 TWICE` count, until three disagreements pop a tag.
+- **What changed after the book is the rate of those presents.** Untagged presents
+  (`stereo: beat ... none/s`) ran 0-3 a second before it and 4-7 a second for the
+  whole episode, with the left eye short (`L/s` 61-71 against `R/s` 80-84), while
+  the game side stayed double on every tick (`draws/s == 2nd/s`, no stall or state
+  skips, `singleTicks` 0). At 0-3 a second the episodes are brief and recover
+  (dumps 2 and 3); at 4-7 a second the correction never catches up.
+
+**Retracted reading.** Sections above described the passes' cameras as inverted
+against their tags. The cameras were right; the tags were one present late.
+
+**Open.** Where a present with no stub draw behind it comes from, and why a book
+raises its rate. Next measurement: for each untagged or repeat present inside a
+trace window, the Present caller and the scene-draw and `c5` serials since the last
+present, so the extra present's owner is named before anything changes.
 
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
