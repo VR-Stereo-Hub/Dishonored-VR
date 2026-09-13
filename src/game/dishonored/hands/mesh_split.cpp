@@ -2362,14 +2362,48 @@ static void MpEyeForPresent(const MpDrawCtx* c)
         // smaller right-axis projection is the right eye.
         g_mpEyeState = (d < 0.0f) ? +1 : -1;
         g_mpEyeToggles++;
+        g_mpEyePredictRun = 0;       // VR-94: a readable jump ends a prediction run
         why = 'T';
     } else if (ad <= 0.45f * ipdUU) {
-        // Same eye as the previous Present - or too small to tell apart.
+        // VR-94: "SAME" MEANS "TOO SMALL TO TELL APART", NOT "THE SAME EYE",
+        // AND HOLDING THE PREVIOUS EYE IS THEREFORE A GUESS - A BAD ONE.
+        //
+        // Measured on the headset, 9 marker episodes, 90 flagged presents: EVERY
+        // ONE was "eye R but tag L, decision S". Not one was the other way. The
+        // tag row alternates perfectly through all of them, so the stream really
+        // was alternating and this verdict held R onto a present that was L; those
+        // hands then took the right eye's half-IPD in the left eye's image. That
+        // is the left-eye-only arm flicker, and it is one-sided because the held
+        // value is always R.
+        //
+        // It is one-sided because the jump is not symmetric. Measured: entering a
+        // right present d is about -5.60, entering a left present about +5.09,
+        // against a 2.84 uu band. Head roll adds a drift to d - it moves the hand
+        // AND rotates the right axis d is projected on - so a roll of one sign
+        // shrinks the smaller (+5.09) crossing below the band well before the
+        // other, and only the left eye is ever robbed.
+        //
+        // So on an unreadable jump, PREDICT THE TOGGLE rather than hold. The
+        // stream alternates by construction; a jump too small to read is a
+        // failure of the measurement, not evidence of a repeat.
+        //
+        // The bound keeps genuine repeats safe. The observed fault is T,S,T,S -
+        // one unreadable present between two clean ones - so a prediction never
+        // follows a prediction there. A genuinely non-alternating stream (mono,
+        // single-draw ticks) gives S,S,S,S instead, and after two consecutive
+        // predictions this stops predicting and holds, exactly as before.
         g_mpEyeSame++;
         why = 'S';
+        if (g_mpEyePredict && g_mpEyeState != 0 && g_mpEyePredictRun < 2) {
+            g_mpEyeState = -g_mpEyeState;
+            ++g_mpEyePredictRun;
+            g_mpEyePredicted++;
+            why = 'P';
+        }
     } else {
         g_mpEyeState = 0;                        // head moved too far to judge
         g_mpEyeAmbiguous++;
+        g_mpEyePredictRun = 0;
         why = 'A';
     }
     // VR-94, READ-ONLY. Ask the stereo method what eye it resolved for the

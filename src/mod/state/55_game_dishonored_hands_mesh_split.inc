@@ -461,6 +461,11 @@ static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
 // 2 ambiguous. `none` counts presents where the method had published nothing
 // yet at hand-draw time, which is itself the answer about whether the method
 // could ever be the classifier's replacement.
+// VR-94: on an unreadable jump, predict the toggle instead of holding the
+// previous eye. Ships OFF; `[Hands] PaletteEyePredictToggle`, F10 Hands.
+static bool     g_mpEyePredict = false;
+static int      g_mpEyePredictRun = 0;   // consecutive predictions, capped at 2
+static LONG     g_mpEyePredicted = 0;
 static LONG     g_mpEyeMethodAgree[3] = {0, 0, 0};
 static LONG     g_mpEyeMethodDisagree[3] = {0, 0, 0};
 static LONG     g_mpEyeMethodNone[3] = {0, 0, 0};
