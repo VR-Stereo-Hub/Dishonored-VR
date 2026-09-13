@@ -1211,6 +1211,28 @@ is corrected below. A realign feedback loop remains a hypothesis, not a measured
    standing-still and crouched-still note closes. The sustained record skew is a model
    result, not yet measured in the game.
 
+**2026-09-13 headset run 5: the onset is a late tag (plan checkpoint 3).**
+
+1. **Symptom identity:** the same crouched note-exit flicker, sustained until quit; the
+   tester now describes the scene jumping right in the right eye and left in the left
+   eye, which is an eye swap, not a mono or stale image.
+2. **Reproduction identity:** build `205-g6d858c8f-dirty` (ledger code of `7226a613`),
+   `[Stereo] RingLedger=1`, profile unchanged; several note closes standing and crouched,
+   the last one crouched.
+3. **Hypothesis and counterprediction:** the drain over-consumes (checkpoint 1). It would
+   show removed draw ids that later present. Alternative: tags lost from the ring, which
+   would show a reconcile failure.
+4. **Change identity:** none; measurement only.
+5. **Results:** both reconcile sides held (no uncounted path). The drain removed the
+   correct tag (over-drain refuted). The episode is a repeating four-present cycle at
+   about 3.3/s: an empty pop whose image's tag arrives a few ms later, then TOOK,
+   then one present with the left image in the right eye, then TOOK plus a one-tag drain.
+   Push-to-present margin for -1 tags: median 0.8 ms in the episode against 10.7 ms
+   crouched and 7.6 ms standing before it; ring depth before the pop mostly 1 against 2-3.
+6. **Status and remaining scope:** open. Onset mechanism measured; the cause of the margin
+   collapse (and why a pause restores it) is not. Next: host-model the late push, then a
+   default-off late-tag repair lever and one headset A/B. See VR-80-PLAN checkpoint 3.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

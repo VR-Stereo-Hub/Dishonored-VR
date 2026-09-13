@@ -337,3 +337,66 @@ removal). A reconcile line that does not reconcile (a mutation path the map miss
 same spot and equipment. Does the crouched close produce ledger windows with drains or empty
 pops that the standing closes do not, and where is the first present whose draw id breaks the
 +1 sequence?
+
+### 2026-09-13, checkpoint 3 (headset run 5: the onset is a late tag, measured per present)
+
+**Run.** Build `vr33-hands-working-205-g6d858c8f-dirty` (the ledger code of `7226a613`, built
+before that commit), `[Stereo] RingLedger=1`, profile unchanged. Several note closes standing and
+crouched; the last close was crouched (`menukeep/resume` at 8982.375 s), the flicker was reported
+sustained until quitting through the pause menu at 9006 s. Log saved locally under
+`build/vr93-logs/vr80-run5-155743/`. Both reconcile sides held in every 10 s window: no
+uncounted mutation path.
+
+**The episode's repeating cycle** (draw ids from the ledger; the same four presents every time):
+
+| Present | Ring before | Pop | c5 names | Action | Out |
+|---|---|---|---|---|---|
+| P | empty | EMPTY | left (+6.82 along) | REFUSE | untagged |
+| P+1 | D(n)-1, D(n+1)+1 | D(n)-1, age 4-8 ms | right (-6.82) | TOOK | +1, HOLD |
+| P+2 | D(n+1)+1 ... | D(n+1)+1 | left | none, streak 2 | **+1: the left image to the right eye** |
+| P+3 | D(n+2)-1, D(n+3)+1 | D(n+2)-1 | right | TOOK, drain removes D(n+3) | +1 (the right eye pushed twice) |
+| P+4 | D(n+4)-1 ... | D(n+4)-1 | left, self 0.00 | agree | aligned again |
+
+Reading: at P the image of D(n) was presented before D(n)'s tag was pushed. The tag arrived a
+few ms later, so every later pop is one tag behind the images until the three-disagreement drain
+realigns at P+3. **The drain removed the right tag; the checkpoint 1 over-drain prediction is
+not what happens.** Each cycle costs one refused present, one held present and one present with
+the left image in the right eye (the tester's report of the scene jumping right in the right eye
+and left in the left eye is the eye swap). In the episode the empty pops, repairs and cycles ran
+at about 3.3 per second (33 and 35 per 10 s).
+
+**Why crouched and after a note close.** Tag age at pop (push to present) and ring depth before
+the pop, ledger records split by state:
+
+| State | presents | -1 tag age, median / p10 | +1 tag age, median | depth before pop |
+|---|---|---|---|---|
+| standing, before | 367 | 7.6 / 0.6 ms | 17.0 ms | mostly 2-3 |
+| crouched, before the last close | 174 | 10.7 / 6.3 ms | 18.2 ms | mostly 2-3 |
+| crouched, episode | 318 | **0.8 / 0.3 ms** | 7.6 ms | mostly 1 |
+
+In the episode the tag reaches the ring under a millisecond before the present that shows its
+image, so ordinary jitter loses the race several times a second. The windows are biased toward
+events, so these are indicative distributions, not rates. Standing has a low p10 too, which
+fits short standing episodes. Presents and accepted pushes were equal in the episode (157/s)
+while healthy windows had more presents than pushes. **Open:** why the push-to-present margin
+collapses by about 10 ms after a crouched note close and stays collapsed until a pause. Candidates:
+a changed phase between the game thread and the presenting thread, or a one-tick record skew with
+correct labels (the host model's sustained state; indistinguishable while still, since c5 only
+tells a tick apart when the camera moves).
+
+**Draft plan (execution order).**
+1. Host model: add the measured fault, a recurring late pass-1 push at zero lead. Accept only if
+   it reproduces the ledger's four-present cycle exactly (EMPTY/REFUSE, TOOK, a wrong eye, TOOK
+   plus a one-tag drain).
+2. Candidate F-late (default OFF, `[Stereo] LateTagRepair`, `reentry latetag on|off`, F10
+   checkbox): an empty pop in a tagged stream whose c5 names an eye owes that eye one tag. At the
+   next present, only if its own c5 names the opposite eye and the front tag is the owed eye, that
+   tag is removed as a repair (the image it belonged to was already shown). The present then pops
+   its own tag. Moving-player safety: the next present's c5 must confirm, so the fragile cross-tick
+   arm alone can never trigger it.
+3. Host gates: the late-push schedule with the lever on shows no wrong eye and no drain; every
+   existing schedule with the lever on is no worse than off; accounting still reconciles.
+4. Headset, one question: with the lever on and the ledger on, does a crouched note close still
+   flicker? The ledger shows whether the late-tag repair fired and whether any TOOK cycles remain.
+5. Separately and later: why the margin collapses (a phase measurement of push time against the
+   presenting thread's frame period, and a moving-camera check for a tick skew).
