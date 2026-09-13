@@ -446,7 +446,7 @@ static uint32_t g_mpEyePresent = 0xFFFFFFFFu;
 static bool     g_mpEyeHavePrev = false;
 static float    g_mpEyePrevFirst = 0.0f;
 static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
-// VR-94, READ-ONLY: does the palette classifier agree with the eye the STEREO
+// VR-95, READ-ONLY: does the palette classifier agree with the eye the STEREO
 // METHOD resolved for the same present? The classifier infers the eye from the
 // right-axis jump in the hand's LocalToWorld translation, and both halves of
 // that number are contaminated by head ROLL - the hand moves AND the right axis
@@ -461,7 +461,7 @@ static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
 // 2 ambiguous. `none` counts presents where the method had published nothing
 // yet at hand-draw time, which is itself the answer about whether the method
 // could ever be the classifier's replacement.
-// VR-94: on an unreadable jump, predict the toggle instead of holding the
+// VR-95: on an unreadable jump, predict the toggle instead of holding the
 // previous eye. Ships OFF; `[Hands] PaletteEyePredictToggle`, F10 Hands.
 static bool     g_mpEyePredict = false;
 static int      g_mpEyePredictRun = 0;   // consecutive predictions, capped at 2

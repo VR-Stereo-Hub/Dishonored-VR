@@ -1,6 +1,6 @@
 # Status
 
-## CURRENT (2026-09-13): VR-91 fixed, VR-94 diagnosed. Blink (VR-36) merged earlier
+## CURRENT (2026-09-13): VR-91 fixed, VR-95 diagnosed. Blink (VR-36) merged earlier
 
 **Rolling the head no longer slides the view sideways (VR-91).** The neck arc was built
 from the head's full rotation INCLUDING ROLL, while the yaw-only reference it is subtracted
@@ -21,7 +21,7 @@ a host check asserts that rather than describing it. 42 checks, and the two that
 the ones that CLEAR us: an eye-only fault and a wrong-signed head both leave the position
 residual FLAT.
 
-### VR-94 is diagnosed, its correction ships OFF, and it has an open regression
+### VR-95 is diagnosed, its correction ships OFF, and it has an open regression
 
 Arms and weapon jump sideways by about one IPD for a frame, in the LEFT eye only, during a
 fast head roll. Nine V-marker episodes, 90 flagged presents, and **every one reads "eye R but
@@ -62,7 +62,7 @@ schedules a UI rescan measured at 516 ms). **Issue A second** (a one-frame world
 dropped frame; 33 gameplay frame gaps of 48 to 538 ms, 27 of them in xrEndFrame, with no
 marker joined to a seen event yet). Read the plan's restart checklist before touching code.
 
-Open: VR-94 (the still-flicker regression and the unverified roll fix), VR-89, VR-87, VR-86
+Open: VR-95 (the still-flicker regression and the unverified roll fix), VR-89, VR-87, VR-86
 (shelved), VR-85, VR-75, VR-77, VR-79, VR-80, VR-81, VR-32, VR-58, VR-92.
 
 ## Earlier (2026-09-12, late): VR-78 fixed and merged. Next is the animation handoff
@@ -4202,7 +4202,7 @@ laterally, and the first headset run named the neck term as owning 98 per cent o
 residual. The fix is structural rather than a better constant: roll is removed from the FRAME
 the arc is built in, so the pitch arc is untouched.
 
-**VR-94 cost two falsified hypotheses and was solved by the marker history, not by
+**VR-95 cost two falsified hypotheses and was solved by the marker history, not by
 reasoning.** The ambiguity counter never moved; stereo pairing was clean; the probe was not
 the frame-rate confound it looked like. What settled it was nine V presses: 90 flagged
 presents, all one-sided, with the tag row alternating cleanly beside a classifier that

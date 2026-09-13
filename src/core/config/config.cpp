@@ -643,7 +643,7 @@ static void WriteDefaultIni(const char* ini)
         "PaletteWorld=1\n"
         "PaletteDepthRange=1\n"
         "PaletteEyeOffset=1\n"
-        "; VR-94: on an eye jump too small to read, predict the toggle instead of\n"
+        "; VR-95: on an eye jump too small to read, predict the toggle instead of\n"
         "; holding the previous eye. Holding was measured robbing the LEFT eye of\n"
         "; its own half-IPD during a head roll. Ships off; 1 is the A/B.\n"
         "PaletteEyePredictToggle=0\n"
@@ -1676,17 +1676,17 @@ static void LoadConfig()
     g_mpEyeHunt       = IniFloat(ini, "Hands", "PaletteEyeHunt", 0) != 0.0f;
     g_mpDepth         = IniFloat(ini, "Hands", "PaletteDepthRange", 1) != 0.0f;
     g_mpEyeOffset     = IniFloat(ini, "Hands", "PaletteEyeOffset", 1) != 0.0f;
-    // VR-94: on a jump too small to read, predict the toggle instead of holding
+    // VR-95: on a jump too small to read, predict the toggle instead of holding
     // the previous eye. Ships OFF as a new lever must; the fault it removes was
     // measured on the headset as 90 flagged presents, every one of them the
     // classifier saying RIGHT while the tag said LEFT.
     g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
     Log("config: [Hands] PaletteEyePredictToggle=%d - an unreadable eye jump %s. "
         "Holding was measured robbing the LEFT eye's hands of their own half-IPD "
-        "during a head roll (VR-94); the prediction is capped at two in a row so a "
+        "during a head roll (VR-95); the prediction is capped at two in a row so a "
         "genuinely non-alternating stream still holds.",
         (int)g_mpEyePredict,
-        g_mpEyePredict ? "PREDICTS the toggle" : "holds the previous eye (pre-VR-94)");
+        g_mpEyePredict ? "PREDICTS the toggle" : "holds the previous eye (pre-VR-95)");
 #if DVR_WITH_LEGACY
     g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
 #endif
