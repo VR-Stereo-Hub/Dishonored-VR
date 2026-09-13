@@ -12,6 +12,13 @@
 
 ### Fixed
 
+- **Looking up or down while crouched no longer moves the view (VR-78).** Crouched,
+  the game does not swing its camera about a neck, but the mod was still cancelling
+  that swing, so looking down pushed the view back and up and looking up pulled it
+  forward and down. The crouched pivot is now its own setting,
+  `[Neck] CrouchPivotBelowM` / `CrouchPivotBehindM`, shipped at 0. An existing ini
+  without those keys takes the fix automatically; `-1` restores the old behaviour.
+
 - **Weapon eye correction survives queued draws and downward camera clamps
   (VR-69, PR #33).** The restored render-side decision no longer resets when a
   newer script tick changes its stereo state. A Z-only ceiling clamp now preserves

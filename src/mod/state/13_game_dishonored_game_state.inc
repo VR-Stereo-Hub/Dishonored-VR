@@ -253,8 +253,10 @@ static volatile float g_neckArcUu[3] = {0, 0, 0};   // the last term: right, up,
 // across +-33 deg of pitch where the standing pivot predicts 9.5, so the engine
 // has no neck arc crouched and `cancel` with the standing numbers subtracted an
 // arc that was not there. -1 = the standing numbers (the pre-VR-78 behaviour).
-static float g_neckCrouchBelowM  = -1.0f;
-static float g_neckCrouchBehindM = -1.0f;
+// Ships at 0: a second headset run fitted 0.002/0.002 m crouched over -48..+32 deg
+// and the tester judged crouched pitching fixed.
+static float g_neckCrouchBelowM  = 0.0f;
+static float g_neckCrouchBehindM = 0.0f;
 static float g_neckStanceBlendMs = 150.0f;   // NOT measured: the ease between the two pivots on a stance change
 static float g_neckStanceW       = 0.0f;     // 0 standing pivot .. 1 crouched pivot, eased
 static int   g_neckStanceTarget  = 0;

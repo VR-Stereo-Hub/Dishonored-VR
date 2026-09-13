@@ -344,12 +344,13 @@ static void WriteDefaultIni(const char* ini)
         "; VR-78: the ENGINE's pivot while plainly crouched. Measured 2026-09-12 with the\n"
         "; accounting probe: crouched, the engine does not pitch its camera about a neck at\n"
         "; all, so cancel with the standing numbers moved the view back and up looking\n"
-        "; down, forward and down looking up. 0 and 0 = no arc while crouched. -1 = the\n"
+        "; down, forward and down looking up. 0 and 0 = no arc while crouched, and SHIPS:\n"
+        "; a second run fitted 0.002/0.002 m and the headset judged it fixed. -1 = the\n"
         "; standing numbers (the behaviour before VR-78). Slides and vents keep the\n"
         "; standing pivot (unmeasured). StanceBlendMs eases between the two on a stance\n"
         "; change and is NOT measured. `neck crouch same|<below> <behind>` and F10 Comfort.\n"
-        "CrouchPivotBelowM=-1\n"
-        "CrouchPivotBehindM=-1\n"
+        "CrouchPivotBelowM=0\n"
+        "CrouchPivotBehindM=0\n"
         "StanceBlendMs=150\n"
         "[Crosshair]\n"
         "; VR-57: visual controller guide only; shots and native reticle unchanged.\n"
@@ -1065,8 +1066,8 @@ static void LoadConfig()
         char cbuf[32] = "";
         GetPrivateProfileStringA("Neck", "CrouchPivotBelowM", "", cbuf, sizeof(cbuf), ini);
         const bool cbHave = cbuf[0] != 0;
-        g_neckCrouchBelowM = IniFloat(ini, "Neck", "CrouchPivotBelowM", -1.0f);
-        g_neckCrouchBehindM = IniFloat(ini, "Neck", "CrouchPivotBehindM", -1.0f);
+        g_neckCrouchBelowM = IniFloat(ini, "Neck", "CrouchPivotBelowM", 0.0f);   // VR-78: measured twice, headset-judged
+        g_neckCrouchBehindM = IniFloat(ini, "Neck", "CrouchPivotBehindM", 0.0f);
         if (g_neckCrouchBelowM > 0.5f) g_neckCrouchBelowM = 0.5f;
         if (g_neckCrouchBehindM > 0.5f) g_neckCrouchBehindM = 0.5f;
         if (g_neckCrouchBelowM < 0.0f) g_neckCrouchBelowM = -1.0f;

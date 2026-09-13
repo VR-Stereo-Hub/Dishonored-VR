@@ -2312,6 +2312,13 @@ did not clip in that episode, so it is not the crouched cause. The standing left
 3 to 7 uu the tracked head sat above its reference. `[Neck] CrouchPivotBelowM/BehindM` holds
 the crouched pivot (-1 = the standing numbers); slides and vents (capsule 33) are unmeasured.
 
+**Repeated with the crouched pivot at 0** (second headset run, same day): the probe's fit
+over fresh and recovered engine bases solved **0.002 m below, 0.002 m behind** crouched over
+-48..+32 deg of pitch (1808 samples), against 0.28 m below standing on the same run. Crouched
+looking up +29 deg, the forward residual fell from +18.9 to **+0.04 uu**; the up residual of
+-4.75 is the final cap (VR-87), not the neck. The tester judged crouched pitching fixed, and
+0/0 ships as the default.
+
 ## The console seam was dead since 41.0, and setres is inert (2026-09-03, session 7)
 
 `RunConsole` returned -1 unless `g_fnConsoleCmd` was set, and the only latch lived inside the
