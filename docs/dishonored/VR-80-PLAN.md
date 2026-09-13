@@ -287,3 +287,53 @@ repeat. With a larger producer lead the tick-ahead state never runs dry and the 
 after one realign, with the records a tick early until something resets. Predictions for the
 model: lead 1 with one seeded extra consumption sustains a loop of one empty pop per realign;
 lead 2 ends after one realign; no seeded fault never starts either.
+
+### 2026-09-13, checkpoint 2 (host model result, ledger built, one headset question)
+
+**Host model (`tools/reentry-pair-host.ps1`, 79 checks).** The ring, pop, peek and the c5
+arbitration moved verbatim into `src/core/gfx/reentry_pair.inc`; the proxy and the model both
+compile it. The model is a producer pushing a -1/+1 pair per tick with a configurable lead
+(steady, or jittered by per-tick dips and rises) and a render thread presenting each draw in
+order, with every draw's identity as the oracle. Faults seeded once: a repeated present, a draw
+that never presents (pass 1 or pass 2), a tag that never publishes, a single-draw tick with a 0
+tag. Still and walking cameras, leads 0 to 3.
+
+- No fault, steady lead 0 to 2: every present carries its own eye and record (asserted).
+- Every single seeded fault, steady or jittered lead: eye labels are correct again within a few
+  presents (0 or 1 wrong eyes more than 200 presents after the fault).
+- At lead 1 or more (2 or more for a never-presenting draw), a fault leaves the ring a tick
+  ahead for the rest of the run: the eye is right and the record is the next draw's. This is a
+  sustained record skew with correct labels, which the eye counters cannot see.
+- Lead 3 with no fault is cleared by the depth-6 rule by design.
+- **The prediction in checkpoint 1 failed**: lead 1 with one extra consumption does NOT sustain
+  a drain loop; it recovers. A sustained wrong-eye episode needs something the model does not
+  have: recurring onset events, concurrency inside the drain, the capture delay, the hold, or
+  the present-progress guard. Those are the next model scenarios, not yet written.
+- Every schedule's accounting reconciles: tail moved equals normal plus repair plus clear
+  removals, head moved equals accepted pushes (asserted for all 72 schedules).
+
+**The ledger ([Stereo] RingLedger, default off, never saved).** Every tag push attempt from
+`scene_draw.cpp` carries a monotonic draw id (-1, +1 and 0 pushes alike; a rejected push is
+counted and its id kept). One record per present that reaches the pop: frame, stance (from the
+neck's capsule stance), ring tail/head/depth and newest draw id before the pop, the raw pop
+(draw id and eye, EMPTY, or CLEAR with the count), the popped tag's age, the c5 arms (along,
+other, invariant eye), streak before and after, the action bits (agree, TOOK, HELD, REALIGN,
+INVENT, REFUSE, unknown), every draw id the drain removed and why it stopped, the eye and draw
+that went out, the c5 distance to the popped tag's written position and to the next tag's
+(corroboration only), the capture's delivered eye and serial, and the end_frame return reason
+(stereo, mono, HOLD, NOSRC, TARGET). Pre-pop exits are counted. Lines print only in windows:
+12 back and 24 ahead after a return to gameplay or a re-arm, 12 back and 16 ahead around an
+override, a drain, an invented or refused eye, or an empty pop in a tagged stream (2 s apart,
+40 windows at most). A 10 s `ledger/reconcile` line checks tail movement against removals
+exactly (the present thread owns the tail) and head movement against accepted pushes (one push
+in flight allowed and named).
+
+**What it can fail on.** A drain whose removed ids include a draw that later presents (the drain
+over-consumed). An empty pop with no missing present (the producer ran dry). A skipped draw id
+between consecutive pops with no drain, clear or rejection to account for it (an unaccounted
+removal). A reconcile line that does not reconcile (a mutation path the map missed).
+
+**Headset question (one).** Close a note standing still, several times, then crouched still,
+same spot and equipment. Does the crouched close produce ledger windows with drains or empty
+pops that the standing closes do not, and where is the first present whose draw id breaks the
++1 sequence?

@@ -309,7 +309,10 @@ static void SceneDrawDecisionLog(const SdDecision& d)
         g_suStereoSeen = true;
         if (singleTicks)
             Log("reentry: gates -> DOUBLE draw after %lu single tick(s) - both eyes tagged again", (unsigned long)singleTicks);
-        if (singleTicks >= 20) dvr::zacct::trace_arm("stereo re-armed after 20 or more single ticks");   // VR-80
+        if (singleTicks >= 20) {   // VR-80
+            dvr::zacct::trace_arm("stereo re-armed after 20 or more single ticks");
+            dvr::stereo::reentry_ledger_arm("stereo re-armed after 20 or more single ticks");
+        }
         singleTicks = 0;
     } else {
         DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Info, 1000,
@@ -332,6 +335,10 @@ static uint32_t SdOpenPoseRecord(int eye, uint32_t pairId, bool secondPassReuse)
     return dvr::pose::open(eye, pairId, secondPassReuse);
 }
 
+
+// VR-80: every tag push attempt gets the next id, accepted by the ring or not, so the ring
+// ledger can name which draw each present carried and which draws never reached a present.
+static uint32_t g_sdDrawAttempt = 0;
 
 // The second draw, taking the tick's decision (never re-deciding: that is what
 // made the tags one-sided). Only the poison is re-read - a fault poisons
@@ -366,8 +373,8 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     // Pass 2 deliberately reuses pass 1's rotation, so the record says so
     // rather than presenting the reuse as a fresh sample.
     const uint32_t acct2 = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);   // VR-78: this write, by id
-    dvr::stereo::reentry_push_tag_acct(+1, wrote ? wrotePos : NULL,
-                                       SdOpenPoseRecord(+1, g_sdPairId, true), acct2);
+    dvr::stereo::reentry_push_tag_draw(+1, wrote ? wrotePos : NULL,
+                                       SdOpenPoseRecord(+1, g_sdPairId, true), acct2, ++g_sdDrawAttempt);
     g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
@@ -432,16 +439,16 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             const bool posOk = dvr::camera::last_written_pos(pos);
             g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
             const uint32_t acct1 = dvr::zacct::pin_for_tag(posOk ? pos : NULL);   // VR-78: the tick's last write
-            dvr::stereo::reentry_push_tag_acct(-1, posOk ? pos : NULL,
-                                               SdOpenPoseRecord(-1, g_sdPairId, false), acct1);
+            dvr::stereo::reentry_push_tag_draw(-1, posOk ? pos : NULL,
+                                               SdOpenPoseRecord(-1, g_sdPairId, false), acct1, ++g_sdDrawAttempt);
         } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
             dvr::desktop_eye::note_single_draw(); // VR-76: actual ticks, not rate-limited log lines
             // A single GAMEPLAY draw while the method pops: one push per draw,
             // so its present cannot eat the next tick's -1 (the header's ONE
             // PUSH). Not in menus: their draws outnumber their presents and
             // the ring would only fill with junk (measured: cleared every 3 s).
-            dvr::stereo::reentry_push_tag_rec(0, NULL,
-                                              SdOpenPoseRecord(0, g_sdPairId, false));
+            dvr::stereo::reentry_push_tag_draw(0, NULL,
+                                              SdOpenPoseRecord(0, g_sdPairId, false), 0, ++g_sdDrawAttempt);
         }
 
     }

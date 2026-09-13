@@ -1189,6 +1189,28 @@ is corrected below. A realign feedback loop remains a hypothesis, not a measured
    Pause's exact recovery mechanism and a causal crouch/timing relationship remain
    unproven. See the revised plan for competing hypotheses and regression gates.
 
+**2026-09-13 host model and ring ledger (plan checkpoint 2).**
+
+1. **Symptom identity:** unchanged; no new headset run yet.
+2. **Reproduction identity:** the host model `tools/reentry-pair-host.ps1` compiles the
+   shipped pairing from `src/core/gfx/reentry_pair.inc` (moved verbatim out of
+   `reentry.cpp`); headset build pending install with `[Stereo] RingLedger=1`.
+3. **Hypothesis and counterprediction:** a one-tag-ahead ring plus the three-disagreement
+   drain sustains itself at a producer lead of about one tick. Counterprediction: the
+   model recovers from every single seeded fault.
+4. **Change identity:** diagnostic only. The ledger, default off, is one record per
+   present with draw attempt ids from the producer, raw pop outcome, removed ids and a
+   10 s tail/head reconcile. No pairing behaviour changed.
+5. **Results:** the prediction FAILED in the model. Every single fault (repeated present,
+   never-presenting draw, unpublished tag, 0-tag tick; steady or jittered lead; still or
+   walking) recovers correct eye labels within a few presents. At lead 1 or more a fault
+   leaves the ring a tick ahead for the rest of the run: right eye, next draw's record.
+   A sustained wrong-eye episode therefore needs something outside the model (recurring
+   onsets, concurrency inside the drain, capture delay, the hold, the progress guard).
+6. **Status and remaining scope:** open. The ledger's first headset question compares
+   standing-still and crouched-still note closes. The sustained record skew is a model
+   result, not yet measured in the game.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

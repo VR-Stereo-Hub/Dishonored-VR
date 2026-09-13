@@ -32,6 +32,7 @@
 #include "core/gfx/stereo.h"
 #include "core/gfx/desktop_eye.h"
 
+#include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
 #include "core/gfx/blit_quad.h"
 #include "core/gfx/capture.h"
@@ -51,74 +52,162 @@ namespace {
 
 ReentryHooks g_hooks;
 
-// The tag ring: game thread pushes (per draw), present thread pops (per
-// present). Power-of-two, SPSC, self-healing on a skew.
-constexpr uint32_t kRing = 8;
-// VR-65: the tag carries the RECORD the draw was rendered with, so the pose
-// travels with the image instead of being chosen by timing at submission.
-struct Tag { int eye; bool posOk; float pos[3]; uint32_t rec; uint32_t acct; };
-Tag           g_ring[kRing];
-volatile LONG g_ringHead = 0, g_ringTail = 0;
-uint32_t      g_ringDropped = 0, g_ringCleared = 0, g_tagMismatch = 0, g_tagOk = 0, g_tagUntagged = 0;
-uint32_t      g_tagNoFrame = 0;   // 41.1 (session 8): tagged presents whose grab delivered no frame (no tag pushed)
+// The tag ring, pop/peek and the c5 pairing live in reentry_pair.inc so the VR-80 host
+// model compiles the same code (tools/reentry-pair-host.ps1).
+#include "core/gfx/reentry_pair.inc"
 
-uint32_t g_tagResynced = 0;
-// 41.1 (session 9): the within-tick invariant. Between pass 1 and pass 2 the
-// world does not tick, so the ONLY thing that moves the camera is the writer's
-// eye: c5(pass 2) - c5(pass 1) = -ipd*scale along the camera's right row (the
-// field holds the position, c5 negates it), nothing along forward or up. A
-// present whose c5 sits exactly there from the previous present's IS a pass-2
-// present, whatever the ring says; one whose c5 sits exactly +ipd*scale along
-// right is a pass 1 after a still pass 2. The ring's order claim is checked
-// against that measurement every present: a disagreement is counted, and
-// three in a row drain the ring to the next expected tag (a tag eaten by a present that
-// drew nothing, or pushed by a draw that never presented - both happen, the
-// menu's draws outnumber its presents). Measured on the simulator: the tags
-// swapped across a re-arm and within a second of the first arming (the
-// frameid line's side check), the picture agreeing.
-bool     g_c5Pair = true;              // [Stereo] C5Pair=1; `reentry c5pair on|off`
-uint32_t g_c5Agree = 0, g_c5Disagree = 0, g_c5Realigned = 0, g_c5Verdicts = 0, g_c5Unknown = 0, g_c5Untagged = 0;
-// 41.1 (session 10): what the measurement DID with a disagreement, and the
-// ground truth it is judged by. g_c5Took/g_c5Held split the override by arm;
-// g_c5Refused counts the manufactured tags no longer invented on an empty
-// ring; g_pushSameEye is the fault ITSELF - two consecutive presents pushed
-// the same eye to the runtime, which is what the runtime reports as abortLeft
-// one stage later. It is counted at the push, on the present thread, with no
-// lag and no inference: if the stale line's owner is right, this moves with it.
-uint32_t g_c5Took = 0, g_c5Held = 0, g_c5Refused = 0, g_pushSameEye = 0;
-int      g_lastPushedEye = 0;
+// ---- VR-80: the ring ledger ([Stereo] RingLedger, default off) ---------------------------
+//
+// One record per present that reached the pop: the ring before the pop, what the pop
+// returned, what the c5 arms and the drain did (every removed draw id), the eye and the
+// record that went out, the popped tag's age, the c5-to-position distance for the popped
+// tag and for the next one (corroboration, not identity), and why end_frame returned.
+// Records go into a 64-entry buffer; lines are printed only in bounded windows: after an
+// arm (a return to gameplay, a re-arm) and around an override, a drain or an empty pop in
+// a tagged stream. Plus a 10 s reconcile line: every tag that entered or left the ring.
+volatile LONG g_ledgerOn = 0;
+volatile LONG g_ledgerArmReq = 0;
+const char*   g_ledgerArmWhy = "";
+volatile LONG g_ledgerStance = 0;   // 0 unknown, 1 standing, 2 crouched (set by the game side)
+uint32_t g_endFrames = 0, g_exitPoisoned = 0, g_exitDevices = 0, g_exitBlit = 0;
+enum LedgerOut : uint8_t { OUT_OK = 0, OUT_MONO, OUT_HOLD, OUT_NOSRC, OUT_TARGET };
+const char* kLedgerOut[] = {"stereo", "mono", "HOLD", "NOSRC", "TARGET"};
+struct LedgerRec {
+    uint32_t id = 0, frame = 0;
+    double   ms = 0.0;
+    int      stance = 0;
+    ArbTrace tr;
+    int      ringEye = 0, inv = 0;
+    float    along = 0.0f, other = 0.0f;
+    bool     tagged = false;
+    int      finalEye = 0;
+    uint32_t draw = 0, rec = 0;
+    double   ageMs = -1.0;
+    bool     w2cSelfOk = false, w2cNextOk = false;
+    float    w2cSelf = 0.0f, w2cNext = 0.0f;
+    int      nextEye = 0;
+    uint32_t nextDraw = 0;
+    uint8_t  out = OUT_OK;
+    int      delivered = 0;
+    uint32_t delivSerial = 0;
+    bool     fresh = false;
+};
+constexpr int      kLedN = 64, kLedBack = 12, kLedAfterArm = 24, kLedAfterEvent = 16;
+constexpr uint32_t kLedMaxDumps = 40;
+constexpr double   kLedEventGapMs = 2000.0;
+LedgerRec g_led[kLedN];
+uint32_t  g_ledCount = 0, g_ledDumps = 0, g_ledLastPrinted = 0;
+int       g_ledLeft = 0;
+double    g_ledNextEventMs = 0.0;
+bool      g_ledPrevTagged = false;
 
-// Pop the tag for THIS present, strictly in push order. The game thread runs
-// up to a frame ahead of the render thread (UE3's OneFrameThreadLag), so two
-// pairs can sit in the ring legitimately; a depth beyond that is a skew and
-// the ring is cleared. The ORDER pairs the eyes: one push per draw, one pop
-// per present. (The 2026-09-03 headset run: re-aligning by camera position
-// mis-paired a walking player - the engine moves the camera after the tick's
-// write - and showed both frames in both eyes. Position is telemetry now.)
-bool pop_tag(Tag& out, const float* c5) {
-    (void)c5;
-    const LONG tail = g_ringTail;
-    const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0);
-    if (tail == head) return false;
-    if (head - tail > 6) {
-        InterlockedExchange(&g_ringTail, head);
-        ++g_ringCleared;
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
-                         "reentry: tag ring skewed (depth %ld) - cleared, mono until the next pair", head - tail);
-        return false;
+void ledger_print(const LedgerRec& r) {
+    char pop[40], act[64], rem[80], w2c[64];
+    if (r.tr.popResult == POPR_TAG) _snprintf(pop, sizeof(pop), "D%u(%+d)", r.draw, r.ringEye);
+    else if (r.tr.popResult == POPR_CLEAR) _snprintf(pop, sizeof(pop), "CLEAR %u", r.tr.clearRemoved);
+    else _snprintf(pop, sizeof(pop), "EMPTY");
+    int a = 0; act[0] = 0;
+    if (r.tr.action & ACT_AGREE)   a += _snprintf(act + a, sizeof(act) - a, " agree");
+    if (r.tr.action & ACT_TOOK)    a += _snprintf(act + a, sizeof(act) - a, " TOOK");
+    if (r.tr.action & ACT_HELD)    a += _snprintf(act + a, sizeof(act) - a, " HELD");
+    if (r.tr.action & ACT_REALIGN) a += _snprintf(act + a, sizeof(act) - a, " REALIGN");
+    if (r.tr.action & ACT_INVENT)  a += _snprintf(act + a, sizeof(act) - a, " INVENT");
+    if (r.tr.action & ACT_REFUSE)  a += _snprintf(act + a, sizeof(act) - a, " REFUSE");
+    if (r.tr.action & ACT_UNKNOWN) a += _snprintf(act + a, sizeof(act) - a, " unknown");
+    if (!act[0]) _snprintf(act, sizeof(act), " -");
+    int k = 0; rem[0] = 0;
+    if (r.tr.removedN) {
+        k += _snprintf(rem, sizeof(rem), " removed %d [", r.tr.removedN);
+        for (int i = 0; i < r.tr.removedN && i < 6; ++i) k += _snprintf(rem + k, sizeof(rem) - k, "%sD%u", i ? " " : "", r.tr.removed[i]);
+        _snprintf(rem + k, sizeof(rem) - k, "] stop %s", r.tr.drainStop == 1 ? "next-other-eye" : r.tr.drainStop == 2 ? "empty" : r.tr.drainStop == 3 ? "pop-failed" : "?");
+    } else if (r.tr.action & ACT_REALIGN) {
+        _snprintf(rem, sizeof(rem), " removed 0 stop %s", r.tr.drainStop == 1 ? "next-other-eye" : r.tr.drainStop == 2 ? "empty" : "?");
     }
-    out = g_ring[tail & (kRing - 1)];
-    InterlockedExchange(&g_ringTail, tail + 1);
-    return true;
+    int m = 0; w2c[0] = 0;
+    m += r.w2cSelfOk ? _snprintf(w2c, sizeof(w2c), "self %.2f", r.w2cSelf) : _snprintf(w2c, sizeof(w2c), "self ?");
+    if (r.w2cNextOk) _snprintf(w2c + m, sizeof(w2c) - m, " next D%u(%+d) %.2f", r.nextDraw, r.nextEye, r.w2cNext);
+    else _snprintf(w2c + m, sizeof(w2c) - m, " next none");
+    pop[sizeof(pop) - 1] = act[sizeof(act) - 1] = rem[sizeof(rem) - 1] = w2c[sizeof(w2c) - 1] = 0;
+    DVR_INFO("ledger: P%u f%u %s | ring %ld..%ld d%ld newest D%u | pop %s age %.1f ms | c5 along %+.2f other %.2f inv %+d | "
+             "streak %u->%u%s%s | out %+d D%u rec %u %s | w2c %s | deliv %+d ser %u%s",
+             r.id, r.frame, r.stance == 2 ? "CROUCH" : r.stance == 1 ? "stand" : "?",
+             (long)r.tr.tailBefore, (long)r.tr.headBefore, (long)(r.tr.headBefore - r.tr.tailBefore), r.tr.newestDraw,
+             pop, r.ageMs, (double)r.along, (double)r.other, r.inv, r.tr.streakBefore, r.tr.streakAfter, act, rem,
+             r.finalEye, r.tagged ? r.draw : 0u, r.rec, kLedgerOut[r.out < 5 ? r.out : 0], w2c,
+             r.delivered, r.delivSerial, r.fresh ? "" : " (no fresh grab)");
+    g_ledLastPrinted = r.id;
 }
 
-// The eye of the tag the next pop would return (false = empty).
-bool peek_tag(int& eye) {
+void ledger_open(const char* why) {
+    ++g_ledDumps;
+    DVR_INFO("ledger: WINDOW %u/%u (%s) - one line per present. pop D<n>(eye) is the draw whose tag this present "
+             "took; out is the eye and draw that went out; w2c is the distance from this present's c5 to the popped "
+             "tag's written position and to the next tag's (corroboration only: the camera can move after a write); "
+             "a draw id missing between consecutive pops was removed by a drain, a clear, or never pushed.",
+             g_ledDumps, kLedMaxDumps, why);
+}
+
+void ledger_commit(LedgerRec& r) {
+    r.id = ++g_ledCount;
+    g_led[(r.id - 1) % kLedN] = r;
+    const double now = r.ms;
+    if (InterlockedExchange(&g_ledgerArmReq, 0) && g_ledDumps < kLedMaxDumps) {
+        ledger_open(g_ledgerArmWhy);
+        for (uint32_t id = (r.id > (uint32_t)kLedBack ? r.id - kLedBack : 1); id < r.id; ++id)
+            if (id > g_ledLastPrinted) ledger_print(g_led[(id - 1) % kLedN]);
+        g_ledLeft = kLedAfterArm;
+    }
+    const bool event = (r.tr.action & (ACT_TOOK | ACT_HELD | ACT_REALIGN | ACT_INVENT | ACT_REFUSE)) != 0 ||
+                       (r.tr.popResult != POPR_TAG && g_ledPrevTagged);
+    if (event && g_ledLeft == 0 && now >= g_ledNextEventMs && g_ledDumps < kLedMaxDumps) {
+        g_ledNextEventMs = now + kLedEventGapMs;
+        ledger_open(r.tr.action & ACT_REALIGN ? "a drain" : r.tr.action & (ACT_TOOK | ACT_HELD) ? "an override"
+                    : r.tr.popResult == POPR_CLEAR ? "a depth clear" : r.tr.popResult == POPR_EMPTY ? "an empty pop in a tagged stream"
+                    : "an invented or refused eye");
+        for (uint32_t id = (r.id > (uint32_t)kLedBack ? r.id - kLedBack : 1); id < r.id; ++id)
+            if (id > g_ledLastPrinted) ledger_print(g_led[(id - 1) % kLedN]);
+        g_ledLeft = kLedAfterEvent;
+    }
+    if (g_ledLeft > 0) { ledger_print(r); --g_ledLeft; }
+    g_ledPrevTagged = r.tagged && r.finalEye != 0;
+}
+
+// The reconcile line: every tag that entered or left the ring must account for how far
+// the ring's two ends moved. The tail is written only by this (present) thread, so its side
+// is exact; the head is the game thread's, and a push between its head write and its
+// counter can show as one push in flight, which the line allows and names.
+void ledger_reconcile() {
+    static double next = 0.0;
+    static uint32_t a0 = 0, rj0 = 0, n0 = 0, rp0 = 0, cl0 = 0, lc0 = 0, em0 = 0, ef0 = 0, fr0 = 0, xp0 = 0, xd0 = 0, xb0 = 0;
+    static LONG head0 = 0, tail0 = 0;
+    const double now = pair_now_ms();
+    if (now < next) return;
     const LONG tail = g_ringTail;
+    const uint32_t acc = g_pushAccepted;
     const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0);
-    if (tail == head) return false;
-    eye = g_ring[tail & (kRing - 1)].eye;
-    return true;
+    const uint32_t frames = dvr::frame::count();
+    if (next != 0.0) {
+        const long tailMoved = (long)(tail - tail0);
+        const long removed = (long)(g_popNormal - n0) + (long)(g_popRepair - rp0) + (long)(g_popClearRemoved - cl0) +
+                             (long)(g_lifecycleRemoved - lc0);
+        const long headMoved = (long)(head - head0), pushed = (long)(acc - a0);
+        const bool tailOk = tailMoved == removed;
+        const long headGap = headMoved - pushed;
+        DVR_INFO("ledger/reconcile: 10 s | presents %u, end_frame %u (pre-pop exits: poisoned %u devices %u blit %u) | "
+                 "pushes accepted %u rejected %u (last rejected D%u) | removed: normal %u repair %u clear %u lifecycle %u; "
+                 "empty pops %u | tail moved %ld vs removals %ld (%s) | head moved %ld vs accepted %ld (%s) | depth now %ld",
+                 frames - fr0, g_endFrames - ef0, g_exitPoisoned - xp0, g_exitDevices - xd0, g_exitBlit - xb0,
+                 (unsigned)pushed, g_pushRejected - rj0, g_lastRejectedDraw, g_popNormal - n0, g_popRepair - rp0,
+                 g_popClearRemoved - cl0, g_lifecycleRemoved - lc0, g_popEmpty - em0,
+                 tailMoved, removed, tailOk ? "reconciles" : "DOES NOT RECONCILE - a removal path is uncounted",
+                 headMoved, pushed, headGap == 0 ? "reconciles" : (headGap == 1 || headGap == -1) ? "one push in flight"
+                                                              : "DOES NOT RECONCILE - an insertion path is uncounted",
+                 (long)(head - tail));
+    }
+    next = now + 10000.0;
+    a0 = acc; rj0 = g_pushRejected; n0 = g_popNormal; rp0 = g_popRepair; cl0 = g_popClearRemoved;
+    lc0 = g_lifecycleRemoved; em0 = g_popEmpty; ef0 = g_endFrames; fr0 = frames;
+    xp0 = g_exitPoisoned; xd0 = g_exitDevices; xb0 = g_exitBlit; head0 = head; tail0 = tail;
 }
 
 class SequentialReentry : public IStereo {
@@ -221,7 +310,11 @@ public:
     }
 
     bool end_frame(const FrameDevices& d, FrameOutput& out) override {
+        ++g_endFrames;
+        const bool led = InterlockedCompareExchange(&g_ledgerOn, 0, 0) != 0;
+        if (led) ledger_reconcile();
         if (g_hooks.poisoned && g_hooks.poisoned()) {
+            ++g_exitPoisoned;
             DVR_ERROR("stereo: reentry POISONED by a second-draw fault - dropping to mono");
             armed_ = false;
             select("mono");
@@ -229,113 +322,51 @@ public:
         }
         stale_check();
         dvr::frameid::begin_present();   // 41.1 (session 9): the previous present's trace closes, its pairs are judged
-        if (!d.dev9 || !d.dev11 || !d.ctx11) return false;
-        if (!blit_.init(d.dev11)) return false;
+        if (!d.dev9 || !d.dev11 || !d.ctx11) { ++g_exitDevices; return false; }
+        if (!blit_.init(d.dev11)) { ++g_exitBlit; return false; }
         // The tag for the frame the game just drew, checked against its c5.
         Tag t = {0, false, {0.0f, 0.0f, 0.0f}, 0, 0};   // 41.1: the c5 arm can tag a present the ring never filled
         int eye = 0;
         float c5now[3];
         const bool haveC5 = dvr::camera::render_pos(c5now);
-        bool tagged = pop_tag(t, haveC5 ? c5now : nullptr);
-        const int ringEye = tagged ? t.eye : 0;   // VR-78: before the pairing may override it
-        // The within-tick invariant (see g_c5Pair): what this present's c5
-        // says about its pass, before the ring's claim is read.
-        int inv = 0;
+        ArbView view;
+        view.haveC5 = haveC5;
+        if (haveC5) memcpy(view.c5now, c5now, sizeof(view.c5now));
+        {   float vbf[3], vbu[3]; view.basisOk = dvr::camera::last_basis(vbf, view.br, vbu); }
+        view.ipd = dvr::camera::ipd_m() * dvr::camera::world_scale();
+        int ringEye = 0, inv = 0;
         float along = 0.0f, other = 0.0f;
-        {
-            float bf[3], br[3], bu[3];
-            const float ipd = dvr::camera::ipd_m() * dvr::camera::world_scale();
-            if (haveC5 && prevC5Ok_ && ipd > 1.0f && dvr::camera::last_basis(bf, br, bu)) {
-                const float s[3] = {c5now[0] - prevC5_[0], c5now[1] - prevC5_[1], c5now[2] - prevC5_[2]};
-                along = s[0] * br[0] + s[1] * br[1] + s[2] * br[2];
-                const float o[3] = {s[0] - along * br[0], s[1] - along * br[1], s[2] - along * br[2]};
-                other = sqrtf(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]);
-                if (fabsf(along + ipd) < 0.35f * ipd && other < 0.5f * ipd) inv = +1;        // pass 2 after pass 1
-                else if (fabsf(along - ipd) < 0.35f * ipd && other < 0.5f * ipd) inv = -1;   // pass 1 after a still pass 2
+        ArbTrace arbTrace;
+        bool tagged = pop_and_arbitrate(arb_, view, t, ringEye, inv, along, other, &arbTrace);
+        LedgerRec lr;   // VR-80: filled only while the ledger is on, committed at every return below
+        if (led) {
+            lr.frame = dvr::frame::count();
+            lr.ms = pair_now_ms();
+            lr.stance = (int)InterlockedCompareExchange(&g_ledgerStance, 0, 0);
+            lr.tr = arbTrace;
+            lr.ringEye = ringEye; lr.inv = inv; lr.along = along; lr.other = other;
+            lr.tagged = tagged; lr.finalEye = tagged ? t.eye : 0;
+            lr.draw = t.draw; lr.rec = tagged ? t.rec : 0u;
+            lr.ageMs = (tagged && t.pushMs > 0.0) ? lr.ms - t.pushMs : -1.0;
+            if (tagged && t.posOk && haveC5) {
+                const float e0 = c5now[0] - t.pos[0], e1 = c5now[1] - t.pos[1], e2 = c5now[2] - t.pos[2];
+                lr.w2cSelf = sqrtf(e0 * e0 + e1 * e1 + e2 * e2); lr.w2cSelfOk = true;
             }
-            if (haveC5) { memcpy(prevC5_, c5now, sizeof(prevC5_)); prevC5Ok_ = true; }
-        }
-        // The measurement is the pairing; the ring's order is the fallback for
-        // the presents the invariant cannot name (a pass 1 after a moving
-        // pass 2) and is kept aligned by the measurement (measured on the
-        // simulator: the ring skews on its own in plain gameplay, ~2 per 25 s,
-        // an extra present popping the next draw's tag; with the order alone
-        // each skew swapped the eyes until the next).
-        //
-        // 41.1 (session 10): THE TWO ARMS ARE NOT EQUALLY TRUSTWORTHY, and
-        // trusting them equally is what made the stale RIGHT eye.
-        //   inv=+1 ("pass 2 after pass 1") compares two draws with NO world
-        //     tick between them. The step is exactly -ipd by construction.
-        //     Robust: it may override the ring on its own.
-        //   inv=-1 ("pass 1 after a still pass 2") is the ONLY arm that reasons
-        //     ACROSS a world tick, and is valid solely while the player is near
-        //     still. A gently moving player (turning in place, decelerating,
-        //     crouch-walk) parks the tick's travel inside the +-0.35*ipd window
-        //     and this arm then names a genuine pass-2 present a pass 1.
-        // A wrong -1 adds a LEFT and drops a RIGHT: two -1 reach the runtime
-        // (abortLeft), the left swapchain is written twice and the right is not
-        // written at all - `STALE R EYE ... ages L=0 R=2`, `stale submits L=0
-        // R=20`, and not one game-side gate moves, because the game side DID
-        // run pass 2 and DID push its +1. The fragile arm must therefore agree
-        // with the ring, or defer to it and let the streak realign.
-        if (g_c5Pair && inv != 0) {
-            const bool robust = (inv == +1);   // within-tick: no world tick to cross
-            if (tagged && t.eye != 0) {
-                ++g_c5Verdicts;
-                if (t.eye == inv) { ++g_c5Agree; c5Streak_ = 0; t.eye = inv; }
-                else {
-                    ++g_c5Disagree;
-                    if (robust) { ++g_c5Took; t.eye = inv; }
-                    else {
-                        // The cross-tick arm loses to the ring on its own. The
-                        // streak below is what promotes a real skew.
-                        ++g_c5Held;
-                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 3000,
-                                         "reentry: c5 says pass 1 (step %+.2f along right, %.2f other; ipd*scale %.2f) but "
-                                         "the ring says %+d - the cross-tick arm DEFERS to the ring (held %u, took %u, "
-                                         "%u agree / %u disagree); three in a row still realign",
-                                         along, other, dvr::camera::ipd_m() * dvr::camera::world_scale(), t.eye,
-                                         g_c5Held, g_c5Took, g_c5Agree, g_c5Disagree);
-                    }
-                    if (++c5Streak_ >= 3) {
-                        // The ring is off: drain it to the tag the NEXT present
-                        // must pop (the other eye of this measured one), so a
-                        // backlog of any depth (a method re-select leaves up to
-                        // a ring of stale tags) aligns in one present.
-                        Tag t2;
-                        bool popped = false;
-                        for (uint32_t k = 0; k < kRing; ++k) {
-                            int next = 0;
-                            if (!peek_tag(next) || next == -inv) break;
-                            if (pop_tag(t2, nullptr)) popped = true; else break;
-                        }
-                        ++g_c5Realigned;
-                        c5Streak_ = 0;
-                        t.eye = inv;   // the streak earned the override, either arm
-                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-                                         "reentry: the tag ring skewed against the draws - three presents in a row whose c5 "
-                                         "step (%+.2f along right, %.2f other; ipd*scale %.2f) named the other pass; realigned "
-                                         "by one pop (%s) - realigned %u times, %u agree / %u disagree so far (the eyes "
-                                         "followed the measurement throughout; the order alone would have swapped them)",
-                                         along, other, dvr::camera::ipd_m() * dvr::camera::world_scale(),
-                                         popped ? "a tag dropped" : "the ring was empty", g_c5Realigned, g_c5Agree, g_c5Disagree);
-                    }
+            Tag nt;
+            if (peek_tag_full(nt)) {
+                lr.nextEye = nt.eye; lr.nextDraw = nt.draw;
+                if (nt.posOk && haveC5) {
+                    const float e0 = c5now[0] - nt.pos[0], e1 = c5now[1] - nt.pos[1], e2 = c5now[2] - nt.pos[2];
+                    lr.w2cNext = sqrtf(e0 * e0 + e1 * e1 + e2 * e2); lr.w2cNextOk = true;
                 }
-                tagged = true;
-            } else {
-                // Nothing to override: the ring was empty, or it delivered the
-                // 0 tag a SINGLE gameplay draw pushes (scene_draw's one push
-                // per draw). Only the within-tick arm may name an eye out of
-                // nothing - a manufactured -1 here is a LEFT that no draw ever
-                // pushed, and it is invisible downstream because setting
-                // tagged=true is exactly what keeps `method untagged presents`
-                // reading 0. An unnamed present goes out untagged and honest;
-                // [Stereo] HoldUntagged covers the one-frame mono flick.
-                ++g_c5Untagged;
-                if (robust) { t.eye = inv; tagged = true; }
-                else { ++g_c5Refused; t.eye = 0; }
             }
-        } else if (inv == 0 && tagged && t.eye != 0) ++g_c5Unknown;
+        }
+        auto commit = [&](uint8_t why, int deliv, bool fr) {
+            if (!led) return;
+            lr.out = why; lr.delivered = deliv; lr.fresh = fr;
+            lr.delivSerial = fr ? dvr::capture::delivered_serial() : 0u;
+            ledger_commit(lr);
+        };
         if (tagged) {
             eye = t.eye;
             ++g_tagOk;
@@ -376,9 +407,9 @@ public:
 
         const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
         ID3D11ShaderResourceView* src = dvr::capture::srv();
-        if (!src) return false;
+        if (!src) { commit(OUT_NOSRC, 0, fresh); return false; }
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
-        if (!ensure_target(d.dev11, w, h)) return false;
+        if (!ensure_target(d.dev11, w, h)) { commit(OUT_TARGET, 0, fresh); return false; }
         if (fresh || !drawnOnce_) {
             blit_.draw(d.ctx11, src, rtv_, w, h);
             // 41.2 (VR-31): our own hands, over the game image and under the
@@ -467,6 +498,7 @@ public:
                                  "previous pair instead of flipping both eyes to mono). The (N+1)th in a row goes "
                                  "out as mono - `stereo hold 0` restores that for every one.",
                                  heldRun_, lim);
+                commit(OUT_HOLD, delivered, fresh);
                 return false;
             }
             // Not held: the mono path, as before. A run that reaches here has
@@ -498,6 +530,7 @@ public:
             g_lastPushedEye = delivered;
             dvr::vr::sr_push_eye(delivered);
         }
+        commit(delivered != 0 ? OUT_OK : OUT_MONO, delivered, fresh);
         return true;
     }
 
@@ -509,13 +542,16 @@ public:
             if (g_hooks.set_armed) g_hooks.set_armed(false);
             DVR_INFO("stereo: reentry disarmed - the call site is restored at the next script dispatch");
         }
-        InterlockedExchange(&g_ringTail, InterlockedCompareExchange(&g_ringHead, 0, 0));
+        {   // VR-80: a lifecycle clear is a removal the ledger must account for
+            const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0);
+            g_lifecycleRemoved += (uint32_t)(head - g_ringTail);
+            InterlockedExchange(&g_ringTail, head);
+        }
         release_target();
         blit_.shutdown();
         drawnOnce_ = false;
         lastLeftOk_ = false;
-        prevC5Ok_ = false;
-        c5Streak_ = 0;
+        arb_ = ArbState{};   // the c5 history and the disagreement streak
         g_lastPushedEye = 0;   // a re-select must not read as a repeat
         taggedRecently_ = false;
         heldRun_ = 0;
@@ -595,10 +631,8 @@ private:
     bool     armed_ = false;
     float    lastLeft_[3] = {0, 0, 0};
     bool     lastLeftOk_ = false;
-    float    prevC5_[3] = {0, 0, 0};   // the previous present's c5 (the within-tick invariant)
     uint32_t lastSame_ = 0, lastTook_ = 0, lastHeld_ = 0, lastRefused_ = 0, lastRealign_ = 0, lastDis_ = 0;
-    bool     prevC5Ok_ = false;
-    uint32_t c5Streak_ = 0;
+    ArbState arb_;                     // the previous present's c5 and the disagreement streak (reentry_pair.inc)
     // the stale-eye line's previous snapshot
     uint32_t lastStale_ = 0;
     bool     lastStaleInit_ = false;
@@ -630,17 +664,28 @@ void reentry_push_tag(int eyeSign, const float pos[3]) { reentry_push_tag_acct(e
 void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec) { reentry_push_tag_acct(eyeSign, pos, rec, 0); }
 
 void reentry_push_tag_acct(int eyeSign, const float pos[3], uint32_t rec, uint32_t acct) {
-
-    const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0), tail = InterlockedCompareExchange(&g_ringTail, 0, 0);
-    if (head - tail >= (LONG)kRing) { ++g_ringDropped; return; }   // no consumer (no present) or stalled
-    Tag& t = g_ring[head & (kRing - 1)];
-    t.eye = eyeSign;
-    t.posOk = pos != nullptr;
-    t.rec = rec;
-    t.acct = acct;
-    if (pos) memcpy(t.pos, pos, sizeof(t.pos));
-    InterlockedExchange(&g_ringHead, head + 1);
+    push_tag(eyeSign, pos, rec, acct);   // reentry_pair.inc
 }
+
+// VR-80: the same push, carrying the game side's draw attempt id for the ledger.
+void reentry_push_tag_draw(int eyeSign, const float pos[3], uint32_t rec, uint32_t acct, uint32_t draw) {
+    push_tag(eyeSign, pos, rec, acct, draw);
+}
+
+void set_reentry_ledger(bool on) {
+    const bool was = InterlockedExchange(&g_ledgerOn, on ? 1 : 0) != 0;
+    if (on != was)
+        DVR_INFO("ledger: %s - %s", on ? "ON" : "off",
+                 on ? "one record per present, printed in bounded windows after a return to gameplay and around "
+                      "overrides, drains and empty pops (%d back / %d after, %u windows at most), and a 10 s reconcile of "
+                      "every tag that entered or left the ring" : "no records", kLedBack, kLedAfterEvent, kLedMaxDumps);
+}
+void reentry_ledger_arm(const char* why) {
+    if (!InterlockedCompareExchange(&g_ledgerOn, 0, 0)) return;
+    g_ledgerArmWhy = why ? why : "?";
+    InterlockedExchange(&g_ledgerArmReq, 1);
+}
+void reentry_ledger_stance(int stance) { InterlockedExchange(&g_ledgerStance, stance); }
 
 IStereo* create_reentry() { return &g_reentry; }
 

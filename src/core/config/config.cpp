@@ -1583,6 +1583,9 @@ static void LoadConfig()
         // VR-80: count the viewport draw root's other three callers through
         // pass-through stubs, and annotate each traced present with what drew
         // since the last one. Diagnostic; the sites are restored when off.
+        // VR-80: the ring ledger - one record per present of what entered and left the tag
+        // ring, printed in bounded windows, with a reconcile of every tag. Never saved.
+        dvr::stereo::set_reentry_ledger(GetPrivateProfileIntA("Stereo", "RingLedger", 0, ini) != 0);
         const int dc = GetPrivateProfileIntA("Stereo", "DrawCallerTrace", 0, ini);
         DrawCallersSet(dc != 0);
         if (dc) Log("config: [Stereo] DrawCallerTrace=1 - the draw root's other callers will be counted "
