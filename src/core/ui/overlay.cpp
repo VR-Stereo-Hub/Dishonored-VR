@@ -203,9 +203,21 @@ static void OverlayFrame()
             if (dv) g_blkDstReqUI = g_blkDstOnUI ? 0 : 1;
             Log("blink: controller aim %s", dv ? "ON" : "off");
         }
-        ImGui::TextDisabled(g_blkDstOnUI
-            ? "native detour live at 0xbf5e4f - aims with your %s hand"
-            : "arming when the power loads...", g_maimHand ? "right" : "left");
+        // VR-36: name the RAY, not the hand. The hand was never the question -
+        // which of the two rays is driving is, and the panel used to be silent
+        // about it while claiming the destination detour did the aiming.
+        bool ur = g_blkUseAimRay;
+        if (ImGui::Checkbox("...off the same ray as the dot and your shots", &ur)) {
+            g_blkUseAimRay = ur;
+            Log("blink: ray -> %s", ur ? "published" : "legacy MotionAim");
+        }
+        ImGui::TextDisabled(g_blkDirOn
+            ? "source seam live at 0xbf55a3: the engine traces along %s, so it "
+              "does its own collision and refuses what it cannot reach"
+            : "arming when the power loads... (%s)",
+            g_blkUseAimRay ? "the published ray" : "the legacy MotionAim ray");
+        ImGui::TextDisabled("last ray: %s | controller %.0f uu from the camera",
+                            g_blkRayWhy, g_blkRayGapUU);
         if (g_ovlDev)
         if (ImGui::Button("capture a frame WITH the marker (then hold an aim)",
                           ImVec2(-1, 0))) {
@@ -239,18 +251,19 @@ static void OverlayFrame()
         // option (two detour sites that never execute), the head-marker
         // suppression, and the source-aim switch itself. A setting whose
         // answer is settled is not a choice, it is clutter.
-        ImGui::TextDisabled(g_blkDirOn
-            ? "aiming at the source (0xbf55a3): the engine traces along your"
-              " hand, so it does its own collision"
-            : "arming when the power loads...");
-        bool bm = g_blkMarker;
-        if (ImGui::Checkbox("bright VR marker on the landing spot", &bm))
-            g_blkMarker = bm;
-        if (g_blkMarker) {
-            ImGui::SliderFloat("marker pull-back (uu)", &g_blkMarkerBackUU,
-                               0.0f, 250.0f, "%.0f");
-            ImGui::TextDisabled("raise this if the dot vanishes against a wall");
-        }
+        // VR-36: the mod's own landing marker DIED WITH THE FORK. It was drawn
+        // through dxvk_vr_mark, which 41.0 removed; [Blink] Marker and
+        // MarkerPullbackUU are still read by the config and still saved, and
+        // nothing else in the tree mentions them. The marker the player sees is
+        // the engine's own decal, placed by the engine's own trace - which is
+        // why redirecting that trace at its source is what makes the marker and
+        // the landing point one point. Offering a control that cannot do
+        // anything is worse than saying so.
+        ImGui::TextDisabled("landing marker: the engine's own decal, placed by the "
+                            "trace we redirect - so it marks the real landing spot. "
+                            "[Blink] Marker / MarkerPullbackUU drew the mod's own "
+                            "marker through the DXVK fork and have had no effect "
+                            "since 41.0 removed it.");
     }
 
     ImGui::EndTabItem(); }

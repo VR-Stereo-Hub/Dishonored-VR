@@ -199,3 +199,39 @@ static float    g_blkTrcLen = 0.0f;
 
 extern "C" uint32_t g_blkTrcRet = 0;
 extern "C" void BlinkTraceStub(void);
+
+// ============================================================================
+// VR-36 - BLINK ON THE PUBLISHED AIM RAY
+//
+// Until now every seam in this module called BlinkControllerDir, which builds
+// its own ray from the raw GRIP pose plus [MotionAim] PitchOffsetDeg. That is
+// the legacy MotionAim ray VR-57 replaced: the crossbow and the pistol moved
+// onto dvr::aim::fire_frame() and the guide the player can SEE is drawn from
+// it, so Blink was the last consumer aiming down a different line.
+//
+// The one-ray rule is not satisfied by two rays that agree; it is satisfied by
+// one publication with several consumers. BlinkAimRayWorld is the only
+// direction source in the module now, and it converts the SAME FireFrame the
+// dot and the shots use with the SAME converter (dvr::fireaim::solve), so a
+// change to the ray reaches Blink without anyone remembering to port it.
+//
+// UseAimRay=0 restores the legacy ray as a deliberate A/B - never as a silent
+// fallback. A refusal falls back to the ENGINE's own head aim, which is the
+// safe answer when what is at stake is where the player's body ends up.
+static bool     g_blkUseAimRay = true;
+static float    g_blkRayDir[3]    = { 0, 0, 0 };   // world units, unit length
+static float    g_blkRayOrigin[3] = { 0, 0, 0 };   // the controller, world units
+static float    g_blkRayGapUU     = 0.0f;          // controller to camera
+static const char* g_blkRayWhy    = "not sampled";
+static volatile LONG g_blkRayUsed    = 0;
+static volatile LONG g_blkRayRefused = 0;
+static double   g_blkRayTell = 0.0;
+// The instrument that says where the engine's trace STARTS. The source seam
+// cannot see it (END = offset + [ebp-0x24], and the seam that would show that
+// local sits on a branch that never executes), so this measures it from the
+// far end instead: the angle between the destination the engine settled on,
+// taken from the camera, and the vector it was handed. Near zero means the
+// trace starts at the camera and a convergence correction is worth adding;
+// anything else means it does not, and a correction would be a guessed
+// constant. It can print the unwelcome answer, which is the point.
+static float    g_blkDstAngleDeg = -1.0f;

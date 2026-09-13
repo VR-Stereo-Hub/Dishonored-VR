@@ -1,6 +1,7 @@
 // game/dishonored/blink.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
+#include "game/dishonored/fire_aim_math.h"   // VR-36: the shared XR-to-world converter
 
 
 static inline bool BpAlive(int i)       // 32.6 lesson: GObjects is the liveness test
@@ -237,6 +238,61 @@ static bool HandRelSnap(int hand, float* rel)
 }
 
 
+// VR-36: THE PUBLISHED RAY, IN GAME WORLD UNITS. The only direction source.
+//
+// dvr::aim::fire_frame() is the one publication the dot, the laser and the
+// crossbow/pistol launch hooks all consume; dvr::fireaim::solve is VR-57/VR-82's
+// converter from XR LOCAL metres into world units, through the head basis and
+// the view yaw/pitch at [PosTrack] Scale. Nothing is derived here that is not
+// already derived for the shot, which is what makes this one ray rather than
+// two rays that happen to agree.
+//
+// The spawn argument is the camera, so solve()'s reach guard compares the
+// controller against the camera rather than against a point already displaced
+// by a muzzle standoff - Blink has no standoff.
+//
+// A refusal is a refusal. The caller leaves the engine's own vector alone and
+// Blink is head-aimed, unchanged, because the thing being aimed here is where
+// the player's body ends up.
+static bool BlinkAimRayWorld(float* outOrigin, float* outDir)
+{
+    const auto aim = dvr::aim::fire_frame();
+    float camera[3];
+    if (!dvr::camera::render_pos_world(camera)) {
+        g_blkRayWhy = "no world camera position";
+        InterlockedIncrement(&g_blkRayRefused);
+        return false;
+    }
+    dvr::fireaim::Solution sol;
+    if (!dvr::fireaim::solve(aim, GetTickCount64(), g_viewYawRad, g_viewPitchRad,
+                             camera, g_posScaleUU, camera, sol)) {
+        g_blkRayWhy = aim.ray.ok ? (aim.headValid ? "launch geometry refused the ray"
+                                                  : "no head pose with the ray")
+                                 : aim.ray.why;
+        InterlockedIncrement(&g_blkRayRefused);
+        return false;
+    }
+    float d[3] = { sol.target[0] - sol.origin[0],
+                   sol.target[1] - sol.origin[1],
+                   sol.target[2] - sol.origin[2] };
+    if (!dvr::fireaim::normalize(d)) {
+        g_blkRayWhy = "degenerate ray (origin and target coincide)";
+        InterlockedIncrement(&g_blkRayRefused);
+        return false;
+    }
+    float gap[3] = { sol.origin[0] - camera[0], sol.origin[1] - camera[1],
+                     sol.origin[2] - camera[2] };
+    g_blkRayGapUU = sqrtf(dvr::fireaim::dot(gap, gap));
+    memcpy(g_blkRayOrigin, sol.origin, 12);
+    memcpy(g_blkRayDir, d, 12);
+    memcpy(outOrigin, sol.origin, 12);
+    memcpy(outDir, d, 12);
+    g_blkRayWhy = "ready";
+    InterlockedIncrement(&g_blkRayUsed);
+    return true;
+}
+
+
 // 32.90: ROLLED BACK to the 32.86 aim, byte for byte in behaviour.
 // The user's timeline is the authority here: 32.86 was tested and called
 // fixed. What broke the two builds after it was the 32.87 crouch pulse
@@ -245,7 +301,7 @@ static bool HandRelSnap(int hand, float* rel)
 // yaw conventions and introduced the very coupling it claimed to prevent.
 // Lesson pinned here so it survives me: when a tested-good build exists,
 // restore it EXACTLY; do not improve it on the way back.
-static bool BlinkControllerDir(float* out)
+static bool BlinkLegacyControllerDir(float* out)
 {
     float rel[3];
     int hand = (g_maimHand == 1) ? 1 : 0;
@@ -308,6 +364,20 @@ static bool BlinkControllerDir(float* out)
         }
     }
     return true;
+}
+
+
+// VR-36: every seam in this module goes through here, and only here.
+//
+// UseAimRay=1 (default) is the published ray. UseAimRay=0 is the legacy
+// MotionAim ray, kept as a NAMED A/B so the two can be compared in one headset
+// run - it is never reached by accident, and a failure of the published ray
+// does not quietly hand aiming back to it. `blink ray aim|legacy` switches live.
+static bool BlinkControllerDir(float* out)
+{
+    if (!g_blkUseAimRay) return BlinkLegacyControllerDir(out);
+    float origin[3];
+    return BlinkAimRayWorld(origin, out);
 }
 
 
@@ -458,8 +528,21 @@ static void BlinkDirInstall()
 }
 
 
+// VR-36: THE DESTINATION SEAM IS AN INSTRUMENT NOW, NOT A REDIRECT.
+//
+// This runs AFTER the engine has traced, collided and validated. A destination
+// substituted here was never checked against geometry, which is 32.51's
+// teleport through walls, and it is precisely what VR-36 rules out:
+// unreachable targets must be refused by the engine, not by us. The whole
+// write path is gone. The source seam at 0xbf55a3 is the only redirect and it
+// hands the engine a ray to do its own work on - so the marker, the collision
+// pull-back and the landing point are one trace, by construction.
+//
+// What it still does is measure. It is the only place that sees the engine's
+// settled destination beside the vector the engine was handed.
 extern "C" void __cdecl BlinkDestHook(void* self, uint8_t* framePtr)
 {
+    (void)framePtr;
     InterlockedIncrement(&g_blkDstHits);
     InterlockedExchange(&g_blkAutoDump, 0);   // 41.0: the fork's marker dump is gone
     uint8_t* o = (uint8_t*)self;
@@ -468,62 +551,34 @@ extern "C" void __cdecl BlinkDestHook(void* self, uint8_t* framePtr)
     InterlockedIncrement(&g_blkDstMine);
     if (!CamStillValid() || !RangeReadable(g_camObj + 0x80, 12)) return;
     const float* cp = (const float*)(g_camObj + 0x80);
-    float* dst = (float*)(o + 0x60);
+    const float* dst = (const float*)(o + 0x60);
+    if (!RangeReadable((void*)dst, 12)) return;
     float r[3] = { dst[0] - cp[0], dst[1] - cp[1], dst[2] - cp[2] };
     float dist = sqrtf(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
     if (!(dist > 20.0f && dist < 6000.0f)) return;
     memcpy(g_blkDstWas, dst, 12);
-    if (dist > g_blkReachSeen) g_blkReachSeen = dist;   // 32.37: learn the max
-    g_blkAimSeen   = MaimNowMs();
-    float d[3];
-    if (!BlinkControllerDir(d)) return;
-    dist = BlinkReach(d, dist);                    // 32.38: hand, not head
-    g_blkAimDistUU = dist;                         // 32.28
-    // 32.36: stand down ONLY if the trace redirect is demonstrably working.
-    // 32.31 handed the aim over unconditionally, so when the trace hook did not
-    // fire there was nothing driving anything and aiming silently reverted to
-    // head aim. Now the destination patch stays as a live fallback until the
-    // trace hook has actually redirected within the last half second.
-    if (g_blkTraceAim && (MaimNowMs() - g_blkTrcLastMine) < 500.0) return;
-    // 32.50: if the SOURCE redirect is live, the engine already traced along
-    // the controller - the destination, the marker and the geometry check all
-    // agree, and patching the destination again would only pull the landing
-    // spot away from the marker the engine just drew. Same fallback shape as
-    // 32.36: stand down only on proof the better path actually ran.
-    // 32.51: this is ALSO the teleport-through-walls fix. Writing the
-    // destination here happens AFTER the engine has traced and validated it
-    // against geometry, so the landing point we substitute was never checked
-    // against anything - which is exactly how you blink through a wall. Aiming
-    // at the source means the engine traces along the controller and applies
-    // its own collision, and nothing downstream is overwritten. The glitch is
-    // a property of the workaround, not of hand aiming.
-    if (g_blkDirAim && (MaimNowMs() - g_blkDirLastMine) < 500.0) return;
-    if (!g_blkAimDrive) {                          // observe-only mode
-        g_blkDstNow[0] = cp[0] + d[0]*dist;
-        g_blkDstNow[1] = cp[1] + d[1]*dist;
-        g_blkDstNow[2] = cp[2] + d[2]*dist;
-        return;
-    }
-    dst[0] = cp[0] + d[0]*dist;
-    dst[1] = cp[1] + d[1]*dist;
-    dst[2] = cp[2] + d[2]*dist;
     memcpy(g_blkDstNow, dst, 12);
-    if (framePtr) {                       // 32.30: the frame's copy as well
-        float* loc = (float*)(framePtr - 0xc);   // -0xc,-0x8,-0x4 contiguous
-        loc[0] = dst[0]; loc[1] = dst[1]; loc[2] = dst[2];
-    }
-    float* hit = (float*)(o + 0xd0);               // keep the raw hit in step
-    if (RangeReadable(hit, 12)) {
-        float hr[3] = { hit[0]-cp[0], hit[1]-cp[1], hit[2]-cp[2] };
-        float hd = sqrtf(hr[0]*hr[0] + hr[1]*hr[1] + hr[2]*hr[2]);
-        if (hd > 20.0f && hd < 6000.0f) {
-            hit[0] = cp[0] + d[0]*hd;
-            hit[1] = cp[1] + d[1]*hd;
-            hit[2] = cp[2] + d[2]*hd;
-        }
+    if (dist > g_blkReachSeen) g_blkReachSeen = dist;   // 32.37: learn the max
+    g_blkAimSeen = MaimNowMs();
+
+    // WHERE DOES THE ENGINE'S TRACE START?
+    //
+    // The source seam cannot see it (END = offset + [ebp-0x24], and the seam
+    // that would show that local sits on a branch that never executes). This
+    // measures it from the far end: the settled destination taken FROM THE
+    // CAMERA, against the vector the engine was handed. Near zero says the
+    // trace starts at the camera, and a convergence correction for the
+    // controller-to-eye offset is then worth adding; a large angle says it
+    // starts somewhere else and such a correction would be a constant chosen
+    // by eye. The line is free to print either answer, which is why it is
+    // evidence.
+    float eng[3] = { g_blkDirEng[0], g_blkDirEng[1], g_blkDirEng[2] };
+    float to[3]  = { r[0], r[1], r[2] };
+    if (dvr::fireaim::normalize(eng) && dvr::fireaim::normalize(to)) {
+        const float c = dvr::fireaim::dot(eng, to);
+        g_blkDstAngleDeg = acosf(c < -1 ? -1 : (c > 1 ? 1 : c)) * 57.2957795f;
     }
 }
-
 
 extern "C" void __cdecl BlinkTraceHook(void* self, uint8_t* framePtr)
 {
@@ -648,6 +703,11 @@ static void BlinkDestTick()
     // found it anyway; nobody else would have.
     g_blkAimDrive = g_blkDriveUI;
     g_blkDstOnUI  = g_blkDstOn;
+    // VR-36: Blink is a consumer of the published ray in its own right. Without
+    // this it would be aiming off whatever the crosshair and the fire hook
+    // happened to leave armed, so turning the dot off would silently return
+    // Blink to head aim - the shape of fault this project has paid for twice.
+    dvr::aim::request_blink_ray(g_blkAimDrive && g_blkUseAimRay);
     // auto-arm: this is a shipping feature now, not an experiment
     if (g_blkAimOnCfg && !g_blkDstOn && BlkAlive()) BlinkDestInstall();
     if (g_blkDirAim && !g_blkDirOn && BlkAlive()) BlinkDirInstall();
@@ -658,11 +718,33 @@ static void BlinkDestTick()
             dirTell = dn + 2000.0;
             LONG h = InterlockedExchange(&g_blkDirHits, 0);
             LONG m = InterlockedExchange(&g_blkDirMine, 0);
-            if (h) Log("blinkdir: %ld calls (%ld ours) | engine dir "
-                       "(%.2f,%.2f,%.2f) len %.0f | driving=%d",
-                       (long)h, (long)m, g_blkDirEng[0], g_blkDirEng[1],
-                       g_blkDirEng[2], g_blkDirLen,
-                       (int)(g_blkDirAim && g_blkAimDrive));
+            LONG ru = InterlockedExchange(&g_blkRayUsed, 0);
+            LONG rr = InterlockedExchange(&g_blkRayRefused, 0);
+            if (h) {
+                // VR-36: name the OWNER before the result. A healthy run and a
+                // dead one used to produce identical text; now the line says
+                // which ray drove, how often it refused and why, and what the
+                // angle between the engine's own aim and ours actually was.
+                float eng[3] = { g_blkDirEng[0], g_blkDirEng[1], g_blkDirEng[2] };
+                float ours[3] = { g_blkRayDir[0], g_blkRayDir[1], g_blkRayDir[2] };
+                float sep = -1.0f;
+                if (dvr::fireaim::normalize(eng) && dvr::fireaim::normalize(ours)) {
+                    const float c = dvr::fireaim::dot(eng, ours);
+                    sep = acosf(c < -1 ? -1 : (c > 1 ? 1 : c)) * 57.2957795f;
+                }
+                Log("blinkdir: %ld calls (%ld ours) | ray=%s driving=%d | engine "
+                    "aim (%.2f,%.2f,%.2f) len %.0f | ours (%.3f,%.3f,%.3f) "
+                    "%.1f deg from the engine's, controller %.0f uu from the "
+                    "camera | ray ready %ld, refused %ld (%s) | reach %.0f uu "
+                    "at hand pitch %+.0f deg",
+                    (long)h, (long)m, g_blkUseAimRay ? "published (VR-36)"
+                                                     : "legacy MotionAim",
+                    (int)(g_blkDirAim && g_blkAimDrive),
+                    g_blkDirEng[0], g_blkDirEng[1], g_blkDirEng[2], g_blkDirLen,
+                    g_blkRayDir[0], g_blkRayDir[1], g_blkRayDir[2], sep,
+                    g_blkRayGapUU, (long)ru, (long)rr, g_blkRayWhy,
+                    g_blkAimDistUU, g_blkPitchNow);
+            }
         }
     }
     if (!g_blkDstOn) return;
@@ -672,10 +754,18 @@ static void BlinkDestTick()
     LONG h = InterlockedExchange(&g_blkDstHits, 0);
     LONG m = InterlockedExchange(&g_blkDstMine, 0);
     if (!h) return;
-    Log("blinkdst: %ld stores (%ld ours) | engine (%.0f,%.0f,%.0f) -> "
-        "controller (%.0f,%.0f,%.0f) | drive=%d",
+    // VR-36: READ-ONLY. The destination is the engine's own, after its trace
+    // and its validation, and this seam no longer writes it. The angle is the
+    // trace-start measurement: it compares the destination taken from the
+    // camera against the vector the engine was handed, so a value near zero
+    // means the trace starts at the camera and a larger one means it does not.
+    // -1 means no Blink aim has completed since the counters were last read.
+    Log("blinkdst: %ld stores (%ld ours), READ-ONLY | engine settled on "
+        "(%.0f,%.0f,%.0f) | that point from the camera sits %.2f deg off the "
+        "vector the engine was handed (near 0 = the trace starts at the "
+        "camera; -1 = not measured yet)",
         (long)h, (long)m, g_blkDstWas[0], g_blkDstWas[1], g_blkDstWas[2],
-        g_blkDstNow[0], g_blkDstNow[1], g_blkDstNow[2], (int)g_blkAimDrive);
+        g_blkDstAngleDeg);
 }
 
 
