@@ -2839,6 +2839,7 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Hands", "RotSignPitch",
                                    g_skcRotSignP < 0 ? "-1" : "1", ini);
     }
+    dvr::anim::save(ini);   // VR-88: the F10 Hands checkbox must survive a restart
     WritePrivateProfileStringA("Blink", "ControllerAim",
                                g_blkDriveUI ? "1" : "0", ini);
     WritePrivateProfileStringA("Blink", "Marker", g_blkMarker ? "1" : "0", ini);

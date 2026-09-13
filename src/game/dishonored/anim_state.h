@@ -13,6 +13,7 @@ struct Snapshot {
 };
 void tick();
 void configure(const char* ini);
+void save(const char* ini);   // F10 SAVE AS DEFAULTS: the switches and timings, never the state lists
 bool command(const char* args);
 void status(dvr::status::Writer& w);
 Snapshot snapshot();

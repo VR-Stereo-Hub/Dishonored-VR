@@ -200,6 +200,19 @@ void configure(const char* ini) {
     Log("config: [Anim] master rules=%s | upper rules=%s",masterRules,upperRules);
     ReleaseSRWLockExclusive(&lock);
 }
+// The state lists are deliberately NOT written: once materialised in an ini they
+// beat every later compiled default (TRAPS section 1), and the default list is
+// still being tuned by headset runs. An edited list in the ini is kept as is.
+void save(const char* ini) {
+    AcquireSRWLockShared(&lock);
+    const bool w=watch, b=handback; const unsigned r=releaseMs, m=blendMs;
+    ReleaseSRWLockShared(&lock);
+    char v[16];
+    WritePrivateProfileStringA("Anim","StateWatch",w?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","HandBack",b?"1":"0",ini);
+    _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",r); WritePrivateProfileStringA("Anim","ReleaseMs",v,ini);
+    _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",m); WritePrivateProfileStringA("Anim","HandBackBlendMs",v,ini);
+}
 bool command(const char* args) {
     char sub[24]={}, value[24]={}; sscanf(args,"%23s %23s",sub,value);
     if (!strcmp(sub,"handback") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_enabled(!strcmp(value,"on"));
