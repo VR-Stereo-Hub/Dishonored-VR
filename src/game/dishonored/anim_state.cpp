@@ -29,9 +29,20 @@ bool read(uint8_t* obj, uint32_t off, void* dst, size_t n) {
     if (!obj || !off || !RangeReadable(obj+off,n)) return false;
     memcpy(dst,obj+off,n); return true;
 }
+// The live-object table is a SNAPSHOT, rebuilt only by the controller scan, and
+// that scan usually runs at the main menu, before the level's pawn exists. So a
+// real pawn, machine or state can be missing from it for the whole level, and
+// every read here would fail inert without anything being wrong. A plausible
+// object absent from the table marks the table stale; tick() rebuilds it.
+bool staleTable = false;
+uint32_t tableRebuilds = 0;
+unsigned long long nextRebuild = 0;
 uint8_t* object(uint8_t* obj,uint32_t off) {
     uint8_t* out = nullptr;
-    return read(obj,off,&out,sizeof(out)) && IsLiveObject(out) && RangeReadable(out,kNameOff+8) ? out : nullptr;
+    if (!read(obj,off,&out,sizeof(out)) || !out) return nullptr;
+    if (IsLiveObject(out) && RangeReadable(out,kNameOff+8)) return out;
+    if (LooksLikeObj(out)) staleTable = true;
+    return nullptr;
 }
 const char* objectName(uint8_t* obj) {
     return obj && RangeReadable(obj+kNameOff,8) ? RealName(*(uint32_t*)(obj+kNameOff)) : nullptr;
@@ -95,7 +106,13 @@ void tick() {
     Snapshot previous=s;
     s.stamp=now; ++s.generation; s.valid=false; s.game=false;
     text(s.reason,sizeof(s.reason),"unresolved or pawn unavailable");
-    uint8_t* pawn=IsLiveObject(g_peCtrl)?object(g_peCtrl,controllerPawnOff):nullptr;
+    staleTable=false;
+    const bool ctrlLive=IsLiveObject(g_peCtrl);
+    if (!ctrlLive && g_peCtrl && LooksLikeObj(g_peCtrl)) staleTable=true;
+    uint8_t* pawn=ctrlLive?object(g_peCtrl,controllerPawnOff):nullptr;
+    // The FSM offsets belong to DishonoredPlayerPawn. While possessing, the pawn is
+    // another class, and reading those offsets would chase unrelated fields.
+    if (pawn) { const char* pc=ObjClassName(pawn); if (!pc || !strstr(pc,"PlayerPawn")) pawn=nullptr; }
     const bool pawnChanged=pawn!=lastPawn;
     if (pawnChanged) {
         lastPawn=pawn; memset(lastState,0,sizeof(lastState)); memset(lastClass,0,sizeof(lastClass));
@@ -142,6 +159,14 @@ void tick() {
                 s.picker=(int)entry[2];
             }
         } else { s.picker=-1; text(s.sequence,sizeof(s.sequence),"unavailable"); }
+    }
+    if (!s.valid && staleTable && now>=nextRebuild) {
+        nextRebuild=now+1000;   // a rebuild is a full GObjects copy and sort: at most once a second
+        const bool built=BuildLiveSet(); ++tableRebuilds;
+        Log("anim: live-object table rebuilt (#%u, %s) - a real %s was missing from it, so it predated this "
+            "level; the next sample reads against the new table",tableRebuilds,built?"ok":"refused: object table busy",
+            ctrlLive?"pawn, state machine or state":"player controller");
+        text(s.reason,sizeof(s.reason),"live-object table was stale; rebuilt");
     }
     AcquireSRWLockExclusive(&lock);
     if (pawnChanged || !previous.valid || !fresh(previous.stamp,now)) { handoff=Handoff{}; classifier=Handoff{}; }

@@ -69,8 +69,16 @@ static int CmpPtr(const void* a, const void* b)
 }
 
 
+// VR-88: the table is rebuilt from the PRESENT thread (RotInjectTick's
+// controller scan) and read from the SCRIPT lane (the animation reader, the
+// restore paths). A rebuild zeroes the count, may realloc the buffer and sorts
+// in place, so an unlocked reader can search a half-built or freed array.
+static SRWLOCK g_liveLock = SRWLOCK_INIT;
+
 static bool BuildLiveSet()
 {
+    AcquireSRWLockExclusive(&g_liveLock);
+    struct Unlock { ~Unlock() { ReleaseSRWLockExclusive(&g_liveLock); } } unlock;
     g_liveN = 0;
     if (!RangeReadable((void*)kGObjHdr, 12)) return false;
     void**   objs = *(void***)kGObjHdr;
@@ -93,7 +101,10 @@ static bool BuildLiveSet()
 
 static bool IsLiveObject(uint8_t* p)
 {
-    if (!p || ((uintptr_t)p & 3) || !g_liveN) return false;
+    if (!p || ((uintptr_t)p & 3)) return false;
+    AcquireSRWLockShared(&g_liveLock);
+    struct Unlock { ~Unlock() { ReleaseSRWLockShared(&g_liveLock); } } unlock;
+    if (!g_liveN) return false;
     uint32_t lo = 0, hi = g_liveN - 1;
     while (lo <= hi) {
         uint32_t mid = lo + (hi - lo) / 2;
