@@ -21,7 +21,8 @@ static void check(bool ok, const char* what) {
 
 enum St { GAMEPLAY, MENU, LOADING, CINEMATIC, NO_PAWN };
 
-static Frame F(St s, bool lever = true, bool pawnLive = true, bool pawnChanged = false) {
+static Frame F(St s, bool lever = true, bool pawnLive = true, bool pawnChanged = false,
+               bool loadAsked = false) {
     Frame f;
     f.leverOn = lever;
     f.gameplay = s == GAMEPLAY;
@@ -29,6 +30,7 @@ static Frame F(St s, bool lever = true, bool pawnLive = true, bool pawnChanged =
     f.noPawn = s == NO_PAWN;
     f.pawnLive = s != NO_PAWN && pawnLive;
     f.pawnChanged = pawnChanged;
+    f.loadAsked = loadAsked;
     return f;
 }
 
@@ -112,6 +114,18 @@ int main() {
         m.tick(F(MENU)); m.tick(F(LOADING));
         Step s = m.tick(F(LOADING, true, true, true));
         check(s.action == Action::Invalidate, "a different pawn during the menu invalidates");
+    }
+    {   // a load that reuses the pawn's address AND keeps its FName (the FName
+        // part is measured): only the game's load event can catch it
+        Machine m = InGameplay();
+        m.tick(F(MENU));
+        Step s = m.tick(F(MENU, true, true, false, true));
+        check(s.action == Action::Invalidate && strstr(s.reason, "load-game"),
+              "the load-game event during the menu invalidates");
+        Machine n = InGameplay();
+        n.tick(F(MENU)); n.tick(F(LOADING));
+        check(n.tick(F(GAMEPLAY, true, true, false, true)).action == Action::Invalidate,
+              "and it wins over the resume's validation request");
     }
     {
         Machine m = InGameplay();

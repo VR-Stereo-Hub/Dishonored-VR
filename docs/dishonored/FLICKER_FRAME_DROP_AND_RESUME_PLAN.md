@@ -469,6 +469,9 @@ is not touched.
   `build/vr93-logs/` (ignored)
 - [x] Launch 1 read: four pauses RETAINED, 0 adoptions, no weapon flicker after
   resume on the headset; the predicted ~530 ms rescan hold remains (FLICKER_REFERENCE 3.13)
-- [ ] Launch 2 read
+- [x] B1 committed `0ff00ebb` and pushed; measurements on the ticket
+- [x] Launch 2 read (build 191): the save load read INVALIDATED via the pawn
+  tripwire; the pawn's FName did NOT change on respawn, so `LoadGameClicked` was
+  added as a hard drop. The run ended in a pre-existing GC crash, filed as VR-96
 - [ ] B2 code, launch 3 read
 - [ ] FLICKER_REFERENCE, STATUS, TRAPS updated in the same commits

@@ -12,6 +12,7 @@
 
 static dvr::menukeep::Machine  g_mkMachine;           // present lane only
 static dvr::menukeep::Identity g_mkPawnId, g_mkCtrlId; // present writes, then bumps g_mkWant
+static LONG          g_mkLoadAt       = 0;            // present: g_mkLoadEvents at the suspend
 static volatile LONG g_mkWant         = 0;            // present: the validation asked for
 static LONG          g_mkDone         = 0;            // script: the last one validated
 static volatile LONG g_mkVerdictKeep  = 0;            // script, written before the epoch
@@ -241,9 +242,11 @@ static void MkPresentTick(const char* state, bool pawnLive)
     f.noPawn      = !strcmp(state, "NO_PAWN");
     f.pawnLive    = pawnLive && g_pePawn != NULL;
     f.pawnChanged = g_mkMachine.phase != Phase::Active && (void*)g_pePawn != g_mkPawnId.obj;
+    f.loadAsked   = g_mkMachine.phase != Phase::Active && g_mkLoadEvents != g_mkLoadAt;
     const Step s = g_mkMachine.tick(f);
     switch (s.action) {
     case Action::Suspend:
+        g_mkLoadAt = g_mkLoadEvents;
         MkReadIdentity(g_pePawn, &g_mkPawnId);
         MkReadIdentity(g_peCtrl, &g_mkCtrlId);
         UiNoteLoad();   // B1 leaves the observer rescan exactly as it was

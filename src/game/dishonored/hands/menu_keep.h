@@ -61,6 +61,7 @@ struct Frame {
     bool noPawn      = false;
     bool pawnLive    = false;   // a pawn is latched and the cylinder reads
     bool pawnChanged = false;   // the latched pawn is not the recorded one
+    bool loadAsked   = false;   // the game's load-game event fired during the menu
 };
 
 struct Machine {
@@ -91,6 +92,13 @@ struct Machine {
         const char* trip = !f.leverOn    ? "AttachKeepOnMenu was switched off during the menu"
                          : f.noPawn      ? "the pawn went away during the menu (NO_PAWN)"
                          : f.pawnChanged ? "a different pawn was latched during the menu"
+                         // A respawned pawn keeps its FName (measured: 10783_0 before
+                         // and after a save load), so a load that reused the address
+                         // would pass the identity check. The game's own event is
+                         // the one signal that does not depend on an address. It
+                         // fires when the save browser OPENS, so backing out of it
+                         // also drops - the safe direction.
+                         : f.loadAsked   ? "the load-game screen was opened during the menu"
                                          : nullptr;
         if (trip) {
             phase = Phase::Active;

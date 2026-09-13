@@ -926,12 +926,25 @@ dropped everything under the unchanged non-menu rule, while the pawn and
 controller kept the same pointer and FName across them. Not investigated; the rule
 is deliberately conservative.
 
-**Not yet tested.** A save loaded from the pause menu must read INVALIDATED (the
-negative control for the discriminator). The pawn's FName number read 0, so a
-respawned pawn is not yet shown to change FName; until that run the address-reuse
-defence rests on NO_PAWN, the pawn-changed tripwire and the live table.
+**Negative control, run.** Build `vr33-hands-working-191-g0ff00ebb-dirty`. A save
+loaded from the pause menu read INVALIDATED ("a different pawn was latched during
+the menu") before the new level reached GAMEPLAY, and the late validation failed
+too (the old pawn was absent from a freshly built table). Weapons relocked after
+the load. **Retracted expectation:** the new pawn at a different address carried
+the SAME FName, `10783_0`, as the old one. FName does not distinguish a respawn,
+so this load was caught by its new ADDRESS, and a load that reused the address
+would have passed the identity check. Hardened in the same commit as this record:
+the game's `LoadGameClicked` event during a suspension now drops everything. It
+fires when the save browser opens, so backing out of the browser also drops.
 
-**Status.** B1 confirmed for ordinary pauses; negative control open; B2 open.
+**Not flicker, same run.** A brief mono flash during a drop takedown was a
+present-progress SINGLE tick held by `HoldUntagged` (VR-77's signature), with no
+menu transition anywhere near it. The run then ended in a garbage-collector crash
+filed as VR-96; that signature is in the crash history on 09-11 and 09-12, before
+any VR-93 code, and the last retained state had been dropped 96 s earlier.
+
+**Status.** B1 confirmed for ordinary pauses; save-load negative control passed;
+B2 open.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 
 ## 8. Keeping this reference useful

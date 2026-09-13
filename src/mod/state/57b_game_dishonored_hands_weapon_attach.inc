@@ -198,6 +198,7 @@ static bool     g_waRetireDead = true;    // [Hands] AttachRetireDeadOnRefresh
 // (game/dishonored/hands/menu_keep.h). Ships OFF, F10 Hands, live.
 static bool     g_mkOn = false;           // [Hands] AttachKeepOnMenu
 static LONG     g_mkKept = 0, g_mkInvalidated = 0;   // menu transitions, this session
+static volatile LONG g_mkLoadEvents = 0;  // LoadGameClicked seen (ProcessEvent, game thread)
 static WaMesh   g_waMesh[WA_MAX_MESH];
 static int      g_waMeshN = 0;
 
