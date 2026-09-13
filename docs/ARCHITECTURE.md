@@ -696,3 +696,25 @@ Both spawn rotation and velocity initialization consume this local. Converge the
 selected spawn position on the existing fixed-distance hand endpoint. Earlier
 trace/assist decisions remain outside this change. See
 `dishonored/VR-57-NATIVE-FIRE-HANDOFF.md` for proof and limitations.
+
+### 2026-09-13 - an engine consumer is redirected at its INPUT, never at its output (VR-36)
+
+Blink now aims off the published ray. The choice worth recording is not which ray but
+WHERE it is injected: at the source seam where the engine builds its own aim vector, and
+not at the destination seam where the engine stores the answer.
+
+Writing the output is easier, always available, and wrong. It arrives after the engine has
+traced, collided and validated, so the value substituted was never checked against
+anything - which is how the earlier build could teleport the player through a wall. Writing
+the INPUT means the engine performs its own trace along our ray and everything downstream
+agrees by construction: the marker, the collision pull-back, the reachability refusal and
+the landing point are one computation, not four that have to be kept in step.
+
+It also preserves rules we did not know were there. The engine encodes Blink's reach,
+including its vertical cap, in the MAGNITUDE of that aim vector; keeping the magnitude kept
+the cap for free, and the one build that replaced it let the blink climb into the sky. A
+substituted value discards whatever it encoded, silently.
+
+So the pattern for any future engine consumer, VR-90 included: find the input that feeds
+the engine's own computation and change that. If only an output is reachable, the engine's
+validation is being bypassed and that has to be argued explicitly, not assumed away.

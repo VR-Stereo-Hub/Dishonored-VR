@@ -1,48 +1,61 @@
 # Status
 
-## CURRENT (2026-09-13): VR-88 merged. Next is Blink aimed by the controller (VR-36)
+## CURRENT (2026-09-13): VR-36 merged. Blink aims by the controller
 
-**VR-88 works in the headset.** Takedowns, fatalities and body pickups now play with the
-game's own arms and weapon, and the controller hands blend back afterwards. The reader
-(`anim_state.cpp`) reads the player's master, upper-body and left-arm native state
-machines by reflected name; `anim_policy.h` decides ownership and the blend. Ledge
-climbing (`StatePlayerMasterMantle`) keeps the controller hands by headset judgement;
-ladders (`Climb`) hand back. Observed states and the claims that held are at the end of
-`docs/dishonored/ANIM-HANDOFF-PLAN.md`. Not every action variant was tried: choke, slide,
-drop assassination and ladders are unobserved.
+**Blink aims where the controller points, headset confirmed.** It was the last consumer
+of the legacy MotionAim ray (grip pose plus `[MotionAim] PitchOffsetDeg`); it now reads
+`dvr::aim::fire_frame()` and converts it with `dvr::fireaim::solve`, the same publication
+and the same converter the crosshair dot, the laser and the crossbow and pistol launch
+hooks use. Two runs, 2480 ray publications, **0 refusals**.
+
+**The redirect is at the SOURCE seam (`0xbf55a3`)**, where the engine's own aim vector is
+built. Everything after it - the range multiply, the trace, the collision pull-back, the
+decal, the destination - is the engine's work along our ray, so the marker and the landing
+point are one trace by construction and the engine still refuses what it cannot reach. The
+destination seam (`0xbf5e4f`) no longer writes: it ran AFTER validation, which is 32.51's
+teleport through walls. It stays installed as the instrument that measures where the trace
+starts.
 
 | Lever | Shipped | Live |
 |---|---|---|
-| `[Anim] StateWatch` | 1 | `anim watch on\|off` |
-| `[Anim] HandBack` | 1 | `anim handback on\|off`, F10 Hands "Game arms during scripted actions" (saved by SAVE AS DEFAULTS) |
-| `[Anim] ReleaseMs` / `HandBackBlendMs` | 250 / 150 (not measured) | ini |
-| `[Anim] HandBackMaster` / `HandBackUpper` | compiled lists, never written by a save | ini |
+| `[Blink] ControllerAim` | 0 (on in the tested install) | `blink on\|off`, F10 Blink |
+| `[Blink] UseAimRay` | 1 | `blink ray aim\|legacy` - the A/B against the legacy ray |
+| `[Blink] AimAtSource` | 1 | ini; the only seam that redirects |
+| `[Blink] ReachMode` | **0** | F10 Blink. 0 = the engine's own reach |
 
-**A trap found on the way, now in the code:** `IsLiveObject` is a SNAPSHOT of GObjects,
-rebuilt only by the player controller scan, which usually runs at the main menu. Anything
-created by a level load is missing from it until something rebuilds it. The animation
-reader rebuilds it when a plausible object is missing (at most once a second), and the
-table is now SRW-locked because the scan rebuilds it on the present thread while the
-script lane reads it. Any new code that uses `IsLiveObject` on level objects must expect
-this.
+**Two findings worth more than the feature**, both from one run:
 
-Unmeasured: the frame cost of the per-draw blend-weight read, and exact state-to-draw
-synchronisation.
+* **Blink's reach rule lives in its aim vector's MAGNITUDE, vertical cap included.** Level
+  it is 1100 uu; aimed up, its Z pins at exactly +500.00 and the length falls to 665. That
+  is how the game stops an upward blink. A redirect that keeps the magnitude keeps the rule
+  for free; one that substitutes its own throws it away, and the blink climbs into the sky.
+  ENGINE_NOTES has the numbers.
+* **An input was being learned from our own output.** `g_blkReachSeen` took its maximum
+  from the destination seam, which after the redirect reports the result of our own vector.
+  It ratcheted 1100 -> 1839 -> 2007 -> 2062 -> 2610 -> 4698 -> 5606 uu in a few minutes and
+  nothing could lower it. TRAPS section 2 has it; the rule is that when a read-only observer
+  becomes a writer, every statistic it fed has to be re-asked.
 
-### Next: Blink aimed by the controller (VR-36)
+Both are fixed structurally, not by a better number: the reach curve is clamped so it can
+only ever shorten what the engine offered, and the maximum is learned only from the
+engine's untouched vector length.
 
-Blink moves the player to where the HEAD aims, not the controller ray. VR-36 is the
-ticket. `src/game/dishonored/blink.cpp` already has hand-aim code behind
-`[Blink] ControllerAim` (installed 0) and `blink on|off|probe`, written against an
-earlier pipeline and untested on the native render. Read it, VR-57-MODEL-RAY.md and
-aim_ray.h before writing anything: the one-ray rule says the marker and the landing
-point must come from the same ray the laser and shots already use, and the engine's own
-reachability check must still refuse bad targets. A broader follow-up is being
-considered: make the controller ray the main ray for everything, so the game's own
-crosshair follows it. That is a separate ticket, decided after Blink.
+Also found: `[Blink] Marker` and `MarkerPullbackUU` have had no consumer since 41.0 removed
+the fork that drew the mod's own marker. The F10 panel says so now.
+
+Full write-up: `docs/dishonored/VR-36-BLINK-RAY.md`.
+
+### Next: the camera moves sideways when the head rolls (VR-91)
+
+Rolling the head left moves the camera position RIGHT, and rolling right moves it left -
+an inverted lateral term in the positional path. Reported in the headset 2026-09-13, on the
+build that merged VR-36. Start from `head_track.cpp`'s positional write and `z_account.h`,
+which already decomposes what moves the rendered camera beyond the tracked head per term
+and can be pointed at roll.
 
 Open: VR-89 (animation control layer), VR-87 (ceiling trim), VR-86 (shelved), VR-85,
-VR-75, VR-77, VR-79, VR-80, VR-81, VR-32, VR-58.
+VR-75, VR-77, VR-79, VR-80, VR-81, VR-32, VR-58. Deliberately not in VR-36: the hand-pitch
+reach curve (`ReachMode=2`) is shipped off and has never been tested.
 
 ## Earlier (2026-09-12, late): VR-78 fixed and merged. Next is the animation handoff
 
@@ -4169,6 +4182,36 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-13 - session 36: Blink aims by the controller (VR-36)
+
+Two headset runs. The first confirmed the direction in one look - the marker followed the
+controller, the landing point followed the marker, 0 ray refusals in 153 publications per
+sample - and reported one fault: the distance had become unlimited, a blink into the sky
+carrying about 100 feet up.
+
+**Both causes were in the reach, and both were mine.** The run was set to `ReachMode=1` to
+"leave the length alone", which is precisely the mode that replaces the length. That
+discarded a rule nobody had noticed: the engine encodes Blink's reach, vertical cap
+included, in the MAGNITUDE of the aim vector it hands out. And the maximum that replaced
+it was being learned from the destination seam, which after the redirect reports the result
+of our own vector - an input that was a function of the previous output, with no term that
+could lower it. The log printed the ratchet as plain arithmetic, which is why it cost one
+run and not a session.
+
+The fixes are structural. The reach curve is clamped so every mode can only shorten what
+the engine offered, which makes the class unreachable rather than fixing the instance, and
+the maximum is learned only from the engine's untouched vector length. `ReachMode` ships 0.
+
+The second run confirmed it: reach bounded at 931-1100 uu across the whole run, the +500
+cap visible and honoured, no drift.
+
+**The trace-start question was answered for free.** The engine's settled destination, taken
+from the camera, sits within half a degree of the redirected ray at every sample, so the
+trace starts at the camera and the parallax is the 65 to 93 uu between controller and
+camera. Not visible in the headset, so no convergence correction was added for a difference
+nobody can see - the instrument that could have justified one printed the unwelcome answer
+and was believed.
 
 ### 2026-09-04 - session 15b: the ghosting is solved, and the verdict that hid it is fixed
 
