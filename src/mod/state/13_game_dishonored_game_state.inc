@@ -255,6 +255,11 @@ static volatile float g_neckArcUu[3] = {0, 0, 0};   // the last term: right, up,
 // arc that was not there. -1 = the standing numbers (the pre-VR-78 behaviour).
 // Ships at 0: a second headset run fitted 0.002/0.002 m crouched over -48..+32 deg
 // and the tester judged crouched pitching fixed.
+// VR-91: let ROLL into the neck arc. 0 (default) builds the arc from a roll-free
+// frame, because the arc models the ENGINE's neck and the engine's is a pitch arc;
+// 1 restores the pre-VR-91 behaviour for one A/B. Measured cost of 1: 17 to 19 uu
+// of inverted lateral camera motion at 30 degrees of roll.
+static bool  g_neckRollArc = false;
 static float g_neckCrouchBelowM  = 0.0f;
 static float g_neckCrouchBehindM = 0.0f;
 static float g_neckStanceBlendMs = 150.0f;   // NOT measured: the ease between the two pivots on a stance change

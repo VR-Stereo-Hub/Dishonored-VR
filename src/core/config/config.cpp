@@ -356,6 +356,10 @@ static void WriteDefaultIni(const char* ini)
         "; change and is NOT measured. `neck crouch same|<below> <behind>` and F10 Comfort.\n"
         "CrouchPivotBelowM=0\n"
         "CrouchPivotBehindM=0\n"
+        "; VR-91: 0 keeps ROLL out of the neck arc. The arc models the engine's\n"
+        "; own neck and the engine's is a pitch arc; letting roll in moved the\n"
+        "; camera 17 to 19 uu the WRONG way at 30 deg of roll. 1 is the A/B.\n"
+        "RollArc=0\n"
         "StanceBlendMs=150\n"
         "[Crosshair]\n"
         "; VR-57: visual controller guide only; shots and native reticle unchanged.\n"
@@ -1084,6 +1088,10 @@ static void LoadConfig()
         if (g_neckCrouchBehindM > 0.5f) g_neckCrouchBehindM = 0.5f;
         if (g_neckCrouchBelowM < 0.0f) g_neckCrouchBelowM = -1.0f;
         if (g_neckCrouchBehindM < 0.0f) g_neckCrouchBehindM = -1.0f;
+        // VR-91: whether ROLL enters the arc. It must not - the arc models the
+        // engine's own neck and the engine's is a pitch arc - so this ships 0 and
+        // 1 is the one-key A/B back to the measured fault.
+        g_neckRollArc = IniFloat(ini, "Neck", "RollArc", 0) != 0.0f;
         g_neckStanceBlendMs = IniFloat(ini, "Neck", "StanceBlendMs", 150.0f);
         if (g_neckStanceBlendMs < 0.0f) g_neckStanceBlendMs = 0.0f;
         if (g_neckStanceBlendMs > 2000.0f) g_neckStanceBlendMs = 2000.0f;
@@ -1092,6 +1100,11 @@ static void LoadConfig()
             g_neckCrouchBelowM < 0.0f && g_neckCrouchBehindM < 0.0f
                 ? "-1 = the standing pivot while crouched: the pre-VR-78 behaviour"
                 : "plain crouch uses its own pivot; slides and vents keep the standing one");
+        Log("config: [Neck] RollArc=%d - the arc is built from a %s frame. Roll in the "
+            "arc measured 17 to 19 uu of INVERTED lateral camera motion at 30 deg of "
+            "roll (VR-91); the real lateral swing a roll produces is already in the "
+            "tracked head displacement, so modelling it here counted it twice.",
+            (int)g_neckRollArc, g_neckRollArc ? "ROLLED head (pre-VR-91)" : "roll-free");
     }
     g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
     g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
@@ -3007,6 +3020,7 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%.3f", g_neckBehindM);
     WritePrivateProfileStringA("Neck", "PivotBehindM", v, ini);
     _snprintf(v, 64, "%.3f", g_neckCrouchBelowM);    // VR-78: formatted right before its own write
+    WritePrivateProfileStringA("Neck", "RollArc", g_neckRollArc ? "1" : "0", ini);
     WritePrivateProfileStringA("Neck", "CrouchPivotBelowM", v, ini);
     _snprintf(v, 64, "%.3f", g_neckCrouchBehindM);
     WritePrivateProfileStringA("Neck", "CrouchPivotBehindM", v, ini);

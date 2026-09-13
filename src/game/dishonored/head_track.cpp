@@ -1430,7 +1430,49 @@ static void TrackHead(const float (*m)[4])
                 f = g_neckBehindM + (cf - g_neckBehindM) * g_neckStanceW;
             }
             g_neckEffBelowM = b; g_neckEffBehindM = f;
-            const float hx = b * m[0][1] - f * m[0][2], hy = b * m[1][1] - f * m[1][2], hz = b * m[2][1] - f * m[2][2];
+            // VR-91: THE ARC IS A PITCH ARC. ROLL MUST NOT ENTER IT.
+            //
+            // m[:,1] is the head's UP column and it rotates with ROLL, while the
+            // yaw-only reference subtracted below does not - so a rolled head
+            // produced a large LATERAL arc, and Mode=cancel then negated it.
+            // Measured 2026-09-13, standing, ~2000 samples a bin: rolling 30 deg
+            // LEFT moved the rendered camera 17.6 uu RIGHT, rolling 34 deg right
+            // moved it 19.3 uu left, and the neck term accounted for 17.4 and
+            // 19.3 of those. The tracked head does the opposite and correct thing
+            // (-7.1 uu when rolled left), so the arc was both inverting the real
+            // motion and more than doubling it.
+            //
+            // It is the VR-78 lesson on a second axis: cancel exists to remove the
+            // ENGINE's own neck arc, the engine's arc is a pitch arc, and
+            // cancelling one that was never there subtracts a real motion twice.
+            // The lateral swing a roll really does produce is already measured -
+            // it is in the tracked head displacement - so modelling it here
+            // duplicated it.
+            //
+            // Roll is removed from the frame rather than from the result: rebuild
+            // the up column from the head's own forward and world up, which is
+            // the same look direction with zero roll, and leaves the pitch arc
+            // exactly as it was. Independent of the pose matrix's sign
+            // conventions, because it uses the very columns the arc already uses.
+            float upC[3] = {m[0][1], m[1][1], m[2][1]};
+            if (!g_neckRollArc) {
+                const float F[3] = {m[0][2], m[1][2], m[2][2]};
+                float R[3] = {1.0f * F[2] - 0.0f * F[1],   // cross(worldUp=(0,1,0), F)
+                              0.0f * F[0] - 0.0f * F[2],
+                              0.0f * F[1] - 1.0f * F[0]};
+                const float rn = sqrtf(R[0]*R[0] + R[1]*R[1] + R[2]*R[2]);
+                // Near straight up or down the roll-free frame is undefined, and
+                // so is roll itself. Keep the head's own column there rather than
+                // normalising a vector that is essentially zero.
+                if (rn > 0.2f) {
+                    R[0] /= rn; R[1] /= rn; R[2] /= rn;
+                    const float U[3] = {F[1]*R[2] - F[2]*R[1],
+                                        F[2]*R[0] - F[0]*R[2],
+                                        F[0]*R[1] - F[1]*R[0]};
+                    upC[0] = U[0]; upC[1] = U[1]; upC[2] = U[2];
+                }
+            }
+            const float hx = b * upC[0] - f * m[0][2], hy = b * upC[1] - f * m[1][2], hz = b * upC[2] - f * m[2][2];
             const float cyw = cosf(yaw), syw = sinf(yaw);
             const float yx = f * syw, yy = b, yz = -f * cyw;
             const float dx = hx - yx, dy = hy - yy, dz = hz - yz;
