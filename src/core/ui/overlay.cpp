@@ -242,6 +242,22 @@ static void OverlayFrame()
 
     if (ImGui::BeginTabItem("Hands")) {
     {
+    // VR-83: OUTSIDE the probe gate below, deliberately. This slider drives the
+    // PALETTE model scale, which mesh_split applies about the tracked palm on
+    // the draw - it does not go near a SkelControl, so it works whether or not
+    // the player rig has been probed. It used to live in the else branch, and
+    // since g_skcPlayerN drops back to 0 on every stale-cache re-probe (a level
+    // load), the whole tab became "finding the hand controls..." and the one
+    // control a player actually reaches for could not be adjusted at all.
+    //
+    // VR-33 is why it is a palette scale rather than the engine BoneScale:
+    // BoneScale only reaches bones the SkelControl drives, so it could never
+    // resize a separately-componented crossbow and the weapon desynced from the
+    // hand at any setting but 1.0. HandSize is still read from the ini for the
+    // legacy drive; config.cpp warns if both are off 1.0.
+    ImGui::SliderFloat("hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
+    ImGui::TextDisabled("hands AND held weapons, about the tracked palm - not the world scale");
+    ImGui::Separator();
     if (!g_skcPlayerN) {
         ImGui::TextDisabled("finding the hand controls... load a save and");
         ImGui::TextDisabled("stand in gameplay for a few seconds.");
@@ -292,15 +308,8 @@ static void OverlayFrame()
         if (ImGui::Checkbox("add to anim", &am)) g_skcAddMode = am;
         ImGui::SliderFloat("hand travel (uu/m)", &g_skcScaleUU, 0.0f, 200.0f, "%.0f");
         }
-    // VR-33: this slider now drives the PALETTE model scale, not the engine
-    // BoneScale it used to. BoneScale only reaches bones the SkelControl
-    // drives, so it could never resize a separately-componented crossbow and
-    // the weapon would desync from the hand at any setting but 1.0. The
-    // palette scale is applied about the same palm the weapon is placed on,
-    // which is what keeps them together. HandSize is still read from the ini
-    // for the legacy drive; config.cpp warns if both are off 1.0.
-    ImGui::SliderFloat("hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
-    ImGui::TextDisabled("hands AND held weapons, about the tracked palm - not the world scale");
+    // The hand / weapon size slider used to be here. It is now above the probe
+    // gate, where it can be reached before the rig is found - see VR-83.
     if (g_ovlDev) {
     ImGui::SliderFloat("world reach (uu/m)", &g_skcWorldScale, 40.0f, 200.0f, "%.0f");
     ImGui::TextDisabled("world mode only - too low puts the hands in your face");
