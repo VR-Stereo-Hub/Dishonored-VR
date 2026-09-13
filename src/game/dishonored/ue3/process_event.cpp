@@ -167,6 +167,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     PrTick();                                     // VR-33: the pose/socket report - SCRIPT LANE, where the objects are coherent
     AimSeamTick();                                // VR-57: where the shot's direction comes from (read-only)
     PropWatchTick();                              // VR-85: which property follows the focused interactable (read-only)
+    InteractFocusTick();                          // VR-85: hold the engine's last focus while it has none
     AimSeamDrive();                               // VR-57: drive that cache from the controller ray ([Aim] DriveFromHand)
 #if DVR_WITH_LEGACY
     BqTick();                                     // VR-33 step 1b: the bone queries, consumed on this lane only

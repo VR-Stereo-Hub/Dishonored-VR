@@ -430,6 +430,11 @@ static void WriteDefaultIni(const char* ini)
         "; VR-85 diagnostic, read-only: names the property that follows the focused\n"
         "; interactable. Never writes engine memory. propwatch on|off at the seam.\n"
         "PropWatch=0\n"
+        "; VR-85 EXPERIMENT, default ON. While the engine has NOTHING focused, it\n"
+        "; re-offers the last actor the engine itself focused, so that using while\n"
+        "; looking away tests whether the field can be written at all. It never\n"
+        "; overrides a live selection, so head aim is unchanged. interactfocus off.\n"
+        "InteractFocus=1\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -1071,6 +1076,7 @@ static void LoadConfig()
     g_fwOn = GetPrivateProfileIntA("Aim", "FireWatch", 0, ini) != 0;
     FireAimSet(GetPrivateProfileIntA("Aim", "FireFromHand", 0, ini) != 0, "ini");
     PwSet(GetPrivateProfileIntA("Aim", "PropWatch", 0, ini) != 0, "ini");
+    IfSet(GetPrivateProfileIntA("Aim", "InteractFocus", 1, ini) != 0, "ini");
     if (g_fwOn)
         Log("config: [Aim] FireWatch=1 - read-only. Named script dispatches before each "
             "bolt are recorded and printed. It proves ORDER and PRESENCE only; an empty "
@@ -2903,6 +2909,7 @@ static void OverlaySaveDefaults()
         const auto crosshair = dvr::aim::config();
         WritePrivateProfileStringA("Aim", "FireFromHand", FireAimEnabled() ? "1" : "0", ini);
         WritePrivateProfileStringA("Aim", "PropWatch", PwEnabled() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Aim", "InteractFocus", IfEnabled() ? "1" : "0", ini);
         WritePrivateProfileStringA("Aim", "ModelRay", dvr::aim::config().modelRay ? "1" : "0", ini);
         WritePrivateProfileStringA("Aim", "FollowHandTrim", dvr::aim::config().followHandTrim ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Dot", crosshair.dot ? "1" : "0", ini);

@@ -294,6 +294,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         else Log("propwatch: %s; use propwatch on|off",PwEnabled()?"ON":"off");
         return true;
     }
+    if (!strcmp(cmd, "interactfocus")) {
+        bool on;
+        if (DvrOnOff(args,&on)) IfSet(on,"command seam");
+        else Log("interactfocus: %s; use interactfocus on|off",IfEnabled()?"ON":"off");
+        return true;
+    }
     if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
     if (!strcmp(cmd, "vrinput")) {
         if (DvrOnOff(args, &b)) { g_padEnabled = b; Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }
