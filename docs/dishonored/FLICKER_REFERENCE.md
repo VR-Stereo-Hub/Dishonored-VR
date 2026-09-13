@@ -1126,6 +1126,24 @@ gameplay ticks. Counterprediction: one address for tagged and untagged presents 
 present comes through the engine's normal present path (a timing or pacing cause); a second address
 on the untagged presents names a second presenter.
 
+**Third instrument, run (build 201, `vr33-hands-working-201-g5cb3e715`): one presenter.** Every present
+in the run returned to `009c01a4` (1,419 to 1,596 per 10 s census, one address only), the untagged
+presents included, and the other draw-root callers stayed at 0. The extra presents come through the
+engine's normal present path. The untagged present's `c5` is a pass-1 (left) camera while the stub's
+tick counter has not moved since the previous present, so whatever uploaded that camera was not the
+stub's tick.
+
+**Stance, reported and consistent with this log (one episode, not established).** The tester reports the
+flicker persisting while crouched and ending quickly while standing. In this run four standing book
+closes produced no override episode; the one episode followed a close 3.3 s after `neck: stance ->
+CROUCHED` and ran until the pause with no stand in between.
+
+**Fourth instrument built, not yet run.** Each trace line now carries what the DEVICE did since the
+previous present - draw calls, BeginScene, SetRenderTarget, `c5` uploads - and the Present arguments
+(source rect, dest rect, window override, dirty region). Counterprediction: an untagged present with no
+draw calls is a re-show of an existing buffer; one with draws and `c5` uploads but no stub tick is a
+scene render the ring never sees; a window override or rects name a present to another target.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

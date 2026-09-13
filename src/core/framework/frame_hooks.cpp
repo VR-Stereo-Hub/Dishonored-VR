@@ -50,6 +50,9 @@ uintptr_t     g_presentRet = 0;
 volatile LONG g_presentBtOn = 0;
 uintptr_t     g_presentBt[8] = {};
 int           g_presentBtN = 0;
+// VR-80: what the device did between two presents (render thread only).
+uint32_t     g_actDraws = 0, g_actBegins = 0, g_actSrts = 0;
+PresentActivity g_actLast = {};
 
 // XR pose (meters, quaternion; XR LOCAL space: right +X, up +Y, forward -Z)
 // -> the 3x4 device-to-tracking matrix the game side consumes. XR LOCAL space
@@ -118,6 +121,9 @@ void track_session() {
 HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT* dst, HWND wnd,
                             const RGNDATA* dirty) {
     g_presentRet = (uintptr_t)_ReturnAddress();   // VR-80: the game's call site of this present
+    g_actLast.draws = g_actDraws; g_actLast.begins = g_actBegins; g_actLast.srts = g_actSrts;
+    g_actLast.srcRect = src != nullptr; g_actLast.dstRect = dst != nullptr; g_actLast.hwnd = wnd != nullptr; g_actLast.dirty = dirty != nullptr;
+    g_actDraws = g_actBegins = g_actSrts = 0;
     if (InterlockedCompareExchange(&g_presentBtOn, 0, 0)) {
         void* bt[8];
         const USHORT n = RtlCaptureStackBackTrace(1, 8, bt, nullptr);
@@ -256,6 +262,7 @@ HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const floa
 
 HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT baseVertex,
                                 UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    ++g_actDraws;
     if (g_cb.draw_indexed)
         return g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices,
                                  startIndex, primCount);
@@ -264,11 +271,13 @@ HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, I
 
 HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex,
                              UINT primCount) {
+    ++g_actDraws;
     if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
     return g_origDrawPrim(self, type, startVertex, primCount);
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
+    ++g_actSrts;
     dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
     if (g_cb.set_render_target) return g_cb.set_render_target(self, idx, rt);
     return g_origSetRt(self, idx, rt);
@@ -278,6 +287,7 @@ HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3D
 // from the thread that draws; the first one after the game's Present is where
 // the render thread stopped waiting and started executing the frame.
 HRESULT __stdcall hkBeginScene(IDirect3DDevice9* self) {
+    ++g_actBegins;
     dvr::perf::frame_start_marker("BeginScene");
     return g_origBeginScene(self);
 }
@@ -359,6 +369,7 @@ void set_fps_cap(float fps) { g_fpsCap = fps; }
 float fps_cap() { return g_fpsCap; }
 bool xr_live() { return g_xrLive; }
 uintptr_t present_return_address() { return g_presentRet; }
+PresentActivity present_activity() { return g_actLast; }
 int present_backtrace(uintptr_t* out, int max) {
     const int n = g_presentBtN < max ? g_presentBtN : max;
     for (int i = 0; i < n; ++i) out[i] = g_presentBt[i];

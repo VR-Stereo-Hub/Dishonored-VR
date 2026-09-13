@@ -598,12 +598,20 @@ static void DrawCallersNote()
     const uintptr_t ret = dvr::frame::present_return_address();
     uintptr_t bt[8];
     const int btN = dvr::frame::present_backtrace(bt, 8);
+    // What the DEVICE did since the previous present: a present with no draw
+    // calls re-shows a buffer; one with draws but no stub tick rendered from
+    // somewhere the tags never see. c5 uploads say whether a scene camera moved.
+    const dvr::frame::PresentActivity act = dvr::frame::present_activity();
+    static uint32_t lastC5 = 0;
+    const uint32_t c5s = dvr::camera::render_pos_serial();
     char note[200];
-    int k = _snprintf(note, sizeof(note), "drew: tick %ld p2 %ld abc %ld | Present from %08x via",
-                      ticks - lastTicks, p2 - lastP2, (c[0] - last[0]) + (c[1] - last[1]) + (c[2] - last[2]),
-                      (unsigned)ret);
-    for (int i = 1; i < btN && i < 6 && k > 0 && k < (int)sizeof(note) - 10; ++i)
-        k += _snprintf(note + k, sizeof(note) - k, " %08x", (unsigned)bt[i]);
+    _snprintf(note, sizeof(note), "drew: tick %ld p2 %ld abc %ld | device: draws %u begin %u srt %u c5up %u args %s%s%s%s | from %08x",
+              ticks - lastTicks, p2 - lastP2, (c[0] - last[0]) + (c[1] - last[1]) + (c[2] - last[2]),
+              act.draws, act.begins, act.srts, c5s - lastC5,
+              act.srcRect ? "S" : "-", act.dstRect ? "D" : "-", act.hwnd ? "W" : "-", act.dirty ? "R" : "-",
+              (unsigned)ret);
+    lastC5 = c5s;
+    (void)btN; (void)bt;
     note[sizeof(note) - 1] = 0;
     dvr::zacct::trace_note(g_vdInstalled ? note : "");
     lastTicks = ticks; lastP2 = p2;
