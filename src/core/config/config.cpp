@@ -1859,6 +1859,9 @@ static void LoadConfig()
     // rescan, which otherwise holds the resume ~500 ms. Needs AttachKeepOnMenu=1
     // to have any effect. OFF queues it on every menu, as before.
     g_uiKeepOnMenu = IniFloat(ini, "Menu", "UiKeepOnMenu", 0) != 0.0f;
+    // VR-93 research: report changes of the screen flags the script dump declares
+    // (GAMEPLAY_STATE.md section 9). Read-only, logs changes only.
+    g_ufOn = IniFloat(ini, "Menu", "UiFlags", 0) != 0.0f;
     Log("config: [Menu] UiKeepOnMenu=%d - a kept menu %s the UI observer rescan.",
         g_uiKeepOnMenu ? 1 : 0, g_uiKeepOnMenu ? "SKIPS" : "still queues");
     g_menuGhostByRate  = IniFloat(ini, "Menu", "GhostClearByRate", 0) != 0.0f;

@@ -266,6 +266,7 @@ static void UiPoll(bool pawn, bool viewLive)
         }
     }
     g_uiNoteOpen = noteUp;
+    UiFlagsPoll();   // VR-93 research reporter; returns at once unless [Menu] UiFlags=1
     if (!named) _snprintf(list, sizeof(list), "%s", "none");
     list[sizeof(list) - 1] = 0;
 
@@ -306,6 +307,7 @@ static void UiPoll(bool pawn, bool viewLive)
 // The script lane. One bounded scan per load and nothing else.
 static void UiTick(void)
 {
+    if (g_uiOn && g_uiReady) UiFlagsResolve();   // VR-93 research: once, after the first scan
     if (!g_uiOn || !g_uiRescan) return;
     if (!RflNamesReady()) return;   // nothing resolves by name before the pool is up
     g_uiRescan = false;
@@ -352,4 +354,128 @@ static bool UiCommand(const char* args)
     if (DvrOnOff(args, &b)) { g_uiOn = b; Log("uistate: %s", b ? "on" : "off"); return true; }
     Log("uistate: status | scan | on | off");
     return true;
+}
+
+// ---- VR-93 research: the declared screen flags, reported --------------------
+//
+// GAMEPLAY_STATE.md section 9 lists flags the script dump declares for notes,
+// menus, dialogue choices and the cutscene skip prompt. A declaration is not a
+// measurement, so this only resolves them by name and logs each CHANGE with the
+// game state beside it. It gates nothing and writes no engine memory.
+
+static UiFlag g_uf[] = {
+    // the book / note / tutorial screen
+    {"DisGFxMoviePlayerNote",     "m_bNoteVisible",              "MoviePlayerNote",     "Tweaks", true},
+    {"DisGFxMoviePlayerNote",     "m_bAsyncNoteFromMenu",        "MoviePlayerNote",     "Tweaks", true},
+    {"DisGFxMoviePlayerNote",     "m_AsyncNoteType",             "MoviePlayerNote",     "Tweaks", false},
+    // save / load screens (declared on the menu base, inherited by the pause and main menus)
+    {"DisGFxMoviePlayerMenuBase", "m_bIsInLoadMenu",             "PauseMenu|MainMenu",  "Tweaks", true},
+    {"DisGFxMoviePlayerMenuBase", "m_bIsInSaveMenu",             "PauseMenu|MainMenu",  "Tweaks", true},
+    {"DisGFxMoviePlayerMenuBase", "m_bLoadingGame",              "PauseMenu|MainMenu",  "Tweaks", true},
+    {"DisGFxMoviePlayerPauseMenu","m_bWaitingSaveLoadToStart",   "MoviePlayerPauseMenu","Tweaks", true},
+    {"DisGFxMoviePlayerPauseMenu","m_bGameOver",                 "MoviePlayerPauseMenu","Tweaks", true},
+    // the HUD's own view of dialogue choice, cinematics and tutorials
+    {"DisGFxMoviePlayerHUD",      "m_bChoiceSelection",          "MoviePlayerHUD",      "Tweaks|HUDFX", true},
+    {"DisGFxMoviePlayerHUD",      "m_bCinematicMode",            "MoviePlayerHUD",      "Tweaks|HUDFX", true},
+    {"DisGFxMoviePlayerHUD",      "m_bTutorialWindowSet",        "MoviePlayerHUD",      "Tweaks|HUDFX", true},
+    {"DisGFxMoviePlayerHUD",      "m_bBlockInteractionWindow",   "MoviePlayerHUD",      "Tweaks|HUDFX", true},
+    // the "hold to skip" gauge over a cutscene
+    {"DishonoredPlayerInput",     "m_bSkipSceneGaugeIsDisplayed","@input",              NULL,     true},
+};
+static const int kUfN = (int)(sizeof(g_uf) / sizeof(g_uf[0]));
+static uint32_t g_ufInputOff = 0;   // PlayerController.PlayerInput
+
+
+// The script lane, once, after discovery. Every name either resolves or says so.
+static void UiFlagsResolve(void)
+{
+    if (!g_ufOn || g_ufResolved) return;
+    g_ufResolved = true;
+    int ok = 0;
+    for (int i = 0; i < kUfN; ++i) {
+        UiFlag* u = &g_uf[i];
+        for (int k = 0; k < 4; ++k) u->last[k] = -1;
+        if (u->isBool) u->resolved = FindBoolProp(u->declCls, u->prop, &u->off, &u->mask) && u->mask;
+        else { u->off = FindPropOffset(u->declCls, u->prop); u->mask = 0; u->resolved = u->off != 0; }
+        if (u->resolved) ++ok;
+        Log("uiflags: %s::%s %s", u->declCls, u->prop,
+            u->resolved ? (u->isBool ? "resolved" : "resolved (byte)") : "NOT FOUND - the dump's name did not resolve on this build");
+        if (u->resolved)
+            Log("uiflags:   +0x%04x mask 0x%08x, read on instances whose class contains '%s'",
+                u->off, u->mask, u->instLike);
+    }
+    g_ufInputOff = FindPropOffset("PlayerController", "PlayerInput");
+    Log("uiflags: %d of %d flag(s) resolved; PlayerController.PlayerInput %s. Each line below is a "
+        "CHANGE with the game state beside it; a flag that never changes while its screen is "
+        "used is not the flag its name suggests.", ok, kUfN,
+        g_ufInputOff ? "resolved" : "NOT FOUND (the skip gauge cannot be read)");
+}
+
+
+// Does s contain any of the '|'-separated alternatives in lts?
+static bool UiFlagAny(const char* s, const char* alts)
+{
+    if (!s || !alts) return false;
+    char buf[64];
+    const char* p = alts;
+    while (*p) {
+        const char* bar = strchr(p, '|');
+        size_t n = bar ? (size_t)(bar - p) : strlen(p);
+        if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+        memcpy(buf, p, n); buf[n] = 0;
+        if (n && strstr(s, buf)) return true;
+        if (!bar) break;
+        p = bar + 1;
+    }
+    return false;
+}
+
+static int UiFlagRead(const UiFlag* u, uint8_t* o)
+{
+    if (!o || ((uintptr_t)o & 3) || !RangeReadable(o + u->off, 4)) return -1;
+    if (u->isBool) return (*(uint32_t*)(o + u->off) & u->mask) ? 1 : 0;
+    return *(uint8_t*)(o + u->off);
+}
+
+static void UiFlagNote(UiFlag* u, int slot, int v, const char* where)
+{
+    if (slot < 0 || slot > 3 || v == u->last[slot]) return;
+    const int was = u->last[slot];
+    u->last[slot] = v;
+    if (was == -1) return;   // first sample is a baseline, not a change
+    const LONG n = InterlockedIncrement(&u->changes);
+    if (n <= 200 || (n % 50) == 0)
+        Log("uiflags: %s.%s %d -> %d on %s | menuOpen=%d inMenu=%d cine=%d | change #%ld",
+            u->declCls, u->prop, was, v, where, (int)g_menuOpen, (int)g_inMenu, (int)g_cineNow, (long)n);
+}
+
+// The present thread, from UiPoll's cadence.
+static void UiFlagsPoll(void)
+{
+    if (!g_ufOn || !g_ufResolved) return;
+    const LONG n = g_uiInstN;
+    for (int i = 0; i < kUfN; ++i) {
+        UiFlag* u = &g_uf[i];
+        if (!u->resolved) continue;
+        if (!strcmp(u->instLike, "@input")) {
+            uint8_t* ctrl = g_peCtrl;
+            if (!g_ufInputOff || !ctrl || !RangeReadable(ctrl + g_ufInputOff, 4)) continue;
+            uint8_t* in = *(uint8_t**)(ctrl + g_ufInputOff);
+            const char* cn = (in && !((uintptr_t)in & 3)) ? ObjClassName(in) : NULL;
+            if (!cn || !strstr(cn, "PlayerInput")) continue;
+            UiFlagNote(u, 0, UiFlagRead(u, in), cn);
+            continue;
+        }
+        int slot = 0;
+        for (LONG k = 0; k < n && slot < 4; ++k) {
+            UiInst* e = &g_uiInst[k];
+            if (e->open == -2 || !e->obj) continue;
+            const int ci = UiClsIndex(e->cls);
+            const char* cn = ci >= 0 ? g_uiCls[ci].name : NULL;
+            if (!cn || !UiFlagAny(cn, u->instLike) || UiFlagAny(cn, u->notLike)) continue;
+            const int v = UiFlagRead(u, e->obj);
+            if (v >= 0) UiFlagNote(u, slot, v, e->name);
+            ++slot;
+        }
+    }
 }

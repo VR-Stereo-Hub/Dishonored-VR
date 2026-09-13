@@ -118,6 +118,8 @@ static void UiPeLatch(void* obj);
 static void UiTick(void);
 static void UiPoll(bool pawn, bool viewLive);
 static void UiNoteLoad(void);
+static void UiFlagsResolve(void);
+static void UiFlagsPoll(void);
 static bool UiCommand(const char* args);
 
 // VR-62: the startup scoreboard (startup.cpp). Read-only, present thread.

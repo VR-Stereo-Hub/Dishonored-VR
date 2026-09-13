@@ -249,3 +249,78 @@ Carried from the engineering rules this project already runs on.
   instance", which is the same lesson one layer down.
 * `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` section 8, the graveyard, for what
   filters built on inference cost in headset runs.
+
+## 9. Screens, dialogue and cutscene prompts: what the script dump declares (2026-09-13)
+
+Found for VR-93 by reading the local script dump for notes, books, menus, dialogue
+choices and the cutscene skip prompt. **Every entry below is a DECLARATION, not a
+measurement.** A name becomes a flag only after a run shows it changing with the
+screen it is named for. `[Menu] UiFlags=1` resolves the class-level ones by name
+and logs each change (`uiflags:` lines, `ue3/ui_state.cpp`); nothing reads them as
+state yet.
+
+### Already read by the mod today
+
+| What | Where | Status |
+|---|---|---|
+| Cutscene input locks: `PlayerController.bCinematicMode`, `bIgnoreMoveInput`, `bCinemaDisableInputMove`, `DishonoredPlayerController.m_bInputIgnoreInput_Cinematic` | `cine/truth` in `game_state.cpp` | Resolved and logged |
+| Player master state names, which include `StatePlayerMasterInDialog` and `StatePlayerMasterInScriptedChoice` | the VR-88 animation reader (`anim: ... master=`) | Readable now; the dialogue states have not been seen in a log yet |
+| Any Scaleform screen open: `GFxMoviePlayer.bMovieIsOpen` per instance (`pNote`, `pPauseMenu`, ...) | the VR-62 observer | Measured |
+
+### New candidates, class-level (reported by `UiFlags`)
+
+| Question | Class and property | Type |
+|---|---|---|
+| Is a book/note/tutorial page up? | `DisGFxMoviePlayerNote.m_bNoteVisible` | bool |
+| Which kind? | `DisGFxMoviePlayerNote.m_AsyncNoteType` = `EDisUINoteType`: None 0, GenericNote 1, TutorialNote 2, Map 3 | byte |
+| Opened from a menu rather than the world | `DisGFxMoviePlayerNote.m_bAsyncNoteFromMenu` | bool |
+| The save / load browser is up | `DisGFxMoviePlayerMenuBase.m_bIsInSaveMenu`, `m_bIsInLoadMenu` (inherited by the pause and main menus) | bool |
+| **A load was actually confirmed** | `DisGFxMoviePlayerMenuBase.m_bLoadingGame`; `DisGFxMoviePlayerPauseMenu.m_bWaitingSaveLoadToStart` | bool |
+| Death screen | `DisGFxMoviePlayerPauseMenu.m_bGameOver` | bool |
+| A dialogue choice is on screen | `DisGFxMoviePlayerHUD.m_bChoiceSelection` | bool |
+| The HUD thinks a cinematic is running | `DisGFxMoviePlayerHUD.m_bCinematicMode` | bool |
+| A tutorial window is up | `DisGFxMoviePlayerHUD.m_bTutorialWindowSet` | bool |
+| Interaction prompts are blocked | `DisGFxMoviePlayerHUD.m_bBlockInteractionWindow` | bool |
+| **The "hold to skip" gauge is on screen** | `DishonoredPlayerInput.m_bSkipSceneGaugeIsDisplayed` (the controller's `PlayerInput`); `m_fSkipPressedTime` beside it | bool |
+
+`m_bLoadingGame` is the flag VR-93 wants most: the current load tripwire fires on
+`LoadGameClicked`, which is the save browser OPENING, so backing out of the browser
+drops the weapon records needlessly. A flag set only on a confirmed load would not.
+
+### New candidates that need more than a class offset
+
+* **Listening versus choosing in a conversation.** `StatePlayerMasterChoice_Base`
+  (parent of `InDialog` and `InScriptedChoice`) declares `m_DialogState`, an
+  `eDisPlayerDialogState` of Listening 0 / Choosing 1, and `m_iCurChoice`. They live
+  on the STATE object the animation reader already reaches through
+  `DishonoredNativeStateMachine.m_pCurrentState`, so reading them means one more
+  offset on an object the mod already holds. `m_bUseLetterboxing` sits beside them.
+* **Conversation blocking the player.** `DisConversation.m_bIsBlocking_Player`, on
+  the conversation asset, reached through the running conversation component.
+* **Interaction prompts and drop assassination.** `m_bShowInteractions`,
+  `m_InteractionCount` and `m_bCanDropAssassinate` are members of HUD STRUCTS
+  (`DisHUDSettings`, `DisUIInteractionGroup`, `DisUIInteractionProbe`), not class
+  properties, so name resolution does not reach them without the struct's own
+  offset.
+* **Tutorial details.** `m_bShowInWindow`, `m_NoteType` and friends are members of
+  the HUD's `DisTutorialInfo` struct; the same limit applies.
+
+### Events, for the ProcessEvent stream
+
+`Dis_PlayerChoice_RequestSkip` / `_Released` (the skip button, on the player input),
+`OnReadableNoteClosed` (native, on the note movie), `OnSaveGameListClosed` /
+`OnLoadGameListClosed` (menu base). Whether each crosses ProcessEvent the way
+`OnResumeGameClicked` does is unverified; the `script:` vocabulary lines will say.
+
+### First run (2026-09-13, build 193)
+
+All 13 class-level names resolved on this build. `m_bNoteVisible` changed 8 times, 0 -> 1 and
+1 -> 0 in the same poll as the note movie's `bMovieIsOpen` for each of four books, and nothing
+else moved. The run opened no load browser, dialogue choice, tutorial window or cutscene,
+so every other flag is resolved but UNEXERCISED - no evidence either way.
+
+### What a run must show before any of these gates anything
+
+For each flag: it changes in the right direction when its screen opens and closes,
+it stays put through the screens it is NOT named for, and it reads the same after
+a load. A flag that never changes while its screen is used is not that flag.
