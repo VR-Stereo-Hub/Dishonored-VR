@@ -1,6 +1,47 @@
 # Status
 
-## CURRENT (2026-09-13): VR-91 fixed, VR-95 diagnosed. Blink (VR-36) merged earlier
+## CURRENT (2026-09-13, session 38): VR-93 done behind levers, PR open. VR-80 logging next
+
+**A pause, a menu or a book no longer relearns the weapons (VR-93).** Every exit from
+GAMEPLAY used to run the level-load transition: weapon contracts and the candidate list were
+dropped and a ~500 ms UI rescan was queued, so each resume froze the view for half a second
+and then relearned the weapons for another third. Now a menu over a live pawn - and a book,
+which reads LOADING - SUSPENDS those records, and the first script tick after it validates
+every retained object against a freshly built live-object table (class and FName) before
+anything uses it. NO_PAWN, a different pawn, the load-game screen, or leaving for anything
+else drops everything as before. A kept resume queues no rescan.
+
+| Lever | Shipped | Installed on the test PC |
+|---|---|---|
+| `[Hands] AttachKeepOnMenu` | 0 | 1 |
+| `[Hands] AttachKeepOnNote` | 0 | 1 |
+| `[Menu] UiKeepOnMenu` | 0 | 1 |
+| `[Menu] UiFlags` (read-only reporter) | 0 | 1 |
+
+Headset, builds 190-193: pauses and books resume with the first DOUBLE 14-41 ms after
+GAMEPLAY (was ~530), zero re-adoptions; a save load from the pause menu drops correctly.
+Measured on the way: a respawned pawn keeps its FName, so FName alone is not an identity
+(TRAPS). The flag reporter resolved all 13 script-declared screen flags; `m_bNoteVisible`
+is verified, the rest are unexercised (GAMEPLAY_STATE section 9).
+
+### Found and filed, not fixed
+
+- **VR-96 (High)**: the garbage collector crashes on a float 1.0 stored in an object
+  reference (`Dishonored.exe+0x65894`), three runs since 09-11, the last during a takedown.
+  Our 1.0 writers are listed on the ticket.
+- **VR-97**: while `c5` reads zero, a re-arm's ring skew goes uncorrected for seconds.
+- **VR-80, sharpened**: after a note closes, the passes' cameras can come out inverted
+  against their eye tags and the c5 arm then starves the left eye for 10 s or more
+  (FLICKER_REFERENCE 3.15). Not caused by VR-93.
+
+### Next
+
+VR-80 logging on `claude/vr-80-note-exit-eye-trace`: a per-present record of (ring tag, the
+eye the writer applied, `c5`) from the first resumed pair, to say whether the writer or the
+ring is off. Then issue A (VR-94, the world ghost on a dropped frame), which waits for the
+VR-93 merge. VR-95 is still open (the still-flicker A/B).
+
+## Earlier (2026-09-13): VR-91 fixed, VR-95 diagnosed. Blink (VR-36) merged earlier
 
 **Rolling the head no longer slides the view sideways (VR-91).** The neck arc was built
 from the head's full rotation INCLUDING ROLL, while the yaw-only reference it is subtracted
@@ -3202,6 +3243,21 @@ it on demand, `arms vis chain` prints the arm chain.
 
 ### Session log
 
+### 2026-09-13 - session 38: a menu is not a load
+
+**VR-93 was solved by timing the settle before touching it.** The pre-fix resume split into
+a 499 ms UI rescan holding the game thread, 15 ms of re-adoption and 343 ms of
+recalibration - so the relearn and the hold were two fixes, shipped and measured apart.
+
+**The negative control changed the design.** The identity check was built on the theory
+that a respawned actor gets a new FName; the save-load run measured the same FName on the
+new pawn, and the load was caught only by its new address. The game's own load event is now
+a hard drop.
+
+**Three faults turned up that are not this one**: a pre-existing garbage-collector crash
+(VR-96), the ring correction going blind while `c5` reads zero (VR-97), and a sharper
+signature for the after-note flicker (VR-80) whose own counterprediction then falsified the
+`c5` explanation within one run.
 ### 2026-09-09 - VR-66: the stale command line was the mod's own file
 
 The render size had two homes and one writer. `dishonored_vr_launch.txt` carries
@@ -4191,6 +4247,21 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
 
 ## Session log
 
+### 2026-09-13 - session 38: a menu is not a load
+
+**VR-93 was solved by timing the settle before touching it.** The pre-fix resume split into
+a 499 ms UI rescan holding the game thread, 15 ms of re-adoption and 343 ms of
+recalibration - so the relearn and the hold were two fixes, shipped and measured apart.
+
+**The negative control changed the design.** The identity check was built on the theory
+that a respawned actor gets a new FName; the save-load run measured the same FName on the
+new pawn, and the load was caught only by its new address. The game's own load event is now
+a hard drop.
+
+**Three faults turned up that are not this one**: a pre-existing garbage-collector crash
+(VR-96), the ring correction going blind while `c5` reads zero (VR-97), and a sharper
+signature for the after-note flicker (VR-80) whose own counterprediction then falsified the
+`c5` explanation within one run.
 ### 2026-09-13 - session 37: head roll, and the eye the hands were given
 
 Two faults, one fixed and one diagnosed, and three instruments that were not measuring what

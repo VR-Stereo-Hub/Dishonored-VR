@@ -482,4 +482,4 @@ is not touched.
   reporter for the flags in GAMEPLAY_STATE section 9. Installed and armed, build 193
   built 13:49. Launch 4: four books retained, DOUBLE +14-41 ms; the flicker after the
   fourth close is VR-80 (FLICKER_REFERENCE 3.15), not this. m_bNoteVisible verified
-- [ ] FLICKER_REFERENCE, STATUS, TRAPS updated in the same commits
+- [x] FLICKER_REFERENCE, STATUS, TRAPS updated in the same commits; PR opened for review
