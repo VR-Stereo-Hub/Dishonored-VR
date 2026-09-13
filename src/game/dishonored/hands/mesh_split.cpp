@@ -2372,13 +2372,22 @@ static void MpEyeForPresent(const MpDrawCtx* c)
         g_mpEyeAmbiguous++;
         why = 'A';
     }
-    // VR-94, READ-ONLY. Ask the stereo method what eye it resolved for THIS
-    // present's backbuffer and compare. Nothing here changes the decision.
+    // VR-94, READ-ONLY. Ask the stereo method what eye it resolved for the
+    // present these draws REACH, and compare.
+    //
+    // THE JOIN IS +1 AND THE FIRST VERSION OF THIS CHECK GOT IT WRONG.
+    // Joining at `pres` made the toggled row disagree 15311 times against 10
+    // agreements - a clean near-total inversion, which in an ALTERNATING stream
+    // is exactly what a one-present phase error looks like and is indistinguishable
+    // from a sign convention (TRAPS: negating an eye and improving agreement
+    // separates nothing). The correct join was already written fifteen lines away
+    // in MfDump, which says these draws reach Present + 1. A cross-check on an
+    // unproven join is not evidence, whatever it prints.
     {
         const int cls = why == 'T' ? 0 : why == 'S' ? 1 : 2;
         if (cls == 1) { g_mpEyeSameAdSum += (double)ad; ++g_mpEyeSameAdN; }
         dvr::desktop_eye::Record rec;
-        if (!dvr::desktop_eye::record_for(pres, rec) || rec.draw == 0) {
+        if (!dvr::desktop_eye::record_for(pres + 1, rec) || rec.draw == 0) {
             ++g_mpEyeMethodNone[cls];
         } else if (g_mpEyeState == 0) {
             ++g_mpEyeMethodNone[cls];            // we have no opinion to compare
