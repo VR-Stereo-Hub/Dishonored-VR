@@ -46,6 +46,10 @@ constexpr float  kRollLeftLo = -45.0f, kRollLeftHi = -15.0f;
 constexpr float  kRollRightLo = 15.0f, kRollRightHi = 45.0f;
 constexpr float  kRollLevelAbs = 5.0f;
 constexpr float  kRollPitchAbs = 20.0f;   // camera pitch must be within this of level
+// Below this the lateral residual is not a fault whatever its significance: 2 uu
+// is under 2 cm at the shipped world scale, and the instrument exists to find
+// something a person can see.
+constexpr double kLatFlatUu = 2.0;
 constexpr float  kYawRateMax = 25.0f;     // degrees per second
 constexpr float  kPawnSpeedMax = 20.0f;   // uu per second
 constexpr float  kTeleportUu = 60.0f;
@@ -352,8 +356,14 @@ void report(const char* why, bool full) {
                     const double se = level_se(b.latRes, l.latRes);
                     // Name the owner before the verdict, and say what each reading
                     // would mean - including the one that clears us.
+                    // VR-91: SIGNIFICANCE IS NOT A FAULT. With 2000 samples a bin
+                    // the standard error is 0.02 uu, so a purely statistical
+                    // threshold calls a 0.5 uu residual - five millimetres, which
+                    // nobody can see - a fault, and the fixed run duly reported an
+                    // owner for one. The bound is therefore the larger of the
+                    // statistical one and a perceptual floor.
                     const char* owner =
-                        fabs(dRes) <= 2.0 * se + 0.05
+                        fabs(dRes) <= (2.0 * se + 0.05 > kLatFlatUu ? 2.0 * se + 0.05 : kLatFlatUu)
                             ? "FLAT: our writes move the camera sideways no more than the head did. If the "
                               "fault is still visible it is not in this composition - look between the "
                               "submitted view poses and the rendered world"

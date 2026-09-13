@@ -446,6 +446,26 @@ static uint32_t g_mpEyePresent = 0xFFFFFFFFu;
 static bool     g_mpEyeHavePrev = false;
 static float    g_mpEyePrevFirst = 0.0f;
 static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
+// VR-94, READ-ONLY: does the palette classifier agree with the eye the STEREO
+// METHOD resolved for the same present? The classifier infers the eye from the
+// right-axis jump in the hand's LocalToWorld translation, and both halves of
+// that number are contaminated by head ROLL - the hand moves AND the right axis
+// itself rotates. When the roll drift cancels the eye step the jump falls under
+// the 0.45*IPD band, the verdict is SAME, and the state is HELD - so that
+// present's hands silently take the previous eye's half-IPD.
+//
+// `same eye` counts that, but it cannot distinguish a genuine repeat from a
+// failure to tell the eyes apart, so on its own it is not evidence. The method
+// already resolved this present's eye for the desktop pin; comparing against it
+// makes the counter able to fail its own hypothesis. Index 0 toggled, 1 same,
+// 2 ambiguous. `none` counts presents where the method had published nothing
+// yet at hand-draw time, which is itself the answer about whether the method
+// could ever be the classifier's replacement.
+static LONG     g_mpEyeMethodAgree[3] = {0, 0, 0};
+static LONG     g_mpEyeMethodDisagree[3] = {0, 0, 0};
+static LONG     g_mpEyeMethodNone[3] = {0, 0, 0};
+static double   g_mpEyeSameAdSum = 0.0;      // mean |jump| on a SAME verdict, uu
+static LONG     g_mpEyeSameAdN = 0;
 
 // VR-16: THE EYE AUDIT. Read-only by default.
 //

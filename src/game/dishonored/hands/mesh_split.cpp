@@ -2372,6 +2372,22 @@ static void MpEyeForPresent(const MpDrawCtx* c)
         g_mpEyeAmbiguous++;
         why = 'A';
     }
+    // VR-94, READ-ONLY. Ask the stereo method what eye it resolved for THIS
+    // present's backbuffer and compare. Nothing here changes the decision.
+    {
+        const int cls = why == 'T' ? 0 : why == 'S' ? 1 : 2;
+        if (cls == 1) { g_mpEyeSameAdSum += (double)ad; ++g_mpEyeSameAdN; }
+        dvr::desktop_eye::Record rec;
+        if (!dvr::desktop_eye::record_for(pres, rec) || rec.draw == 0) {
+            ++g_mpEyeMethodNone[cls];
+        } else if (g_mpEyeState == 0) {
+            ++g_mpEyeMethodNone[cls];            // we have no opinion to compare
+        } else if ((rec.draw < 0) == (g_mpEyeState < 0)) {
+            ++g_mpEyeMethodAgree[cls];
+        } else {
+            ++g_mpEyeMethodDisagree[cls];
+        }
+    }
     g_mpEyePrevFirst = c->projRight;
     MfOpen(pres, c, why, d, ipdUU);              // VR-76: after the decision the draws use
 }
@@ -3257,6 +3273,27 @@ static void MpDriveTick(void)
         g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
         g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
         g_mpEyeToggles, g_mpEyeSame, g_mpEyeAmbiguous,
+        (double)(g_ipdM * g_skcWorldScale));
+    // VR-94: the cross-check. A SAME verdict HOLDS the previous eye, and in an
+    // alternating stereo stream that is wrong whenever it was really a failure to
+    // tell the eyes apart rather than a genuine repeat. Disagreement on the SAME
+    // row is the evidence; zero across all three rows clears the classifier and
+    // sends the search elsewhere.
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/eyecheck: vs the STEREO METHOD's resolved eye for the same "
+        "present - toggled agree %ld disagree %ld unknown %ld | SAME agree %ld "
+        "DISAGREE %ld unknown %ld | ambiguous agree %ld disagree %ld unknown %ld "
+        "| mean jump on a SAME verdict %.2f uu against a %.2f uu band and a "
+        "%.2f uu IPD. A SAME verdict holds the previous eye, so a disagreement "
+        "there means those hands took the WRONG half-IPD for that present; head "
+        "ROLL is the suspected cause, because it moves the hand AND rotates the "
+        "right axis the jump is measured on. All-zero disagreement clears this "
+        "classifier. READ-ONLY: nothing here changes what is drawn.",
+        g_mpEyeMethodAgree[0], g_mpEyeMethodDisagree[0], g_mpEyeMethodNone[0],
+        g_mpEyeMethodAgree[1], g_mpEyeMethodDisagree[1], g_mpEyeMethodNone[1],
+        g_mpEyeMethodAgree[2], g_mpEyeMethodDisagree[2], g_mpEyeMethodNone[2],
+        g_mpEyeSameAdN ? g_mpEyeSameAdSum / (double)g_mpEyeSameAdN : 0.0,
+        (double)(0.45f * g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain)),
         (double)(g_ipdM * g_skcWorldScale));
 
     // THE FRAME BEAT. Three SEPARATELY NAMED orientations, because they are
