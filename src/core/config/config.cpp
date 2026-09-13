@@ -1878,6 +1878,12 @@ static void LoadConfig()
     // VR-93 research: report changes of the screen flags the script dump declares
     // (GAMEPLAY_STATE.md section 9). Read-only, logs changes only.
     g_ufOn = IniFloat(ini, "Menu", "UiFlags", 0) != 0.0f;
+    // VR-98: a note or book switches to mono and back as soon as the note movie opens and closes,
+    // instead of the load rules' 750 ms silence wait and one-second resume hold. Needs the UI observer.
+    g_uiNoteFastMono = IniFloat(ini, "Menu", "NoteFastMono", 0) != 0.0f;
+    Log("config: [Menu] NoteFastMono=%d - a note %s.", g_uiNoteFastMono ? 1 : 0,
+        g_uiNoteFastMono ? "goes mono when its movie opens and stereo on the first dispatch after it closes"
+                         : "waits 750 ms of view silence to go mono and a full second of dispatches to return (the load rules)");
     Log("config: [Menu] UiKeepOnMenu=%d - a kept menu %s the UI observer rescan.",
         g_uiKeepOnMenu ? 1 : 0, g_uiKeepOnMenu ? "SKIPS" : "still queues");
     g_menuGhostByRate  = IniFloat(ini, "Menu", "GhostClearByRate", 0) != 0.0f;

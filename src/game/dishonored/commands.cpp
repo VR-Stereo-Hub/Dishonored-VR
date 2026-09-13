@@ -423,6 +423,23 @@ static bool DvrScriptViewLive()
     static double silentSince = 0.0, resumedAt = 0.0;
     static bool live = false, menuSilence = false;
     const double now = MaimNowMs();
+    // VR-98 ([Menu] NoteFastMono): the note movie owns the view while it is open. Not live at once, and
+    // its silence is a menu's, so the first fresh dispatch after it closes is live without the hold.
+    // A UI observer that stopped polling (500 ms) cannot keep it: a stuck note flag must not park mono.
+    static bool noteSaid = false;
+    if (g_uiNoteFastMono && g_uiNoteOpen && now - g_uiPollMs < 500.0) {
+        if (!noteSaid) {
+            noteSaid = true;
+            DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info,
+                    "[game] view held by the NOTE screen (NoteFastMono): mono now, not after 750 ms of silence; "
+                    "the first dispatch after it closes is live at once (last head write %.0f ms ago)",
+                    g_scriptHeadOK ? now - g_scriptHeadMs : -1.0);
+        }
+        if (!silentSince) silentSince = now;
+        menuSilence = true; resumedAt = 0.0; live = false;
+        return false;
+    }
+    noteSaid = false;
     const bool fresh = g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0;
     if (!fresh) {
         if (!silentSince) { silentSince = now; menuSilence = g_menuOpen || g_inMenu; }
@@ -435,7 +452,7 @@ static bool DvrScriptViewLive()
             if (menuSilence) {
                 live = true;
                 DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info,
-                        "[game] view live at once after a MENU's silence (no one-second hold: the dispatches "
+                        "[game] view live at once after a MENU's silence, or a note's with NoteFastMono (no one-second hold: the dispatches "
                         "stopped for the pause menu, not a load)");
             }
             menuSilence = false;

@@ -85,6 +85,9 @@ static bool     g_uiKeepOnMenu = false;  // [Menu] UiKeepOnMenu
 // never touches the gameplay verdict. False whenever the probe is off or has not
 // scanned, which leaves a book on the old drop path.
 static bool     g_uiNoteOpen   = false;
+// VR-98: [Menu] NoteFastMono, default off. While the note movie reads open the view is not live at
+// once (no 750 ms silence wait), and the silence it caused is a menu's (no one-second hold on close).
+static bool     g_uiNoteFastMono = false;
 
 // VR-93 research: named flags on the screens and on the player input that the
 // script dump DECLARES but nothing has read yet (docs/dishonored/GAMEPLAY_STATE.md

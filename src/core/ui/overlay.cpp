@@ -303,6 +303,13 @@ static void OverlayFrame()
                 uk ? "a kept menu queues no rescan" : "every menu queues the rescan");
         }
         ImGui::TextDisabled("off = a ~0.5 s flat hold on every resume while it rescans.");
+        bool nf = g_uiNoteFastMono;
+        if (ImGui::Checkbox("Fast mono for books and notes (VR-98)", &nf)) {
+            g_uiNoteFastMono = nf;
+            Log("menu: NoteFastMono -> %d (%s)", nf ? 1 : 0,
+                nf ? "a note switches mono and back with its movie" : "a note waits on the load rules, as before");
+        }
+        ImGui::TextDisabled("off = ~0.75 s to go mono and ~1 s to return around every note.");
     }
     const auto animState = dvr::anim::snapshot();
     ImGui::TextDisabled("Animation: %s | %s", animState.valid ? (animState.game ? "game owns body" : "player") : "unknown", animState.state[0]);

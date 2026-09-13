@@ -1,6 +1,9 @@
 # VR-80: sustained eye flicker after note close while crouched - revised analysis plan
 
-Status: **OPEN; analysis and measurement plan, no renderer fix implemented.**
+Status: **FIXED behind `[Stereo] LateTagRepair`, headset-confirmed 2026-09-13 (section 10,
+checkpoints 3-5). The solution is summarised in FLICKER_REFERENCE section 3.15. The cause of the
+margin collapse and a residual single frame are VR-99.** The plan text below is the revised
+analysis plan as executed; it is kept unchanged as the record.
 Revised 2026-09-13 against `c4084478` on `claude/vr-80-note-exit-eye-trace`.
 Read the latest [flicker master reference](FLICKER_REFERENCE.md), especially sections
 2, 3.1-3.4, 3.8-3.9, 3.11, 3.13-3.15, 4.2-4.3 and 6, before implementing this plan.

@@ -83,7 +83,7 @@ pose metadata without reopening the disproved historical theories.
 | Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
 | About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
-| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, sampled tags disagree with rendered-camera evidence and left-eye output falls for 10 s or more. Untagged intervals contain full scene work; their queued draw ownership and the role of realign remain open. See the September 13 review correction; the sampled writer records are consistent. Section 3.14 is the separate zero-`c5` case (VR-97) |
+| Sustained flicker after closing a note, worst crouched; the scene jumps right in the right eye and left in the left (an eye swap), or later left eye only | **A late tag**: a present shows a draw's image before that draw's tag reaches the ring, the ring runs one tag behind until a drain, and under `SharedWait=0` the unlabelled image is held out of its eye. Ledger signature `EMPTY REFUSE` then `TOOK` | **VR-80 fixed, headset-confirmed** behind `[Stereo] LateTagRepair` (the repair plus the capture-slot relabel). Section 3.15, "The solution". Why the push-to-present margin collapses after a crouched close is open (VR-99), as is an occasional single frame. Section 3.14 is the separate zero-`c5` case (VR-97) |
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
@@ -580,6 +580,17 @@ contract. Any queued per-view identity design must validate the boundary again.
   can exclude the very pass being sought. Record skipped populations.
 - An accepted startup settle, a stale snapshot, a menu transition, and a steady
   gameplay jump require different time windows. Do not average them together.
+- (VR-80) Counters of realigns and untagged-branch entries are not counts of empty
+  pops: the realign counter moves without a removal, and a 0 tag enters the same
+  branch. Only a per-present ledger with draw ids separated them.
+- (VR-80) A predicted self-sustaining drain loop did not reproduce in the host model,
+  and the headset ledger showed the drain removing the correct tag. The fault was a
+  recurring ONSET (a late tag), not a sustaining repair.
+- (VR-80) With a still camera, `w2c self 0.00` cannot distinguish the right tag from
+  the same eye one tick later; c5 tells ticks apart only when the camera moves.
+- (VR-80) Under `SharedWait=0` a fix to the popped label is not a fix to the
+  delivered image: the delivered pixels are the previous present's slot. Check the
+  `deliv` column, not only `out`.
 
 Sources: [TRAPS](../TRAPS.md), [VR-33 record](VR-33-HANDS-AND-WEAPONS.md),
 [VR-76 handoff](VR-76-CODEX-HANDOFF.md), and archived corrections above.
@@ -594,6 +605,8 @@ compiled fallback. Check loader, generated default, persistence, and consumer.
 |---|---|---|
 | `[Stereo] Method=reentry`, `Armed=1` | Sequential native scene redraw | Mono/arm-off removes stereo; not a neutral comparison |
 | `[Stereo] C5Pair=1` | Ring versus c5 arbitration | `reentry c5pair on\|off`; an A/B can deliberately restore bad pairing |
+| `[Stereo] LateTagRepair` | 0 shipped, 1 on the test PC: VR-80 late-tag repair plus capture-slot relabel | `reentry latetag on\|off`, F10 Display; needs `C5Pair=1`; the relabel refuses in sync and `SharedWait=1` |
+| `[Stereo] RingLedger` | 0; per-present ring records in bounded windows, 10 s reconcile | Diagnostic only; windows are event-biased, so their distributions are not rates |
 | `[Stereo] HoldUntagged=3` | Bounded suppression of brief mono delivery | `stereo hold <n>`; 0 restores mono interruptions |
 | `[VR] DesktopEyeSource=draw` | Current-backbuffer pin | `desktopeye draw\|tag\|status`; source switches invalidate held pixels |
 | `desktopeye on\|off` | Host desktop copy gate | Separate from `vrmirror on\|off` runtime hook gate |
@@ -618,7 +631,7 @@ against [dishonored_vr.ini](../../tests/golden/dishonored_vr.ini).
 | Question | Source locations / symbols |
 |---|---|
 | Why was a tick single? | [scene_draw.cpp](../../src/game/dishonored/scene_draw.cpp): `SceneDrawDecide`, `SceneDrawMaybeSecond`, `SceneDrawBeat` |
-| What eye did the method classify and deliver? | [reentry.cpp](../../src/core/gfx/reentry.cpp): ring/c5 arbitration, `note_drawn_eye`, `set_pending_tag`, delivered-tag/hold branch |
+| What eye did the method classify and deliver? | [reentry.cpp](../../src/core/gfx/reentry.cpp): `note_drawn_eye`, `set_pending_tag`, delivered-tag/hold branch, the ring ledger; [reentry_pair.inc](../../src/core/gfx/reentry_pair.inc): the ring, `pop_and_arbitrate`, the late-tag repair (host model: [reentry-pair-tests.cpp](../../tools/reentry-pair-tests.cpp)) |
 | Which pixels did capture return? | [capture.cpp](../../src/core/gfx/capture.cpp): shared slot choice, delivered serial/tag, `read_done` |
 | Did the desktop choose/copy the intended view? | [desktop_eye.cpp](../../src/core/gfx/desktop_eye.cpp), [policy](../../src/core/gfx/desktop_eye_policy.h), [frame_hooks.cpp](../../src/core/framework/frame_hooks.cpp) |
 | Which XR pair/layer was submitted? | [openxr_runtime.cpp](../../src/core/vr/openxr_runtime.cpp): pairHold, mirror hook sites, zero-layer fallback, snapshot bank |
@@ -745,6 +758,8 @@ These references do not claim every hash is an ancestor of current mainline.
 | `c7f12168`, `cb3b5974` | Tested configuration promoted to fresh-install defaults (VR-72) |
 | `37aab49f`, `18d39cee` | V-marker instrumentation and VR-76 diagnosis record |
 | `15be6fdd`, `7324e6ac`, `c3d6972b` | Current-draw mirror fix, confirmed default, VR-76 merge |
+| `7226a613` | VR-80 ring ledger with draw ids and reconcile; pairing moved to `reentry_pair.inc`; host model |
+| `27f5b714`, `0641c48a`, `56411e09`, `675131d6` | VR-80 late-tag onset measured, repair lever, capture-slot relabel, headset confirmation |
 
 To recover a parked document without changing the checkout:
 
@@ -1013,7 +1028,66 @@ the explanation for after-book flicker in general** (section 3.15): the same
 seconds-long skew happened with `c5` present. The zero-`c5` stretches remain a
 real, separate way to lose the correction.
 
-### 3.15 After a note closes, tag/camera skew and sustained flicker (VR-80, measured; cause open)
+### 3.15 After a note closes, tag/camera skew and sustained flicker (VR-80, fixed behind `LateTagRepair`)
+
+#### The solution (read this first; the chronology below is the evidence)
+
+**Symptom.** After closing a note or book, most reliably crouched, the view flickers for
+seconds until a pause: the scene jumps right in the right eye and left in the left eye (each
+eye briefly shows the other eye's image). Standing, the same thing lasts about half a second.
+
+**Mechanism, measured per present with the ring ledger (run 5).** The game side pushes one eye
+tag per draw into the tag ring; the present side pops one per present. Normally a tag is in the
+ring about 10 ms before the present that shows its image. After a crouched note close that
+margin collapses to under 1 ms (VR-99 tracks why), and several times a second a present shows
+draw N's image before draw N's tag arrives:
+
+| Present | Pop | c5 says | Old behaviour | Visible |
+|---|---|---|---|---|
+| P | EMPTY | left | REFUSE, untagged | nothing (held) |
+| P+1 | tag N (-1) | right | TOOK: override to +1 | right, but see below |
+| P+2 | tag N+1 (+1) | left | defer to the ring, streak 2 | **left image in the right eye** |
+| P+3 | tag N+2 (-1) | right | TOOK, drain removes N+3 | right eye pushed twice |
+| P+4 | tag N+4 (-1) | left | agree | aligned |
+
+The three-disagreement drain removed the correct tag every time: the earlier over-drain
+reading (checkpoint 1 of the plan) was refuted.
+
+**Fix, part 1: repair the late tag (`reentry_pair.inc`).** An empty pop in a tagged stream whose
+c5 step names an eye OWES that eye one tag. At the next present, if that present's own c5 names
+the opposite eye AND the front tag is the owed eye, the front tag is removed as a repair (its
+image has already been shown) and the present pops its own tag. Requiring the next present's c5
+to confirm means the fragile cross-tick arm alone can never trigger it on a moving player.
+Headset run 6: 41 of 44 late tags repaired, the swap cycle gone, but the flicker moved to the
+LEFT eye only.
+
+**Fix, part 2: relabel the waiting capture slot (`capture::relabel_last_grab`).** With
+`[Capture] SharedWait=0` a present delivers the PREVIOUS present's pixels. The repaired present
+therefore delivered present P's image, which still carried tag 0, so `HoldUntagged` kept that
+left image out of the left eye once per cycle. On a repair, the slot waiting for delivery now
+receives the removed tag's eye and pose record. Only an untagged slot from the latest grab in a
+pipelined mode qualifies (shared with `SharedWait=0`, or deferred); sync and `SharedWait=1`
+refuse and log it. Headset run 7: reported essentially clean, 71 repairs relabelled, 0 refused.
+
+**How it was proven.** `tools/reentry-pair-host.ps1` compiles the shipped `reentry_pair.inc`
+against a producer/present schedule whose draws carry their own identity. With the lever off it
+reproduces the run 5 cycle present for present; with it on, and a simulated pipelined delivery,
+no image is held or reaches the wrong eye, and none of the 72 earlier fault schedules gets worse
+(248 checks). The ledger's 10 s reconcile (tail movement against every counted removal, head
+movement against accepted pushes) held in every headset window, so no ring mutation path is
+uncounted.
+
+**Controls.** `[Stereo] LateTagRepair` (default 0, `reentry latetag on|off`, F10 Display
+checkbox); `[Stereo] RingLedger` (default 0, diagnostic: per-present records in bounded windows
+plus the reconcile line). Log words: `OWE`, `LATE-REPAIR`, `late tags (...): owed N repaired N
+expired N, slot relabelled N refused N`, and `reentry: late tag - ...`.
+
+**Still open.** Why the margin collapses after a crouched close and why a pause restores it;
+an occasional single-frame flicker (first suspect: the 3 to 6 owes per episode window that expire
+unconfirmed); whether the lever ships on. All three are VR-99. Commits: `7226a613` (ledger and
+host model), `0641c48a` (part 1), `56411e09` (part 2); records `27f5b714`, `675131d6`.
+
+#### Investigation record
 
 **Symptom identity.** 10 to 15 s of flicker after closing a book the fourth time in
 a row, until the tester quit; the earlier three closes were reported clean or
@@ -1281,8 +1355,10 @@ is corrected below. A realign feedback loop remains a hypothesis, not a measured
    ledger's expired owes (3 to 6 per episode window) are the first suspect. The margin
    collapse behind the late tags is still unexplained.
 
-**Status.** Measured, open, VR-80.
-Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
+**Status.** Fixed and headset-confirmed behind `[Stereo] LateTagRepair` (VR-80); the cause of
+the margin collapse and the residual single frame are VR-99.
+Plan and checkpoints: [VR-80-PLAN](VR-80-PLAN.md) (section 10). The earlier resume plan is
+[FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 
 ## 8. Keeping this reference useful
 
