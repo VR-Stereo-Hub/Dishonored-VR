@@ -111,6 +111,58 @@ permission. Single game, one branch: `VR-Main`.
   machines by drive letter, check the build tag. Read the handoff's Traps and Dead ends
   before writing code.
 
+## Resources you already have - CHECK THESE BEFORE DERIVING ANYTHING
+
+This project has paid for a set of instruments. Sessions keep re-deriving things that
+one of these answers in a single command. **Before hand-walking a disassembly, guessing
+an offset, or asking for a headset run, ask whether one of these already knows.**
+
+**The rule that governs all of them: the TOOLS are ours and are committed; their OUTPUT
+is game-derived and never is.** Summarize findings into `ENGINE_NOTES.md`; keep dumps,
+addresses in bulk and decompiled text out of the tree.
+
+### Reverse engineering, offline (no game running)
+
+| Tool | Answers |
+|---|---|
+| `tools/ue3-natives.py <exe> class <Name> [--slot 1B0]` | **A class name to its vtable.** metadata -> constructor -> context vtable -> a slot. This is how the camera, crossbow and pistol seams were all derived |
+| `tools/ue3-natives.py <exe> natives --grep <text>` | **A function NAME to code.** UE3's native registration table, 2554 entries, pairing `A<Class>exec<Function>` with its exec thunk. A thunk dispatches through a vtable slot, so a name leads to the implementation. Also the way to prove a NEGATIVE - "interaction has no script surface" was established by finding zero matches in all 2554 |
+| `tools/ue3-natives.py <exe> vtable <addr>` | Dump a vtable's slots |
+| `tools/disasm-rva.py <exe> dis\|bytes\|float\|search\|xref\|calls\|disp` | Disassemble a range, find a float constant, find who references an address, find who calls an RVA, find every instruction using a structure displacement |
+| `tools/pe-xref.ps1 -Exe <exe> -TargetRva <rva>` | Caller census. **Zero callers on a function the engine must call every frame is the cheapest way to learn a hook target is dead BEFORE installing it** |
+
+`ue3-natives.py` **re-derives a published known-good class before answering about a new
+one and refuses on a mismatch.** A route that cannot reproduce an answer already in
+ENGINE_NOTES is not evidence about a new one. Always pass `--verify`.
+
+### Reverse engineering, at runtime (the engine knows things the exe does not)
+
+**UE3 property names live in the packages, NOT in the image.** Nothing offline can find
+them. That is what the runtime layer is for.
+
+| Thing | Answers |
+|---|---|
+| `FindPropOffset(class, prop)` / `FindBoolProp` / `RflOffsetOf` (`ue3/uobject.cpp`, `ue3/reflect.cpp`) | **Where is the property I can NAME.** Walks GObjects for a UProperty whose Outer is that class. Prefer this over a hardcoded offset: a name outlives a game rebuild |
+| `propwatch on` (`ue3/prop_watch.cpp`, `[Aim] PropWatch`) | **WHICH property just changed**, when the name is what is missing. Collects every object-typed property on the player controller, pawn and HUD and reports the ones that move, naming what the pointer points AT. Found the focused-interactable field on its first run |
+| `ObjClassName`, `RealName`, `LooksLikeObj`, `IsLiveObject`, GNames/GObjects | Identify an arbitrary pointer. **`IsLiveObject` is the ONLY valid liveness test** - a class-name comparison catches reuse but not freeing, and that distinction crashed the game once already (TRAPS) |
+
+### Game content (local only, gitignored, never committed)
+
+| Resource | What it is good for |
+|---|---|
+| `tools/uscript/dishonored/` | The decompiled UnrealScript class dump. **Declarations and defaultproperties, not function bodies** - so it gives you class hierarchies, property NAMES to feed the resolver, tweak values and which classes implement which interface. `DisTweaks_*` files carry the shipped tuning numbers |
+| `%USERPROFILE%\Documents\My Games\Dishonored\DishonoredGame\Config\` | The game's own 21 ini files. **Mapped in `docs/dishonored/GAME_CONFIG_MAP.md`** with a routing table by question and the debug instruments the game ships. Check it before adding a lever - the setting may already exist |
+| `docs/brvr-reference/` *(if present)* | The sibling BioShock VR mod, for parity on a subsystem before re-deriving it |
+
+### Live instrumentation
+
+`tools\game-cmd.ps1 "<cmd>"` drives the command seam (`stereo`, `camera`, `vrpace`,
+`vrinput`, `fireaim`, `propwatch`, `crosshair`); `tools\status-dump.ps1` reads
+`status.json`; `tools\tail-log.ps1 -Grep` follows the log; `DVR_LOG=trace` and
+`DVR_LOG_CATS=hands:debug` open a lane. The simulator (`tools\xrsim-*.ps1`) answers
+anything that is not perceptual without costing a person their evening -
+`docs/VERIFICATION.md` is the catalog of intent -> tool -> command -> how to read it.
+
 ## Logging
 
 **Log generously. The log is the only instrument a remote tester can send back.**
@@ -157,6 +209,9 @@ Extensive does not mean noisy. The rules that buy volume without cost:
   Two sessions have gone to a value that was overridden somewhere else. Find every place the value can
   live, read what the run RESOLVED it to (not what you wrote), and confirm it reached the consumer.
   New traps and failed plans go in that file in the same commit as the work.
+- **Before deriving an address, an offset or a behaviour, read "Resources you already
+  have" above.** Most questions this project asks have a tool that answers them, and
+  the expensive sessions are the ones that re-derived something already on disk.
 - **START**: read `docs/STATUS.md`, the current milestone in `docs/ROADMAP.md`, then
   `git log --oneline -10`. **Find the Linear ticket** for the work (search before creating;
   create from the template if absent, with project, milestone, priority and a `Type` label),
@@ -248,6 +303,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/ARCHITECTURE.md` | The frame path, the stereo ladder, the runtime layer, the camera seam, thread contracts, the unity build and how modules leave it, decision log |
 | `docs/RESEARCH.md` | Engine facts, prior art, VR runtime facts, legal posture, all with sources |
 | `docs/TRAPS.md` | **Traps and the graveyard**: the stale-setting class (check it FIRST when a key "does nothing"), instruments that could not fail their own hypothesis, plans tried and failed, and an index of the per-topic graveyards |
+| `tools/ue3-natives.py`, `tools/disasm-rva.py`, `tools/pe-xref.ps1` | **The RE toolkit** (not docs, but read them first): class to vtable, function NAME to code via the native registration table, constant hunting, caller census. See "Resources you already have" |
 | `docs/VERIFICATION.md` | **Verification catalog**: intent -> tool -> command -> how to read the result; the simulator and its instruments, the seam, captures, what still needs a human |
 | `docs/LINEAR_AND_GITHUB.md` | **The dev flow**: ticket -> branch -> PR -> review -> merge -> release. Statuses and what each means here, priority, labels, the ticket and PR templates, project updates, the release ritual, and what only the Linear UI can do |
 | `docs/CODE_REVIEW.md` | Every finding from the review of the original single file, with disposition |
