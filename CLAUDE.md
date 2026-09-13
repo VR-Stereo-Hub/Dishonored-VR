@@ -111,6 +111,33 @@ permission. Single game, one branch: `VR-Main`.
   machines by drive letter, check the build tag. Read the handoff's Traps and Dead ends
   before writing code.
 
+## Flicker investigations: required reference and ongoing record
+
+Before investigating any flicker, ghosting, duplicated edges, stereo eye instability,
+or weapon lock-on/settling issue, read `docs/dishonored/FLICKER_REFERENCE.md` first.
+It is the primary cross-cutting flicker resource: symptom routing, confirmed fixes,
+open issues, retired experiments, source/commit provenance, and measurement traps.
+Read the linked detailed evidence before reusing or reopening a hypothesis.
+
+**Identify the visible symptom and the image SURFACE before choosing a suspect**, and say
+which row of its section 1 table you are working from. There is no single flicker bug: the
+word has covered stale eyes, mono interruptions, black frames, desktop eye switching,
+uncorrected weapon passes, missing weapon corrections, camera-writer interference, a held
+stale palette eye, and a smooth camera error that was not a flicker at all.
+
+**Every flicker result goes back into that file in the same commit as the work** - confirmed,
+measured, open, parked or retracted, in the format its section 8 gives - including failed
+predictions and tests that did not run. Its section 4 exists so an eliminated hypothesis is
+eliminated once; adding to it is how that stays true.
+
+Every new flicker investigation must update that reference as it progresses: record
+new symptoms and triggers, build/configuration identity, hypotheses and their
+counterpredictions, measured results, failed approaches, fixes, and remaining scope.
+Distinguish reported, measured, headset-confirmed, open, and retracted conclusions.
+Keep a linked recoverable plan with next steps when work is incomplete; do not let
+findings exist only in chat. Update the routing/status table when later evidence
+supersedes an older result, and retain the reason an earlier theory failed.
+
 ## Resources you already have - CHECK THESE BEFORE DERIVING ANYTHING
 
 This project has paid for a set of instruments. Sessions keep re-deriving things that
@@ -205,6 +232,19 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 
 ## Session protocol
 
+- **ANYTHING DESCRIBED AS "FLICKER" STARTS AT `docs/dishonored/FLICKER_REFERENCE.md`.**
+  Read it BEFORE forming a hypothesis, every time, without exception. There is no single
+  flicker bug: the word has covered stale eyes, mono interruptions, black frames, desktop
+  eye switching, uncorrected weapon passes, missing weapon corrections, camera-writer
+  interference, a held stale palette eye, and a smooth camera error that was not a flicker
+  at all. Its section 1 routes a SYMPTOM to a suspect in one table, its section 4 lists the
+  approaches that already failed and the readings that were retracted, and its section 6 is
+  the marker-and-log workflow. Sessions have re-derived things it answers in one lookup, and
+  have re-run eliminations it already records.
+  **Identify the visible symptom and the image surface before choosing a suspect**, and say
+  which row of that table you are working from. **Every flicker result goes back into it in
+  the same commit as the work** - confirmed, measured, open, parked or retracted, in the
+  format its section 8 gives - including failed predictions and tests that did not run.
 - **A setting that "does not work" is a `docs/TRAPS.md` question before it is a code question.**
   Two sessions have gone to a value that was overridden somewhere else. Find every place the value can
   live, read what the run RESOLVED it to (not what you wrote), and confirm it reached the consumer.
@@ -318,6 +358,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/dishonored/ARM_HAND_SPLIT.md` | **The arm/hand split** (VR-31): how the hands are cut from the arms, the three cut shapes and why, the clip and the cap, every ini key and hotkey, how to read the log, the traps |
 | `docs/dishonored/TESTING.md` | Install/launch loop, flat and simulator checks, headset checklist, crash triage |
 | `docs/dishonored/DESKTOP_MIRROR.md` | **The desktop mirror's eye policy** (VR-53/VR-54): why the game window alternated eyes, where the pin lives and why it is not in the runtime layer, the pause-menu session loss, and the counter reading that was retracted |
+| `docs/dishonored/FLICKER_REFERENCE.md` | **First stop for any flicker issue; update during every investigation.** Symptoms, confirmed fixes, open issues, dead ends, code/commit evidence, and linked continuation plans |
 | `docs/dishonored/BRIEF-eye-flicker.md` | The eye-flicker investigation: four hypotheses argued and killed. ANSWERED - kept as the graveyard |
 | `docs/dishonored/XR_HANDOFF.md` | The pre-41.0 OpenXR/Quest presentation bug (historical; the pipeline it describes is gone) |
 | `docs/dishonored/HANDOFF-GINGASVR.md` | **The original author's handoff** (their build 39.4): what was measured, disproved, the traps, the process rules, the 39.x fixes our base lacks |

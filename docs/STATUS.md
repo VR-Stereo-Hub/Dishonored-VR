@@ -1,61 +1,69 @@
 # Status
 
-## CURRENT (2026-09-13): VR-36 merged. Blink aims by the controller
+## CURRENT (2026-09-13): VR-91 fixed, VR-94 diagnosed. Blink (VR-36) merged earlier
 
-**Blink aims where the controller points, headset confirmed.** It was the last consumer
-of the legacy MotionAim ray (grip pose plus `[MotionAim] PitchOffsetDeg`); it now reads
-`dvr::aim::fire_frame()` and converts it with `dvr::fireaim::solve`, the same publication
-and the same converter the crosshair dot, the laser and the crossbow and pistol launch
-hooks use. Two runs, 2480 ray publications, **0 refusals**.
+**Rolling the head no longer slides the view sideways (VR-91).** The neck arc was built
+from the head's full rotation INCLUDING ROLL, while the yaw-only reference it is subtracted
+from is not, and `[Neck] Mode=cancel` negates the difference - so a 30 degree left roll
+moved the rendered camera 17.6 uu RIGHT and a 34 degree right roll moved it 19.3 uu left.
+The tracked head does the opposite and correct thing (7.1 uu left when rolled left), so the
+arc was inverting the real motion and more than doubling it. It is the VR-78 lesson on a
+second axis: cancel removes the ENGINE's neck arc, the engine's is a PITCH arc, and
+cancelling one that was never there subtracts a real motion twice. Fixed by building the arc
+from a roll-free frame; the neck term went to exactly 0.00 and the residual to 0.51 and 1.19
+uu. `[Neck] RollArc=1` is the A/B back to the fault.
 
-**The redirect is at the SOURCE seam (`0xbf55a3`)**, where the engine's own aim vector is
-built. Everything after it - the range multiply, the trace, the collision pull-back, the
-decal, the destination - is the engine's work along our ray, so the marker and the landing
-point are one trace by construction and the engine still refuses what it cannot reach. The
-destination seam (`0xbf5e4f`) no longer writes: it ran AFTER validation, which is 32.51's
-teleport through walls. It stays installed as the instrument that measures where the trace
-starts.
+**The instrument is the reusable part.** `z_account` gained a ROLL mode (`[PosTrack]
+ZAccountRoll`, `camera zaccount roll on|off`) that bins by head roll and reports the LATERAL
+terms - render, eye, position, tracked head, neck - and names the owner. The pitch mode
+REJECTS any sample rolled past 12 degrees, so it was structurally blind to this whole class;
+a host check asserts that rather than describing it. 42 checks, and the two that matter are
+the ones that CLEAR us: an eye-only fault and a wrong-signed head both leave the position
+residual FLAT.
+
+### VR-94 is diagnosed, its correction ships OFF, and it has an open regression
+
+Arms and weapon jump sideways by about one IPD for a frame, in the LEFT eye only, during a
+fast head roll. Nine V-marker episodes, 90 flagged presents, and **every one reads "eye R but
+tag L, decision S"** - not one the reverse. The classifier reads the eye from the right-axis
+jump in the hand's LocalToWorld translation; a jump under 0.45 IPD is `S`, which HOLDS the
+previous eye. `S` means "too small to tell apart", not "the same eye". Head roll adds a drift
+to every jump - it moves the hand AND rotates the axis the jump is projected on - and because
+the jump is asymmetric (-5.60 entering right, +5.09 entering left, against a 2.84 band) only
+left-entering presents are ever misread.
+
+`[Hands] PaletteEyePredictToggle` predicts the toggle instead of holding, capped at two in a
+row. It took mismatches from 90 to 1. **It also introduced hand and weapon flicker while
+standing still, which none of these counters can see**, so it ships OFF and is disarmed in the
+tested install. The live A/B is F10 Hands; the next measurement is whether the still-flicker
+follows the checkbox.
+
+**`docs/dishonored/FLICKER_REFERENCE.md` is now the mandatory first read for anything called
+flicker**, and CLAUDE.md says so. Sections 3.11 and 3.12 carry this work, including three
+instrument failures worth more than the fix: a cross-check joined at the wrong present (`pres`
+instead of `pres + 1`, a near-total inversion that means nothing in an alternating stream),
+the marker's tag reference being FITTED to maximise agreement with the classifier it judges,
+and `tools/palette-eye-host.ps1` not having COMPILED since VR-76 added `MfOpen` - so its nine
+checks had not run in weeks. All fifteen pass now.
 
 | Lever | Shipped | Live |
 |---|---|---|
-| `[Blink] ControllerAim` | 0 (on in the tested install) | `blink on\|off`, F10 Blink |
-| `[Blink] UseAimRay` | 1 | `blink ray aim\|legacy` - the A/B against the legacy ray |
-| `[Blink] AimAtSource` | 1 | ini; the only seam that redirects |
-| `[Blink] ReachMode` | **0** | F10 Blink. 0 = the engine's own reach |
+| `[Neck] RollArc` | **0** (the fix) | ini; 1 restores the measured fault |
+| `[PosTrack] ZAccountRoll` | 0 | `camera zaccount roll on\|off` |
+| `[Hands] PaletteEyePredictToggle` | **0** | F10 Hands, live |
 
-**Two findings worth more than the feature**, both from one run:
+### Next: two smaller issues from the Codex investigation
 
-* **Blink's reach rule lives in its aim vector's MAGNITUDE, vertical cap included.** Level
-  it is 1100 uu; aimed up, its Z pins at exactly +500.00 and the length falls to 665. That
-  is how the game stops an upward blink. A redirect that keeps the magnitude keeps the rule
-  for free; one that substitutes its own throws it away, and the blink climbs into the sky.
-  ENGINE_NOTES has the numbers.
-* **An input was being learned from our own output.** `g_blkReachSeen` took its maximum
-  from the destination seam, which after the redirect reports the result of our own vector.
-  It ratcheted 1100 -> 1839 -> 2007 -> 2062 -> 2610 -> 4698 -> 5606 uu in a few minutes and
-  nothing could lower it. TRAPS section 2 has it; the rule is that when a read-only observer
-  becomes a writer, every statistic it fed has to be re-asked.
+`docs/dishonored/FLICKER_FRAME_DROP_AND_RESUME_PLAN.md` holds a completed read-only
+investigation with ranked hypotheses and a patch sequence. **Issue B first** (a same-world
+menu is processed as a destructive load: `GameStateTick` calls `WaInvalidateContracts` and
+`FpInvalidateCandidates` on any `wasGameplay && !nowGameplay`, and the same transition
+schedules a UI rescan measured at 516 ms). **Issue A second** (a one-frame world ghost on a
+dropped frame; 33 gameplay frame gaps of 48 to 538 ms, 27 of them in xrEndFrame, with no
+marker joined to a seen event yet). Read the plan's restart checklist before touching code.
 
-Both are fixed structurally, not by a better number: the reach curve is clamped so it can
-only ever shorten what the engine offered, and the maximum is learned only from the
-engine's untouched vector length.
-
-Also found: `[Blink] Marker` and `MarkerPullbackUU` have had no consumer since 41.0 removed
-the fork that drew the mod's own marker. The F10 panel says so now.
-
-Full write-up: `docs/dishonored/VR-36-BLINK-RAY.md`.
-
-### Next: the camera moves sideways when the head rolls (VR-91)
-
-Rolling the head left moves the camera position RIGHT, and rolling right moves it left -
-an inverted lateral term in the positional path. Reported in the headset 2026-09-13, on the
-build that merged VR-36. Start from `head_track.cpp`'s positional write and `z_account.h`,
-which already decomposes what moves the rendered camera beyond the tracked head per term
-and can be pointed at roll.
-
-Open: VR-89 (animation control layer), VR-87 (ceiling trim), VR-86 (shelved), VR-85,
-VR-75, VR-77, VR-79, VR-80, VR-81, VR-32, VR-58. Deliberately not in VR-36: the hand-pitch
-reach curve (`ReachMode=2`) is shipped off and has never been tested.
+Open: VR-94 (the still-flicker regression and the unverified roll fix), VR-89, VR-87, VR-86
+(shelved), VR-85, VR-75, VR-77, VR-79, VR-80, VR-81, VR-32, VR-58, VR-92.
 
 ## Earlier (2026-09-12, late): VR-78 fixed and merged. Next is the animation handoff
 
@@ -4182,6 +4190,35 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-13 - session 37: head roll, and the eye the hands were given
+
+Two faults, one fixed and one diagnosed, and three instruments that were not measuring what
+they claimed.
+
+**VR-91** was one run. The existing accounting probe could not answer it - it rejects any
+sample rolled past 12 degrees - so the first build taught it to bin by roll and report
+laterally, and the first headset run named the neck term as owning 98 per cent of the
+residual. The fix is structural rather than a better constant: roll is removed from the FRAME
+the arc is built in, so the pitch arc is untouched.
+
+**VR-94 cost two falsified hypotheses and was solved by the marker history, not by
+reasoning.** The ambiguity counter never moved; stereo pairing was clean; the probe was not
+the frame-rate confound it looked like. What settled it was nine V presses: 90 flagged
+presents, all one-sided, with the tag row alternating cleanly beside a classifier that
+repeated an eye.
+
+**The three instrument failures are the durable part.** A cross-check joined at the wrong
+present printed a confident near-total disagreement that could not distinguish a phase error
+from a sign convention - and the correct join was already written fifteen lines away in the
+same file. The marker's tag reference is fitted to maximise agreement with the classifier it
+judges, so its agreement figures are not independent. And a host suite had not compiled since
+VR-76, so its checks had silently not run: a test that cannot build is not passing, it is
+absent.
+
+**The fix is not confirmed and is shipped off.** It removed the measured fault and introduced
+a new one the counters cannot see. Ending a session with a disarmed lever and an honest open
+entry is the correct state, not a failure to finish.
 
 ### 2026-09-13 - session 36: Blink aims by the controller (VR-36)
 
