@@ -208,14 +208,14 @@ static uint8_t* FindFunctionObj(const char* fname)
 }
 
 
-static uint32_t FindPropOffset(const char* clsName, const char* propName)
+static bool FindPropOffsetChecked(const char* clsName, const char* propName, uint32_t* result)
 {
     uint32_t ci = FindNameIdx(clsName), pi = FindNameIdx(propName);
-    if (ci == 0xffffffffu || pi == 0xffffffffu) return 0;
-    if (!RangeReadable((void*)kGObjHdr, 12)) return 0;
+    if (ci == 0xffffffffu || pi == 0xffffffffu) return false;
+    if (!RangeReadable((void*)kGObjHdr, 12)) return false;
     void** objs = *(void***)kGObjHdr;
     uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
-    if (!objs || onum < 1000 || onum > 4000000) return 0;
+    if (!objs || onum < 1000 || onum > 4000000) return false;
     for (uint32_t i = 0; i < onum; i++) {
         if ((i & 1023) == 0) {
             uint32_t left = onum - i;
@@ -230,11 +230,18 @@ static uint32_t FindPropOffset(const char* clsName, const char* propName)
         if (*(uint32_t*)(ou + kNameOff) != ci) continue;
         const char* pc = ObjClassName(o);
         if (!pc || !strstr(pc, "Property")) continue;
-        return *(uint32_t*)(o + kUPropOffset);          // UProperty::Offset
+        *result = *(uint32_t*)(o + kUPropOffset); return true;          // UProperty::Offset
     }
-    return 0;
+    return false;
 }
 
+
+static uint32_t FindPropOffset(const char* clsName, const char* propName)
+{
+    uint32_t result=0;
+    FindPropOffsetChecked(clsName,propName,&result);
+    return result;
+}
 
 // 38.23: FindPropOffset's sibling for BOOL properties - offset + bitmask
 // (UBoolProperty::BitMask at +0x6c, same layout blockhunt reads).

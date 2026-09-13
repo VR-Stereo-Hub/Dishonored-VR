@@ -206,6 +206,7 @@ static bool DcIsLocked(IDirect3DDevice9* self, bool needIb)
 static HRESULT __stdcall DcDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
                                     UINT startVertex, UINT primCount)
 {
+    if (dvr::anim::native_draw()) return dvr::frame::orig_draw_prim(self, type, startVertex, primCount);
     // The weapon router lives on the INDEXED entry only. A pass drawn without
     // an index buffer therefore never reaches it and cannot be corrected or
     // even counted as refused - it would be a rendering mystery of exactly the
@@ -237,6 +238,7 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
                                        INT baseVertex, UINT minIndex, UINT numVertices,
                                        UINT startIndex, UINT primCount)
 {
+    if (dvr::anim::native_draw()) return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
     // VR-33 W1. Records the draw's identity against the phase the component
     // sweep is currently in. Behind its own flag AND the skinned-draw gate, so
     // it costs one branch when off. Read-only: it takes no reference it does

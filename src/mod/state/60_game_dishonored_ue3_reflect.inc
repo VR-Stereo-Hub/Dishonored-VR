@@ -47,7 +47,7 @@ struct RflProp {
     uint32_t off;      // 0 = looked up and genuinely not found
     bool     done;
 };
-#define RFL_PROP_MAX 48
+#define RFL_PROP_MAX 96
 static RflProp g_rflProp[RFL_PROP_MAX];
 static int     g_rflPropN = 0;
 static LONG    g_rflHit   = 0;   // answered from cache

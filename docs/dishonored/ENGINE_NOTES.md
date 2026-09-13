@@ -3787,9 +3787,10 @@ eDisPlayerActionUsage  Fullbody | Upperbody | LeftHand       (DishonoredPlayerPa
 needed and could not obtain from component presence. `m_PlayerStance` is indexed
 BY `EDisEquipUsage`, so stance is already per-hand.
 
-**`eDisPlayerActionUsage_Fullbody` is the takedown and choke discriminator**, and
-it is the signal the arm-unhiding work needs in order to hand animation control
-back to the game during those sequences.
+**Correction (VR-88): ActionUsage is a per-machine channel setting, not a live
+takedown flag.** The pawn defaults set it to Upperbody/LeftHand. VR-88 reads
+`m_pCurrentState` plus `m_pCurrentStateID` on the master/upper FSMs; the
+action mappings await a headset run. See `ANIM-HANDOFF-PLAN.md`.
 
 The route to reading all of it reliably is a UE3 property resolver keyed on FName;
 `docs/dishonored/GAMEPLAY_STATE.md` is the plan and the rules for it.
