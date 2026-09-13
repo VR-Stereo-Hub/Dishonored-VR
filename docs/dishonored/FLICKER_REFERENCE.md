@@ -1109,6 +1109,16 @@ Counterprediction: if a foreign caller owns the extra presents, an UNTAGGED pres
 non-zero presenting count on A, B or C; if every untagged present shows only `tick`/`p2`, the
 extra present comes from outside the viewport draw and this lead is dead.
 
+**Second instrument, run (build 199, `vr33-hands-working-199-ga7e7dde8`): the lead is dead.** One book
+close, flicker after it until the pause 8 s later. Callers A, B and C were installed (bytes verified)
+and made **0 calls** in every 10 s census and on every trace line for the whole run; the 7 untagged
+presents show only the gameplay draw since the previous present (4 with nothing, 2 `tick 1`, 1
+`tick 1 p2 1`). `disasm-rva.py xref 0x1fc5b0` finds no absolute reference to the root and a raw search
+for its address finds none, so no vtable reaches it either: every viewport draw in play is the
+gameplay tick the stub tags. The untagged presents are therefore extra **Present calls**, not extra
+draws. They show a new pass-1 (left) camera with the ring empty, i.e. before the tick's -1 tag
+was pushed. Next: name the Present caller (the return address into the exe) for those presents.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

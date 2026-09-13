@@ -5117,4 +5117,6 @@ stub's site). The other three, bytes read from the image:
 A draw through any of them does not reach the re-entry stub and so pushes no eye tag. Which of
 them runs in play, and whether one runs after a note closes, is NOT yet measured;
 `[Stereo] DrawCallerTrace` counts them through pass-through stubs (patterns.h`kViewportDrawCallerA/B/C`).
-Virtual or indirect calls to the root would not appear in this census.
+Measured (build 199, a run with a book close): A, B and C made 0 calls. `xref` finds no absolute
+reference to `0x005fc5b0` and a raw search for its bytes finds none, so no vtable or pointer table
+reaches the root: in gameplay the gameplay call site is its only live caller.
