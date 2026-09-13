@@ -253,3 +253,37 @@ change/build identity, negative control, host/simulator/desktop/headset verdicts
 remaining scope in the same eventual commit. Preserve failed predictions and never
 quote private chat in published records. Current result: source/log review complete;
 new instrument, model, simulator reproduction and headset fix validation **not run**.
+
+## 10. Execution log
+
+### 2026-09-13, checkpoint 1 (source map, before any code)
+
+Work order being executed: step 1 (source/accounting map, below), step 7 (host model of the
+current pairing, extracted so the model is the shipped code), step 2 (the ledger instrument,
+default OFF), then one headset question. No fix is being written.
+
+**Queue mutation sites (`src/core/gfx/reentry.cpp`).**
+
+| Site | Thread | Effect |
+|---|---|---|
+| `reentry_push_tag_acct` | game (stub) | head+1; REJECTED without trace at depth >= 8 (`g_ringDropped`) |
+| `pop_tag` from `end_frame` | present | tail+1, or returns false on empty, or CLEARS the whole backlog at depth > 6 (`g_ringCleared`, rate-limited warn) |
+| `pop_tag` from the realign loop | present | as above, repeatedly, until `peek` shows `-inv` or empty; a clear inside the loop removes everything |
+| `shutdown()` | present | tail = head (lifecycle clear); also resets c5 history, streak, last pushed eye, hold state |
+| `on_reset()` | present | capture reset only; the ring and the arbiter state are NOT reset |
+
+**Present-side exits.** Before the pop: poisoned, missing devices, blit init. After the pop:
+no capture source, target creation failure, the untagged hold (returns false with no
+submission), and the normal return. The pop and the arbitration therefore run on presents that
+submit nothing.
+
+**Reading from source, to be tested by the host model (not a result).** The realign can only
+REMOVE tags. If the ring is one tag ahead of the presented images, the three-disagreement drain
+pops until the next tag is `-inv`, which restores consistent labels by moving the ring a whole
+tick ahead: the eye labels are right and the records (`rec`, `acct`) belong to the next tick.
+With a producer lead of about one tick, a tick-ahead ring runs dry: a present finds it empty and
+consumes nothing, which puts the ring one tag ahead again, and the disagreements and the drain
+repeat. With a larger producer lead the tick-ahead state never runs dry and the episode ends
+after one realign, with the records a tick early until something resets. Predictions for the
+model: lead 1 with one seeded extra consumption sustains a loop of one empty pop per realign;
+lead 2 ends after one realign; no seeded fault never starts either.
