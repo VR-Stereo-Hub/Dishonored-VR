@@ -473,5 +473,8 @@ is not touched.
 - [x] Launch 2 read (build 191): the save load read INVALIDATED via the pawn
   tripwire; the pawn's FName did NOT change on respawn, so `LoadGameClicked` was
   added as a hard drop. The run ended in a pre-existing GC crash, filed as VR-96
-- [ ] B2 code, launch 3 read
+- [x] B2 code, launch 3 read (build 192): first DOUBLE +24-26 ms on kept resumes,
+  no rescan. Books read LOADING and are not covered. The book flicker was measured
+  as a separate issue: while `c5` reads zero (cause not identified; dark vision
+  at most one source) a re-arm's ring skew is not corrected (FLICKER_REFERENCE 3.14)
 - [ ] FLICKER_REFERENCE, STATUS, TRAPS updated in the same commits

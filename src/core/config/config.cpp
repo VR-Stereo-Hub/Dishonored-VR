@@ -1849,6 +1849,12 @@ static void LoadConfig()
     // the same reason the equipment reader does - a reporter nobody enables
     // reports nothing, and this one exists to be read out of a tester's log.
     g_uiOn = IniFloat(ini, "Menu", "UiProbe", 1) != 0.0f;
+    // VR-93 B2: a menu that kept the weapon records does not queue the observer
+    // rescan, which otherwise holds the resume ~500 ms. Needs AttachKeepOnMenu=1
+    // to have any effect. OFF queues it on every menu, as before.
+    g_uiKeepOnMenu = IniFloat(ini, "Menu", "UiKeepOnMenu", 0) != 0.0f;
+    Log("config: [Menu] UiKeepOnMenu=%d - a kept menu %s the UI observer rescan.",
+        g_uiKeepOnMenu ? 1 : 0, g_uiKeepOnMenu ? "SKIPS" : "still queues");
     g_menuGhostByRate  = IniFloat(ini, "Menu", "GhostClearByRate", 0) != 0.0f;
     g_menuGhostQuietMs = IniFloat(ini, "Menu", "GhostQuietMs", 400.0f);
     if (g_menuGhostQuietMs < 50.0)   g_menuGhostQuietMs = 50.0;

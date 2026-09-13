@@ -77,6 +77,9 @@ struct UiInst {
 static bool     g_uiOn        = true;    // [Menu] UiProbe - ships ON, see above
 static bool     g_uiReady     = false;   // discovery has published; poll may read
 static bool     g_uiRescan    = true;    // a scan is wanted (set again per load)
+// VR-93 B2: a menu that KEPT the weapon records (hands/menu_keep) is the same
+// world, so it does not queue the rescan; a drop still does. Ships OFF.
+static bool     g_uiKeepOnMenu = false;  // [Menu] UiKeepOnMenu
 static int      g_uiScans     = 0;
 static int      g_uiGen       = 0;       // bumped per load, stamped on instances
 

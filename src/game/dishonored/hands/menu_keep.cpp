@@ -249,14 +249,23 @@ static void MkPresentTick(const char* state, bool pawnLive)
         g_mkLoadAt = g_mkLoadEvents;
         MkReadIdentity(g_pePawn, &g_mkPawnId);
         MkReadIdentity(g_peCtrl, &g_mkCtrlId);
-        UiNoteLoad();   // B1 leaves the observer rescan exactly as it was
+        // B2: the observer rescan. It runs on the script lane, which a pause
+        // silences, so a queued scan lands on the resume and holds the game
+        // thread ~500 ms before the first DOUBLE (measured 498-524 ms, build
+        // 190, finding the same 48 movie objects every time). With
+        // [Menu] UiKeepOnMenu=1 a suspension does not queue it; every drop
+        // (MkInvalidate) still does.
+        if (!g_uiKeepOnMenu) UiNoteLoad();
         InterlockedIncrement(&g_mkWant);
         _snprintf(g_mkLast, sizeof(g_mkLast), "SUSPENDED - %s", s.reason);
         g_mkLast[sizeof(g_mkLast) - 1] = 0;
-        Log("menukeep: %s (state %s). %d contract(s) and %d candidate(s) held, not dropped; "
+        Log("menukeep: %s (state %s). UI observer rescan %s. "
+            "%d contract(s) and %d candidate(s) held, not dropped; "
             "pawn %p FName %u_%u, controller %p FName %u_%u recorded. The script lane publishes no "
             "component snapshot from them before validation #%ld passes, and every correction "
-            "needs a snapshot under 100 ms old.", g_mkLast, state, g_waMeshN, g_fpCandN,
+            "needs a snapshot under 100 ms old.", g_mkLast, state,
+            g_uiKeepOnMenu ? "NOT queued (UiKeepOnMenu=1)" : "queued as before (UiKeepOnMenu=0)",
+            g_waMeshN, g_fpCandN,
             g_mkPawnId.obj, g_mkPawnId.name[0], g_mkPawnId.name[1],
             g_mkCtrlId.obj, g_mkCtrlId.name[0], g_mkCtrlId.name[1], (long)g_mkWant);
         break;

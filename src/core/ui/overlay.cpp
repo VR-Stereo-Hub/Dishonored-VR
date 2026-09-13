@@ -291,6 +291,13 @@ static void OverlayFrame()
         }
         ImGui::TextDisabled("off = relearn the weapons after every menu. %ld kept, %ld dropped.",
                             g_mkKept, g_mkInvalidated);
+        bool uk = g_uiKeepOnMenu;
+        if (ImGui::Checkbox("Skip the UI rescan when a menu kept them", &uk)) {
+            g_uiKeepOnMenu = uk;
+            Log("hands: UiKeepOnMenu -> %d (%s)", uk ? 1 : 0,
+                uk ? "a kept menu queues no rescan" : "every menu queues the rescan");
+        }
+        ImGui::TextDisabled("off = a ~0.5 s flat hold on every resume while it rescans.");
     }
     const auto animState = dvr::anim::snapshot();
     ImGui::TextDisabled("Animation: %s | %s", animState.valid ? (animState.game ? "game owns body" : "player") : "unknown", animState.state[0]);
