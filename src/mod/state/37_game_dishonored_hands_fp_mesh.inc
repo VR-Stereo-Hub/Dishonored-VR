@@ -31,7 +31,10 @@ struct FpCand { uint8_t* obj; char name[40]; char cls[52]; char owner[52]; char 
                 // (ActorComponent.Owner -> Actor.Owner chain), and the transform
                 // it had before the first write, so a restore returns it.
                 bool  owned; char ownedBy[52];
-                bool  xfWrote; int32_t xfRot0[3]; float xfTrans0[3]; };
+                bool  xfWrote; int32_t xfRot0[3]; float xfTrans0[3];
+                // VR-93: class and FName read off obj when it was collected,
+                // so a menu's resume can refuse a reused address.
+                dvr::menukeep::Identity id; };
 static FpCand   g_fpCand[24];
 static int      g_fpCandN = 0;
 static void FpNoBlock(uint8_t* comp, const char* nm);   // 38.23, defined below

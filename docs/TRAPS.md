@@ -504,6 +504,29 @@ whatever it encoded**, silently, and the symptom appears somewhere else entirely
 is structural: the reach curve is now clamped so it can only ever shorten what the engine
 offered, which makes the class of fault unreachable rather than fixing this instance.
 
+### An identity check whose "unique" field is the same after a respawn (VR-93)
+
+The menu retention validated each retained object as live, same class, same FName, on the
+theory that a respawned actor gets a new FName number and so a reused address would fail.
+The save-load run measured the opposite: the old pawn and the new one both read FName
+`10783_0`. The load was caught only because the new pawn landed at a different address
+and the pawn-changed tripwire fired. A load that reused the address would have passed.
+The host test had passed too, because it asserted the theory with a fake table instead of
+checking it against the game.
+
+> **A field is only an identity discriminator once a real replacement has been seen to
+> change it.** Until then it is a guess with a test around it. Prefer the game's own
+> event for the transition you fear (here `LoadGameClicked`) over any property of an
+> object that the transition recreates.
+
+### A crash dump that holds none of the memory the crash was about (VR-96)
+
+The unhandled-exception filter wrote a 44 MB minidump with indirectly referenced memory,
+but it wrote it later, on a different thread, not in the faulting thread's context. It
+holds no GObjects array and not the region the garbage collector faulted on, so the
+object holding the bad value could not be named offline. Read the crash registers from
+`dishonored_vr_crash.txt`, and do not expect the dump to answer an object question.
+
 ## 3. Plans that were tried and failed
 
 | Plan | Why it failed | Where the detail is |

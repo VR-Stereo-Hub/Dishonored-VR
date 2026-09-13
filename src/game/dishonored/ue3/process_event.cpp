@@ -326,6 +326,9 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // 30.30: authoritative menu open/close for SBS mono fallback.
             // Close checks run FIRST: "OnResumeGameClicked" contains neither
             // open keyword, but keep the order defensive anyway.
+            // VR-93: a menu that kept the weapon records must drop them if a
+            // save may be loaded from it (hands/menu_keep.h).
+            if (nm && strstr(nm, "LoadGameClicked")) InterlockedIncrement(&g_mkLoadEvents);
             if (nm) {
                 // 34.0: OnLoadGameClicked was on the CLOSE list on the theory
                 // that it meant "load confirmed, menu going away". The log

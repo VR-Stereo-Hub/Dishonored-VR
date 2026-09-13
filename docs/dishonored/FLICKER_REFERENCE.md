@@ -47,7 +47,7 @@ hash, measurements, implementation sequence, and restart checklist.
 | New report | Findings as of this investigation | Status / next step |
 |---|---|---|
 | One-frame world ghost/doubled edges during fast head turns, suspected frame drops | Existing run has real timing gaps at 90 Hz/lag 2; no symptom marker joins them. Printed pose audit covers right only. Fixed-lag attribution and hold/release identity need event-local checks. | Open; two-eye capture/pose/release history before a rendering fix |
-| About one second of weapon settling at startup and after mono menus, while swaps retain lock | `GameStateTick` destroys contracts/candidates on every exit from GAMEPLAY, including MENU. Real ordinary pause log confirms one contract and three candidates discarded. | Source/log-confirmed reset; visual duration not measured. Propose suspended same-world identity with fresh resume validation |
+| About one second of weapon settling at startup and after mono menus, while swaps retain lock | `GameStateTick` destroyed contracts/candidates on every exit from GAMEPLAY, including MENU; the settle was a 0.5 s UI rescan hold plus 0.35 s of relearning | VR-93: B1 (`AttachKeepOnMenu`) confirmed on the headset for pauses, section 3.13; save-load negative control and B2 (the rescan hold) open |
 
 The pause also queues a UI observer rediscovery before candidate/component
 publication: a 516 ms scan coincides with a 538 ms resume gap. Plan this as a
@@ -82,7 +82,8 @@ pose metadata without reopening the disproved historical theories.
 | Weapon detaches or flicker returns after swap/load | Candidate list, contract lifetime/capacity, equipment roots, or config gate | Recovery/retention fixes landed; distinguish from eye-state regression |
 | Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
-| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume | VR-80 open; no confirmed causal fix found |
+| About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
+| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, the passes' cameras can come out inverted against their tags and the c5 arm then starves the left eye for 10 s or more, with `c5` present. Section 3.14 is the separate zero-`c5` case (VR-97) |
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
@@ -880,6 +881,184 @@ It is a smooth, sustained displacement, not a one-frame event, and section 3.10'
 rule applies: a camera error that varies smoothly with head angle is not a flicker.
 It is listed because it was reported in the same breath as VR-95 and the two were
 initially conflated.
+
+### 3.13 A menu relearned the weapons on every resume (VR-93, B1 confirmed)
+
+**Symptom identity.** About a second of weapon flicker after resuming from a pause
+or other mono menu, both eyes, held weapons only; swaps kept their lock. Distinct
+from VR-80 (a sustained one-sided stream after a note) and from VR-77 (single ticks
+during play). Routed from section 1's "Weapon detaches or flicker returns after
+swap/load" row.
+
+**Cause, measured.** `GameStateTick` ran the level-load transition on every exit
+from GAMEPLAY, so a pause dropped the weapon contracts and the candidate list and
+queued the UI observer's rescan. A pre-fix resume (build 185, `dishonored_vr.prev.log`
+of that run) splits the settle into two costs in series: the rescan held the game
+thread 499 ms with the view still SINGLE, then re-adoption took 15 ms and the
+hand-mesh recalibration another 343 ms. Adoption was never the slow part.
+
+**Hypothesis and counterprediction.** If relearning explains the post-stereo
+flicker, keeping validated records removes it and the log shows zero adoptions and
+no recalibration after resume. If instead fresh samples or pairing explained it,
+the flicker survives retention. The half-second hold was predicted to SURVIVE B1,
+because the rescan is untouched.
+
+**Change.** `hands/menu_keep.h` / `menu_keep.cpp`, `[Hands] AttachKeepOnMenu`
+(ships 0, F10 Hands live). A MENU over a live pawn suspends instead of dropping;
+NO_PAWN, a different pawn, or leaving for anything but a menu drops as before. On
+resume the script lane rebuilds the live-object table and requires the pawn, the
+controller, every candidate and every contract component to be live with the class
+and FName recorded at collection. Any failure drops everything. Corrections still
+need a same-present snapshot under 100 ms old. Host: `tools/menu-keep-host.ps1`,
+35 checks; an injected FName-blind comparison and a menu-blind suspend each fail
+them.
+
+**Results.** Build `vr33-hands-working-190-gf385bfce-dirty`, stability profile
+unchanged, `AttachKeepOnMenu=1`. Four pauses, all RETAINED: every validation passed
+(8 to 11 objects, table rebuild 7.7 to 9.9 ms), 0 adoptions in each resume window,
+no calibration line after any resume. Headset: no weapon flicker after resume on
+three deliberate pauses. As predicted, first DOUBLE still came +524 to +540 ms after
+GAMEPLAY on every retained resume, matching rescans of 498 to 524 ms: that hold is
+B2, not this.
+
+**Also seen.** Three mid-level GAMEPLAY -> LOADING periods (0.75 s, 10.6 s, 7.0 s)
+dropped everything under the unchanged non-menu rule, while the pawn and
+controller kept the same pointer and FName across them. Not investigated; the rule
+is deliberately conservative.
+
+**Negative control, run.** Build `vr33-hands-working-191-g0ff00ebb-dirty`. A save
+loaded from the pause menu read INVALIDATED ("a different pawn was latched during
+the menu") before the new level reached GAMEPLAY, and the late validation failed
+too (the old pawn was absent from a freshly built table). Weapons relocked after
+the load. **Retracted expectation:** the new pawn at a different address carried
+the SAME FName, `10783_0`, as the old one. FName does not distinguish a respawn,
+so this load was caught by its new ADDRESS, and a load that reused the address
+would have passed the identity check. Hardened in the same commit as this record:
+the game's `LoadGameClicked` event during a suspension now drops everything. It
+fires when the save browser opens, so backing out of the browser also drops.
+
+**Not flicker, same run.** A brief mono flash during a drop takedown was a
+present-progress SINGLE tick held by `HoldUntagged` (VR-77's signature), with no
+menu transition anywhere near it. The run then ended in a garbage-collector crash
+filed as VR-96; that signature is in the crash history on 09-11 and 09-12, before
+any VR-93 code, and the last retained state had been dropped 96 s earlier.
+
+**B2, run.** Build `vr33-hands-working-192-gff55ae1d-dirty`, `[Menu] UiKeepOnMenu=1`.
+Three pauses, all retained, and the first DOUBLE came +24 to +26 ms after GAMEPLAY,
+against +521 to +540 ms with the rescan on. No rescan ran on any kept resume; the
+three book/note openings in the same run took the unchanged non-menu path and did
+rescan (499 to 501 ms). Headset: pauses resumed without the hold.
+
+**Status.** B1 and B2 confirmed for ordinary pauses; save-load negative control
+passed. A book (note screen) reads LOADING, not MENU, so neither applies to it.
+
+**Books, run.** `[Hands] AttachKeepOnNote=1` (build 193 built 13:49): four book
+closes all SUSPENDED on the observer's note-movie bit, validated, RETAINED, with no
+rescan and the first DOUBLE +14 to +41 ms. The flicker reported after the fourth
+close is section 3.15, not this change.
+
+### 3.14 With `c5` unavailable, a book exit's ring skew is not corrected for seconds (measured, open)
+
+**Symptom identity.** After closing a book, 5 to 10 s of flicker; with dark vision
+on, the hands looked misaligned until dark vision was turned off. Headset, both
+eyes. Routed from section 1's "One eye appears frozen, swapped, or behind after
+pause/load/rearm" and "Rare sustained both-eye flicker immediately after closing a
+note" (VR-80) rows.
+
+**Reproduction identity.** Build `vr33-hands-working-192-gff55ae1d-dirty`, stability
+profile unchanged, VirtualDesktopXR, 90 Hz, shared capture (SharedWait=0). Log saved
+locally under `build/vr93-logs/launch3-*` (ignored).
+
+**Measured.** From about 391 s, when a power was used (a `PawnMaterialParam` notify
+and the power wheel closing), every present's `c5` read `(0.0 0.0 0.0)` until
+423.4 s, and again from 431.7 s to 441.1 s; shorter zero stretches of 1 to 3 s
+appear earlier. A new shader layout (`LocalToWorld c231`) and a shader with no
+readable constant table appear at the same moment. With `c5` constant,
+`reentry.cpp`'s step is zero, `inv` stays 0, and pairing is ring order alone - the
+configuration section 3.2 records swapping 24 of 25 resumes. Each book exit re-armed
+stereo after 116 and 84 single ticks. The FIRST ring realignment of the run came at
+423.2 s and the next at 440.4 s, each within one present of `c5` returning, with
+`pair geom ... dot -1.000 (SWAPPED)` and a STALE L EYE at the same instants. The
+skew therefore lasted 7.3 s and 5.6 s after the two book exits.
+
+**What turned `c5` off is NOT established.** Dark vision was reported on at the
+second book exit, and the second zero stretch (431.7 to 441.1 s) fits it. The first
+stretch (391 to 423 s) began at a power use the log does not name, and the tester
+reports that the earlier rare after-note flicker (VR-80) happened with dark vision
+OFF. So dark vision is at most one of the things that stop the `c5` upload, and
+VR-80 is not shown to share this cause.
+
+**Hypothesis.** Whenever the game stops uploading `c5`, the only eye-order
+measurement is gone, so a skew created by any re-arm persists until `c5` returns.
+The hands follow the palette classifier's eye, not the ring, so they disagree with a
+swapped world image by a full IPD.
+
+**Counterprediction.** A book exit with `c5` present (the `stereo: frameid` lines
+show non-zero `c5`) realigns within a few presents of the DOUBLE, not seconds later.
+A pause and resume with `c5` at zero shows the same multi-second skew, because the
+re-arm, not the book, creates it. A book exit that skews for seconds with `c5`
+present falsifies this explanation.
+
+**Also seen, not investigated.** After the third LOADING (443.5 to 444.9 s), with
+`c5` back, `pushed eye +1 TWICE` climbed from 45 to 163 in ten seconds with a
+realignment every ~3 s. Before 423 s the run had none.
+
+**Not tested.** No book exit with `c5` present; the cause of the first zero stretch
+is unidentified; no fix written. Candidate direction only: a fallback pairing
+measurement for presents whose `c5` is unavailable, which must be marked as intent
+(the position the draw wrote), not as a measured camera.
+
+**Status.** Measured, open, filed as VR-97. **The next run falsified `c5` loss as
+the explanation for after-book flicker in general** (section 3.15): the same
+seconds-long skew happened with `c5` present. The zero-`c5` stretches remain a
+real, separate way to lose the correction.
+
+### 3.15 After a note closes, the passes' cameras come out inverted against their tags (VR-80, measured)
+
+**Symptom identity.** 10 to 15 s of flicker after closing a book the fourth time in
+a row, until the tester quit; the earlier three closes were reported clean or
+brief. Headset, both eyes. Routed from section 1's "Rare sustained both-eye flicker
+immediately after closing a note" (VR-80) row, and the counterprediction of 3.14.
+
+**Reproduction identity.** Build `vr33-hands-working-193-gd8a1e03c-dirty` built
+13:49:51, stability profile unchanged, `AttachKeepOnMenu=1`, `AttachKeepOnNote=1`,
+`UiKeepOnMenu=1`, `UiFlags=1`, no powers, `c5` never read zero. Log under
+`build/vr93-logs/launch4-*` (ignored).
+
+**Measured.** Four book closes, all retained with the first DOUBLE +14 to +41 ms.
+At the first stereo pair after the second close (2007.8 s) and the fourth
+(2018.4 s), `pair geom ... off-right 180.0 deg (dot -1.000; SWAPPED)`: the camera
+position rendered for the ring's -1 present sat on the RIGHT. After the fourth
+close, for 11 s: `pushed eye +1 TWICE` rose 2 -> 127, the c5 arm `took` 78 and
+`held` 37, realignments every ~3 s, runtime `L/s=74 R/s=85`, and a STALE L EYE
+window of 12. The game side was healthy throughout: `draws/s=82 2nd/s=82`,
+`p2write refused=0`, no stall or state skips. After the second close the stream
+recovered on its own (the TWICE count stayed at 1).
+
+**Reading.** With the passes' camera offsets inverted against the ring, a
+within-tick step reads +ipd, so the fragile arm defers to a wrong ring tag (a
+swapped image); a still cross-tick step reads -ipd, so the robust arm overrides a
+correct ring tag to +1 (the left eye starves). Realignment pops one tag and the
+next still moment breaks it again. That matches the rates: overrides only while
+near still, so ~11 a second rather than one per tick.
+
+**Not caused by VR-93.** Launch 3, where books still took the old drop path, shows
+the same climbing `pushed eye +1 TWICE` with `c5` present after a book-adjacent
+LOADING (445 to 455 s). VR-80 itself predates this work.
+
+**What decides it is not established.** The direct-fallback camera writer took the
+camera at books 2, 3 and 4 (`viewinject: script camera writes went stale`), not at
+book 1, and book 3 did not skew, so fallback ownership alone does not predict it.
+Book 4 is the only close where the DOUBLE flag never dropped during the book.
+
+**Counterprediction for the next step.** If the inversion lives in the camera
+writer, a per-present record of (ring tag, the eye the writer applied, `c5`) shows
+the writer's eye disagreeing with the tag from the first resumed pair. If instead
+the ring holds a stale tag across the book, the writer's eye matches `c5` and only
+the ring is off by one. Nothing changes until one of those is seen.
+
+**Status.** Measured, open, VR-80.
+Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 
 ## 8. Keeping this reference useful
 

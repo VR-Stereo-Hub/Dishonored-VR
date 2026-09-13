@@ -1096,6 +1096,10 @@ static void AutoHandStartTick()
 // the frame, drop every cached pointer and let the next collect rebuild.
 static void ApplyHandToMesh()
 {
+    // VR-93 FIRST: records a menu retained are validated before anything on
+    // this lane reads, rebuilds or writes through them. A no-op unless a menu
+    // asked for a validation.
+    MkScriptTick();
     if (AnimReleaseControls()) { BoneVisTick(); return; }
     AutoHandStartTick();
     // 38.30: ArmsHideTick MUST run above every early return. In 38.29 it sat

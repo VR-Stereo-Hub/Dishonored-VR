@@ -1790,6 +1790,20 @@ static void LoadConfig()
     // A stowed weapon's component is alive and keeps its contract, so a swap
     // back attaches on the first frame instead of re-identifying from scratch.
     g_waRetireDead = IniFloat(ini, "Hands", "AttachRetireDeadOnRefresh", 1) != 0.0f;
+    // VR-93: a menu over a live pawn suspends the contracts and the candidate
+    // list instead of dropping them; the resume validates every retained object
+    // against a freshly built live-object table (class and FName) before use.
+    // OFF is the old transition exactly. F10 Hands, live.
+    g_mkOn = IniFloat(ini, "Hands", "AttachKeepOnMenu", 0) != 0.0f;
+    Log("config: [Hands] AttachKeepOnMenu=%d - a menu over a live pawn %s.", g_mkOn ? 1 : 0,
+        g_mkOn ? "SUSPENDS the weapon contracts and candidates, validated on resume"
+               : "drops the weapon contracts and candidates, as before VR-93");
+    // The book/note screen reads LOADING, not MENU; this lets it suspend too, on
+    // the UI observer's open bit. Needs AttachKeepOnMenu=1 and [Menu] UiProbe=1.
+    g_mkNoteOn = IniFloat(ini, "Hands", "AttachKeepOnNote", 0) != 0.0f;
+    Log("config: [Hands] AttachKeepOnNote=%d - the book/note screen %s.", g_mkNoteOn ? 1 : 0,
+        g_mkNoteOn ? "suspends like a menu while the observer sees it open"
+                   : "drops the weapon records, as before");
     // VR-65: the pose trace's NEGATIVE CONTROL, and it runs itself. A few
     // seconds into a session it records a deliberately wrong head yaw for about
     // a second; the submission join must report exactly that error and must
@@ -1841,6 +1855,15 @@ static void LoadConfig()
     // the same reason the equipment reader does - a reporter nobody enables
     // reports nothing, and this one exists to be read out of a tester's log.
     g_uiOn = IniFloat(ini, "Menu", "UiProbe", 1) != 0.0f;
+    // VR-93 B2: a menu that kept the weapon records does not queue the observer
+    // rescan, which otherwise holds the resume ~500 ms. Needs AttachKeepOnMenu=1
+    // to have any effect. OFF queues it on every menu, as before.
+    g_uiKeepOnMenu = IniFloat(ini, "Menu", "UiKeepOnMenu", 0) != 0.0f;
+    // VR-93 research: report changes of the screen flags the script dump declares
+    // (GAMEPLAY_STATE.md section 9). Read-only, logs changes only.
+    g_ufOn = IniFloat(ini, "Menu", "UiFlags", 0) != 0.0f;
+    Log("config: [Menu] UiKeepOnMenu=%d - a kept menu %s the UI observer rescan.",
+        g_uiKeepOnMenu ? 1 : 0, g_uiKeepOnMenu ? "SKIPS" : "still queues");
     g_menuGhostByRate  = IniFloat(ini, "Menu", "GhostClearByRate", 0) != 0.0f;
     g_menuGhostQuietMs = IniFloat(ini, "Menu", "GhostQuietMs", 400.0f);
     if (g_menuGhostQuietMs < 50.0)   g_menuGhostQuietMs = 50.0;

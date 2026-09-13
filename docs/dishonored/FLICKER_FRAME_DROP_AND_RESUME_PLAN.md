@@ -388,3 +388,98 @@ measure the user's perceived one-second weapon relock with a drawn weapon.
 Next action remains the proposed B1 lifecycle implementation or the bounded A0
 world-event instrumentation, following the restart checklist above. There is no
 new evidence here that justifies changing lag, c5 arbitration, or mirror policy.
+
+## VR-93 implementation (started 2026-09-13, branch `claude/vr-93-menu-weapon-identity`)
+
+Status: DRAFT PLAN, written before code so the work is recoverable. Issue A
+(VR-94) is not started and stays parked until B lands or is parked.
+
+### New timing evidence (a later run, not the snapshots above)
+
+Installed `dishonored_vr.prev.log`, build `vr33-hands-working-185-gd71968e3-dirty`.
+One ordinary pause and resume with the sword drawn:
+
+| ms | Event |
+|---|---|
+| 11827062 | GAMEPLAY again (view live at once after a menu's silence) |
+| 11827062 -> 11827562 | `uistate: scan #2 ... in 499 ms` on the script lane; a 523 ms frame gap "waiting for the game thread"; SINGLE draws throughout |
+| 11827578 | candidate list rebuilt; DOUBLE after 137 single ticks |
+| 11827593 | `Wpn_PlySword01` accepted on the view model - re-adoption took **15 ms** |
+| 11827921 | hand-mesh calibration done (pivots, signs) - **+343 ms** after adoption |
+
+So the reported settle is two costs in series: about half a second of mono view
+while the observer rescan stalls the game thread (B2), then about a third of a
+second of relearning (B1). Adoption itself is not the slow part.
+
+### B1 design: suspend, then validate on resume
+
+- Lever `[Hands] AttachKeepOnMenu`, repo default 0 (today's behaviour exactly),
+  live in F10 Hands. Armed in the test install only.
+- Present lane, leaving GAMEPLAY: `SuBeginLoad` stays unconditional. If the lever
+  is on AND the destination is MENU AND the pawn is live, record the epoch (pawn
+  and controller pointer, class, FName) and SUSPEND instead of invalidating.
+  Every other destination takes today's path.
+- Present lane, while suspended: NO_PAWN, or a different pawn latched from the
+  event stream, hard-invalidates at once with the reason logged.
+- Present lane, back to GAMEPLAY while suspended: VALIDATE_PENDING (epoch++).
+  A benign LOADING between MENU and GAMEPLAY does not end the suspension.
+- Script lane, first tick in VALIDATE_PENDING, BEFORE the UI scan, the candidate
+  rebuild and the component snapshot: rebuild the live-object table, then require
+  pawn and controller unchanged (pointer, class, FName) and IsLiveObject; every
+  candidate and every contract component IsLiveObject with the class and FName
+  it had when collected. Any failure, or a refused table rebuild, invalidates
+  everything (fail safe to today). No snapshot is published until the verdict.
+- Retained identity is still not trusted per draw: every correction already
+  requires a component snapshot and a hand correction from THIS present and eye,
+  so nothing stale from before the menu can be consumed.
+- Equipment changed during the menu is caught by the existing equipment
+  revision check (retained, not reset to 0), which marks the list dirty.
+- `MpOnReset` stays a hard boundary and is untouched.
+- One bounded log line per resume: verdict and reason, retained counts, and
+  the time from GAMEPLAY to first DOUBLE, first fresh snapshot and first
+  corrected weapon draw.
+
+Residual risk, stated: a real load that recreates the pawn, controller and every
+component at the same addresses with the same classes and FNames would pass. The
+FName number of a spawned actor is expected to change on a respawn; that is NOT
+verified, and the negative-control launch below exists to test it.
+
+### B2 design (separate lever, separate launch)
+
+`[Menu] UiKeepOnMenu`, default 0. When on, a retained suspension does not queue
+the observer rescan; an invalidation still does. The production gameplay verdict
+is not touched.
+
+### Launch plan (one question each)
+
+1. B1 armed, B2 off. Pause with a weapon drawn, resume. Does the weapon flicker
+   after the view returns to stereo? Log must read RETAINED.
+2. B1 armed. Load a save from the pause menu. Log must read INVALIDATED with a
+   reason and weapons must still lock after the load. RETAINED here means the
+   discriminator failed: disarm and redesign.
+3. B2 armed. Pause and resume: is the half-second hold at resume gone?
+
+### Checkpoint
+
+- [x] Plan written
+- [x] B1 code (`hands/menu_keep.h`, `menu_keep.cpp`), `tools/menu-keep-host.ps1`
+  35 checks pass and two injected faults fail them; build
+  `vr33-hands-working-190-gf385bfce-dirty` installed, `AttachKeepOnMenu=1` armed,
+  ini diff is that one line, CRLF intact. Pre-install logs and ini in
+  `build/vr93-logs/` (ignored)
+- [x] Launch 1 read: four pauses RETAINED, 0 adoptions, no weapon flicker after
+  resume on the headset; the predicted ~530 ms rescan hold remains (FLICKER_REFERENCE 3.13)
+- [x] B1 committed `0ff00ebb` and pushed; measurements on the ticket
+- [x] Launch 2 read (build 191): the save load read INVALIDATED via the pawn
+  tripwire; the pawn's FName did NOT change on respawn, so `LoadGameClicked` was
+  added as a hard drop. The run ended in a pre-existing GC crash, filed as VR-96
+- [x] B2 code, launch 3 read (build 192): first DOUBLE +24-26 ms on kept resumes,
+  no rescan. Books read LOADING and are not covered. The book flicker was measured
+  as a separate issue: while `c5` reads zero (cause not identified; dark vision
+  at most one source) a re-arm's ring skew is not corrected (FLICKER_REFERENCE 3.14)
+- [x] Books: `[Hands] AttachKeepOnNote` (the observer's note-movie open bit lets a
+  LOADING-with-book suspend), 43 host checks; plus the read-only `[Menu] UiFlags`
+  reporter for the flags in GAMEPLAY_STATE section 9. Installed and armed, build 193
+  built 13:49. Launch 4: four books retained, DOUBLE +14-41 ms; the flicker after the
+  fourth close is VR-80 (FLICKER_REFERENCE 3.15), not this. m_bNoteVisible verified
+- [x] FLICKER_REFERENCE, STATUS, TRAPS updated in the same commits; PR opened for review

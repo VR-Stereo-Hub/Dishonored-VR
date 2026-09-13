@@ -5085,3 +5085,19 @@ file said 2 and the default was 200. At that bound every weapon is refused as no
 being on the view model, and the hands keep placing normally - so the symptom is
 "weapons stop tracking" with every nearby counter healthy.
 
+## Menus, loads and object identity (VR-93, 2026-09-13)
+
+**A save loaded from the pause menu replaces the player pawn and controller, and the
+new pawn keeps the old one's FName** (`10783_0` before and after, pawn 16ADB400 ->
+16C38C00, build 191). An FName is therefore no evidence that an actor survived a load.
+The signals that do fire: the event stream latches a different pawn pointer, and the
+UI event `OnLoadGameClicked` fires when the save browser opens (before any load).
+
+**A pause resumes through a benign LOADING.** `OnResumeGameClicked` reads LOADING for
+about 0.5 s until the view dispatches again, with the same pawn, controller and weapon
+components throughout; no NO_PAWN is read during a pause of a second or two.
+Mid-level LOADING periods of 0.75 to 10.6 s were also seen with the pawn and controller
+identity unchanged across them.
+
+**The UI observer rescan costs ~500 ms of game thread on every resume** (498 to 530 ms
+over eight scans) and found the same 48 movie-player instances each time.

@@ -77,6 +77,33 @@ struct UiInst {
 static bool     g_uiOn        = true;    // [Menu] UiProbe - ships ON, see above
 static bool     g_uiReady     = false;   // discovery has published; poll may read
 static bool     g_uiRescan    = true;    // a scan is wanted (set again per load)
+// VR-93 B2: a menu that KEPT the weapon records (hands/menu_keep) is the same
+// world, so it does not queue the rescan; a drop still does. Ships OFF.
+static bool     g_uiKeepOnMenu = false;  // [Menu] UiKeepOnMenu
+// VR-93: a note/book movie is open right now, as of the last poll. Observation
+// only - it lets a book SUSPEND the weapon records (hands/menu_keep), and it
+// never touches the gameplay verdict. False whenever the probe is off or has not
+// scanned, which leaves a book on the old drop path.
+static bool     g_uiNoteOpen   = false;
+
+// VR-93 research: named flags on the screens and on the player input that the
+// script dump DECLARES but nothing has read yet (docs/dishonored/GAMEPLAY_STATE.md
+// section 9). A reporter only: each is resolved by name once, and a change is
+// logged with the game state beside it. Nothing reads them as state until a run
+// shows them moving with the screen they are named for. [Menu] UiFlags, off.
+struct UiFlag {
+    const char* declCls;   // the class the dump declares it on
+    const char* prop;
+    const char* instLike;  // substring an instance's class name must contain; "@input" = the controller's PlayerInput
+    const char* notLike;   // substring it must NOT contain (the Tweaks twins), or NULL
+    bool     isBool;
+    bool     resolved;
+    uint32_t off, mask;
+    int      last[4];      // per matched instance, -1 = never read
+    LONG     changes;
+};
+static bool     g_ufOn         = false;   // [Menu] UiFlags
+static bool     g_ufResolved   = false;
 static int      g_uiScans     = 0;
 static int      g_uiGen       = 0;       // bumped per load, stamped on instances
 

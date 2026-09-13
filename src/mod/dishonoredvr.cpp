@@ -47,6 +47,7 @@
 #include "game/dishonored/hands/hand_frame.h"
 #include "game/dishonored/hands/weapon_frame.h"
 #include "game/dishonored/hands/hand_frame_test.h"
+#include "game/dishonored/hands/menu_keep.h"
 
 #include "mod/state/01_proxy_proxy_state.inc"
 #include "mod/state/02_legacy_vs_scan.inc"
@@ -197,6 +198,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 #include "game/dishonored/hands/fp_mesh.cpp"
+#include "game/dishonored/hands/menu_keep.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::graft
 #include "game/dishonored/hands/graft.cpp"

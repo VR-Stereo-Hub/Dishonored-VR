@@ -118,6 +118,8 @@ static void UiPeLatch(void* obj);
 static void UiTick(void);
 static void UiPoll(bool pawn, bool viewLive);
 static void UiNoteLoad(void);
+static void UiFlagsResolve(void);
+static void UiFlagsPoll(void);
 static bool UiCommand(const char* args);
 
 // VR-62: the startup scoreboard (startup.cpp). Read-only, present thread.
@@ -126,6 +128,10 @@ static void FpEnsureCandidates(const char* why);
 static void FpMarkDirty(const char* why);
 static void WaRetireContractsNotIn(const char* why);
 static void WaInvalidateContracts(const char* why);
+// VR-93: the menu lifecycle (hands/menu_keep.cpp).
+static void MkPresentTick(const char* state, bool pawnLive);
+static void MkScriptTick(void);
+static void MkReadIdentity(void* obj, dvr::menukeep::Identity* out);
 static void SuBeginLoad(void);
 static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict);
 static bool SuCommand(const char* args);
