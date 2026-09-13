@@ -70,6 +70,7 @@ volatile LONG g_ledgerArmReq = 0;
 const char*   g_ledgerArmWhy = "";
 volatile LONG g_ledgerStance = 0;   // 0 unknown, 1 standing, 2 crouched (set by the game side)
 uint32_t g_endFrames = 0, g_exitPoisoned = 0, g_exitDevices = 0, g_exitBlit = 0;
+uint32_t g_lateRelabeled = 0, g_lateRelabelRefused = 0;   // F-late: capture slots relabelled / refused
 enum LedgerOut : uint8_t { OUT_OK = 0, OUT_MONO, OUT_HOLD, OUT_NOSRC, OUT_TARGET };
 const char* kLedgerOut[] = {"stereo", "mono", "HOLD", "NOSRC", "TARGET"};
 struct LedgerRec {
@@ -182,7 +183,7 @@ void ledger_reconcile() {
     static double next = 0.0;
     static uint32_t a0 = 0, rj0 = 0, n0 = 0, rp0 = 0, cl0 = 0, lc0 = 0, em0 = 0, ef0 = 0, fr0 = 0, xp0 = 0, xd0 = 0, xb0 = 0;
     static LONG head0 = 0, tail0 = 0;
-    static uint32_t lo0 = 0, lr0 = 0, le0 = 0;
+    static uint32_t lo0 = 0, lr0 = 0, le0 = 0, rl0 = 0, rr0 = 0;
     const double now = pair_now_ms();
     if (now < next) return;
     const LONG tail = g_ringTail;
@@ -199,20 +200,21 @@ void ledger_reconcile() {
         DVR_INFO("ledger/reconcile: 10 s | presents %u, end_frame %u (pre-pop exits: poisoned %u devices %u blit %u) | "
                  "pushes accepted %u rejected %u (last rejected D%u) | removed: normal %u repair %u clear %u lifecycle %u; "
                  "empty pops %u | tail moved %ld vs removals %ld (%s) | head moved %ld vs accepted %ld (%s) | depth now %ld | "
-                 "late tags ([Stereo] LateTagRepair %s): owed %u repaired %u expired %u",
+                 "late tags ([Stereo] LateTagRepair %s): owed %u repaired %u expired %u, slot relabelled %u refused %u",
                  frames - fr0, g_endFrames - ef0, g_exitPoisoned - xp0, g_exitDevices - xd0, g_exitBlit - xb0,
                  (unsigned)pushed, g_pushRejected - rj0, g_lastRejectedDraw, g_popNormal - n0, g_popRepair - rp0,
                  g_popClearRemoved - cl0, g_lifecycleRemoved - lc0, g_popEmpty - em0,
                  tailMoved, removed, tailOk ? "reconciles" : "DOES NOT RECONCILE - a removal path is uncounted",
                  headMoved, pushed, headGap == 0 ? "reconciles" : (headGap == 1 || headGap == -1) ? "one push in flight"
                                                               : "DOES NOT RECONCILE - an insertion path is uncounted",
-                 (long)(head - tail), g_lateTagRepair ? "on" : "off", g_lateOwed - lo0, g_lateRepaired - lr0, g_lateExpired - le0);
+                 (long)(head - tail), g_lateTagRepair ? "on" : "off", g_lateOwed - lo0, g_lateRepaired - lr0, g_lateExpired - le0,
+                 g_lateRelabeled - rl0, g_lateRelabelRefused - rr0);
     }
     next = now + 10000.0;
     a0 = acc; rj0 = g_pushRejected; n0 = g_popNormal; rp0 = g_popRepair; cl0 = g_popClearRemoved;
     lc0 = g_lifecycleRemoved; em0 = g_popEmpty; ef0 = g_endFrames; fr0 = frames;
     xp0 = g_exitPoisoned; xd0 = g_exitDevices; xb0 = g_exitBlit; head0 = head; tail0 = tail;
-    lo0 = g_lateOwed; lr0 = g_lateRepaired; le0 = g_lateExpired;
+    lo0 = g_lateOwed; lr0 = g_lateRepaired; le0 = g_lateExpired; rl0 = g_lateRelabeled; rr0 = g_lateRelabelRefused;
 }
 
 class SequentialReentry : public IStereo {
@@ -343,6 +345,18 @@ public:
         float along = 0.0f, other = 0.0f;
         ArbTrace arbTrace;
         bool tagged = pop_and_arbitrate(arb_, view, t, ringEye, inv, along, other, &arbTrace);
+        if (arbTrace.action & ACT_LATE) {
+            // F-late: the removed tag was the previous present's image, still waiting in the capture
+            // slot untagged; label it so it reaches its eye instead of being held.
+            if (dvr::capture::relabel_last_grab(arbTrace.lateEye, arbTrace.lateRec)) ++g_lateRelabeled;
+            else {
+                ++g_lateRelabelRefused;
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                                 "reentry: late tag repaired but the capture slot could not be relabelled (mode %s: "
+                                 "only shared with SharedWait=0 or deferred still hold it; refused %u, relabelled %u) - "
+                                 "that image goes out held", dvr::capture::mode_name(), g_lateRelabelRefused, g_lateRelabeled);
+            }
+        }
         LedgerRec lr;   // VR-80: filled only while the ledger is on, committed at every return below
         if (led) {
             lr.frame = dvr::frame::count();

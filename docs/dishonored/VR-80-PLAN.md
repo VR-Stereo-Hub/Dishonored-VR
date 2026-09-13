@@ -411,3 +411,28 @@ covers). All 72 earlier schedules are no worse with the lever on, and all reconc
 The lever is `[Stereo] LateTagRepair` (default 0), `reentry latetag on|off`, and an F10 Display
 checkbox; the ledger prints `OWE` and `LATE-REPAIR` and the 10 s reconcile line counts owed,
 repaired and expired. Step 4 (the headset question) is next.
+
+### 2026-09-13, checkpoint 4 (headset run 6: F-late fires; the late image is held out of the left eye)
+
+**Run.** Build `vr33-hands-working-207-g27f5b714-dirty` (the F-late code of `0641c48a`),
+`[Stereo] LateTagRepair=1`, `RingLedger=1`, profile unchanged. Several crouched note closes. Log saved
+locally under `build/vr93-logs/vr80-run6-161352/`. Reported: still flickering while crouched, but
+episodes sometimes end on their own and come less often, and the flicker is now in the LEFT eye
+only, jumping left.
+
+**Measured.** Every reconcile window held. In the last episode window (10 s): 44 empty pops, 44 owed,
+41 late tags repaired, 3 expired; 2 TOOKs in the printed windows against dozens in run 5. The
+repaired cycle: `EMPTY REFUSE OWE` (a left image) then `LATE-REPAIR` with the right eye correct, but
+that second present's output is `HOLD` with delivered 0. Cause: the shared capture delivers the
+previous present's slot (`SharedWait=0`), and that slot holds the owed LEFT image with tag 0, so
+the hold keeps it out of the left eye and the next push is +1 again (`pushed eye +1 TWICE`). The
+left eye misses one image per cycle, which fits a left-eye-only flicker.
+
+**Change (F-late part 2, same lever).** On a late-tag repair, `capture::relabel_last_grab` gives
+the waiting slot the removed tag's eye and record. It only acts on an untagged slot from the latest
+grab in a pipelined mode (shared with `SharedWait=0`, or deferred); sync and `SharedWait=1` refuse
+and say so. The host model now simulates the pipelined delivery: lever off, every late event holds
+an image out of its eye; lever on with the relabel, no image is held or goes to the wrong eye (248
+checks). The reconcile line counts relabelled and refused slots.
+
+**Headset question.** Same as run 6: with both parts, does a crouched note close still flicker?

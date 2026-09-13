@@ -146,6 +146,8 @@ struct ArbTrace {
     uint32_t removed[6] = {0, 0, 0, 0, 0, 0};
     int      removedN = 0;            // repair removals (can exceed the six recorded)
     int      drainStop = 0;           // 1 next is the other eye, 2 empty, 3 a pop failed or cleared, 4 a late-tag repair
+    int      lateEye = 0;             // F-late: the removed late tag's eye and record (the previous present's image)
+    uint32_t lateRec = 0;
 };
 
 // The arbitration's memory: the previous present's c5 and the disagreement streak.
@@ -206,7 +208,7 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
             if (pop_tag(late, nullptr, POP_REPAIR)) {
                 ++g_lateRepaired;
                 if (tr) {
-                    tr->action |= ACT_LATE; tr->drainStop = 4;
+                    tr->action |= ACT_LATE; tr->drainStop = 4; tr->lateEye = late.eye; tr->lateRec = late.rec;
                     if (tr->removedN < 6) tr->removed[tr->removedN] = late.draw;
                     ++tr->removedN;
                 }

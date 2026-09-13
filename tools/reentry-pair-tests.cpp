@@ -62,6 +62,7 @@ struct Result {
     int firstWrong = -1, lastWrong = -1, realigns = 0, took = 0, held = 0, wrongLate = 0;
     bool sustained = false;   // still wrong in the last 10% of presents
     int lateEvents = 0, lateRepaired = 0;
+    int delivWrong = 0, delivHeld = 0;   // the pipelined capture (SharedWait=0): each present delivers the previous one's pixels and tag
     std::vector<std::string> firstCycle;   // per present from the first late event: pop, action, out vs truth
     bool reconciles = true;   // the ledger's accounting: tail moved == removals, head moved == accepted pushes
 };
@@ -82,6 +83,7 @@ static Result run(const Scenario& s) {
     Result r;
     const int draws = s.ticks * 2;
     int pushedDraws = 0;   // tags pushed so far (draw index of the next push)
+    int slotTag = 0, slotTrue = 0; bool slotValid = false;   // the grabbed, not yet delivered slot
     auto push_through = [&](int drawInclusive) {
         while (pushedDraws <= drawInclusive && pushedDraws < draws) {
             const int tick = pushedDraws / 2;
@@ -137,6 +139,13 @@ static Result run(const Scenario& s) {
         if (emptyBefore) ++r.emptyPops;
         r.realigns += (int)(g_c5Realigned - realignBefore);
         const int eye = tagged ? t.eye : 0;
+        // the shipped reentry.cpp relabels the waiting slot on a late-tag repair (capture::relabel_last_grab)
+        if ((tr.action & ACT_LATE) && slotValid && slotTag == 0) slotTag = tr.lateEye;
+        if (slotValid && r.presents > 4) {
+            if (slotTag == 0 && slotTrue != 0) ++r.delivHeld;
+            else if (slotTag != 0 && slotTag != slotTrue) ++r.delivWrong;
+        }
+        slotTag = eye; slotTrue = trueEye; slotValid = true;
         ++r.presents;
         const int idx = r.presents - 1;
         bool wrong = false;
@@ -232,6 +241,9 @@ int main() {
             check(a.wrongEye >= a.lateEvents - 1 && a.realigns >= a.lateEvents - 1, "lever off: every late tag costs a wrong eye and a drain");
             check(b.wrongEye == 0 && b.realigns == 0, "F-late on: no wrong eye and no drain on the late-tag schedule");
             check(b.lateRepaired >= b.lateEvents - 1, "F-late on: every late event was repaired");
+            printf("  pipelined delivery: lever off held %d wrong %d | lever on held %d wrong %d\n", a.delivHeld, a.delivWrong, b.delivHeld, b.delivWrong);
+            check(a.delivHeld >= a.lateEvents - 1, "lever off: every late tag's image is held out of its eye at delivery");
+            check(b.delivHeld == 0 && b.delivWrong == 0, "F-late on with the slot relabel: every image reaches its own eye, none held");
             check(a.reconciles && b.reconciles, "run 5 schedules reconcile");
         }
 

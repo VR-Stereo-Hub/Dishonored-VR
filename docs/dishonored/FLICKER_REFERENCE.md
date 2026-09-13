@@ -1249,6 +1249,22 @@ is corrected below. A realign feedback loop remains a hypothesis, not a measured
 6. **Status and remaining scope:** candidate, armed in the tester's ini for one headset
    question. It treats the onset's effect, not the margin collapse behind it.
 
+**2026-09-13 headset run 6: F-late fires, a held left image remains (plan checkpoint 4).**
+
+1. **Symptom identity:** still a crouched note-exit flicker, reported less frequent, sometimes
+   ending on its own, and now LEFT eye only, jumping left.
+2. **Reproduction identity:** build `207-g27f5b714-dirty` (F-late of `0641c48a`),
+   `LateTagRepair=1`, `RingLedger=1`, profile unchanged.
+3. **Hypothesis and counterprediction:** F-late removes the whole cycle. It fails if TOOK
+   cycles remain or another eye fault appears.
+4. **Change identity:** none during the run.
+5. **Results:** 41 of 44 late tags repaired in the last 10 s; TOOK cycles nearly gone. The
+   repaired present goes out `HOLD`: under `SharedWait=0` it delivers the previous slot, the
+   untagged LEFT image, so the left eye misses one image per cycle (`pushed eye +1 TWICE`).
+6. **Status and remaining scope:** part 2 built: the repair relabels the waiting capture slot
+   with the late tag's eye and record (pipelined modes only). Host model with delivery: no
+   held or wrong-eye image. Awaiting the headset. The margin collapse remains unexplained.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

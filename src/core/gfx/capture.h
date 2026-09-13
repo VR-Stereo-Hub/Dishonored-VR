@@ -106,6 +106,9 @@ int      delivered_tag();
 // those differ by a present, which is exactly the gap that makes choosing a
 // pose by timing at submission unsafe. 0 means no record travelled with it.
 void     set_pending_rec(uint32_t rec);
+// VR-80 F-late: give the latest grab's still-undelivered, untagged slot the eye (and record) a
+// late tag proved it had. False when the mode has already delivered it or the slot is tagged.
+bool     relabel_last_grab(int eyeSign, uint32_t rec);
 uint32_t delivered_rec();
 uint32_t delivered_serial();
 uint32_t serial();
