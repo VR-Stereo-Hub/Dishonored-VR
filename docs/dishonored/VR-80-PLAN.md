@@ -400,3 +400,14 @@ tells a tick apart when the camera moves).
    flicker? The ledger shows whether the late-tag repair fired and whether any TOOK cycles remain.
 5. Separately and later: why the margin collapses (a phase measurement of push time against the
    presenting thread's frame period, and a moving-camera check for a tick skew).
+
+**Steps 1-3 done (same day).** The host model's run 5 schedule (tags pushed just before their own
+presents, pass 1's tag late every 40 or 17 ticks, still and walking) reproduces the ledger's
+cycle present for present with the lever off: `EMPTY REFUSE`, `TOOK`, the left image to the right
+eye, `TOOK` plus a one-tag drain, then agreement. Every late event costs one wrong eye, one drain,
+two TOOKs and three wrong records. With F-late on: zero wrong eyes, zero drains, zero wrong
+records; the refused present itself remains (an untagged present, the one `[Stereo] HoldUntagged`
+covers). All 72 earlier schedules are no worse with the lever on, and all reconcile (240 checks).
+The lever is `[Stereo] LateTagRepair` (default 0), `reentry latetag on|off`, and an F10 Display
+checkbox; the ledger prints `OWE` and `LATE-REPAIR` and the 10 s reconcile line counts owed,
+repaired and expired. Step 4 (the headset question) is next.

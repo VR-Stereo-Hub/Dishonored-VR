@@ -49,6 +49,17 @@ int      g_lastPushedEye = 0;
 // VR-80 ledger accounting: every tag that enters or leaves the ring, by how.
 uint32_t g_pushAccepted = 0, g_pushRejected = 0, g_lastRejectedDraw = 0;
 uint32_t g_popNormal = 0, g_popRepair = 0, g_popClearRemoved = 0, g_popClears = 0, g_popEmpty = 0, g_lifecycleRemoved = 0;
+// VR-80 candidate F-late ([Stereo] LateTagRepair, default off; `reentry latetag on|off`).
+// Measured in headset run 5: a present can show a draw's image a moment BEFORE that draw's
+// tag reaches the ring. The pop is empty, the tag lands a few ms later, and every later pop
+// is one tag behind the images until the three-disagreement drain catches up - one present
+// with the left image in the right eye per episode cycle. With the lever on, an empty pop in
+// a tagged stream whose c5 names an eye OWES that eye one tag; the next present removes the
+// front tag as a repair only if its own c5 names the opposite eye and the front tag is the
+// owed eye. Needing the next present's c5 to confirm is what keeps the fragile cross-tick
+// arm from triggering it alone on a moving player.
+bool     g_lateTagRepair = false;
+uint32_t g_lateOwed = 0, g_lateRepaired = 0, g_lateExpired = 0;
 
 double pair_now_ms() {
     static LARGE_INTEGER f = {};
@@ -122,7 +133,8 @@ bool peek_tag_full(Tag& out) {
 
 // VR-80: what one present's pop and arbitration DID, filled on every call (cheap) so the
 // ledger can print it. It records; it decides nothing.
-enum ArbAction { ACT_AGREE = 1, ACT_TOOK = 2, ACT_HELD = 4, ACT_REALIGN = 8, ACT_INVENT = 16, ACT_REFUSE = 32, ACT_UNKNOWN = 64 };
+enum ArbAction { ACT_AGREE = 1, ACT_TOOK = 2, ACT_HELD = 4, ACT_REALIGN = 8, ACT_INVENT = 16, ACT_REFUSE = 32, ACT_UNKNOWN = 64,
+                 ACT_LATE = 128, ACT_OWE = 256 };
 enum PopResult { POPR_EMPTY = 0, POPR_TAG = 1, POPR_CLEAR = 2 };
 struct ArbTrace {
     int      popResult = POPR_EMPTY;
@@ -133,7 +145,7 @@ struct ArbTrace {
     int      action = 0;
     uint32_t removed[6] = {0, 0, 0, 0, 0, 0};
     int      removedN = 0;            // repair removals (can exceed the six recorded)
-    int      drainStop = 0;           // 1 next is the other eye, 2 empty, 3 a pop failed or cleared
+    int      drainStop = 0;           // 1 next is the other eye, 2 empty, 3 a pop failed or cleared, 4 a late-tag repair
 };
 
 // The arbitration's memory: the previous present's c5 and the disagreement streak.
@@ -141,6 +153,8 @@ struct ArbState {
     float    prevC5[3] = {0.0f, 0.0f, 0.0f};
     bool     prevC5Ok = false;
     uint32_t c5Streak = 0;
+    int      owedEye = 0;         // F-late: the eye an empty pop's image showed without a tag (0 = none owed)
+    bool     inStream = false;    // F-late: the previous present popped a tag, or owed one
 };
 
 // What the arbitration reads about THIS present.
@@ -166,14 +180,9 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
         if (tr->headBefore != tr->tailBefore) tr->newestDraw = g_ring[(tr->headBefore - 1) & (kRing - 1)].draw;
         tr->streakBefore = st.c5Streak;
     }
-    bool tagged = pop_tag(t, haveC5 ? c5now : nullptr);
-    if (tr) {
-        tr->popResult = tagged ? POPR_TAG : (g_popClears != clearsBefore ? POPR_CLEAR : POPR_EMPTY);
-        tr->clearRemoved = g_popClearRemoved - clearedBefore;
-    }
-    ringEye = tagged ? t.eye : 0;   // VR-78: before the pairing may override it
     // The within-tick invariant (see g_c5Pair): what this present's c5
-    // says about its pass, before the ring's claim is read.
+    // says about its pass, before the ring's claim is read. (Computed before the pop
+    // since VR-80's F-late reads it there; it depends on c5 alone, so the order is free.)
     inv = 0;
     along = 0.0f; other = 0.0f;
     {
@@ -189,6 +198,43 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
         }
         if (haveC5) { memcpy(st.prevC5, c5now, sizeof(st.prevC5)); st.prevC5Ok = true; }
     }
+    // F-late: settle a tag owed by the previous present before this one pops.
+    if (st.owedEye != 0) {
+        Tag front;
+        if (g_lateTagRepair && g_c5Pair && inv == -st.owedEye && peek_tag_full(front) && front.eye == st.owedEye) {
+            Tag late;
+            if (pop_tag(late, nullptr, POP_REPAIR)) {
+                ++g_lateRepaired;
+                if (tr) {
+                    tr->action |= ACT_LATE; tr->drainStop = 4;
+                    if (tr->removedN < 6) tr->removed[tr->removedN] = late.draw;
+                    ++tr->removedN;
+                }
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                                 "reentry: late tag - the previous present showed a %s image before its tag arrived; "
+                                 "that tag was removed as a repair so this present pops its own (repaired %u, owed %u, "
+                                 "expired %u) [Stereo] LateTagRepair",
+                                 st.owedEye < 0 ? "LEFT" : "RIGHT", g_lateRepaired, g_lateOwed, g_lateExpired);
+            }
+        } else {
+            ++g_lateExpired;   // not confirmed by this present's c5, or the front tag is not the owed eye
+        }
+        st.owedEye = 0;
+    }
+    bool tagged = pop_tag(t, haveC5 ? c5now : nullptr);
+    const bool popped = tagged;
+    if (tr) {
+        tr->popResult = tagged ? POPR_TAG : (g_popClears != clearsBefore ? POPR_CLEAR : POPR_EMPTY);
+        tr->clearRemoved = g_popClearRemoved - clearedBefore;
+    }
+    ringEye = tagged ? t.eye : 0;   // VR-78: before the pairing may override it
+    // F-late: an empty pop (not a depth clear) in a tagged stream whose c5 names an eye owes it.
+    if (g_lateTagRepair && g_c5Pair && !popped && inv != 0 && st.inStream && g_popClears == clearsBefore) {
+        st.owedEye = inv;
+        ++g_lateOwed;
+        if (tr) tr->action |= ACT_OWE;
+    }
+    st.inStream = popped || st.owedEye != 0;
     // The measurement is the pairing; the ring's order is the fallback for
     // the presents the invariant cannot name (a pass 1 after a moving
     // pass 2) and is kept aligned by the measurement (measured on the

@@ -114,12 +114,14 @@ void ledger_print(const LedgerRec& r) {
     if (r.tr.action & ACT_INVENT)  a += _snprintf(act + a, sizeof(act) - a, " INVENT");
     if (r.tr.action & ACT_REFUSE)  a += _snprintf(act + a, sizeof(act) - a, " REFUSE");
     if (r.tr.action & ACT_UNKNOWN) a += _snprintf(act + a, sizeof(act) - a, " unknown");
+    if (r.tr.action & ACT_OWE)     a += _snprintf(act + a, sizeof(act) - a, " OWE");
+    if (r.tr.action & ACT_LATE)    a += _snprintf(act + a, sizeof(act) - a, " LATE-REPAIR");
     if (!act[0]) _snprintf(act, sizeof(act), " -");
     int k = 0; rem[0] = 0;
     if (r.tr.removedN) {
         k += _snprintf(rem, sizeof(rem), " removed %d [", r.tr.removedN);
         for (int i = 0; i < r.tr.removedN && i < 6; ++i) k += _snprintf(rem + k, sizeof(rem) - k, "%sD%u", i ? " " : "", r.tr.removed[i]);
-        _snprintf(rem + k, sizeof(rem) - k, "] stop %s", r.tr.drainStop == 1 ? "next-other-eye" : r.tr.drainStop == 2 ? "empty" : r.tr.drainStop == 3 ? "pop-failed" : "?");
+        _snprintf(rem + k, sizeof(rem) - k, "] stop %s", r.tr.drainStop == 1 ? "next-other-eye" : r.tr.drainStop == 2 ? "empty" : r.tr.drainStop == 3 ? "pop-failed" : r.tr.drainStop == 4 ? "late-tag" : "?");
     } else if (r.tr.action & ACT_REALIGN) {
         _snprintf(rem, sizeof(rem), " removed 0 stop %s", r.tr.drainStop == 1 ? "next-other-eye" : r.tr.drainStop == 2 ? "empty" : "?");
     }
@@ -157,11 +159,11 @@ void ledger_commit(LedgerRec& r) {
             if (id > g_ledLastPrinted) ledger_print(g_led[(id - 1) % kLedN]);
         g_ledLeft = kLedAfterArm;
     }
-    const bool event = (r.tr.action & (ACT_TOOK | ACT_HELD | ACT_REALIGN | ACT_INVENT | ACT_REFUSE)) != 0 ||
+    const bool event = (r.tr.action & (ACT_TOOK | ACT_HELD | ACT_REALIGN | ACT_INVENT | ACT_REFUSE | ACT_LATE)) != 0 ||
                        (r.tr.popResult != POPR_TAG && g_ledPrevTagged);
     if (event && g_ledLeft == 0 && now >= g_ledNextEventMs && g_ledDumps < kLedMaxDumps) {
         g_ledNextEventMs = now + kLedEventGapMs;
-        ledger_open(r.tr.action & ACT_REALIGN ? "a drain" : r.tr.action & (ACT_TOOK | ACT_HELD) ? "an override"
+        ledger_open(r.tr.action & ACT_LATE ? "a late-tag repair" : r.tr.action & ACT_REALIGN ? "a drain" : r.tr.action & (ACT_TOOK | ACT_HELD) ? "an override"
                     : r.tr.popResult == POPR_CLEAR ? "a depth clear" : r.tr.popResult == POPR_EMPTY ? "an empty pop in a tagged stream"
                     : "an invented or refused eye");
         for (uint32_t id = (r.id > (uint32_t)kLedBack ? r.id - kLedBack : 1); id < r.id; ++id)
@@ -180,6 +182,7 @@ void ledger_reconcile() {
     static double next = 0.0;
     static uint32_t a0 = 0, rj0 = 0, n0 = 0, rp0 = 0, cl0 = 0, lc0 = 0, em0 = 0, ef0 = 0, fr0 = 0, xp0 = 0, xd0 = 0, xb0 = 0;
     static LONG head0 = 0, tail0 = 0;
+    static uint32_t lo0 = 0, lr0 = 0, le0 = 0;
     const double now = pair_now_ms();
     if (now < next) return;
     const LONG tail = g_ringTail;
@@ -195,19 +198,21 @@ void ledger_reconcile() {
         const long headGap = headMoved - pushed;
         DVR_INFO("ledger/reconcile: 10 s | presents %u, end_frame %u (pre-pop exits: poisoned %u devices %u blit %u) | "
                  "pushes accepted %u rejected %u (last rejected D%u) | removed: normal %u repair %u clear %u lifecycle %u; "
-                 "empty pops %u | tail moved %ld vs removals %ld (%s) | head moved %ld vs accepted %ld (%s) | depth now %ld",
+                 "empty pops %u | tail moved %ld vs removals %ld (%s) | head moved %ld vs accepted %ld (%s) | depth now %ld | "
+                 "late tags ([Stereo] LateTagRepair %s): owed %u repaired %u expired %u",
                  frames - fr0, g_endFrames - ef0, g_exitPoisoned - xp0, g_exitDevices - xd0, g_exitBlit - xb0,
                  (unsigned)pushed, g_pushRejected - rj0, g_lastRejectedDraw, g_popNormal - n0, g_popRepair - rp0,
                  g_popClearRemoved - cl0, g_lifecycleRemoved - lc0, g_popEmpty - em0,
                  tailMoved, removed, tailOk ? "reconciles" : "DOES NOT RECONCILE - a removal path is uncounted",
                  headMoved, pushed, headGap == 0 ? "reconciles" : (headGap == 1 || headGap == -1) ? "one push in flight"
                                                               : "DOES NOT RECONCILE - an insertion path is uncounted",
-                 (long)(head - tail));
+                 (long)(head - tail), g_lateTagRepair ? "on" : "off", g_lateOwed - lo0, g_lateRepaired - lr0, g_lateExpired - le0);
     }
     next = now + 10000.0;
     a0 = acc; rj0 = g_pushRejected; n0 = g_popNormal; rp0 = g_popRepair; cl0 = g_popClearRemoved;
     lc0 = g_lifecycleRemoved; em0 = g_popEmpty; ef0 = g_endFrames; fr0 = frames;
     xp0 = g_exitPoisoned; xd0 = g_exitDevices; xb0 = g_exitBlit; head0 = head; tail0 = tail;
+    lo0 = g_lateOwed; lr0 = g_lateRepaired; le0 = g_lateExpired;
 }
 
 class SequentialReentry : public IStereo {
@@ -567,6 +572,8 @@ public:
         w.kv("ringDropped", (unsigned long)g_ringDropped);
         w.kv("ringCleared", (unsigned long)g_ringCleared);
         w.kv("c5Pair", g_c5Pair);
+        w.kv("lateTagRepair", g_lateTagRepair);
+        w.kv("lateRepaired", (unsigned long)g_lateRepaired);
         w.kv("c5Agree", (unsigned long)g_c5Agree);
         w.kv("c5Disagree", (unsigned long)g_c5Disagree);
         w.kv("c5Realigned", (unsigned long)g_c5Realigned);
@@ -658,6 +665,18 @@ void set_reentry_c5_pair(bool on) {
              on ? 1 : 0);
 }
 bool reentry_c5_pair() { return g_c5Pair; }
+
+// VR-80 candidate F-late (reentry_pair.inc), default off.
+void set_reentry_late_tag(bool on) {
+    if (on == g_lateTagRepair) return;
+    g_lateTagRepair = on;
+    DVR_INFO("reentry: late-tag repair %s - %s ([Stereo] LateTagRepair=%d)", on ? "ON" : "off",
+             on ? "an empty pop whose image the c5 step names owes that eye one tag; the next present removes it when its own "
+                  "c5 confirms the other eye, instead of three presents of disagreement and a drain"
+                : "an empty pop is refused and a late tag is left to the disagreement streak (the shipped behaviour)",
+             on ? 1 : 0);
+}
+bool reentry_late_tag() { return g_lateTagRepair; }
 
 void reentry_push_tag(int eyeSign, const float pos[3]) { reentry_push_tag_acct(eyeSign, pos, 0, 0); }
 

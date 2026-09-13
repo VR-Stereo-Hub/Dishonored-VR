@@ -745,6 +745,12 @@ static bool SceneDrawCommand(const char* args)
             "REFUSED` (strict on)", k);
         return true;
     }
+    if (n >= 1 && !strcmp(sub, "latetag")) {   // VR-80 candidate F-late's live A/B
+        bool on;
+        if (DvrOnOff(a1, &on)) { dvr::stereo::set_reentry_late_tag(on); return true; }
+        Log("reentry: latetag on|off (now %s)", dvr::stereo::reentry_late_tag() ? "on" : "off");
+        return true;
+    }
     if (n >= 1 && !strcmp(sub, "c5pair")) {   // 41.1 (session 9): the within-tick invariant's A/B
         bool on;
         if (DvrOnOff(a1, &on)) { dvr::stereo::set_reentry_c5_pair(on); return true; }

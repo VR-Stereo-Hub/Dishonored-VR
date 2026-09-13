@@ -725,6 +725,11 @@ static void OverlayFrame()
                 dvr::stereo::set_reentry_c5_pair(c5);
                 ConfigWriteKey("Stereo", "C5Pair", c5 ? "1" : "0", "F10 Display");
             }
+            bool lateTag = dvr::stereo::reentry_late_tag();
+            if (ImGui::Checkbox("late-tag repair (VR-80 candidate, off = shipped)", &lateTag)) {
+                dvr::stereo::set_reentry_late_tag(lateTag);
+                ConfigWriteKey("Stereo", "LateTagRepair", lateTag ? "1" : "0", "F10 Display");
+            }
             bool fid = dvr::frameid::enabled();
             if (ImGui::Checkbox("frame-identity trace (one pair every 8 ticks; off = no cost at all)", &fid)) {
                 dvr::frameid::set_enabled(fid);

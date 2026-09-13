@@ -1233,6 +1233,22 @@ is corrected below. A realign feedback loop remains a hypothesis, not a measured
    collapse (and why a pause restores it) is not. Next: host-model the late push, then a
    default-off late-tag repair lever and one headset A/B. See VR-80-PLAN checkpoint 3.
 
+**2026-09-13 candidate F-late, host-verified (not yet headset-tested).**
+
+1. **Symptom identity:** the run 5 cycle above.
+2. **Reproduction identity:** host model only (`tools/reentry-pair-host.ps1`, 240 checks),
+   compiling the shipped `reentry_pair.inc`.
+3. **Hypothesis and counterprediction:** removing the late tag at the next present, when
+   that present's c5 confirms the other eye, removes the wrong eye and the drain. It fails
+   if any earlier schedule gets worse or the late schedule still shows a wrong eye.
+4. **Change identity:** `[Stereo] LateTagRepair` (default 0), `reentry latetag on|off`,
+   F10 Display checkbox; ledger `OWE` / `LATE-REPAIR`.
+5. **Results:** with the lever off the model reproduces run 5's cycle present for present.
+   On: no wrong eye, drain or wrong record on the late schedules (still and walking); the
+   refused present remains, left to `HoldUntagged`. All 72 earlier schedules are no worse.
+6. **Status and remaining scope:** candidate, armed in the tester's ini for one headset
+   question. It treats the onset's effect, not the margin collapse behind it.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

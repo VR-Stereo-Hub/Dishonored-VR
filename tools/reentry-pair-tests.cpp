@@ -38,6 +38,7 @@ static void reset_model() {
     g_lastPushedEye = 0;
     g_pushAccepted = g_pushRejected = g_lastRejectedDraw = 0;
     g_popNormal = g_popRepair = g_popClearRemoved = g_popClears = g_popEmpty = g_lifecycleRemoved = 0;
+    g_lateOwed = g_lateRepaired = g_lateExpired = 0;
 }
 
 enum Fault { F_NONE, F_REPEAT_PRESENT, F_DROP_PRESENT, F_DROP_PUSH, F_ZERO_TICK };
@@ -51,12 +52,17 @@ struct Scenario {
     int   ticks = 600;
     int   dipPct = 0;       // per tick: chance (percent) the game thread's lead drops by one (it stalled)
     int   risePct = 0;      // per tick: chance the lead rises by one (the render thread stalled)
+    bool  exact = false;    // VR-80 run 5: zero lead at DRAW granularity - each tag is pushed just before its own present
+    int   lateEvery = 0;    // every N ticks, pass 1's tag is pushed AFTER its present (run 5's onset); 0 = never
+    bool  lateRepair = false;   // candidate F-late on
 };
 
 struct Result {
     int presents = 0, wrongEye = 0, wrongRecord = 0, emptyPops = 0, untaggedOut = 0;
     int firstWrong = -1, lastWrong = -1, realigns = 0, took = 0, held = 0, wrongLate = 0;
     bool sustained = false;   // still wrong in the last 10% of presents
+    int lateEvents = 0, lateRepaired = 0;
+    std::vector<std::string> firstCycle;   // per present from the first late event: pop, action, out vs truth
     bool reconciles = true;   // the ledger's accounting: tail moved == removals, head moved == accepted pushes
 };
 
@@ -71,6 +77,7 @@ static float c5_of(int draw, float walk) {
 
 static Result run(const Scenario& s) {
     reset_model();
+    g_lateTagRepair = s.lateRepair;
     ArbState st;
     Result r;
     const int draws = s.ticks * 2;
@@ -103,7 +110,10 @@ static Result run(const Scenario& s) {
         return lead < 0 ? 0 : lead;
     };
     auto present = [&](int shownDraw, int trueEye) {
-        push_through(shownDraw + 2 * lead_for(shownDraw) + (shownDraw % 2 == 0 ? 1 : 0));
+        int upto = s.exact ? shownDraw : shownDraw + 2 * lead_for(shownDraw) + (shownDraw % 2 == 0 ? 1 : 0);
+        const bool late = s.lateEvery > 0 && shownDraw % 2 == 0 && shownDraw / 2 > 5 && (shownDraw / 2) % s.lateEvery == 0;
+        if (late) { upto = shownDraw - 1; ++r.lateEvents; }
+        push_through(upto);
         ArbView v;
         v.haveC5 = true;
         v.c5now[0] = c5_of(shownDraw, s.walk);
@@ -114,7 +124,16 @@ static Result run(const Scenario& s) {
         Tag t = {};
         int ringEye = 0, inv = 0;
         float along = 0, other = 0;
-        const bool tagged = pop_and_arbitrate(st, v, t, ringEye, inv, along, other);
+        ArbTrace tr;
+        const bool tagged = pop_and_arbitrate(st, v, t, ringEye, inv, along, other, &tr);
+        if (r.lateEvents == 1 && r.firstCycle.size() < 6) {
+            char b[96];
+            _snprintf(b, sizeof(b), "%s%s%s%s%s%s out %+d true %+d", tr.popResult == POPR_TAG ? "tag" : "EMPTY",
+                      tr.action & ACT_LATE ? " LATE" : "", tr.action & ACT_TOOK ? " TOOK" : "", tr.action & ACT_REFUSE ? " REFUSE" : "",
+                      tr.action & ACT_AGREE ? " agree" : "", tr.removedN && !(tr.action & ACT_LATE) ? " drain" : "", tagged ? t.eye : 0, trueEye);
+            b[sizeof(b) - 1] = 0;
+            r.firstCycle.push_back(b);
+        }
         if (emptyBefore) ++r.emptyPops;
         r.realigns += (int)(g_c5Realigned - realignBefore);
         const int eye = tagged ? t.eye : 0;
@@ -136,7 +155,7 @@ static Result run(const Scenario& s) {
         present(d, pass == 0 ? -1 : +1);
         if (s.fault == F_REPEAT_PRESENT && d == s.faultAt) present(d, pass == 0 ? -1 : +1);   // shown again
     }
-    r.took = (int)g_c5Took; r.held = (int)g_c5Held;
+    r.took = (int)g_c5Took; r.held = (int)g_c5Held; r.lateRepaired = (int)g_lateRepaired;
     r.reconciles = (long)g_ringTail == (long)(g_popNormal + g_popRepair + g_popClearRemoved + g_lifecycleRemoved) &&
                    (long)g_ringHead == (long)g_pushAccepted;
     r.sustained = r.lastWrong >= (r.presents * 9) / 10;
@@ -173,7 +192,8 @@ int main() {
     printf("VR-80 host model: the shipped ring and c5 pairing against the draw oracle\n");
     printf("(lead = ticks the game thread has pushed beyond the tick being presented; 'late' = wrong eyes\n"
            " more than 200 presents after the fault; lead 3 exceeds the ring's depth-6 clear by design)\n");
-    for (const auto& s : table) {
+    for (const auto& s0 : table) {
+        Scenario s = s0; s.lateRepair = false;
         const Result r = run(s);
         print(s, r);
         if (s.fault == F_NONE && s.leadTicks <= 2 && s.dipPct == 0 && s.risePct == 0)
@@ -182,7 +202,39 @@ int main() {
         if (!r.reconciles) printf("  ledger accounting: tail %ld head %ld normal %u repair %u clear %u accepted %u\n",
                                   (long)g_ringTail, (long)g_ringHead, g_popNormal, g_popRepair, g_popClearRemoved, g_pushAccepted);
         check(r.reconciles, "the ledger's counters account for every tag that entered or left the ring");
+        s.lateRepair = true;
+        const Result q = run(s);
+        if (q.wrongEye + q.untaggedOut > r.wrongEye + r.untaggedOut) { printf("  lever ON worse: "); print(s, q); }
+        check(q.wrongEye + q.untaggedOut <= r.wrongEye + r.untaggedOut && q.wrongRecord <= r.wrongRecord + 2,
+              "F-late on is no worse than off on every existing schedule (wrong eyes, untagged, records)");
+        check(q.reconciles, "F-late on: the accounting still reconciles");
     }
+
+    // VR-80 run 5: zero lead at draw granularity and a recurring late pass-1 push.
+    printf("\nrun 5 schedules (tags pushed just before their presents, pass 1's tag late every N ticks)\n");
+    for (float walk : {0.0f, 1.5f})
+        for (int every : {40, 17}) {
+            Scenario off = {"late pass-1 tag, lever off", 0, walk, F_NONE, 0}; off.exact = true; off.lateEvery = every;
+            Scenario on = off; on.name = "late pass-1 tag, F-late ON"; on.lateRepair = true;
+            const Result a = run(off), b = run(on);
+            print(off, a); print(on, b);
+            if (walk == 0.0f && every == 40) {
+                printf("  first cycle, lever off:"); for (auto& c : a.firstCycle) printf(" [%s]", c.c_str()); printf("\n");
+                printf("  first cycle, lever on: "); for (auto& c : b.firstCycle) printf(" [%s]", c.c_str()); printf("\n");
+                // the ledger's cycle: EMPTY/REFUSE, TOOK, a wrong eye, TOOK plus a drain, then agree
+                const bool shape = a.firstCycle.size() >= 5 && a.firstCycle[0].find("EMPTY REFUSE") == 0 &&
+                                   a.firstCycle[1].find("TOOK") != std::string::npos &&
+                                   a.firstCycle[2].find("out +1 true -1") != std::string::npos &&
+                                   a.firstCycle[3].find("TOOK drain") != std::string::npos &&
+                                   a.firstCycle[4].find("agree") != std::string::npos;
+                check(shape, "the model reproduces run 5's four-present cycle (EMPTY/REFUSE, TOOK, left image to the right eye, TOOK + drain)");
+            }
+            check(a.wrongEye >= a.lateEvents - 1 && a.realigns >= a.lateEvents - 1, "lever off: every late tag costs a wrong eye and a drain");
+            check(b.wrongEye == 0 && b.realigns == 0, "F-late on: no wrong eye and no drain on the late-tag schedule");
+            check(b.lateRepaired >= b.lateEvents - 1, "F-late on: every late event was repaired");
+            check(a.reconciles && b.reconciles, "run 5 schedules reconcile");
+        }
+
     // the model resets between runs: the same schedule twice gives the same answer
     const Scenario again = {"repeat", 1, 0.0f, F_REPEAT_PRESENT, 201};
     const Result a = run(again), b = run(again);

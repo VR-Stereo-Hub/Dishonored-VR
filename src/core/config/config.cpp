@@ -907,6 +907,7 @@ static void LoadConfig()
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
+        dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 0, ini) != 0);   // VR-80 candidate, default off
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 3, ini));
     }
 
