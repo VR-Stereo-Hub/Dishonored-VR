@@ -4828,6 +4828,101 @@ native homing/assist setup may happen afterward. This candidate fixes launch
 convergence; it does not claim controller-based tracing, assist removal, ballistic
 impact prediction, or weapon-model alignment. Those behaviors remain separate.
 
+## The native function registration table, and a tool for the vtable route (2026-09-12)
+
+Three seams have now been derived by walking the same route by hand. It is
+`tools/ue3-natives.py`, and it **re-derives the published crossbow numbers before
+printing anything about a new class**, refusing on a mismatch - a route that
+cannot reproduce an answer already written down is not evidence about a new one.
+
+Confirmed by that tool: the crossbow (`0x01361928` / `0x00C29DB0` / `0x01172C80`,
+slot `+0x1B0` -> `0x00C38230`) and the pistol (`0x01361AE0` / `0x00C29E00` /
+`0x01172E60`, `+0x1B0` -> `0x00C2A3E0`).
+
+**The image carries UE3's native function registration table: 2554 entries**
+pairing an ASCII `A<Class>exec<Function>` name with the exec thunk's address.
+This is a new capability for this project - a route from a function NAME to code,
+where previously only class names were searchable. A UE3 exec thunk parses the
+script stack and then dispatches through a VTABLE SLOT, so the thunk gives the
+slot, and the slot gives the implementation.
+
+Worked example, and the reason it was run: `UDishonoredCheatManagerexecToggle
+UsableHighlight`, name at `0x010C8F1C`, thunk `0x009F3820`. The thunk dispatches
+`+0x4AC` on the cheat manager (vtable `0x01144070` from class
+`DishonoredCheatManager`, metadata `0x0133AE50`, ctor `0x00B832A0`), giving the
+implementation `0x00B6F300`. That function is four instructions and toggles **bit
+`0x400` of the dword at cheat-manager `+0x5C`**.
+
+A `.text` sweep for readers of that bit returns exactly two, both inside one
+function: `0x0060E4AF` and `0x0060E62F`. They sit in a loop that strides a
+20-byte list, calls `0x00646B20` per entry to reach a cheat manager, and tests
+the bit before building a box on the stack - i.e. the usable-highlight draw.
+
+**The engine's own trace is script-callable, and that shapes the fix.** The table
+gives exec thunks for `AActor::Trace` (`0x006D0ED0`), `FastTrace` (`0x006CD240`),
+`TraceActors` (`0x006D6D20`) and `APlayerController::GetPlayerViewPoint`
+(`0x005D1430`). So a second interaction query does not have to re-implement any
+geometry or duplicate the engine's collision rules: it can run the engine's own
+trace along a different ray. That is the difference between a fix that agrees
+with the game by construction and one that agrees with it until a case diverges.
+
+**The interact button is a native read, not a script call.** The binding is
+`Button m_bUseButton` (plus the `GBA_Use` / `GBA_Use_Gamepad` aliases), which
+sets a bool on the input object that native code polls. Property names are not in
+the image - they come from the packages - so `m_bUseButton` and any
+current-usable field must be resolved at RUNTIME through the existing
+FName-keyed property resolver, not found offline. See GAMEPLAY_STATE.md.
+
+## VR-85: the focused interactable, found by watching rather than reading (2026-09-12)
+
+**`DishonoredPlayerController::m_pCrosshairActor` at `+0x69C` and
+`m_pCrosshairHighlightActor` at `+0x6A0`.** Both hold the actor currently under
+the crosshair; both read `none` when nothing is focused.
+
+Found by observation, not offline analysis, because offline analysis could not
+reach them: interaction has no `exec` anywhere in the 2554 native registrations,
+so ProcessEvent never sees it, and property names live in the packages rather
+than the image, so nothing in the PE names them. The game's own
+`m_bDrawInteractableDebugBox`, armed in its ini, drew nothing - it is compiled
+out of the retail build.
+
+`PropWatch` (`ue3/prop_watch.cpp`) collected every object-typed property declared
+on the player controller, the player pawn and the HUD - 46 of them, from 5376
+object properties examined - and sampled them on the script lane while the tester
+looked at crossbow bolts and away. Both fields transitioned
+`none <-> DisProjectile_Arrow` **19 times each**, matching the deliberate
+look-at/look-away repetitions and nothing else in the run.
+
+Measured behaviour, from the same session: selection is a SINGLE winner from a
+narrow trace, roughly a hand's width of tolerance around an object at arm's
+length. Not a candidate set to re-rank, which rules out the cheaper design.
+
+Everything else the probe reported in that run was a level-transition artifact -
+pawn fields appearing to become `DisSeqAct_SetStoryFlag` and the like, in one
+burst, because a pawn pointer is reused across a load. Those are noise and are
+recorded here so the next reader does not chase them.
+
+**ANSWERED, and the answer is that these fields cannot be driven by writing
+them.** A write-and-observe experiment wrote the field on the script lane
+whenever the engine's own value was `none`, then re-read its own write on the
+next tick. The counter came back `wrote 1, survived to the next tick 0`: the
+engine recomputes the field after our tick, every tick, so nothing downstream can
+ever read what we put there. Confirmed behaviourally too - the focus did not
+persist and the pickup did not happen.
+
+So the fields are a RESULT, not an input. Aiming interaction from the controller
+has to happen at whatever computes them, and that writer is still unfound. The
+experiment is retired to `src/legacy/interact_focus.cpp`; it also crashed the
+game, for a reason worth reading in TRAPS before any of this is revisited.
+
+**The interaction seam itself is NOT yet found.** What is established: interaction
+is entirely native (the script dump carries declarations only, and there is no
+`exec` for it anywhere in the 2554 entries, so it is never exposed to script);
+`DisInteractableInterface`'s `CanInteractParams` carries an `m_DisTraceFlags`, so
+selection goes through a flagged trace; and `[Engine.PlayerController]
+InteractDistance=512` is its length. The remaining step is the writer of the
+current-usable field that the highlight loop above reads.
+
 ## VR-82 native pistol fire seam (offline derivation, 2026-09-12)
 
 The crossbow route above, re-walked for the pistol against the same image

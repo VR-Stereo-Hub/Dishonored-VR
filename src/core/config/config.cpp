@@ -427,6 +427,9 @@ static void WriteDefaultIni(const char* ini)
         "; Native crossbow launch direction, converging from the muzzle to the controller dot.\n"
         "; Independent of the old HUD cache drive and MotionAim; live toggle in F10 Aim.\n"
         "FireFromHand=1\n"
+        "; VR-85 diagnostic, read-only: names the property that follows the focused\n"
+        "; interactable. Never writes engine memory. propwatch on|off at the seam.\n"
+        "PropWatch=0\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -1067,6 +1070,7 @@ static void LoadConfig()
     g_shOn = GetPrivateProfileIntA("Aim", "ShotProbe", 0, ini) != 0;
     g_fwOn = GetPrivateProfileIntA("Aim", "FireWatch", 0, ini) != 0;
     FireAimSet(GetPrivateProfileIntA("Aim", "FireFromHand", 0, ini) != 0, "ini");
+    PwSet(GetPrivateProfileIntA("Aim", "PropWatch", 0, ini) != 0, "ini");
     if (g_fwOn)
         Log("config: [Aim] FireWatch=1 - read-only. Named script dispatches before each "
             "bolt are recorded and printed. It proves ORDER and PRESENCE only; an empty "
@@ -2898,6 +2902,7 @@ static void OverlaySaveDefaults()
     {
         const auto crosshair = dvr::aim::config();
         WritePrivateProfileStringA("Aim", "FireFromHand", FireAimEnabled() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Aim", "PropWatch", PwEnabled() ? "1" : "0", ini);
         WritePrivateProfileStringA("Aim", "ModelRay", dvr::aim::config().modelRay ? "1" : "0", ini);
         WritePrivateProfileStringA("Aim", "FollowHandTrim", dvr::aim::config().followHandTrim ? "1" : "0", ini);
         WritePrivateProfileStringA("Crosshair", "Dot", crosshair.dot ? "1" : "0", ini);

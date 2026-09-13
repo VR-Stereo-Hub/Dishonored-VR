@@ -255,6 +255,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/TROUBLESHOOTING.md` | User-facing troubleshooting (ships in the zip) |
 | `docs/RELEASE_NOTES.md` | Per-version notes; 41.0 "Upgrading" lists every removed key |
 | `docs/dishonored/ENGINE_NOTES.md` | The reverse-engineering knowledge base: addresses with derivation, class layouts, hook points, the per-eye camera seam's write points, the head-coupling chronology, dead ends |
+| `docs/dishonored/GAME_CONFIG_MAP.md` | **The game's own config folder**: what each of the 21 inis governs, a routing table by question, the free debug instruments the game ships, and why only four values are set on install |
 | `docs/dishonored/GAMEPLAY_STATE.md` | **A WANTED RESOURCE, not built**: the gameplay flags the mod needs (equipped item per hand, holstered, stance, full-body actions), what the engine already exposes, and the FName-keyed UE3 property resolver that would read them |
 | `docs/dishonored/VR-57-MODEL-RAY.md` | **The model ray**: aiming from the weapon's own barrel line, how the bolt axis is measured and latched, why a weapon body cannot supply one, the levers and their shipped defaults, and every fault found building it |
 | `docs/dishonored/VR-33-HANDS-AND-WEAPONS.md` | **The hands and the held weapons**: the palette correction, the grip reflection, the numpad adjust, the model scale, the coordinate bridge, how a weapon draw is identified and how the duplicate copies were cleared. Section 8 is the graveyard - every approach in it cost a headset run |

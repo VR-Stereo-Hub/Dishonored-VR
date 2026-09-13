@@ -1,6 +1,87 @@
 # Status
 
-## CURRENT (2026-09-12): the pistol's fire seam is hooked, UNVERIFIED (VR-82)
+## CURRENT (2026-09-12): VR-85 SHELVED with a definitive answer; the tools ship
+
+`claude/vr-85-interact-head-or-controller`, off VR-Main at `55cdb2b8`.
+
+**The feature is shelved on purpose, not abandoned in confusion.** Aiming
+interaction from the controller cannot be done by writing the engine's focused-actor
+field, and that is now measured rather than suspected.
+
+What the branch delivers:
+
+* **`tools/ue3-natives.py`** - the class-to-vtable walk that three seams were derived
+  by hand, plus UE3's **native function registration table**, 2554 name-to-thunk
+  pairs. That is a route from a function NAME to code where only class names were
+  searchable before. It re-derives the published crossbow numbers before answering
+  about any new class and refuses on a mismatch.
+* **`PropWatch`** (`ue3/prop_watch.cpp`) - the reverse of `FindPropOffset`: it finds a
+  property by watching which one CHANGES when the name is what is missing. It found
+  its target on the first run. Ships OFF.
+* **`docs/dishonored/GAME_CONFIG_MAP.md`** - the game's own 21 config files, what each
+  governs, and the debug instruments it ships.
+
+What was learned, all in ENGINE_NOTES:
+
+* The focused interactable is `DishonoredPlayerController::m_pCrosshairActor` (+0x69C)
+  and `m_pCrosshairHighlightActor` (+0x6A0).
+* **Those fields are a RESULT, not an input.** A write-and-observe experiment read back
+  `wrote 1, survived to the next tick 0` - the engine recomputes them after our tick,
+  every tick, so nothing downstream can read what we write. Aiming interaction has to
+  happen at whatever COMPUTES them, and that writer is unfound.
+* Interaction has no script surface at all: no exec in any of the 2554 registrations.
+* Selection is a single winner from a narrow trace, about a hand's width of tolerance.
+
+Three faults of mine are in TRAPS, each with the reading that would have caught it
+sooner: a read-only probe that still cost the frame budget, a liveness guard that could
+not detect the freeing it existed to catch (it crashed the game twice), and the golden
+ini check that could never fail.
+
+**Next**, when this is picked up again: find the writer of those two fields. The
+natives table and `PropWatch` are the tools for it. Do NOT re-arm
+`src/legacy/interact_focus.cpp`.
+
+## Earlier (2026-09-12): VR-82/83/84 merged and confirmed
+
+
+`claude/vr-85-interact-head-or-controller`, off VR-Main at `55cdb2b8`.
+
+**The goal**: interact with whatever the head OR the controller is pointing at, so a
+player does not have to line their head up with something they are already pointing a
+hand at. The controller ray already exists and is proven (VR-57, VR-82); this is about
+where the interaction query points.
+
+**Status: research, no code.** What is established, all in ENGINE_NOTES:
+
+* Interaction is **entirely native**. The script dump carries declarations only, and a
+  sweep of all 2554 native exec registrations finds no interaction or use function on
+  the player controller - not even an input handler. There is no script surface to hook.
+* `DisInteractableInterface`'s `CanInteractParams` carries `m_DisTraceFlags`, so
+  selection is a flagged trace; `[Engine.PlayerController] InteractDistance=512` is its
+  length.
+* The usable-HIGHLIGHT path is located: the cheat `ToggleUsableHighlight` flips bit
+  `0x400` at cheat-manager `+0x5C`, and a `.text` sweep finds exactly two readers, both
+  in one function around `0x0060E4AF`.
+
+**The remaining step** is the writer of the current-usable field that highlight path
+reads. That is the seam.
+
+New capability that came out of this and is worth more than the ticket: the image
+carries UE3's **native function registration table**, 2554 name-to-thunk pairs, giving a
+route from a function NAME to code where only class names were searchable before.
+`tools/ue3-natives.py` keeps both that and the class-to-vtable walk, and **refuses to
+answer about a new class unless it first re-derives the published crossbow numbers**.
+
+Also landed this session, all merged and headset-confirmed: VR-82 (pistol shots follow
+the controller), VR-83 (the F10 size slider is reachable again), VR-84 (the ini save was
+corrupting `AttachRigRadius`, and the golden check could never fail). `ModelScale` ships
+at 0.85. `docs/dishonored/GAME_CONFIG_MAP.md` maps the game's own config folder.
+
+**Next**: find the current-usable writer, or take the cheaper route first - the game
+ships an interactable debug box, a usable highlight and an interaction debug page, none
+of which are in use yet.
+
+## Earlier (2026-09-12): the pistol's fire seam is hooked, since CONFIRMED (VR-82)
 
 `claude/vr-82-pistol-fire-seam`, off VR-Main. The pistol's native firing routine was
 traced offline and hooked at its own pre-spawn join, so pistol shots now go through the
