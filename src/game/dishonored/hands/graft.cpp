@@ -139,10 +139,10 @@ static void GraftTestSet(bool on)
         for (int u = 0; u < g_graftDonorN && u < 3; u++) {
             uint8_t* host  = g_graftHost[u];
             uint8_t* donor = g_graftDonor[u];
-            if (host && RangeReadable(host, 0x100) &&
+            if (IsLiveObject(host) && RangeReadable(host, 0x100) &&
                 *(uint8_t**)(host + g_graftOffNext) == donor)
                 *(uint8_t**)(host + g_graftOffNext) = NULL;
-            if (host && donor && RangeReadable(donor, 0x100))
+            if (host && GraftDonorAlive(u) && RangeReadable(donor, 0x100))
                 memcpy(donor, g_graftSave[u], 0x100);
             g_graftHost[u] = NULL;
             g_graftHand[u] = -1;

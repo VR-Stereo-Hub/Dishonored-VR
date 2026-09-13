@@ -402,6 +402,46 @@ static void SkcSaveNeutral(const char* why)
         g_skcNeutral[1][0], g_skcNeutral[1][1], g_skcNeutral[1][2]);
 }
 
+// Release persistent hand controls as well as skipping future writes. Camera
+// look-at strength remains owned by the existing head-tracking path.
+static bool AnimReleaseControls()
+{
+    struct Saved { uint8_t* obj; uint32_t bits; float scale; bool held; };
+    static Saved saved[8] = {};
+    static bool was = false, restoreCull = false;
+    const bool now = dvr::anim::active();
+    if (now && !was) {
+        FpRestoreRotation(); g_fpHaveBase = false;
+        GraftTestSet(false);
+        restoreCull = g_armHidden;
+        if (g_armHidden) ArmsToggle();
+    }
+    if (!now && was && restoreCull && !g_armHidden) { ArmsToggle(); restoreCull=false; }
+    const uint32_t mask = kSkcApplyTrans | kSkcApplyRot;
+    for (int i=0;i<g_skcPlayerN && i<8;++i) {
+        Saved& s=saved[i];
+        if (!SkcAlive(i) || !IsLiveObject(g_skcPlayer[i]) ||
+            !RangeReadable(g_skcPlayer[i]+kSkcBools,4) ||
+            !RangeReadable(g_skcPlayer[i]+kSkcScaleProp,4)) { s={}; continue; }
+        uint8_t* o=g_skcPlayer[i];
+        if (s.obj!=o) s={};
+        if (g_skcHandOf[i]<0) continue;
+        uint32_t* bits=(uint32_t*)(o+kSkcBools);
+        float* scale=(float*)(o+kSkcScaleProp);
+        if (now) {
+            if (!s.held) s={o,*bits,*scale,true};
+            *bits &= ~mask; *scale=1.0f;
+        } else if (s.held) {
+            // Restore only values still bearing our release write.
+            if ((*bits & mask)==0) *bits=(*bits & ~mask) | (s.bits & mask);
+            if (*scale==1.0f) *scale=s.scale;
+            s={};
+        }
+    }
+    was=now;
+    return now;
+}
+
 static void ApplyHandToMeshInner()
 {
     // 40.1 GATE STATE. When the hands are wrong the first question is always
@@ -1056,6 +1096,7 @@ static void AutoHandStartTick()
 // the frame, drop every cached pointer and let the next collect rebuild.
 static void ApplyHandToMesh()
 {
+    if (AnimReleaseControls()) { BoneVisTick(); return; }
     AutoHandStartTick();
     // 38.30: ArmsHideTick MUST run above every early return. In 38.29 it sat
     // inside ApplyHandToMeshInner, below the g_armsHidden skip - so the first
@@ -1179,6 +1220,7 @@ static void ApplyHandToMesh()
 // logging, no allocation, no game reads.
 static inline void SkcRotApply()
 {
+    const bool animationOwnsHands = AnimReleaseControls();
     if (!g_skcDrive || g_skcStale) return;
     // strength gets the high-frequency treatment as well - if the game drives
     // these look-ats it may restamp their strength too, and one write per
@@ -1192,7 +1234,7 @@ static inline void SkcRotApply()
         if (!SkcAlive(g_skcCamIdx)) { g_skcStale = 1; GraftEmergencyRestore(); return; }
         *(float*)(g_skcPlayer[g_skcCamIdx] + kSkcStr) = g_skcCamStrength;
     }
-    if (!g_skcDoRot) return;
+    if (animationOwnsHands || !g_skcDoRot) return;
     for (int q = 0; q < g_skcPlayerN; q++) {
         if (!SkcAlive(q)) { g_skcStale = 1; GraftEmergencyRestore(); return; }
         uint8_t* o = g_skcPlayer[q];

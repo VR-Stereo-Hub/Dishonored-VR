@@ -1,3 +1,4 @@
+#include "../../game/dishonored/anim_policy_test.h"
 // tools/frame_test - the VR-33 rotation/grip frame math, on the desk.
 //
 // Runs hand_frame_test.h's suite and exits non-zero if any case fails. NO mod
@@ -158,7 +159,7 @@ int main(int argc, char** argv)
     const int failed = dvr::hf::test::run_all(report, NULL);
     printf("---------------------------------------------------------------\n");
     printf("%s\n", failed ? "FAILURES" : "all cases passed");
-    int rc = (failed + WeaponFrameTests()) ? 1 : 0;
+    int rc = (failed + WeaponFrameTests() + AnimPolicyTests()) ? 1 : 0;
     if (argc > 1) rc |= replay(argc, argv);
     return rc;
 }

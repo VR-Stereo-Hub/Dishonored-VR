@@ -2626,10 +2626,12 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // out of the hand's local space into the draw's camera-relative world
         // so any other member of the same view can consume it. Published here,
         // AFTER the model scale, so that factor is carried exactly once.
+        D = dvr::anim::blend(D); // blend once; weapons inherit this same correction
         WaPublishCommon(hand, c, D);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
                                  false);
+        D = dvr::anim::blend(D);
         g_mpPalmTargetOk[hand] = false;
     }
     for (int i = 0; i < 3; i++)
@@ -2836,7 +2838,8 @@ static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVert
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
 {
-    g_msPassThrough = false;
+    g_msPassThrough = dvr::anim::native_draw();
+    if (g_msPassThrough) return false;
     if (g_msMode == MS_MODE_OFF) return false;
     MsContract con;
     {

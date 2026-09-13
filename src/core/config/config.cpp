@@ -325,6 +325,11 @@ static void WriteDefaultIni(const char* ini)
         "Scale=108\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
+        "[Anim]\n"
+        "StateWatch=1\n"
+        "HandBack=1\n"
+        "ReleaseMs=250\n"
+        "HandBackBlendMs=150\n\n"
         "[Neck]\n"
         "; The pitch pivot (41.1). A real head pitches about a point below and behind the\n"
         "; eyes, so looking up or down moves the eye on an arc. Mode=off|add|cancel, under\n"
@@ -362,7 +367,7 @@ static void WriteDefaultIni(const char* ini)
         "DistanceM=8.0\n"
         "SizeDeg=0.5\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
-        "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60%\n"
+        "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60%%\n"
         "; size, so a headset can name which one lies along the controller.\n"
         "BothPoses=0\n"
         "; VR-57 test 1: ControlDot=1 draws a HEAD-anchored dot straight ahead of the\n"
@@ -1701,6 +1706,7 @@ static void LoadConfig()
     // VR-61: the gameplay state flags. Read-only and off the frame path, so it
     // ships ON: its whole purpose is to report what the game is doing, and a
     // reporter nobody enables reports nothing.
+    dvr::anim::configure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
     // to the pointer walk alone, which cannot see the pistol at all.

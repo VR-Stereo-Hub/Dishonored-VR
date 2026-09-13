@@ -1,9 +1,8 @@
 # VR-88 plan: know when a scripted animation owns the body, and hand it back
 
-**Status: DRAFT FOR REVIEW. No code written.** Branch `claude/vr-88-anim-handback`, off
+**Status: phases 1 and 2 implemented together, enabled by default at user request. Headset validation pending: the first playtest after implementation ran the previous installed build, so it is not evidence for this code.** Branch `claude/vr-88-anim-handback`, off
 `VR-Main` at `5e076813`. Ticket VR-88; the long-term layer is VR-89.
-Reviewer: sections 2 and 3 are the research and the claims to check against the dump;
-sections 4 to 6 are what would be built.
+Sections 2 and 3 are the research and the claims a run must prove; sections 4 to 6 are the design, and the implementation notes at the end record what landed.
 
 ## 1. The problem and the goal
 
@@ -20,7 +19,7 @@ controllers happen to be, or with nothing visible at all.
    body right now, and which one. Read-only, log changes, publish a snapshot.
 2. **The hand-back.** While the flag says the game owns the body, stop the hand and
    weapon overrides and let the game's own arms and weapon draw; take them back
-   afterwards without a pop. Behind a default-off lever with a live A/B.
+   afterwards without a pop. Behind a default-on lever with a live A/B.
 
 **The long-term goal (VR-89)** is an animation control layer: know exactly which
 animation plays, allow or suppress specific ones, trigger animations on demand, and pose
@@ -208,7 +207,7 @@ between two scripted states does not bounce the hands.
 * A 5 s beat that prints even when nothing changed, with the resolve status and the
   snapshot age, so "never resolved" and "nothing happened" read differently.
 * `anim status`, the F10 Debug line, and `status.json`.
-* `[Anim] StateWatch` gates the whole reader: **ships 0**, armed in the tester's
+* `[Anim] StateWatch` gates the whole reader: **ships 1 (user-requested default)**, armed in the tester's
   installed ini for the run.
 
 ### 4.5 Host tests
@@ -219,7 +218,7 @@ ini lists parse with spaces and unknown names, and a name not in any list is PLA
 
 ## 5. Phase 2: the hand-back
 
-Only after phase 1 has shown C1 on a headset. One lever, `[Anim] HandBack`, **ships 0**,
+Built together with phase 1 at the user's request; C1 remains to be checked in the combined headset run. One lever, `[Anim] HandBack`, **ships 1 (user-requested default)**,
 live `anim handback on|off`, an F10 Hands checkbox, effective value logged with its source.
 
 ### 5.1 What stops while the owner is GAME
@@ -280,7 +279,7 @@ the lever for an A/B inside the run.
 ## 7. Rules carried
 
 No hardcoded offsets; property names resolved and logged. `IsLiveObject` for any object
-whose pointer is retained across ticks. Log changes, not state. Every lever default off
+whose pointer is retained across ticks. Log changes, not state. The VR-88 levers default on at user request,
 with a live A/B. The installed ini is diffed in full on every install. No game content
 committed: this document lists names only.
 
@@ -319,3 +318,48 @@ What phase 1 builds is layer one; each later layer is its own ticket.
    for layer 1 of VR-89?
 6. Mantle and climb animate the arms too. Handing them back loses the controllers during
    every ledge grab. Include them by default, or leave them to a separate lever?
+
+
+## Implementation notes for the combined build
+
+`anim_state.cpp` samples the three FSMs on the script lane at most once per
+10 ms, using the controller's reflected Pawn link. The state instance and class
+ID must agree. Required read failures, watch off, or a snapshot older than 150 ms
+mean UNKNOWN and retain the existing controller behavior. Optional body/history
+failures do not invalidate an otherwise readable ownership signal. Pending state
+and sequence names are resolved on changes; a five-second heartbeat exposes an
+unresolved reader. The SRW-locked snapshot and status.json report state names,
+owner, sequence, body mode and controller blend weight.
+
+`StateWatch=1` and `HandBack=1` are both the compiled fallback and generated ini
+default. Commands: `anim status`, `anim watch on|off`, `anim handback on|off`.
+F10 Hands exposes the handback checkbox and current state. Master/upper comma
+lists remain configurable through `HandBackMaster` and `HandBackUpper`; mantle
+and climb are included. VR-89 suppression and on-demand playback remain deferred.
+
+The correction uses shortest-path rotation interpolation, with uniform scale
+and translation interpolated to identity. It is blended ONCE in the hand path
+before publication to weapons. Weapon copies inherit that same correction
+through their existing coordinate transforms. Re-blending in each weapon's
+local frame is incorrect. A present consumes a fixed blend weight. Animated
+source and controller target continue updating during the blend. This is
+present-level consistency, not a claim of exact FSM/draw pairing.
+
+At identity the draw router bypasses split and duplicate suppression, including
+non-indexed draws. D3D11 hands and aim visuals are hidden during ownership and
+blend-back. The script path releases hand SkelControl application flags and model
+scale, detaches active graft donors, restores mesh rotation and mod-hidden arms,
+and suspends further hand writes. Camera look-at and fire aiming remain
+independent. Controller writes resume on return and the palette blends back.
+Stale snapshots and a disabled lever return to existing behavior.
+
+The optional sequence record validates as FName plus picker int, with stride
+derived from the reflected picker offset. The property resolver gained a checked
+form so a real member at offset zero is distinguishable from a lookup failure.
+Property scans are initialization work, not repeated sample work.
+
+One combined headset run remains: walking, jump, mantle/climb, slide, choke,
+back/front/drop assassination, fatality, and pick up/drop a body. Compare
+HandBack on/off in F10, check both eyes and action entry/exit, then reload a save.
+The state labels and 150/250 ms blend/release settings remain hypotheses until
+that run. A successful build does not confirm mappings or visual comfort.
