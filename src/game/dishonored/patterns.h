@@ -158,6 +158,18 @@ static const uint32_t  kViewportDrawRetImm = 4;                 // one stack arg
 static const uintptr_t kViewportDrawCallSite = 0x006330da;      // push 1; call rel32 (7 bytes)
 static const uint8_t   kViewportDrawCallSiteOrig[7] = { 0x6a, 0x01, 0xe8, 0xcf, 0x94, 0xfc, 0xff };
 static const uintptr_t kViewportDrawGameplayRet = 0x006330e1;   // the return address of that call
+// VR-80: the root's OTHER static callers (tools/disasm-rva.py calls 0x1fc5b0 lists
+// exactly four E8/E9 sites; 0x6330dc is the gameplay one above). A draw from any
+// of these does not pass the stub, so it presents with no eye tag. Diagnostic
+// retarget only ([Stereo] DrawCallerTrace): each site's bytes are verified, the
+// stub counts and calls the root with the same argument. ENGINE_NOTES, "the
+// viewport draw root's callers".
+static const uintptr_t kViewportDrawCallerA = 0x004dba66;       // push 1; call root
+static const uint8_t   kViewportDrawCallerAOrig[7] = { 0x6a, 0x01, 0xe8, 0x43, 0x0b, 0x12, 0x00 };
+static const uintptr_t kViewportDrawCallerB = 0x0061236a;       // jmp root (tail call)
+static const uint8_t   kViewportDrawCallerBOrig[5] = { 0xe9, 0x41, 0xa2, 0xfe, 0xff };
+static const uintptr_t kViewportDrawCallerC = 0x00641d85;       // push 0; call root
+static const uint8_t   kViewportDrawCallerCOrig[7] = { 0x6a, 0x00, 0xe8, 0x24, 0xa8, 0xfb, 0xff };
 static const uintptr_t kGameEngineTick = 0x00632860;            // UGameEngine::Tick (derivation only)
 static const uint32_t  kViewportClientOff = 0x1c;               // FViewport -> its client (derivation only)
 

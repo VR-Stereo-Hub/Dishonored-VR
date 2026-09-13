@@ -498,6 +498,123 @@ static void SceneDrawApply()
     }
 }
 
+// ---- VR-80: the root's other callers, counted ------------------------------------------
+//
+// ONE PUSH PER DRAW (header) holds only for draws that reach the stub. The census
+// of E8/E9 callers of the root finds three more sites; a draw through one of them
+// pushes no tag, and if it presents, its present pops the next tick's -1 - the
+// one-present-late ring the pair trace measured after a note closes. These stubs
+// only COUNT: same argument, same root, same return. Patched on the game thread,
+// bytes verified per site, restored when [Stereo] DrawCallerTrace goes off.
+static volatile LONG g_vdCalls[3] = {0, 0, 0};      // A, B, C
+static volatile LONG g_vdPresenting[3] = {0, 0, 0}; // ... with bShouldPresent != 0
+static volatile LONG g_vdWant = 0;
+static bool g_vdInstalled = false;
+
+static void __fastcall VdStubA(void* self, void* edx, int b)
+{
+    (void)edx; InterlockedIncrement(&g_vdCalls[0]); if (b) InterlockedIncrement(&g_vdPresenting[0]);
+    ((DvrViewportDrawFn)kViewportDraw)(self, NULL, b);
+}
+static void __fastcall VdStubB(void* self, void* edx, int b)
+{
+    (void)edx; InterlockedIncrement(&g_vdCalls[1]); if (b) InterlockedIncrement(&g_vdPresenting[1]);
+    ((DvrViewportDrawFn)kViewportDraw)(self, NULL, b);
+}
+static void __fastcall VdStubC(void* self, void* edx, int b)
+{
+    (void)edx; InterlockedIncrement(&g_vdCalls[2]); if (b) InterlockedIncrement(&g_vdPresenting[2]);
+    ((DvrViewportDrawFn)kViewportDraw)(self, NULL, b);
+}
+
+struct VdSite {
+    const char* name; uintptr_t at; const uint8_t* orig; size_t len; size_t op;   // op: offset of E8/E9
+    void* stub; uint8_t saved[8]; bool on;
+};
+static VdSite g_vdSite[3] = {
+    {"A (push 1; call)", kViewportDrawCallerA, kViewportDrawCallerAOrig, 7, 2, (void*)&VdStubA, {}, false},
+    {"B (jmp, tail)",    kViewportDrawCallerB, kViewportDrawCallerBOrig, 5, 0, (void*)&VdStubB, {}, false},
+    {"C (push 0; call)", kViewportDrawCallerC, kViewportDrawCallerCOrig, 7, 2, (void*)&VdStubC, {}, false},
+};
+
+static void DrawCallersSet(bool on) { InterlockedExchange(&g_vdWant, on ? 1 : 0); }
+
+// GAME THREAD (PeHandler, beside SceneDrawApply).
+static void DrawCallersApply()
+{
+    const bool want = InterlockedCompareExchange(&g_vdWant, 0, 0) != 0;
+    if (want == g_vdInstalled) return;
+    if (want) {
+        for (auto& s : g_vdSite)
+            if (!RangeReadable((void*)s.at, s.len) || memcmp((void*)s.at, s.orig, s.len) != 0) {
+                const uint8_t* b = (const uint8_t*)s.at;
+                Log("vr80/callers: NOT installed - site %s at 0x%08x does not hold the expected bytes "
+                    "(%02x %02x %02x %02x %02x): another build, or something else patched it. Nothing changed.",
+                    s.name, (unsigned)s.at, b[0], b[1], b[2], b[3], b[4]);
+                InterlockedExchange(&g_vdWant, 0);
+                return;
+            }
+        for (auto& s : g_vdSite) {
+            DWORD op;
+            if (!VirtualProtect((void*)s.at, s.len, PAGE_EXECUTE_READWRITE, &op)) continue;
+            memcpy(s.saved, (void*)s.at, s.len);
+            const uintptr_t next = s.at + s.op + 5;
+            const int32_t rel = (int32_t)((uintptr_t)s.stub - next);
+            memcpy((uint8_t*)s.at + s.op + 1, &rel, 4);   // the opcode stays, only its target moves
+            VirtualProtect((void*)s.at, s.len, op, &op);
+            FlushInstructionCache(GetCurrentProcess(), (void*)s.at, s.len);
+            s.on = true;
+        }
+        g_vdInstalled = true;
+        Log("vr80/callers: the viewport draw root's other three callers now count through pass-through stubs "
+            "(bytes verified). The gameplay draw is the stub's own `draws`; A, B and C are draws that push NO eye "
+            "tag - if they present, their present takes the next tick's tag.");
+    } else {
+        for (auto& s : g_vdSite) {
+            if (!s.on) continue;
+            DWORD op;
+            if (!VirtualProtect((void*)s.at, s.len, PAGE_EXECUTE_READWRITE, &op)) continue;
+            memcpy((void*)s.at, s.saved, s.len);
+            VirtualProtect((void*)s.at, s.len, op, &op);
+            FlushInstructionCache(GetCurrentProcess(), (void*)s.at, s.len);
+            s.on = false;
+        }
+        g_vdInstalled = false;
+        Log("vr80/callers: removed - the three call sites hold their original bytes again");
+    }
+}
+
+// Present thread: what drew since the previous present, as one short annotation
+// for the pair trace, and a census line every 10 s.
+static void DrawCallersNote()
+{
+    static LONG lastTicks = 0, lastP2 = 0, last[3] = {0, 0, 0}, lastP[3] = {0, 0, 0};
+    const LONG ticks = (LONG)g_sdDraws, p2 = (LONG)g_sdSecondDraws;
+    LONG c[3], p[3];
+    for (int i = 0; i < 3; ++i) { c[i] = g_vdCalls[i]; p[i] = g_vdPresenting[i]; }
+    char note[96];
+    _snprintf(note, sizeof(note), "drew since last present: tick %ld p2 %ld | A %ld(%ld) B %ld(%ld) C %ld(%ld)",
+              ticks - lastTicks, p2 - lastP2, c[0] - last[0], p[0] - lastP[0], c[1] - last[1], p[1] - lastP[1],
+              c[2] - last[2], p[2] - lastP[2]);
+    note[sizeof(note) - 1] = 0;
+    dvr::zacct::trace_note(g_vdInstalled ? note : "");
+    lastTicks = ticks; lastP2 = p2;
+    for (int i = 0; i < 3; ++i) { last[i] = c[i]; lastP[i] = p[i]; }
+    if (!g_vdInstalled) return;
+    static double nextCensus = 0.0;
+    static LONG censusC[3] = {0, 0, 0}, censusP[3] = {0, 0, 0}, censusTicks = 0;
+    const double now = MaimNowMs();
+    if (now < nextCensus) return;
+    if (nextCensus != 0.0)
+        Log("vr80/callers: last 10 s - gameplay ticks %ld | A %ld (presenting %ld) | B %ld (presenting %ld) | "
+            "C %ld (presenting %ld). A presenting draw outside the gameplay tick is a present with no eye tag.",
+            ticks - censusTicks, c[0] - censusC[0], p[0] - censusP[0], c[1] - censusC[1], p[1] - censusP[1],
+            c[2] - censusC[2], p[2] - censusP[2]);
+    nextCensus = now + 10000.0;
+    censusTicks = ticks;
+    for (int i = 0; i < 3; ++i) { censusC[i] = c[i]; censusP[i] = p[i]; }
+}
+
 // The method arms / disarms (present thread): the patch request goes to the
 // game thread, the arm flag is immediate.
 static void SceneDrawSetArmed(bool on)
@@ -524,6 +641,7 @@ static void SceneDrawPresentTag(int ringEye, int finalEye, bool tagged, uint32_t
     if (dvr::zacct::trace_enabled()) {   // VR-80: the pair trace measures c5 along this right axis
         float bf[3], br[3], bu[3];
         dvr::zacct::trace_basis(br, dvr::camera::last_basis(bf, br, bu));
+        DrawCallersNote();               // ... and says what drew since the previous present
     }
     dvr::zacct::on_present(ringEye, finalEye, tagged, acct, haveC5, c5, c5Serial, now);
     dvr::zacct::tick(now);

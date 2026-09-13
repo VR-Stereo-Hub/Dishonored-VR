@@ -179,6 +179,7 @@ struct TraceRec {
     double   wAgeMs = 0.0;
     bool     c5Ok = false, stepOk = false, tagC5Ok = false;
     float    c5R = 0.0f, stepR = 0.0f, tagC5 = 0.0f;
+    char     note[96] = {0};
 };
 volatile LONG g_trOn = 0;
 volatile LONG g_trArmReq = 0;
@@ -190,6 +191,7 @@ float    g_trBasis[3] = {0, 0, 0};
 bool     g_trBasisOk = false, g_trPrevC5Ok = false;
 float    g_trPrevC5R = 0.0f;
 double   g_trNextOverrideMs = 0.0;
+char     g_trNote[96] = {0};
 
 void trace_print(const TraceRec& r) {
     char w[160], c[64], s[32], t[40];
@@ -205,8 +207,9 @@ void trace_print(const TraceRec& r) {
     if (r.tagC5Ok) _snprintf(t, sizeof(t), "%.2f uu%s", r.tagC5, r.tagPosOk ? "" : " TAGPOS-MISMATCH");
     else _snprintf(t, sizeof(t), "?");
     c[sizeof(c) - 1] = 0; s[sizeof(s) - 1] = 0; t[sizeof(t) - 1] = 0;
-    ZA_INFO("vr80/trace: #%u ring %+d final %+d%s | %s | c5 along right %s step %s | write-to-c5 %s",
-            r.n, r.ring, r.fin, (r.tagged && r.ring != r.fin) ? " OVERRIDE" : "", w, c, s, t);
+    ZA_INFO("vr80/trace: #%u ring %+d final %+d%s | %s | c5 along right %s step %s | write-to-c5 %s%s%s",
+            r.n, r.ring, r.fin, (r.tagged && r.ring != r.fin) ? " OVERRIDE" : "", w, c, s, t,
+            r.note[0] ? " | " : "", r.note);
 }
 
 void trace_header(const char* why) {
@@ -225,6 +228,7 @@ void trace_present(int ringEye, int finalEye, bool tagged, uint32_t id, bool hav
     r.ring = tagged ? ringEye : 0;
     r.fin = tagged ? finalEye : 0;
     r.tagged = tagged;
+    memcpy(r.note, g_trNote, sizeof(r.note));
     if (tagged && id) {
         const Write& p = g_pin[id & (kPin - 1)];
         if (p.id == id) {
@@ -744,6 +748,12 @@ void trace_arm(const char* why) {
     if (!trace_enabled()) return;
     g_trArmWhy = why ? why : "?";
     InterlockedExchange(&g_trArmReq, 1);
+}
+void trace_note(const char* text) {
+    if (!trace_enabled()) return;
+    Lock lk;
+    _snprintf(g_trNote, sizeof(g_trNote), "%s", text ? text : "");
+    g_trNote[sizeof(g_trNote) - 1] = 0;
 }
 void trace_basis(const float right[3], bool ok) {
     if (!trace_enabled()) return;

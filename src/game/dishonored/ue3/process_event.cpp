@@ -89,6 +89,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     PeLatch(obj);   // the engine tells us who the real actors are
     UiPeLatch(obj); // VR-62: a movie player created after the scan, watched too
     SceneDrawApply();   // 41.1: the re-entry's call-site patch/restore, on the thread that runs the site
+    DrawCallersApply(); // VR-80: the root's other callers, counted (diagnostic, off by default)
     // 32.8: while the blink window is open, note which script events fire ON a
     // candidate. Pointer compares only - no class-name lookup on this path.
     if (g_bpGo && obj) {

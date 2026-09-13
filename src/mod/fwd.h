@@ -13,6 +13,8 @@ static void SceneProbePresentTick();
 static bool SceneProbeCommand(const char* args);
 static bool SceneDrawAvailable(char* why, size_t cap);
 static void SceneDrawApply();
+static void DrawCallersApply();          // VR-80: the draw root's other callers, counted
+static void DrawCallersSet(bool on);
 static void SceneDrawSetArmed(bool on);
 static bool SceneDrawPoisoned();
 static uint32_t SceneDrawDraws();

@@ -1099,6 +1099,16 @@ raises its rate. Next measurement: for each untagged or repeat present inside a
 trace window, the Present caller and the scene-draw and `c5` serials since the last
 present, so the extra present's owner is named before anything changes.
 
+**Second instrument built, not yet run.** The draw root has three static callers besides the
+gameplay site (ENGINE_NOTES, "the viewport draw root's callers"); one of them draws with
+bShouldPresent TRUE and none pushes a tag, which is the scene_draw header's own ONE PUSH PER
+DRAW failure. `[Stereo] DrawCallerTrace` retargets those three call sites to counting
+pass-through stubs and appends to each `vr80/trace` line what drew since the previous present
+(`tick`, `p2`, and per site calls with the presenting count in brackets), plus a 10 s census.
+Counterprediction: if a foreign caller owns the extra presents, an UNTAGGED present follows a
+non-zero presenting count on A, B or C; if every untagged present shows only `tick`/`p2`, the
+extra present comes from outside the viewport draw and this lead is dead.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

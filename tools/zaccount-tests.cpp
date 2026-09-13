@@ -241,6 +241,12 @@ int main() {
             write(+1, true, 16.8f);  const uint32_t b = pin_for_tag(nullptr);
             present(-1, -1, a, 10.0f); present(+1, +1, b, 16.8f);
         }
+        trace_arm("test note");
+        trace_note("drew since last present: tick 0 p2 0 | A 1(1) B 0(0) C 0(0)");
+        write(-1, false, 10.0f); { const uint32_t a = pin_for_tag(nullptr); present(-1, -1, a, 10.0f); }
+        trace_note("");
+        check(joined().find("| drew since last present: tick 0 p2 0 | A 1(1)") != std::string::npos,
+              "T: the draw annotation rides the present it was set for");
         std::string healthy = joined();
         check(healthy.find("DUMP") != std::string::npos, "T: an arm opens a dump");
         check(healthy.find(" SAME-WRITE age") == std::string::npos && healthy.find(" OVERRIDE |") == std::string::npos,

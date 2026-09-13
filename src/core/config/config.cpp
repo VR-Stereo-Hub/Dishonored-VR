@@ -1580,6 +1580,13 @@ static void LoadConfig()
         // to gameplay and around a pairing override. Never saved.
         const int pt = GetPrivateProfileIntA("Stereo", "PairTrace", -1, ini);
         if (pt >= 0) dvr::zacct::set_trace(pt != 0, "[Stereo] PairTrace in the ini");
+        // VR-80: count the viewport draw root's other three callers through
+        // pass-through stubs, and annotate each traced present with what drew
+        // since the last one. Diagnostic; the sites are restored when off.
+        const int dc = GetPrivateProfileIntA("Stereo", "DrawCallerTrace", 0, ini);
+        DrawCallersSet(dc != 0);
+        if (dc) Log("config: [Stereo] DrawCallerTrace=1 - the draw root's other callers will be counted "
+                    "from the next script dispatch");
         // VR-91: which QUESTION the probe is answering. The pitch mode rejects
         // any sample rolled past 12 degrees, so it cannot see a roll fault at
         // all; roll mode bins by head roll and measures laterally instead. Same

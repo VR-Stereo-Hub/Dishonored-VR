@@ -151,6 +151,8 @@ bool trace_enabled();
 bool capturing();                              // enabled() || trace_enabled()
 void trace_arm(const char* why);               // any thread; `why` must be a static string
 void trace_basis(const float right[3], bool ok);  // present thread, before on_present
+// An annotation for the next traced present (what drew since the last one); empty clears.
+void trace_note(const char* text);
 void flush(const char* why);             // close the episode and print it (any thread)
 void log_status();
 
