@@ -322,6 +322,61 @@ value was checked against the case it was supposed to explain.
 > fires.** A field that is only populated on the success path is zero on every
 > line you will actually read.
 
+### The golden ini check compared the golden against itself (VR-84)
+
+`tools/ini-golden.py --check FILE` is the gate that catches a `WriteDefaultIni`
+literal edited without a regenerated golden. Its own docstring says so. It could
+not do it: the check read `want` from the golden FILE rather than from
+`extract()`, so pointing it at the golden compared that file to itself and
+printed `MATCH` unconditionally. Every "golden ini: MATCH" in this project's
+history up to 2026-09-12 carried no information.
+
+It was found only because a second bug in the same script - `%%` never being
+unescaped, so the golden said `%%LOCALAPPDATA%%` where the runtime writes
+`%LOCALAPPDATA%` - produced a visible diff when the file was regenerated. A
+passing check had been hiding a golden that did not match the source.
+
+The fix compares against the source literal. Verified the way it should have been
+from the start: corrupt the golden, confirm the check FAILS and prints the diff,
+restore, confirm it passes.
+
+> **A checker that reads its expected value from the artifact it is checking is
+> not a checker.** Prove a gate can fail before trusting that it passed.
+
+### An ini save wrote one key's value into another key (VR-84)
+
+Weapons silently stopped tracking the hands after an ini save, once before and
+again on 2026-09-12. The cause is not subtle once seen, and it is in the save:
+
+```c
+_snprintf(v, 64, "%.0f", g_waRigRadiusUU);   // formats 200 into v
+WritePrivateProfileStringA(..., "AttachEquippedMembers", "1", ini);   // does not use v
+...  17 lines ...
+_snprintf(v, 64, "%d", g_waRefPresents);     // OVERWRITES v with 2
+WritePrivateProfileStringA(..., "AttachRefMaxPresents", v, ini);
+WritePrivateProfileStringA(..., "AttachRigRadius",      v, ini);      // writes 2
+```
+
+The format call for `AttachRigRadius` had drifted seventeen lines from its write
+and sat beside a write that does not take `v` at all, so the value that reached
+the file was whatever the shared buffer last held. Every save wrote
+`AttachRefMaxPresents` into `AttachRigRadius`.
+
+What made it expensive is the symptom. 2 clamps up to the minimum of 10 on the
+next load, and at a 10 uu rig radius every weapon is refused as not being on the
+view model while the hands keep placing normally - so "weapons stop tracking"
+arrives with every nearby counter healthy. The log prints the CLAMPED 10 while
+the file says 2 and the default is 200, so all three readings disagree and none
+of them names the key that was actually wrong.
+
+The whole save function was then scanned mechanically for the same shape - a
+`WritePrivateProfileStringA(..., v, ini)` with no `_snprintf` into `v`
+immediately before it. This was the only one.
+
+> **A shared format buffer is a shared variable.** Format immediately before the
+> write, and when a value is wrong in a file nobody edited, suspect the writer
+> before the reader.
+
 ### A hook placed before a call that takes the local by address (VR-82)
 
 The pistol's firing routine reads its aim direction from the native cache, and the
