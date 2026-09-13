@@ -4828,6 +4828,44 @@ native homing/assist setup may happen afterward. This candidate fixes launch
 convergence; it does not claim controller-based tracing, assist removal, ballistic
 impact prediction, or weapon-model alignment. Those behaviors remain separate.
 
+## The native function registration table, and a tool for the vtable route (2026-09-12)
+
+Three seams have now been derived by walking the same route by hand. It is
+`tools/ue3-natives.py`, and it **re-derives the published crossbow numbers before
+printing anything about a new class**, refusing on a mismatch - a route that
+cannot reproduce an answer already written down is not evidence about a new one.
+
+Confirmed by that tool: the crossbow (`0x01361928` / `0x00C29DB0` / `0x01172C80`,
+slot `+0x1B0` -> `0x00C38230`) and the pistol (`0x01361AE0` / `0x00C29E00` /
+`0x01172E60`, `+0x1B0` -> `0x00C2A3E0`).
+
+**The image carries UE3's native function registration table: 2554 entries**
+pairing an ASCII `A<Class>exec<Function>` name with the exec thunk's address.
+This is a new capability for this project - a route from a function NAME to code,
+where previously only class names were searchable. A UE3 exec thunk parses the
+script stack and then dispatches through a VTABLE SLOT, so the thunk gives the
+slot, and the slot gives the implementation.
+
+Worked example, and the reason it was run: `UDishonoredCheatManagerexecToggle
+UsableHighlight`, name at `0x010C8F1C`, thunk `0x009F3820`. The thunk dispatches
+`+0x4AC` on the cheat manager (vtable `0x01144070` from class
+`DishonoredCheatManager`, metadata `0x0133AE50`, ctor `0x00B832A0`), giving the
+implementation `0x00B6F300`. That function is four instructions and toggles **bit
+`0x400` of the dword at cheat-manager `+0x5C`**.
+
+A `.text` sweep for readers of that bit returns exactly two, both inside one
+function: `0x0060E4AF` and `0x0060E62F`. They sit in a loop that strides a
+20-byte list, calls `0x00646B20` per entry to reach a cheat manager, and tests
+the bit before building a box on the stack - i.e. the usable-highlight draw.
+
+**The interaction seam itself is NOT yet found.** What is established: interaction
+is entirely native (the script dump carries declarations only, and there is no
+`exec` for it anywhere in the 2554 entries, so it is never exposed to script);
+`DisInteractableInterface`'s `CanInteractParams` carries an `m_DisTraceFlags`, so
+selection goes through a flagged trace; and `[Engine.PlayerController]
+InteractDistance=512` is its length. The remaining step is the writer of the
+current-usable field that the highlight loop above reads.
+
 ## VR-82 native pistol fire seam (offline derivation, 2026-09-12)
 
 The crossbow route above, re-walked for the pistol against the same image
