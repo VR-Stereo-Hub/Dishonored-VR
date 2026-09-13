@@ -1,6 +1,47 @@
 # Status
 
-## CURRENT (2026-09-13, session 38): VR-93 done behind levers, PR open. VR-80 logging next
+## CURRENT (2026-09-13, session 39): VR-93, VR-80 and VR-98 merged. Next: stereo after a load
+
+**The after-note flicker is fixed (VR-80).** It was a late eye tag: after a crouched note
+close a present could show a draw's image before that draw's tag reached the ring, the ring
+ran one tag behind until a drain, and each cycle put the left image in the right eye. The
+repair settles the late tag at the next present when that present's camera step confirms it,
+and relabels the capture slot still waiting to be delivered (under `SharedWait=0` the pixels
+arrive one present after the label). Headset-confirmed: 71 repairs relabelled, 0 refused,
+reported essentially clean. The full account is FLICKER_REFERENCE 3.15 "The solution"; the
+tools that found it (the ring ledger with draw ids, and the host model compiling the shipped
+pairing) are reusable.
+
+**A note now switches mono and back with its screen (VR-98).** The note's view silence went
+through the load rules (750 ms to mono, a second back); it now counts as a menu's. Measured
+0-15 ms each way, was 0.65-0.95 s. Headset-confirmed.
+
+| Lever | Shipped | Installed on the test PC |
+|---|---|---|
+| `[Hands] AttachKeepOnMenu`, `AttachKeepOnNote` (VR-93) | 0 | 1 |
+| `[Menu] UiKeepOnMenu` (VR-93) | 0 | 1 |
+| `[Stereo] LateTagRepair` (VR-80) | 0 | 1 |
+| `[Menu] NoteFastMono` (VR-98) | 0 | 1 |
+| `[Stereo] RingLedger`, `PairTrace`, `DrawCallerTrace`; `[Menu] UiFlags` (diagnostics) | 0 | 1 |
+
+All five behaviour levers are headset-confirmed and ship OFF under the default-off rule;
+whether to promote them to fresh-install defaults is an open decision for the maintainers.
+
+### Found and filed, not fixed
+
+- **VR-99**: why the tag margin collapses after a crouched note close and a pause restores it;
+  an occasional single frame remains; whether `LateTagRepair` should default on.
+- **VR-96 (High)** GC crash and **VR-97** zero-`c5` skew are unchanged from session 38.
+
+### Next
+
+**Stereo after a load.** Reported: on a level load the hands track at once but the weapons do
+not; 2-3 s in the game drops to 0 fps for 3-4 s, the weapons then track, but the view stays
+MONO until the player moves vertically (jump, crouch, stairs) and then goes stereo at once. The
+goal is stereo as soon as the weapons track, and weapons tracked as early as the hands. A new
+ticket and branch, with a plan for review before code. VR-94 (issue A) and VR-95 still wait.
+
+## Earlier (2026-09-13, session 38): VR-93 done behind levers, PR open. VR-80 logging next
 
 **A pause, a menu or a book no longer relearns the weapons (VR-93).** Every exit from
 GAMEPLAY used to run the level-load transition: weapon contracts and the candidate list were
@@ -4246,6 +4287,19 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-13 - session 39: a late tag, and a note that waited on the load rules
+
+**VR-80 was solved by measuring one event end to end.** Three instrumented runs had built a
+convincing aggregate story (a drain that over-consumes and re-triggers itself). A host model
+compiling the shipped pairing could not reproduce it, and the first per-present ledger with
+draw ids showed the drain removing the correct tag; the real fault was a recurring late tag.
+The first repair then moved the flicker to the left eye, which named the second half: the
+pipelined capture delivers the previous slot, so the image needed relabelling, not only the
+label. Both halves were reproduced in the host model before each headset run.
+
+**VR-98 was a rule written for loading screens applied to a note.** The note movie was already
+observed; its silence now counts as a menu's.
 
 ### 2026-09-13 - session 38: a menu is not a load
 

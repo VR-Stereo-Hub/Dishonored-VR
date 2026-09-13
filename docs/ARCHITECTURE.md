@@ -718,6 +718,24 @@ substituted value discards whatever it encoded, silently.
 So the pattern for any future engine consumer, VR-90 included: find the input that feeds
 the engine's own computation and change that. If only an output is reachable, the engine's
 validation is being bypassed and that has to be argued explicitly, not assumed away.
+### 2026-09-13 - a late eye tag is repaired, and its waiting image relabelled (VR-80)
+
+The tag ring pairs images to eyes by order; the c5 step checks the order. A present can show a
+draw's image before that draw's tag is pushed (measured after a crouched note close: under 1 ms
+of margin), and the order is then one tag behind until three disagreements drain it, with one
+wrong-eye image per cycle. The chosen repair keeps the order as the pairing and adds a debt: an
+empty pop whose c5 names an eye owes that eye a tag, and the next present settles it only if its
+own c5 confirms the opposite eye. It was chosen over waiting for the tag on the present thread
+(an unbounded stall on a real missing tag) and over inventing the eye on the empty pop (the
+cross-tick arm is wrong on a moving player, which is what made the stale right eye in 41.1).
+
+The repair has a second half because the capture is pipelined. Under `SharedWait=0` a present
+delivers the previous present's slot, so the repaired label arrives one present after the pixels
+it names. The repair relabels that one waiting slot (only if it is untagged and from the latest
+grab) instead of changing the delivery timing. The pairing code moved to `reentry_pair.inc` so a
+host model compiles the same source; any change to the ring or the arbitration should extend that
+model before a headset run.
+
 ### 2026-09-13 - a note's view silence is a menu's, not a load's (VR-98)
 
 The view term of the gameplay verdict (`DvrScriptViewLive`) waits 750 ms of dispatch silence
@@ -727,5 +745,6 @@ already exempt from the second. A note or book silences the dispatches the same 
 UI observer already knows its movie is open, so with `[Menu] NoteFastMono=1` the open note
 movie holds the view not-live at once and its silence counts as a menu's: the first dispatch
 after it closes is live. Measured before: about 0.65-0.75 s to mono after a note opened and
-0.94 s back to stereo after it closed. The observer's poll must be under 500 ms old for the
+0.94 s back to stereo after it closed; after, 0-15 ms each way (headset-confirmed, six notes in
+one run). The observer's poll must be under 500 ms old for the
 note flag to count, so a stopped observer cannot park the picture on the mono quad.

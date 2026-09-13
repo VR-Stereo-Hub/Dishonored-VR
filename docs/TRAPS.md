@@ -527,6 +527,22 @@ holds no GObjects array and not the region the garbage collector faulted on, so 
 object holding the bad value could not be named offline. Read the crash registers from
 `dishonored_vr_crash.txt`, and do not expect the dump to answer an object question.
 
+### Aggregate counters that read as a self-sustaining loop (VR-80)
+
+Across three instrumented runs the after-note flicker's counters (realigns, untagged-branch
+entries, TOOKs) rose together, and they read naturally as a drain that over-consumes the ring
+and keeps re-triggering itself. The plan predicted exactly that. The host model, compiling the
+shipped pairing, could not reproduce any self-sustaining loop from a single fault, and the first
+per-present ledger with draw ids showed the drain removing the RIGHT tag every time. The fault was
+a recurring onset: a present showing a draw's image under a millisecond before that draw's tag
+reached the ring. The counters could not tell onset from repair because both move them.
+
+> **When counters rise together, measure one event end to end before naming a loop.** Give
+> every item an identity (a draw id) and record what each step removed. And under a pipelined
+> capture (`SharedWait=0`) a corrected label is not a corrected image: the present delivers the
+> previous slot, so check the delivered column too (the first repair moved the flicker to the
+> left eye for exactly this reason).
+
 ## 3. Plans that were tried and failed
 
 | Plan | Why it failed | Where the detail is |
@@ -541,6 +557,7 @@ object holding the bad value could not be named offline. Read the crash register
 | Blaming the re-entry second draw (or the tick rate it costs) for the intro boat fall (VR-73) | `[Stereo] Armed=0` still fell, at 74-90 ticks/s. The cause was the hand collector clearing the boat's collision. | ENGINE_NOTES, VR-73 |
 | Serving a neutral virtual pad when its sample is older than 150 ms, for the boat fall (VR-73) | Still fell. The first fresh sample after the hitch still held A, so the guard itself produced a new jump press; the runs without it show no jump at the seat-in at all. Patch kept outside the tree. | ENGINE_NOTES, VR-73 |
 | A name test (`pPlayerMesh`, asset names) as the licence to write a component | Names do not establish ownership; the pointer walk reaches world meshes (the intro boat, doors, props). Read `ActorComponent.Owner`. | ENGINE_NOTES, VR-73 |
+| Blaming the three-disagreement drain for the sustained after-note flicker (VR-80) | The host model found no self-sustaining drain loop, and the headset ledger showed the drain removing the correct tag. The onset was a late tag. | FLICKER_REFERENCE 3.15 |
 | A Vulkan translation layer (the DXVK fork) | Removed in 41.0. The game renders natively through D3D9; do not bring it back. Git history keeps it under the `dxvk-*` tags. | CLAUDE.md |
 
 ---
