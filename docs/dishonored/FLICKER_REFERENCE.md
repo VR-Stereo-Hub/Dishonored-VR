@@ -1119,6 +1119,13 @@ gameplay tick the stub tags. The untagged presents are therefore extra **Present
 draws. They show a new pass-1 (left) camera with the ring empty, i.e. before the tick's -1 tag
 was pushed. Next: name the Present caller (the return address into the exe) for those presents.
 
+**Third instrument built, not yet run.** With `DrawCallerTrace=1` the Present hook stores its return
+address on every present and a short backtrace, each trace line carries `Present from <addr> via
+<frames>`, and the 10 s census lists every distinct Present return address with its count against the
+gameplay ticks. Counterprediction: one address for tagged and untagged presents alike means the extra
+present comes through the engine's normal present path (a timing or pacing cause); a second address
+on the untagged presents names a second presenter.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

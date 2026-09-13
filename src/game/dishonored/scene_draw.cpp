@@ -584,37 +584,63 @@ static void DrawCallersApply()
     }
 }
 
-// Present thread: what drew since the previous present, as one short annotation
-// for the pair trace, and a census line every 10 s.
+// Present thread: what drew since the previous present and WHO called Present, as
+// one annotation for the pair trace, and a census line every 10 s. The callers
+// census exists because build 199 measured the other draw-root callers silent:
+// the extra presents are Present calls, and their return address names the owner.
 static void DrawCallersNote()
 {
-    static LONG lastTicks = 0, lastP2 = 0, last[3] = {0, 0, 0}, lastP[3] = {0, 0, 0};
+    static LONG lastTicks = 0, lastP2 = 0, last[3] = {0, 0, 0};
     const LONG ticks = (LONG)g_sdDraws, p2 = (LONG)g_sdSecondDraws;
-    LONG c[3], p[3];
-    for (int i = 0; i < 3; ++i) { c[i] = g_vdCalls[i]; p[i] = g_vdPresenting[i]; }
-    char note[96];
-    _snprintf(note, sizeof(note), "drew since last present: tick %ld p2 %ld | A %ld(%ld) B %ld(%ld) C %ld(%ld)",
-              ticks - lastTicks, p2 - lastP2, c[0] - last[0], p[0] - lastP[0], c[1] - last[1], p[1] - lastP[1],
-              c[2] - last[2], p[2] - lastP[2]);
+    LONG c[3];
+    for (int i = 0; i < 3; ++i) c[i] = g_vdCalls[i];
+    dvr::frame::set_present_backtrace(g_vdInstalled);
+    const uintptr_t ret = dvr::frame::present_return_address();
+    uintptr_t bt[8];
+    const int btN = dvr::frame::present_backtrace(bt, 8);
+    char note[200];
+    int k = _snprintf(note, sizeof(note), "drew: tick %ld p2 %ld abc %ld | Present from %08x via",
+                      ticks - lastTicks, p2 - lastP2, (c[0] - last[0]) + (c[1] - last[1]) + (c[2] - last[2]),
+                      (unsigned)ret);
+    for (int i = 1; i < btN && i < 6 && k > 0 && k < (int)sizeof(note) - 10; ++i)
+        k += _snprintf(note + k, sizeof(note) - k, " %08x", (unsigned)bt[i]);
     note[sizeof(note) - 1] = 0;
     dvr::zacct::trace_note(g_vdInstalled ? note : "");
     lastTicks = ticks; lastP2 = p2;
-    for (int i = 0; i < 3; ++i) { last[i] = c[i]; lastP[i] = p[i]; }
+    for (int i = 0; i < 3; ++i) last[i] = c[i];
     if (!g_vdInstalled) return;
+
+    // distinct Present return addresses, counted between census lines
+    struct Ret { uintptr_t at; LONG n; };
+    static Ret rets[8] = {};
+    static LONG overflow = 0;
+    bool found = false;
+    for (auto& r : rets) if (r.at == ret) { ++r.n; found = true; break; }
+    if (!found) {
+        bool placed = false;
+        for (auto& r : rets) if (!r.at) { r.at = ret; r.n = 1; placed = true; break; }
+        if (!placed) ++overflow;
+    }
     static double nextCensus = 0.0;
-    static LONG censusC[3] = {0, 0, 0}, censusP[3] = {0, 0, 0}, censusTicks = 0;
+    static LONG censusTicks = 0, censusC[3] = {0, 0, 0};
     const double now = MaimNowMs();
     if (now < nextCensus) return;
-    if (nextCensus != 0.0)
-        Log("vr80/callers: last 10 s - gameplay ticks %ld | A %ld (presenting %ld) | B %ld (presenting %ld) | "
-            "C %ld (presenting %ld). A presenting draw outside the gameplay tick is a present with no eye tag.",
-            ticks - censusTicks, c[0] - censusC[0], p[0] - censusP[0], c[1] - censusC[1], p[1] - censusP[1],
-            c[2] - censusC[2], p[2] - censusP[2]);
+    if (nextCensus != 0.0) {
+        char list[260]; int m = 0; list[0] = 0;
+        for (auto& r : rets)
+            if (r.at && m < (int)sizeof(list) - 24) m += _snprintf(list + m, sizeof(list) - m, " %08x x%ld", (unsigned)r.at, r.n);
+        list[sizeof(list) - 1] = 0;
+        Log("vr80/callers: last 10 s - gameplay ticks %ld, other draw-root callers %ld | Present called from:%s%s. "
+            "A second return address is a second presenter; its count against the ticks says how often.",
+            ticks - censusTicks, (c[0] - censusC[0]) + (c[1] - censusC[1]) + (c[2] - censusC[2]),
+            list[0] ? list : " (none)", overflow ? " (+more, table full)" : "");
+    }
+    for (auto& r : rets) r = Ret{};
+    overflow = 0;
     nextCensus = now + 10000.0;
     censusTicks = ticks;
-    for (int i = 0; i < 3; ++i) { censusC[i] = c[i]; censusP[i] = p[i]; }
+    for (int i = 0; i < 3; ++i) censusC[i] = c[i];
 }
-
 // The method arms / disarms (present thread): the patch request goes to the
 // game thread, the arm flag is immediate.
 static void SceneDrawSetArmed(bool on)

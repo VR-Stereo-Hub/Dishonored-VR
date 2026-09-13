@@ -81,5 +81,10 @@ bool exiting();
 void set_fps_cap(float fps);   // [VR] FpsCap (0 = off)
 float fps_cap();
 bool xr_live();                // the runtime session is live as of this present
+// VR-80: who called Present. The return address is stored on every present (one
+// store); the short backtrace only while set_present_backtrace(true). Present thread.
+uintptr_t present_return_address();
+int present_backtrace(uintptr_t* out, int max);
+void set_present_backtrace(bool on);
 
 } // namespace dvr::frame

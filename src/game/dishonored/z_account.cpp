@@ -179,7 +179,7 @@ struct TraceRec {
     double   wAgeMs = 0.0;
     bool     c5Ok = false, stepOk = false, tagC5Ok = false;
     float    c5R = 0.0f, stepR = 0.0f, tagC5 = 0.0f;
-    char     note[96] = {0};
+    char     note[200] = {0};
 };
 volatile LONG g_trOn = 0;
 volatile LONG g_trArmReq = 0;
@@ -191,7 +191,7 @@ float    g_trBasis[3] = {0, 0, 0};
 bool     g_trBasisOk = false, g_trPrevC5Ok = false;
 float    g_trPrevC5R = 0.0f;
 double   g_trNextOverrideMs = 0.0;
-char     g_trNote[96] = {0};
+char     g_trNote[200] = {0};
 
 void trace_print(const TraceRec& r) {
     char w[160], c[64], s[32], t[40];

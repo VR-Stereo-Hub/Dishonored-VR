@@ -13,6 +13,7 @@
 #include "core/vr/openxr_runtime.h"
 
 #include <d3d11.h>
+#include <intrin.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -44,6 +45,11 @@ volatile LONG g_exiting = 0;
 float         g_fpsCap = 0.0f;
 bool          g_xrLive = false;
 LONGLONG      g_qpcFreq = 0;
+// VR-80: the Present caller
+uintptr_t     g_presentRet = 0;
+volatile LONG g_presentBtOn = 0;
+uintptr_t     g_presentBt[8] = {};
+int           g_presentBtN = 0;
 
 // XR pose (meters, quaternion; XR LOCAL space: right +X, up +Y, forward -Z)
 // -> the 3x4 device-to-tracking matrix the game side consumes. XR LOCAL space
@@ -111,6 +117,13 @@ void track_session() {
 
 HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT* dst, HWND wnd,
                             const RGNDATA* dirty) {
+    g_presentRet = (uintptr_t)_ReturnAddress();   // VR-80: the game's call site of this present
+    if (InterlockedCompareExchange(&g_presentBtOn, 0, 0)) {
+        void* bt[8];
+        const USHORT n = RtlCaptureStackBackTrace(1, 8, bt, nullptr);
+        for (USHORT i = 0; i < n; ++i) g_presentBt[i] = (uintptr_t)bt[i];
+        g_presentBtN = n;
+    }
     // 38.79: once the game has announced shutdown, the VR work stands down
     // completely (a user's log ended in a call through freed memory AFTER
     // PreExit). The session comes down here, on the present thread, once.
@@ -345,5 +358,12 @@ bool exiting() { return InterlockedCompareExchange(&g_exiting, 0, 0) != 0; }
 void set_fps_cap(float fps) { g_fpsCap = fps; }
 float fps_cap() { return g_fpsCap; }
 bool xr_live() { return g_xrLive; }
+uintptr_t present_return_address() { return g_presentRet; }
+int present_backtrace(uintptr_t* out, int max) {
+    const int n = g_presentBtN < max ? g_presentBtN : max;
+    for (int i = 0; i < n; ++i) out[i] = g_presentBt[i];
+    return n;
+}
+void set_present_backtrace(bool on) { InterlockedExchange(&g_presentBtOn, on ? 1 : 0); if (!on) g_presentBtN = 0; }
 
 } // namespace dvr::frame
