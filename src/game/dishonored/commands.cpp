@@ -185,6 +185,16 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::camera::pitchtest_start(deg);
             return true;
         }
+        if (!strcmp(sub, "zaccount")) {
+            // VR-78: the vertical accounting probe (z_account.h)
+            char v[16] = "";
+            sscanf(args, "%*s %15s", v);
+            if (!_stricmp(v, "on")) dvr::zacct::set_enabled(true, "seam");
+            else if (!_stricmp(v, "off")) dvr::zacct::set_enabled(false, "seam");
+            else if (!_stricmp(v, "reset")) dvr::zacct::reset("seam reset");
+            else dvr::zacct::log_status();
+            return true;
+        }
         if (!strcmp(sub, "eyefield")) {
             fld[0] = 0;
             sscanf(args, "%*s %15s", fld);

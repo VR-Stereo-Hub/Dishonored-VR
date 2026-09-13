@@ -1388,18 +1388,41 @@ static void TrackHead(const float (*m)[4])
             if (g_neckMode == 2) { neckR = -neckR; neckU = -neckU; neckF = -neckF; }
         }
         g_neckArcUu[0] = neckR; g_neckArcUu[1] = neckU; g_neckArcUu[2] = neckF;
+        // VR-78: the parts are kept apart for the accounting probe, and the
+        // triple handed to the seam is exactly their sum on each branch.
+        float zRaw[3] = {0.0f, 0.0f, 0.0f}, zNeck[3] = {0.0f, 0.0f, 0.0f}, zPos[3];
         if (!g_posTrack) {
             // off = zero on both lanes; with the neck ADDED the arc alone rides
             // the seam (a 3DoF rig gets a neck it never had)
-            dvr::camera::set_position_offset_uu(g_neckMode == 1 ? neckR : 0.0f, g_neckMode == 1 ? neckU : 0.0f,
-                                                g_neckMode == 1 ? neckF : 0.0f);
+            if (g_neckMode == 1) { zNeck[0] = neckR; zNeck[1] = neckU; zNeck[2] = neckF; }
+            zPos[0] = zNeck[0]; zPos[1] = zNeck[1]; zPos[2] = zNeck[2];
         } else if (dvr::stereo::wants_projection()) {
             const float cyw = cosf(yaw), syw = sinf(yaw);
-            dvr::camera::set_position_offset_uu((rawDx*cyw + rawDz*syw) * g_posScaleUU + neckR,
-                                                rawDy * g_posScaleUU + neckU,
-                                                (rawDx*syw - rawDz*cyw) * g_posScaleUU + neckF);
+            zRaw[0] = (rawDx*cyw + rawDz*syw) * g_posScaleUU;
+            zRaw[1] = rawDy * g_posScaleUU;
+            zRaw[2] = (rawDx*syw - rawDz*cyw) * g_posScaleUU;
+            zNeck[0] = neckR; zNeck[1] = neckU; zNeck[2] = neckF;
+            zPos[0] = zRaw[0] + neckR; zPos[1] = zRaw[1] + neckU; zPos[2] = zRaw[2] + neckF;
         } else {
-            dvr::camera::set_position_offset_uu((float)g_leanRightUU, (float)g_leanUpUU, (float)g_leanFwdUU);
+            zPos[0] = (float)g_leanRightUU; zPos[1] = (float)g_leanUpUU; zPos[2] = (float)g_leanFwdUU;
+        }
+        dvr::camera::set_position_offset_uu(zPos[0], zPos[1], zPos[2]);
+        if (dvr::zacct::enabled()) {
+            dvr::zacct::Head zh;
+            zh.seq = (uint32_t)g_frame;
+            zh.ms = dvr::zacct::now_ms();
+            memcpy(zh.raw, zRaw, sizeof(zh.raw));
+            memcpy(zh.neck, zNeck, sizeof(zh.neck));
+            memcpy(zh.pos, zPos, sizeof(zh.pos));
+            zh.pitchDeg = g_hmdPitch * 57.29578f;
+            zh.yawDeg = g_hmdYaw * 57.29578f;
+            zh.rollDeg = g_hmdRoll * 57.29578f;
+            zh.neckBelowM = g_neckBelowM; zh.neckBehindM = g_neckBehindM; zh.scale = g_posScaleUU;
+            zh.neckMode = g_neckMode;
+            zh.posTrack = g_posTrack != 0;
+            zh.projection = dvr::stereo::wants_projection();
+            zh.ok = true;
+            dvr::zacct::publish_head(zh);
         }
     }
 

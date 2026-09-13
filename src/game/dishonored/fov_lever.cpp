@@ -81,11 +81,27 @@ static inline void FovLeverApply()
     // stance flapping is harmless because the clamp just follows the
     // capsule. Rides this dispatch-cadence writer, which the FOV lever
     // proved sticks. [PosTrack] EyeClamp=0 reverts.
+    // VR-78: the accounting probe's clamp record (z_account.h), one per pass.
+    // It reads what the fields held before and after THIS clamp; a value that
+    // was our own previous write is flagged, never called the engine's eye.
+    const bool za = dvr::zacct::enabled();
+    dvr::zacct::Clamp zc;
+    if (za) {
+        static uint32_t zcSeq = 0;
+        zc.seq = ++zcSeq;
+        zc.ms = dvr::zacct::now_ms();
+        zc.cyl = g_cylLast;
+        zc.cylAgeMs = MaimNowMs() - g_cylOkMs;
+    }
     if (g_eyeClampCfg && g_pePawn && g_actorLocFound && g_cylLast > 10.0f &&
         (MaimNowMs() - g_cylOkMs) < 1500.0 &&
         RangeReadable(g_pePawn + g_actorLocOff, 12)) {
         float pz = ((const float*)(g_pePawn + g_actorLocOff))[2];
         float zmax = pz + g_cylLast - g_eyeClampMargin;
+        if (za) {
+            memcpy(zc.pawn, (const float*)(g_pePawn + g_actorLocOff), sizeof(zc.pawn));
+            zc.ceilRaw = zmax;
+        }
         // 38.26: EASE THE CEILING DOWN. 38.25 measured the clamp working but
         // TELEPORTING: the capsule resizes in one engine tick (87.5 -> 65 ->
         // 33 and back), pawnZ jumps 32-55 uu with it, so zmax - and the
@@ -121,16 +137,20 @@ static inline void FovLeverApply()
         static const uint32_t kCamLoc[4] = { kCamLoc0, kPovOffs[0], kPovOffs[1], kPovOffs[2] };
         bool did = false; float was = 0.0f;
         for (int ci = 0; ci < 4; ci++) {
+            if (za) zc.fieldOff[ci] = kCamLoc[ci];
             if (!g_camObj || !RangeReadable(g_camObj + kCamLoc[ci], 12))
                 continue;
             float* lp = (float*)(g_camObj + kCamLoc[ci]);
             float z = lp[2];
+            bool ours = false;
             if (z > zmax && (z - pz) < 250.0f && (z - pz) > -250.0f) {
                 if (!did) was = z;
-                dvr::camera::clamp_location_z(g_camObj, kCamLoc[ci], zmax);
+                ours = dvr::camera::clamp_location_z(g_camObj, kCamLoc[ci], zmax);
                 did = true;
             }
+            if (za) { zc.readable[ci] = true; zc.pre[ci] = z; zc.post[ci] = lp[2]; zc.ours[ci] = ours; }
         }
+        if (za) { zc.ceilEased = zmax; zc.ran = true; }
         if (did) {
             static double tl = 0.0; double nw = MaimNowMs();
             if (nw - tl > 1000.0) { tl = nw;
@@ -142,4 +162,5 @@ static inline void FovLeverApply()
     } else {
         dvr::camera::set_eye_ceiling(0.0f, false);
     }
+    if (za) dvr::zacct::note_clamp(zc);
 }

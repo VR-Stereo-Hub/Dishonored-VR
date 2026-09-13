@@ -42,6 +42,7 @@
 
 #include "core/gfx/d3d9ex.h"
 #include "game/dishonored/camera.h"
+#include "game/dishonored/z_account.h"
 #include "game/dishonored/hands/hand_frame.h"
 #include "game/dishonored/hands/weapon_frame.h"
 #include "game/dishonored/hands/hand_frame_test.h"

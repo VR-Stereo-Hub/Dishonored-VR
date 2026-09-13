@@ -1492,6 +1492,15 @@ static void LoadConfig()
     g_skcBlockTrimOn = IniFloat(ini, "Hands", "BlockTrim", 1) != 0.0f;
     g_crawlTuckCfg   = IniFloat(ini, "Hands", "CrawlTuck", 1) != 0.0f;  // 38.19
     g_slideAssist    = IniFloat(ini, "Input", "SlideAssist", 1) != 0.0f; // 38.22
+    // VR-78: the vertical accounting probe. Read here and deliberately NOT written
+    // by WriteDefaultIni or the save: an absent key is the compiled default (off),
+    // and a save must never materialise a diagnostic into a player's ini.
+    {
+        const int za = GetPrivateProfileIntA("PosTrack", "ZAccount", -1, ini);
+        if (za >= 0) dvr::zacct::set_enabled(za != 0, "[PosTrack] ZAccount in the ini");
+        Log("config: [PosTrack] ZAccount=%d - %s", za > 0 ? 1 : 0,
+            za < 0 ? "absent, compiled default off" : "from the ini");
+    }
     g_eyeClampCfg    = IniFloat(ini, "PosTrack", "EyeClamp", 1) != 0.0f; // 38.24
     g_eyeClampMargin = IniFloat(ini, "PosTrack", "EyeClampMargin", 8.0f);
     if (g_eyeClampMargin < 2.0f)  g_eyeClampMargin = 2.0f;

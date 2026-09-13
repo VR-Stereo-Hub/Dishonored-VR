@@ -252,6 +252,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             RangeReadable(f, kNameOff + 8) && *(uint32_t*)(f + kNameOff) == preExitIdx) {
             InterlockedExchange(&g_gameExiting, 1);
             Log("shutdown: game PreExit - VR paths standing down, closing the OpenXR session");
+            if (dvr::zacct::enabled()) dvr::zacct::flush("game exit");   // VR-78: a partial sweep still reports
             LogFlush();
             dvr::frame::set_exiting();   // parks the present hook before any runtime call
             Sleep(150);                  // an in-flight present finishes

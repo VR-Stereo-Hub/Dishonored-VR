@@ -56,7 +56,7 @@ ReentryHooks g_hooks;
 constexpr uint32_t kRing = 8;
 // VR-65: the tag carries the RECORD the draw was rendered with, so the pose
 // travels with the image instead of being chosen by timing at submission.
-struct Tag { int eye; bool posOk; float pos[3]; uint32_t rec; };
+struct Tag { int eye; bool posOk; float pos[3]; uint32_t rec; uint32_t acct; };
 Tag           g_ring[kRing];
 volatile LONG g_ringHead = 0, g_ringTail = 0;
 uint32_t      g_ringDropped = 0, g_ringCleared = 0, g_tagMismatch = 0, g_tagOk = 0, g_tagUntagged = 0;
@@ -232,11 +232,12 @@ public:
         if (!d.dev9 || !d.dev11 || !d.ctx11) return false;
         if (!blit_.init(d.dev11)) return false;
         // The tag for the frame the game just drew, checked against its c5.
-        Tag t = {0, false, {0.0f, 0.0f, 0.0f}};   // 41.1: the c5 arm can tag a present the ring never filled
+        Tag t = {0, false, {0.0f, 0.0f, 0.0f}, 0, 0};   // 41.1: the c5 arm can tag a present the ring never filled
         int eye = 0;
         float c5now[3];
         const bool haveC5 = dvr::camera::render_pos(c5now);
         bool tagged = pop_tag(t, haveC5 ? c5now : nullptr);
+        const int ringEye = tagged ? t.eye : 0;   // VR-78: before the pairing may override it
         // The within-tick invariant (see g_c5Pair): what this present's c5
         // says about its pass, before the ring's claim is read.
         int inv = 0;
@@ -358,6 +359,9 @@ public:
         } else {
             ++g_tagUntagged;
         }
+        if (g_hooks.present_tag)
+            g_hooks.present_tag(ringEye, eye, tagged, tagged ? t.acct : 0u, haveC5, c5now,
+                                dvr::camera::render_pos_serial());
         dvr::desktop_eye::note_drawn_eye(eye); // VR-76: current pixels, before capture delivery
         dvr::capture::set_pending_tag(eye);
         // VR-65: and the record the draw was rendered with, onto the same slot
@@ -621,9 +625,11 @@ void set_reentry_c5_pair(bool on) {
 }
 bool reentry_c5_pair() { return g_c5Pair; }
 
-void reentry_push_tag(int eyeSign, const float pos[3]) { reentry_push_tag_rec(eyeSign, pos, 0); }
+void reentry_push_tag(int eyeSign, const float pos[3]) { reentry_push_tag_acct(eyeSign, pos, 0, 0); }
 
-void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec) {
+void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec) { reentry_push_tag_acct(eyeSign, pos, rec, 0); }
+
+void reentry_push_tag_acct(int eyeSign, const float pos[3], uint32_t rec, uint32_t acct) {
 
     const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0), tail = InterlockedCompareExchange(&g_ringTail, 0, 0);
     if (head - tail >= (LONG)kRing) { ++g_ringDropped; return; }   // no consumer (no present) or stalled
@@ -631,6 +637,7 @@ void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec) {
     t.eye = eyeSign;
     t.posOk = pos != nullptr;
     t.rec = rec;
+    t.acct = acct;
     if (pos) memcpy(t.pos, pos, sizeof(t.pos));
     InterlockedExchange(&g_ringHead, head + 1);
 }

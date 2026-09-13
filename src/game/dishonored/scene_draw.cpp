@@ -364,8 +364,9 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     }
     // Pass 2 deliberately reuses pass 1's rotation, so the record says so
     // rather than presenting the reuse as a fresh sample.
-    dvr::stereo::reentry_push_tag_rec(+1, wrote ? wrotePos : NULL,
-                                      SdOpenPoseRecord(+1, g_sdPairId, true));
+    const uint32_t acct2 = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);   // VR-78: this write, by id
+    dvr::stereo::reentry_push_tag_acct(+1, wrote ? wrotePos : NULL,
+                                       SdOpenPoseRecord(+1, g_sdPairId, true), acct2);
     g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
@@ -429,8 +430,9 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             float pos[3];
             const bool posOk = dvr::camera::last_written_pos(pos);
             g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
-            dvr::stereo::reentry_push_tag_rec(-1, posOk ? pos : NULL,
-                                              SdOpenPoseRecord(-1, g_sdPairId, false));
+            const uint32_t acct1 = dvr::zacct::pin_for_tag(posOk ? pos : NULL);   // VR-78: the tick's last write
+            dvr::stereo::reentry_push_tag_acct(-1, posOk ? pos : NULL,
+                                               SdOpenPoseRecord(-1, g_sdPairId, false), acct1);
         } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
             dvr::desktop_eye::note_single_draw(); // VR-76: actual ticks, not rate-limited log lines
             // A single GAMEPLAY draw while the method pops: one push per draw,
@@ -511,6 +513,17 @@ static uint32_t SceneDrawDraws() { return g_sdDraws; }
 
 // The pass-2 skip counters for the method's stale-eye line (present thread
 // reads what the game thread counts: diagnostics, a torn read costs one).
+// VR-78: the reentry method hands back each tagged present's accounting id with
+// its c5, after the pairing has chosen the eye. Present thread.
+static void SceneDrawPresentTag(int ringEye, int finalEye, bool tagged, uint32_t acct, bool haveC5,
+                                const float c5[3], uint32_t c5Serial)
+{
+    if (!dvr::zacct::enabled()) return;
+    const double now = dvr::zacct::now_ms();
+    dvr::zacct::on_present(ringEye, finalEye, tagged, acct, haveC5, c5, c5Serial, now);
+    dvr::zacct::tick(now);
+}
+
 static void SceneDrawGates(uint32_t out[dvr::stereo::kReentryGateCount])
 {
     out[0] = g_sdSkipForeign; out[1] = g_sdSkipState; out[2] = g_sdSkipSilent; out[3] = g_sdSkipStall;
