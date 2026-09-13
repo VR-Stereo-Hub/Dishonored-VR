@@ -1,175 +1,242 @@
-# VR-78 plan: the view height moves the wrong way with head pitch
+# VR-78 revised plan: pitch-dependent view-height error
 
-**Status: DRAFT FOR REVIEW. No code written.** Branch `claude/vr-78-crouch-camera-pitch`, off
-`VR-Main` at `33e1e60c`. Reviewer: read sections 2 to 4 against the code before section 6.
+**Status: reviewed plan; implementation and headset validation pending.**
+Branch: `claude/vr-78-crouch-camera-pitch`. This revision is based on the
+current local camera writer, clamp, tracking composition, and engine notes.
+No runtime code or installed configuration is changed by this review.
 
-## 1. The observation
+## 1. Objective and scope
 
-* Crouched: pitching the head down raises the view, and pitching up lowers it. Reported on the
-  VR-76 build, and again 2026-09-12.
-* NEW 2026-09-12: the same thing happens **standing**, much weaker. The tester cannot tell
-  whether it is the camera or the hand placement that moves.
-* VR-7 (deep crouch climb) and VR-55 (slide height) are both Done. Neither is touched by this
-  plan. VR-28 (crawl under furniture) shares the clamp in section 2 and is in the blast radius.
+Remove camera movement caused by head pitch beyond the actual tracked head
+translation, in standing and toggle-crouched gameplay. Preserve crouch/vent
+clearance and writer rebasing. Determine whether the reported motion is camera,
+hands, or both; a vertical camera test alone cannot clear the whole camera path.
 
-## 2. The vertical chain today, in order
+VR-86 remains outside this work. The OPTIONS.sav finding is supplied context;
+this review does not modify the profile or ticket. VR-7 and VR-55 need regression
+coverage because stance transitions and the shared ceiling remain relevant,
+even though their feature work is complete. Include VR-28 crawl clearance.
 
-Every present, the render camera's world Z is decided by four things on two lanes:
+## 2. Review findings that change the original plan
 
-| # | Lane | Where | What it does to Z |
-|---|---|---|---|
-| 1 | engine | the game's camera | eye height for the stance, plus **the engine's own neck arc**: it pitches its camera about a pivot 0.321 m below and 0.062 m behind the eye (ENGINE_NOTES "The pitch pivot", measured STANDING, simulator) |
-| 2 | script | `fov_lever.cpp` 38.24 eye clamp | `zmax = pawnZ + CollisionHeight - 8`, eased down at 300 uu/s, released instantly. Clips the engine's camera location fields to `zmax` |
-| 3 | present -> script | `head_track.cpp:1396` -> `camera.cpp apply_offsets` | adds the eye offset, the RAW tracked head displacement, and with `[Neck] Mode=cancel` **minus the modelled engine arc** |
-| 4 | script | `camera.cpp:578` | caps (base + offset) at the same `zmax` again and counts it in `g_ceilClips` |
+1. **The log is evidence of clipping, not proof of an engine pivot being erased.**
+   `FovLeverApply` reads four mutable camera fields and logs the first field
+   clipped, without its identity. These may contain a previous mod write.
+   It logs only when a clip happened, throttled to once a second; 70 lines do
+   not establish every-frame clipping. Equal rounded standing values can mean
+   a tiny positive clip. Neither quoted value proves the untouched engine eye.
+2. **The writer has memory.** `clamp_written_z` reconciles an exact previous
+   write by changing `lastOff` and `last`, preserving the original base.
+   `current_base` can therefore recover a base ABOVE the just-clamped field.
+   A fresh engine write and a persistent mod write follow different paths.
+   A simple four-term pipeline omits this distinction.
+3. **The second cap matters to the predicted symptom.** Even on the simplified
+   fresh-base path, with ceiling C, tracked vertical R and engine arc A,
+   a fully clipped base produces `min(C, C + R - A)` (ignoring eye Z).
+   For R=0 and a negative arc, the final cap holds Z at C; it does not let
+   the proposed upward correction through. With R<0 it can suppress the real
+   head's descent, so the view can still be too high RELATIVE to the head.
+   The hypothesis is plausible, but the original arithmetic is incomplete.
+4. **A present is not a camera write.** ProcessEvent runs the clamp before
+   `apply_offsets`, and SceneDraw calls `apply_offsets` again for the second
+   eye. Clip counters count writer events, not unique rendered frames.
+   Independently published latest floats cannot close a per-render equation.
+5. **Slope is an optional measurement, not the verdict.** A fixed-position
+   pitch sweep has almost no raw-Z variance. A slope is then undefined or
+   unstable. Real head rotation also causes forward motion, which can look
+   like height motion against nearby geometry.
+6. **The proposed F1 changes collision policy.** Allowing raw head motion above
+   the ceiling removes an existing protection. Do not bundle that into the
+   first neck correction. A camera Z result also cannot prove hands are faulty.
 
-The installed config runs `[Neck] Mode=cancel`, `[PosTrack] EyeClamp` at its default 1,
-`Lane=auto` (camera lane under the projection layer).
+Code anchors: `fov_lever.cpp:FovLeverApply`; `camera.cpp:current_base`,
+`clamp_written_z`, `apply_offsets`, `pitchtest_verdict`;
+`head_track.cpp` raw/neck composition; `ue3/process_event.cpp` and
+`scene_draw.cpp:SceneDrawMaybeSecond`. ENGINE_NOTES "The pitch pivot" records
+0.321/0.062 m in a standing simulator test with zero reported ceiling clips;
+that is a calibration reference, not a crouch measurement.
 
-## 3. What the log already shows (tester's last run, build `e61f0d28-dirty`)
+## 3. Build 1: bounded accounting, default off
 
-```
-eyeclamp: camZ 2719.8 -> 2681.9 (pawnZ 2624.9 cyl 65.0)    crouched: 37.9 uu clipped
-eyeclamp: camZ 2886.8 -> 2886.8 (pawnZ 2807.3 cyl 87.5)    standing: the eye sits AT the ceiling
-```
+Add `[PosTrack] ZAccount=0` and `camera zaccount on|off`. Log the effective
+setting and source. Instrument existing read/write sites without adding engine
+writes, object discovery, or per-property/per-draw formatting. Keep runtime
+cost bounded and compare diagnostic-on/off frame timing before installation.
 
-* **Crouched, the engine's eye is ~95 uu above the pawn and the ceiling is 57.** Step 2 clips
-  about 38 uu every tick, so the clamp owns camera Z outright.
-* **Standing, the engine's eye (79.5 uu above the pawn) equals `87.5 - 8` to the tenth.** The
-  ceiling is exactly at rest height, so step 4 eats any upward component of the offset.
-* 70 `eyeclamp` lines in one run. It is not a rare path.
+Capture small records at the actual writer events:
 
-## 4. Hypotheses, each with the reading that kills it
+- Camera identity/generation, field offset/sign, dispatch/write sequence,
+  timestamp, eye/pass and existing draw/pose pair identifiers where available.
+- Pawn world position, cylinder value and age, raw and eased ceilings, clamp
+  validity, stance stability, and active lane/projection/tracking modes.
+- Each candidate field's pre/post-clamp Z and whether it was the exact prior
+  mod write. For the selected field, record `current_base`'s recovered base,
+  persisted/fresh classification, and prior offset. Call an unclassified read
+  `fieldBeforeClamp`, never `engineZ`.
+- Raw tracked XYZ, signed neck XYZ actually supplied, pose sequence, eye offset
+  in world XYZ, actual basis-transformed position contribution, and any dropped
+  position contribution. Capture the values consumed by this write, not a
+  later present's request. The signed neck term is negative arc in cancel mode.
+- Base used, candidate final world Z, final cap delta, written world position,
+  success/skip reason and ceiling state consumed by this write.
 
-**H1 - the clamp erases the engine's arc, and the cancel term still subtracts it.**
-Steps 1 and 3 are designed as a pair: the engine drops the eye about 8 uu at 30 deg down, the
-cancel term adds 8 uu back, the tracked head supplies the real motion. Step 2 sits BETWEEN
-them. Crouched, the engine's eye is clipped to the ceiling at every pitch, so its arc never
-reaches the base, but step 3 still adds the cancelling +8. Pitch down, net view Z comes out
-higher than the real head. Positive totals are then clipped at step 4, which also flattens
-real upward head motion. Standing, the eye rests at the ceiling, so the same thing happens on
-a smaller scale whenever the offset's net vertical is positive.
-*Predicts*: crouched, the step-2 clip amount changes with pitch by the engine's arc (smaller
-looking down). Rendered Z minus pawn Z does not follow the raw head Z with slope 1. Standing,
-step-4 clips are non-zero and cluster on the pitches where the cancel term is positive.
-*Dies if*: the step-2 clip amount is pitch-independent, and rendered Z follows raw head Z with
-slope 1 crouched.
+Publish coherent records with a synchronization scheme valid for the actual
+producer threads. Plain/volatile floats or a sequence counter around racy
+non-atomic payloads are insufficient. Use a bounded existing synchronized
+mechanism where possible; count dropped records. Match records to fresh render
+c5 samples through existing eye/draw tags. If identity or freshness cannot be
+established, report UNMATCHED; never substitute unrelated latest values.
 
-**H2 - the engine's neck pivot is different when crouched.**
-The cancel numbers were measured standing. A crouch animation can move the camera joint, so
-the standing cancel may over- or under-correct.
-*Predicts*: the pre-clamp engine Z against pitch solves a different below/behind crouched than
-standing.
-*Dies if*: the crouched fit matches 0.321/0.062 within the standing fit's own consistency.
+At each matched sample verify the local writer equation:
 
-H1 and H2 can both be true; the instrument reads both from one run.
+`writtenZ = recoveredBaseWorldZ + eyeWorldZ + appliedPositionWorldZ + finalCapDelta`
 
-**H3 - neither: the camera is right and the hands are what move.**
-*Predicts*: rendered Z follows raw head Z with slope 1 in both stances, and both clip counts
-stay at 0 across the pitch sweep. Then the next question is hand placement against the camera,
-not this plan.
+Separately compare written position to rendered position, converting c5 using
+the selected field's established convention. Do not assume c5 is positive
+world position. Check both eyes separately; pair only corresponding samples.
+The earlier clamp is an observed event affecting base recovery, not an extra
+term blindly added to this equation.
 
-## 5. The instrument (build 1)
+Use cumulative per-sweep buckets, reset explicitly at sweep start. Require a
+settle interval after each pitch/stance change and at least 60 distinct matched
+render samples per bucket. Keep DOWN near -30 degrees, LEVEL near zero, UP near
++30 degrees, with narrow target bands and actual angles recorded. Reject and
+count movement, turning/roll, stale cylinder or pose, transitions, camera changes,
+menus, teleports, missing basis, unsupported lane and other active camera tests.
+Report progress periodically and flush completed/partial results on stop/quit;
+a ten-second reporting interval must not discard a nine-second sweep.
 
-`[PosTrack] ZAccount=0` default OFF, live `camera zaccount on|off`. Armed in the tester's
-INSTALLED ini for launch 1. No engine writes, no new object pointers.
+Primary result: level-relative rendered movement minus the matched raw head
+movement, corrected for per-eye displacement, in world up AND level-heading
+forward. Report residual mean, spread, sample count, and write/render closure
+error. Set a provisional 1 uu residual/closure target and report the observed
+noise floor; if noise exceeds the target, mark the result inconclusive rather
+than silently expanding the tolerance. Optional raw/render slope requires a
+separate translation sweep with adequate variance and uncertainty reporting.
 
-* **Script lane** (FovLeverApply, every tick, not only when it clips): publish the pre-clamp
-  engine camera Z, pawn Z, the eased `zmax`, and the clip amount. Plain floats, latest value.
-* **Script lane** (`apply_offsets`): publish the step-4 cap amount for this write, beside the
-  existing `g_ceilClips`.
-* **Present thread** (`head_track.cpp`, where the offset is composed): the raw up component and
-  the neck up component, kept SEPARATE.
-* **Present thread** (after the draw, beside `pitchtest_present_tick`): take c5 world Z and
-  accumulate every published value into a bucket `stance x pitch`:
-  stance from the cylinder (standing > 76, crouched 50..76, anything else skipped and counted),
-  pitch DOWN < -20 deg, LEVEL |p| < 8, UP > +20. Keep the mean pitch per bucket.
-* **Every 10 s, one line per stance** with at least 60 presents in each of its three buckets,
-  and one refusal line naming the empty bucket otherwise:
-  `zaccount: CROUCHED | DOWN p=-31 n=212: engine +95.2 clamp -38.0 raw -7.9 neck +8.0 cap -0.0 render +57.3 | LEVEL ... | UP ... | render-vs-raw slope 0.12 (1.00 = follows the head) | engine pivot below 0.30 behind 0.06 m (consistency 0.4 uu) | owner: CLAMP`
-  The numbers are an illustration of the FORMAT (H1's shape), not data. All Z values are
-  relative to pawn Z, and `engine + clamp + raw + neck + cap` must equal `render` within a
-  tolerance the line prints; a mismatch is itself reported, since it means a term is missing. `owner` is the largest pitch-dependent term that is not
-  the raw head. The line prints `owner: HEAD (slope ~1, no clip)` when H1 and H2 are both
-  wrong, so it can fail its own hypothesis.
-* Cost: a handful of adds per present, one format every 10 s. Nothing per property, nothing
-  per draw (TRAPS "A read-only probe that cost the frame budget").
+Do not automatically name the largest term as the cause: the engine and neck
+terms should cancel each other. Emit evidence such as CLIPPED, PIVOT_MISMATCH,
+UNMATCHED, LOW_VARIANCE, or NO_MEASURED_CAMERA_RESIDUAL, allowing multiple flags.
 
-Before install: host build, lint, exports, golden ini regenerated for the new key, and a
-**full diff of the installed ini against the copy taken before install**, every key, not only
-`ZAccount`.
+## 4. Launch 1: reproduce and decide
 
-## 6. The launches
+Record installed build identity and all resolved relevant settings first.
+Use the same save in open, level space. Hold yaw approximately fixed and roll
+near zero. Standing: level, down about 30 degrees, up about 30 degrees, each
+for three seconds after settling. Toggle crouch without physically crouching
+and repeat. Stand and repeat to expose hysteresis. Keep the controllers still
+and judge against a fixed world landmark as well as the hands. Capture the
+user's observation for each stance; an incomplete bucket needs only that
+portion repeated. Then make a small independent vertical head translation to
+measure whether ceiling saturation suppresses upward/downward tracking.
 
-**Launch 1 - which owner removes the vertical motion? (build 1, no behaviour change)**
-Load a save. Standing still, look level for 3 s, straight down for 3 s, up for 3 s. Crouch
-(toggle) and repeat. Stand and repeat once more. Quit.
+| Evidence | Next action |
+|---|---|
+| Matched base/cap events explain pitch-correlated residual | Develop F1 with existing final ceiling retained |
+| Clean fresh engine samples show a different crouched arc | Calibrate F2; combine with F1 only if both are demonstrated |
+| Up residual small but forward residual significant | Diagnose full neck vector/timing; do not divert directly to hands |
+| Both residuals small, picture still wrong relative to hands | Investigate hand-to-camera transforms and pose selection; camera submission/compositor timing remains possible |
+| Accounting fails or samples are stale/persistent/insufficient | Repair measurement or collect targeted data before choosing a fix |
 
-| Reading | Meaning | Next |
-|---|---|---|
-| crouched `owner: CLAMP`, clamp amount varies with pitch, slope far from 1 | H1 | build 2, F1 |
-| crouched engine pivot differs from 0.321/0.062 | H2 | build 2, F2 (with F1 if H1 also holds) |
-| both stances `owner: HEAD`, slope ~1, clips 0 | H3 | stop; take the hand question to a new plan |
-| refusal lines only | the sweep never filled a bucket | repeat, holding each pitch longer |
+Fit a crouched pivot only from independently identified fresh engine samples,
+using actual angles, up and forward components, and repeated sweeps. Exclude
+mod-contaminated/rebased samples. Fit per-sample trig terms, not trig of a broad
+bucket mean. Require fit residuals and repeatability; three mean Z values alone
+cannot provide meaningful independent model validation.
 
-**Cheaper alternative for the reviewer to weigh**: one no-build launch with
-`[PosTrack] EyeClamp=0` and the same sweep, judged by eye. Discriminates H1 in one run, but it
-is perceptual only, cannot see H2, and brings back the head-inside-the-table fault while
-crouched. Recommended only if build 1 is judged too costly.
+If ordinary gameplay cannot supply clean engine samples, use the existing
+fixed-position simulator pitch procedure in open space as a separate controlled
+calibration, with clamp/neck configuration explicitly recorded and restored.
+An optional EyeClamp=0 A/B supports the clamp hypothesis but neither separates
+the two clamp sites nor establishes a crouched pivot. It is not the primary test
+and must not be performed beneath obstacles.
 
-**Launch 2 - does the fix keep the view height put through the sweep in both stances?**
-Build 2 with its lever armed ON in the installed ini. Same sweep. Pass: crouched slope within
-0.1 of 1.00, standing step-4 clips at 0 through the pitch sweep, and the tester sees no height
-change in either stance. The toggle (below) is the A/B inside the same launch if needed.
+## 5. Build 2 candidates
 
-## 7. Fix candidates (chosen by launch 1, not before)
+### F1: preserve the engine arc through neutral-eye clamping
 
-**F1 - a neck-aware clamp (for H1).** The clamp should hold the NEUTRAL eye inside the capsule,
-not the engine's pitched eye. With `arc` = the modelled engine arc up (present only when
-`[Neck] Mode=cancel`; zero otherwise, which reduces to today's code exactly):
+First establish which base path fails. For a confirmed fresh engine base E,
+engine arc A and already-eased ceiling C, the mathematical target is:
 
-* Step 2 clips the engine fields to `zmax + arc` instead of `zmax`. The base becomes
-  `min(neutral, zmax) + arc`, so the arc survives the clamp.
-* Step 3 is unchanged: `base - arc + raw = min(neutral, zmax) + raw`.
-* Step 4 caps `(base - arc)` at `zmax`, so the cap judges the neutral eye and the raw head
-  motion rides on top of it.
+`neutral = E - A`
+`pitchPreservingBase = min(neutral, C) + A`
+`candidate = pitchPreservingBase - A + raw + eye`
+`finalZ = min(candidate, C)`
 
-Lever `[PosTrack] EyeClampNeckAware`, default 0, live `postrack clampneck on|off`, logged at
-config with the effective value and its source (TRAPS section 1).
+This preserves current final clearance while removing pitch dependence from
+the neutral clamp, assuming the calibrated arc and pose are correct. It does
+NOT promise unrestricted upward tracking when the ceiling is active.
 
-**F2 - a crouched pivot (for H2).** `[Neck] CrouchPivotBelowM` / `CrouchPivotBehindM` from
-launch 1's crouched fit, selected by the same cylinder test the clamp uses, eased at the
-clamp's rate so a stance change does not pop the view. Defaults equal the standing numbers,
-which is today's behaviour.
+Implement only after mapping this target to both fresh and persistent writer
+paths. A replacement of `zmax` by `zmax + arc` alone is not sufficient: preserved
+`lastOff` can recover the old unclamped base. Keep explicit ownership of the
+neutral base/correction and preserve non-accumulating eye/position writes,
+restore behavior, and all affected camera fields. Do not double-subtract arc.
 
-## 8. Open questions for the reviewer
+Use one coherent consumed pose/arc/config generation for a correction and its
+corresponding offset. Measure actual engine-pitch versus consumed-pose timing;
+one-present disagreement is not accepted by assumption. Reuse the correction
+state consistently through both eye writes. Ease C first and apply arc afterward;
+never feed head pitch into the ceiling's tighten/release state machine.
 
-1. **Step 4 and real upward head motion.** F1 lets the raw head rise above `zmax` (standing on
-   toes, a stretch). The cap exists so a lean cannot put the eye through geometry. Should raw
-   upward motion be capped at `zmax` plus a headroom lever, and if so what is a measured, not
-   guessed, default? Today's value is effectively 0 headroom, which may be the standing
-   symptom by itself.
-2. **Lane timing.** The arc is composed on the present thread and step 2 runs on the script
-   lane, so F1's clamp reads an arc up to one present old. The seam already reads the offset
-   that way. Is a one-present disagreement between steps 2 and 4 acceptable, or should the
-   script lane snapshot the arc once per tick and both steps use that copy?
-3. **The eased ceiling.** Step 2 tightens at 300 uu/s. Does adding `arc` to `zmax` interact
-   with the release-instantly branch (an arc that grows looking down reads as a release)?
-   Proposal: ease `zmax` as today and add `arc` after the easing, never inside it.
-4. **Is H1's arithmetic right?** Section 4 assumes the engine's crouched eye is clipped at
-   every pitch. If the crouched engine arc exceeds the 38 uu clip at extreme pitch, the clip
-   releases there and the percept changes shape. The instrument shows it; does the fix hold
-   across that boundary?
+Gate as `[PosTrack] EyeClampNeckAware=0`, with a live A/B and effective-value log.
+Require projection + active camera position lane + an actually applied cancel
+term; otherwise retain existing behavior. Specify reset/rebase on toggle, camera
+replacement, tracking loss, lane/mode changes and teleport. No stale correction.
 
-## 9. Guards and blast radius
+### F2: recalibrate only if the data demands it
 
-* Standing pitch must not regress. Launch 2 checks it explicitly.
-* No new engine memory writes in build 1. F1 changes the value an EXISTING write puts into
-  the camera fields; it adds no object pointers, so no new liveness guard is needed. If review
-  finds one, it uses `IsLiveObject`, never a class-name comparison.
-* The tester's stability config is not touched: `[Pace] Lag=2`, `[Stereo] LagAB=0`,
-  `[Hands] PoseLag=2`, `PaletteEyeOffset=1`, `ModelScale=0.85`, `[MotionAim] Enabled=0`,
-  `GamepadOnly=0`, 2750x2850, `VirtualMode=1`, 90 Hz, `AttachRigRadius=200`,
-  `[Aim] FireFromHand=1 ModelRay=1 FollowHandTrim=1`, grip, trims and `ModelAxisL*`.
-* VR-28 (crawl under furniture) and the vents use the same clamp. F1 does not change `zmax`
-  itself, only what the pitch arc does on top of it.
+Add crouch pivot settings only after reproducible calibration demonstrates a
+stance difference. Defaults equal the standing pivot. Apply the same full XYZ
+arc model used today. If interpolation is needed, define its units and duration
+from measured transition behavior; 300 uu/s is a ceiling movement rate, not a
+ready-made pivot blend rate. Handle vents/transition states explicitly instead
+of treating every small capsule as ordinary crouch. If the arc does not fit a
+rigid pivot, investigate the camera animation rather than forcing a fit.
+
+### Separate decision: real head travel at the ceiling
+
+Keep zero extra headroom for the first fix. If the independent translation test
+shows unacceptable tracking loss, record that as a remaining collision-policy
+problem. Capsule height alone cannot prove space is clear above the eye. A
+follow-up needs measured clearance/collision behavior or an explicitly tested
+comfort tradeoff; no guessed headroom default and no claim that unchanged C
+means unchanged protection when raw motion is allowed above it.
+
+## 6. Verification and exit criteria
+
+For build 1: host build, applicable lint/exports/config checks, golden ini update,
+and synthetic accounting checks for mismatched/stale records, c5 sign, per-eye
+terms, low variance and contaminated engine samples. Verify logging disabled is
+cheap and enabling diagnostics does not change camera behavior.
+
+For build 2: extend the existing `tools/camera-clamp-host.ps1` production-code
+harness to cover the actual new clamp/composition path, not just copied algebra.
+Cover fresh and persistent fields, repeated writes/no accumulation, alternating
+eyes, engine Z-only recomputation, clamp engagement/release at extreme pitch,
+raw positive/negative motion, neck off/add/cancel, tracking/lane changes,
+restoration and stale state. Keep existing clamp regression cases passing.
+
+Repeat Launch 1 with the fix OFF then ON in the same conditions. Pass requires
+matched accounting, no unexplained pitch-correlated up/forward residual beyond
+the declared measurement tolerance in unsaturated samples, and the tester's
+reported reversal gone. A fixed-position simulator sweep should keep the camera
+fixed; a real-head sweep should follow real translation. Do not require zero
+motion from a moving head or zero clips when a real ceiling is reached.
+Explicitly label saturated samples and verify their motion matches the retained
+cap policy. If that policy still causes the reported symptom, VR-78 remains open.
+
+Check crouch/stand transitions, slide/deep crouch, vents and VR-28 furniture
+clearance, plus stereo pairing and blink/load resets. Record any remaining
+tracking saturation separately from the corrected pitch residual.
+
+Before any eventual install, preserve the complete installed ini and compare
+every key afterward. Preserve the tester's established settings, including
+Pace Lag=2, Stereo LagAB=0, Hands PoseLag=2, PaletteEyeOffset=1, ModelScale=0.85,
+MotionAim Enabled=0, GamepadOnly=0, 2750x2850, VirtualMode=1, 90 Hz,
+AttachRigRadius=200, Aim FireFromHand/ModelRay/FollowHandTrim=1, and all grip,
+trim and ModelAxisL values. Make only the intended diagnostic/fix changes.
+
+**Next implementation step:** build the matched accounting probe. The existing
+logs justify investigating clamp/neck interaction; they do not yet justify
+relaxing the ceiling or installing a crouched pivot.
