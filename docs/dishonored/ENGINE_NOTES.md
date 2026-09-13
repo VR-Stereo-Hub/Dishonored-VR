@@ -4902,10 +4902,18 @@ pawn fields appearing to become `DisSeqAct_SetStoryFlag` and the like, in one
 burst, because a pawn pointer is reused across a load. Those are noise and are
 recorded here so the next reader does not chase them.
 
-**Still open**: whether these fields can simply be written after the engine's own
-update each tick, or whether the engine recomputes them late enough that the
-write has to happen at their writer. That is the next question, and it is a
-behavioural one that a write-and-observe answers.
+**ANSWERED, and the answer is that these fields cannot be driven by writing
+them.** A write-and-observe experiment wrote the field on the script lane
+whenever the engine's own value was `none`, then re-read its own write on the
+next tick. The counter came back `wrote 1, survived to the next tick 0`: the
+engine recomputes the field after our tick, every tick, so nothing downstream can
+ever read what we put there. Confirmed behaviourally too - the focus did not
+persist and the pickup did not happen.
+
+So the fields are a RESULT, not an input. Aiming interaction from the controller
+has to happen at whatever computes them, and that writer is still unfound. The
+experiment is retired to `src/legacy/interact_focus.cpp`; it also crashed the
+game, for a reason worth reading in TRAPS before any of this is revisited.
 
 **The interaction seam itself is NOT yet found.** What is established: interaction
 is entirely native (the script dump carries declarations only, and there is no

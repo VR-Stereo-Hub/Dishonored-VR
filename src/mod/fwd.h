@@ -402,8 +402,6 @@ static void MpEyeForPresent(const MpDrawCtx* c);
 static void MpPublishHandCal(int hand);
 static void AimSeamTick(void);
 static void PropWatchTick(void);
-static void InteractFocusTick(void);
-static bool IfEnabled(void);
 static void IfSet(bool on, const char* source);
 static bool PwEnabled(void);
 static void PwSet(bool on, const char* source);

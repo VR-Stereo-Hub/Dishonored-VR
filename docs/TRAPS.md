@@ -304,6 +304,39 @@ The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 > the identity of what it measured. An instrument that cannot fail its own
 > hypothesis is not evidence. Name the owner before the result.
 
+### A liveness guard that could not detect the thing it existed to catch (VR-85)
+
+`InteractFocus` held the last actor the engine had focused and wrote it back
+while the engine had none. It crashed the game twice - once loading a save, once
+on pause immediately after a pickup.
+
+The guard was a class-name comparison: remember the actor's class, re-read it
+every tick, and drop the pointer if it changed. That catches an allocation being
+REUSED. It cannot catch an allocation being FREED, because freed memory still
+holds a plausible class pointer until something else claims it. So the guard
+passed on a dangling pointer and handed it back to the engine about ninety times
+a second.
+
+What makes it worse than an ordinary oversight: the actor being held was a
+crossbow bolt, and **the action the experiment existed to test - picking the bolt
+up - is the action that destroys it.** The success path of the experiment was
+also the path that guaranteed a dangling pointer. That should have been visible
+before the build shipped, from the description of the test alone.
+
+The project already had the right tool and it was passed over as too expensive:
+`IsLiveObject`, a binary search against the GObjects set. Cost is a reason to
+sample less often, not a reason to substitute a weaker check.
+
+> **A guard has to be able to detect the failure it is named for.** "Is this
+> pointer still valid" is not answered by reading through it. And when the
+> experiment's own success path destroys the thing it holds, the experiment is
+> the bug.
+
+The run was still worth it: the beat line read `wrote 1, survived to the next
+tick 0`, which settled the design question outright. The engine recomputes that
+field after us every tick, so writing it can never work, and the fix has to go at
+its writer. A negative result that arrives with its own evidence is a result.
+
 ### A read-only probe that cost the frame budget (VR-85)
 
 `PropWatch` writes nothing and reads 46 dwords. It still produced visible world

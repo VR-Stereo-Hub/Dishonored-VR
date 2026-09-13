@@ -1,6 +1,48 @@
 # Status
 
-## CURRENT (2026-09-12): VR-85 in progress, seam NOT yet found
+## CURRENT (2026-09-12): VR-85 SHELVED with a definitive answer; the tools ship
+
+`claude/vr-85-interact-head-or-controller`, off VR-Main at `55cdb2b8`.
+
+**The feature is shelved on purpose, not abandoned in confusion.** Aiming
+interaction from the controller cannot be done by writing the engine's focused-actor
+field, and that is now measured rather than suspected.
+
+What the branch delivers:
+
+* **`tools/ue3-natives.py`** - the class-to-vtable walk that three seams were derived
+  by hand, plus UE3's **native function registration table**, 2554 name-to-thunk
+  pairs. That is a route from a function NAME to code where only class names were
+  searchable before. It re-derives the published crossbow numbers before answering
+  about any new class and refuses on a mismatch.
+* **`PropWatch`** (`ue3/prop_watch.cpp`) - the reverse of `FindPropOffset`: it finds a
+  property by watching which one CHANGES when the name is what is missing. It found
+  its target on the first run. Ships OFF.
+* **`docs/dishonored/GAME_CONFIG_MAP.md`** - the game's own 21 config files, what each
+  governs, and the debug instruments it ships.
+
+What was learned, all in ENGINE_NOTES:
+
+* The focused interactable is `DishonoredPlayerController::m_pCrosshairActor` (+0x69C)
+  and `m_pCrosshairHighlightActor` (+0x6A0).
+* **Those fields are a RESULT, not an input.** A write-and-observe experiment read back
+  `wrote 1, survived to the next tick 0` - the engine recomputes them after our tick,
+  every tick, so nothing downstream can read what we write. Aiming interaction has to
+  happen at whatever COMPUTES them, and that writer is unfound.
+* Interaction has no script surface at all: no exec in any of the 2554 registrations.
+* Selection is a single winner from a narrow trace, about a hand's width of tolerance.
+
+Three faults of mine are in TRAPS, each with the reading that would have caught it
+sooner: a read-only probe that still cost the frame budget, a liveness guard that could
+not detect the freeing it existed to catch (it crashed the game twice), and the golden
+ini check that could never fail.
+
+**Next**, when this is picked up again: find the writer of those two fields. The
+natives table and `PropWatch` are the tools for it. Do NOT re-arm
+`src/legacy/interact_focus.cpp`.
+
+## Earlier (2026-09-12): VR-82/83/84 merged and confirmed
+
 
 `claude/vr-85-interact-head-or-controller`, off VR-Main at `55cdb2b8`.
 

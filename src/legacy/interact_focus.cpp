@@ -1,3 +1,21 @@
+// RETIRED 2026-09-12, and kept only as the record of a question that got a
+// definitive answer. Compiled only with -DDVR_WITH_LEGACY=ON, unwired from the
+// script lane, and it has no ini key or seam word any more.
+//
+// IT ANSWERED ITS QUESTION, AND THE ANSWER WAS NO. The beat line read
+// `wrote 1, survived to the next tick 0`: the engine recomputes the focused-actor
+// field after our tick, every tick, so a write there can never be read by
+// anything. The real fix has to go at the engine's writer, which is not found.
+//
+// IT ALSO CRASHED THE GAME, and that part is the lesson. The class-name guard
+// below cannot tell a FREED object from a live one - freed memory still holds a
+// plausible class pointer until it is reused - and the actor this experiment
+// holds is a bolt, which the player DESTROYS by picking it up. So the success
+// path of the experiment was also the path that produced a dangling pointer,
+// handed back to the engine ~90 times a second. See TRAPS.
+//
+// Do not re-arm this. If the idea is revisited, the liveness test has to be
+// IsLiveObject against the GObjects set, not a class-name comparison.
 // Included by the Dishonored unity TU.
 //
 // VR-85, step one: can the focused-interactable field be WRITTEN, and does the
