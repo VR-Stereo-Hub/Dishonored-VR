@@ -718,3 +718,14 @@ substituted value discards whatever it encoded, silently.
 So the pattern for any future engine consumer, VR-90 included: find the input that feeds
 the engine's own computation and change that. If only an output is reachable, the engine's
 validation is being bypassed and that has to be argued explicitly, not assumed away.
+### 2026-09-13 - a note's view silence is a menu's, not a load's (VR-98)
+
+The view term of the gameplay verdict (`DvrScriptViewLive`) waits 750 ms of dispatch silence
+to enter LOADING and a full second of dispatches to leave it, because a loading screen
+dispatches in bursts about once a second and would otherwise flap. A pause menu's silence was
+already exempt from the second. A note or book silences the dispatches the same way, and the
+UI observer already knows its movie is open, so with `[Menu] NoteFastMono=1` the open note
+movie holds the view not-live at once and its silence counts as a menu's: the first dispatch
+after it closes is live. Measured before: about 0.65-0.75 s to mono after a note opened and
+0.94 s back to stereo after it closed. The observer's poll must be under 500 ms old for the
+note flag to count, so a stopped observer cannot park the picture on the mono quad.
