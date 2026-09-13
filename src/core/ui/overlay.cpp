@@ -161,6 +161,21 @@ static void OverlayFrame()
         ImGui::SliderFloat("pivot behind eyes (m)", &behind, 0.0f, 0.30f, "%.3f");
         if (ImGui::IsItemDeactivatedAfterEdit()) NeckSet(g_neckMode, g_neckBelowM, behind, "F10 Comfort slider");
         else g_neckBehindM = behind;
+        // VR-78: the crouched pivot. Crouched, the engine was measured to have no neck arc.
+        {
+            const bool same = g_neckCrouchBelowM < 0.0f && g_neckCrouchBehindM < 0.0f;
+            ImGui::Text("crouched pivot: %s | now %s, pivot in use %.3f / %.3f m", same ? "same as standing" : "its own",
+                        g_neckStanceTarget ? "CROUCHED" : "standing", g_neckEffBelowM, g_neckEffBehindM);
+            if (ImGui::Button("crouched: same as standing")) NeckCrouchSet(-1.0f, -1.0f, "F10 Comfort");
+            ImGui::SameLine();
+            if (ImGui::Button("crouched: no arc")) NeckCrouchSet(0.0f, 0.0f, "F10 Comfort");
+            float cb = g_neckCrouchBelowM < 0.0f ? g_neckBelowM : g_neckCrouchBelowM;
+            float cf = g_neckCrouchBehindM < 0.0f ? g_neckBehindM : g_neckCrouchBehindM;
+            ImGui::SliderFloat("crouched pivot below (m)", &cb, 0.0f, 0.40f, "%.3f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) NeckCrouchSet(cb, cf, "F10 Comfort slider");
+            ImGui::SliderFloat("crouched pivot behind (m)", &cf, 0.0f, 0.30f, "%.3f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) NeckCrouchSet(cb, cf, "F10 Comfort slider");
+        }
         ImGui::TextDisabled("look up and down at something an arm's length away: with the right mode it stays put");
         ImGui::TextDisabled("`camera pitchtest` measures the engine's own neck; use those numbers with cancel");
     }

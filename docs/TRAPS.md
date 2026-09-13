@@ -358,6 +358,19 @@ build time instead of a `strcmp` per slot, and throttling the sample to 50 ms.
 > not a probe. Cost a diagnostic per TICK, not per item, and throttle it to the
 > timescale of the thing being watched.
 
+### A "fresh sample" test that no real sample could pass (VR-78)
+
+The accounting probe fitted the engine's neck only from bases the writer read FRESH, and
+excluded any base recovered from its own previous write as contaminated. In game every
+base was recovered, in both stances, because the writer runs on every script dispatch
+and the tick's last call always finds the earlier call's write. The fit printed
+`NO_FRESH_SAMPLES ... the clamp or the writer owns it` for the whole run - a line that
+blamed an owner for what was really the filter's own population. The synthetic tests
+had passed because they wrote one fresh value per tick, which the game never does.
+
+> **Before trusting a filter's empty result, count what it rejected on real data.** A
+> test population built to match the model is not the population the game produces.
+
 ### A refusal line whose number can only ever read zero (VR-82, caught in review)
 
 The pistol's fire hook refuses when the bullet's standoff distance would reach

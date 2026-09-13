@@ -160,7 +160,7 @@ int main() {
         check(has("CROUCHED"), "B: the episode is CROUCHED");
         check(has("PITCH_RESIDUAL"), "B: the clamp-shaped fault reads PITCH_RESIDUAL");
         check(has("CLIPPED"), "B: and CLIPPED");
-        check(has("NO_FRESH_SAMPLES"), "B: no untouched engine eye exists to fit");
+        check(has("NO_ENGINE_SAMPLES"), "B: no unclipped engine eye exists to fit");
     }
     // C: the pairing chose the other eye: never joined.
     {
@@ -238,6 +238,32 @@ int main() {
         Sim s; s.hold(0.0f, 200);
         flush("test K");
         check(has("LOW_VARIANCE"), "K: one pitch reads LOW_VARIANCE, not a fit");
+    }
+
+    // L: launch 1's crouched shape (2026-09-12): the engine has NO arc, the neck
+    // cancels the standing one anyway. Looking down must read up and BACK.
+    {
+        start();
+        Sim s; s.cyl = 65.0f; s.neutralU = 55.5f; s.engBelow = 0.0f; s.engBehind = 0.0f;
+        s.ramp(); s.sweep();
+        flush("test L");
+        check(has("PITCH_RESIDUAL"), "L: cancelling an absent arc reads PITCH_RESIDUAL");
+        check(has("PIVOT_MISMATCH"), "L: and the engine samples solve a pivot unlike the one in use");
+        bool downUpBack = false;
+        for (auto& l : g_lines)
+            if (l.find("CROUCHED DOWN L") != std::string::npos && l.find("residual up +") != std::string::npos &&
+                l.find("fwd -") != std::string::npos) downUpBack = true;
+        check(downUpBack, "L: DOWN reads residual up + and fwd - (back and up, as reported in the headset)");
+    }
+    // M: the VR-78 fix's shape: the neck in use matches the engine's absent arc.
+    {
+        start();
+        Sim s; s.cyl = 65.0f; s.neutralU = 55.5f; s.engBelow = 0.0f; s.engBehind = 0.0f;
+        s.cfgBelow = 0.0f; s.cfgBehind = 0.0f;
+        s.ramp(); s.sweep();
+        flush("test M");
+        check(has("NO_MEASURED_CAMERA_RESIDUAL"), "M: a zero crouched pivot against a zero engine arc is clean");
+        check(has("PIVOT_MATCHES"), "M: and the fit agrees with the pivot in use");
     }
 
     if (g_fail) {

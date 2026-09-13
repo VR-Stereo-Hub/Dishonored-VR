@@ -82,7 +82,7 @@ struct Bucket {
 
 struct Fit {
     double ata[4][4] = {}, atb[4] = {}, bb = 0;
-    uint32_t n = 0;
+    uint32_t n = 0, recovered = 0;
     float pmin = 1e9f, pmax = -1e9f;
 };
 
@@ -265,20 +265,21 @@ void report(const char* why, bool full) {
     float cfgBelow = 0.0f, cfgBehind = 0.0f, scale = 100.0f;
     if (g_headOk) { cfgBelow = g_head.neckBelowM; cfgBehind = g_head.neckBehindM; if (g_head.scale > 1.0f) scale = g_head.scale; }
     if (!f.n) {
-        _snprintf(fitLine, sizeof(fitLine), "NO_FRESH_SAMPLES: every base was recovered from our own write or clipped by the "
-                  "clamp, so no untouched engine eye was seen in this stance (the clamp or the writer owns it)");
+        _snprintf(fitLine, sizeof(fitLine), "NO_ENGINE_SAMPLES: every base in this stance was clipped by the clamp (or the "
+                  "clamp reconciled our own write), so no unclipped engine eye was seen to fit");
     } else if (!solved) {
-        _snprintf(fitLine, sizeof(fitLine), "LOW_VARIANCE: %lu fresh samples over pitch %+.0f..%+.0f deg (needs %d and a 30 deg "
-                  "span) - not fitted", (unsigned long)f.n, f.pmin, f.pmax, kMinBucket);
+        _snprintf(fitLine, sizeof(fitLine), "LOW_VARIANCE: %lu engine samples (%lu recovered) over pitch %+.0f..%+.0f deg (needs "
+                  "%d and a 30 deg span) - not fitted", (unsigned long)f.n, (unsigned long)f.recovered, f.pmin, f.pmax, kMinBucket);
     } else {
         double q = f.bb;
         for (int i = 0; i < 4; ++i) { q -= 2.0 * x[i] * f.atb[i]; for (int j = 0; j < 4; ++j) q += x[i] * f.ata[i][j] * x[j]; }
         const double rms = sqrt(q > 0 ? q / (2.0 * f.n) : 0.0);
         const double below = x[2] / scale, behind = x[3] / scale;
         const bool mismatch = rms < 2.0 && (fabs(below - cfgBelow) > 0.03 || fabs(behind - cfgBehind) > 0.03);
-        _snprintf(fitLine, sizeof(fitLine), "%s: %lu fresh samples, pitch %+.0f..%+.0f deg: below %.3f m behind %.3f m "
-                  "(configured %.3f/%.3f), neutral U%+.1f F%+.1f uu, rms %.2f uu (%s)",
-                  mismatch ? "PIVOT_MISMATCH" : rms < 2.0 ? "PIVOT_MATCHES" : "PIVOT_NO_FIT", (unsigned long)f.n, f.pmin, f.pmax,
+        _snprintf(fitLine, sizeof(fitLine), "%s: %lu engine samples (%lu recovered), pitch %+.0f..%+.0f deg: below %.3f m behind "
+                  "%.3f m (neck in use %.3f/%.3f), neutral U%+.1f F%+.1f uu, rms %.2f uu (%s)",
+                  mismatch ? "PIVOT_MISMATCH" : rms < 2.0 ? "PIVOT_MATCHES" : "PIVOT_NO_FIT", (unsigned long)f.n,
+                  (unsigned long)f.recovered, f.pmin, f.pmax,
                   below, behind, cfgBelow, cfgBehind, x[0], x[1], rms,
                   rms < 2.0 ? "a rigid pivot fits" : "a rigid pivot does NOT fit: the arc is not a rotation about one point");
     }
@@ -409,8 +410,15 @@ void consume(const Write& w, int finalEye, bool haveC5, const float c5[3], uint3
     const bool leverClipped = ci >= 0 && w.clamp.post[ci] < w.clamp.pre[ci] - 0.001f;
     const float relB[3] = {w.sign * w.base[0] - w.clamp.pawn[0], w.sign * w.base[1] - w.clamp.pawn[1],
                            w.sign * w.base[2] - w.clamp.pawn[2]};
-    if (!w.persisted && ci >= 0 && !leverClipped && !w.clamp.ours[ci])
+    // A RECOVERED base (the field still held our write) is admitted too: the
+    // writer re-bases on every script dispatch, so the tick's last call always
+    // finds the earlier call's write, and its base is still the engine value that
+    // call saw. Launch 1 (2026-09-12) had 100 % recovered bases in both stances
+    // and a fit that refused them never ran. The line counts the two apart.
+    if (ci >= 0 && !leverClipped && !w.clamp.ours[ci]) {
         fit_add(g_ep.fit, w.camPitchDeg, relB[2], relB[0] * w.heading[0] + relB[1] * w.heading[1]);
+        if (w.persisted) ++g_ep.fit.recovered;
+    }
 
     const int bucket = bucket_of(w.camPitchDeg);
     const int key = stance * 10 + bucket;

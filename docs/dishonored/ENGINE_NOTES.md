@@ -2290,6 +2290,28 @@ off, the pipe junction lower). The `[Neck]` lever (0db35c10) ships off with the 
 as its defaults; the headset judges `cancel` against `off` from F10 Comfort. The 38.24 ceiling
 now counts the presents it clips (0 in all runs).
 
+### Crouched, the engine has no neck arc (VR-78, 2026-09-12, headset)
+
+Measured with the VR-78 accounting probe (`[PosTrack] ZAccount`, `z_account.h`), which joins
+each draw's camera write to that present's c5. One complete crouched episode (capsule 65,
+23 s, 1823 accepted samples, closure 0.00 uu, clamp clips 0) against standing episodes on
+the same run, `[Neck] Mode=cancel` at 0.321/0.062:
+
+| stance | pitch vs LEVEL | engine base Z change | neck term Z | residual (render minus tracked head) |
+|---|---|---|---|---|
+| standing | -27 deg | -6.23 uu | +6.90 | up +4.5 (the final cap, see below), fwd -2.3 |
+| standing | +30 deg | -1.68 uu | +1.49 | up -4.6 (the final cap), fwd +0.8 |
+| crouched | -33 deg | **-0.04 uu** | +9.52 | **up +9.3, fwd -18.4** |
+| crouched | +32 deg | **+0.03 uu** | +1.99 | **up -5.0, fwd +18.9** |
+
+Standing, the base follows the measured pivot (predicted -6.3 at -27 deg). Crouched it does
+not move at all, so `cancel` subtracts an arc that is absent: looking down the view ends up
+back and up, looking up forward and down - the direction the headset reported. The eye clamp
+did not clip in that episode, so it is not the crouched cause. The standing leftover is the
+38.24 final cap: the rest eye sits exactly at the capsule ceiling, and the cap removed the
+3 to 7 uu the tracked head sat above its reference. `[Neck] CrouchPivotBelowM/BehindM` holds
+the crouched pivot (-1 = the standing numbers); slides and vents (capsule 33) are unmeasured.
+
 ## The console seam was dead since 41.0, and setres is inert (2026-09-03, session 7)
 
 `RunConsole` returned -1 unless `g_fnConsoleCmd` was set, and the only latch lived inside the

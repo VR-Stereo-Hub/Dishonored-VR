@@ -341,6 +341,16 @@ static void WriteDefaultIni(const char* ini)
         "Mode=cancel\n"
         "PivotBelowM=0.321\n"
         "PivotBehindM=0.062\n"
+        "; VR-78: the ENGINE's pivot while plainly crouched. Measured 2026-09-12 with the\n"
+        "; accounting probe: crouched, the engine does not pitch its camera about a neck at\n"
+        "; all, so cancel with the standing numbers moved the view back and up looking\n"
+        "; down, forward and down looking up. 0 and 0 = no arc while crouched. -1 = the\n"
+        "; standing numbers (the behaviour before VR-78). Slides and vents keep the\n"
+        "; standing pivot (unmeasured). StanceBlendMs eases between the two on a stance\n"
+        "; change and is NOT measured. `neck crouch same|<below> <behind>` and F10 Comfort.\n"
+        "CrouchPivotBelowM=-1\n"
+        "CrouchPivotBehindM=-1\n"
+        "StanceBlendMs=150\n"
         "[Crosshair]\n"
         "; VR-57: visual controller guide only; shots and native reticle unchanged.\n"
         "; Dot/beam share one runtime AIM-pose ray. Fixed distance, no surface trace.\n"
@@ -1051,6 +1061,24 @@ static void LoadConfig()
         if (mode)
             Log("config: [Neck] Mode=%s PivotBelowM=%.3f PivotBehindM=%.3f (the pitch pivot lever, projection only)",
                 nm, g_neckBelowM, g_neckBehindM);
+        // VR-78: the crouched pivot. -1 = the standing numbers (the pre-VR-78 behaviour).
+        char cbuf[32] = "";
+        GetPrivateProfileStringA("Neck", "CrouchPivotBelowM", "", cbuf, sizeof(cbuf), ini);
+        const bool cbHave = cbuf[0] != 0;
+        g_neckCrouchBelowM = IniFloat(ini, "Neck", "CrouchPivotBelowM", -1.0f);
+        g_neckCrouchBehindM = IniFloat(ini, "Neck", "CrouchPivotBehindM", -1.0f);
+        if (g_neckCrouchBelowM > 0.5f) g_neckCrouchBelowM = 0.5f;
+        if (g_neckCrouchBehindM > 0.5f) g_neckCrouchBehindM = 0.5f;
+        if (g_neckCrouchBelowM < 0.0f) g_neckCrouchBelowM = -1.0f;
+        if (g_neckCrouchBehindM < 0.0f) g_neckCrouchBehindM = -1.0f;
+        g_neckStanceBlendMs = IniFloat(ini, "Neck", "StanceBlendMs", 150.0f);
+        if (g_neckStanceBlendMs < 0.0f) g_neckStanceBlendMs = 0.0f;
+        if (g_neckStanceBlendMs > 2000.0f) g_neckStanceBlendMs = 2000.0f;
+        Log("config: [Neck] CrouchPivotBelowM=%.3f CrouchPivotBehindM=%.3f StanceBlendMs=%.0f - %s (%s)",
+            g_neckCrouchBelowM, g_neckCrouchBehindM, g_neckStanceBlendMs, cbHave ? "from the ini" : "absent, compiled default",
+            g_neckCrouchBelowM < 0.0f && g_neckCrouchBehindM < 0.0f
+                ? "-1 = the standing pivot while crouched: the pre-VR-78 behaviour"
+                : "plain crouch uses its own pivot; slides and vents keep the standing one");
     }
     g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
     g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
@@ -2932,6 +2960,12 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Neck", "PivotBelowM", v, ini);
     _snprintf(v, 64, "%.3f", g_neckBehindM);
     WritePrivateProfileStringA("Neck", "PivotBehindM", v, ini);
+    _snprintf(v, 64, "%.3f", g_neckCrouchBelowM);    // VR-78: formatted right before its own write
+    WritePrivateProfileStringA("Neck", "CrouchPivotBelowM", v, ini);
+    _snprintf(v, 64, "%.3f", g_neckCrouchBehindM);
+    WritePrivateProfileStringA("Neck", "CrouchPivotBehindM", v, ini);
+    _snprintf(v, 64, "%.0f", g_neckStanceBlendMs);
+    WritePrivateProfileStringA("Neck", "StanceBlendMs", v, ini);
     // 41.1: the [Pace] levers, so a headset run's choice survives the session
     _snprintf(v, 64, "%d", dvr::vr::pace_ahead());
     WritePrivateProfileStringA("Pace", "Ahead", v, ini);

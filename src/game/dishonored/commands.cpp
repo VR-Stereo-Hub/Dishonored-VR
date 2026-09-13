@@ -129,6 +129,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         char mode[16] = "";
         float below = g_neckBelowM, behind = g_neckBehindM;
         const int n = sscanf(args, "%15s %f %f", mode, &below, &behind);
+        if (n >= 1 && !_stricmp(mode, "crouch")) {
+            // VR-78: `neck crouch same` or `neck crouch <below> <behind>`
+            float cb = -1.0f, cf = -1.0f;
+            if (strstr(args, "same") || sscanf(args, "%*s %f %f", &cb, &cf) == 2) NeckCrouchSet(cb, cf, "seam");
+            else Log("neck: crouch same|<below m> <behind m> (now %.3f / %.3f, -1 = standing)", g_neckCrouchBelowM, g_neckCrouchBehindM);
+            return true;
+        }
         if (n >= 1) {
             const int m = !_stricmp(mode, "off") ? 0 : !_stricmp(mode, "add") ? 1 : !_stricmp(mode, "cancel") ? 2 : -1;
             if (m < 0) { Log("neck: off|add|cancel [below m] [behind m] (now %s %.3f/%.3f)", NeckModeName(g_neckMode), g_neckBelowM, g_neckBehindM); return true; }

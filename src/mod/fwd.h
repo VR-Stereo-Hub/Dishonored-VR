@@ -34,6 +34,7 @@ static void LaunchArgsBuild(uint32_t w, uint32_t h, bool full, bool virt, const 
 static void LaunchArgsResolveFromIni(void);   // VR-66: the late ini read, on the engine's first command-line read
 static bool DvrOnOff(const char* s, bool* out);   // commands.cpp: on|off|1|0 parser, used by the picker's word
 static void NeckSet(int mode, float belowM, float behindM, const char* who);
+static void NeckCrouchSet(float belowM, float behindM, const char* who);   // VR-78: the crouched pivot
 static void SceneDrawStatus(dvr::status::Writer& w);
 static bool SceneDrawCommand(const char* args);
 static bool DvrGameplayVerdict();

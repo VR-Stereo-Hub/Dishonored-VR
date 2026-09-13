@@ -247,6 +247,18 @@ static int   g_neckMode    = 0;
 static float g_neckBelowM  = 0.321f;  // the pivot below the eyes, metres (the engine's, measured)
 static float g_neckBehindM = 0.062f;  // the pivot behind the eyes, metres (the engine's, measured)
 static volatile float g_neckArcUu[3] = {0, 0, 0};   // the last term: right, up, forward (uu)
+// VR-78 [Neck] CrouchPivotBelowM / CrouchPivotBehindM: the ENGINE's pivot while
+// plainly crouched. MEASURED 2026-09-12 (the VR-78 accounting probe, headset,
+// one 23 s crouched sweep): crouched, the engine's camera height moved 0.0 uu
+// across +-33 deg of pitch where the standing pivot predicts 9.5, so the engine
+// has no neck arc crouched and `cancel` with the standing numbers subtracted an
+// arc that was not there. -1 = the standing numbers (the pre-VR-78 behaviour).
+static float g_neckCrouchBelowM  = -1.0f;
+static float g_neckCrouchBehindM = -1.0f;
+static float g_neckStanceBlendMs = 150.0f;   // NOT measured: the ease between the two pivots on a stance change
+static float g_neckStanceW       = 0.0f;     // 0 standing pivot .. 1 crouched pivot, eased
+static int   g_neckStanceTarget  = 0;
+static float g_neckEffBelowM = 0.321f, g_neckEffBehindM = 0.062f;   // the pivot the last arc used
 // 38.46 ROOMSCALE. Positional tracking was LEAN only: your real-world offset
 // slid the CAMERA, clamped to MaxMeters, and the pawn never moved - so every
 // real step drifted you off-centre until you recentred by hand. Real
