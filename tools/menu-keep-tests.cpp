@@ -90,6 +90,24 @@ int main() {
         Machine m = InGameplay();
         check(m.tick(F(LOADING)).action == Action::Invalidate, "GAMEPLAY -> LOADING invalidates even with the lever on");
     }
+    {   // the book: the view goes silent and the state reads LOADING, with the
+        // note screen observed open
+        Frame book = F(LOADING); book.screen = true;
+        Machine m = InGameplay();
+        Step s = m.tick(book);
+        check(s.action == Action::Suspend && strstr(s.reason, "note screen"),
+              "GAMEPLAY -> LOADING with the note screen open suspends");
+        check(m.tick(book).action == Action::None, "a held book does nothing");
+        check(m.tick(F(GAMEPLAY)).action == Action::Validate, "closing the book asks for validation");
+        check(m.verdict(true, true).action == Action::None && m.phase == Phase::Active, "and a pass keeps it");
+        Machine n = InGameplay();
+        n.tick(F(MENU)); n.tick(F(GAMEPLAY));
+        check(n.tick(book).action == Action::None && n.phase == Phase::Suspended,
+              "Validating -> a book goes back to Suspended");
+        Frame noLever = book; noLever.leverOn = false;
+        Machine o = InGameplay(false);
+        check(o.tick(noLever).action == Action::Invalidate, "NEGATIVE CONTROL: lever off, a book drops as before");
+    }
     {
         Machine m = InGameplay();
         check(m.tick(F(CINEMATIC)).action == Action::Invalidate, "GAMEPLAY -> CINEMATIC invalidates");

@@ -239,6 +239,9 @@ static void MkPresentTick(const char* state, bool pawnLive)
     f.leverOn     = g_mkOn;
     f.gameplay    = gameplay;
     f.menu        = !strcmp(state, "MENU");
+    // The book reads LOADING (the view goes silent) with its movie open. Only the
+    // observer knows that, and only it may widen "menu" - never the verdict.
+    f.screen      = g_mkNoteOn && g_uiNoteOpen && !strcmp(state, "LOADING");
     f.noPawn      = !strcmp(state, "NO_PAWN");
     f.pawnLive    = pawnLive && g_pePawn != NULL;
     f.pawnChanged = g_mkMachine.phase != Phase::Active && (void*)g_pePawn != g_mkPawnId.obj;

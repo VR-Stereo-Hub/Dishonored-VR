@@ -83,7 +83,7 @@ pose metadata without reopening the disproved historical theories.
 | Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
 | About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
-| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.14 measured a 5.6-7.3 s skew after two book exits, each ending exactly when `c5` came back; the tester reports VR-80's own occurrence had dark vision off, so a shared cause is not shown |
+| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, the passes' cameras can come out inverted against their tags and the c5 arm then starves the left eye for 10 s or more, with `c5` present. Section 3.14 is the separate zero-`c5` case (VR-97) |
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
@@ -952,6 +952,11 @@ rescan (499 to 501 ms). Headset: pauses resumed without the hold.
 **Status.** B1 and B2 confirmed for ordinary pauses; save-load negative control
 passed. A book (note screen) reads LOADING, not MENU, so neither applies to it.
 
+**Books, run.** `[Hands] AttachKeepOnNote=1` (build 193 built 13:49): four book
+closes all SUSPENDED on the observer's note-movie bit, validated, RETAINED, with no
+rescan and the first DOUBLE +14 to +41 ms. The flicker reported after the fourth
+close is section 3.15, not this change.
+
 ### 3.14 With `c5` unavailable, a book exit's ring skew is not corrected for seconds (measured, open)
 
 **Symptom identity.** After closing a book, 5 to 10 s of flicker; with dark vision
@@ -1003,7 +1008,56 @@ is unidentified; no fix written. Candidate direction only: a fallback pairing
 measurement for presents whose `c5` is unavailable, which must be marked as intent
 (the position the draw wrote), not as a measured camera.
 
-**Status.** Measured, open. Related to VR-80 only as a candidate mechanism.
+**Status.** Measured, open, filed as VR-97. **The next run falsified `c5` loss as
+the explanation for after-book flicker in general** (section 3.15): the same
+seconds-long skew happened with `c5` present. The zero-`c5` stretches remain a
+real, separate way to lose the correction.
+
+### 3.15 After a note closes, the passes' cameras come out inverted against their tags (VR-80, measured)
+
+**Symptom identity.** 10 to 15 s of flicker after closing a book the fourth time in
+a row, until the tester quit; the earlier three closes were reported clean or
+brief. Headset, both eyes. Routed from section 1's "Rare sustained both-eye flicker
+immediately after closing a note" (VR-80) row, and the counterprediction of 3.14.
+
+**Reproduction identity.** Build `vr33-hands-working-193-gd8a1e03c-dirty` built
+13:49:51, stability profile unchanged, `AttachKeepOnMenu=1`, `AttachKeepOnNote=1`,
+`UiKeepOnMenu=1`, `UiFlags=1`, no powers, `c5` never read zero. Log under
+`build/vr93-logs/launch4-*` (ignored).
+
+**Measured.** Four book closes, all retained with the first DOUBLE +14 to +41 ms.
+At the first stereo pair after the second close (2007.8 s) and the fourth
+(2018.4 s), `pair geom ... off-right 180.0 deg (dot -1.000; SWAPPED)`: the camera
+position rendered for the ring's -1 present sat on the RIGHT. After the fourth
+close, for 11 s: `pushed eye +1 TWICE` rose 2 -> 127, the c5 arm `took` 78 and
+`held` 37, realignments every ~3 s, runtime `L/s=74 R/s=85`, and a STALE L EYE
+window of 12. The game side was healthy throughout: `draws/s=82 2nd/s=82`,
+`p2write refused=0`, no stall or state skips. After the second close the stream
+recovered on its own (the TWICE count stayed at 1).
+
+**Reading.** With the passes' camera offsets inverted against the ring, a
+within-tick step reads +ipd, so the fragile arm defers to a wrong ring tag (a
+swapped image); a still cross-tick step reads -ipd, so the robust arm overrides a
+correct ring tag to +1 (the left eye starves). Realignment pops one tag and the
+next still moment breaks it again. That matches the rates: overrides only while
+near still, so ~11 a second rather than one per tick.
+
+**Not caused by VR-93.** Launch 3, where books still took the old drop path, shows
+the same climbing `pushed eye +1 TWICE` with `c5` present after a book-adjacent
+LOADING (445 to 455 s). VR-80 itself predates this work.
+
+**What decides it is not established.** The direct-fallback camera writer took the
+camera at books 2, 3 and 4 (`viewinject: script camera writes went stale`), not at
+book 1, and book 3 did not skew, so fallback ownership alone does not predict it.
+Book 4 is the only close where the DOUBLE flag never dropped during the book.
+
+**Counterprediction for the next step.** If the inversion lives in the camera
+writer, a per-present record of (ring tag, the eye the writer applied, `c5`) shows
+the writer's eye disagreeing with the tag from the first resumed pair. If instead
+the ring holds a stale tag across the book, the writer's eye matches `c5` and only
+the ring is off by one. Nothing changes until one of those is seen.
+
+**Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 
 ## 8. Keeping this reference useful

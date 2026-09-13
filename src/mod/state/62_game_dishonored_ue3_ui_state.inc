@@ -80,6 +80,11 @@ static bool     g_uiRescan    = true;    // a scan is wanted (set again per load
 // VR-93 B2: a menu that KEPT the weapon records (hands/menu_keep) is the same
 // world, so it does not queue the rescan; a drop still does. Ships OFF.
 static bool     g_uiKeepOnMenu = false;  // [Menu] UiKeepOnMenu
+// VR-93: a note/book movie is open right now, as of the last poll. Observation
+// only - it lets a book SUSPEND the weapon records (hands/menu_keep), and it
+// never touches the gameplay verdict. False whenever the probe is off or has not
+// scanned, which leaves a book on the old drop path.
+static bool     g_uiNoteOpen   = false;
 static int      g_uiScans     = 0;
 static int      g_uiGen       = 0;       // bumped per load, stamped on instances
 

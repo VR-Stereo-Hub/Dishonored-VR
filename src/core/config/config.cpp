@@ -1798,6 +1798,12 @@ static void LoadConfig()
     Log("config: [Hands] AttachKeepOnMenu=%d - a menu over a live pawn %s.", g_mkOn ? 1 : 0,
         g_mkOn ? "SUSPENDS the weapon contracts and candidates, validated on resume"
                : "drops the weapon contracts and candidates, as before VR-93");
+    // The book/note screen reads LOADING, not MENU; this lets it suspend too, on
+    // the UI observer's open bit. Needs AttachKeepOnMenu=1 and [Menu] UiProbe=1.
+    g_mkNoteOn = IniFloat(ini, "Hands", "AttachKeepOnNote", 0) != 0.0f;
+    Log("config: [Hands] AttachKeepOnNote=%d - the book/note screen %s.", g_mkNoteOn ? 1 : 0,
+        g_mkNoteOn ? "suspends like a menu while the observer sees it open"
+                   : "drops the weapon records, as before");
     // VR-65: the pose trace's NEGATIVE CONTROL, and it runs itself. A few
     // seconds into a session it records a deliberately wrong head yaw for about
     // a second; the submission join must report exactly that error and must

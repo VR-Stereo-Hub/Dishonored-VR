@@ -58,6 +58,10 @@ struct Frame {
     bool leverOn     = false;   // [Hands] AttachKeepOnMenu, read live
     bool gameplay    = false;
     bool menu        = false;
+    // A same-world screen that the state machine does NOT call a menu: the
+    // book/note screen silences the view and reads LOADING. Set only while that
+    // screen is observed open AND [Hands] AttachKeepOnNote=1.
+    bool screen      = false;
     bool noPawn      = false;
     bool pawnLive    = false;   // a pawn is latched and the cylinder reads
     bool pawnChanged = false;   // the latched pawn is not the recorded one
@@ -74,16 +78,18 @@ struct Machine {
         const bool left = wasGameplay && !f.gameplay;
         const bool back = !wasGameplay && f.gameplay;
         wasGameplay = f.gameplay;
+        const bool menuLike = f.menu || f.screen;
         if (phase == Phase::Active) {
             if (!left) return s;
-            if (f.leverOn && f.menu && f.pawnLive) {
+            if (f.leverOn && menuLike && f.pawnLive) {
                 phase = Phase::Suspended;
                 s.action = Action::Suspend;
-                s.reason = "a menu opened over a live pawn";
+                s.reason = f.menu ? "a menu opened over a live pawn"
+                                  : "the note screen opened over a live pawn";
             } else {
                 s.action = Action::Invalidate;
                 s.reason = !f.leverOn ? "the game left gameplay (AttachKeepOnMenu=0)"
-                         : !f.menu    ? "the game left gameplay for something that is not a menu"
+                         : !menuLike  ? "the game left gameplay for something that is not a menu"
                                       : "a menu opened with no live pawn";
             }
             return s;
@@ -117,7 +123,7 @@ struct Machine {
         // LOADING or CINEMATIC while SUSPENDED is not an exit from gameplay and
         // changes nothing - the benign LOADING a resume reads is exactly that.
         if (phase == Phase::Validating && left) {
-            if (f.menu) { phase = Phase::Suspended; return s; }
+            if (menuLike) { phase = Phase::Suspended; return s; }
             phase = Phase::Active;
             s.action = Action::Invalidate;
             s.reason = "the game left gameplay for something that is not a menu before validation";

@@ -291,6 +291,11 @@ static void OverlayFrame()
         }
         ImGui::TextDisabled("off = relearn the weapons after every menu. %ld kept, %ld dropped.",
                             g_mkKept, g_mkInvalidated);
+        bool mn = g_mkNoteOn;
+        if (ImGui::Checkbox("... and across a book or note", &mn)) {
+            g_mkNoteOn = mn;
+            Log("hands: AttachKeepOnNote -> %d", mn ? 1 : 0);
+        }
         bool uk = g_uiKeepOnMenu;
         if (ImGui::Checkbox("Skip the UI rescan when a menu kept them", &uk)) {
             g_uiKeepOnMenu = uk;

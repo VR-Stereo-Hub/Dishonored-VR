@@ -197,6 +197,9 @@ static bool     g_waRetireDead = true;    // [Hands] AttachRetireDeadOnRefresh
 // instead of dropping them, and the resume validates them before use
 // (game/dishonored/hands/menu_keep.h). Ships OFF, F10 Hands, live.
 static bool     g_mkOn = false;           // [Hands] AttachKeepOnMenu
+// ... and the book/note screen, which reads LOADING rather than MENU. Needs
+// AttachKeepOnMenu=1 as well. Ships OFF.
+static bool     g_mkNoteOn = false;       // [Hands] AttachKeepOnNote
 static LONG     g_mkKept = 0, g_mkInvalidated = 0;   // menu transitions, this session
 static volatile LONG g_mkLoadEvents = 0;  // LoadGameClicked seen (ProcessEvent, game thread)
 static WaMesh   g_waMesh[WA_MAX_MESH];

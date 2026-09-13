@@ -229,7 +229,7 @@ static void UiPoll(bool pawn, bool viewLive)
     g_uiPollMs = now;
     InterlockedIncrement(&g_uiPolls);
 
-    int openN = 0; bool mainUp = false; int unknown = 0;
+    int openN = 0; bool mainUp = false, noteUp = false; int unknown = 0;
     char list[256]; list[0] = 0; int named = 0;
     const LONG n = g_uiInstN;
     for (LONG i = 0; i < n; ++i) {
@@ -258,12 +258,14 @@ static void UiPoll(bool pawn, bool viewLive)
         const int ci = UiClsIndex(e->cls);
         const char* cn = ci >= 0 ? g_uiCls[ci].name : "?";
         if (strstr(cn, "MainMenu") || strstr(cn, "StartScreen")) mainUp = true;
+        if (strstr(cn, "MoviePlayerNote")) noteUp = true;   // VR-93: the book/note screen
         if (named < UI_OPENSET) {
             const size_t used = strlen(list);
             _snprintf(list + used, sizeof(list) - used, "%s%s", named ? ", " : "", cn);
             ++named;
         }
     }
+    g_uiNoteOpen = noteUp;
     if (!named) _snprintf(list, sizeof(list), "%s", "none");
     list[sizeof(list) - 1] = 0;
 
