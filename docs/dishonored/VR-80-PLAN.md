@@ -436,3 +436,15 @@ an image out of its eye; lever on with the relabel, no image is held or goes to 
 checks). The reconcile line counts relabelled and refused slots.
 
 **Headset question.** Same as run 6: with both parts, does a crouched note close still flicker?
+
+### 2026-09-13, checkpoint 5 (headset run 7: confirmed)
+
+Build `vr33-hands-working-209-g56411e09-dirty`. Reported essentially clean across many note closes,
+with an occasional single-frame flicker. The log shows late-tag episodes still starting (29, 19 and
+23 repairs in three 10 s windows) and every one repaired and relabelled (71 relabelled, 0 refused).
+Log saved locally under `build/vr93-logs/vr80-run7-162238/`.
+
+Remaining, not blocking: the occasional single frame (first suspect the 3 to 6 expired owes per
+episode window, where the next present's c5 did not confirm); why the push-to-present margin
+collapses after a crouched note close (step 5 of checkpoint 3); whether `LateTagRepair` should
+default on, which is the user's call at merge time.

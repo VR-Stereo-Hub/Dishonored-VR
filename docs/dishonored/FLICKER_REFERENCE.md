@@ -1265,6 +1265,22 @@ is corrected below. A realign feedback loop remains a hypothesis, not a measured
    with the late tag's eye and record (pipelined modes only). Host model with delivery: no
    held or wrong-eye image. Awaiting the headset. The margin collapse remains unexplained.
 
+**2026-09-13 headset run 7: F-late with the slot relabel, headset-confirmed.**
+
+1. **Symptom identity:** the crouched note-exit flicker.
+2. **Reproduction identity:** build `209-g56411e09-dirty` (`56411e09`), `LateTagRepair=1`,
+   `RingLedger=1`, profile unchanged; many note closes standing and crouched.
+3. **Hypothesis and counterprediction:** relabelling the waiting slot removes the left-eye
+   hold. It fails if refused relabels or held images remain in the episodes.
+4. **Change identity:** none during the run.
+5. **Results:** reported as essentially clean, with an occasional single-frame flicker a
+   few times. Late-tag episodes still occur (29, 19 and 23 repairs in three 10 s windows)
+   and every repair relabelled its slot (71 relabelled, 0 refused); every reconcile held.
+6. **Status and remaining scope:** headset-confirmed behind `[Stereo] LateTagRepair`
+   (default 0 until the merge decision). The occasional single frame is unattributed; the
+   ledger's expired owes (3 to 6 per episode window) are the first suspect. The margin
+   collapse behind the late tags is still unexplained.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 
