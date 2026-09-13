@@ -141,6 +141,10 @@ struct WaMesh {
     // geometry; this names the instance, and it is the thing every draw on
     // these buffers is verified against.
     void*    compObj;
+    // VR-93: what compObj WAS when it was matched - class and FName, read off
+    // the object - so a menu's resume can tell a live component from a reused
+    // address before the contract is used again.
+    dvr::menukeep::Identity compId;
     // Where this contract last verified AS THE HELD ITEM, in the draw space of
     // that verification, refreshed on EVERY verified draw. This is lastL2W
     // done properly: lastL2W is written only where the transform matcher adopts
@@ -189,6 +193,11 @@ struct WaMesh {
 // Absence from the refreshed list is not death - a stowed weapon's component is
 // still alive - and retiring there cost a second of flicker on every swap back.
 static bool     g_waRetireDead = true;    // [Hands] AttachRetireDeadOnRefresh
+// VR-93: a menu over a live pawn SUSPENDS the contracts and the candidate list
+// instead of dropping them, and the resume validates them before use
+// (game/dishonored/hands/menu_keep.h). Ships OFF, F10 Hands, live.
+static bool     g_mkOn = false;           // [Hands] AttachKeepOnMenu
+static LONG     g_mkKept = 0, g_mkInvalidated = 0;   // menu transitions, this session
 static WaMesh   g_waMesh[WA_MAX_MESH];
 static int      g_waMeshN = 0;
 

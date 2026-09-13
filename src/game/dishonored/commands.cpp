@@ -474,17 +474,15 @@ static void GameStateTick()
     // moment we know the picture was right; everything after it is the settle.
     const bool nowGameplay = !strcmp(s, "GAMEPLAY");
     static bool wasGameplay = false;
-    if (wasGameplay && !nowGameplay) {
-        SuBeginLoad();
-        UiNoteLoad();   // the outgoing level's movie objects are not this level's
-        // A load destroys the components the weapon contracts were matched to.
-        WaInvalidateContracts("the game left gameplay");
-        // ... and the candidate list itself, which holds the component pointers
-        // those contracts were matched to. Dropping the contracts without
-        // rebuilding this leaves the matcher with a dead list and no anchor.
-        FpInvalidateCandidates("the game left gameplay");
-    }
+    if (wasGameplay && !nowGameplay) SuBeginLoad();
     wasGameplay = nowGameplay;
+    // A load destroys the components the weapon contracts were matched to, and
+    // the candidate list holds the pointers those contracts were matched to, so
+    // leaving gameplay drops both and queues the UI observer's rescan. VR-93: a
+    // MENU over a live pawn is not a load. With [Hands] AttachKeepOnMenu=1 it
+    // suspends them instead and the resume validates them before use; =0 is
+    // the old transition exactly. hands/menu_keep.h.
+    MkPresentTick(s, suCyl);
     SuTick(suCyl, suNoMenu, suView, !g_cineNow, DvrGameplayVerdict());
 
     if (strcmp(s, g_dvrGameState) != 0) {

@@ -1790,6 +1790,14 @@ static void LoadConfig()
     // A stowed weapon's component is alive and keeps its contract, so a swap
     // back attaches on the first frame instead of re-identifying from scratch.
     g_waRetireDead = IniFloat(ini, "Hands", "AttachRetireDeadOnRefresh", 1) != 0.0f;
+    // VR-93: a menu over a live pawn suspends the contracts and the candidate
+    // list instead of dropping them; the resume validates every retained object
+    // against a freshly built live-object table (class and FName) before use.
+    // OFF is the old transition exactly. F10 Hands, live.
+    g_mkOn = IniFloat(ini, "Hands", "AttachKeepOnMenu", 0) != 0.0f;
+    Log("config: [Hands] AttachKeepOnMenu=%d - a menu over a live pawn %s.", g_mkOn ? 1 : 0,
+        g_mkOn ? "SUSPENDS the weapon contracts and candidates, validated on resume"
+               : "drops the weapon contracts and candidates, as before VR-93");
     // VR-65: the pose trace's NEGATIVE CONTROL, and it runs itself. A few
     // seconds into a session it records a deliberately wrong head yaw for about
     // a second; the submission join must report exactly that error and must

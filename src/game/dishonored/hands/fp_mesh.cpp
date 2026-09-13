@@ -718,6 +718,7 @@ static void FpCollect()
                     if (g_fpPrev[z].obj == c) { *k = g_fpPrev[z]; hadPrev = true; break; }
                 if (!hadPrev) memset(k, 0, sizeof(FpCand));
                 k->obj = c;
+                MkReadIdentity(c, &k->id);
                 snprintf(k->name,  sizeof(k->name),  "%s", nm ? nm : "?");
                 snprintf(k->cls,   sizeof(k->cls),   "%s", cc);
                 snprintf(k->owner, sizeof(k->owner), "%s", oc ? oc : "?");

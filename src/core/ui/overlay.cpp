@@ -282,6 +282,16 @@ static void OverlayFrame()
         ImGui::TextDisabled("the right eye's hands during a head roll. %ld predicted.",
                             g_mpEyePredicted);
     }
+    {   // VR-93: weapon identity across a menu.
+        bool mk = g_mkOn;
+        if (ImGui::Checkbox("Keep weapon identity across a menu", &mk)) {
+            g_mkOn = mk;
+            Log("hands: AttachKeepOnMenu -> %d (%s)", mk ? 1 : 0,
+                mk ? "a menu suspends, the resume validates" : "a menu drops everything, as before");
+        }
+        ImGui::TextDisabled("off = relearn the weapons after every menu. %ld kept, %ld dropped.",
+                            g_mkKept, g_mkInvalidated);
+    }
     const auto animState = dvr::anim::snapshot();
     ImGui::TextDisabled("Animation: %s | %s", animState.valid ? (animState.game ? "game owns body" : "player") : "unknown", animState.state[0]);
     {

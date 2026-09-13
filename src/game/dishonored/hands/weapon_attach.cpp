@@ -1328,6 +1328,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         // buffers is verified against this component, so a second instance of
         // the same mesh can never inherit this contract's correction.
         w->compObj = member->obj;
+        MkReadIdentity(w->compObj, &w->compId);
         w->compSeenPresent = (uint32_t)dvr::frame::count();
         w->compSeenOk = true;
         InterlockedIncrement(&g_waMatched);
@@ -1348,7 +1349,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // route uses. Both paths keeping it current is the fix for a reference that
     // was refreshed 4 times in 13 million draws.
     WaNoteHeld(w, &ctx);
-    if (!w->compObj) w->compObj = member->obj;
+    if (!w->compObj) { w->compObj = member->obj; MkReadIdentity(w->compObj, &w->compId); }
     // A cache hit is a fresh identification too, so the component is live.
     w->compSeenPresent = (uint32_t)dvr::frame::count();
     w->compSeenOk = true;

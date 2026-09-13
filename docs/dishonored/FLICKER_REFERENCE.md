@@ -47,7 +47,7 @@ hash, measurements, implementation sequence, and restart checklist.
 | New report | Findings as of this investigation | Status / next step |
 |---|---|---|
 | One-frame world ghost/doubled edges during fast head turns, suspected frame drops | Existing run has real timing gaps at 90 Hz/lag 2; no symptom marker joins them. Printed pose audit covers right only. Fixed-lag attribution and hold/release identity need event-local checks. | Open; two-eye capture/pose/release history before a rendering fix |
-| About one second of weapon settling at startup and after mono menus, while swaps retain lock | `GameStateTick` destroys contracts/candidates on every exit from GAMEPLAY, including MENU. Real ordinary pause log confirms one contract and three candidates discarded. | Source/log-confirmed reset; visual duration not measured. Propose suspended same-world identity with fresh resume validation |
+| About one second of weapon settling at startup and after mono menus, while swaps retain lock | `GameStateTick` destroyed contracts/candidates on every exit from GAMEPLAY, including MENU; the settle was a 0.5 s UI rescan hold plus 0.35 s of relearning | VR-93: B1 (`AttachKeepOnMenu`) confirmed on the headset for pauses, section 3.13; save-load negative control and B2 (the rescan hold) open |
 
 The pause also queues a UI observer rediscovery before candidate/component
 publication: a 516 ms scan coincides with a 538 ms resume gap. Plan this as a
@@ -82,6 +82,7 @@ pose metadata without reopening the disproved historical theories.
 | Weapon detaches or flicker returns after swap/load | Candidate list, contract lifetime/capacity, equipment roots, or config gate | Recovery/retention fixes landed; distinguish from eye-state regression |
 | Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
+| About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu` (headset-confirmed, ships OFF); the ~0.5 s flat hold is B2, open |
 | Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume | VR-80 open; no confirmed causal fix found |
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
@@ -880,6 +881,58 @@ It is a smooth, sustained displacement, not a one-frame event, and section 3.10'
 rule applies: a camera error that varies smoothly with head angle is not a flicker.
 It is listed because it was reported in the same breath as VR-95 and the two were
 initially conflated.
+
+### 3.13 A menu relearned the weapons on every resume (VR-93, B1 confirmed)
+
+**Symptom identity.** About a second of weapon flicker after resuming from a pause
+or other mono menu, both eyes, held weapons only; swaps kept their lock. Distinct
+from VR-80 (a sustained one-sided stream after a note) and from VR-77 (single ticks
+during play). Routed from section 1's "Weapon detaches or flicker returns after
+swap/load" row.
+
+**Cause, measured.** `GameStateTick` ran the level-load transition on every exit
+from GAMEPLAY, so a pause dropped the weapon contracts and the candidate list and
+queued the UI observer's rescan. A pre-fix resume (build 185, `dishonored_vr.prev.log`
+of that run) splits the settle into two costs in series: the rescan held the game
+thread 499 ms with the view still SINGLE, then re-adoption took 15 ms and the
+hand-mesh recalibration another 343 ms. Adoption was never the slow part.
+
+**Hypothesis and counterprediction.** If relearning explains the post-stereo
+flicker, keeping validated records removes it and the log shows zero adoptions and
+no recalibration after resume. If instead fresh samples or pairing explained it,
+the flicker survives retention. The half-second hold was predicted to SURVIVE B1,
+because the rescan is untouched.
+
+**Change.** `hands/menu_keep.h` / `menu_keep.cpp`, `[Hands] AttachKeepOnMenu`
+(ships 0, F10 Hands live). A MENU over a live pawn suspends instead of dropping;
+NO_PAWN, a different pawn, or leaving for anything but a menu drops as before. On
+resume the script lane rebuilds the live-object table and requires the pawn, the
+controller, every candidate and every contract component to be live with the class
+and FName recorded at collection. Any failure drops everything. Corrections still
+need a same-present snapshot under 100 ms old. Host: `tools/menu-keep-host.ps1`,
+35 checks; an injected FName-blind comparison and a menu-blind suspend each fail
+them.
+
+**Results.** Build `vr33-hands-working-190-gf385bfce-dirty`, stability profile
+unchanged, `AttachKeepOnMenu=1`. Four pauses, all RETAINED: every validation passed
+(8 to 11 objects, table rebuild 7.7 to 9.9 ms), 0 adoptions in each resume window,
+no calibration line after any resume. Headset: no weapon flicker after resume on
+three deliberate pauses. As predicted, first DOUBLE still came +524 to +540 ms after
+GAMEPLAY on every retained resume, matching rescans of 498 to 524 ms: that hold is
+B2, not this.
+
+**Also seen.** Three mid-level GAMEPLAY -> LOADING periods (0.75 s, 10.6 s, 7.0 s)
+dropped everything under the unchanged non-menu rule, while the pawn and
+controller kept the same pointer and FName across them. Not investigated; the rule
+is deliberately conservative.
+
+**Not yet tested.** A save loaded from the pause menu must read INVALIDATED (the
+negative control for the discriminator). The pawn's FName number read 0, so a
+respawned pawn is not yet shown to change FName; until that run the address-reuse
+defence rests on NO_PAWN, the pawn-changed tripwire and the live table.
+
+**Status.** B1 confirmed for ordinary pauses; negative control open; B2 open.
+Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 
 ## 8. Keeping this reference useful
 
