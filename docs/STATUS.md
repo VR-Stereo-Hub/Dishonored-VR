@@ -1,6 +1,48 @@
 # Status
 
-## CURRENT (2026-09-12): VR-85 SHELVED with a definitive answer; the tools ship
+## CURRENT (2026-09-12, end of session): VR-Main is clean. Next up is minor bugs
+
+`VR-Main` at `33e1e60c`. Four merges landed today and nothing is in flight.
+
+**Read `CLAUDE.md`'s "Resources you already have" section before deriving anything.**
+It is new, and it is the index to the instruments this project has paid for - the
+class-to-vtable walk, UE3's native registration table (a function NAME to code), the
+runtime property resolver and `propwatch`, the decompiled script dump, and the map of
+the game's own config folder. Several sessions have re-derived things one of those
+answers in a single command.
+
+### Landed today
+
+| | |
+|---|---|
+| VR-82 | Pistol shots follow the controller laser. Its own fire seam, traced and hooked. Headset confirmed |
+| VR-83 | The F10 hand/weapon size slider is reachable again; it was gated behind an unrelated probe that resets on every level load |
+| VR-84 | The ini save was writing `AttachRigRadius` from the wrong buffer, which is what silently broke weapon tracking twice. `ModelScale` ships at 0.85. The golden ini check could never fail, and now can |
+| VR-85 | Shelved with an answer, not abandoned. The tooling and the engine findings shipped |
+
+### Next session: minor bugs
+
+First is **VR-78** - crouched, looking down raises the camera and looking up lowers it.
+An inverted pitch contribution that only appears in the crouched path; `area: camera`,
+needs a headset to judge. Start from `crouch.cpp` and the camera seam, and note that
+VR-7 (deep crouch climbing the view) and VR-55 (sliding leaves the view taller) are
+neighbours in the same code - check whether one fix covers more than one ticket before
+writing anything.
+
+Also queued: **VR-86**, turn the game's crosshair off from the installer so a fresh
+install needs no menu visit. The game's own settings can already do it; the job is
+finding which key the menu actually writes (diff the config folder before and after
+toggling it) and applying that from `setup-game-ini.ps1 -VRBaseline`. Do the diff
+first - writing a plausible key the game ignores is TRAPS section 1.
+
+### Open and untouched
+
+VR-75 cutscenes in stereo, VR-77 single-draw bursts, VR-79 one-eye occlusion culling,
+VR-80 note-exit flicker, VR-81 the DesktopEyeSource F10 control, VR-32 independent
+hand/weapon scales, VR-58 verify the numpad adjust in a headset. The crouch controls
+are still hostage to the SkelControl probe gate, noted in VR-83.
+
+## Earlier (2026-09-12): VR-85 SHELVED with a definitive answer; the tools ship
 
 `claude/vr-85-interact-head-or-controller`, off VR-Main at `55cdb2b8`.
 
