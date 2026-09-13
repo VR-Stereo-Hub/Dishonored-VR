@@ -1,6 +1,45 @@
 # Status
 
-## CURRENT (2026-09-12): the pistol's fire seam is hooked, UNVERIFIED (VR-82)
+## CURRENT (2026-09-12): VR-85 in progress, seam NOT yet found
+
+`claude/vr-85-interact-head-or-controller`, off VR-Main at `55cdb2b8`.
+
+**The goal**: interact with whatever the head OR the controller is pointing at, so a
+player does not have to line their head up with something they are already pointing a
+hand at. The controller ray already exists and is proven (VR-57, VR-82); this is about
+where the interaction query points.
+
+**Status: research, no code.** What is established, all in ENGINE_NOTES:
+
+* Interaction is **entirely native**. The script dump carries declarations only, and a
+  sweep of all 2554 native exec registrations finds no interaction or use function on
+  the player controller - not even an input handler. There is no script surface to hook.
+* `DisInteractableInterface`'s `CanInteractParams` carries `m_DisTraceFlags`, so
+  selection is a flagged trace; `[Engine.PlayerController] InteractDistance=512` is its
+  length.
+* The usable-HIGHLIGHT path is located: the cheat `ToggleUsableHighlight` flips bit
+  `0x400` at cheat-manager `+0x5C`, and a `.text` sweep finds exactly two readers, both
+  in one function around `0x0060E4AF`.
+
+**The remaining step** is the writer of the current-usable field that highlight path
+reads. That is the seam.
+
+New capability that came out of this and is worth more than the ticket: the image
+carries UE3's **native function registration table**, 2554 name-to-thunk pairs, giving a
+route from a function NAME to code where only class names were searchable before.
+`tools/ue3-natives.py` keeps both that and the class-to-vtable walk, and **refuses to
+answer about a new class unless it first re-derives the published crossbow numbers**.
+
+Also landed this session, all merged and headset-confirmed: VR-82 (pistol shots follow
+the controller), VR-83 (the F10 size slider is reachable again), VR-84 (the ini save was
+corrupting `AttachRigRadius`, and the golden check could never fail). `ModelScale` ships
+at 0.85. `docs/dishonored/GAME_CONFIG_MAP.md` maps the game's own config folder.
+
+**Next**: find the current-usable writer, or take the cheaper route first - the game
+ships an interactable debug box, a usable highlight and an interaction debug page, none
+of which are in use yet.
+
+## Earlier (2026-09-12): the pistol's fire seam is hooked, since CONFIRMED (VR-82)
 
 `claude/vr-82-pistol-fire-seam`, off VR-Main. The pistol's native firing routine was
 traced offline and hooked at its own pre-spawn join, so pistol shots now go through the
