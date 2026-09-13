@@ -1,228 +1,255 @@
-# VR-80: sustained eye flicker after a note closes while crouched - analysis plan for review
+# VR-80: sustained eye flicker after note close while crouched - revised analysis plan
 
-Status: **PLAN FOR REVIEW, no fix implemented.** Written 2026-09-13 on branch
-`claude/vr-80-note-exit-eye-trace` (stacked on the VR-93 PR #50). Everything below the
-"Evidence" heading is measured from local headset logs; everything under "Hypotheses" and
-"Fix options" is proposal. The reviewer is asked for a deep, independent analysis of the
-whole pairing path before any behaviour changes - see section 9.
+Status: **OPEN; analysis and measurement plan, no renderer fix implemented.**
+Revised 2026-09-13 against `c4084478` on `claude/vr-80-note-exit-eye-trace`.
+Read the latest [flicker master reference](FLICKER_REFERENCE.md), especially sections
+2, 3.1-3.4, 3.8-3.9, 3.11, 3.13-3.15, 4.2-4.3 and 6, before implementing this plan.
+The master reference's opening baseline hash predates its appended investigations;
+this review includes the updates through `c4084478`.
 
-Read first, in this order: `docs/dishonored/FLICKER_REFERENCE.md` sections 1, 2, 3.2, 3.14
-and 3.15; this file; then the code map in section 3.
+## 1. Objective and evidence boundaries
 
-## 1. The symptom
+Identify the first loss of association between a queued draw, its tag, captured pixels,
+and submitted eye after note close. Explain separately what starts the skew, what
+sustains it, and what permits recovery. Do not choose a repair from aggregate counters.
 
-- Close a book (the note screen) with a weapon drawn, **then be crouched**: both eyes flicker
-  (hands, weapon and world alternate between eyes) and it continues until the game is paused.
-  Pausing and resuming clears it every time it was tried.
-- The same book close while **standing**: about half a second of flicker, then it clears by
-  itself.
-- Tester reports on four runs today, consistent with every log (section 4). Not seen without a
-  book or pause transition first; not dependent on dark vision or any power (runs 3 and 4 had none).
-- Not caused by the VR-93 menu/book retention: the same signature appears in a run where books
-  still took the old drop path (FLICKER_REFERENCE 3.15, "Not caused by VR-93").
+The tester reports both-eye world/hand/weapon flicker after note close with a weapon
+drawn: sustained while crouched until pause/resume, brief while standing. This is
+separate from VR-93 weapon relearning, VR-95's one-eye roll classifier problem,
+VR-97's unavailable-c5 case, and VR-69's already-corrected downward camera ownership.
+VR-80 predates note retention; retention is not necessary for the recorded signature.
 
-Headset, Quest via Virtual Desktop (VirtualDesktopXR 1.0.10), 90 Hz, render 2750x2850, stereo
-method `reentry`, capture shared with SharedWait=0. Tested profile, which must be preserved:
-`[Pace] Lag=2`, `[Stereo] LagAB=0`, `[Hands] PoseLag=2 PaletteEyeOffset=1 ModelScale=0.85`,
-`[Neck] Mode=cancel CrouchPivotBelowM=0 CrouchPivotBehindM=0 RollArc=0`, `[PosTrack] ZAccount=0`.
+**Leading investigation:** a feedback loop involving tag consumption and realignment.
+The observed correlation justifies tracing it first; it does not prove the drain
+removes a future draw's tag. Queue serials alone will not establish rendered identity.
 
-## 2. The pairing path in one page
+This revision reads source and saved run-4 log excerpts directly. Four build headers
+were checked. Earlier census totals below are attributed to the original investigation
+in master section 3.15, not presented as a fresh full-log recomputation.
 
-Two lanes. The **game thread** runs the world tick (the camera writer puts eye -1 into the camera
-field), then reaches the viewport draw root through the one patched gameplay call site. The stub
-(`scene_draw.cpp`, `DvrViewportDrawStub`) decides the tick's gates once, **pushes a -1 tag**
-(with the written camera position and the pose record), calls the root (pass 1), writes eye +1
-into the camera field, **pushes a +1 tag**, and calls the root again (pass 2). A single-draw
-gameplay tick pushes a 0 tag instead ("ONE PUSH PER DRAW").
+## 2. Preserved reproduction and artifacts
 
-The **render thread** executes the enqueued scene and calls `IDirect3DDevice9::Present` once per
-draw. The proxy's Present hook runs the stereo method's `end_frame` (`core/gfx/reentry.cpp`), which
-**pops one tag per present, strictly in push order**, reads that present's `c5` (the camera
-position constant the game uploaded, negated), and decides the eye:
+Keep the tested Quest/VirtualDesktopXR 1.0.10 profile: 90 Hz, 2750x2850,
+`Method=reentry`, shared capture with `SharedWait=0`, `[Pace] Lag=2`,
+`[Stereo] LagAB=0`, `[Hands] PoseLag=2 PaletteEyeOffset=1 ModelScale=0.85`,
+`[Neck] Mode=cancel CrouchPivotBelowM=0 CrouchPivotBehindM=0 RollArc=0`,
+`[PosTrack] ZAccount=0`. Preserve installed menu/note retention, mirror, hold,
+and palette settings; record resolved values instead of replacing the ini.
 
-- `inv` = what the `c5` step from the previous present says: step = -ipd along right means "pass 2
-  after pass 1" (robust arm, no world tick between the two draws); step = +ipd means "pass 1 after a
-  still pass 2" (fragile arm, crosses a world tick).
-- If the ring's tag disagrees: the robust arm overrides the ring (`took`), the fragile arm defers
-  (`held`). Three consecutive disagreements **drain the ring** until the next tag is the other eye
-  of the measured one (`realigned`, lines 300-322).
-- An empty ring (or a 0 tag): only the robust arm may name an eye; otherwise the present goes out
-  untagged and `HoldUntagged` keeps the previous pair.
+Local ignored artifacts, each containing `dishonored_vr.log`, previous log and ini:
 
-The eye then drives the capture slot, the XR swapchain for that eye, the desktop mirror, and -
-separately - the hands and weapon placement, which read the eye from a LocalToWorld classifier
-(`mesh_split.cpp`), not from the ring.
+| Run | Directory under `build/vr93-logs/` | Build header | Contribution |
+|---|---|---|---|
+| 1 | `vr80-run1-142351` | `vr33-hands-working-196-ga9e44e60-dirty`, 14:11:40 | Writer/tag/c5 trace |
+| 2 | `vr80-run2-143606` | `vr33-hands-working-199-ga7e7dde8`, 14:34:20 | Three other static draw callers inactive |
+| 3 | `vr80-run3-144403` | `vr33-hands-working-201-g5cb3e715`, 14:39:18 | One observed Present return address |
+| 4 | `vr80-run4-145350` | `vr33-hands-working-202-g2d8e9374`, 14:47:03 | Device work, Present arguments, crouch episode |
 
-## 3. Code map
+Related controls: `launch3-133430` (build 192, old note-drop path and zero-c5
+periods) and `launch4-135857` (build 193, retained notes and skew with c5 present).
+For new measurements preserve DLL/config/log hashes and dirty patch identity before
+rotation. A source hash in a dirty build header is not complete build provenance.
 
-| What | Where |
+## 3. Evidence and corrections to the original plan
+
+The original investigation reports healthy writer-to-c5 distances of 0.00-0.03 uu,
+versus approximately 6.82 uu during skew. Tagged records carry the expected writer
+eye and no repeated-write signature. This weakens the stale-camera-write hypothesis
+in the sampled population; it does not independently identify every rendered draw.
+It reports 17 episode starts preceded by an untagged record (14) or a small-step
+record labelled repeat (3). A small camera step alone does not prove repeated pixels.
+
+Build 202's sampled untagged intervals contain scene-scale work: 450-910 draw calls,
+2 BeginScene, 51-65 SetRenderTarget and 23-34 c5 uploads. This contradicts a simple
+no-render buffer re-show. Similar workload does not establish identical pixels,
+one viewport invocation per Present, or the identity of the owning queued draw.
+The same Present caller (`009c01a4`) and null rect/window/dirty arguments were
+observed. These constrain the path; they do not prove one logical view or target
+resource. Zero calls at the three instrumented static sites excludes those sites
+in that run, not every possible nested or queued render path.
+
+### Run 4: timestamps checked in the saved log
+
+Times below are log milliseconds converted to seconds, not wall-clock times.
+
+| Time | Observation / consequence |
 |---|---|
-| Tag push, gates, pass 1 / pass 2 | `src/game/dishonored/scene_draw.cpp` (`DvrViewportDrawStub`, `SceneDrawMaybeSecond`, header comment "ONE PUSH PER DRAW") |
-| Ring, pop, peek, c5 arms, realign drain | `src/core/gfx/reentry.cpp` (`pop_tag`, `peek_tag`, `end_frame` lines ~223-400) |
-| The writer's eye and the second-pass fork | `src/game/dishonored/camera.cpp` (`apply_offsets`, `eye_for_next_frame` is -1 under reentry) |
-| Crouch-specific camera code | `src/game/dishonored/fov_lever.cpp` (the eye clamp, `eyeclamp:` lines), `camera.cpp` (`clamp_location_z`, `camera/clamp-rebase`), `head_track.cpp` (neck crouch pivot) |
-| Untagged hold | `core/gfx/stereo.cpp` / reentry (`HoldUntagged`) |
-| The instruments built for this | `src/game/dishonored/z_account.cpp` (pair trace, `[Stereo] PairTrace`), `scene_draw.cpp` (`DrawCallersNote`, `[Stereo] DrawCallerTrace`), `core/framework/frame_hooks.cpp` (Present return address, device activity) |
+| 5083.093 | `neck: stance -> CROUCHED` |
+| 5085.375 | Beat `draws/s=85 2nd/s=83 presents/s=169`; this window overlaps the stance change and note opening. It is **not a standing baseline** |
+| 5086.765 | Note-visible bit falls; do not equate this with GAMEPLAY returning |
+| 5087.750 / 5087.765 | DOUBLE resumes after 141 single ticks / state becomes GAMEPLAY |
+| 5087.796 | Counters: same-eye 21, took 13, held 7, realigned 6, untagged 60 |
+| 5091.406 / 5094.406 | Beats 76/76/152 and 74/74/148; stall counter 51 |
+| 5096.265 onward | SINGLE due to present-progress guard, followed by single-to-double transitions |
+| 5097.406 | Beat 73/71/144; stall counter now 55 |
+| 5098.968 | Counters: same-eye 224, took 145, held 72, realigned 71, untagged 129 |
+| 5099.453 | Pause opens; tester reports pause/resume clears the episode |
 
-## 4. Evidence
+Thus the sampled counter interval contains **65 additional realign attempts**, not
+71 new attempts, and **69 additional c5-untagged-branch entries**. The latter are
+not 69 proven empty-ring Presents. That branch includes zero tags and failed pops;
+a failed pop can mean a depth clear as well as an empty ring. Single ticks did occur.
+The original claim of no single ticks across the entire episode is retracted.
 
-Logs are local and ignored, under `build/vr93-logs/` (launch3, launch4, vr80-run1..4). Build
-identity is in each log's first line.
+The printed realign samples have `along=-6.82 other=0.00`, but the message is
+rate-limited to 3000 ms. It does not report every realign's geometry or removals.
+`realigned` counts entry to the repair, even when nothing is removed. The message
+"by one pop" can describe multiple removals, and "the ring was empty" can also
+mean the peek already found the desired next eye. Count operations directly.
+No depth-clear warning was found in the run-4 log; this is not a full mutation ledger.
 
-### 4.1 What the pair trace established (build 196)
+The source's `draws/s` means first/root draws (roughly ticks), with `2nd/s` counted
+separately. Compare Presents with their sum using aligned windows and queue boundary
+occupancy. Neither reduced tick rate nor these mixed-window means proves that
+crouching changes GPU cost or producer lead. Re-select clean standing and crouched
+windows before making that comparison. The standing episodes of one/two realigns
+remain prior reported observations, not a newly recomputed control here.
 
-- **The camera writer is correct.** Every tagged present carried the write its tag names: ring -1 ->
-  eye -1 write, ring +1 -> eye +1 second-pass write, no repeated write, and the distance from the
-  write to the present's `c5` is 0.00-0.03 uu when healthy.
-- **In an episode the tags run one present late.** The write-to-`c5` distance reads 6.82 uu (one
-  eye separation): the present shows the other pass's image. 17 of 17 episode starts were
-  immediately preceded by an untagged present (14) or a repeat present (3).
-- Untagged presents: 0-3 per second before the book, 4-7 per second in the episode.
+## 4. Actual pairing path and audit targets
 
-### 4.2 What was ruled out
+| Stage | Source / behavior relevant to this investigation |
+|---|---|
+| Producer | `src/game/dishonored/scene_draw.cpp`: `SceneDrawDecide`, `DvrViewportDrawStub`, `SceneDrawMaybeSecond`; decision once, push before each double draw; forced skip2 and faults are exceptions |
+| Single/transition coverage | A zero tag requires `g_sdTick.gameplay && armed && !poisoned`. Earlier gate returns do not push it. Forced `reentry rearm` returns before `gameplay=true`; it is not equivalent to an ordinary zero-tag gameplay single |
+| Queue | `src/core/gfx/reentry.cpp`: capacity 8; producer rejects a push at depth >=8; `pop_tag` clears the entire observed backlog at depth >6, including when called by the realign loop |
+| Arbitration | Normal pop, then c5 classification. Robust +1 may override or invent an eye; fragile -1 defers unless the streak reaches three. Drain peeks until next eye is `-inv` or queue is empty |
+| Streak/history | Agreement resets the streak. Unknown c5, zero tags and empty results do not necessarily reset it; these are not strictly three consecutive Presents. Missing c5 leaves previous valid c5 history in place |
+| Lifecycle | `shutdown()` clears the ring and local history; `on_reset()` calls capture reset. Ordinary pause/resume is not established as a shutdown or full pairing reset |
+| Present | `src/core/framework/frame_hooks.cpp`: disabled/exiting paths can bypass stereo; method also has pre-pop returns for poison/device/blit and post-pop returns for capture/target/hold |
+| Output | Capture's current pending eye/record differs from the delayed delivered eye/record under SharedWait=0; then XR pairing and release in `src/core/vr/openxr_runtime.cpp` |
+| Hands | `src/game/dishonored/hands/mesh_split.cpp`: render-time LocalToWorld classifier runs before Present arbitration; changing the final eye cannot retroactively repair those pixels |
+| Instruments | `src/game/dishonored/z_account.cpp`, `scene_draw.cpp`, `frame_hooks.cpp`; reuse PairTrace/DrawCallerTrace |
 
-| Candidate | Result | Run |
+Audit `camera.cpp`, `fov_lever.cpp` and `head_track.cpp` for writer ownership and
+stance transitions while preserving the confirmed clamp/neck fixes.
+
+**Queued work matters:** no new stub tick between two Presents is compatible with
+older enqueued draws executing. Push-before-enqueue guarantees availability only
+if that draw actually published a tag and no pop, clear, rejection or lifecycle
+change broke ownership. It does not prove that an untagged image is an extra render.
+
+**Metadata matters:** arbitration changes `t.eye` but retains the popped tag's
+`rec` and `acct`; robust invention from an empty result starts with zero records.
+A visually plausible eye label may therefore carry the wrong pose/write record.
+Track eye, pair, pose and capture identity together, rather than accepting eye balance.
+
+## 5. Competing hypotheses and discriminating evidence
+
+| Hypothesis | Supporting result required | Result against it |
 |---|---|---|
-| A stale camera field (pass 1 drawing from pass 2's camera) | Never: no repeated write, eye -1 always | 196 |
-| `c5` unavailable (VR-97) | `c5` present throughout runs 1-4 | 196-202 |
-| The draw root's other three static callers (`0x4dba66`, `0x61236a`, `0x641d85`) | 0 calls in every census; no absolute reference or pointer to the root exists in the image | 199 |
-| A second presenter | One Present return address, `009c01a4`, for every present including the untagged ones | 201 |
-| A present to another target | Present arguments identical (no rects, no window override, no dirty region) on untagged and tagged presents | 202 |
-| A buffer re-show | Untagged presents are full scene renders: 450-910 draw calls, 2 BeginScene, 51-65 SetRenderTarget, 23-34 `c5` uploads (healthy -1: median 746 / 2 / 63 / 32; healthy +1: 510 / 2 / 54 / 26) | 202 |
+| H1: repair consumes a future draw's tag and sustains skew | Actual removal ledger plus independently joined render identity shows a later presented draw lost its tag to repair; faithful replay reproduces recurrence | All repair removals belong to completed/cancelled work, and later faults arise independently |
+| H2: push/pop coverage or another queue mutation creates skew | A rejected/missing push, depth clear, non-presenting draw, extra consumer, bypass or lifecycle boundary explains the first mismatch | Complete accounting and valid rendered identity exclude these in the event |
+| H3: c5 classifier/history misidentifies the view | Disagreement against independent render identity, including across invalid-c5 gaps, motion and transitions | All relevant classifications match that identity |
+| H4: engine render/Present mapping differs from assumed one-to-one | Render-boundary evidence establishes extra, omitted, nested or replayed work | Independently joined one-to-one execution through the entire event |
 
-### 4.3 The crouched episode, build 202 (`vr33-hands-working-202-g2d8e9374`)
+H1 may explain maintenance while H2/H4 explains onset. An initial empty result
+without a drain does not alone falsify H1's maintenance claim. Crouch is a possible
+modifier of any hypothesis, not yet its cause. Geometry samples weaken a large
+crouch-induced off-axis distortion, but cannot establish correct pair adjacency.
 
-Timeline: `neck: stance -> CROUCHED` at 5083.09 s; book closed, GAMEPLAY at 5087.77 s; overrides from
-5087.98 s until the pause at 5099.45 s; after the pause the stream is clean.
+## 6. Measurement sequence before selecting a fix
 
-| Window | L/s | R/s | untagged/s | draws/s, 2nd/s | presents/s | Reading |
-|---|---|---|---|---|---|---|
-| Standing, healthy (5085 s) | 83 | 83 | 2 | 85, 83 | 169 | clean |
-| Crouched episode (5091-5097 s) | 58-68 | 80-81 | 5-7 | 73-76, 71-76 | 144-152 | left eye starved |
+1. **Build an exact source/accounting map.** Enumerate all head/tail writes,
+   push rejections, pop callers, bypasses, lifecycle paths, gate reasons and
+   counter reset sites. Record thread/device identities and snapshot semantics.
+2. **Extend existing bounded diagnostics, default OFF.** Assign a monotonic draw
+   attempt ID even when publication is rejected; record tick/pair/pass, gate,
+   bShouldPresent, push acceptance, queue head/tail, pose record and accounting ID.
+   At each Present record a separate Present ID, raw pop outcome (empty, zero,
+   tagged, depth clear), every removed ID with reason, repair attempt/removal count,
+   c5 serial/validity/history/geometry, streak before/after, and return reason.
+   Preserve pre-event history and report dropped trace records. Avoid synchronous
+   per-frame file I/O; measure tracing overhead and do not add rendering delays.
+3. **Reconcile counts at consistent snapshots.** Attempted pushes = accepted +
+   rejected. Occupancy change = accepted - normal removals - repair removals -
+   depth-clear removals - lifecycle removals. Empty attempts remove nothing.
+   Reconcile Present calls with method bypasses, pre-pop exits, normal attempts,
+   downstream capture results and XR consumption separately. Pop calls are not
+   expected to equal Presents because repair itself calls pop.
+4. **Establish rendered identity where ambiguity remains.** Queue serials measure
+   queue order, not which draw generated a backbuffer. Audit an engine render-view
+   boundary and the ordering of any marker through it. Two BeginScene calls in
+   build 202 invalidate assuming the old once-per-Present boundary. Treat c5
+   position matching as corroboration with explicit ambiguity, not ground truth.
+5. **Measure producer lead and recovery.** Queue depth/ID distance and push-to-pop
+   age describe queued tags; they become render lead only with a valid draw join.
+   Record stance, transition, frame timing and trace state in the same timeline.
+   Trace pause entry/resume, queue, c5 history/streak, capture slots and XR pair
+   state to identify what actually recovers; do not assume pause resets everything.
+6. **Follow corrected identity downstream.** Join current backbuffer ID to capture
+   serial/slot/delivered pose, XR eye releases/submission and hands' render identity.
+   Do not use current c5 with delayed delivered tags or fit join offsets to maximize
+   classifier agreement. Existing `pair geom` and TWICE diagnostics are insufficient.
 
-Counters across the crouched episode (5087.8 -> 5099.0 s): `pushed eye +1 TWICE` 21 -> 224, c5 arm
-`took` 13 -> 145, `held` 7 -> 72, **`realigned` 6 -> 71 (+65)**, **`untagged` (c5 arm found the ring
-empty or a 0 tag) 60 -> 129 (+69)**. There were no single-draw ticks in that window (`draws/s ==
-2nd/s`), so the `untagged` increments are empty-ring pops. **One empty-ring present per realign, to
-within four, over 65 cycles.** Every realign reports `other=0.00`, so crouching does not disable the
-measurement.
+Deliver an event table from before note close through onset, repeated repairs and
+pause recovery. Mark uncertain ownership explicitly. If tracing cannot distinguish
+H1 from H2, improve the join rather than treating serial adjacency as proof.
 
-The standing episodes in the same run (5069.3 s and 5081.0 s) show 1 and 2 realigns and end.
+## 7. Host model, simulator and controlled reproduction
 
-### 4.4 The unexplained core
+First create a faithful host model of the current queue/arbitration behavior with
+externally assigned render IDs as the oracle. Include concurrent pushes between
+peek/pop, lead 0/1/2 and larger backlogs, depths 6/7/8, zero tags, missing/rejected
+pushes, missing/extra Presents, rearm, shutdown, capture failure, invalid c5 gaps,
+still/moving cameras and unknown verdicts between disagreements.
 
-1. A full scene render is presented while the ring is empty, with no stub tick counted since the
-   previous present. Pushes happen before the root enqueues its scene, so an empty ring at a pass-1
-   present should be impossible unless something removed that tag first.
-2. Realigns and empty-ring presents rise one for one while crouched. That is what a drain removing
-   **one valid tag too many** would produce: the drain empties the ring past the next present's own
-   tag, that present goes out untagged, the following presents pop one late, three disagreements
-   trigger another drain - a self-sustaining loop.
-3. Crouched frames are slower (73-76 draws per second against 85) and the untagged rate is higher.
-   Standing, a single drain lands correctly and the loop never starts; crouched, the timing between
-   the game thread's pushes and the render thread's pops changes what the drain finds.
-4. A pause clears it: the resume re-arms (single ticks push 0 tags, then doubles), which resets the
-   streak and refills the ring from a known state.
+With ordered one-to-one draws and no losses, changing lead alone should not create
+skew. Seed an explicit fault when testing recovery and identify it. Reproduce the
+measured sequence if available; failure to reproduce narrows H1 but does not falsify
+it unless the model covers the observed conditions. Synthetic failures establish
+possibility, not what happened on the headset. Keep shortest failing schedules.
 
-## 5. Hypotheses, ranked
+Simulator controls `skip2`, `rearm` and `pulse` inject different conditions; validate
+their actual producer behavior first. Add a precise delay or extra-Present injection
+only when it tests a named hypothesis. A standalone runtime self-test does not
+establish an in-game reproduction. Never launch the game automatically.
 
-**H1 (leading): the realign drain over-drains when the game thread's lead over the render thread is
-not what the drain assumes, and the correction then sustains the fault.** The drain pops "until the
-next tag is the other eye of the measured present". If the game thread is two draws ahead (its next
-tick's -1 is already in the ring behind a genuine +1), or zero ahead (the -1 not yet pushed), that
-rule removes a tag the next present needed. Crouching shifts the lead via frame cost.
-- Predicts: in a per-present record with push and pop serials, every empty-ring present is
-  immediately preceded by a drain whose last popped tag was that present's own tag; ring depth at the
-  drain differs between standing and crouched episodes.
-- Falsified by: empty-ring presents that follow no drain within the same pairing cycle, or drains that
-  only ever pop tags that were genuinely stale (their serial older than the present being measured).
+The tester runs one question per launch. First compare repeated note closes while
+standing still and crouched still with the same view/equipment. Separately test
+standing during an active episode without pausing, then pause recovery; this avoids
+confounding stance with the pause. Only then compare matched timing/load windows,
+walking/crouch-walking and power-related c5 loss. Record both-eye visual verdicts
+and desktop separately, including unsuccessful reproductions.
 
-**H2: some draws do not present, or some presents pop twice, and the drain is a victim, not the
-cause.** Census windows show presents at 0.76-0.99 of stub draws; a draw that never presents leaves an
-orphan tag. Pops outside `end_frame` or an `end_frame` early return after `pop_tag` would also skew.
-- Predicts: push serials skipped at the pop side without any drain; a present count below the pop
-  count or above it.
-- Falsified by: pops exactly equal presents and every skipped serial belonging to a drain.
+## 8. Candidate fixes and decision gates
 
-**H3: a crouch-specific camera write changes the `c5` step between passes and makes the arms misread
-genuine presents.** The crouched eye clamp (`eyeclamp: camZ ... -> ...`) and `clamp-rebase` write the
-camera location on the script lane; if they land between pass 1 and pass 2 or move `c5` by a fraction
-of an eye separation, `inv` can flip or vanish.
-- Predicts: `other` or `along` distorted on crouched disagreements; overrides without any empty ring.
-- Weakened already: every crouched realign logged `along=-6.82 other=0.00`.
+No candidate is selected. New behavior ships OFF with live A/B, one cause per build.
 
-**H4: an engine-side extra scene render per tick when frames are slow** (UE3 frame pacing or a
-render-thread repeat). Ruled against by 4.2 (one presenter, no extra draw-root calls), but not
-excluded for renders issued inside the root.
+| Candidate | Prerequisite and risk |
+|---|---|
+| F1: position-based matching | Historical walking failure (master 3.2/4.2) makes this a research fallback. Require unique motion-aware matches, ambiguity handling, and c5-loss behavior. A wider tolerance or first-two/three search is not identity |
+| F2: correct consumption/repair policy | Prefer if a concrete loss owner is proven. A serial-aware drain needs the actual Present's draw serial; the popped queue serial cannot establish which tags are stale. Repair eye and associated metadata consistently |
+| F3: transport explicit draw identity | Stronger association if an ordered per-view render-command path is demonstrated. An unused shader register is not assumed safe or Present-persistent; prove ownership, byte-verify any hook, handle multiple views, overwrites and lost/reset devices |
+| F4: repair a specific missing/duplicate publication or lifecycle boundary | Choose when H2/H4 identifies it. Preserve legitimate mono/menu behavior and present-stall liveness. Do not merely enlarge the ring or disable all c5 correction |
 
-## 6. Measurements the analysis needs before any fix
+A crouch-only workaround or increasing HoldUntagged may hide symptoms without
+repairing identity; neither establishes closure. Turning C5Pair off changes both
+classification and draining, so it is not an isolated drain experiment.
 
-All read-only, default OFF, bounded, and each able to print the unwelcome answer.
+## 9. Acceptance, regression coverage and handoff
 
-1. **Serials through the ring.** Assign a monotonic serial at each push (game thread), carry it in the
-   tag, and record per present: popped serial (or none), ring depth before the pop, the drain's popped
-   serials, and whether the present's `c5` matches the popped tag's written position (the existing
-   write-to-`c5` distance). With serials, H1 and H2 are separated by one episode.
-2. **Lead.** Per present: newest pushed serial minus popped serial (the game thread's lead in draws),
-   and the time from push to pop. Compare standing and crouched distributions.
-3. **Pop and present accounting.** Count `pop_tag` calls, `end_frame` calls, early returns by reason,
-   and Presents, per second; they must reconcile.
-4. **Stance and frame cost on the same line**, so the crouch dependence is measured, not reported.
-5. **A host model of the ring.** `reentry.cpp`'s pairing (pop, peek, c5 arms, drain) extracted into a
-   pure function and driven by synthetic push/pop schedules: lead 0, 1 and 2; a draw that never
-   presents; a present that finds the ring empty; still and walking cameras. The current code must
-   reproduce the one-for-one realign/empty loop under the lead that crouched frames produce, or H1 is
-   wrong.
-6. **Simulator reproduction** (`tools/xrsim-*`): the seam has `reentry skip2`, `reentry rearm` and
-   `reentry pulse`; a controllable render delay or a forced extra single present would show whether
-   the loop can be started and sustained without a headset.
+Require an exercised old-code failure and candidate success on the same deterministic
+schedule, with all accepted/rejected/removed tags accounted for. Then require tester
+confirmation through repeated standing/crouched note closes and recovery. Check
+correct depth, world, hands and weapons in both eyes; balanced eye counts alone do
+not pass. Missing pose IDs, wrong capture association or held stale output are failures.
 
-## 7. Fix options (after the analysis picks one)
+| Preserved behavior | Relevant validation |
+|---|---|
+| VR-76 mirror and delayed capture | Current/delivered identity, single bursts, desktop-eye host checks; no stale re-push |
+| VR-54 / hold / black-frame fixes | First-eye hold, genuine mono transition, capture failure, reset and saved-layer lifetime |
+| VR-69 camera and hands | Palette-eye and camera-clamp host checks, motion/descent, no live script flag identifying queued draws |
+| VR-93 retention | Note/pause lifecycle and save-load invalidation; run retention tests if lifecycle changes |
+| VR-95 / VR-97 | Keep palette prediction setting fixed; genuine repeats, head roll, missing-c5 intervals and restored history |
+| Pose/capture ownership | Eye plus pose/pair record correspondence through delayed delivery and XR release |
 
-Each ships default OFF with a live A/B, one behaviour change per build, and must keep the tested
-profile.
+Run relevant existing tests after implementation and report actual coverage; historical
+passing counts are not new results. Do not install a candidate or alter tracing settings
+as part of this documentation revision. PairTrace/DrawCallerTrace are reported installed;
+verify their resolved values when preparing the next diagnostic run.
 
-- **F1 - pair by identity, not order.** The tag already carries the written camera position, and the
-  trace shows the present's `c5` matches its own tag's position to 0.03 uu and the other eye's to 6.8
-  uu. Pop the tag (within the first two or three) whose position matches this present, discard only
-  tags older than it, and fall back to order when `c5` is unavailable (VR-97). **Caution the reviewer
-  must weigh:** position re-alignment was tried on 2026-09-03 and mis-paired a walking player because
-  the engine moves the camera after the tick's write (reentry.cpp comment above `pop_tag`). The match
-  would need a tolerance that separates "same eye, moved by travel" from "other eye", measured while
-  walking and crouch-walking, not assumed.
-- **F2 - make the drain serial-aware.** Drain only tags whose serial is older than the present being
-  measured; never pop a tag the next present can still claim. Smallest change if H1 holds.
-- **F3 - carry a draw serial to the render thread explicitly** (an unused shader constant register or a
-  render command enqueued by the stub) so the present knows which draw it shows without inference.
-  Largest change; strongest identity.
-- **F4 - a crouch or frame-cost specific trigger**, only if the analysis shows the loop cannot start
-  without it. Not preferred: it treats the rate, not the pairing.
-- In every option, the hands' eye (the LocalToWorld classifier) must be checked to agree with the
-  corrected image eye; a fix that repairs the world and leaves the hands a full IPD off is not done.
-
-## 8. Constraints
-
-- Never launch the game; the tester runs one question per launch and reports.
-- Anything that writes engine memory byte-verifies its target; new levers default OFF with a live A/B.
-- Every result - confirmed, failed or not run - goes into `FLICKER_REFERENCE.md` in the same commit as
-  the work, in its section 8 format. Never quote a chat in anything published.
-- The instruments `[Stereo] PairTrace` and `[Stereo] DrawCallerTrace` are installed on the test PC and
-  should be reused rather than rebuilt.
-
-## 9. Questions for the reviewer
-
-1. Does the evidence in 4.3 support H1 over H2, and what single measurement would you add to
-   separate them if not the serials in 6.1?
-2. Is the "push before enqueue, so an empty ring at a pass-1 present is impossible" argument sound
-   under UE3's render-thread model and OneFrameThreadLag? What else can reorder a tag against its
-   present?
-3. Is the realign drain rule (lines 300-322) correct for a game-thread lead of 0, 1 and 2 draws? Walk
-   each case.
-4. Why would crouching change the lead or the untagged rate? Is frame cost enough, or is there a
-   crouch-specific render or camera path (the eye clamp, the stealth post-process, the capsule) the
-   analysis should instrument?
-5. Why does a pause clear it, exactly - which reset does the resume perform that a realign does not?
-6. Of F1-F3, which is the smallest change that removes the class of fault rather than this instance,
-   and what does the 2026-09-03 position re-alignment failure imply for F1?
-7. What regressions would each fix risk in the flicker classes already closed (FLICKER_REFERENCE
-   sections 3.1-3.9), and which host or simulator checks would catch them?
+Update master section 8's six-field record with evidence, counterprediction, exact
+change/build identity, negative control, host/simulator/desktop/headset verdicts and
+remaining scope in the same eventual commit. Preserve failed predictions and never
+quote private chat in published records. Current result: source/log review complete;
+new instrument, model, simulator reproduction and headset fix validation **not run**.

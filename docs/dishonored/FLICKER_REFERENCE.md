@@ -83,7 +83,7 @@ pose metadata without reopening the disproved historical theories.
 | Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
 | About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
-| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, presents with no draw of their own (untagged or repeated, 4-7 a second) leave the ring one present late, and the c5 arm then starves the left eye for 10 s or more. The writer is exonerated. Section 3.14 is the separate zero-`c5` case (VR-97) |
+| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, sampled tags disagree with rendered-camera evidence and left-eye output falls for 10 s or more. Untagged intervals contain full scene work; their queued draw ownership and the role of realign remain open. See the September 13 review correction; the sampled writer records are consistent. Section 3.14 is the separate zero-`c5` case (VR-97) |
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
@@ -1013,7 +1013,7 @@ the explanation for after-book flicker in general** (section 3.15): the same
 seconds-long skew happened with `c5` present. The zero-`c5` stretches remain a
 real, separate way to lose the correction.
 
-### 3.15 After a note closes, the tag ring runs one present late behind extra presents (VR-80, measured)
+### 3.15 After a note closes, tag/camera skew and sustained flicker (VR-80, measured; cause open)
 
 **Symptom identity.** 10 to 15 s of flicker after closing a book the fourth time in
 a row, until the tester quit; the earlier three closes were reported clean or
@@ -1149,10 +1149,45 @@ scene renders (450-910 draw calls, 2 BeginScene, 51-65 SetRenderTarget, 23-34 `c
 same as tagged presents) with identical Present arguments: not a buffer re-show, not another target.
 The tester reports the flicker persisting while crouched until a pause clears it, and about half a
 second while standing; this run agrees (standing episodes of 1 and 2 realigns; a crouched episode of
-11 s ended by the pause). Across the crouched episode `realigned` rose by 65 and empty-ring presents
-by 69 with no single-draw ticks, every realign reading `other=0.00`: one empty ring per realign. The
-leading reading is a realign drain that removes one valid tag too many under crouched frame timing and
-sustains the fault it corrects. **Analysis plan for review: [VR-80-PLAN](VR-80-PLAN.md).**
+11 s ended by the pause). Across the sampled interval `realigned` rose by 65 and the
+c5 `untagged` branch counter by 69. The original empty-ring/no-single-ticks interpretation
+is corrected below. A realign feedback loop remains a hypothesis, not a measured cause.
+**Revised analysis plan: [VR-80-PLAN](VR-80-PLAN.md).**
+
+**2026-09-13 source/log review correction (supersedes the causal readings above).**
+
+1. **Symptom identity:** the same both-eye note-exit flicker, sustained during the
+   recorded crouched episode and reported cleared by pause/resume; no new symptom.
+2. **Reproduction identity:** reviewed source `c4084478` and the saved build-202 log
+   at `build/vr93-logs/vr80-run4-145350/dishonored_vr.log`; existing profile retained.
+   This is analysis of an existing run, not an independent headset reproduction.
+3. **Hypothesis and counterprediction:** over-draining may sustain skew, but needs a
+   removal ledger and a valid join to rendered draw identity. If removed tags belong
+   only to already completed/cancelled draws, seek another owner. Queue serials alone
+   cannot prove that a removed tag belonged to a future presented image.
+4. **Change identity:** documentation only. At 5083.093 s stance is CROUCHED, so the
+   5085.375 s beat (85/83/169) is not a standing baseline. At 5096.265 s the
+   present-stall SINGLE path fires; by 5097.406 s the beat is 73/71/144 and stall
+   rises from 51 to 55. Retract no-single-ticks for the whole episode. Note-visible
+   falls at 5086.765 s; GAMEPLAY returns at 5087.765 s. Counter endpoints at
+   5087.796 and 5098.968 s give +65 realign attempts and +69 c5-untagged-branch
+   entries, not 69 proven empty-ring Presents. `pop_tag` can clear depth >6;
+   zero tags also reach this branch. Producer depth >=8 rejects publication.
+5. **Results:** printed realign geometry is rate-limited, not every event; the
+   realign counter increments even without a removal. No depth-clear warning was
+   found in this saved run, but a complete mutation ledger is absent. Scene-scale
+   device activity argues against a no-render re-show. No new stub tick between
+   Presents does not exclude an older queued draw. The earlier claims of extra
+   renders without owning draws, and of a camera upload necessarily preceding its
+   own tag publication, are not established. One Present address and matching
+   argument flags do not establish per-view/resource identity. No instrument,
+   host model, simulator run, renderer change or new visual test was performed.
+6. **Status and remaining scope:** VR-80 remains open. Measure onset separately from
+   repair feedback, separate empty/zero/clear/rejection cases, and trace eye plus
+   pose/capture identity. The existing c5 override changes the eye while retaining
+   the popped record; label recovery alone does not prove image/pose recovery.
+   Pause's exact recovery mechanism and a causal crouch/timing relationship remain
+   unproven. See the revised plan for competing hypotheses and regression gates.
 
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
