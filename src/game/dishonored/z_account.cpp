@@ -162,6 +162,114 @@ uint8_t* g_prevCam = nullptr;
 double   g_nextProgressMs = 0.0;
 uint32_t g_orphans = 0;              // presents seen with no open episode to charge
 
+// ---- VR-80 pair trace (locked, except the two volatiles) ------------------------------
+constexpr int    kTraceRing = 16;         // presents kept for an override's look-back
+constexpr int    kTraceAfterArm = 24;     // presents printed after a return to gameplay
+constexpr int    kTraceBack = 8, kTraceAhead = 8;   // around an override
+constexpr double kTraceOverrideGapMs = 2000.0;
+constexpr uint32_t kTraceMaxDumps = 40;
+struct TraceRec {
+    uint32_t n = 0;                       // present counter, trace-local
+    int      ring = 0, fin = 0;
+    bool     tagged = false;
+    bool     haveW = false, p2 = false, wrote = false, tagPosOk = true, sameWrite = false;
+    int      weye = 0;
+    uint32_t wseq = 0;
+    const char* skip = "";
+    double   wAgeMs = 0.0;
+    bool     c5Ok = false, stepOk = false, tagC5Ok = false;
+    float    c5R = 0.0f, stepR = 0.0f, tagC5 = 0.0f;
+    char     note[200] = {0};
+};
+volatile LONG g_trOn = 0;
+volatile LONG g_trArmReq = 0;
+const char*   g_trArmWhy = "";
+TraceRec g_tr[kTraceRing];
+int      g_trAt = 0, g_trHave = 0, g_trLeft = 0;
+uint32_t g_trN = 0, g_trDumps = 0, g_trPrevSeq = 0;
+float    g_trBasis[3] = {0, 0, 0};
+bool     g_trBasisOk = false, g_trPrevC5Ok = false;
+float    g_trPrevC5R = 0.0f;
+double   g_trNextOverrideMs = 0.0;
+char     g_trNote[200] = {0};
+
+void trace_print(const TraceRec& r) {
+    char w[160], c[64], s[32], t[40];
+    if (r.haveW)
+        _snprintf(w, sizeof(w), "write seq %u eye %+d%s%s%s%s age %.1f ms", r.wseq, r.weye,
+                  r.p2 ? " P2" : "", r.wrote ? "" : " NOWRITE:", r.wrote ? "" : r.skip,
+                  r.sameWrite ? " SAME-WRITE" : "", r.wAgeMs);
+    else
+        _snprintf(w, sizeof(w), "write %s", r.tagged ? "NONE PINNED" : "- (untagged)");
+    w[sizeof(w) - 1] = 0;
+    if (r.c5Ok) _snprintf(c, sizeof(c), "%.2f", r.c5R); else _snprintf(c, sizeof(c), "?");
+    if (r.stepOk) _snprintf(s, sizeof(s), "%+.2f", r.stepR); else _snprintf(s, sizeof(s), "?");
+    if (r.tagC5Ok) _snprintf(t, sizeof(t), "%.2f uu%s", r.tagC5, r.tagPosOk ? "" : " TAGPOS-MISMATCH");
+    else _snprintf(t, sizeof(t), "?");
+    c[sizeof(c) - 1] = 0; s[sizeof(s) - 1] = 0; t[sizeof(t) - 1] = 0;
+    ZA_INFO("vr80/trace: #%u ring %+d final %+d%s | %s | c5 along right %s step %s | write-to-c5 %s%s%s",
+            r.n, r.ring, r.fin, (r.tagged && r.ring != r.fin) ? " OVERRIDE" : "", w, c, s, t,
+            r.note[0] ? " | " : "", r.note);
+}
+
+void trace_header(const char* why) {
+    ++g_trDumps;
+    ZA_INFO("vr80/trace: DUMP %u/%u (%s). One line per present. Healthy stereo alternates ring -1/+1 with "
+            "final equal to ring; a -1 carries a write with eye -1 and no P2, a +1 a P2 write. A ring -1 whose "
+            "write is P2 or SAME-WRITE drew from the previous pass 2's camera (the WRITER is off); an OVERRIDE "
+            "whose writes are clean means the RING is off. c5 is the negated position, so still stereo steps "
+            "by one eye separation with alternating sign.", g_trDumps, kTraceMaxDumps, why);
+}
+
+void trace_present(int ringEye, int finalEye, bool tagged, uint32_t id, bool haveC5, const float c5[3],
+                   double nowMs) {
+    TraceRec r;
+    r.n = ++g_trN;
+    r.ring = tagged ? ringEye : 0;
+    r.fin = tagged ? finalEye : 0;
+    r.tagged = tagged;
+    memcpy(r.note, g_trNote, sizeof(r.note));
+    if (tagged && id) {
+        const Write& p = g_pin[id & (kPin - 1)];
+        if (p.id == id) {
+            r.haveW = true; r.weye = p.eye; r.p2 = p.secondPass; r.wrote = p.wrote; r.skip = p.skip ? p.skip : "";
+            r.wseq = p.seq; r.wAgeMs = nowMs - p.ms; r.tagPosOk = p.tagPosMatch;
+            r.sameWrite = g_trPrevSeq != 0 && p.seq == g_trPrevSeq;
+            g_trPrevSeq = p.seq;
+            if (p.wrote && haveC5 && c5) {
+                float d2 = 0.0f;
+                for (int i = 0; i < 3; ++i) { const float d = c5[i] - p.written[i] * p.c5Sign; d2 += d * d; }
+                r.tagC5 = sqrtf(d2); r.tagC5Ok = true;
+            }
+        }
+    }
+    if (haveC5 && c5 && g_trBasisOk) {
+        r.c5R = c5[0] * g_trBasis[0] + c5[1] * g_trBasis[1] + c5[2] * g_trBasis[2];
+        r.c5Ok = true;
+        if (g_trPrevC5Ok) { r.stepR = r.c5R - g_trPrevC5R; r.stepOk = true; }
+        g_trPrevC5R = r.c5R; g_trPrevC5Ok = true;
+    }
+    if (InterlockedExchange(&g_trArmReq, 0) && g_trDumps < kTraceMaxDumps) {
+        trace_header(g_trArmWhy);
+        g_trLeft = kTraceAfterArm;
+    }
+    const bool ovr = tagged && ringEye != 0 && finalEye != ringEye;
+    if (ovr && g_trLeft == 0 && nowMs >= g_trNextOverrideMs && g_trDumps < kTraceMaxDumps) {
+        g_trNextOverrideMs = nowMs + kTraceOverrideGapMs;
+        trace_header("the pairing overrode the ring; the presents before it, then after");
+        const int back = g_trHave < kTraceBack ? g_trHave : kTraceBack;
+        for (int k = back; k >= 1; --k) trace_print(g_tr[(g_trAt - k + kTraceRing) % kTraceRing]);
+        g_trLeft = kTraceAhead;
+    }
+    g_tr[g_trAt] = r;
+    g_trAt = (g_trAt + 1) % kTraceRing;
+    if (g_trHave < kTraceRing) ++g_trHave;
+    if (g_trLeft > 0) {
+        trace_print(r);
+        if (--g_trLeft == 0) ZA_INFO("vr80/trace: window closed (%u of %u dumps used)", g_trDumps, kTraceMaxDumps);
+    }
+}
+
 // VR-91. Returns 3 for "between", the same contract as bucket_of.
 int roll_bucket_of(float rollDeg) {
     if (rollDeg >= kRollLeftLo && rollDeg <= kRollLeftHi) return 0;
@@ -619,6 +727,41 @@ void set_enabled(bool on, const char* source) {
 
 bool enabled() { return InterlockedCompareExchange(&g_on, 0, 0) != 0; }
 
+// ---- VR-80 pair trace lever ------------------------------------------------------
+void set_trace(bool on, const char* source) {
+    const bool was = InterlockedExchange(&g_trOn, on ? 1 : 0) != 0;
+    if (on && !was) {
+        Lock lk;
+        g_trAt = g_trHave = g_trLeft = 0;
+        g_trPrevSeq = 0; g_trPrevC5Ok = false;
+        ZA_INFO("vr80/trace: ON (%s) - camera writes are recorded and pinned to their eye tags without the "
+                "accounting; up to %u dumps: %d presents after each return to gameplay, and %d before / %d after "
+                "any pairing override at most every %.0f s", source ? source : "?", kTraceMaxDumps, kTraceAfterArm,
+                kTraceBack, kTraceAhead, kTraceOverrideGapMs / 1000.0);
+    } else if (!on && was) {
+        ZA_INFO("vr80/trace: off (%s), %u dump(s) printed", source ? source : "?", g_trDumps);
+    }
+}
+bool trace_enabled() { return InterlockedCompareExchange(&g_trOn, 0, 0) != 0; }
+bool capturing() { return enabled() || trace_enabled(); }
+void trace_arm(const char* why) {
+    if (!trace_enabled()) return;
+    g_trArmWhy = why ? why : "?";
+    InterlockedExchange(&g_trArmReq, 1);
+}
+void trace_note(const char* text) {
+    if (!trace_enabled()) return;
+    Lock lk;
+    _snprintf(g_trNote, sizeof(g_trNote), "%s", text ? text : "");
+    g_trNote[sizeof(g_trNote) - 1] = 0;
+}
+void trace_basis(const float right[3], bool ok) {
+    if (!trace_enabled()) return;
+    Lock lk;
+    g_trBasisOk = ok && right;
+    if (g_trBasisOk) for (int i = 0; i < 3; ++i) g_trBasis[i] = right[i];
+}
+
 // VR-91. Switching mode RESETS: the two modes bin on different axes and gate on
 // different things, so an episode holding samples from both would be a table of
 // two questions averaged together.
@@ -682,7 +825,7 @@ void note_write(const Write& w) {
 }
 
 uint32_t pin_for_tag(const float* tagPos) {
-    if (!enabled()) return 0;
+    if (!capturing()) return 0;
     if (!g_lastWriteOk) { ++g_pinRefused; return 0; }
     Write w = g_lastWrite;
     if (tagPos) {
@@ -701,6 +844,10 @@ uint32_t pin_for_tag(const float* tagPos) {
 
 void on_present(int ringEye, int finalEye, bool tagged, uint32_t id, bool haveC5, const float c5[3],
                 uint32_t c5Serial, double nowMs) {
+    if (trace_enabled()) {
+        Lock lk;
+        trace_present(ringEye, finalEye, tagged, id, haveC5, c5, nowMs);
+    }
     if (!enabled()) return;
     if (!tagged || finalEye == 0) return;   // mono presents are not part of the question
     Lock lk;

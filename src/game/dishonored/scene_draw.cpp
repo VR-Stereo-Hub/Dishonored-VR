@@ -309,6 +309,10 @@ static void SceneDrawDecisionLog(const SdDecision& d)
         g_suStereoSeen = true;
         if (singleTicks)
             Log("reentry: gates -> DOUBLE draw after %lu single tick(s) - both eyes tagged again", (unsigned long)singleTicks);
+        if (singleTicks >= 20) {   // VR-80
+            dvr::zacct::trace_arm("stereo re-armed after 20 or more single ticks");
+            dvr::stereo::reentry_ledger_arm("stereo re-armed after 20 or more single ticks");
+        }
         singleTicks = 0;
     } else {
         DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Info, 1000,
@@ -331,6 +335,10 @@ static uint32_t SdOpenPoseRecord(int eye, uint32_t pairId, bool secondPassReuse)
     return dvr::pose::open(eye, pairId, secondPassReuse);
 }
 
+
+// VR-80: every tag push attempt gets the next id, accepted by the ring or not, so the ring
+// ledger can name which draw each present carried and which draws never reached a present.
+static uint32_t g_sdDrawAttempt = 0;
 
 // The second draw, taking the tick's decision (never re-deciding: that is what
 // made the tags one-sided). Only the poison is re-read - a fault poisons
@@ -365,8 +373,8 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     // Pass 2 deliberately reuses pass 1's rotation, so the record says so
     // rather than presenting the reuse as a fresh sample.
     const uint32_t acct2 = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);   // VR-78: this write, by id
-    dvr::stereo::reentry_push_tag_acct(+1, wrote ? wrotePos : NULL,
-                                       SdOpenPoseRecord(+1, g_sdPairId, true), acct2);
+    dvr::stereo::reentry_push_tag_draw(+1, wrote ? wrotePos : NULL,
+                                       SdOpenPoseRecord(+1, g_sdPairId, true), acct2, ++g_sdDrawAttempt);
     g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
@@ -431,16 +439,16 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             const bool posOk = dvr::camera::last_written_pos(pos);
             g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
             const uint32_t acct1 = dvr::zacct::pin_for_tag(posOk ? pos : NULL);   // VR-78: the tick's last write
-            dvr::stereo::reentry_push_tag_acct(-1, posOk ? pos : NULL,
-                                               SdOpenPoseRecord(-1, g_sdPairId, false), acct1);
+            dvr::stereo::reentry_push_tag_draw(-1, posOk ? pos : NULL,
+                                               SdOpenPoseRecord(-1, g_sdPairId, false), acct1, ++g_sdDrawAttempt);
         } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
             dvr::desktop_eye::note_single_draw(); // VR-76: actual ticks, not rate-limited log lines
             // A single GAMEPLAY draw while the method pops: one push per draw,
             // so its present cannot eat the next tick's -1 (the header's ONE
             // PUSH). Not in menus: their draws outnumber their presents and
             // the ring would only fill with junk (measured: cleared every 3 s).
-            dvr::stereo::reentry_push_tag_rec(0, NULL,
-                                              SdOpenPoseRecord(0, g_sdPairId, false));
+            dvr::stereo::reentry_push_tag_draw(0, NULL,
+                                              SdOpenPoseRecord(0, g_sdPairId, false), 0, ++g_sdDrawAttempt);
         }
 
     }
@@ -497,6 +505,157 @@ static void SceneDrawApply()
     }
 }
 
+// ---- VR-80: the root's other callers, counted ------------------------------------------
+//
+// ONE PUSH PER DRAW (header) holds only for draws that reach the stub. The census
+// of E8/E9 callers of the root finds three more sites; a draw through one of them
+// pushes no tag, and if it presents, its present pops the next tick's -1 - the
+// one-present-late ring the pair trace measured after a note closes. These stubs
+// only COUNT: same argument, same root, same return. Patched on the game thread,
+// bytes verified per site, restored when [Stereo] DrawCallerTrace goes off.
+static volatile LONG g_vdCalls[3] = {0, 0, 0};      // A, B, C
+static volatile LONG g_vdPresenting[3] = {0, 0, 0}; // ... with bShouldPresent != 0
+static volatile LONG g_vdWant = 0;
+static bool g_vdInstalled = false;
+
+static void __fastcall VdStubA(void* self, void* edx, int b)
+{
+    (void)edx; InterlockedIncrement(&g_vdCalls[0]); if (b) InterlockedIncrement(&g_vdPresenting[0]);
+    ((DvrViewportDrawFn)kViewportDraw)(self, NULL, b);
+}
+static void __fastcall VdStubB(void* self, void* edx, int b)
+{
+    (void)edx; InterlockedIncrement(&g_vdCalls[1]); if (b) InterlockedIncrement(&g_vdPresenting[1]);
+    ((DvrViewportDrawFn)kViewportDraw)(self, NULL, b);
+}
+static void __fastcall VdStubC(void* self, void* edx, int b)
+{
+    (void)edx; InterlockedIncrement(&g_vdCalls[2]); if (b) InterlockedIncrement(&g_vdPresenting[2]);
+    ((DvrViewportDrawFn)kViewportDraw)(self, NULL, b);
+}
+
+struct VdSite {
+    const char* name; uintptr_t at; const uint8_t* orig; size_t len; size_t op;   // op: offset of E8/E9
+    void* stub; uint8_t saved[8]; bool on;
+};
+static VdSite g_vdSite[3] = {
+    {"A (push 1; call)", kViewportDrawCallerA, kViewportDrawCallerAOrig, 7, 2, (void*)&VdStubA, {}, false},
+    {"B (jmp, tail)",    kViewportDrawCallerB, kViewportDrawCallerBOrig, 5, 0, (void*)&VdStubB, {}, false},
+    {"C (push 0; call)", kViewportDrawCallerC, kViewportDrawCallerCOrig, 7, 2, (void*)&VdStubC, {}, false},
+};
+
+static void DrawCallersSet(bool on) { InterlockedExchange(&g_vdWant, on ? 1 : 0); }
+
+// GAME THREAD (PeHandler, beside SceneDrawApply).
+static void DrawCallersApply()
+{
+    const bool want = InterlockedCompareExchange(&g_vdWant, 0, 0) != 0;
+    if (want == g_vdInstalled) return;
+    if (want) {
+        for (auto& s : g_vdSite)
+            if (!RangeReadable((void*)s.at, s.len) || memcmp((void*)s.at, s.orig, s.len) != 0) {
+                const uint8_t* b = (const uint8_t*)s.at;
+                Log("vr80/callers: NOT installed - site %s at 0x%08x does not hold the expected bytes "
+                    "(%02x %02x %02x %02x %02x): another build, or something else patched it. Nothing changed.",
+                    s.name, (unsigned)s.at, b[0], b[1], b[2], b[3], b[4]);
+                InterlockedExchange(&g_vdWant, 0);
+                return;
+            }
+        for (auto& s : g_vdSite) {
+            DWORD op;
+            if (!VirtualProtect((void*)s.at, s.len, PAGE_EXECUTE_READWRITE, &op)) continue;
+            memcpy(s.saved, (void*)s.at, s.len);
+            const uintptr_t next = s.at + s.op + 5;
+            const int32_t rel = (int32_t)((uintptr_t)s.stub - next);
+            memcpy((uint8_t*)s.at + s.op + 1, &rel, 4);   // the opcode stays, only its target moves
+            VirtualProtect((void*)s.at, s.len, op, &op);
+            FlushInstructionCache(GetCurrentProcess(), (void*)s.at, s.len);
+            s.on = true;
+        }
+        g_vdInstalled = true;
+        Log("vr80/callers: the viewport draw root's other three callers now count through pass-through stubs "
+            "(bytes verified). The gameplay draw is the stub's own `draws`; A, B and C are draws that push NO eye "
+            "tag - if they present, their present takes the next tick's tag.");
+    } else {
+        for (auto& s : g_vdSite) {
+            if (!s.on) continue;
+            DWORD op;
+            if (!VirtualProtect((void*)s.at, s.len, PAGE_EXECUTE_READWRITE, &op)) continue;
+            memcpy((void*)s.at, s.saved, s.len);
+            VirtualProtect((void*)s.at, s.len, op, &op);
+            FlushInstructionCache(GetCurrentProcess(), (void*)s.at, s.len);
+            s.on = false;
+        }
+        g_vdInstalled = false;
+        Log("vr80/callers: removed - the three call sites hold their original bytes again");
+    }
+}
+
+// Present thread: what drew since the previous present and WHO called Present, as
+// one annotation for the pair trace, and a census line every 10 s. The callers
+// census exists because build 199 measured the other draw-root callers silent:
+// the extra presents are Present calls, and their return address names the owner.
+static void DrawCallersNote()
+{
+    static LONG lastTicks = 0, lastP2 = 0, last[3] = {0, 0, 0};
+    const LONG ticks = (LONG)g_sdDraws, p2 = (LONG)g_sdSecondDraws;
+    LONG c[3];
+    for (int i = 0; i < 3; ++i) c[i] = g_vdCalls[i];
+    dvr::frame::set_present_backtrace(g_vdInstalled);
+    const uintptr_t ret = dvr::frame::present_return_address();
+    uintptr_t bt[8];
+    const int btN = dvr::frame::present_backtrace(bt, 8);
+    // What the DEVICE did since the previous present: a present with no draw
+    // calls re-shows a buffer; one with draws but no stub tick rendered from
+    // somewhere the tags never see. c5 uploads say whether a scene camera moved.
+    const dvr::frame::PresentActivity act = dvr::frame::present_activity();
+    static uint32_t lastC5 = 0;
+    const uint32_t c5s = dvr::camera::render_pos_serial();
+    char note[200];
+    _snprintf(note, sizeof(note), "drew: tick %ld p2 %ld abc %ld | device: draws %u begin %u srt %u c5up %u args %s%s%s%s | from %08x",
+              ticks - lastTicks, p2 - lastP2, (c[0] - last[0]) + (c[1] - last[1]) + (c[2] - last[2]),
+              act.draws, act.begins, act.srts, c5s - lastC5,
+              act.srcRect ? "S" : "-", act.dstRect ? "D" : "-", act.hwnd ? "W" : "-", act.dirty ? "R" : "-",
+              (unsigned)ret);
+    lastC5 = c5s;
+    (void)btN; (void)bt;
+    note[sizeof(note) - 1] = 0;
+    dvr::zacct::trace_note(g_vdInstalled ? note : "");
+    lastTicks = ticks; lastP2 = p2;
+    for (int i = 0; i < 3; ++i) last[i] = c[i];
+    if (!g_vdInstalled) return;
+
+    // distinct Present return addresses, counted between census lines
+    struct Ret { uintptr_t at; LONG n; };
+    static Ret rets[8] = {};
+    static LONG overflow = 0;
+    bool found = false;
+    for (auto& r : rets) if (r.at == ret) { ++r.n; found = true; break; }
+    if (!found) {
+        bool placed = false;
+        for (auto& r : rets) if (!r.at) { r.at = ret; r.n = 1; placed = true; break; }
+        if (!placed) ++overflow;
+    }
+    static double nextCensus = 0.0;
+    static LONG censusTicks = 0, censusC[3] = {0, 0, 0};
+    const double now = MaimNowMs();
+    if (now < nextCensus) return;
+    if (nextCensus != 0.0) {
+        char list[260]; int m = 0; list[0] = 0;
+        for (auto& r : rets)
+            if (r.at && m < (int)sizeof(list) - 24) m += _snprintf(list + m, sizeof(list) - m, " %08x x%ld", (unsigned)r.at, r.n);
+        list[sizeof(list) - 1] = 0;
+        Log("vr80/callers: last 10 s - gameplay ticks %ld, other draw-root callers %ld | Present called from:%s%s. "
+            "A second return address is a second presenter; its count against the ticks says how often.",
+            ticks - censusTicks, (c[0] - censusC[0]) + (c[1] - censusC[1]) + (c[2] - censusC[2]),
+            list[0] ? list : " (none)", overflow ? " (+more, table full)" : "");
+    }
+    for (auto& r : rets) r = Ret{};
+    overflow = 0;
+    nextCensus = now + 10000.0;
+    censusTicks = ticks;
+    for (int i = 0; i < 3; ++i) censusC[i] = c[i];
+}
 // The method arms / disarms (present thread): the patch request goes to the
 // game thread, the arm flag is immediate.
 static void SceneDrawSetArmed(bool on)
@@ -518,8 +677,13 @@ static uint32_t SceneDrawDraws() { return g_sdDraws; }
 static void SceneDrawPresentTag(int ringEye, int finalEye, bool tagged, uint32_t acct, bool haveC5,
                                 const float c5[3], uint32_t c5Serial)
 {
-    if (!dvr::zacct::enabled()) return;
+    if (!dvr::zacct::capturing()) return;
     const double now = dvr::zacct::now_ms();
+    if (dvr::zacct::trace_enabled()) {   // VR-80: the pair trace measures c5 along this right axis
+        float bf[3], br[3], bu[3];
+        dvr::zacct::trace_basis(br, dvr::camera::last_basis(bf, br, bu));
+        DrawCallersNote();               // ... and says what drew since the previous present
+    }
     dvr::zacct::on_present(ringEye, finalEye, tagged, acct, haveC5, c5, c5Serial, now);
     dvr::zacct::tick(now);
 }
@@ -579,6 +743,12 @@ static bool SceneDrawCommand(const char* args)
         Log("reentry/skip2: the next %d armed gameplay tick(s) push pass 1's -1 tag and SKIP pass 2 - a one-sided "
             "stream on purpose; expect `stereo: STALE R EYE` (strict off) or `xr: strict pair - stereo submit "
             "REFUSED` (strict on)", k);
+        return true;
+    }
+    if (n >= 1 && !strcmp(sub, "latetag")) {   // VR-80 candidate F-late's live A/B
+        bool on;
+        if (DvrOnOff(a1, &on)) { dvr::stereo::set_reentry_late_tag(on); return true; }
+        Log("reentry: latetag on|off (now %s)", dvr::stereo::reentry_late_tag() ? "on" : "off");
         return true;
     }
     if (n >= 1 && !strcmp(sub, "c5pair")) {   // 41.1 (session 9): the within-tick invariant's A/B

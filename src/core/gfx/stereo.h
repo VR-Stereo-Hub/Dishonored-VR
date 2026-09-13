@@ -221,6 +221,11 @@ void set_reentry_hooks(const ReentryHooks& h);
 // realigns the ring. Off = the ring's order alone (the pre-41.1 behaviour).
 void set_reentry_c5_pair(bool on);
 bool reentry_c5_pair();
+// VR-80 candidate F-late ([Stereo] LateTagRepair, default off; `reentry latetag on|off`, F10): a tag
+// that reaches the ring just after the present that showed its image is removed as a repair at the
+// next present, when that present's c5 confirms, instead of costing a wrong eye and a drain.
+void set_reentry_late_tag(bool on);
+bool reentry_late_tag();
 
 // The game thread pushes one tag per draw (-1 pass 1, +1 pass 2) with the
 // camera position the writer produced (null = unknown); the method pops one
@@ -230,5 +235,11 @@ void reentry_push_tag(int eyeSign, const float pos[3]);
 void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec);
 // VR-78: and an accounting id that comes back through ReentryHooks::present_tag.
 void reentry_push_tag_acct(int eyeSign, const float pos[3], uint32_t rec, uint32_t acct);
+// VR-80: the ring ledger. The push carries the game side's draw attempt id; the ledger is
+// [Stereo] RingLedger; arm opens a print window; stance is 1 standing, 2 crouched.
+void reentry_push_tag_draw(int eyeSign, const float pos[3], uint32_t rec, uint32_t acct, uint32_t draw);
+void set_reentry_ledger(bool on);
+void reentry_ledger_arm(const char* why);
+void reentry_ledger_stance(int stance);
 
 } // namespace dvr::stereo

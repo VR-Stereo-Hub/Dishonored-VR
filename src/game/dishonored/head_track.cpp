@@ -1412,6 +1412,7 @@ static void TrackHead(const float (*m)[4])
                 else if (ch > 0.0f) target = 0;
                 if (target != g_neckStanceTarget) {
                     g_neckStanceTarget = target;
+                    dvr::stereo::reentry_ledger_stance(target ? 2 : 1);   // VR-80: the ring ledger's stance column
                     Log("neck: stance -> %s (capsule %.1f uu): easing the pivot to below %.3f m behind %.3f m over ~%.0f ms "
                         "(%s)", target ? "CROUCHED" : "standing", ch, target ? cb : g_neckBelowM, target ? cf : g_neckBehindM,
                         g_neckStanceBlendMs,
@@ -1553,7 +1554,7 @@ static void TrackHead(const float (*m)[4])
         // is the authority; the cursor only adds the cases script events miss
         // (the boot main menu).
         // 30.75: head tracking sometimes takes a second to come back after a
-        // load or at startup. §10 of the handoff already names the cause - the
+        // load or at startup. ?10 of the handoff already names the cause - the
         // game's save-slot polls (Req_SaveSlotInfos / CanSaveGame) re-open the
         // menu flag right after auto-start closes it - and nothing was ever
         // clearing it, so the head-mouse stayed parked until a real menu event

@@ -811,6 +811,28 @@ uint32_t reinits() { return g_reinits; }
 void set_pending_tag(int eyeSign) { g_pendingTag = eyeSign < 0 ? -1 : eyeSign > 0 ? 1 : 0; }
 int delivered_tag() { return g_deliveredTag; }
 void set_pending_rec(uint32_t rec) { g_pendingRec = rec; }
+
+// VR-80 F-late: relabel the most recent grab's slot while it is still waiting to be delivered
+// (a pipelined mode: shared with SharedWait=0, or deferred). Only an UNTAGGED slot from the
+// latest grab qualifies: a late tag proved which eye its pixels were, one present after they
+// were grabbed. Sync and SharedWait=1 have already delivered it, so they refuse.
+bool relabel_last_grab(int eyeSign, uint32_t rec) {
+    if (eyeSign == 0) return false;
+    const int tag = eyeSign < 0 ? -1 : 1;
+    if (g_mode == Mode::Shared && !g_sharedWait) {
+        const int last = g_sharedCur ^ 1;
+        if (!g_sharedValid[last] || g_sharedSerial[last] != g_serial || g_sharedTag[last] != 0) return false;
+        g_sharedTag[last] = tag; g_sharedRec[last] = rec;
+        return true;
+    }
+    if (g_mode == Mode::Deferred) {
+        const int last = g_rtCur ^ 1;
+        if (!g_rtValid[last] || g_rtSerial[last] != g_serial || g_rtTag[last] != 0) return false;
+        g_rtTag[last] = tag; g_rtRec[last] = rec;
+        return true;
+    }
+    return false;
+}
 uint32_t delivered_rec() { return g_deliveredRec; }
 uint32_t delivered_serial() { return g_deliveredSerial; }
 uint32_t serial() { return g_serial; }

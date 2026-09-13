@@ -5101,3 +5101,22 @@ identity unchanged across them.
 
 **The UI observer rescan costs ~500 ms of game thread on every resume** (498 to 530 ms
 over eight scans) and found the same 48 movie-player instances each time.
+
+## The viewport draw root's callers (VR-80, 2026-09-13)
+
+`tools/disasm-rva.py <exe> calls 0x1fc5b0` lists exactly four static E8/E9 callers of the viewport
+draw root `0x005fc5b0`. The gameplay one is `0x006330dc` (`kViewportDrawCallSite`, the re-entry
+stub's site). The other three, bytes read from the image:
+
+| Site | Bytes | Form |
+|---|---|---|
+| `0x004dba66` | `6a 01 e8 43 0b 12 00` | `push 1; call root` - bShouldPresent TRUE, inside a small thunk (`push ebp; mov ebp,esp; mov ecx,[ebp+8]`) |
+| `0x0061236a` | `e9 41 a2 fe ff` | `jmp root` - a tail call after `pop edi; pop esi; pop ebp`, argument passed through |
+| `0x00641d85` | `6a 00 e8 24 a8 fb ff` | `push 0; call root` - bShouldPresent FALSE |
+
+A draw through any of them does not reach the re-entry stub and so pushes no eye tag. Which of
+them runs in play, and whether one runs after a note closes, is NOT yet measured;
+`[Stereo] DrawCallerTrace` counts them through pass-through stubs (patterns.h`kViewportDrawCallerA/B/C`).
+Measured (build 199, a run with a book close): A, B and C made 0 calls. `xref` finds no absolute
+reference to `0x005fc5b0` and a raw search for its bytes finds none, so no vtable or pointer table
+reaches the root: in gameplay the gameplay call site is its only live caller.

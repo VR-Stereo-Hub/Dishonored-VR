@@ -83,7 +83,7 @@ pose metadata without reopening the disproved historical theories.
 | Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
 | About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
-| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, the passes' cameras can come out inverted against their tags and the c5 arm then starves the left eye for 10 s or more, with `c5` present. Section 3.14 is the separate zero-`c5` case (VR-97) |
+| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume; separately, when `c5` reads zero a re-arm's ring skew goes uncorrected until it returns | VR-80 open. Section 3.15: after a close, sampled tags disagree with rendered-camera evidence and left-eye output falls for 10 s or more. Untagged intervals contain full scene work; their queued draw ownership and the role of realign remain open. See the September 13 review correction; the sampled writer records are consistent. Section 3.14 is the separate zero-`c5` case (VR-97) |
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
@@ -1013,7 +1013,7 @@ the explanation for after-book flicker in general** (section 3.15): the same
 seconds-long skew happened with `c5` present. The zero-`c5` stretches remain a
 real, separate way to lose the correction.
 
-### 3.15 After a note closes, the passes' cameras come out inverted against their tags (VR-80, measured)
+### 3.15 After a note closes, tag/camera skew and sustained flicker (VR-80, measured; cause open)
 
 **Symptom identity.** 10 to 15 s of flicker after closing a book the fourth time in
 a row, until the tester quit; the earlier three closes were reported clean or
@@ -1056,6 +1056,230 @@ writer, a per-present record of (ring tag, the eye the writer applied, `c5`) sho
 the writer's eye disagreeing with the tag from the first resumed pair. If instead
 the ring holds a stale tag across the book, the writer's eye matches `c5` and only
 the ring is off by one. Nothing changes until one of those is seen.
+
+**Instrument built, not yet run.** `[Stereo] PairTrace` (`z_account` trace mode,
+independent of `ZAccount`) prints `vr80/trace:` lines, one per present, joining the
+ring's eye, the eye chosen, the camera write the tag carries (eye, `P2`,
+`SAME-WRITE`, age) and `c5` along right: 24 presents after every return to
+gameplay or re-arm, and 8 before / 8 after any pairing override, 40 dumps at most.
+Ruled out on reading the source first: the script writer's eye comes from
+`eye_for_next_frame()`, which is a constant -1 under reentry, so a flipped global
+cannot be the writer fault; a stale field (no writer call between a pass 2 and the
+next pass 1) still can, and reads as a ring -1 carrying a `P2 SAME-WRITE`. Host:
+8 new checks in `tools/zaccount-host.ps1` (50 total); dropping the SAME-WRITE mark
+fails two of them.
+
+**First trace run (build 196 built 14:11:40, same profile, `PairTrace=1`).** Nine
+book closes; the flicker came after the sixth (3535.75 s) and ran until the
+tester paused 24 s later. 24 dumps, 38 overrides.
+
+- **The writer is exonerated.** Every tagged present carried the write its tag
+  names: ring -1 with an eye -1 write, ring +1 with an eye +1 P2 write, no
+  `SAME-WRITE` anywhere, and `write-to-c5` 0.00-0.03 uu on healthy presents.
+- **The ring falls one present behind, and a present with no draw of its own
+  pushes it there.** In an episode, `write-to-c5` reads 6.82 uu - the present's
+  `c5` is the OTHER pass's - until a realign. Of 17 episode starts, 17 are
+  immediately preceded by either an UNTAGGED present that nonetheless shows a new
+  pass-1 image (14; `ring +0`, step +6.82, the ring empty when it popped) or a
+  REPEAT present showing the previous image again (3; step under 0.6 uu, which
+  consumed the next tag). The c5 arm then overrides the wrong tags, which is the
+  `pushed eye +1 TWICE` count, until three disagreements pop a tag.
+- **What changed after the book is the rate of those presents.** Untagged presents
+  (`stereo: beat ... none/s`) ran 0-3 a second before it and 4-7 a second for the
+  whole episode, with the left eye short (`L/s` 61-71 against `R/s` 80-84), while
+  the game side stayed double on every tick (`draws/s == 2nd/s`, no stall or state
+  skips, `singleTicks` 0). At 0-3 a second the episodes are brief and recover
+  (dumps 2 and 3); at 4-7 a second the correction never catches up.
+
+**Retracted reading.** Sections above described the passes' cameras as inverted
+against their tags. The cameras were right; the tags were one present late.
+
+**Open.** Where a present with no stub draw behind it comes from, and why a book
+raises its rate. Next measurement: for each untagged or repeat present inside a
+trace window, the Present caller and the scene-draw and `c5` serials since the last
+present, so the extra present's owner is named before anything changes.
+
+**Second instrument built, not yet run.** The draw root has three static callers besides the
+gameplay site (ENGINE_NOTES, "the viewport draw root's callers"); one of them draws with
+bShouldPresent TRUE and none pushes a tag, which is the scene_draw header's own ONE PUSH PER
+DRAW failure. `[Stereo] DrawCallerTrace` retargets those three call sites to counting
+pass-through stubs and appends to each `vr80/trace` line what drew since the previous present
+(`tick`, `p2`, and per site calls with the presenting count in brackets), plus a 10 s census.
+Counterprediction: if a foreign caller owns the extra presents, an UNTAGGED present follows a
+non-zero presenting count on A, B or C; if every untagged present shows only `tick`/`p2`, the
+extra present comes from outside the viewport draw and this lead is dead.
+
+**Second instrument, run (build 199, `vr33-hands-working-199-ga7e7dde8`): the lead is dead.** One book
+close, flicker after it until the pause 8 s later. Callers A, B and C were installed (bytes verified)
+and made **0 calls** in every 10 s census and on every trace line for the whole run; the 7 untagged
+presents show only the gameplay draw since the previous present (4 with nothing, 2 `tick 1`, 1
+`tick 1 p2 1`). `disasm-rva.py xref 0x1fc5b0` finds no absolute reference to the root and a raw search
+for its address finds none, so no vtable reaches it either: every viewport draw in play is the
+gameplay tick the stub tags. The untagged presents are therefore extra **Present calls**, not extra
+draws. They show a new pass-1 (left) camera with the ring empty, i.e. before the tick's -1 tag
+was pushed. Next: name the Present caller (the return address into the exe) for those presents.
+
+**Third instrument built, not yet run.** With `DrawCallerTrace=1` the Present hook stores its return
+address on every present and a short backtrace, each trace line carries `Present from <addr> via
+<frames>`, and the 10 s census lists every distinct Present return address with its count against the
+gameplay ticks. Counterprediction: one address for tagged and untagged presents alike means the extra
+present comes through the engine's normal present path (a timing or pacing cause); a second address
+on the untagged presents names a second presenter.
+
+**Third instrument, run (build 201, `vr33-hands-working-201-g5cb3e715`): one presenter.** Every present
+in the run returned to `009c01a4` (1,419 to 1,596 per 10 s census, one address only), the untagged
+presents included, and the other draw-root callers stayed at 0. The extra presents come through the
+engine's normal present path. The untagged present's `c5` is a pass-1 (left) camera while the stub's
+tick counter has not moved since the previous present, so whatever uploaded that camera was not the
+stub's tick.
+
+**Stance, reported and consistent with this log (one episode, not established).** The tester reports the
+flicker persisting while crouched and ending quickly while standing. In this run four standing book
+closes produced no override episode; the one episode followed a close 3.3 s after `neck: stance ->
+CROUCHED` and ran until the pause with no stand in between.
+
+**Fourth instrument built, not yet run.** Each trace line now carries what the DEVICE did since the
+previous present - draw calls, BeginScene, SetRenderTarget, `c5` uploads - and the Present arguments
+(source rect, dest rect, window override, dirty region). Counterprediction: an untagged present with no
+draw calls is a re-show of an existing buffer; one with draws and `c5` uploads but no stub tick is a
+scene render the ring never sees; a window override or rects name a present to another target.
+
+**Fourth instrument, run (build 202, `vr33-hands-working-202-g2d8e9374`).** Untagged presents are full
+scene renders (450-910 draw calls, 2 BeginScene, 51-65 SetRenderTarget, 23-34 `c5` uploads, the
+same as tagged presents) with identical Present arguments: not a buffer re-show, not another target.
+The tester reports the flicker persisting while crouched until a pause clears it, and about half a
+second while standing; this run agrees (standing episodes of 1 and 2 realigns; a crouched episode of
+11 s ended by the pause). Across the sampled interval `realigned` rose by 65 and the
+c5 `untagged` branch counter by 69. The original empty-ring/no-single-ticks interpretation
+is corrected below. A realign feedback loop remains a hypothesis, not a measured cause.
+**Revised analysis plan: [VR-80-PLAN](VR-80-PLAN.md).**
+
+**2026-09-13 source/log review correction (supersedes the causal readings above).**
+
+1. **Symptom identity:** the same both-eye note-exit flicker, sustained during the
+   recorded crouched episode and reported cleared by pause/resume; no new symptom.
+2. **Reproduction identity:** reviewed source `c4084478` and the saved build-202 log
+   at `build/vr93-logs/vr80-run4-145350/dishonored_vr.log`; existing profile retained.
+   This is analysis of an existing run, not an independent headset reproduction.
+3. **Hypothesis and counterprediction:** over-draining may sustain skew, but needs a
+   removal ledger and a valid join to rendered draw identity. If removed tags belong
+   only to already completed/cancelled draws, seek another owner. Queue serials alone
+   cannot prove that a removed tag belonged to a future presented image.
+4. **Change identity:** documentation only. At 5083.093 s stance is CROUCHED, so the
+   5085.375 s beat (85/83/169) is not a standing baseline. At 5096.265 s the
+   present-stall SINGLE path fires; by 5097.406 s the beat is 73/71/144 and stall
+   rises from 51 to 55. Retract no-single-ticks for the whole episode. Note-visible
+   falls at 5086.765 s; GAMEPLAY returns at 5087.765 s. Counter endpoints at
+   5087.796 and 5098.968 s give +65 realign attempts and +69 c5-untagged-branch
+   entries, not 69 proven empty-ring Presents. `pop_tag` can clear depth >6;
+   zero tags also reach this branch. Producer depth >=8 rejects publication.
+5. **Results:** printed realign geometry is rate-limited, not every event; the
+   realign counter increments even without a removal. No depth-clear warning was
+   found in this saved run, but a complete mutation ledger is absent. Scene-scale
+   device activity argues against a no-render re-show. No new stub tick between
+   Presents does not exclude an older queued draw. The earlier claims of extra
+   renders without owning draws, and of a camera upload necessarily preceding its
+   own tag publication, are not established. One Present address and matching
+   argument flags do not establish per-view/resource identity. No instrument,
+   host model, simulator run, renderer change or new visual test was performed.
+6. **Status and remaining scope:** VR-80 remains open. Measure onset separately from
+   repair feedback, separate empty/zero/clear/rejection cases, and trace eye plus
+   pose/capture identity. The existing c5 override changes the eye while retaining
+   the popped record; label recovery alone does not prove image/pose recovery.
+   Pause's exact recovery mechanism and a causal crouch/timing relationship remain
+   unproven. See the revised plan for competing hypotheses and regression gates.
+
+**2026-09-13 host model and ring ledger (plan checkpoint 2).**
+
+1. **Symptom identity:** unchanged; no new headset run yet.
+2. **Reproduction identity:** the host model `tools/reentry-pair-host.ps1` compiles the
+   shipped pairing from `src/core/gfx/reentry_pair.inc` (moved verbatim out of
+   `reentry.cpp`); headset build pending install with `[Stereo] RingLedger=1`.
+3. **Hypothesis and counterprediction:** a one-tag-ahead ring plus the three-disagreement
+   drain sustains itself at a producer lead of about one tick. Counterprediction: the
+   model recovers from every single seeded fault.
+4. **Change identity:** diagnostic only. The ledger, default off, is one record per
+   present with draw attempt ids from the producer, raw pop outcome, removed ids and a
+   10 s tail/head reconcile. No pairing behaviour changed.
+5. **Results:** the prediction FAILED in the model. Every single fault (repeated present,
+   never-presenting draw, unpublished tag, 0-tag tick; steady or jittered lead; still or
+   walking) recovers correct eye labels within a few presents. At lead 1 or more a fault
+   leaves the ring a tick ahead for the rest of the run: right eye, next draw's record.
+   A sustained wrong-eye episode therefore needs something outside the model (recurring
+   onsets, concurrency inside the drain, capture delay, the hold, the progress guard).
+6. **Status and remaining scope:** open. The ledger's first headset question compares
+   standing-still and crouched-still note closes. The sustained record skew is a model
+   result, not yet measured in the game.
+
+**2026-09-13 headset run 5: the onset is a late tag (plan checkpoint 3).**
+
+1. **Symptom identity:** the same crouched note-exit flicker, sustained until quit; the
+   tester now describes the scene jumping right in the right eye and left in the left
+   eye, which is an eye swap, not a mono or stale image.
+2. **Reproduction identity:** build `205-g6d858c8f-dirty` (ledger code of `7226a613`),
+   `[Stereo] RingLedger=1`, profile unchanged; several note closes standing and crouched,
+   the last one crouched.
+3. **Hypothesis and counterprediction:** the drain over-consumes (checkpoint 1). It would
+   show removed draw ids that later present. Alternative: tags lost from the ring, which
+   would show a reconcile failure.
+4. **Change identity:** none; measurement only.
+5. **Results:** both reconcile sides held (no uncounted path). The drain removed the
+   correct tag (over-drain refuted). The episode is a repeating four-present cycle at
+   about 3.3/s: an empty pop whose image's tag arrives a few ms later, then TOOK,
+   then one present with the left image in the right eye, then TOOK plus a one-tag drain.
+   Push-to-present margin for -1 tags: median 0.8 ms in the episode against 10.7 ms
+   crouched and 7.6 ms standing before it; ring depth before the pop mostly 1 against 2-3.
+6. **Status and remaining scope:** open. Onset mechanism measured; the cause of the margin
+   collapse (and why a pause restores it) is not. Next: host-model the late push, then a
+   default-off late-tag repair lever and one headset A/B. See VR-80-PLAN checkpoint 3.
+
+**2026-09-13 candidate F-late, host-verified (not yet headset-tested).**
+
+1. **Symptom identity:** the run 5 cycle above.
+2. **Reproduction identity:** host model only (`tools/reentry-pair-host.ps1`, 240 checks),
+   compiling the shipped `reentry_pair.inc`.
+3. **Hypothesis and counterprediction:** removing the late tag at the next present, when
+   that present's c5 confirms the other eye, removes the wrong eye and the drain. It fails
+   if any earlier schedule gets worse or the late schedule still shows a wrong eye.
+4. **Change identity:** `[Stereo] LateTagRepair` (default 0), `reentry latetag on|off`,
+   F10 Display checkbox; ledger `OWE` / `LATE-REPAIR`.
+5. **Results:** with the lever off the model reproduces run 5's cycle present for present.
+   On: no wrong eye, drain or wrong record on the late schedules (still and walking); the
+   refused present remains, left to `HoldUntagged`. All 72 earlier schedules are no worse.
+6. **Status and remaining scope:** candidate, armed in the tester's ini for one headset
+   question. It treats the onset's effect, not the margin collapse behind it.
+
+**2026-09-13 headset run 6: F-late fires, a held left image remains (plan checkpoint 4).**
+
+1. **Symptom identity:** still a crouched note-exit flicker, reported less frequent, sometimes
+   ending on its own, and now LEFT eye only, jumping left.
+2. **Reproduction identity:** build `207-g27f5b714-dirty` (F-late of `0641c48a`),
+   `LateTagRepair=1`, `RingLedger=1`, profile unchanged.
+3. **Hypothesis and counterprediction:** F-late removes the whole cycle. It fails if TOOK
+   cycles remain or another eye fault appears.
+4. **Change identity:** none during the run.
+5. **Results:** 41 of 44 late tags repaired in the last 10 s; TOOK cycles nearly gone. The
+   repaired present goes out `HOLD`: under `SharedWait=0` it delivers the previous slot, the
+   untagged LEFT image, so the left eye misses one image per cycle (`pushed eye +1 TWICE`).
+6. **Status and remaining scope:** part 2 built: the repair relabels the waiting capture slot
+   with the late tag's eye and record (pipelined modes only). Host model with delivery: no
+   held or wrong-eye image. Awaiting the headset. The margin collapse remains unexplained.
+
+**2026-09-13 headset run 7: F-late with the slot relabel, headset-confirmed.**
+
+1. **Symptom identity:** the crouched note-exit flicker.
+2. **Reproduction identity:** build `209-g56411e09-dirty` (`56411e09`), `LateTagRepair=1`,
+   `RingLedger=1`, profile unchanged; many note closes standing and crouched.
+3. **Hypothesis and counterprediction:** relabelling the waiting slot removes the left-eye
+   hold. It fails if refused relabels or held images remain in the episodes.
+4. **Change identity:** none during the run.
+5. **Results:** reported as essentially clean, with an occasional single-frame flicker a
+   few times. Late-tag episodes still occur (29, 19 and 23 repairs in three 10 s windows)
+   and every repair relabelled its slot (71 relabelled, 0 refused); every reconcile held.
+6. **Status and remaining scope:** headset-confirmed behind `[Stereo] LateTagRepair`
+   (default 0 until the merge decision). The occasional single frame is unattributed; the
+   ledger's expired owes (3 to 6 per episode window) are the first suspect. The margin
+   collapse behind the late tags is still unexplained.
 
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
