@@ -389,10 +389,31 @@ static bool BlinkControllerDir(float* out)
 // controller down and the point walks in toward your feet, level it out and it
 // runs to the power's full range. The curve is squared so most of the pitch
 // range is spent on the near half, where a metre matters.
+// VR-36: THE ENGINE'S OWN VECTOR ALREADY CARRIES THE REACH RULE, INCLUDING A
+// VERTICAL CAP, AND THIS CURVE MAY ONLY EVER SHORTEN IT.
+//
+// Measured in one run (2026-09-13). The engine's aim vector at the source seam
+// is 1100 uu long while the aim is level, and when the aim rises its Z
+// component pins at exactly +500.00 and the LENGTH drops to match:
+//
+//   engine aim (-1087.11,-157.00,-59.45) len 1100    level, full reach
+//   engine aim (  811.29,-136.61, 500.00) len  963
+//   engine aim (  400.12,-178.28, 500.00) len  665    steeply up
+//
+// So "you cannot blink far upwards" is not a downstream refusal to be
+// preserved by luck - it is built into the magnitude the engine hands us, and
+// keeping that magnitude keeps the rule. ReachMode 1 and 2 replace the
+// magnitude, which threw the cap away and let a blink climb into the sky.
+//
+// Hence the clamp below. Every mode is now bounded by the engine's own reach
+// FOR THIS ACTIVATION, so no reach setting, present or future, can make the
+// blink go further than the power offered - only nearer. A curve that can only
+// subtract cannot reintroduce this fault.
 static float BlinkReach(const float* d, float engineDist)
 {
     float far_ = (g_blkReachUU > 20.0f) ? g_blkReachUU : g_blkReachSeen;
     if (!(far_ > 20.0f)) far_ = engineDist;        // nothing learned yet
+    if (far_ > engineDist) far_ = engineDist;      // never longer than the engine's
     if (g_blkReachMode == 0) return engineDist;    // original behaviour
     if (g_blkReachMode == 1) return (far_ > 20.0f) ? far_ : engineDist;
 
@@ -411,15 +432,22 @@ static float BlinkReach(const float* d, float engineDist)
     if (near_ < 40.0f)  near_ = 40.0f;
     if (near_ > far_)   near_ = far_;
     float dist = near_ + t * (far_ - near_);
+    bool capped = false;
+    if (dist > engineDist) { dist = engineDist; capped = true; }
 
     // Say it out loud once a second. "I cannot get the blink closer" has to be
-    // answerable from the log - pitch in, distance out, both visible.
+    // answerable from the log - pitch in, distance out, both visible - and so
+    // does "why will it not go further", which is the engine's own cap biting.
     static double next = 0.0;
     double now = MaimNowMs();
     if (now >= next) {
         next = now + 1000.0;
-        Log("blink/reach: hand pitch %+.0f deg -> %.0f uu (near %.0f far %.0f)",
-            pitchDeg, dist, near_, far_);
+        Log("blink/reach: hand pitch %+.0f deg -> %.0f uu (near %.0f far %.0f, "
+            "the engine offered %.0f uu this activation%s)",
+            pitchDeg, dist, near_, far_, engineDist,
+            capped ? " and CAPPED us to it - aiming up shortens the engine's own "
+                     "vector, which is how the game limits an upward blink"
+                   : "");
     }
     return dist;
 }
@@ -558,7 +586,16 @@ extern "C" void __cdecl BlinkDestHook(void* self, uint8_t* framePtr)
     if (!(dist > 20.0f && dist < 6000.0f)) return;
     memcpy(g_blkDstWas, dst, 12);
     memcpy(g_blkDstNow, dst, 12);
-    if (dist > g_blkReachSeen) g_blkReachSeen = dist;   // 32.37: learn the max
+    // VR-36: 32.37 LEARNED THE MAXIMUM REACH FROM THIS POINT. IT NO LONGER CAN.
+    //
+    // Once the source seam drives the aim, this destination is the result of
+    // OUR OWN vector, so feeding its distance back into g_blkReachSeen made the
+    // input a function of the previous output. It ratcheted, measured in one
+    // run: reach 1100 -> 1839 -> 2007 -> 2062 -> 2610 -> 4698 -> 5606 uu across
+    // a few minutes of play, monotonically, with the blink getting longer every
+    // time - and it could not come back down, because nothing here ever lowered
+    // it. The maximum is learned in the dir seam instead, from the engine's own
+    // untouched vector length, which is an input we do not author.
     g_blkAimSeen = MaimNowMs();
 
     // WHERE DOES THE ENGINE'S TRACE START?

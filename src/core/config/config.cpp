@@ -716,7 +716,10 @@ static void WriteDefaultIni(const char* ini)
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "ControllerAim=0\n"
         "Marker=1\n"
-        "ReachMode=2\n"
+        "; VR-36: 0 = the engine's own reach (its vector carries the reach rule,\n"
+        "; including the vertical cap); 1 = fixed; 2 = hand pitch sets it. 1 and 2\n"
+        "; can only SHORTEN what the engine offered, never lengthen it.\n"
+        "ReachMode=0\n"
         "ReachUU=0\n"
         "NearUU=150\n"
         "PitchNearDeg=-55.0\n"
@@ -1442,7 +1445,13 @@ static void LoadConfig()
     // stretches it. Redirecting the trace fixes the length, the surface the
     // decal needs, and the duplicate marker, all at once.
     g_blkTraceAim = IniFloat(ini, "Blink", "RedirectTrace", 0) != 0.0f;
-    g_blkReachMode  = (int)IniFloat(ini, "Blink", "ReachMode", 2);
+    // VR-36: DEFAULT 0 - the engine's own reach for this activation, with only
+    // the DIRECTION taken from the controller. The engine's aim vector carries
+    // its reach rule in its magnitude, including a hard +500 uu vertical cap
+    // measured 2026-09-13, so keeping the magnitude keeps the rule. Modes 1 and
+    // 2 replace it; they can now only shorten it (see BlinkReach), but 0 is the
+    // one that reproduces the game's own distances exactly.
+    g_blkReachMode  = (int)IniFloat(ini, "Blink", "ReachMode", 0);
     if (g_blkReachMode < 0 || g_blkReachMode > 2) g_blkReachMode = 2;
     g_blkReachUU    = IniFloat(ini, "Blink", "ReachUU", 0.0f);
     g_blkNearUU     = IniFloat(ini, "Blink", "NearUU", 150.0f);

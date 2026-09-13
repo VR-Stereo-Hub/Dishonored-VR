@@ -102,6 +102,36 @@ hand-to-eye offset off the guide's line - roughly 0.3 m, about 1.7 degrees at th
 
 That number decides step two. It is not guessed in this build.
 
+## 4a. What the first headset run settled
+
+Direction: **confirmed**. The marker followed the controller, the landing point followed
+the marker, and the ray refused nothing in the whole run (`ray ready 153, refused 0`).
+
+The trace-start question from section 4 is answered. The engine's settled destination,
+taken from the camera, sits within about half a degree of the redirected ray at every
+sample, so the trace starts at the camera and the parallax is the 65 to 93 uu between the
+controller and the camera. Not visible in the headset; no convergence correction is being
+added on the strength of a number nobody can see.
+
+**And one fault, which was mine.** The run was set to `ReachMode=1`, chosen to "leave the
+length alone" - but mode 1 is precisely the mode that replaces the length, with the
+largest reach ever seen. Two consequences:
+
+* **The engine's vertical cap was thrown away.** The engine's own vector carries the reach
+  rule in its magnitude (ENGINE_NOTES, "Blink's reach rule lives in its aim vector"): aim
+  up and its Z pins at +500 uu while the length drops to 665. Substituting a longer
+  magnitude removed that, and the blink went as far upward as the vector allowed.
+* **The maximum was learned from our own output.** `g_blkReachSeen` was fed by the
+  destination seam, which after the redirect reports the result of OUR vector. Input as a
+  function of the previous output: it ratcheted, 1100 -> 1839 -> 2007 -> 2062 -> 2610 ->
+  4698 -> 5606 uu in a few minutes, and nothing in the module could ever lower it again.
+
+Both are fixed structurally rather than by choosing a better number. The maximum is
+learned only from the engine's untouched vector length, and **the reach curve is clamped
+so it can only shorten what the engine offered, never lengthen it** - so no reach setting,
+present or future, can uncap the blink. `ReachMode` ships 0: the engine's own reach, with
+only the direction taken from the controller.
+
 ## 5. Levers
 
 | Key | Default | Live |
@@ -109,7 +139,7 @@ That number decides step two. It is not guessed in this build.
 | `[Blink] ControllerAim` | 0 (repo), armed in the test install | `blink on\|off`, F10 Blink |
 | `[Blink] UseAimRay` | 1 | `blink ray aim\|legacy` - the A/B against the old MotionAim ray |
 | `[Blink] AimAtSource` | 1 | ini; the source seam, which is the only one that redirects |
-| `[Blink] ReachMode` / `NearUU` / `PitchNearDeg` / `PitchFarDeg` | 2 / 150 / -55 / -5 | F10 Blink |
+| `[Blink] ReachMode` / `NearUU` / `PitchNearDeg` / `PitchFarDeg` | **0** / 150 / -55 / -5 | F10 Blink. 0 = the engine's own reach; 1 and 2 can only shorten it |
 
 `[Mode] GamepadOnly=1` still forces `ControllerAim` off, so view-aimed Blink is
 unchanged there - that is a pass criterion and it is untouched code.
