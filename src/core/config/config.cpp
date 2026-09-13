@@ -684,7 +684,7 @@ static void WriteDefaultIni(const char* ini)
         "AttachWeapons=1\n"
         "AttachSwordHand=1\n"
         "AttachCrossbowHand=0\n"
-        "ModelScale=1.00\n"
+        "ModelScale=0.85\n"
         "AttachAngleTol=0.25\n"
         "AttachPosTol=1.00\n"
         "AttachMargin=4.0\n"
@@ -2631,7 +2631,6 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "AttachNearMargin", v, ini);
     WritePrivateProfileStringA("Hands", "AttachDropUncorrected",
                                g_waDropUncorrected ? "1" : "0", ini);
-    _snprintf(v, 64, "%.0f", g_waRigRadiusUU);
     WritePrivateProfileStringA("Hands", "AttachEquippedMembers",
                                g_waEquippedMembers ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachVerifyInstance",
@@ -2648,6 +2647,14 @@ static void OverlaySaveDefaults()
                                g_waVetoRelaxed ? "1" : "0", ini);
     _snprintf(v, 64, "%d", g_waRefPresents);
     WritePrivateProfileStringA("Hands", "AttachRefMaxPresents", v, ini);
+    // Format IMMEDIATELY before the write. This line used to reuse whatever `v`
+    // last held, because its _snprintf sat seventeen lines above beside a write
+    // that does not take `v` at all - so every save wrote AttachRefMaxPresents's
+    // value (2) into AttachRigRadius. 2 clamps up to 10 on the next load, at
+    // which bound every weapon is refused as not being on the view model and the
+    // weapons stop tracking the hands, while the log prints the CLAMPED 10 and
+    // every nearby counter reads healthy. See TRAPS.
+    _snprintf(v, 64, "%.0f", g_waRigRadiusUU);
     WritePrivateProfileStringA("Hands", "AttachRigRadius", v, ini);
     _snprintf(v, 64, "%.0f", g_waPassRadiusUU);
     WritePrivateProfileStringA("Hands", "AttachPassRadius", v, ini);

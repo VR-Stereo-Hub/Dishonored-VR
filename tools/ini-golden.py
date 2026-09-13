@@ -40,15 +40,33 @@ def extract():
         lit = line[1:line.rfind('"')]
         # only the C escapes the literal actually uses; keeps the UTF-8 text intact
         text += re.sub(r'\\(.)', lambda e: {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}.get(e.group(1), e.group(1)), lit)
-    text = text.replace("%d", ver)
-    return text
+    # Spend the fprintf conversions the way fprintf does, in ONE left-to-right
+    # pass. Doing it as two replaces gets "%%d" wrong, and skipping "%%"
+    # entirely (which this did until 2026-09-12) leaves "%%LOCALAPPDATA%%" in
+    # the golden where the runtime writes "%LOCALAPPDATA%" - a difference the
+    # broken --check below could never report.
+    out, i = [], 0
+    while i < len(text):
+        if text[i] == "%" and i + 1 < len(text):
+            nxt = text[i + 1]
+            if nxt == "%":
+                out.append("%"); i += 2; continue
+            if nxt == "d":
+                out.append(ver); i += 2; continue
+        out.append(text[i]); i += 1
+    return "".join(out)
 
 
 def main():
     text = extract()
     if len(sys.argv) >= 3 and sys.argv[1] == "--check":
         got = io.open(sys.argv[2], encoding="utf-8").read().replace("\r\n", "\n")
-        want = io.open(GOLDEN, encoding="utf-8").read().replace("\r\n", "\n")
+        # Compare against the SOURCE literal, not against the golden file. This
+        # read GOLDEN until 2026-09-12, so `--check tests/golden/...` compared
+        # the golden to itself and could only ever print MATCH - including for
+        # the one thing it exists to catch, a literal edited without a
+        # regenerated golden. It never failed because it never could.
+        want = text.replace("\r\n", "\n")
         norm = lambda t: t.replace(chr(0x2014), "-")
         if norm(got) == norm(want):
             print("ini golden: MATCH")
