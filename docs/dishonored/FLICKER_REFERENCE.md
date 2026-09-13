@@ -1144,6 +1144,16 @@ previous present - draw calls, BeginScene, SetRenderTarget, `c5` uploads - and t
 draw calls is a re-show of an existing buffer; one with draws and `c5` uploads but no stub tick is a
 scene render the ring never sees; a window override or rects name a present to another target.
 
+**Fourth instrument, run (build 202, `vr33-hands-working-202-g2d8e9374`).** Untagged presents are full
+scene renders (450-910 draw calls, 2 BeginScene, 51-65 SetRenderTarget, 23-34 `c5` uploads, the
+same as tagged presents) with identical Present arguments: not a buffer re-show, not another target.
+The tester reports the flicker persisting while crouched until a pause clears it, and about half a
+second while standing; this run agrees (standing episodes of 1 and 2 realigns; a crouched episode of
+11 s ended by the pause). Across the crouched episode `realigned` rose by 65 and empty-ring presents
+by 69 with no single-draw ticks, every realign reading `other=0.00`: one empty ring per realign. The
+leading reading is a realign drain that removes one valid tag too many under crouched frame timing and
+sustains the fault it corrects. **Analysis plan for review: [VR-80-PLAN](VR-80-PLAN.md).**
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 
