@@ -271,7 +271,7 @@ static void OverlayFrame()
     if (ImGui::BeginTabItem("Hands")) {
     bool animBack = dvr::anim::enabled();
     if (ImGui::Checkbox("Game arms during scripted actions", &animBack)) dvr::anim::set_enabled(animBack);
-    {   // VR-94: the left-eye arm flicker on a head roll.
+    {   // VR-95: the left-eye arm flicker on a head roll.
         bool pt = g_mpEyePredict;
         if (ImGui::Checkbox("Predict the eye when the jump is unreadable", &pt)) {
             g_mpEyePredict = pt;

@@ -86,8 +86,8 @@ pose metadata without reopening the disproved historical theories.
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
-| Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-94, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
-| Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-94 open; lever ships OFF, live A/B in F10 Hands |
+| Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
+| Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
 
 VR-78 crouched-pitch motion was fixed later with a measured zero crouched neck
@@ -779,7 +779,13 @@ Primary reference map:
   [ROADMAP](../ROADMAP.md), [TROUBLESHOOTING](../TROUBLESHOOTING.md): supporting
   decisions, instruments, and older issue summaries.
 
-### 3.11 The palette eye classifier holds a stale eye on an unreadable jump (VR-94)
+### 3.11 The palette eye classifier holds a stale eye on an unreadable jump (VR-95)
+
+**Ticket numbering.** This work was written and merged before its ticket existed, using the
+placeholder VR-94. That number was then assigned to the world-ghost issue instead, so the
+ticket for THIS is **VR-95**. Code, docs and tests are corrected; the merged commit subjects
+in pull request 48 still say VR-94 and cannot be. If a commit message and this file disagree
+about the number, this file is right.
 
 **Symptom identity.** Hands and held weapon jump sideways by about one IPD for a
 frame, in the LEFT eye only, during a fast head roll. The right eye is clean. The
@@ -872,7 +878,7 @@ residual fell to 0.51 and 1.19 uu, and the neck term to exactly zero.
 
 It is a smooth, sustained displacement, not a one-frame event, and section 3.10's
 rule applies: a camera error that varies smoothly with head angle is not a flicker.
-It is listed because it was reported in the same breath as VR-94 and the two were
+It is listed because it was reported in the same breath as VR-95 and the two were
 initially conflated.
 
 ## 8. Keeping this reference useful

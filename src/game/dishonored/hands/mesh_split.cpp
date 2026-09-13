@@ -2362,10 +2362,10 @@ static void MpEyeForPresent(const MpDrawCtx* c)
         // smaller right-axis projection is the right eye.
         g_mpEyeState = (d < 0.0f) ? +1 : -1;
         g_mpEyeToggles++;
-        g_mpEyePredictRun = 0;       // VR-94: a readable jump ends a prediction run
+        g_mpEyePredictRun = 0;       // VR-95: a readable jump ends a prediction run
         why = 'T';
     } else if (ad <= 0.45f * ipdUU) {
-        // VR-94: "SAME" MEANS "TOO SMALL TO TELL APART", NOT "THE SAME EYE",
+        // VR-95: "SAME" MEANS "TOO SMALL TO TELL APART", NOT "THE SAME EYE",
         // AND HOLDING THE PREVIOUS EYE IS THEREFORE A GUESS - A BAD ONE.
         //
         // Measured on the headset, 9 marker episodes, 90 flagged presents: EVERY
@@ -2406,7 +2406,7 @@ static void MpEyeForPresent(const MpDrawCtx* c)
         g_mpEyePredictRun = 0;
         why = 'A';
     }
-    // VR-94, READ-ONLY. Ask the stereo method what eye it resolved for the
+    // VR-95, READ-ONLY. Ask the stereo method what eye it resolved for the
     // present these draws REACH, and compare.
     //
     // THE JOIN IS +1 AND THE FIRST VERSION OF THIS CHECK GOT IT WRONG.
@@ -3317,7 +3317,7 @@ static void MpDriveTick(void)
         g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
         g_mpEyeToggles, g_mpEyeSame, g_mpEyeAmbiguous,
         (double)(g_ipdM * g_skcWorldScale));
-    // VR-94: the cross-check. A SAME verdict HOLDS the previous eye, and in an
+    // VR-95: the cross-check. A SAME verdict HOLDS the previous eye, and in an
     // alternating stereo stream that is wrong whenever it was really a failure to
     // tell the eyes apart rather than a genuine repeat. Disagreement on the SAME
     // row is the evidence; zero across all three rows clears the classifier and
