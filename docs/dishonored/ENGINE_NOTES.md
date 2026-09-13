@@ -4858,6 +4858,21 @@ function: `0x0060E4AF` and `0x0060E62F`. They sit in a loop that strides a
 20-byte list, calls `0x00646B20` per entry to reach a cheat manager, and tests
 the bit before building a box on the stack - i.e. the usable-highlight draw.
 
+**The engine's own trace is script-callable, and that shapes the fix.** The table
+gives exec thunks for `AActor::Trace` (`0x006D0ED0`), `FastTrace` (`0x006CD240`),
+`TraceActors` (`0x006D6D20`) and `APlayerController::GetPlayerViewPoint`
+(`0x005D1430`). So a second interaction query does not have to re-implement any
+geometry or duplicate the engine's collision rules: it can run the engine's own
+trace along a different ray. That is the difference between a fix that agrees
+with the game by construction and one that agrees with it until a case diverges.
+
+**The interact button is a native read, not a script call.** The binding is
+`Button m_bUseButton` (plus the `GBA_Use` / `GBA_Use_Gamepad` aliases), which
+sets a bool on the input object that native code polls. Property names are not in
+the image - they come from the packages - so `m_bUseButton` and any
+current-usable field must be resolved at RUNTIME through the existing
+FName-keyed property resolver, not found offline. See GAMEPLAY_STATE.md.
+
 **The interaction seam itself is NOT yet found.** What is established: interaction
 is entirely native (the script dump carries declarations only, and there is no
 `exec` for it anywhere in the 2554 entries, so it is never exposed to script);
