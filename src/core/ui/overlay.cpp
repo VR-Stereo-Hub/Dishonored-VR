@@ -256,6 +256,10 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Hands")) {
+    bool animBack = dvr::anim::enabled();
+    if (ImGui::Checkbox("Game arms during scripted actions", &animBack)) dvr::anim::set_enabled(animBack);
+    const auto animState = dvr::anim::snapshot();
+    ImGui::TextDisabled("Animation: %s | %s", animState.valid ? (animState.game ? "game owns body" : "player") : "unknown", animState.state[0]);
     {
     // VR-83: OUTSIDE the probe gate below, deliberately. This slider drives the
     // PALETTE model scale, which mesh_split applies about the tracked palm on

@@ -1,3 +1,4 @@
+#include "game/dishonored/anim_state.h"
 #define DVR_CAT ::dvr::log::Cat::present
 #include "game/dishonored/aim_ray.h"
 #include "game/dishonored/hands/bolt_axis.h"
@@ -234,6 +235,7 @@ void tick(bool gameplay, bool projectionWanted) {
         out.valid = g_ray.ok;
         out.generation = g_ray.gen; out.sampleMs = g_ray.sampleMs;
     }
+    if (dvr::anim::active() || dvr::anim::weight() < 1.0f) out = {};
     dvr::vr::set_aim_visual(out);
     if (std::strcmp(g_lastWhy, g_ray.why)) {
         DVR_INFO("crosshair: ray %s (hand=%s, gen=%u); %s", g_ray.why,

@@ -472,7 +472,7 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
                        UINT startVertex, UINT primCount, HRESULT* hr)
 {
     if (hr) *hr = D3D_OK;
-    if (!g_waOn || !dev || !g_waMeshN) return false;
+    if (dvr::anim::native_draw() || !g_waOn || !dev || !g_waMeshN) return false;
     InterlockedIncrement(&g_waPrimSeen);
 
     IDirect3DVertexBuffer9* vbo = NULL; UINT offset = 0, stride = 0;
@@ -1405,6 +1405,7 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
                    UINT primCount, HRESULT* hr)
 {
+    if (dvr::anim::native_draw()) return false;
     bool onWeapon = false;
     if (WaDrawInner(dev, type, baseVertex, minIndex, numVertices, startIndex,
                     primCount, hr, &onWeapon))

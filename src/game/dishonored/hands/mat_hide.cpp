@@ -307,7 +307,7 @@ static void MatRestoreAll(const char* why)
     int shown = 0, leftHidden = 0;
     for (int i = g_matHidN - 1; i >= 0; i--) {
         MatHid* h = &g_matHid[i];
-        if (!h->comp || !LooksLikeObj(h->comp)) continue;
+        if (!IsLiveObject(h->comp) || !LooksLikeObj(h->comp)) continue;
         // wasHidden 1 means the GAME had it hidden before we arrived, so
         // showing it would be a change, not a restore.
         if (h->wasHidden == 1) { leftHidden++; continue; }
@@ -517,6 +517,7 @@ static void MatCycleTick()
 
 static void MatTickAll()
 {
+    if (dvr::anim::active()) { if (g_matHidN) MatRestoreAll("animation handback"); return; }
     MatTick();
     MatAutoTick();
     MatCycleTick();

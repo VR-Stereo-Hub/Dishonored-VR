@@ -93,6 +93,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("vrhands: usage - vrhands on|off|status|calib on|calib off");
         return true;
     }
+    if (!strcmp(cmd, "anim")) return dvr::anim::command(args);   // VR-88: shipped, not legacy
     if (!strcmp(cmd, "dc")) return DcCommand(args);
     if (!strcmp(cmd, "ms")) return MsCommand(args);
     if (!strcmp(cmd, "pose")) return PrCommand(args);
@@ -528,6 +529,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("fpsCap", (double)g_fpsCap);
     dvr::desktop_eye::status(w);
     dvr::aim::status(w);
+    dvr::anim::status(w);
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);

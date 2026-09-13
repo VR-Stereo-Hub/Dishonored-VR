@@ -29,6 +29,7 @@
 #include "core/framework/status.h"
 #include "game/dishonored/patterns.h"
 #include "game/dishonored/aim_ray.h"
+#include "game/dishonored/anim_state.h"
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
@@ -226,6 +227,7 @@
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/uobject.cpp"
 #include "game/dishonored/ue3/reflect.cpp"
+#include "game/dishonored/anim_state.cpp"
 #include "game/dishonored/ue3/prop_watch.cpp"
 #if DVR_WITH_LEGACY
 #include "legacy/interact_focus.cpp"   // VR-85: retired, see TRAPS

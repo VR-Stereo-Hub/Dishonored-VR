@@ -358,6 +358,24 @@ build time instead of a `strcmp` per slot, and throttling the sample to 50 ms.
 > not a probe. Cost a diagnostic per TICK, not per item, and throttle it to the
 > timescale of the thing being watched.
 
+### The live-object table is a snapshot from the main menu (VR-88)
+
+`IsLiveObject` binary-searches a sorted copy of GObjects that only the player controller
+scan rebuilds, and in a normal run that scan happens once, at the main menu. The level's
+pawn, its state machines and their states are created after it and are absent from the
+table for the whole level. The VR-88 reader validated every pointer against it, so on a
+normal run it would have read UNKNOWN all session and handed nothing back, with nothing
+visibly wrong. The first playtest could not show it, because that playtest ran the
+previous installed build: the log banner, not the report, said so.
+
+The table was also rebuilt on the present thread while the script lane searched it, with
+no lock. It is now SRW-locked, and the animation reader rebuilds it when a plausible
+object is missing, at most once a second.
+
+> **`IsLiveObject` answers "was this alive when the table was built".** Code that checks
+> objects created by a level load must rebuild or refresh the table first. And before
+> reading a playtest, check the log banner names the build under test.
+
 ### A "fresh sample" test that no real sample could pass (VR-78)
 
 The accounting probe fitted the engine's neck only from bases the writer read FRESH, and

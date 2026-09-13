@@ -7,7 +7,7 @@ and uses them to read the equipped item per hand.
 
 Equipment per hand and `EItemSocket` are read and proven moving. Still wanted:
 the per-hand stance,
-`eDisPlayerActionUsage_Fullbody`, and a published snapshot with per-flag
+live animation ownership (VR-88 implements the FSM snapshot; headset confirmation pending), and per-flag
 freshness. Section 2 is the full list and section 6 is the rules.
 
 Where a number appears here it is a starting hypothesis to be derived against the
@@ -79,8 +79,9 @@ eDisPlayerActionUsage   Fullbody | Upperbody | LeftHand
 
 `EDisEquipUsage` is the per-hand channel. `EItemSocket` is the distinction
 between equipped and holstered that VR-59's attempt 1 needed and could not get.
-**`eDisPlayerActionUsage_Fullbody` is the takedown and choke discriminator** the
-arm-unhiding work will be built on.
+**Correction (VR-88): `m_ActionUsage` configures a machine channel, not a live action.**
+Read the master/upper FSM current state and cross-check its class ID instead.
+See `ANIM-HANDOFF-PLAN.md`; state-to-action mappings still need headset confirmation.
 
 ### Where equipment lives
 
@@ -230,8 +231,8 @@ Carried from the engineering rules this project already runs on.
 
 * **VR-60**, the pistol. Reading `m_Slots` gives every item and its hand directly,
   which is what the pointer walk cannot reach.
-* **The arms during takedowns and chokes.** `eDisPlayerActionUsage_Fullbody` is
-  the signal to unhide the arms and hand animation control back to the game.
+* **The arms during takedowns and chokes.** VR-88 reads the master/upper FSM
+  current state to hand animation control back to the game. ActionUsage is configuration.
 * **The hand sides**, currently an assumption in `WaHandFor`, become measured
   attachment data from `m_RequiredUsage`.
 * **Throwables in general.** The weapon attachment's instance rule (see the

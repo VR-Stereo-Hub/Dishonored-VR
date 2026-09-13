@@ -163,7 +163,7 @@ static void ArmsToggle()
         for (int i = 0; i < g_fpCandN; i++) {
             FpCand* k = &g_fpCand[i];
             if (!k->ddCulled) continue;
-            if (LooksLikeObj(k->obj) && RangeReadable(k->obj + 0x1bc, 8)) {
+            if (IsLiveObject(k->obj) && LooksLikeObj(k->obj) && RangeReadable(k->obj + 0x1bc, 8)) {
                 float* dd = (float*)(k->obj + 0x1bc);
                 dd[0] = k->ddSave[0]; dd[1] = k->ddSave[1];
             }
@@ -191,6 +191,7 @@ static void ArmsToggle()
 // covers plain crouch 65 and the slide/vent 33 alike).
 static void ArmsHideTick()
 {
+    if (dvr::anim::active()) { g_armsHidden = false; return; }
     if (!g_crouchHideCfg) {
         if (g_armsHidden) { g_armsHidden = false; g_fpHaveBase = false; }
         return;
@@ -329,7 +330,7 @@ static void BoneVisOff(const char* why)
     if (!g_bvOn) return;
     g_bvOn = false;
     uint8_t* d; int32_t n; int restored = 0;
-    if (g_bvSaveComp && LooksLikeObj(g_bvSaveComp) &&
+    if (g_bvSaveComp && IsLiveObject(g_bvSaveComp) && LooksLikeObj(g_bvSaveComp) &&
         BoneVisReadArray(g_bvSaveComp, g_bvOffVis, &d, &n)) {
         for (int i = 0; i < g_armBoneCnt; i++) {
             const int b = g_armBones[i].bone;
@@ -607,6 +608,7 @@ static void BoneVisTick()
     // list, so without this the weapons never attach again for the session.
     FpEnsureCandidates("the candidate list is empty on the script tick");
     WaCompTick();               // VR-33 W2/W3: the component transform snapshot
+    if (dvr::anim::active()) { BoneVisOff("animation handback"); return; }
     if (!g_bvOn) {
         // [Hands] BoneVisHide=1 arms it from the ini. The rig is not there on
         // the first ticks of a level, so retry - but cap the attempts, because

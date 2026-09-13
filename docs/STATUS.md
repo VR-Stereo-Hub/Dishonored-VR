@@ -1,6 +1,50 @@
 # Status
 
-## CURRENT (2026-09-12, late): VR-78 fixed and merged. Next is the animation handoff
+## CURRENT (2026-09-13): VR-88 merged. Next is Blink aimed by the controller (VR-36)
+
+**VR-88 works in the headset.** Takedowns, fatalities and body pickups now play with the
+game's own arms and weapon, and the controller hands blend back afterwards. The reader
+(`anim_state.cpp`) reads the player's master, upper-body and left-arm native state
+machines by reflected name; `anim_policy.h` decides ownership and the blend. Ledge
+climbing (`StatePlayerMasterMantle`) keeps the controller hands by headset judgement;
+ladders (`Climb`) hand back. Observed states and the claims that held are at the end of
+`docs/dishonored/ANIM-HANDOFF-PLAN.md`. Not every action variant was tried: choke, slide,
+drop assassination and ladders are unobserved.
+
+| Lever | Shipped | Live |
+|---|---|---|
+| `[Anim] StateWatch` | 1 | `anim watch on\|off` |
+| `[Anim] HandBack` | 1 | `anim handback on\|off`, F10 Hands "Game arms during scripted actions" (saved by SAVE AS DEFAULTS) |
+| `[Anim] ReleaseMs` / `HandBackBlendMs` | 250 / 150 (not measured) | ini |
+| `[Anim] HandBackMaster` / `HandBackUpper` | compiled lists, never written by a save | ini |
+
+**A trap found on the way, now in the code:** `IsLiveObject` is a SNAPSHOT of GObjects,
+rebuilt only by the player controller scan, which usually runs at the main menu. Anything
+created by a level load is missing from it until something rebuilds it. The animation
+reader rebuilds it when a plausible object is missing (at most once a second), and the
+table is now SRW-locked because the scan rebuilds it on the present thread while the
+script lane reads it. Any new code that uses `IsLiveObject` on level objects must expect
+this.
+
+Unmeasured: the frame cost of the per-draw blend-weight read, and exact state-to-draw
+synchronisation.
+
+### Next: Blink aimed by the controller (VR-36)
+
+Blink moves the player to where the HEAD aims, not the controller ray. VR-36 is the
+ticket. `src/game/dishonored/blink.cpp` already has hand-aim code behind
+`[Blink] ControllerAim` (installed 0) and `blink on|off|probe`, written against an
+earlier pipeline and untested on the native render. Read it, VR-57-MODEL-RAY.md and
+aim_ray.h before writing anything: the one-ray rule says the marker and the landing
+point must come from the same ray the laser and shots already use, and the engine's own
+reachability check must still refuse bad targets. A broader follow-up is being
+considered: make the controller ray the main ray for everything, so the game's own
+crosshair follows it. That is a separate ticket, decided after Blink.
+
+Open: VR-89 (animation control layer), VR-87 (ceiling trim), VR-86 (shelved), VR-85,
+VR-75, VR-77, VR-79, VR-80, VR-81, VR-32, VR-58.
+
+## Earlier (2026-09-12, late): VR-78 fixed and merged. Next is the animation handoff
 
 **VR-78 is fixed.** Crouched, the engine does not pitch its camera about a neck at all, so
 `[Neck] Mode=cancel` with the standing pivot subtracted an arc that was not there: looking

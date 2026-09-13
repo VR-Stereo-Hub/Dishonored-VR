@@ -69,8 +69,16 @@ static int CmpPtr(const void* a, const void* b)
 }
 
 
+// VR-88: the table is rebuilt from the PRESENT thread (RotInjectTick's
+// controller scan) and read from the SCRIPT lane (the animation reader, the
+// restore paths). A rebuild zeroes the count, may realloc the buffer and sorts
+// in place, so an unlocked reader can search a half-built or freed array.
+static SRWLOCK g_liveLock = SRWLOCK_INIT;
+
 static bool BuildLiveSet()
 {
+    AcquireSRWLockExclusive(&g_liveLock);
+    struct Unlock { ~Unlock() { ReleaseSRWLockExclusive(&g_liveLock); } } unlock;
     g_liveN = 0;
     if (!RangeReadable((void*)kGObjHdr, 12)) return false;
     void**   objs = *(void***)kGObjHdr;
@@ -93,7 +101,10 @@ static bool BuildLiveSet()
 
 static bool IsLiveObject(uint8_t* p)
 {
-    if (!p || ((uintptr_t)p & 3) || !g_liveN) return false;
+    if (!p || ((uintptr_t)p & 3)) return false;
+    AcquireSRWLockShared(&g_liveLock);
+    struct Unlock { ~Unlock() { ReleaseSRWLockShared(&g_liveLock); } } unlock;
+    if (!g_liveN) return false;
     uint32_t lo = 0, hi = g_liveN - 1;
     while (lo <= hi) {
         uint32_t mid = lo + (hi - lo) / 2;
@@ -208,14 +219,14 @@ static uint8_t* FindFunctionObj(const char* fname)
 }
 
 
-static uint32_t FindPropOffset(const char* clsName, const char* propName)
+static bool FindPropOffsetChecked(const char* clsName, const char* propName, uint32_t* result)
 {
     uint32_t ci = FindNameIdx(clsName), pi = FindNameIdx(propName);
-    if (ci == 0xffffffffu || pi == 0xffffffffu) return 0;
-    if (!RangeReadable((void*)kGObjHdr, 12)) return 0;
+    if (ci == 0xffffffffu || pi == 0xffffffffu) return false;
+    if (!RangeReadable((void*)kGObjHdr, 12)) return false;
     void** objs = *(void***)kGObjHdr;
     uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
-    if (!objs || onum < 1000 || onum > 4000000) return 0;
+    if (!objs || onum < 1000 || onum > 4000000) return false;
     for (uint32_t i = 0; i < onum; i++) {
         if ((i & 1023) == 0) {
             uint32_t left = onum - i;
@@ -230,11 +241,18 @@ static uint32_t FindPropOffset(const char* clsName, const char* propName)
         if (*(uint32_t*)(ou + kNameOff) != ci) continue;
         const char* pc = ObjClassName(o);
         if (!pc || !strstr(pc, "Property")) continue;
-        return *(uint32_t*)(o + kUPropOffset);          // UProperty::Offset
+        *result = *(uint32_t*)(o + kUPropOffset); return true;          // UProperty::Offset
     }
-    return 0;
+    return false;
 }
 
+
+static uint32_t FindPropOffset(const char* clsName, const char* propName)
+{
+    uint32_t result=0;
+    FindPropOffsetChecked(clsName,propName,&result);
+    return result;
+}
 
 // 38.23: FindPropOffset's sibling for BOOL properties - offset + bitmask
 // (UBoolProperty::BitMask at +0x6c, same layout blockhunt reads).

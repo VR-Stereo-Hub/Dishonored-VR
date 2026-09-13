@@ -726,6 +726,7 @@ static const char* HmWhy(int code)
 // answer, so it names the reason for a zero instead of leaving one.
 static void HmBeat()
 {
+    if (dvr::anim::active() || dvr::anim::weight() < 1.0f) return;
     if (!g_hmEnable) return;        // silence while the lever is off
     const double now = MaimNowMs();
     if (now < g_hmNextBeat) return;
@@ -829,6 +830,7 @@ static void HmDrawIntoEye(ID3D11Device* dev, ID3D11DeviceContext* ctx,
                           ID3D11RenderTargetView* rtv, uint32_t w, uint32_t h,
                           int eyeSign)
 {
+    if (dvr::anim::active() || dvr::anim::weight() < 1.0f) return;
     if (!g_hmEnable) return;                 // silent: the lever is OFF by default
     g_hmCalls++;   // the beat itself ticks from the present tick, not here
     if (!dev || !ctx || !rtv || !w || !h) return;
