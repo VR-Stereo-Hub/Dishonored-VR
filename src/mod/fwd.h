@@ -401,6 +401,9 @@ static void MpEyeForPresent(const MpDrawCtx* c);
 // and both are included before its definition.
 static void MpPublishHandCal(int hand);
 static void AimSeamTick(void);
+static void PropWatchTick(void);
+static bool PwEnabled(void);
+static void PwSet(bool on, const char* source);
 static void AimSeamDrive(void);
 static bool FireAimInstall();
 static bool FireAimEnabled();

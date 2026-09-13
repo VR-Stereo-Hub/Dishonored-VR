@@ -288,6 +288,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         else Log("fireaim: %s; use fireaim on|off",FireAimEnabled()?"ON":"off");
         return true;
     }
+    if (!strcmp(cmd, "propwatch")) {
+        bool on;
+        if (DvrOnOff(args,&on)) PwSet(on,"command seam");
+        else Log("propwatch: %s; use propwatch on|off",PwEnabled()?"ON":"off");
+        return true;
+    }
     if (!strcmp(cmd, "vrmirror")) { dvr::vr::handle_mirror_command(args); return true; }
     if (!strcmp(cmd, "vrinput")) {
         if (DvrOnOff(args, &b)) { g_padEnabled = b; Log("input: virtual pad %s (seam)", b ? "ON" : "off"); return true; }

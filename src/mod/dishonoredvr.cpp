@@ -225,6 +225,7 @@
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/uobject.cpp"
 #include "game/dishonored/ue3/reflect.cpp"
+#include "game/dishonored/ue3/prop_watch.cpp"
 
 // VR-57: the fire-direction probe (read-only); needs reflect.cpp's resolver above.
 #include "game/dishonored/aim_seam.cpp"
