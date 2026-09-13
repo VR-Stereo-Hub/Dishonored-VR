@@ -304,6 +304,27 @@ The rules that came out of it, all of which are enforced in `CLAUDE.md`:
 > the identity of what it measured. An instrument that cannot fail its own
 > hypothesis is not evidence. Name the owner before the result.
 
+### A read-only probe that cost the frame budget (VR-85)
+
+`PropWatch` writes nothing and reads 46 dwords. It still produced visible world
+jitter on its first headset run, because it validated its OWNER once per
+PROPERTY rather than once per tick: the same two objects went through
+`LooksLikeObj` - a readable check, a class-name fetch and a string scan - forty
+odd times per script tick, and it ran every tick for a value that changes on
+gameplay timescales.
+
+The log named it exactly, which is the only good part of the story. The perf line
+read `RENDER THREAD STARVED: idle > 30 % of OUT, the game thread is the limiter`,
+and the game thread is the script lane, which is where the probe ticks. The
+tester's report and that line agree.
+
+Fixed by validating each owner once per tick, resolving the owner as an index at
+build time instead of a `strcmp` per slot, and throttling the sample to 50 ms.
+
+> **"Read-only" is not "free".** A probe that changes the thing it measures is
+> not a probe. Cost a diagnostic per TICK, not per item, and throttle it to the
+> timescale of the thing being watched.
+
 ### A refusal line whose number can only ever read zero (VR-82, caught in review)
 
 The pistol's fire hook refuses when the bullet's standoff distance would reach

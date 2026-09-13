@@ -4873,6 +4873,40 @@ the image - they come from the packages - so `m_bUseButton` and any
 current-usable field must be resolved at RUNTIME through the existing
 FName-keyed property resolver, not found offline. See GAMEPLAY_STATE.md.
 
+## VR-85: the focused interactable, found by watching rather than reading (2026-09-12)
+
+**`DishonoredPlayerController::m_pCrosshairActor` at `+0x69C` and
+`m_pCrosshairHighlightActor` at `+0x6A0`.** Both hold the actor currently under
+the crosshair; both read `none` when nothing is focused.
+
+Found by observation, not offline analysis, because offline analysis could not
+reach them: interaction has no `exec` anywhere in the 2554 native registrations,
+so ProcessEvent never sees it, and property names live in the packages rather
+than the image, so nothing in the PE names them. The game's own
+`m_bDrawInteractableDebugBox`, armed in its ini, drew nothing - it is compiled
+out of the retail build.
+
+`PropWatch` (`ue3/prop_watch.cpp`) collected every object-typed property declared
+on the player controller, the player pawn and the HUD - 46 of them, from 5376
+object properties examined - and sampled them on the script lane while the tester
+looked at crossbow bolts and away. Both fields transitioned
+`none <-> DisProjectile_Arrow` **19 times each**, matching the deliberate
+look-at/look-away repetitions and nothing else in the run.
+
+Measured behaviour, from the same session: selection is a SINGLE winner from a
+narrow trace, roughly a hand's width of tolerance around an object at arm's
+length. Not a candidate set to re-rank, which rules out the cheaper design.
+
+Everything else the probe reported in that run was a level-transition artifact -
+pawn fields appearing to become `DisSeqAct_SetStoryFlag` and the like, in one
+burst, because a pawn pointer is reused across a load. Those are noise and are
+recorded here so the next reader does not chase them.
+
+**Still open**: whether these fields can simply be written after the engine's own
+update each tick, or whether the engine recomputes them late enough that the
+write has to happen at their writer. That is the next question, and it is a
+behavioural one that a write-and-observe answers.
+
 **The interaction seam itself is NOT yet found.** What is established: interaction
 is entirely native (the script dump carries declarations only, and there is no
 `exec` for it anywhere in the 2554 entries, so it is never exposed to script);

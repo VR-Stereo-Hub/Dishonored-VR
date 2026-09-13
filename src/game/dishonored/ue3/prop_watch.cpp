@@ -32,7 +32,7 @@ static const char* const kPwOwners[] = {
 };
 
 struct PwSlot {
-    const char* owner;      // the class the property was declared on
+    int         ownerIdx;   // index into kPwOwners, resolved ONCE at build time
     const char* prop;       // its name, from GNames
     uint32_t    offset;     // UProperty::Offset
     uint8_t*    obj;        // the live object it was last read from
@@ -45,6 +45,7 @@ static int    g_pwScanned = 0;      // UProperty objects examined
 static int    g_pwOwnersFound = 0;  // how many of kPwOwners resolved at all
 static volatile LONG g_pwChanges = 0;
 static double g_pwNextBeatMs = 0;
+static double g_pwNextSampleMs = 0;
 
 // Is this UProperty one that can hold a pointer to another object? Anything
 // else cannot be the focused interactable, and watching ints would bury the
@@ -90,7 +91,7 @@ static void PwBuild() {
         for (size_t w = 0; w < sizeof(kPwOwners)/sizeof(kPwOwners[0]); ++w) {
             if (want[w] == 0xffffffffu || oname != want[w]) continue;
             PwSlot& s = g_pwSlot[g_pwSlots++];
-            s.owner  = kPwOwners[w];
+            s.ownerIdx = (int)w;
             s.prop   = RealName(*(uint32_t*)(o + kNameOff));
             s.offset = *(uint32_t*)(o + kUPropOffset);
             s.obj = NULL; s.last = 0; s.seeded = false;
@@ -106,7 +107,7 @@ static void PwBuild() {
         (int)(sizeof(kPwOwners)/sizeof(kPwOwners[0])), g_pwScanned);
     for (int i = 0; i < g_pwSlots; ++i)
         DVR_LOG(DVR_CAT, ::dvr::log::Level::Debug,
-                "propwatch:   [%d] %s::%s at +0x%X", i, g_pwSlot[i].owner,
+                "propwatch:   [%d] %s::%s at +0x%X", i, kPwOwners[g_pwSlot[i].ownerIdx],
                 g_pwSlot[i].prop ? g_pwSlot[i].prop : "?", g_pwSlot[i].offset);
 }
 
@@ -115,30 +116,52 @@ static void PwSet(bool on, const char* source) {
     const bool was = g_pwEnabled.exchange(on);
     Log("propwatch: %s (%s). Read-only: it never writes engine memory.",
         on ? "ON" : "off", source);
-    if (on && !was) { g_pwSlots = 0; g_pwNextBeatMs = 0; }
+    if (on && !was) { g_pwSlots = 0; g_pwNextBeatMs = 0; g_pwNextSampleMs = 0; }
 }
 
 // The live object for an owner class, from the latches ProcessEvent keeps.
 // Returns NULL when that owner is not currently resolvable, which is normal in
 // a menu and is why the heartbeat reports how many owners were live.
-static uint8_t* PwOwnerObj(const char* owner) {
-    if (!strcmp(owner, "DishonoredPlayerController")) return g_peCtrl;
-    if (!strcmp(owner, "DishonoredPlayerPawn"))       return g_pePawn;
+static uint8_t* PwOwnerObj(int idx) {
+    if (idx == 0) return g_peCtrl;      // DishonoredPlayerController
+    if (idx == 1) return g_pePawn;      // DishonoredPlayerPawn
     return NULL;   // the HUD has no latch yet; its slots simply never sample
 }
 
 // SCRIPT LANE. Objects are coherent here, which is the same reason PrTick and
 // AimSeamTick run from this point.
+//
+// COST. The first cut of this validated the owner per SLOT, so the same two
+// objects were revalidated forty-odd times a tick - LooksLikeObj is a readable
+// check plus a class-name fetch plus a string scan - and it put the game thread
+// over the frame budget: the perf line read RENDER THREAD STARVED with the game
+// thread named as the limiter, and it presented as world jitter. The owners are
+// now validated ONCE per tick, the class match is an index resolved at build
+// time rather than a strcmp per slot, and sampling is throttled, because the
+// field being hunted changes on gameplay timescales and never needed a
+// per-tick read. A read-only probe is still a probe: it has to be affordable or
+// it changes the thing it is measuring.
 static void PropWatchTick() {
     if (!PwEnabled()) return;
     if (!g_pwSlots) PwBuild();
     if (!g_pwSlots) { g_pwEnabled.store(false); return; }   // said why in PwBuild
 
+    const double nowMs0 = MaimNowMs();
+    if (nowMs0 < g_pwNextSampleMs) return;
+    g_pwNextSampleMs = nowMs0 + 50.0;
+
+    // Validate each owner once, not once per property.
+    uint8_t* ownerObj[sizeof(kPwOwners)/sizeof(kPwOwners[0])] = {0};
+    for (size_t w = 0; w < sizeof(kPwOwners)/sizeof(kPwOwners[0]); ++w) {
+        uint8_t* o = PwOwnerObj((int)w);
+        if (o && LooksLikeObj(o)) ownerObj[w] = o;
+    }
+
     int live = 0;
     for (int i = 0; i < g_pwSlots; ++i) {
         PwSlot& s = g_pwSlot[i];
-        uint8_t* o = PwOwnerObj(s.owner);
-        if (!o || !LooksLikeObj(o) || !RangeReadable(o + s.offset, 4)) continue;
+        uint8_t* o = ownerObj[s.ownerIdx];
+        if (!o || !RangeReadable(o + s.offset, 4)) continue;
         live++;
         const uint32_t now = *(uint32_t*)(o + s.offset);
         if (o != s.obj) { s.obj = o; s.last = now; s.seeded = true; continue; }
@@ -155,12 +178,12 @@ static void PropWatchTick() {
         uint8_t* ov = (uint8_t*)was;
         const char* ocls = (ov && LooksLikeObj(ov)) ? ObjClassName(ov) : NULL;
         Log("propwatch: %s::%s (+0x%X) %s -> %s",
-            s.owner, s.prop ? s.prop : "?", s.offset,
+            kPwOwners[s.ownerIdx], s.prop ? s.prop : "?", s.offset,
             was ? (ocls ? ocls : "<not an object>") : "none",
             now ? (ncls ? ncls : "<not an object>") : "none");
     }
 
-    const double nowMs = MaimNowMs();
+    const double nowMs = nowMs0;
     if (nowMs >= g_pwNextBeatMs) {
         g_pwNextBeatMs = nowMs + 5000.0;
         Log("propwatch: beat - %d of %d slots sampled this tick, %ld change(s) so far. "
