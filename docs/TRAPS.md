@@ -480,6 +480,30 @@ one pass over a disassembly the session already had open.
 
 ---
 
+### An input learned from our own output, which could only ever ratchet up (VR-36)
+
+`g_blkReachSeen` held "the furthest a blink has been seen to go", learned from the Blink
+destination seam. That was sound while the mod only watched. The moment the source seam
+started driving the aim, the destination it observed was the result of the mod's own
+vector - so the input became a function of the previous output, with no term anywhere
+that could lower it.
+
+Measured in one run: `reach 1100 -> 1839 -> 2007 -> 2062 -> 2610 -> 4698 -> 5606 uu`,
+monotonic, the blink getting longer every time it was used. The tester reported it as
+"the distance is unlimited now"; the ratchet is visible in the log line as plain
+arithmetic, which is the only reason it took one run rather than a session.
+
+> **A quantity learned from a seam the mod also writes is not a measurement of the game.**
+> When a read-only observer becomes a writer, every statistic it was feeding has to be
+> re-asked: is this still an input, or is it now my own output coming back?
+
+The second half of the same fault is worth its own line. The mod had replaced a magnitude
+the engine authored - and that magnitude was carrying a rule nobody had noticed, the
+vertical cap on Blink (ENGINE_NOTES). **Substituting a value you did not derive discards
+whatever it encoded**, silently, and the symptom appears somewhere else entirely. The fix
+is structural: the reach curve is now clamped so it can only ever shorten what the engine
+offered, which makes the class of fault unreachable rather than fixing this instance.
+
 ## 3. Plans that were tried and failed
 
 | Plan | Why it failed | Where the detail is |

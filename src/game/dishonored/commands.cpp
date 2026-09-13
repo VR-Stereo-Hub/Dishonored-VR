@@ -111,6 +111,24 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 #endif
     if (!strcmp(cmd, "blink")) {
         if (!strcmp(args, "probe")) { BlinkProbeArm(); return true; }
+        // VR-36: the A/B between the published ray and the legacy MotionAim one,
+        // live. `blink ray` alone reports which is driving and why.
+        if (!strncmp(args, "ray", 3)) {
+            const char* a = args + 3;
+            while (*a == ' ') a++;
+            if (!strcmp(a, "aim") || !strcmp(a, "published")) g_blkUseAimRay = true;
+            else if (!strcmp(a, "legacy") || !strcmp(a, "motionaim")) g_blkUseAimRay = false;
+            else if (*a) return false;
+            Log("blink: ray=%s | ControllerAim=%d AimAtSource=%d (source seam, the "
+                "engine still traces and refuses) | last ray: %s, controller %.0f uu "
+                "from the camera | destination seam read-only, its settled point sits "
+                "%.2f deg off the handed vector (-1 = not measured yet)",
+                g_blkUseAimRay ? "published (shared with the dot and the shots)"
+                               : "legacy MotionAim",
+                (int)g_blkAimOnCfg, (int)g_blkDirAim, g_blkRayWhy, g_blkRayGapUU,
+                g_blkDstAngleDeg);
+            return true;
+        }
         if (DvrOnOff(args, &b)) { g_blkAimOnCfg = b; g_blkDriveUI = b; Log("blink: hand aim %s (seam)", b ? "ON" : "off"); return true; }
         return false;
     }

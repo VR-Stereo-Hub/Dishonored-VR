@@ -1876,6 +1876,31 @@ projection off`/`auto` each alone say which half of the user's remedy repairs it
   clock, `DVR_VERSION`, `DVR_BUILD_ID`, pid, backend + runtime name via
   `dvr::crash::set_context`, called from the OpenXR backend once the runtime names itself).
 
+## Blink's reach rule lives in its aim vector, vertical cap included (VR-36, 2026-09-13)
+
+Measured at the source seam `0xbf55a3`, which is where the engine's own Blink aim vector
+is built, in one headset run with the redirect live:
+
+```
+engine aim (-1087.11,-157.00, -59.45) len 1100    aim level: the power's full reach
+engine aim (  811.29,-136.61, 500.00) len  963
+engine aim (  400.12,-178.28, 500.00) len  665    aim steeply up
+```
+
+**The Z component pins at exactly +500.00 and the LENGTH falls to match.** So "you cannot
+blink far upwards" is not a downstream refusal and not a collision result - it is built
+into the magnitude the engine hands out, and a redirect that keeps that magnitude keeps
+the rule for free. A redirect that substitutes its own length throws the cap away, and
+the blink climbs into the sky. `[Blink] ReachMode` ships 0 for that reason, and modes 1
+and 2 are clamped so they can only shorten what the engine offered.
+
+The same run also settled where the trace starts. The destination the engine finally
+stores, taken from the camera, sits within about half a degree of the redirected ray at
+every sample (13.2 vs 12.64, 23.9 vs 23.16, 7.8 vs 7.07 degrees against the engine's
+original direction). So the trace effectively starts at the camera, and the controller
+sits 65 to 93 uu from it - that offset is the whole parallax between the drawn guide and
+the landing point, and it was judged not visible in the headset.
+
 ## Other seams (verified)
 
 - Blink: the source-vector detour (above) plus `BlinkControllerDir` and `BlinkReach`

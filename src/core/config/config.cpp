@@ -716,13 +716,20 @@ static void WriteDefaultIni(const char* ini)
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "ControllerAim=0\n"
         "Marker=1\n"
-        "ReachMode=2\n"
+        "; VR-36: 0 = the engine's own reach (its vector carries the reach rule,\n"
+        "; including the vertical cap); 1 = fixed; 2 = hand pitch sets it. 1 and 2\n"
+        "; can only SHORTEN what the engine offered, never lengthen it.\n"
+        "ReachMode=0\n"
         "ReachUU=0\n"
         "NearUU=150\n"
         "PitchNearDeg=-55.0\n"
         "PitchFarDeg=-5.0\n"
         "MarkerPullbackUU=60\n"
         "AimAtSource=1\n"
+        "; VR-36: 1 = Blink aims off the published ray, the same one the crosshair\n"
+        "; dot, the laser and the crossbow/pistol shots use. 0 is the legacy\n"
+        "; MotionAim ray, kept only as an A/B (`blink ray aim|legacy`).\n"
+        "UseAimRay=1\n"
         "OptVer=3\n"
         "[Overlay]\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
@@ -1438,7 +1445,13 @@ static void LoadConfig()
     // stretches it. Redirecting the trace fixes the length, the surface the
     // decal needs, and the duplicate marker, all at once.
     g_blkTraceAim = IniFloat(ini, "Blink", "RedirectTrace", 0) != 0.0f;
-    g_blkReachMode  = (int)IniFloat(ini, "Blink", "ReachMode", 2);
+    // VR-36: DEFAULT 0 - the engine's own reach for this activation, with only
+    // the DIRECTION taken from the controller. The engine's aim vector carries
+    // its reach rule in its magnitude, including a hard +500 uu vertical cap
+    // measured 2026-09-13, so keeping the magnitude keeps the rule. Modes 1 and
+    // 2 replace it; they can now only shorten it (see BlinkReach), but 0 is the
+    // one that reproduces the game's own distances exactly.
+    g_blkReachMode  = (int)IniFloat(ini, "Blink", "ReachMode", 0);
     if (g_blkReachMode < 0 || g_blkReachMode > 2) g_blkReachMode = 2;
     g_blkReachUU    = IniFloat(ini, "Blink", "ReachUU", 0.0f);
     g_blkNearUU     = IniFloat(ini, "Blink", "NearUU", 150.0f);
@@ -1446,10 +1459,23 @@ static void LoadConfig()
     g_blkPitchFar   = IniFloat(ini, "Blink", "PitchFarDeg",   -5.0f);
     g_blkMarkerBackUU = IniFloat(ini, "Blink", "MarkerPullbackUU", 60.0f);
     g_blkDirAim       = IniFloat(ini, "Blink", "AimAtSource", 1) != 0.0f;
+    // VR-36: which ray Blink aims with. 1 = the published ray, the same
+    // publication the crosshair dot, the laser and the crossbow/pistol launch
+    // hooks consume. 0 = the legacy MotionAim ray (grip pose plus
+    // [MotionAim] PitchOffsetDeg), kept as a named A/B and never reached as a
+    // silent fallback - a refusal of the published ray leaves the ENGINE's own
+    // head aim in place, because what is being aimed is where the player lands.
+    g_blkUseAimRay    = IniFloat(ini, "Blink", "UseAimRay", 1) != 0.0f;
     g_blkDriveUI  = g_blkAimOnCfg;
     g_aimAllPowers = IniFloat(ini, "Blink", "AimAllPowers", 1) != 0.0f;  // 38.52
-    Log("config: Blink controller aim %s (native detour at 0xbf5e4f)",
-        g_blkAimOnCfg ? "ON" : "off");
+    Log("config: [Blink] ControllerAim=%d UseAimRay=%d AimAtSource=%d ReachMode=%d "
+        "- Blink aims with the %s ray, redirected at its SOURCE (0xbf55a3) so the "
+        "engine still traces, collides and refuses; the destination seam "
+        "(0xbf5e4f) is READ-ONLY since VR-36",
+        (int)g_blkAimOnCfg, (int)g_blkUseAimRay, (int)g_blkDirAim, g_blkReachMode,
+        g_blkAimOnCfg ? (g_blkUseAimRay ? "published (shared with the dot and the shots)"
+                                        : "legacy MotionAim")
+                      : "engine's own head");
     g_skcCrouchTrimOn = IniFloat(ini, "Hands", "PerStanceTrim", 1) != 0.0f;
     g_crouchSrc       = (int)IniFloat(ini, "Hands", "CrouchSource", 3);
     if (g_crouchSrc < 0 || g_crouchSrc > 3) g_crouchSrc = 3;
@@ -2857,6 +2883,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Blink", "MarkerPullbackUU", v, ini);
     WritePrivateProfileStringA("Blink", "AimAtSource",
                                g_blkDirAim ? "1" : "0", ini);
+    WritePrivateProfileStringA("Blink", "UseAimRay",
+                               g_blkUseAimRay ? "1" : "0", ini);
     WritePrivateProfileStringA("Blink", "OptVer", "3", ini);
     WritePrivateProfileStringA("Hands", "AddToAnim", g_skcAddMode ? "1" : "0", ini);
     _snprintf(v, 64, "%.1f", g_skcScaleUU);
