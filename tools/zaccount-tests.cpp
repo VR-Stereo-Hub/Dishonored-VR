@@ -56,6 +56,14 @@ struct Sim {
     double ms = 0.0;
     uint32_t serial = 1;
     bool staleSerial = false, wrongEye = false, badTagPos = false, torn = false, moving = false;
+    // VR-91. rollDeg is the head roll this tick; headLatPerDeg is the real lateral
+    // the HEAD does when it rolls (it pivots about the neck, so a roll does move
+    // the headset sideways); neckLatPerDeg is the neck arc's lateral contribution,
+    // the term [Neck] Mode=cancel negates; eyeLatPerDeg plants a roll-dependent
+    // EYE offset instead, which must show in the eye column and NOT in the
+    // residual, because the residual does not subtract it.
+    float rollDeg = 0.0f;
+    float headLatPerDeg = 0.0f, neckLatPerDeg = 0.0f, eyeLatPerDeg = 0.0f;
     Write last;                                    // the writer's memory (persisted base)
     bool lastOk = false;
 
@@ -93,6 +101,10 @@ struct Sim {
         h.neck[1] = -nu; h.neck[2] = -nf;
         for (int i = 0; i < 3; ++i) h.pos[i] = h.raw[i] + h.neck[i];
         h.pitchDeg = deg; h.neckBelowM = cfgBelow; h.neckBehindM = cfgBehind; h.scale = 100.0f;
+        h.rollDeg = rollDeg;
+        h.raw[0] = headLatPerDeg * rollDeg;
+        h.neck[0] = neckLatPerDeg * rollDeg;
+        h.pos[0] = h.raw[0] + h.neck[0];
         publish_head(h);
 
         for (int pass = 0; pass < 2; ++pass) {
@@ -106,11 +118,14 @@ struct Sim {
             w.torn = torn;
             w.camPitchDeg = deg;
             w.heading[0] = 1.0f; w.heading[1] = 0.0f;
+            // heading +X, so the yaw-only right axis is +Y
+            w.prAxis[0] = 0.0f; w.prAxis[1] = 1.0f; w.prAxisOk = true;
             // pass 2 finds our pass-1 write in the field: the base is RECOVERED
             w.persisted = pass == 1;
             w.base[0] = engine[0]; w.base[1] = engine[1]; w.base[2] = fieldZ;
-            w.eyeW[1] = eye * 3.2f;
+            w.eyeW[1] = eye * (3.2f + eyeLatPerDeg * rollDeg);
             w.posW[0] = h.pos[2]; w.posW[2] = h.pos[1];
+            w.posW[1] = h.pos[0];   // the lateral the seam applies along prAxis
             const float cand = w.base[2] + w.eyeW[2] + w.posW[2];
             w.capOn = ceilRel > 0.0f; w.candZ = cand;
             w.capDelta = (ceilRel > 0.0f && cand > ceil) ? ceil - cand : 0.0f;
@@ -127,6 +142,9 @@ struct Sim {
         }
     }
     void hold(float deg, int ticks) { for (int i = 0; i < ticks; ++i) tick(deg); }
+    // VR-91: hold a ROLL with pitch level, the shape roll mode bins on.
+    void holdRoll(float rdeg, int ticks) { rollDeg = rdeg; hold(0.0f, ticks); }
+    void rollSweep() { holdRoll(0.0f, 130); holdRoll(-30.0f, 130); holdRoll(30.0f, 130); }
     void sweep() { hold(0.0f, 130); hold(-30.0f, 130); hold(30.0f, 130); }
     // a pitch ramp so the pivot fit has variance
     void ramp() { for (int i = -35; i <= 35; ++i) tick((float)i); }
@@ -264,6 +282,77 @@ int main() {
         flush("test M");
         check(has("NO_MEASURED_CAMERA_RESIDUAL"), "M: a zero crouched pivot against a zero engine arc is clean");
         check(has("PIVOT_MATCHES"), "M: and the fit agrees with the pivot in use");
+    }
+
+    // ---- VR-91: the roll mode ---------------------------------------------------
+    // N: the pitch mode is structurally blind to a roll fault. That is the reason
+    // the roll mode exists, and it is asserted rather than asserted about.
+    {
+        start();
+        Sim s; s.headLatPerDeg = 0.10f; s.neckLatPerDeg = -0.30f; s.rollSweep();
+        flush("test N");
+        check(count_of("roll") > 0, "N: PITCH mode rejects every rolled sample as roll");
+        check(!has("zaccount/roll:"), "N: and prints no lateral table at all");
+    }
+    // O: roll mode, healthy. The seam applies exactly the head's own lateral and
+    // no neck term. The residual must read FLAT - the instrument has to be able to
+    // clear us, or a non-zero reading anywhere else means nothing.
+    {
+        start();
+        set_roll_mode(true, "test");
+        Sim s; s.headLatPerDeg = 0.10f; s.neckLatPerDeg = 0.0f; s.rollSweep();
+        flush("test O");
+        check(has("zaccount/roll:"), "O: roll mode prints the lateral table");
+        check(has("ROLL_LEFT"), "O: and bins rolled samples instead of rejecting them");
+        check(has("FLAT: our writes move the camera sideways no more than the head did"),
+              "O: a clean roll reads FLAT");
+        set_roll_mode(false, "test");
+    }
+    // P: the neck-cancel shape. The neck arc contributes a lateral term OPPOSITE
+    // to the head's roll, which is the reported symptom: roll left, camera right.
+    {
+        start();
+        set_roll_mode(true, "test");
+        Sim s; s.headLatPerDeg = 0.10f; s.neckLatPerDeg = -0.30f; s.rollSweep();
+        flush("test P");
+        check(has("THE NECK TERM OWNS IT"), "P: a lateral neck arc is named as the owner");
+        check(!has("FLAT: our writes"), "P: and the clean verdict is not printed as well");
+        bool inverted = false;
+        for (auto& l : g_lines)
+            if (l.find("ROLL_LEFT") != std::string::npos && l.find("vs ROLL_LEVEL") != std::string::npos &&
+                l.find("residual +") != std::string::npos) inverted = true;
+        check(inverted, "P: rolling LEFT reads a residual to the RIGHT, the reported inversion");
+        set_roll_mode(false, "test");
+    }
+    // Q: an EYE-offset fault instead. It must show in the eye column and must not
+    // be swallowed by the residual, which does not subtract it.
+    {
+        start();
+        set_roll_mode(true, "test");
+        Sim s; s.headLatPerDeg = 0.10f; s.eyeLatPerDeg = 0.20f; s.rollSweep();
+        flush("test Q");
+        check(has("FLAT: our writes move the camera sideways no more than the head did"),
+              "Q: an eye-only fault leaves the position residual flat");
+        bool eyeMoved = false;
+        for (auto& l : g_lines)
+            if (l.find("vs ROLL_LEVEL") != std::string::npos && l.find("eye term +") != std::string::npos &&
+                l.find("eye term +0.0") == std::string::npos) eyeMoved = true;
+        check(eyeMoved, "Q: and the eye term reports the change the residual cannot");
+        set_roll_mode(false, "test");
+    }
+    // R: the fault is already in the published head lateral - upstream of us.
+    {
+        start();
+        set_roll_mode(true, "test");
+        Sim s; s.headLatPerDeg = -0.40f; s.neckLatPerDeg = 0.0f; s.rollSweep();
+        flush("test R");
+        check(has("FLAT: our writes"), "R: a head that moves the wrong way itself still clears the composition");
+        bool headMoved = false;
+        for (auto& l : g_lines)
+            if (l.find("vs ROLL_LEVEL") != std::string::npos && l.find("tracked head +") != std::string::npos)
+                headMoved = true;
+        check(headMoved, "R: and the tracked head column carries the sign, so the pose is named");
+        set_roll_mode(false, "test");
     }
 
     if (g_fail) {

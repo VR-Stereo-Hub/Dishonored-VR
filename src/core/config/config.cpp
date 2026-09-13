@@ -1558,8 +1558,18 @@ static void LoadConfig()
     {
         const int za = GetPrivateProfileIntA("PosTrack", "ZAccount", -1, ini);
         if (za >= 0) dvr::zacct::set_enabled(za != 0, "[PosTrack] ZAccount in the ini");
-        Log("config: [PosTrack] ZAccount=%d - %s", za > 0 ? 1 : 0,
-            za < 0 ? "absent, compiled default off" : "from the ini");
+        // VR-91: which QUESTION the probe is answering. The pitch mode rejects
+        // any sample rolled past 12 degrees, so it cannot see a roll fault at
+        // all; roll mode bins by head roll and measures laterally instead. Same
+        // rule as the key above - absent means the compiled default, and neither
+        // is ever materialised into a player ini by a save.
+        const int zr = GetPrivateProfileIntA("PosTrack", "ZAccountRoll", -1, ini);
+        if (zr >= 0) dvr::zacct::set_roll_mode(zr != 0, "[PosTrack] ZAccountRoll in the ini");
+        Log("config: [PosTrack] ZAccount=%d ZAccountRoll=%d - %s, accounting the %s",
+            za > 0 ? 1 : 0, zr > 0 ? 1 : 0,
+            za < 0 ? "absent, compiled default off" : "from the ini",
+            dvr::zacct::roll_mode() ? "LATERAL residual against head ROLL (VR-91)"
+                                    : "VERTICAL residual against camera PITCH (VR-78)");
     }
     g_eyeClampCfg    = IniFloat(ini, "PosTrack", "EyeClamp", 1) != 0.0f; // 38.24
     g_eyeClampMargin = IniFloat(ini, "PosTrack", "EyeClampMargin", 8.0f);

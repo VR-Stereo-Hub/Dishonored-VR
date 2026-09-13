@@ -39,7 +39,13 @@ constexpr double kHeadMaxAgeMs = 100.0;   // head snapshot older than this at th
 constexpr double kClampMaxAgeMs = 200.0;  // clamp record older than this at the write: stale
 constexpr double kCylMaxAgeMs = 1500.0;   // the clamp's own cylinder freshness rule
 constexpr float  kStandMin = 76.0f, kCrouchMin = 50.0f;  // stance from the capsule
-constexpr float  kRollMax = 12.0f;        // degrees
+constexpr float  kRollMax = 12.0f;        // degrees (PITCH mode only: see roll mode below)
+// VR-91 roll mode. The head ROLL bins, and the pitch window the samples must sit
+// in so that pitch is not a second variable in a lateral measurement.
+constexpr float  kRollLeftLo = -45.0f, kRollLeftHi = -15.0f;
+constexpr float  kRollRightLo = 15.0f, kRollRightHi = 45.0f;
+constexpr float  kRollLevelAbs = 5.0f;
+constexpr float  kRollPitchAbs = 20.0f;   // camera pitch must be within this of level
 constexpr float  kYawRateMax = 25.0f;     // degrees per second
 constexpr float  kPawnSpeedMax = 20.0f;   // uu per second
 constexpr float  kTeleportUu = 60.0f;
@@ -59,6 +65,7 @@ const char* kReasonName[R_COUNT] = {
     "camera", "settling", "between",
 };
 const char* kBucketName[3] = {"DOWN", "LEVEL", "UP"};
+const char* kRollName[3] = {"ROLL_LEFT", "ROLL_LEVEL", "ROLL_RIGHT"};
 const char* kStanceName[3] = {"STANCE_UNKNOWN", "STANDING", "CROUCHED"};
 
 struct Acc {
@@ -75,6 +82,18 @@ struct Acc {
 struct Bucket {
     Acc resUp, resFwd, headPitch, camPitch, closure;
     Acc fieldPre, lever, base, raw, neck, cap, render;
+    // VR-91, lateral accounting. All along the yaw-only right axis the WRITE
+    // used (Write::prAxis), in world uu, positive to the player's right:
+    //   latRender  the rendered camera's lateral offset from the pawn
+    //   latEye     the eye term's lateral contribution (opposite between eyes)
+    //   latPos     the position term's lateral contribution
+    //   latHead    the tracked head's own lateral displacement, as published
+    //   latRes     latRender - latEye - latHead: what moved sideways that the
+    //              head did not do and the eye separation does not explain
+    //   latNeck    the NECK term's own lateral contribution, as supplied
+    // latRes deliberately does NOT subtract latEye: an eye-offset fault has to
+    // stay visible somewhere, and it shows in the eye column, not the residual.
+    Acc roll, latRender, latEye, latPos, latHead, latNeck, latRes;
     uint32_t clipped = 0, capped = 0, persisted = 0, noClampField = 0;
     float closureMax = 0.0f, eqMax = 0.0f;
     int n() const { return (int)resUp.n; }
@@ -129,6 +148,7 @@ uint32_t g_episodes = 0;
 uint32_t g_lastC5Serial = 0;
 bool     g_lastC5SerialOk = false;
 int      g_key = -1;                 // stance*10 + bucket (bucket 3 = between)
+bool     g_rollMode = false;         // VR-91: bin by roll, measure laterally
 double   g_keySince = 0.0;
 bool     g_prevOk = false;
 float    g_prevPawn[3] = {0, 0, 0};
@@ -137,6 +157,14 @@ double   g_prevMs = 0.0;
 uint8_t* g_prevCam = nullptr;
 double   g_nextProgressMs = 0.0;
 uint32_t g_orphans = 0;              // presents seen with no open episode to charge
+
+// VR-91. Returns 3 for "between", the same contract as bucket_of.
+int roll_bucket_of(float rollDeg) {
+    if (rollDeg >= kRollLeftLo && rollDeg <= kRollLeftHi) return 0;
+    if (fabsf(rollDeg) <= kRollLevelAbs) return 1;
+    if (rollDeg >= kRollRightLo && rollDeg <= kRollRightHi) return 2;
+    return 3;
+}
 
 int bucket_of(float pitchDeg) {
     if (pitchDeg >= kDownLo && pitchDeg <= kDownHi) return 0;
@@ -288,6 +316,70 @@ void report(const char* why, bool full) {
     ZA_INFO("zaccount: episode #%lu %s %s %.1f s (%s) | tagged presents %lu, matched %lu, accepted %lu | flags: %s | rejected:%s",
             (unsigned long)e.index, kStanceName[e.stance], full ? "REPORT" : "progress", secs, why, (unsigned long)e.tagged,
             (unsigned long)e.matched, (unsigned long)e.accepted, flags[0] ? flags : "none", rej);
+    if (g_rollMode) {
+        // VR-91. Everything is along the yaw-only right axis the write used,
+        // world uu, positive to the player's right.
+        //
+        // latRes is the number: what moved sideways that the tracked head did not
+        // do and the eye separation does not explain. Zero at every roll is the
+        // healthy answer, and this line can print it - which is what makes a
+        // non-zero reading evidence rather than a foregone conclusion.
+        for (int bi = 0; bi < 3; ++bi)
+            for (int ei = 0; ei < 2; ++ei) {
+                const Bucket& b = e.b[bi][ei];
+                const Bucket& l = e.b[1][ei];
+                const char eyeC = ei ? 'R' : 'L';
+                if (!full) continue;
+                if (b.n() == 0) {
+                    ZA_INFO("zaccount/roll: #%lu %s %s %c n=0 (no accepted sample: see the rejected counts)",
+                            (unsigned long)e.index, kStanceName[e.stance], kRollName[bi], eyeC);
+                    continue;
+                }
+                const bool lOk = l.n() > 0;
+                ZA_INFO("zaccount/roll: #%lu %s %s %c n=%d roll %+.1f deg pitch %+.1f | LATERAL uu (+ = player's "
+                        "right): render %+.2f, eye term %+.2f, position term %+.2f, tracked head %+.2f, neck "
+                        "term %+.2f | RESIDUAL %+.2f (sd %.2f)%s | closure mean %.2f max %.2f",
+                        (unsigned long)e.index, kStanceName[e.stance], kRollName[bi], eyeC, b.n(),
+                        b.roll.mean(), b.camPitch.mean(), b.latRender.mean(), b.latEye.mean(),
+                        b.latPos.mean(), b.latHead.mean(), b.latNeck.mean(), b.latRes.mean(), b.latRes.sd(),
+                        (bi == 1 || !lOk) ? " (absolute)" : "", b.closure.mean(), b.closureMax);
+                if (bi != 1 && lOk) {
+                    const double dRes = b.latRes.mean() - l.latRes.mean();
+                    const double dNeck = b.latNeck.mean() - l.latNeck.mean();
+                    const double dEye = b.latEye.mean() - l.latEye.mean();
+                    const double dHead = b.latHead.mean() - l.latHead.mean();
+                    const double dRoll = b.roll.mean() - l.roll.mean();
+                    const double se = level_se(b.latRes, l.latRes);
+                    // Name the owner before the verdict, and say what each reading
+                    // would mean - including the one that clears us.
+                    const char* owner =
+                        fabs(dRes) <= 2.0 * se + 0.05
+                            ? "FLAT: our writes move the camera sideways no more than the head did. If the "
+                              "fault is still visible it is not in this composition - look between the "
+                              "submitted view poses and the rendered world"
+                        : fabs(dRes - dNeck) <= 0.15 * (fabs(dRes) > 1.0 ? fabs(dRes) : 1.0)
+                            ? "THE NECK TERM OWNS IT: the residual equals the neck arc's own lateral "
+                              "contribution. The arc is built from the head matrix's up row, which rolls, "
+                              "against a yaw-only reference that does not, and [Neck] Mode=cancel negates "
+                              "the difference - which is why it moves OPPOSITE to the head"
+                        : fabs(dHead) > 0.5 * fabs(dRes)
+                            ? "THE TRACKED HEAD: most of the residual is already in the published head "
+                              "lateral, so the fault is upstream of this composition, in the pose"
+                            : "UNACCOUNTED: the residual is not the neck term and not the head. Suspect the "
+                              "position term's axis or the eye field's sign";
+                    ZA_INFO("zaccount/roll: #%lu %s %s %c vs ROLL_LEVEL, over %+.1f deg of roll: residual "
+                            "%+.2f (se %.2f), neck term %+.2f, eye term %+.2f, position term %+.2f, tracked "
+                            "head %+.2f uu | %s. Separately: an eye term that changes with roll is the eye "
+                            "offset riding the camera's rolled right row, and it will NOT appear in the "
+                            "residual - the residual does not subtract it.",
+                            (unsigned long)e.index, kStanceName[e.stance], kRollName[bi], eyeC, dRoll,
+                            dRes, se, dNeck, dEye, b.latPos.mean() - l.latPos.mean(), dHead, owner);
+                }
+            }
+        ZA_INFO("zaccount/roll: #%lu %s end of table. The pitch fit is not run in roll mode.",
+                (unsigned long)e.index, kStanceName[e.stance]);
+        return;
+    }
     for (int bi = 0; bi < 3; ++bi)
         for (int ei = 0; ei < 2; ++ei) {
             const Bucket& b = e.b[bi][ei];
@@ -379,7 +471,11 @@ void consume(const Write& w, int finalEye, bool haveC5, const float c5[3], uint3
     }
     g_ep.lastMs = w.ms;
     g_ep.any = true;
-    if (fabsf(w.head.rollDeg) > kRollMax) { reject(R_ROLL); g_key = -1; return; }
+    // VR-91: in pitch mode roll is noise and is rejected. In ROLL mode it is the
+    // signal, and this very rejection is why the existing probe could say nothing
+    // about a roll fault - it threw away every sample that carried one.
+    if (!g_rollMode && fabsf(w.head.rollDeg) > kRollMax) { reject(R_ROLL); g_key = -1; return; }
+    if (g_rollMode && !w.prAxisOk) { reject(R_BASIS); g_key = -1; return; }
 
     // motion, across writes at least 5 ms apart (pass 1 and pass 2 share a tick)
     if (g_prevOk && w.cam != g_prevCam) { reject(R_CAMERA); reset_consumer(); }
@@ -420,10 +516,13 @@ void consume(const Write& w, int finalEye, bool haveC5, const float c5[3], uint3
         if (w.persisted) ++g_ep.fit.recovered;
     }
 
-    const int bucket = bucket_of(w.camPitchDeg);
+    // VR-91: roll mode bins by head ROLL and holds pitch near level, so that a
+    // lateral measurement is not also a pitch measurement.
+    const int bucket = g_rollMode ? roll_bucket_of(w.head.rollDeg) : bucket_of(w.camPitchDeg);
     const int key = stance * 10 + bucket;
     if (key != g_key) { g_key = key; g_keySince = w.ms; }
     if (bucket == 3) { reject(R_BETWEEN); return; }
+    if (g_rollMode && fabsf(w.camPitchDeg) > kRollPitchAbs) { reject(R_BETWEEN); return; }
     if (w.ms - g_keySince < kSettleMs) { reject(R_SETTLING); return; }
 
     // the measurement
@@ -456,6 +555,28 @@ void consume(const Write& w, int finalEye, bool haveC5, const float c5[3], uint3
     if (w.capDelta < -0.001f) ++b.capped;
     if (w.persisted) ++b.persisted;
     b.render.add(up);
+    // VR-91: the lateral accounting, along the axis the WRITE used.
+    if (w.prAxisOk) {
+        const float pr0 = w.prAxis[0], pr1 = w.prAxis[1];
+        const float latRender = (render[0] - w.clamp.pawn[0]) * pr0 + (render[1] - w.clamp.pawn[1]) * pr1;
+        const float latEye = w.eyeW[0] * pr0 + w.eyeW[1] * pr1;
+        const float latPos = w.posW[0] * pr0 + w.posW[1] * pr1;
+        b.roll.add(w.head.rollDeg);
+        b.latRender.add(latRender);
+        b.latEye.add(latEye);
+        b.latPos.add(latPos);
+        b.latHead.add(w.head.raw[0]);
+        // The neck arc's lateral term, named separately because it is the one
+        // suspect that can be read out of the composition rather than inferred:
+        // the arc is built from the head matrix's UP row, which rotates with
+        // roll, against a yaw-only reference that does not - and [Neck]
+        // Mode=cancel then NEGATES the difference. If latRes equals latNeck the
+        // neck owns the whole fault; if it does not, something else does too.
+        b.latNeck.add(w.head.neck[0]);
+        // What moved sideways that the head did not do and the eye separation
+        // does not explain. Zero is the healthy answer at every roll.
+        b.latRes.add(latRender - latEye - w.head.raw[0]);
+    }
     ++g_ep.accepted;
 }
 
@@ -487,6 +608,29 @@ void set_enabled(bool on, const char* source) {
 }
 
 bool enabled() { return InterlockedCompareExchange(&g_on, 0, 0) != 0; }
+
+// VR-91. Switching mode RESETS: the two modes bin on different axes and gate on
+// different things, so an episode holding samples from both would be a table of
+// two questions averaged together.
+void set_roll_mode(bool on, const char* source) {
+    ensure_cs();
+    Lock lk;
+    if (g_rollMode == on) return;
+    close_episode("accounting mode changed");
+    reset_consumer();
+    g_rollMode = on;
+    if (on)
+        ZA_INFO("zaccount: ROLL mode (%s) - binning by head roll (LEFT %.0f..%.0f, LEVEL +-%.0f, "
+                "RIGHT %.0f..%.0f deg) with camera pitch held within %.0f deg of level, and measuring "
+                "the LATERAL residual along the yaw-only right axis each write used. The pitch mode "
+                "REJECTS anything rolled past %.0f deg, so it could never see a roll fault. Hold a "
+                "roll still for a few seconds per bin, both ways, standing.",
+                source, kRollLeftLo, kRollLeftHi, kRollLevelAbs, kRollRightLo, kRollRightHi,
+                kRollPitchAbs, kRollMax);
+    else
+        ZA_INFO("zaccount: PITCH mode (%s) - back to the VR-78 vertical accounting.", source);
+}
+bool roll_mode() { return g_rollMode; }
 
 void reset(const char* why) {
     Lock lk;

@@ -89,6 +89,13 @@ struct Write {
     float    eyeW[3] = {0, 0, 0}, posW[3] = {0, 0, 0};   // world-axis terms, position form
     bool     posLive = false, posDropped = false;
     float    heading[2] = {1.0f, 0.0f};   // the yaw-only forward the position used
+    // VR-91: the yaw-only RIGHT axis the position was actually applied along,
+    // handedness flip included. The analysis cannot rebuild it - the flip is
+    // resolved against the camera's true right row, which does not survive into
+    // the record - and a lateral measurement taken along a different axis than
+    // the write used would be measuring its own reconstruction.
+    float    prAxis[2] = {0.0f, 1.0f};
+    bool     prAxisOk = false;
     float    camPitchDeg = 0.0f;          // the camera's own pitch, from its forward row
     bool     basisOk = false;
     float    candZ = 0.0f, capDelta = 0.0f;
@@ -102,6 +109,12 @@ double now_ms();                         // one clock for every record (QPC)
 // ---- the lever -----------------------------------------------------------------
 void set_enabled(bool on, const char* source);
 bool enabled();
+// VR-91: bin by head ROLL instead of camera pitch, and measure the LATERAL
+// residual rather than the vertical one. The pitch mode REJECTS any sample
+// rolled past 12 degrees, so it is structurally blind to the fault this asks
+// about; the two modes therefore cannot share an episode and switching resets.
+void set_roll_mode(bool on, const char* source);
+bool roll_mode();
 void reset(const char* why);
 
 // ---- producers -----------------------------------------------------------------

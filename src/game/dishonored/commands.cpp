@@ -218,6 +218,17 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             if (!_stricmp(v, "on")) dvr::zacct::set_enabled(true, "seam");
             else if (!_stricmp(v, "off")) dvr::zacct::set_enabled(false, "seam");
             else if (!_stricmp(v, "reset")) dvr::zacct::reset("seam reset");
+            else if (!_stricmp(v, "roll") || !_stricmp(v, "pitch")) {
+                // VR-91: `camera zaccount roll [on|off]` / `... pitch`. Roll mode
+                // bins by head roll and measures laterally; the pitch mode rejects
+                // rolled samples outright, so it cannot answer a roll question.
+                char m[16] = "";
+                sscanf(args, "%*s %*s %15s", m);
+                const bool wantRoll = !_stricmp(v, "roll") ? _stricmp(m, "off") != 0
+                                                           : _stricmp(m, "off") == 0;
+                dvr::zacct::set_roll_mode(wantRoll, "seam");
+                if (!dvr::zacct::enabled()) dvr::zacct::set_enabled(true, "seam (roll mode implies on)");
+            }
             else dvr::zacct::log_status();
             return true;
         }
