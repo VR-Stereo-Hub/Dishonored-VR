@@ -186,9 +186,10 @@ Data, not code: `[Anim] HandBackMaster=` and `[Anim] HandBackUpper=`, comma list
 class names, with a compiled default that is a HYPOTHESIS to be confirmed by the phase 1
 run:
 
-* master: `StatePlayerMasterAssassinate, StatePlayerMasterChoke, StatePlayerMasterMantle,
-  StatePlayerMasterClimb, StatePlayerMasterStunned, StatePlayerMasterDead,
-  StatePlayerMasterPrePossess, StatePlayerMasterPossess, StatePlayerMasterMinigame`
+* master: `StatePlayerMasterAssassinate, StatePlayerMasterChoke, StatePlayerMasterClimb,
+  StatePlayerMasterStunned, StatePlayerMasterDead, StatePlayerMasterPrePossess,
+  StatePlayerMasterPossess, StatePlayerMasterMinigame` (Mantle was in the first draft and was
+  removed after the headset run: see the results below)
 * upper: `StatePlayerGenericFatality, StatePlayerGrabCorpse`
 
 Open for the run to decide, deliberately NOT in the default: `Slide`, `Versus`,
@@ -335,7 +336,7 @@ owner, sequence, body mode and controller blend weight.
 default. Commands: `anim status`, `anim watch on|off`, `anim handback on|off`.
 F10 Hands exposes the handback checkbox and current state. Master/upper comma
 lists remain configurable through `HandBackMaster` and `HandBackUpper`; mantle
-and climb are included. VR-89 suppression and on-demand playback remain deferred.
+was included at first and is now excluded; climb (ladders) stays (results below). VR-89 suppression and on-demand playback remain deferred.
 
 The correction uses shortest-path rotation interpolation, with uniform scale
 and translation interpolated to identity. It is blended ONCE in the hand path
@@ -363,3 +364,19 @@ back/front/drop assassination, fatality, and pick up/drop a body. Compare
 HandBack on/off in F10, check both eyes and action entry/exit, then reload a save.
 The state labels and 150/250 ms blend/release settings remain hypotheses until
 that run. A successful build does not confirm mappings or visual comfort.
+
+## Headset results (2026-09-13)
+
+Run on build `a9a138d1` plus the stale live-object table fix (`a59cfbd2`). The reader rebuilt
+the table twice after the level loaded, then tracked every move tried. Observed master states:
+`Walk`, `Falling`, `Jump`, `Swim`, `Mantle` (2), `Assassinate` (4, with `m_BodyMode` going to
+FULL_BODY during the move); upper: `GenericFatality` (2), `GrabCorpse`, `CarryCorpseIdle`,
+`EquipChange`, `TransitionItemIn`. Each listed state entered GAME at the move's start and
+returned to PLAYER after the release interval. Claims C1, C3 and C4 held for the moves tried;
+`Climb`, `Choke`, slides and drop assassinations were not observed in this run.
+
+The takedowns, fatalities and body pickup were judged right in the headset. **Ledge climbing
+(`Mantle`) was judged better WITHOUT the hand-back**: the controller hands should stay, so
+`Mantle` is removed from the default `HandBackMaster` list. Ladder climbing (`Climb`) keeps
+the hand-back by request, though it was not observed in this run. Not every action
+variant was tried.

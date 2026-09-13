@@ -10,7 +10,9 @@ Handoff handoff;
 Handoff classifier;
 bool watch = true, handback = true;
 unsigned releaseMs = 250, blendMs = 150;
-char masterRules[1024] = "StatePlayerMasterAssassinate,StatePlayerMasterChoke,StatePlayerMasterMantle,StatePlayerMasterClimb,StatePlayerMasterStunned,StatePlayerMasterDead,StatePlayerMasterPrePossess,StatePlayerMasterPossess,StatePlayerMasterMinigame";
+// Mantle is deliberately absent: a ledge climb keeps the controller hands (headset-judged
+// 2026-09-13). Climb (ladders) stays. [Anim] HandBackMaster puts Mantle back.
+char masterRules[1024] = "StatePlayerMasterAssassinate,StatePlayerMasterChoke,StatePlayerMasterClimb,StatePlayerMasterStunned,StatePlayerMasterDead,StatePlayerMasterPrePossess,StatePlayerMasterPossess,StatePlayerMasterMinigame";
 char upperRules[512] = "StatePlayerGenericFatality,StatePlayerGrabCorpse";
 uint32_t pawnFsm[3], currentOff, idOff, pendingOff, bodyOff, compOff;
 uint32_t historyOff, newestOff, seqOff, pickerOff, controllerPawnOff;
