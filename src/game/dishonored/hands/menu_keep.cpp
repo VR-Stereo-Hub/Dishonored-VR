@@ -170,6 +170,9 @@ static void MkResumeTick(const char* state, bool gameplay)
         g_mkRes.dbl = g_mkRes.snap = g_mkRes.corr = 0.0;
         g_mkRes.dblAt0 = g_sdDoublingNow != 0;
         g_mkRes.dblSawOff = false;
+        // VR-80: a note's close can resume stereo without the DOUBLE flag ever
+        // dropping, so the re-arm hook alone misses it; this edge does not.
+        if (g_mkRes.seenGameplay) dvr::zacct::trace_arm("back to GAMEPLAY");
     }
     g_mkRes.lastGameplay = gameplay;
     if (!g_mkRes.armed) return;

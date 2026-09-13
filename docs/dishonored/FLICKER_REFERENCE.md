@@ -1057,6 +1057,18 @@ the writer's eye disagreeing with the tag from the first resumed pair. If instea
 the ring holds a stale tag across the book, the writer's eye matches `c5` and only
 the ring is off by one. Nothing changes until one of those is seen.
 
+**Instrument built, not yet run.** `[Stereo] PairTrace` (`z_account` trace mode,
+independent of `ZAccount`) prints `vr80/trace:` lines, one per present, joining the
+ring's eye, the eye chosen, the camera write the tag carries (eye, `P2`,
+`SAME-WRITE`, age) and `c5` along right: 24 presents after every return to
+gameplay or re-arm, and 8 before / 8 after any pairing override, 40 dumps at most.
+Ruled out on reading the source first: the script writer's eye comes from
+`eye_for_next_frame()`, which is a constant -1 under reentry, so a flipped global
+cannot be the writer fault; a stale field (no writer call between a pass 2 and the
+next pass 1) still can, and reads as a ring -1 carrying a `P2 SAME-WRITE`. Host:
+8 new checks in `tools/zaccount-host.ps1` (50 total); dropping the SAME-WRITE mark
+fails two of them.
+
 **Status.** Measured, open, VR-80.
 Plan and checkpoint: [FLICKER_FRAME_DROP_AND_RESUME_PLAN](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
 

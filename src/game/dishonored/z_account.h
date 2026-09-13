@@ -133,6 +133,24 @@ uint32_t pin_for_tag(const float* tagPos);
 void on_present(int ringEye, int finalEye, bool tagged, uint32_t id, bool haveC5, const float c5[3],
                 uint32_t c5Serial, double nowMs);
 void tick(double nowMs);                 // progress lines, rate limited
+
+// ---- VR-80: the pair trace ---------------------------------------------------------
+// QUESTION: when the eyes come back swapped after a note closes, is the WRITER off
+// (pass 1 drew from a camera still holding the previous pass 2's eye) or the RING
+// (a tag out of step with draws whose cameras are right)?
+//
+// Bounded, event-local lines: one per present, joining the ring's eye, the eye the
+// pairing chose, the camera write the tag carries (its eye, second-pass flag,
+// sequence, age) and that present's c5 along the camera's right axis. Printed for
+// a window after trace_arm (a return to gameplay) and around a pairing override,
+// rate limited, with a dump budget. Independent of the accounting lever: with only
+// the trace on, writes are recorded and pinned but no episode is built.
+// [Stereo] PairTrace, default off.
+void set_trace(bool on, const char* source);
+bool trace_enabled();
+bool capturing();                              // enabled() || trace_enabled()
+void trace_arm(const char* why);               // any thread; `why` must be a static string
+void trace_basis(const float right[3], bool ok);  // present thread, before on_present
 void flush(const char* why);             // close the episode and print it (any thread)
 void log_status();
 

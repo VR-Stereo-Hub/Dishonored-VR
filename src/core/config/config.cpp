@@ -1575,6 +1575,11 @@ static void LoadConfig()
     {
         const int za = GetPrivateProfileIntA("PosTrack", "ZAccount", -1, ini);
         if (za >= 0) dvr::zacct::set_enabled(za != 0, "[PosTrack] ZAccount in the ini");
+        // VR-80: the pair trace - bounded per-present lines joining the ring's eye,
+        // the eye chosen, the camera write the tag carries and c5, after a return
+        // to gameplay and around a pairing override. Never saved.
+        const int pt = GetPrivateProfileIntA("Stereo", "PairTrace", -1, ini);
+        if (pt >= 0) dvr::zacct::set_trace(pt != 0, "[Stereo] PairTrace in the ini");
         // VR-91: which QUESTION the probe is answering. The pitch mode rejects
         // any sample rolled past 12 degrees, so it cannot see a roll fault at
         // all; roll mode bins by head roll and measures laterally instead. Same

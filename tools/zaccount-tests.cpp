@@ -212,6 +212,66 @@ int main() {
         check(count_of("missing") > 0, "E: a tag with no id is rejected as missing");
         check(count_of("override") > 0, "E: a pairing override is rejected as override");
     }
+    // T: VR-80 pair trace. Only the trace is on (the accounting stays off), and it
+    // must name a writer fault and a ring fault differently - and print neither
+    // mark on healthy stereo.
+    {
+        g_lines.clear();
+        set_enabled(false, "test");
+        set_trace(true, "test T");
+        const float right[3] = {1.0f, 0.0f, 0.0f};
+        trace_basis(right, true);
+        check(capturing(), "T: the trace alone captures writes");
+        auto write = [](int eye, bool p2, float x) {
+            Write w; w.eye = eye; w.secondPass = p2; w.wrote = true; w.c5Sign = -1.0f;
+            static uint32_t seq = 100; w.seq = ++seq; w.ms = 0.0;
+            w.written[0] = -x; w.written[1] = 0; w.written[2] = 0;   // c5 = sign * written
+            note_write(w);
+        };
+        double ms = 10.0;
+        auto present = [&](int ring, int fin, uint32_t id, float x) {
+            const float c5[3] = {x, 0, 0};
+            on_present(ring, fin, true, id, true, c5, (uint32_t)ms, ms);
+            ms += 5.5;
+        };
+        // healthy: pass 1 writes -1, pass 2 writes +1 (P2)
+        trace_arm("test healthy");
+        for (int k = 0; k < 4; ++k) {
+            write(-1, false, 10.0f); const uint32_t a = pin_for_tag(nullptr);
+            write(+1, true, 16.8f);  const uint32_t b = pin_for_tag(nullptr);
+            present(-1, -1, a, 10.0f); present(+1, +1, b, 16.8f);
+        }
+        std::string healthy = joined();
+        check(healthy.find("DUMP") != std::string::npos, "T: an arm opens a dump");
+        check(healthy.find(" SAME-WRITE age") == std::string::npos && healthy.find(" OVERRIDE |") == std::string::npos,
+              "T: healthy stereo prints no SAME-WRITE and no OVERRIDE");
+        check(healthy.find("ring -1 final -1 | write seq") != std::string::npos &&
+              healthy.find("ring -1 final -1 | write seq 101 eye +1 P2") == std::string::npos,
+              "T: a healthy pass 1 carries an eye -1 write without P2");
+        // writer off: no writer call between pass 2 and the next pass 1, so the
+        // -1 tag pins the previous P2 write again
+        g_lines.clear();
+        trace_arm("test writer off");
+        write(+1, true, 16.8f);
+        const uint32_t p1 = pin_for_tag(nullptr);   // pass 1 of the next tick, nothing rewrote the field
+        const uint32_t p2 = pin_for_tag(nullptr);
+        present(-1, -1, p1, 16.8f); present(+1, +1, p2, 16.8f);
+        std::string off = joined();
+        check(off.find("ring -1 final -1 | write seq") != std::string::npos && off.find("eye +1 P2 SAME-WRITE") != std::string::npos,
+              "T: a pass 1 drawn from pass 2's camera shows P2 on a ring -1 line");
+        check(off.find(" SAME-WRITE age") != std::string::npos, "T: and the repeated write is marked SAME-WRITE");
+        // ring off: clean writes, but the pairing overrides the ring
+        g_lines.clear();
+        for (int k = 0; k < 30; ++k) { const float c5[3] = {0, 0, 0}; on_present(0, 0, false, 0, true, c5, 1, ms); ms += 5.5; }
+        ms += 3000.0;
+        write(-1, false, 10.0f); const uint32_t r1 = pin_for_tag(nullptr);
+        present(-1, +1, r1, 10.0f);
+        std::string ring = joined();
+        check(ring.find("overrode the ring") != std::string::npos && ring.find(" OVERRIDE |") != std::string::npos,
+              "T: a pairing override opens a look-back dump and is marked");
+        set_trace(false, "test T");
+        check(!capturing(), "T: off again, nothing captures");
+    }
     // F: the tag carries a position that is not this write.
     {
         start();

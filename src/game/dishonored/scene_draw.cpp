@@ -309,6 +309,7 @@ static void SceneDrawDecisionLog(const SdDecision& d)
         g_suStereoSeen = true;
         if (singleTicks)
             Log("reentry: gates -> DOUBLE draw after %lu single tick(s) - both eyes tagged again", (unsigned long)singleTicks);
+        if (singleTicks >= 20) dvr::zacct::trace_arm("stereo re-armed after 20 or more single ticks");   // VR-80
         singleTicks = 0;
     } else {
         DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Info, 1000,
@@ -518,8 +519,12 @@ static uint32_t SceneDrawDraws() { return g_sdDraws; }
 static void SceneDrawPresentTag(int ringEye, int finalEye, bool tagged, uint32_t acct, bool haveC5,
                                 const float c5[3], uint32_t c5Serial)
 {
-    if (!dvr::zacct::enabled()) return;
+    if (!dvr::zacct::capturing()) return;
     const double now = dvr::zacct::now_ms();
+    if (dvr::zacct::trace_enabled()) {   // VR-80: the pair trace measures c5 along this right axis
+        float bf[3], br[3], bu[3];
+        dvr::zacct::trace_basis(br, dvr::camera::last_basis(bf, br, bu));
+    }
     dvr::zacct::on_present(ringEye, finalEye, tagged, acct, haveC5, c5, c5Serial, now);
     dvr::zacct::tick(now);
 }

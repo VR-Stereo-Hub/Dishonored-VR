@@ -514,7 +514,7 @@ bool apply_offsets(uint8_t* camObj) {
     // VR-78: the accounting record for this call (z_account.h). Built only while
     // the probe is armed; every return below hands it over with the reason, so a
     // tag pinned after a call that did not write can never borrow an older write.
-    const bool za = dvr::zacct::enabled();
+    const bool za = dvr::zacct::capturing();   // VR-80: the pair trace pins writes too
     dvr::zacct::Write zw;
     static uint32_t zSeq = 0;
     auto zcommit = [&](bool wrote, const char* skip) {
