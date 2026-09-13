@@ -2362,15 +2362,74 @@ static void MpEyeForPresent(const MpDrawCtx* c)
         // smaller right-axis projection is the right eye.
         g_mpEyeState = (d < 0.0f) ? +1 : -1;
         g_mpEyeToggles++;
+        g_mpEyePredictRun = 0;       // VR-94: a readable jump ends a prediction run
         why = 'T';
     } else if (ad <= 0.45f * ipdUU) {
-        // Same eye as the previous Present - or too small to tell apart.
+        // VR-94: "SAME" MEANS "TOO SMALL TO TELL APART", NOT "THE SAME EYE",
+        // AND HOLDING THE PREVIOUS EYE IS THEREFORE A GUESS - A BAD ONE.
+        //
+        // Measured on the headset, 9 marker episodes, 90 flagged presents: EVERY
+        // ONE was "eye R but tag L, decision S". Not one was the other way. The
+        // tag row alternates perfectly through all of them, so the stream really
+        // was alternating and this verdict held R onto a present that was L; those
+        // hands then took the right eye's half-IPD in the left eye's image. That
+        // is the left-eye-only arm flicker, and it is one-sided because the held
+        // value is always R.
+        //
+        // It is one-sided because the jump is not symmetric. Measured: entering a
+        // right present d is about -5.60, entering a left present about +5.09,
+        // against a 2.84 uu band. Head roll adds a drift to d - it moves the hand
+        // AND rotates the right axis d is projected on - so a roll of one sign
+        // shrinks the smaller (+5.09) crossing below the band well before the
+        // other, and only the left eye is ever robbed.
+        //
+        // So on an unreadable jump, PREDICT THE TOGGLE rather than hold. The
+        // stream alternates by construction; a jump too small to read is a
+        // failure of the measurement, not evidence of a repeat.
+        //
+        // The bound keeps genuine repeats safe. The observed fault is T,S,T,S -
+        // one unreadable present between two clean ones - so a prediction never
+        // follows a prediction there. A genuinely non-alternating stream (mono,
+        // single-draw ticks) gives S,S,S,S instead, and after two consecutive
+        // predictions this stops predicting and holds, exactly as before.
         g_mpEyeSame++;
         why = 'S';
+        if (g_mpEyePredict && g_mpEyeState != 0 && g_mpEyePredictRun < 2) {
+            g_mpEyeState = -g_mpEyeState;
+            ++g_mpEyePredictRun;
+            g_mpEyePredicted++;
+            why = 'P';
+        }
     } else {
         g_mpEyeState = 0;                        // head moved too far to judge
         g_mpEyeAmbiguous++;
+        g_mpEyePredictRun = 0;
         why = 'A';
+    }
+    // VR-94, READ-ONLY. Ask the stereo method what eye it resolved for the
+    // present these draws REACH, and compare.
+    //
+    // THE JOIN IS +1 AND THE FIRST VERSION OF THIS CHECK GOT IT WRONG.
+    // Joining at `pres` made the toggled row disagree 15311 times against 10
+    // agreements - a clean near-total inversion, which in an ALTERNATING stream
+    // is exactly what a one-present phase error looks like and is indistinguishable
+    // from a sign convention (TRAPS: negating an eye and improving agreement
+    // separates nothing). The correct join was already written fifteen lines away
+    // in MfDump, which says these draws reach Present + 1. A cross-check on an
+    // unproven join is not evidence, whatever it prints.
+    {
+        const int cls = why == 'T' ? 0 : why == 'S' ? 1 : 2;
+        if (cls == 1) { g_mpEyeSameAdSum += (double)ad; ++g_mpEyeSameAdN; }
+        dvr::desktop_eye::Record rec;
+        if (!dvr::desktop_eye::record_for(pres + 1, rec) || rec.draw == 0) {
+            ++g_mpEyeMethodNone[cls];
+        } else if (g_mpEyeState == 0) {
+            ++g_mpEyeMethodNone[cls];            // we have no opinion to compare
+        } else if ((rec.draw < 0) == (g_mpEyeState < 0)) {
+            ++g_mpEyeMethodAgree[cls];
+        } else {
+            ++g_mpEyeMethodDisagree[cls];
+        }
     }
     g_mpEyePrevFirst = c->projRight;
     MfOpen(pres, c, why, d, ipdUU);              // VR-76: after the decision the draws use
@@ -3257,6 +3316,27 @@ static void MpDriveTick(void)
         g_mpEyeState < 0 ? "LEFT" : g_mpEyeState > 0 ? "RIGHT" : "unknown",
         g_mpEyeSeen[0], g_mpEyeSeen[1], g_mpEyeUnclassified,
         g_mpEyeToggles, g_mpEyeSame, g_mpEyeAmbiguous,
+        (double)(g_ipdM * g_skcWorldScale));
+    // VR-94: the cross-check. A SAME verdict HOLDS the previous eye, and in an
+    // alternating stereo stream that is wrong whenever it was really a failure to
+    // tell the eyes apart rather than a genuine repeat. Disagreement on the SAME
+    // row is the evidence; zero across all three rows clears the classifier and
+    // sends the search elsewhere.
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "ms/palette/eyecheck: vs the STEREO METHOD's resolved eye for the same "
+        "present - toggled agree %ld disagree %ld unknown %ld | SAME agree %ld "
+        "DISAGREE %ld unknown %ld | ambiguous agree %ld disagree %ld unknown %ld "
+        "| mean jump on a SAME verdict %.2f uu against a %.2f uu band and a "
+        "%.2f uu IPD. A SAME verdict holds the previous eye, so a disagreement "
+        "there means those hands took the WRONG half-IPD for that present; head "
+        "ROLL is the suspected cause, because it moves the hand AND rotates the "
+        "right axis the jump is measured on. All-zero disagreement clears this "
+        "classifier. READ-ONLY: nothing here changes what is drawn.",
+        g_mpEyeMethodAgree[0], g_mpEyeMethodDisagree[0], g_mpEyeMethodNone[0],
+        g_mpEyeMethodAgree[1], g_mpEyeMethodDisagree[1], g_mpEyeMethodNone[1],
+        g_mpEyeMethodAgree[2], g_mpEyeMethodDisagree[2], g_mpEyeMethodNone[2],
+        g_mpEyeSameAdN ? g_mpEyeSameAdSum / (double)g_mpEyeSameAdN : 0.0,
+        (double)(0.45f * g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain)),
         (double)(g_ipdM * g_skcWorldScale));
 
     // THE FRAME BEAT. Three SEPARATELY NAMED orientations, because they are

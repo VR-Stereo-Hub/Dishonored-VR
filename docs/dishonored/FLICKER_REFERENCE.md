@@ -1,0 +1,909 @@
+# Flicker reference: symptoms, fixes, evidence, and investigation guide
+
+Compiled 2026-09-13 against committed source `6cb3f363b8dcea0799ce86e98f8753f73ebb7b18`.
+This is a new reference assembled from repository documentation, implementation,
+and locally available commit history, including parked branches. It does not
+change the renderer or replace the historical records.
+
+There is no single flicker bug. The project has used that word for stale eyes,
+mono interruptions, black frames, desktop eye switching, uncorrected weapon
+passes, missing weapon corrections, and camera-writer interference. Start by
+identifying the visible symptom and the image surface before choosing a fix.
+
+Evidence labels used here:
+
+- **Confirmed**: a documented perceptual result plus the associated implementation
+  or measurements. Confirmation applies to the recorded build/configuration/run.
+- **Measured**: a code path or log population was observed; this alone does not
+  prove a visible cause.
+- **Open**: no later resolution found in the reviewed record.
+- **Historical/parked**: an experiment or finding outside current mainline.
+- **Retracted**: a conclusion was explicitly corrected by later evidence.
+
+No new game launch, headset test, installation, or live configuration change was
+performed for this document. Existing run statistics below are attributed to the
+records that contain them, not presented as newly reproduced measurements.
+Concurrent working-tree camera/Z-account changes were present during the review;
+they are outside this committed baseline and are not assigned a flicker verdict.
+
+## Contents
+
+1. [Symptom routing and current status](#1-symptom-routing-and-current-status)
+2. [The frame path and its identities](#2-the-frame-path-and-its-identities)
+3. [Detailed issue history](#3-detailed-issue-history)
+4. [Failed approaches and corrected readings](#4-failed-approaches-and-corrected-readings)
+5. [Current controls and code map](#5-current-controls-and-code-map)
+6. [Investigation and regression workflow](#6-investigation-and-regression-workflow)
+7. [Commit and evidence index](#7-commit-and-evidence-index)
+8. [Keeping this reference useful](#8-keeping-this-reference-useful)
+
+## New reports and investigation: 2026-09-13
+
+Two additional reports are under investigation in
+[FLICKER_FRAME_DROP_AND_RESUME_PLAN.md](FLICKER_FRAME_DROP_AND_RESUME_PLAN.md).
+That document contains the recoverable plan, exact source paths, preserved log
+hash, measurements, implementation sequence, and restart checklist.
+
+| New report | Findings as of this investigation | Status / next step |
+|---|---|---|
+| One-frame world ghost/doubled edges during fast head turns, suspected frame drops | Existing run has real timing gaps at 90 Hz/lag 2; no symptom marker joins them. Printed pose audit covers right only. Fixed-lag attribution and hold/release identity need event-local checks. | Open; two-eye capture/pose/release history before a rendering fix |
+| About one second of weapon settling at startup and after mono menus, while swaps retain lock | `GameStateTick` destroys contracts/candidates on every exit from GAMEPLAY, including MENU. Real ordinary pause log confirms one contract and three candidates discarded. | Source/log-confirmed reset; visual duration not measured. Propose suspended same-world identity with fresh resume validation |
+
+The pause also queues a UI observer rediscovery before candidate/component
+publication: a 516 ms scan coincides with a 538 ms resume gap. Plan this as a
+separate lifecycle/cost correction. A temporary LOADING classification on menu
+close is not proof of a real level change, and the startup scoreboard's interval
+includes time the menu was deliberately open.
+
+Caching can retain learned same-owner weapon identity; it must not retain stale
+per-eye correction matrices, transforms, or object/resource pointers across real
+destruction. A permanent cache used once per process is not established as safe.
+The existing snapshot proves destruction/recollection, not successful post-menu
+weapon re-adoption: its final contract count is zero, with no new adoption shown.
+The user's reported eventual relock remains a separate perceptual observation.
+
+No code fix, install, launch, or new visual test was performed. See the linked
+plan for how to distinguish normal missed-frame delivery from incorrect image
+pose metadata without reopening the disproved historical theories.
+
+## 1. Symptom routing and current status
+
+| Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
+|---|---|---|
+| Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
+| Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
+| One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | Several distinct early mechanisms fixed; a new note-exit case remains open |
+| Both near hands/weapons flash or lose disparity for a frame | Untagged mono image enters a stereo stream | `HoldUntagged=3` confirmed mitigation; burst generation remains open |
+| Both eyes go black for one frame | Texture-less present ends an XR frame without a scene layer | Previous-layer fallback implemented and historically confirmed |
+| Pause causes XR session loss | Hold overwrites saved layer with empty local structures; `XR_ERROR_HANDLE_INVALID` | VR-54 snapshot-bank correction implemented |
+| Severe first-seconds flicker after loading, then stable | Startup eye starvation with asymmetric eye updates and slow ticks | Open historical startup issue (VR-16); brief settling accepted in later runs |
+| Dark animated weapon copy at native position | Another render pass of the same geometry was not corrected | VR-33 pass identity/suppression fixes confirmed |
+| Both weapons disappear together, hands still place | Shared correction/publication gate; overly tight snapshot age | 100 ms snapshot bound restored; rare single-frame refusal historically accepted |
+| Weapon detaches or flicker returns after swap/load | Candidate list, contract lifetime/capacity, equipment roots, or config gate | Recovery/retention fixes landed; distinguish from eye-state regression |
+| Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
+| Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
+| Rare sustained both-eye flicker immediately after closing a note | One-sided tag stream on resume | VR-80 open; no confirmed causal fix found |
+| Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
+| Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
+| Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
+| Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-94, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
+| Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-94 open; lever ships OFF, live A/B in F10 Hands |
+| Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
+
+VR-78 crouched-pitch motion was fixed later with a measured zero crouched neck
+pivot. VR-87 ceiling trimming and VR-91 roll-induced lateral motion are adjacent
+camera issues in the latest status, not established recurrences of the downward
+flicker. Do not collapse all crouch or head-motion complaints into VR-69.
+
+**Status precedence matters.** [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md)
+record the later VR-76 success. The candidate headings in
+[VR-76-CODEX-HANDOFF](VR-76-CODEX-HANDOFF.md), the tail of
+[DESKTOP_MIRROR](DESKTOP_MIRROR.md), and the original architecture decision still
+contain pending-test language. Those are historical stages, not the final verdict.
+Likewise, [KNOWN_ISSUES](../KNOWN_ISSUES.md) and
+[TROUBLESHOOTING](../TROUBLESHOOTING.md) include early settings/status that must
+not override today's implementation or a later controlled result.
+
+## 2. The frame path and its identities
+
+The active architecture is native D3D9 through a proxy, with captured D3D11
+textures submitted by the OpenXR layer. The removed DXVK/SBS implementation is
+historical; its imported driver commits are not evidence about this frame path.
+
+```text
+Game/script lane
+  viewport draw root -> decide this tick's gates once
+    pass 1: left camera, queue draw and tag
+    pass 2 if allowed: right camera, queue draw and tag
+    single gameplay draw: explicit untagged entry
+             |
+             v  engine queues render work
+Render/present lane
+  native draws / palette and weapon corrections -> current D3D9 backbuffer
+  reentry ring + c5 arbitration -> resolved current-draw eye
+      |                                      |
+      | capture slot + its eye/pose identity  | desktop current-eye publication
+      v                                      |
+  delivered D3D11 texture + delivered tag     |
+  XR eye textures / pair / swapchain release |
+  post-capture desktop hook <-----------------+
+      -> snapshot left or re-blit held left into game window
+  XR submission or previous-layer fallback
+```
+
+The diagram shows ownership, not a promise that every call reaches the same
+tail: no-frame, first-eye pairHold, and normal runtime paths have separate
+post-capture mirror hooks.
+
+### Identities that must stay separate
+
+| Identity | What it actually names | Common wrong substitution |
+|---|---|---|
+| Game tick / pass decision | Work being queued by the game lane | Latest global state used to identify an older render draw |
+| Current-draw eye | Pixels currently in the D3D9 backbuffer, classified by the method | Delivered capture tag |
+| Delivered tag / capture serial | Pixels returned by the capture slot | Current c5 or current backbuffer |
+| Hand/weapon correction | Correction for a particular present and eye | A new, unused pose publication treated as invalidating the correction |
+| Submitted pose generation | Pose associated with the image being submitted | Newest available head pose without checking image age |
+| Saved XR layer | Handles, views, poses, and layer description | Immutable saved pixels or a guaranteed completed pair |
+| Desktop held surface | Successful left snapshot belonging to this resource lifetime | Lifetime snapshot count used as proof a recreated surface is initialized |
+| Weapon geometry contract | Identified geometry/range/pass and component association | Proof every instance using those buffers is the held weapon |
+
+Capture timing is decisive: sync and shared with `SharedWait=1` deliver the
+current frame when successful; deferred and shared with `SharedWait=0` deliver
+previous-present pixels. Startup, reset, mode changes, or failures can deliver
+nothing. A mode name alone is insufficient to infer latency.
+
+c5 is downstream evidence about the rendered camera, not simply the last value
+the script writer requested. Conversely, a correct c5/eye label does not prove
+the final pixels or desktop selection are right. The current-draw classifier is
+still a classifier, not an independent pixel identity measurement.
+
+Sources: [capture.cpp](../../src/core/gfx/capture.cpp),
+[reentry.cpp](../../src/core/gfx/reentry.cpp),
+[scene_draw.cpp](../../src/game/dishonored/scene_draw.cpp),
+[runtime](../../src/core/vr/openxr_runtime.cpp),
+[mirror handoff](VR-76-CODEX-HANDOFF.md).
+
+## 3. Detailed issue history
+
+### 3.1 One-sided generation, stale delivery, and shared-slot races
+
+Several different defects preceded the later flicker investigations:
+
+- **Pass-2 gates changed after pass 1 had already tagged left.** Pass 1 and
+  pass 2 evaluated different gate sets/times. Resume catch-up and loading state
+  changes could produce left tags without a right sibling. `813807e3` moves
+  the decision to depth zero before pass 1; pass 2 consumes that decision,
+  retaining its exception/poison handling. Healthy game-side gate counters
+  cannot exclude a fault introduced later in capture or arbitration.
+- **No new capture, old tag pushed again.** Capture mode switches, Reset, and
+  capture-off could leave the old texture available. `8020855a` prevents
+  treating that old image as a newly delivered tagged frame. `tagNoFrame` names
+  this population. A non-null texture pointer is not proof of fresh delivery.
+- **A shared slot could be overwritten while D3D11 still read it.**
+  `230ac120` adds the consumer read-completion fence before the next D3D9 write
+  into that slot. `read_done()` and read-wait counters are the source route.
+  Producer completion alone did not protect the consumer's use of the pixels.
+- **The pace guard could consume an eye without a frame.** Earlier records name
+  the eaten-tag owner with `eatenNoFrame` / `eaten` on stale-eye diagnostics.
+  Include that owner when a tag exists upstream but no image arrives downstream.
+
+Sources: [KNOWN_ISSUES](../KNOWN_ISSUES.md),
+[RELEASE_NOTES](../RELEASE_NOTES.md), the commits above, and active capture/reentry.
+
+### 3.2 Ring-order skew and the fragile c5 arm
+
+Pairing solely by push/pop order broke when the game lane ran ahead, including
+single-to-double transitions, rearm, pause/load, and ordinary gameplay.
+`c8cfe107` compares the ring claim with the measured camera step. Between a
+tick's two draws there is no intervening world tick, so the second draw's c5
+step is one eye separation along right under this code's sign convention.
+
+The later defect was trusting both directions of that inference equally:
+
+- `inv=+1` is the within-tick pass-1 to pass-2 comparison.
+- `inv=-1` reasons across a world tick and can be fooled by gentle player motion.
+
+A mistaken left classification could overwrite left twice and leave right old
+even though both game-side passes ran. `1507bafc` makes the fragile arm defer to
+the ring on a single disagreement; three consecutive disagreements can still
+realign. Historical measurements fell from 36 stale-eye lines in 171 seconds
+to one in 238 seconds, with swapchain-target repeats falling from 80 to two.
+See the September 3 three-fix chain in [STATUS](../STATUS.md).
+
+**Important source correction:** the `1507bafc` commit body says neither arm
+invents a tag over an empty/zero entry. The reviewed active code allows the
+robust `+1` arm to do so and refuses invention by the fragile arm. Use the actual
+`g_c5Pair` branch in [reentry.cpp](../../src/core/gfx/reentry.cpp) for current
+behavior, not that sentence in the old message.
+
+The earlier C5Pair A/B was headset-confirmed: pause/resume with it off produced
+24 of 25 swapped pairs in the cited run; re-enabling it removed the observed
+swap. That does not make c5 arbitration a universal explanation for later flicker.
+
+### 3.3 Untagged mono flashes and the black-frame chain
+
+An untagged image uses the mono route. One such image inside a stereo stream
+changes disparity most visibly on nearby hands/weapons, even when distant world
+geometry barely moves. After the stale-right fix, the recorded run still had
+`mono/s=1..4`; 26 of 29 single-draw spells came from the present-stall guard.
+
+`HoldUntagged=N` holds up to N consecutive untagged deliveries after recent
+tagged output. The next untagged delivery reaches mono, allowing real menus,
+loads, and cinematics through. At N=3 the recorded mono rate became zero.
+This suppresses an output artifact; it does not make the missing second draws
+happen or eliminate held-frame latency.
+
+That fix exposed another bug: returning no texture still reached `xrEndFrame`.
+With no layer assembled, both eyes went black. The claim in `12c23588` that
+submitting nothing automatically holds the compositor's previous pair was wrong
+for this runtime. `8441404f` explicitly resubmits the previous layer. The cited
+126-second run had `held=25 black=0`, no stale-eye lines, and no target repeats.
+`973d699a` then made the headset-judged N=3 the default.
+
+The fallback cannot supply a scene layer before a valid snapshot exists. Read
+`zeroLayerHeld` and `zeroLayerBlack` with startup and `shouldRender` context;
+do not demand zero for every counter from process creation onward.
+
+### 3.4 Hold banking and pause-menu session loss (VR-54)
+
+On a hold-only present, the submitted structures are `holdProj`, `holdViews`, or
+`holdQuad`. The new-layer locals remain empty. Banking based on `layerCount`
+overwrote a good snapshot with those empty locals because a hold also sets the
+count to one. The next hold could submit null handles/zero views, receive
+`XR_ERROR_HANDLE_INVALID`, and tear the session down.
+
+`92b04896` banks only when `builtNewLayer` was true before the fallback.
+This is a separate defect from the zero-layer black frame, despite sharing the
+hold path. The documented pause logs establish the failure sequence.
+
+A valid saved structure still does **not** preserve old pixels: the runtime
+uses the latest released swapchain image. A proposed partial-pair/old-pose hold
+mechanism must therefore join release identity, pair identity, and poses. That
+architectural limitation is real; it is not proof the mechanism caused a given
+flicker. The parked tests that failed to reproduce it are in section 4.
+
+Source: [DESKTOP_MIRROR](DESKTOP_MIRROR.md), sections 3-4, and the runtime's
+`builtNewLayer` / `g_feedSnap` code.
+
+### 3.5 Startup eye starvation (VR-16)
+
+The September 4 session-15c run at 2750x2850, 90 Hz, Quest 3/VDXR measured:
+
+| Phase | Eye/tick evidence |
+|---|---|
+| Menu/loading | L/R zero on the mono route by design |
+| Starved gameplay | L about 12-19/s, R about 52-73/s; ticks 51-72/s |
+| Tick budget | 17.5 ms against an 11.11 ms display slot |
+| Game-side second draw | `2nd/s == draws/s`; missing pass 2 was not the measured cause |
+| Tag asymmetry | 1,016 same-eye pushes, reported as repeated right |
+| Recovery | About 44.5 seconds from proxy load onward: L=R=90/s, no untagged output |
+
+The perceptual disturbance lasted roughly 25-30 seconds in that long example;
+it usually settled sooner. Streaming was the documented load-related explanation
+for the slow period. The exact reason the left eye specifically starved remained
+unresolved; previous-slot delivery was a hypothesis, not a measured root cause.
+
+`vrpace strict on` was proposed to show the fresh eye to both eyes instead of a
+stale stereo pair. It remained an unjudged workaround in the reviewed record.
+`capture sharedwait on` was proposed to test the delivery hypothesis. Neither
+should be described as a confirmed fix or silently enabled for a new comparison.
+Later acceptance of brief startup settling is not closure of this older issue.
+
+Source: [ENGINE_NOTES](ENGINE_NOTES.md), "The startup eye-starvation flicker,
+measured at last", and [ROADMAP](../ROADMAP.md).
+
+### 3.6 Desktop alternation and the later one-frame leak (VR-53, VR-76)
+
+**First defect:** each sequential eye called the game's original Present. The
+runtime's desktop mirror function did not perform the required D3D9 copy, so
+the window showed L, R, L, R while the headset could receive healthy pairs.
+The original pin snapshots one eye and re-blits it after the other eye's capture.
+Diagnosing a recording of that window as proof of broken headset pairing was wrong.
+
+**Second defect:** the pin used the delivered texture tag to select the current
+D3D9 backbuffer. In a one-present-delayed stream, it held the opposite eye.
+Single-draw bursts then exposed raw frames of the other eye. This matched the
+VR-76 single-frame rightward hand/weapon shift, clearest on the desktop.
+
+The initial V-marker run had 37 post-symptom markers, each within 600 ms of a
+single-tick transition; delays were 15/328/578 ms minimum/median/maximum.
+The baseline prevalence was 458/1,095 sampled windows, about 42%. Histories
+showed no logged placement outliers/refusals/ambiguities in the relevant samples.
+Those histories overlapped, so approximately 15,800 rows are not necessarily
+15,800 distinct presents, and `0.42^37` is not a valid independent-trial p-value.
+
+`15be6fdd` adds `DesktopEyeSource=draw|tag` and current-draw publication:
+
+- Snapshot a resolved current left draw after capture.
+- Re-blit a valid left snapshot on right and up to three consecutive unknowns.
+- The fourth unknown invalidates the pin and releases menus/loads.
+- Reset, resize, device/source changes, disable, and failed snapshots invalidate
+  held-pixel ownership. A successful new left snapshot is required before reuse.
+- Right-first warmup may pass through and is counted. Failed copies are failures,
+  not proof that the intended eye was displayed.
+- All three runtime post-capture paths reach the hook, including zero tags and
+  the early pairHold return. The runtime mirror gate is separate from host copying.
+
+The later prologue-to-hub run reported no remaining jump: 106 diagnostic windows,
+1,400 single-draw ticks, 1,397 counterfactual old-policy raw leaks, one warmup
+right frame, and zero copy failures. `7324e6ac` made draw the default;
+`c3d6972b` merged VR-76 (#36).
+
+This is the confirmed visual result for that build/run. The patch changes desktop
+selection, not XR eye assembly. Do not use the reported success to claim every
+possible headset-only symptom has a desktop cause. VR-77 burst generation and
+VR-80 note-exit flicker explicitly remain separate.
+
+Sources: [proposal](VR-76-MIRROR-FLICKER-REVIEW.md),
+[review and implementation handoff](VR-76-CODEX-HANDOFF.md),
+[DESKTOP_MIRROR](DESKTOP_MIRROR.md), later [STATUS](../STATUS.md).
+
+### 3.7 Weapon copies, shared-gate blinking, and contract lifetime
+
+These can look like eye flicker but originate in mesh/pass handling.
+
+**Uncorrected passes:** the same VB/IB/range can be drawn with different vertex
+shaders. The dark animated native-position copy was another pass of the same
+mesh. Omitting the vertex shader from contract identity made that pass appear
+to be the already-known draw, then fail its transform match. `df26a49b` records
+the identifying census; `f643f9da` records the shipped combined correction.
+
+**Suppression versus rescue:** blindly suppressing lighting contributions caused
+translucent weapons, black bolts, or disappearance in shadow. Adding a stand-in
+draw could create another copy when the real pass appeared later. The retained
+policy corrects recognized passes and suppresses recognized unplaceable weapon
+draws; it does not invent a replacement draw. A residual blink can therefore be
+a refused correction, not a stale stereo eye. Failed rescue paths remain in
+`src/legacy/vr33/`.
+
+**Shared publication gate:** both weapons blinked together although their
+contracts and buffers differed. The common component snapshot had been tightened
+from 100 ms to 20 ms for a sway theory later falsified. Restoring 100 ms removed
+most blinking. An unnecessary comparison against a newly read pose generation
+also discarded a still-current hand correction; present and eye are the relevant
+view identities. The September 8 result confirmed controller following, no native
+copies/translucency, and only rare single-frame blinking.
+
+**Capacity:** a table of 12 contracts exactly matched three meshes times four
+shaders. One extra pass could evict a live contract and bring its copy back.
+`1a7e2382` raises capacity to 64 and reports eviction age/occupancy.
+
+**Loads and swaps:** an empty list had no effective rebuild owner; a partial
+non-empty list without a body anchor could block further collection. Swapping
+equipment could leave a stale list and miss a crossbow's child bolt. Recovery
+requires anchor-aware retries, equipment object identity, a bounded settle
+window, and equipped items as collection roots. A live stowed contract must not
+be retired just because it is absent from the currently held candidate list.
+`fc343404` carries that retention in #27, beyond the recovery changes in #26.
+
+**Instance identity:** a contract identifying bolt geometry must not move a fired
+world bolt as though it were held. Live membership, reference freshness, and
+strong STOWED/ELSEWHERE verdicts distinguish instances. Weak NO_REF cannot be
+treated like a strong ownership veto without breaking re-equip recovery.
+
+**Configuration regression:** VR-84 later found Save As Defaults writing
+`AttachRigRadius=2` instead of 200. The loader clamped it to 10, still excluding
+a crossbow measured around 157 units from the anchor. Hand placement counters
+remained healthy while weapons stopped following. Check requested, saved, and
+effective values before reopening geometry or flicker theories.
+
+Sources: [VR-33-HANDS-AND-WEAPONS](VR-33-HANDS-AND-WEAPONS.md), especially
+sections 3-5 and 8; [ENGINE_NOTES](ENGINE_NOTES.md) load/swap findings;
+[LOCKON_REVIEW](LOCKON_REVIEW.md); [TRAPS](../TRAPS.md).
+
+### 3.8 Queued stereo draws lost their weapon eye state (VR-69)
+
+Earlier experiments tried alternating unreadable palette steps and then added a
+mono guard. Alternation in genuine mono produced full-IPD oscillation. The guard
+stopped that symptom but used the game lane's current `g_sdDoublingNow` to reset
+render-side history. An older queued stereo draw could therefore lose its eye
+correction when a newer script tick went single. Atomic access did not fix the
+missing association between the flag and that draw.
+
+The controlled #26-plus-pose candidate `08cbb368` retained stable head turns but
+showed outward weapon displacement in both eyes. Its log recorded 8,538 unknown
+eye evaluations out of 143,598 while three weapon contracts remained active.
+Unknown eye omits the half-IPD correction, fitting the outward direction; the
+aggregate alone was not an event-by-event causal proof.
+
+`b3a1ff46` restores `MpEyeForPresent` and `MpWorldTarget` to their `b38519c3`
+function bodies while retaining the working pose-history consumer and recovery
+work. Production-function tests failed five assertions before and passed nine
+after. The headset confirmed stable lock through swaps, leaving only the
+downward-motion case. Mainline port: `6ecda3a7`.
+
+`PaletteEyeAlternate=0` did not disable the bad mono guard, so the earlier toggle
+was not an exclusion of the full regression. Those experimental eye functions
+are now legacy code. The current decision holds the prior answer for a small
+step, classifies a readable signed step, and reports unknown for an overly large
+step. Do not reintroduce forced alternation based on the older success narrative.
+
+Sources: [LOCKON_REVIEW](LOCKON_REVIEW.md),
+[SESSION_HANDOFF_2026-09-10](SESSION_HANDOFF_2026-09-10.md),
+[mesh_split.cpp](../../src/game/dishonored/hands/mesh_split.cpp).
+
+### 3.9 Downward-motion camera ownership failure (VR-69)
+
+After the eye restoration, crouching, descending slopes, and falling still
+flickered. Moving tracked head/controllers vertically did not reproduce it;
+uphill movement and jumping were reported stable.
+
+`FovLeverApply` clamps camera Z before `camera::apply_offsets`. The offset
+writer recognizes its last write by comparing the entire vector. A Z-only mod
+clamp broke that match while X/Y still contained the previous eye offset. The
+next write could treat those already-offset coordinates as a new engine base.
+For base X=10 and eye offsets -3.155 then +3.155, the faulty sequence gives
+X=10 rather than the expected 13.155 after the right write.
+
+`417bfad9` reconciles only a same-object, same-field, exact previous-write match:
+the remembered offset and written Z absorb the clamp, preserving the original
+base. Fresh engine vectors, another camera/field, and inactive/test ownership
+retain their normal treatment. This is not a per-axis guess or a change to the
+ceiling height/easing. Mainline port: `5581ed46`.
+
+Nineteen production-function checks passed; the legacy raw clamp failed six.
+The successful headset log contained all eight bounded `camera/clamp-rebase`
+entries, proving the protected sequence ran. The report then confirmed removal
+of the downward flicker. Ten unknown eye evaluations and one ambiguity remained:
+the acceptance criterion was stable visuals, not every diagnostic becoming zero.
+
+The confirmed diagnostic DLL was `vr33-hands-working-60-g417bfad9`.
+Its source and configuration differ from later integration binaries; the handoff
+explicitly preserves that distinction. Brief startup settling was accepted.
+
+Sources: [DOWNWARD_CLAMP_REVIEW](DOWNWARD_CLAMP_REVIEW.md),
+[session handoff](SESSION_HANDOFF_2026-09-10.md),
+[camera.cpp](../../src/game/dishonored/camera.cpp),
+[fov_lever.cpp](../../src/game/dishonored/fov_lever.cpp).
+
+### 3.10 Open transition issues and related motion artifacts
+
+**VR-77:** actual single gameplay ticks remain, including bursts related to the
+present-progress guard. Count the gate transition and its population before
+proposing timing changes. VR-76's 1,400 single ticks during otherwise successful
+play prove the mirror fix did not eliminate the trigger. Removing a liveness
+guard without testing menus/loads is not a demonstrated remedy.
+
+**VR-80:** a rare sustained both-eye flicker after closing a note was reported in
+the successful VR-76 session, with a one-sided tag stream in its log. That is an
+observed signature, not a proven identification of the earlier gate bug. Preserve
+the opening/closing transition and determine where eye identity first diverges.
+
+**VR-79:** an object hidden from one eye vanishes from both. This is a separate
+visibility/culling investigation. Correct pair ages cannot prove correct culling.
+
+**Cadence and pose lag:** early 120 Hz tests showed uneven display-slot cadence
+and doubled edges; the same tested setup at 90 Hz was reported clean. Later
+world and weapon head-turn judder required image-matched head history, with
+`Pace Lag=2` and `Hands PoseLag=2`. A change to a compiled default did nothing
+when the installed ini still explicitly selected lag 1. Automatic lag A/B left
+enabled could recreate judder periodically. These are separate from static,
+single-frame eye jumps; neither the 90 Hz result nor lag 2 proves all hardware
+and runtime combinations are universally solved.
+
+Long `xrEndFrame` stalls locate the delay at that API boundary. They do not by
+themselves identify Wi-Fi, encoder, runtime, or another downstream component.
+Likewise, a camera/neck error that varies smoothly with pitch is not automatically
+a flicker. Sources: [STATUS](../STATUS.md), [TRAPS](../TRAPS.md),
+[ENGINE_NOTES](ENGINE_NOTES.md), [VERIFICATION](../VERIFICATION.md).
+
+## 4. Failed approaches and corrected readings
+
+### 4.1 Desktop investigation graveyard
+
+[BRIEF-eye-flicker](BRIEF-eye-flicker.md) is an answered investigation, not a
+current fix plan. Its table actually lists five hypotheses despite some summaries
+calling it four:
+
+| Earlier explanation | Evidence/correction |
+|---|---|
+| Desktop monitor cadence caused the recorded alternation | The recorded comparisons did not change it; distinct from the separate headset cadence finding |
+| A headset mirror combined both eyes | The artifact was visible in the game's own window |
+| Pass 2 produced no Present | Measured presents tracked first plus second draws |
+| Second-pass latch stayed set | Balanced latch scope and zero +1 activity in no-second-draw windows |
+| Runtime never paired | Populated healthy pair/submission counts and expected ages |
+| Only about 30% of gameplay ticks doubled | Retracted: the sampled window crossed pause, XR failure, and teardown; healthy surrounding windows doubled essentially every tick |
+| Stand stereo down based on that low ratio | Removed; built on the retracted population |
+| c5 eye-trace span measured presents | Corrected: that ring samples constant uploads; normal stereo spans an IPD |
+
+The old centered-single proposal is historical, not a shipped universal remedy.
+Real single-draw bursts measured later do not validate the earlier teardown-based
+claim that most normal gameplay failed to double.
+
+### 4.2 Parked September 9 universal-flicker investigation
+
+Relevant material exists only in other reachable history, including `bbb0456a`,
+`dac9b7be` (`FLICKER_PLAN.md`), `fad8aff8` (`HELD_LAYER_PLAN.md`), and correction
+`e5d7f5ee`. `bbb0456a` and `035b2ca4` are not ancestors of the reviewed HEAD.
+Do not confuse a commit titled `fix:` on that branch with a shipped solution.
+
+That investigation described a fixed-direction leftward whole-left-eye jump,
+including world geometry, while standing still. It is not automatically the same
+symptom as the later outward weapon regression or VR-76 rightward desktop jump.
+The branch reported no final fix. Its eliminations are useful within those runs:
+
+| Attempt / claim | Recorded outcome and limit |
+|---|---|
+| Read the eye from the game-thread drawing-pass stack | Zero executions in 83,400 corrected draws; palette work ran on the render lane |
+| Bare global pass audit showed 39% disagreement | Retracted; did not identify the queued view |
+| Turn eye offset off | Flicker changed, but stereo depth/weapon appearance broke; not an acceptable fix |
+| Use method eye publication | Large symptom improved on the experimental branch; residual remained; temporal identity still needed proof |
+| Same-eye hold | Zero holds fired while the symptom continued |
+| Recover an absolute origin solely from draw matrices | Input space was camera-relative; fixed-origin premise failed |
+| Reject tags by absolute writer-position versus c5 distance | Walking moves the engine camera; the experiment dropped roughly a third of left tags |
+| Held-layer partial pair | Holds ran while abort counters stayed zero; the proposed sequence was not established |
+| Frameless present closes an open pair (`HoldKeepsPair`) | `onOpenPair=0` while frameless populations were nonzero; did not explain that run |
+| Submitted pair pose separation displaced one eye | About 5,700 pairs: separation min/max/mean 0.0631 m, zero side flips/generation splits |
+| c5 arbitration relabeled those gameplay eyes | Roughly 11,000 verdicts had zero disagreement; exception was a loading transition |
+| Pass 1 inherited the preceding right camera | `MOVED=0`, worst move zero over the reported population |
+
+`HoldKeepsPair` from `035b2ca4` is not an active configuration control in the
+reviewed tree. The general saved-layer/pixel distinction survives; the tested
+causal theory did not. A future run with an actual mid-pair release sequence
+would be new evidence, not permission to relabel those historical runs.
+
+The archived work also measured BeginScene once per present across two logs,
+identifying a useful render-view boundary beneath the game-lane viewport draw.
+That is a measured population for those runs, not a universal UE3 scheduling
+contract. Any queued per-view identity design must validate the boundary again.
+
+### 4.3 Instrumentation traps that recur
+
+- Negating an eye and improving agreement cannot separate an inverted convention
+  from a one-publication delay in an alternating stream.
+- A regular producer sequence does not establish which publication the consumer
+  actually used. Transport identity with the work or measure a valid join.
+- Comparing two hands sharing one `MpDrawCtx` compares a context to itself,
+  not two eyes. The historical 105,816 identical comparisons answered no stereo
+  question. Consecutive draw IDs alone do not prove opposite-eye views either.
+- The matrix phase-B claim that no VP-only differences meant no eye in VP was
+  retracted: VP also changed in the BOTH category, with camera-relative input
+  space making that expected. The XOR geometry ID could also collide.
+- A pose audit after pairHold can sample only right-eye completion. Print
+  per-eye populations before claiming both submitted eyes are clean.
+- `L/s=R/s=0` on the mono screen is intentional. A skip total printed beside
+  a three-second rate can still be lifetime cumulative. Read reset sites.
+- `pushed eye TWICE` does not independently prove a stale submitted image;
+  historical abort/stale counts did not support its strongest wording.
+- Current `reentry: pair geom` gates on delivered tags but reads current c5.
+  Under delayed capture its SWAPPED wording is not independent proof about the
+  delivered/submitted pixels. The VR-76 handoff explicitly leaves this limitation.
+- Equal mirror snapshot/blit counts do not identify the held eye. Shadow-policy
+  counts assume successful copies; actual shown-eye values use copy provenance,
+  not readback verification of the final display.
+- Readable palette steps are not independently verified eye identities. Zero
+  unknowns can coexist with wrong confident classifications.
+- A draw census filtered by palette upload, primitive count, a budget exhausted
+  before viewmodels, an overly narrow angle band, or incomplete contract identity
+  can exclude the very pass being sought. Record skipped populations.
+- An accepted startup settle, a stale snapshot, a menu transition, and a steady
+  gameplay jump require different time windows. Do not average them together.
+
+Sources: [TRAPS](../TRAPS.md), [VR-33 record](VR-33-HANDS-AND-WEAPONS.md),
+[VR-76 handoff](VR-76-CODEX-HANDOFF.md), and archived corrections above.
+
+## 5. Current controls and code map
+
+These values describe the reviewed tree and recorded stable profile, not an
+instruction to overwrite a user's ini. An explicit installed value wins over a
+compiled fallback. Check loader, generated default, persistence, and consumer.
+
+| Control | Reviewed value / purpose | Investigation caveat |
+|---|---|---|
+| `[Stereo] Method=reentry`, `Armed=1` | Sequential native scene redraw | Mono/arm-off removes stereo; not a neutral comparison |
+| `[Stereo] C5Pair=1` | Ring versus c5 arbitration | `reentry c5pair on\|off`; an A/B can deliberately restore bad pairing |
+| `[Stereo] HoldUntagged=3` | Bounded suppression of brief mono delivery | `stereo hold <n>`; 0 restores mono interruptions |
+| `[VR] DesktopEyeSource=draw` | Current-backbuffer pin | `desktopeye draw\|tag\|status`; source switches invalidate held pixels |
+| `desktopeye on\|off` | Host desktop copy gate | Separate from `vrmirror on\|off` runtime hook gate |
+| `[VR] DesktopEye` | Old documented name | Not a parsed working ini switch |
+| `[Capture] SharedWait=0` | Previous-present shared delivery | `capture sharedwait on` changes timing/cost as well as delivery identity |
+| `[Pace] Strict=0` | Strict stale-eye fallback off | `vrpace strict on` is unconfirmed for startup flicker |
+| `[Pace] Lag=2`, `[Hands] PoseLag=2` | Recorded stable world/weapon head history | Preserve for controlled stability comparisons |
+| `[Stereo] LagAB=0`, `[Hands] PoseLagAb=0` | Automatic lag experiments off | A running sweep can look like a periodic regression |
+| `[Hands] PaletteEyeOffset=1` | Half-IPD placement correction | Disabling changes depth; not a clean universal cure |
+| `PaletteEyeAlternate`, `PaletteEyeFromPass` | Historical experimental settings | Do not assume parsed names select the restored production path |
+| `[Hands] AttachSnapshotMaxMs=100` | Component publication freshness | 20 ms caused simultaneous weapon blinking |
+| `[Hands] AttachRigRadius=200` | Membership geometry gate | Diff saved ini; VR-84 wrote the wrong literal |
+| `AttachDropUncorrected`, `AttachSuppressUnplaced` | Recognized unplaceable weapon-pass suppression | Diagnose missing correction before loosening gates |
+
+The September 10 stable profile is preserved in
+[known-good-2026-09-10-stability.ini](../../tests/golden/known-good-2026-09-10-stability.ini).
+It is a historical comparison asset, not a current universal preset: later
+aiming/model defaults changed. Config source is
+[config.cpp](../../src/core/config/config.cpp), with generated text checked
+against [dishonored_vr.ini](../../tests/golden/dishonored_vr.ini).
+
+| Question | Source locations / symbols |
+|---|---|
+| Why was a tick single? | [scene_draw.cpp](../../src/game/dishonored/scene_draw.cpp): `SceneDrawDecide`, `SceneDrawMaybeSecond`, `SceneDrawBeat` |
+| What eye did the method classify and deliver? | [reentry.cpp](../../src/core/gfx/reentry.cpp): ring/c5 arbitration, `note_drawn_eye`, `set_pending_tag`, delivered-tag/hold branch |
+| Which pixels did capture return? | [capture.cpp](../../src/core/gfx/capture.cpp): shared slot choice, delivered serial/tag, `read_done` |
+| Did the desktop choose/copy the intended view? | [desktop_eye.cpp](../../src/core/gfx/desktop_eye.cpp), [policy](../../src/core/gfx/desktop_eye_policy.h), [frame_hooks.cpp](../../src/core/framework/frame_hooks.cpp) |
+| Which XR pair/layer was submitted? | [openxr_runtime.cpp](../../src/core/vr/openxr_runtime.cpp): pairHold, mirror hook sites, zero-layer fallback, snapshot bank |
+| What camera write/clamp was owned? | [camera.cpp](../../src/game/dishonored/camera.cpp): `clamp_written_z`, `clamp_location_z`, `apply_offsets`; [fov_lever.cpp](../../src/game/dishonored/fov_lever.cpp) |
+| What eye/target did the hand draw use? | [mesh_split.cpp](../../src/game/dishonored/hands/mesh_split.cpp): `MpEyeForPresent`, `MpWorldTarget`, `MfMarker` |
+| Why did the weapon pass miss or vanish? | [weapon_attach.cpp](../../src/game/dishonored/hands/weapon_attach.cpp), [weapon_frame.h](../../src/game/dishonored/hands/weapon_frame.h), [hands state](../../src/mod/state/57b_game_dishonored_hands_weapon_attach.inc) |
+| Where are markers sampled? | [hotkeys.cpp](../../src/core/input/hotkeys.cpp), [present_tick.cpp](../../src/game/dishonored/present_tick.cpp) |
+| What experiments are retired? | `src/legacy/vr69/` palette eye experiment; `src/legacy/vr33/` primitive sibling/rescue work; parked Git history |
+
+## 6. Investigation and regression workflow
+
+### 6.1 Preserve the reproduction before changing anything
+
+1. Identify the surface: game window, recorded desktop, left headset eye, right
+   headset eye, or both. Judge mirror and headset separately.
+2. Identify what moves: world, hands, all weapons, one weapon, its loaded bolt,
+   a shadow/lighting pass, or just the controller guide. Record direction,
+   duration, frequency, and whether the object disappears versus shifts.
+3. Record the trigger: cold load, reload, pause, note close, equip/sheathe,
+   crouch/downhill/fall, head turn, controller movement, or standing still.
+4. Preserve build ID, exact source/dirty patch identity if known, DLL hash,
+   installed ini, resolved config lines, runtime/backend, refresh, render size,
+   capture mode/SharedWait, and relevant A/B state. Do not infer machine identity
+   from a drive letter or assume a dirty build hash identifies its whole source.
+5. Copy the current and previous logs before a relaunch; rotation is one deep.
+   Keep captures/logs/DLLs outside committed source. Use the existing data path.
+
+### 6.2 Mark the event and join the right evidence
+
+`V` with the game window foreground writes `MARKER #N (V)` and the preceding
+2.5 seconds of hand/weapon history. It is a post-event marker, so reaction time
+matters. A baseline marker and a clear note about the visible surface help.
+For a sustained spell, the current F2 handler alternates begin/end fault markers;
+check the build's hotkey modifiers before using it. The `mark <text>` seam and
+F10 MARK also exist for timestamped faults.
+
+| Evidence | Read it for | Do not infer |
+|---|---|---|
+| `reentry: gates -> SINGLE/DOUBLE` | Actual gate reason and transition | A lifetime skip total alone dates an event |
+| `reentry: beat` | Draw/second-draw/present rates and p2-write refusal population | A window crossing teardown is representative gameplay |
+| `stereo: eyes`, `STALE ... EYE` | Pair ages, aborts, stale submissions, named owners | Every repeated upstream tag became a stale displayed image |
+| `stereo: frameid` | Image comparison at backbuffer, slot, output, swapchain stages | Sparse sampling rules out an unsampled one-frame event |
+| `capture` delivery/read-wait lines | Freshness, serial/tag, slot latency and synchronization | A texture pointer identifies a new image |
+| `xr: present handed in NO frame` | Held/black population and fallback coverage | A saved layer is a saved completed image pair |
+| `desktopeye:` | Current/delivered identity, raw-leak shadow, successful copies, warmup/failures | All inferred shown-eye values are measured final pixels |
+| Marker `T/S/A/F`, `d`, `pr`, `tR`, generation/refusals/misses | Placement decision and target continuity | An unknown-free heuristic is independently correct |
+| Marker `desk=source:draw/tag/action/shown` | Mirror copy provenance joined to the draw's Present | A missing newest callback necessarily failed; it may not have presented yet |
+| `camera/clamp-rebase` | Protected ownership sequence executed | It proves every perceived event had that mechanism |
+| `wa/key`, instance/contract/snapshot counters | Weapon identity, lifetime, freshness, and refusal route | Healthy hand placement proves weapon attachment |
+| `stereo: rate`, perf gap phase, pose-generation audits | Cadence, stall location, image/pose consistency | A mean rate proves even cadence or identifies the stalled downstream component |
+
+The original V history searches tag alignment offsets +1/+2/+3; the VR-76 run
+selected +3. This includes callback timing and delayed capture, not a universal
+three-frame latency. The desktop record uses its own direct Present join.
+
+Example existing read-only log search, with the path replaced by the preserved run:
+
+```powershell
+rg -n 'MARKER|marker #|reentry: gates|reentry: beat|stereo: eyes|STALE|frameid|desktopeye:|NO frame|clamp-rebase|wa/key|UNEVEN' 'path/to/preserved/dishonored_vr.log'
+```
+
+### 6.3 Change one cause and require an exercised negative control
+
+Prefer the smallest comparison between a confirmed baseline and the suspected
+regression. A commit containing pose, contract, and eye changes is not one
+behavioral variable; inspect file/function provenance. The VR-69 normalized
+build comparisons were not an untouched historical binary bisect.
+
+Use a matching host test when the suspected defect is deterministic. Require the
+old behavior to fail for the intended reason. Then obtain a separately recorded
+visual result where necessary; do not replace perception with passing arithmetic.
+
+| Existing verification route | Historical result / proper scope |
+|---|---|
+| [desktop-eye-host.ps1](../../tools/desktop-eye-host.ps1) | 79,339 policy assertions and 72 actual-copy-module assertions in VR-76; old delayed policy deliberately fails pinning |
+| [palette-eye-host.ps1](../../tools/palette-eye-host.ps1) | Nine production eye checks after restoration; five failed before |
+| [camera-clamp-host.ps1](../../tools/camera-clamp-host.ps1) | Nineteen checks; `-LegacyClamp` fails six descent/release assertions |
+| Existing frame/weapon tests | Frame transforms, identity, and correction invariants; 88 cases in the VR-69 record |
+| Simulator eye/pause scenarios and arming hammer | Pair ages, transition/numerical behavior; see [VERIFICATION](../VERIFICATION.md) for commands and exit codes |
+| Standalone XR simulator self-test | Runtime smoke only; the 60-frame VR-76 self-test was not a successful in-game simulator run |
+| Headset/desktop reproduction | Visual stability and depth on the named build/configuration; record each surface's result separately |
+
+These are historical suite counts, not tests rerun for this document. A documentation
+change does not require installing or launching a candidate renderer.
+
+Minimum visual regression coverage for a future flicker fix:
+
+- Stable gameplay with head/controller motion and while standing still.
+- Crouch/stand, descend/ascend, fall/jump, and tracked vertical movement separately.
+- All affected weapons, loaded bolt, swap away/back, sheath/draw, and save reload.
+- Pause and note open/close, startup settling, and cinematic/menu transitions.
+- Desktop and both headset eyes; correct depth, opaque weapon appearance, and no
+  native-position copy in light or shadow.
+- Real trigger population in a clean result. For VR-76, no bursts/shadow leaks
+  means the leak suppression was not exercised. For the clamp, no matched clamp
+  entries means the protected sequence was not demonstrated.
+
+This is a coverage menu scaled to the changed subsystem, not a requirement to
+repeat every historical experiment after every edit. Keep already-confirmed
+behavior and installed configuration stable during attribution.
+
+## 7. Commit and evidence index
+
+Hashes are locally verified history references. Read bodies and diffs together;
+subjects sometimes announce an experimental fix whose later run failed.
+These references do not claim every hash is an ancestor of current mainline.
+
+| Commit(s) | Durable meaning |
+|---|---|
+| `813807e3` | Decide pass gates once before the first eye tag |
+| `8020855a`, `230ac120` | No stale re-push without delivery; protect shared consumer reads |
+| `c8cfe107` | c5-backed ring-order correction |
+| `1507bafc` | Fragile cross-tick c5 arm defers; see current-code qualification in 3.2 |
+| `12c23588`, `8441404f`, `973d699a` | Untagged hold, explicit layer resubmission, then default N=3 |
+| `bb7a40fd`, `6531f6e8` | Three-fix headset evidence; later startup-starvation record |
+| `92b04896`, `9c36850d` | Original desktop pin / snapshot banking; VR-53 integration |
+| `df26a49b`, `1a7e2382`, `f643f9da` | Shader-inclusive pass identity, contract capacity, shipped copy/blink fixes |
+| `a6e00a6f`, `11cef70f`, `da1d760d` | Recovery/eye experiments; forced alternation and mono guard later superseded |
+| `fc343404` | Image pose transport and live stowed-contract retention share one commit |
+| `dac9b7be`, `fad8aff8`, `e5d7f5ee`, `bbb0456a` | Parked plans, corrected counterpredictions, archived eliminations |
+| `035b2ca4` | Parked HoldKeepsPair attempt; not active mainline |
+| `08cbb368`, `b3a1ff46`, `417bfad9` | Controlled diagnostic sequence: reproducing base, eye restore, clamp fix |
+| `6ecda3a7`, `5581ed46`, `d126d039` | Mainline stability ports and integration/verification record |
+| `c7f12168`, `cb3b5974` | Tested configuration promoted to fresh-install defaults (VR-72) |
+| `37aab49f`, `18d39cee` | V-marker instrumentation and VR-76 diagnosis record |
+| `15be6fdd`, `7324e6ac`, `c3d6972b` | Current-draw mirror fix, confirmed default, VR-76 merge |
+
+To recover a parked document without changing the checkout:
+
+```powershell
+git show dac9b7be:docs/dishonored/FLICKER_PLAN.md
+git show fad8aff8:docs/dishonored/HELD_LAYER_PLAN.md
+git show e5d7f5ee -- docs/dishonored/FLICKER_PLAN.md docs/dishonored/HELD_LAYER_PLAN.md
+git show bbb0456a -- docs/STATUS.md docs/TRAPS.md docs/dishonored/ENGINE_NOTES.md
+git merge-base --is-ancestor 035b2ca4 HEAD
+```
+
+The final command returning 1 on this baseline means not an ancestor, not a
+failed implementation test. Do not cherry-pick an old experiment merely to read it.
+
+Primary reference map:
+
+- [STATUS](../STATUS.md): dated perceptual results, open tickets, integration changes.
+- [ENGINE_NOTES](ENGINE_NOTES.md): measurements, engine boundaries, startup and
+  camera/weapon mechanisms. Read dates and later corrections together.
+- [TRAPS](../TRAPS.md): failed inference, stale settings, invalid populations.
+- [VR-33-HANDS-AND-WEAPONS](VR-33-HANDS-AND-WEAPONS.md): pass copies, blinking,
+  instance ownership, and detection failures.
+- [BRIEF-eye-flicker](BRIEF-eye-flicker.md), [DESKTOP_MIRROR](DESKTOP_MIRROR.md):
+  original hypotheses and their corrections.
+- [LOCKON_REVIEW](LOCKON_REVIEW.md), [DOWNWARD_CLAMP_REVIEW](DOWNWARD_CLAMP_REVIEW.md),
+  [September 10 handoff](SESSION_HANDOFF_2026-09-10.md): controlled stability chain,
+  source/config hashes, local backups, and diagnostic/integration distinction.
+- [VR-76 proposal](VR-76-MIRROR-FLICKER-REVIEW.md) and
+  [handoff](VR-76-CODEX-HANDOFF.md): marker evidence, review corrections, policy,
+  local run paths, hashes, host coverage, and candidate-stage limits.
+- [ARCHITECTURE](../ARCHITECTURE.md), [VERIFICATION](../VERIFICATION.md),
+  [KNOWN_ISSUES](../KNOWN_ISSUES.md), [RELEASE_NOTES](../RELEASE_NOTES.md),
+  [ROADMAP](../ROADMAP.md), [TROUBLESHOOTING](../TROUBLESHOOTING.md): supporting
+  decisions, instruments, and older issue summaries.
+
+### 3.11 The palette eye classifier holds a stale eye on an unreadable jump (VR-94)
+
+**Symptom identity.** Hands and held weapon jump sideways by about one IPD for a
+frame, in the LEFT eye only, during a fast head roll. The right eye is clean. The
+tester also reported it may be worse rolling one way.
+
+**Reproduction identity.** Headset, VDXR via Virtual Desktop, 2026-09-13, 2750x2850
+at 90 Hz, `PoseLag=2`, `Lag=2`, `PaletteEyeOffset=1`, IPD 6.31 uu. Build
+`vr33-hands-working-185-gd71968e3-dirty`. Nine V-marker episodes.
+
+**Measured.** 90 flagged presents across the nine episodes, and **every one reads
+"eye R but tag L, decision S". Not one is the reverse.** The runtime tag row
+alternates cleanly through all of them, so the stream really was alternating.
+
+The mechanism is in what `S` means. `MpEyeForPresent` classifies the eye from the
+right-axis jump in the hand's `LocalToWorld` translation: a jump inside
+0.45..2.0 IPD toggles and its sign names the eye; a jump under 0.45 IPD is `S`,
+which **holds the previous eye**. `S` means "too small to tell apart", not "the
+same eye", so the hold is a guess, and when the stream is alternating it is wrong.
+Those hands then take the other eye's half-IPD inside this eye's image.
+
+It is one-sided because the jump is not symmetric. Measured: entering a right
+present the jump is about -5.60, entering a left present about +5.09, against a
+2.84 uu band. Head roll adds a drift to every jump - it moves the hand AND rotates
+the right axis the jump is projected on - so a roll of one sign pushes the smaller
+crossing under the band well before the other. Only left-entering presents are
+ever misread, and the held value is always R.
+
+**Negative evidence collected on the way, all of it useful:**
+
+* The classifier's own `ambiguous` counter never moved (11 for a whole run, its
+  unknown-draw total frozen at 2348). The "head moved too far to judge" path is
+  not involved, and `same eye` is the population instead.
+* `stereo: eyes` was clean throughout: pairs equal to submits, zero aborts, zero
+  stale eyes, ages 1/0. This is not a pairing or delivery fault.
+* Frame rate was unchanged with the VR-78 accounting probe armed, median 86
+  draws/s either way, so the probe was not the confound it appeared to be.
+* Single-draw ticks during the rolling windows ran about one per three seconds.
+  The `state` skip bursts that exist are menu transitions; the counter sat flat
+  at 7 for the first ninety seconds of the run.
+
+**Two instrument failures found here, both worth keeping:**
+
+* A first cross-check against the stereo method's resolved eye joined at `pres`
+  and reported the toggled row disagreeing 15311 times against 10 agreements. In
+  an ALTERNATING stream a near-total inversion is exactly what a one-present phase
+  error looks like and is indistinguishable from a sign convention (section 4.3).
+  The correct join is `present + 1` and was already written fifteen lines away in
+  `MfDump`. A cross-check on an unproven join is not evidence, whatever it prints.
+* **The marker's own tag reference is fitted to maximise agreement with the
+  classifier it is judging** (`mesh_split.cpp`, the `best` offset search). The
+  circularity is bounded, because the candidate offsets differ by two and so share
+  parity and give the same L/R, but "agrees 444/444" is a weaker claim than it
+  looks and should not be quoted as an independent verdict.
+* `tools/palette-eye-host.ps1` had not COMPILED since VR-76 added `MfOpen` to the
+  body it extracts, so its nine checks had not run in weeks. A suite that cannot
+  build is not passing, it is absent. Stubbed and restored.
+
+**Change identity.** `[Hands] PaletteEyePredictToggle`, **default OFF**, F10 Hands
+control. On an unreadable jump it predicts the toggle instead of holding, capped
+at two consecutive predictions so a genuinely non-alternating stream still holds.
+Six host checks replay the measured jump shape; the negative control requires the
+old behaviour to produce a doublet AND that doublet to repeat the RIGHT eye.
+
+**Results and status: OPEN.** With the lever on, tag/eye mismatches fell from 90
+to 1 and the marker's agreement went from 420/425 to 444/444. **But the tester
+reported a NEW hand and weapon flicker while standing completely still**, and the
+counters do not see it: every flag in that run is "decision P" - the prediction
+itself being flagged only because it is not `T` - with no target-jump flags and no
+eye mismatches. So either the regression is real and outside what this subsystem
+measures, or it pre-existed and the roll fault was masking it. The lever therefore
+ships OFF and is disarmed in the tested install. The live A/B in F10 Hands is the
+next measurement: does the still-flicker follow the checkbox?
+
+**Remaining scope.** The roll symptom itself was never re-tested after the fix
+landed, so the correction is unconfirmed visually in both directions. The flag
+rule should stop treating `P` as an anomaly, or it floods the list. An independent
+eye reference - one not fitted against the classifier - is the real missing
+instrument.
+
+### 3.12 Roll-induced lateral camera motion is NOT a flicker (VR-91, fixed)
+
+Recorded here only to keep it out of the routing above. Rolling the head moved the
+rendered camera sideways the WRONG way - 17.6 uu right for a 30 degree left roll,
+19.3 uu left for a 34 degree right roll - because the neck arc is built from the
+head's full rotation including roll while the yaw-only reference it is subtracted
+from is not, and `[Neck] Mode=cancel` negates the difference. The engine's neck arc
+is a PITCH arc; cancelling a roll arc that was never there subtracted a real motion
+twice. Fixed by building the arc from a roll-free frame (`[Neck] RollArc=0`);
+residual fell to 0.51 and 1.19 uu, and the neck term to exactly zero.
+
+It is a smooth, sustained displacement, not a one-frame event, and section 3.10's
+rule applies: a camera error that varies smoothly with head angle is not a flicker.
+It is listed because it was reported in the same breath as VR-94 and the two were
+initially conflated.
+
+## 8. Keeping this reference useful
+
+For each new flicker report, append an entry with:
+
+1. **Symptom identity:** visible surface/eye, affected geometry, direction,
+   duration, trigger, and distinction from an existing issue.
+2. **Reproduction identity:** build/source/dirty state, DLL and config hashes,
+   resolved settings, runtime, refresh, render size, and local artifact location.
+3. **Hypothesis and counterprediction:** which observation would falsify it,
+   with the measured population and frame/eye association made explicit.
+4. **Change identity:** minimal behavior change, original and fixed commits,
+   diagnostic versus integration build, and preserved configuration.
+5. **Results:** old-code negative control, host/simulator evidence, desktop
+   verdict, headset verdict, and what did not execute or remains untested.
+6. **Status and remaining scope:** confirmed, measured, open, parked, or
+   retracted; linked ticket and separate adjacent symptoms.
+
+Update the routing/status table when a later result supersedes an earlier one.
+Keep the failed prediction and the reason it failed. Never turn a clean counter,
+a fix-shaped commit subject, or a desktop recording into a broader headset claim
+than the evidence supports.
+
+### Latest-log follow-up for the September 13 reports
+
+A second snapshot requested during the investigation is a longer continuation
+of the same process/build, not an independent reproduction. It raises the
+latest-state gameplay gap count to 33 (27 at xrEndFrame), retains clean reported
+pair/stale counters and a clean draw-source mirror window, and contains no V
+markers. It also shows another menu candidate reset. It still has no recorded
+weapon re-adoption after the first pause. Exact artifact identity and limits are
+saved in the linked frame-drop/resume plan; visual cause and relock duration
+remain unconfirmed by an event-local trace.

@@ -271,6 +271,17 @@ static void OverlayFrame()
     if (ImGui::BeginTabItem("Hands")) {
     bool animBack = dvr::anim::enabled();
     if (ImGui::Checkbox("Game arms during scripted actions", &animBack)) dvr::anim::set_enabled(animBack);
+    {   // VR-94: the left-eye arm flicker on a head roll.
+        bool pt = g_mpEyePredict;
+        if (ImGui::Checkbox("Predict the eye when the jump is unreadable", &pt)) {
+            g_mpEyePredict = pt;
+            Log("hands: palette eye on an unreadable jump -> %s",
+                pt ? "PREDICT the toggle" : "hold the previous eye");
+        }
+        ImGui::TextDisabled("off = hold the previous eye, measured giving the LEFT eye");
+        ImGui::TextDisabled("the right eye's hands during a head roll. %ld predicted.",
+                            g_mpEyePredicted);
+    }
     const auto animState = dvr::anim::snapshot();
     ImGui::TextDisabled("Animation: %s | %s", animState.valid ? (animState.game ? "game owns body" : "player") : "unknown", animState.state[0]);
     {

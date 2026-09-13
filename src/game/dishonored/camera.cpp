@@ -617,6 +617,11 @@ bool apply_offsets(uint8_t* camObj) {
         const float hn = sqrtf(f[0] * f[0] + f[1] * f[1]);
         if (haveBasis && hn > 0.2f) { zw.heading[0] = f[0] / hn; zw.heading[1] = f[1] / hn; }
         else zw.basisOk = false;   // no usable heading: the forward residual cannot be formed
+        // VR-91: the lateral axis the position is about to be applied along, as
+        // resolved above - including the handedness flip against the camera's
+        // true right row, which the analysis has no way to reproduce.
+        zw.prAxis[0] = pr[0]; zw.prAxis[1] = pr[1];
+        zw.prAxisOk = haveBasis && sqrtf(pr[0] * pr[0] + pr[1] * pr[1]) > 0.9f;
         zw.posDropped = posLive && !haveBasis;
     }
     // The displacement in POSITION form (world uu): the eye along right, the

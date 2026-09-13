@@ -356,6 +356,10 @@ static void WriteDefaultIni(const char* ini)
         "; change and is NOT measured. `neck crouch same|<below> <behind>` and F10 Comfort.\n"
         "CrouchPivotBelowM=0\n"
         "CrouchPivotBehindM=0\n"
+        "; VR-91: 0 keeps ROLL out of the neck arc. The arc models the engine's\n"
+        "; own neck and the engine's is a pitch arc; letting roll in moved the\n"
+        "; camera 17 to 19 uu the WRONG way at 30 deg of roll. 1 is the A/B.\n"
+        "RollArc=0\n"
         "StanceBlendMs=150\n"
         "[Crosshair]\n"
         "; VR-57: visual controller guide only; shots and native reticle unchanged.\n"
@@ -639,6 +643,10 @@ static void WriteDefaultIni(const char* ini)
         "PaletteWorld=1\n"
         "PaletteDepthRange=1\n"
         "PaletteEyeOffset=1\n"
+        "; VR-94: on an eye jump too small to read, predict the toggle instead of\n"
+        "; holding the previous eye. Holding was measured robbing the LEFT eye of\n"
+        "; its own half-IPD during a head roll. Ships off; 1 is the A/B.\n"
+        "PaletteEyePredictToggle=0\n"
         "PaletteEyeAlternate=0\n"
         "PaletteEyeFromMeasured=0\n"
         "PaletteEyeHunt=0\n"
@@ -1084,6 +1092,10 @@ static void LoadConfig()
         if (g_neckCrouchBehindM > 0.5f) g_neckCrouchBehindM = 0.5f;
         if (g_neckCrouchBelowM < 0.0f) g_neckCrouchBelowM = -1.0f;
         if (g_neckCrouchBehindM < 0.0f) g_neckCrouchBehindM = -1.0f;
+        // VR-91: whether ROLL enters the arc. It must not - the arc models the
+        // engine's own neck and the engine's is a pitch arc - so this ships 0 and
+        // 1 is the one-key A/B back to the measured fault.
+        g_neckRollArc = IniFloat(ini, "Neck", "RollArc", 0) != 0.0f;
         g_neckStanceBlendMs = IniFloat(ini, "Neck", "StanceBlendMs", 150.0f);
         if (g_neckStanceBlendMs < 0.0f) g_neckStanceBlendMs = 0.0f;
         if (g_neckStanceBlendMs > 2000.0f) g_neckStanceBlendMs = 2000.0f;
@@ -1092,6 +1104,11 @@ static void LoadConfig()
             g_neckCrouchBelowM < 0.0f && g_neckCrouchBehindM < 0.0f
                 ? "-1 = the standing pivot while crouched: the pre-VR-78 behaviour"
                 : "plain crouch uses its own pivot; slides and vents keep the standing one");
+        Log("config: [Neck] RollArc=%d - the arc is built from a %s frame. Roll in the "
+            "arc measured 17 to 19 uu of INVERTED lateral camera motion at 30 deg of "
+            "roll (VR-91); the real lateral swing a roll produces is already in the "
+            "tracked head displacement, so modelling it here counted it twice.",
+            (int)g_neckRollArc, g_neckRollArc ? "ROLLED head (pre-VR-91)" : "roll-free");
     }
     g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
     g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
@@ -1558,8 +1575,18 @@ static void LoadConfig()
     {
         const int za = GetPrivateProfileIntA("PosTrack", "ZAccount", -1, ini);
         if (za >= 0) dvr::zacct::set_enabled(za != 0, "[PosTrack] ZAccount in the ini");
-        Log("config: [PosTrack] ZAccount=%d - %s", za > 0 ? 1 : 0,
-            za < 0 ? "absent, compiled default off" : "from the ini");
+        // VR-91: which QUESTION the probe is answering. The pitch mode rejects
+        // any sample rolled past 12 degrees, so it cannot see a roll fault at
+        // all; roll mode bins by head roll and measures laterally instead. Same
+        // rule as the key above - absent means the compiled default, and neither
+        // is ever materialised into a player ini by a save.
+        const int zr = GetPrivateProfileIntA("PosTrack", "ZAccountRoll", -1, ini);
+        if (zr >= 0) dvr::zacct::set_roll_mode(zr != 0, "[PosTrack] ZAccountRoll in the ini");
+        Log("config: [PosTrack] ZAccount=%d ZAccountRoll=%d - %s, accounting the %s",
+            za > 0 ? 1 : 0, zr > 0 ? 1 : 0,
+            za < 0 ? "absent, compiled default off" : "from the ini",
+            dvr::zacct::roll_mode() ? "LATERAL residual against head ROLL (VR-91)"
+                                    : "VERTICAL residual against camera PITCH (VR-78)");
     }
     g_eyeClampCfg    = IniFloat(ini, "PosTrack", "EyeClamp", 1) != 0.0f; // 38.24
     g_eyeClampMargin = IniFloat(ini, "PosTrack", "EyeClampMargin", 8.0f);
@@ -1649,6 +1676,17 @@ static void LoadConfig()
     g_mpEyeHunt       = IniFloat(ini, "Hands", "PaletteEyeHunt", 0) != 0.0f;
     g_mpDepth         = IniFloat(ini, "Hands", "PaletteDepthRange", 1) != 0.0f;
     g_mpEyeOffset     = IniFloat(ini, "Hands", "PaletteEyeOffset", 1) != 0.0f;
+    // VR-94: on a jump too small to read, predict the toggle instead of holding
+    // the previous eye. Ships OFF as a new lever must; the fault it removes was
+    // measured on the headset as 90 flagged presents, every one of them the
+    // classifier saying RIGHT while the tag said LEFT.
+    g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
+    Log("config: [Hands] PaletteEyePredictToggle=%d - an unreadable eye jump %s. "
+        "Holding was measured robbing the LEFT eye's hands of their own half-IPD "
+        "during a head roll (VR-94); the prediction is capped at two in a row so a "
+        "genuinely non-alternating stream still holds.",
+        (int)g_mpEyePredict,
+        g_mpEyePredict ? "PREDICTS the toggle" : "holds the previous eye (pre-VR-94)");
 #if DVR_WITH_LEGACY
     g_pcOn            = IniFloat(ini, "Hands", "PaletteCapture", 0) != 0.0f;
 #endif
@@ -2667,6 +2705,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteWorld", g_mpWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteDepthRange", g_mpDepth ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PaletteEyePredictToggle", g_mpEyePredict ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
 #if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);
@@ -2997,6 +3036,7 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%.3f", g_neckBehindM);
     WritePrivateProfileStringA("Neck", "PivotBehindM", v, ini);
     _snprintf(v, 64, "%.3f", g_neckCrouchBelowM);    // VR-78: formatted right before its own write
+    WritePrivateProfileStringA("Neck", "RollArc", g_neckRollArc ? "1" : "0", ini);
     WritePrivateProfileStringA("Neck", "CrouchPivotBelowM", v, ini);
     _snprintf(v, 64, "%.3f", g_neckCrouchBehindM);
     WritePrivateProfileStringA("Neck", "CrouchPivotBehindM", v, ini);
