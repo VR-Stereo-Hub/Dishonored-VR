@@ -997,6 +997,26 @@ static void NeckSet(int mode, float belowM, float behindM, const char* who)
         dvr::stereo::wants_projection() ? "" : " (inert now: the quad screen has no projection pose to agree with)");
 }
 
+// VR-78 [Neck] CrouchPivot*: the crouched pivot's one setter. A negative value
+// means "the standing numbers", which is the pre-VR-78 behaviour.
+static void NeckCrouchSet(float belowM, float behindM, const char* who)
+{
+    if (belowM > 0.5f) belowM = 0.5f;
+    if (behindM > 0.5f) behindM = 0.5f;
+    if (belowM < 0.0f) belowM = -1.0f;
+    if (behindM < 0.0f) behindM = -1.0f;
+    g_neckCrouchBelowM = belowM; g_neckCrouchBehindM = behindM;
+    if (belowM < 0.0f && behindM < 0.0f) {
+        g_neckStanceW = 0.0f; g_neckStanceTarget = 0;
+        Log("neck: crouched pivot -> the standing numbers (by %s): crouched looks up and down exactly as before VR-78",
+            who ? who : "?");
+    } else {
+        Log("neck: crouched pivot -> below %.3f m behind %.3f m (by %s)%s", belowM < 0.0f ? g_neckBelowM : belowM,
+            behindM < 0.0f ? g_neckBehindM : behindM, who ? who : "?",
+            belowM == 0.0f && behindM == 0.0f ? " - no arc while crouched: the engine was measured to have none (VR-78)" : "");
+    }
+}
+
 // VR-65: publish the camera as ONE unit - the tracking sample it was computed
 // from AND the camera that came out - at the moment of the write.
 //
@@ -1377,7 +1397,39 @@ static void TrackHead(const float (*m)[4])
         // the heartbeat and status.json so a headset run can read what it added.
         float neckR = 0.0f, neckU = 0.0f, neckF = 0.0f;
         if (g_neckMode != 0 && dvr::stereo::wants_projection()) {
-            const float b = g_neckBelowM, f = g_neckBehindM;
+            float b = g_neckBelowM, f = g_neckBehindM;
+            // VR-78: the engine's pivot depends on its stance. Only PLAIN crouch
+            // (the 65 uu capsule) has a measured pivot of its own; a slide or a vent
+            // (33) is unmeasured and keeps the standing numbers. With the keys at -1
+            // nothing here runs and the arc is exactly the pre-VR-78 one.
+            if (g_neckCrouchBelowM >= 0.0f || g_neckCrouchBehindM >= 0.0f) {
+                const float cb = g_neckCrouchBelowM >= 0.0f ? g_neckCrouchBelowM : g_neckBelowM;
+                const float cf = g_neckCrouchBehindM >= 0.0f ? g_neckCrouchBehindM : g_neckBehindM;
+                const float ch = PawnCollisionHeight();
+                int target = g_neckStanceTarget;            // an unreadable capsule holds the last stance
+                if (ch > 76.0f) target = 0;
+                else if (ch > 50.0f) target = 1;
+                else if (ch > 0.0f) target = 0;
+                if (target != g_neckStanceTarget) {
+                    g_neckStanceTarget = target;
+                    Log("neck: stance -> %s (capsule %.1f uu): easing the pivot to below %.3f m behind %.3f m over ~%.0f ms "
+                        "(%s)", target ? "CROUCHED" : "standing", ch, target ? cb : g_neckBelowM, target ? cf : g_neckBehindM,
+                        g_neckStanceBlendMs,
+                        target ? "the engine's crouched pivot, [Neck] CrouchPivot*"
+                               : ch > 50.0f || ch <= 0.0f ? "the standing pivot"
+                                                          : "not a plain crouch: slide or vent, unmeasured, so the standing pivot");
+                }
+                static double neckLastMs = 0.0;
+                const double nowMs = MaimNowMs();
+                double dtMs = neckLastMs > 0.0 ? nowMs - neckLastMs : 0.0;
+                neckLastMs = nowMs;
+                if (dtMs > 250.0) dtMs = 250.0;          // a hitch must not jump the blend
+                const float k = g_neckStanceBlendMs > 1.0f ? 1.0f - (float)exp(-dtMs / g_neckStanceBlendMs) : 1.0f;
+                g_neckStanceW += ((float)target - g_neckStanceW) * k;
+                b = g_neckBelowM + (cb - g_neckBelowM) * g_neckStanceW;
+                f = g_neckBehindM + (cf - g_neckBehindM) * g_neckStanceW;
+            }
+            g_neckEffBelowM = b; g_neckEffBehindM = f;
             const float hx = b * m[0][1] - f * m[0][2], hy = b * m[1][1] - f * m[1][2], hz = b * m[2][1] - f * m[2][2];
             const float cyw = cosf(yaw), syw = sinf(yaw);
             const float yx = f * syw, yy = b, yz = -f * cyw;
@@ -1388,18 +1440,41 @@ static void TrackHead(const float (*m)[4])
             if (g_neckMode == 2) { neckR = -neckR; neckU = -neckU; neckF = -neckF; }
         }
         g_neckArcUu[0] = neckR; g_neckArcUu[1] = neckU; g_neckArcUu[2] = neckF;
+        // VR-78: the parts are kept apart for the accounting probe, and the
+        // triple handed to the seam is exactly their sum on each branch.
+        float zRaw[3] = {0.0f, 0.0f, 0.0f}, zNeck[3] = {0.0f, 0.0f, 0.0f}, zPos[3];
         if (!g_posTrack) {
             // off = zero on both lanes; with the neck ADDED the arc alone rides
             // the seam (a 3DoF rig gets a neck it never had)
-            dvr::camera::set_position_offset_uu(g_neckMode == 1 ? neckR : 0.0f, g_neckMode == 1 ? neckU : 0.0f,
-                                                g_neckMode == 1 ? neckF : 0.0f);
+            if (g_neckMode == 1) { zNeck[0] = neckR; zNeck[1] = neckU; zNeck[2] = neckF; }
+            zPos[0] = zNeck[0]; zPos[1] = zNeck[1]; zPos[2] = zNeck[2];
         } else if (dvr::stereo::wants_projection()) {
             const float cyw = cosf(yaw), syw = sinf(yaw);
-            dvr::camera::set_position_offset_uu((rawDx*cyw + rawDz*syw) * g_posScaleUU + neckR,
-                                                rawDy * g_posScaleUU + neckU,
-                                                (rawDx*syw - rawDz*cyw) * g_posScaleUU + neckF);
+            zRaw[0] = (rawDx*cyw + rawDz*syw) * g_posScaleUU;
+            zRaw[1] = rawDy * g_posScaleUU;
+            zRaw[2] = (rawDx*syw - rawDz*cyw) * g_posScaleUU;
+            zNeck[0] = neckR; zNeck[1] = neckU; zNeck[2] = neckF;
+            zPos[0] = zRaw[0] + neckR; zPos[1] = zRaw[1] + neckU; zPos[2] = zRaw[2] + neckF;
         } else {
-            dvr::camera::set_position_offset_uu((float)g_leanRightUU, (float)g_leanUpUU, (float)g_leanFwdUU);
+            zPos[0] = (float)g_leanRightUU; zPos[1] = (float)g_leanUpUU; zPos[2] = (float)g_leanFwdUU;
+        }
+        dvr::camera::set_position_offset_uu(zPos[0], zPos[1], zPos[2]);
+        if (dvr::zacct::enabled()) {
+            dvr::zacct::Head zh;
+            zh.seq = (uint32_t)g_frame;
+            zh.ms = dvr::zacct::now_ms();
+            memcpy(zh.raw, zRaw, sizeof(zh.raw));
+            memcpy(zh.neck, zNeck, sizeof(zh.neck));
+            memcpy(zh.pos, zPos, sizeof(zh.pos));
+            zh.pitchDeg = g_hmdPitch * 57.29578f;
+            zh.yawDeg = g_hmdYaw * 57.29578f;
+            zh.rollDeg = g_hmdRoll * 57.29578f;
+            zh.neckBelowM = g_neckEffBelowM; zh.neckBehindM = g_neckEffBehindM; zh.scale = g_posScaleUU;
+            zh.neckMode = g_neckMode;
+            zh.posTrack = g_posTrack != 0;
+            zh.projection = dvr::stereo::wants_projection();
+            zh.ok = true;
+            dvr::zacct::publish_head(zh);
         }
     }
 

@@ -87,7 +87,8 @@ const char* pos_lane_name();                  // "vp" | "camera" (+ " (auto)")
 void set_eye_ceiling(float zMax, bool on);
 // Script-side ceiling write; retains offset provenance only for an exact
 // previous write to this same camera field. All other fields are simply clamped.
-void clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax);
+// True when the clamped value was that exact previous write (the offset was rebased).
+bool clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax);
 
 // SCRIPT LANE, after the lever: write the eye offset (eye_offset_uu() along
 // the right row) plus, on the camera lane, the position offset, into the

@@ -17,6 +17,8 @@ static void SceneDrawSetArmed(bool on);
 static bool SceneDrawPoisoned();
 static uint32_t SceneDrawDraws();
 static void SceneDrawGates(uint32_t out[8]);   // 41.1: the pass-2 skip counters for the stale-eye line
+static void SceneDrawPresentTag(int ringEye, int finalEye, bool tagged, uint32_t acct, bool haveC5,
+                                const float c5[3], uint32_t c5Serial);   // VR-78: the accounting join
 static const char* NeckModeName(int mode);     // 41.1: the [Neck] lever
 static void ResEnumModes(const char* who);     // 41.1: the render-resolution picker (core/window/render_size.cpp)
 static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who);
@@ -32,6 +34,7 @@ static void LaunchArgsBuild(uint32_t w, uint32_t h, bool full, bool virt, const 
 static void LaunchArgsResolveFromIni(void);   // VR-66: the late ini read, on the engine's first command-line read
 static bool DvrOnOff(const char* s, bool* out);   // commands.cpp: on|off|1|0 parser, used by the picker's word
 static void NeckSet(int mode, float belowM, float behindM, const char* who);
+static void NeckCrouchSet(float belowM, float behindM, const char* who);   // VR-78: the crouched pivot
 static void SceneDrawStatus(dvr::status::Writer& w);
 static bool SceneDrawCommand(const char* args);
 static bool DvrGameplayVerdict();

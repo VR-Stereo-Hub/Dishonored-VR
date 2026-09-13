@@ -1,6 +1,34 @@
 # Status
 
-## CURRENT (2026-09-12, end of session): VR-Main is clean. Next up is minor bugs
+## CURRENT (2026-09-12, late): VR-78 fixed and merged. Next is the animation handoff
+
+**VR-78 is fixed.** Crouched, the engine does not pitch its camera about a neck at all, so
+`[Neck] Mode=cancel` with the standing pivot subtracted an arc that was not there: looking
+down pushed the view back and up, looking up forward and down. `[Neck] CrouchPivotBelowM`
+/ `CrouchPivotBehindM` now hold the crouched pivot and ship at 0. Measured twice on the
+headset by a new instrument and judged fixed there. Numbers in ENGINE_NOTES, "Crouched,
+the engine has no neck arc".
+
+**The instrument is worth more than the fix.** `[PosTrack] ZAccount` (`z_account.h`,
+default off, `camera zaccount on|off|reset|status`) pins each draw's camera write to its
+eye tag and joins it to that present's c5, then reports per stance and pitch what moved
+the rendered camera beyond the tracked head, term by term, with rejection counts. It
+found the crouched fault in one run. `tools/zaccount-host.ps1` holds its 30 checks.
+
+**VR-86 is shelved with an answer**: the game's crosshair setting writes no ini at all.
+It lives in the checksummed, Steam-Cloud-synced `OPTIONS.sav` (profile setting id 99),
+so there is no installer key to write. Details on the ticket.
+
+Found and filed, not fixed: **VR-87**, the eye ceiling's final cap trims tracked head
+height above the reference by 3 to 7 uu in both stances.
+
+### Next: detect full-body animations and hand the hands back to the game
+
+Takedowns and other scripted full-body moves should play with the game's own hands and
+weapon instead of ours. Step one is a reliable flag for "an animation owns the body right
+now". Plan for review in `docs/dishonored/ANIM-HANDOFF-PLAN.md` on its own branch.
+
+## Earlier (2026-09-12, end of session): VR-Main is clean. Next up is minor bugs
 
 `VR-Main` at `33e1e60c`. Four merges landed today and nothing is in flight.
 

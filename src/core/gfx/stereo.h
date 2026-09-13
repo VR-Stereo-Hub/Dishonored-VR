@@ -206,6 +206,12 @@ struct ReentryHooks {
     void (*status)(dvr::status::Writer& w) = nullptr;
     uint32_t (*draws)() = nullptr;
     void (*gates)(uint32_t out[kReentryGateCount]) = nullptr;
+    // VR-78: per tagged present, after the pairing has chosen the eye. `ringEye`
+    // is what the ring delivered, `finalEye` what the present carries, `acct`
+    // the id the draw pushed with its tag (0 = none), c5 this present's render
+    // position and its upload serial. Present thread; null = nobody listens.
+    void (*present_tag)(int ringEye, int finalEye, bool tagged, uint32_t acct, bool haveC5,
+                        const float c5[3], uint32_t c5Serial) = nullptr;
 };
 void set_reentry_hooks(const ReentryHooks& h);
 // 41.1 (session 9): the within-tick invariant as the pairing's check ([Stereo]
@@ -222,5 +228,7 @@ bool reentry_c5_pair();
 void reentry_push_tag(int eyeSign, const float pos[3]);
 // VR-65: the same push, carrying the pose record the draw was rendered with.
 void reentry_push_tag_rec(int eyeSign, const float pos[3], uint32_t rec);
+// VR-78: and an accounting id that comes back through ReentryHooks::present_tag.
+void reentry_push_tag_acct(int eyeSign, const float pos[3], uint32_t rec, uint32_t acct);
 
 } // namespace dvr::stereo

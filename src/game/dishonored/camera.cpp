@@ -8,6 +8,7 @@
 #include "core/util/log.h"
 #include "core/util/mem.h"
 #include "game/dishonored/patterns.h"
+#include "game/dishonored/z_account.h"
 
 #include <windows.h>
 #include <math.h>
@@ -494,7 +495,7 @@ const char* pos_lane_name() {
 
 void set_eye_ceiling(float zMax, bool on) { g_ceilZ = zMax; g_ceilOn = on; }
 
-void clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax) {
+bool clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax) {
     Writer* w = !g_et.active && g_field >= 0 && kFields[g_field].off == fieldOff
                     ? &g_eyeWriter : nullptr;
     if (clamp_written_z(camObj, fieldOff, zMax, w)) {
@@ -503,12 +504,27 @@ void clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax) {
             "after a Z clamp on camera+0x%x; offset=(%.3f %.3f %.3f) uu, "
             "clampedZ=%.3f. Same camera, same field, exact previous write.",
             fieldOff, w->lastOff[0], w->lastOff[1], w->lastOff[2], zMax);
+        return true;
     }
+    return false;
 }
 
 // ---- the writer (script lane) -----------------------------------------------------------
 bool apply_offsets(uint8_t* camObj) {
-    if (g_et.active) return false;   // the instrument owns the fields while it runs
+    // VR-78: the accounting record for this call (z_account.h). Built only while
+    // the probe is armed; every return below hands it over with the reason, so a
+    // tag pinned after a call that did not write can never borrow an older write.
+    const bool za = dvr::zacct::enabled();
+    dvr::zacct::Write zw;
+    static uint32_t zSeq = 0;
+    auto zcommit = [&](bool wrote, const char* skip) {
+        if (!za) return;
+        zw.seq = ++zSeq;
+        zw.wrote = wrote;
+        zw.skip = skip;
+        dvr::zacct::note_write(zw);
+    };
+    if (g_et.active) { zcommit(false, "eyetest owns the field"); return false; }   // the instrument owns the fields while it runs
     float pos[3];
     position_offset_uu(pos);
     const bool posWanted = pos_lane() == PosLane::Camera || (g_pt.active && g_pt.lane == PosLane::Camera);
@@ -517,6 +533,22 @@ bool apply_offsets(uint8_t* camObj) {
     const bool secondPass = second_pass_for_current_thread();
     const int eyeNow = secondPass ? 1 : g_eye;
     const float eyeUu = (float)eyeNow * 0.5f * g_ipdM * g_scale;
+    if (za) {
+        zw.ms = dvr::zacct::now_ms();
+        zw.cam = camObj;
+        zw.eye = eyeNow;
+        zw.secondPass = secondPass;
+        zw.otherTest = g_pt.active || g_pitch.active;
+        zw.projection = dvr::stereo::wants_projection();
+        zw.laneCamera = pos_lane() == PosLane::Camera;
+        zw.posLive = posLive;
+        zw.clampOk = dvr::zacct::clamp_latest(&zw.clamp);
+        zw.headOk = dvr::zacct::head_snapshot(&zw.head);
+        // the snapshot must be the triple this call is using, or the terms below
+        // would be joined to a different present's request
+        zw.torn = zw.headOk && (zw.head.pos[0] != pos[0] || zw.head.pos[1] != pos[1] || zw.head.pos[2] != pos[2]);
+        if (g_field >= 0) { zw.fieldOff = kFields[g_field].off; zw.sign = kFields[g_field].sign; zw.c5Sign = kFields[g_field].c5Sign; }
+    }
     if (g_etrOn) {
         ++g_etrEyeCount[eyeNow < 0 ? 0 : eyeNow > 0 ? 2 : 1];
         if (secondPass) ++g_etrSecondPass;
@@ -524,6 +556,7 @@ bool apply_offsets(uint8_t* camObj) {
     if (eyeNow == 0 && !posLive) {
         if (g_eyeWriter.lastOk && g_field >= 0) restore(camObj, kFields[g_field].off, g_eyeWriter);
         ++g_etrSkips;
+        zcommit(false, "no eye and no position: restored");
         return false;
     }
     if (g_field < 0) {
@@ -531,13 +564,19 @@ bool apply_offsets(uint8_t* camObj) {
                      "camera: an offset is wanted (eye %+d, position %s) but no eye field is measured - "
                      "run `camera eyetest 100` in gameplay and set [Camera] EyeField= (the "
                      "render stays mono-positioned)", g_eye, posLive ? "live" : "off");
+        zcommit(false, "no eye field");
         return false;
     }
-    if (!camObj) return false;
+    if (!camObj) { zcommit(false, "no camera"); return false; }
     float f[3] = {0, 0, 0}, r[3], u[3] = {0, 0, 0};
     bool haveBasis = false;
     if (posLive) haveBasis = read_basis(camObj, f, r, u);
-    if (!haveBasis && !read_right(camObj, r)) return false;
+    if (!haveBasis && !read_right(camObj, r)) { zcommit(false, "no right row"); return false; }
+    if (za && haveBasis) {
+        const float fz = f[2] < -1.0f ? -1.0f : f[2] > 1.0f ? 1.0f : f[2];
+        zw.camPitchDeg = asinf(fz) * 57.29578f;   // the camera's own pitch, before the yaw-only flattening
+        zw.basisOk = true;
+    }
     // Under a projection layer the displacement is the HEAD's, measured in a
     // yaw-only frame: apply it along the camera's heading with world up (Z),
     // never along a pitched forward row or a rolled right row - the
@@ -565,12 +604,31 @@ bool apply_offsets(uint8_t* camObj) {
         g_lastBasisOk = true;
     }
     const float sign = kFields[g_field].sign;
+    if (za) {
+        // What the field holds BEFORE this write, and whether the writer is about
+        // to recover its base from its own previous write (current_base's test).
+        if (RangeReadable(camObj + kFields[g_field].off, 12)) {
+            const float* v = (const float*)(camObj + kFields[g_field].off);
+            memcpy(zw.fieldNow, v, sizeof(zw.fieldNow));
+            zw.persisted = g_eyeWriter.lastOk && fabsf(v[0] - g_eyeWriter.last[0]) < 0.01f &&
+                           fabsf(v[1] - g_eyeWriter.last[1]) < 0.01f && fabsf(v[2] - g_eyeWriter.last[2]) < 0.01f;
+        }
+        memcpy(zw.priorOff, g_eyeWriter.lastOff, sizeof(zw.priorOff));
+        const float hn = sqrtf(f[0] * f[0] + f[1] * f[1]);
+        if (haveBasis && hn > 0.2f) { zw.heading[0] = f[0] / hn; zw.heading[1] = f[1] / hn; }
+        else zw.basisOk = false;   // no usable heading: the forward residual cannot be formed
+        zw.posDropped = posLive && !haveBasis;
+    }
     // The displacement in POSITION form (world uu): the eye along right, the
     // lean along the basis when the lane is ours and the basis is measured.
     float off[3];
     for (int i = 0; i < 3; ++i) {
         off[i] = r[i] * eyeUu;
         if (posLive && haveBasis) off[i] += pr[i] * pos[0] + u[i] * pos[1] + f[i] * pos[2];
+        if (za) {
+            zw.eyeW[i] = r[i] * eyeUu;
+            zw.posW[i] = off[i] - zw.eyeW[i];
+        }
     }
     // The 38.24 ceiling: the camera may not rise above the capsule top. Cap
     // the position Z the field will hold (the field is base + off in its own
@@ -579,17 +637,23 @@ bool apply_offsets(uint8_t* camObj) {
         float base[3];
         if (current_base(camObj, kFields[g_field].off, g_eyeWriter, base)) {
             const float posZ = sign * base[2] + off[2];
+            if (za) { zw.capOn = true; zw.candZ = posZ; }
             if (posZ > g_ceilZ) {
                 // Counted (41.1): a clipped rise is invisible otherwise, and the
                 // pitchtest must be able to blame it.
                 ++g_ceilClips;
                 if (posZ - g_ceilZ > g_ceilClipMaxUu) g_ceilClipMaxUu = posZ - g_ceilZ;
                 off[2] -= (posZ - g_ceilZ);
+                if (za) zw.capDelta = -(posZ - g_ceilZ);
             }
         }
     }
     const float fieldOff[3] = {off[0] * sign, off[1] * sign, off[2] * sign};
-    const bool ok = write_offset(camObj, kFields[g_field].off, fieldOff, g_eyeWriter, nullptr);
+    const bool ok = write_offset(camObj, kFields[g_field].off, fieldOff, g_eyeWriter, za ? zw.base : nullptr);
+    if (za) {
+        if (ok) for (int i = 0; i < 3; ++i) zw.written[i] = sign * g_eyeWriter.last[i];
+        zcommit(ok, ok ? "" : "field unreadable or not a location");
+    }
     if (ok) {
         if (g_pt.active && g_pt.lane == PosLane::Camera && g_pt.writing && haveBasis) {
             memcpy(g_pt.f, f, sizeof(f)); memcpy(g_pt.r, r, sizeof(r)); memcpy(g_pt.u, u, sizeof(u));

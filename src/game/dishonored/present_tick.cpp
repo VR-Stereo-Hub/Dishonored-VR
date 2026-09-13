@@ -869,6 +869,7 @@ static void DvrInstallFrameHooks()
     rh.status    = SceneDrawStatus;
     rh.draws     = SceneDrawDraws;
     rh.gates     = SceneDrawGates;
+    rh.present_tag = SceneDrawPresentTag;   // VR-78: the accounting probe's join
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
     // VR-33 step 2: the capture worker. Started here rather than lazily at the
