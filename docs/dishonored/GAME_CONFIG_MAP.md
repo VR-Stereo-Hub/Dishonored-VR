@@ -118,3 +118,8 @@ mask10 through009EA130,compares its prior movie flag,and on change invokes GFx
 SetBlackStripes with the resulting boolean. This path explicitly controls UI
 stripes rather than a viewport rectangle. Visual confirmation that the exposed
 pixels fill the headset view still belongs to the upcoming A/B.
+
+The mod now exposes [Cine] HideBorders (default0) and a live F10 View control.
+It intercepts only the native stripe query; it does not add or edit a game INI
+key and does not change resolution,FOV or camera aspect fields. Its installed
+acceptance test remains pending; details are in CINEMATIC_HEAD_TRACKING.md.

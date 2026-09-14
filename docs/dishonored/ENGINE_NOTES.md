@@ -5431,3 +5431,17 @@ SetBlackStripes cache/update logic; disabling restores the requested visibility
 on the next movie update. Any implementation must verify the seven-byte setup
 and decoded target before patching and put the literals in patterns.h. This is
 a derived plan,not yet patched or visually accepted.
+
+## 2026-09-13: letterbox query interception implemented
+
+cinematic_letterbox.cpp patches only the rel32 operand at the derived query
+site on the game/script lane. It verifies the full seven-byte setup and decoded
+target before patching. The __fastcall wrapper preserves ECX plus one stack
+argument and calls the original __thiscall helper. It returns0 only for the
+expected mask/caller under the enabled projection-session/non-menu gates.
+No UObject identity is retained or written; native code supplies its current
+HUD and reads its flags. No additional engine-object store requires a liveness
+exception. Code patching follows the existing byte-verified call-site pattern.
+OFF forwards the native result so the movie cache restores native visibility
+next update; no repeated executable patching.136 x86 decision/fingerprint
+checks pass. Visible filled bar areas remain the next headset acceptance.

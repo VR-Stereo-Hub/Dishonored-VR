@@ -4,6 +4,36 @@ Branch: codex/vr-70-cinematic-head-tracking, based on current VR-Main cccb1815
 (PR #53). Ticket verified In Progress; VR-43 and open PR #12 are related.
 No permission to merge this work.
 
+## Current candidate: hide the cinematic border overlay
+
+Build221-gfa8ae85a (20:26:36) is headset-confirmed for natural pitch motion.
+Banner checked and logs archived at build/cinematic/playtest-20260913-203141;
+2770 writes/restores,zero refusals. Stable gaze and pitch correction are retained.
+
+The new [Cine] HideBorders lever defaults off,with F10 View checkbox and
+cineborders on/off. The installed candidate enables it. A verified seven-byte
+fingerprint and decoded direct target guard a single call-site replacement.
+The wrapper calls the original HUD mask query and returns false only for the
+stripe query while enabled,in an active projection session,outside menus.
+All HUD mask fields remain untouched. Native SetBlackStripes consumes the
+result during its normal movie update. OFF forwards the exact native result.
+No changes to viewport,resolution,FOV,subtitles or head/position tracking.
+
+One question for the next launch:are the top and bottom black borders gone,
+with the boat scene visible in the space they previously covered?
+
+Start the opening boat ride,look around normally,and quit afterward.
+- Scene fills the former bar areas:confirms overlay removal reveals the image.
+- Bars remain:inspect hook installation and native/returned query counters.
+- Empty or clipped regions remain:another render boundary still needs work.
+The agent reads the logs;never launches the game. No merge authorization.
+
+136 x86 host checks cover every gate combination,exact original return values,
+valid fingerprint and single-byte corruption refusal. Build,lint,exports,INI
+and standalone simulator checks accompany install. Full installed INI change
+is only HideBorders absent ->1; CRLF is preserved. No further subagents are to
+be used in this session,per the user's latest instruction.
+
 ## Completed before the first boat test
 
 - Reconciled Linear: VR-96 already Done with High priority retained; initial
@@ -79,7 +109,7 @@ pitch arc. An animation-owned camera bypasses that arc. Applying its cancellatio
 there creates artificial translation. The established VR-78/91 trap applies:
 never cancel an arc that the current camera owner did not generate.
 
-## Current candidate and next test
+## Previous pitch candidate and test
 
 The new candidate publishes normal and cinematic position requests together.
 Normal gameplay retains its exact existing neck compensation. The authored draw

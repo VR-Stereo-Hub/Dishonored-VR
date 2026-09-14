@@ -13,20 +13,20 @@ The banner-verified boat run proves head rotation reaches the controller while
 the animation-owned camera ignores it: 62.55 degrees of head pitch versus 0.02
 in the cache over 281 clean samples. Lean and stick were not tested.
 
-Candidate220 is headset-confirmed for stable boat head look,including before
-the stick prompt. One anchor,3210 writes/restores,zero refusals. The remaining
-pitch-driven rise/drop is attributed to gameplay neck cancellation being applied
-to the animation-owned camera. The new candidate preserves the normal gameplay
-request but uses real tracked translation without CANCEL compensation in the
-authored draw scope.35 host checks,32-bit build,lint,exports and INI golden pass.
+Candidate221 is headset-confirmed for natural cinematic pitch motion,following
+confirmed stable head look before the stick prompt. The latest verified run has
+2770 writes/restores and zero refusals. Both fixes remain in the new candidate.
 
-Next:the installed candidate's single vertical-looking question in
-[the plan](dishonored/CINEMATIC_HEAD_TRACKING.md). Check latest-install.json for
-its exact identity before reading the log. The black-bar research found no game
-INI key but derived the native hide-letterbox operation on cinematic HUD mask
-bit0x10. Its consumer/visual acceptance is a separate next behavioral candidate;
-VR-43 contains related letterbox scope. No resolution or FOV changes made.
-VR-70 remains In Progress; no merge authorization or agent game launch.
+The new HideBorders lever intercepts only the native Scaleform black-stripe
+visibility query,after seven-byte fingerprint and target verification. It leaves
+all HUD flags and viewport/FOV/resolution intact. Default off; installed test
+profile enables it. F10 View and cineborders on/off provide live A/B.136 x86
+checks pass,plus build/lint/exports/INI verification. See
+[the current border test](dishonored/CINEMATIC_HEAD_TRACKING.md).
+
+Next:verify the installed banner from build/cinematic/latest-install.json,then
+read the bars-only playtest. VR-70 remains In Progress; VR-43 carries related
+letterbox research. Draft PR54 is unmerged. No further subagents this session.
 
 ## Earlier (2026-09-13): load/reload fixes confirmed and merged (PR #53)
 
@@ -5561,3 +5561,11 @@ position publication without gameplay CANCEL neck term; normal gameplay is
 unchanged. Native hide-letterbox HUD flag derived after actual game INI/script
 search. Pitch acceptance first,then a separate letterbox A/B. Plan and detailed
 provenance:CINEMATIC_HEAD_TRACKING.md and ENGINE_NOTES.md.
+
+## Session continuation (2026-09-13): install native border query control
+
+Natural pitch confirmed on221. Implemented default-off HideBorders and installed
+A/B after136 x86 checks. No engine HUD fields are written; the existing GFx movie
+owns visibility changes. Next question is whether the scene fills former bar
+areas. User requested no further subagents this session; active work was stopped
+and remaining validation performed locally. No game launch or merge.

@@ -3,14 +3,12 @@
 Linear reconciliation below is now complete. VR-96 is Done/High; VR-98 remains
 Done; completed follow-ups VR-100/VR-101 and open freeze VR-102 are recorded.
 VR-70 is In Progress on codex/vr-70-cinematic-head-tracking from cccb1815.
-Read CINEMATIC_HEAD_TRACKING.md for the next single-question pitch test.
-Candidate220 confirms stable gaze and early activation:one anchor,3210 restores,
-zero refusals. New cinematic-only raw position request removes unused gameplay
-neck cancellation;35 host checks pass. Actual INI/script/native research finds
-an explicit hide-letterbox HUD mask operation,with no exposed game INI key.
-Confirm pitch correction before that separate behavioral A/B. Latest installed
-identity is in build/cinematic/latest-install.json. No merge authorization.
-The older handoff follows for history.
+Read CINEMATIC_HEAD_TRACKING.md for the current border-removal test.
+Build221 natural pitch is headset-confirmed,2770 restores,zero refusals. The
+new HideBorders control intercepts only the verified native stripe query and
+preserves all HUD mask values.136 x86 checks pass. Check latest-install.json
+for exact installed identity. No more subagents this session. No merge
+permission; PR54 remains draft. The older handoff follows for history.
 
 # Next session: physical head movement during cinematics
 

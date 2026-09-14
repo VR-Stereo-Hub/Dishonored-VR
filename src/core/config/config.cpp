@@ -1827,6 +1827,7 @@ static void LoadConfig()
     // reporter nobody enables reports nothing.
     dvr::anim::configure(ini);
     CineTraceConfigure(ini);
+    CineBordersConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
     // to the pointer walk alone, which cannot see the pistol at all.
@@ -3000,6 +3001,7 @@ static void OverlaySaveDefaults()
     }
     dvr::anim::save(ini);   // VR-88: the F10 Hands checkbox must survive a restart
     WritePrivateProfileStringA("Cine","HeadLook",CineHeadEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Blink", "ControllerAim",
                                g_blkDriveUI ? "1" : "0", ini);
     WritePrivateProfileStringA("Blink", "Marker", g_blkMarker ? "1" : "0", ini);

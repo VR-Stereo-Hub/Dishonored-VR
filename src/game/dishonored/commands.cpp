@@ -49,6 +49,7 @@ static bool DvrOnOff(const char* a, bool* out)
 static bool DvrGameCommand(const char* cmd, const char* args)
 {
     bool b = false;
+    if (!strcmp(cmd, "cineborders") && DvrOnOff(args, &b)) { CineBordersSet(b); return true; }
     if (!strcmp(cmd, "cinehead") && DvrOnOff(args, &b)) { CineHeadSet(b); return true; }
     if (!strcmp(cmd, "cinetrace") && DvrOnOff(args, &b)) { CineTraceSet(b); return true; }
     if (!strcmp(cmd, "recenter")) { RecenterHead(); return true; }
