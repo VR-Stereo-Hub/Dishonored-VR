@@ -1,4 +1,7 @@
-## Current state: build234 accepted features, handoff regressions under test
+## Current state: VR-109 correction installed, headset test pending
+
+Installed: 237-g563e14d6, Sep14 07:27:03 (cinematic correction, NOT the
+standing candidate237-gfd7a830d). Full INI diff empty; both logs archived.
 
 2026-09-14. Verified build234 (23:11:43 Sep13) playtest confirms cinematic roll/
 pitch comfort, FOV and free look. New VR-109 tracks brief mono exits and diagonal

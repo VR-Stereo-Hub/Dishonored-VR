@@ -247,3 +247,17 @@ movement now remain straight sideways relative to that facing direction?
 Pass supports correct heading handoff; persistent diagonal motion falsifies the
 reference reset and requires view/body/native controller evidence from this run.
 Agent reads stereo transitions from the same log; no second question this launch.
+
+## Installed VR-109 correction, 2026-09-14
+
+Current candidate: vr33-hands-working-237-g563e14d6, compiled07:27:03 Sep14.
+This is NOT standing-arc237-gfd7a830d (Sep13 23:34:10). Full hash/compile time,
+not the numerical build count alone, identifies a candidate across branches.
+Bundle: build/playtest-candidates/cinematic-handoff-237. DLL SHA256:
+6f6aaf5d4f10adaaff67f7d774bf5392b6f0ac95ad7f1a0e3e280df4da5e39f7.
+Installed INI unchanged byte-for-byte (full diff empty, CRLF checked), SHA256:
+7819d090054a57518267ce01e2dc15e6c4734e1427294e9cd12463edfac94d1c.
+Install archive: build/playtest-candidates/installs/20260914-072808-025185.
+Standalone XR smoke also passed60 frames, FOCUSED,0 errors; no game launch.
+The next launch tests movement-heading handoff. Stereo is checked in its log.
+PR56 remains draft; VR-109 In Progress. PR57/58 are unchanged and unmerged.
