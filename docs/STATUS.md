@@ -4,7 +4,10 @@ Cinematic head look, pitch and black borders are headset-confirmed and merged
 in PR54 (39a68a50); VR-70 is Done. New VR-103 is In Progress on
 codex/vr-103-stereo-state-transitions from that merge. The candidate separates
 stereo scene eligibility from gameplay/input locks using decompiled state
-names and live scene activity. It is default-off and awaiting headset testing.
+names and live scene activity. It ships default-off; candidate225 d015b1aa21:05:03 is installed with
+StereoState=1 and awaiting headset testing. Build,24 policy checks, lint,9
+exports, golden INI and60-frame standalone simulator pass. Full installed INI
+diff contains only the new key; CRLF verified.
 See docs/dishonored/STEREO_STATE_TRANSITIONS.md for evidence and the one-question
 dialogue transition test. Latest install manifest: build/stereo-state/latest-install.json.
 Never launch the game; read/archive logs yourself. No subagents this session.

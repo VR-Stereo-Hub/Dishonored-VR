@@ -73,3 +73,14 @@ Latest install identity will be in build/stereo-state/latest-install.json.
 New candidate is not yet headset-confirmed. VR-75's broader cinematic behavior,
 VR-102's startup weapon freeze and general state/lifecycle replacement are not
 part of this candidate.
+
+## Installed candidate225
+
+Commit d015b1aa, build vr33-hands-working-225-gd015b1aa, compile21:05:03.
+Release build passed; lint clean;9 undecorated exports; golden INI unchanged.
+Standalone x86 xr_hello ran60 frames, FOCUSED, zero errors. This is runtime
+bring-up validation, not an in-game stereo assertion. Installed DLL SHA256:
+4f287a1af28bb9d00bb3bfb994848ecd6c091665bfacf5483a0f60e719ad9618.
+Full INI byte/settings comparison finds only Cine.StereoState absent->1;
+CRLF verified. Previous DLL, INI and both logs archived at ignored
+build/stereo-state/install-20260913-210627. No new launch/banner yet.
