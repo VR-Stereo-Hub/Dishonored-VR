@@ -1,3 +1,19 @@
+## Current candidate, 2026-09-14
+
+PR57 updated with accepted PR56 parent cb77328d. Preserve HeadBasedMovement=1
+and all accepted cinematic/FOV/mono fixes. New build enables only the standing
+UprightPitchArc correction plus ZAccount diagnostics relative to installed239.
+PR56 is ready for review; no PR has merged. PR58 follows after this test.
+
+One question: while standing and looking up or down, does rolling your head
+left/right now keep the camera as stable as when crouched, without the extra
+smile-shaped arc? Compare the same movement crouched. Keep feet still; avoid
+deliberate leaning. Ordinary small motion from physically moving your eyes is
+expected; the target is the exaggerated curved sweep. A standing-only residual
+means this fix is incomplete; a new crouched problem is a regression.
+
+## Historical initial candidate
+
 # VR-106: standing pitched-head roll arc
 
 ## Scope and status

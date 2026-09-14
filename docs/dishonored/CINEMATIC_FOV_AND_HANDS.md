@@ -202,3 +202,116 @@ branch from this branch. It must not be confused with authored cinematic roll.
 The agent swaps builds, compares the entire installed INI and reads/archives
 both logs; the tester only launches and reports observations. One question per
 launch. No game launch or merge is authorized. Both candidates await testing.
+
+## 2026-09-14: build234 acceptance and VR-109 regressions
+
+Verified DLL SHA and log banner: vr33-hands-working-234-gcd0ee5f9,
+Sep13 23:11:43. Both logs and the actual INI archived at
+build/cinematic-regression/20260914-071943. Reported acceptance covers the
+roll/pitch comfort, FOV and cinematic free look. Mantling was not specifically
+confirmed. Reported regressions: about1s mono at cinematic exit and a persistent
+diagonal movement direction despite right-stick view turning.
+
+Measured stereo transitions: at752187ms Walk has view=0, fresh scene/c5age0,
+live pawn, valid state and no menu. Runtime quad begins752203 and ends753265,
+a1062ms interruption. Similar sequences occur at786734 and804500. The cause is
+that DvrScriptViewLive measured head WRITES, which cinematic ownership now
+suppresses intentionally despite live PVR dispatches. A later1048765 transition
+also overlaps ClientPlayMovie/OnToggleJournal and must not be called an identical
+no-menu case. No eye-tag/capture hypothesis is reopened.
+
+Body-facing code retained its previous published target while cinematic PVR
+returned early. Afterward, an old head-contribution accumulator survived the
+native camera reset. Log at1063750 asks-179.5deg and faces-228.5deg, approximately
+49deg apart. This supports the reported movement mismatch, but does not prove
+when it first became visible.
+
+VR-109 counts only PVR dispatches actually yielded to the live cinematic owner
+as activity, with the existing750ms silence limit. It does not fabricate head
+writes or loosen the menu/pawn/state stereo gates. Body-facing yields while the
+cinematic owns look, refuses targets older than150ms, and revalidates current
+GObjects slots, IsLiveObject, possession and full FName/class identity. The first
+fresh gameplay yaw publication discards the outgoing head contribution and
+seeds from the native incoming view. Later stick turns and head/body separation
+continue through the same arithmetic. Existing HeadLook toggle controls this
+ownership path; no new defaults or INI changes.
+
+Validation:17 production yaw/activity regression checks,39 cinematic math and
+ownership checks,13 scoped-write checks,38 FOV/handback checks, x86 build,
+9 exports, lint and INI golden pass. First build exposed missing unity forward
+declarations; corrected before candidate installation. Perceptual fix untested.
+
+Next single question: after a cinematic returns control, with the headset held
+forward, turn roughly90deg using the right stick and strafe left/right; does
+movement now remain straight sideways relative to that facing direction?
+Pass supports correct heading handoff; persistent diagonal motion falsifies the
+reference reset and requires view/body/native controller evidence from this run.
+Agent reads stereo transitions from the same log; no second question this launch.
+
+## Installed VR-109 correction, 2026-09-14
+
+Current candidate: vr33-hands-working-237-g563e14d6, compiled07:27:03 Sep14.
+This is NOT standing-arc237-gfd7a830d (Sep13 23:34:10). Full hash/compile time,
+not the numerical build count alone, identifies a candidate across branches.
+Bundle: build/playtest-candidates/cinematic-handoff-237. DLL SHA256:
+6f6aaf5d4f10adaaff67f7d774bf5392b6f0ac95ad7f1a0e3e280df4da5e39f7.
+Installed INI unchanged byte-for-byte (full diff empty, CRLF checked), SHA256:
+7819d090054a57518267ce01e2dc15e6c4734e1427294e9cd12463edfac94d1c.
+Install archive: build/playtest-candidates/installs/20260914-072808-025185.
+Standalone XR smoke also passed60 frames, FOCUSED,0 errors; no game launch.
+The next launch tests movement-heading handoff. Stereo is checked in its log.
+PR56 remains draft; VR-109 In Progress. PR57/58 are unchanged and unmerged.
+
+## 2026-09-14: mono accepted, character drift remains, head-based option
+
+Verified cinematic237-g563e14d6 (Sep14 07:27:03) and installed DLL hash.
+Both logs/INI archived at build/cinematic-regression/20260914-073936.
+Reported: mono handoff correction works; character-oriented movement is still
+5-10deg off after the first scene and around45deg after dialogue/FOV framing.
+The reference-reset fix is insufficient. Logs show resets did occur and later
+native requested/body headings diverged again. VR-109 remains open for that
+character-mode issue; its mono portion is headset-confirmed.
+
+VR-110 adds Camera.HeadBasedMovement (default0, candidate1), F10 Head-based
+movement and command movement head|character. Config Save persists the choice.
+Head mode leaves the native FaceRotation request untouched, so the game follows
+the full view heading rather than our separated body target. No input-vector
+rotation, cached heading read, new offset or engine write is needed. Physical
+head yaw can turn the character in this mode, by design. Existing ArmBodyFacing
+and character bookkeeping remain available; switching back does not claim to
+fix their outstanding drift. Cutscene-facing requests remain native as well.
+The camera comfort/FOV and confirmed stereo activity changes are unchanged.
+
+15 host checks compile the production handler and verify head passthrough across
+yaw/wrap values, no stale body-state read in head mode, character-mode restoration,
+cinematic/stale/dead-owner guards and other-pawn passthrough. Build, exports,
+lint and generated INI comparison pass. Headset behavior still awaits testing.
+
+Next one-question test: after the dialogue/FOV scene returns control, turn your
+head left/right and use forward/sideways movement, then turn with the right
+stick. Does movement consistently follow where you are looking without the
+diagonal offset? Pass supports native head-based movement; a persistent offset
+means the final camera and native movement direction still disagree. The agent
+reads the archived run and never launches the game.
+
+## Installed head-based candidate
+
+vr33-hands-working-239-gadebc947, Sep14 07:44:40, source adebc94720a92076849b5e09c7846355b12ed28a.
+Bundle: build/playtest-candidates/head-movement-239.
+DLL SHA256: 552239ccb091d63df676f93ce0b708bf6e403267a60b014a03764c8ce57e4611.
+INI SHA256: a5c8468b60b16ef3f3906dcc082d61f1d1a556ee2227ac93334a8d3b74a2f05f.
+Installed/hash-verified; full settings diff adds only Camera.HeadBasedMovement=1.
+CRLF checked. Previous DLL/INI and both logs archived under
+build/playtest-candidates/installs/20260914-074519-801836. No game launch.
+PR56 remains draft/unmerged. VR-109 character drift and VR-110 acceptance open.
+
+## 2026-09-14: head-based movement accepted, PR56 finalized
+
+Verified239-gadebc947, Sep14 07:44:40, against installed DLL hash and log banner.
+Logs/INI archived at build/cinematic-regression/20260914-075605. Head-based
+movement is headset-confirmed; log shows native facing passed unchanged.
+Cinematic comfort/FOV/free look and mono handoff fixes retain their acceptance.
+Character-mode drift remains open under VR-109; the selectable fallback does
+not close it. VR-110 is accepted pending merge. PR56 is ready for review.
+The user chose completing the remaining PR57/58 tests before merging all three;
+keep them unmerged while those tests remain. Next: rebuild PR57 with this parent.

@@ -1711,3 +1711,22 @@ pitch parity and12 numerical regressions pass. Exact-pole position refusal is
 logged; normal pitch is clamped short of it. Full plan, limits and staged
 playtest sequence: [standing arc](STANDING_PITCH_ROLL_ARC.md). Parent PR56 and
 this child remain unmerged pending separate testing.
+## 2026-09-14: VR-109 cinematic activity regression
+
+Build234 confirms comfort/FOV/free look but reports mono exit recurrence. At
+752187 Walk is valid, pawn live, menu0 and sceneFresh1, yet view0. Quad lasts
+752203-753265 (1062ms). DvrScriptViewLive was counting writes that cinematic
+ownership intentionally suppresses, not the continuing PVR dispatches.
+Candidate records yielded dispatch activity with the existing750ms limit;
+menu/pawn gates unchanged. If a no-menu live-scene handoff still goes mono,
+the correction is incomplete. Host checks pass; headset result open.
+Exact archive, source changes and next test: CINEMATIC_FOV_AND_HANDS.md latest
+section. The later journal/movie transition is separate, not a no-menu example.
+
+## 2026-09-14: VR-109 mono handoff confirmed
+
+Verified237-g563e14d6, Sep14 07:27:03: the reported cinematic mono interruption
+is resolved on the headset. Logs/INI archived at cinematic-regression/20260914-073936
+under build. Counting yielded PVR activity remains the accepted correction.
+Character-heading drift did not resolve; it is a separate movement issue, not
+stereo instability. VR-110 offers selectable native head-facing movement.

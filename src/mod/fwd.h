@@ -214,6 +214,8 @@ static void CineFovEnd();
 static float CineFovClaim();
 static float CineFovScopeTarget();
 static bool CineHeadOwnsInput();
+static void CineHeadNoteDispatch();
+static bool CineHeadDispatchFresh();
 static bool CineHeadEnabled();
 static void CineHeadSet(bool on);
 static void CineHeadBegin(bool sceneDraw, bool doubleDraw);
@@ -591,3 +593,8 @@ bool YawSelfTest();
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/palette_packet_capture_fwd.inc"
 #endif
+
+static void YawCinematicSuspend();
+static bool YawFacingReady();
+static bool HeadMovementEnabled();
+static void HeadMovementSet(bool on);

@@ -1,4 +1,66 @@
+## Current state: standing camera-roll candidate after accepted PR56
+
+PR56 is ready for review and unmerged. Build239-gadebc947 confirmed head-based
+movement, alongside the accepted cinematic comfort/FOV and mono handoff fixes.
+PR57 now includes that parent through cb77328d. Its next build retains all
+accepted settings and enables Neck.UprightPitchArc=1 plus PosTrack.ZAccount=1.
+Read docs/dishonored/STANDING_PITCH_ROLL_ARC.md for the one-question test.
+PR58 mono UI work remains a separate later candidate. Merge all three only after
+the remaining tests finish. Character-mode drift (VR-109) remains open.
+Never launch the game, no subagents. Agent installs and reads/archives both logs.
+Canonical installed identity: build/playtest-candidates/installed.json.
+
+## Earlier records
+
 ## Current state: two candidates awaiting separate headset tests
+## Current state: PR56 accepted; next is standing-roll PR57
+
+Verified239-gadebc947 confirms head-based movement. PR56 finalized for review;
+keep all three PRs unmerged until the remaining tests finish. Character-oriented
+drift remains open under VR-109. Next rebuild PR57 with this accepted parent,
+enable UprightPitchArc and ZAccount, and test standing pitched-head roll versus
+crouching. Preserve HeadBasedMovement=1. Agent handles installs/logs, no game
+launch, no subagents, one question per launch. See the latest cinematic notes.
+
+## Previous records
+
+## Current state: head-based movement239 installed
+
+Installed239-gadebc947 (Sep14 07:44:40), HeadBasedMovement=1. Full INI
+diff adds that key only; hashes/CRLF verified and both logs archived.
+
+Cinematic237-g563e14d6 confirms the mono handoff fix. Character movement drift
+persists; VR-109 remains open for that part. VR-110 adds a selectable, saved
+head-based mode that uses native view facing, preserving the character option.
+Read CINEMATIC_FOV_AND_HANDS.md latest section for evidence and the single test.
+Current branch codex/vr-50-cinematic-fov-and-hands, draft PR56. No merge approval.
+PR57/58 are preserved and need the accepted parent correction before new tests.
+Never launch the game; no subagents. Agent builds/installs and archives logs.
+Canonical active build: build/playtest-candidates/installed.json.
+
+## Earlier records
+
+## Current state: VR-109 correction installed, headset test pending
+
+Installed: 237-g563e14d6, Sep14 07:27:03 (cinematic correction, NOT the
+standing candidate237-gfd7a830d). Full INI diff empty; both logs archived.
+
+2026-09-14. Verified build234 (23:11:43 Sep13) playtest confirms cinematic roll/
+pitch comfort, FOV and free look. New VR-109 tracks brief mono exits and diagonal
+movement after cinematic ownership. Fix extends draft PR56 on
+codex/vr-50-cinematic-fov-and-hands. No merge approval. Read the latest section
+of docs/dishonored/CINEMATIC_FOV_AND_HANDS.md before continuing.
+
+PR57/build237 and PR58/build240 remain preserved, unmerged and untested. They
+predate this correction: propagate an accepted parent fix before their next
+builds/tests. Never launch the game. No subagents. One question per launch.
+Agent archives both logs, verifies the banner and installed hash, builds/installs
+and checks the full INI diff and CRLF. Canonical install manifest is
+build/playtest-candidates/installed.json. Mantling still lacks explicit acceptance.
+
+## Previous session records
+
+## Current candidate: upright cinematic tracking
 
 Cinematic PR56 is draft/unmerged; build234 is preserved for the first test.
 Draft PR57 targets the cinematic branch (PR56). Both remain unmerged.
@@ -5643,3 +5705,9 @@ No new game launch or game log exists for either pending candidate.
 Final checks:12 x86 standing-arc regressions,39 parent math/ownership checks,
 13 camera-scope checks, Release build, lint, nine exports, golden INI and standalone
 XR60 frames FOCUSED/zero errors pass. Headset acceptance remains pending.
+## Session 2026-09-14: VR-109 handoff correction
+
+Archived verified234 playtest. Accepted comfort/FOV/free look; mono handoff and
+movement-heading regressions remain open. Corrected activity accounting and
+body-facing ownership in PR56, keeping PR57/58 candidates separate. Tests and
+next single-question launch are in CINEMATIC_FOV_AND_HANDS.md. No merge.

@@ -118,6 +118,8 @@ static void WriteDefaultIni(const char* ini)
         "BodyYawLock=-1\n"
         "ArmStripMeshRot=-1\n"
         "ArmBodyFacing=1\n"
+        "; 1 uses native head/view-facing movement; 0 retains separate character heading.\n"
+        "HeadBasedMovement=0\n"
         "[Capture]\n"
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
@@ -977,6 +979,7 @@ static void LoadConfig()
         else if (acy >= 0.0f)
             ArmFollowSetCounterYaw(acy, "ini");
         // VR-30: the core fix - hold the body instead of correcting the arms
+        HeadMovementSet(GetPrivateProfileIntA("Camera","HeadBasedMovement",0,ini)!=0);
         const float fac = IniFloat(ini, "Camera", "ArmBodyFacing", 1.0f);
         if (fac >= 0.0f) ArmFollowSetFacing(fac, "ini");
         const float asr = IniFloat(ini, "Camera", "ArmStripMeshRot", -1.0f);
@@ -3009,6 +3012,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Camera","HeadBasedMovement",HeadMovementEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockPitch",CinePitchEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Blink", "ControllerAim",
                                g_blkDriveUI ? "1" : "0", ini);
