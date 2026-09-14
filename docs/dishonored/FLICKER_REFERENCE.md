@@ -147,6 +147,7 @@ pose metadata without reopening the disproved historical theories.
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
+| Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
 
 VR-78 crouched-pitch motion was fixed later with a measured zero crouched neck
@@ -1439,6 +1440,39 @@ Update the routing/status table when a later result supersedes an earlier one.
 Keep the failed prediction and the reason it failed. Never turn a clean counter,
 a fix-shaped commit subject, or a desktop recording into a broader headset claim
 than the evidence supports.
+
+### VR-117: the pause menu on the HUD window, 2026-09-15
+
+1. **Symptom:** with in-game menus on the HUD window, the projection dropped to the
+   mono screen for a few presents at the menu's OPEN and again at RESUME (the
+   "stereo reloading" of headset run 47 on the abandoned PR #12), and once the ride
+   was granted the riding menu BLINKED at half the display rate. Whole view, both
+   eyes, distinct from every eye-tag issue above.
+2. **Reproduction:** simulator, `dvr-xrsim` 90 Hz, 2750x2850, `stereo reentry`, the
+   sewer level via `console open L_PrsnSewer_P`; build 275-g52e2414d-dirty (the
+   VR-117 tree); logs under `D:\dvr-data\logs\hud-redo-run*.log` on the dev PC.
+3. **Hypothesis and counterprediction:** (a) the open gap: the owner read publishes
+   50 ms after the menu flag and a health check that blinked with the per-present
+   armed flag cancelled the open-gap stand-in, so the runtime's fallback fired
+   first; falsified by a log that showed `standIn=open pending` surviving to the
+   `ui/ride` line. (b) the blink: paused, the re-entry gates alternate SINGLE and
+   DOUBLE draws and every other present hands the runtime no texture; the HUD
+   block ran before the zero-layer hold and was skipped on held presents; the
+   counterprediction was a shot on a held present with `projection, quad, quad`.
+4. **Change:** health = the recent-redirect window alone; the open-gap stand-in holds
+   its 300 ms once started; the HUD anchors block moved after the hold path
+   (`openxr_runtime.cpp`, "41.x (Dishonored, VR-117) HUD anchors"). Diagnostic
+   build; configuration unchanged.
+5. **Results:** `pause-ride.xrs` 31/31: through a 12 s pause `stereo: beat out/s=91
+   L/s=46 R/s=45 mono/s=0 none/s=45` (a live pair at 45 Hz, the other presents
+   held), the shots carry `projection, quad, quad` on the open and on the held
+   frame, resume keeps `projectionViews 2` with `eyeAgeL/R 0`; `hud menu off` gives
+   the mono-screen pause as the A/B. Not measured: the headset. Note the sim's
+   `projStaleSubmits` climbs during a ride (634 over 12 s): the held projection is
+   re-submitted on every textureless present and the sim counts it as stale.
+6. **Status:** simulator-confirmed, headset pending; VR-117. Adjacent: the paused
+   world redraws every other present (the re-entry gate's camera-silent single
+   ticks), which the mono-screen pause used to hide behind its quad.
 
 ### Latest-log follow-up for the September 13 reports
 

@@ -245,6 +245,9 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [ ] Hands (SkelControl drive, hand meshes), the wrist HUD (through the runtime layer's HUD
       quad and texture-provider seam), Blink and motion aim brought back on the winner;
       `[Mode] GamepadOnly=0` default again when they hold
+      - [x] The HUD on its anchors (VR-117, 2026-09-14): the window and the hand quads through
+            the runtime's provider seam, the whole HUD as one element, menus in the window;
+            per-element routing follows the region measurement (headset verdicts pending)
 - [ ] The losing method kept registered as the A/B (every render lever ships with a live
       toggle)
 

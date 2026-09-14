@@ -1,3 +1,48 @@
+## Current state: the HUD on its anchors (VR-117), simulator-verified, headset pending - 2026-09-15
+
+Branch `claude/vr-117-hud-redo` off VR-Main 85f9ef6e, PR open, NOT merged. The game's
+Scaleform HUD leaves the eye textures and is shown on quad layers: a head-locked or
+world-parked WINDOW (1.25 m at 1.30 m, the PR #12 preset) and the tracked HAND (38.92's
+wrist HUD: 0.22 m, 0.06 m above the grip, billboarded), switchable per element with
+every placement value in `[Hud]` and on the new F10 HUD tab. In-game screens (pause,
+note, journal, store, mission stats) RIDE the window with the world in stereo behind
+them under a ride predicate on the reflected UI owner; the main menu and loading
+screens keep the mono screen. Ships ON (`[Hud] Panel=1`, the user's call) with the
+whole HUD as one element; per-element routing (`[Hud] Regions`) is an instrument
+until the region table is measured. Design and every measurement:
+docs/dishonored/HUD_ANCHORS.md. Ticket VR-117 (VR-8 and VR-38 canceled into it).
+
+Simulator, on the sewer level (`console open L_PrsnSewer_P`; the newest save on this
+PC is a death loop at the intro boat): `hud-panel.xrs` 24/24, `hud-quads.xrs` 35/35,
+`pause-ride.xrs` 31/31. The redirect takes 20.4 HUD draws per present with no empty
+armed present on either re-entry pass; the pause rides with the projection up
+(`L/s=46 R/s=45 mono/s=0`) and 94.9 menu draws per present on its own sink, 10 s with
+no stale-flag clear, resume with both eyes fresh; `hud menu off` gives the old mono
+pause as the A/B. Cost 0.3 ms per tick. Host: 107 ride-policy and 30 anchor checks,
+plus the existing verdict suites, green. Three faults found and fixed on the way (a
+health blink cancelling the open-gap stand-in; the HUD quads vanishing on held
+presents so a riding menu blinked; a focus loss latching a permanent thread refusal).
+
+This PC's setup was reset to the tested profile first: `release/dishonored_vr.ini`
+byte-copied over the installed ini (SHA256 de20bd79 before this branch added the
+`[Hud]` keys; the backup is `dishonored_vr.ini.pre-hud-redo-20260914`), the game's
+`-VRBaseline` and `-Console` applied (the mouse-smoothing key was missing from this
+machine's input ini and the script now appends it), 2750x2850 armed in all four
+places. The host suites needed `tools/lib/msvc.ps1` to find the Build Tools here.
+
+Next: the headset run on VR-117's pass criteria (legibility of both anchors at the
+presets, the hand panel's size/lift/tilt sign, the pause menu navigable with the pad
+for 10 s and A selecting, a note in the window, the main menu untouched, whether
+the faint dark strokes of the max(r,g,b) alpha repair are acceptable). Then rung 3
+(VR-118): the region probe reads the HUD's vertices (DrawIndexedPrimitiveUP, SHORT2
+shape coordinates, 0.5 us per draw) but the c0/c1 transform hypothesis is wrong on
+this GFx build (nonsense rectangles), so per-element routing is NOT in this branch;
+the next step is the HUD vertex shader's bytecode to find the transform's registers,
+then `[Hud] Region.*` so health, mana and the equipment separate onto the hand.
+Never merge without permission.
+
+## Earlier records
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.

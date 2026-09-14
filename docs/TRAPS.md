@@ -174,6 +174,25 @@ rather than from the code.
 > keying, caching and freshness, and the measurement had been correct since the first
 > one.
 
+### VR-117: two setup traps found while making a dev PC match the tested profile (2026-09-14)
+
+- **The host test suites could not run on a Build Tools machine.** Every `tools/*-host.ps1`
+  globbed `C:\Program Files\Microsoft Visual Studio`, where a full Visual Studio installs;
+  the VS 2022 Build Tools live under Program Files (x86) and every suite threw before
+  compiling. `tools/lib/msvc.ps1` asks vswhere first (what `build.ps1` always did). A suite
+  that has never run on your machine has never passed on it: run it once before trusting
+  the green in STATUS.
+- **`setup-game-ini.ps1 -VRBaseline` stopped at a key this machine's `DishonoredInput.ini`
+  did not have** (`bEnableMouseSmoothing` under `[Engine.PlayerInput]`), after it had already
+  written the three engine values. The script now appends a missing key at the end of its
+  section instead of throwing, and says so. A game ini is not the shape the script expects
+  on every machine; read the "already set" / "->" lines, not the exit code.
+- **The mod ini is never refreshed by the mod** (`kConfigVersion` stayed at 11 since VR-11), so
+  an ini next to the exe from an older build keeps its Version-10 values forever, including
+  a `[VR] XrRuntimeJson` pointed at the simulator. "Identical to the tested profile" means
+  a byte copy of `release/dishonored_vr.ini`, checked by SHA256, then `arm-res.ps1 -Status`
+  for the four resolution places.
+
 ## 2. Instruments that could not fail their own hypothesis
 
 Every one of these produced a confident number that meant nothing. They are

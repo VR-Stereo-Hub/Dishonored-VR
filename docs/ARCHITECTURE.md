@@ -820,6 +820,28 @@ cannot authorize background stereo. The loading lease follows movie lifetime,
 not a view-dispatch timeout. Both levers default off pending headset testing.
 See dishonored/MONO_ANCHOR_UI_STATE.md for lifecycle and refusal contracts.
 
+### 2026-09-14: the HUD on its anchors (VR-117)
+
+The Scaleform HUD is recognised by a four-term draw rule (backbuffer, full
+viewport, depth off, alpha blend on: the measured class from PR #12), redirected
+into private targets ("sinks", one per element group) and shown on quad layers
+the runtime composites: a head-locked or world-parked WINDOW and the tracked
+HAND, per element, by the screen REGION of each draw. Three choices worth
+recording. (1) The redirect sits INNERMOST of the draw-hook chain through a new
+inner seam in frame_hooks, because the hand census drops and re-issues draws;
+it binds through the raw SetRenderTarget so no backbuffer detector sees it.
+(2) The runtime layer gained ONE contained block ("41.x (Dishonored) HUD
+anchors") that locates and submits up to six quads from a provider; every
+placement value lives with the game side (core/gfx/hud_layout, the [Hud] keys),
+not in the runtime, so the layer stays close to the BioShock copy. (3) The UI
+owner's presentation class was split from its input class: a riding screen
+(pause, note, journal, store, mission stats) keeps the projection up with the
+screen on the window, under a stand-in for the scene verdict (a live pawn and
+the raw camera-upload clock or a fresh eye tag), while every input guard keeps
+seeing the owner as blocking. Region routing ships as an instrument first: the
+census records no geometry, so the per-element split follows the measurement.
+See dishonored/HUD_ANCHORS.md.
+
 ## 2026-09-14: accepted stacked fixes and tested defaults
 
 Promote the complete accepted installed INI and saved F10 profile, including

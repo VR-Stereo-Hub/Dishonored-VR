@@ -98,8 +98,13 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   down your view. Head tracking, positional (lean/peek/crouch) tracking and the FOV lever work.
   The hands come back on the winning stereo method; setting `GamepadOnly=0` re-enables the old
   hand code, which is compiled but untested on this render.
-- **The wrist HUD and the aim reticle are gone** [S3]. The game's own HUD is on the screen with
-  the rest of the frame; the floating panel returns through the runtime layer's HUD quad.
+- **The HUD is back on a window and on the hand, as ONE element** [S3, VR-117]. The whole
+  HUD rides the window preset (1.25 m at 1.30 m) by default; `hud anchor all hand` puts it on
+  the left hand at 38.92's size. Health, mana and the equipment do not yet separate onto the
+  hand on their own: that needs the screen-region table (`[Hud] Regions`), measured with
+  `draws on` + `draws regions` and still unmeasured on this build. Dark HUD strokes read faint
+  on the quads (the alpha repair is `max(r,g,b)`); the headset decides whether a real alpha
+  capture is worth it. `hud off` puts the HUD back in the frame.
 - **The headset image is the game window's resolution, captured once per present** [S1]. A
   bigger window costs a bigger readback on the shipped `deferred` path (10 ms of GPU copy per
   present at the Quest 3 size); `[Device] Ex=1` with `capture mode shared` keeps it in VRAM
