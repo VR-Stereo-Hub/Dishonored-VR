@@ -102,6 +102,11 @@ static void OverlayFrame()
         bool borders=CineBordersEnabled();
         if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
     }
+    {
+        bool imagePose=dvr::vr::image_orientation_enabled();
+        if(ImGui::Checkbox("Image-linked head orientation",&imagePose))
+            dvr::vr::set_image_orientation(imagePose);
+    }
     if (ImGui::SliderFloat("world scale (uu/m)", &g_posScaleUU, 10.0f, 200.0f, "%.0f"))
         { /* sep recomputed each frame from this */ }
 

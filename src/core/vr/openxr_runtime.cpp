@@ -15,6 +15,7 @@
 #include "core/gfx/frame_id.h"   // 41.1 (Dishonored): the frame-identity trace's stage sc
 #include "core/gfx/capture.h"    // VR-65: the record that rode the delivered texture
 #include "core/vr/pose_record.h"
+#include "core/vr/image_orientation.h"
 
 // The runtime layer logs under the openxr category at Info; every per-frame
 // line in it is first-N or rate-limited (the CLAUDE.md cost rules).
@@ -380,6 +381,7 @@ bool g_eyeValid[2] = {false, false};     // eye slot holds a released image + po
 // tracks the arming adapter's slider so the tag reconstructs the SAME offset
 // apply_eye_offset baked into the render.
 std::atomic<bool> g_eyeTagRendered{false};
+std::atomic<bool> g_imageOrientation{false}; // VR-116, default-off A/B
 std::atomic<float> g_eyeTagIpdMm{63.0f};
 
 // Rebuild one eye's layer tag as the PARALLEL camera the game rendered:
@@ -4299,6 +4301,35 @@ void on_present_end(ID3D11Texture2D* frame) {
                                              g_eyeTagIpdMm.load(std::memory_order_relaxed));
                     else
                         g_eyePose[srEye] = gen[srEye].pose;
+                    if (g_imageOrientation.load(std::memory_order_relaxed)) {
+                        dvr::pose::Record imageRec={};float q[4]={};
+                        const uint32_t recId=dvr::capture::delivered_rec();
+                        const int eye=srEye==0?-1:1;
+                        const bool copied=dvr::pose::copy(recId,&imageRec);
+                        const bool applied=dvr::pose::image_orientation(copied?&imageRec:nullptr,eye,q);
+                        static uint64_t appliedCount[2]={},refusedCount[2]={},nextLog[2]={};
+                        float difference=0;
+                        if(applied) {
+                            const auto& old=g_eyePose[srEye].orientation;
+                            float dot=fabsf(old.x*q[0]+old.y*q[1]+old.z*q[2]+old.w*q[3]);
+                            if(dot>1) dot=1;
+                            difference=2*acosf(dot)*57.29578f;
+                            g_eyePose[srEye].orientation={q[0],q[1],q[2],q[3]};
+                            g_eyePoseGen[srEye]=imageRec.track.gen;
+                            g_eyePoseLag[srEye]=-1; // record-selected, not numeric lag
+                            ++appliedCount[srEye];
+                        } else ++refusedCount[srEye];
+                        const auto now=GetTickCount64();
+                        if(now>=nextLog[srEye]) {
+                            nextLog[srEye]=now+1000;
+                            XRLOG("xr: image-orientation eye=%d rec=%u copied=%d recEye=%d writer=%d "
+                                  "applied=%d deltaFromLag=%.3f deg gen=%u legacyGen=%u "
+                                  "accepted=%llu fallback=%llu; position unchanged, legacy lag=%d",
+                                  eye,recId,copied?1:0,imageRec.eye,imageRec.cam.writer,
+                                  applied?1:0,difference,imageRec.track.gen,genId,
+                                  appliedCount[srEye],refusedCount[srEye],lagUsed);
+                        }
+                    }
                     g_eyeValid[srEye] = true;
                     g_pmCap[srEye].fetch_add(1, std::memory_order_relaxed);
                     g_pmLastCapMs[srEye].store(GetTickCount64(),
@@ -5537,6 +5568,12 @@ void set_pose_lag(int lag) {
 }
 
 int get_pose_lag() { return g_poseLag.load(std::memory_order_relaxed); }
+void set_image_orientation(bool on) {
+    g_imageOrientation.store(on,std::memory_order_relaxed);
+    XRLOG("xr: image-linked orientation %s; invalid/missing eye records retain numeric lag",on?"ON":"off");
+}
+bool image_orientation_enabled() { return g_imageOrientation.load(std::memory_order_relaxed); }
+
 
 float get_pose_gen_delta_deg() {
     return g_poseGenDeltaDeg.load(std::memory_order_relaxed);
@@ -6464,6 +6501,8 @@ bool pace_sync() { return false; }
 void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }
+void set_image_orientation(bool) {}
+bool image_orientation_enabled() { return false; }
 void set_pace_ahead(int) {}
 int pace_ahead() { return 0; }
 float get_pose_gen_delta_deg() { return 0.0f; }

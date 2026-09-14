@@ -1,33 +1,21 @@
-## Current state: PR56, PR57 and PR58 merged to VR-Main
+## Current state: VR-116 120Hz physical-head-turn flicker investigation
 
-Explicit merge approval was completed2026-09-14, in dependency order:
-- PR56 cinematic comfort/native animation/head-based movement:02a9abfa.
-- PR57 standing pitched-head roll:4162a732.
-- PR58 mono/UI/loading, weapon fixes and complete defaults:f020cdb9.
-All three feature branches are retained. GitHub reports all three MERGED.
-The merged tree exactly matches validated candidate commit5aa625ae.
+VR-115 desktop branch is parked at committed1d6558a3; no uncommitted changes
+needed a stash. Its build271 was never installed. Do not mix that experiment
+into this investigation. New branch codex/vr-116-120hz-head-motion from main255d1c91.
+Verified main build266 run shows120Hz, world/hand lag2, automatic A/Bs off.
+Physical head turns alone trigger severe world flicker; stick turns and still
+head do not. Both cinematic and gameplay scenes affected. Both logs archived
+at build/flicker-120/20260914-133932. Ring/eye summaries remain healthy; uneven
+cadence and occasional pose disagreement are measured, causality unresolved.
 
-Installed vr33-hands-working-266-g5aa625ae, compiled Sep14 11:25:16.
-DLL SHA256 257ab2551fadfec93d66a1e25067143c6643257709596f8303ecb5482015c7a4.
-This is the accepted build264 behavior plus repository default promotion;
-no additional headset result is claimed for266. Final accepted run and both
-logs: build/mono-ui-test/accepted-20260914-111707. Final installation and previous
-logs: build/playtest-candidates/installs/20260914-112603-417138.
-The full installed INI diff is empty. Installed, generated, golden and packaged
-profiles match byte-for-byte with CRLF preserved, SHA256
-364e79997823cd18e97b398a324edc20aaae9c222377e0c8d1f01db5dc060508.
-All17 added/changed missing-key defaults align; config version11 stays unchanged.
-
-Final host suites, production default-writer byte check, release/frame/weapon/
-animation tests,9 exports,lint and golden validation pass. Agent never launched
-the game. No subagents, release declaration, tag or branch deletion.
-
-Linear verified Done:VR-104/105/106/107/108/110/111/112/74/71.
-Remaining scope: VR-50 broader manual-FOV/kill-cam cases, VR-109 character-mode
-drift, VR-99 brief note flicker, VR-87 height ceiling and VR-102 startup timing.
-No new task is started. Next session begins from current VR-Main, reads this
-handoff and [STACK_ACCEPTANCE.md](STACK_ACCEPTANCE.md), and follows
-the selected remaining ticket. Never interpret the preserved264 log as266.
+Default-off Pace.ImageOrientation candidate uses same-eye captured camera-record
+orientation for submission, with numeric lag fallback; positions and game/hand
+behavior unchanged. F10 View provides live A/B and Save. Eight new host checks
+and existing frame suites pass; release,exports,lint,golden pass. No game launch.
+Exact findings, rejected claims and one-question120Hz test:
+[HEAD_MOTION_120HZ.md](HEAD_MOTION_120HZ.md).
+Build/install identity will be recorded after packaging. No merge authorized.
 
 ## Earlier records
 

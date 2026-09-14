@@ -1,3 +1,4 @@
+#include "../../core/vr/image_orientation.h"
 #include "../../game/dishonored/anim_policy_test.h"
 // tools/frame_test - the VR-33 rotation/grip frame math, on the desk.
 //
@@ -152,6 +153,25 @@ static int replay(int argc, char** argv)
     return (files && refused == files) ? 1 : 0;
 }
 
+static int ImageOrientationTests() {
+    using namespace dvr::pose;
+    int failed=0;auto check=[&](const char* label,bool ok) {
+        printf("image-orientation/%s %s\n",label,ok?"PASS":"FAIL");failed+=!ok;
+    };
+    Record r={};r.id=1;r.eye=-1;r.track.ok=true;r.cam.ok=true;r.track.gen=50;
+    r.track.qy=0.5f;r.track.qw=0.8660254f;float q[4]={9,9,9,9};
+    check("delayed_image_uses_its_pose",image_orientation(&r,-1,q) && fabsf(q[1]-.5f)<1e-6f);
+    check("other_eye_refused",!image_orientation(&r,1,q));
+    check("unknown_eye_refused",!image_orientation(&r,0,q));
+    check("missing_record_preserves_output",!image_orientation(nullptr,-1,q) && fabsf(q[1]-.5f)<1e-6f);
+    r.cam.ok=false;check("unwritten_camera_refused",!image_orientation(&r,-1,q));r.cam.ok=true;
+    r.track.qw=9;check("invalid_quaternion_refused",!image_orientation(&r,-1,q));
+    r.track.qw=-0.8660254f;r.track.qy=-.5f;
+    check("negated_quaternion_retained",image_orientation(&r,-1,q) && q[1]<0);
+    r.track.gen=0;check("missing_generation_refused",!image_orientation(&r,-1,q));
+    return failed;
+}
+
 int main(int argc, char** argv)
 {
     printf("VR-33 hand frame math\n");
@@ -159,7 +179,7 @@ int main(int argc, char** argv)
     const int failed = dvr::hf::test::run_all(report, NULL);
     printf("---------------------------------------------------------------\n");
     printf("%s\n", failed ? "FAILURES" : "all cases passed");
-    int rc = (failed + WeaponFrameTests() + AnimPolicyTests()) ? 1 : 0;
+    int rc = (failed + WeaponFrameTests() + AnimPolicyTests() + ImageOrientationTests()) ? 1 : 0;
     if (argc > 1) rc |= replay(argc, argv);
     return rc;
 }
