@@ -268,3 +268,32 @@ death loop at the intro boat and cannot be used).
   strokes drew no complaint.
 - The cost: two sinks at SlotScale 0.50 = 7.5 MB StretchRect each per present;
   fences `blit waits 5357 timeouts 0, read waits 0 timeouts 0` over the run.
+
+## 7. Measured on the simulator (2026-09-15, `claude/vr-120-hud-elements`)
+
+Debug builds of this branch, `dvr-xrsim` at 90 Hz, 2750x2850, `stereo reentry`, the sewer
+level through the console (from the MAIN menu: the same command sent from the title screen
+left the game on the loading board for eight minutes, run 1 of this branch).
+
+- **VR-118 answered: the transform is the vertex shader's own `Transform` at c6..c9**, read
+  from each shader's disassembly at first sight (ENGINE_NOTES, "How the Scaleform HUD
+  identifies its elements"). The fixed-function hypothesis was tested first and died in one
+  window: `HUD draws with a vertex shader 8862, without 0; SetTransform calls 0`. With the
+  columns applied: `9324 probes, 0 refused, 1.0 us/probe`, every bucket rectangle inside
+  [0,1], the health bar's bucket at `[0.007,0.053 - 0.148,0.220]`. The old c0/c1 rows were
+  stale constants: `(0.000 0.002 0.999 1.000)` and `(0.726 0 0 0)` on every HUD draw because
+  nothing uploads c0..c3 between them.
+- **The element census** (`draws/cluster`, per-draw rectangles quantised to 1/40): gameplay
+  idle 17 clusters, all inside the vitals block `[-0.009,0.013 - 0.172,0.253]` except the
+  reticle dot `[0.497,0.497 - 0.503,0.503]`; walking up to a door: the reticle grows to
+  `[0.480,0.481 - 0.520,0.519]`, the interaction prompt appears at
+  `[0.524,0.481 - 0.774,0.602]` (a plate, a text run, a rule, two icons: 4 draws/present) and
+  an objective marker (0.033 square) sits where its target projects. The wheel adds 30
+  draws/present (the ring, the slot icons bottom-left and bottom-right, labels right, a
+  full-screen fill); the pause menu and the journal are hundreds of glyph draws and overflowed
+  a 256-row cluster table (1372 over), so clusters are not collected while a screen rides
+  (its context is its identity). Health and mana interleave in x (fills at centres 0.076 and
+  0.098, frames 0.077 and 0.103, one shared background at 0.081): one row, `vitals`.
+- Cost with the parse and the clusters: `perf: tick 15.8 ms (62.0/s)` on the Debug build with
+  the census, the probe and the redirect all on (the census is a measuring lever and stays
+  off in play).
