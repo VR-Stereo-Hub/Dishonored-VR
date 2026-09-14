@@ -1090,6 +1090,36 @@ static void AutoHandStartTick()
 }
 
 
+// A crawl edge runs before ApplyHandToMeshInner refreshes stale controls.
+// Reload can recycle all three addresses into unrelated live UObjects. Check
+// fresh liveness AND the retained GObjects/class identity before either store.
+static void SkcSetCrawlStrength(float strength)
+{
+    if (!g_graftOffStr) return;
+    if (!BuildLiveSet()) {
+        g_skcStale = 1;
+        Log("hands/crawl-strength: refused %.1f (live-object refresh failed)", strength);
+        return;
+    }
+    int written = 0, refused = 0;
+    for (int i = 0; i < g_skcPlayerN && i < 8; ++i) {
+        uint8_t* obj = g_skcPlayer[i];
+        if (!IsLiveObject(obj) || !SkcAlive(i) ||
+            !RangeReadable(obj + g_graftOffStr, sizeof(float)) ||
+            (g_graftOffSTgt && !RangeReadable(obj + g_graftOffSTgt, sizeof(float)))) {
+            ++refused;
+            g_skcStale = 1;
+            Log("hands/crawl-strength: refused slot %d @ %p (dead, reused identity or unreadable strength)",
+                i, (void*)obj);
+            continue;
+        }
+        *(float*)(obj + g_graftOffStr) = strength;
+        if (g_graftOffSTgt) *(float*)(obj + g_graftOffSTgt) = strength;
+        ++written;
+    }
+    Log("hands/crawl-strength: %.1f, wrote %d validated controls, refused %d", strength, written, refused);
+}
+
 // The fault boundary. Everything the hand-mesh system touches - the collect
 // walk, calibration, driving - runs behind setjmp with the vectored handler
 // armed. If any object dies under us mid-frame, we land back here, abandon
@@ -1129,17 +1159,7 @@ static void ApplyHandToMesh()
             // our hand controls' strength so the game's animation takes the
             // bones back. Exit restores strength (measured 1.0 default).
             if (t) { FpRestoreRotation(); g_fpHaveBase = false; }
-            if (g_graftOffStr) {
-                float sv = t ? 0.0f : 1.0f;
-                for (int i2 = 0; i2 < g_skcPlayerN && i2 < 8; i2++) {
-                    uint8_t* c2 = g_skcPlayer[i2];
-                    if (!c2 || ((uintptr_t)c2 & 3) ||
-                        !RangeReadable(c2, g_graftOffStr + 4)) continue;
-                    *(float*)(c2 + g_graftOffStr) = sv;
-                    if (g_graftOffSTgt && RangeReadable(c2, g_graftOffSTgt + 4))
-                        *(float*)(c2 + g_graftOffSTgt) = sv;
-                }
-            }
+            SkcSetCrawlStrength(t ? 0.0f : 1.0f);
             Log("hands: %s (cylinder %.1f)",
                 t ? "TUCKED while crouched" : "back", g_cylLast);
         }

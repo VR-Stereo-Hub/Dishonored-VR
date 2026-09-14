@@ -109,6 +109,8 @@ void     set_pending_rec(uint32_t rec);
 // VR-80 F-late: give the latest grab's still-undelivered, untagged slot the eye (and record) a
 // late tag proved it had. False when the mode has already delivered it or the slot is tagged.
 bool     relabel_last_grab(int eyeSign, uint32_t rec);
+// Retire one identified, not-yet-delivered right slot. Sync modes refuse.
+bool     retire_last_right_grab(uint32_t expectedRec);
 uint32_t delivered_rec();
 uint32_t delivered_serial();
 uint32_t serial();

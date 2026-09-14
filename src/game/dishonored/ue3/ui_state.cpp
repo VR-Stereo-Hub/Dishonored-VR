@@ -1,15 +1,39 @@
 // game/dishonored/ue3/ui_state.cpp - what screen is up, asked rather than inferred (VR-62).
 //
-// Read-only. It discovers the game's Scaleform movie-player classes and their
+// Read-only engine access. It discovers the game's Scaleform movie-player classes and their
 // properties out of GObjects, watches the live movie objects, and prints the
-// gameplay verdict it WOULD have produced beside the one the mod used. It gates
-// nothing and writes no engine memory. The argument is in the state block.
+// gameplay verdict beside the one the mod used. The note result also drives
+// fast mono transitions and menu retention. No engine memory is written. The argument is in the state block.
 //
 // LANES:
 //   discovery  - the script lane, once per load, a bounded GObjects scan
 //   latching   - the script lane, from the ProcessEvent stream, pointer compares
 //   polling    - the present thread, on a cadence, plain guarded memory reads
 
+
+// The script lane can replace slots while Present polls them. Publish complete
+// identities under one lock; Present skips a busy scan instead of waiting for it.
+static SRWLOCK g_uiTableLock = SRWLOCK_INIT;
+struct UiTableUnlock {
+    ~UiTableUnlock() { ReleaseSRWLockExclusive(&g_uiTableLock); }
+};
+
+static bool UiInstanceLive(const UiInst* e)
+{
+    return e->obj && IsLiveObject(e->obj) &&
+        RangeReadable(e->obj, kClassOff + 4) &&
+        RangeReadable(e->obj + kNameOff, 8) &&
+        *(uint8_t**)(e->obj + kClassOff) == e->cls &&
+        *(uint32_t*)(e->obj + kNameOff) == e->fname[0] &&
+        *(uint32_t*)(e->obj + kNameOff + 4) == e->fname[1];
+}
+
+// Caller holds the table lock after refreshing GObjects for this generation.
+static void UiResetInstances()
+{
+    g_uiInstN = 0;
+    g_uiNoteOpen = false;
+}
 
 // Is this class object one of the movie-player classes discovery found?
 static int UiClsIndex(uint8_t* cls)
@@ -46,22 +70,44 @@ static int UiReadOpen(uint8_t* o)
 // scan, so it must tolerate being handed the same object repeatedly.
 static void UiAddInstance(uint8_t* obj, uint8_t* cls)
 {
+    // Caller holds g_uiTableLock. A dropped address is reusable, not a permanent
+    // table occupant. The same address with a new FName is a new observation.
+    if (!obj || !IsLiveObject(obj) || !RangeReadable(obj, kClassOff + 4) ||
+        !RangeReadable(obj + kNameOff, 8) || *(uint8_t**)(obj + kClassOff) != cls) return;
     const LONG n = g_uiInstN;
-    for (LONG i = 0; i < n; ++i) if (g_uiInst[i].obj == obj) return;
-    if (n >= UI_INST_MAX) {
+    LONG slot = n;
+    for (LONG i = 0; i < n; ++i) {
+        if (g_uiInst[i].obj != obj) continue;
+        if (UiInstanceLive(&g_uiInst[i])) return;
+        slot = i;
+        break;
+    }
+    // Repeated events validate only their own identity. A new object alone
+    // pays for searching the population for a reclaimable entry.
+    if (slot == n) {
+        for (LONG i = 0; i < n; ++i) {
+            if (!UiInstanceLive(&g_uiInst[i])) { slot = i; break; }
+        }
+    }
+    if (slot >= UI_INST_MAX) {
         DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn,
-            "uistate: instance table full at %d - further movie players are not "
-            "watched, so an 'open' count from here is a FLOOR and not a total.",
+            "uistate: instance table full at %d live identities - new movies cannot vote",
             (int)UI_INST_MAX);
         return;
     }
-    UiInst* e = &g_uiInst[n];
+    UiInst* e = &g_uiInst[slot];
     e->obj = obj; e->cls = cls;
+    e->fname[0] = *(uint32_t*)(obj + kNameOff);
+    e->fname[1] = *(uint32_t*)(obj + kNameOff + 4);
     UiObjName(obj, e->name, sizeof(e->name));
     e->open = -1;
     e->gen = g_uiGen;
     e->seenMs = MaimNowMs();
-    InterlockedExchange(&g_uiInstN, n + 1);   // published last
+    if (slot == n) InterlockedExchange(&g_uiInstN, n + 1);
+    const char* cn = ObjClassName(obj);
+    if (cn && strstr(cn, "MoviePlayerNote"))
+        Log("uistate: watching note '%s' gen %d in slot %ld (%ld tracked)",
+            e->name, e->gen, slot, g_uiInstN);
 }
 
 
@@ -73,8 +119,18 @@ static void UiPeLatch(void* obj)
 {
     if (!g_uiOn || !g_uiReady || !obj || ((uintptr_t)obj & 3)) return;
     if (!RangeReadable(obj, kClassOff + 4)) return;
+    AcquireSRWLockExclusive(&g_uiTableLock);
+    UiTableUnlock unlock;
     uint8_t* cls = *(uint8_t**)((uint8_t*)obj + kClassOff);
     if (UiClsIndex(cls) < 0) return;
+    // On-demand movies may be created after the last load scan.
+    if (!IsLiveObject((uint8_t*)obj)) {
+        static double refreshMs = -1000.0;
+        const double now = MaimNowMs();
+        if (now - refreshMs < 1000.0) return;
+        refreshMs = now;
+        if (!BuildLiveSet()) return;
+    }
     UiAddInstance((uint8_t*)obj, cls);
 }
 
@@ -98,10 +154,16 @@ static void UiDiscover(void)
     uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
     if (!objs || ((uintptr_t)objs & 3) || onum < 1000 || onum > 4000000) return;
 
+    if (!BuildLiveSet()) return;
+    AcquireSRWLockExclusive(&g_uiTableLock);
+    UiTableUnlock unlock;
+    const LONG previousN = g_uiInstN;
+    UiResetInstances(); // replace the outgoing population, never append to it
     const double t0 = MaimNowMs();
     const bool first = (g_uiScans == 0);
     ++g_uiScans;
     g_uiClsN = 0; g_uiPropN = 0;
+    Log("uistate: rebuild gen %d replaces %ld prior movie identities", g_uiGen, previousN);
 
     // Pass 1: the classes.
     uint32_t seen = 0;
@@ -224,6 +286,8 @@ static void UiDiscover(void)
 static void UiPoll(bool pawn, bool viewLive)
 {
     if (!g_uiOn || !g_uiReady) return;
+    if (!TryAcquireSRWLockExclusive(&g_uiTableLock)) return;
+    UiTableUnlock unlock;
     const double now = MaimNowMs();
     if (now - g_uiPollMs < 100.0) return;
     g_uiPollMs = now;
@@ -234,13 +298,10 @@ static void UiPoll(bool pawn, bool viewLive)
     const LONG n = g_uiInstN;
     for (LONG i = 0; i < n; ++i) {
         UiInst* e = &g_uiInst[i];
-        // Has the object gone? A destroyed movie must not keep voting. The class
-        // pointer still reading back as the class we latched is the cheap test;
-        // it costs no scan and catches freed or recycled memory.
-        if (!e->obj || !RangeReadable(e->obj, kClassOff + 4) ||
-            *(uint8_t**)(e->obj + kClassOff) != e->cls) {
+        // A retained pointer and matching class alone do not establish liveness.
+        if (!UiInstanceLive(e)) {
             if (e->open != -2) {
-                Log("uistate: instance '%s' (gen %d) no longer reads as its class - "
+                Log("uistate: instance '%s' (gen %d) is no longer the same live identity - "
                     "dropped. A stale movie object cannot vote on the current level.",
                     e->name, e->gen);
                 e->open = -2; InterlockedIncrement(&g_uiDropped);
@@ -265,6 +326,9 @@ static void UiPoll(bool pawn, bool viewLive)
             ++named;
         }
     }
+    if (g_uiNoteOpen != noteUp)
+        Log("uistate: note-visible %d -> %d (gen %d, %ld tracked)",
+            (int)g_uiNoteOpen, (int)noteUp, g_uiGen, n);
     g_uiNoteOpen = noteUp;
     UiFlagsPoll();   // VR-93 research reporter; returns at once unless [Menu] UiFlags=1
     if (!named) _snprintf(list, sizeof(list), "%s", "none");
@@ -329,6 +393,8 @@ static bool UiCommand(const char* args)
 {
     if (!args) args = "";
     if (!args[0] || !strcmp(args, "status")) {
+        AcquireSRWLockExclusive(&g_uiTableLock);
+        UiTableUnlock unlock;
         Log("uistate: %s | %d scan(s), %d class(es), %d prop(s), %ld instance(s), "
             "%ld dropped | open bit %s | %d open now [%s]%s | polls %ld",
             g_uiOn ? "on" : "OFF", g_uiScans, g_uiClsN, g_uiPropN, g_uiInstN,

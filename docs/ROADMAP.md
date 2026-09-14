@@ -1,5 +1,15 @@
 # Roadmap
 
+## Load/reload stability (2026-09-13)
+
+- [x] Startup stereo without vertical movement, headset-confirmed.
+- [x] Fast notes survive save reload, observer lifetime repaired and confirmed.
+- [x] Adjacent R/0 capture repair, host checks and headset reload stability.
+- [x] VR-96 crawl-release stale write rejected, regression and headset confirmed.
+- [x] Complete installed settings/F10 profile promoted to generated/package defaults.
+- [ ] Physical head tracking during cinematics: next session, ticket first.
+- [ ] Remaining weapon startup freeze: separate timing work, name cache still off.
+
 ## VR-57 native launch (2026-09-12)
 
 - [x] Derive and byte-verify the native crossbow pre-spawn direction consumer.

@@ -5,6 +5,8 @@
 
 static void WriteDefaultIni(const char* ini)
 {
+    // The maintainer requested the complete tested profile as repo defaults,
+    // including saved F10 flags and diagnostics. Keep release/ini byte-aligned.
     FILE* f = fopen(ini, "w");
     if (!f) return;
     fprintf(f,
@@ -28,6 +30,10 @@ static void WriteDefaultIni(const char* ini)
         "; F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
         "HeightOffsetM=0.060\n"
         "[Stereo]\n"
+        "PairTrace=1\n"
+        "DrawCallerTrace=1\n"
+        "RingLedger=1\n"
+        "LateTagRepair=1\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
         "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
@@ -57,6 +63,7 @@ static void WriteDefaultIni(const char* ini)
         "HoldUntagged=3\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "LagAB=0\n"
+        "SingleTagRepair=1\n"
         "[Camera]\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
@@ -280,11 +287,12 @@ static void WriteDefaultIni(const char* ini)
         "; DesktopEyeSource=tag|draw: draw pins by current backbuffer identity (VR-76).\n"
         "; Live A/B: desktopeye draw|tag. tag is the legacy pin, which leaks the other eye under shared capture.\n"
         "DesktopEyeSource=draw\n"
+        "DisableBadApiLayers=1\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
         "; shim manifest). Empty = %%LOCALAPPDATA%%\\DishonoredVR. Set it to a folder the\n"
         "; game and the tools both see for real (docs/VERIFICATION.md gotcha 14).\n"
-        "DataDir=\n"
+        "DataDir=D:\\dvr-data\n"
         "[Controllers]\n"
         "; Stage 6.4: Index controllers = virtual Xbox-360 pad via SteamVR's\n"
         "; ACTION input system (rebindable in SteamVR > Controller Bindings).\n"
@@ -300,6 +308,8 @@ static void WriteDefaultIni(const char* ini)
         "Deadzone=0.12\n"
         "Haptics=1\n"
         "[PosTrack]\n"
+        "ZAccount=0\n"
+        "ZAccountRoll=0\n"
         "; Stage 5: positional head tracking - lean/peek/crouch with your real\n"
         "; head. F4 = toggle, F5 = re-center to your current head position.\n"
         "; Lane=auto|vp|camera: where the offset is applied. vp patches the view-projection\n"
@@ -322,14 +332,9 @@ static void WriteDefaultIni(const char* ini)
         "; If leaning LEFT moves the world the wrong way set FlipX=1.\n"
         "Enabled=1\n"
         "; 108 uu/m: headset-judged 2026-09-05, tuned live with PgDn from 98 and kept.\n"
-        "Scale=108\n"
+        "Scale=108.0\n"
         "MaxMeters=0.80\n"
         "FlipX=0\n"
-        "[Anim]\n"
-        "StateWatch=1\n"
-        "HandBack=1\n"
-        "ReleaseMs=250\n"
-        "HandBackBlendMs=150\n\n"
         "[Neck]\n"
         "; The pitch pivot (41.1). A real head pitches about a point below and behind the\n"
         "; eyes, so looking up or down moves the eye on an arc. Mode=off|add|cancel, under\n"
@@ -346,21 +351,9 @@ static void WriteDefaultIni(const char* ini)
         "Mode=cancel\n"
         "PivotBelowM=0.321\n"
         "PivotBehindM=0.062\n"
-        "; VR-78: the ENGINE's pivot while plainly crouched. Measured 2026-09-12 with the\n"
-        "; accounting probe: crouched, the engine does not pitch its camera about a neck at\n"
-        "; all, so cancel with the standing numbers moved the view back and up looking\n"
-        "; down, forward and down looking up. 0 and 0 = no arc while crouched, and SHIPS:\n"
-        "; a second run fitted 0.002/0.002 m and the headset judged it fixed. -1 = the\n"
-        "; standing numbers (the behaviour before VR-78). Slides and vents keep the\n"
-        "; standing pivot (unmeasured). StanceBlendMs eases between the two on a stance\n"
-        "; change and is NOT measured. `neck crouch same|<below> <behind>` and F10 Comfort.\n"
         "CrouchPivotBelowM=0\n"
         "CrouchPivotBehindM=0\n"
-        "; VR-91: 0 keeps ROLL out of the neck arc. The arc models the engine's\n"
-        "; own neck and the engine's is a pitch arc; letting roll in moved the\n"
-        "; camera 17 to 19 uu the WRONG way at 30 deg of roll. 1 is the A/B.\n"
         "RollArc=0\n"
-        "StanceBlendMs=150\n"
         "[Crosshair]\n"
         "; VR-57: visual controller guide only; shots and native reticle unchanged.\n"
         "; Dot/beam share one runtime AIM-pose ray. Fixed distance, no surface trace.\n"
@@ -368,10 +361,10 @@ static void WriteDefaultIni(const char* ini)
         "Dot=1\n"
         "Laser=0\n"
         "Hand=left\n"
-        "DistanceM=8.0\n"
-        "SizeDeg=0.5\n"
+        "DistanceM=8.000\n"
+        "SizeDeg=0.500\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
-        "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60%%\n"
+        "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
         "BothPoses=0\n"
         "; VR-57 test 1: ControlDot=1 draws a HEAD-anchored dot straight ahead of the\n"
@@ -447,9 +440,8 @@ static void WriteDefaultIni(const char* ini)
         "; Native crossbow launch direction, converging from the muzzle to the controller dot.\n"
         "; Independent of the old HUD cache drive and MotionAim; live toggle in F10 Aim.\n"
         "FireFromHand=1\n"
-        "; VR-85 diagnostic, read-only: names the property that follows the focused\n"
-        "; interactable. Never writes engine memory. propwatch on|off at the seam.\n"
         "PropWatch=0\n"
+        "InteractFocus=0\n"
         "[HandTracking]\n"
         "; Build 30.6: weapon tracking starts by itself a few seconds after\n"
         "; you are in-game with both controllers tracked - no F6+HOME needed\n"
@@ -502,13 +494,13 @@ static void WriteDefaultIni(const char* ini)
         "Hand=right\n"
         "; 0 = the rig pivots about the viewpoint, 1 = about your hand (spins in\n"
         "; place, like something actually held).\n"
-        "PivotMix=1.0\n"
+        "PivotMix=1.00\n"
         "; Unreal units per metre of hand travel. 0 = follow [PosTrack] Scale so\n"
         "; hands and world stay the same size.\n"
         "ScaleUU=0\n"
         "MaxOffsetUU=120\n"
         "; 0 = raw pose. Raise toward 0.9 only if the hands look jittery.\n"
-        "SmoothAlpha=0.0\n"
+        "SmoothAlpha=0.00\n"
         "; Resting trim in rig space, unreal units: X forward, Y right, Z up.\n"
         "; THIS IS THE ONE THAT MATTERS. The drive assumes the game's rest hand\n"
         "; sits where your controller was when you pressed END; whatever is left\n"
@@ -522,16 +514,16 @@ static void WriteDefaultIni(const char* ini)
         "; RotScale=0 removes rotation and leaves pure translation - use it to\n"
         "; tell which half of the drive is misbehaving before tuning anything.\n"
         "RotInvert=0\n"
-        "RotScale=1.0\n"
+        "RotScale=1.00\n"
         "; The pivot assumes the rig's origin is at your eye. If rotation swings\n"
         "; the arms from somewhere below you, slide it back (unreal units).\n"
         "PivotUp=0\n"
         "; If the weapon and the hand pull APART, the weapon's component axes\n"
         "; differ from the arms'. These degrees rotate the weapon's copy of the\n"
         "; transform to match. Tune them live in the F10 overlay.\n"
-        "WpnYaw=0\n"
-        "WpnPitch=0\n"
-        "WpnRoll=0\n"
+        "WpnYaw=0.0\n"
+        "WpnPitch=0.0\n"
+        "WpnRoll=0.0\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "LTrimX=0.0\n"
         "RTrimX=0.0\n"
@@ -557,6 +549,8 @@ static void WriteDefaultIni(const char* ini)
         "RouteByDrawOrder=0\n"
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
+        "AttachKeepOnMenu=1\n"
+        "AttachKeepOnNote=1\n"
         "; PoseLag (41.2, VR-68): which generation of the head the hand and the weapon are\n"
         "; normalised against. The engine renders a frame from the head TWO locate generations\n"
         "; back - measured, the rendered camera motion matched that sample to 0.119 deg against\n"
@@ -643,9 +637,6 @@ static void WriteDefaultIni(const char* ini)
         "PaletteWorld=1\n"
         "PaletteDepthRange=1\n"
         "PaletteEyeOffset=1\n"
-        "; VR-95: on an eye jump too small to read, predict the toggle instead of\n"
-        "; holding the previous eye. Holding was measured robbing the LEFT eye of\n"
-        "; its own half-IPD during a head roll. Ships off; 1 is the A/B.\n"
         "PaletteEyePredictToggle=0\n"
         "PaletteEyeAlternate=0\n"
         "PaletteEyeFromMeasured=0\n"
@@ -720,13 +711,47 @@ static void WriteDefaultIni(const char* ini)
         "AttachProbe=1\n"
         "AttachProbeBudget=400\n"
         "AttachSnapshotMaxMs=100\n"
+        "BoneVisHide=0\n"
+        "MatCensus=1\n"
+        "MatAuto=0\n"
+        "ArmSplit=1\n"
+        "ArmSplitAuto=1\n"
+        "ArmSplitMode=1\n"
+        "ArmMeshPrims=4448\n"
+        "ArmMeshVerts=2771\n"
+        "WristScaleA=0.70\n"
+        "WristScaleB=0.70\n"
+        "WristPlane=1\n"
+        "CutCap=1\n"
+        "CutCapTwoSided=1\n"
+        "PoseReport=1\n"
+        "PaletteWeightTol=0.0200\n"
+        "AttachCensus=1\n"
+        "AttachSuppressUnplaced=1\n"
+        "AttachViewModelUU=500\n"
+        "AttachNearAngle=20.00\n"
+        "AttachNearPos=30.00\n"
+        "AttachNearMargin=1.50\n"
+        "AttachDropUncorrected=1\n"
+        "AttachEquippedMembers=1\n"
+        "AttachVerifyInstance=1\n"
+        "AttachHeldMaxPresents=2\n"
+        "AttachRequireFreshRef=0\n"
+        "AttachRequireLiveMember=0\n"
+        "AttachVetoReleasesBuffers=1\n"
+        "AttachInstanceVetoRelaxed=1\n"
+        "AttachRefMaxPresents=2\n"
+        "AttachRigRadius=200\n"
+        "AttachPassRadius=60\n"
+        "WristEdge=3\n"
+        "WristStep=1\n"
+        "WristAxis=0\n"
+        "WristCutA=-4.90\n"
+        "WristCutB=-4.90\n"
         "[Blink]\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
-        "ControllerAim=0\n"
+        "ControllerAim=1\n"
         "Marker=1\n"
-        "; VR-36: 0 = the engine's own reach (its vector carries the reach rule,\n"
-        "; including the vertical cap); 1 = fixed; 2 = hand pitch sets it. 1 and 2\n"
-        "; can only SHORTEN what the engine offered, never lengthen it.\n"
         "ReachMode=0\n"
         "ReachUU=0\n"
         "NearUU=150\n"
@@ -734,9 +759,6 @@ static void WriteDefaultIni(const char* ini)
         "PitchFarDeg=-5.0\n"
         "MarkerPullbackUU=60\n"
         "AimAtSource=1\n"
-        "; VR-36: 1 = Blink aims off the published ray, the same one the crosshair\n"
-        "; dot, the laser and the crossbow/pistol shots use. 0 is the legacy\n"
-        "; MotionAim ray, kept only as an A/B (`blink ray aim|legacy`).\n"
         "UseAimRay=1\n"
         "OptVer=3\n"
         "[Overlay]\n"
@@ -806,11 +828,21 @@ static void WriteDefaultIni(const char* ini)
         "RPitch=0.0\n"
         "RPosZ=0.0000\n"
         "RRoll=0.0\n"
+        "CalibTriangle=0\n"
         "[HeadInject]\n"
         "; (legacy, unused)\n"
         "FlipYaw=1\n"
         "FlipPitch=1\n"
-        "FlipRoll=1\n", kConfigVersion);
+        "FlipRoll=1\n"
+        "[Menu]\n"
+        "UiKeepOnMenu=1\n"
+        "NoteFastMono=1\n"
+        "UiFlags=1\n"
+        "PawnFromController=1\n"
+        "CacheNameLookups=0\n"
+        "\n"
+        "[Diagnostics]\n"
+        "GcFaultDump=1\n", kConfigVersion);
     fclose(f);
 }
 
@@ -823,7 +855,7 @@ static void LoadConfig()
 
     // create if missing, OR refresh if it predates this build's tuned defaults
     bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;
-    int ver = (int)IniFloat(ini, "Meta", "Version", 0);
+    int ver = (int)IniFloat(ini, "Meta", "Version", 11);
     if (missing || ver < kConfigVersion) {
         // 41.0: a launcher may have put the runtime selection into an ini that
         // has never been through this build ([VR] XrRuntimeJson from
@@ -852,7 +884,7 @@ static void LoadConfig()
         // profile, so a real location (D:\dvr-data) is what a Steam launch and
         // the harness can both see (docs/VERIFICATION.md gotcha 14).
         char dd[MAX_PATH] = "";
-        GetPrivateProfileStringA("Paths", "DataDir", "", dd, sizeof(dd), ini);
+        GetPrivateProfileStringA("Paths", "DataDir", "D:\\dvr-data", dd, sizeof(dd), ini);
         if (dd[0]) {
             dvr::paths::set_data_dir(dd);
             Log("config: [Paths] DataDir -> %s (command.txt, status.json, dumps, the shim manifest)",
@@ -907,7 +939,8 @@ static void LoadConfig()
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
-        dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 0, ini) != 0);   // VR-80 candidate, default off
+        dvr::stereo::set_reentry_single_tag(GetPrivateProfileIntA("Stereo", "SingleTagRepair", 1, ini) != 0);
+        dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 1, ini) != 0);   // Confirmed profile default; F10 retains the A/B.
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 3, ini));
     }
 
@@ -1128,7 +1161,7 @@ static void LoadConfig()
     g_asDriveDistUU = IniFloat(ini, "Aim", "DriveDistanceUU", 800.0f);
     g_shOn = GetPrivateProfileIntA("Aim", "ShotProbe", 0, ini) != 0;
     g_fwOn = GetPrivateProfileIntA("Aim", "FireWatch", 0, ini) != 0;
-    FireAimSet(GetPrivateProfileIntA("Aim", "FireFromHand", 0, ini) != 0, "ini");
+    FireAimSet(GetPrivateProfileIntA("Aim", "FireFromHand", 1, ini) != 0, "ini");
     PwSet(GetPrivateProfileIntA("Aim", "PropWatch", 0, ini) != 0, "ini");
     if (g_fwOn)
         Log("config: [Aim] FireWatch=1 - read-only. Named script dispatches before each "
@@ -1149,7 +1182,7 @@ static void LoadConfig()
             g_maimEnabled ? "ALSO ON (turn it off: they fight)" : "off");
     {
         dvr::aim::Config crosshair;
-        crosshair.dot = GetPrivateProfileIntA("Crosshair", "Dot", 0, ini) != 0;
+        crosshair.dot = GetPrivateProfileIntA("Crosshair", "Dot", 1, ini) != 0;
         crosshair.laser = GetPrivateProfileIntA("Crosshair", "Laser", 0, ini) != 0;
         char hand[32]; GetPrivateProfileStringA("Crosshair", "Hand", "left", hand, sizeof(hand), ini);
         crosshair.hand = !_stricmp(hand, "left") ? 0 : !_stricmp(hand, "right") ? 1 : -1;
@@ -1320,7 +1353,7 @@ static void LoadConfig()
 
     // 30.70: the render-time hand/weapon drive
     {
-        g_rtdEnable = IniFloat(ini, "HandRender", "Enabled",   0) != 0.0f;
+        g_rtdEnable = IniFloat(ini, "HandRender", "Enabled",   1) != 0.0f;
         g_rtdDoArms = IniFloat(ini, "HandRender", "DriveArms", 1) != 0.0f;
         g_rtdDoWpn  = IniFloat(ini, "HandRender", "DriveWeapon", 1) != 0.0f;
         int wr = (int)IniFloat(ini, "HandRender", "WeaponRegs", 36);
@@ -1440,7 +1473,7 @@ static void LoadConfig()
     // 32.12: a saved neutral means the hands land in the same place every
     // launch, so the trim is calibrated once and then left alone.
     // 32.27: MEASURED WORKING - Blink lands where the controller points.
-    g_blkAimOnCfg = IniFloat(ini, "Blink", "ControllerAim", 0) != 0.0f;
+    g_blkAimOnCfg = IniFloat(ini, "Blink", "ControllerAim", 1) != 0.0f;
     // 32.32: back ON by default. The user's key fact - the centre-blindness
     // predates controller aiming and started when stereo went in - rules out
     // "the point has no surface under it" as the cause. It is the draw's
@@ -1570,24 +1603,30 @@ static void LoadConfig()
     g_skcBlockTrimOn = IniFloat(ini, "Hands", "BlockTrim", 1) != 0.0f;
     g_crawlTuckCfg   = IniFloat(ini, "Hands", "CrawlTuck", 1) != 0.0f;  // 38.19
     g_slideAssist    = IniFloat(ini, "Input", "SlideAssist", 1) != 0.0f; // 38.22
+    // First-fault evidence is enabled in the explicitly requested tested profile.
+    // Set Diagnostics/GcFaultDump=0 to disable full-memory capture.
+    dvr::crash::configure_read_fault_dump(
+        GetPrivateProfileIntA("Diagnostics", "GcFaultDump", 1, ini) ? kGcReferenceReadFault : 0,
+        kGcReferenceReadBytes, sizeof(kGcReferenceReadBytes));
+
     // VR-78: the vertical accounting probe. Read here and deliberately NOT written
     // by WriteDefaultIni or the save: an absent key is the compiled default (off),
     // and a save must never materialise a diagnostic into a player's ini.
     {
-        const int za = GetPrivateProfileIntA("PosTrack", "ZAccount", -1, ini);
+        const int za = GetPrivateProfileIntA("PosTrack", "ZAccount", 0, ini);
         if (za >= 0) dvr::zacct::set_enabled(za != 0, "[PosTrack] ZAccount in the ini");
         // VR-80: the pair trace - bounded per-present lines joining the ring's eye,
         // the eye chosen, the camera write the tag carries and c5, after a return
         // to gameplay and around a pairing override. Never saved.
-        const int pt = GetPrivateProfileIntA("Stereo", "PairTrace", -1, ini);
+        const int pt = GetPrivateProfileIntA("Stereo", "PairTrace", 1, ini);
         if (pt >= 0) dvr::zacct::set_trace(pt != 0, "[Stereo] PairTrace in the ini");
         // VR-80: count the viewport draw root's other three callers through
         // pass-through stubs, and annotate each traced present with what drew
         // since the last one. Diagnostic; the sites are restored when off.
         // VR-80: the ring ledger - one record per present of what entered and left the tag
         // ring, printed in bounded windows, with a reconcile of every tag. Never saved.
-        dvr::stereo::set_reentry_ledger(GetPrivateProfileIntA("Stereo", "RingLedger", 0, ini) != 0);
-        const int dc = GetPrivateProfileIntA("Stereo", "DrawCallerTrace", 0, ini);
+        dvr::stereo::set_reentry_ledger(GetPrivateProfileIntA("Stereo", "RingLedger", 1, ini) != 0);
+        const int dc = GetPrivateProfileIntA("Stereo", "DrawCallerTrace", 1, ini);
         DrawCallersSet(dc != 0);
         if (dc) Log("config: [Stereo] DrawCallerTrace=1 - the draw root's other callers will be counted "
                     "from the next script dispatch");
@@ -1596,7 +1635,7 @@ static void LoadConfig()
         // all; roll mode bins by head roll and measures laterally instead. Same
         // rule as the key above - absent means the compiled default, and neither
         // is ever materialised into a player ini by a save.
-        const int zr = GetPrivateProfileIntA("PosTrack", "ZAccountRoll", -1, ini);
+        const int zr = GetPrivateProfileIntA("PosTrack", "ZAccountRoll", 0, ini);
         if (zr >= 0) dvr::zacct::set_roll_mode(zr != 0, "[PosTrack] ZAccountRoll in the ini");
         Log("config: [PosTrack] ZAccount=%d ZAccountRoll=%d - %s, accounting the %s",
             za > 0 ? 1 : 0, zr > 0 ? 1 : 0,
@@ -1810,13 +1849,13 @@ static void LoadConfig()
     // list instead of dropping them; the resume validates every retained object
     // against a freshly built live-object table (class and FName) before use.
     // OFF is the old transition exactly. F10 Hands, live.
-    g_mkOn = IniFloat(ini, "Hands", "AttachKeepOnMenu", 0) != 0.0f;
+    g_mkOn = IniFloat(ini, "Hands", "AttachKeepOnMenu", 1) != 0.0f;
     Log("config: [Hands] AttachKeepOnMenu=%d - a menu over a live pawn %s.", g_mkOn ? 1 : 0,
         g_mkOn ? "SUSPENDS the weapon contracts and candidates, validated on resume"
                : "drops the weapon contracts and candidates, as before VR-93");
     // The book/note screen reads LOADING, not MENU; this lets it suspend too, on
     // the UI observer's open bit. Needs AttachKeepOnMenu=1 and [Menu] UiProbe=1.
-    g_mkNoteOn = IniFloat(ini, "Hands", "AttachKeepOnNote", 0) != 0.0f;
+    g_mkNoteOn = IniFloat(ini, "Hands", "AttachKeepOnNote", 1) != 0.0f;
     Log("config: [Hands] AttachKeepOnNote=%d - the book/note screen %s.", g_mkNoteOn ? 1 : 0,
         g_mkNoteOn ? "suspends like a menu while the observer sees it open"
                    : "drops the weapon records, as before");
@@ -1874,13 +1913,20 @@ static void LoadConfig()
     // VR-93 B2: a menu that kept the weapon records does not queue the observer
     // rescan, which otherwise holds the resume ~500 ms. Needs AttachKeepOnMenu=1
     // to have any effect. OFF queues it on every menu, as before.
-    g_uiKeepOnMenu = IniFloat(ini, "Menu", "UiKeepOnMenu", 0) != 0.0f;
+    g_uiKeepOnMenu = IniFloat(ini, "Menu", "UiKeepOnMenu", 1) != 0.0f;
     // VR-93 research: report changes of the screen flags the script dump declares
     // (GAMEPLAY_STATE.md section 9). Read-only, logs changes only.
-    g_ufOn = IniFloat(ini, "Menu", "UiFlags", 0) != 0.0f;
+    g_ufOn = IniFloat(ini, "Menu", "UiFlags", 1) != 0.0f;
+    g_nameIndexCacheOn = IniFloat(ini, "Menu", "CacheNameLookups", 0) != 0.0f;
+    Log("config: [Menu] CacheNameLookups=%d - %s", g_nameIndexCacheOn ? 1 : 0,
+        g_nameIndexCacheOn ? "reuse validated name IDs" : "scan names for every lookup (legacy)");
+    g_pawnFromController = IniFloat(ini, "Menu", "PawnFromController", 1) != 0.0f;
+    Log("config: [Menu] PawnFromController=%d - capsule liveness uses %s",
+        g_pawnFromController ? 1 : 0,
+        g_pawnFromController ? "the validated possessed pawn" : "the event-latched pawn (legacy)");
     // VR-98: a note or book switches to mono and back as soon as the note movie opens and closes,
     // instead of the load rules' 750 ms silence wait and one-second resume hold. Needs the UI observer.
-    g_uiNoteFastMono = IniFloat(ini, "Menu", "NoteFastMono", 0) != 0.0f;
+    g_uiNoteFastMono = IniFloat(ini, "Menu", "NoteFastMono", 1) != 0.0f;
     Log("config: [Menu] NoteFastMono=%d - a note %s.", g_uiNoteFastMono ? 1 : 0,
         g_uiNoteFastMono ? "goes mono when its movie opens and stereo on the first dispatch after it closes"
                          : "waits 750 ms of view silence to go mono and a full second of dispatches to return (the load rules)");
@@ -2178,8 +2224,8 @@ static void LoadConfig()
     // in new configurations; off returns the AIM-pose ray untouched.
     {
         dvr::aim::Config ch = dvr::aim::config();
-        ch.followHandTrim = GetPrivateProfileIntA("Aim", "FollowHandTrim", 0, ini) != 0;
-        ch.modelRay = GetPrivateProfileIntA("Aim", "ModelRay", 0, ini) != 0;
+        ch.followHandTrim = GetPrivateProfileIntA("Aim", "FollowHandTrim", 1, ini) != 0;
+        ch.modelRay = GetPrivateProfileIntA("Aim", "ModelRay", 1, ini) != 0;
         dvr::aim::configure(ch, ini);
         Log("config: [Aim] FollowHandTrim=%d - %s. This is NOT a measured barrel "
             "axis or muzzle position: it transports the hand trim onto the existing "
@@ -2191,7 +2237,7 @@ static void LoadConfig()
     }
 
     // THE MODEL SCALE. Hands and held weapons, one uniform factor.
-    g_mpModelScale = IniFloat(ini, "Hands", "ModelScale", 1.0f);
+    g_mpModelScale = IniFloat(ini, "Hands", "ModelScale", 0.85f);
     if (g_mpModelScale < 0.3f) g_mpModelScale = 0.3f;
     if (g_mpModelScale > 2.0f) g_mpModelScale = 2.0f;
     if (g_mpModelScale != 1.0f)
@@ -2390,7 +2436,7 @@ static void LoadConfig()
     // controls take so long after a load. 1.5 s is enough for the rig to be
     // real; everything the auto-start needs is already gated on the pawn and
     // both controllers being live.
-    g_autoHandDelay = IniFloat(ini, "HandTracking", "DelaySec", 1.5f);
+    g_autoHandDelay = IniFloat(ini, "HandTracking", "DelaySec", 4);
     if (g_autoHandDelay < 0.5f)  g_autoHandDelay = 0.5f;
     if (g_autoHandDelay > 60.0f) g_autoHandDelay = 60.0f;
     g_fpPosOn  = IniFloat(ini, "HandTracking", "Depth", 1) != 0.0f;
@@ -2632,6 +2678,8 @@ static void OverlaySaveDefaults()
 {
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Menu", "CacheNameLookups", g_nameIndexCacheOn ? "1" : "0", ini);
+    WritePrivateProfileStringA("Menu", "PawnFromController", g_pawnFromController ? "1" : "0", ini);
     char v[64];
     _snprintf(v, 64, "%.1f", g_posScaleUU);
     WritePrivateProfileStringA("PosTrack", "Scale", v, ini);

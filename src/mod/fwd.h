@@ -474,6 +474,8 @@ static void SkcSaveNeutral(const char* why);
 static void CrouchPropFind();
 static void LocPropFind();
 static void CrouchStateTick();
+static void PawnCollisionTick();
+static uint8_t* PawnForCollision();
 static void ArmsHideTick();
 static void ApplyHandToMeshInner();
 static uintptr_t CsModuleEnd();

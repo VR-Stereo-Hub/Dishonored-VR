@@ -93,13 +93,16 @@ static inline void FovLeverApply()
         zc.cyl = g_cylLast;
         zc.cylAgeMs = MaimNowMs() - g_cylOkMs;
     }
-    if (g_eyeClampCfg && g_pePawn && g_actorLocFound && g_cylLast > 10.0f &&
+    // Capsule and pawn Z must belong to the same owner across a reload.
+    uint8_t* clampPawn = g_pawnFromController ? PawnForCollision() : g_pePawn;
+    if (g_eyeClampCfg && clampPawn &&
+        (!g_pawnFromController || clampPawn == g_cylMeasuredPawn) && g_actorLocFound && g_cylLast > 10.0f &&
         (MaimNowMs() - g_cylOkMs) < 1500.0 &&
-        RangeReadable(g_pePawn + g_actorLocOff, 12)) {
-        float pz = ((const float*)(g_pePawn + g_actorLocOff))[2];
+        RangeReadable(clampPawn + g_actorLocOff, 12)) {
+        float pz = ((const float*)(clampPawn + g_actorLocOff))[2];
         float zmax = pz + g_cylLast - g_eyeClampMargin;
         if (za) {
-            memcpy(zc.pawn, (const float*)(g_pePawn + g_actorLocOff), sizeof(zc.pawn));
+            memcpy(zc.pawn, (const float*)(clampPawn + g_actorLocOff), sizeof(zc.pawn));
             zc.ceilRaw = zmax;
         }
         // 38.26: EASE THE CEILING DOWN. 38.25 measured the clamp working but

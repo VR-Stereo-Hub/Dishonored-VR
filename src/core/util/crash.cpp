@@ -18,6 +18,7 @@ LPTOP_LEVEL_EXCEPTION_FILTER g_previous = nullptr;
 LPTOP_LEVEL_EXCEPTION_FILTER g_ours = nullptr;
 volatile LONG g_teardown = 0;
 volatile LONG g_faults = 0;
+volatile LONG g_readFaultDumpAddress = 0;
 HANDLE g_crashFile = INVALID_HANDLE_VALUE;
 
 struct NamedThread { char name[16]; DWORD tid; };
@@ -38,7 +39,7 @@ char g_line[512];
 char g_ctx[128] = "backend not up yet";
 bool g_headerDone = false;
 
-bool write_dump(EXCEPTION_POINTERS* ep, const char* why);   // defined below
+bool write_dump(EXCEPTION_POINTERS* ep, const char* why, bool fullMemory = false);   // defined below
 
 void context(const char* text)
 {
@@ -116,6 +117,18 @@ LONG WINAPI fingerprint(EXCEPTION_POINTERS* ep)
     if (!ep || !ep->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
     const DWORD code = ep->ExceptionRecord->ExceptionCode;
     if ((code & 0xF0000000u) != 0xC0000000u) return EXCEPTION_CONTINUE_SEARCH;
+    // Capture before the ordinary three-message budget and before stack scans.
+    // The old unhandled dump saw a later error-path exception and lost the heap
+    // containing the bad reference. Only the byte-verified, explicitly armed
+    // AV/read site qualifies; unrelated handled exceptions pay no dump cost.
+    const uintptr_t target = (uintptr_t)(DWORD)InterlockedCompareExchange(&g_readFaultDumpAddress, 0, 0);
+    if (!g_teardown && target && code == EXCEPTION_ACCESS_VIOLATION &&
+        ep->ContextRecord && ep->ContextRecord->Eip == target &&
+        (uintptr_t)ep->ExceptionRecord->ExceptionAddress == target &&
+        ep->ExceptionRecord->NumberParameters >= 2 &&
+        ep->ExceptionRecord->ExceptionInformation[0] == 0) {
+        write_dump(ep, "targeted first-chance read fault", true);
+    }
     if (InterlockedIncrement(&g_faults) > 3) return EXCEPTION_CONTINUE_SEARCH;
 
     if (g_teardown) {
@@ -210,7 +223,7 @@ volatile LONG g_dumpDone = 0;
 // One dump per run, from whichever handler gets there first. `why` names the
 // path that decided this fault was fatal, so the .dmp can be tied back to the
 // line in dishonored_vr_crash.txt that produced it.
-bool write_dump(EXCEPTION_POINTERS* ep, const char* why)
+bool write_dump(EXCEPTION_POINTERS* ep, const char* why, bool fullMemory)
 {
     if (!g_miniDump || g_teardown) return false;
     if (InterlockedExchange(&g_dumpDone, 1) != 0) return false;
@@ -225,11 +238,16 @@ bool write_dump(EXCEPTION_POINTERS* ep, const char* why)
         return false;
     }
     MINIDUMP_EXCEPTION_INFORMATION mei = { GetCurrentThreadId(), ep, FALSE };
+    const MINIDUMP_TYPE flags = fullMemory
+        ? (MINIDUMP_TYPE)(MiniDumpWithFullMemory | MiniDumpWithFullMemoryInfo | MiniDumpWithThreadInfo)
+        : (MINIDUMP_TYPE)(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithDataSegs);
     BOOL ok = g_miniDump(GetCurrentProcess(), GetCurrentProcessId(), f,
-                         (MINIDUMP_TYPE)(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithDataSegs),
+                         flags,
                          ep ? &mei : nullptr, nullptr, nullptr);
+    const DWORD dumpError = ok ? ERROR_SUCCESS : GetLastError();
     CloseHandle(f);
-    emit("minidump %s (%s): %s", ok ? "written" : "FAILED", why, path);
+    emit("minidump %s (%s, %s, err %lu): %s", ok ? "written" : "FAILED", why,
+         fullMemory ? "full memory" : "indirect memory", (unsigned long)dumpError, path);
     return ok != FALSE;
 }
 
@@ -244,6 +262,26 @@ LONG WINAPI unhandled(EXCEPTION_POINTERS* ep)
 }
 
 } // namespace
+
+bool configure_read_fault_dump(uintptr_t address, const uint8_t* expected, size_t count)
+{
+    InterlockedExchange(&g_readFaultDumpAddress, 0);
+    if (!address) {
+        DVR_INFO("crash: targeted first-chance read dump OFF");
+        return true;
+    }
+    uint8_t actual[16]; SIZE_T got = 0;
+    if (!expected || !count || count > sizeof(actual) ||
+        !ReadProcessMemory(GetCurrentProcess(), (const void*)address, actual, count, &got) ||
+        got != count || memcmp(actual, expected, count) != 0) {
+        DVR_WARN("crash: targeted read dump REFUSED at %p (instruction bytes unavailable/mismatched)", (void*)address);
+        return false;
+    }
+    InterlockedExchange(&g_readFaultDumpAddress, (LONG)address);
+    DVR_INFO("crash: targeted first-chance AV/read dump ON at %p (bytes verified); "
+             "full memory once before error handling; diagnostic only", (void*)address);
+    return true;
+}
 
 void install()
 {

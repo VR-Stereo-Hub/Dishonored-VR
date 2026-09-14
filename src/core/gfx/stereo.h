@@ -224,6 +224,8 @@ bool reentry_c5_pair();
 // VR-80 candidate F-late ([Stereo] LateTagRepair, default off; `reentry latetag on|off`, F10): a tag
 // that reaches the ring just after the present that showed its image is removed as a repair at the
 // next present, when that present's c5 confirms, instead of costing a wrong eye and a drain.
+void set_reentry_single_tag(bool on);
+bool reentry_single_tag();
 void set_reentry_late_tag(bool on);
 bool reentry_late_tag();
 
