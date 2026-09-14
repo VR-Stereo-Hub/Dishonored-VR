@@ -1,23 +1,15 @@
-## Current candidate: exit FOV, physical pitch, mantle handback
+## Current candidate: upright cinematic tracking
 
-Branch codex/vr-50-cinematic-fov-and-hands, draft PR56 remains unmerged.
-User confirms build230 cinematic FOV and native arms; exit alone briefly shrinks.
-Verified log shows1125ms native FOV recovery after override release. New candidate
-bridges that recovery, suppresses authored up/down TILT ONLY (VR-105), and enables
-native hands during Mantle (VR-104). All in one build, explicitly requested.
-Camera height, horizontal authored movement and physical HMD tilt stay active.
-Read docs/dishonored/CINEMATIC_FOV_AND_HANDS.md latest follow-up. Install identity:
-build/cinematic-fov/latest-install.json. Never launch the game; verify banner,
-archive both logs, one question per launch. No subagents and no merge approval.
-
-Installed candidate: vr33-hands-working-232-g4ec4f457, compiled 22:10:59.
-DLL SHA256: 71681379ff190a924d6f6002863eebe4f8ea1ce7246c4b14b92e8eee170c49c6.
-Full installed INI comparison: only Anim.MantleHandBack=1 and Cine.LockPitch=1
-added; CRLF verified. Prior DLL, INI and both logs archived under
-build/cinematic-fov/install-20260913-221229. Release, lint, exports, golden INI,
-38 FOV checks, 28 head-math checks, 13 camera-scope checks and standalone XR
-60-frame self-test pass. Headset acceptance of this combined follow-up is pending.
-The agent did not launch the game.
+Branch codex/vr-50-cinematic-fov-and-hands; draft PR56 remains unmerged.
+Build232 confirms the FOV exit improvement. Mantling remains UNTESTED.
+VR-105 now includes authored roll suppression and correction of tilted-axis
+swivel while holding the Empress. Scripted dialogue tracking uses a single
+final camera owner across influence blends. Physical pitch/roll, native yaw,
+and camera height remain. Read CINEMATIC_FOV_AND_HANDS.md latest follow-up.
+Exact install identity: build/cinematic-fov/latest-install.json.
+Next test: Empress scene, physical left/right and up/down look without orbit,
+roll forcing or yaw lock. One question per launch. Agent reads/archives logs.
+Never launch the game. No subagents and no merge approval.
 
 ## Previous records (latest candidate above supersedes earlier plans)
 

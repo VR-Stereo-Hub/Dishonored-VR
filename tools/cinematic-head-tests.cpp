@@ -164,6 +164,39 @@ int main() {
           "physical downward head tilt remains active");
     check(physical_pitch(lockedPitch,2) && lockedPitch[0]==16000,
           "physical pitch matches gameplay clamp");
+    check(owns_rotation(true,0,1,0),"scripted player influence uses final head scope");
+    check(owns_rotation(true,0.4f,0.6f,0),"scripted blend retains the same head scope");
+    check(!owns_rotation(false,0.4f,0.6f,0),"ordinary gameplay blend retains native head path");
+    check(!owns_rotation(true,-1,0,1),"unknown influence refuses scripted head scope");
+    // Regression: a left/right sweep while holding the Empress must not orbit
+    // a tilted local axis. Expectations are independent Euler axis values.
+    const int32_t steep[3]={-10518,10114,5936};
+    bool sweep=true;
+    for (double y : {-1.2,-0.6,0.0,0.6,1.2}) {
+        sweep=comfort(steep,0.25,0.4,-0.2,-0.3,0.4+y,0.12,true,true,out,&basis) && sweep;
+        sweep=sweep && std::abs(out[0]-(int32_t)std::lround(-0.3/unit))<=1 &&
+            std::abs(out[1]-(int32_t)std::lround(10114+y/unit))<=1 &&
+            std::abs(out[2]-(int32_t)std::lround(0.12/unit))<=1;
+    }
+    check(sweep,"steep authored pitch/roll cannot couple horizontal look into roll");
+    const int32_t upright[3]={0,10114,0};
+    int32_t levelOut[3]={}; Matrix levelBasis={};
+    check(comfort(steep,0.25,0.4,-0.2,-0.3,1.0,0.12,true,true,out,&basis) &&
+          comfort(upright,0.25,0.4,-0.2,-0.3,1.0,0.12,true,true,levelOut,&levelBasis) &&
+          close(basis,levelBasis),"comfort ignores authored tilt even at a non-neutral entry pose");
+    int32_t moved[3]={steep[0],steep[1]+2000,steep[2]};
+    check(comfort(moved,0.25,0.4,-0.2,-0.3,1.0,0.12,true,true,out,&basis) &&
+          out[1]==levelOut[1]+2000,"authored horizontal movement survives comfort composition");
+    check(comfort(steep,0,0,0,0.1,0.2,0.3,true,false,out,&basis) &&
+          std::abs(out[2]-(5936+(int32_t)std::lround(0.3/unit)))<=1,
+          "pitch-only option preserves authored roll without mixing yaw axes");
+    check(comfort(steep,0,0,0,0.1,0.2,0.3,false,true,out,&basis) &&
+          std::abs(out[0]-(-10518+(int32_t)std::lround(0.1/unit)))<=1,
+          "roll-only option preserves authored pitch");
+    check(comfort(wrap,0,0,0,0,32*unit,0,true,true,out,&basis) &&
+          close(basis,expectedWrap,0.0002),"upright comfort yaw crosses wrap continuously");
+    check(!comfort(steep,0,0,0,0,std::numeric_limits<double>::quiet_NaN(),0,true,true,out,&basis),
+          "comfort rejects invalid physical orientation");
     std::printf("Cinematic head math: %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }

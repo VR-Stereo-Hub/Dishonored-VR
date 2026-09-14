@@ -3007,6 +3007,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockPitch",CinePitchEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Blink", "ControllerAim",
                                g_blkDriveUI ? "1" : "0", ini);

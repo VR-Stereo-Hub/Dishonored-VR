@@ -626,6 +626,7 @@ static void RotInjectTick()
         f5Was = f5;
     }
     if (!g_rotInject) return;
+    if (CineHeadOwnsInput()) { g_rotHaveRef=false; g_rotHaveLast=false; return; }
     // 38.68: scripted-camera manners. Quiet script writes are not always an
     // emergency - a keyhole seat-in or a cutscene mutes them ON PURPOSE, and
     // grabbing the controller there is what broke the intro boat (see the
@@ -847,7 +848,16 @@ static void ApplyHeadToViewRotation(void* parms)
     static double  frWriteMs = -1.0e9;
     static int32_t frP = 0, frY = 0, frR = 0;
     static bool    frHave = false;
+    static float prevYaw = 0, prevPitch = 0;
+    static bool havePrev = false;
     double frNow = MaimNowMs();
+    if (CineHeadOwnsInput()) {
+        // Keep the resume reference current, but do not feed HMD deltas into
+        // the native dialogue constraints: the final camera owns them once.
+        prevYaw=g_hmdYaw; prevPitch=g_hmdPitch; havePrev=true; frHave=false;
+        DVR_HEAD_REFUSE("head: cinematic draw owns physical rotation; native controller/stick left active");
+        return;
+    }
     // A render re-entry can take longer than the modifier chain's 2 ms window.
     // Reuse the first view regardless of wall time; do not advance head/body
     // bookkeeping or move the pawn between the two eyes.
@@ -878,8 +888,6 @@ static void ApplyHeadToViewRotation(void* parms)
     }
     frHave = false;
 
-    static float prevYaw = 0, prevPitch = 0;
-    static bool  havePrev = false;
     if (!havePrev) { prevYaw = g_hmdYaw; prevPitch = g_hmdPitch; havePrev = true; Log("head: first dispatch seeds the yaw reference (no write)"); return; }
 
     float dy = g_hmdYaw - prevYaw;

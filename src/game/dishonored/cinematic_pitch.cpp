@@ -1,6 +1,6 @@
 // VR-105: suppress authored pitch only. Height and horizontal camera motion remain.
 namespace {
-std::atomic<bool> g_cinePitch{false};
+std::atomic<bool> g_cinePitch{false},g_cineRoll{false};
 CtIdentity g_cpOwner[3];
 bool g_cpHaveOwner=false,g_cpScope=false;
 LONG g_cpLoad=0;
@@ -15,11 +15,18 @@ bool CpValidate(uint8_t* cam) {
     return pc==g_peCtrl && CtObject(pc,g_ctPcCamera)==cam && CtObject(pc,g_ctPawn)==g_cpOwner[2].value.obj;
 }
 }
+static bool CineRollEnabled() { return g_cineRoll.load(); }
+static void CineRollSet(bool on) {
+    g_cineRoll.store(on); Log("cine/roll: %s (physical HMD roll; authored cinematic roll suppressed)",on?"ON":"off");
+}
 static bool CinePitchEnabled() { return g_cinePitch.load(); }
 static void CinePitchSet(bool on) {
     g_cinePitch.store(on); Log("cine/pitch: %s (physical HMD pitch; authored yaw/roll and height retained)",on?"ON":"off");
 }
-static void CinePitchConfigure(const char* ini) { CinePitchSet(GetPrivateProfileIntA("Cine","LockPitch",0,ini)!=0); }
+static void CinePitchConfigure(const char* ini) {
+    CinePitchSet(GetPrivateProfileIntA("Cine","LockPitch",0,ini)!=0);
+    CineRollSet(GetPrivateProfileIntA("Cine","LockRoll",0,ini)!=0);
+}
 static void CinePitchPublish() {
     if (g_cpScope) HtPublishCameraRecord(3,g_cpHead,g_cpWritten[1]*360.0f/65536,
         g_cpWritten[0]*360.0f/65536,g_cpWritten[2]*360.0f/65536);
@@ -32,13 +39,14 @@ static void CinePitchBegin(bool scene,bool doubleDraw) {
     const bool menu=g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
         (g_uiNoteOpen && now-g_uiPollMs<500);
     const bool animation=state.valid && (state.game || dvr::scene_state::cinematic(state.state[0]));
-    const bool ready=CinePitchEnabled() && scene && animation && !menu &&
+    const bool rollLock=CineRollEnabled() && state.valid && dvr::scene_state::cinematic(state.state[0]);
+    const bool ready=(CinePitchEnabled() || rollLock) && scene && animation && !menu &&
         dvr::stereo::wants_projection() && dvr::vr::session_live() && !dvr::vr::cinematic_active() &&
         !dvr::camera::eyetest_active() && !dvr::camera::postest_active() && !dvr::camera::pitchtest_active();
     if (!ready) { g_cpHaveOwner=false; return; }
     HtSample head={};
     if (!HtConsumeSample(&head) || !head.ok || !head.poseOk || now<head.locateMs || now-head.locateMs>100 ||
-        !std::isfinite(head.pitch)) return;
+        !std::isfinite(head.pitch) || !std::isfinite(head.roll)) return;
     CineTraceTick();
     if (!g_ctLayout) return;
     if (!CpValidate((uint8_t*)g_cpOwner[0].value.obj)) {
@@ -57,7 +65,8 @@ static void CinePitchBegin(bool scene,bool doubleDraw) {
     auto* cam=(uint8_t*)g_cpOwner[0].value.obj;
     if (!CtRead(cam,g_ctCache+g_ctPov+g_ctRot,g_cpWritten,12)) return;
     const int32_t authoredPitch=g_cpWritten[0];
-    if (!dvr::cine::physical_pitch(g_cpWritten,head.pitch*g_flipPitch)) return;
+    if (CinePitchEnabled() && !dvr::cine::physical_pitch(g_cpWritten,head.pitch*g_flipPitch)) return;
+    if (rollLock) g_cpWritten[2]=(int32_t)std::lround(head.roll*g_flipRoll*65536.0/6.2831853071795864769);
     constexpr double radians=6.2831853071795864769/65536.0;
     const auto basis=dvr::cine::rotation(g_cpWritten[0]*radians,g_cpWritten[1]*radians,g_cpWritten[2]*radians);
     const float right[3]={(float)basis.m[0][1],(float)basis.m[1][1],(float)basis.m[2][1]};

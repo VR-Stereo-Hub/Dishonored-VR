@@ -255,3 +255,7 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [ ] VR-105: physical-pitch-only animation comfort; combined headset test pending.
 - [ ] VR-104 follow-up: mantle handback enabled in combined candidate.
 - [ ] VR-50 follow-up: cover measured1125ms native FOV exit blend.
+
+- [x] VR-50 cinematic exit recovery: build232 headset-confirmed (broader ticket remains open).
+- [ ] VR-105 follow-up: upright yaw, authored roll suppression and dialogue tracking candidate.
+- [ ] VR-104 mantle handback: not exercised in build232 playtest.

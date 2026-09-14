@@ -146,3 +146,40 @@ build/cinematic-fov/install-20260913-221229. Release, lint, exports, golden INI,
 38 FOV checks, 28 head-math checks, 13 camera-scope checks and standalone XR
 60-frame self-test pass. Headset acceptance of this combined follow-up is pending.
 The agent did not launch the game.
+
+## 2026-09-13: upright cinematic tracking follow-up
+
+Build232 (4ec4f457, compile22:10:59) log banner verified before interpretation.
+Both logs archived in build/cinematic-fov/playtest-20260913-230307. The tester
+reports the FOV exit improvement successful; mantle handback was not tested.
+Forced pitch suppression exposes a remaining tilted-axis swivel while holding
+the Empress. At tick32642531 authored P/Y/R=-57.78/55.56/32.61, composed
+P/Y/R=-32.21/40.92/54.40. This is smooth camera-axis coupling, not eye flicker.
+Replacing pitch AFTER full rotation composition leaves authored tilt in yaw/roll.
+
+The comfort path now constructs upright yaw as authored yaw plus physical yaw
+relative to the entry reference, then applies physical pitch and roll. Authored
+yaw and camera location remain active. Independent default-off Cine.LockRoll
+(F10 Suppress cinematic roll; cineroll on/off; Save As Defaults) removes authored
+roll, retaining physical HMD roll. LockPitch keeps its independent toggle.
+
+Decompiled DisConv_PlayerLookAtSpeaker declares maximum pitch/yaw constraints;
+DishonoredCamera_PlayerControl resets controller rotation, and camera influences
+form a non-additive group. Native bodies are unavailable. The log includes942
+fully animation-owned,304 fully player-owned and66 blended InDialog samples.
+The prior head scope skipped the latter two populations. Scripted Soiree,
+InDialog and InScriptedChoice now keep a final head scope across those influences.
+A100ms lease from a successful live scope suppresses controller HMD injection,
+including direct fallback, so physical yaw is applied once. Native controller
+and stick changes remain; script resume references stay current. Unknown weights,
+menus, owner changes, stale poses and runtime loss retain refusal/reset guards.
+No new engine offsets or persistent engine-field writes are introduced.
+
+Reported restricted movement is provisionally interpreted as head rotation;
+physical lean versus rotation clarification is pending. The fix is a candidate,
+not a rendered acceptance claim.39 math/ownership checks and13 extracted camera
+scope checks pass, including the steep authored-axis regression and preserving
+ordinary gameplay blend ownership. New one-question test: holding the Empress,
+look left/right and up/down; expect no orbit or forced roll and unrestricted
+physical look. A remaining orbit rejects upright composition; a yaw lock points
+to ownership/constraint handling. FOV and mantle settings stay enabled.

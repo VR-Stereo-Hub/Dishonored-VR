@@ -263,3 +263,7 @@ Cinematic FOV override now covers the native zoom's exit blend. Optional LockPit
 suppresses forced animation tilt while preserving physical headset tilt and
 camera height. Optional MantleHandBack returns mantle hands to native animation.
 These follow-ups await a combined headset test; no release is declared.
+
+Pending cinematic candidate: independent authored roll suppression, upright
+head-turn composition on tilted cameras, and final head tracking across dialogue
+camera blends. Headset validation pending; no release declared.

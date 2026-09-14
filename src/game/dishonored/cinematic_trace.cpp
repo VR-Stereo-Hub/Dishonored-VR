@@ -38,7 +38,7 @@ static void CineTraceSet(bool on) {
     Log("cine/trace: %s (live); no engine writes", on ? "ON" : "off");
 }
 static void CineTraceTick() {
-    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled() && !CinePitchEnabled()) || g_ctResolved || !RflNamesReady()) return;
+    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled() && !CinePitchEnabled() && !CineRollEnabled()) || g_ctResolved || !RflNamesReady()) return;
     const double now = MaimNowMs();
     if (now < g_ctResolveAfter || !IsLiveObject(g_camObj) || !CamStillValid()) return;
     g_ctResolveAfter = now + 5000;
@@ -149,10 +149,10 @@ CtIdentity g_chOwner[3]; // camera, controller, pawn
 bool g_chReference=false, g_chScope=false;
 LONG g_chLoad=0;
 dvr::cine::Matrix g_chRef={};
-HtSample g_chHead={};
+HtSample g_chHead={},g_chReferenceHead={};
 int32_t g_chWritten[3]={};
 uint32_t g_chWrites=0, g_chRestores=0, g_chRefused=0;
-double g_chNextLog=0, g_chRetry=0;
+double g_chNextLog=0, g_chRetry=0, g_chInputUntil=0;
 const char* g_chReason="startup";
 bool ChSlot(const CtIdentity& id) {
     auto* obj=(uint8_t*)id.value.obj;
@@ -189,7 +189,19 @@ void ChReason(const char* why) {
     }
     // Logging a temporary refusal does not change the reference.
 }
-void ChReset(const char* why) { ChReason(why); g_chReference=false; }
+void ChReset(const char* why) { ChReason(why); g_chReference=false; g_chInputUntil=0; }
+}
+// A short lease is issued only by a successful, live draw scope. No engine
+// memory is written here. The controller path leaves authored/stick yaw intact.
+static bool CineHeadOwnsInput() {
+    const auto state=dvr::anim::snapshot();
+    const double now=MaimNowMs();
+    return g_cineHead.load() && g_trackingEnabled && g_rotInject && g_chReference &&
+        now<=g_chInputUntil && now>=g_chInputUntil-100 &&
+        state.valid && dvr::scene_state::cinematic(state.state[0]) &&
+        !g_menuOpen && !g_inMenu && !g_mainMenu && !g_gameExiting &&
+        dvr::vr::session_live() && dvr::stereo::wants_projection() && !dvr::vr::cinematic_active() &&
+        ChValidate((uint8_t*)g_chOwner[0].value.obj);
 }
 static bool CineHeadEnabled() { return g_cineHead.load(); }
 static void CineHeadSet(bool on) {
@@ -219,15 +231,17 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
         if (refreshed && pc && cam && pawn) g_chRetry=0;
     }
     float animWeight=CtWeight(cam,0), playerWeight=CtWeight(cam,1), lookWeight=CtWeight(cam,2);
+    const auto state=dvr::anim::snapshot();
+    const bool scripted=state.valid && dvr::scene_state::cinematic(state.state[0]);
     const bool ownerChanged=g_chReference && !ChValidate((uint8_t*)g_chOwner[0].value.obj);
-    // The camera influence owns rotation regardless of a tutorial prompt or
-    // the pawn state's name. Player-owned cameras keep their existing writer.
+    // Explicit cinematic states keep one owner across influence blends. Outside
+    // those states only fully authored cameras use this scope.
     const bool known=cam && cam==g_camObj && pawn && CamAlive() &&
         animWeight>=0 && playerWeight>=0 && lookWeight>=0;
     const dvr::cine::Conditions conditions={
         g_cineHead.load() && g_trackingEnabled && g_rotInject,
         g_menuOpen || g_inMenu || g_mainMenu, ownerChanged,
-        known, animWeight>0, animWeight>=0.999f && playerWeight<=0.001f && lookWeight<=0.001f,
+        known, scripted || animWeight>0, dvr::cine::owns_rotation(scripted,animWeight,playerWeight,lookWeight),
         sceneDraw, runtimeReady, poseReady};
     const auto action=dvr::cine::action(conditions);
     if (action==dvr::cine::Action::Reset) {
@@ -248,7 +262,7 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
         cam=CtObject(pc,g_ctPcCamera); pawn=CtObject(pc,g_ctPawn);
         animWeight=CtWeight(cam,0); playerWeight=CtWeight(cam,1); lookWeight=CtWeight(cam,2);
         if (!cam || cam!=g_camObj || !pawn || !CamAlive() ||
-            !(animWeight>=0.999f && playerWeight>=0 && playerWeight<=0.001f && lookWeight>=0 && lookWeight<=0.001f)) {
+            !dvr::cine::owns_rotation(scripted,animWeight,playerWeight,lookWeight)) {
             g_chRetry=now+1000; ChReason("hold: refreshed owner unavailable"); return;
         }
     }
@@ -257,27 +271,29 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
         if (!ChCapture(cam,&g_chOwner[0]) || !ChCapture(pc,&g_chOwner[1]) || !ChCapture(pawn,&g_chOwner[2])) {
             ChReset("identity capture refused"); return;
         }
-        g_chLoad=g_mkLoadEvents; g_chRef=h; g_chReference=true; g_chReason="active";
+        g_chLoad=g_mkLoadEvents; g_chRef=h; g_chReferenceHead=head; g_chReference=true; g_chReason="active";
         Log("cine/head: entered authored camera=%p pc=%p pawn=%p gen=%u; physical orientation anchored",cam,pc,pawn,head.gen);
     }
     int32_t authored[3]={}; dvr::cine::Matrix composed;
     if (!CtRead(cam,g_ctCache+g_ctPov+g_ctRot,authored,12) ||
         !dvr::cine::compose(authored,g_chRef,h,g_chWritten,&composed)) { ChReset("rotation invalid"); return; }
-    if (CinePitchEnabled()) {
-        if (!dvr::cine::physical_pitch(g_chWritten,head.pitch*g_flipPitch)) { ChReset("physical pitch unavailable"); return; }
-        constexpr double radians=6.2831853071795864769/65536.0;
-        composed=dvr::cine::rotation(g_chWritten[0]*radians,g_chWritten[1]*radians,g_chWritten[2]*radians);
+    if (CinePitchEnabled() || CineRollEnabled()) {
+        if (!dvr::cine::comfort(authored,
+            g_chReferenceHead.pitch*g_flipPitch,g_chReferenceHead.yaw*g_flipYaw,g_chReferenceHead.roll*g_flipRoll,
+            head.pitch*g_flipPitch,head.yaw*g_flipYaw,head.roll*g_flipRoll,
+            CinePitchEnabled(),CineRollEnabled(),g_chWritten,&composed)) { ChReset("physical comfort pose unavailable"); return; }
     }
     const float right[3]={(float)composed.m[0][1],(float)composed.m[1][1],(float)composed.m[2][1]};
     g_chHead=head;
     g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true);
     if (!g_chScope) { ++g_chRefused; ChReason("hold: scope write refused"); return; }
+    g_chInputUntil=scripted ? now+100 : 0;
     ++g_chWrites; CineHeadPublish();
     if(now>=g_chNextLog) {
         g_chNextLog=now+500;
-        Log("cine/head: scope=%u gen=%u authored(P/Y/R)=%.2f/%.2f/%.2f composed=%.2f/%.2f/%.2f restored=%u refused=%u double=%d",
+        Log("cine/head: scope=%u gen=%u authored(P/Y/R)=%.2f/%.2f/%.2f composed=%.2f/%.2f/%.2f restored=%u refused=%u double=%d scripted=%d upright=%d/%d",
             g_chWrites,head.gen,authored[0]*360.0f/65536,authored[1]*360.0f/65536,authored[2]*360.0f/65536,
-            g_chWritten[0]*360.0f/65536,g_chWritten[1]*360.0f/65536,g_chWritten[2]*360.0f/65536,g_chRestores,g_chRefused,(int)doubleDraw);
+            g_chWritten[0]*360.0f/65536,g_chWritten[1]*360.0f/65536,g_chWritten[2]*360.0f/65536,g_chRestores,g_chRefused,(int)doubleDraw,(int)scripted,(int)CinePitchEnabled(),(int)CineRollEnabled());
     }
 }
 static void CineHeadEnd() {

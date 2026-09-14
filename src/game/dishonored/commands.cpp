@@ -49,6 +49,7 @@ static bool DvrOnOff(const char* a, bool* out)
 static bool DvrGameCommand(const char* cmd, const char* args)
 {
     bool b = false;
+    if (!strcmp(cmd, "cineroll") && DvrOnOff(args, &b)) { CineRollSet(b); return true; }
     if (!strcmp(cmd, "cinepitch") && DvrOnOff(args, &b)) { CinePitchSet(b); return true; }
     if (!strcmp(cmd, "mantlehands") && DvrOnOff(args, &b)) { dvr::anim::set_mantle(b); return true; }
     if (!strcmp(cmd, "cinehands") && DvrOnOff(args, &b)) { dvr::anim::set_cinematic(b); return true; }

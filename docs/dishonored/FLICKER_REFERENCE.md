@@ -1688,3 +1688,12 @@ Measured override release in Walk at30273250 immediately exposes52-degree sensor
 which returns to107.6 after1125ms. Candidate bridges that same-owner native blend,
 not an eye-tag fix.38 FOV/handback checks pass; exit result still pending. Exact
 sources, archive and falsifiable combined test are in CINEMATIC_FOV_AND_HANDS.md.
+
+## 2026-09-13: tilted cinematic swivel (VR-105)
+
+Surface: scene camera, smooth axis coupling, not duplicated/stale eye imagery.
+Build232 shows authored pitch -57.78 and roll32.61 becoming roll54.40 after
+head composition plus pitch replacement. Upright composition and independent
+roll suppression are candidates; no headset acceptance yet. FOV exit improvement
+is reported successful; mantle was untested. See CINEMATIC_FOV_AND_HANDS.md for
+archived identity, numeric evidence, counterpredictions and the next test.

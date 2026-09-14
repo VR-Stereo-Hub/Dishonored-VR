@@ -87,6 +87,8 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Cinematic head look (candidate)",&on)) CineHeadSet(on);
         bool pitchLock=CinePitchEnabled();
         if (ImGui::Checkbox("Suppress animation up/down tilt",&pitchLock)) CinePitchSet(pitchLock);
+        bool rollLock=CineRollEnabled();
+        if (ImGui::Checkbox("Suppress cinematic roll",&rollLock)) CineRollSet(rollLock);
         bool mantleHands=dvr::anim::mantle_enabled();
         if (ImGui::Checkbox("Native hands while mantling",&mantleHands)) dvr::anim::set_mantle(mantleHands);
         bool cineHands=dvr::anim::cinematic_enabled();
