@@ -52,32 +52,34 @@ existing host handoff and must not be described as validated by a scope test.
 write and restore, nested refusal, missing identity, changed field and invalid
 values. Compile/lint/golden checks pass. Headset validation pending.
 
-## Native hands implementation plan, VR-104
+## Native hands implementation, VR-104
 
-The existing VR-88 classifier already drives hand/weapon blend back to native,
-mesh split bypass, draw suppression bypass, arm/bone visibility restoration,
-material restoration and persistent SkelControl release. Extend its cinematic
-classification rather than adding another placement path. Candidate state list:
-Soiree, InDialog, InScriptedChoice; use fresh FSM identity and preserve existing
-250ms release/150ms blend behavior. Store remains excluded. Add an independent
-default-off live lever so FOV and hands are tested separately.
+The user explicitly requests FOV and hands together in the same build. This
+supersedes the earlier separate-build plan. Both levers ship off and will be
+armed in the installed INI for one combined cinematic playtest.
 
-Before enabling, audit AnimReleaseControls saved identity across menus/loads:
-it currently retains a pointer, bits and scale, while SkcAlive checks slot/class.
-Use full retained identity and a refreshed live table, and refuse stale restoration.
-Existing ArmsHideTick, BoneVisOff, MatRestoreAll, mesh_split native_draw and weapon
-attachment consumers must agree. Preserve normal gameplay and intentional mantle
-exception. No hands behavior change is installed with the first FOV test.
+[Anim] CinematicHandBack, F10 View Native cinematic hands and arms, seam
+cinehands on|off extends VR-88 classification to Soiree, InDialog and
+InScriptedChoice. The existing250ms release and150ms blend provide native
+hands/weapon placement, mesh-split/draw-suppression bypass, bone/material
+visibility restoration and persistent SkelControl release. Store is excluded;
+Walk resumes controller placement. StateWatch and HandBack remain prerequisites.
+
+Control restoration now records full FName/class/slot identity. Ownership,
+menu and load edges rebuild the live table. Reused retained controls request
+rediscovery instead of receiving saved values. Arm cull and mesh transform
+restores require IsLiveObject plus the collected candidate's full identity.
+Existing measured draw-distance pair +0x1bc is named kArmDrawDistancePair in
+patterns.h. No new layout is guessed. Native hands/arms remain unconfirmed
+until the combined playtest; no merge approval has been given.
 
 ## Next test
 
 Installed candidate identity: build/cinematic-fov/latest-install.json. Verify its
 banner before reading the next run; archive both logs before relaunch. Never
-launch the game. One question: during the conversation that previously shrank
-the view, does the image stay full-size throughout the speaker/choice sequence?
-Full-size supports final camera FOV suppression. A shrinking image despite a
-successful scope means another render/viewport control is involved; inspect
-cache request, sensor and fovaudit without assuming the write was consumed.
-Native hands/arms test follows only after this FOV result. VR-50 broader kill-cam
-and manual-FOV cases remain unverified and the ticket must not be closed merely
-because the conversation candidate passes.
+launch the game. One question: in the previously affected scene, does the view stay full-size
+while the visible arms/hands follow the game's animation instead of the controllers?
+Full-size plus native animation supports both changes. Shrinking isolates a
+remaining FOV/render path; controller-driven or missing arms isolates handback.
+Check gameplay return in the same sequence. VR-50 broader kill-cam and manual
+FOV cases remain unverified. Neither ticket closes merely from building.

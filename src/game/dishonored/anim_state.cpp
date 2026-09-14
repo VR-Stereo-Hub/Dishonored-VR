@@ -1,6 +1,7 @@
 // VR-88: included after reflect.cpp in the unity TU. Engine reads only.
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/anim_policy.h"
+#include "game/dishonored/stereo_state_policy.h"
 namespace dvr::anim {
 namespace {
 SRWLOCK lock = SRWLOCK_INIT;
@@ -8,7 +9,7 @@ SRWLOCK sampleLock = SRWLOCK_INIT;
 Snapshot published;
 Handoff handoff;
 Handoff classifier;
-bool watch = true, handback = true;
+bool watch = true, handback = true, cinematicHandback = false;
 unsigned releaseMs = 250, blendMs = 150;
 // Mantle is deliberately absent: a ledge climb keeps the controller hands (headset-judged
 // 2026-09-13). Climb (ladders) stays. [Anim] HandBackMaster puts Mantle back.
@@ -81,6 +82,11 @@ Snapshot snapshot() {
     AcquireSRWLockShared(&lock); Snapshot s=published;
     if (!watch || !fresh(s.stamp,GetTickCount64())) { s.valid=false; s.game=false; text(s.reason,sizeof(s.reason),"disabled or stale"); }
     ReleaseSRWLockShared(&lock); return s;
+}
+bool cinematic_enabled() { AcquireSRWLockShared(&lock); bool on=cinematicHandback; ReleaseSRWLockShared(&lock); return on; }
+void set_cinematic(bool on) {
+    AcquireSRWLockExclusive(&lock); cinematicHandback=on; ReleaseSRWLockExclusive(&lock);
+    Log("anim: CinematicHandBack=%d (live; native hands/arms for cinematic states)",on?1:0);
 }
 bool enabled() { AcquireSRWLockShared(&lock); bool on=handback; ReleaseSRWLockShared(&lock); return on; }
 void set_enabled(bool on) {
@@ -180,12 +186,13 @@ void tick() {
     }
     AcquireSRWLockExclusive(&lock);
     if (pawnChanged || !previous.valid || !fresh(previous.stamp,now)) { handoff=Handoff{}; classifier=Handoff{}; }
-    const bool match=listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]);
+    const bool cinematic=cinematicHandback && dvr::scene_state::cinematic(s.state[0]);
+    const bool match=cinematic || listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]);
     classifier.update(s.valid,match,watch,now,releaseMs,0);
     handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
-    if (s.valid) text(s.reason,sizeof(s.reason),listed(masterRules,s.state[0])?"master rule":listed(upperRules,s.state[1])?"upper rule":classifier.game?"release hysteresis":"unlisted state");
+    if (s.valid) text(s.reason,sizeof(s.reason),cinematic?"cinematic handback":listed(masterRules,s.state[0])?"master rule":listed(upperRules,s.state[1])?"upper rule":classifier.game?"release hysteresis":"unlisted state");
     published=s;
     ReleaseSRWLockExclusive(&lock);
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
@@ -198,6 +205,8 @@ void configure(const char* ini) {
     const int backSetting=GetPrivateProfileIntA("Anim","HandBack",-1,ini);
     watch=watchSetting!=0;
     handback=backSetting!=0;
+    cinematicHandback=GetPrivateProfileIntA("Anim","CinematicHandBack",0,ini)!=0;
+    Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     releaseMs=(unsigned)GetPrivateProfileIntA("Anim","ReleaseMs",250,ini); if(releaseMs>5000) releaseMs=5000;
     blendMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendMs",150,ini); if(blendMs>2000) blendMs=2000;
     char buf[1024];
@@ -213,11 +222,12 @@ void configure(const char* ini) {
 // still being tuned by headset runs. An edited list in the ini is kept as is.
 void save(const char* ini) {
     AcquireSRWLockShared(&lock);
-    const bool w=watch, b=handback; const unsigned r=releaseMs, m=blendMs;
+    const bool w=watch, b=handback, c=cinematicHandback; const unsigned r=releaseMs, m=blendMs;
     ReleaseSRWLockShared(&lock);
     char v[16];
     WritePrivateProfileStringA("Anim","StateWatch",w?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandBack",b?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","CinematicHandBack",c?"1":"0",ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",r); WritePrivateProfileStringA("Anim","ReleaseMs",v,ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",m); WritePrivateProfileStringA("Anim","HandBackBlendMs",v,ini);
 }

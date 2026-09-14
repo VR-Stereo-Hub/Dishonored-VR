@@ -85,6 +85,8 @@ static void OverlayFrame()
     {
         bool on=CineHeadEnabled();
         if (ImGui::Checkbox("Cinematic head look (candidate)",&on)) CineHeadSet(on);
+        bool cineHands=dvr::anim::cinematic_enabled();
+        if (ImGui::Checkbox("Native cinematic hands and arms",&cineHands)) dvr::anim::set_cinematic(cineHands);
         bool fov=CineFovEnabled();
         if (ImGui::Checkbox("Suppress cinematic FOV zoom",&fov)) CineFovSet(fov);
         bool sceneState=StereoStateEnabled();

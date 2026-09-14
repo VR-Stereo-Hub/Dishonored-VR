@@ -138,18 +138,19 @@ static void ArmsReport(uint8_t* comp, const char* asset)
 // camera carrier) and the crossbow add-on parts.
 static void ArmsToggle()
 {
+    if (!BuildLiveSet()) { Log("arms: cull toggle refused: live table unavailable"); return; }
     if (!g_armHidden) {
         int n = 0;
         for (int i = 0; i < g_fpCandN; i++) {
             FpCand* k = &g_fpCand[i];
             if (FpIsViewModel(k)) continue;
             if (!k->owned) continue;                 // VR-73: never cull the world
-            if (!LooksLikeObj(k->obj) || !FpFieldsLookRight(k->obj)) continue;
+            if (!FpRetainedLive(k) || !FpFieldsLookRight(k->obj)) continue;
             if (strstr(k->asset, "Skm_Player")) continue;
             if (strstr(k->asset, "crossbow")) continue;
             if (strstr(k->asset, "bolt")) continue;
-            if (!RangeReadable(k->obj + 0x1bc, 8)) continue;
-            float* dd = (float*)(k->obj + 0x1bc);
+            if (!RangeReadable(k->obj + kArmDrawDistancePair, 8)) continue;
+            float* dd = (float*)(k->obj + kArmDrawDistancePair);
             k->ddSave[0] = dd[0]; k->ddSave[1] = dd[1];
             dd[0] = 0.01f; dd[1] = 0.01f;
             k->ddCulled = true;
@@ -163,8 +164,8 @@ static void ArmsToggle()
         for (int i = 0; i < g_fpCandN; i++) {
             FpCand* k = &g_fpCand[i];
             if (!k->ddCulled) continue;
-            if (IsLiveObject(k->obj) && LooksLikeObj(k->obj) && RangeReadable(k->obj + 0x1bc, 8)) {
-                float* dd = (float*)(k->obj + 0x1bc);
+            if (FpRetainedLive(k) && RangeReadable(k->obj + kArmDrawDistancePair, 8)) {
+                float* dd = (float*)(k->obj + kArmDrawDistancePair);
                 dd[0] = k->ddSave[0]; dd[1] = k->ddSave[1];
             }
             k->ddCulled = false;

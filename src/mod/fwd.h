@@ -138,6 +138,7 @@ static void WaInvalidateContracts(const char* why);
 static void MkPresentTick(const char* state, bool pawnLive);
 static void MkScriptTick(void);
 static void MkReadIdentity(void* obj, dvr::menukeep::Identity* out);
+static bool FpRetainedLive(const FpCand* candidate);
 static void SuBeginLoad(void);
 static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict);
 static bool SuCommand(const char* args);

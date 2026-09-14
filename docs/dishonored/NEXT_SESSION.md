@@ -1,3 +1,12 @@
+## Combined build steering, 2026-09-13
+
+The user explicitly requests both FOV suppression and native cinematic hands/arms
+in the same build. LockFov and CinematicHandBack are implemented and installed
+ON together for the next test. The earlier separate-build plan below is superseded.
+Current branch codex/vr-50-cinematic-fov-and-hands; VR-50 and VR-104 In Progress.
+Read CINEMATIC_FOV_AND_HANDS.md (under docs/dishonored) for current scope and test.
+No new merge approval. Never launch the game; no subagents.
+
 ## Latest continuation: cinematic FOV and hands, 2026-09-13
 
 PR55 merged823c53d5; VR-103 Done and headset-confirmed. VR-50 branch is

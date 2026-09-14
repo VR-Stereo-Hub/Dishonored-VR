@@ -1,7 +1,10 @@
 #include "../src/game/dishonored/cinematic_fov_policy.h"
+#include "../src/game/dishonored/anim_policy.h"
+#include "../src/game/dishonored/stereo_state_policy.h"
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <initializer_list>
 unsigned checks=0;
 void check(bool v,const char* msg) { ++checks; if (!v) { std::fprintf(stderr,"FAIL: %s\n",msg); std::exit(1); } }
 int main() {
@@ -27,5 +30,22 @@ int main() {
     check(!s.end(false) && f==108,"stale identity never restored");
     f=0; check(!s.begin(&f,108,true),"invalid existing camera FOV refuses");
     check(!s.begin(nullptr,108,true),"missing field refuses");
-    std::printf("%u cinematic FOV policy/scope checks passed\n",checks);
+    using dvr::scene_state::cinematic;
+    for (auto state:{"StatePlayerMasterSoiree","StatePlayerMasterInDialog","StatePlayerMasterInScriptedChoice"})
+        check(cinematic(state),"cinematic handback state classified");
+    check(!cinematic("StatePlayerMasterWalk"),"walk releases cinematic ownership");
+    check(!cinematic("StatePlayerMasterInStore"),"store does not enter cinematic handback");
+    dvr::anim::Handoff classify, blend;
+    classify.update(true,true,true,1000,250,0);
+    blend.update(true,classify.game,true,1000,0,150);
+    check(classify.game && blend.value(1150,150)==0,"native pose reached after entry blend");
+    classify.update(true,false,true,1200,250,0);
+    check(classify.game,"short state gap holds ownership");
+    classify.update(true,false,true,1450,250,0);
+    blend.update(true,classify.game,true,1450,0,150);
+    check(!classify.game && blend.value(1600,150)==1,"controller pose restored after exit blend");
+    classify.update(false,true,true,1700,250,0);
+    check(!classify.game,"invalid snapshot cannot own hands");
+    check(!dvr::anim::fresh(1000,1151),"stale snapshot expires");
+    std::printf("%u cinematic FOV and handback checks passed\n",checks);
 }

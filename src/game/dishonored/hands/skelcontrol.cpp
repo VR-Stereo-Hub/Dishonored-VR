@@ -406,10 +406,22 @@ static void SkcSaveNeutral(const char* why)
 // look-at strength remains owned by the existing head-tracking path.
 static bool AnimReleaseControls()
 {
-    struct Saved { uint8_t* obj; uint32_t bits; float scale; bool held; };
+    struct Saved { uint8_t* obj=nullptr; uint32_t bits=0; float scale=0; bool held=false; dvr::menukeep::Identity id; uint32_t index=0; };
     static Saved saved[8] = {};
     static bool was = false, restoreCull = false;
     const bool now = dvr::anim::active();
+    static bool lastMenu=false;
+    static LONG lastLoad=-1;
+    const bool menu=g_menuOpen || g_inMenu || g_mainMenu;
+    // Refresh on ownership/menu/load edges before touching retained controls.
+    if (now!=was || menu!=lastMenu || lastLoad!=g_mkLoadEvents) {
+        if (!BuildLiveSet()) {
+            g_skcStale=1;
+            DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Warn,1000,"anim: control handback refused: live-object refresh unavailable");
+            return now;
+        }
+        lastMenu=menu; lastLoad=g_mkLoadEvents;
+    }
     if (now && !was) {
         FpRestoreRotation(); g_fpHaveBase = false;
         GraftTestSet(false);
@@ -417,6 +429,7 @@ static bool AnimReleaseControls()
         if (g_armHidden) ArmsToggle();
     }
     if (!now && was && restoreCull && !g_armHidden) { ArmsToggle(); restoreCull=false; }
+    if (g_skcStale) { was=now; return now; }
     const uint32_t mask = kSkcApplyTrans | kSkcApplyRot;
     for (int i=0;i<g_skcPlayerN && i<8;++i) {
         Saved& s=saved[i];
@@ -424,12 +437,16 @@ static bool AnimReleaseControls()
             !RangeReadable(g_skcPlayer[i]+kSkcBools,4) ||
             !RangeReadable(g_skcPlayer[i]+kSkcScaleProp,4)) { s={}; continue; }
         uint8_t* o=g_skcPlayer[i];
-        if (s.obj!=o) s={};
+        dvr::menukeep::Identity current; MkReadIdentity(o,&current);
+        if (s.held && (s.obj!=o || s.index!=g_skcObjIdx[i] || current.obj!=s.id.obj ||
+            current.cls!=s.id.cls || current.name[0]!=s.id.name[0] || current.name[1]!=s.id.name[1])) {
+            Log("anim: discarded retained hand control slot%d: identity changed; rediscovery required",i); s={}; g_skcStale=1; was=now; return now;
+        }
         if (g_skcHandOf[i]<0) continue;
         uint32_t* bits=(uint32_t*)(o+kSkcBools);
         float* scale=(float*)(o+kSkcScaleProp);
         if (now) {
-            if (!s.held) s={o,*bits,*scale,true};
+            if (!s.held) { s.obj=o; s.bits=*bits; s.scale=*scale; s.held=true; s.id=current; s.index=g_skcObjIdx[i]; }
             *bits &= ~mask; *scale=1.0f;
         } else if (s.held) {
             // Restore only values still bearing our release write.

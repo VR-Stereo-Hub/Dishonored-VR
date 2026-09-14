@@ -21,11 +21,19 @@ static bool FpFieldsLookRight(uint8_t* m)
 }
 
 
+static bool FpRetainedLive(const FpCand* k) {
+    if (!k || !k->owned || !IsLiveObject(k->obj) || k->id.obj!=k->obj) return false;
+    dvr::menukeep::Identity current; MkReadIdentity(k->obj,&current);
+    return current.obj==k->obj && current.cls==k->id.cls &&
+        current.name[0]==k->id.name[0] && current.name[1]==k->id.name[1];
+}
 static void FpZero(uint8_t** slot)
 {
     uint8_t* o = *slot;
     *slot = NULL;
-    if (!o || !LooksLikeObj(o) || !FpFieldsLookRight(o)) return;
+    const FpCand* candidate=nullptr;
+    for(int i=0;i<g_fpCandN;++i) if(g_fpCand[i].obj==o) { candidate=&g_fpCand[i]; break; }
+    if (!FpRetainedLive(candidate) || !FpFieldsLookRight(o)) return;
     int32_t* r = (int32_t*)(o + kMeshRot);
     r[0] = 0; r[1] = 0; r[2] = 0;
     float* T = (float*)(o + kMeshTrans);
@@ -387,7 +395,7 @@ static void FpRestoreRotation()
         if (!k->xfWrote) continue;
         k->xfWrote = false;
         uint8_t* o = k->obj;
-        if (!o || !LooksLikeObj(o) || !FpFieldsLookRight(o)) continue;
+        if (!FpRetainedLive(k) || !FpFieldsLookRight(o)) continue;
         int32_t* r = (int32_t*)(o + kMeshRot);
         float* T = (float*)(o + kMeshTrans);
         for (int q = 0; q < 3; q++) { r[q] = k->xfRot0[q]; T[q] = k->xfTrans0[q]; }

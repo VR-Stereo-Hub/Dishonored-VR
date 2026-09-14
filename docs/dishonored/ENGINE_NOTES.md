@@ -5466,3 +5466,15 @@ cinematic zoom-off INI found. Reflection names Camera.CameraCache -> TCameraCach
 -> TPOV.FOV for a draw-scoped override with current live identity. Readings in
 accepted225 span36.6..107.9 against108.1 target. Request is not acceptance; next
 headset run tests the final-cache consumer. Full plan: [FOV/hands](CINEMATIC_FOV_AND_HANDS.md).
+
+## 2026-09-13: VR-104 native cinematic hands
+
+Reuse current FSM names Soiree/InDialog/InScriptedChoice in VR-88 handback.
+Its existing consumers restore arm/bone/material visibility and native mesh
+and weapon rendering. Default-off CinematicHandBack. Saved SkelControl release
+now checks full FName/class/slot on restoration, refreshes on menu/load/ownership
+edges, and marks changed identities for rediscovery. Candidate mesh/cull
+restores require live-object membership plus retained full identity. Existing
+measured draw-distance pair +0x1bc moved to kArmDrawDistancePair in patterns.h;
+this is provenance cleanup, not a new guessed field. Combined with VR-50 at the
+user's explicit request; headset acceptance remains pending.

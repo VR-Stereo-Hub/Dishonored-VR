@@ -250,4 +250,4 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] VR-103: script-state cinematic/dialogue stereo transitions; candidate225 headset-confirmed, PR55 approved for merge.
 
 - [ ] VR-50: cinematic FOV suppression candidate; speaker/choice test pending.
-- [ ] VR-104: native cinematic hands/arms; handback audit and separate test follow FOV.
+- [ ] VR-104: native cinematic hands/arms implemented; combined FOV/handback test pending.
