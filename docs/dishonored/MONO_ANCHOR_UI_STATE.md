@@ -366,3 +366,7 @@ and refusal of uniform scale, shear, wrong axis and displaced world instance.
 Next test is the same hub-arrival crossbow tracking reproduction, including
 left controller fore/aft while holding head still. Expected native head aim
 and axis coupling disappear. Headset acceptance pending; no merge.
+
+Installed vr33-hands-working-260-g7a0bbd46, compiled10:23:35. DLL SHA256
+a37a0589c58697480d38253a112eccb7abfff2da5833d2576dd4b3fa4beee40b. INI adds AttachViewLens=1 only;
+hashes/CRLF verified. Eleven lens tests and existing suites pass.

@@ -1,20 +1,21 @@
-## Current state: build258 crossbow scale diagnostic installed
+## Current state: build260 crossbow lens fix installed
 
-Installed258-g4a78a745, compiled Sep14 09:37:23. Full INI diff adds only
-Hands.AttachScaleTrace=1; hashes and CRLF verified. Both logs archived at
-build/playtest-candidates/installs/20260914-093755-955854.
-Build256 playtest accepted mono transitions and takedown animations. Brief
-crouched-note flicker still recovers quickly; residual VR-99 stays open.
-After cinematic/level travel to the hub, sword tracked but crossbow did not;
-pause/resume did not recover it. VR-112 tracks the measured approximately4.7
-percent crossbow match scale error despite current readable components.
-258 adds read-only matrix breakdown diagnostics. No tracking fix claimed,
-no matching tolerance change. Release build,exports,lint,golden INI pass.
-Next launch question: after the same hub travel and drawing the weapons,
-does the crossbow follow the left controller? Failure supplies source matrices;
-success is intermittent, not proof of a diagnostic fix. Agent reads logs.
-Evidence/plan: MONO_ANCHOR_UI_STATE.md latest entry and FLICKER_REFERENCE.md.
-All three PRs unmerged; PR58 draft. Never launch game, no subagents.
+Installed260-g7a0bbd46, compiled Sep14 10:23:35. Full INI diff adds only
+Hands.AttachViewLens=1; hashes and CRLF verified. Both logs archived at
+build/playtest-candidates/installs/20260914-102430-394900.
+Build258 reproduced crossbow head-aim/axis coupling after hub travel. Trace
+isolates an extra view-plane lens1.046635; translation agrees within0.0014uu.
+260 removes that validated lens before strict matching and hand correction.
+No engine writes or tolerance expansion. Default-off switch is live in F10
+Hands and saved with settings. Eleven new lens tests plus existing frame,
+weapon and animation tests pass; release,exports,lint,golden INI pass.
+Next launch question: after hub travel, does the crossbow track the left hand
+correctly, including forward/back without moving up/down, with head still?
+Success supports the lens fix; failure requires wa/lens and wa/scale logs.
+Agent reads and archives logs; never launches game. No subagents.
+Build256 mono transitions/takedowns accepted; brief residual note flicker
+remains VR-99. VR-112 awaits this test. All three PRs remain unmerged.
+Evidence and math: MONO_ANCHOR_UI_STATE.md latest section, ENGINE_NOTES.md.
 
 ## Earlier records
 
