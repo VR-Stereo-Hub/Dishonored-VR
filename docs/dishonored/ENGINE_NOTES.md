@@ -5514,4 +5514,3 @@ handback checks,28 head math/policy checks and13 extracted production-scope
 checks pass. New checks cover convergence, timeout, stale owner, physical tilt,
 unchanged yaw/roll and preserving the gameplay position request. Runtime smoke,
 exports and final install identity are recorded below. No merge approval.
-

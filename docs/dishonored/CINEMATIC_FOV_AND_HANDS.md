@@ -135,3 +135,14 @@ mantle a nearby ledge. Expected: no exit shrink; the scene cannot tilt the view
 up/down but physical head tilt works; mantle hands follow the ledge animation
 and normal tracking returns afterward. One question: does that sequence behave
 as expected, or which part still differs? Agent reads the log, never launches.
+
+## Installed combined follow-up
+
+Installed candidate: vr33-hands-working-232-g4ec4f457, compiled 22:10:59.
+DLL SHA256: 71681379ff190a924d6f6002863eebe4f8ea1ce7246c4b14b92e8eee170c49c6.
+Full installed INI comparison: only Anim.MantleHandBack=1 and Cine.LockPitch=1
+added; CRLF verified. Prior DLL, INI and both logs archived under
+build/cinematic-fov/install-20260913-221229. Release, lint, exports, golden INI,
+38 FOV checks, 28 head-math checks, 13 camera-scope checks and standalone XR
+60-frame self-test pass. Headset acceptance of this combined follow-up is pending.
+The agent did not launch the game.

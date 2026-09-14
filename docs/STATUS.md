@@ -10,6 +10,15 @@ Read docs/dishonored/CINEMATIC_FOV_AND_HANDS.md latest follow-up. Install identi
 build/cinematic-fov/latest-install.json. Never launch the game; verify banner,
 archive both logs, one question per launch. No subagents and no merge approval.
 
+Installed candidate: vr33-hands-working-232-g4ec4f457, compiled 22:10:59.
+DLL SHA256: 71681379ff190a924d6f6002863eebe4f8ea1ce7246c4b14b92e8eee170c49c6.
+Full installed INI comparison: only Anim.MantleHandBack=1 and Cine.LockPitch=1
+added; CRLF verified. Prior DLL, INI and both logs archived under
+build/cinematic-fov/install-20260913-221229. Release, lint, exports, golden INI,
+38 FOV checks, 28 head-math checks, 13 camera-scope checks and standalone XR
+60-frame self-test pass. Headset acceptance of this combined follow-up is pending.
+The agent did not launch the game.
+
 ## Previous records (latest candidate above supersedes earlier plans)
 
 ## Combined build steering, 2026-09-13
