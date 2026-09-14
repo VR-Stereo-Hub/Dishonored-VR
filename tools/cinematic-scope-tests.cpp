@@ -19,7 +19,8 @@ bool validate(uint8_t* p) {
 bool RangeReadable(const void*,int) { return readable; }
 struct Writer;
 bool current_base(uint8_t*,uint32_t,Writer&,float*);
-void position_offset_uu(float* p) { p[0]=1;p[1]=2;p[2]=3; }
+void position_offset_uu(float* p) { p[0]=11;p[1]=22;p[2]=33; }
+void cinematic_position_offset_uu(float* p) { p[0]=1;p[1]=2;p[2]=3; }
 bool apply_offsets(uint8_t*);
 bool end_view_scope();
 #include "cinematic-scope-extracted.h"
@@ -62,6 +63,8 @@ bool writerSame(const Writer& a,const Writer& b) {
 int main() {
     reset();Writer previous=g_eyeWriter;
     bool entered=begin();
+    check(entered && g_viewScope.pos[0]==1 && g_viewScope.pos[1]==2 && g_viewScope.pos[2]==3,
+          "authored scope freezes raw translation instead of gameplay cancellation");
     check(entered && memcmp(memory,injected,12)==0 && !fieldsOriginal(),"scope applies temporary rotation and position");
     check(end_view_scope() && fieldsOriginal() && writerSame(previous,g_eyeWriter) && !g_viewScope.thread,
           "scope restores incoming rotation position and Writer provenance");

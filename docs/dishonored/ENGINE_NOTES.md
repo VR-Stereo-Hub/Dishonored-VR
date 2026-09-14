@@ -5375,3 +5375,59 @@ while influence0/1/0. Other Walk phases match PC/cache. No blanket player-camera
 head overlay is justified. Added reflected read-only bCinematicMode,cinematic
 move/look disable,ignore cinematic,ignore move/look counters; unavailable=-1.
 They do not change the legacy latch or runtime presentation policy.
+
+## 2026-09-13: VR-70 cinematic position must not cancel the player neck arc
+
+Build220-gdf783ca8,20:09:13:stable gaze before/after stick prompt is reported;
+one anchor,3210 writes/restores,zero refusals. Pitch causes opposite vertical
+motion. The installed cancel pivot is0.321m below/0.062m behind. TrackHead adds
+its negative modelled arc to zRaw even when final camera influence is fully
+animated. That authored camera bypasses the player pitch arc. Publish normal
+and without-cancel requests together; only begin_view_scope chooses the latter.
+Real positional tracking and intentional add mode stay,gameplay keeps cancellation.
+This is a candidate awaiting headset acceptance,not a synchronized render proof.
+
+## 2026-09-13: native cinematic hide-letterbox control (VR-43 related)
+
+Actual Documents game .ini search found no letterbox/black-stripe/aspect key.
+Decompiled declarations identify SeqAct_ToggleCinematicMode.m_bHideLetterbox,
+DishonoredPlayerController.SetCinematicMode_Native argument8,and the cinematic
+HUD mask level0. Verified native resolver reproduces DishonoredPlayerController
+metadata/vtable; registration thunk009EEA00 calls slot584 to00AAF150. The latter
+sets mask6010 at level0 on cinematic entry. At00AAF215 it tests [ebp+24] (arg8)
+and calls009EA0C0 with mask10,level0. That helper performs HUD.m_ShowFlags[level]
+&=~mask; observed array base is HUD+4E0. Resolve DishonoredHUD.m_ShowFlags by
+reflection if implementing; hardcoded masks/addresses belong in patterns.h.
+
+This proves an explicit HUD-level hide-letterbox path. Final draw consumption
+and visible acceptance remain unverified; do not promise the viewport is full
+resolution from the flag alone. Camera aspect constraints and transient HUD
+m_bDrawUIBlackStripes are separate non-config fields. Exported native method
+stubs are not evidence of actual native return values. No game-derived code
+or binaries committed; no game config altered or game launched.
+
+Native follow-through confirms a Scaleform overlay:00B960E0 queries the HUD's
+mask10 through009EA130,compares its prior movie flag,and on change invokes GFx
+SetBlackStripes with the resulting boolean. This path explicitly controls UI
+stripes rather than a viewport rectangle. Visual confirmation that the exposed
+pixels fill the headset view still belongs to the upcoming A/B.
+
+Letterbox timing:the updater B960E0 is called at BB23D3 near the end of movie
+virtual BB2280 (float delta time,slot1DC in vtable115CD90). It caches combined
+flags at movie+1D4 and letterbox visibility at+1FC bit40000. Its helper009EA130
+combines all six HUD mask levels,so clearing only cinematic level0 may leave
+another state's stripe request active. A draw-scoped clear/restore may miss this
+stateful movie update. Prefer intervening at the narrow stripe query; otherwise
+a validated override must survive until consumption. Do not infer the exact
+Tick/PostAdvance phase from the native signature alone.
+
+Narrow letterbox query seam,verified offline:at00B96115 the seven-byte setup is
+6A 10 E8 14 40 E5 FF (push10;direct CALL at00B96117 to009EA130,return00B9611C).
+The helper is __thiscall,HUD in ECX,one32-bit stack mask,integer boolean EAX,and
+ret4 on both exits. It tests all six levels. Replacing only this call with a
+same-signature wrapper can return0 while a live lever is enabled and forward
+otherwise. This preserves all HUD mask values and uses the game's existing
+SetBlackStripes cache/update logic; disabling restores the requested visibility
+on the next movie update. Any implementation must verify the seven-byte setup
+and decoded target before patching and put the literals in patterns.h. This is
+a derived plan,not yet patched or visually accepted.

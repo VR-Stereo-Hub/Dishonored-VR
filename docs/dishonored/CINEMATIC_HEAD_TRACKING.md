@@ -64,38 +64,62 @@ Other Walk samples match PC/cache, including later boat samples195-212. Therefor
 Walk or player influence alone cannot prove normal camera ownership. Look-lock
 flags are added read-only to the next trace; this earlier phase remains open.
 
+## Candidate 220 result: gaze confirmed, cinematic pitch translation remains
+
+Build220-gdf783ca8, compile20:09:13, matched before interpreting the run.
+Archive:build/cinematic/playtest-20260913-201833. The tester confirms stable
+head look,including before the right-stick prompt. Exactly one authored-camera
+anchor,3210 successful writes/restores,and zero refusals support the corrected
+reference lifetime. The earlier onset complaint is no longer reported.
+
+Remaining observation: looking down raises the camera; looking up lowers it.
+Installed Neck mode is cancel,with standing pivot0.321m below/0.062m behind.
+The normal position request includes subtraction of the engine's player-camera
+pitch arc. An animation-owned camera bypasses that arc. Applying its cancellation
+there creates artificial translation. The established VR-78/91 trap applies:
+never cancel an arc that the current camera owner did not generate.
+
 ## Current candidate and next test
 
-[Cine] HeadLook remains default off and enabled in the installed test profile.
-F10 View and cinehead on/off provide live A/B. Trace stays on.
+The new candidate publishes normal and cinematic position requests together.
+Normal gameplay retains its exact existing neck compensation. The authored draw
+scope freezes the request without CANCEL compensation; real tracked translation
+and intentional ADD mode remain. No global Neck INI value changes. A lock keeps
+the paired requests coherent. Trace logs both requests,explicitly distinguished
+from synchronized render measurements.35 host checks,32-bit build,lint,exports
+and INI golden pass; headset acceptance is pending.
 
-Reference lifetime is now independent of draw cadence. Single and double scene
-draws both apply head rotation; a single uses centered eye separation. Missing
-scene/runtime/pose evidence holds the reference without writing. Actual menus,
-owner changes,disable or known return from animation ownership reset it.
-Successful capture has no one-second throttle; failed refreshes still back off.
-The positive full-animation influence selects the overlay regardless of the
-pawn state name or tutorial prompt. Partial blends hold; player-only ownership
-keeps the existing writer, with the earlier override still under investigation.
+One question:does looking up/down on the boat now feel natural,without the
+camera rising when looking down or dropping when looking up?
 
-Authored * inverse(entry head) * current head preserves authored movement. One
-head sample and composed stereo right axis serve both draws; existing position
-tracking keeps its frame and a frozen request. Fresh-entry/resume live table,
-current object slots,retained class/full FName and possession guard every new
-write/restore. Scope end restores fields/provenance only if still ours.
+On the opening boat,keep the stick untouched and gently look down and up while
+remaining seated or standing in place. Then quit normally. Real small head
+translation may remain; the artificial opposite movement should disappear.
+- Natural vertical looking supports removing the unused neck cancellation.
+- Continued opposite movement means another position owner remains involved.
+The agent verifies the banner and reads/archives logs. No game launch by agent.
 
-One question:once the boat scene is visible, does looking left/right and up/down
-now stay where the head points instead of repeatedly returning to the starting gaze?
+## Cinematic black bars: researched, separate next behavioral candidate
 
-Begin looking gently as soon as the boat scene appears,keep the stick untouched,
-and quit normally afterward. No deliberate lean is needed.
-- Stable directional looking supports the reference-lifetime correction.
-- Continued recentering or weak pitch rejects that correction as sufficient.
-- An earlier locked interval with stable later tracking isolates the additional
-  camera-override phase; inspect the new reflected input-lock trace.
-The agent checks the new installed banner and reads/archives the logs. Stick,
-lean,normal gameplay,transitions and other cinematic paths remain unverified.
-No merge without explicit approval.
+The actual Documents game INIs contain no exposed letterbox,black-stripe or
+aspect-constraint key. Script declarations expose SeqAct_ToggleCinematicMode's
+m_bHideLetterbox and native SetCinematicMode's eighth hide-letterbox argument.
+Verified native registration/vtable derivation leads to0x00AAF150:cinematic
+entry sets HUD mask0 with0x6010; hide-letterbox calls0x009EA0C0 to clear only
+bit0x10 in DishonoredHUD.m_ShowFlags[0] (cinematic level). The field is reflected;
+the native observed array base is HUD+0x4E0. See ENGINE_NOTES for provenance.
+
+This proves the game has an explicit HUD letterbox control; it is not an INI
+resolution/FOV setting. It does not yet prove all visible boat bars use that
+control or that clearing it reveals fully rendered pixels. Trace the consumer
+and test that narrow live A/B next. Non-config Camera aspect constraints and
+transient HUD.m_bDrawUIBlackStripes are separate candidates,not proven owners.
+Dump method stubs must not be read as actual native return behavior.
+
+Follow the session rule of one behavioral change per build:confirm this pitch
+correction first,then the letterbox control. VR-43 already includes letterbox
+scope and is the related record. No new ticket or game INI edit is needed for
+this research. Keep the wider cutscene issue open. No merge authorization.
 
 ## Remaining acceptance work
 
@@ -116,7 +140,7 @@ merge without explicit approval.
 
 ## Candidate validation
 
-`tools/cinematic-head-host.ps1`:24 rotation/policy checks and10 scope checks pass.
+`tools/cinematic-head-host.ps1`:24 rotation/policy checks and11 scope checks pass.
 The new regression drives32 temporary holds with changing yaw/pitch and retains
 one anchor; a real menu/resume captures exactly one new reference.
 The scope harness extracts the production begin/end bodies and mocks only
@@ -128,3 +152,16 @@ engine rendering consumes the scoped rotation.
 Standalone xr_hello32 simulator smoke:60 frames,0 errors; no game launch.
 Existing DVR_CAT macro warnings remain. The installed HeadLook override and
 complete INI byte/config diff are recorded in build/cinematic/latest-install.json.
+
+Native follow-through confirms a Scaleform overlay:00B960E0 queries the HUD's
+mask10 through009EA130,compares its prior movie flag,and on change invokes GFx
+SetBlackStripes with the resulting boolean. This path explicitly controls UI
+stripes rather than a viewport rectangle. Visual confirmation that the exposed
+pixels fill the headset view still belongs to the upcoming A/B.
+
+Next letterbox implementation seam is fully derived in ENGINE_NOTES:replace
+only the direct mask query at00B96117 after verifying its seven-byte setup.
+A same-signature wrapper returning false while enabled leaves every engine HUD
+mask intact and lets the native movie update hide stripes. Forward when disabled.
+This avoids the persistent field override and its restore/identity complications.
+Add a default-off live F10/command lever and a separate bars-only acceptance test.

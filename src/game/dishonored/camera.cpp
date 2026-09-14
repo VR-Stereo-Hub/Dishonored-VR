@@ -79,6 +79,8 @@ bool scope_live(uint8_t* cam) {
 }
 
 // ---- positional tracking on the seam ----------------------------------------
+SRWLOCK g_positionLock = SRWLOCK_INIT;
+float g_cinematicPos[3] = {0, 0, 0};
 volatile float g_pos[3] = {0, 0, 0};   // right, up, forward (uu); present thread writes
 // (the lane is resolved by pos_lane(): [PosTrack] Lane=auto follows the projection claim)
 float    g_ceilZ = 0.0f;
@@ -464,8 +466,17 @@ bool render_pos_world(float out[3]) {
 }
 
 // ---- positional tracking: the offset, the lane, the ceiling ------------------------------
-void set_position_offset_uu(float right, float up, float fwd) {
+void set_position_offset_uu(float right, float up, float fwd, const float* withoutCancel) {
+    AcquireSRWLockExclusive(&g_positionLock);
     g_pos[0] = right; g_pos[1] = up; g_pos[2] = fwd;
+    const float normal[3]={right,up,fwd};
+    memcpy(g_cinematicPos,withoutCancel ? withoutCancel : normal,sizeof(g_cinematicPos));
+    ReleaseSRWLockExclusive(&g_positionLock);
+}
+void cinematic_position_offset_uu(float out[3]) {
+    AcquireSRWLockShared(&g_positionLock);
+    memcpy(out,g_cinematicPos,sizeof(g_cinematicPos));
+    ReleaseSRWLockShared(&g_positionLock);
 }
 
 // The offset both lanes read. While the postest runs it is the commanded
@@ -475,7 +486,9 @@ void position_offset_uu(float out[3]) {
         for (int i = 0; i < 3; ++i) out[i] = g_pt.writing ? g_pt.cmd[i] : 0.0f;
         return;
     }
+    AcquireSRWLockShared(&g_positionLock);
     out[0] = g_pos[0]; out[1] = g_pos[1]; out[2] = g_pos[2];
+    ReleaseSRWLockShared(&g_positionLock);
 }
 
 int g_posLaneCfg = -1;   // -1 auto, 0 vp, 1 camera
@@ -541,7 +554,9 @@ bool begin_view_scope(uint8_t* cam,uint32_t rotOff,const int32_t rot[3],
     if (!current_base(cam,next.locOff,prior,next.base)) return false;
     memcpy(next.originalPos,cam+next.locOff,12); memcpy(next.originalRot,cam+rotOff,12);
     memcpy(next.writtenRot,rot,12); memcpy(next.right,right,12);
-    position_offset_uu(next.pos);
+    // Authored motion contains no player pitch neck arc to cancel. The
+    // alternative is published alongside the unchanged gameplay request.
+    cinematic_position_offset_uu(next.pos);
     if (!validate(cam)) return false;
     next.thread=GetCurrentThreadId(); g_viewScope=next;
     memcpy(cam+rotOff,rot,12);

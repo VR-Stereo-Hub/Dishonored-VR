@@ -13,20 +13,20 @@ The banner-verified boat run proves head rotation reaches the controller while
 the animation-owned camera ignores it: 62.55 degrees of head pitch versus 0.02
 in the cache over 281 clean samples. Lean and stick were not tested.
 
-Candidate219 partially worked but repeatedly reset the gaze. Its non-double
-frame gate discarded the head reference:33 entries included32 unnecessary
-reanchors,despite2311 successful writes/restores and zero refusals. The new
-candidate keeps that reference through timing gaps and applies rotation on
-single and double scene draws. Full animation influence is independent of
-pawn-state/tutorial names. A brief earlier player-influence camera override
-remains open; new look-lock diagnostics cover it.
+Candidate220 is headset-confirmed for stable boat head look,including before
+the stick prompt. One anchor,3210 writes/restores,zero refusals. The remaining
+pitch-driven rise/drop is attributed to gameplay neck cancellation being applied
+to the animation-owned camera. The new candidate preserves the normal gameplay
+request but uses real tracked translation without CANCEL compensation in the
+authored draw scope.35 host checks,32-bit build,lint,exports and INI golden pass.
 
-Validation:34 host checks,32-bit build,9 exports,lint,INI golden and standalone
-XR smoke pass. Next:run the revised installed candidate's single stable-gaze
-question in [the plan](dishonored/CINEMATIC_HEAD_TRACKING.md). Read
-`build/cinematic/latest-install.json` for exact installed banner/hash. Check
-anchor count,scope restoration and earlier look-lock flags before choosing more
-changes. VR-70 remains In Progress; merge is not authorized. No agent game launch.
+Next:the installed candidate's single vertical-looking question in
+[the plan](dishonored/CINEMATIC_HEAD_TRACKING.md). Check latest-install.json for
+its exact identity before reading the log. The black-bar research found no game
+INI key but derived the native hide-letterbox operation on cinematic HUD mask
+bit0x10. Its consumer/visual acceptance is a separate next behavioral candidate;
+VR-43 contains related letterbox scope. No resolution or FOV changes made.
+VR-70 remains In Progress; no merge authorization or agent game launch.
 
 ## Earlier (2026-09-13): load/reload fixes confirmed and merged (PR #53)
 
@@ -5553,3 +5553,11 @@ Build219's32 avoidable reference resets are measured,with20 exact logged
 no-present SINGLE correlations. Fixed lifetime and centered single-draw support;
 34 host checks cover the regression and restoration. Earlier override before
 full-animation ownership is still being measured. See CINEMATIC_HEAD_TRACKING.
+
+## Session continuation (2026-09-13): stable gaze; cinematic pitch and bars
+
+Build220 stable gaze confirmed,including early boat. Added cinematic-only
+position publication without gameplay CANCEL neck term; normal gameplay is
+unchanged. Native hide-letterbox HUD flag derived after actual game INI/script
+search. Pitch acceptance first,then a separate letterbox A/B. Plan and detailed
+provenance:CINEMATIC_HEAD_TRACKING.md and ENGINE_NOTES.md.

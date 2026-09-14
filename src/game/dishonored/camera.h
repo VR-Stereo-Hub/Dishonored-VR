@@ -74,7 +74,10 @@ bool render_pos_world(float out[3]);
 // vp or camera to force. `postrack lane <l>` live. Under a projection layer
 // the offset is applied in the yaw-only frame (world up, the camera's
 // heading), never along a pitched or rolled basis.
-void  set_position_offset_uu(float right, float up, float fwd);   // present thread
+// Publish the normal request and its authored-camera alternative together.
+// withoutCancel omits only engine neck cancellation, never real tracked motion.
+void  set_position_offset_uu(float right, float up, float fwd, const float* withoutCancel = nullptr);
+void  cinematic_position_offset_uu(float out[3]);   // present thread
 void  position_offset_uu(float out[3]);                           // any thread
 enum class PosLane { Vp = 0, Camera = 1 };
 bool        set_pos_lane(const char* name);   // "auto" | "vp" | "camera"

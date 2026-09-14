@@ -87,7 +87,7 @@ static void CineTraceDraw() {
     uint8_t* cam = CtObject(pc, g_ctPcCamera);
     uint8_t* pawn = CtObject(pc, g_ctPawn);
     int32_t pcRot[3] = {}, camRot[3] = {};
-    float loc[3] = {}, c5[3] = {}, pos[3] = {};
+    float loc[3] = {}, c5[3] = {}, pos[3] = {}, cinePos[3] = {};
     const bool pcOk = g_ctActorRot && CtRead(pc, g_ctActorRot, pcRot, sizeof(pcRot));
     const bool camOk = g_ctLayout && g_ctCache &&
         CtRead(cam, g_ctCache + g_ctPov + g_ctLoc, loc, sizeof(loc)) &&
@@ -97,6 +97,7 @@ static void CineTraceDraw() {
     CtRead(cam, kNameOff, name, sizeof(name));
     const bool c5Ok = dvr::camera::render_pos_world(c5);
     dvr::camera::position_offset_uu(pos);
+    dvr::camera::cinematic_position_offset_uu(cinePos);
     HtSample head = {};
     const bool headOk = HtConsumeSample(&head);
     const auto anim = dvr::anim::snapshot();
@@ -124,6 +125,8 @@ static void CineTraceDraw() {
         seq, (int)pcOk, pcRot[0]*360.0f/65536, pcRot[1]*360.0f/65536, pcRot[2]*360.0f/65536,
         (int)camOk, camRot[0]*360.0f/65536, camRot[1]*360.0f/65536, camRot[2]*360.0f/65536,
         loc[0], loc[1], loc[2], pos[0], pos[1], pos[2], (int)c5Ok, c5[0], c5[1], c5[2]);
+    Log("cine/trace #%u position: gameplayRUF=%.3f/%.3f/%.3f authoredRUF=%.3f/%.3f/%.3f neckMode=%d; requests, not synchronized render measurements",
+        seq,pos[0],pos[1],pos[2],cinePos[0],cinePos[1],cinePos[2],g_neckMode);
     int locks[4]={-1,-1,-1,-1};
     for(int i=0;i<4;++i) {
         uint32_t bits=0;
