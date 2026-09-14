@@ -5661,3 +5661,23 @@ no native function calls, and no retaining handles across polls.
 observation without consumption, second-load reset and invalid handle refusal.
 The prior overlay-enabled value remains diagnostic only. Movie completion now
 controls the existing loading lease. Headset timing is still unconfirmed.
+
+## 2026-09-14: native drop-assassination decision (VR-111)
+
+Decompiled DisItemContext_DropAssassinate derives directly from DisItemContext,
+not the melee/finisher context. Reflected fields m_pPlayerOwner,
+m_ContextStatus (idle0/failed1/in-progress2/finished3), m_CachedDropType
+(none0/too-high1/do-now2), m_pCachedTarget and
+m_TickTagAtWhichCacheIsValid expose its cached decision. Actor.Velocity is
+secondary telemetry. Read-only diagnostic must distinguish cached tick from
+an observed attack; it cannot prove rejection reason from type0 alone.
+
+Verified ue3-natives class derivation: metadata0135ff60, constructor00c0b180,
+vtable0116c7f8. Offline slot198 leads00c14960, which caches the result of
+00c09a50. That routine calls00c09900 for candidate eligibility and uses a
+trajectory from00c09810. The trajectory uses pawn velocity and gravity,
+not the physical head's view ray. Eligibility includes target state, vertical
+velocity, minimum drop and a collision trace, with distance selecting do-now
+versus too-high. Do not patch a guessed camera angle or expand handback lists
+to fix an attack that never entered a finisher. No new engine offsets/hooks
+are introduced: all diagnostic fields resolve through reflection.

@@ -20,5 +20,11 @@ int main() {
     check(!eligible(false,true,false,true,true,"unknown",true),"unknown state is not a cinematic");
     check(eligible(true,true,false,true,false,"unknown",false),"normal strict gameplay remains available without StateWatch");
     check(!eligible(true,false,false,true,true,"StatePlayerMasterWalk",true),"no-pawn beats strict");
+    check(eligible(false,true,false,false,true,"StatePlayerMasterWalk",true,true),"closed verified UI and rendered scene survive head-write stall");
+    check(!eligible(false,true,false,false,true,"StatePlayerMasterWalk",false,true),"UI clearance alone cannot authorize a silent scene");
+    check(!eligible(false,true,true,false,true,"StatePlayerMasterWalk",true,true),"menu beats render fallback");
+    check(!eligible(false,false,false,false,true,"StatePlayerMasterWalk",true,true),"live pawn required for render fallback");
+    check(!eligible(false,true,false,false,false,"StatePlayerMasterWalk",true,true),"fresh FSM required for render fallback");
+    check(!eligible(false,true,false,false,true,"unknown",true,true),"unknown state cannot use render fallback");
     std::printf("%u stereo-state policy checks passed\n",checks);
 }

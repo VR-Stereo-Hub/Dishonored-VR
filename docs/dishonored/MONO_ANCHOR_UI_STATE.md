@@ -262,3 +262,31 @@ no native function calls, and no retaining handles across polls.
 observation without consumption, second-load reset and invalid handle refusal.
 The prior overlay-enabled value remains diagnostic only. Movie completion now
 controls the existing loading lease. Headset timing is still unconfirmed.
+
+## 2026-09-14: build254 loading accepted; three follow-ups
+
+Verified254-g43551c09, compiled08:50:11, installed DLL hash matched. Both logs
+and INI archived at build/mono-ui-test/playtest-20260914-085908. Loading now
+releases into stereo. Mantle and block-counter native hand positioning are
+headset-confirmed. Two aerial attempts produced ordinary slashes, not a
+finisher with misplaced hands; VR-111 tracks native drop eligibility.
+
+The initial load released UI at6962359. Stereo became eligible6963890, fell
+back6966234, recovered6967296. During the fallback pawn/FSM remained valid,
+menu0 and sceneFresh1/c5age0, but view0. Successful head writes had stopped;
+the log includes rejected DeltaTime0.4. The legacy view heuristic, not the
+movie lease, caused this approximately1.06s mono interruption. The candidate
+allows current scene uploads to cover that loss only with the UI guard enabled
+and clear, a live pawn, and a fresh Walk state. Menu/unknown UI still veto;
+input permissions remain separate. Thirty host policy checks pass.
+
+VR-111 diagnostic: Anim.DropWatch=1 reads the live player-owned native
+DisItemContext_DropAssassinate decision, status, target liveness, cache tick,
+and pawn velocity. Discovery is bounded; no engine writes or forced attacks.
+No takedown fix is claimed. Next launch question: does one aerial takedown
+still become an ordinary slash? The log will distinguish no-drop, too-high,
+and do-now native decisions. User launches; agent reads and archives logs.
+
+Whole-view both-eye flicker after crouched note closes remains VR-99. Existing
+LateTagRepair was on; see FLICKER_REFERENCE for counters. No speculative
+pairing change in this candidate. PR56/57/58 remain unmerged.

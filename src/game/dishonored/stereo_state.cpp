@@ -34,7 +34,7 @@ static bool DvrSceneVerdict() {
     if (current!=serial) { serial=current; moved=now; }
     if (menu || !pawn || !state.valid) moved=0;
     const bool sceneFresh=moved && now>=moved && now-moved<=150;
-    const bool result=dvr::scene_state::eligible(strict,pawn,menu,view,state.valid,state.state[0],sceneFresh);
+    const bool result=dvr::scene_state::eligible(strict,pawn,menu,view,state.valid,state.state[0],sceneFresh,UiSurfaceEnabled() && !UiSurfaceBlocks());
     if ((int)result!=last || lastDialog!=state.dialogState || strcmp(lastState,state.state[0])) {
         last=result; lastDialog=state.dialogState;
         strncpy_s(lastState,state.state[0],_TRUNCATE);

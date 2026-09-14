@@ -1776,3 +1776,23 @@ follows script Engine.WaitMovie to the manual-reset movie-completion event.
 Zero-time observation is nonconsuming and tested on real host events. Expected:
 completion releases mono after Continue, not before; other menu guards remain.
 Full derivation, archive and failure record: MONO_ANCHOR_UI_STATE.md.
+
+## 2026-09-14: VR-99 recurrence on build254 (open)
+
+Route: section1 whole-view both-eye after-note/crouched symptom, detailed3.15.
+Tester reports approximately one in five note closes, improved by standing.
+Verified254-g43551c09 compiled08:50:11; installed DLL matched. Archive:
+build/mono-ui-test/playtest-20260914-085908. LateTagRepair on, SharedWait0.
+At7046281 the 10s ledger has27 owes,22 repairs,5 expired,22 slot relabels and
+zero refusals; at7056281 it has107 owes,102 repairs,5 expired,102 relabels,
+zero refusals. Eye+1 duplicate total rises129 at7045421 to147 at7054437.
+The repair is active and not sufficient for every transition. No evidence
+that mono anchoring itself causes eye swaps; UI does not reopen after these
+closes. Exact visible frame is unmarked, so expired owes are still a suspect,
+not proven cause. No pairing change is justified solely by those counters.
+Next: use a dedicated crouched-note run, join complete ledger around expired
+owes and duplicate pushes, and reproduce the failing schedule in the host
+model before changing repair. Keep the accepted late-tag/relabel fix enabled.
+Separate initial-load mono dip is a successful-head-write heuristic failure,
+not a movie lease retrigger; MONO_ANCHOR_UI_STATE.md records the evidence and
+candidate fallback. Native drop rejection is separate VR-111.

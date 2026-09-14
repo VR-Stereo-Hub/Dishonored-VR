@@ -9,11 +9,14 @@ inline bool cinematic(const char* state) {
 // Presentation permission is separate from player input permission. No latch,
 // timeout grace or previous state can override a menu or a missing live pawn.
 inline bool eligible(bool strict, bool pawn, bool menu, bool viewLive,
-                     bool valid, const char* state, bool sceneFresh) {
+                     bool valid, const char* state, bool sceneFresh, bool uiClear = false) {
     if (!pawn || menu) return false;
     if (strict) return true;
     if (!valid) return false;
     if (cinematic(state)) return viewLive || sceneFresh;
-    return viewLive && !std::strcmp(state,"StatePlayerMasterWalk");
+    // A verified closed UI plus current scene uploads supersedes the old
+    // loading heuristic based on successful head writes. Never use this
+    // fallback with the UI guard off, unknown, or blocked.
+    return (viewLive || (uiClear && sceneFresh)) && !std::strcmp(state,"StatePlayerMasterWalk");
 }
 }
