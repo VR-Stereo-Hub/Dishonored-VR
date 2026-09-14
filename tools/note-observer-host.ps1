@@ -26,8 +26,8 @@ $stateText = [IO.File]::ReadAllText((Join-Path $repo 'src/mod/state/62_game_dish
 $struct = [regex]::Match($stateText, '(?ms)^struct UiInst \{.*?^\};')
 $eyeBody = $struct.Value + "`nstatic UiInst g_uiInst[UI_INST_MAX];`n" + $eyeBody
 [IO.File]::WriteAllText((Join-Path $eyeOut 'note_observer_body.inc'), $eyeBody, [Text.UTF8Encoding]::new($false))
-$eyeVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$eyeVc = Get-DvrMsvcRoot
 $eyeSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $eyeLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |

@@ -9,8 +9,8 @@ $eyeText = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Source))
 $eyeBody = [regex]::Match($eyeText, '(?ms)^static void MpEyeForPresent\(const MpDrawCtx\* c\)\r?\n\{.*?^\}')
 if (-not $eyeBody.Success) { throw 'Production eye decision was not found.' }
 [IO.File]::WriteAllText((Join-Path $eyeOut 'palette_eye_body.inc'), $eyeBody.Value, [Text.UTF8Encoding]::new($false))
-$eyeVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$eyeVc = Get-DvrMsvcRoot
 $eyeSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $eyeLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |

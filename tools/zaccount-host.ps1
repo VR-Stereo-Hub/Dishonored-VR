@@ -4,8 +4,8 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $repo 'build\zaccount-test'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
-$vc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$vc = Get-DvrMsvcRoot
 $sdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $lib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |

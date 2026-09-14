@@ -8,8 +8,8 @@ $config = [IO.File]::ReadAllText((Join-Path $repo 'src/core/config/config.cpp'))
 $body = [regex]::Match($config, '(?ms)^static void WriteDefaultIni\(.*?^\}')
 if (-not $body.Success) { throw 'Default ini writer not found' }
 [IO.File]::WriteAllText((Join-Path $eyeOut 'default_profile_body.inc'), $body.Value, [Text.UTF8Encoding]::new($false))
-$eyeVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$eyeVc = Get-DvrMsvcRoot
 $eyeSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $eyeLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |

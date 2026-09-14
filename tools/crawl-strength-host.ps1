@@ -10,8 +10,8 @@ $writer = [regex]::Match($sourceText, '(?ms)^static void SkcSetCrawlStrength\(.*
 if (-not $identity.Success -or -not $writer.Success) { throw 'Production functions not found' }
 $legacyWriter = 'static void LegacySetCrawlStrength(float s) { if(!g_graftOffStr)return; for(int i=0;i<g_skcPlayerN && i<8;++i){auto o=g_skcPlayer[i]; if(!o || ((uintptr_t)o & 3) || !RangeReadable(o,g_graftOffStr+4))continue; *(float*)(o+g_graftOffStr)=s; if(g_graftOffSTgt && RangeReadable(o,g_graftOffSTgt+4))*(float*)(o+g_graftOffSTgt)=s; }}'
 [IO.File]::WriteAllText((Join-Path $eyeOut 'crawl_strength_body.inc'), $identity.Value + "`r`n" + $writer.Value + "`r`n" + $legacyWriter, [Text.UTF8Encoding]::new($false))
-$eyeVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$eyeVc = Get-DvrMsvcRoot
 $eyeSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $eyeLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |

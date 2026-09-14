@@ -14,8 +14,8 @@ foreach ($unit in @(@('src/game/dishonored/crouch.cpp', @('PawnForCollision','Re
     }
 }
 [IO.File]::WriteAllText((Join-Path $eyeOut 'load_startup_body.inc'), $eyeBody, [Text.UTF8Encoding]::new($false))
-$eyeVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$eyeVc = Get-DvrMsvcRoot
 $eyeSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $eyeLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |
