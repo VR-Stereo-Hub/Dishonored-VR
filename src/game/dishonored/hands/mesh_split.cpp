@@ -1879,6 +1879,8 @@ static inline bool MpFinite(float x)
 // constant reads. An ordinal is telemetry about draws; it is never an eye
 // label.
 struct MpDrawCtx {
+    int eyeHint; uint32_t eyeRec; float eyeError; // verified against this draw
+
     float r[3], u[3], f[3];     // camera basis, from the ViewProjection rows
     float col[3][3], t[3];      // LocalToWorld, columns and translation
     float projRight;            // L's translation on the right axis (telemetry)
@@ -2040,6 +2042,13 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         if (c->poseOk) lastGen = c->pose.gen;
     }
 
+    if(g_mpEyeRecord && (uint32_t)dvr::frame::count()!=g_mpEyePresent) {
+        float c5[4];
+        const float ipd=g_ipdM*(g_skcWorldScale>1.0f?g_skcWorldScale:100.0f)*g_mpDriveGain;
+        c->eyeError=-1.0f;
+        if(SUCCEEDED(dev->GetVertexShaderConstantF(5,c5,1)))
+            c->eyeHint=dvr::stereo::reentry_hand_eye(c5,ipd,&c->eyeRec,&c->eyeError);
+    }
     c->drawId = ++g_mpDrawSeq;
     c->ok = true;
     c->why = NULL;
@@ -2261,7 +2270,7 @@ static void MfMarker(void)
         char why[160]; int w = 0; why[0] = 0;
         if (t != -2 && t != 0 && r.eye != t)
             w += _snprintf(why + w, sizeof(why) - w, " eye %c but tag %c;", MfEyeChar(r.eye), MfEyeChar(t));
-        if (r.why != 'T')
+        if (r.why != 'T' && r.why != 'V')
             w += _snprintf(why + w, sizeof(why) - w, " decision %c;", r.why);
         if (r.refused[0] || r.refused[1])
             w += _snprintf(why + w, sizeof(why) - w, " refused %u/%u;", r.refused[0], r.refused[1]);
@@ -2348,7 +2357,7 @@ static void MpEyeForPresent(const MpDrawCtx* c)
 
     const float ipdUU = g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f)
                                   * g_mpDriveGain);
-    if (!g_mpEyeHavePrev) {
+    if (!g_mpEyeHavePrev && !(g_mpEyeRecord && c->eyeHint)) {
         g_mpEyeHavePrev = true; g_mpEyePrevFirst = c->projRight;
         g_mpEyeState = 0;                        // nothing to compare against yet
         MfOpen(pres, c, 'F', 0.0f, ipdUU);
@@ -2357,7 +2366,12 @@ static void MpEyeForPresent(const MpDrawCtx* c)
     const float d = c->projRight - g_mpEyePrevFirst;
     const float ad = fabsf(d);
     char why;
-    if (ad > 0.45f * ipdUU && ad < 2.0f * ipdUU) {
+    if (g_mpEyeRecord && c->eyeHint) {
+        g_mpEyeHavePrev=true;
+        g_mpEyeState=c->eyeHint;
+        g_mpEyePredictRun=0;
+        why='V'; // camera corroborated, not inferred from hand animation
+    } else if (ad > 0.45f * ipdUU && ad < 2.0f * ipdUU) {
         // The eye changed. The SIGN gives it absolutely, with no vote: the
         // smaller right-axis projection is the right eye.
         g_mpEyeState = (d < 0.0f) ? +1 : -1;
@@ -2406,30 +2420,30 @@ static void MpEyeForPresent(const MpDrawCtx* c)
         g_mpEyePredictRun = 0;
         why = 'A';
     }
-    // VR-95, READ-ONLY. Ask the stereo method what eye it resolved for the
-    // present these draws REACH, and compare.
-    //
-    // THE JOIN IS +1 AND THE FIRST VERSION OF THIS CHECK GOT IT WRONG.
-    // Joining at `pres` made the toggled row disagree 15311 times against 10
-    // agreements - a clean near-total inversion, which in an ALTERNATING stream
-    // is exactly what a one-present phase error looks like and is indistinguishable
-    // from a sign convention (TRAPS: negating an eye and improving agreement
-    // separates nothing). The correct join was already written fifteen lines away
-    // in MfDump, which says these draws reach Present + 1. A cross-check on an
-    // unproven join is not evidence, whatever it prints.
+    // VR-95: resolve the PREVIOUS observed hand view, after its Present ran.
+    // Zero disagreements with zero known comparisons is never a clean verdict.
     {
-        const int cls = why == 'T' ? 0 : why == 'S' ? 1 : 2;
-        if (cls == 1) { g_mpEyeSameAdSum += (double)ad; ++g_mpEyeSameAdN; }
-        dvr::desktop_eye::Record rec;
-        if (!dvr::desktop_eye::record_for(pres + 1, rec) || rec.draw == 0) {
-            ++g_mpEyeMethodNone[cls];
-        } else if (g_mpEyeState == 0) {
-            ++g_mpEyeMethodNone[cls];            // we have no opinion to compare
-        } else if ((rec.draw < 0) == (g_mpEyeState < 0)) {
-            ++g_mpEyeMethodAgree[cls];
-        } else {
-            ++g_mpEyeMethodDisagree[cls];
+        static bool pending=false;
+        static uint32_t pendingPresent=0;
+        static int pendingEye=0,pendingClass=0;
+        if(pending) {
+            dvr::desktop_eye::Record rec;
+            if (!pendingEye || !dvr::desktop_eye::record_for(pendingPresent+1,rec) || !rec.draw)
+                ++g_mpEyeMethodNone[pendingClass];
+            else if(rec.draw==pendingEye) ++g_mpEyeMethodAgree[pendingClass];
+            else ++g_mpEyeMethodDisagree[pendingClass];
         }
+        const int cls=why=='T'?0:why=='S'?1:2;
+        if(cls==1) { g_mpEyeSameAdSum+=(double)ad; ++g_mpEyeSameAdN; }
+        pending=true;pendingPresent=pres;pendingEye=g_mpEyeState;pendingClass=cls;
+    }
+    if(g_mpEyeRecord) {
+        static uint32_t accepted=0,refused=0;
+        if(c->eyeHint) ++accepted; else ++refused;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+            "ms/eye-record: present=%u eye=%d decision=%c record=%u error=%.3f uu "
+            "verified=%u fallback=%u; no tag consumed, world and hand poses unchanged",
+            pres,g_mpEyeState,why,c->eyeRec,c->eyeError,accepted,refused);
     }
     g_mpEyePrevFirst = c->projRight;
     MfOpen(pres, c, why, d, ipdUU);              // VR-76: after the decision the draws use
@@ -2898,7 +2912,13 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
 {
     g_msPassThrough = dvr::anim::native_draw();
-    if (g_msPassThrough) return false;
+    if (g_msPassThrough) {
+        if(g_mpEyeRecord) {
+            // Native cinematic draws did not contribute comparable hand samples.
+            g_mpEyeHavePrev=false;g_mpEyePredictRun=0;g_mpEyePresent=UINT32_MAX;
+        }
+        return false;
+    }
     if (g_msMode == MS_MODE_OFF) return false;
     MsContract con;
     {
@@ -3330,7 +3350,7 @@ static void MpDriveTick(void)
         "%.2f uu IPD. A SAME verdict holds the previous eye, so a disagreement "
         "there means those hands took the WRONG half-IPD for that present; head "
         "ROLL is the suspected cause, because it moves the hand AND rotates the "
-        "right axis the jump is measured on. All-zero disagreement clears this "
+        "right axis the jump is measured on. Zero disagreement with no known comparisons is inconclusive for this "
         "classifier. READ-ONLY: nothing here changes what is drawn.",
         g_mpEyeMethodAgree[0], g_mpEyeMethodDisagree[0], g_mpEyeMethodNone[0],
         g_mpEyeMethodAgree[1], g_mpEyeMethodDisagree[1], g_mpEyeMethodNone[1],

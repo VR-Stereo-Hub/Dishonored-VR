@@ -240,6 +240,8 @@ void reentry_push_tag_acct(int eyeSign, const float pos[3], uint32_t rec, uint32
 // VR-80: the ring ledger. The push carries the game side's draw attempt id; the ledger is
 // [Stereo] RingLedger; arm opens a print window; stance is 1 standing, 2 crouched.
 void reentry_push_tag_draw(int eyeSign, const float pos[3], uint32_t rec, uint32_t acct, uint32_t draw);
+// Render/present consumer lane only. Read-only front-tag/camera corroboration.
+int reentry_hand_eye(const float* c5, float ipdUU, uint32_t* rec, float* error);
 void set_reentry_ledger(bool on);
 void reentry_ledger_arm(const char* why);
 void reentry_ledger_stance(int stance);

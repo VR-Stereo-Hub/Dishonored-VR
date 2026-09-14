@@ -1,5 +1,10 @@
 # Roadmap
 
+## Hand eye identity (2026-09-14)
+
+- [x] VR-95 camera-corroborated eye candidate and deferred diagnostic tests.
+- [ ] Install only when requested, then verify after opening-cutscene exit.
+
 ## World head-motion stability (2026-09-14)
 
 - [x] VR-116 image-linked world orientation confirmed and reconfirmed at 120 Hz.

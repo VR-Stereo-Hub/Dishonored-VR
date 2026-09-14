@@ -131,6 +131,27 @@ bool peek_tag_full(Tag& out) {
     return true;
 }
 
+// VR-95: corroborate only the front tag, never search or consume the queue.
+// Bound is deliberately below an eye separation. It is a conservative guard,
+// not a measured tolerance; moving cameras may refuse and retain legacy logic.
+int corroborated_hand_eye(const float* c5, float ipd, uint32_t* rec, float* error) {
+    *rec=0; *error=-1.0f;
+    const LONG depth=InterlockedCompareExchange(&g_ringHead,0,0)-g_ringTail;
+    Tag tag={};
+    if (!c5 || !(ipd>0.0f) || !(ipd<100.0f) || depth<=0 || depth>6 ||
+        !peek_tag_full(tag) || !tag.posOk || !tag.rec ||
+        (tag.eye!=-1 && tag.eye!=1)) return 0;
+    float d2=0;
+    for(int i=0;i<3;++i) {
+        const float d=c5[i]-tag.pos[i];
+        if(!(d==d) || !(fabsf(d)<1e6f)) return 0;
+        d2+=d*d;
+    }
+    *rec=tag.rec; *error=sqrtf(d2);
+    const float bound=ipd*0.1f<0.25f?ipd*0.1f:0.25f;
+    return *error<=bound?tag.eye:0;
+}
+
 // VR-80: what one present's pop and arbitration DID, filled on every call (cheap) so the
 // ledger can print it. It records; it decides nothing.
 enum ArbAction { ACT_AGREE = 1, ACT_TOOK = 2, ACT_HELD = 4, ACT_REALIGN = 8, ACT_INVENT = 16, ACT_REFUSE = 32, ACT_UNKNOWN = 64,

@@ -253,6 +253,29 @@ int main() {
     check(a.wrongEye == b.wrongEye && a.emptyPops == b.emptyPops && a.realigns == b.realigns,
           "the model is deterministic and resets between runs");
 
+    g_ringHead=0;g_ringTail=0;
+    uint32_t rec=0;float error=0;
+    const float left[3]={3.15f,20,30},right[3]={-3.15f,20,30};
+    check(corroborated_hand_eye(left,6.3f,&rec,&error)==0,"eye identity refuses empty ring");
+    push_tag(-1,left,101,0);push_tag(+1,right,102,0);
+    check(corroborated_hand_eye(left,6.3f,&rec,&error)==-1 && rec==101 && g_ringTail==0,
+          "eye identity matches actual camera without consuming tag");
+    check(corroborated_hand_eye(right,6.3f,&rec,&error)==0,
+          "wrong camera is refused, never searched ahead or retagged");
+    Tag consumed={};pop_tag(consumed,nullptr);
+    check(consumed.rec==101 && corroborated_hand_eye(right,6.3f,&rec,&error)==1,
+          "capture order preserved across both eyes");
+    float moved[3]={-2.0f,20,30};
+    check(corroborated_hand_eye(moved,6.3f,&rec,&error)==0,"moving mismatched camera fails soft");
+    check(corroborated_hand_eye(right,0,&rec,&error)==0,"invalid IPD refused");
+    check(corroborated_hand_eye(nullptr,6.3f,&rec,&error)==0,"missing camera refused");
+    g_ringHead=0;g_ringTail=0;push_tag(0,left,103,0);
+    check(corroborated_hand_eye(left,6.3f,&rec,&error)==0,"mono is not assigned an eye");
+    g_ringHead=0;g_ringTail=0;push_tag(-1,nullptr,104,0);
+    check(corroborated_hand_eye(left,6.3f,&rec,&error)==0,"unwritten camera refused");
+    g_ringHead=0;g_ringTail=0;for(int i=0;i<7;++i) push_tag(-1,left,105+i,0);
+    check(corroborated_hand_eye(left,6.3f,&rec,&error)==0,"skewed ring refused");
+
     if (g_fail) { printf("reentry-pair host: %d of %d checks FAILED\n", g_fail, g_checks); return 1; }
     printf("reentry-pair host: all %d checks passed\n", g_checks);
     return 0;

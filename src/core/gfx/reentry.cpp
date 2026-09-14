@@ -737,6 +737,10 @@ void reentry_push_tag_draw(int eyeSign, const float pos[3], uint32_t rec, uint32
     push_tag(eyeSign, pos, rec, acct, draw);
 }
 
+int reentry_hand_eye(const float* c5,float ipd,uint32_t* rec,float* error) {
+    return corroborated_hand_eye(c5,ipd,rec,error);
+}
+
 void set_reentry_ledger(bool on) {
     const bool was = InterlockedExchange(&g_ledgerOn, on ? 1 : 0) != 0;
     if (on != was)

@@ -444,6 +444,7 @@ static LONG     g_mpCmpCount = 0;
 static int      g_mpEyeState = 0;
 static uint32_t g_mpEyePresent = 0xFFFFFFFFu;
 static bool     g_mpEyeHavePrev = false;
+static bool     g_mpEyeRecord = false; // VR-95, default-off independent eye attribution
 static float    g_mpEyePrevFirst = 0.0f;
 static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
 // VR-95, READ-ONLY: does the palette classifier agree with the eye the STEREO

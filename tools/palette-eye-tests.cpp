@@ -4,7 +4,9 @@
 #include <cmath>
 #include <cstdio>
 
-struct MpDrawCtx { float projRight; };
+struct MpDrawCtx { float projRight; int eyeHint=0; uint32_t eyeRec=0; float eyeError=-1; };
+static bool g_mpEyeRecord=false;
+#define DVR_LOG_EVERY_MS(...) ((void)0)
 static uint32_t testPresent;
 namespace dvr::frame { uint32_t count() { return testPresent; } }
 static int g_mpEyeState;
@@ -27,7 +29,8 @@ static long g_mpEyeMethodAgree[3], g_mpEyeMethodDisagree[3], g_mpEyeMethodNone[3
 // test, so the host stubs it as "the method published nothing".
 namespace dvr { namespace desktop_eye {
 struct Record { unsigned present; int draw, tag, shown; char action, source; };
-static bool record_for(unsigned, Record& out) { out = Record{}; return false; }
+static int resolvedEye=0;
+static bool record_for(unsigned p, Record& out) { out=Record{};out.draw=resolvedEye;return resolvedEye && p==testPresent; }
 } }
 static long g_mpEyeFlipped;
 static long InterlockedCompareExchange(volatile long* p, long value, long expected) {
@@ -143,6 +146,32 @@ int main() {
         check("vr95_flat_stream_stops_predicting_after_two",
               g_mpEyePredicted - before == 2 && g_mpEyeSame >= 8);
     }
+    // VR-95 independent eye evidence overrides a cancelled left step without
+    // inventing alternation on a genuine right-eye repeat.
+    reset();g_mpEyeRecord=true;g_mpEyePredict=false;
+    testPresent=100;MpDrawCtx verified{0.0f,-1,11,0.0f};MpEyeForPresent(&verified);
+    check("verified_first_eye_needs_no_old_animation",g_mpEyeState==-1);
+    testPresent=101;verified.eyeHint=1;MpEyeForPresent(&verified);
+    testPresent=102;verified.eyeHint=-1;MpEyeForPresent(&verified);
+    check("verified_left_survives_zero_hand_step",g_mpEyeState==-1);
+    testPresent=103;verified.eyeHint=1;MpEyeForPresent(&verified);
+    testPresent=104;MpEyeForPresent(&verified);
+    check("verified_repeat_does_not_blindly_toggle",g_mpEyeState==1);
+    testPresent=105;verified.eyeHint=0;MpEyeForPresent(&verified);
+    check("uncorroborated_view_keeps_legacy_fallback",g_mpEyeState==1);
+    g_mpEyeHavePrev=false;g_mpEyePresent=UINT32_MAX;
+    testPresent=200;verified.eyeHint=-1;verified.projRight=500;MpEyeForPresent(&verified);
+    check("post_cinematic_view_ignores_stale_position",g_mpEyeState==-1);
+    const long beforeKnown=g_mpEyeMethodAgree[2];
+    dvr::desktop_eye::resolvedEye=-1;
+    testPresent=201;verified.eyeHint=1;MpEyeForPresent(&verified);
+    check("deferred_audit_compares_presented_previous_eye",g_mpEyeMethodAgree[2]==beforeKnown+1);
+    const long beforeWrong=g_mpEyeMethodDisagree[2];
+    dvr::desktop_eye::resolvedEye=-1;
+    testPresent=202;verified.eyeHint=-1;MpEyeForPresent(&verified);
+    check("deferred_audit_detects_disagreement",g_mpEyeMethodDisagree[2]==beforeWrong+1);
+    dvr::desktop_eye::resolvedEye=0;
+    g_mpEyeRecord=false;
     std::printf("palette-eye: %d failures\n", failed);
     return failed ? 1 : 0;
 }

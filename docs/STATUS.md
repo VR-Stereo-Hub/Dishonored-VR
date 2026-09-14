@@ -1,3 +1,48 @@
+## 2026-09-14: hand-eye candidate failed playtest; world baseline restored
+
+Build275-g66634db52 (16:00:44) still showed the hand flicker, and the tester
+reported substantially more lag. Banner and DLL hash verified before rollback.
+This candidate is NOT accepted. No root cause for the perceived lag is claimed.
+At the user's request, restored world-only272-ge3bb7ac2a and its exact accepted
+INI. Full INI diff removes only Hands.PaletteEyeRecord=1; world image orientation
+remains enabled. DLL/INI hashes and CRLF verified by the installer. Failed-run
+logs and previous DLL/INI archived in
+build/playtest-candidates/installs/20260914-183145-517454.
+No game launched. PR62 stays unmerged. Next baseline test: in the same scene,
+does physical head turning regain the accepted smoothness? Improvement isolates
+the regression to the hand candidate path; no improvement leaves it unresolved.
+
+## Installed for hand-eye playtest, 2026-09-14
+
+The user subsequently requested installation. Build 275-g66634db52 (16:00:44)
+is now installed. Full INI comparison adds only Hands.PaletteEyeRecord=1;
+CRLF and DLL/INI hashes verified. Accepted world orientation remains enabled.
+Both prior logs and the previous DLL/INI were archived at
+build/playtest-candidates/installs/20260914-160335-107187.
+No game launched. PR62 remains draft and unmerged; headset result pending.
+
+One-question test: after exiting the opening cutscene, hold the controllers
+steady and turn the head side to side. Does the left-eye hand jump disappear
+while the world remains smooth? Improvement supports corrected hand eye
+selection; persistence or regression requires inspecting the new verified-eye,
+fallback and deferred comparison logs. Earlier not-installed notes describe
+the preparation stage and are superseded by this explicit installation request.
+
+## Current work: VR-95 hand eye candidate, do not install
+
+New branch codex/vr-95-hand-eye-identity from accepted main85f9ef6e4.
+Read docs/dishonored/HAND_EYE_IDENTITY.md (HAND_EYE_IDENTITY.md from this folder).
+The world-only DLL and installed INI remain untouched. Camera-corroborated
+hand eye selection, default-off PaletteEyeRecord, replaces neither world pose
+metadata nor controller sampling. Candidate build and host checks only.
+No game launch, install or merge; headset acceptance remains pending.
+
+Prepared275-g66634db52 (16:00:44), archived in
+`build/playtest-candidates/vr-95-hand-eye-identity`; NOT installed.
+Installed DLL/INI hashes verified unchanged; all local checks pass.
+
+## Earlier main state
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.
