@@ -248,3 +248,27 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
   dissolution of `src/mod/state`
 
 - [x] VR-103: script-state cinematic/dialogue stereo transitions; candidate225 headset-confirmed, PR55 approved for merge.
+
+- [ ] VR-50: cinematic FOV suppression candidate; speaker/choice test pending.
+- [ ] VR-104: native cinematic hands/arms implemented; combined FOV/handback test pending.
+
+- [ ] VR-105: physical-pitch-only animation comfort; combined headset test pending.
+- [ ] VR-104 follow-up: mantle handback enabled in combined candidate.
+- [ ] VR-50 follow-up: cover measured1125ms native FOV exit blend.
+
+- [x] VR-50 cinematic exit recovery: build232 headset-confirmed (broader ticket remains open).
+- [ ] VR-105 follow-up: upright yaw, authored roll suppression and dialogue tracking candidate.
+- [ ] VR-104 mantle handback: not exercised in build232 playtest.
+
+## Cinematic handoff regression (2026-09-14)
+
+- [x] Build234 roll/pitch comfort, FOV and free look reported accepted.
+- [x] VR-109 yielded-dispatch activity and body-heading handoff implemented and host-tested.
+- [ ] Verify movement and uninterrupted stereo on the headset before PR56 merge.
+
+## Movement mode follow-up (2026-09-14)
+
+- [x] VR-109 mono handoff correction headset-confirmed.
+- [ ] VR-109 character-oriented movement drift after cinematics remains open.
+- [x] VR-110 saved head-based movement option implemented and host-tested.
+- [ ] Confirm head-based direction on the headset.

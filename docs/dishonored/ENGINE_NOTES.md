@@ -5456,3 +5456,118 @@ control state. Native bodies are unavailable in the dump. The old cinematic
 parity latch measurably parks the runtime at scene entry and for2s after a
 no-lock handoff. Presentation permission is now separate from strict gameplay,
 behind default-off StereoState. See [candidate evidence](STEREO_STATE_TRANSITIONS.md).
+
+## 2026-09-13: VR-50 cinematic FOV source and scoped override
+
+DisConv_PlayerLookAtSpeaker declares m_bUseZoom/m_fZoomPercentOnScreen;
+StatePlayerMasterInDialog retains the look constraints. DishonoredPlayerCamera
+has ControllerLook FOV priority, m_fCurFOV and a separate arms FOV. No global
+cinematic zoom-off INI found. Reflection names Camera.CameraCache -> TCameraCache.POV
+-> TPOV.FOV for a draw-scoped override with current live identity. Readings in
+accepted225 span36.6..107.9 against108.1 target. Request is not acceptance; next
+headset run tests the final-cache consumer. Full plan: [FOV/hands](CINEMATIC_FOV_AND_HANDS.md).
+
+## 2026-09-13: VR-104 native cinematic hands
+
+Reuse current FSM names Soiree/InDialog/InScriptedChoice in VR-88 handback.
+Its existing consumers restore arm/bone/material visibility and native mesh
+and weapon rendering. Default-off CinematicHandBack. Saved SkelControl release
+now checks full FName/class/slot on restoration, refreshes on menu/load/ownership
+edges, and marks changed identities for rediscovery. Candidate mesh/cull
+restores require live-object membership plus retained full identity. Existing
+measured draw-distance pair +0x1bc moved to kArmDrawDistancePair in patterns.h;
+this is provenance cleanup, not a new guessed field. Combined with VR-50 at the
+user's explicit request; headset acceptance remains pending.
+
+## Combined follow-up: FOV exit, pitch comfort, mantle hands
+
+Build230 47c626a521:40:15 is headset-confirmed for cinematic FOV suppression
+and native hands/arms, with a residual shrinking square on exit. Archive:
+build/cinematic-fov/playtest-20260913-220129. All31202 FOV scopes restored,
+zero refusals. At tick30273250 the override released in Walk and the host
+immediately claimed52 degrees; readback reached107.6 at30274375 (1125ms later).
+That native exit blend explains the reported rapid expansion.
+
+The FOV exit bridge now keeps the validated same owner's override during Walk,
+Falling or Jump until the sensor is within0.5 degree of the VR target. It cannot
+start from ordinary gameplay zoom. Menus/loads, invalid state/identity and an
+invalid sensor cancel it. A3s bound prevents indefinite suppression if readback
+stalls; the observed1125ms recovery is covered. No runtime policy change.
+
+VR-105 clarification: suppress forced up/down TILT ONLY. Height changes,
+physical HMD movement and actual climbing remain. Default-off Cine.LockPitch
+uses physical absolute HMD pitch with the same clamp as gameplay. Fully authored
+head-look composition replaces only its resulting pitch. Other live animation
+states use a validated draw scope that retains the gameplay translation request.
+Yaw/roll and position are preserved; both draws share the scope and exact incoming
+fields are restored afterward. F10 View Suppress animation up/down tilt; seam
+cinepitch on|off; Save As Defaults persists it.
+
+VR-104 extension: default-off Anim.MantleHandBack uses the exact live
+StatePlayerMasterMantle state and the existing native hand/weapon/arm consumers.
+It does not add every locomotion state. The older explicit preference to keep
+controller hands while mantling is superseded for this installed candidate by
+the new request. F10 View Native hands while mantling; seam mantlehands on|off.
+
+All three changes are combined in one build as explicitly requested. 38 FOV/
+handback checks,28 head math/policy checks and13 extracted production-scope
+checks pass. New checks cover convergence, timeout, stale owner, physical tilt,
+unchanged yaw/roll and preserving the gameplay position request. Runtime smoke,
+exports and final install identity are recorded below. No merge approval.
+
+## 2026-09-13: upright cinematic tracking follow-up
+
+Build232 (4ec4f457, compile22:10:59) log banner verified before interpretation.
+Both logs archived in build/cinematic-fov/playtest-20260913-230307. The tester
+reports the FOV exit improvement successful; mantle handback was not tested.
+Forced pitch suppression exposes a remaining tilted-axis swivel while holding
+the Empress. At tick32642531 authored P/Y/R=-57.78/55.56/32.61, composed
+P/Y/R=-32.21/40.92/54.40. This is smooth camera-axis coupling, not eye flicker.
+Replacing pitch AFTER full rotation composition leaves authored tilt in yaw/roll.
+
+The comfort path now constructs upright yaw as authored yaw plus physical yaw
+relative to the entry reference, then applies physical pitch and roll. Authored
+yaw and camera location remain active. Independent default-off Cine.LockRoll
+(F10 Suppress cinematic roll; cineroll on/off; Save As Defaults) removes authored
+roll, retaining physical HMD roll. LockPitch keeps its independent toggle.
+
+Decompiled DisConv_PlayerLookAtSpeaker declares maximum pitch/yaw constraints;
+DishonoredCamera_PlayerControl resets controller rotation, and camera influences
+form a non-additive group. Native bodies are unavailable. The log includes942
+fully animation-owned,304 fully player-owned and66 blended InDialog samples.
+The prior head scope skipped the latter two populations. Scripted Soiree,
+InDialog and InScriptedChoice now keep a final head scope across those influences.
+A100ms lease from a successful live scope suppresses controller HMD injection,
+including direct fallback, so physical yaw is applied once. Native controller
+and stick changes remain; script resume references stay current. Unknown weights,
+menus, owner changes, stale poses and runtime loss retain refusal/reset guards.
+No new engine offsets or persistent engine-field writes are introduced.
+
+Reported restricted movement is provisionally interpreted as head rotation;
+physical lean versus rotation clarification is pending. The fix is a candidate,
+not a rendered acceptance claim.39 math/ownership checks and13 extracted camera
+scope checks pass, including the steep authored-axis regression and preserving
+ordinary gameplay blend ownership. New one-question test: holding the Empress,
+look left/right and up/down; expect no orbit or forced roll and unrestricted
+physical look. A remaining orbit rejects upright composition; a yaw lock points
+to ownership/constraint handling. FOV and mantle settings stay enabled.
+
+## 2026-09-14: cinematic input ownership must hand back activity and heading
+
+VR-109: live PVR dispatches can perform no mod writes by design. A write-age
+counter cannot alone describe camera activity during final-camera head ownership.
+FaceRotation also consumed the last published gameplay heading indefinitely;
+its producer stopped during cinematic free look. The candidate releases that
+consumer, bounds target age and resets outgoing head contribution at the first
+fresh gameplay publication. Full identity/possession and IsLiveObject checks
+precede the facing request write. No new native offsets. Evidence and untested
+acceptance are in CINEMATIC_FOV_AND_HANDS.md (2026-09-14).
+
+## 2026-09-14: selectable native view-facing movement
+
+Camera.HeadBasedMovement bypasses the separated FaceRotation request replacement.
+The existing measured native seam faces the pawn toward the full view; head mode
+leaves its request untouched and adds no engine writer or input rotation. The
+character mode remains available and its post-cinematic drift remains open.
+15 production-handler host checks pass; headset acceptance is pending. Details
+and recorded failed reference reset: CINEMATIC_FOV_AND_HANDS.md latest section.

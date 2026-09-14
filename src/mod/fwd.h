@@ -138,6 +138,7 @@ static void WaInvalidateContracts(const char* why);
 static void MkPresentTick(const char* state, bool pawnLive);
 static void MkScriptTick(void);
 static void MkReadIdentity(void* obj, dvr::menukeep::Identity* out);
+static bool FpRetainedLive(const FpCand* candidate);
 static void SuBeginLoad(void);
 static void SuTick(bool cyl, bool noMenu, bool view, bool noCine, bool verdict);
 static bool SuCommand(const char* args);
@@ -197,6 +198,24 @@ static bool BuildLiveSet();
 static void CineTraceConfigure(const char* ini);
 static void CineTraceTick();
 static void CineTraceDraw();
+static bool CineRollEnabled();
+static void CineRollSet(bool on);
+static bool CinePitchEnabled();
+static void CinePitchSet(bool on);
+static void CinePitchConfigure(const char* ini);
+static void CinePitchBegin(bool scene,bool doubleDraw);
+static void CinePitchPublish();
+static void CinePitchEnd();
+static bool CineFovEnabled();
+static void CineFovSet(bool on);
+static void CineFovConfigure(const char* ini);
+static void CineFovBegin(bool scene);
+static void CineFovEnd();
+static float CineFovClaim();
+static float CineFovScopeTarget();
+static bool CineHeadOwnsInput();
+static void CineHeadNoteDispatch();
+static bool CineHeadDispatchFresh();
 static bool CineHeadEnabled();
 static void CineHeadSet(bool on);
 static void CineHeadBegin(bool sceneDraw, bool doubleDraw);
@@ -574,3 +593,8 @@ bool YawSelfTest();
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/palette_packet_capture_fwd.inc"
 #endif
+
+static void YawCinematicSuspend();
+static bool YawFacingReady();
+static bool HeadMovementEnabled();
+static void HeadMovementSet(bool on);

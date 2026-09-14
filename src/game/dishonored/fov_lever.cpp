@@ -57,6 +57,9 @@ static inline void FovLeverApply()
     if (sensor > g_fovNatural) sensor = g_fovNatural;      // the loop breaker
     float R = deg / g_fovNatural;
     float t = sensor * R;
+    // A dispatch inside an active cinematic draw must preserve that draw's FOV.
+    const float scoped=CineFovScopeTarget();
+    if (scoped>0) t=scoped;
     if (t < 20.0f)  t = 20.0f;
     if (t > 160.0f) t = 160.0f;
     if (g_peCtrl)

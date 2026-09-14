@@ -85,6 +85,16 @@ static void OverlayFrame()
     {
         bool on=CineHeadEnabled();
         if (ImGui::Checkbox("Cinematic head look (candidate)",&on)) CineHeadSet(on);
+        bool pitchLock=CinePitchEnabled();
+        if (ImGui::Checkbox("Suppress animation up/down tilt",&pitchLock)) CinePitchSet(pitchLock);
+        bool rollLock=CineRollEnabled();
+        if (ImGui::Checkbox("Suppress cinematic roll",&rollLock)) CineRollSet(rollLock);
+        bool mantleHands=dvr::anim::mantle_enabled();
+        if (ImGui::Checkbox("Native hands while mantling",&mantleHands)) dvr::anim::set_mantle(mantleHands);
+        bool cineHands=dvr::anim::cinematic_enabled();
+        if (ImGui::Checkbox("Native cinematic hands and arms",&cineHands)) dvr::anim::set_cinematic(cineHands);
+        bool fov=CineFovEnabled();
+        if (ImGui::Checkbox("Suppress cinematic FOV zoom",&fov)) CineFovSet(fov);
         bool sceneState=StereoStateEnabled();
         if (ImGui::Checkbox("Stereo cinematic/dialogue states",&sceneState)) StereoStateSet(sceneState);
         bool borders=CineBordersEnabled();
@@ -105,10 +115,14 @@ static void OverlayFrame()
     }
     // VR-30: THE fix. Head yaw stops turning the body; the stick still does.
     {
+        bool headMovement=HeadMovementEnabled();
+        if(ImGui::Checkbox("Head-based movement",&headMovement)) HeadMovementSet(headMovement);
+        ImGui::BeginDisabled(headMovement);
         bool on = g_frWant >= 0.0f;
         if (ImGui::Checkbox("arms: head yaw does not turn the body", &on))
             ArmFollowSetFacing(on ? 1.0f : -1.0f, "F10");
         ImGui::TextDisabled("intercepts FaceRotation; the stick still turns you");
+        ImGui::EndDisabled();
     }
     {
         bool sr = g_asrWant >= 0.0f;

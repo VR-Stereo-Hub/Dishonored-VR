@@ -1,3 +1,4 @@
+#include <atomic>
 // game/dishonored/arm_follow.cpp - VR-30, the arm-follow probe (read-only).
 //
 // See mod/state/54_game_dishonored_arm_follow.inc for why this exists and
@@ -175,12 +176,31 @@ static inline bool ArmLookAlive()
 // engine then faces to - we change the REQUEST, not the result, so the engine
 // keeps doing its own rotation bookkeeping and dependent updates instead of
 // having a field assignment fought out from under it every tick.
+// Head-relative movement uses the game's unmodified view-facing request.
+// Keep character heading bookkeeping alive for switching back, but never let
+// its accumulated reference replace native facing while this option is active.
+static std::atomic<bool> g_headMovement{false};
+static bool HeadMovementEnabled() { return g_headMovement.load(); }
+static void HeadMovementSet(bool on) {
+    g_headMovement.store(on);
+    Log("movement: direction=%s; character-facing setting retained",on?"HEAD (native view facing)":"CHARACTER");
+}
 extern "C" void __cdecl FaceRotationHandler(void* self, int32_t* rot)
 {
     ++g_frSeen;
+    if (HeadMovementEnabled()) {
+        // No engine write or cached heading read. Other actors, native camera
+        // constraints and cinematic animation keep their normal facing path.
+        if(self && self==g_pePawn && rot && RangeReadable(rot,12))
+            DVR_LOG_EVERY_MS(::dvr::log::Cat::armfollow,::dvr::log::Level::Info,1000,
+                "movement/head: native facing %.2f deg passed unchanged; separated body target bypassed",rot[1]*360.0f/65536);
+        return;
+    }
     if (g_frWant < 0.0f || !rot) return;                 // lever off
     if (!self || (uint8_t*)self != g_yawPawn) return;    // not our pawn: untouched
     ++g_frOurs;
+    if(CineHeadOwnsInput()) { YawCinematicSuspend(); ++g_frStale; return; }
+    if(!YawFacingReady() || self!=g_yawPawn || !IsLiveObject((uint8_t*)self)) { ++g_frStale; return; }
     if (!g_yawValid) { ++g_frStale; return; }            // no fresh target: pass through
     if (!RangeReadable(rot, 12)) return;
     const int32_t asked = rot[1];

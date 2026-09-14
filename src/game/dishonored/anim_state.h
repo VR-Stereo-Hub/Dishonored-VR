@@ -18,6 +18,10 @@ bool command(const char* args);
 void status(dvr::status::Writer& w);
 Snapshot snapshot();
 bool enabled();
+bool cinematic_enabled();
+bool mantle_enabled();
+void set_mantle(bool on);
+void set_cinematic(bool on);
 void set_enabled(bool on);
 bool active(); // immediate ownership, including release hysteresis
 bool native_draw(); // blend reached identity: release split/suppression

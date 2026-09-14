@@ -210,3 +210,6 @@ static const uint32_t kMeshTrans = 0x190;
 static const uint32_t kMeshRot   = 0x19c;
 static const uint32_t kMeshScale = 0x1a8;
 static const uint32_t kMeshScl3D = 0x1ac;
+
+// VR-104: existing arms cull pair, measured transform-input layout (ENGINE_NOTES).
+static constexpr uint32_t kArmDrawDistancePair = 0x1bc;

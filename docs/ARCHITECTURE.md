@@ -784,3 +784,21 @@ accept a live authored/dialogue scene while gameplay_verdict still parks aim,
 input and performance classification. Reentry uses the same scene policy before
 its once-per-tick pair decision. This avoids treating an input lock as proof
 that no stereo world exists. The lever ships off; runtime policy is unchanged.
+
+### 2026-09-13: cinematic zoom override at final scene camera
+
+VR-50 uses a scoped reflected CameraCache.POV.FOV override rather than mutating
+native conversation constraints or global zoom targets. The host claim follows
+the successfully written draw value with bounded freshness. Gameplay zoom stays
+on the existing sensor path. Rendered acceptance and queued-transition metadata
+remain distinct from scope write/restore validation.
+
+### 2026-09-13: one physical head owner during scripted cinematics
+
+The final camera scope owns HMD rotation in the explicit cinematic states even
+when their core camera influences blend toward player control. A successful
+live scope grants a100ms lease that suppresses controller HMD injection and
+keeps its resume reference current. Native authored/stick movement remains.
+Comfort composition removes authored tilt before physical head rotation, avoiding
+Euler yaw/roll coupling from post-composition pitch removal. Independent
+LockPitch/LockRoll controls retain physical headset tilt and camera height.

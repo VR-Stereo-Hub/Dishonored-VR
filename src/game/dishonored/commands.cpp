@@ -49,6 +49,17 @@ static bool DvrOnOff(const char* a, bool* out)
 static bool DvrGameCommand(const char* cmd, const char* args)
 {
     bool b = false;
+    if (!strcmp(cmd,"movement")) {
+        if(!strcmp(args,"head")) HeadMovementSet(true);
+        else if(!strcmp(args,"character")) HeadMovementSet(false);
+        else Log("movement: head | character; current=%s",HeadMovementEnabled()?"head":"character");
+        return true;
+    }
+    if (!strcmp(cmd, "cineroll") && DvrOnOff(args, &b)) { CineRollSet(b); return true; }
+    if (!strcmp(cmd, "cinepitch") && DvrOnOff(args, &b)) { CinePitchSet(b); return true; }
+    if (!strcmp(cmd, "mantlehands") && DvrOnOff(args, &b)) { dvr::anim::set_mantle(b); return true; }
+    if (!strcmp(cmd, "cinehands") && DvrOnOff(args, &b)) { dvr::anim::set_cinematic(b); return true; }
+    if (!strcmp(cmd, "cinefov") && DvrOnOff(args, &b)) { CineFovSet(b); return true; }
     if (!strcmp(cmd, "cinestereo") && DvrOnOff(args, &b)) { StereoStateSet(b); return true; }
     if (!strcmp(cmd, "cineborders") && DvrOnOff(args, &b)) { CineBordersSet(b); return true; }
     if (!strcmp(cmd, "cinehead") && DvrOnOff(args, &b)) { CineHeadSet(b); return true; }
@@ -444,7 +455,9 @@ static bool DvrScriptViewLive()
         return false;
     }
     noteSaid = false;
-    const bool fresh = g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0;
+    // A PVR dispatch deliberately left to the cinematic is still activity.
+    // Do not classify our suppressed write counter as a silent game camera.
+    const bool fresh = (g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0) || CineHeadDispatchFresh();
     if (!fresh) {
         if (!silentSince) { silentSince = now; menuSilence = g_menuOpen || g_inMenu; }
         else if (g_menuOpen) menuSilence = true;

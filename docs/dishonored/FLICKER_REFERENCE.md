@@ -1672,3 +1672,48 @@ latch=1. Runtime quad transitions later correspond to notes and menus. Clean
 unload. Both logs archived in build/stereo-state/playtest-20260913-212231.
 The user explicitly approved PR55 merge. Cinematic FOV shrinking and native
 hand/arm animation are separate follow-up work, not failures of this result.
+
+## 2026-09-13: VR-50 shrinking cinematic frame
+
+Separate from confirmed VR-103 mono interruptions: reported square shrinks during
+speaker/choice framing. Accepted225 log measures FOV readback down to36.6 degrees
+versus108.1 target. Default-off LockFov now requests a stable final cinematic
+camera FOV and matching host claim; acceptance remains open. No eye-tag change.
+See [source evidence and next test](CINEMATIC_FOV_AND_HANDS.md).
+
+## 2026-09-13: VR-50 exit shrink isolated
+
+Build230 confirmed in-scene FOV and native arms; exit alone shrinks then expands.
+Measured override release in Walk at30273250 immediately exposes52-degree sensor,
+which returns to107.6 after1125ms. Candidate bridges that same-owner native blend,
+not an eye-tag fix.38 FOV/handback checks pass; exit result still pending. Exact
+sources, archive and falsifiable combined test are in CINEMATIC_FOV_AND_HANDS.md.
+
+## 2026-09-13: tilted cinematic swivel (VR-105)
+
+Surface: scene camera, smooth axis coupling, not duplicated/stale eye imagery.
+Build232 shows authored pitch -57.78 and roll32.61 becoming roll54.40 after
+head composition plus pitch replacement. Upright composition and independent
+roll suppression are candidates; no headset acceptance yet. FOV exit improvement
+is reported successful; mantle was untested. See CINEMATIC_FOV_AND_HANDS.md for
+archived identity, numeric evidence, counterpredictions and the next test.
+
+## 2026-09-14: VR-109 cinematic activity regression
+
+Build234 confirms comfort/FOV/free look but reports mono exit recurrence. At
+752187 Walk is valid, pawn live, menu0 and sceneFresh1, yet view0. Quad lasts
+752203-753265 (1062ms). DvrScriptViewLive was counting writes that cinematic
+ownership intentionally suppresses, not the continuing PVR dispatches.
+Candidate records yielded dispatch activity with the existing750ms limit;
+menu/pawn gates unchanged. If a no-menu live-scene handoff still goes mono,
+the correction is incomplete. Host checks pass; headset result open.
+Exact archive, source changes and next test: CINEMATIC_FOV_AND_HANDS.md latest
+section. The later journal/movie transition is separate, not a no-menu example.
+
+## 2026-09-14: VR-109 mono handoff confirmed
+
+Verified237-g563e14d6, Sep14 07:27:03: the reported cinematic mono interruption
+is resolved on the headset. Logs/INI archived at cinematic-regression/20260914-073936
+under build. Counting yielded PVR activity remains the accepted correction.
+Character-heading drift did not resolve; it is a separate movement issue, not
+stereo instability. VR-110 offers selectable native head-facing movement.
