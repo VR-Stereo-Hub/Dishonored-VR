@@ -433,6 +433,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         // was skipped (41.1: the resume-window one-sided stream).
         g_sdTick = SceneDrawDecide(callerRet);
         CineHeadBegin(g_sdTick.gameplay, g_sdTick.doubleIt);
+        CineFovBegin(g_sdTick.gameplay);
         if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
         g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
         InterlockedExchange(&g_sdInDrawTid,
@@ -464,6 +465,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         g_sdSumCall1Us += g_sdCall1Us;
         const uint32_t call2Before = g_sdSecondDraws;
         SceneDrawMaybeSecond(self, bShouldPresent, g_sdTick);
+        CineFovEnd();
         CineHeadEnd();
         if (g_sdSecondDraws != call2Before) g_sdSumCall2Us += g_sdCall2Us;
         QueryPerformanceCounter(&g_sdRetPrev);

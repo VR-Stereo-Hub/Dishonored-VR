@@ -1672,3 +1672,11 @@ latch=1. Runtime quad transitions later correspond to notes and menus. Clean
 unload. Both logs archived in build/stereo-state/playtest-20260913-212231.
 The user explicitly approved PR55 merge. Cinematic FOV shrinking and native
 hand/arm animation are separate follow-up work, not failures of this result.
+
+## 2026-09-13: VR-50 shrinking cinematic frame
+
+Separate from confirmed VR-103 mono interruptions: reported square shrinks during
+speaker/choice framing. Accepted225 log measures FOV readback down to36.6 degrees
+versus108.1 target. Default-off LockFov now requests a stable final cinematic
+camera FOV and matching host claim; acceptance remains open. No eye-tag change.
+See [source evidence and next test](CINEMATIC_FOV_AND_HANDS.md).

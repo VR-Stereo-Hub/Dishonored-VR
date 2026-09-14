@@ -38,7 +38,7 @@ static void CineTraceSet(bool on) {
     Log("cine/trace: %s (live); no engine writes", on ? "ON" : "off");
 }
 static void CineTraceTick() {
-    if ((!g_cineTrace.load() && !g_cineHead.load()) || g_ctResolved || !RflNamesReady()) return;
+    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled()) || g_ctResolved || !RflNamesReady()) return;
     const double now = MaimNowMs();
     if (now < g_ctResolveAfter || !IsLiveObject(g_camObj) || !CamStillValid()) return;
     g_ctResolveAfter = now + 5000;

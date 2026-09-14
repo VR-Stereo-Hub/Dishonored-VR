@@ -784,3 +784,11 @@ accept a live authored/dialogue scene while gameplay_verdict still parks aim,
 input and performance classification. Reentry uses the same scene policy before
 its once-per-tick pair decision. This avoids treating an input lock as proof
 that no stereo world exists. The lever ships off; runtime policy is unchanged.
+
+### 2026-09-13: cinematic zoom override at final scene camera
+
+VR-50 uses a scoped reflected CameraCache.POV.FOV override rather than mutating
+native conversation constraints or global zoom targets. The host claim follows
+the successfully written draw value with bounded freshness. Gameplay zoom stays
+on the existing sensor path. Rendered acceptance and queued-transition metadata
+remain distinct from scope write/restore validation.

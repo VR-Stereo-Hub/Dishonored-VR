@@ -1,3 +1,11 @@
+## Latest continuation: cinematic FOV and hands, 2026-09-13
+
+PR55 merged823c53d5; VR-103 Done and headset-confirmed. VR-50 branch is
+codex/vr-50-cinematic-fov-and-hands. Read CINEMATIC_FOV_AND_HANDS.md first for the
+FOV candidate and queued VR-104 native handback. FOV is the only first-test
+behavior change. Latest install: build/cinematic-fov/latest-install.json.
+No subagents, never launch the game, no merge approval for new work.
+
 ## Current state (2026-09-13): PR54 merged; VR-103 candidate
 
 Cinematic head look, pitch and black borders are headset-confirmed and merged

@@ -1,3 +1,14 @@
+## Current state: cinematic FOV candidate, 2026-09-13
+
+PR55 merged823c53d5 and VR-103 verified Done after full headset acceptance.
+New branch codex/vr-50-cinematic-fov-and-hands starts from that merge. VR-50
+In Progress: suppress cinematic speaker/choice FOV narrowing with default-off
+LockFov. VR-104 In Progress: native hands/arms handback, investigated and queued
+for its separate behavior/test after FOV acceptance. No hands changes installed.
+Read docs/dishonored/CINEMATIC_FOV_AND_HANDS.md. Current install identity lives in
+build/cinematic-fov/latest-install.json. Never launch the game; one question per
+launch, read/archive logs. No subagents and no merge permission for this branch.
+
 ## Current state: VR-103 accepted for merge, 2026-09-13
 
 PR55 candidate225 d015b1aa21:05:03 is headset-confirmed for all reported cinematic,

@@ -5456,3 +5456,13 @@ control state. Native bodies are unavailable in the dump. The old cinematic
 parity latch measurably parks the runtime at scene entry and for2s after a
 no-lock handoff. Presentation permission is now separate from strict gameplay,
 behind default-off StereoState. See [candidate evidence](STEREO_STATE_TRANSITIONS.md).
+
+## 2026-09-13: VR-50 cinematic FOV source and scoped override
+
+DisConv_PlayerLookAtSpeaker declares m_bUseZoom/m_fZoomPercentOnScreen;
+StatePlayerMasterInDialog retains the look constraints. DishonoredPlayerCamera
+has ControllerLook FOV priority, m_fCurFOV and a separate arms FOV. No global
+cinematic zoom-off INI found. Reflection names Camera.CameraCache -> TCameraCache.POV
+-> TPOV.FOV for a draw-scoped override with current live identity. Readings in
+accepted225 span36.6..107.9 against108.1 target. Request is not acceptance; next
+headset run tests the final-cache consumer. Full plan: [FOV/hands](CINEMATIC_FOV_AND_HANDS.md).

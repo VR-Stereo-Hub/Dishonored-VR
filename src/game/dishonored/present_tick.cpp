@@ -343,7 +343,8 @@ static void DvrFovHandoff()
     if (proj) {
         const float target = dvr::vr::suggested_hfov_deg();   // 0 until the views are located
         dvr::camera::set_fov_deg(target);
-        const float sensor = dvr::camera::rendered_fov_deg();
+        const float scoped=CineFovClaim();
+        const float sensor = scoped>0 ? scoped : dvr::camera::rendered_fov_deg();
         dvr::vr::set_rendered_hfov(sensor);
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
         if (fabsf(target - saidTarget) > 0.05f || fabsf(sensor - saidSensor) > 0.5f || w != saidW || h != saidH) {
@@ -354,9 +355,9 @@ static void DvrFovHandoff()
             uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh);
             float hh = 0.0f, hv = 0.0f; dvr::vr::headset_half_fov_deg(&hh, &hv);
             Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f); "
-                "sensor %.1f deg = the layer's claim%s; eye %ux%u",
+                "FOV %.1f deg = the layer's claim%s; eye %ux%u",
                 aspect, w, h, target, vfov, hh, hv, sensor,
-                sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : "",
+                scoped>0 ? " (cinematic draw override)" : sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : " (sensor)",
                 ew, eh);
         }
         wasProj = true;
