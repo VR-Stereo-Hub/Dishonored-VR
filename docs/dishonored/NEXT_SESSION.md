@@ -1,3 +1,16 @@
+## Current state: head-based movement candidate
+
+Cinematic237-g563e14d6 confirms the mono handoff fix. Character movement drift
+persists; VR-109 remains open for that part. VR-110 adds a selectable, saved
+head-based mode that uses native view facing, preserving the character option.
+Read CINEMATIC_FOV_AND_HANDS.md latest section for evidence and the single test.
+Current branch codex/vr-50-cinematic-fov-and-hands, draft PR56. No merge approval.
+PR57/58 are preserved and need the accepted parent correction before new tests.
+Never launch the game; no subagents. Agent builds/installs and archives logs.
+Canonical active build: build/playtest-candidates/installed.json.
+
+## Earlier records
+
 ## Current state: VR-109 correction installed, headset test pending
 
 Installed: 237-g563e14d6, Sep14 07:27:03 (cinematic correction, NOT the

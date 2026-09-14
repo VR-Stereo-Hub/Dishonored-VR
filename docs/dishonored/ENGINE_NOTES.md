@@ -5562,3 +5562,12 @@ consumer, bounds target age and resets outgoing head contribution at the first
 fresh gameplay publication. Full identity/possession and IsLiveObject checks
 precede the facing request write. No new native offsets. Evidence and untested
 acceptance are in CINEMATIC_FOV_AND_HANDS.md (2026-09-14).
+
+## 2026-09-14: selectable native view-facing movement
+
+Camera.HeadBasedMovement bypasses the separated FaceRotation request replacement.
+The existing measured native seam faces the pawn toward the full view; head mode
+leaves its request untouched and adds no engine writer or input rotation. The
+character mode remains available and its post-cinematic drift remains open.
+15 production-handler host checks pass; headset acceptance is pending. Details
+and recorded failed reference reset: CINEMATIC_FOV_AND_HANDS.md latest section.

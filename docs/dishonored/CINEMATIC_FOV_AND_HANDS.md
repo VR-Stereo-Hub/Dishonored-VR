@@ -261,3 +261,35 @@ Install archive: build/playtest-candidates/installs/20260914-072808-025185.
 Standalone XR smoke also passed60 frames, FOCUSED,0 errors; no game launch.
 The next launch tests movement-heading handoff. Stereo is checked in its log.
 PR56 remains draft; VR-109 In Progress. PR57/58 are unchanged and unmerged.
+
+## 2026-09-14: mono accepted, character drift remains, head-based option
+
+Verified cinematic237-g563e14d6 (Sep14 07:27:03) and installed DLL hash.
+Both logs/INI archived at build/cinematic-regression/20260914-073936.
+Reported: mono handoff correction works; character-oriented movement is still
+5-10deg off after the first scene and around45deg after dialogue/FOV framing.
+The reference-reset fix is insufficient. Logs show resets did occur and later
+native requested/body headings diverged again. VR-109 remains open for that
+character-mode issue; its mono portion is headset-confirmed.
+
+VR-110 adds Camera.HeadBasedMovement (default0, candidate1), F10 Head-based
+movement and command movement head|character. Config Save persists the choice.
+Head mode leaves the native FaceRotation request untouched, so the game follows
+the full view heading rather than our separated body target. No input-vector
+rotation, cached heading read, new offset or engine write is needed. Physical
+head yaw can turn the character in this mode, by design. Existing ArmBodyFacing
+and character bookkeeping remain available; switching back does not claim to
+fix their outstanding drift. Cutscene-facing requests remain native as well.
+The camera comfort/FOV and confirmed stereo activity changes are unchanged.
+
+15 host checks compile the production handler and verify head passthrough across
+yaw/wrap values, no stale body-state read in head mode, character-mode restoration,
+cinematic/stale/dead-owner guards and other-pawn passthrough. Build, exports,
+lint and generated INI comparison pass. Headset behavior still awaits testing.
+
+Next one-question test: after the dialogue/FOV scene returns control, turn your
+head left/right and use forward/sideways movement, then turn with the right
+stick. Does movement consistently follow where you are looking without the
+diagonal offset? Pass supports native head-based movement; a persistent offset
+means the final camera and native movement direction still disagree. The agent
+reads the archived run and never launches the game.

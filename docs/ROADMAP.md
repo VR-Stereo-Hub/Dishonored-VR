@@ -265,3 +265,10 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] Build234 roll/pitch comfort, FOV and free look reported accepted.
 - [x] VR-109 yielded-dispatch activity and body-heading handoff implemented and host-tested.
 - [ ] Verify movement and uninterrupted stereo on the headset before PR56 merge.
+
+## Movement mode follow-up (2026-09-14)
+
+- [x] VR-109 mono handoff correction headset-confirmed.
+- [ ] VR-109 character-oriented movement drift after cinematics remains open.
+- [x] VR-110 saved head-based movement option implemented and host-tested.
+- [ ] Confirm head-based direction on the headset.

@@ -596,3 +596,5 @@ bool YawSelfTest();
 
 static void YawCinematicSuspend();
 static bool YawFacingReady();
+static bool HeadMovementEnabled();
+static void HeadMovementSet(bool on);
