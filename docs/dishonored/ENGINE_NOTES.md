@@ -5341,3 +5341,22 @@ OBS implicit layer disabled only for its child process. Its initial -32 was
 XR_ERROR_FILE_ACCESS_ERROR, not a failure of this mod. No game launch.
 
 Plan and one-question test: CINEMATIC_HEAD_TRACKING.md.
+
+## 2026-09-13: VR-70 boat camera bypass measured; scoped rotation candidate
+
+Build 218-ge5c7653f, compile 19:34:31, banner verified. Opening boat trace #39-319
+(281 samples,29.907s) has full Soiree animation influence 1/0/0, no menu/quad,
+and continuous PVR writes. Head pitch moves 62.55 degrees; controller follows;
+final cache pitch moves 0.02. Walk negative control:25 matching PC/cache rows.
+No deliberate lean or stick comparison. Later resume samples are stale/quad
+and excluded. CINEMATIC_HEAD_TRACKING.md has archived identity and ranges.
+
+The candidate writes reflected CameraCache.POV.Rotation only across the two
+viewport draws: authored * inverse(entry head) * current head. Location uses
+the existing offset seam with a frozen request and composed stereo right axis;
+rotation/location/provenance are restored before the next engine update.
+No extra native hook or new literal engine field is introduced. Each new engine
+store requires fresh-entry IsLiveObject, current object-slot membership, retained
+class and full FName, and current controller camera/pawn links. Menus/load or
+failed ownership discard the reference. Failed restore preserves foreign fields.
+This is not yet a measured downstream acceptance of rotation stores.

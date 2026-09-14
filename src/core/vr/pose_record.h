@@ -57,7 +57,7 @@ struct Cam {
     float  pos[3];            // the eye position written, engine units
     bool   posOk;
     double writeMs;           // when the camera write happened
-    int    writer;            // 1 script dispatch, 2 direct fallback, 0 none
+    int    writer;            // 1 script dispatch, 2 direct fallback, 3 cinematic draw, 0 none
     bool   ok;
 };
 

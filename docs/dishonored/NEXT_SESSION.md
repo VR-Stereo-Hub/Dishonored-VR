@@ -3,10 +3,13 @@
 Linear reconciliation below is now complete. VR-96 is Done/High; VR-98 remains
 Done; completed follow-ups VR-100/VR-101 and open freeze VR-102 are recorded.
 VR-70 is In Progress on codex/vr-70-cinematic-head-tracking from cccb1815.
-Read CINEMATIC_HEAD_TRACKING.md for the current one-question boat test and
-implementation plan. A read-only ownership trace is installed next; physical
-head-motion composition is not implemented yet. The older handoff follows
-for history, not as outstanding Linear work.
+Read CINEMATIC_HEAD_TRACKING.md for the measured boat result and next question.
+Diagnostic build 218 proved physical rotation reaches the controller but is
+bypassed by the authored cache. The default-off draw-scoped rotation candidate
+is implemented on draft PR #54. Check build/cinematic/latest-install.json for
+the current installed identity; headset acceptance is pending. Deliberate lean
+and right-stick behavior remain untested. Do not merge without explicit approval.
+The older handoff follows for history, not outstanding Linear work.
 
 # Next session: physical head movement during cinematics
 

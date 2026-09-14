@@ -1,26 +1,31 @@
 # Status
 
-## CURRENT (2026-09-13): VR-70 cinematic investigation, boat trace next
+## CURRENT (2026-09-13): VR-70 boat head rotation candidate
 
-Linear reconciliation is complete: VR-96 remains Done/High with owner and guard
-evidence; VR-98 retains Done with confirmed 0-16 ms note transitions across
-reload. Completed PR #53 follow-ups are VR-100 (startup mono gate) and VR-101
-(reload R/0 repair). VR-102 preserves the open weapon startup freeze, name
-cache off. One batch project update posted; no release declared.
+Linear reconciliation is complete: VR-96 remains Done/High with crash-owner and
+liveness evidence; VR-98 retains Done with confirmed note transitions. Completed
+PR #53 follow-ups are VR-100 (startup mono) and VR-101 (reload R/0 repair).
+VR-102 preserves the open weapon startup freeze; name cache stays off.
 
-New branch `codex/vr-70-cinematic-head-tracking` starts at current VR-Main
-`cccb1815`. PR #12 was read, including later history; its presentation controls
-do not implement head motion. Native getters independently establish the final
-camera cache position/rotation fields. A read-only trace is built for the opening
-boat ride, to distinguish lost rotation from translation and prevent double
-application of existing head motion. The actual head-motion writer is not yet
-implemented. No game was launched and no new headset result is claimed.
+Branch `codex/vr-70-cinematic-head-tracking` starts at current VR-Main cccb1815.
+Draft PR #54 remains unmerged. PR #12 and native camera getters were reviewed.
+The banner-verified boat run proves head rotation reaches the controller while
+the animation-owned camera ignores it: 62.55 degrees of head pitch versus 0.02
+in the cache over 281 clean samples. Lean and stick were not tested.
 
-Next: the tester runs the single boat-motion question in
-[detailed plan](dishonored/CINEMATIC_HEAD_TRACKING.md). Match the installed
-manifest `build/cinematic/latest-install.json` before reading the log. Implement
-a scoped authored-camera composition after identifying the missing component
-and its state; preserve menus/loading and normal gameplay. Merge is not authorized.
+The new default-off candidate composes head rotation over the authored boat
+camera only during both eye draws, then restores its original fields and writer
+provenance. Engine writes validate current live identity and possession. Gameplay
+rotation and positional tracking logic stay in place; the eye axis follows the
+composed orientation. See [current evidence and test](dishonored/CINEMATIC_HEAD_TRACKING.md).
+
+Validation:22 host checks,32-bit build,9 exports,lint,INI golden and standalone
+XR smoke (60 frames,0 errors) pass. Next: run the installed candidate with the
+single head-look question there.
+Read `build/cinematic/latest-install.json` for exact installed banner/hash before
+interpreting logs. Verify scope write/restore counts, then test stick, position,
+normal gameplay and transitions separately. VR-70 is In Progress; merge is not
+authorized. The agent never launches the game.
 
 ## Earlier (2026-09-13): load/reload fixes confirmed and merged (PR #53)
 
@@ -5532,3 +5537,11 @@ PR #12 and independently derived final camera cache getters. Added a bounded
 read-only boat trace, production build/lint/exports/golden verified; standalone
 simulator 60 frames passed after process-local OBS-layer opt-out. Awaiting
 the tester-owned boat observation before selecting the head-motion writer.
+
+## Session continuation (2026-09-13): boat camera ownership and rotation candidate
+
+Archived diagnostic build 218-ge5c7653f logs before the next launch. The measured
+Soiree animation path bypasses controller rotation while Walk uses it. Added a
+guarded draw-scoped cache rotation overlay, coherent stereo eye orientation and
+live A/B. Headset behavior remains pending; lean and stick are untested. Details
+and remaining acceptance are in CINEMATIC_HEAD_TRACKING.md.

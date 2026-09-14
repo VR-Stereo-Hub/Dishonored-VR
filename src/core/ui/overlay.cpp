@@ -82,6 +82,10 @@ static void OverlayFrame()
     }
 
     if (ImGui::BeginTabItem("View")) {
+    {
+        bool on=CineHeadEnabled();
+        if (ImGui::Checkbox("Cinematic head look (boat candidate)",&on)) CineHeadSet(on);
+    }
     if (ImGui::SliderFloat("world scale (uu/m)", &g_posScaleUU, 10.0f, 200.0f, "%.0f"))
         { /* sep recomputed each frame from this */ }
 

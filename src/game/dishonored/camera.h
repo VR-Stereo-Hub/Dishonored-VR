@@ -95,6 +95,12 @@ bool clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax);
 // selected field - one write, re-based every tick so a persistent field does
 // not accumulate; restored when both offsets go to zero. `camObj` is the live
 // camera object (head_track's g_camObj; null = skip).
+// Draw-only rotation overlay. Validator checks IsLiveObject, current GObjects
+// membership, retained identity and possession before each engine write.
+bool begin_view_scope(uint8_t* cam, uint32_t rotOff, const int32_t rot[3],
+                      const float right[3], int firstEye, bool (*validate)(uint8_t*));
+// Returns false when identity or engine recomputation prevented an exact restore.
+bool end_view_scope();
 bool apply_offsets(uint8_t* camObj);
 inline bool apply_eye_offset(uint8_t* camObj) { return apply_offsets(camObj); }
 

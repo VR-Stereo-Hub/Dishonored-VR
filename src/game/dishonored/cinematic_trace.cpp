@@ -1,7 +1,8 @@
 #include <atomic>
-// VR-70: read-only camera ownership trace, included after reflection in the unity TU.
+#include "game/dishonored/cinematic_math.h"
+// VR-70: camera ownership trace and draw-scoped head rotation; after reflection in the unity TU.
 namespace {
-std::atomic<bool> g_cineTrace{false};
+std::atomic<bool> g_cineTrace{false}, g_cineHead{false};
 uint32_t g_ctPcCamera, g_ctPawn, g_ctActorRot, g_ctCache, g_ctPov;
 uint32_t g_ctLoc, g_ctRot, g_ctStyle, g_ctInfluence[3], g_ctWeight;
 bool g_ctResolved = false, g_ctLayout = false;
@@ -24,6 +25,8 @@ float CtWeight(uint8_t* cam, int index) {
 }
 }
 static void CineTraceConfigure(const char* ini) {
+    g_cineHead.store(GetPrivateProfileIntA("Cine", "HeadLook", 0, ini) != 0);
+    Log("cine/head: %s ([Cine] HeadLook), draw-scoped boat rotation", g_cineHead.load() ? "ON" : "off");
     g_cineTrace.store(GetPrivateProfileIntA("Cine", "Trace", 0, ini) != 0);
     Log("cine/trace: %s ([Cine] Trace), read-only camera ownership at draw entry, 100 ms cadence",
         g_cineTrace.load() ? "ON" : "off");
@@ -33,7 +36,7 @@ static void CineTraceSet(bool on) {
     Log("cine/trace: %s (live); no engine writes", on ? "ON" : "off");
 }
 static void CineTraceTick() {
-    if (!g_cineTrace.load() || g_ctResolved || !RflNamesReady()) return;
+    if ((!g_cineTrace.load() && !g_cineHead.load()) || g_ctResolved || !RflNamesReady()) return;
     const double now = MaimNowMs();
     if (now < g_ctResolveAfter || !IsLiveObject(g_camObj) || !CamStillValid()) return;
     g_ctResolveAfter = now + 5000;
@@ -116,4 +119,124 @@ static void CineTraceDraw() {
         (int)camOk, camRot[0]*360.0f/65536, camRot[1]*360.0f/65536, camRot[2]*360.0f/65536,
         loc[0], loc[1], loc[2], pos[0], pos[1], pos[2], (int)c5Ok, c5[0], c5[1], c5[2]);
     g_ctHits = hits; g_ctWrites = writes;
+}
+
+namespace {
+struct CtIdentity {
+    dvr::menukeep::Identity value;
+    uint32_t index=0;
+};
+CtIdentity g_chOwner[3]; // camera, controller, pawn
+bool g_chReference=false, g_chScope=false;
+LONG g_chLoad=0;
+dvr::cine::Matrix g_chRef={};
+HtSample g_chHead={};
+int32_t g_chWritten[3]={};
+uint32_t g_chWrites=0, g_chRestores=0, g_chRefused=0;
+double g_chNextLog=0, g_chRetry=0;
+const char* g_chReason="startup";
+bool ChSlot(const CtIdentity& id) {
+    auto* obj=(uint8_t*)id.value.obj;
+    if (!IsLiveObject(obj) || !RangeReadable((void*)kGObjHdr,12)) return false;
+    void** objects=*(void***)kGObjHdr;
+    const uint32_t count=*(uint32_t*)(kGObjHdr+4);
+    if (!objects || id.index>=count || !RangeReadable(objects+id.index,sizeof(void*)) || objects[id.index]!=obj) return false;
+    dvr::menukeep::Identity now; MkReadIdentity(obj,&now);
+    return now.obj==obj && now.cls==id.value.cls && now.name[0]==id.value.name[0] && now.name[1]==id.value.name[1];
+}
+bool ChCapture(uint8_t* obj,CtIdentity* out) {
+    if (!IsLiveObject(obj) || !RangeReadable((void*)kGObjHdr,12)) return false;
+    void** objects=*(void***)kGObjHdr;
+    const uint32_t count=*(uint32_t*)(kGObjHdr+4);
+    if (!objects || count>4000000 || !RangeReadable(objects,count*sizeof(void*))) return false;
+    for(uint32_t i=0;i<count;++i) if(objects[i]==obj) {
+        out->index=i; MkReadIdentity(obj,&out->value); return ChSlot(*out);
+    }
+    return false;
+}
+bool ChValidate(uint8_t* cam) {
+    if (g_chLoad != g_mkLoadEvents || cam!=g_chOwner[0].value.obj || !ChSlot(g_chOwner[0]) ||
+        !ChSlot(g_chOwner[1]) || !ChSlot(g_chOwner[2])) return false;
+    auto* pc=(uint8_t*)g_chOwner[1].value.obj;
+    return pc==g_peCtrl && CtObject(pc,g_ctPcCamera)==cam &&
+        CtObject(pc,g_ctPawn)==g_chOwner[2].value.obj;
+}
+void ChReset(const char* why) {
+    if (strcmp(g_chReason,why)) {
+        Log("cine/head: %s (writes=%u restored=%u refused=%u menu=%d/%d/%d quad=%d camera=%p load=%ld/%ld)",
+            why,g_chWrites,g_chRestores,g_chRefused,(int)g_menuOpen,(int)g_inMenu,(int)g_mainMenu,
+            (int)dvr::vr::cinematic_active(),g_camObj,g_chLoad,(LONG)g_mkLoadEvents);
+        g_chReason=why;
+    }
+    g_chReference=false;
+}
+}
+static bool CineHeadEnabled() { return g_cineHead.load(); }
+static void CineHeadSet(bool on) {
+    g_cineHead.store(on); Log("cine/head: %s (live)",on ? "ON" : "off");
+}
+static void CineHeadPublish() {
+    if (g_chScope) HtPublishCameraRecord(3,g_chHead,g_chWritten[1]*360.0f/65536,
+                                       g_chWritten[0]*360.0f/65536,g_chWritten[2]*360.0f/65536);
+}
+static void CineHeadBegin(bool doubleDraw) {
+    // First candidate is intentionally the proven full-animation boat state.
+    // Runtime quad fallback is a refusal, never positive cinematic identity.
+    if (!g_cineHead.load() || !g_trackingEnabled || !g_rotInject) { ChReset("disabled"); return; }
+    if (!doubleDraw || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow ||
+        !dvr::vr::session_live() || !dvr::stereo::wants_projection() || dvr::vr::cinematic_active() ||
+        dvr::camera::eyetest_active() || dvr::camera::postest_active() || dvr::camera::pitchtest_active()) {
+        ChReset("draw/menu/runtime gate"); return;
+    }
+    const auto anim=dvr::anim::snapshot();
+    if (!g_ctLayout || !anim.valid || strcmp(anim.state[0],"StatePlayerMasterSoiree")) {
+        ChReset("not resolved authored boat state"); return;
+    }
+    HtSample head={}; const double now=MaimNowMs();
+    if (!HtConsumeSample(&head) || !head.ok || !head.poseOk || now<head.locateMs || now-head.locateMs>100) {
+        ChReset("head pose unavailable or stale"); return;
+    }
+    // Rebuild before any new ownership interval, including every menu resume.
+    // Failed rebuilds are throttled and do not retain an old writer identity.
+    if (g_chReference && !ChValidate((uint8_t*)g_chOwner[0].value.obj)) ChReset("owner changed");
+    if (!g_chReference) {
+        if (now<g_chRetry) return;
+        g_chRetry=now+1000;
+        if (!BuildLiveSet()) { ChReset("live table unavailable"); return; }
+    }
+    uint8_t* pc=IsLiveObject(g_peCtrl) ? g_peCtrl : nullptr;
+    uint8_t* cam=CtObject(pc,g_ctPcCamera); uint8_t* pawn=CtObject(pc,g_ctPawn);
+    if (!cam || cam!=g_camObj || !pawn || !CamAlive() ||
+        !(CtWeight(cam,0)>=0.999f && CtWeight(cam,1)<=0.001f && CtWeight(cam,1)>=0 &&
+          CtWeight(cam,2)<=0.001f && CtWeight(cam,2)>=0)) {
+        ChReset("camera owner or influence gate"); return;
+    }
+    const auto h=dvr::cine::rotation(head.pitch*g_flipPitch,head.yaw*g_flipYaw,head.roll*g_flipRoll);
+    if (!g_chReference) {
+        if (!ChCapture(cam,&g_chOwner[0]) || !ChCapture(pc,&g_chOwner[1]) || !ChCapture(pawn,&g_chOwner[2])) {
+            ChReset("identity capture refused"); return;
+        }
+        g_chLoad=g_mkLoadEvents; g_chRef=h; g_chReference=true; g_chReason="active";
+        Log("cine/head: entered authored boat camera=%p pc=%p pawn=%p gen=%u; physical orientation anchored",cam,pc,pawn,head.gen);
+    }
+    int32_t authored[3]={}; dvr::cine::Matrix composed;
+    if (!CtRead(cam,g_ctCache+g_ctPov+g_ctRot,authored,12) ||
+        !dvr::cine::compose(authored,g_chRef,h,g_chWritten,&composed)) { ChReset("rotation invalid"); return; }
+    const float right[3]={(float)composed.m[0][1],(float)composed.m[1][1],(float)composed.m[2][1]};
+    g_chHead=head;
+    g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,-1,ChValidate);
+    if (!g_chScope) { ++g_chRefused; ChReset("scope write refused"); return; }
+    ++g_chWrites; CineHeadPublish();
+    if(now>=g_chNextLog) {
+        g_chNextLog=now+500;
+        Log("cine/head: scope=%u gen=%u authored(P/Y/R)=%.2f/%.2f/%.2f composed=%.2f/%.2f/%.2f restored=%u refused=%u",
+            g_chWrites,head.gen,authored[0]*360.0f/65536,authored[1]*360.0f/65536,authored[2]*360.0f/65536,
+            g_chWritten[0]*360.0f/65536,g_chWritten[1]*360.0f/65536,g_chWritten[2]*360.0f/65536,g_chRestores,g_chRefused);
+    }
+}
+static void CineHeadEnd() {
+    if (!g_chScope) return;
+    if (dvr::camera::end_view_scope()) ++g_chRestores;
+    else { ++g_chRefused; ChReset("restore refused: identity or engine field changed"); }
+    g_chScope=false;
 }
