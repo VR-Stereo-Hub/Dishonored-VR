@@ -8,7 +8,7 @@ struct Snapshot {
     unsigned generation = 0;
     unsigned long long stamp = 0, entered[3] = {};
     unsigned long long sequenceAt = 0, stateAddress[3] = {};
-    int bodyMode = -1, picker = -1;
+    int bodyMode = -1, picker = -1, dialogState = -1;
     bool valid = false, game = false;
 };
 void tick();

@@ -1,20 +1,25 @@
-# Status
+## Current state: VR-103 accepted for merge, 2026-09-13
 
-## CURRENT (2026-09-13): cinematic work accepted; VR-103 next
+PR55 candidate225 d015b1aa21:05:03 is headset-confirmed for all reported cinematic,
+dialogue-choice and gameplay handoff stereo interruptions. Logs verify Listening,
+Choosing and latch-delayed Walk remain stereo; notes/menus fall back correctly.
+Explicit merge approval received. Next branch investigates cinematic FOV shrinking
+(VR-50) and native hand/arm animation. No subagents; never launch the game.
 
-PR54 is approved for merge:head look,natural pitch and native border removal are
-headset-confirmed. Latest acceptance is222-gcf0d00dc (20:37:01),banner verified,
-logs archived under build/cinematic/playtest-20260913-205002. Camera levers remain
-default off; the installed tested profile enables HeadLook and HideBorders.
-35 camera checks,136 x86 border checks,build/lint/exports/INI and standalone XR
-smoke pass. No game launch or release declaration.
+## Current state (2026-09-13): PR54 merged; VR-103 candidate
 
-VR-103 was created In Progress for better stereo state reading. Dialogue-choice
-scenes can remain mono until selection; boat/Emily prompt handoffs briefly go
-stereo->mono->stereo. The new work starts from merged current VR-Main and must
-read the decompiled state declarations. The existing log shows InDialog and a
-false cinematic latch's2s clear delay. Preserve the confirmed PR54 changes.
-No more subagents this session. Merge approval covers PR54 only.
+Cinematic head look, pitch and black borders are headset-confirmed and merged
+in PR54 (39a68a50); VR-70 is Done. New VR-103 is In Progress on
+codex/vr-103-stereo-state-transitions from that merge. The candidate separates
+stereo scene eligibility from gameplay/input locks using decompiled state
+names and live scene activity. It ships default-off; candidate225 d015b1aa21:05:03 is installed with
+StereoState=1 and awaiting headset testing. Build,24 policy checks, lint,9
+exports, golden INI and60-frame standalone simulator pass. Full installed INI
+diff contains only the new key; CRLF verified.
+See docs/dishonored/STEREO_STATE_TRANSITIONS.md for evidence and the one-question
+dialogue transition test. Latest install manifest: build/stereo-state/latest-install.json.
+Never launch the game; read/archive logs yourself. No subagents this session.
+No merge permission for VR-103. PR54 approval does not extend to this work.
 
 ## Earlier (2026-09-13): load/reload fixes confirmed and merged (PR #53)
 

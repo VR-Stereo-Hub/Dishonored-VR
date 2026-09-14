@@ -85,6 +85,8 @@ static void OverlayFrame()
     {
         bool on=CineHeadEnabled();
         if (ImGui::Checkbox("Cinematic head look (candidate)",&on)) CineHeadSet(on);
+        bool sceneState=StereoStateEnabled();
+        if (ImGui::Checkbox("Stereo cinematic/dialogue states",&sceneState)) StereoStateSet(sceneState);
         bool borders=CineBordersEnabled();
         if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
     }

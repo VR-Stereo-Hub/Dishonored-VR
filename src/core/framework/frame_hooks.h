@@ -52,12 +52,13 @@ struct Callbacks {
     DrawPrimFn        draw_prim = nullptr;
     // The mod's D3D11 device for the stereo methods (null = none; flat game).
     ID3D11Device* (*d3d11)(ID3D11DeviceContext** ctx) = nullptr;
-    // The game side's verdict "this present is strict gameplay" (a live pawn,
-    // no menu, no cinematic): published to the runtime every present while a
-    // projection layer is claimed, so its cinematic quad fallback becomes the
-    // menu/cutscene gate instead of a permanent trap (it trips on a STALE
-    // publish). Null = always true.
+    // Strict gameplay permission (live pawn, no menu, no cinematic). Used by
+    // performance classification and as the presentation fallback if no
+    // scene_verdict callback is registered. Null = always true.
     bool (*gameplay_verdict)() = nullptr;
+    // Optional presentation permission: may allow authored scenes while input
+    // and performance classification remain non-gameplay. Null uses strict.
+    bool (*scene_verdict)() = nullptr;
 };
 void set_callbacks(const Callbacks& cb);
 

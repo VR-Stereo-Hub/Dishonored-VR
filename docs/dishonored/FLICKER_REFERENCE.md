@@ -1649,3 +1649,26 @@ This extends the VR-78/91 lesson that an absent engine arc must not be cancelled
 Installed pivot0.321m below/0.062m behind; actual headset acceptance of this
 correction is pending. Both requests are logged as requests,not render evidence.
 See CINEMATIC_HEAD_TRACKING.md for archive,build manifest and one-question test.
+
+## 2026-09-13: VR-103 cinematic/dialogue mono interruptions
+
+Reported: both headset eyes lose stereo during a choice scene until selection;
+boat/Emily handoffs briefly switch stereo to mono and back. Measured on accepted
+build222 cf0d00dc20:37:01: cinematic latch alone parks the runtime; a no-lock
+handoff waits2s to clear. InDialog also outlives a silent PVR interval classified
+LOADING. This is a presentation eligibility hypothesis, not tag-ring skew.
+Candidate separates scene permission from input permission using current script
+states and scene activity. Default off; 24 x86 policy checks. Headset result open;
+continuous depth is predicted, further mono intervals falsify completeness.
+Full sources, archive, guards and next test: [VR-103 plan](STEREO_STATE_TRANSITIONS.md).
+
+## VR-103 headset acceptance, 2026-09-13
+
+Candidate225 d015b1aa21:05:03 verified against installed manifest. The reported
+boat, Emily prompt, dialogue-choice and gameplay handoffs are headset-confirmed
+continuous stereo. Log shows InDialog Listening0 and Choosing1 remain STEREO,
+including view=0 with fresh scene uploads. Walk handoff stays STEREO despite
+latch=1. Runtime quad transitions later correspond to notes and menus. Clean
+unload. Both logs archived in build/stereo-state/playtest-20260913-212231.
+The user explicitly approved PR55 merge. Cinematic FOV shrinking and native
+hand/arm animation are separate follow-up work, not failures of this result.
