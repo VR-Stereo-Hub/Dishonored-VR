@@ -1,0 +1,57 @@
+# hud-quads.xrs - the HUD's two anchors reach the compositor (VR-117).
+#
+# The runtime submits the HUD as quad layers, so it exists only in the
+# compositor: quadLayers is the field that sees it, and the per-shot JSON
+# carries each layer's space and pose. Run this in GAMEPLAY (walk in first,
+# Continue the newest save) with stereo reentry armed, or the gate is down by
+# design and nothing arms. The sim's left hand is posed where a controller
+# would be held, so the hand anchor has something to locate.
+#
+#   tools\xrsim-run.ps1 -Path tools\xrsim\hud-quads.xrs -Dir D:\dvr-data\xrsim
+reset
+hand l grip pose -0.20 1.10 -0.40 0 0 0
+# The aim dot (VR-57) is a quad layer too: park it so quadLayers counts the HUD alone.
+@mod stereo reentry; crosshair dot off
+@frames 240
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+
+# The whole HUD on the window (the preset): one quad, VIEW space.
+@mod hud on; hud regions off; hud anchor all window; hud window view
+@frames 180
+@assert projectionViews eq 2
+@assert quadLayers ge 1
+@shot hud_window
+@assert capNonBlackL ge 30
+@assert capNonBlackR ge 30
+
+# The whole HUD on the HAND: one quad, LOCAL space, at the posed grip.
+@mod hud anchor all hand
+@frames 120
+@assert quadLayers ge 1
+@shot hud_hand
+
+# An untracked hand submits NO quad rather than a stale one.
+hand l valid off
+@frames 120
+@assert quadLayers eq 0
+@shot hud_hand_untracked
+hand l valid on
+@frames 120
+@assert quadLayers ge 1
+
+# The world-locked window stays put when the head turns (compare the pose in
+# hud_world_a.json with hud_world_b.json: same LOCAL position).
+@mod hud anchor all window; hud window world; hud window recenter
+@frames 120
+@assert quadLayers ge 1
+@shot hud_world_a
+head rot 0 30 0
+@frames 120
+@shot hud_world_b
+head rot 0 0 0
+
+# And back to the preset, with the aim dot back.
+@mod hud window view; crosshair dot on
+@frames 60
+@assert quadLayers ge 2

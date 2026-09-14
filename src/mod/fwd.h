@@ -600,7 +600,8 @@ static bool HeadMovementEnabled();
 static void HeadMovementSet(bool on);
 
 static bool UiSurfaceEnabled();
-static bool UiSurfaceBlocks();
+static bool UiSurfaceBlocks();            // the INPUT class: a UI owner is on top (VR-71 guards read this)
+static uint32_t DvrPostRenderCount();     // VR-117: PostRender dispatches, for the HUD draw census
 static void UiSurfacePoll();
 static void UiSurfaceTick();
 static void UiSurfaceSet(bool on);

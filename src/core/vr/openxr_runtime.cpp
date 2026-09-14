@@ -12,6 +12,7 @@
 #include "core/util/paths.h"
 #include "core/util/xr_math.h"
 #include "core/vr/hud_stub.h"
+#include "core/vr/hud_anchor.h"   // 41.x (Dishonored, VR-117): the HUD anchors' placement math
 #include "core/gfx/frame_id.h"   // 41.1 (Dishonored): the frame-identity trace's stage sc
 #include "core/gfx/capture.h"    // VR-65: the record that rode the delivered texture
 #include "core/vr/pose_record.h"
@@ -195,19 +196,30 @@ std::atomic<bool> g_cameraMode{false};    // M3: drive the game camera from the 
 
 // Session 19 HUD floating quad: the gameswf HUD captured by core/gfx/
 // hud_capture is copied into its own swapchain and composited head-locked
-// (g_viewSpace) during stereo gameplay. Sliders persist via the F10 overlay's ini save.
-XrSwapchain g_hudSwapchain = XR_NULL_HANDLE;
-std::vector<XrSwapchainImageD3D11KHR> g_hudImages;
-uint32_t g_hudSwapW = 0, g_hudSwapH = 0;
+// (g_viewSpace) during stereo gameplay.
+// 41.x (Dishonored, VR-117): one swapchain PER HUD QUAD SLOT. The game side's
+// provider describes up to kMaxHudQuads quads (the window, the hand panel,
+// per-element sub-quads); each slot keeps its own swapchain, sized to the
+// texture it last carried. The placement values left this file: they live
+// with the game side (core/gfx/hud_layout), which persists them.
+struct HudSlot {
+    XrSwapchain sc = XR_NULL_HANDLE;
+    std::vector<XrSwapchainImageD3D11KHR> images;
+    uint32_t w = 0, h = 0;
+    bool loggedLive = false;
+};
+HudSlot g_hudSlots[kMaxHudQuads];
 int64_t g_swapFormat = 0; // the format create_swapchains picked (lazy HUD create)
-std::atomic<float> g_hudDistM{1.30f};
-std::atomic<float> g_hudWidthM{1.25f};
-std::atomic<float> g_hudUpM{-0.10f};
 std::atomic<uint32_t> g_hudFramesSubmitted{0};
-std::atomic<bool> g_loggedFirstHudQuad{false};
 // s52: the HUD quad's texture provider (Infinite's GFx lane). Null = BS1's
 // dvr::hud::texture() path, byte-identical for games that never set it.
 std::atomic<HudTextureProviderFn> g_hudTexProvider{nullptr};
+// VR-117: the multi-quad provider; when set it supersedes the single quad.
+std::atomic<HudQuadProviderFn> g_hudQuadProvider{nullptr};
+dvr::mono::Anchor g_hudWorldAnchor;      // the world-locked window's park
+uint32_t g_hudWorldResetSeen = 0;
+std::atomic<uint32_t> g_hudStatSubmitted{0}, g_hudStatBehind{0}, g_hudStatNear{0},
+                      g_hudStatDegenerate{0}, g_hudStatBudget{0}, g_hudStatUntracked{0};
 
 // Cached backbuffer RTV for the post-capture window HUD composite.
 ID3D11RenderTargetView* g_backbufferRtv = nullptr;
@@ -1979,13 +1991,17 @@ void destroy_laser() {
     }
 }
 
-void destroy_hud_swapchain() {
-    if (g_hudSwapchain != XR_NULL_HANDLE) {
-        xrDestroySwapchain(g_hudSwapchain);
-        g_hudSwapchain = XR_NULL_HANDLE;
+void destroy_hud_swapchain(int slot) {
+    HudSlot& hs = g_hudSlots[slot];
+    if (hs.sc != XR_NULL_HANDLE) {
+        xrDestroySwapchain(hs.sc);
+        hs.sc = XR_NULL_HANDLE;
     }
-    g_hudImages.clear();
-    g_hudSwapW = g_hudSwapH = 0;
+    hs.images.clear();
+    hs.w = hs.h = 0;
+}
+void destroy_hud_swapchains() {
+    for (int i = 0; i < kMaxHudQuads; ++i) destroy_hud_swapchain(i);
 }
 
 void destroy_swapchains() {
@@ -2005,7 +2021,7 @@ void destroy_swapchains() {
         g_images[i].clear();
     }
     destroy_laser();
-    destroy_hud_swapchain();
+    destroy_hud_swapchains();
     g_swapW = g_swapH = 0;
     g_backbufferFmt = 0;
     // Whatever a queued rebuild was for, it has just happened.
@@ -2018,8 +2034,9 @@ void destroy_swapchains() {
 
 // Lazy: sized to the HUD capture RT, format = the eye swapchains' pick
 // (CopyResource-compatible UNORM/sRGB family).
-void create_hud_swapchain(uint32_t w, uint32_t h) {
-    destroy_hud_swapchain();
+void create_hud_swapchain(int slot, uint32_t w, uint32_t h) {
+    destroy_hud_swapchain(slot);
+    HudSlot& hs = g_hudSlots[slot];
     if (!g_swapFormat || g_session == XR_NULL_HANDLE) return;
     XrSwapchainCreateInfo sci{XR_TYPE_SWAPCHAIN_CREATE_INFO};
     sci.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
@@ -2030,24 +2047,24 @@ void create_hud_swapchain(uint32_t w, uint32_t h) {
     sci.faceCount = 1;
     sci.arraySize = 1;
     sci.mipCount = 1;
-    if (XR_FAILED(xrCreateSwapchain(g_session, &sci, &g_hudSwapchain))) {
-        XRLOG("xr: HUD swapchain creation failed");
-        g_hudSwapchain = XR_NULL_HANDLE;
+    if (XR_FAILED(xrCreateSwapchain(g_session, &sci, &hs.sc))) {
+        XRLOG("xr: HUD swapchain[%d] creation failed", slot);
+        hs.sc = XR_NULL_HANDLE;
         return;
     }
     uint32_t count = 0;
-    xrEnumerateSwapchainImages(g_hudSwapchain, 0, &count, nullptr);
-    g_hudImages.assign(count, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
+    xrEnumerateSwapchainImages(hs.sc, 0, &count, nullptr);
+    hs.images.assign(count, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
     if (XR_FAILED(xrEnumerateSwapchainImages(
-            g_hudSwapchain, count, &count,
-            reinterpret_cast<XrSwapchainImageBaseHeader*>(g_hudImages.data())))) {
-        XRLOG("xr: HUD swapchain image enumeration failed");
-        destroy_hud_swapchain();
+            hs.sc, count, &count,
+            reinterpret_cast<XrSwapchainImageBaseHeader*>(hs.images.data())))) {
+        XRLOG("xr: HUD swapchain[%d] image enumeration failed", slot);
+        destroy_hud_swapchain(slot);
         return;
     }
-    g_hudSwapW = w;
-    g_hudSwapH = h;
-    XRLOG("xr: HUD quad swapchain ready (%ux%u, %u images)", w, h, count);
+    hs.w = w;
+    hs.h = h;
+    XRLOG("xr: HUD quad swapchain[%d] ready (%ux%u, %u images)", slot, w, h, count);
 }
 
 // Post-capture window composite: draw the captured HUD back onto the
@@ -3924,13 +3941,14 @@ void on_present_end(ID3D11Texture2D* frame) {
     XrCompositionLayerQuad dotQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerQuad dot2Quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerQuad handQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
-    XrCompositionLayerQuad hudQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    XrCompositionLayerQuad hudQuads[kMaxHudQuads] = {};
     // The game frame is layer 0; the aim laser(s) add one quad per dot on top -
     // BOTH slots share the kMaxLaserDots budget - then up to two aim dots, the
-    // s51 hand ref quad and the HUD quad (worst case 13 of the 16 runtimes
-    // must accept).
-    // VR-57: +2 for the head-anchored control dots.
-    const XrCompositionLayerBaseHeader* layers[1 + kMaxLaserDots + 6] = {};
+    // s51 hand ref quad and the HUD quads (41.x, VR-117: up to kMaxHudQuads;
+    // the array can hold 20 against the 16 a runtime must accept, so the HUD
+    // block and the aim visuals each stop at the runtime's own limit and say
+    // so). VR-57: +2 for the head-anchored control dots.
+    const XrCompositionLayerBaseHeader* layers[1 + kMaxLaserDots + 5 + kMaxHudQuads] = {};
     uint32_t layerCount = 0;
 
     // Claim the fov the game actually rendered with (adapter readback);
@@ -4743,58 +4761,6 @@ void on_present_end(ID3D11Texture2D* frame) {
         g_dotLayersSubmitted.store(0, std::memory_order_relaxed);
     }
 
-    // HUD floating quad (session 19): head-locked, fed from the gameswf
-    // capture - or, s52, from a game-registered provider (Infinite's GFx
-    // lane). Submitted only in projection mode with fresh HUD content and
-    // a live view space.
-    if (layerCount && projectionMode && g_viewSpace != XR_NULL_HANDLE) {
-        HudTextureProviderFn prov = g_hudTexProvider.load(std::memory_order_relaxed);
-        ID3D11Texture2D* hudTex =
-            prov ? prov(g_context) : dvr::hud::texture(g_context); // alpha-repaired
-        if (hudTex) {
-            D3D11_TEXTURE2D_DESC hd{};
-            hudTex->GetDesc(&hd);
-            if (g_hudSwapchain == XR_NULL_HANDLE || g_hudSwapW != hd.Width ||
-                g_hudSwapH != hd.Height)
-                create_hud_swapchain(hd.Width, hd.Height);
-            if (g_hudSwapchain != XR_NULL_HANDLE) {
-                uint32_t idx = 0;
-                XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-                if (XR_SUCCEEDED(xrAcquireSwapchainImage(g_hudSwapchain, &ai, &idx))) {
-                    XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-                    wi.timeout = XR_INFINITE_DURATION;
-                    if (XR_SUCCEEDED(xrWaitSwapchainImage(g_hudSwapchain, &wi)))
-                        g_context->CopyResource(g_hudImages[idx].texture, hudTex);
-                    XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-                    xrReleaseSwapchainImage(g_hudSwapchain, &ri);
-
-                    // The processed capture is premultiplied rgb + repaired
-                    // alpha - premultiplied compositor semantics (no
-                    // UNPREMULTIPLIED bit).
-                    hudQuad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-                    hudQuad.space = g_viewSpace; // head-locked
-                    hudQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                    hudQuad.subImage.swapchain = g_hudSwapchain;
-                    hudQuad.subImage.imageRect = {
-                        {0, 0}, {static_cast<int32_t>(hd.Width), static_cast<int32_t>(hd.Height)}};
-                    hudQuad.pose.orientation.w = 1.0f;
-                    hudQuad.pose.position = {0.0f, g_hudUpM.load(std::memory_order_relaxed),
-                                             -g_hudDistM.load(std::memory_order_relaxed)};
-                    float w = g_hudWidthM.load(std::memory_order_relaxed);
-                    hudQuad.size = {w, w * static_cast<float>(hd.Height) /
-                                           static_cast<float>(hd.Width)};
-                    layers[layerCount++] =
-                        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hudQuad);
-                    g_hudFramesSubmitted.fetch_add(1, std::memory_order_relaxed);
-                    if (!g_loggedFirstHudQuad.exchange(true))
-                        XRLOG("xr: HUD quad live (%ux%u, %.2f m wide at %.2f m)",
-                                hd.Width, hd.Height, w,
-                                g_hudDistM.load(std::memory_order_relaxed));
-                }
-            }
-        }
-    }
-
     // 41.1 (Dishonored): A ZERO-LAYER xrEndFrame IS A BLACK FRAME IN BOTH EYES.
     // The whole layer assembly above sits inside `if (backbuffer)`, so a present
     // that hands in no texture reaches here with layerCount 0 and the compositor
@@ -4871,6 +4837,187 @@ void on_present_end(ID3D11Texture2D* frame) {
                      : "NO previous layer banked yet, this display slot goes BLACK",
                 g_zeroLayerHeld.load(std::memory_order_relaxed),
                 g_zeroLayerBlack.load(std::memory_order_relaxed));
+    }
+
+    // 41.x (Dishonored, VR-117): the HUD anchors are built AFTER the zero-layer
+    // hold, so a held present (the method handed in no texture: a HoldUntagged
+    // hold, or a paused game that redraws every other present) still carries
+    // the HUD quads on top of the re-submitted projection. Built before the hold
+    // they vanished on every held present, and a riding pause menu blinked at
+    // half the display rate (measured 2026-09-15 on the simulator).
+    // 41.x (Dishonored, VR-117) HUD anchors. Session 19's head-locked HUD quad,
+    // generalised: the game side's provider (core/gfx/hud_layout) describes up
+    // to kMaxHudQuads quads per present - the WINDOW in front of the player
+    // (VIEW space, or LOCAL space parked at the last recenter), the HAND panel
+    // (LOCAL space at the located grip pose, 38.92's wrist HUD) and per-element
+    // sub-quads on either - each with its own swapchain slot. Without a
+    // provider the single quad of session 19 is built at its compiled defaults
+    // from the texture provider, so a game that never calls the new seam sees
+    // what it always saw. Submitted only in projection mode with a live view
+    // space, as before. The placement math is core/vr/hud_anchor.h (pure, host
+    // tested); this block only locates, copies and submits.
+    if (layerCount && projectionMode && g_viewSpace != XR_NULL_HANDLE) {
+        HudQuadDesc descs[kMaxHudQuads];
+        int nDesc = 0;
+        HudQuadProviderFn qp = g_hudQuadProvider.load(std::memory_order_relaxed);
+        if (qp) {
+            nDesc = qp(g_context, descs, kMaxHudQuads);
+            if (nDesc < 0) nDesc = 0;
+            if (nDesc > kMaxHudQuads) nDesc = kMaxHudQuads;
+        } else {
+            HudTextureProviderFn prov = g_hudTexProvider.load(std::memory_order_relaxed);
+            ID3D11Texture2D* t = prov ? prov(g_context) : dvr::hud::texture(g_context); // alpha-repaired
+            if (t) { descs[0] = HudQuadDesc(); descs[0].tex = t; nDesc = 1; }
+        }
+        // The head this present: the mean of the two located views, and its
+        // forward, for the hand panel's hide rules and billboard.
+        float head[3] = {(g_views[0].pose.position.x + g_views[1].pose.position.x) * 0.5f,
+                         (g_views[0].pose.position.y + g_views[1].pose.position.y) * 0.5f,
+                         (g_views[0].pose.position.z + g_views[1].pose.position.z) * 0.5f};
+        float headFwd[3];
+        {
+            const float fwd[3] = {0.0f, 0.0f, -1.0f};
+            const XrQuaternionf& q = g_views[0].pose.orientation;
+            dvr::xrmath::quat_rotate(q.x, q.y, q.z, q.w, fwd, headFwd);
+        }
+        // The world-locked window's park: seeded where the head is at a
+        // recenter (yaw only, the mono anchor's rule) and dropped on the same
+        // events the mono anchor drops on. This block runs before that one, so
+        // it keeps its own "seen" counter and never clears g_monoSpaceChange.
+        {
+            const uint32_t reset = g_monoReset.load();
+            if (reset != g_hudWorldResetSeen ||
+                (g_monoSpaceChange && g_frameState.predictedDisplayTime >= g_monoSpaceChange)) {
+                g_hudWorldAnchor.reset(); g_hudWorldResetSeen = reset;
+            }
+        }
+        const int cap = (int)g_aimLayerLimit < (int)(sizeof(layers) / sizeof(layers[0]))
+                            ? (int)g_aimLayerLimit : (int)(sizeof(layers) / sizeof(layers[0]));
+        uint32_t submitted = 0;
+        for (int i = 0; i < nDesc; ++i) {
+            const HudQuadDesc& d = descs[i];
+            if (!d.tex) continue;
+            if ((int)layerCount >= cap) { g_hudStatBudget.fetch_add(1, std::memory_order_relaxed); break; }
+            D3D11_TEXTURE2D_DESC hd{};
+            d.tex->GetDesc(&hd);
+            if (!hd.Width || !hd.Height) continue;
+            const dvr::hudanchor::Crop crop =
+                dvr::hudanchor::crop_rect(hd.Width, hd.Height, d.subrect, d.width, d.height);
+
+            // Where. Every anchor ends with a pose, a space and the quad's own
+            // right/up axes (for the in-plane offset).
+            XrSpace space = g_viewSpace;
+            XrPosef pose{{0.0f, 0.0f, 0.0f, 1.0f}, {d.base[0], d.base[1], d.base[2]}};
+            float right[3] = {1.0f, 0.0f, 0.0f}, up[3] = {0.0f, 1.0f, 0.0f};
+            const char* anchorName = "window";
+            if (d.anchor == HudAnchor::WindowWorld) {
+                anchorName = "world";
+                if (!g_hudWorldAnchor.valid) {
+                    HeadPose h;
+                    if (peek_head_pose(h) &&
+                        g_hudWorldAnchor.seed({h.px, h.py, h.pz, h.qx, h.qy, h.qz, h.qw}, -d.base[2]))
+                        XRLOG("xr: HUD window parked in the world at local=(%.3f %.3f %.3f)",
+                              g_hudWorldAnchor.pose.x, g_hudWorldAnchor.pose.y, g_hudWorldAnchor.pose.z);
+                }
+                if (g_hudWorldAnchor.valid) {
+                    const auto& a = g_hudWorldAnchor.pose;
+                    const float q[4] = {a.qx, a.qy, a.qz, a.qw};
+                    const float off[3] = {d.base[0], d.base[1], 0.0f};
+                    float r[3];
+                    dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], off, r);
+                    const float rx[3] = {1, 0, 0}, uy[3] = {0, 1, 0};
+                    dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], rx, right);
+                    dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], uy, up);
+                    space = g_space;
+                    pose.orientation = {a.qx, a.qy, a.qz, a.qw};
+                    pose.position = {a.x + r[0], a.y + r[1], a.z + r[2]};
+                }   // not seedable yet (no head pose): head-locked this present
+            } else if (d.anchor == HudAnchor::Hand) {
+                anchorName = "hand";
+                float gp[3], gq[4];
+                if (!input_get_hand_pose(d.hand ? 1 : 0, /*aimPose=*/false, gp, gq)) {
+                    g_hudStatUntracked.fetch_add(1, std::memory_order_relaxed);
+                    continue;   // untracked hand: no quad rather than a stale one
+                }
+                float pos[3];
+                dvr::hudanchor::wrist_position(gp, gq, d.base, d.lift, pos);
+                const float toHead[3] = {head[0] - pos[0], head[1] - pos[1], head[2] - pos[2]};
+                if (dvr::hudanchor::too_near(toHead)) { g_hudStatNear.fetch_add(1, std::memory_order_relaxed); continue; }
+                if (dvr::hudanchor::behind_face(toHead, headFwd)) { g_hudStatBehind.fetch_add(1, std::memory_order_relaxed); continue; }
+                float oq[4];
+                if (d.orient == HudOrient::FollowGrip) {
+                    dvr::hudanchor::follow_grip_orientation(gq, d.hand ? 1 : 0, d.tiltDeg, oq);
+                } else {
+                    if (dvr::hudanchor::billboard_degenerate(toHead)) { g_hudStatDegenerate.fetch_add(1, std::memory_order_relaxed); continue; }
+                    const float len = sqrtf(toHead[0] * toHead[0] + toHead[1] * toHead[1] + toHead[2] * toHead[2]);
+                    const float n[3] = {toHead[0] / len, toHead[1] / len, toHead[2] / len};
+                    const XrQuaternionf fq = quat_facing(n);
+                    oq[0] = fq.x; oq[1] = fq.y; oq[2] = fq.z; oq[3] = fq.w;
+                }
+                const float rx[3] = {1, 0, 0}, uy[3] = {0, 1, 0};
+                dvr::xrmath::quat_rotate(oq[0], oq[1], oq[2], oq[3], rx, right);
+                dvr::xrmath::quat_rotate(oq[0], oq[1], oq[2], oq[3], uy, up);
+                space = g_space;
+                pose.orientation = {oq[0], oq[1], oq[2], oq[3]};
+                pose.position = {pos[0], pos[1], pos[2]};
+            }
+            // The element's place on its anchor, in the quad's own plane.
+            pose.position.x += right[0] * d.planeOff[0] + up[0] * d.planeOff[1];
+            pose.position.y += right[1] * d.planeOff[0] + up[1] * d.planeOff[1];
+            pose.position.z += right[2] * d.planeOff[0] + up[2] * d.planeOff[1];
+
+            // The pixels: this slot's swapchain, sized to the whole texture
+            // (CopyResource needs identical sizes); the crop is the imageRect.
+            HudSlot& hs = g_hudSlots[i];
+            if (hs.sc == XR_NULL_HANDLE || hs.w != hd.Width || hs.h != hd.Height)
+                create_hud_swapchain(i, hd.Width, hd.Height);
+            if (hs.sc == XR_NULL_HANDLE) continue;
+            uint32_t idx = 0;
+            XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            if (XR_FAILED(xrAcquireSwapchainImage(hs.sc, &ai, &idx))) continue;
+            XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            wi.timeout = XR_INFINITE_DURATION;
+            if (XR_SUCCEEDED(xrWaitSwapchainImage(hs.sc, &wi)))
+                g_context->CopyResource(hs.images[idx].texture, d.tex);
+            XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            xrReleaseSwapchainImage(hs.sc, &ri);
+
+            XrCompositionLayerQuad& q = hudQuads[i];
+            q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+            // Premultiplied rgb + repaired alpha: premultiplied compositor
+            // semantics (no UNPREMULTIPLIED bit).
+            q.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            q.space = space;
+            q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            q.subImage.swapchain = hs.sc;
+            q.subImage.imageRect = {{crop.x, crop.y}, {crop.w, crop.h}};
+            q.pose = pose;
+            q.size = {crop.widthM, crop.heightM};
+            layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&q);
+            ++submitted;
+            if (!hs.loggedLive) {
+                hs.loggedLive = true;
+                const float dist = sqrtf(pose.position.x * pose.position.x + pose.position.y * pose.position.y +
+                                         pose.position.z * pose.position.z);
+                XRLOG("xr: HUD quad[%d] live (%s anchor%s%c, element %d, %ux%u crop %d,%d %dx%d, %.2f x %.2f m, "
+                      "%.2f m from the %s, subtends %.1f deg)",
+                      i, anchorName, d.anchor == HudAnchor::Hand ? ", hand " : "",
+                      d.anchor == HudAnchor::Hand ? (d.hand ? 'R' : 'L') : ' ', d.element,
+                      hd.Width, hd.Height, crop.x, crop.y, crop.w, crop.h, crop.widthM, crop.heightM,
+                      dist, space == g_viewSpace ? "eyes" : "origin",
+                      dist > 0.01f ? 2.0f * atanf(crop.widthM * 0.5f / dist) * 180.0f / 3.14159265f : 0.0f);
+            }
+        }
+        if (submitted) g_hudFramesSubmitted.fetch_add(1, std::memory_order_relaxed);
+        g_hudStatSubmitted.store(submitted, std::memory_order_relaxed);
+        if (nDesc)
+            DVR_LOG_EVERY_MS(::dvr::log::Cat::openxr, ::dvr::log::Level::Info, 5000,
+                             "xr: HUD quads %u of %d submitted (hidden since the last line: behind the face %u, "
+                             "at the eye %u, degenerate billboard %u, layer budget %u; untracked hand %u; layers "
+                             "%u of %d)", submitted, nDesc,
+                             g_hudStatBehind.exchange(0), g_hudStatNear.exchange(0),
+                             g_hudStatDegenerate.exchange(0), g_hudStatBudget.exchange(0),
+                             g_hudStatUntracked.exchange(0), layerCount, cap);
     }
 
     // Apply placement to fresh AND held mono layers. Never bank a temporary
@@ -5346,20 +5493,15 @@ void draw_debug_ui() {
             g_screenWidthM.store(width, std::memory_order_relaxed);
     }
 
-    // Session 19 HUD quad: capture toggle + head-locked placement.
+    // Session 19 HUD quad: the capture toggle. 41.x (Dishonored, VR-117): the
+    // placement sliders left this panel; the window, the hand panel and every
+    // element are on the F10 HUD tab, and persist in [Hud].
     bool hudOn = dvr::hud::enabled();
     if (ImGui::Checkbox("VR HUD (gameswf on a floating quad)", &hudOn))
         dvr::hud::set_enabled(hudOn);
-    float hd = g_hudDistM.load(std::memory_order_relaxed);
-    if (ImGui::SliderFloat("HUD distance (m)", &hd, 0.5f, 3.0f))
-        g_hudDistM.store(hd, std::memory_order_relaxed);
-    float hw = g_hudWidthM.load(std::memory_order_relaxed);
-    if (ImGui::SliderFloat("HUD width (m)", &hw, 0.3f, 3.0f))
-        g_hudWidthM.store(hw, std::memory_order_relaxed);
-    float hu = g_hudUpM.load(std::memory_order_relaxed);
-    if (ImGui::SliderFloat("HUD height offset (m)", &hu, -1.0f, 1.0f))
-        g_hudUpM.store(hu, std::memory_order_relaxed);
-    ImGui::Text("HUD quad frames %u", g_hudFramesSubmitted.load(std::memory_order_relaxed));
+    ImGui::Text("HUD quad presents %u, %u quads last present (placement: the HUD tab)",
+                g_hudFramesSubmitted.load(std::memory_order_relaxed),
+                g_hudStatSubmitted.load(std::memory_order_relaxed));
 }
 
 bool get_head_pose(HeadPose& out) {
@@ -6244,20 +6386,24 @@ const char* session_state_name() {
 
 bool ever_focused() { return g_everFocused.load(std::memory_order_relaxed); }
 
-void set_hud_quad(float distM, float widthM, float upM) {
-    g_hudDistM.store(distM, std::memory_order_relaxed);
-    g_hudWidthM.store(widthM, std::memory_order_relaxed);
-    g_hudUpM.store(upM, std::memory_order_relaxed);
-}
-
-void get_hud_quad(float* distM, float* widthM, float* upM) {
-    if (distM) *distM = g_hudDistM.load(std::memory_order_relaxed);
-    if (widthM) *widthM = g_hudWidthM.load(std::memory_order_relaxed);
-    if (upM) *upM = g_hudUpM.load(std::memory_order_relaxed);
-}
-
 void set_hud_texture_provider(HudTextureProviderFn fn) {
     g_hudTexProvider.store(fn, std::memory_order_relaxed);
+}
+
+// 41.x (Dishonored, VR-117)
+void set_hud_quad_provider(HudQuadProviderFn fn) {
+    g_hudQuadProvider.store(fn, std::memory_order_relaxed);
+}
+void recenter_hud_world_anchor() { g_monoReset.fetch_add(1); }
+HudQuadStats hud_quad_stats() {
+    HudQuadStats st{};
+    st.submitted = g_hudStatSubmitted.load(std::memory_order_relaxed);
+    st.hiddenBehind = g_hudStatBehind.load(std::memory_order_relaxed);
+    st.hiddenNear = g_hudStatNear.load(std::memory_order_relaxed);
+    st.hiddenDegenerate = g_hudStatDegenerate.load(std::memory_order_relaxed);
+    st.hiddenBudget = g_hudStatBudget.load(std::memory_order_relaxed);
+    st.untracked = g_hudStatUntracked.load(std::memory_order_relaxed);
+    return st;
 }
 
 void sr_push_eye(int eyeSign) {
@@ -6548,13 +6694,10 @@ AimVisualStats aim_visual_stats() { return {}; }
 void set_control_dot(const ControlDotConfig&) {}
 ControlDotStats control_dot_stats() { return {}; }
 void set_aim_dot(const AimDotConfig&) {}
-void set_hud_quad(float, float, float) {}
-void get_hud_quad(float* d, float* w, float* u) {
-    if (d) *d = 0;
-    if (w) *w = 0;
-    if (u) *u = 0;
-}
 void set_hud_texture_provider(HudTextureProviderFn) {}
+void set_hud_quad_provider(HudQuadProviderFn) {}
+void recenter_hud_world_anchor() {}
+HudQuadStats hud_quad_stats() { return {}; }
 
 } // namespace dvr::vr
 

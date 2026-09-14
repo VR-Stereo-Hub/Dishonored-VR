@@ -21,14 +21,22 @@
 
 static int      g_dumpReqCapture = 0;
 static int      g_dumpReqEyes = 0;
+static int      g_dumpReqHud = -1;    // VR-117: `dump hud [sink]` (-1 = none)
 
 static void FrameDumpRequest(const char* what)
 {
     bool all = !strcmp(what, "frame");
     if (all || !strcmp(what, "capture")) g_dumpReqCapture = 1;
     if (all || !strcmp(what, "eyes"))    g_dumpReqEyes = 2;   // a consecutive pair
+    if (!strncmp(what, "hud", 3)) {   // VR-117: a sink's delivered texture (default sink 0)
+        const char* a = what + 3;
+        while (*a == ' ') ++a;
+        g_dumpReqHud = *a ? atoi(a) : 0;
+        Log("dump: hud sink %d requested (geometry only: DumpTexturePng swaps R and B, VR-13)", g_dumpReqHud);
+        return;
+    }
     if (!(all || !strcmp(what, "capture") || !strcmp(what, "eyes")))
-        Log("dump: unknown target '%s' (frame|capture|eyes)", what);
+        Log("dump: unknown target '%s' (frame|capture|eyes|hud [sink])", what);
     else
         Log("dump: %s requested -> %s", what, dvr::paths::dumps_dir());
 }
@@ -138,8 +146,17 @@ static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex)
 // Present thread, after the eyes are rendered and before they are submitted.
 static void FrameDumpTick(IDirect3DDevice9* dev)
 {
-    if (!g_dumpReqCapture && !g_dumpReqEyes) return;
+    if (!g_dumpReqCapture && !g_dumpReqEyes && g_dumpReqHud < 0) return;
     char path[MAX_PATH];
+    if (g_dumpReqHud >= 0) {
+        const int sink = g_dumpReqHud;
+        g_dumpReqHud = -1;
+        snprintf(path, MAX_PATH, "%s\\hud_s%d_%lu.png", dvr::paths::dumps_dir(), sink, (unsigned long)g_frame);
+        ID3D11Texture2D* t = dvr::hudcap::panel_texture(sink);
+        Log("dump: hud sink %d %s -> %s", sink,
+            !t ? "FAILED (no texture on that sink - is [Hud] Panel on and the sink in use? `hud status`)"
+               : DumpTexturePng(path, t) ? "queued (the dump thread writes it)" : "FAILED", path);
+    }
     if (g_dumpReqCapture) {
         g_dumpReqCapture = 0;
         dvr::capture::snapshot_pixels(dev);   // shared mode: read this present back, not the 3 s sample

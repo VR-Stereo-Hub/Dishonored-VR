@@ -179,6 +179,7 @@ static uint32_t g_sdC5LastSerial = 0;
 // discriminator and the run shows it is not sufficient.
 static bool   g_menuGhostByRate  = false;   // [Menu] GhostClearByRate
 static double g_menuGhostQuietMs = 400.0;   // [Menu] GhostQuietMs
+static volatile LONG g_pePostRender = 0;   // VR-117: PostRender dispatches, for the HUD draw census
 static bool   g_cineNow   = false;
 static double g_cineOnMs  = 0.0;
 // VR-73: the engine's own input locks. The latch above is a parity flip of

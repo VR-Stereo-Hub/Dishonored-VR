@@ -65,13 +65,28 @@ void set_callbacks(const Callbacks& cb);
 // Patch IDirect3D9::CreateDevice on the object Direct3DCreate9 returned.
 bool hook_d3d9(IDirect3D9* d3d);
 
-// The originals, for the registered detours.
+// The originals, for the registered detours. orig_draw_* run through the INNER
+// draw hooks below when one is registered, so the chain is fixed by
+// construction: game -> hkDraw* -> the callback (the hand census, which may
+// drop or re-issue a draw) -> orig_draw_* -> the inner hook (the HUD redirect,
+// core/gfx/hud_class) -> raw_draw_* -> D3D. A dropped draw never reaches the
+// redirect, and the census decides on the game's own state.
 HRESULT orig_set_vs_const(IDirect3DDevice9* dev, UINT startReg, const float* data, UINT count);
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt);
 HRESULT orig_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                           UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
 HRESULT orig_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
                        UINT primCount);
+// VR-117: the inner draw seam and the raw forwards it uses.
+void set_inner_draw_hooks(DrawIndexedFn drawIndexed, DrawPrimFn drawPrim);
+HRESULT raw_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                         UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
+HRESULT raw_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
+                      UINT primCount);
+// VR-117: the vertex shader constant rows c0..c3 as last set (16 floats), for
+// the HUD region probe: Scaleform's per-object 2D transform lives there. The
+// device is PURE, so this shadow is the only way to read them. Row 0..3.
+const float* vs_const_shadow_row(int row);
 
 uint32_t count();              // presents so far (the frame number everything stamps)
 uint32_t submit_count();       // presents that handed a texture to the runtime

@@ -38,6 +38,10 @@
 #include "core/gfx/desktop_eye.h"
 #include "core/vr/pose_record.h"
 #include "core/gfx/capture.h"
+#include "core/vr/hud_stub.h"
+#include "core/gfx/hud_class.h"
+#include "core/gfx/hud_capture.h"
+#include "core/gfx/hud_layout.h"
 #include "core/gfx/frame_id.h"
 #include "core/gfx/device_census.h"
 
