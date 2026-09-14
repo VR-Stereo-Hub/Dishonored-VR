@@ -55,6 +55,8 @@ Copy-Item "$repo\README.md" "$stage\README.txt"
 Copy-Item "$repo\docs\TROUBLESHOOTING.md" "$stage\TROUBLESHOOTING.txt"
 Copy-Item "$repo\docs\KNOWN_ISSUES.md" "$stage\KNOWN_ISSUES.txt"
 Copy-Item "$repo\release\HOW-TO-USE.txt" "$stage\HOW-TO-USE.txt"
+# The repository default profile is the byte copy of the confirmed installed ini.
+Copy-Item "$repo\release\dishonored_vr.ini" "$stage\dishonored_vr.ini"
 Copy-Item "$repo\tools\setup-game-ini.ps1" "$stage\setup-game-ini.ps1"
 
 $zip = "$OutDir\dishonored-vr-v$version.zip"

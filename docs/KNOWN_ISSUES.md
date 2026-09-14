@@ -3,6 +3,12 @@
 41.x is the FOUNDATION line for the new native-stereo render: it is not a release. The
 milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 
+- Physical head movement during cinematics can remain locked despite working
+  right-stick turning. This is the next investigation; normal gameplay tracking
+  must remain unchanged.
+- Initial weapon tracking still has a multi-second startup freeze. Startup stereo
+  now recovers automatically; the separate name-cache timing lever remains off.
+
 - **Stereo ships ON: `[Stereo] Method=reentry`, `Armed=1`** [S2b]. The game's scene is drawn
   twice per tick, once per eye, into a projection layer (HEADSET-VERIFIED on a Quest 3,
   2026-09-03: depth, head tilt, lean, look and crouch). The F10 Display tab's `stereo armed`

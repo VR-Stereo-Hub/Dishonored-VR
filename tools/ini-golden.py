@@ -25,13 +25,12 @@ VERSRC = os.path.join(ROOT, "src", "mod", "state", "15_core_config_config.inc")
 
 def extract():
     src = io.open(SOURCE, encoding="utf-8").read()
-    m = re.search(r"static void WriteDefaultIni\(const char\* ini\)\n\{.*?fprintf\(f,\n(.*?)\n\s*\"FlipRoll=1\\n\", kConfigVersion\);",
-                  src, re.S)
+    m = re.search(r"static void WriteDefaultIni\(const char\* ini\)\n\{.*?fprintf\(f,\n(.*?), kConfigVersion\);", src, re.S)
     if not m:
         sys.exit("WriteDefaultIni literal not found")
     ver = re.search(r"static const int kConfigVersion = (\d+);",
                     io.open(VERSRC, encoding="utf-8").read()).group(1)
-    body = m.group(1) + '\n        "FlipRoll=1\\n"'
+    body = m.group(1)
     text = ""
     for line in body.splitlines():
         line = line.strip()

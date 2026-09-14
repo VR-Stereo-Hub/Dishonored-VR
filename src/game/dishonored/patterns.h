@@ -19,6 +19,12 @@ static const uintptr_t kModEnd     = 0x400000 + 0x1206A0C; // end of .reloc
 static const uintptr_t kDataStart  = 0x400000 + 0xE69000;  // .data VA
 static const uintptr_t kDataEnd    = kDataStart + 0x21B3BC;
 
+// ---- GC fault capture (read-only, no hook or engine-memory write) ----
+// Offline image verification and first-fault registers: ENGINE_NOTES,
+// "GC reference crash recurrence, 2026-09-13". Reads referenced object flags.
+static const uintptr_t kGcReferenceReadFault = 0x00465894;
+static const uint8_t kGcReferenceReadBytes[] = {0x8B,0x50,0x08,0x8B,0x48,0x0C};
+
 // ---- UE3 globals ----
 // Existing FpComputePivots component matrix reads, centralized for VR-33.
 // Native row-vector FMatrix: basis rows followed by translation row.

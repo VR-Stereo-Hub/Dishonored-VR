@@ -833,6 +833,24 @@ bool relabel_last_grab(int eyeSign, uint32_t rec) {
     }
     return false;
 }
+bool retire_last_right_grab(uint32_t expectedRec) {
+    if (!expectedRec) return false;
+    if (g_mode == Mode::Shared && !g_sharedWait) {
+        const int last = g_sharedCur ^ 1;
+        if (!g_sharedValid[last] || g_sharedSerial[last] != g_serial ||
+            g_sharedTag[last] != +1 || g_sharedRec[last] != expectedRec) return false;
+        g_sharedTag[last] = 0; g_sharedRec[last] = 0;
+        return true;
+    }
+    if (g_mode == Mode::Deferred) {
+        const int last = g_rtCur ^ 1;
+        if (!g_rtValid[last] || g_rtSerial[last] != g_serial ||
+            g_rtTag[last] != +1 || g_rtRec[last] != expectedRec) return false;
+        g_rtTag[last] = 0; g_rtRec[last] = 0;
+        return true;
+    }
+    return false;
+}
 uint32_t delivered_rec() { return g_deliveredRec; }
 uint32_t delivered_serial() { return g_deliveredSerial; }
 uint32_t serial() { return g_serial; }

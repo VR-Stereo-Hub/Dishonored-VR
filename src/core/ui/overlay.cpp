@@ -303,6 +303,17 @@ static void OverlayFrame()
                 uk ? "a kept menu queues no rescan" : "every menu queues the rescan");
         }
         ImGui::TextDisabled("off = a ~0.5 s flat hold on every resume while it rescans.");
+        bool nc = g_nameIndexCacheOn;
+        if (ImGui::Checkbox("Cache startup name lookups", &nc)) {
+            g_nameIndexCacheOn = nc;
+            Log("menu: CacheNameLookups -> %d (compare cold launches for startup timing)", nc ? 1 : 0);
+        }
+        bool pc = g_pawnFromController;
+        if (ImGui::Checkbox("Detect loaded player without crouching", &pc)) {
+            g_pawnFromController = pc;
+            g_cylOkMs = 0.0;
+            Log("menu: PawnFromController -> %d", pc ? 1 : 0);
+        }
         bool nf = g_uiNoteFastMono;
         if (ImGui::Checkbox("Fast mono for books and notes (VR-98)", &nf)) {
             g_uiNoteFastMono = nf;
@@ -732,8 +743,13 @@ static void OverlayFrame()
                 dvr::stereo::set_reentry_c5_pair(c5);
                 ConfigWriteKey("Stereo", "C5Pair", c5 ? "1" : "0", "F10 Display");
             }
+            bool singleTag = dvr::stereo::reentry_single_tag();
+            if (ImGui::Checkbox("Repair right-eye flicker after reload", &singleTag)) {
+                dvr::stereo::set_reentry_single_tag(singleTag);
+                ConfigWriteKey("Stereo", "SingleTagRepair", singleTag ? "1" : "0", "F10 Display");
+            }
             bool lateTag = dvr::stereo::reentry_late_tag();
-            if (ImGui::Checkbox("late-tag repair (VR-80 candidate, off = shipped)", &lateTag)) {
+            if (ImGui::Checkbox("Repair late eye tags after notes", &lateTag)) {
                 dvr::stereo::set_reentry_late_tag(lateTag);
                 ConfigWriteKey("Stereo", "LateTagRepair", lateTag ? "1" : "0", "F10 Display");
             }

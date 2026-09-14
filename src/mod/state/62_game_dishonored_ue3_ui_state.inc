@@ -24,10 +24,9 @@
 // a main menu from gameplay by IDENTITY (which movie), and an open menu from a
 // load by STATE (open or not), without reference to any dispatch rate.
 //
-// THIS BUILD DOES NOT USE IT FOR ANYTHING. It is default-on observation:
-// discover the vocabulary, watch it change, and print the verdict it WOULD have
-// produced beside the one the mod actually used. Nothing here writes engine
-// memory, clears a flag, gates a draw or triggers a collection.
+// Originally observation only. The note result now also drives the opt-in
+// NoteFastMono and AttachKeepOnNote behaviors. Other reported verdicts remain
+// diagnostic. No engine memory is written by this observer.
 //
 // WHAT WOULD FALSIFY IT, stated before the run:
 //   * If no movie-player class carries a readable open/closed bool, the premise
@@ -40,7 +39,7 @@
 
 #define UI_CLS_MAX   24    // distinct movie-player CLASSES
 #define UI_PROP_MAX  96    // properties declared across those classes
-#define UI_INST_MAX  48    // live movie-player INSTANCES tracked
+#define UI_INST_MAX  128    // live movie-player INSTANCES tracked
 #define UI_OPENSET   4     // classes named in a rollup line
 
 // A movie-player class discovered in GObjects. `obj` is the UClass itself, which
@@ -68,6 +67,7 @@ struct UiProp {
 struct UiInst {
     uint8_t* obj;
     uint8_t* cls;          // its UClass, cached so the poll never re-reads a name
+    uint32_t fname[2];     // full FName identity, rechecked before reuse
     char     name[64];     // ObjectName at latch time
     int      open;         // -1 unknown, 0 closed, 1 open
     int      gen;          // the load generation it was first seen in
@@ -115,7 +115,7 @@ static int      g_uiClsN      = 0;
 static UiProp   g_uiProp[UI_PROP_MAX];
 static int      g_uiPropN     = 0;
 static UiInst   g_uiInst[UI_INST_MAX];
-static LONG     g_uiInstN     = 0;       // published last, appended to only
+static LONG     g_uiInstN     = 0;       // guarded by g_uiTableLock
 
 // THE OPEN BIT. Chosen by discovery from the bools it actually found, never
 // assumed. Zero mask means "no such property exists", and every consumer below

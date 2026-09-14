@@ -177,13 +177,28 @@ static bool LooksLikeObj(uint8_t* p)
 }
 
 
+#include "game/dishonored/ue3/name_index_cache.h"
+
 static uint32_t FindNameIdx(const char* want)
 {
+    if (!want) return 0xffffffffu;
     if (!RangeReadable((void*)kGNamesData, 8)) return 0xffffffffu;
     uint32_t num = *(uint32_t*)kGNamesNum;
     if (num == 0 || num > 4000000) return 0xffffffffu;
+    // Warm positive hints during scans already needed at startup, instead of
+    // walking GNames twice for every reflected property. Both lanes call here.
+    static SRWLOCK cacheLock = SRWLOCK_INIT;
+    static dvr::ue3::NameIndexCache<> cache;
+    const bool useCache = g_nameIndexCacheOn;
+    if (useCache) AcquireSRWLockExclusive(&cacheLock);
+    struct Unlock { SRWLOCK* p; ~Unlock() { if (p) ReleaseSRWLockExclusive(p); } } unlock{useCache ? &cacheLock : nullptr};
+    if (useCache) {
+        const uint32_t cached = cache.find(want, NameFromIndex);
+        if (cached != 0xffffffffu) return cached;
+    }
     for (uint32_t i = 1; i < num; i++) {
         const char* nm = NameFromIndex(i);
+        if (useCache && nm && PrintableName(nm)) cache.remember(nm, i);
         if (nm && !strcmp(nm, want)) return i;
     }
     return 0xffffffffu;

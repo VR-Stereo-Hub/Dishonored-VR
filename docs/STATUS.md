@@ -1,6 +1,37 @@
 # Status
 
-## CURRENT (2026-09-13, session 39): VR-93, VR-80 and VR-98 merged. Next: stereo after a load
+## CURRENT (2026-09-13): load/reload fixes confirmed and merged (PR #53)
+
+Headset-confirmed: startup stereo without jumping/crouching, prompt notes across
+save reloads, stable right-eye presentation after reload, and safe pause after a
+crouched reload. VR-96's cause was a crawl-release write through three old hand
+control pointers recycled into upgrade objects. The writer now checks fresh
+liveness plus retained identity before either strength store. The final run
+exercised nine rejected stale updates, 57 valid updates and 11 pauses, with no
+exception and clean exit. Evidence is in ENGINE_NOTES and FLICKER_REFERENCE.
+
+PR #53 merges branch commit `dbf61fa7` into VR-Main under explicit maintainer
+authorization. The complete installed INI
+and saved F10 profile are repo defaults. The packaged ini is its byte copy; the
+production default writer/golden match it. Diagnostics remain enabled, name cache
+off, no config version bump. Defaults and build verification are recorded in the
+branch closure. No game was launched by the agent and no release is declared. The final merged
+build is installed and verified against `build/crash-triage/latest-install.json`;
+read that manifest for its exact banner/hash before the next playtest.
+
+**Next session:** physical head tracking during cinematics. Right-stick turning
+works, but real head movement does not move the view. Start from the merged
+VR-Main, create/verify the Linear ticket and a new branch, then trace which game
+state, camera writer and runtime layer own the cinematic view before changing it.
+Read [NEXT_SESSION.md](dishonored/NEXT_SESSION.md) for scope, preserved settings,
+Linear updates, references, and the requirement to keep normal gameplay stable.
+
+Linear tools were absent in this task and UI runtimes failed to start. Do not
+claim board synchronization completed. Verify VR-96's closure and apply the
+prepared batch updates next session. Weapon startup freezing remains open;
+CacheNameLookups is implemented but stays off and needs a separate timing test.
+
+## Earlier (2026-09-13, session 39): VR-93, VR-80 and VR-98 merged. Next: stereo after a load
 
 **The after-note flicker is fixed (VR-80).** It was a late eye tag: after a crouched note
 close a present could show a draw's image before that draw's tag reached the ring, the ring

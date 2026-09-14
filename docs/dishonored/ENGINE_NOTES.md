@@ -5120,3 +5120,175 @@ them runs in play, and whether one runs after a note closes, is NOT yet measured
 Measured (build 199, a run with a book close): A, B and C made 0 calls. `xref` finds no absolute
 reference to `0x005fc5b0` and a raw search for its bytes finds none, so no vtable or pointer table
 reaches the root: in gameplay the gameplay call site is its only live caller.
+
+
+## GC reference crash recurrence, 2026-09-13
+
+The pause-at-end crash repeats the existing VR-96 signature, seen in earlier
+September 11-13 runs. Verified build `215-g20cc4a98-dirty`, compile time 18:01:15;
+logs and dump archived in ignored `build/single-tag/playtest-crash-20260913-181413/`.
+At log time 17246.765 s Dis_OpenPauseMenu is observed; 63 ms later the first AV is
+at Dishonored.exe+0x65894, reading 0x3F800008, with EAX=0x3F800000 and
+EDI=0x168A7434. Offline `tools/disasm-rva.py` against the installed executable
+shows the reference is loaded from [EDI] at RVA 0x6586D, and the fault at
+0x65894 reads the referenced object's flags at +8. Thus EDI identifies the slot
+holding the invalid reference; it does not by itself identify its owning UObject.
+The value equals IEEE-754 float 1.0. This is evidence of invalid reference data,
+not proof that any particular mod float writer produced it.
+
+The new 45,180,167-byte minidump repeats the capture limitation in TRAPS:
+it is written 125.672 s after the first fault and carries a later exception
+at engine RVA 0xAF6A73 reading address 1, on the same thread 37176. It does not
+include the original reference slot 0x168A7434 or token storage 0x165481B0.
+The captured stack at the original ESP no longer represents the initial fault.
+`tools/read-dump.py` parses its exception and thread context despite a nonfatal
+PEB-read warning from the minidump package. Do not use the later exception or
+stack as the original GC context. The archived crash text file predates this
+run; use the current run's main log and the screenshot for its first fault.
+
+The writer and owning object remain unresolved. Future fault capture needs the
+initial exception context and surrounding reference/token/owner memory before
+the game's error path replaces them. Do not skip the invalid reference or catch
+and resume this GC fault as a repair; neither would remove its source. No engine
+address was added to executable code during this offline triage.
+
+
+## First-fault GC diagnostic installed, 2026-09-13
+
+The current delayed minidump cannot identify the GC reference owner. Added an
+opt-in `[Diagnostics] GcFaultDump=1` path: config verifies the six instruction
+bytes in patterns.h at the known fault site and arms the core crash handler.
+Only an AV/read with both exception address and context EIP matching that site
+captures full process memory and the original exception context, once per run.
+Capture runs before stack fingerprinting and its three-message budget. It then
+continues normal exception handling; no engine-memory write, GC skip, exception
+recovery or change to stereo/note behavior. Unrelated faults retain old behavior.
+Byte mismatch refuses and disarms the diagnostic. The option defaults off and
+is not inserted into generated/saved defaults. A full dump may be large and adds
+writing time only when the targeted fault occurs; it stays local under the data
+folder and must not be committed.
+
+`tools/crash-capture-host.ps1` compiles the production handler in a standalone
+32-bit process: 18 checks pass, including off, byte mismatch, unrelated exception,
+write/execute, missing context, wrong site, teardown, exhausted logging budget,
+once-only capture and original context/flags. Its actual Windows dump was read
+back: original EAX/EIP and a reference-address heap sentinel are present, with
+full-memory output 23,262,847 bytes. This tests evidence capture, not crash removal.
+Release build, nine exports, ini golden generation and lint pass. No game launch.
+
+Installed build `215-g20cc4a98-dirty`, compiled `Sep 13 2026 18:27:13`.
+DLL SHA256 `1a6e3156c6c994f3dd57a401e44ffe7d1f7b59f12295cbb51c877073f7250725`;
+ini SHA256 `d47a790a97862653d740436d939c155d2299d9931a4a445ca4af557b99a97782`.
+Backup and complete ini diff: `build/crash-triage/install-20260913-182848`.
+The only installed ini change is `[Diagnostics] GcFaultDump=1`; full section/key
+comparison and byte checks confirm CRLF. Confirmed note, startup and reload-eye
+fixes stay enabled; startup name cache stays off. Linear remains inaccessible in
+this task; no new ticket number, commit, PR or merge.
+
+One launch question: does opening pause after a save reload still crash? Load
+normally, reload the save once, play for about a minute, then open pause. If it
+crashes, the initial-fault dump should preserve the bad reference and surrounding
+object memory, allowing owner/property identification and a targeted writer fix.
+If pause opens, this intermittent fault did not reproduce; it does not establish
+that the crash is fixed. If a different fault occurs or capture fails, use its
+first log fingerprint to choose the next step. The tester only launches/reports;
+the agent reads the build banner, archives evidence, and analyzes it before any
+relaunch. No additional note/performance question is combined with this test.
+
+
+## Pause GC crash: recycled hand controls corrupted upgrade objects (2026-09-13)
+
+**Cause identified; writer fixed; headset verification pending.** The targeted
+first-chance dump captured the original exception at engine RVA 0x65894 reading
+0x3F800008, EAX=0x3F800000 and EDI=0x16877434. Its 2,133,436,870-byte full-memory
+capture preserves GObjects, GNames, the reference slot, and the owning object.
+The matched build was `215-g20cc4a98-dirty`, compiled 18:27:13. Archive:
+`build/crash-triage/playtest-20260913-183257/` (ignored). Log SHA256
+`4f58bc6a63de6171ee72bc11f08fe28333c1b2e32657e4b8b556a45f5b231ceb`;
+dump SHA256 `a100287a2e7001895efb67e512391ae75b425b445a6b3bf843e28ac84fef2f68`.
+
+The evidence joins the old and new owners, not just a matching float value:
+
+| Address | Before reload (graft log at 18441.859 s) | At initial GC fault |
+|---|---|---|
+| 0x168773D0 | Player SkelControlSingleBone slot 0 | Twk_Upgrade_Mask, DisTweaks_Upgrade |
+| 0x168772E0 | Player SkelControlSingleBone slot 1 | Twk_Upgrade_BoneCharms2, DisTweaks_Upgrade |
+| 0x168771F0 | Player SkelControlSingleBone slot 2 | Twk_Upgrade_BoneCharms, DisTweaks_Upgrade |
+
+All three replacement objects contain 0x3F800000 at +0x64 and +0x78, exactly
+the two stores made by the crawl-release loop. The mask's bad reference is
+base+0x64. Dump reflection resolves that inherited field to
+`DisTweaksBase.m_pSpawnedObjectClass_Editor` (ClassProperty); it must hold a class
+reference, not float strength. Class ancestry and the instance's 0xEC property
+size put the slot inside that object, rather than inferring ownership solely
+from nearest address. Property offsets are derived from the dump; no new
+upgrade-object offsets are used by the fix.
+
+The player was tucked when reload began. At 18482.468 s the wrapper logged
+`hands: back`, executing the unguarded 1.0 writes. Only THEN did
+ApplyHandToMeshInner log stale controls and discard them. At 18482.578 s the new
+controls were discovered. Thus the old pointers were trusted for a write before
+the inner function's validity check could reject their new owners. IsReadable
+only proved mapped storage; after reuse, even IsLiveObject alone would pass.
+The first-fault dump's current cached controls are already the replacements,
+which is why a current pointer-only search would miss the earlier corruptor.
+PDB-based data inspection was performed against the matching diagnostic build
+before rebuilding; raw outputs and dump data are not committed.
+
+**Fix:** SkcSetCrawlStrength refreshes BuildLiveSet on each crawl edge, requires
+IsLiveObject plus SkcAlive's saved GObjects index and class identity, and checks
+both target ranges before either write. Reused/dead/unreadable entries are
+skipped and mark the cached controls stale for normal rediscovery. Failed live-
+table refresh skips all writes. Valid controls retain the existing 0-on-tuck /
+1-on-release behavior. Edge-only logs report writes/refusals. No repair is made
+to an already-corrupted game process; testing requires a fresh launch.
+
+**Validation:** the host compiles the production writer and SkcAlive guard.
+13 checks pass: valid release/restore, fresh-table update, three live recycled
+upgrade objects, same-index different-class reuse, readable freed storage,
+refresh failure and paired-field readability. The old writer fails three
+regression checks and overwrites the recycled upgrade bytes. Menu retention 43
+checks, release build, nine exports, lint and diff checks pass. The causal write
+was reconstructed from the address/lifetime/log/code evidence and reproduced
+in the host, not captured by a live write watchpoint. Headset crash absence is
+still unverified; no claim that all possible GC corruptors are removed.
+
+**Installed fix:** build `215-g20cc4a98-dirty`, compiled `Sep 13 2026 18:43:51`.
+DLL SHA256 `b4b5fbf58817684fe78b6717695634c15e257b248634c697a0ea537662d85d06`. Entire installed ini is
+byte-identical to the diagnostic build, CRLF verified; GcFaultDump stays on.
+Backup, binary, matching PDB, source snapshot and empty full-ini diff are under
+`build/crash-triage/fix-install-20260913-184506/`. No game launch or merge.
+
+**One launch question:** does pausing remain safe after reloading from a crouch?
+Start normally, crouch, reload the save while crouched, then stand and open/close
+pause a few times. A pass plus stale-write refusals validates the repaired path;
+a pass without refusals is weaker non-reproduction. A crash should still produce
+the initial-fault dump, which distinguishes a missed path from another corruptor.
+The tester reports the visible result; the agent verifies the banner, reads and
+archives the log. Existing fast-note and stereo settings remain enabled.
+
+
+### Final headset verification and default promotion, 2026-09-13
+
+The verified 18:43:51 build completed a clean run with 11 pause openings and no
+exception. The crawl writer refused nine stale control updates over three edges
+and performed 57 updates to validated controls over the remaining edges. Thus
+the stale-pointer guard was exercised, rather than merely failing to reproduce
+the trigger. The tester confirmed normal behavior. VR-96 is fixed for this
+observed cause; later distinct crash signatures must be investigated separately.
+Archive `build/crash-triage/playtest-pass-20260913/`; log SHA256
+`a082eae06a07fb3fcbba4656f8933d82232e9b55f06d656469b6338a249bd6be`.
+
+The maintainer explicitly approved commit, PR and merge of the current branch,
+and promotion of the complete installed settings/F10 profile to repo defaults.
+This supersedes the earlier default-off disposition for these tested levers.
+`release/dishonored_vr.ini` is the byte copy of that installed CRLF profile;
+WriteDefaultIni and the golden match, including diagnostics, calibration values,
+D:\dvr-data, fast notes, late/single-tag repair and retained menu identities.
+The name cache stays off. No config version bump rewrites existing settings.
+The real default writer runs in a standalone x86 host and its output is compared
+byte-for-byte to the installed and packaged files. Package generation now includes
+that exact ini. Presence/migration sentinels remain distinct from value defaults.
+No release or milestone is declared. Linear API synchronization remains pending;
+the PR's Fixes link may update VR-96 through the integration, to be verified next
+session. The next feature is physical head movement during cinematics.

@@ -527,6 +527,13 @@ holds no GObjects array and not the region the garbage collector faulted on, so 
 object holding the bad value could not be named offline. Read the crash registers from
 `dishonored_vr_crash.txt`, and do not expect the dump to answer an object question.
 
+The September 13 pause recurrence confirmed the same limit: its main log retained
+first-fault registers but the dump, written 125.672 s later, contained a different
+exception and omitted the bad reference's memory. `[Diagnostics] GcFaultDump=1`
+now captures full memory at the byte-verified first AV/read site, before normal
+fingerprinting. The standalone production-handler test verifies context and heap
+retention. This is diagnostic readiness, not a game-crash fix; see ENGINE_NOTES.
+
 ### Aggregate counters that read as a self-sustaining loop (VR-80)
 
 Across three instrumented runs the after-note flicker's counters (realigns, untagged-branch
@@ -612,3 +619,19 @@ where the layer was a quad rather than a projection. That is an uninitialised
 quaternion, not a measurement - the projection views are only filled on the
 projection path. A number printed outside the population it describes is still a
 number, and it reads as a catastrophic finding. The line now refuses instead.
+
+
+### Readable recycled hand controls were live upgrade objects (2026-09-13)
+
+A crawl-release wrapper wrote floats through old rig pointers before its inner
+function checked their lifetime. Reload had reused all three addresses for
+upgrade objects, so readable memory did not mean a valid write destination.
+Fresh IsLiveObject membership alone would still accept the new live owners.
+Require current liveness AND the retained index/class identity at the writer,
+including release/restore paths outside the main drive. The bad stores happened
+after reload; GC exposed them later on pause. See ENGINE_NOTES's pause GC record.
+
+The 32-bit full dump also sign-extends virtual addresses above 0x80000000 into
+64-bit descriptor fields. Normalize to 32 bits when looking up captured memory;
+otherwise live controls above 2 GB appear missing and lead to false stale-object
+conclusions. Do not treat a parser lookup failure as proof of absent dump data.

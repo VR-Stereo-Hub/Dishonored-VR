@@ -325,3 +325,47 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
     if (tr) tr->streakAfter = st.c5Streak;
     return tagged;
 }
+
+// Reload trace: L,R,0 tags can accompany L,L,R cameras around a SINGLE tick.
+// This observer proposes a correction only for that adjacent triple. It never
+// searches or drains the queue. The caller must retire the still-buffered wrong
+// R label before using the saved R record on the now-confirmed right image.
+struct SingleTagState {
+    int previousEye = 0;
+    bool previousMeasured = false;
+    bool pending = false;
+    Tag right = {};
+};
+
+bool observe_single_tag(SingleTagState& st, const ArbView& v, const Tag& raw,
+                        int ringEye, int finalEye, int inv, float along,
+                        float other, uint32_t action, Tag& recovered) {
+    const bool geometry = v.haveC5 && v.basisOk && v.ipd > 1.0f;
+    const float tolerance = 0.1f * v.ipd; // strict corroboration; moving/ambiguous cases decline
+    bool repair = false;
+    if (st.pending && geometry && ringEye == 0 && raw.draw == st.right.draw + 1 &&
+        inv == +1 && (action & ACT_INVENT)) {
+        const float x = v.c5now[0] - st.right.pos[0];
+        const float y = v.c5now[1] - st.right.pos[1];
+        const float z = v.c5now[2] - st.right.pos[2];
+        repair = x*x + y*y + z*z < tolerance*tolerance;
+        if (repair) recovered = st.right;
+    }
+    st.pending = false; // one immediately following present only
+    if (geometry && st.previousMeasured && ringEye == +1 && finalEye == +1 && st.previousEye == -1 &&
+        inv == 0 && raw.posOk && raw.rec != 0 && (action & ACT_UNKNOWN) &&
+        fabsf(along) < tolerance && other < tolerance) {
+        const float dx = raw.pos[0] - v.c5now[0];
+        const float dy = raw.pos[1] - v.c5now[1];
+        const float dz = raw.pos[2] - v.c5now[2];
+        const float a = dx*v.br[0] + dy*v.br[1] + dz*v.br[2];
+        const float ox = dx-a*v.br[0], oy = dy-a*v.br[1], oz = dz-a*v.br[2];
+        if (fabsf(a + v.ipd) < tolerance && ox*ox + oy*oy + oz*oz < tolerance*tolerance) {
+            st.right = raw;
+            st.pending = true;
+        }
+    }
+    st.previousEye = finalEye;
+    st.previousMeasured = geometry;
+    return repair;
+}

@@ -2,6 +2,11 @@
 
 ### Changed
 
+- The complete September 13 tested INI and saved F10 profile are now the generated
+  and packaged defaults, by maintainer request. This includes diagnostic flags,
+  calibration values and the configured data directory. Existing INIs keep their
+  overrides; the config version is unchanged.
+
 - **A fresh install now gets the headset-confirmed configuration (VR-72).** The
   generated default ini and the loader fallbacks were set from the tested machine's
   ini: world pose lag 2, both automatic A/B experiments off, the bone palette and
@@ -11,6 +16,13 @@
   delete it to take the new defaults, then recapture your own hand calibration.
 
 ### Fixed
+
+- Pausing after a crouched save reload no longer receives corruption from the
+  crawl-release writer (VR-96). It validates current object identity before
+  restoring strengths to cached hand controls.
+- Startup reaches stereo without a jump/crouch. Fast notes remain responsive
+  across reloads, and a confirmed adjacent R/0 capture sequence no longer places
+  the left image in the right eye. Initial weapon tracking can still stall.
 
 - **Looking up or down while crouched no longer moves the view (VR-78).** Crouched,
   the game does not swing its camera about a neck, but the mod was still cancelling

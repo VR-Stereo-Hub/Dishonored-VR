@@ -16,8 +16,13 @@
 // recoverable exception can satisfy.
 #pragma once
 #include <windows.h>
+#include <stdint.h>
 
 namespace dvr::crash {
+// Opt-in read-only diagnostic. Verify instruction bytes before publishing a
+// first-chance AV/read target; address=0 disables. A match captures full memory
+// once, then continues normal exception handling. Does not repair engine state.
+bool configure_read_fault_dump(uintptr_t address, const uint8_t* expected, size_t count);
 void install();                                   // idempotent; first Direct3DCreate9, not DllMain
 void rearm();                                     // the Steam overlay and the game displace filters; call from Present
 void register_thread(const char* name, DWORD tid); // "present", "xr-pace": named in the fingerprint

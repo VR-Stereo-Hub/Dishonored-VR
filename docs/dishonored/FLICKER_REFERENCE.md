@@ -72,10 +72,11 @@ pose metadata without reopening the disproved historical theories.
 |---|---|---|
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
-| One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | Several distinct early mechanisms fixed; a new note-exit case remains open |
+| One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |
 | Both near hands/weapons flash or lose disparity for a frame | Untagged mono image enters a stereo stream | `HoldUntagged=3` confirmed mitigation; burst generation remains open |
 | Both eyes go black for one frame | Texture-less present ends an XR frame without a scene layer | Previous-layer fallback implemented and historically confirmed |
 | Pause causes XR session loss | Hold overwrites saved layer with empty local structures; `XR_ERROR_HANDLE_INVALID` | VR-54 snapshot-bank correction implemented |
+| Mono after loading until jump/crouch/stairs; hands precede weapon tracking | Capsule liveness depended on an event-latched pawn while the controller already possessed the player; separate startup discovery stalls | Headset-confirmed startup stereo; weapon freeze remains: [load startup](LOAD_STARTUP_IMPLEMENTATION.md); `PawnFromController` and separate `CacheNameLookups` ship off |
 | Severe first-seconds flicker after loading, then stable | Startup eye starvation with asymmetric eye updates and slow ticks | Open historical startup issue (VR-16); brief settling accepted in later runs |
 | Dark animated weapon copy at native position | Another render pass of the same geometry was not corrected | VR-33 pass identity/suppression fixes confirmed |
 | Both weapons disappear together, hands still place | Shared correction/publication gate; overly tight snapshot age | 100 ms snapshot bound restored; rare single-frame refusal historically accepted |
@@ -1392,3 +1393,247 @@ markers. It also shows another menu candidate reset. It still has no recorded
 weapon re-adoption after the first pause. Exact artifact identity and limits are
 saved in the linked frame-drop/resume plan; visual cause and relock duration
 remain unconfirmed by an event-local trace.
+
+
+### Load startup implementation follow-up, 2026-09-13
+
+1. **Symptom:** mono after a load until vertical movement, with early hand tracking,
+   delayed weapons and a freeze. Separate from the confirmed VR-80 note-exit fix.
+2. **Reproduction:** run 8, merged baseline `20cc4a98`; preserved artifact/hash and
+   precise timestamps in [LOAD_STARTUP_IMPLEMENTATION](LOAD_STARTUP_IMPLEMENTATION.md).
+3. **Hypothesis/counterprediction:** the controller possessed a readable player before
+   the first pawn event. Event-only capsule discovery blocks startup; an independent
+   validated controller source should start stereo without movement, subject to the
+   existing menu/view/cinematic gates. Continued mono with valid capsule liveness
+   would identify another gate. Repeated name scans contribute to discovery cost;
+   total freeze elimination is not established.
+4. **Change:** controller-based capsule source, independent script sampling with
+   bounded table refresh, matched capsule/clamp ownership; separate bounded positive
+   name-ID cache. Both levers default off with F10 A/B and ini persistence.
+5. **Results:** 48 production-function startup checks pass; legacy pawn behavior
+   fails the no-input regression. Cache off requires 4000 reads for the warm query,
+   cache on one. Pairing 248, menu 43 and clamp 19 checks pass; release build,
+   exports, ini golden and lint pass. No new headset or in-game simulator run.
+6. **Status:** implemented, visual validation open. First test enables only
+   PawnFromController; cache timing is a separate cold-launch comparison. Linear
+   ticket pending unavailable access. No new merge or claim of instant weapon lock.
+
+
+### Confirmed startup and note observer follow-up, 2026-09-13
+
+1. **Symptom:** startup stereo no longer needs vertical movement, confirmed on the
+   headset. Fast note opening/closing was reported delayed after a save load.
+   This is the mono-transition surface, separate from eye-tag pairing.
+2. **Reproduction:** build `vr33-hands-working-215-g20cc4a98-dirty`, banner verified
+   against the install manifest before analysis. Archived in ignored
+   `build/load-startup/playtest-20260913-173516/`; log SHA256
+   `1d25a16094c878e93752e310b691ce26625fdb1bca126d617402c32142714172`.
+   Installed ini SHA256 `5e1555d8e4e1b8bbe9e36e53715e5199ed64e4a8e192f7827c5f301e8349cdaf`.
+   PawnFromController=1, CacheNameLookups=0, NoteFastMono=1; full ini diff confirms
+   the prior note/pairing/menu options were preserved. Same 90 Hz profile.
+3. **Hypothesis/counterprediction:** the append-only UI movie table exhausts across
+   reloads, so new notes never reach the fast path. At 14397.578 s the old pNote
+   is dropped; at 14400.265 s the table reports full at 48. Subsequent note close
+   events occur without note flag transitions. If the replacement observer watches
+   the new pNote yet the delays remain, table exhaustion is not the whole cause.
+4. **Change:** the UI discovery scan replaces its population after refreshing the
+   live-object table; new movies reclaim dead slots and validate class plus full
+   FName against IsLiveObject. A table lock prevents partial replacement being read
+   by Present, which skips a busy scan. Capacity is bounded at 128 for simultaneous
+   movies; increasing capacity alone would not fix the lifetime leak. The existing
+   NoteFastMono lever and loading timeout logic are unchanged. Logs identify watched
+   notes and note-visible transitions. No new engine-memory writer or name-cache
+   activation. Session instructions are persisted in AGENTS.md and private settings.
+5. **Results:** 18 production-function checks pass, including 300 reloads, dead
+   slots, address/FName reuse, full-live capacity, immediate note open/close and
+   ordinary loading/observer-expiry safeguards. The old add-instance function fails
+   four checks. This explains a repeatable missing-observer path; restored headset
+   note timing still needs the next run. Startup is headset-confirmed; instant
+   weapon tracking and total load-freeze removal are not established.
+6. **Status:** startup confirmed; note reload repair awaiting headset verification.
+   New Linear ticket/update is blocked in this task: no Linear connector is exposed,
+   and browser startup fails with helper_sandbox_lock_failed. No invented ticket
+   number, new commit, PR, or merge. The prior VR-98 issue remains the known context.
+
+
+**Installed note-observer candidate:** `vr33-hands-working-215-g20cc4a98-dirty`,
+compiled `Sep 13 2026 17:43:41`. The describe string is unchanged because this
+working tree is uncommitted; verify the compilation timestamp as well as the tag
+before interpreting the next run. DLL SHA256
+`7a2dd73f97bb5fec655071198c335f70af2e2a8b74c8869f8e43ade7877c45ff`.
+Backup and source snapshot: `build/note-observer/install-20260913-174444/` (ignored).
+Release build and nine exports pass; pairing 248, menu 43, startup 48 and observer
+18 checks pass. Ini golden and lint pass. The entire installed ini is byte-identical
+to the preceding install, with CRLF verified; existing diagnostics remain armed.
+
+**Next launch, one question:** after loading a save again through the pause menu,
+do repeated note opens/closes still switch promptly between mono and stereo?
+Load normally, reload the save, then open/close a nearby note several times.
+Prompt transitions support restored note discovery across reloads. Delays with a
+watched pNote and changing note-visible flag implicate a downstream gate; delays
+without those markers implicate discovery. A flash or misplaced weapon indicates
+a separate transition/retention regression. The agent reads the log; the tester
+runs no commands. No game was launched during implementation.
+
+
+### Reload right-eye displacement after note-observer repair, 2026-09-13
+
+1. **Symptom:** fast notes and stereo without vertical movement are headset-confirmed,
+   including notes after a save reload. A save reload caused continuous rightward
+   flicker in the right eye until pause/resume. Route through section 1's one-eye
+   pause/load/rearm row. This is not a repeat of the observer-capacity failure.
+2. **Reproduction:** banner verified as build `215-g20cc4a98-dirty`, compiled
+   `Sep 13 2026 17:43:41`, DLL `7a2dd73f97bb5fec655071198c335f70af2e2a8b74c8869f8e43ade7877c45ff`.
+   Archive `build/note-observer/playtest-20260913-175403/` (ignored); log SHA256
+   `fc78484e3310e9ca7eff4e5b9df60a32a118e3b3e901a6869a013b72399409ad`.
+   Installed ini unchanged, SHA256 `5e1555d8e4e1b8bbe9e36e53715e5199ed64e4a8e192f7827c5f301e8349cdaf`:
+   90 Hz, SharedWait=0, LateTagRepair=1, PawnFromController=1, NoteFastMono=1,
+   CacheNameLookups=0. Reload returns GAMEPLAY at 15966.062 s; pause begins
+   15989.109 s and GAMEPLAY resumes 15990.703 s.
+3. **Hypothesis/counterprediction:** repeated SINGLE ticks expose adjacent R/0 labels
+   on L/R images. Of 288 unique ledger rows sampled in the reload episode, 23
+   popped explicit zero tags, all promoted to right by the within-tick invariant;
+   22 had a preceding R-tagged unknown step with a 6-7 uu camera residual. Example
+   P4588-4591: L matches its camera, R repeats the left camera (6.79 uu from its
+   record), zero has the -6.82 uu right step, then L matches again. No ring rejects,
+   clears, late owes, or repairs occur in the fully covered 15972.953-15982.968 s
+   window; every mutation reconciles. Queue depth 4-6 is measured, not a cause.
+   Earlier suspicion of depth-clearing is excluded. The submitted +1 doublets
+   raise the runtime's LEFT-stale count even though the reported moving image is
+   RIGHT: a mislabeled left view enters R before the real R, so that counter's
+   eye is not the symptom's eye. The engine-side owner of the displacement is open.
+4. **Change:** `[Stereo] SingleTagRepair` defaults off with a persisted F10 Display
+   toggle. A one-present candidate requires a preceding measured L, an R-tagged
+   camera repeat within 0.1 IPD, and a stored R position one IPD to its right. Only
+   an adjacent zero tag with the robust right step and camera matching that stored
+   R position confirms it. The strict tolerance is a conservative candidate guard,
+   not a calibrated engine constant. A serial/record-checked buffered R capture is
+   retired to untagged HOLD, and the current image gets that complete R record.
+   No tag search/drain, camera write, or forced alternation. Sync/SharedWait=1 and
+   identity mismatches decline; failed capture retirement leaves labels unchanged.
+   Lifecycle reset clears the candidate. The log counts observed/fixed/refused.
+5. **Results:** host replay of the observed geometry passes 23 checks, including
+   wrong-eye suppression, full pose-record recovery, nonadjacent/moving/missing
+   camera negatives, and capture serial/record/mode guards. Disabling the candidate
+   reproduces wrong-eye delivery and wrong record. Pairing 248, note observer 18,
+   menu retention 43, startup 48 checks pass. No simulator game launch (tester owns
+   launches); headset validation of this candidate is pending. Note transitions in
+   the recorded run reached the state machine in 0-16 ms, including the post-load
+   note. No claim that every render surface is correct from the camera trace alone.
+6. **Status/remaining:** note observer fixed and confirmed; reload right-eye repair
+   is a candidate. Next launch asks whether a save reload stays stable without a
+   recovery pause. If it persists with zero candidate observations, the guard/path
+   missed it; fixed counts with residual flicker point beyond this sequence.
+   Weapon tracking freeze remains separate: startup gaps 3341, 1811, 1266, 2141,
+   2852 ms, mostly game-thread waits, with one render execution gap; discovery scan
+   498 ms. Name-cache optimization remains OFF for this isolated flicker test.
+   Linear remains unavailable in this task; no new number invented, commit, PR,
+   or merge. Existing VR-77 SINGLE scheduling and VR-99 residual timing are related
+   context, not a claim that either ticket already contains this finding.
+
+
+**Reload candidate installed:** same describe tag `215-g20cc4a98-dirty`, banner
+compile timestamp `Sep 13 2026 18:01:15`. DLL SHA256
+`27e691b26829f852da59c998187d3139a653d7317ff7dcc28067398617d70162`;
+ini SHA256 `2e14a8f0e42145e7cae96f8bd10cdd4ccd508cc4ac78b0255e4198ba9a8cd365`.
+Backup, full ini diff and source snapshots are under ignored
+`build/single-tag/install-20260913-180438/`. Only installed ini addition:
+`[Stereo] SingleTagRepair=1`. Full section/key diff, byte verification and CRLF
+checks passed. Startup cache stays off; note/pawn/late-tag settings stay enabled.
+Release build, nine exports, lint and ini golden pass. Candidate headset result
+pending; the agent did not launch the game.
+
+**One launch question:** after loading normally and reloading the save once,
+does the right eye remain stable for about 20 seconds without a recovery pause?
+If stable, correlate with single-tag observed/fixed/refused counts. If it flickers,
+let the episode run briefly, then pause/resume as before; counts distinguish a
+missed/refused candidate from flicker that persists despite confirmed repairs.
+Do not combine this launch with the startup-cache timing A/B.
+
+
+### Reload confirmed; pause crash recurred, 2026-09-13
+
+1. **Symptom:** the tester reports correct startup stereo, fast notes and stable
+   stereo after a save reload. Opening pause at the end crashed before the menu
+   appeared. The successful eye result and the GC crash are distinct observations.
+2. **Reproduction:** banner verified against the install manifest before reading
+   the run: `vr33-hands-working-215-g20cc4a98-dirty`, compiled
+   `Sep 13 2026 18:01:15`. DLL SHA256
+   `27e691b26829f852da59c998187d3139a653d7317ff7dcc28067398617d70162`;
+   ini SHA256 `2e14a8f0e42145e7cae96f8bd10cdd4ccd508cc4ac78b0255e4198ba9a8cd365`.
+   Logs, screenshot and dump preserved under ignored
+   `build/single-tag/playtest-crash-20260913-181413/`. Current log SHA256
+   `9501db99d75a730c6533a1fe8608f34069ef95556534a5ad4b54ee587482770e`;
+   dump SHA256 `e78c3c3887f6ed01a6d7cd7296e628f36553ff9f2273aa6f41b8eba5db08fe4e`.
+3. **Hypothesis/counterprediction:** the adjacent R/0 repair should suppress the
+   previously measured wrong-R capture. A visible failure with confirmed repairs
+   would put the remaining fault beyond that sequence. The pause crash matches
+   historical VR-96; its timing alone cannot identify a writer or establish that
+   the new stereo repair caused it. The 1.0 bit pattern alone is not attribution.
+4. **Change:** no code, DLL or installed ini change during crash triage. Existing
+   SingleTagRepair=1, LateTagRepair=1, NoteFastMono=1 and PawnFromController=1
+   remain active; CacheNameLookups=0. Updated the evidence and priority handoff.
+5. **Results:** ten note cycles, five before reload and five after, reach the
+   corresponding LOADING/GAMEPLAY state in 0-16 ms. The only printed single-tag
+   result is observed 1 / fixed 1 / refused 0 at 17147.625 s, for R draw/record
+   2113, before reload. Reload returns GAMEPLAY at 17171.250 s and is reported
+   stable through the final pause at 17246.765 s (including intervening notes).
+   Do not infer that the original fault recurred after reload from this visual
+   pass. At 17246.828 s the first AV reads 0x3F800008 at engine RVA 0x65894;
+   its EAX is float 1.0's bits. The dump is written 125.672 s later and its
+   exception is engine RVA 0xAF6A73 reading 1. The initial reference slot and
+   token storage are absent, so the dump cannot identify the corrupting object.
+6. **Status:** tested reload stability and fast notes confirmed for this build;
+   VR-96 is the first-priority unresolved crash. Startup weapon freezing remains
+   open. No crash fix or additional test is claimed. Linear updates are prepared
+   but not sent: no callable Linear tools and UI runtime startup failure. No
+   new ticket number invented, commit, PR or merge. See ENGINE_NOTES for the
+   initial-fault evidence and the limit of the delayed dump.
+
+
+### Pause crash after successful reload testing, 2026-09-13
+
+1. **Symptom:** stereo and notes remain visually confirmed; opening pause can
+   crash after a crouched reload. This is memory corruption, not an eye-tag fault.
+2. **Reproduction:** build 215, compiled 18:27:13, first-fault full-memory dump;
+   evidence archive `build/crash-triage/playtest-20260913-183257/`.
+3. **Cause/counterprediction:** old hand-control addresses became three upgrade
+   objects. Crawl release wrote strength 1.0 before stale-control validation,
+   corrupting a class reference. A fresh liveness AND retained identity check
+   should prevent those stores. A crash despite rejected stores would require
+   examining the next owner/writer, rather than blaming the eye repair.
+4. **Change:** guard both crawl strength stores before writing; log refusals and
+   trigger normal control rediscovery. No note or renderer behavior change.
+5. **Results:** host 13 checks pass; old writer fails three regression checks.
+   Menu 43 checks and release/exports/lint pass. Fix installed: build 215 compiled
+   18:43:51; whole ini byte-identical, CRLF verified. No agent game launch.
+6. **Status:** identified code defect fixed, headset verification pending. One
+   launch tests pause after a crouched reload. VR-96 remains the top priority;
+   Linear update is prepared but unsent. Full account in ENGINE_NOTES's
+   "Pause GC crash: recycled hand controls corrupted upgrade objects" record.
+
+
+### Final headset verification and default promotion, 2026-09-13
+
+The verified 18:43:51 build completed a clean run with 11 pause openings and no
+exception. The crawl writer refused nine stale control updates over three edges
+and performed 57 updates to validated controls over the remaining edges. Thus
+the stale-pointer guard was exercised, rather than merely failing to reproduce
+the trigger. The tester confirmed normal behavior. VR-96 is fixed for this
+observed cause; later distinct crash signatures must be investigated separately.
+Archive `build/crash-triage/playtest-pass-20260913/`; log SHA256
+`a082eae06a07fb3fcbba4656f8933d82232e9b55f06d656469b6338a249bd6be`.
+
+The maintainer explicitly approved commit, PR and merge of the current branch,
+and promotion of the complete installed settings/F10 profile to repo defaults.
+This supersedes the earlier default-off disposition for these tested levers.
+`release/dishonored_vr.ini` is the byte copy of that installed CRLF profile;
+WriteDefaultIni and the golden match, including diagnostics, calibration values,
+D:\dvr-data, fast notes, late/single-tag repair and retained menu identities.
+The name cache stays off. No config version bump rewrites existing settings.
+The real default writer runs in a standalone x86 host and its output is compared
+byte-for-byte to the installed and packaged files. Package generation now includes
+that exact ini. Presence/migration sentinels remain distinct from value defaults.
+No release or milestone is declared. Linear API synchronization remains pending;
+the PR's Fixes link may update VR-96 through the integration, to be verified next
+session. The next feature is physical head movement during cinematics.

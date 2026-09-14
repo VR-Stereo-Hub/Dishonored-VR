@@ -748,3 +748,19 @@ after it closes is live. Measured before: about 0.65-0.75 s to mono after a note
 0.94 s back to stereo after it closed; after, 0-15 ms each way (headset-confirmed, six notes in
 one run). The observer's poll must be under 500 ms old for the
 note flag to count, so a stopped observer cannot park the picture on the mono quad.
+
+
+### 2026-09-13 - load lifetimes, capture identity and the tested profile
+
+The note observer rebuilds its population on load instead of retaining an
+append-only table. The capsule reader can validate the controller's possessed
+pawn without waiting for a pawn event. Adjacent R/0 camera evidence permits
+retiring exactly the buffered wrong-right image and restoring its complete pose
+record; it does not drain the tag ring. Crawl-release stores validate identity
+before their outer wrapper can reach the later stale-cache check.
+
+The maintainer explicitly promoted the complete installed profile to defaults,
+including diagnostic flags. Generated defaults and the packaged ini are tested
+against the same CRLF bytes. Keep migration/presence checks distinct from value
+fallbacks. No version bump resets existing user configuration. This decision
+supersedes earlier default-off descriptions for this promoted profile.

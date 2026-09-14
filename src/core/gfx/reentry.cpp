@@ -70,6 +70,8 @@ volatile LONG g_ledgerArmReq = 0;
 const char*   g_ledgerArmWhy = "";
 volatile LONG g_ledgerStance = 0;   // 0 unknown, 1 standing, 2 crouched (set by the game side)
 uint32_t g_endFrames = 0, g_exitPoisoned = 0, g_exitDevices = 0, g_exitBlit = 0;
+bool g_singleTagRepair = false;
+uint32_t g_singleTagObserved = 0, g_singleTagFixed = 0, g_singleTagRefused = 0;
 uint32_t g_lateRelabeled = 0, g_lateRelabelRefused = 0;   // F-late: capture slots relabelled / refused
 enum LedgerOut : uint8_t { OUT_OK = 0, OUT_MONO, OUT_HOLD, OUT_NOSRC, OUT_TARGET };
 const char* kLedgerOut[] = {"stereo", "mono", "HOLD", "NOSRC", "TARGET"};
@@ -82,7 +84,7 @@ struct LedgerRec {
     float    along = 0.0f, other = 0.0f;
     bool     tagged = false;
     int      finalEye = 0;
-    uint32_t draw = 0, rec = 0;
+    uint32_t draw = 0, rec = 0, popDraw = 0;
     double   ageMs = -1.0;
     bool     w2cSelfOk = false, w2cNextOk = false;
     float    w2cSelf = 0.0f, w2cNext = 0.0f;
@@ -104,7 +106,7 @@ bool      g_ledPrevTagged = false;
 
 void ledger_print(const LedgerRec& r) {
     char pop[40], act[64], rem[80], w2c[64];
-    if (r.tr.popResult == POPR_TAG) _snprintf(pop, sizeof(pop), "D%u(%+d)", r.draw, r.ringEye);
+    if (r.tr.popResult == POPR_TAG) _snprintf(pop, sizeof(pop), "D%u(%+d)", r.popDraw, r.ringEye);
     else if (r.tr.popResult == POPR_CLEAR) _snprintf(pop, sizeof(pop), "CLEAR %u", r.tr.clearRemoved);
     else _snprintf(pop, sizeof(pop), "EMPTY");
     int a = 0; act[0] = 0;
@@ -357,6 +359,26 @@ public:
                                  "that image goes out held", dvr::capture::mode_name(), g_lateRelabelRefused, g_lateRelabeled);
             }
         }
+        const uint32_t poppedDraw = t.draw;
+        Tag recovered = {};
+        if (observe_single_tag(single_, view, t, ringEye, tagged ? t.eye : 0,
+                               inv, along, other, arbTrace.action, recovered)) {
+            ++g_singleTagObserved;
+            bool fixed = false;
+            if (g_singleTagRepair) {
+                // SharedWait=0/deferred still own the preceding capture. A
+                // mismatched/failed/already-delivered grab leaves both labels alone.
+                fixed = dvr::capture::retire_last_right_grab(recovered.rec);
+                if (fixed) { t = recovered; tagged = true; ++g_singleTagFixed; }
+                else ++g_singleTagRefused;
+            }
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                "reentry/single-tag: confirmed adjacent R/0 camera displacement; candidate R D%u rec %u; "
+                "observed %u fixed %u refused %u; this %s ([Stereo] SingleTagRepair=%d)",
+                recovered.draw, recovered.rec, g_singleTagObserved, g_singleTagFixed,
+                g_singleTagRefused, fixed ? "retired buffered wrong-right image, restored right record" : "unchanged",
+                g_singleTagRepair ? 1 : 0);
+        }
         LedgerRec lr;   // VR-80: filled only while the ledger is on, committed at every return below
         if (led) {
             lr.frame = dvr::frame::count();
@@ -365,6 +387,7 @@ public:
             lr.tr = arbTrace;
             lr.ringEye = ringEye; lr.inv = inv; lr.along = along; lr.other = other;
             lr.tagged = tagged; lr.finalEye = tagged ? t.eye : 0;
+            lr.popDraw = poppedDraw;
             lr.draw = t.draw; lr.rec = tagged ? t.rec : 0u;
             lr.ageMs = (tagged && t.pushMs > 0.0) ? lr.ms - t.pushMs : -1.0;
             if (tagged && t.posOk && haveC5) {
@@ -553,7 +576,7 @@ public:
         return true;
     }
 
-    void on_reset() override { dvr::capture::on_reset(); }
+    void on_reset() override { single_ = SingleTagState{}; dvr::capture::on_reset(); }
 
     void shutdown() override {
         if (armed_) {
@@ -570,6 +593,7 @@ public:
         blit_.shutdown();
         drawnOnce_ = false;
         lastLeftOk_ = false;
+        single_ = SingleTagState{};
         arb_ = ArbState{};   // the c5 history and the disagreement streak
         g_lastPushedEye = 0;   // a re-select must not read as a repeat
         taggedRecently_ = false;
@@ -653,7 +677,8 @@ private:
     float    lastLeft_[3] = {0, 0, 0};
     bool     lastLeftOk_ = false;
     uint32_t lastSame_ = 0, lastTook_ = 0, lastHeld_ = 0, lastRefused_ = 0, lastRealign_ = 0, lastDis_ = 0;
-    ArbState arb_;                     // the previous present's c5 and the disagreement streak (reentry_pair.inc)
+    ArbState arb_;
+    SingleTagState single_;                     // the previous present's c5 and the disagreement streak (reentry_pair.inc)
     // the stale-eye line's previous snapshot
     uint32_t lastStale_ = 0;
     bool     lastStaleInit_ = false;
@@ -679,6 +704,13 @@ void set_reentry_c5_pair(bool on) {
              on ? 1 : 0);
 }
 bool reentry_c5_pair() { return g_c5Pair; }
+
+void set_reentry_single_tag(bool on) {
+    g_singleTagRepair = on;
+    DVR_INFO("reentry/single-tag: %s ([Stereo] SingleTagRepair=%d); confirmed adjacent R/0 only, pipelined capture required",
+             on ? "ON" : "off", on ? 1 : 0);
+}
+bool reentry_single_tag() { return g_singleTagRepair; }
 
 // VR-80 candidate F-late (reentry_pair.inc), default off.
 void set_reentry_late_tag(bool on) {

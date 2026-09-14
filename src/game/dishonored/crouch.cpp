@@ -3,8 +3,48 @@
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
 
 
+// Run 8 rendered the pawn before it emitted its first script event (crouch).
+// Equipment already used Controller.Pawn; capsule liveness must not wait for
+// the independent event latch. A null possession must not reuse the old pawn.
+static uint8_t* PawnForCollision()
+{
+    if (!g_pawnFromController) return g_pePawn;
+    uint8_t* ctrl = g_peCtrl;
+    if (!ctrl || !IsLiveObject(ctrl) || !LooksLikeObj(ctrl) || !g_cylPawnOff ||
+        !RangeReadable(ctrl + g_cylPawnOff, sizeof(void*))) return NULL;
+    uint8_t* pawn = *(uint8_t**)(ctrl + g_cylPawnOff);
+    if (!IsLiveObject(pawn) || !LooksLikeObj(pawn)) return NULL;
+    const char* cls = ObjClassName(pawn);
+    if (!cls || !strstr(cls, "PlayerPawn") || strstr(cls, "Proxy") ||
+        strstr(cls, "Tweaks") || strstr(cls, "Specific")) return NULL;
+    return pawn;
+}
+
+static float ReadPawnCollisionHeight(uint8_t* pawn)
+{
+    if (!g_cylHOff || !g_cylCompOff || !pawn || !LooksLikeObj(pawn)) return -1.0f;
+    if (!RangeReadable(pawn + g_cylCompOff, sizeof(void*))) return -1.0f;
+    uint8_t* comp = *(uint8_t**)(pawn + g_cylCompOff);
+    if (!comp || ((uintptr_t)comp & 3) || !RangeReadable(comp, g_cylHOff + 4)) return -1.0f;
+    if (g_pawnFromController && !IsLiveObject(comp)) return -1.0f;
+    const float h = *(float*)(comp + g_cylHOff);
+    return h > 1.0f && h < 500.0f ? h : -1.0f;
+}
+
 static float PawnCollisionHeight()              // < 0 = unknown
 {
+    if (g_pawnFromController && (!g_cylPawnOff || !g_cylHOff || !g_cylCompOff)) {
+        static double retryAt = 0.0;
+        const double now = MaimNowMs();
+        if (now >= retryAt) {
+            retryAt = now + 1000.0;
+            if (!g_cylPawnOff) g_cylPawnOff = FindPropOffset("Controller", "Pawn");
+            // The first head sample can precede engine reflection startup.
+            // A failed early attempt must not disable liveness for the process.
+            if (g_cylTried && !g_cylHOff) g_cylHOff = FindPropOffset("CylinderComponent", "CollisionHeight");
+            if (g_cylTried && !g_cylCompOff) g_cylCompOff = FindPropOffset("Actor", "CollisionComponent");
+        }
+    }
     if (!g_cylTried) {
         g_cylTried = 1;
         g_cylHOff   = FindPropOffset("CylinderComponent", "CollisionHeight");
@@ -13,16 +53,39 @@ static float PawnCollisionHeight()              // < 0 = unknown
             "CollisionComponent at Actor+0x%x%s", g_cylHOff, g_cylCompOff,
             (g_cylHOff && g_cylCompOff) ? "" : "  <-- NOT FOUND, no measurement");
     }
-    if (!g_cylHOff || !g_cylCompOff) return -1.0f;
-    uint8_t* pawn = g_pePawn;
-    if (!pawn || !LooksLikeObj(pawn)) return -1.0f;
-    if (!RangeReadable(pawn + g_cylCompOff, 4)) return -1.0f;
-    uint8_t* comp = *(uint8_t**)(pawn + g_cylCompOff);
-    if (!comp || ((uintptr_t)comp & 3) || !RangeReadable(comp, g_cylHOff + 4))
-        return -1.0f;
-    float h = *(float*)(comp + g_cylHOff);
-    if (h > 1.0f && h < 500.0f) { g_cylOkMs = MaimNowMs(); g_cylLast = h; return h; }
-    return -1.0f;
+    uint8_t* pawn = PawnForCollision();
+    const float h = ReadPawnCollisionHeight(pawn);
+    if (h > 0.0f) { g_cylMeasuredPawn = pawn; g_cylLast = h; g_cylOkMs = MaimNowMs(); }
+    else if (g_pawnFromController) { g_cylOkMs = 0.0; g_cylMeasuredPawn = NULL; } // no outgoing pawn's lease
+    if (g_pawnFromController) {
+        static uint8_t* lastPawn = NULL;
+        uint8_t* measured = h > 0.0f ? pawn : NULL;
+        if (measured != lastPawn) {
+            Log("cyl: controller pawn %p -> %p (event pawn %p), height %.1f; liveness independent of pawn events",
+                (void*)lastPawn, (void*)measured, (void*)g_pePawn, h);
+            lastPawn = measured;
+        }
+    }
+    return h;
+}
+
+
+// Sample on the script lane even when head/hand tracking is disabled. The live
+// table may predate the level; refresh it on a missing controller/pawn/capsule,
+// with bounded retries. This does not rely on the optional animation reader.
+static void PawnCollisionTick()
+{
+    if (!g_pawnFromController) return;
+    static double nextSample = 0.0, nextRebuild = 0.0;
+    const double now = MaimNowMs();
+    if (now < nextSample) return;
+    nextSample = now + 50.0;
+    if (PawnCollisionHeight() > 0.0f) return;
+    if (!g_peCtrl || !LooksLikeObj(g_peCtrl) || now < nextRebuild) return;
+    nextRebuild = now + 1000.0;
+    // A fresh table cannot authorize an old level's unpossessed pawn: the
+    // retry still follows the controller's current reference and all guards.
+    if (BuildLiveSet()) PawnCollisionHeight();
 }
 
 
@@ -60,12 +123,13 @@ static bool CrawlTuckNow()
 static bool PawnSetCollisionHeight(float v)
 {
     if (!g_cylHOff || !g_cylCompOff) return false;
-    uint8_t* pawn = g_pePawn;
+    uint8_t* pawn = PawnForCollision();
     if (!pawn || !LooksLikeObj(pawn)) return false;
     if (!RangeReadable(pawn + g_cylCompOff, 4)) return false;
     uint8_t* comp = *(uint8_t**)(pawn + g_cylCompOff);
     if (!comp || ((uintptr_t)comp & 3) || !RangeReadable(comp, g_cylHOff + 4))
         return false;
+    if (g_pawnFromController && (!IsLiveObject(comp) || !(v >= 33.0f && v <= 64.0f))) return false;
     *(float*)(comp + g_cylHOff) = v;
     return true;
 }
