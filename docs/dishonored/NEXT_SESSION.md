@@ -1,3 +1,11 @@
+## Latest steering (2026-09-13)
+
+PR54 head look,pitch and border removal are accepted and explicitly authorized
+for merge. VR-103 is the new In Progress ticket for dialogue-choice mono and
+stereo/mono handoffs. Start its new branch from the merged VR-Main,read decompiled
+state declarations,retain confirmed camera behavior. No subagents this session.
+Approval to merge PR54 does not authorize merging the new state work.
+
 ## Continuation update (2026-09-13, VR-70)
 
 Linear reconciliation below is now complete. VR-96 is Done/High; VR-98 remains

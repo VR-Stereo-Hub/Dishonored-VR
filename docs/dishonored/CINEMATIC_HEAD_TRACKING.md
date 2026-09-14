@@ -2,37 +2,26 @@
 
 Branch: codex/vr-70-cinematic-head-tracking, based on current VR-Main cccb1815
 (PR #53). Ticket verified In Progress; VR-43 and open PR #12 are related.
-No permission to merge this work.
+Merge explicitly authorized for PR54 on 2026-09-13; subsequent state work needs separate approval.
 
-## Current candidate: hide the cinematic border overlay
+## Accepted and authorized for merge (2026-09-13)
 
-Build221-gfa8ae85a (20:26:36) is headset-confirmed for natural pitch motion.
-Banner checked and logs archived at build/cinematic/playtest-20260913-203141;
-2770 writes/restores,zero refusals. Stable gaze and pitch correction are retained.
+Build222-gcf0d00dc,compile20:37:01,is headset-confirmed for border removal.
+The scene fills the former border areas. Banner matched and both logs archived
+at build/cinematic/playtest-20260913-205002. The stripe query matched the verified
+caller and returned0 for native stripe requests; the final sampled hidden count
+is10442. Stable head look and natural pitch were already confirmed in220/221.
 
-The new [Cine] HideBorders lever defaults off,with F10 View checkbox and
-cineborders on/off. The installed candidate enables it. A verified seven-byte
-fingerprint and decoded direct target guard a single call-site replacement.
-The wrapper calls the original HUD mask query and returns false only for the
-stripe query while enabled,in an active projection session,outside menus.
-All HUD mask fields remain untouched. Native SetBlackStripes consumes the
-result during its normal movie update. OFF forwards the exact native result.
-No changes to viewport,resolution,FOV,subtitles or head/position tracking.
+The user explicitly authorized commit,PR and merge of this work. PR54 contains
+camera composition,reference lifetime,pitch cancellation correction and native
+border control. HeadLook/HideBorders remain default-off live levers; the tested
+installed profile enables them. No game launch or release declaration.
 
-One question for the next launch:are the top and bottom black borders gone,
-with the boat scene visible in the space they previously covered?
-
-Start the opening boat ride,look around normally,and quit afterward.
-- Scene fills the former bar areas:confirms overlay removal reveals the image.
-- Bars remain:inspect hook installation and native/returned query counters.
-- Empty or clipped regions remain:another render boundary still needs work.
-The agent reads the logs;never launches the game. No merge authorization.
-
-136 x86 host checks cover every gate combination,exact original return values,
-valid fingerprint and single-byte corruption refusal. Build,lint,exports,INI
-and standalone simulator checks accompany install. Full installed INI change
-is only HideBorders absent ->1; CRLF is preserved. No further subagents are to
-be used in this session,per the user's latest instruction.
+Newly reported dialogue-choice mono and stereo/mono gameplay handoffs are a
+separate issue,VR-103,on a new branch from merged VR-Main. Preserve this confirmed
+camera behavior. In the acceptance log,InDialog occurs268 trace samples; handoff
+latch clears after2s with all engine locks clear. Full new evidence belongs in
+the state-transition plan. No further subagents this session.
 
 ## Completed before the first boat test
 

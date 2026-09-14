@@ -1,32 +1,20 @@
 # Status
 
-## CURRENT (2026-09-13): VR-70 boat head rotation candidate
+## CURRENT (2026-09-13): cinematic work accepted; VR-103 next
 
-Linear reconciliation is complete: VR-96 remains Done/High with crash-owner and
-liveness evidence; VR-98 retains Done with confirmed note transitions. Completed
-PR #53 follow-ups are VR-100 (startup mono) and VR-101 (reload R/0 repair).
-VR-102 preserves the open weapon startup freeze; name cache stays off.
+PR54 is approved for merge:head look,natural pitch and native border removal are
+headset-confirmed. Latest acceptance is222-gcf0d00dc (20:37:01),banner verified,
+logs archived under build/cinematic/playtest-20260913-205002. Camera levers remain
+default off; the installed tested profile enables HeadLook and HideBorders.
+35 camera checks,136 x86 border checks,build/lint/exports/INI and standalone XR
+smoke pass. No game launch or release declaration.
 
-Branch `codex/vr-70-cinematic-head-tracking` starts at current VR-Main cccb1815.
-Draft PR #54 remains unmerged. PR #12 and native camera getters were reviewed.
-The banner-verified boat run proves head rotation reaches the controller while
-the animation-owned camera ignores it: 62.55 degrees of head pitch versus 0.02
-in the cache over 281 clean samples. Lean and stick were not tested.
-
-Candidate221 is headset-confirmed for natural cinematic pitch motion,following
-confirmed stable head look before the stick prompt. The latest verified run has
-2770 writes/restores and zero refusals. Both fixes remain in the new candidate.
-
-The new HideBorders lever intercepts only the native Scaleform black-stripe
-visibility query,after seven-byte fingerprint and target verification. It leaves
-all HUD flags and viewport/FOV/resolution intact. Default off; installed test
-profile enables it. F10 View and cineborders on/off provide live A/B.136 x86
-checks pass,plus build/lint/exports/INI verification. See
-[the current border test](dishonored/CINEMATIC_HEAD_TRACKING.md).
-
-Next:verify the installed banner from build/cinematic/latest-install.json,then
-read the bars-only playtest. VR-70 remains In Progress; VR-43 carries related
-letterbox research. Draft PR54 is unmerged. No further subagents this session.
+VR-103 was created In Progress for better stereo state reading. Dialogue-choice
+scenes can remain mono until selection; boat/Emily prompt handoffs briefly go
+stereo->mono->stereo. The new work starts from merged current VR-Main and must
+read the decompiled state declarations. The existing log shows InDialog and a
+false cinematic latch's2s clear delay. Preserve the confirmed PR54 changes.
+No more subagents this session. Merge approval covers PR54 only.
 
 ## Earlier (2026-09-13): load/reload fixes confirmed and merged (PR #53)
 
@@ -5569,3 +5557,9 @@ A/B after136 x86 checks. No engine HUD fields are written; the existing GFx movi
 owns visibility changes. Next question is whether the scene fills former bar
 areas. User requested no further subagents this session; active work was stopped
 and remaining validation performed locally. No game launch or merge.
+
+## Session closure (2026-09-13): cinematic acceptance
+
+Build222 border removal accepted. PR54 merge explicitly authorized; new state
+reading work is VR-103,not a regression fix folded into the approved camera PR.
+Detailed acceptance and archived identity:CINEMATIC_HEAD_TRACKING.md.
