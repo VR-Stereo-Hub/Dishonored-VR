@@ -1,3 +1,13 @@
+## Current state: standing roll accepted; VR-87 remains open
+
+Build245 confirms roll while looking up/down. Remaining inverse vertical motion
+is the existing eye-ceiling limitation VR-87, supported by joined log accounting.
+See STANDING_PITCH_ROLL_ARC.md for evidence. PR57 ready, unmerged; PR58 next.
+Installed build remains245. No new install or INI change. Preserve all three PRs
+unmerged until remaining tests complete. Never launch the game; no subagents.
+
+## Earlier records
+
 ## Current state: standing camera-roll candidate after accepted PR56
 
 Installed245-g0cd7b263 (Sep14 07:57:48), standing-roll fix and ZAccount ON.

@@ -1,3 +1,23 @@
+## Headset result, 2026-09-14
+
+Build245-g0cd7b263 (Sep14 07:57:48) confirms the pitched-head roll fix in
+both directions. Installed DLL hash matches the candidate. Both logs and INI
+are archived at build/standing-arc-test/playtest-20260914-080646.
+
+A small inverse vertical shift remains under existing VR-87, not the roll fix.
+Episode3 joined accounting: down -22deg residual U +5.07/+5.11uu;
+up +27.7deg residual U -4.85/-5.01uu. Raw tracked height changes by about
+-5.1/+4.9uu while rendered height changes less than0.1uu. Final cap changes
++4.31/+4.35 down and -4.81/-4.97 up. Closure/writer errors print zero;
+all accepted bins are capped. The ceiling removes real vertical head motion.
+Do not retune the pivot or remove low-clearance protection to hide this.
+VR-87 remains open for a clearance-preserving fix and separate test.
+
+PR57 is accepted for its roll correction and ready for review, unmerged.
+PR56 also remains unmerged. Next queued build is PR58 mono anchors/UI guards;
+propagate this accepted parent before building/installing it. All three merge
+in dependency order only after remaining tests complete. No game launched.
+
 ## Current candidate, 2026-09-14
 
 PR57 updated with accepted PR56 parent cb77328d. Preserve HeadBasedMovement=1
