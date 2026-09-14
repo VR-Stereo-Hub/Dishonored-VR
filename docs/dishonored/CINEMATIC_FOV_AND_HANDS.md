@@ -183,3 +183,10 @@ ordinary gameplay blend ownership. New one-question test: holding the Empress,
 look left/right and up/down; expect no orbit or forced roll and unrestricted
 physical look. A remaining orbit rejects upright composition; a yaw lock points
 to ownership/constraint handling. FOV and mantle settings stay enabled.
+
+Installed build vr33-hands-working-234-gcd0ee5f9, compile 23:11:43.
+DLL SHA256 b0f312b4e777bdac59d1e513fa29e704050c7bf007a1e9b22e32d2daf80180f4.
+Full INI diff adds only Cine.LockRoll=1; CRLF verified. Prior DLL/INI/both logs
+archived in build/cinematic-fov/install-20260913-231230. Release,39 head math/
+ownership checks,13 scope checks, lint, exports, golden INI and standalone XR
+60 frames FOCUSED/zero errors pass. No game launched. Headset test pending.

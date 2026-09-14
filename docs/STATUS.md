@@ -11,6 +11,14 @@ Next test: Empress scene, physical left/right and up/down look without orbit,
 roll forcing or yaw lock. One question per launch. Agent reads/archives logs.
 Never launch the game. No subagents and no merge approval.
 
+
+Installed build vr33-hands-working-234-gcd0ee5f9, compile 23:11:43.
+DLL SHA256 b0f312b4e777bdac59d1e513fa29e704050c7bf007a1e9b22e32d2daf80180f4.
+Full INI diff adds only Cine.LockRoll=1; CRLF verified. Prior DLL/INI/both logs
+archived in build/cinematic-fov/install-20260913-231230. Release,39 head math/
+ownership checks,13 scope checks, lint, exports, golden INI and standalone XR
+60 frames FOCUSED/zero errors pass. No game launched. Headset test pending.
+
 ## Previous records (latest candidate above supersedes earlier plans)
 
 ## Combined build steering, 2026-09-13
