@@ -45,7 +45,13 @@ Second headset run (2026-09-15, release build 278, repo default ini): no flicker
 weapon scroll and the grip-hold loadout stay in the window, the screens judged good.
 PR #63 is out of draft and waits for review; the merge is the user's call.
 
-Next: rung 3
+Next session's prompt: `docs/dishonored/HANDOFF-HUD-ELEMENTS.md` (branch off
+`claude/vr-117-hud-redo`, not VR-Main): a real alpha capture with F10 controls, and
+every HUD element on its own anchor (off, frame, window, world window, left hand,
+right hand), elements identified by what they are (the Scaleform movie or display
+object), measured first. The VR-118 transform stays the fallback route.
+
+Rung 3 as it stood before that prompt: rung 3
 (VR-118): the region probe reads the HUD's vertices (DrawIndexedPrimitiveUP, SHORT2
 shape coordinates, 0.5 us per draw) but the c0/c1 transform hypothesis is wrong on
 this GFx build (nonsense rectangles), so per-element routing is NOT in this branch;
