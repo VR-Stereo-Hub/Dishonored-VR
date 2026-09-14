@@ -830,3 +830,16 @@ Numerically equivalent weapon inverse lenses share a value only within the same
 component/Present/eye; no hand delta or engine-object lifetime is extended.
 The accepted design, rejected alternatives and remaining scope are consolidated
 in [STACK_ACCEPTANCE.md](dishonored/STACK_ACCEPTANCE.md).
+
+## 2026-09-14: separate desktop delivery from headset work
+
+VR-115 adds default-off Reduced and Off modes at the host Present tail. Preserve
+the runtime layer and all engine hook/capture calls. Defer the mirror callback's
+copy action only in candidate modes so the final session/capture state can decide
+whether native Present may be omitted. Full retains the accepted callback order.
+Reduced preserves left snapshots and permits only one adjacent omitted right.
+Off uses a current-frame D3D9 submission event without claiming GPU completion;
+capture ownership fences remain independent. Mode/lifecycle boundaries invalidate
+permission and stale pin provenance. This choice trades driver presentation work
+for explicit submission and must be judged by total frame tails, not one timing
+column. See [DESKTOP_PRESENT_PERFORMANCE.md](dishonored/DESKTOP_PRESENT_PERFORMANCE.md).

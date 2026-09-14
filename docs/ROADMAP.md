@@ -1,5 +1,11 @@
 # Roadmap
 
+## Performance candidates (2026-09-14)
+
+- [x] VR-115: implement default-off reduced/disabled desktop delivery, F10 controls and host/native D3D9Ex validation on its own branch.
+- [ ] VR-115: install only after the accepted main opening run and user instruction, then measure Full/Off/Full and separate Reduced A/B.
+- [ ] Further notable performance improvements each get a separate branch; use the VR-113 audit and actual residual timings to select them.
+
 ## Weapon lens follow-up (2026-09-14)
 
 - [x] VR-112 crossbow unsheath/tracking recovery confirmed on build260.

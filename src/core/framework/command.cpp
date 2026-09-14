@@ -57,6 +57,16 @@ uint32_t sequence() { return g_seq; }
 
 bool core_command(const char* cmd, const char* args)
 {
+    if (!strcmp(cmd, "desktoppresent")) {
+        if (!strcmp(args, "full") || !strcmp(args, "reduced") || !strcmp(args, "off")) {
+            dvr::desktop_eye::set_mirror_off(!strcmp(args, "off"));
+            dvr::desktop_eye::set_reduced_present(!strcmp(args, "reduced"));
+        }
+        else if (args[0] && strcmp(args, "status"))
+            DVR_WARN("desktoppresent: usage - desktoppresent full|reduced|off|status");
+        dvr::desktop_eye::log_status();
+        return true;
+    }
     if (!strcmp(cmd, "desktopeye")) {
         if (!strcmp(args, "on")) dvr::desktop_eye::set_enabled(true);
         else if (!strcmp(args, "off")) dvr::desktop_eye::set_enabled(false);

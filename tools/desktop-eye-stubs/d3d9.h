@@ -5,6 +5,35 @@ using UINT = unsigned int;
 using HRESULT = long;
 using ULONGLONG = unsigned long long;
 using D3DFORMAT = int;
+using HWND = void*;
+struct RECT { long left=0, top=0, right=0, bottom=0; };
+struct RGNDATA {};
+constexpr HRESULT D3D_OK=0, E_FAIL=-1;
+constexpr int D3DSWAPEFFECT_DISCARD=1;
+constexpr UINT D3DPRESENT_INTERVAL_IMMEDIATE=0x80000000u;
+constexpr HRESULT S_FALSE=1;
+constexpr int D3DQUERYTYPE_EVENT=1, D3DISSUE_END=1, D3DGETDATA_FLUSH=1;
+struct IDirect3DQuery9 {
+    bool failIssue=false, failGet=false;
+    unsigned issues=0, flushes=0;
+    HRESULT result=D3D_OK;
+    HRESULT Issue(int) { ++issues; return failIssue ? E_FAIL : D3D_OK; }
+    HRESULT GetData(void*,int,int flags) { if(flags==D3DGETDATA_FLUSH) ++flushes; return failGet ? E_FAIL : result; }
+    void Release() { delete this; }
+};
+struct D3DPRESENT_PARAMETERS {
+    bool Windowed=true;
+    int SwapEffect=D3DSWAPEFFECT_DISCARD;
+    UINT BackBufferCount=1;
+    int MultiSampleType=0;
+    UINT PresentationInterval=D3DPRESENT_INTERVAL_IMMEDIATE;
+};
+struct IDirect3DSwapChain9 {
+    D3DPRESENT_PARAMETERS pp;
+    bool fail=false;
+    HRESULT GetPresentParameters(D3DPRESENT_PARAMETERS* out) { *out=pp; return fail ? E_FAIL : D3D_OK; }
+    void Release() {}
+};
 constexpr int D3DFMT_UNKNOWN=0, D3DMULTISAMPLE_NONE=0, D3DBACKBUFFER_TYPE_MONO=0, D3DTEXF_NONE=0;
 constexpr bool FALSE=false;
 #define SUCCEEDED(hr) ((hr) >= 0)
@@ -21,6 +50,20 @@ struct IDirect3DSurface9 {
 };
 struct IDirect3DDevice9 {
     IDirect3DSurface9 bb;
+    IDirect3DSwapChain9 swap;
+    bool failSwap=false;
+    unsigned presents=0, captures=0;
+    int frontPixels=0;
+    HRESULT nextPresent=0;
+    bool failQuery=false;
+    IDirect3DQuery9* lastQuery=nullptr;
+    HRESULT CreateQuery(int,IDirect3DQuery9** out) {
+        *out=failQuery ? nullptr : new IDirect3DQuery9; lastQuery=*out;
+        return failQuery ? E_FAIL : D3D_OK;
+    }
+    HRESULT GetSwapChain(int, IDirect3DSwapChain9** out) {
+        *out=failSwap ? nullptr : &swap; return failSwap ? E_FAIL : D3D_OK;
+    }
     bool failCreate=false, failGet=false, failSnap=false, failBlit=false;
     unsigned uninitializedReads=0, creates=0, snaps=0, blits=0;
     HRESULT GetBackBuffer(int,int,int,IDirect3DSurface9** out) {

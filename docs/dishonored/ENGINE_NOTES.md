@@ -5787,3 +5787,22 @@ ownership, upright pitch/roll math, head-based movement, native loading completi
 post-load stereo permission, unchanged aerial eligibility, and per-view lens
 consistency. The current installed profile is promoted verbatim by request;
 no new engine layout or memory writer is introduced by default promotion.
+
+## 2026-09-14: desktop presentation candidate and native submission test
+
+VR-115 is documented in [DESKTOP_PRESENT_PERFORMANCE.md](DESKTOP_PRESENT_PERFORMANCE.md).
+The candidate keeps the accepted draw/tag distinction and changes only desktop
+delivery after capture/runtime work. A fresh delivered capture serial is required;
+a non-null reused texture cannot establish freshness. Reduced omits one adjacent
+right native Present/restore after a successful left. Off omits all desktop work
+under its guards and issues a current-stream D3D9 event with one FLUSH poll.
+
+Native 32-bit HAL testing exposed a failed first design: reusing a pending event
+and polling it on frame2 did not submit frame2's commands after that event had
+already completed. An independent pre-tail GPU marker stayed S_FALSE for two
+seconds. Reissuing END each frame fixed all120 GPU-marker/pixel checks with zero
+desktop Presents. This query abandons its previous result and owns no resource
+completion contract. Do not apply that abandonment to shared-capture fences.
+The test uses System32 D3D9 and a hidden synthetic64x64 target, not the game or
+headset. Engine pacing/performance acceptance remains deferred. No engine offset
+or memory writer is added, and installed build266 is unchanged.

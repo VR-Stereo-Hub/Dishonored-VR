@@ -1,3 +1,31 @@
+## Current state: desktop performance candidate, not installed
+
+2026-09-14. VR-115 on `codex/vr-115-desktop-present` starts from accepted
+VR-Main255d1c91. [Desktop performance candidate](dishonored/DESKTOP_PRESENT_PERFORMANCE.md)
+implements default-off F10 modes for reduced desktop delivery and fully stopped
+desktop updates while XR capture remains live. Full mode retains accepted behavior.
+The VR-113 audit remains independently on its documentation branch/PR59.
+
+Installed build266 and its INI are unchanged. The user is testing the whole opening
+on that accepted main build. Do not install this candidate, change diagnostics or
+replace the installed manifest until requested. No game launch or merge occurred.
+
+Host policy/copy/tail suites pass, including current versus delayed eye identity,
+failures, resets, exhaustive eye sequences, off/full return and omitted-call counts.
+A standalone native D3D9Ex test caught an old-event submission mistake; the fix
+issues a current-frame event before FLUSH.120 native GPU/pixel checks now pass
+without desktop Present, followed by Full return and ResetEx. Release build,
+default-writer equality and reentry/single-tag regressions pass. No FPS or headset
+verdict is claimed; the new CPU timings distinguish actual native calls from hooks.
+
+Next: read the user's build266 opening report and verify its log banner before
+analysis. Archive both logs before a relaunch. Preserve the candidate locally in
+`build/playtest-candidates/vr-115-desktop-present/`, separate from installed.json.
+After later installation approval, use the report's Full/Off/Full question first;
+Reduced gets a separate A/B. Each notable later optimization gets its own branch.
+
+## Earlier records
+
 ## Current state: PR56, PR57 and PR58 merged to VR-Main
 
 Explicit merge approval was completed2026-09-14, in dependency order:
@@ -5786,3 +5814,12 @@ placement. Historical build60 logs support the menu clamp/stale input diagnosis;
 current game log is232, not a new candidate test. Host camera/UI suites and
 standalone60-frame XR smoke pass. Packaging and deferred headset verification
 are recorded in MONO_ANCHOR_UI_STATE.md; no merge approval.
+
+## Session 2026-09-14: first performance implementation
+
+Created VR-115 and a branch from accepted VR-Main. Added guarded reduced desktop
+presentation, then the requested F10 mirror-off option. Native GPU tests proved
+that polling an older completed event could leave frame2 unsubmitted; current-frame
+END+FLUSH corrected it. Code, controls, CPU counters, default-off profiles and tests
+are ready for later installation. Current accepted opening playtest takes priority.
+No installed file changed, no game launch, no merge, no subagents.
