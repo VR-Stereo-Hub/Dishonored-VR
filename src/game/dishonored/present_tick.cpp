@@ -419,7 +419,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
     // VR-117: the HUD redirect's game-side gate: the scene is drawing (the
     // presentation verdict, which a riding screen keeps true) and no power
     // wheel is held (the wheel is the same draw class as the HUD).
-    dvr::hudcap::set_game_gate(DvrSceneVerdict() && !g_wheelHeld, false);
+    dvr::hudcap::set_game_gate(DvrSceneVerdict() && !g_wheelHeld, UiSurfaceRidesHud());
         // 30.24: hitch detector. Any Present-to-Present gap over 80 ms gets
         // logged with what was in flight, so "lag spike on swing" becomes a
         // measured correlation instead of a hunch. 41.1 (session 8): the tick

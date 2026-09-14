@@ -626,6 +626,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);
+    w.kv("uiBlocks", UiSurfaceBlocks()); w.kv("uiRides", UiSurfaceRidesHud());   // VR-117
     w.kv("exiting", InterlockedCompareExchange(&g_gameExiting, 0, 0) != 0);
     w.obj("counters");
     w.kv("submits", (unsigned long)dvr::frame::submit_count()); w.kv("gameFrames", (unsigned long)g_gameFrames);

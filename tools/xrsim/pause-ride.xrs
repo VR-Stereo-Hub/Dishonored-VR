@@ -1,0 +1,57 @@
+# pause-ride.xrs - the pause menu rides the HUD window (VR-117), judged by
+# what the compositor receives: the projection layer keeps flowing through the
+# pause (projectionViews stays 2, no mono quad), the HUD quad carries the menu
+# (quadLayers >= 1), the flag survives 10 s (VR-71: no stale-flag clear), and
+# the resume never drops the projection (both eyes fresh at the next submit).
+#
+# Needs GAMEPLAY and the game window reachable (game-key.ps1 foregrounds it).
+# The log lines to read beside it: `ui/ride: Pause -> RIDING`,
+# `stereo/state: STEREO ... standIn=riding`, and the `stereo: beat` line
+# reading L/s=R/s>0 mono/s=0 through the pause.
+#
+#   tools\xrsim-run.ps1 -Path tools\xrsim\pause-ride.xrs -Dir D:\dvr-data\xrsim
+reset
+# The aim dot (VR-57) is a quad layer too: park it so quadLayers counts the HUD alone.
+@mod stereo reentry; hud on; hud menu on; crosshair dot off
+@frames 240
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+@assert quadLayers ge 1
+
+# Pause: the projection must STAY (a riding screen does not own presentation).
+@key Escape
+@frames 120
+@assert projectionViews eq 2
+@assert quadLayers ge 1
+@shot pause_riding
+# Hold it 10 s: VR-71's stale-flag test must not clear a real pause menu.
+@wait 10000
+@assert projectionViews eq 2
+@assert quadLayers ge 1
+@shot pause_held
+
+# Resume: no drop to the screen, both eyes fresh at the next submit. (No
+# projStaleSubmits assert here, unlike pause-resume.xrs: paused, the re-entry
+# gates flip between single and double draws and the runtime re-submits the
+# held projection on the textureless presents, which the sim counts as stale
+# submits - measured 634 over a 12 s pause on 2026-09-15. The mono-screen pause
+# hid the same holds behind its quad.)
+@key Escape
+@frames 120
+@assert projectionViews eq 2
+@assert eyeAgeL le 0
+@assert eyeAgeR le 0
+@shot resumed
+
+# The old behaviour is one command away (the A/B): with menus off the window,
+# a pause falls to the mono screen as before.
+@mod hud menu off
+@frames 30
+@key Escape
+@frames 120
+@assert projectionViews eq 0
+@shot pause_screen
+@key Escape
+@frames 120
+@assert projectionViews eq 2
+@mod hud menu on; crosshair dot on

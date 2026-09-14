@@ -42,6 +42,7 @@
 #include "core/gfx/hud_class.h"
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/hud_layout.h"
+#include "game/dishonored/ui_ride_policy.h"
 #include "core/gfx/frame_id.h"
 #include "core/gfx/device_census.h"
 
