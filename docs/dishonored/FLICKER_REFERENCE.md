@@ -1661,3 +1661,14 @@ Candidate separates scene permission from input permission using current script
 states and scene activity. Default off; 24 x86 policy checks. Headset result open;
 continuous depth is predicted, further mono intervals falsify completeness.
 Full sources, archive, guards and next test: [VR-103 plan](STEREO_STATE_TRANSITIONS.md).
+
+## VR-103 headset acceptance, 2026-09-13
+
+Candidate225 d015b1aa21:05:03 verified against installed manifest. The reported
+boat, Emily prompt, dialogue-choice and gameplay handoffs are headset-confirmed
+continuous stereo. Log shows InDialog Listening0 and Choosing1 remain STEREO,
+including view=0 with fresh scene uploads. Walk handoff stays STEREO despite
+latch=1. Runtime quad transitions later correspond to notes and menus. Clean
+unload. Both logs archived in build/stereo-state/playtest-20260913-212231.
+The user explicitly approved PR55 merge. Cinematic FOV shrinking and native
+hand/arm animation are separate follow-up work, not failures of this result.

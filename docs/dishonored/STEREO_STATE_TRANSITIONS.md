@@ -84,3 +84,14 @@ bring-up validation, not an in-game stereo assertion. Installed DLL SHA256:
 Full INI byte/settings comparison finds only Cine.StereoState absent->1;
 CRLF verified. Previous DLL, INI and both logs archived at ignored
 build/stereo-state/install-20260913-210627. No new launch/banner yet.
+
+## VR-103 headset acceptance, 2026-09-13
+
+Candidate225 d015b1aa21:05:03 verified against installed manifest. The reported
+boat, Emily prompt, dialogue-choice and gameplay handoffs are headset-confirmed
+continuous stereo. Log shows InDialog Listening0 and Choosing1 remain STEREO,
+including view=0 with fresh scene uploads. Walk handoff stays STEREO despite
+latch=1. Runtime quad transitions later correspond to notes and menus. Clean
+unload. Both logs archived in build/stereo-state/playtest-20260913-212231.
+The user explicitly approved PR55 merge. Cinematic FOV shrinking and native
+hand/arm animation are separate follow-up work, not failures of this result.

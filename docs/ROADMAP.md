@@ -247,4 +247,4 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - Presentation polish; `tools\package.ps1` release; the config table (`core/config`) and the
   dissolution of `src/mod/state`
 
-- [ ] VR-103: script-state cinematic/dialogue stereo transitions; candidate on codex/vr-103-stereo-state-transitions, headset confirmation pending.
+- [x] VR-103: script-state cinematic/dialogue stereo transitions; candidate225 headset-confirmed, PR55 approved for merge.

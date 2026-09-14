@@ -1,3 +1,11 @@
+## Current state: VR-103 accepted for merge, 2026-09-13
+
+PR55 candidate225 d015b1aa21:05:03 is headset-confirmed for all reported cinematic,
+dialogue-choice and gameplay handoff stereo interruptions. Logs verify Listening,
+Choosing and latch-delayed Walk remain stereo; notes/menus fall back correctly.
+Explicit merge approval received. Next branch investigates cinematic FOV shrinking
+(VR-50) and native hand/arm animation. No subagents; never launch the game.
+
 ## Current state (2026-09-13): PR54 merged; VR-103 candidate
 
 Cinematic head look, pitch and black borders are headset-confirmed and merged
