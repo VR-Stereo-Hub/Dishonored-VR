@@ -23,10 +23,13 @@
 //   [Hud]   Regions  the region probe: each HUD draw's screen rectangle, from
 //                    its vertices (user-pointer draws read the pointer; vertex
 //                    buffer draws lock the buffer READONLY when it was not
-//                    created write-only) transformed by the shadowed vertex
-//                    shader constants c0..c3 when the position is not already
-//                    pre-transformed. That rectangle is what routes a draw to
-//                    an ELEMENT (core/gfx/hud_layout). Off = every draw is "all".
+//                    created write-only) transformed by the bound vertex shader's
+//                    OWN transform columns, read from its disassembly at first
+//                    sight (VR-118: a float4x4 at c6..c9 on this build; c0..c3
+//                    were stale) out of the c0..c31 constant shadow, unless the
+//                    position is pre-transformed. That rectangle is what routes
+//                    a draw to an ELEMENT (core/gfx/hud_layout). Off = every
+//                    draw is "all". `draws vsdump` writes the disassembly.
 //   the redirect     armed by core/gfx/hud_capture; this module only asks it.
 //
 // Render-thread only. Checked per present: a Present from another thread than
