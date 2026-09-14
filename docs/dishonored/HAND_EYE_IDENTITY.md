@@ -61,3 +61,14 @@ Does the one-frame left-eye hand jump disappear while world smoothness stays
 intact? Yes supports the eye-offset correction; no requires checking V/fallback
 and the deferred eye disagreement before any further timing change.
 No game launch, installation or merge is authorized for this candidate.
+
+## Prepared artifact (not installed)
+
+Build 275-g66634db52, compiled 16:00:44, code commit 66634db5270151694ce97f9889a19b85cba65f0b.
+Bundle: `build/playtest-candidates/vr-95-hand-eye-identity`.
+DLL SHA256 ac3edf424f4b709c5e60aaaacd406c27dc5c045d2d307176a89bc92e7a054b18.
+Candidate INI SHA256 c56a948b208819e921f755ebc24bfcb7003b0b5183cb92073d7b1a5588842411.
+Read-only candidate verification reports exactly one proposed setting addition:
+Hands.PaletteEyeRecord=1. No installation was performed. Before/after hashes of
+the installed DLL and INI are identical to the accepted main candidate. Host
+checks, release build, exports, lint and golden verification passed.

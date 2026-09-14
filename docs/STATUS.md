@@ -7,6 +7,10 @@ hand eye selection, default-off PaletteEyeRecord, replaces neither world pose
 metadata nor controller sampling. Candidate build and host checks only.
 No game launch, install or merge; headset acceptance remains pending.
 
+Prepared275-g66634db52 (16:00:44), archived in
+`build/playtest-candidates/vr-95-hand-eye-identity`; NOT installed.
+Installed DLL/INI hashes verified unchanged; all local checks pass.
+
 ## Earlier main state
 
 ## Completed merge and installed state: 2026-09-14
