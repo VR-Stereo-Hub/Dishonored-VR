@@ -290,3 +290,7 @@ and do-now native decisions. User launches; agent reads and archives logs.
 Whole-view both-eye flicker after crouched note closes remains VR-99. Existing
 LateTagRepair was on; see FLICKER_REFERENCE for counters. No speculative
 pairing change in this candidate. PR56/57/58 remain unmerged.
+
+Installed candidate: vr33-hands-working-256-gd98bcf36, compile09:15:20. DLL SHA256
+828037f579b7e8d6da7ae2f5c479238eb882e2391ea8f430c0a732d3604b0883. Full INI adds only DropWatch=1;
+CRLF and hashes verified. Release/exports/lint/golden checks pass.

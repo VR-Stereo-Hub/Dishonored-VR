@@ -1,14 +1,20 @@
-## Current state: movie completion build254 installed
+## Current state: build256 installed; drop eligibility test next
 
-Installed254-g43551c09 (Sep14 08:50:11), full INI unchanged, hashes/CRLF verified.
-Both logs archived at build/playtest-candidates/installs/20260914-085129-389882.
-Build252 still failed: overlay-enabled state remains set during gameplay.
-254 observes the manual-reset completion event used by Engine.WaitMovie.
-31 anchor/loading/completion checks and17 handoff checks pass; release,
-9 exports, lint and golden INI pass. Main-menu anchoring is preserved.
-Next test: wait5 seconds at loading Continue, dismiss, expect mono to become
-stereo only after dismissal. Logs distinguish overlayEnabled and finished.
-Never launch game, no subagents, all three PRs remain unmerged.
+Installed256-gd98bcf36 (Sep14 09:15:20). Full INI diff adds only
+Anim.DropWatch=1; hashes and CRLF verified. Both logs archived at
+build/playtest-candidates/installs/20260914-091620-006198.
+Build254 confirmed loading release, mantle and block-counter hand positioning.
+256 fixes the separate post-load mono interruption from the head-write
+liveness heuristic. Thirty stereo policy and31 UI/completion tests pass;
+release build,9 exports,lint and golden INI pass. Headset result pending.
+Aerial attempts became ordinary slashes, not failed handback. VR-111 now
+traces the native drop eligibility read-only; no trigger fix claimed yet.
+Next launch: reproduce one aerial takedown; does it still become a slash?
+If yes, inspect drop/watch for the rejection stage; if no, inspect accepted
+context/state transition. Agent reads logs; do not ask tester for commands.
+Whole-view both-eye crouched note flicker remains VR-99, documented with
+residual repair counters in FLICKER_REFERENCE. No speculative pairing change.
+PR56/57 ready,PR58 draft; all remain unmerged. Never launch game, no subagents.
 
 ## Earlier records
 
