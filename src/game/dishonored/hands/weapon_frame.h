@@ -225,6 +225,40 @@ inline bool view_lens(const Xform& draw,const Xform& predicted,const float* forw
     if (!inverse(*lens,inverseLens)) return false;
     return true;
 }
+// Share only numerical-equivalent lens fits for one component in one view.
+// These are value snapshots, never retained engine objects or hand deltas.
+struct LensSample {
+    const void* component=nullptr;
+    unsigned present=0;
+    int eye=0;
+    Xform inverse={identity3(),{0,0,0}};
+};
+inline bool coherent_lens(LensSample* samples,int capacity,const void* component,
+                          unsigned present,int eye,Xform* inverseLens) {
+    if (!component || (eye!=-1 && eye!=1)) return false;
+    int freeSlot=-1;
+    for(int i=0;i<capacity;++i) {
+        auto& sample=samples[i];
+        if(!sample.component || sample.present!=present || sample.eye!=eye) {
+            if(freeSlot<0) freeSlot=i;
+            continue;
+        }
+        if(sample.component!=component) continue;
+        float error=0;
+        for(int j=0;j<9;++j) {
+            const float delta=fabsf(sample.inverse.r.m[j]-inverseLens->r.m[j]);
+            if(!_finite(delta)) return false;
+            if(delta>error) error=delta;
+        }
+        if(error<=32.0f*FLT_EPSILON) {
+            *inverseLens=sample.inverse;return true;
+        }
+        // A real change is new evidence even within a Present.
+        sample.inverse=*inverseLens;return false;
+    }
+    if(freeSlot>=0) samples[freeSlot]={component,present,eye,*inverseLens};
+    return false;
+}
 struct Candidate { Xform predicted; int hand, assembly; bool hasLens=false; Xform unproject={identity3(),{0,0,0}}; };
 struct Result { int best; bool ambiguous; float angle, position, scale, score; };
 

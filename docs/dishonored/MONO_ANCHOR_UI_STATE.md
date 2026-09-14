@@ -410,3 +410,39 @@ INI SHA256 364e79997823cd18e97b398a324edc20aaae9c222377e0c8d1f01db5dc060508.
 Complete installed INI diff is empty, CRLF verified. Install/log archive:
 build/playtest-candidates/installs/20260914-105531-305834. Release, frame tests,
 9 exports, lint and golden INI pass; no game launch or perceptual claim.
+
+## 2026-09-14: residual crossbow-only transparency after boat travel (VR-112)
+
+Verified build262-g9f27c514, compiled10:55:24, DLL SHA256
+b8bf05fd81be9ce1ad53caf5dd2ba5937ae2c9a93c74db6d9fe4d2d5f3360f8d.
+Both logs archived at build/mono-ui-test/playtest-20260914-110406.
+Headset result: weapons stable before travel; both track after arrival;
+sword has no transparency in either eye. Crossbow retains smaller partial
+transparency after travel. This supports the identity bypass and narrows the
+remaining symptom to real lens cancellation. The residual eye distribution
+was not separately specified; do not claim it changed eyes.
+
+Measured: crossbow now has a real lens around1.0356818. Of25 sampled same-eye,
+same-Present main/auxiliary pairs with active correction,6 differ in fitted
+ratio, maximum2.38e-7. No sampled common-eye mismatch. Sword lens remains
+inactive. This is roundoff disagreement, not evidence of two different zooms.
+
+Candidate reuses an identical inverse lens for numerically equivalent fits
+of the same component, same Present and same eye. Reuse tolerance is32 float
+epsilons, matching the identity arithmetic guard. A meaningful lens change
+replaces the value immediately. Different eyes, Presents and components do
+not borrow it. The fixed64-slot table contains only numeric lens snapshots
+and component identity tokens, never retained hand deltas or engine writes.
+Normal current identity/matching gates still authorize each draw. This is
+not the retired stale-draw rescue or auxiliary-pass suppression experiment.
+
+Seven host checks cover first fit, exact same-view roundoff reuse, opposite
+eye, next Present, other component, real lens change and unknown eye. Existing
+lens/identity/controller/world-instance tests pass. Release, exports, lint and
+golden INI pass. The visual cause remains a hypothesis until the next test.
+Next launch question: after the boat arrival, with weapons drawn and head/
+controllers still, does the crossbow remain fully opaque? Success supports
+pass consistency; failure requires joined per-pass transform/depth evidence,
+not broad suppression or relaxed matching. wa/lens-pass logs reuse decisions.
+No game launch. PR58 remains draft; no merge. The prior Linear update is
+still blocked by automatic approval review pending explicit permission.

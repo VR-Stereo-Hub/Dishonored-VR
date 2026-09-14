@@ -57,6 +57,21 @@ static inline int WeaponFrameTests()
         Xform world=draw;world.t[0]+=500;
         check("lens_world_offset_refused",match(world,&c,1,.25f,1,1.5f).best<0);
     }
+    {
+        LensSample samples[4]={};int component=0,otherComponent=0;
+        Xform first=id;first.r.m[0]=first.r.m[8]=1.0f/1.035681725f;
+        Xform second=first;second.r.m[0]+=FLT_EPSILON;
+        check("lens_first_pass_records",!coherent_lens(samples,4,&component,10,-1,&first));
+        check("lens_pass_roundoff_exact",coherent_lens(samples,4,&component,10,-1,&second) &&
+            memcmp(&first,&second,sizeof(first))==0);
+        second.r.m[0]+=FLT_EPSILON;
+        check("lens_other_eye_fresh",!coherent_lens(samples,4,&component,10,1,&second));
+        check("lens_next_present_fresh",!coherent_lens(samples,4,&component,11,1,&second));
+        check("lens_other_component_fresh",!coherent_lens(samples,4,&otherComponent,11,1,&second));
+        second.r.m[0]+=.01f;
+        check("lens_real_change_not_held",!coherent_lens(samples,4,&component,11,1,&second));
+        check("lens_unknown_eye_no_reuse",!coherent_lens(samples,4,&component,11,0,&second));
+    }
     int bufferA = 0, bufferB = 0, target = 0;
     const Geometry geometry = {&bufferA,&bufferB,32,0,4,0,0,257,310,0};
     Geometry other = geometry;
