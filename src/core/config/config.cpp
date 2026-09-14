@@ -1826,6 +1826,7 @@ static void LoadConfig()
     // ships ON: its whole purpose is to report what the game is doing, and a
     // reporter nobody enables reports nothing.
     dvr::anim::configure(ini);
+    CineTraceConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
     // to the pointer walk alone, which cannot see the pistol at all.

@@ -5292,3 +5292,52 @@ that exact ini. Presence/migration sentinels remain distinct from value defaults
 No release or milestone is declared. Linear API synchronization remains pending;
 the PR's Fixes link may update VR-96 through the integration, to be verified next
 session. The next feature is physical head movement during cinematics.
+
+## VR-70 cinematic camera ownership investigation (2026-09-13)
+
+Opening boat ride: physical head movement is reported locked while right-stick
+turning works. This is existing VR-70, with VR-43 related. No new headset run
+has been interpreted in this session.
+
+PR #12 is open/unmerged. Its projection/screen policy does not implement
+Matinee camera tracking. Current CineDrive::AuthoredLook has no Dishonored
+consumer. Runtime cinematic_active() describes quad fallback, which also
+includes menus/loading, so it is not cinematic identity. The direct fallback
+must remain held during scripted scenes: taking the controller broke the boat.
+The opening look-around can have no cinematic latch (VR-73 evidence).
+
+Offline native derivation (ue3-natives.py --verify reproduced the known
+FireCrossbow seam first):
+- DishonoredPlayerController metadata 0x01316948 -> ctor 0x00ABD1F0 ->
+  vtable 0x01118738. GetPlayerViewPoint thunk 0x005D1430 calls slot +0x3C4,
+  resolved to 0x005E17A0. It reads PlayerCamera at controller+0x384 and
+  returns camera+0x330 location and camera+0x33C rotation (ret 8).
+- Native registry Camera.GetCameraViewPoint thunk 0x005CFEC0 independently
+  copies those same cache fields at 0x005CFF85..0x005CFFB9.
+- Script declarations agree: Camera.CameraCache contains TCameraCache.POV,
+  with TPOV.Location and Rotation. The trace resolves this by reflection;
+  no new hardcoded engine offset or hook was introduced.
+
+These are getter semantics, not proof a cinematic honors a new write. A
+draw-scoped composition over the authored cache, restored after both eyes,
+is a candidate seam. First determine which head components already reach it
+to avoid doubling a working rotation or translation. Do not replace the
+authored camera with a controller/free-camera drive.
+
+Read-only cinematic_trace.cpp samples at the existing gameplay draw entry,
+100 ms cadence: current controller-owned camera/pawn, reflected cache and
+controller rotation, camera influence weights, animation state, copied HMD
+pose/generation, script dispatch/write counters, requested positional offset,
+menu/latch/projection/quad states. Prior render c5 is explicitly unsynchronized
+and must not be compared as a same-draw acceptance measurement. Required
+reflection misses retry every 5 s after a live camera appears; missing live
+objects trigger at most one table rebuild per second. No engine writes.
+
+[Cine] Trace defaults off; cinetrace on|off is live. This is a diagnostic,
+not the head-motion implementation. Installed Trace=1 enables the next
+user-owned boat test. Build, nine exports, lint and production golden checks
+pass. Standalone simulator passed 60 frames/zero errors with the incompatible
+OBS implicit layer disabled only for its child process. Its initial -32 was
+XR_ERROR_FILE_ACCESS_ERROR, not a failure of this mod. No game launch.
+
+Plan and one-question test: CINEMATIC_HEAD_TRACKING.md.

@@ -1,3 +1,13 @@
+## Continuation update (2026-09-13, VR-70)
+
+Linear reconciliation below is now complete. VR-96 is Done/High; VR-98 remains
+Done; completed follow-ups VR-100/VR-101 and open freeze VR-102 are recorded.
+VR-70 is In Progress on codex/vr-70-cinematic-head-tracking from cccb1815.
+Read CINEMATIC_HEAD_TRACKING.md for the current one-question boat test and
+implementation plan. A read-only ownership trace is installed next; physical
+head-motion composition is not implemented yet. The older handoff follows
+for history, not as outstanding Linear work.
+
 # Next session: physical head movement during cinematics
 
 Read ../../AGENTS.md and ../../CLAUDE.md first, then STATUS and the latest

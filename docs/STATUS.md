@@ -1,6 +1,28 @@
 # Status
 
-## CURRENT (2026-09-13): load/reload fixes confirmed and merged (PR #53)
+## CURRENT (2026-09-13): VR-70 cinematic investigation, boat trace next
+
+Linear reconciliation is complete: VR-96 remains Done/High with owner and guard
+evidence; VR-98 retains Done with confirmed 0-16 ms note transitions across
+reload. Completed PR #53 follow-ups are VR-100 (startup mono gate) and VR-101
+(reload R/0 repair). VR-102 preserves the open weapon startup freeze, name
+cache off. One batch project update posted; no release declared.
+
+New branch `codex/vr-70-cinematic-head-tracking` starts at current VR-Main
+`cccb1815`. PR #12 was read, including later history; its presentation controls
+do not implement head motion. Native getters independently establish the final
+camera cache position/rotation fields. A read-only trace is built for the opening
+boat ride, to distinguish lost rotation from translation and prevent double
+application of existing head motion. The actual head-motion writer is not yet
+implemented. No game was launched and no new headset result is claimed.
+
+Next: the tester runs the single boat-motion question in
+[detailed plan](dishonored/CINEMATIC_HEAD_TRACKING.md). Match the installed
+manifest `build/cinematic/latest-install.json` before reading the log. Implement
+a scoped authored-camera composition after identifying the missing component
+and its state; preserve menus/loading and normal gameplay. Merge is not authorized.
+
+## Earlier (2026-09-13): load/reload fixes confirmed and merged (PR #53)
 
 Headset-confirmed: startup stereo without jumping/crouching, prompt notes across
 save reloads, stable right-eye presentation after reload, and safe pause after a
@@ -5501,3 +5523,12 @@ the 39.x fixes and the adapter hypothesis folded into ROADMAP, KNOWN_ISSUES, COD
 ENGINE_NOTES and XR_HANDOFF. Verification: exports 9/9, lint clean, both legacy
 configurations build, `split-source.py --check` reports only the intended changes. Branch
 pushed.
+
+### 2026-09-13: VR-70 investigation checkpoint
+
+Reconciled the pending Linear stability evidence and created the missing
+completed records. Verified current main and branched for VR-70. Reviewed
+PR #12 and independently derived final camera cache getters. Added a bounded
+read-only boat trace, production build/lint/exports/golden verified; standalone
+simulator 60 frames passed after process-local OBS-layer opt-out. Awaiting
+the tester-owned boat observation before selecting the head-motion writer.

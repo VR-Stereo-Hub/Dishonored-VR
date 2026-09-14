@@ -7,7 +7,7 @@
 - [x] Adjacent R/0 capture repair, host checks and headset reload stability.
 - [x] VR-96 crawl-release stale write rejected, regression and headset confirmed.
 - [x] Complete installed settings/F10 profile promoted to generated/package defaults.
-- [ ] Physical head tracking during cinematics: next session, ticket first.
+- [ ] VR-70 physical head tracking during cinematics: boat ownership trace ready, implementation pending.
 - [ ] Remaining weapon startup freeze: separate timing work, name cache still off.
 
 ## VR-57 native launch (2026-09-12)

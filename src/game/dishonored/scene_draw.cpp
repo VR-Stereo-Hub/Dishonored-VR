@@ -425,6 +425,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             if (period > g_sdMaxPeriodUs) g_sdMaxPeriodUs = period;
         }
         g_sdT0Prev = t0;
+        if (callerRet == kViewportDrawGameplayRet) CineTraceDraw();
         // The tick's ONE decision, before pass 1's tag: the tag is pushed iff
         // pass 2 will run, so a present can never carry a -1 whose +1 sibling
         // was skipped (41.1: the resume-window one-sided stream).
