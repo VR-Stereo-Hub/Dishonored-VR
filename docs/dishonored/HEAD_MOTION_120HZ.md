@@ -213,3 +213,22 @@ runtime variability or baseline perception unresolved. This is a baseline
 comparison, not a claimed hand fix. Afterward, instrument actual per-view eye
 identity and deferred classifier agreement before changing eye offsets.
 Never launch the game. No merge or external publication authorized this turn.
+
+## Completed merge and installed state: 2026-09-14
+
+World-only PR #61 is integrated into VR-Main at a60516c4b.
+Installed build 272-ge3bb7ac2a, compiled 14:27:16, has source identical to
+that merge apart from commit/build metadata. DLL SHA256
+473bca2b298a988d48307ac23a2a2b257d53f00ac2f8df83dcfa95149c3d373b.
+The installed, release and golden INIs are byte-identical CRLF, SHA256
+de20bd794ab0917ca5450178207a333bd2a28066f3edfac253a754b153ac5ce5.
+The full installation comparison has ZERO INI changes. Both prior logs archived
+at build/playtest-candidates/installs/20260914-142912-415128.
+
+Only default promotion differs in source from the repeatedly accepted original
+world candidate: no hand-normalization experiment is included. Release build,
+frame tests, exports, lint and golden checks passed. No game launched.
+Retain both feature branches and the exact original world checkpoint.
+Next work is deferred: investigate left-eye hand jumps after opening-cutscene
+exit (VR-95); sewer-save loading was reported essentially clean. Do not infer
+that all save loads or all cutscenes reproduce it.
