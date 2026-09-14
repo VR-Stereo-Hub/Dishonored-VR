@@ -1,3 +1,14 @@
+## Current work: VR-95 hand eye candidate, do not install
+
+New branch codex/vr-95-hand-eye-identity from accepted main85f9ef6e4.
+Read docs/dishonored/HAND_EYE_IDENTITY.md (HAND_EYE_IDENTITY.md from this folder).
+The world-only DLL and installed INI remain untouched. Camera-corroborated
+hand eye selection, default-off PaletteEyeRecord, replaces neither world pose
+metadata nor controller sampling. Candidate build and host checks only.
+No game launch, install or merge; headset acceptance remains pending.
+
+## Earlier main state
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.
