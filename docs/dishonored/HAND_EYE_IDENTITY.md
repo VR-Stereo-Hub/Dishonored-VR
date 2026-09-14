@@ -1,3 +1,19 @@
+## Installed for hand-eye playtest, 2026-09-14
+
+The user subsequently requested installation. Build 275-g66634db52 (16:00:44)
+is now installed. Full INI comparison adds only Hands.PaletteEyeRecord=1;
+CRLF and DLL/INI hashes verified. Accepted world orientation remains enabled.
+Both prior logs and the previous DLL/INI were archived at
+build/playtest-candidates/installs/20260914-160335-107187.
+No game launched. PR62 remains draft and unmerged; headset result pending.
+
+One-question test: after exiting the opening cutscene, hold the controllers
+steady and turn the head side to side. Does the left-eye hand jump disappear
+while the world remains smooth? Improvement supports corrected hand eye
+selection; persistence or regression requires inspecting the new verified-eye,
+fallback and deferred comparison logs. Earlier not-installed notes describe
+the preparation stage and are superseded by this explicit installation request.
+
 # Hand eye identity candidate
 
 ## 2026-09-14: VR-95 camera-corroborated hand eye candidate, NOT INSTALLED
