@@ -5292,3 +5292,156 @@ that exact ini. Presence/migration sentinels remain distinct from value defaults
 No release or milestone is declared. Linear API synchronization remains pending;
 the PR's Fixes link may update VR-96 through the integration, to be verified next
 session. The next feature is physical head movement during cinematics.
+
+## VR-70 cinematic camera ownership investigation (2026-09-13)
+
+Opening boat ride: physical head movement is reported locked while right-stick
+turning works. This is existing VR-70, with VR-43 related. No new headset run
+has been interpreted in this session.
+
+PR #12 is open/unmerged. Its projection/screen policy does not implement
+Matinee camera tracking. Current CineDrive::AuthoredLook has no Dishonored
+consumer. Runtime cinematic_active() describes quad fallback, which also
+includes menus/loading, so it is not cinematic identity. The direct fallback
+must remain held during scripted scenes: taking the controller broke the boat.
+The opening look-around can have no cinematic latch (VR-73 evidence).
+
+Offline native derivation (ue3-natives.py --verify reproduced the known
+FireCrossbow seam first):
+- DishonoredPlayerController metadata 0x01316948 -> ctor 0x00ABD1F0 ->
+  vtable 0x01118738. GetPlayerViewPoint thunk 0x005D1430 calls slot +0x3C4,
+  resolved to 0x005E17A0. It reads PlayerCamera at controller+0x384 and
+  returns camera+0x330 location and camera+0x33C rotation (ret 8).
+- Native registry Camera.GetCameraViewPoint thunk 0x005CFEC0 independently
+  copies those same cache fields at 0x005CFF85..0x005CFFB9.
+- Script declarations agree: Camera.CameraCache contains TCameraCache.POV,
+  with TPOV.Location and Rotation. The trace resolves this by reflection;
+  no new hardcoded engine offset or hook was introduced.
+
+These are getter semantics, not proof a cinematic honors a new write. A
+draw-scoped composition over the authored cache, restored after both eyes,
+is a candidate seam. First determine which head components already reach it
+to avoid doubling a working rotation or translation. Do not replace the
+authored camera with a controller/free-camera drive.
+
+Read-only cinematic_trace.cpp samples at the existing gameplay draw entry,
+100 ms cadence: current controller-owned camera/pawn, reflected cache and
+controller rotation, camera influence weights, animation state, copied HMD
+pose/generation, script dispatch/write counters, requested positional offset,
+menu/latch/projection/quad states. Prior render c5 is explicitly unsynchronized
+and must not be compared as a same-draw acceptance measurement. Required
+reflection misses retry every 5 s after a live camera appears; missing live
+objects trigger at most one table rebuild per second. No engine writes.
+
+[Cine] Trace defaults off; cinetrace on|off is live. This is a diagnostic,
+not the head-motion implementation. Installed Trace=1 enables the next
+user-owned boat test. Build, nine exports, lint and production golden checks
+pass. Standalone simulator passed 60 frames/zero errors with the incompatible
+OBS implicit layer disabled only for its child process. Its initial -32 was
+XR_ERROR_FILE_ACCESS_ERROR, not a failure of this mod. No game launch.
+
+Plan and one-question test: CINEMATIC_HEAD_TRACKING.md.
+
+## 2026-09-13: VR-70 boat camera bypass measured; scoped rotation candidate
+
+Build 218-ge5c7653f, compile 19:34:31, banner verified. Opening boat trace #39-319
+(281 samples,29.907s) has full Soiree animation influence 1/0/0, no menu/quad,
+and continuous PVR writes. Head pitch moves 62.55 degrees; controller follows;
+final cache pitch moves 0.02. Walk negative control:25 matching PC/cache rows.
+No deliberate lean or stick comparison. Later resume samples are stale/quad
+and excluded. CINEMATIC_HEAD_TRACKING.md has archived identity and ranges.
+
+The candidate writes reflected CameraCache.POV.Rotation only across the two
+viewport draws: authored * inverse(entry head) * current head. Location uses
+the existing offset seam with a frozen request and composed stereo right axis;
+rotation/location/provenance are restored before the next engine update.
+No extra native hook or new literal engine field is introduced. Each new engine
+store requires fresh-entry IsLiveObject, current object-slot membership, retained
+class and full FName, and current controller camera/pawn links. Menus/load or
+failed ownership discard the reference. Failed restore preserves foreign fields.
+This is not yet a measured downstream acceptance of rotation stores.
+
+## 2026-09-13: VR-70 reference reset caused by draw cadence
+
+Build219-g0ebd7a3e,19:54:54,archive playtest-20260913-200152.33 entries mean
+32 unintended reanchors,with menus clear,quad off,same live owner and load epoch.
+20 align exactly with SINGLE(no present since previous draw); remaining reasons
+are obscured by log rate limiting.2311 writes/restores,zero refused. Non-double
+gating must not clear the physical reference. Candidate now overlays centered
+single scene draws too and holds reference across unavailable scene/runtime/pose.
+
+Walk samples157-159 separately override PC pitch8.59..7.90 with cache-26.59
+while influence0/1/0. Other Walk phases match PC/cache. No blanket player-camera
+head overlay is justified. Added reflected read-only bCinematicMode,cinematic
+move/look disable,ignore cinematic,ignore move/look counters; unavailable=-1.
+They do not change the legacy latch or runtime presentation policy.
+
+## 2026-09-13: VR-70 cinematic position must not cancel the player neck arc
+
+Build220-gdf783ca8,20:09:13:stable gaze before/after stick prompt is reported;
+one anchor,3210 writes/restores,zero refusals. Pitch causes opposite vertical
+motion. The installed cancel pivot is0.321m below/0.062m behind. TrackHead adds
+its negative modelled arc to zRaw even when final camera influence is fully
+animated. That authored camera bypasses the player pitch arc. Publish normal
+and without-cancel requests together; only begin_view_scope chooses the latter.
+Real positional tracking and intentional add mode stay,gameplay keeps cancellation.
+This is a candidate awaiting headset acceptance,not a synchronized render proof.
+
+## 2026-09-13: native cinematic hide-letterbox control (VR-43 related)
+
+Actual Documents game .ini search found no letterbox/black-stripe/aspect key.
+Decompiled declarations identify SeqAct_ToggleCinematicMode.m_bHideLetterbox,
+DishonoredPlayerController.SetCinematicMode_Native argument8,and the cinematic
+HUD mask level0. Verified native resolver reproduces DishonoredPlayerController
+metadata/vtable; registration thunk009EEA00 calls slot584 to00AAF150. The latter
+sets mask6010 at level0 on cinematic entry. At00AAF215 it tests [ebp+24] (arg8)
+and calls009EA0C0 with mask10,level0. That helper performs HUD.m_ShowFlags[level]
+&=~mask; observed array base is HUD+4E0. Resolve DishonoredHUD.m_ShowFlags by
+reflection if implementing; hardcoded masks/addresses belong in patterns.h.
+
+This proves an explicit HUD-level hide-letterbox path. Final draw consumption
+and visible acceptance remain unverified; do not promise the viewport is full
+resolution from the flag alone. Camera aspect constraints and transient HUD
+m_bDrawUIBlackStripes are separate non-config fields. Exported native method
+stubs are not evidence of actual native return values. No game-derived code
+or binaries committed; no game config altered or game launched.
+
+Native follow-through confirms a Scaleform overlay:00B960E0 queries the HUD's
+mask10 through009EA130,compares its prior movie flag,and on change invokes GFx
+SetBlackStripes with the resulting boolean. This path explicitly controls UI
+stripes rather than a viewport rectangle. Visual confirmation that the exposed
+pixels fill the headset view still belongs to the upcoming A/B.
+
+Letterbox timing:the updater B960E0 is called at BB23D3 near the end of movie
+virtual BB2280 (float delta time,slot1DC in vtable115CD90). It caches combined
+flags at movie+1D4 and letterbox visibility at+1FC bit40000. Its helper009EA130
+combines all six HUD mask levels,so clearing only cinematic level0 may leave
+another state's stripe request active. A draw-scoped clear/restore may miss this
+stateful movie update. Prefer intervening at the narrow stripe query; otherwise
+a validated override must survive until consumption. Do not infer the exact
+Tick/PostAdvance phase from the native signature alone.
+
+Narrow letterbox query seam,verified offline:at00B96115 the seven-byte setup is
+6A 10 E8 14 40 E5 FF (push10;direct CALL at00B96117 to009EA130,return00B9611C).
+The helper is __thiscall,HUD in ECX,one32-bit stack mask,integer boolean EAX,and
+ret4 on both exits. It tests all six levels. Replacing only this call with a
+same-signature wrapper can return0 while a live lever is enabled and forward
+otherwise. This preserves all HUD mask values and uses the game's existing
+SetBlackStripes cache/update logic; disabling restores the requested visibility
+on the next movie update. Any implementation must verify the seven-byte setup
+and decoded target before patching and put the literals in patterns.h. This is
+a derived plan,not yet patched or visually accepted.
+
+## 2026-09-13: letterbox query interception implemented
+
+cinematic_letterbox.cpp patches only the rel32 operand at the derived query
+site on the game/script lane. It verifies the full seven-byte setup and decoded
+target before patching. The __fastcall wrapper preserves ECX plus one stack
+argument and calls the original __thiscall helper. It returns0 only for the
+expected mask/caller under the enabled projection-session/non-menu gates.
+No UObject identity is retained or written; native code supplies its current
+HUD and reads its flags. No additional engine-object store requires a liveness
+exception. Code patching follows the existing byte-verified call-site pattern.
+OFF forwards the native result so the movie cache restores native visibility
+next update; no repeated executable patching.136 x86 decision/fingerprint
+checks pass. Visible filled bar areas remain the next headset acceptance.

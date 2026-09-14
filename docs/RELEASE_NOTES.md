@@ -17,6 +17,12 @@
 
 ### Fixed
 
+- Cinematic head look now composes over authored camera motion, preserves its
+  reference through draw pacing gaps and avoids unused gameplay neck cancellation
+  (VR-70). F10 View also offers native cinematic border removal. Both controls
+  default off and are headset-confirmed on the installed test profile. Dialogue
+  state stereo transitions remain tracked separately in VR-103.
+
 - Pausing after a crouched save reload no longer receives corruption from the
   crawl-release writer (VR-96). It validates current object identity before
   restoring strengths to cached hand controls.

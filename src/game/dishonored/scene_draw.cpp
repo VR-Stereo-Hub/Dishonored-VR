@@ -372,6 +372,7 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     }
     // Pass 2 deliberately reuses pass 1's rotation, so the record says so
     // rather than presenting the reuse as a fresh sample.
+    CineHeadPublish();
     const uint32_t acct2 = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);   // VR-78: this write, by id
     dvr::stereo::reentry_push_tag_draw(+1, wrote ? wrotePos : NULL,
                                        SdOpenPoseRecord(+1, g_sdPairId, true), acct2, ++g_sdDrawAttempt);
@@ -425,10 +426,12 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             if (period > g_sdMaxPeriodUs) g_sdMaxPeriodUs = period;
         }
         g_sdT0Prev = t0;
+        if (callerRet == kViewportDrawGameplayRet) CineTraceDraw();
         // The tick's ONE decision, before pass 1's tag: the tag is pushed iff
         // pass 2 will run, so a present can never carry a -1 whose +1 sibling
         // was skipped (41.1: the resume-window one-sided stream).
         g_sdTick = SceneDrawDecide(callerRet);
+        CineHeadBegin(g_sdTick.gameplay, g_sdTick.doubleIt);
         if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
         g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
         InterlockedExchange(&g_sdInDrawTid,
@@ -460,6 +463,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         g_sdSumCall1Us += g_sdCall1Us;
         const uint32_t call2Before = g_sdSecondDraws;
         SceneDrawMaybeSecond(self, bShouldPresent, g_sdTick);
+        CineHeadEnd();
         if (g_sdSecondDraws != call2Before) g_sdSumCall2Us += g_sdCall2Us;
         QueryPerformanceCounter(&g_sdRetPrev);
         g_sdLastDrawPresent = g_frame;

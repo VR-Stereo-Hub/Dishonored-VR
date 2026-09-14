@@ -1637,3 +1637,15 @@ that exact ini. Presence/migration sentinels remain distinct from value defaults
 No release or milestone is declared. Linear API synchronization remains pending;
 the PR's Fixes link may update VR-96 through the integration, to be verified next
 session. The next feature is physical head movement during cinematics.
+
+## VR-70 cinematic pitch translation (2026-09-13)
+
+Surface:smooth world-camera movement with head pitch,not intermittent eye flicker.
+Build220-gdf783ca8 is headset-confirmed for stable boat head rotation,including
+before the stick prompt. Its3210 writes restore without refusal. Opposite vertical
+translation remains. Current candidate removes the CANCEL neck term only from
+the authored-camera position request; normal gameplay remains compensated.
+This extends the VR-78/91 lesson that an absent engine arc must not be cancelled.
+Installed pivot0.321m below/0.062m behind; actual headset acceptance of this
+correction is pending. Both requests are logged as requests,not render evidence.
+See CINEMATIC_HEAD_TRACKING.md for archive,build manifest and one-question test.

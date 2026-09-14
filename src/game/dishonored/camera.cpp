@@ -63,8 +63,24 @@ struct Writer {
     uint32_t writes = 0;
 };
 Writer g_eyeWriter;
+struct ViewScope {
+    DWORD thread=0;
+    uint8_t* camera=nullptr;
+    uint32_t rotOff=0, locOff=0;
+    int32_t originalRot[3]={}, writtenRot[3]={};
+    float originalPos[3]={}, base[3]={}, right[3]={}, pos[3]={};
+    int firstEye=0;
+    Writer previous;
+    bool (*validate)(uint8_t*)=nullptr;
+} g_viewScope;
+bool scoped() { return g_viewScope.thread == GetCurrentThreadId(); }
+bool scope_live(uint8_t* cam) {
+    return scoped() && cam == g_viewScope.camera && g_viewScope.validate && g_viewScope.validate(cam);
+}
 
 // ---- positional tracking on the seam ----------------------------------------
+SRWLOCK g_positionLock = SRWLOCK_INIT;
+float g_cinematicPos[3] = {0, 0, 0};
 volatile float g_pos[3] = {0, 0, 0};   // right, up, forward (uu); present thread writes
 // (the lane is resolved by pos_lane(): [PosTrack] Lane=auto follows the projection claim)
 float    g_ceilZ = 0.0f;
@@ -122,6 +138,9 @@ bool read_basis(uint8_t* cam, float f[3], float r[3], float u[3]) {
 // persistent field), in which case the base is what we wrote minus our offset.
 bool current_base(uint8_t* cam, uint32_t fieldOff, const Writer& w, float base[3]) {
     if (!cam || !RangeReadable(cam + fieldOff, 12)) return false;
+    if (scoped() && cam == g_viewScope.camera && fieldOff == g_viewScope.locOff) {
+        memcpy(base, g_viewScope.base, sizeof(g_viewScope.base)); return true;
+    }
     const float* v = (const float*)(cam + fieldOff);
     const bool persisted = w.lastOk && fabsf(v[0] - w.last[0]) < 0.01f &&
                            fabsf(v[1] - w.last[1]) < 0.01f && fabsf(v[2] - w.last[2]) < 0.01f;
@@ -447,8 +466,17 @@ bool render_pos_world(float out[3]) {
 }
 
 // ---- positional tracking: the offset, the lane, the ceiling ------------------------------
-void set_position_offset_uu(float right, float up, float fwd) {
+void set_position_offset_uu(float right, float up, float fwd, const float* withoutCancel) {
+    AcquireSRWLockExclusive(&g_positionLock);
     g_pos[0] = right; g_pos[1] = up; g_pos[2] = fwd;
+    const float normal[3]={right,up,fwd};
+    memcpy(g_cinematicPos,withoutCancel ? withoutCancel : normal,sizeof(g_cinematicPos));
+    ReleaseSRWLockExclusive(&g_positionLock);
+}
+void cinematic_position_offset_uu(float out[3]) {
+    AcquireSRWLockShared(&g_positionLock);
+    memcpy(out,g_cinematicPos,sizeof(g_cinematicPos));
+    ReleaseSRWLockShared(&g_positionLock);
 }
 
 // The offset both lanes read. While the postest runs it is the commanded
@@ -458,7 +486,9 @@ void position_offset_uu(float out[3]) {
         for (int i = 0; i < 3; ++i) out[i] = g_pt.writing ? g_pt.cmd[i] : 0.0f;
         return;
     }
+    AcquireSRWLockShared(&g_positionLock);
     out[0] = g_pos[0]; out[1] = g_pos[1]; out[2] = g_pos[2];
+    ReleaseSRWLockShared(&g_positionLock);
 }
 
 int g_posLaneCfg = -1;   // -1 auto, 0 vp, 1 camera
@@ -509,8 +539,55 @@ bool clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax) {
     return false;
 }
 
+// Rotation lives only across the two draws. Save both the field and its offset
+// provenance, so the next authored update sees precisely the incoming camera.
+bool begin_view_scope(uint8_t* cam,uint32_t rotOff,const int32_t rot[3],
+                      const float right[3],int firstEye,bool (*validate)(uint8_t*)) {
+    if (g_viewScope.thread || g_field < 0 || kFields[g_field].off != kPovOffs[0] ||
+        !validate || !validate(cam) || !RangeReadable(cam+rotOff,12) ||
+        !RangeReadable(cam+kFields[g_field].off,12)) return false;
+    ViewScope next;
+    next.camera=cam; next.rotOff=rotOff; next.locOff=kFields[g_field].off;
+    next.validate=validate; next.firstEye=firstEye; next.previous=g_eyeWriter;
+    Writer prior=g_eyeWriter;
+    if (prior.camera != cam || prior.fieldOff != next.locOff) prior.lastOk=false;
+    if (!current_base(cam,next.locOff,prior,next.base)) return false;
+    memcpy(next.originalPos,cam+next.locOff,12); memcpy(next.originalRot,cam+rotOff,12);
+    memcpy(next.writtenRot,rot,12); memcpy(next.right,right,12);
+    // Authored motion contains no player pitch neck arc to cancel. The
+    // alternative is published alongside the unchanged gameplay request.
+    cinematic_position_offset_uu(next.pos);
+    if (!validate(cam)) return false;
+    next.thread=GetCurrentThreadId(); g_viewScope=next;
+    memcpy(cam+rotOff,rot,12);
+    if (!apply_offsets(cam)) { end_view_scope(); return false; }
+    return true;
+}
+bool end_view_scope() {
+    if (!scoped()) return true;
+    const ViewScope saved=g_viewScope;
+    const bool live=scope_live(saved.camera);
+    bool rotRestored=false, posRestored=false;
+    if (live && RangeReadable(saved.camera+saved.rotOff,12) &&
+        memcmp(saved.camera+saved.rotOff,saved.writtenRot,12)==0 && scope_live(saved.camera)) {
+        memcpy(saved.camera+saved.rotOff,saved.originalRot,12); rotRestored=true;
+    }
+    if (live && RangeReadable(saved.camera+saved.locOff,12) &&
+        g_eyeWriter.lastOk && g_eyeWriter.camera==saved.camera && g_eyeWriter.fieldOff==saved.locOff &&
+        memcmp(saved.camera+saved.locOff,g_eyeWriter.last,12)==0 && scope_live(saved.camera)) {
+        memcpy(saved.camera+saved.locOff,saved.originalPos,12); posRestored=true;
+    }
+    g_eyeWriter=posRestored ? saved.previous : Writer{};
+    g_viewScope=ViewScope{};
+    return rotRestored && posRestored;
+}
+
 // ---- the writer (script lane) -----------------------------------------------------------
 bool apply_offsets(uint8_t* camObj) {
+    if (scoped() && (!scope_live(camObj) || g_field < 0 ||
+        kFields[g_field].off != g_viewScope.locOff ||
+        !RangeReadable(camObj+g_viewScope.rotOff,12) ||
+        memcmp(camObj+g_viewScope.rotOff,g_viewScope.writtenRot,12)!=0)) return false;
     // VR-78: the accounting record for this call (z_account.h). Built only while
     // the probe is armed; every return below hands it over with the reason, so a
     // tag pinned after a call that did not write can never borrow an older write.
@@ -527,11 +604,12 @@ bool apply_offsets(uint8_t* camObj) {
     if (g_et.active) { zcommit(false, "eyetest owns the field"); return false; }   // the instrument owns the fields while it runs
     float pos[3];
     position_offset_uu(pos);
+    if (scoped()) memcpy(pos,g_viewScope.pos,sizeof(pos));
     const bool posWanted = pos_lane() == PosLane::Camera || (g_pt.active && g_pt.lane == PosLane::Camera);
     const bool posLive = posWanted && (pos[0] != 0.0f || pos[1] != 0.0f || pos[2] != 0.0f);
     // The eye: the seam's, or +1 inside SequentialReentry's second draw.
     const bool secondPass = second_pass_for_current_thread();
-    const int eyeNow = secondPass ? 1 : g_eye;
+    const int eyeNow = secondPass ? 1 : scoped() ? g_viewScope.firstEye : g_eye;
     const float eyeUu = (float)eyeNow * 0.5f * g_ipdM * g_scale;
     if (za) {
         zw.ms = dvr::zacct::now_ms();
@@ -553,7 +631,7 @@ bool apply_offsets(uint8_t* camObj) {
         ++g_etrEyeCount[eyeNow < 0 ? 0 : eyeNow > 0 ? 2 : 1];
         if (secondPass) ++g_etrSecondPass;
     }
-    if (eyeNow == 0 && !posLive) {
+    if (eyeNow == 0 && !posLive && !scoped()) {
         if (g_eyeWriter.lastOk && g_field >= 0) restore(camObj, kFields[g_field].off, g_eyeWriter);
         ++g_etrSkips;
         zcommit(false, "no eye and no position: restored");
@@ -626,12 +704,15 @@ bool apply_offsets(uint8_t* camObj) {
     }
     // The displacement in POSITION form (world uu): the eye along right, the
     // lean along the basis when the lane is ours and the basis is measured.
+    // Preserve the existing positional tracking frame. Only stereo separation
+    // follows the composed cinematic orientation, from the frozen head sample.
+    float eyeRight[3]; memcpy(eyeRight, scoped() ? g_viewScope.right : r, sizeof(eyeRight));
     float off[3];
     for (int i = 0; i < 3; ++i) {
-        off[i] = r[i] * eyeUu;
+        off[i] = eyeRight[i] * eyeUu;
         if (posLive && haveBasis) off[i] += pr[i] * pos[0] + u[i] * pos[1] + f[i] * pos[2];
         if (za) {
-            zw.eyeW[i] = r[i] * eyeUu;
+            zw.eyeW[i] = eyeRight[i] * eyeUu;
             zw.posW[i] = off[i] - zw.eyeW[i];
         }
     }
@@ -654,6 +735,7 @@ bool apply_offsets(uint8_t* camObj) {
         }
     }
     const float fieldOff[3] = {off[0] * sign, off[1] * sign, off[2] * sign};
+    if (scoped() && !scope_live(camObj)) { zcommit(false,"cinematic identity changed"); return false; }
     const bool ok = write_offset(camObj, kFields[g_field].off, fieldOff, g_eyeWriter, za ? zw.base : nullptr);
     if (za) {
         if (ok) for (int i = 0; i < 3; ++i) zw.written[i] = sign * g_eyeWriter.last[i];

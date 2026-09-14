@@ -230,6 +230,8 @@
 #include "game/dishonored/ue3/uobject.cpp"
 #include "game/dishonored/ue3/reflect.cpp"
 #include "game/dishonored/anim_state.cpp"
+#include "game/dishonored/cinematic_trace.cpp"
+#include "game/dishonored/cinematic_letterbox.cpp"
 #include "game/dishonored/ue3/prop_watch.cpp"
 #if DVR_WITH_LEGACY
 #include "legacy/interact_focus.cpp"   // VR-85: retired, see TRAPS

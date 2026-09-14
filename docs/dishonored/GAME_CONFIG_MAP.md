@@ -101,3 +101,25 @@ Resolution is NOT in the baseline and must not be: the mod drives the render siz
 from `[Screen]` in its own ini, and an older release that wrote `ResX`/`ResY` into
 `Engine` and all four `Compat` buckets is exactly the trap that took a session to
 unpick. See TRAPS.
+
+## Cinematic letterbox research (2026-09-13)
+
+The actual game INIs expose no letterbox/black-stripe/aspect-constraint key.
+Script declarations instead expose m_bHideLetterbox on the cinematic action
+and native controller call. Native derivation in ENGINE_NOTES proves that
+hide-letterbox clears bit0x10 at cinematic level0 of DishonoredHUD.m_ShowFlags.
+This is a runtime HUD flag,not a config setting. Do not invent an INI key or
+change resolution/FOV to test it. Final drawing ownership and visual acceptance
+remain pending; see CINEMATIC_HEAD_TRACKING.md. Camera.bConstrainAspectRatio and
+HUD.m_bDrawUIBlackStripes are separate non-config properties.
+
+Native follow-through confirms a Scaleform overlay:00B960E0 queries the HUD's
+mask10 through009EA130,compares its prior movie flag,and on change invokes GFx
+SetBlackStripes with the resulting boolean. This path explicitly controls UI
+stripes rather than a viewport rectangle. Visual confirmation that the exposed
+pixels fill the headset view still belongs to the upcoming A/B.
+
+The mod now exposes [Cine] HideBorders (default0) and a live F10 View control.
+It intercepts only the native stripe query; it does not add or edit a game INI
+key and does not change resolution,FOV or camera aspect fields. Its installed
+acceptance test remains pending; details are in CINEMATIC_HEAD_TRACKING.md.

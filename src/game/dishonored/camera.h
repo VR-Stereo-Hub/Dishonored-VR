@@ -74,7 +74,10 @@ bool render_pos_world(float out[3]);
 // vp or camera to force. `postrack lane <l>` live. Under a projection layer
 // the offset is applied in the yaw-only frame (world up, the camera's
 // heading), never along a pitched or rolled basis.
-void  set_position_offset_uu(float right, float up, float fwd);   // present thread
+// Publish the normal request and its authored-camera alternative together.
+// withoutCancel omits only engine neck cancellation, never real tracked motion.
+void  set_position_offset_uu(float right, float up, float fwd, const float* withoutCancel = nullptr);
+void  cinematic_position_offset_uu(float out[3]);   // present thread
 void  position_offset_uu(float out[3]);                           // any thread
 enum class PosLane { Vp = 0, Camera = 1 };
 bool        set_pos_lane(const char* name);   // "auto" | "vp" | "camera"
@@ -95,6 +98,12 @@ bool clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax);
 // selected field - one write, re-based every tick so a persistent field does
 // not accumulate; restored when both offsets go to zero. `camObj` is the live
 // camera object (head_track's g_camObj; null = skip).
+// Draw-only rotation overlay. Validator checks IsLiveObject, current GObjects
+// membership, retained identity and possession before each engine write.
+bool begin_view_scope(uint8_t* cam, uint32_t rotOff, const int32_t rot[3],
+                      const float right[3], int firstEye, bool (*validate)(uint8_t*));
+// Returns false when identity or engine recomputation prevented an exact restore.
+bool end_view_scope();
 bool apply_offsets(uint8_t* camObj);
 inline bool apply_eye_offset(uint8_t* camObj) { return apply_offsets(camObj); }
 

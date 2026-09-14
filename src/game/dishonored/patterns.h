@@ -179,6 +179,14 @@ static const uint8_t   kViewportDrawCallerCOrig[7] = { 0x6a, 0x00, 0xe8, 0x24, 0
 static const uintptr_t kGameEngineTick = 0x00632860;            // UGameEngine::Tick (derivation only)
 static const uint32_t  kViewportClientOff = 0x1c;               // FViewport -> its client (derivation only)
 
+// VR-43: only the GFx SetBlackStripes visibility query. Verified native
+// caller and ret4 helper are documented in ENGINE_NOTES, 2026-09-13.
+static const uintptr_t kLetterboxQuerySetup = 0x00b96115;
+static const uint8_t kLetterboxQueryOrig[7] = {0x6a,0x10,0xe8,0x14,0x40,0xe5,0xff};
+static const uintptr_t kLetterboxAnyMask = 0x009ea130;
+static const uintptr_t kLetterboxQueryReturn = 0x00b9611c;
+static const uint32_t kLetterboxMask = 0x10;
+
 // ---- Import table slots ----
 static const uintptr_t kXIGetSlot = 0x00f946c4; // IAT slot: xinput1_3 ord 2
 static const uintptr_t kXISetSlot = 0x00f946c0; // IAT slot: xinput1_3 ord 3

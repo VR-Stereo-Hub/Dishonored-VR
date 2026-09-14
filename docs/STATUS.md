@@ -1,6 +1,22 @@
 # Status
 
-## CURRENT (2026-09-13): load/reload fixes confirmed and merged (PR #53)
+## CURRENT (2026-09-13): cinematic work accepted; VR-103 next
+
+PR54 is approved for merge:head look,natural pitch and native border removal are
+headset-confirmed. Latest acceptance is222-gcf0d00dc (20:37:01),banner verified,
+logs archived under build/cinematic/playtest-20260913-205002. Camera levers remain
+default off; the installed tested profile enables HeadLook and HideBorders.
+35 camera checks,136 x86 border checks,build/lint/exports/INI and standalone XR
+smoke pass. No game launch or release declaration.
+
+VR-103 was created In Progress for better stereo state reading. Dialogue-choice
+scenes can remain mono until selection; boat/Emily prompt handoffs briefly go
+stereo->mono->stereo. The new work starts from merged current VR-Main and must
+read the decompiled state declarations. The existing log shows InDialog and a
+false cinematic latch's2s clear delay. Preserve the confirmed PR54 changes.
+No more subagents this session. Merge approval covers PR54 only.
+
+## Earlier (2026-09-13): load/reload fixes confirmed and merged (PR #53)
 
 Headset-confirmed: startup stereo without jumping/crouching, prompt notes across
 save reloads, stable right-eye presentation after reload, and safe pause after a
@@ -5501,3 +5517,49 @@ the 39.x fixes and the adapter hypothesis folded into ROADMAP, KNOWN_ISSUES, COD
 ENGINE_NOTES and XR_HANDOFF. Verification: exports 9/9, lint clean, both legacy
 configurations build, `split-source.py --check` reports only the intended changes. Branch
 pushed.
+
+### 2026-09-13: VR-70 investigation checkpoint
+
+Reconciled the pending Linear stability evidence and created the missing
+completed records. Verified current main and branched for VR-70. Reviewed
+PR #12 and independently derived final camera cache getters. Added a bounded
+read-only boat trace, production build/lint/exports/golden verified; standalone
+simulator 60 frames passed after process-local OBS-layer opt-out. Awaiting
+the tester-owned boat observation before selecting the head-motion writer.
+
+## Session continuation (2026-09-13): boat camera ownership and rotation candidate
+
+Archived diagnostic build 218-ge5c7653f logs before the next launch. The measured
+Soiree animation path bypasses controller rotation while Walk uses it. Added a
+guarded draw-scoped cache rotation overlay, coherent stereo eye orientation and
+live A/B. Headset behavior remains pending; lean and stick are untested. Details
+and remaining acceptance are in CINEMATIC_HEAD_TRACKING.md.
+
+## Session continuation (2026-09-13): remove cinematic recentering on pacing gaps
+
+Build219's32 avoidable reference resets are measured,with20 exact logged
+no-present SINGLE correlations. Fixed lifetime and centered single-draw support;
+34 host checks cover the regression and restoration. Earlier override before
+full-animation ownership is still being measured. See CINEMATIC_HEAD_TRACKING.
+
+## Session continuation (2026-09-13): stable gaze; cinematic pitch and bars
+
+Build220 stable gaze confirmed,including early boat. Added cinematic-only
+position publication without gameplay CANCEL neck term; normal gameplay is
+unchanged. Native hide-letterbox HUD flag derived after actual game INI/script
+search. Pitch acceptance first,then a separate letterbox A/B. Plan and detailed
+provenance:CINEMATIC_HEAD_TRACKING.md and ENGINE_NOTES.md.
+
+## Session continuation (2026-09-13): install native border query control
+
+Natural pitch confirmed on221. Implemented default-off HideBorders and installed
+A/B after136 x86 checks. No engine HUD fields are written; the existing GFx movie
+owns visibility changes. Next question is whether the scene fills former bar
+areas. User requested no further subagents this session; active work was stopped
+and remaining validation performed locally. No game launch or merge.
+
+## Session closure (2026-09-13): cinematic acceptance
+
+Build222 border removal accepted. PR54 merge explicitly authorized; new state
+reading work is VR-103,not a regression fix folded into the approved camera PR.
+Detailed acceptance and archived identity:CINEMATIC_HEAD_TRACKING.md.

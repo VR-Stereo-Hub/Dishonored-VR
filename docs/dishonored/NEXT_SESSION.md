@@ -1,3 +1,23 @@
+## Latest steering (2026-09-13)
+
+PR54 head look,pitch and border removal are accepted and explicitly authorized
+for merge. VR-103 is the new In Progress ticket for dialogue-choice mono and
+stereo/mono handoffs. Start its new branch from the merged VR-Main,read decompiled
+state declarations,retain confirmed camera behavior. No subagents this session.
+Approval to merge PR54 does not authorize merging the new state work.
+
+## Continuation update (2026-09-13, VR-70)
+
+Linear reconciliation below is now complete. VR-96 is Done/High; VR-98 remains
+Done; completed follow-ups VR-100/VR-101 and open freeze VR-102 are recorded.
+VR-70 is In Progress on codex/vr-70-cinematic-head-tracking from cccb1815.
+Read CINEMATIC_HEAD_TRACKING.md for the current border-removal test.
+Build221 natural pitch is headset-confirmed,2770 restores,zero refusals. The
+new HideBorders control intercepts only the verified native stripe query and
+preserves all HUD mask values.136 x86 checks pass. Check latest-install.json
+for exact installed identity. No more subagents this session. No merge
+permission; PR54 remains draft. The older handoff follows for history.
+
 # Next session: physical head movement during cinematics
 
 Read ../../AGENTS.md and ../../CLAUDE.md first, then STATUS and the latest

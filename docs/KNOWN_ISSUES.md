@@ -3,9 +3,9 @@
 41.x is the FOUNDATION line for the new native-stereo render: it is not a release. The
 milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 
-- Physical head movement during cinematics can remain locked despite working
-  right-stick turning. This is the next investigation; normal gameplay tracking
-  must remain unchanged.
+- Some dialogue-choice scenes remain mono until a selection, and cinematic
+  handoffs can briefly interrupt stereo (VR-103). Cinematic head look, natural
+  pitch and border removal are confirmed with the F10 View controls enabled.
 - Initial weapon tracking still has a multi-second startup freeze. Startup stereo
   now recovers automatically; the separate name-cache timing lever remains off.
 
@@ -120,7 +120,7 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 - **The prologue cutscene is broken** [after S3]: the boat arrival blocks with a Block prompt.
   The mod jumps straight to the prison (IntroSkip). Start a new game, then continue from the
   prison save.
-- **Cutscene cameras are fixed** (no head-look) [after S3].
+- Other cutscene camera modes and hard cuts still need broader regression testing.
 - **Possession, Devouring Swarm and Windblast are head-aimed** [after S3].
 - **GOG version unsupported** (different exe; every hook address is for the Steam build).
 - **Motion Blur must be off** in the game's options.

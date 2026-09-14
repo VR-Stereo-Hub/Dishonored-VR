@@ -82,6 +82,12 @@ static void OverlayFrame()
     }
 
     if (ImGui::BeginTabItem("View")) {
+    {
+        bool on=CineHeadEnabled();
+        if (ImGui::Checkbox("Cinematic head look (candidate)",&on)) CineHeadSet(on);
+        bool borders=CineBordersEnabled();
+        if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
+    }
     if (ImGui::SliderFloat("world scale (uu/m)", &g_posScaleUU, 10.0f, 200.0f, "%.0f"))
         { /* sep recomputed each frame from this */ }
 

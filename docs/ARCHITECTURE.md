@@ -764,3 +764,15 @@ including diagnostic flags. Generated defaults and the packaged ini are tested
 against the same CRLF bytes. Keep migration/presence checks distinct from value
 fallbacks. No version bump resets existing user configuration. This decision
 supersedes earlier default-off descriptions for this promoted profile.
+
+### 2026-09-13: cinematic camera overlay lifetime (VR-70)
+
+The measured boat Soiree animation path bypasses the controller rotation writer.
+Apply physical rotation to the final reflected camera cache only across a stereo
+draw pair, then restore authored fields and offset provenance. Compose rotation
+matrices relative to entry head orientation, share one sample across both eyes,
+and rotate stereo separation with the resulting view. Keep existing controller
+and positional behavior; enable only the measured state and default the lever
+off. This avoids feeding the added head rotation back into the next authored
+update. Live identity/possession checks gate every store and restore. Headset
+acceptance, positional behavior and other cinematics remain outstanding.

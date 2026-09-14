@@ -1501,7 +1501,11 @@ static void TrackHead(const float (*m)[4])
         } else {
             zPos[0] = (float)g_leanRightUU; zPos[1] = (float)g_leanUpUU; zPos[2] = (float)g_leanFwdUU;
         }
-        dvr::camera::set_position_offset_uu(zPos[0], zPos[1], zPos[2]);
+        // VR-70: the animation-owned camera bypasses the player's pitch arc.
+        // Keep real translation and any intentional ADD model, but do not
+        // subtract a gameplay neck arc that the authored camera never acquired.
+        dvr::camera::set_position_offset_uu(zPos[0], zPos[1], zPos[2],
+                                            g_neckMode == 2 ? zRaw : zPos);
         if (dvr::zacct::enabled()) {
             dvr::zacct::Head zh;
             zh.seq = (uint32_t)g_frame;
