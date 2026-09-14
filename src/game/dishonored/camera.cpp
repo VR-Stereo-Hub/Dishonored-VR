@@ -10,12 +10,20 @@
 #include "game/dishonored/patterns.h"
 #include "game/dishonored/z_account.h"
 
+#include "game/dishonored/positional_math.h"
+#include <atomic>
 #include <windows.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 namespace dvr::camera {
+namespace { std::atomic<bool> g_uprightPitchArc{false}; }
+bool upright_pitch_arc() { return g_uprightPitchArc.load(); }
+void set_upright_pitch_arc(bool on) {
+    g_uprightPitchArc.store(on);
+    DVR_INFO("position/upright: %s ([Neck] UprightPitchArc): pitch-only neck and world-up position at steep pitch",on?"ON":"off");
+}
 namespace {
 
 // sign  : what a wanted WORLD displacement must be multiplied by to become the
@@ -663,7 +671,13 @@ bool apply_offsets(uint8_t* camObj) {
     float pr[3], pu[3], pf[3];
     if (haveBasis && dvr::stereo::wants_projection()) {
         const float hn = sqrtf(f[0] * f[0] + f[1] * f[1]);
-        if (hn > 0.2f) {
+        if (upright_pitch_arc()) {
+            if (!dvr::position_math::upright_axes(f,r,u,pr)) {
+                haveBasis=false; memcpy(pr,r,sizeof(pr));
+                DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
+                    "position/upright: exact vertical heading unavailable; positional write refused (eye retained)");
+            }
+        } else if (hn > 0.2f) {
             pf[0] = f[0] / hn; pf[1] = f[1] / hn; pf[2] = 0.0f;
             pr[0] = -pf[1]; pr[1] = pf[0]; pr[2] = 0.0f;   // UE3: X forward, Y right, Z up
             if (pr[0] * r[0] + pr[1] * r[1] < 0.0f) { pr[0] = -pr[0]; pr[1] = -pr[1]; }   // keep the camera's handedness
@@ -694,7 +708,7 @@ bool apply_offsets(uint8_t* camObj) {
         }
         memcpy(zw.priorOff, g_eyeWriter.lastOff, sizeof(zw.priorOff));
         const float hn = sqrtf(f[0] * f[0] + f[1] * f[1]);
-        if (haveBasis && hn > 0.2f) { zw.heading[0] = f[0] / hn; zw.heading[1] = f[1] / hn; }
+        if (haveBasis && hn > (upright_pitch_arc() ? 1e-6f : 0.2f)) { zw.heading[0] = f[0] / hn; zw.heading[1] = f[1] / hn; }
         else zw.basisOk = false;   // no usable heading: the forward residual cannot be formed
         // VR-91: the lateral axis the position is about to be applied along, as
         // resolved above - including the handedness flip against the camera's

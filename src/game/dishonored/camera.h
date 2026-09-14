@@ -24,6 +24,8 @@ namespace dvr::camera {
 
 // Which eye the NEXT game frame renders: -1 left, +1 right, 0 = the game's
 // own camera (mono). Set per present from the active stereo method.
+bool upright_pitch_arc();
+void set_upright_pitch_arc(bool on);
 void set_eye(int sign);
 int  eye();
 void  set_ipd_m(float m);          // inter-eye separation (the runtime's views)

@@ -259,3 +259,5 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] VR-50 cinematic exit recovery: build232 headset-confirmed (broader ticket remains open).
 - [ ] VR-105 follow-up: upright yaw, authored roll suppression and dialogue tracking candidate.
 - [ ] VR-104 mantle handback: not exercised in build232 playtest.
+
+- [ ] VR-106: standing pitched-head roll arc candidate on child branch; numerical regression reproduced, headset test deferred.

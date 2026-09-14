@@ -267,3 +267,5 @@ These follow-ups await a combined headset test; no release is declared.
 Pending cinematic candidate: independent authored roll suppression, upright
 head-turn composition on tilted cameras, and final head tracking across dialogue
 camera blends. Headset validation pending; no release declared.
+
+Pending VR-106 candidate: default-off UprightPitchArc removes near-vertical roll leakage from standing neck compensation and positional axes. Headset acceptance pending.

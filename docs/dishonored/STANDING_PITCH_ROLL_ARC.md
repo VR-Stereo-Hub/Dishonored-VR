@@ -1,0 +1,78 @@
+# VR-106: standing pitched-head roll arc
+
+## Scope and status
+
+Branch codex/vr-106-standing-pitch-roll-arc is based on
+codex/vr-50-cinematic-fov-and-hands at6f85417a, as explicitly requested.
+PR56 remains draft/unmerged. This child contains the parent cinematic candidate,
+plus one default-off positional correction. No headset test tonight; both builds
+must remain independently installable. No game launch and no merge approval.
+
+The reported symptom is a smooth curved camera translation when rolling while
+looking up/down, standing but not crouched. It is not an eye flicker. VR-91's
+level-roll correction remains valid; this is a distinct steep-pitch follow-up.
+
+## Evidence and limits
+
+Installed baseline234 uses Neck Mode=cancel, standing pivot0.321/0.062 metres,
+crouch pivot0/0, RollArc=0. Prior measurements in ENGINE_NOTES establish the
+standing pitch arc and the absent crouch arc; zero crouch compensation is correct.
+The old roll-free neck calculation falls back to the rolled head-up column when
+horizontal forward magnitude is <=0.2, starting at about78.46 degrees pitch.
+The camera position path uses the same threshold and then leaves forward/up
+pitched and right rolled. Both branches can move a nonzero standing correction
+on a roll arc. Crouch's zero correction removes that contributor.
+
+A deterministic x86 regression at85 degrees pitch and +/-40 degrees roll
+reproduces lateral modeled motion -20.633/+20.633 uu with the standing pivot,
+plus vertical curvature. Crouch's zero pivot produces zero modeled motion.
+This reproduces a code defect, not a new rendered/headset measurement. The
+reported pitch range is not measured, so a residual at moderate pitch may need
+a separate explanation. No new playtest log exists; baseline234 remains untested.
+
+## Candidate
+
+Neck.UprightPitchArc defaults0. With1 and RollArc=0, compute the measured pitch
+arc directly in yaw-frame R/U/F: R=0, U=b*(cos(p)-1)+f*sin(p),
+F=-b*sin(p)+f*(cos(p)-1), times world scale, then apply the existing mode sign.
+Clamp p to the controller's existing +/-16000 rotator limit. This matches the
+old roll-free model at ordinary pitch and never reintroduces roll near vertical.
+Stance selection/easing and calibrated pivot values remain unchanged.
+
+For camera-lane projection positions, normalize the horizontal forward axis
+instead of falling back at0.2; keep world-up and horizontal right. Stereo eye
+separation retains the true rolled right vector. At a numerically undefined
+exact pole (horizontal magnitude<=1e-6), refuse the positional contribution,
+retain the eye offset, and log the refusal. Normal controller pitch is clamped
+short of this singularity. No new engine offsets or object writes are introduced;
+the existing camera writer and liveness behavior remain in use.
+
+Live A/B: neckupright on/off. F10 Comfort: Upright position at steep pitch.
+Save As Defaults persists the flag. Legacy math remains available when disabled.
+A rate-limited neck/upright line reports pitch, roll, stance, pivot, legacy/fixed
+RUF and modeled difference. It is explicitly a request, not rendered acceptance.
+Existing PosTrack.ZAccount will be enabled for this candidate to measure rendered
+closure, rejects and ownership. Do not interpret unjoined camera samples as proof.
+
+## Verification and test order
+
+12 x86 tests cover the falsifiable legacy arc, crouch zero pivot, ordinary-pitch
+parity, steep-pitch roll invariance, world-up tracked height, unchanged stereo
+eye-right, pitch limit, invalid input and the old threshold discontinuity.
+Parent39 cinematic math/ownership checks and13 scope checks pass. Release build,
+lint and golden INI pass; final identity/remaining checks recorded below.
+
+1. Cinematic234 first, preserved in build/playtest-candidates/cinematic-234.
+   Question: in the tilted Empress scene, does physical look remain natural
+   without orbit, forced roll or gaze lock? Success accepts parent camera work;
+   failure stays on the parent. Mantle remains untested and needs its own launch.
+2. After recording/archiving the first run, install the VR-106 bundle with the
+   helper tools/install-playtest-candidate.py. The agent runs all commands.
+   Question: while standing and looking steeply up/down, does rolling now keep
+   the view stable like crouching? Expected: no extra arc, with real leaning and
+   ordinary pitch preserved. A standing-only residual rejects the hypothesis;
+   a new crouch/lean problem indicates a positional-frame regression.
+
+Every swap verifies DLL/INI hashes, CRLF and a full INI diff and archives both
+logs. Verify the new log banner before interpretation. No launch is requested
+until the tester resumes. Do not merge either PR based on automated checks.

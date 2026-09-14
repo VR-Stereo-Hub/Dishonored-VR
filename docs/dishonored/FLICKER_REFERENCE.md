@@ -1697,3 +1697,17 @@ head composition plus pitch replacement. Upright composition and independent
 roll suppression are candidates; no headset acceptance yet. FOV exit improvement
 is reported successful; mantle was untested. See CINEMATIC_FOV_AND_HANDS.md for
 archived identity, numeric evidence, counterpredictions and the next test.
+
+## 2026-09-13: VR-106 steep-pitch standing roll arc candidate
+
+Smooth scene-camera motion, not eye flicker. Standing uses a0.321/0.062m neck
+pivot; crouch0/0 has no modeled arc. Two legacy branches fall back to rolled
+axes at horizontal forward magnitude0.2 (about78.46 degrees pitch). The x86
+control reproduces -20.633/+20.633uu lateral motion at85-degree pitch and
+-/+40-degree roll; zero crouch pivot yields zero. No new headset measurement.
+Default-off UprightPitchArc computes pitch-only compensation and keeps camera
+position axes upright at steep pitch; true eye-right stays rolled. Ordinary
+pitch parity and12 numerical regressions pass. Exact-pole position refusal is
+logged; normal pitch is clamped short of it. Full plan, limits and staged
+playtest sequence: [standing arc](STANDING_PITCH_ROLL_ARC.md). Parent PR56 and
+this child remain unmerged pending separate testing.

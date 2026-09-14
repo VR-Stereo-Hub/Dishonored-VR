@@ -165,6 +165,8 @@ static void OverlayFrame()
     ImGui::Separator();
     ImGui::TextUnformatted("neck (pitch pivot)");
     {
+        bool uprightArc=dvr::camera::upright_pitch_arc();
+        if (ImGui::Checkbox("Upright position at steep pitch",&uprightArc)) dvr::camera::set_upright_pitch_arc(uprightArc);
         ImGui::Text("now: %s | arc R%+.1f U%+.1f F%+.1f uu at pitch %+.0f deg", NeckModeName(g_neckMode),
                     g_neckArcUu[0], g_neckArcUu[1], g_neckArcUu[2], g_hmdPitch * 57.29578f);
         if (ImGui::Button("off"))    NeckSet(0, g_neckBelowM, g_neckBehindM, "F10 Comfort");

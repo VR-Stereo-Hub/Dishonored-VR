@@ -1,23 +1,15 @@
-## Current candidate: upright cinematic tracking
+## Current state: two candidates awaiting separate headset tests
 
-Branch codex/vr-50-cinematic-fov-and-hands; draft PR56 remains unmerged.
-Build232 confirms the FOV exit improvement. Mantling remains UNTESTED.
-VR-105 now includes authored roll suppression and correction of tilted-axis
-swivel while holding the Empress. Scripted dialogue tracking uses a single
-final camera owner across influence blends. Physical pitch/roll, native yaw,
-and camera height remain. Read CINEMATIC_FOV_AND_HANDS.md latest follow-up.
-Exact install identity: build/cinematic-fov/latest-install.json.
-Next test: Empress scene, physical left/right and up/down look without orbit,
-roll forcing or yaw lock. One question per launch. Agent reads/archives logs.
-Never launch the game. No subagents and no merge approval.
-
-
-Installed build vr33-hands-working-234-gcd0ee5f9, compile 23:11:43.
-DLL SHA256 b0f312b4e777bdac59d1e513fa29e704050c7bf007a1e9b22e32d2daf80180f4.
-Full INI diff adds only Cine.LockRoll=1; CRLF verified. Prior DLL/INI/both logs
-archived in build/cinematic-fov/install-20260913-231230. Release,39 head math/
-ownership checks,13 scope checks, lint, exports, golden INI and standalone XR
-60 frames FOCUSED/zero errors pass. No game launched. Headset test pending.
+Cinematic PR56 is draft/unmerged; build234 is preserved for the first test.
+Current branch codex/vr-106-standing-pitch-roll-arc was created from parent
+codex/vr-50-cinematic-fov-and-hands at6f85417a. VR-106 adds a default-off fix
+for the standing steep-pitch roll arc. Read STANDING_PITCH_ROLL_ARC.md in
+docs/dishonored for evidence, candidate, controls and the two-build test order.
+The agent manages installs and archives both logs, with full INI diffs/CRLF.
+Canonical active installation: build/playtest-candidates/installed.json once
+swaps run; preserved bundles are under build/playtest-candidates. Build234
+must be left installed first for tomorrow. No test tonight, no game launch,
+no subagents, no merge approval. Mantling still untested.
 
 ## Previous records (latest candidate above supersedes earlier plans)
 
