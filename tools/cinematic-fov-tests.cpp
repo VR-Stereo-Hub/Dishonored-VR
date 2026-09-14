@@ -30,6 +30,18 @@ int main() {
     check(!s.end(false) && f==108,"stale identity never restored");
     f=0; check(!s.begin(&f,108,true),"invalid existing camera FOV refuses");
     check(!s.begin(nullptr,108,true),"missing field refuses");
+    ExitBridge bridge;
+    check(bridge.update(true,false,52,108,1000),"cinematic primes exit protection");
+    check(bridge.update(false,true,52,108,1100),"gameplay exit retains wide draw while native FOV is narrow");
+    check(bridge.update(false,true,90,108,1800),"native recovery remains covered");
+    check(!bridge.update(false,true,107.6f,108,2225),"converged native FOV releases without shrink");
+    check(!bridge.update(false,true,52,108,2300),"ordinary gameplay zoom cannot initiate protection");
+    bridge.update(true,false,52,108,3000);
+    check(!bridge.update(false,false,52,108,3100),"menu/load/changed identity cancels protection");
+    bridge.update(true,false,52,108,4000); bridge.update(false,true,52,108,4100);
+    check(!bridge.update(false,true,52,108,7100),"stalled sensor expires at bounded deadline");
+    bridge.update(true,false,52,108,8000);
+    check(!bridge.update(false,true,0,108,8100),"invalid sensor refuses tail");
     using dvr::scene_state::cinematic;
     for (auto state:{"StatePlayerMasterSoiree","StatePlayerMasterInDialog","StatePlayerMasterInScriptedChoice"})
         check(cinematic(state),"cinematic handback state classified");

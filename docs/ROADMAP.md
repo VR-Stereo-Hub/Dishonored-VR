@@ -251,3 +251,7 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 - [ ] VR-50: cinematic FOV suppression candidate; speaker/choice test pending.
 - [ ] VR-104: native cinematic hands/arms implemented; combined FOV/handback test pending.
+
+- [ ] VR-105: physical-pitch-only animation comfort; combined headset test pending.
+- [ ] VR-104 follow-up: mantle handback enabled in combined candidate.
+- [ ] VR-50 follow-up: cover measured1125ms native FOV exit blend.

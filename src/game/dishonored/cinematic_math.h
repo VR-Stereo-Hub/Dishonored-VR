@@ -11,6 +11,14 @@ inline Matrix rotation(double pitch, double yaw, double roll) {
              {cp*sy, sr*sp*sy+cr*cy, -cr*sp*sy+sr*cy},
              {sp, -sr*cp, cr*cp}}};
 }
+// Match normal gameplay's absolute HMD pitch. Yaw/roll are left untouched.
+inline bool physical_pitch(int32_t rot[3],double headPitch) {
+    if (!std::isfinite(headPitch)) return false;
+    double units=headPitch*(65536.0/6.2831853071795864769);
+    if (units>16000) units=16000;
+    if (units<-16000) units=-16000;
+    rot[0]=(int32_t)std::lround(units); return true;
+}
 inline Matrix multiply(const Matrix& a,const Matrix& b) {
     Matrix c={};
     for(int i=0;i<3;++i) for(int j=0;j<3;++j) for(int k=0;k<3;++k) c.m[i][j]+=a.m[i][k]*b.m[k][j];

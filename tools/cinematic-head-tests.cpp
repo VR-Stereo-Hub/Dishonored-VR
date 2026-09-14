@@ -155,6 +155,15 @@ int main() {
     const bool reset=!advance(condition,resumedPose) && !referenceValid;
     check(reset && advance(ready,resumedPose) && anchors==2 && close(basis,identity,0.0003),
           "real menu then resume captures a fresh physical reference");
+    int32_t lockedPitch[3]={9000,12345,-2345};
+    check(physical_pitch(lockedPitch,0) && lockedPitch[0]==0 && lockedPitch[1]==12345 && lockedPitch[2]==-2345,
+          "forced pitch removed while authored yaw and roll remain");
+    check(physical_pitch(lockedPitch,0.3) && std::abs(lockedPitch[0]-3129)<=1 && lockedPitch[1]==12345,
+          "physical upward head tilt remains active");
+    check(physical_pitch(lockedPitch,-0.3) && std::abs(lockedPitch[0]+3129)<=1,
+          "physical downward head tilt remains active");
+    check(physical_pitch(lockedPitch,2) && lockedPitch[0]==16000,
+          "physical pitch matches gameplay clamp");
     std::printf("Cinematic head math: %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }

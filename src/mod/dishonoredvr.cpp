@@ -233,6 +233,7 @@
 #include "game/dishonored/stereo_state.cpp"
 #include "game/dishonored/cinematic_trace.cpp"
 #include "game/dishonored/cinematic_fov.cpp"
+#include "game/dishonored/cinematic_pitch.cpp"
 #include "game/dishonored/cinematic_letterbox.cpp"
 #include "game/dishonored/ue3/prop_watch.cpp"
 #if DVR_WITH_LEGACY

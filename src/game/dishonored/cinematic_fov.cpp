@@ -8,6 +8,7 @@ bool g_cfHaveOwner=false;
 LONG g_cfLoad=0;
 uint32_t g_cfOffset=0,g_cfWrites=0,g_cfRestores=0,g_cfRefused=0;
 dvr::cine_fov::Scope g_cfScope;
+dvr::cine_fov::ExitBridge g_cfBridge;
 double g_cfRetry=0,g_cfLog=0,g_cfResolveAfter=0;
 const char* g_cfReason="startup";
 SRWLOCK g_cfLock=SRWLOCK_INIT;
@@ -49,12 +50,17 @@ static void CineFovBegin(bool scene) {
     const bool projection=dvr::stereo::wants_projection() && dvr::vr::session_live() &&
         !dvr::vr::cinematic_active() && !dvr::camera::eyetest_active() && !dvr::camera::postest_active();
     const float target=dvr::camera::fov_deg();
-    if (!dvr::cine_fov::eligible(CineFovEnabled(),scene,menu,projection,
-            state.valid && dvr::scene_state::cinematic(state.state[0]),target)) {
+    const double now=MaimNowMs();
+    const bool ready=dvr::cine_fov::eligible(CineFovEnabled(),scene,menu,projection,state.valid,target);
+    const bool authored=ready && dvr::scene_state::cinematic(state.state[0]);
+    const bool walking=!strcmp(state.state[0],"StatePlayerMasterWalk") ||
+        !strcmp(state.state[0],"StatePlayerMasterFalling") || !strcmp(state.state[0],"StatePlayerMasterJump");
+    const bool keep=g_cfBridge.update(authored,ready && walking && CfValidate(),
+        dvr::camera::rendered_fov_deg(),target,GetTickCount64());
+    if (!keep) {
         if (g_cfHaveOwner) Log("cine/fov: released writes=%u restores=%u refused=%u master=%s menu=%d",g_cfWrites,g_cfRestores,g_cfRefused,state.state[0],menu);
         g_cfHaveOwner=false; CfPublish(0); return;
     }
-    const double now=MaimNowMs();
     CineTraceTick();
     if (!g_ctLayout) { CfRefuse("camera layout unavailable"); return; }
     if (!g_cfOffset) {
@@ -84,8 +90,8 @@ static void CineFovBegin(bool scene) {
     ++g_cfWrites; g_cfReason="active"; CfPublish(target);
     if (now>=g_cfLog) {
         g_cfLog=now+500;
-        Log("cine/fov: master=%s dialog=%d cache %.2f -> %.2f sensor=%.2f writes=%u restored=%u refused=%u; cache request, verify rendered acceptance",
-            state.state[0],state.dialogState,g_cfScope.before,target,dvr::camera::rendered_fov_deg(),g_cfWrites,g_cfRestores,g_cfRefused);
+        Log("cine/fov: master=%s dialog=%d cache %.2f -> %.2f sensor=%.2f writes=%u restored=%u refused=%u exitBridge=%d; cache request, verify rendered acceptance",
+            state.state[0],state.dialogState,g_cfScope.before,target,dvr::camera::rendered_fov_deg(),g_cfWrites,g_cfRestores,g_cfRefused,!authored);
     }
 }
 static void CineFovEnd() {

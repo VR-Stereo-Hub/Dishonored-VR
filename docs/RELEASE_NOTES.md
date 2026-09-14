@@ -256,3 +256,10 @@ Default-off LockFov requests a stable VR field of view during cinematic and
 dialogue scenes. Default-off CinematicHandBack gives the game control of hands,
 weapons and arm visibility during those scenes. Combined candidate230 awaits
 headset evaluation; not a release or confirmed result. See VR-50 and VR-104.
+
+### Pending combined follow-up
+
+Cinematic FOV override now covers the native zoom's exit blend. Optional LockPitch
+suppresses forced animation tilt while preserving physical headset tilt and
+camera height. Optional MantleHandBack returns mantle hands to native animation.
+These follow-ups await a combined headset test; no release is declared.

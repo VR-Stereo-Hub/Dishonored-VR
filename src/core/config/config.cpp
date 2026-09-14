@@ -1830,6 +1830,7 @@ static void LoadConfig()
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
     CineFovConfigure(ini);
+    CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
     // to the pointer walk alone, which cannot see the pistol at all.
@@ -3006,6 +3007,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","LockPitch",CinePitchEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Blink", "ControllerAim",
                                g_blkDriveUI ? "1" : "0", ini);
     WritePrivateProfileStringA("Blink", "Marker", g_blkMarker ? "1" : "0", ini);

@@ -93,3 +93,45 @@ Full installed INI diff contains only Cine.LockFov=1 and Anim.CinematicHandBack=
 CRLF preserved. DLL hash matches the build. Prior DLL, full INI and both logs
 archived in build/cinematic-fov/install-20260913-214151. Manifest:
 build/cinematic-fov/latest-install.json. No game launch; headset test pending.
+
+## Combined follow-up: FOV exit, pitch comfort, mantle hands
+
+Build230 47c626a521:40:15 is headset-confirmed for cinematic FOV suppression
+and native hands/arms, with a residual shrinking square on exit. Archive:
+build/cinematic-fov/playtest-20260913-220129. All31202 FOV scopes restored,
+zero refusals. At tick30273250 the override released in Walk and the host
+immediately claimed52 degrees; readback reached107.6 at30274375 (1125ms later).
+That native exit blend explains the reported rapid expansion.
+
+The FOV exit bridge now keeps the validated same owner's override during Walk,
+Falling or Jump until the sensor is within0.5 degree of the VR target. It cannot
+start from ordinary gameplay zoom. Menus/loads, invalid state/identity and an
+invalid sensor cancel it. A3s bound prevents indefinite suppression if readback
+stalls; the observed1125ms recovery is covered. No runtime policy change.
+
+VR-105 clarification: suppress forced up/down TILT ONLY. Height changes,
+physical HMD movement and actual climbing remain. Default-off Cine.LockPitch
+uses physical absolute HMD pitch with the same clamp as gameplay. Fully authored
+head-look composition replaces only its resulting pitch. Other live animation
+states use a validated draw scope that retains the gameplay translation request.
+Yaw/roll and position are preserved; both draws share the scope and exact incoming
+fields are restored afterward. F10 View Suppress animation up/down tilt; seam
+cinepitch on|off; Save As Defaults persists it.
+
+VR-104 extension: default-off Anim.MantleHandBack uses the exact live
+StatePlayerMasterMantle state and the existing native hand/weapon/arm consumers.
+It does not add every locomotion state. The older explicit preference to keep
+controller hands while mantling is superseded for this installed candidate by
+the new request. F10 View Native hands while mantling; seam mantlehands on|off.
+
+All three changes are combined in one build as explicitly requested. 38 FOV/
+handback checks,28 head math/policy checks and13 extracted production-scope
+checks pass. New checks cover convergence, timeout, stale owner, physical tilt,
+unchanged yaw/roll and preserving the gameplay position request. Runtime smoke,
+exports and final install identity are recorded below. No merge approval.
+
+Next combined test: replay the affected cutscene through gameplay return, then
+mantle a nearby ledge. Expected: no exit shrink; the scene cannot tilt the view
+up/down but physical head tilt works; mantle hands follow the ledge animation
+and normal tracking returns afterward. One question: does that sequence behave
+as expected, or which part still differs? Agent reads the log, never launches.

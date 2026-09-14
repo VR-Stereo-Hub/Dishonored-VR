@@ -1680,3 +1680,11 @@ speaker/choice framing. Accepted225 log measures FOV readback down to36.6 degree
 versus108.1 target. Default-off LockFov now requests a stable final cinematic
 camera FOV and matching host claim; acceptance remains open. No eye-tag change.
 See [source evidence and next test](CINEMATIC_FOV_AND_HANDS.md).
+
+## 2026-09-13: VR-50 exit shrink isolated
+
+Build230 confirmed in-scene FOV and native arms; exit alone shrinks then expands.
+Measured override release in Walk at30273250 immediately exposes52-degree sensor,
+which returns to107.6 after1125ms. Candidate bridges that same-owner native blend,
+not an eye-tag fix.38 FOV/handback checks pass; exit result still pending. Exact
+sources, archive and falsifiable combined test are in CINEMATIC_FOV_AND_HANDS.md.

@@ -38,7 +38,7 @@ static void CineTraceSet(bool on) {
     Log("cine/trace: %s (live); no engine writes", on ? "ON" : "off");
 }
 static void CineTraceTick() {
-    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled()) || g_ctResolved || !RflNamesReady()) return;
+    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled() && !CinePitchEnabled()) || g_ctResolved || !RflNamesReady()) return;
     const double now = MaimNowMs();
     if (now < g_ctResolveAfter || !IsLiveObject(g_camObj) || !CamStillValid()) return;
     g_ctResolveAfter = now + 5000;
@@ -263,9 +263,14 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     int32_t authored[3]={}; dvr::cine::Matrix composed;
     if (!CtRead(cam,g_ctCache+g_ctPov+g_ctRot,authored,12) ||
         !dvr::cine::compose(authored,g_chRef,h,g_chWritten,&composed)) { ChReset("rotation invalid"); return; }
+    if (CinePitchEnabled()) {
+        if (!dvr::cine::physical_pitch(g_chWritten,head.pitch*g_flipPitch)) { ChReset("physical pitch unavailable"); return; }
+        constexpr double radians=6.2831853071795864769/65536.0;
+        composed=dvr::cine::rotation(g_chWritten[0]*radians,g_chWritten[1]*radians,g_chWritten[2]*radians);
+    }
     const float right[3]={(float)composed.m[0][1],(float)composed.m[1][1],(float)composed.m[2][1]};
     g_chHead=head;
-    g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate);
+    g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true);
     if (!g_chScope) { ++g_chRefused; ChReason("hold: scope write refused"); return; }
     ++g_chWrites; CineHeadPublish();
     if(now>=g_chNextLog) {

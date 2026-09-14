@@ -1,3 +1,17 @@
+## Current candidate: exit FOV, physical pitch, mantle handback
+
+Branch codex/vr-50-cinematic-fov-and-hands, draft PR56 remains unmerged.
+User confirms build230 cinematic FOV and native arms; exit alone briefly shrinks.
+Verified log shows1125ms native FOV recovery after override release. New candidate
+bridges that recovery, suppresses authored up/down TILT ONLY (VR-105), and enables
+native hands during Mantle (VR-104). All in one build, explicitly requested.
+Camera height, horizontal authored movement and physical HMD tilt stay active.
+Read docs/dishonored/CINEMATIC_FOV_AND_HANDS.md latest follow-up. Install identity:
+build/cinematic-fov/latest-install.json. Never launch the game; verify banner,
+archive both logs, one question per launch. No subagents and no merge approval.
+
+## Previous records (latest candidate above supersedes earlier plans)
+
 ## Combined build steering, 2026-09-13
 
 The user explicitly requests both FOV suppression and native cinematic hands/arms
