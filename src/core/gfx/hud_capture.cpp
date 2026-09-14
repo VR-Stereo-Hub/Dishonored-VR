@@ -323,10 +323,13 @@ void end(IDirect3DDevice9* dev, IDirect3DSurface9* gameRt, const D3DVIEWPORT9& v
 
 void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext* ctx11) {
     // The gate, recomputed for the NEXT present's draws. Both halves must hold:
-    // the runtime's own (a projection present carrying an eye tag, which menus,
-    // loading screens and the cinematic quad all drop) or the menu override,
-    // and the game side's scene verdict.
-    const bool xrGate = dvr::hud::gate() || g_menuOverride;
+    // the runtime's own presentation MODE (a projection layer is up; the mono
+    // screen, a loading screen and the cinematic quad all drop it) or the menu
+    // override, and the game side's scene verdict. NOT the per-present eye tag:
+    // re-entry leaves 6 to 21 presents a second untagged by design, and a gate
+    // that followed the tag drew the HUD into the frame on each of them - the
+    // window/frame flicker of the first headset run.
+    const bool xrGate = dvr::hud::projection_mode() || g_menuOverride;
     const bool wantArm = g_on && xrGate && g_gameGate && g_handoffReady && !g_failed;
 
     if (!g_winStartMs) g_winStartMs = GetTickCount();
@@ -436,16 +439,16 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                  per[0] ? per + 1 : "no sink in use", deliv, g_winEmptyArmed, g_winEmptyEven, g_winEmptyOdd,
                  g_sink[0].slotW, g_sink[0].slotH, g_rtW, g_rtH, g_slotScale,
                  g_blitWaits, g_blitTimeouts, g_readWaits, g_readTimeouts, g_restoreFails,
-                 (int)g_on, (int)dvr::hud::gate(), (int)g_menuOverride, (int)g_gameGate, (int)g_handoffReady,
+                 (int)g_on, (int)dvr::hud::projection_mode(), (int)g_menuOverride, (int)g_gameGate, (int)g_handoffReady,
                  (int)g_failed, wantArm ? "ARMED" : "idle");
         if (!wantArm) {
             g_offReason = g_failed ? "a D3D failure latched this session (the lines above name it)"
                         : !g_handoffReady ? "the hand-off to D3D11 is not ready, so the redirect is held off "
                                             "rather than take the HUD away with nowhere to put it"
-                        : !xrGate ? "the runtime's gate is down (no projection present with an eye tag: a "
-                                    "menu on the mono screen, a loading screen, the cinematic quad) and no "
-                                    "menu is riding the window - the HUD stays in the frame there by design"
-                                  : "the game side's scene verdict is down (no pawn, a load, the wheel held)";
+                        : !xrGate ? "the runtime is not in projection mode (the mono screen, a loading "
+                                    "screen, the cinematic quad) and no menu is riding the window - the HUD "
+                                    "stays in the frame there by design"
+                                  : "the game side's scene verdict is down (no pawn, a load)";
             DVR_INFO("hud: not redirecting - %s", g_offReason);
         } else {
             g_offReason = "armed";
@@ -495,10 +498,10 @@ void shutdown() {
 }
 
 void log_status() {
-    DVR_INFO("hud: redirect=%s scale=%.2f rt=%ux%u slot=%ux%u | gate: xr=%d menu=%d game=%d handoff=%d "
+    DVR_INFO("hud: redirect=%s scale=%.2f rt=%ux%u slot=%ux%u | gate: projection=%d tag=%d menu=%d game=%d handoff=%d "
              "failed=%d -> %s | fingerprint measured=%d | %s",
              g_on ? "on" : "off", g_slotScale, g_rtW, g_rtH, g_sink[0].slotW, g_sink[0].slotH,
-             (int)dvr::hud::gate(), (int)g_menuOverride, (int)g_gameGate, (int)g_handoffReady, (int)g_failed,
+             (int)dvr::hud::projection_mode(), (int)dvr::hud::gate(), (int)g_menuOverride, (int)g_gameGate, (int)g_handoffReady, (int)g_failed,
              g_armed ? "ARMED" : "idle", (int)kHudFingerprintMeasured, g_offReason);
     dvr::hudlayout::log_status();
 }
@@ -506,7 +509,8 @@ void log_status() {
 void status(dvr::status::Writer& w) {
     w.kv("on", g_on);
     w.kv("armed", g_armed);
-    w.kv("xrGate", dvr::hud::gate());
+    w.kv("xrGate", dvr::hud::projection_mode());
+    w.kv("eyeTag", dvr::hud::gate());
     w.kv("menuOverride", g_menuOverride);
     w.kv("gameGate", g_gameGate);
     w.kv("handoff", g_handoffReady);

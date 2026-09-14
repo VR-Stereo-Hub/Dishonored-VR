@@ -21,7 +21,7 @@ int main() {
     check(context_can_ride(dvr::mono::MissionStats), "mission stats can ride");
     check(!context_can_ride(dvr::mono::MainMenu), "the main menu keeps the screen");
     check(!context_can_ride(dvr::mono::Loading), "a load keeps the screen");
-    check(!context_can_ride(dvr::mono::Wheel), "the wheel never rides");
+    check(context_can_ride(dvr::mono::Wheel), "the wheel rides (the weapon scroll opens it over live gameplay)");
     check(!context_can_ride(dvr::mono::Cinematic), "a cinematic never rides");
     check(!context_can_ride(dvr::mono::Other), "an unknown owner never rides");
     // The full decision.

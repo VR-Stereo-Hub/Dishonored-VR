@@ -4062,6 +4062,7 @@ void on_present_end(ID3D11Texture2D* frame) {
     // HUD capture gate (session 19): the gameswf redirect runs only while
     // stereo gameplay frames flow (menus stop the eye tags -> gate drops).
     dvr::hud::set_gate(srFrame);
+    dvr::hud::set_projection_mode(projectionMode);   // 41.x (Dishonored, VR-117): the mode, for the HUD redirect's gate
 
     // 41.2 (Dishonored, VR-76): the host may re-blit on ANY delivered sign.
     // Both exit paths below call it after capture, before the HUD hook.

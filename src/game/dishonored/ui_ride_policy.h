@@ -17,12 +17,14 @@
 
 namespace dvr::ui_ride {
 
-// Never the main menu (it keeps the screen), never a load, never the wheel
-// (held open, drawn over gameplay, the redirect pauses for it), never a
-// cinematic or an unknown owner.
+// Never the main menu (it keeps the screen), never a load, never a cinematic
+// or an unknown owner. The power WHEEL rides: it is drawn over live gameplay
+// by DisGFxMoviePlayerPowerWheel, the mouse scroll opens it for a weapon
+// switch, and on the mono screen every switch dropped the world flat for a
+// second (48 times in the first headset run).
 inline bool context_can_ride(dvr::mono::Context c) {
     return c == dvr::mono::Pause || c == dvr::mono::Note || c == dvr::mono::Journal ||
-           c == dvr::mono::Store || c == dvr::mono::MissionStats;
+           c == dvr::mono::Wheel || c == dvr::mono::Store || c == dvr::mono::MissionStats;
 }
 
 // The decision for one publish. optInMask bit = dvr::mono::Context.

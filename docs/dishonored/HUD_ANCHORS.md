@@ -57,7 +57,7 @@ its sink through the raw SetRenderTarget, so no backbuffer detector sees it.
 | `HandOrient` | billboard | `billboard` faces the head, never rolls; `grip` = a watch face |
 | `HandTilt` | 0 | grip only: degrees of nod toward the eyes |
 | `MenuInWindow` | 1 | in-game screens ride the window |
-| `WindowPause/Note/Journal/Store/MissionStats` | 1 | per-context opt-in |
+| `WindowPause/Note/Journal/Wheel/Store/MissionStats` | 1 | per-context opt-in (the wheel is what the weapon scroll and the grip-hold loadout open) |
 | `[Draws] Census` | 0 | the bucket table and VERDICT every 3 s |
 
 Elements: `all` (every draw without a readable region), `health`, `mana`,
@@ -77,14 +77,18 @@ F10: the HUD tab. status.json: `draws`, `hud` (with `layout`), `hudQuads`,
 ## 3. The gate
 
 The redirect arms when ALL hold: `[Hud] Panel`, the hand-off to D3D11 is up
-(sinks at the backbuffer size, the repair pass compiled), the runtime's own
-gate (a projection present carrying an eye tag: `dvr::hud::gate()`) OR a
-screen is riding the window, and the game side's gate: the SCENE verdict
-(`DvrSceneVerdict`, the presentation class, which a riding screen keeps true)
-and no power wheel held. Game state, never the draw.
+(sinks at the backbuffer size, the repair pass compiled), the runtime's
+presentation MODE is a projection layer (`dvr::hud::projection_mode()`; the
+mono screen, a load and the cinematic quad drop it) OR a screen is riding the
+window, and the game side's gate: the SCENE verdict (`DvrSceneVerdict`, the
+presentation class, which a riding screen keeps true). Game state, never the
+draw, and never the per-present eye tag: re-entry leaves 6 to 21 presents a
+second untagged by design (`none/s` in the stereo beat), and a gate on the tag
+drew the HUD into the frame on each of them, a 10 Hz window/frame flicker on
+the first headset run.
 
 The ride (`ui_ride_policy.h`): a blocked UI owner in {Pause, Note, Journal,
-Store, MissionStats} with its opt-in bit, `MenuInWindow=1`, the menu element on
+Wheel, Store, MissionStats} with its opt-in bit, `MenuInWindow=1`, the menu element on
 the window, and the redirect healthy (armed, a redirected draw within 500 ms)
 RIDES. Decided once per blocked interval (a health flap mid-menu cannot flip
 the picture); only a latched D3D failure drops it (to the mono screen: fail
@@ -239,5 +243,23 @@ death loop at the intro boat and cannot be used).
   d50ac0b5's partner; the census can hash and dump it like the pixel shader) and
   find which constant registers, or which vertex components, carry the transform.
   The probe itself is ready: 0.5 us per draw, the vertices read correctly.
+- The first HEADSET run (Quest 3 through VirtualDesktopXR, 90 Hz, 2026-09-15): the
+  window, the hand panel, the pause and a note all judged good. Two reports, both
+  answered by its log: (1) the HUD flickered between the window and the frame in
+  gameplay: `hud/beat` read `presents=441 armed=400` and similar in every 3 s window
+  while `stereo: beat` read `none/s=6..21`; the redirect's gate followed the
+  per-present eye tag, so every untagged present disarmed it and the next present's
+  HUD draws went into the frame. Fixed by gating on the runtime's projection MODE.
+  (2) a weapon switch by mouse scroll and the grip-hold loadout dropped the world
+  flat: both are the power wheel (`Dis_WheelShortcuts_MouseNext` ->
+  `DisGFxMoviePlayerPowerWheel`, `ui/surface: context=Wheel blocked=1 rides=0`, 48
+  times), which was excluded from riding and which parked the redirect through
+  `g_wheelHeld`. Fixed by letting the wheel ride (`WindowWheel=1`) and dropping the
+  wheel term from the gate. Both re-verified on the simulator before the second
+  headset run: `hud/beat presents=467 armed=467 empty-while-armed=0` in every 3 s
+  window with `stereo: beat none/s=0..1` (before the change the same level read
+  `presents=450 armed=433`), `wheel-ride.xrs` 27/27 (`ui/ride: Wheel -> RIDING`,
+  the projection and a quad layer through the hold, both eyes fresh on release,
+  the mono screen with `hud menu Wheel off`), `pause-ride.xrs` 31/31 again.
 - The cost: two sinks at SlotScale 0.50 = 7.5 MB StretchRect each per present;
   fences `blit waits 5357 timeouts 0, read waits 0 timeouts 0` over the run.

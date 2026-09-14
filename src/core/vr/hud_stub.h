@@ -43,6 +43,14 @@ bool gate();
 // the eye tags keep flowing, so a fresh gate HOLDS a ride the camera-upload
 // clock started; it cannot start one (the tags are downstream of the verdict).
 unsigned long gate_age_ms();
+// VR-117: the runtime's presentation MODE this present (a projection layer is
+// up, as opposed to the mono or cinematic quad). The redirect arms on this,
+// not on the per-present tag: under re-entry 6 to 21 presents a second carry
+// no tag by design (none/s in the stereo beat), and a gate that followed the
+// tag put the HUD back into the frame on each of them, a 10 Hz window/frame
+// flicker measured on the first headset run (2026-09-15).
+void set_projection_mode(bool on);
+bool projection_mode();
 
 void set_enabled(bool on);
 bool enabled();

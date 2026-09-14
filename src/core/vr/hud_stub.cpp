@@ -36,6 +36,9 @@ void set_gate(bool on) {
     if (on) g_gateMs.store(GetTickCount(), std::memory_order_relaxed);
 }
 bool gate() { return g_gate.load(std::memory_order_relaxed); }
+std::atomic<bool> g_projMode{false};
+void set_projection_mode(bool on) { g_projMode.store(on, std::memory_order_relaxed); }
+bool projection_mode() { return g_projMode.load(std::memory_order_relaxed); }
 unsigned long gate_age_ms() {
     const unsigned long t = g_gateMs.load(std::memory_order_relaxed);
     return t ? GetTickCount() - t : 0xffffffffUL;

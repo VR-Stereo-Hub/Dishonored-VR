@@ -417,9 +417,11 @@ static void DvrGameTick(IDirect3DDevice9* self)
     MfNoteTag();   // VR-76: the runtime's eye tag for the flicker history
     dvr::aim::tick(DvrGameplayVerdict(), dvr::stereo::wants_projection());
     // VR-117: the HUD redirect's game-side gate: the scene is drawing (the
-    // presentation verdict, which a riding screen keeps true) and no power
-    // wheel is held (the wheel is the same draw class as the HUD).
-    dvr::hudcap::set_game_gate(DvrSceneVerdict() && !g_wheelHeld, UiSurfaceRidesHud());
+    // presentation verdict, which a riding screen keeps true). The power wheel
+    // is the same draw class as the HUD and RIDES the window like a menu (its
+    // owner is DisGFxMoviePlayerPowerWheel; the mouse scroll opens it too), so
+    // it no longer parks the redirect.
+    dvr::hudcap::set_game_gate(DvrSceneVerdict(), UiSurfaceRidesHud());
         // 30.24: hitch detector. Any Present-to-Present gap over 80 ms gets
         // logged with what was in flight, so "lag spike on swing" becomes a
         // measured correlation instead of a hunch. 41.1 (session 8): the tick

@@ -30,7 +30,18 @@ byte-copied over the installed ini (SHA256 de20bd79 before this branch added the
 machine's input ini and the script now appends it), 2750x2850 armed in all four
 places. The host suites needed `tools/lib/msvc.ps1` to find the Build Tools here.
 
-Next: the headset run on VR-117's pass criteria (legibility of both anchors at the
+First headset run (2026-09-15, Quest 3 / VirtualDesktopXR): the window, the hand
+panel, the pause and a note judged good. Two reports fixed from its log and
+re-verified on the simulator: a ~10 Hz HUD flicker between the window and the frame
+(the redirect's gate followed the per-present eye tag; it now follows the
+projection mode) and the weapon scroll / grip-hold loadout dropping the world flat
+(both are the power wheel, which now rides the window, `WindowWheel=1`). On the
+sewer level the beat now reads `presents=467 armed=467` in every window (it read
+`presents=450 armed=433` before) and `wheel-ride.xrs` passes 27/27 beside
+`pause-ride.xrs` 31/31. Release build 278 of this tree is installed with the repo
+default ini (WindowWheel=1) for the second headset run.
+
+Next: the second headset run on VR-117's pass criteria (legibility of both anchors at the
 presets, the hand panel's size/lift/tilt sign, the pause menu navigable with the pad
 for 10 s and A selecting, a note in the window, the main menu untouched, whether
 the faint dark strokes of the max(r,g,b) alpha repair are acceptable). Then rung 3
@@ -4587,6 +4598,33 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-14/15 - session 40: the HUD redo (VR-117)
+
+**The HUD leaves the eyes.** The abandoned PR #12 redirect was rebuilt on VR-Main as three
+core modules (draw class, capture with N sinks, layout) and one runtime block, with the
+38.92 wrist HUD back as a hand anchor and every placement value in `[Hud]` and on the F10
+HUD tab. In-game screens ride the window with the world in stereo behind them, decided
+once per blocked interval by a pure ride policy over the reflected UI owner. Simulator
+first: three sequences and 137 host checks, three faults found and fixed before the
+headset saw it (a health blink cancelling the open-gap stand-in, the HUD quads skipped on
+held presents so a riding menu blinked, a focus loss latching a thread refusal).
+
+**The region probe falsified its own hypothesis.** The HUD draws are
+DrawIndexedPrimitiveUP with SHORT2 positions, read correctly at 0.5 us per draw, but the
+c0/c1 constant rows are not the 2x4 transform on this GFx build, so per-element routing is
+an instrument, not a feature (VR-118).
+
+**The first headset run judged the anchors good and reported two faults, both in the log.**
+The HUD flickered between the window and the frame at about 10 Hz: the redirect armed on
+the per-present eye tag and re-entry leaves 6 to 21 presents a second untagged by design,
+so each untagged present put the next present's HUD into the frame (`presents=441
+armed=400`). The gate now follows the projection mode (`presents=467 armed=467` on the
+sim). The weapon scroll and the grip-hold loadout dropped the world flat for a second:
+both open the power wheel, which was excluded from riding and parked the redirect through
+the wheel-held flag. The wheel rides now (`WindowWheel=1`, `wheel-ride.xrs`). The setup on
+this PC was reset to the repo's tested profile first (mod ini byte copy, game inis
+`-VRBaseline` and `-Console`, 2750x2850 armed).
 
 ### 2026-09-13 - session 39: a late tag, and a note that waited on the load rules
 

@@ -43,10 +43,11 @@ const ElementCfg kPresetElements[ElCount] = {
 };
 const WindowCfg kPresetWindow = { false, 1.30f, 1.25f, 0.0f, -0.10f, 0.0f };
 const HandCfg   kPresetHand   = { 0, 0.0f, 0.0f, 0.0f, 0.06f, 0.22f, false, 0.0f };
-// Pause, Note, Journal, Store, MissionStats (dvr::mono::Context bits 3,4,5,7,8).
-const uint32_t  kPresetMenuMask = (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8);
-const char* const kMenuContextNames[] = { "Pause", "Note", "Journal", "Store", "MissionStats" };
-const unsigned    kMenuContextBits[]  = { 3, 4, 5, 7, 8 };
+// Pause, Note, Journal, Wheel, Store, MissionStats (dvr::mono::Context bits 3,4,5,6,7,8).
+const uint32_t  kPresetMenuMask = (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) | (1u << 7) | (1u << 8);
+const char* const kMenuContextNames[] = { "Pause", "Note", "Journal", "Wheel", "Store", "MissionStats" };
+const unsigned    kMenuContextBits[]  = { 3, 4, 5, 6, 7, 8 };
+const int         kMenuContexts = 6;
 
 ElementCfg g_el[ElCount];
 WindowCfg  g_win = kPresetWindow;
@@ -298,7 +299,7 @@ uint32_t menu_context_mask() { return g_menuMask; }
 void set_menu_context_mask(uint32_t mask, const char* who) {
     if (mask != g_menuMask) DVR_INFO("hud/layout: menu contexts riding the window: 0x%x (%s)", mask, who);
     g_menuMask = mask;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < kMenuContexts; ++i) {
         char key[64]; _snprintf(key, sizeof(key), "Window%s", kMenuContextNames[i]); key[63] = 0;
         write_key(key, (mask & (1u << kMenuContextBits[i])) ? "1" : "0");
     }
@@ -458,7 +459,7 @@ void configure(const char* ini) {
     g_hand = h;
     g_menuInWindow = read_i(ini, "MenuInWindow", 1) != 0;
     uint32_t mask = 0;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < kMenuContexts; ++i) {
         char key[64]; _snprintf(key, sizeof(key), "Window%s", kMenuContextNames[i]); key[63] = 0;
         if (read_i(ini, key, 1)) mask |= 1u << kMenuContextBits[i];
     }
@@ -525,13 +526,13 @@ bool command(const char* args) {
         if (!strcmp(w2, "on")) { set_menu_in_window(true, "the seam"); return true; }
         if (!strcmp(w2, "off")) { set_menu_in_window(false, "the seam"); return true; }
         // hud menu <Pause|Note|Journal|Store|MissionStats> on|off
-        for (int i = 0; i < 5 && n >= 3; ++i) {
+        for (int i = 0; i < kMenuContexts && n >= 3; ++i) {
             if (_stricmp(w2, kMenuContextNames[i])) continue;
             const uint32_t bit = 1u << kMenuContextBits[i];
             set_menu_context_mask(!strcmp(w3, "on") ? (g_menuMask | bit) : (g_menuMask & ~bit), "the seam");
             return true;
         }
-        DVR_WARN("hud: menu wants on|off or <Pause|Note|Journal|Store|MissionStats> on|off");
+        DVR_WARN("hud: menu wants on|off or <Pause|Note|Journal|Wheel|Store|MissionStats> on|off");
         return true;
     }
     if (!strcmp(w1, "anchor") && n >= 3) {
@@ -703,7 +704,7 @@ void draw_ui() {
         if (ImGui::Checkbox("in-game screens ride the HUD window", &on)) set_menu_in_window(on, "F10 HUD");
         uint32_t mask = g_menuMask;
         bool ch = false;
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < kMenuContexts; ++i) {
             bool b = (mask & (1u << kMenuContextBits[i])) != 0;
             if (i) ImGui::SameLine();
             if (ImGui::Checkbox(kMenuContextNames[i], &b)) { ch = true; mask = b ? (mask | (1u << kMenuContextBits[i])) : (mask & ~(1u << kMenuContextBits[i])); }
