@@ -1132,6 +1132,7 @@ static void LoadConfig()
         // VR-91: whether ROLL enters the arc. It must not - the arc models the
         // engine's own neck and the engine's is a pitch arc - so this ships 0 and
         // 1 is the one-key A/B back to the measured fault.
+        dvr::camera::set_upright_pitch_arc(IniFloat(ini,"Neck","UprightPitchArc",0)!=0);
         g_neckRollArc = IniFloat(ini, "Neck", "RollArc", 0) != 0.0f;
         g_neckStanceBlendMs = IniFloat(ini, "Neck", "StanceBlendMs", 150.0f);
         if (g_neckStanceBlendMs < 0.0f) g_neckStanceBlendMs = 0.0f;
@@ -3144,6 +3145,7 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%.3f", g_neckBehindM);
     WritePrivateProfileStringA("Neck", "PivotBehindM", v, ini);
     _snprintf(v, 64, "%.3f", g_neckCrouchBelowM);    // VR-78: formatted right before its own write
+    WritePrivateProfileStringA("Neck", "UprightPitchArc", dvr::camera::upright_pitch_arc() ? "1" : "0", ini);
     WritePrivateProfileStringA("Neck", "RollArc", g_neckRollArc ? "1" : "0", ini);
     WritePrivateProfileStringA("Neck", "CrouchPivotBelowM", v, ini);
     _snprintf(v, 64, "%.3f", g_neckCrouchBehindM);

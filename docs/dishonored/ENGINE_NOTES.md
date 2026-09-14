@@ -5552,6 +5552,19 @@ look left/right and up/down; expect no orbit or forced roll and unrestricted
 physical look. A remaining orbit rejects upright composition; a yaw lock points
 to ownership/constraint handling. FOV and mantle settings stay enabled.
 
+## 2026-09-13: VR-106 steep-pitch standing roll arc candidate
+
+Smooth scene-camera motion, not eye flicker. Standing uses a0.321/0.062m neck
+pivot; crouch0/0 has no modeled arc. Two legacy branches fall back to rolled
+axes at horizontal forward magnitude0.2 (about78.46 degrees pitch). The x86
+control reproduces -20.633/+20.633uu lateral motion at85-degree pitch and
+-/+40-degree roll; zero crouch pivot yields zero. No new headset measurement.
+Default-off UprightPitchArc computes pitch-only compensation and keeps camera
+position axes upright at steep pitch; true eye-right stays rolled. Ordinary
+pitch parity and12 numerical regressions pass. Exact-pole position refusal is
+logged; normal pitch is clamped short of it. Full plan, limits and staged
+playtest sequence: [standing arc](STANDING_PITCH_ROLL_ARC.md). Parent PR56 and
+this child remain unmerged pending separate testing.
 ## 2026-09-14: cinematic input ownership must hand back activity and heading
 
 VR-109: live PVR dispatches can perform no mod writes by design. A write-age

@@ -1121,6 +1121,7 @@ static void HtPublishCameraRecord(int writer, const HtSample& used,
 }
 
 
+#include "game/dishonored/positional_math.h"
 static void TrackHead(const float (*m)[4])
 {
     // (30.8 key diet: F8 mouse-look toggle retired - F3 owns head tracking,
@@ -1504,6 +1505,17 @@ static void TrackHead(const float (*m)[4])
             neckR = (dx * cyw + dz * syw) * g_posScaleUU;
             neckU = dy * g_posScaleUU;
             neckF = (dx * syw - dz * cyw) * g_posScaleUU;
+            if (dvr::camera::upright_pitch_arc() && !g_neckRollArc) {
+                float upright[3]={};
+                if (dvr::position_math::pitch_arc(pitch,b,f,g_posScaleUU,upright)) {
+                    const float change=std::hypot(neckR-upright[0],neckU-upright[1]);
+                    DVR_LOG_EVERY_MS(dvr::log::Cat::head,dvr::log::Level::Info,1000,
+                        "neck/upright: pitch=%.2f roll=%.2f stance=%.3f pivot=%.3f/%.3f legacyRUF=%.3f/%.3f/%.3f fixedRUF=%.3f/%.3f/%.3f RUdelta=%.3f uu; model request, not rendered acceptance",
+                        pitch*57.29578f,g_hmdRoll*57.29578f,g_neckStanceW,b,f,
+                        neckR,neckU,neckF,upright[0],upright[1],upright[2],change);
+                    neckR=upright[0];neckU=upright[1];neckF=upright[2];
+                }
+            }
             if (g_neckMode == 2) { neckR = -neckR; neckU = -neckU; neckF = -neckF; }
         }
         g_neckArcUu[0] = neckR; g_neckArcUu[1] = neckU; g_neckArcUu[2] = neckF;

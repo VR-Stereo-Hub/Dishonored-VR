@@ -1,3 +1,31 @@
+## Current state: standing roll accepted; VR-87 remains open
+
+Build245 confirms roll while looking up/down. Remaining inverse vertical motion
+is the existing eye-ceiling limitation VR-87, supported by joined log accounting.
+See STANDING_PITCH_ROLL_ARC.md for evidence. PR57 ready, unmerged; PR58 next.
+Installed build remains245. No new install or INI change. Preserve all three PRs
+unmerged until remaining tests complete. Never launch the game; no subagents.
+
+## Earlier records
+
+## Current state: standing camera-roll candidate after accepted PR56
+
+Installed245-g0cd7b263 (Sep14 07:57:48), standing-roll fix and ZAccount ON.
+Full INI diff contains only those two changes; hashes/CRLF verified.
+
+PR56 is ready for review and unmerged. Build239-gadebc947 confirmed head-based
+movement, alongside the accepted cinematic comfort/FOV and mono handoff fixes.
+PR57 now includes that parent through cb77328d. Its next build retains all
+accepted settings and enables Neck.UprightPitchArc=1 plus PosTrack.ZAccount=1.
+Read docs/dishonored/STANDING_PITCH_ROLL_ARC.md for the one-question test.
+PR58 mono UI work remains a separate later candidate. Merge all three only after
+the remaining tests finish. Character-mode drift (VR-109) remains open.
+Never launch the game, no subagents. Agent installs and reads/archives both logs.
+Canonical installed identity: build/playtest-candidates/installed.json.
+
+## Earlier records
+
+## Current state: two candidates awaiting separate headset tests
 ## Current state: PR56 accepted; next is standing-roll PR57
 
 Verified239-gadebc947 confirms head-based movement. PR56 finalized for review;
@@ -47,24 +75,17 @@ build/playtest-candidates/installed.json. Mantling still lacks explicit acceptan
 
 ## Current candidate: upright cinematic tracking
 
-Branch codex/vr-50-cinematic-fov-and-hands; draft PR56 remains unmerged.
-Build232 confirms the FOV exit improvement. Mantling remains UNTESTED.
-VR-105 now includes authored roll suppression and correction of tilted-axis
-swivel while holding the Empress. Scripted dialogue tracking uses a single
-final camera owner across influence blends. Physical pitch/roll, native yaw,
-and camera height remain. Read CINEMATIC_FOV_AND_HANDS.md latest follow-up.
-Exact install identity: build/cinematic-fov/latest-install.json.
-Next test: Empress scene, physical left/right and up/down look without orbit,
-roll forcing or yaw lock. One question per launch. Agent reads/archives logs.
-Never launch the game. No subagents and no merge approval.
-
-
-Installed build vr33-hands-working-234-gcd0ee5f9, compile 23:11:43.
-DLL SHA256 b0f312b4e777bdac59d1e513fa29e704050c7bf007a1e9b22e32d2daf80180f4.
-Full INI diff adds only Cine.LockRoll=1; CRLF verified. Prior DLL/INI/both logs
-archived in build/cinematic-fov/install-20260913-231230. Release,39 head math/
-ownership checks,13 scope checks, lint, exports, golden INI and standalone XR
-60 frames FOCUSED/zero errors pass. No game launched. Headset test pending.
+Cinematic PR56 is draft/unmerged; build234 is preserved for the first test.
+Draft PR57 targets the cinematic branch (PR56). Both remain unmerged.
+Current branch codex/vr-106-standing-pitch-roll-arc was created from parent
+codex/vr-50-cinematic-fov-and-hands at6f85417a. VR-106 adds a default-off fix
+for the standing steep-pitch roll arc. Read STANDING_PITCH_ROLL_ARC.md in
+docs/dishonored for evidence, candidate, controls and the two-build test order.
+The agent manages installs and archives both logs, with full INI diffs/CRLF.
+Canonical active installation: build/playtest-candidates/installed.json once
+swaps run; preserved bundles are under build/playtest-candidates. Build234
+must be left installed first for tomorrow. No test tonight, no game launch,
+no subagents, no merge approval. Mantling still untested.
 
 ## Previous records (latest candidate above supersedes earlier plans)
 
@@ -5681,6 +5702,22 @@ The agent swaps builds, compares the entire installed INI and reads/archives
 both logs; the tester only launches and reports observations. One question per
 launch. No game launch or merge is authorized. Both candidates await testing.
 
+## Final artifacts and installation, 2026-09-13
+
+Standing candidate237: vr33-hands-working-237-gfd7a830d, compile23:34:10.
+DLL SHA256 b9cca3b0e0b77212424d25158807df66178a689f617f4d3d067e5efb975671a5.
+Bundle: build/playtest-candidates/standing-arc-237 (DLL, CRLF INI, manifest).
+The candidate was installed and hash-verified; full INI diff only added
+Neck.UprightPitchArc=1 and changed PosTrack.ZAccount=0 to1. Both logs and prior
+files archived at build/playtest-candidates/installs/20260913-233449-048351.
+Then cinematic234 was restored for the first deferred test, with both hashes
+verified and the exact inverse full INI diff. Restore archive ends233449-390590.
+Active install is234, NOT237. Canonical record: build/playtest-candidates/installed.json.
+No new game launch or game log exists for either pending candidate.
+
+Final checks:12 x86 standing-arc regressions,39 parent math/ownership checks,
+13 camera-scope checks, Release build, lint, nine exports, golden INI and standalone
+XR60 frames FOCUSED/zero errors pass. Headset acceptance remains pending.
 ## Session 2026-09-14: VR-109 handoff correction
 
 Archived verified234 playtest. Accepted comfort/FOV/free look; mono handoff and

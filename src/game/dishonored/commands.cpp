@@ -49,6 +49,7 @@ static bool DvrOnOff(const char* a, bool* out)
 static bool DvrGameCommand(const char* cmd, const char* args)
 {
     bool b = false;
+    if (!strcmp(cmd,"neckupright") && DvrOnOff(args,&b)) { dvr::camera::set_upright_pitch_arc(b); return true; }
     if (!strcmp(cmd,"movement")) {
         if(!strcmp(args,"head")) HeadMovementSet(true);
         else if(!strcmp(args,"character")) HeadMovementSet(false);

@@ -260,6 +260,7 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [ ] VR-105 follow-up: upright yaw, authored roll suppression and dialogue tracking candidate.
 - [ ] VR-104 mantle handback: not exercised in build232 playtest.
 
+- [ ] VR-106: standing pitched-head roll arc candidate on child branch; numerical regression reproduced, headset test deferred.
 ## Cinematic handoff regression (2026-09-14)
 
 - [x] Build234 roll/pitch comfort, FOV and free look reported accepted.

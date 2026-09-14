@@ -802,3 +802,11 @@ keeps its resume reference current. Native authored/stick movement remains.
 Comfort composition removes authored tilt before physical head rotation, avoiding
 Euler yaw/roll coupling from post-composition pitch removal. Independent
 LockPitch/LockRoll controls retain physical headset tilt and camera height.
+
+### 2026-09-13: explicit upright positional frame at steep pitch
+
+VR-106 keeps calibrated pitch compensation separate from physical roll. An
+analytic yaw-frame pitch arc replaces the old near-pole rolled-up fallback
+behind UprightPitchArc. Camera positional axes remain horizontal/world-up,
+while eye separation keeps the true rolled right. No native offsets or new
+engine writers. Parent cinematic behavior remains separately testable.
