@@ -1747,3 +1747,11 @@ wrong. Persistent unknown or loading after Continue also fails the policy.
 Status: implemented, headset test deferred; no confirmed fix. Existing eye-tag
 and weapon hypotheses are not reopened. Recoverable plan and exact controls:
 [mono UI state](MONO_ANCHOR_UI_STATE.md).
+
+## 2026-09-14: final mono UI candidate updated
+
+Build250-g78abb4fa incorporates accepted cinematic mono handoff and standing roll.
+UI ownership also gates stale-cursor pad nudges. Whole-view mono/projection
+leakage remains untested; no eye-tag/weapon hypothesis reopened. Installed with
+complete INI/hash/CRLF evidence, host suites and standalone XR smoke passing.
+See MONO_ANCHOR_UI_STATE.md for the main-menu test and subsequent loading test.

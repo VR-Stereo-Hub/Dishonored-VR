@@ -1,10 +1,12 @@
-## Current state: preparing final mono UI candidate
+## Current state: final mono UI build250 installed
 
-PR56/57 accepted and ready, unmerged. PR58 includes their accepted fixes.
-Build/install the current branch with AnchorMono and SurfaceGuard enabled,
-retaining HeadBasedMovement and UprightPitchArc. First test: main menu stays
-anchored mono with working stick navigation for20 seconds. See MONO_ANCHOR_UI_STATE.md.
-No game launch, no subagents, no merge until remaining tests finish.
+PR56/57 accepted and ready, unmerged. PR58 now includes their accepted fixes.
+Installed250-g78abb4fa (Sep14 08:17:32), anchor/category flags and SurfaceGuard ON.
+Full INI diff only adds12 keys; hashes/CRLF verified and both logs archived.
+See MONO_ANCHOR_UI_STATE.md for checks, manifest and first focused test:
+20 seconds at main menu, head motion and stick navigation, anchored mono expected.
+Loading/Continue is a later launch. Agent reads logs; never launches the game.
+No subagents. Keep all three PRs unmerged until remaining tests complete.
 
 ## Earlier records
 

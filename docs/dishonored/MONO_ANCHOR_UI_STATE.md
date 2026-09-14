@@ -1,3 +1,25 @@
+## Installed final-branch candidate, 2026-09-14
+
+Installed vr33-hands-working-250-g78abb4fa, compiled Sep14 08:17:32, source78abb4fa.
+Includes accepted PR56 and PR57; both remain ready and unmerged. PR58 is draft.
+DLL SHA256 661340a3f49de8330db4fa3fc1a8cf79b4aaa6f550d930027e72776862b641f5.
+INI SHA256 2128528963d3de52ee04fbcd75588d581f2f0f568b5b367c728cb128b8bbcb65.
+Complete INI diff: only the12 mono-anchor/category/UI-guard keys added at1.
+Accepted cinematic, head-based movement and standing-roll settings preserved.
+Both logs and prior DLL/INI archived at
+build/playtest-candidates/installs/20260914-081856-236038. CRLF/hashes verified.
+
+Passed19 anchor/loading,12 standing,15 facing,17 handoff,39 cinematic math,
+13 camera-scope and38 FOV/handback checks; release,9 exports, lint, INI golden.
+Standalone XR smoke:60 frames, FOCUSED,0 errors. No game launch by the agent.
+
+One question for the next launch: after20 seconds on the main menu, looking
+around and navigating with the stick, does the menu remain in one fixed mono
+panel with working navigation? Expected: panel stays in place as the head moves,
+no stereo/underground jump, and menu selections still work. Failure needs the
+ui/surface and anchor records. Loading/Continue gets its own later test.
+VR-87 height ceiling and VR-109 character-oriented drift remain open separately.
+
 ## Updated cumulative candidate, 2026-09-14
 
 PR56 and PR57 are headset-accepted and ready for review, still unmerged.
