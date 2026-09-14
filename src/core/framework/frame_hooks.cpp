@@ -4,6 +4,7 @@
 
 #include "core/framework/perf.h"
 #include "core/gfx/desktop_eye.h"
+#include "core/gfx/capture.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
 #include "core/gfx/stereo.h"
@@ -213,13 +214,23 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
     dvr::stereo::FrameOutput out;
     dvr::desktop_eye::begin_present(g_count);
+    const uint32_t priorCapture = dvr::capture::delivered_serial();
     dvr::stereo::end_frame(devs, out);
     dvr::perf::stamp(dvr::perf::kAfterEnd);
     if (out.tex) ++g_submits;
     dvr::vr::on_present_end(out.tex);
     dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
     dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
-    const HRESULT hr = g_origPresent(self, src, dst, wnd, dirty);
+    // VR-115: only desktop delivery can be omitted. All per-eye engine, capture,
+    // XR and hook accounting above runs unchanged. Check the final session state
+    // because xrEndFrame can fail after the runtime's mirror callback.
+    const uint32_t deliveredCapture = dvr::capture::delivered_serial();
+    const bool desktopXrReady = out.tex && deliveredCapture && deliveredCapture != priorCapture &&
+        dvr::vr::session_live();
+    const bool desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
+        !strcmp(dvr::stereo::active_name(), "reentry");
+    const HRESULT hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
+        desktopStereoReady, desktopXrReady);
     dvr::perf::stamp(dvr::perf::kAfterGamePresent);
     // 41.1 (session 8): the codes only a 9Ex device returns (the game never
     // handles them); the first of each is named so a TDR reads as a TDR.

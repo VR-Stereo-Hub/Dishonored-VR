@@ -84,6 +84,14 @@ they are outside this committed baseline and are not assigned a flicker verdict.
 
 ## Contents
 
+2026-09-14 performance candidate: [DESKTOP_PRESENT_PERFORMANCE.md](DESKTOP_PRESENT_PERFORMANCE.md)
+records VR-115's default-off reduced/off desktop modes. This touches the desktop
+alternation and delayed-tag rows below, not a new headset flicker diagnosis.
+Current-draw identity still controls the Reduced pin; Off omits desktop delivery
+after capture and invalidates old pin provenance. Host and standalone D3D9Ex
+GPU tests pass; headset/engine pacing, menu/load and visual acceptance remain
+open. Candidate is not installed; accepted build266 remains in place.
+
 1. [Symptom routing and current status](#1-symptom-routing-and-current-status)
 2. [The frame path and its identities](#2-the-frame-path-and-its-identities)
 3. [Detailed issue history](#3-detailed-issue-history)
