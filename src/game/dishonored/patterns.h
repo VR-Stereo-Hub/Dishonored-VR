@@ -213,3 +213,14 @@ static const uint32_t kMeshScl3D = 0x1ac;
 
 // VR-104: existing arms cull pair, measured transform-input layout (ENGINE_NOTES).
 static constexpr uint32_t kArmDrawDistancePair = 0x1bc;
+
+// VR-108: movie-service presentation query, derived from overlay draw gate.
+// See ENGINE_NOTES. Read fields only after matching vtable/query bytes.
+static constexpr uintptr_t kBinkServiceVtable = 0x010a4610;
+static constexpr uintptr_t kNullMovieServiceVtable = 0x00fcde60;
+static constexpr uintptr_t kBinkPresentQuery = 0x00932cc0;
+static constexpr uintptr_t kNullMoviePresentQuery = 0x00722980;
+static constexpr uint32_t kMoviePresentSlot = 0x1c;
+static constexpr uint32_t kBinkPresentActive = 0x130;
+static constexpr unsigned char kBinkPresentQueryBytes[] = {0x8b,0x81,0x30,0x01,0x00,0x00,0xc3};
+static constexpr unsigned char kNullMoviePresentQueryBytes[] = {0x33,0xc0,0xc3};

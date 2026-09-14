@@ -24,12 +24,12 @@ struct Anchor {
         valid=true; return true;
     }
 };
-// Loading-start can clear before Continue. Keep the lease through the movie's
-// lifetime; save notifications alone never acquire it. Unknown cannot release.
+// Loading-start can clear before Continue. Hold while presentation is active,
+// not while the service exists. Stale metadata cannot retain an idle service.
 struct LoadingLease {
     bool active=false;
-    bool update(bool known,bool loading,bool started,bool movie) {
-        if (known) active=loading || started || (active && movie);
+    bool update(bool known,bool loading,bool started,bool presenting) {
+        if (known) active=loading || (presenting && (started || active));
         return active;
     }
 };

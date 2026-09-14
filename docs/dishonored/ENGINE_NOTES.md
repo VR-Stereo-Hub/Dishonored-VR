@@ -5595,3 +5595,36 @@ The save notification alone is insufficient. No fixed offsets or engine writes.
 Declarations establish the properties; native timing is still unverified.
 See [mono UI state](MONO_ANCHOR_UI_STATE.md) for exact field names, identity and
 cadence contracts, historical build60 clamp evidence, controls and falsification.
+
+## 2026-09-14: VR-108 persistent movie service is not presentation
+
+Verified build250-g78abb4fa (Sep14 08:17:32), matching installed DLL hash.
+Logs/INI archived at build/mono-ui-test/playtest-20260914-082607. Main-menu
+anchoring/navigation is reported successful, but gameplay remains mono while
+weapons track. ui/surface enters Loading at5282609 and never releases before
+exit5313921. This falsifies the service-pointer lifetime lease.
+
+Decompiled DisBinkOverlayManager declares m_pBinkMovie as native Pointer.
+Verified ue3-natives derives metadata01350cf0, constructor00bb5000 and vtable
+0115d130. Native initialization00b9e4ee copies global movie service0145be80
+into the overlay movie field and registers the overlay through service slot24.
+It is a persistent service, not an active movie allocation. Draw gate00bb9880
+calls service slot1c and draws overlay text only for nonzero result.
+Global initialization009dd3ef selects0093d470 (real service) or004ebb60 (null).
+Real constructor0093d130 sets vtable010a4610; slot1c is00932cc0, a pure
+32-bit read at service+130 then return (8b8130010000c3). Null vtable00fcde60
+slot1c is00722980, returning0 (33c0c3). Real active field is initialized0,
+set1 at00932c57/009337ad and cleared at00932c31/00935ea4.
+
+Candidate reads that presentation field without calling native code. Requires
+expected vtable, exact getter address/bytes, readable field and boolean range;
+revalidates current live overlay pointer and service vtable after reading.
+The service is not a UObject; no IsLiveObject claim is made for that allocation.
+Overlay/engine reads retain current UObject liveness checks. No engine writes.
+All new native addresses/offsets are centralized in patterns.h.
+
+Loading mode/transition can acquire before presentation starts. Continue keeps
+the lease while presentation is active. Idle service releases despite stale
+started/hints metadata. Unknown layout does not release. Periodic ui/loading
+prints each input, service pointer and presentation state, including failure.
+24 host anchor/lease cases pass; native timing and headset acceptance pending.

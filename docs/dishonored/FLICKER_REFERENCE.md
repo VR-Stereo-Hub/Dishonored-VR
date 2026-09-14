@@ -1755,3 +1755,14 @@ UI ownership also gates stale-cursor pad nudges. Whole-view mono/projection
 leakage remains untested; no eye-tag/weapon hypothesis reopened. Installed with
 complete INI/hash/CRLF evidence, host suites and standalone XR smoke passing.
 See MONO_ANCHOR_UI_STATE.md for the main-menu test and subsequent loading test.
+
+## 2026-09-14: build250 loading guard does not release
+
+Whole view remains mono in gameplay despite tracked weapons. Verified250 log
+holds Loading from5282609 until exit5313921. The persistent movie-service pointer
+was mistaken for presentation lifetime. Main-menu anchoring is reported working.
+Native overlay draw uses service slot1c; candidate reads its verified active field
+and retains the lease only through active presentation. No hand-tracking gate.
+Counterprediction: presenting0 with load mode/transition cleared must release;
+presenting1 through Continue must remain mono. Unknown layout is logged/refused.
+See MONO_ANCHOR_UI_STATE.md and ENGINE_NOTES for derivation and archived run.

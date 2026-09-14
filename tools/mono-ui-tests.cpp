@@ -27,5 +27,10 @@ int main() {
     check(lease.update(true,false,true,true));
     check(lease.update(true,false,false,true));
     check(!lease.update(true,false,false,false));
+    check(!lease.update(true,false,true,false)); // stale metadata, idle service
+    check(lease.update(true,true,false,false)); // load starts before movie
+    check(lease.update(true,false,true,true)); // ready, Continue still visible
+    check(!lease.update(true,false,true,false)); // dismissed, service retained
+    check(!lease.update(true,false,false,true)); // later save notification
     printf("PASS %d anchor/loading checks\n",count);
 }

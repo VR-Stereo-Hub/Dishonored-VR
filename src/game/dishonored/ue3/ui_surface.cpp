@@ -28,6 +28,34 @@ void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int
         last=key;
     }
 }
+// The native Pointer is a persistent, non-UObject movie service. Never call
+// through it or retain it. Read the exact draw-gate field only for known code.
+bool UsMoviePresent(uint8_t* overlay,void* movie,bool& presenting) {
+    presenting=false;
+    if(!movie) return true;
+    uintptr_t vt=0,query=0;
+    if(!RangeReadable(movie,sizeof(vt))) return false;
+    memcpy(&vt,movie,sizeof(vt));
+    if(vt!=kBinkServiceVtable && vt!=kNullMovieServiceVtable) return false;
+    if(!RangeReadable((void*)(vt+kMoviePresentSlot),sizeof(query))) return false;
+    memcpy(&query,(void*)(vt+kMoviePresentSlot),sizeof(query));
+    if(vt==kBinkServiceVtable) {
+        if(query!=kBinkPresentQuery || !RangeReadable((void*)query,sizeof(kBinkPresentQueryBytes)) ||
+           memcmp((void*)query,kBinkPresentQueryBytes,sizeof(kBinkPresentQueryBytes))) return false;
+        uint32_t active=0;
+        auto* field=(uint8_t*)movie+kBinkPresentActive;
+        if(!RangeReadable(field,sizeof(active))) return false;
+        memcpy(&active,field,sizeof(active));
+        if(active>1) return false;
+        presenting=active!=0;
+    } else if(query!=kNullMoviePresentQuery || !RangeReadable((void*)query,sizeof(kNullMoviePresentQueryBytes)) ||
+              memcmp((void*)query,kNullMoviePresentQueryBytes,sizeof(kNullMoviePresentQueryBytes))) return false;
+    void* current=nullptr; uintptr_t currentVt=0;
+    if(!CtRead(overlay,g_usMovie,&current,sizeof(current)) || current!=movie ||
+       !RangeReadable(movie,sizeof(currentVt))) return false;
+    memcpy(&currentVt,movie,sizeof(currentVt));
+    return currentVt==vt;
+}
 bool UsResolve() {
     if(g_usResolved) return true;
     const double now=MaimNowMs();
@@ -88,11 +116,17 @@ static void UiSurfacePoll() {
     auto* engine=(uint8_t*)g_usEngine.value.obj;
     uint8_t mode=0,transition=0; uint32_t started=0,hints=0; void* movie=nullptr;
     auto* overlay=CtObject(engine,g_usOverlay);
-    const bool loadKnown=CtRead(engine,g_usMode,&mode,1) && CtRead(engine,g_usTransition,&transition,1) &&
+    bool loadKnown=CtRead(engine,g_usMode,&mode,1) && CtRead(engine,g_usTransition,&transition,1) &&
         overlay && CtRead(overlay,g_usStarted,&started,4) && CtRead(overlay,g_usMovie,&movie,sizeof(movie)) && CtRead(overlay,g_usHints,&hints,4);
+    bool presenting=false;
+    loadKnown=loadKnown && UsMoviePresent(overlay,movie,presenting);
     const bool loading=g_usLoading.update(loadKnown,mode==2 || transition==2 || transition==4 || transition==5,
-        (started&g_usStartedMask)!=0 || (movie && (hints&g_usHintsMask)),movie!=nullptr);
-    if(loading) { UsPublish(dvr::mono::Loading,true,loadKnown,-1,movie?1:0,mode); return; }
+        (started&g_usStartedMask)!=0 || (hints&g_usHintsMask)!=0,presenting);
+    DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+        "ui/loading: known=%d mode=%u transition=%u service=%p presenting=%d started=%d hints=%d lease=%d; service existence is not visibility",
+        (int)loadKnown,(unsigned)mode,(unsigned)transition,movie,(int)presenting,
+        (int)((started&g_usStartedMask)!=0),(int)((hints&g_usHintsMask)!=0),(int)loading);
+    if(loading) { UsPublish(dvr::mono::Loading,true,loadKnown,-1,presenting?1:0,mode); return; }
     struct Array { uint8_t** data; int count,capacity; } players={};
     uint8_t* player=nullptr;
     if(CtRead(engine,g_usPlayers,&players,sizeof(players)) && players.count>0 && players.count<=4 &&
@@ -132,7 +166,7 @@ static void UiSurfacePoll() {
     }
     if(!known && !blocked) { blocked=true; context=dvr::mono::Other; }
     if(!blocked && g_cineNow) context=dvr::mono::Cinematic;
-    UsPublish(context,blocked,known,screen,movie?1:0,mode);
+    UsPublish(context,blocked,known,screen,presenting?1:0,mode);
 }
 static void UiSurfaceTick() {
     if((!g_usEnabled.load() && !dvr::vr::mono_anchor_enabled()) || !TryAcquireSRWLockExclusive(&g_usLock)) return;
