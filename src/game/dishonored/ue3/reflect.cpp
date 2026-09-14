@@ -364,9 +364,77 @@ static void RflStateTick(void)
 
 // Script lane. Nothing to derive and nothing to retry: the cache handles a lookup
 // that could not answer yet, so this is only the state read.
+// VR-71: the pause reading. Actor.WorldInfo -> WorldInfo.Pauser (and
+// TimeSeconds for the log, so a paused world can be seen to stand still).
+static void RflPauseTick(void)
+{
+    const double now = MaimNowMs();
+    if (now - g_rflPauseReadMs < 250.0) return;
+    g_rflPauseReadMs = now;
+    if (!RflNamesReady()) { g_rflPaused = -1; return; }
+    uint8_t* pawn = FpPawn();
+    if (!pawn) {
+        g_rflPaused = -1; g_rflWorldInfo = NULL;
+        _snprintf(g_rflPauseWhy, sizeof(g_rflPauseWhy), "no pawn latched");
+        return;
+    }
+    const uint32_t wiOff = RflOffsetOf("Actor", "WorldInfo");
+    if (!wiOff) {
+        g_rflPaused = -1;
+        _snprintf(g_rflPauseWhy, sizeof(g_rflPauseWhy), "Actor::WorldInfo did not resolve");
+        return;
+    }
+    if (!RangeReadable(pawn + wiOff, sizeof(void*))) { g_rflPaused = -1; return; }
+    uint8_t* wi = *(uint8_t**)(pawn + wiOff);
+    if (!LooksLikeObj(wi)) {
+        g_rflPaused = -1; g_rflWorldInfo = NULL;
+        _snprintf(g_rflPauseWhy, sizeof(g_rflPauseWhy), "pawn's WorldInfo %p does not read as a UObject", (void*)wi);
+        return;
+    }
+    // Pauser is declared on WorldInfo in stock UE3; this game may declare it on
+    // its own subclass, or on the live object's class. Offer all three and say
+    // which answered (the first run reported WorldInfo::Pauser NOT FOUND).
+    const char* wiCls = ObjClassName(wi);
+    const char* const kWiClasses[] = { "WorldInfo", "DisWorldInfo", "DishonoredWorldInfo", wiCls ? wiCls : "WorldInfo" };
+    const char* which = NULL;
+    const uint32_t paOff = RflOffsetOfAny(kWiClasses, 4, "Pauser", &which);
+    const uint32_t tsOff = RflOffsetOfAny(kWiClasses, 4, "TimeSeconds", &which);
+    if (wi != g_rflWorldInfo) {
+        g_rflWorldInfo = wi;
+        Log("pause: WorldInfo '%s' @ %p (Actor::WorldInfo +0x%03x); Pauser +0x%03x, TimeSeconds +0x%03x%s",
+            wiCls ? wiCls : "?", (void*)wi, wiOff, paOff, tsOff,
+            paOff ? "" : " - Pauser did NOT resolve on any candidate class: run `rfl props <the class above>` "
+                         "and read the real name off the list; until then the pause reading is UNKNOWN");
+    }
+    if (!paOff || !RangeReadable(wi + paOff, sizeof(void*))) {
+        g_rflPaused = -1;
+        _snprintf(g_rflPauseWhy, sizeof(g_rflPauseWhy), "Pauser did not resolve on '%s' (Actor::WorldInfo +0x%x)",
+                  wiCls ? wiCls : "?", wiOff);
+        return;
+    }
+    uint8_t* pauser = *(uint8_t**)(wi + paOff);
+    if (tsOff && RangeReadable(wi + tsOff, 4)) g_rflTimeSeconds = *(float*)(wi + tsOff);
+    const int paused = pauser ? 1 : 0;
+    if (paused != g_rflPaused || pauser != g_rflPauser) {
+        const char* pc = (pauser && LooksLikeObj(pauser)) ? ObjClassName(pauser) : NULL;
+        Log("pause: the world is %s - WorldInfo.Pauser = %p%s%s, TimeSeconds %.2f. %s",
+            paused ? "PAUSED" : "RUNNING", (void*)pauser,
+            pc ? " class " : "", pc ? pc : "", g_rflTimeSeconds,
+            paused ? "A menu flag standing now is a real menu: the stale-flag test stands down."
+                   : "The stale-flag test may clear a ghost menu flag again.");
+        g_rflPaused = paused; g_rflPauser = pauser;
+    }
+    _snprintf(g_rflPauseWhy, sizeof(g_rflPauseWhy), "%s (Pauser %p, TimeSeconds %.2f)",
+              paused ? "PAUSED" : "running", (void*)pauser, g_rflTimeSeconds);
+    g_rflPauseWhy[sizeof(g_rflPauseWhy) - 1] = 0;
+}
+
+
 static void RflTick(void)
 {
     RflStateTick();
+    RflPauseTick();
+    if (g_soireeOn) SoireeScan();   // VR-70: the scripted look-around's track objects
 }
 
 
@@ -391,6 +459,46 @@ static bool RflCommand(const char* args)
         for (int i = 0; i < g_rflPropN; ++i)
             Log("rfl:   %s::%s -> %s+0x%04x", g_rflProp[i].cls, g_rflProp[i].prop,
                 g_rflProp[i].off ? "" : "NOT FOUND ", g_rflProp[i].off);
+        Log("rfl: pause reading: %s - %s (%.0f ms old)",
+            g_rflPaused == 1 ? "PAUSED" : g_rflPaused == 0 ? "running" : "UNKNOWN",
+            g_rflPauseWhy, g_rflPauseReadMs > 0.0 ? MaimNowMs() - g_rflPauseReadMs : -1.0);
+        return true;
+    }
+    if (!_strnicmp(args, "props ", 6)) {
+        // Every UProperty whose Outer is the named class: kind, name, offset
+        // (and the bit mask for a bool). The way to learn a name that cannot be
+        // guessed, e.g. which field on a WorldInfo subclass is the pauser.
+        const char* want = args + 6;
+        if (!RflNamesReady() || !RangeReadable((void*)kGObjHdr, 12)) { Log("rfl: props - names or GObjects not ready"); return true; }
+        void**   objs = *(void***)kGObjHdr;
+        uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+        if (!objs || onum < 1000 || onum > 4000000) { Log("rfl: props - GObjects unreadable"); return true; }
+        const uint32_t ci = FindNameIdx(want);
+        if (ci == 0xffffffffu) { Log("rfl: props - '%s' is not a name this build knows", want); return true; }
+        int listed = 0;
+        Log("rfl: properties declared on '%s' (kind name +offset [mask]):", want);
+        for (uint32_t i = 0; i < onum && listed < 240; i++) {
+            if ((i & 1023) == 0) {
+                uint32_t left = onum - i; if (left > 1024) left = 1024;
+                if (!RangeReadable(objs + i, left * sizeof(void*))) break;
+            }
+            uint8_t* o = (uint8_t*)objs[i];
+            if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x80)) continue;
+            uint8_t* ou = *(uint8_t**)(o + kOuterOff);
+            if (!ou || ((uintptr_t)ou & 3) || !RangeReadable(ou, kNameOff + 4)) continue;
+            if (*(uint32_t*)(ou + kNameOff) != ci) continue;
+            const char* pc = ObjClassName(o);
+            if (!pc || !strstr(pc, "Property")) continue;
+            const char* pn = RealName(*(uint32_t*)(o + kNameOff));
+            const uint32_t off = *(uint32_t*)(o + kUPropOffset);
+            if (!strcmp(pc, "BoolProperty"))
+                Log("rfl:   %-16s %-36s +0x%04x mask 0x%08x", pc, pn ? pn : "?", off, *(uint32_t*)(o + kUBoolBitMask));
+            else
+                Log("rfl:   %-16s %-36s +0x%04x", pc, pn ? pn : "?", off);
+            listed++;
+        }
+        Log("rfl: %d propert%s listed on '%s'%s", listed, listed == 1 ? "y" : "ies", want,
+            listed >= 240 ? " (TRUNCATED at 240)" : "");
         return true;
     }
     if (!_strnicmp(args, "get ", 4)) {
@@ -405,6 +513,6 @@ static bool RflCommand(const char* args)
             off ? "" : "NOT FOUND ", off);
         return true;
     }
-    Log("rfl: status | get <Class> <Property>");
+    Log("rfl: status | get <Class> <Property> | props <Class>");
     return true;
 }

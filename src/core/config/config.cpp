@@ -874,6 +874,7 @@ static void LoadConfig()
     if (g_wpnPosMax > 1000.0f) g_wpnPosMax = 1000.0f;
     g_rotInject = IniFloat(ini, "HeadTrack", "Native", 1) != 0.0f;
     g_rotRoll   = IniFloat(ini, "HeadTrack", "Roll", 0) != 0.0f;
+    g_soireeOn  = IniFloat(ini, "HeadTrack", "Soiree", 1) != 0.0f;   // VR-70: the head follows into scripted look-arounds
     Log("config: native head tracking %s (F3 toggles, F5 recentres)",
         g_rotInject ? "ON" : "off");
     g_wpnAutoSmall= IniFloat(ini, "Weapon", "AutoSmall", 0) != 0.0f;

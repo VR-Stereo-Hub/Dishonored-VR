@@ -48,8 +48,42 @@ static const float kUEPerRad = 10430.378f;  // 65536 / 2pi
 // Whatever survives is the address the engine actually renders from, and we
 // can write our head pose straight into it.
 // ---------------------------------------------------------------------------
-#define VP_OBJS   10
+// VR-70: 24 slots and a caller-supplied class filter, so the probe can be
+// pointed at the objects that own a SCRIPTED view (the intro boat's ride
+// camera, measured 2026-09-11: the head write lands on the controller and the
+// render ignores it while the game asks for the mouse).
+#define VP_OBJS   24
 #define VP_BYTES  0x800
+#define VP_EXTRA  6
+static char     g_vpExtra[VP_EXTRA][32];
+static int      g_vpExtraN = 0;
+
+// ---- VR-70: THE SOIREE LANE ---------------------------------------------------
+//
+// The intro boat ride (and, by the class name, every scripted look-around the
+// game calls a soiree) renders from a look rotator on an InterpTrackSoireeControl
+// object, not from the controller's rotation: the mouse adds to that rotator
+// and the engine copies it into the camera POV every tick (measured, see
+// kSoireeRotOff). The script lane's head write lands on the controller, which
+// the ride ignores, so the headset saw a world glued to the head while the
+// mouse still looked around. This lane finds the live track objects (a bounded
+// GObjects scan on the script lane, every few seconds), decides which one OWNS
+// the view (its rotator agrees with the camera POV - the only test that cannot
+// be fooled by a stale track from an earlier scene), and writes the head into
+// it beside the normal write: pitch absolute, yaw as the same delta the
+// controller gets. A track that is not being copied into the POV takes the
+// write and nothing happens, which is why the agreement test is re-read every
+// dispatch and never latched.
+#define SOIREE_MAX 8
+static bool     g_soireeOn      = true;    // [HeadTrack] Soiree
+static uint8_t* g_soireeObj[SOIREE_MAX];
+static int      g_soireeN       = 0;
+static double   g_soireeScanMs  = 0.0;
+static uint8_t* g_soireeOwner   = NULL;    // the track whose rotator agrees with the POV, else NULL
+static int      g_soireeAgree   = 0;       // consecutive agreeing dispatches
+static LONG     g_soireeWrites  = 0;
+static double   g_soireeOwnMs   = 0.0;     // when the current owner took the view
+static int      g_soireeScans   = 0;
 static uint8_t* g_vpObj[VP_OBJS];
 static const char* g_vpName[VP_OBJS];
 static uint8_t  g_vpSnapA[VP_OBJS][VP_BYTES];

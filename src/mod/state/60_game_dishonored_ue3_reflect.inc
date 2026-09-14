@@ -76,6 +76,24 @@ static double   g_rflStateMs = 0.0;
 static char     g_rflWhy[224] = "not attempted yet";
 static LONG     g_rflReads = 0;
 
+// ---- VR-71: IS THE WORLD PAUSED? ASKED, NOT INFERRED --------------------------
+//
+// The stale-menu-flag test (head_track.cpp) clears a menu flag that has stood
+// 1.5 s with no cursor and a live pawn, because a ghost of Dis_OpenPauseMenu
+// fires during a load with no menu on screen. Measured 2026-09-11 (headset):
+// it clears every REAL pause menu too, and the pad bridge's cursor nudge then
+// puts the Scaleform menu into mouse mode, where the gamepad A is ignored.
+// The one thing a real pause menu has that a load does not is the engine's own
+// pause: WorldInfo.Pauser is the PlayerReplicationInfo that paused the game and
+// is None otherwise. Resolved by name on the script lane, read four times a
+// second, and published here. -1 = not readable (the test behaves as before).
+static int      g_rflPaused      = -1;    // 1 paused, 0 running, -1 unknown
+static uint8_t* g_rflWorldInfo   = NULL;
+static uint8_t* g_rflPauser      = NULL;
+static float    g_rflTimeSeconds = 0.0f;
+static double   g_rflPauseReadMs = 0.0;   // when the reading was last refreshed
+static char     g_rflPauseWhy[160] = "not attempted yet";
+
 // PawnInventorySlot is { DishonoredInventoryItem* m_pItem; Class* m_pRequiredType;
 // EDisEquipUsage m_RequiredUsage; } - two pointers and a byte, padded. The STRIDE
 // is the one number in this path that reflection cannot answer, because element

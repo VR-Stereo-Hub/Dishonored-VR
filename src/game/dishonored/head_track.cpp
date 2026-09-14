@@ -55,6 +55,95 @@ static bool FindLiveCamera()
 }
 
 
+// VR-70: find the live InterpTrackSoireeControl objects. Script lane, bounded,
+// at most every 5 s; the list is small (one track per soiree in the loaded
+// levels' matinees) and identity is re-validated by class pointer on every use.
+static void SoireeScan()
+{
+    const double now = MaimNowMs();
+    if (now - g_soireeScanMs < 5000.0) return;
+    g_soireeScanMs = now;
+    if (!RangeReadable((void*)kGObjHdr, 12)) return;
+    void**   objs = *(void***)kGObjHdr;
+    uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || onum < 1000 || onum > 4000000) return;
+    uint8_t* found[SOIREE_MAX]; int n = 0;
+    for (uint32_t i = 1; i < onum && n < SOIREE_MAX; i++) {
+        if ((i & 1023) == 0) {
+            uint32_t left = onum - i; if (left > 1024) left = 1024;
+            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
+        }
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, kClassOff + 4)) continue;
+        const char* cn = ObjClassName(o);
+        if (!cn || strcmp(cn, "InterpTrackSoireeControl")) continue;
+        const char* nm = RangeReadable(o + kNameOff, 4) ? RealName(*(uint32_t*)(o + kNameOff)) : NULL;
+        if (nm && !strncmp(nm, "Default__", 9)) continue;
+        if (!RangeReadable(o + kSoireeRotOff, 12)) continue;
+        found[n++] = o;
+    }
+    g_soireeScans++;
+    bool changed = (n != g_soireeN);
+    for (int k = 0; k < n && !changed; k++) if (found[k] != g_soireeObj[k]) changed = true;
+    if (changed) {
+        g_soireeN = n;
+        for (int k = 0; k < n; k++) g_soireeObj[k] = found[k];
+        Log("soiree: %d live InterpTrackSoireeControl object(s) (scan #%d)%s", n, g_soireeScans,
+            n ? "" : " - no scripted look-around is loaded; the lane idles");
+        for (int k = 0; k < n; k++) {
+            const int32_t* r = (const int32_t*)(g_soireeObj[k] + kSoireeRotOff);
+            Log("soiree:   track[%d] @ %p rotator +0x%03x = (%d, %d, %d)", k, (void*)g_soireeObj[k],
+                (unsigned)kSoireeRotOff, r[0], r[1], r[2]);
+        }
+    }
+}
+
+
+// Which track owns the view RIGHT NOW: the one whose rotator agrees with the
+// camera POV within 2.8 deg on pitch and yaw. Re-read every dispatch. Returns
+// NULL when none does (ordinary gameplay: the controller owns the view).
+static uint8_t* SoireeOwner()
+{
+    if (!g_soireeN || !CamStillValid() || !RangeReadable(g_camObj + kCamRotBase[0], 12)) {
+        g_soireeAgree = 0;
+        return NULL;
+    }
+    const int32_t* pov = (const int32_t*)(g_camObj + kCamRotBase[0]);
+    uint8_t* best = NULL;
+    for (int k = 0; k < g_soireeN; k++) {
+        uint8_t* o = g_soireeObj[k];
+        if (!RangeReadable(o, kClassOff + 4) || !RangeReadable(o + kSoireeRotOff, 12)) continue;
+        const char* cn = ObjClassName(o);
+        if (!cn || strcmp(cn, "InterpTrackSoireeControl")) continue;   // freed or recycled
+        const int32_t* r = (const int32_t*)(o + kSoireeRotOff);
+        const int32_t dp = (int32_t)(int16_t)(uint16_t)((uint32_t)r[0] - (uint32_t)pov[0]);
+        const int32_t dy = (int32_t)(int16_t)(uint16_t)((uint32_t)r[1] - (uint32_t)pov[1]);
+        if (dp > -512 && dp < 512 && dy > -512 && dy < 512) { best = o; break; }
+    }
+    return best;
+}
+
+
+// The seam: soiree on|off|status|rescan
+static bool SoireeCommand(const char* args)
+{
+    if (!args || !args[0] || !strcmp(args, "status")) {
+        Log("soiree: %s | %d track(s) known (scan #%d) | owner %p%s | %ld head write(s) into the track | "
+            "camera POV %s",
+            g_soireeOn ? "ON" : "OFF", g_soireeN, g_soireeScans, (void*)g_soireeOwner,
+            g_soireeOwner ? " (a scripted look-around OWNS the view: the head writes there)"
+                          : " (none: the controller owns the view)",
+            g_soireeWrites, CamStillValid() ? "readable" : "not readable");
+        return true;
+    }
+    if (!strcmp(args, "on"))  { g_soireeOn = true;  Log("soiree: ON - the head follows into scripted look-arounds"); return true; }
+    if (!strcmp(args, "off")) { g_soireeOn = false; g_soireeOwner = NULL; Log("soiree: OFF - the head write stops at the controller (the ride glues)"); return true; }
+    if (!strcmp(args, "rescan")) { g_soireeScanMs = 0.0; Log("soiree: rescan requested"); return true; }
+    Log("soiree: usage - soiree on|off|status|rescan");
+    return true;
+}
+
+
 static void RecenterHead()
 {
     g_refHmdYaw = g_hmdYaw;
@@ -177,6 +266,9 @@ static void VpFindObjects()
         bool live = strstr(cn, "PlayerController") || strstr(cn, "PlayerCamera") ||
                     strstr(cn, "PlayerInput") || strstr(cn, "PlayerPawn") ||
                     (strstr(cn, "Corvo") != NULL);
+        // VR-70: the caller's own class filter - `viewprobe Keyhole Seat ...`
+        for (int x = 0; x < g_vpExtraN && !live; x++)
+            if (g_vpExtra[x][0] && strstr(cn, g_vpExtra[x])) live = true;
         if (!live) {
             if (listed < 14 && strstr(cn, "Player")) {   // inventory, for next time
                 Log("viewprobe:   (also present: '%s')", cn);
@@ -202,6 +294,57 @@ static void VpSnap(uint8_t dst[VP_OBJS][VP_BYTES])
     for (int k = 0; k < g_vpN; k++)
         if (RangeReadable(g_vpObj[k], VP_BYTES))
             memcpy(dst[k], g_vpObj[k], VP_BYTES);
+}
+
+
+// VR-70: `viewprobe [ClassSubstr ...]` arms the mouse-nudge discovery probe
+// LIVE, from the command seam, with extra class-name filters. The probe was
+// keyboard-only (Shift+F4, retired in 30.8) and had no caller since. The
+// question it answers is the one the intro boat poses: the mouse turns the
+// view, the controller rotation does not, so WHICH object's field does the
+// mouse move? The report names every field that moved under a +1200 mouse
+// delta and not during the control pass. Also reports the camera's current
+// ViewTarget by class, resolved by name, because a scripted view usually means
+// a view target that is not the pawn.
+static void VpArm(const char* args)
+{
+    if (g_vpPhase) { Log("viewprobe: already running (phase %d)", g_vpPhase); return; }
+    g_vpExtraN = 0;
+    if (args && args[0]) {
+        char buf[200];
+        _snprintf(buf, sizeof(buf), "%s", args);
+        buf[sizeof(buf) - 1] = 0;
+        for (char* tok = strtok(buf, " "); tok && g_vpExtraN < VP_EXTRA; tok = strtok(NULL, " ")) {
+            _snprintf(g_vpExtra[g_vpExtraN], sizeof(g_vpExtra[0]), "%s", tok);
+            g_vpExtra[g_vpExtraN][sizeof(g_vpExtra[0]) - 1] = 0;
+            g_vpExtraN++;
+        }
+    }
+    if (!CamStillValid()) { g_camObj = NULL; FindLiveCamera(); }
+    // the camera's view target, by name: Camera.ViewTarget is a TViewTarget
+    // whose first member is the Actor* Target
+    if (CamStillValid()) {
+        const uint32_t vtOff = RflOffsetOf("Camera", "ViewTarget");
+        if (vtOff && RangeReadable(g_camObj + vtOff, sizeof(void*))) {
+            uint8_t* tgt = *(uint8_t**)(g_camObj + vtOff);
+            const char* tc = (tgt && LooksLikeObj(tgt)) ? ObjClassName(tgt) : NULL;
+            Log("viewprobe: camera '%s' @ %p ViewTarget.Target (+0x%03x) = %p class '%s'%s",
+                ObjClassName(g_camObj), (void*)g_camObj, (unsigned)vtOff, (void*)tgt,
+                tc ? tc : "?", (tgt && tgt == FpPawn()) ? " (the player pawn)" : " (NOT the player pawn)");
+        } else {
+            Log("viewprobe: Camera::ViewTarget did not resolve (off 0x%x) - no view-target report", (unsigned)vtOff);
+        }
+    } else {
+        Log("viewprobe: no live camera object - the view-target report is skipped");
+    }
+    VpFindObjects();
+    if (!g_vpN) { Log("viewprobe: nothing to watch - not armed"); return; }
+    VpSnap(g_vpSnapA);
+    g_vpProbing = true;
+    g_vpPhase = 1; g_vpTimer = 60;   // ~1 s of control at 60+ presents/s
+    Log("viewprobe: ARMED - watching %d object(s) (%d extra class filter(s)); control pass, "
+        "then a +1200 mouse delta. The game window must have the focus for the nudge to land.",
+        g_vpN, g_vpExtraN);
 }
 
 
@@ -911,6 +1054,39 @@ static void ApplyHeadToViewRotation(void* parms)
     if (wantPitch < -16000) wantPitch = -16000;
     rot[0] = wantPitch;
 
+    // VR-70: a scripted look-around (the intro boat ride) renders from the
+    // soiree track's rotator and ignores the controller, so the same head goes
+    // there too: pitch absolute, yaw the same delta. The agreement test is
+    // re-read every dispatch (see SoireeOwner); the write is logged on
+    // ownership changes only.
+    if (g_soireeOn) {
+        uint8_t* owner = SoireeOwner();
+        if (owner) {
+            if (++g_soireeAgree >= 3) {
+                if (owner != g_soireeOwner) {
+                    g_soireeOwner = owner; g_soireeOwnMs = MaimNowMs();
+                    const int32_t* r = (const int32_t*)(owner + kSoireeRotOff);
+                    Log("soiree: a scripted look-around OWNS the view - InterpTrackSoireeControl @ %p "
+                        "rotator +0x%03x (%d, %d) agrees with the camera POV; the head now writes there "
+                        "(pitch absolute, yaw delta) as well as to the controller",
+                        (void*)owner, (unsigned)kSoireeRotOff, r[0], r[1]);
+                }
+                int32_t* sr = (int32_t*)(owner + kSoireeRotOff);
+                sr[0] = wantPitch;
+                sr[1] = (int32_t)((uint32_t)sr[1] + (uint32_t)headDeltaU);
+                InterlockedIncrement(&g_soireeWrites);
+            }
+        } else {
+            g_soireeAgree = 0;
+            if (g_soireeOwner) {
+                Log("soiree: the look track no longer agrees with the camera POV - the controller owns "
+                    "the view again (%ld head write(s) went into the track over %.1f s)",
+                    g_soireeWrites, (MaimNowMs() - g_soireeOwnMs) / 1000.0);
+                g_soireeOwner = NULL;
+            }
+        }
+    }
+
     // 41.1: under a PROJECTION layer the compositor shows the image at the
     // head's pose INCLUDING roll, so the game camera must roll with the head
     // or the horizon counter-rolls (the 2026-09-03 headset run). [HeadTrack]
@@ -1485,7 +1661,25 @@ static void TrackHead(const float (*m)[4])
             // The other three guards are unchanged and they are what make this
             // safe: a live pawn (which excludes the main menu and its dispatching
             // 3D background), no cursor, and the flag standing for 1500 ms.
-            if (g_menuOpen && !cursorVis && CylTruthLive()) {
+            // VR-71: a PAUSED world is a real menu. The dispatch-recency term
+            // cannot tell a pause menu from a ghost on this build (the camera
+            // chain keeps dispatching behind the menu), and the count it
+            // replaced could not either; the engine's own pause flag can. While
+            // the reading says paused the test stands down; UNKNOWN (-1) keeps
+            // the old behaviour so a machine where the name does not resolve
+            // is no worse off than before.
+            static bool keptSaid = false;
+            if (g_menuOpen && !cursorVis && CylTruthLive() && g_rflPaused == 1) {
+                double now = MaimNowMs();
+                if (!wasOpen) { wasOpen = true; menuSince = now; hitsAtStale = g_pvrHits; lastHitMs = now; }
+                if (!keptSaid && now - menuSince > 1500.0) {
+                    keptSaid = true;
+                    Log("menu: flag KEPT at %.0f ms - the world is paused (WorldInfo.Pauser set), "
+                        "so this is a real menu and not a ghost; the stale-flag test stands "
+                        "down until the pause lifts (VR-71: the A button stays a gamepad A)",
+                        now - menuSince);
+                }
+            } else if (g_menuOpen && !cursorVis && CylTruthLive()) {
                 double now = MaimNowMs();
                 if (g_pvrHits != hitsAtStale) { hitsAtStale = g_pvrHits; lastHitMs = now; }
                 if (!wasOpen) { wasOpen = true; menuSince = now; hitsAtStale = g_pvrHits; lastHitMs = now; }
@@ -1502,6 +1696,7 @@ static void TrackHead(const float (*m)[4])
                 }
             } else {
                 wasOpen = false;
+                keptSaid = false;
             }
         }
         // 32.47: THE SAME GHOST TEST, APPLIED TO THE CURSOR.

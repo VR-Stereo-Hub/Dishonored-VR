@@ -102,6 +102,7 @@ static bool RflArrayAt(uint8_t* obj, uint32_t off, uint8_t** outData,
                        int32_t* outNum);
 static void RflTick(void);
 static void RflStateTick(void);
+static void RflPauseTick(void);   // VR-71: WorldInfo.Pauser, on the script lane
 static bool RflCommand(const char* args);
 
 // VR-62: what screen is up, read off the movie players (ue3/ui_state.cpp).
@@ -173,6 +174,10 @@ static void RecenterHead();
 static void UpdateHeadInject();
 static void FindPovRotators();
 static void VpFindObjects();
+static void VpArm(const char* args);   // VR-70: `viewprobe [ClassSubstr ...]`
+static void SoireeScan();                 // VR-70: the scripted look-around's track objects (script lane)
+static uint8_t* SoireeOwner();
+static bool SoireeCommand(const char* args);
 static void VpSnap(uint8_t dst[VP_OBJS][VP_BYTES]);
 static void VpNudgeMouse(int dx);
 static void HeadInjectTick();

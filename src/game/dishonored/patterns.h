@@ -67,6 +67,14 @@ static const uint32_t  kCamLoc2  = 0xC4;   // cached POV loc 2
 // pawn's. Left here only because the camera entry below still needs the values.
 static const uint32_t kPcRotBase[]  = { 0x9c, 0xd0 };   // RETIRED - see above
 static const uint32_t kCamRotBase[] = { 0x9c, 0xd0 };   // camera POV + its cache
+// VR-70 (2026-09-11, simulator, `viewprobe` on the intro boat ride): a +1200
+// mouse delta moved the camera POV rotator (+0x9c/+0xa0: pitch -30 -> 122, yaw
+// -11999 -> 3608) and, by the identical amounts, a rotator at +0x210/+0x214 on
+// the live InterpTrackSoireeControl object - Arkane's Matinee track for a
+// scripted look-around ("soiree"). Nothing on the PlayerController moved. So in
+// a soiree the look lives on the track, the controller's rotation is ignored,
+// and the head has to be written HERE. Identified by making it move.
+static const uint32_t kSoireeRotOff = 0x210;   // InterpTrackSoireeControl: look rotator (pitch, yaw, roll)
 static const uint32_t kPovOffs[3] = {0x330, 0x350, 0x374};
 static const uint32_t kFovCands[4] = {0x53c, 0x540, 0x564, 0x254};
 static const uint32_t kLevCtrl[3] = {0x3ac, 0x3b0, 0x3b4};   // FOVAngle/Desired/Default

@@ -112,10 +112,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
 #endif
 #if DVR_WITH_LEGACY
     if (!strcmp(cmd, "pcap")) return PcCommand(args);
+#endif
+    // These three are shipped instruments (VR-61, VR-62), not legacy: they used
+    // to sit inside the pcap block above and were unreachable in a stock build.
     if (!strcmp(cmd, "rfl")) return RflCommand(args);
     if (!strcmp(cmd, "startup")) return SuCommand(args);
     if (!strcmp(cmd, "uistate")) return UiCommand(args);
-#endif
+    if (!strcmp(cmd, "viewprobe")) { VpArm(args); return true; }   // VR-70: which field does the mouse turn?
+    if (!strcmp(cmd, "soiree")) return SoireeCommand(args);         // VR-70: the scripted look-around lane
     if (!strcmp(cmd, "blink")) {
         if (!strcmp(args, "probe")) { BlinkProbeArm(); return true; }
         if (DvrOnOff(args, &b)) { g_blkAimOnCfg = b; g_blkDriveUI = b; Log("blink: hand aim %s (seam)", b ? "ON" : "off"); return true; }
