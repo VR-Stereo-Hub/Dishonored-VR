@@ -190,3 +190,15 @@ Full INI diff adds only Cine.LockRoll=1; CRLF verified. Prior DLL/INI/both logs
 archived in build/cinematic-fov/install-20260913-231230. Release,39 head math/
 ownership checks,13 scope checks, lint, exports, golden INI and standalone XR
 60 frames FOCUSED/zero errors pass. No game launched. Headset test pending.
+
+## Deferred headset queue, 2026-09-13
+
+Testing resumes in the next session. PR56 stays draft and unmerged. Candidate234
+is preserved independently under build/playtest-candidates/cinematic-234 with
+DLL, exact CRLF INI and manifest. Test this candidate first: tilted Empress scene
+and free head look. Mantle remains a separate untested acceptance item.
+VR-106 tracks a longstanding standing-only pitched-head roll arc on a child
+branch from this branch. It must not be confused with authored cinematic roll.
+The agent swaps builds, compares the entire installed INI and reads/archives
+both logs; the tester only launches and reports observations. One question per
+launch. No game launch or merge is authorized. Both candidates await testing.

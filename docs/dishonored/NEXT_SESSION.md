@@ -154,3 +154,15 @@ Team VR, project Dishonored VR Mod, existing milestone
 Stable - 6DOF, motion controls and alpha parity. Follow docs/LINEAR_AND_GITHUB.md.
 The local prepared crash updates are under build/crash-triage; the committed
 ENGINE_NOTES/FLICKER_REFERENCE contain the durable findings and hashes.
+
+## Deferred headset queue, 2026-09-13
+
+Testing resumes in the next session. PR56 stays draft and unmerged. Candidate234
+is preserved independently under build/playtest-candidates/cinematic-234 with
+DLL, exact CRLF INI and manifest. Test this candidate first: tilted Empress scene
+and free head look. Mantle remains a separate untested acceptance item.
+VR-106 tracks a longstanding standing-only pitched-head roll arc on a child
+branch from this branch. It must not be confused with authored cinematic roll.
+The agent swaps builds, compares the entire installed INI and reads/archives
+both logs; the tester only launches and reports observations. One question per
+launch. No game launch or merge is authorized. Both candidates await testing.
