@@ -5628,3 +5628,36 @@ the lease while presentation is active. Idle service releases despite stale
 started/hints metadata. Unknown layout does not release. Periodic ui/loading
 prints each input, service pointer and presentation state, including failure.
 24 host anchor/lease cases pass; native timing and headset acceptance pending.
+
+## 2026-09-14: build252 rejected; follow script WaitMovie completion
+
+Verified252-g2d62aca2, Sep14 08:35:52; matching installed DLL. Both logs/INI
+archived at build/mono-ui-test/playtest-20260914-084045. Main menu starts with
+service field+130 already1; after loading it remains1 through gameplay and
+pause/unpause. At6156625 mode0 transition0 started0 hints1 yet lease1.
+The claim that+130 proves visible presentation is retracted. It is overlay
+selection/enabling state and remains set beyond movie playback. Do not reuse.
+
+Additional decompiled declarations: Engine.WaitMovie, StopMovie with delayed
+stop until game rendered; GamePlayerController.ShowLoadingMovie,
+KeepPlayingLoadingMovie and ClientStopMovie. Native Engine.WaitMovie005e2600
+calls service slot34 ->004dbc30, which waits on service+1c event via event slot14.
+The service's movie-status queries004eb190/004eb2a0 also sample that event with
+zero timeout and return complementary finished/unfinished results. This is a
+completion signal, not hand tracking or an arbitrary button press.
+
+Constructor00500cfe creates the event with manual-reset1 and initially false,
+stores at+1c, then signals at00500d62 for initial idle. Factory00420500 creates
+event vtable00fb98a8, Win32 HANDLE at+4. Its slot14 ->00416670 invokes imported
+WaitForSingleObject with the caller timeout. Factory initialization uses
+CreateEventW at IAT00f941d8; SetEvent/ResetEvent are00f941dc/00f941e0.
+Code/slot/create bytes are verified before reading the current event handle.
+A SYNCHRONIZE-only duplicate is observed at zero timeout then closed. Manual
+reset means observing cannot consume completion. Current owner/service/event/
+handle identity is checked; unknown/failed reads retain mono. No engine writes,
+no native function calls, and no retaining handles across polls.
+
+31 host checks include actual manual-reset event pending, completion, repeated
+observation without consumption, second-load reset and invalid handle refusal.
+The prior overlay-enabled value remains diagnostic only. Movie completion now
+controls the existing loading lease. Headset timing is still unconfirmed.

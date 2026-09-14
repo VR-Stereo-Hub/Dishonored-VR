@@ -1766,3 +1766,13 @@ and retains the lease only through active presentation. No hand-tracking gate.
 Counterprediction: presenting0 with load mode/transition cleared must release;
 presenting1 through Continue must remain mono. Unknown layout is logged/refused.
 See MONO_ANCHOR_UI_STATE.md and ENGINE_NOTES for derivation and archived run.
+
+## 2026-09-14: build252 active-field hypothesis retracted
+
+Verified252 still holds mono in gameplay and after pause. Movie service+130
+stays1 throughout; mode0/transition0/started0/hints1 cannot release the lease.
+The overlay draw-enabled predicate is not presentation lifetime. Candidate
+follows script Engine.WaitMovie to the manual-reset movie-completion event.
+Zero-time observation is nonconsuming and tested on real host events. Expected:
+completion releases mono after Continue, not before; other menu guards remain.
+Full derivation, archive and failure record: MONO_ANCHOR_UI_STATE.md.

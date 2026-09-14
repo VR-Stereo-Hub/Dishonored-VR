@@ -2,6 +2,7 @@
 // Read-only. Root identity is checked against its current GObjects slot; child
 // identities are read afresh from the engine/player/world/UI-manager chain.
 #include "core/vr/mono_anchor.h"
+#include "game/dishonored/movie_completion.h"
 namespace {
 std::atomic<bool> g_usEnabled{false},g_usBlocked{true};
 SRWLOCK g_usLock=SRWLOCK_INIT;
@@ -47,7 +48,33 @@ bool UsMoviePresent(uint8_t* overlay,void* movie,bool& presenting) {
         if(!RangeReadable(field,sizeof(active))) return false;
         memcpy(&active,field,sizeof(active));
         if(active>1) return false;
-        presenting=active!=0;
+        // Build252 proved the overlay-enabled flag stays set in gameplay.
+        // Engine.WaitMovie waits for this manual-reset completion event instead.
+        if(!RangeReadable((void*)kMovieEventCreate,sizeof(kMovieEventCreateBytes)) ||
+           memcmp((void*)kMovieEventCreate,kMovieEventCreateBytes,sizeof(kMovieEventCreateBytes)) ||
+           !RangeReadable((void*)kMovieEventWait,sizeof(kMovieEventWaitBytes)) ||
+           memcmp((void*)kMovieEventWait,kMovieEventWaitBytes,sizeof(kMovieEventWaitBytes))) return false;
+        uint8_t* event=nullptr;
+        if(!RangeReadable((uint8_t*)movie+kMovieCompletionEvent,sizeof(event))) return false;
+        memcpy(&event,(uint8_t*)movie+kMovieCompletionEvent,sizeof(event));
+        if(!event || !RangeReadable(event,kMovieEventHandle+sizeof(HANDLE))) return false;
+        uintptr_t eventVt=0,wait=0; HANDLE handle=nullptr;
+        memcpy(&eventVt,event,sizeof(eventVt));
+        if(eventVt!=kMovieEventVtable || !RangeReadable((void*)(eventVt+kMovieEventWaitSlot),sizeof(wait))) return false;
+        memcpy(&wait,(void*)(eventVt+kMovieEventWaitSlot),sizeof(wait));
+        if(wait!=kMovieEventWait) return false;
+        memcpy(&handle,event+kMovieEventHandle,sizeof(handle));
+        // Manual-reset means observing completion does not consume the signal.
+        if(!dvr::movie::observe_completion(handle,presenting)) return false;
+        uint8_t* eventAfter=nullptr; HANDLE handleAfter=nullptr;
+        if(!RangeReadable((uint8_t*)movie+kMovieCompletionEvent,sizeof(eventAfter)) ||
+           !RangeReadable(event,kMovieEventHandle+sizeof(handleAfter))) return false;
+        memcpy(&eventAfter,(uint8_t*)movie+kMovieCompletionEvent,sizeof(eventAfter));
+        memcpy(&handleAfter,event+kMovieEventHandle,sizeof(handleAfter));
+        if(eventAfter!=event || handleAfter!=handle) return false;
+        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+            "ui/movie-completion: overlayEnabled=%u finished=%d presenting=%d; zero-time manual-reset event observation",
+            active,(int)!presenting,(int)presenting);
     } else if(query!=kNullMoviePresentQuery || !RangeReadable((void*)query,sizeof(kNullMoviePresentQueryBytes)) ||
               memcmp((void*)query,kNullMoviePresentQueryBytes,sizeof(kNullMoviePresentQueryBytes))) return false;
     void* current=nullptr; uintptr_t currentVt=0;
