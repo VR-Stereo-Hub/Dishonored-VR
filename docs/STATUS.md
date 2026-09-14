@@ -1,12 +1,12 @@
-## Current state: final mono UI build250 installed
+## Current state: loading release build252 installed
 
-PR56/57 accepted and ready, unmerged. PR58 now includes their accepted fixes.
-Installed250-g78abb4fa (Sep14 08:17:32), anchor/category flags and SurfaceGuard ON.
-Full INI diff only adds12 keys; hashes/CRLF verified and both logs archived.
-See MONO_ANCHOR_UI_STATE.md for checks, manifest and first focused test:
-20 seconds at main menu, head motion and stick navigation, anchored mono expected.
-Loading/Continue is a later launch. Agent reads logs; never launches the game.
-No subagents. Keep all three PRs unmerged until remaining tests complete.
+Installed252-g2d62aca2 (Sep14 08:35:52), full INI unchanged and hashes/CRLF
+verified. Build250 main-menu anchoring works; gameplay stayed mono because the
+movie service persists while idle. New read-only native presentation predicate
+replaces service existence. See MONO_ANCHOR_UI_STATE.md for evidence and test:
+load, wait5 seconds at Continue, dismiss, expect mono-to-stereo only on dismissal.
+24 loading/anchor and17 handoff checks, release/exports/lint/golden pass.
+Never launch the game, no subagents, all three PRs remain unmerged.
 
 ## Earlier records
 

@@ -1,3 +1,24 @@
+## Current candidate: loading presentation release252
+
+Installed vr33-hands-working-252-g2d62aca2, Sep14 08:35:52. Verified DLL hash
+543d53fb56d6d413855ed7b84b852687c98b6eaa5222b9c6a975fd6f542c58dd.
+Full installed INI unchanged (empty settings and text diff), CRLF verified.
+Both logs archived at build/playtest-candidates/installs/20260914-083643-968595.
+24 anchor/loading checks and17 cinematic handoff checks pass, release build,
+9 exports, lint and INI golden pass. Runtime anchoring itself is unchanged;
+prior standalone XR smoke remains applicable. No game launch by the agent.
+
+Build250 confirms main-menu anchoring but fails gameplay stereo release.
+The persistent native movie service was incorrectly treated as visible loading.
+Build252 uses the byte-verified native presentation field and logs ui/loading
+inputs every2 seconds. Detailed derivation and failure evidence are below.
+
+Next launch question: load a save, wait at Continue for5 seconds, then continue;
+does the loading panel stay mono until dismissed and then switch to full stereo
+in gameplay? Early stereo means the active-state policy releases too soon;
+remaining mono means another state still blocks. Agent reads/archives logs.
+PR58 stays draft; all three PRs remain unmerged. No subagents.
+
 ## Installed final-branch candidate, 2026-09-14
 
 Installed vr33-hands-working-250-g78abb4fa, compiled Sep14 08:17:32, source78abb4fa.
