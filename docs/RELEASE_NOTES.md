@@ -249,3 +249,10 @@ lean and physical crouch, roomscale with auto-recenter, motion controls with bot
 Arkane's rig, hand-aimed Blink with distance by hand pitch, hand-aimed projectiles, sword
 swings and blocking by motion, wrist-mounted HUD, F10 settings overlay, per-eye shadows,
 light shafts and reflections. Known issues: docs/KNOWN_ISSUES.md.
+
+### Pending validation: cinematic FOV and native arms
+
+Default-off LockFov requests a stable VR field of view during cinematic and
+dialogue scenes. Default-off CinematicHandBack gives the game control of hands,
+weapons and arm visibility during those scenes. Combined candidate230 awaits
+headset evaluation; not a release or confirmed result. See VR-50 and VR-104.

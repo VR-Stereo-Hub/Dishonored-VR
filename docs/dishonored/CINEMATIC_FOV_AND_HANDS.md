@@ -48,7 +48,7 @@ not proof of measured projection consumption; no runtime policy changes.
 Frame-exact FOV metadata across queued transitions remains a limitation of the
 existing host handoff and must not be described as validated by a scope test.
 
-20 x86 policy/scope checks cover enable/state/menu/projection/target guards,
+30 x86 FOV/handback policy and scope checks cover enable/state/menu/projection/target guards,
 write and restore, nested refusal, missing identity, changed field and invalid
 values. Compile/lint/golden checks pass. Headset validation pending.
 
@@ -83,3 +83,13 @@ Full-size plus native animation supports both changes. Shrinking isolates a
 remaining FOV/render path; controller-driven or missing arms isolates handback.
 Check gameplay return in the same sequence. VR-50 broader kill-cam and manual
 FOV cases remain unverified. Neither ticket closes merely from building.
+
+## Installed combined candidate230
+
+Both changes are enabled in build vr33-hands-working-230-g47c626a5,
+compile21:40:15. 30 FOV/handback checks,43 identity lifecycle checks, release
+build, lint,9 exports, golden INI and60-frame standalone XR simulator pass.
+Full installed INI diff contains only Cine.LockFov=1 and Anim.CinematicHandBack=1;
+CRLF preserved. DLL hash matches the build. Prior DLL, full INI and both logs
+archived in build/cinematic-fov/install-20260913-214151. Manifest:
+build/cinematic-fov/latest-install.json. No game launch; headset test pending.

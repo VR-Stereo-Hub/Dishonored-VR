@@ -5588,3 +5588,13 @@ and remaining validation performed locally. No game launch or merge.
 Build222 border removal accepted. PR54 merge explicitly authorized; new state
 reading work is VR-103,not a regression fix folded into the approved camera PR.
 Detailed acceptance and archived identity:CINEMATIC_HEAD_TRACKING.md.
+
+## Installed combined candidate230
+
+Both changes are enabled in build vr33-hands-working-230-g47c626a5,
+compile21:40:15. 30 FOV/handback checks,43 identity lifecycle checks, release
+build, lint,9 exports, golden INI and60-frame standalone XR simulator pass.
+Full installed INI diff contains only Cine.LockFov=1 and Anim.CinematicHandBack=1;
+CRLF preserved. DLL hash matches the build. Prior DLL, full INI and both logs
+archived in build/cinematic-fov/install-20260913-214151. Manifest:
+build/cinematic-fov/latest-install.json. No game launch; headset test pending.
