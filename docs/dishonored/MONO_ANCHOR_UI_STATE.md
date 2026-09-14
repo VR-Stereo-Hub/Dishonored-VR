@@ -106,3 +106,27 @@ Pass supports the movie-lifetime lease; an early projection or a persistent mono
 screen after Continue falsifies it. Do not combine questions or request another
 launch before archiving both logs. Save notifications and pause/resume are later
 negative controls, one question per launch. No game launch by the agent.
+
+## Preserved build240 and completed checks
+
+Clean source c18a67777e1ae3c7979f9e195864054765b32678 produced
+vr33-hands-working-240-gc18a6777 at00:06:55 on2026-09-14.
+Bundle: build/playtest-candidates/mono-ui-240.
+DLL SHA256: 62f3fa1c8b4b9a9190c72bc8cdba1a4cfc9a991d4d89de63fdc006e2eb2e4b8b.
+INI SHA256: 6b8b3523dcf1765561bdc8f4d159e45ee205bdb42845b8e356b071b01670f1ba.
+
+Passed:19 anchor/loading checks,39 cinematic math/ownership checks,
+13 scoped-write checks,38 FOV/handback checks,12 standing positional checks,
+x86 release build,9 proxy exports, lint, generated INI golden comparison.
+Standalone xr_hello32 simulator ran60 frames, reached FOCUSED,0 errors.
+The simulator smoke does not exercise Dishonored's native UI ownership.
+The existing DVR_CAT macro redefinition warning remains unchanged.
+
+Installed and hash-verified240, then restored/hash-verified234 for the first test.
+Full before/after settings and text diffs plus both logs are archived under
+build/playtest-candidates/installs/20260914-000734-181940 (240 install) and
+20260914-000747-348380 (234 restore). CRLF verified both times.
+Relative to234,240 adds the twelve anchor/guard keys plus inherited
+Neck.UprightPitchArc=1 and PosTrack.ZAccount=1; no unrelated setting changed.
+Relative to237, only the twelve anchor/guard keys were added.
+No game launch and no headset acceptance. All tickets remain open.

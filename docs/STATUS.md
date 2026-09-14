@@ -4,14 +4,14 @@ The new branch codex/vr-107-mono-anchors-and-ui-state starts at d27fdf6c on
 PR57's standing-camera branch. VR-107 adds configurable mono anchoring;
 VR-108 and existing VR-74/VR-71 cover loading/menu stereo and input ownership.
 Read docs/dishonored/MONO_ANCHOR_UI_STATE.md for implementation and test plan.
-Both new levers default off and will be enabled together in its candidate.
+Both new levers default off; preserved build240 enables them together.
 
 PR56 (cinematic build234) and PR57 (standing build237) remain draft/unmerged.
 Keep build234 installed first; build237 and the new cumulative UI candidate
 remain separately archived for agent-managed swaps. No headset testing has
 occurred on these candidates. One question per launch; never launch the game.
-No subagents. The next step is package/hash/install verification of the new
-candidate, restore234, then open its stacked draft PR. The agent archives both
+No subagents. Build240 was installed and hash-verified, then build234 restored and verified.
+The next step is deferred headset testing in order234,237,240. The agent archives both
 logs and checks full INI diffs/CRLF every swap. installed.json under
 build/playtest-candidates is the active installation authority.
 
