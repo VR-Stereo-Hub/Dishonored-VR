@@ -1,3 +1,14 @@
+## Current state: PR56 accepted; next is standing-roll PR57
+
+Verified239-gadebc947 confirms head-based movement. PR56 finalized for review;
+keep all three PRs unmerged until the remaining tests finish. Character-oriented
+drift remains open under VR-109. Next rebuild PR57 with this accepted parent,
+enable UprightPitchArc and ZAccount, and test standing pitched-head roll versus
+crouching. Preserve HeadBasedMovement=1. Agent handles installs/logs, no game
+launch, no subagents, one question per launch. See the latest cinematic notes.
+
+## Previous records
+
 ## Current state: head-based movement239 installed
 
 Installed239-gadebc947 (Sep14 07:44:40), HeadBasedMovement=1. Full INI

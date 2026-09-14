@@ -304,3 +304,14 @@ Installed/hash-verified; full settings diff adds only Camera.HeadBasedMovement=1
 CRLF checked. Previous DLL/INI and both logs archived under
 build/playtest-candidates/installs/20260914-074519-801836. No game launch.
 PR56 remains draft/unmerged. VR-109 character drift and VR-110 acceptance open.
+
+## 2026-09-14: head-based movement accepted, PR56 finalized
+
+Verified239-gadebc947, Sep14 07:44:40, against installed DLL hash and log banner.
+Logs/INI archived at build/cinematic-regression/20260914-075605. Head-based
+movement is headset-confirmed; log shows native facing passed unchanged.
+Cinematic comfort/FOV/free look and mono handoff fixes retain their acceptance.
+Character-mode drift remains open under VR-109; the selectable fallback does
+not close it. VR-110 is accepted pending merge. PR56 is ready for review.
+The user chose completing the remaining PR57/58 tests before merging all three;
+keep them unmerged while those tests remain. Next: rebuild PR57 with this parent.
