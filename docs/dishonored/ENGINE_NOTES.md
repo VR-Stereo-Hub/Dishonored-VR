@@ -5445,3 +5445,14 @@ exception. Code patching follows the existing byte-verified call-site pattern.
 OFF forwards the native result so the movie cache restores native visibility
 next update; no repeated executable patching.136 x86 decision/fingerprint
 checks pass. Visible filled bar areas remain the next headset acceptance.
+
+## 2026-09-13: VR-103 script-derived stereo permission
+
+Choice_Base declares m_DialogState: Listening0, Choosing1. Read by reflection
+from the current validated FSM state; no numeric offset guessed. InDialog and
+InScriptedChoice represent in-world choice scenes; InStore also inherits the
+base and must not be accepted merely by inheritance. Soiree exposes Matinee and
+control state. Native bodies are unavailable in the dump. The old cinematic
+parity latch measurably parks the runtime at scene entry and for2s after a
+no-lock handoff. Presentation permission is now separate from strict gameplay,
+behind default-off StereoState. See [candidate evidence](STEREO_STATE_TRANSITIONS.md).

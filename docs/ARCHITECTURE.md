@@ -776,3 +776,11 @@ and positional behavior; enable only the measured state and default the lever
 off. This avoids feeding the added head rotation back into the next authored
 update. Live identity/possession checks gate every store and restore. Headset
 acceptance, positional behavior and other cinematics remain outstanding.
+
+### 2026-09-13: separate cinematic presentation from gameplay permission
+
+VR-103 adds an optional scene_verdict callback. Runtime view publication may
+accept a live authored/dialogue scene while gameplay_verdict still parks aim,
+input and performance classification. Reentry uses the same scene policy before
+its once-per-tick pair decision. This avoids treating an input lock as proof
+that no stereo world exists. The lever ships off; runtime policy is unchanged.

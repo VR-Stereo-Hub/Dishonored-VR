@@ -369,21 +369,16 @@ static void DvrFovHandoff()
     }
 }
 
-// The game side's "strict gameplay" verdict for the runtime's cinematic gate
-// (the same terms as the [game] state line: a live pawn, no menu, no cinematic).
+// Strict permission for gameplay consumers. Presentation may independently
+// allow a cinematic through DvrSceneVerdict when StereoState is enabled.
 static bool DvrGameplayVerdict()
 {
     const bool pawn = CylTruthLive();
     const bool viewLive = DvrScriptViewLive();
     const bool verdict = pawn && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow && viewLive;
 
-    // 41.1: name the gate that flipped. A false verdict drops the runtime's
-    // layer to the head-locked quad ("xr: cinematic quad ON"), and in the
-    // headset that reads as the frames pinned in front of your face while
-    // the world stops turning with you (the 2026-09-03 run: once, after
-    // turning around, cleared by an alt-tab). The runtime's line only says
-    // strict=0; this one says WHICH term did it, so a remote log can tell a
-    // pause menu from a missed menu-close event from a starved view pipeline.
+    // Name the strict gate that flipped. This is not a layer observation:
+    // stereo/state reports the separate presentation decision when enabled.
     static bool said = false, last = false;
     static uint64_t falseSinceMs = 0;
     if (!said || verdict != last) {
@@ -393,19 +388,19 @@ static bool DvrGameplayVerdict()
                         : g_inMenu ? "inMenu" : g_mainMenu ? "mainMenu" : g_cineNow ? "cinematic latch"
                         : "view pipeline silent (no ProcessViewRotation dispatch)";
         Log("gameplay verdict: %s (%s) pawn=%d menuOpen=%d inMenu=%d mainMenu=%d cine=%d viewLive=%d "
-            "lastHeadWrite=%.0f ms ago -> the runtime's layer is %s",
+            "lastHeadWrite=%.0f ms ago -> gameplay permission %s",
             verdict ? "TRUE" : "FALSE", why, pawn ? 1 : 0, g_menuOpen ? 1 : 0, g_inMenu ? 1 : 0,
             g_mainMenu ? 1 : 0, g_cineNow ? 1 : 0, viewLive ? 1 : 0,
             g_scriptHeadOK ? (MaimNowMs() - g_scriptHeadMs) : -1.0,
-            verdict ? "the projection (world-locked)" : "the head-locked quad (frames pinned to the head)");
+            verdict ? "allowed" : "parked (see stereo/state for presentation)");
     } else if (!verdict && falseSinceMs && GetTickCount64() - falseSinceMs > 5000) {
         // Still false 5 s later and no menu owns it: say so, once per spell.
         // A pause menu is expected to sit here; gameplay is not.
         falseSinceMs = 0;
         if (!g_menuOpen && !g_inMenu && !g_mainMenu)
             DVR_WARN("gameplay verdict: FALSE for 5 s with NO menu open (pawn=%d cine=%d viewLive=%d, last head "
-                 "write %.0f ms ago) - the headset shows a head-locked quad in what is probably gameplay; "
-                 "F9 / alt-tab clears the parked state, and this line is the evidence for what parked it",
+                 "write %.0f ms ago) - gameplay permission remains parked; "
+                 "see stereo/state for the independent presentation verdict",
                  pawn ? 1 : 0, g_cineNow ? 1 : 0, viewLive ? 1 : 0,
                  g_scriptHeadOK ? (MaimNowMs() - g_scriptHeadMs) : -1.0);
     }
@@ -861,6 +856,7 @@ static void DvrInstallFrameHooks()
     cb.draw_prim            = DcDrawPrim;      // ...and the non-indexed entry point
     cb.d3d11                = DvrFrameD3D11;
     cb.gameplay_verdict     = DvrGameplayVerdict;
+    cb.scene_verdict        = DvrSceneVerdict;
     dvr::frame::set_callbacks(cb);
     dvr::stereo::ReentryHooks rh;
     rh.available = SceneDrawAvailable;

@@ -1,3 +1,17 @@
+## Current state (2026-09-13): PR54 merged; VR-103 candidate
+
+Cinematic head look, pitch and black borders are headset-confirmed and merged
+in PR54 (39a68a50); VR-70 is Done. New VR-103 is In Progress on
+codex/vr-103-stereo-state-transitions from that merge. The candidate separates
+stereo scene eligibility from gameplay/input locks using decompiled state
+names and live scene activity. It is default-off and awaiting headset testing.
+See STEREO_STATE_TRANSITIONS.md for evidence and the one-question
+dialogue transition test. Latest install manifest: build/stereo-state/latest-install.json.
+Never launch the game; read/archive logs yourself. No subagents this session.
+No merge permission for VR-103. PR54 approval does not extend to this work.
+
+## Historical handoff (superseded by current state above)
+
 ## Latest steering (2026-09-13)
 
 PR54 head look,pitch and border removal are accepted and explicitly authorized

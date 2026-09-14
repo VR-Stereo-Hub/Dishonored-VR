@@ -16,6 +16,7 @@ char masterRules[1024] = "StatePlayerMasterAssassinate,StatePlayerMasterChoke,St
 char upperRules[512] = "StatePlayerGenericFatality,StatePlayerGrabCorpse";
 uint32_t pawnFsm[3], currentOff, idOff, pendingOff, bodyOff, compOff;
 uint32_t historyOff, newestOff, seqOff, pickerOff, controllerPawnOff;
+uint32_t dialogOff = 0;
 bool resolved = false;
 bool sequenceLayout = false;
 uint8_t* lastPawn = nullptr;
@@ -66,6 +67,8 @@ void resolve() {
     sequenceLayout=FindPropOffsetChecked("DisAnimStateSeqHistory","m_SeqName",&seqOff) &&
         FindPropOffsetChecked("DisAnimStateSeqHistory","m_StatePicker",&pickerOff) &&
         seqOff==0 && pickerOff==sizeof(uint32_t)*2;
+    dialogOff=RflOffsetOf("StatePlayerMasterChoice_Base","m_DialogState");
+    Log("anim: reflected choice-state enum offset=%x (0=unresolved)",dialogOff);
     resolved=true;
     Log("anim: resolved FSM offsets %x/%x/%x current=%x id=%x; history=%x picker=%x (optional)",pawnFsm[0],pawnFsm[1],pawnFsm[2],currentOff,idOff,historyOff,pickerOff);
 }
@@ -106,7 +109,7 @@ void tick() {
     if (!on) return;
     resolve();
     Snapshot previous=s;
-    s.stamp=now; ++s.generation; s.valid=false; s.game=false;
+    s.stamp=now; ++s.generation; s.valid=false; s.game=false; s.dialogState=-1;
     text(s.reason,sizeof(s.reason),"unresolved or pawn unavailable");
     staleTable=false;
     const bool ctrlLive=IsLiveObject(g_peCtrl);
@@ -139,6 +142,11 @@ void tick() {
                 lastState[i]=state; lastClass[i]=cls;
             }
             if (i==0) {
+                if (!strcmp(s.state[0],"StatePlayerMasterInDialog") ||
+                    !strcmp(s.state[0],"StatePlayerMasterInScriptedChoice")) {
+                    unsigned char value=255;
+                    if (read(state,dialogOff,&value,1) && value<=1) s.dialogState=value;
+                }
                 uint8_t* pending=object(fsm,pendingOff);
                 if (pending!=lastPending || !previous.valid) text(s.pending,sizeof(s.pending),pending?objectName(pending):"none");
                 lastPending=pending;

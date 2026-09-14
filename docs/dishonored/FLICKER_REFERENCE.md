@@ -1649,3 +1649,15 @@ This extends the VR-78/91 lesson that an absent engine arc must not be cancelled
 Installed pivot0.321m below/0.062m behind; actual headset acceptance of this
 correction is pending. Both requests are logged as requests,not render evidence.
 See CINEMATIC_HEAD_TRACKING.md for archive,build manifest and one-question test.
+
+## 2026-09-13: VR-103 cinematic/dialogue mono interruptions
+
+Reported: both headset eyes lose stereo during a choice scene until selection;
+boat/Emily handoffs briefly switch stereo to mono and back. Measured on accepted
+build222 cf0d00dc20:37:01: cinematic latch alone parks the runtime; a no-lock
+handoff waits2s to clear. InDialog also outlives a silent PVR interval classified
+LOADING. This is a presentation eligibility hypothesis, not tag-ring skew.
+Candidate separates scene permission from input permission using current script
+states and scene activity. Default off; 24 x86 policy checks. Headset result open;
+continuous depth is predicted, further mono intervals falsify completeness.
+Full sources, archive, guards and next test: [VR-103 plan](STEREO_STATE_TRANSITIONS.md).

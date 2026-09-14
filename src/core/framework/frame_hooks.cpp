@@ -197,7 +197,8 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
                      wanted ? "CLAIMED" : "released", wanted ? "ON" : "off", dvr::stereo::active_name(),
                      dvr::stereo::projection_override_name());
         }
-        if (wanted) dvr::vr::publish_gameplay_view(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
+        if (wanted) dvr::vr::publish_gameplay_view(g_cb.scene_verdict ? g_cb.scene_verdict() :
+            g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
     }
     {   // VR-67: the A/B measures gameplay, never a menu or a load
         dvr::perf::ab_set_gameplay(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
