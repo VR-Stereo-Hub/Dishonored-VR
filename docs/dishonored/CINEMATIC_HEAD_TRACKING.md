@@ -43,37 +43,59 @@ Exclude later menu resume samples #331-335 and #387-390 from this conclusion:
 zero PVR writes and runtime quad fallback make them stale. Sample #336 starts
 recovering but is still on quad. Prior-render position is not same-draw evidence.
 
+## Candidate 219 result and reference-lifetime correction
+
+Build219-g0ebd7a3e, compile19:54:54, banner matched before interpretation.
+Archive:build/cinematic/playtest-20260913-200152. Partial head look was reported,
+with repeated return to the initial gaze and weaker vertical tracking. Head look
+was only noticed after the right-stick prompt; no prompt event is in the trace.
+
+The implementation incorrectly reset g_chReference on every non-double draw.
+The run has33 entries:initial anchor plus32 avoidable reanchors with clear menus,
+quad off,same camera/controller/pawn and unchanged load epoch.20 resets align
+exactly with logged SINGLE(no present since the previous draw); rate-limited
+logs cannot independently identify each of the remaining12. All2311 scoped
+writes restored successfully with zero refusals. The one-second retry delay
+also applied after successful captures and extended the untracked gaps.
+
+A separate earlier override exists:Walk samples157-159 show cache pitch fixed
+at-26.59 while controller/head pitch moves8.59 to7.90, despite influence0/1/0.
+Other Walk samples match PC/cache, including later boat samples195-212. Therefore
+Walk or player influence alone cannot prove normal camera ownership. Look-lock
+flags are added read-only to the next trace; this earlier phase remains open.
+
 ## Current candidate and next test
 
-[Cine] HeadLook defaults off, enabled only in the installed test INI. F10 View
-has a live checkbox; `cinehead on|off` provides the command equivalent. Trace
-remains on. The candidate requires a double draw, fresh tracked pose, clear
-menus/runtime projection, the Soiree master state and full animation influence.
-It composes authored * inverse(entry head) * current head. Both eyes use that
-same sample and the composed right axis. The existing position tracking frame
-is preserved, with its request frozen across the two draws. No controller or
-pawn movement writer changes. This is a rotation candidate for the measured
-boat state, not a claim that all cinematics or physical translation are fixed.
+[Cine] HeadLook remains default off and enabled in the installed test profile.
+F10 View and cinehead on/off provide live A/B. Trace stays on.
 
-A fresh live-object table is built at entry/resume; camera, controller and pawn
-retain class/FName and GObjects slot identity, rechecked with IsLiveObject and
-possession before writes/restores. Scope end restores the original rotation,
-location and offset provenance only when fields still match our writes. Engine
-recomputations and dead/reused objects are refused. Each draw derives from the
-restored authored input, so head movement cannot accumulate. Pose records name
-the new writer (3) and retain the exact tracked sample, not fresh globals.
+Reference lifetime is now independent of draw cadence. Single and double scene
+draws both apply head rotation; a single uses centered eye separation. Missing
+scene/runtime/pose evidence holds the reference without writing. Actual menus,
+owner changes,disable or known return from animation ownership reset it.
+Successful capture has no one-second throttle; failed refreshes still back off.
+The positive full-animation influence selects the overlay regardless of the
+pawn state name or tutorial prompt. Partial blends hold; player-only ownership
+keeps the existing writer, with the earlier override still under investigation.
 
-One question for the next launch: does physical looking around move the view
-freely while the opening boat continues its scripted movement?
+Authored * inverse(entry head) * current head preserves authored movement. One
+head sample and composed stereo right axis serve both draws; existing position
+tracking keeps its frame and a frozen request. Fresh-entry/resume live table,
+current object slots,retained class/full FName and possession guard every new
+write/restore. Scope end restores fields/provenance only if still ours.
 
-Start the opening boat ride, leave the stick untouched, turn left/right and
-look up/down, then quit normally. No deliberate lean is needed for this test.
-- Free head look with continuous boat movement supports the rotation candidate.
-- A locked view means the scoped write was refused or not consumed by rendering.
-- Snapping, drift or lost boat motion rejects composition/restore behavior.
-The agent checks the installed banner, archives the logs and reads the scope
-write/restore/refusal evidence. Stick, leaning, normal gameplay and transitions
-remain later separate tests. Do not merge without explicit authorization.
+One question:once the boat scene is visible, does looking left/right and up/down
+now stay where the head points instead of repeatedly returning to the starting gaze?
+
+Begin looking gently as soon as the boat scene appears,keep the stick untouched,
+and quit normally afterward. No deliberate lean is needed.
+- Stable directional looking supports the reference-lifetime correction.
+- Continued recentering or weak pitch rejects that correction as sufficient.
+- An earlier locked interval with stable later tracking isolates the additional
+  camera-override phase; inspect the new reflected input-lock trace.
+The agent checks the new installed banner and reads/archives the logs. Stick,
+lean,normal gameplay,transitions and other cinematic paths remain unverified.
+No merge without explicit approval.
 
 ## Remaining acceptance work
 
@@ -94,7 +116,9 @@ merge without explicit approval.
 
 ## Candidate validation
 
-`tools/cinematic-head-host.ps1`:12 rotation checks and10 scope checks pass.
+`tools/cinematic-head-host.ps1`:24 rotation/policy checks and10 scope checks pass.
+The new regression drives32 temporary holds with changing yaw/pitch and retains
+one anchor; a real menu/resume captures exactly one new reference.
 The scope harness extracts the production begin/end bodies and mocks only
 engine dependencies; it checks restoration, foreign writes, dead/replaced
 identity, wrong-thread cleanup and failed preparation. This does not prove

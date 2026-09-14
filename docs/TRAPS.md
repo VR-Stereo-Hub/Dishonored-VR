@@ -635,3 +635,12 @@ The 32-bit full dump also sign-extends virtual addresses above 0x80000000 into
 64-bit descriptor fields. Normalize to 32 bits when looking up captured memory;
 otherwise live controls above 2 GB appear missing and lead to false stale-object
 conclusions. Do not treat a parser lookup failure as proof of absent dump data.
+
+### VR-70: a single scene draw is not a cinematic exit (2026-09-13)
+
+Candidate219 cleared the HMD reference whenever stereo decided not to double a
+draw.32 pacing interruptions became32 gaze reanchors,despite every camera store
+restoring correctly. Separate draw eligibility from reference lifetime. Hold
+through pacing/runtime/pose gaps; reset for actual ownership/menu transitions.
+The regression changes both yaw and pitch across32 holds and must retain one
+reference. Full evidence:CINEMATIC_HEAD_TRACKING.md under docs/dishonored.

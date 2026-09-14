@@ -1,5 +1,6 @@
 // Standalone cinematic rotation checks. Never loads or launches the game.
 #include "../src/game/dishonored/cinematic_math.h"
+#include "../src/game/dishonored/cinematic_policy.h"
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
@@ -88,6 +89,72 @@ int main() {
     invalid.m[1][2] = std::numeric_limits<double>::quiet_NaN();
     check(!compose(authored,identity,invalid,out,&basis), "NaN head is refused");
     check(!compose(authored,invalid,identity,out,&basis), "NaN reference is refused");
+    const Conditions ready = {true,false,false,true,true,true,true,true,true};
+    bool cadence = true;
+    for (int i=0;i<64;++i) {
+        // A single and a double draw both render the scene. Eye count is not
+        // an ownership transition and deliberately is not a policy input.
+        Conditions draw = ready;
+        draw.sceneDraw=true;
+        cadence = cadence && action(draw)==Action::Track;
+    }
+    check(cadence,"alternating single and double scene draws keep tracking");
+    Conditions condition=ready; condition.sceneDraw=false;
+    check(action(condition)==Action::Hold,"temporary missing scene draw holds reference");
+    condition=ready;condition.runtimeReady=false;
+    check(action(condition)==Action::Hold,"temporary runtime unavailability holds reference");
+    condition=ready;condition.poseReady=false;
+    check(action(condition)==Action::Hold,"temporary pose unavailability holds reference");
+    condition=ready;condition.ownershipKnown=false;
+    check(action(condition)==Action::Hold,"unknown ownership holds reference");
+    condition=ready;condition.fullyAuthored=false;
+    check(action(condition)==Action::Hold,"partial animation blend holds reference");
+    condition=ready;condition.animationOwns=false;
+    check(action(condition)==Action::Reset,"known non-animation ownership resets reference");
+    condition=ready;condition.menu=true;condition.ownershipKnown=false;
+    check(action(condition)==Action::Reset,"real menu resets despite unknown ownership");
+    condition=ready;condition.ownerChanged=true;condition.poseReady=false;
+    check(action(condition)==Action::Reset,"changed identity resets despite unavailable pose");
+    condition=ready;condition.enabled=false;
+    check(action(condition)==Action::Reset,"disabled tracking resets reference");
+
+    int anchors=0;
+    bool referenceValid=false;
+    Matrix reference=identity;
+    auto advance = [&](const Conditions& c,const Matrix& pose) {
+        switch(action(c)) {
+        case Action::Reset: referenceValid=false;return false;
+        case Action::Hold: return false;
+        case Action::Track:
+            if (!referenceValid) {reference=pose;referenceValid=true;++anchors;}
+            return compose(zero,reference,pose,out,&basis);
+        }
+        return false;
+    };
+    const Matrix initialPose=rotation(0.17,-0.22,0.04);
+    bool preserved=advance(ready,initialPose);
+    for (int i=0;i<32;++i) {
+        const Matrix movingPose=rotation(0.25+0.012*i,0.13+0.019*i,-0.03);
+        condition=ready;
+        switch(i%5) {
+        case 0:condition.sceneDraw=false;break;
+        case 1:condition.runtimeReady=false;break;
+        case 2:condition.poseReady=false;break;
+        case 3:condition.ownershipKnown=false;break;
+        case 4:condition.fullyAuthored=false;break;
+        }
+        const bool held=!advance(condition,movingPose);
+        preserved=held && referenceValid && anchors==1 && preserved;
+        const Matrix expected=multiply(transpose(initialPose),movingPose);
+        preserved=advance(ready,movingPose) && preserved;
+        preserved=preserved && anchors==1 && close(basis,expected,0.0003) && !close(basis,identity,0.05);
+    }
+    check(preserved && anchors==1,"32 temporary pauses retain one anchor and changing yaw/pitch offsets");
+    condition=ready;condition.menu=true;
+    const Matrix resumedPose=rotation(-0.4,0.9,0.1);
+    const bool reset=!advance(condition,resumedPose) && !referenceValid;
+    check(reset && advance(ready,resumedPose) && anchors==2 && close(basis,identity,0.0003),
+          "real menu then resume captures a fresh physical reference");
     std::printf("Cinematic head math: %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }

@@ -5360,3 +5360,18 @@ store requires fresh-entry IsLiveObject, current object-slot membership, retaine
 class and full FName, and current controller camera/pawn links. Menus/load or
 failed ownership discard the reference. Failed restore preserves foreign fields.
 This is not yet a measured downstream acceptance of rotation stores.
+
+## 2026-09-13: VR-70 reference reset caused by draw cadence
+
+Build219-g0ebd7a3e,19:54:54,archive playtest-20260913-200152.33 entries mean
+32 unintended reanchors,with menus clear,quad off,same live owner and load epoch.
+20 align exactly with SINGLE(no present since previous draw); remaining reasons
+are obscured by log rate limiting.2311 writes/restores,zero refused. Non-double
+gating must not clear the physical reference. Candidate now overlays centered
+single scene draws too and holds reference across unavailable scene/runtime/pose.
+
+Walk samples157-159 separately override PC pitch8.59..7.90 with cache-26.59
+while influence0/1/0. Other Walk phases match PC/cache. No blanket player-camera
+head overlay is justified. Added reflected read-only bCinematicMode,cinematic
+move/look disable,ignore cinematic,ignore move/look counters; unavailable=-1.
+They do not change the legacy latch or runtime presentation policy.

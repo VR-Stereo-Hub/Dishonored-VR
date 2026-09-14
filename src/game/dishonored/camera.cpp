@@ -616,7 +616,7 @@ bool apply_offsets(uint8_t* camObj) {
         ++g_etrEyeCount[eyeNow < 0 ? 0 : eyeNow > 0 ? 2 : 1];
         if (secondPass) ++g_etrSecondPass;
     }
-    if (eyeNow == 0 && !posLive) {
+    if (eyeNow == 0 && !posLive && !scoped()) {
         if (g_eyeWriter.lastOk && g_field >= 0) restore(camObj, kFields[g_field].off, g_eyeWriter);
         ++g_etrSkips;
         zcommit(false, "no eye and no position: restored");

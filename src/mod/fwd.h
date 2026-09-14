@@ -195,7 +195,7 @@ static void CineTraceTick();
 static void CineTraceDraw();
 static bool CineHeadEnabled();
 static void CineHeadSet(bool on);
-static void CineHeadBegin(bool doubleDraw);
+static void CineHeadBegin(bool sceneDraw, bool doubleDraw);
 static void CineHeadPublish();
 static void CineHeadEnd();
 static bool IsLiveObject(uint8_t* p);

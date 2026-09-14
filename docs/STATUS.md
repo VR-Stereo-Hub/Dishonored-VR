@@ -13,19 +13,20 @@ The banner-verified boat run proves head rotation reaches the controller while
 the animation-owned camera ignores it: 62.55 degrees of head pitch versus 0.02
 in the cache over 281 clean samples. Lean and stick were not tested.
 
-The new default-off candidate composes head rotation over the authored boat
-camera only during both eye draws, then restores its original fields and writer
-provenance. Engine writes validate current live identity and possession. Gameplay
-rotation and positional tracking logic stay in place; the eye axis follows the
-composed orientation. See [current evidence and test](dishonored/CINEMATIC_HEAD_TRACKING.md).
+Candidate219 partially worked but repeatedly reset the gaze. Its non-double
+frame gate discarded the head reference:33 entries included32 unnecessary
+reanchors,despite2311 successful writes/restores and zero refusals. The new
+candidate keeps that reference through timing gaps and applies rotation on
+single and double scene draws. Full animation influence is independent of
+pawn-state/tutorial names. A brief earlier player-influence camera override
+remains open; new look-lock diagnostics cover it.
 
-Validation:22 host checks,32-bit build,9 exports,lint,INI golden and standalone
-XR smoke (60 frames,0 errors) pass. Next: run the installed candidate with the
-single head-look question there.
-Read `build/cinematic/latest-install.json` for exact installed banner/hash before
-interpreting logs. Verify scope write/restore counts, then test stick, position,
-normal gameplay and transitions separately. VR-70 is In Progress; merge is not
-authorized. The agent never launches the game.
+Validation:34 host checks,32-bit build,9 exports,lint,INI golden and standalone
+XR smoke pass. Next:run the revised installed candidate's single stable-gaze
+question in [the plan](dishonored/CINEMATIC_HEAD_TRACKING.md). Read
+`build/cinematic/latest-install.json` for exact installed banner/hash. Check
+anchor count,scope restoration and earlier look-lock flags before choosing more
+changes. VR-70 remains In Progress; merge is not authorized. No agent game launch.
 
 ## Earlier (2026-09-13): load/reload fixes confirmed and merged (PR #53)
 
@@ -5545,3 +5546,10 @@ Soiree animation path bypasses controller rotation while Walk uses it. Added a
 guarded draw-scoped cache rotation overlay, coherent stereo eye orientation and
 live A/B. Headset behavior remains pending; lean and stick are untested. Details
 and remaining acceptance are in CINEMATIC_HEAD_TRACKING.md.
+
+## Session continuation (2026-09-13): remove cinematic recentering on pacing gaps
+
+Build219's32 avoidable reference resets are measured,with20 exact logged
+no-present SINGLE correlations. Fixed lifetime and centered single-draw support;
+34 host checks cover the regression and restoration. Earlier override before
+full-animation ownership is still being measured. See CINEMATIC_HEAD_TRACKING.

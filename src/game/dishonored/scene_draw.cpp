@@ -431,7 +431,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         // pass 2 will run, so a present can never carry a -1 whose +1 sibling
         // was skipped (41.1: the resume-window one-sided stream).
         g_sdTick = SceneDrawDecide(callerRet);
-        CineHeadBegin(g_sdTick.doubleIt);
+        CineHeadBegin(g_sdTick.gameplay, g_sdTick.doubleIt);
         if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
         g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
         InterlockedExchange(&g_sdInDrawTid,
