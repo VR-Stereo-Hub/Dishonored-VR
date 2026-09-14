@@ -1,5 +1,11 @@
 # Roadmap
 
+## World head-motion stability (2026-09-14)
+
+- [x] VR-116 image-linked world orientation confirmed and reconfirmed at 120 Hz.
+- [x] Exact accepted INI promoted, including Pace.ImageOrientation=1.
+- [ ] VR-95 residual left-eye hand jump after the opening cutscene, deferred.
+
 ## Weapon lens follow-up (2026-09-14)
 
 - [x] VR-112 crossbow unsheath/tracking recovery confirmed on build260.

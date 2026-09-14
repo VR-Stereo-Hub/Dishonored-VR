@@ -142,6 +142,7 @@ static void WriteDefaultIni(const char* ini)
         "SharedWait=0\n"
         "BboxMs=30000\n"
         "[Pace]\n"
+        "ImageOrientation=1\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
         "; the `vrpace` seam word and the F10 Runtime panel; SAVE AS DEFAULTS writes them.\n"
         "; Ahead=0|1|2: locate the head pose (and the layer's views) this many display\n"
@@ -2558,7 +2559,7 @@ static void LoadConfig()
             dvr::vr::set_pace_ahead(ahead);
             dvr::vr::set_pair_strict(strict != 0);
             dvr::vr::set_pose_lag(lag);
-            dvr::vr::set_image_orientation(GetPrivateProfileIntA("Pace","ImageOrientation",0,ini)!=0);
+            dvr::vr::set_image_orientation(GetPrivateProfileIntA("Pace","ImageOrientation",1,ini)!=0);
             // PRINT WHAT IT RESOLVED TO, AND WHETHER THE FILE SAID SO. Two headset
             // tests were wasted shipping a changed compiled default to a machine
             // whose ini names the key: the loader reads a default only when the key

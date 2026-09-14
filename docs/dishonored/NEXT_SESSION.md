@@ -1,3 +1,34 @@
+## Current acceptance: world smoothness approved for main, 2026-09-14
+
+The exact original world candidate 271-g8cd27652 was restored and independently
+reconfirmed on the headset. Exceptional world stability returned. Its installed
+INI is now copied byte-for-byte to the release and golden INIs, and the default
+writer matches it. `Pace.ImageOrientation=1` is the generated and missing-key
+default by explicit user request after acceptance; explicit 0 remains respected.
+
+This merge contains the WORLD fix from 8cd27652 only. The unaccepted hand
+normalization code from 12a974134 is absent. The branch
+`codex/vr-116-flicker-fix-patch` preserves that experiment for later investigation.
+The accepted DLL/INI bundle and `vr-116-world-smooth-271` tag remain recoverable.
+The user explicitly approved publishing this accepted state to VR-Main.
+
+Latest symptom refinement: residual left-eye hand flicker was observed after
+exiting the opening cutscene, while loading a sewer save was essentially clean.
+This makes transition state relevant; it does not prove the precise cause.
+Track the deferred hand issue with VR-95 and preserve its historical predictor
+regression. Do not resume or include hand changes in this merge.
+
+Reconfirmation logs/INI: `build/flicker-120/reconfirmed-world`; banner and DLL
+hash match 271-g8cd27652, compiled 13:46:59. Source changes beyond that checkpoint
+are documentation and INI/default promotion only. No engine-memory writer,
+camera transform, hand pose or frame pacing change is introduced by promotion.
+
+Next: complete and verify the authorized main merge; hand/cutscene work waits.
+Historical pending, publication-blocked and candidate text below records earlier
+stages and does not override this scope or the new explicit merge authorization.
+
+## Earlier records
+
 ## Current state: VR-116 120Hz physical-head-turn flicker investigation
 
 VR-115 desktop branch is parked at committed1d6558a3; no uncommitted changes

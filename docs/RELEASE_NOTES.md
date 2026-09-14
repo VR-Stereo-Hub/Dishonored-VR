@@ -2,6 +2,11 @@
 
 ### Changed
 
+- Image-linked world head orientation is enabled by default after repeated
+  headset confirmation at 120 Hz. Physical head turns remain substantially
+  smoother even with uneven game frame delivery. The tested INI ships verbatim;
+  invalid image records retain numeric-lag fallback. Hand timing is unchanged.
+
 - The complete September 14 accepted INI and saved F10 profile are now the generated
   and packaged defaults, by maintainer request. This includes diagnostic flags,
   calibration values and the configured data directory. Existing INIs keep their
