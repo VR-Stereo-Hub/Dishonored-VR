@@ -1,3 +1,14 @@
+## Updated cumulative candidate, 2026-09-14
+
+PR56 and PR57 are headset-accepted and ready for review, still unmerged.
+This branch now includes standing parent b303c5f4, including head-based movement
+and the accepted cinematic mono handoff. UI blocking does not refresh cinematic
+activity. Pad routing also respects current UI ownership for menu stepping,
+room-scale input, cinematic parking and stale-cursor mouse nudges.
+The latter must not steal focus from a live menu while its old event flag is off.
+First test remains the20-second anchored main-menu/navigation test below.
+Loading/Continue is a separate later launch. Build240 is superseded.
+
 # Mono anchoring and current UI ownership
 
 ## Scope and status

@@ -117,10 +117,14 @@ static void OverlayFrame()
     }
     // VR-30: THE fix. Head yaw stops turning the body; the stick still does.
     {
+        bool headMovement=HeadMovementEnabled();
+        if(ImGui::Checkbox("Head-based movement",&headMovement)) HeadMovementSet(headMovement);
+        ImGui::BeginDisabled(headMovement);
         bool on = g_frWant >= 0.0f;
         if (ImGui::Checkbox("arms: head yaw does not turn the body", &on))
             ArmFollowSetFacing(on ? 1.0f : -1.0f, "F10");
         ImGui::TextDisabled("intercepts FaceRotation; the stick still turns you");
+        ImGui::EndDisabled();
     }
     {
         bool sr = g_asrWant >= 0.0f;

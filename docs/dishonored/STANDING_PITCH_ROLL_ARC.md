@@ -1,3 +1,39 @@
+## Headset result, 2026-09-14
+
+Build245-g0cd7b263 (Sep14 07:57:48) confirms the pitched-head roll fix in
+both directions. Installed DLL hash matches the candidate. Both logs and INI
+are archived at build/standing-arc-test/playtest-20260914-080646.
+
+A small inverse vertical shift remains under existing VR-87, not the roll fix.
+Episode3 joined accounting: down -22deg residual U +5.07/+5.11uu;
+up +27.7deg residual U -4.85/-5.01uu. Raw tracked height changes by about
+-5.1/+4.9uu while rendered height changes less than0.1uu. Final cap changes
++4.31/+4.35 down and -4.81/-4.97 up. Closure/writer errors print zero;
+all accepted bins are capped. The ceiling removes real vertical head motion.
+Do not retune the pivot or remove low-clearance protection to hide this.
+VR-87 remains open for a clearance-preserving fix and separate test.
+
+PR57 is accepted for its roll correction and ready for review, unmerged.
+PR56 also remains unmerged. Next queued build is PR58 mono anchors/UI guards;
+propagate this accepted parent before building/installing it. All three merge
+in dependency order only after remaining tests complete. No game launched.
+
+## Current candidate, 2026-09-14
+
+PR57 updated with accepted PR56 parent cb77328d. Preserve HeadBasedMovement=1
+and all accepted cinematic/FOV/mono fixes. New build enables only the standing
+UprightPitchArc correction plus ZAccount diagnostics relative to installed239.
+PR56 is ready for review; no PR has merged. PR58 follows after this test.
+
+One question: while standing and looking up or down, does rolling your head
+left/right now keep the camera as stable as when crouched, without the extra
+smile-shaped arc? Compare the same movement crouched. Keep feet still; avoid
+deliberate leaning. Ordinary small motion from physically moving your eyes is
+expected; the target is the exaggerated curved sweep. A standing-only residual
+means this fix is incomplete; a new crouched problem is a regression.
+
+## Historical initial candidate
+
 # VR-106: standing pitched-head roll arc
 
 ## Scope and status
@@ -93,3 +129,17 @@ No new game launch or game log exists for either pending candidate.
 Final checks:12 x86 standing-arc regressions,39 parent math/ownership checks,
 13 camera-scope checks, Release build, lint, nine exports, golden INI and standalone
 XR60 frames FOCUSED/zero errors pass. Headset acceptance remains pending.
+
+## Updated installation, 2026-09-14
+
+Installed vr33-hands-working-245-g0cd7b263, Sep14 07:57:48, source 0cd7b2630eb0d0495cfe29368213771394ff122e.
+Bundle build/playtest-candidates/standing-arc-245 includes accepted PR56 parent.
+DLL SHA256 e67175b9cddc9da5822035310c47a01cc0bd804c8da476fe3f0479943b22d318.
+INI SHA256 e9fde6ffb0b01a9c95e5cc0f38ec98c862ce063556349972c1dfab5e35cbb8cc.
+Full INI diff: add Neck.UprightPitchArc=1 and PosTrack.ZAccount=0->1 only.
+HeadBasedMovement=1 and all accepted cinematic settings preserved. Hashes and
+CRLF verified, both logs archived at
+build/playtest-candidates/installs/20260914-075910-008829.
+12 standing,15 production-facing,17 handoff,39 cinematic math and13 scoped-write
+checks pass; release build,9 exports, lint and INI golden pass. No game launch.
+PR57 remains draft until the standing/crouched rolled-head comparison is tested.

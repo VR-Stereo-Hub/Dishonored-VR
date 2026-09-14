@@ -1,4 +1,5 @@
 #include <atomic>
+#include "game/dishonored/cinematic_handoff_policy.h"
 #include "game/dishonored/cinematic_math.h"
 #include "game/dishonored/cinematic_policy.h"
 // VR-70: camera ownership trace and draw-scoped head rotation; after reflection in the unity TU.
@@ -202,6 +203,12 @@ static bool CineHeadOwnsInput() {
         !g_menuOpen && !g_inMenu && !g_mainMenu && !g_gameExiting &&
         dvr::vr::session_live() && dvr::stereo::wants_projection() && !dvr::vr::cinematic_active() &&
         ChValidate((uint8_t*)g_chOwner[0].value.obj);
+}
+static std::atomic<unsigned long long> g_chDispatchMs{0};
+static void CineHeadNoteDispatch() { g_chDispatchMs.store(GetTickCount64()); }
+static bool CineHeadDispatchFresh() {
+    const auto seen=g_chDispatchMs.load(),now=GetTickCount64();
+    return CineDispatchRecent(g_cineHead.load(),seen,now);
 }
 static bool CineHeadEnabled() { return g_cineHead.load(); }
 static void CineHeadSet(bool on) {

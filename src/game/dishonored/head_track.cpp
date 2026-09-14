@@ -316,22 +316,15 @@ static void HeadInjectTick()
 // The pure bookkeeping, factored out so `arms yawtest` can drive it with no
 // engine attached. Wrapping is done in int32 so it stays continuous across
 // +/-180 and any number of revolutions.
-struct YawBook { int64_t headContrib; int32_t viewOut; bool have; };
-
-// One FRESH view computation: the engine handed us `incomingView`, we injected
-// `headDeltaU` (already clamped and signed). Call exactly once per fresh write.
-static void YawBookFresh(YawBook* b, int32_t incomingView, int32_t headDeltaU)
-{
-    b->viewOut = (int32_t)((uint32_t)incomingView + (uint32_t)headDeltaU);
-    b->headContrib += headDeltaU;
-    b->have = true;
+// VR-109: a cinematic owns body rotation and starts a fresh gameplay heading.
+static bool g_yawCinematicResume=false;
+static double g_yawPublishedMs=0;
+static uint32_t g_yawOwnerName[2][2]={};
+static uint8_t* g_yawOwnerClass[2]={};
+static void YawCinematicSuspend() {
+    g_yawCinematicResume=true; g_yawValid=false;
 }
-// The body heading that view implies. int32 wrap keeps multiple revolutions
-// continuous instead of saturating.
-static int32_t YawBookBody(const YawBook* b)
-{
-    return (int32_t)((uint32_t)b->viewOut - (uint32_t)(int32_t)(b->headContrib & 0xffffffffLL));
-}
+#include "game/dishonored/yaw_book.h"
 
 // Current GObjects membership, not IsLiveObject's sorted discovery snapshot.
 // Cache slots so the per-dispatch check is O(1); scan only when binding a pair.
@@ -412,6 +405,12 @@ static bool YawOwnerValid()
     uint8_t* c = g_peCtrl;
     uint8_t* p = g_pePawn;
     if (!c || !p || ((uintptr_t)c & 3) || ((uintptr_t)p & 3)) return YawRefuse("event pair absent/unaligned");
+    if (!IsLiveObject(c) || !IsLiveObject(p)) {
+        static double nextLive=0;
+        const double now=MaimNowMs();
+        if(now>=nextLive) { BuildLiveSet(); nextLive=now+500; }
+        if(!IsLiveObject(c) || !IsLiveObject(p)) return YawRefuse("pair not live");
+    }
     if (!YawPairLive(c, p)) return YawRefuse("pair not in current GObjects (or rebind pending)");
     if (!RangeReadable(c, 0x120) || !RangeReadable(p, 0x120)) return YawRefuse("object header unreadable");
     const char* cn = ObjClassName(c);
@@ -422,7 +421,12 @@ static bool YawOwnerValid()
     // pointer would have failed.
     uint8_t* possessed = *(uint8_t**)(c + g_yawPawnOff);
     if (possessed != p) return YawRefuse("possession mismatch", possessed);
-    if (c != g_yawCtrl || p != g_yawPawn) {
+    const bool sameIdentity=c==g_yawCtrl && p==g_yawPawn &&
+        *(uint8_t**)(c+kClassOff)==g_yawOwnerClass[0] && *(uint8_t**)(p+kClassOff)==g_yawOwnerClass[1] &&
+        !memcmp(c+kNameOff,g_yawOwnerName[0],8) && !memcmp(p+kNameOff,g_yawOwnerName[1],8);
+    if (!sameIdentity) {
+        memcpy(g_yawOwnerName[0],c+kNameOff,8); memcpy(g_yawOwnerName[1],p+kNameOff,8);
+        g_yawOwnerClass[0]=*(uint8_t**)(c+kClassOff); g_yawOwnerClass[1]=*(uint8_t**)(p+kClassOff);
         ++g_yawGen;
         // A new scene means a new reference: never carry the old one's
         // contribution, and never seed from a pawn value we may have pinned.
@@ -442,12 +446,22 @@ static bool YawOwnerValid()
     return true;
 }
 
+static bool YawFacingReady() {
+    return YawTargetFresh(g_yawPublishedMs,MaimNowMs()) && YawOwnerValid() && g_yawValid;
+}
+
 // Publish, from the FRESH branch of the head write only.
 static void YawPublish(int32_t incomingView, int32_t headDeltaU)
 {
     if (!YawOwnerValid()) { g_yawValid = false; return; }
+    if(g_yawCinematicResume) {
+        Log("yaw: cinematic handoff resets old contribution %.2f deg; native view %.2f seeds body heading",
+            (double)g_yawHeadContrib*360.0/65536,incomingView*360.0/65536);
+    }
+    g_yawPublishedMs=MaimNowMs();
     YawBook b; b.headContrib = g_yawHeadContrib; b.viewOut = 0; b.have = false;
-    YawBookFresh(&b, incomingView, headDeltaU);
+    YawBookFresh(&b, incomingView, headDeltaU,g_yawCinematicResume);
+    g_yawCinematicResume=false;
     g_yawHeadContrib = b.headContrib;
     g_yawViewOut     = b.viewOut;
     g_yawBodyTarget  = YawBookBody(&b);
@@ -852,6 +866,8 @@ static void ApplyHeadToViewRotation(void* parms)
     static bool havePrev = false;
     double frNow = MaimNowMs();
     if (UiSurfaceBlocks() || CineHeadOwnsInput()) {
+        if (!UiSurfaceBlocks()) CineHeadNoteDispatch();
+        YawCinematicSuspend();
         // Keep the resume reference current, but do not feed HMD deltas into
         // the native dialogue constraints: the final camera owns them once.
         prevYaw=g_hmdYaw; prevPitch=g_hmdPitch; havePrev=true; frHave=false;
