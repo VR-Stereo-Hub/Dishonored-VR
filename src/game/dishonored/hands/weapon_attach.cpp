@@ -918,6 +918,22 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                 }
                                 dvr::hf::Xform L2 = {c2.R_L,
                                     {c2.t[0], c2.t[1], c2.t[2]}}, iL2;
+                                if (g_waViewLens && !known->useNative) {
+                                    const WaComp *self=nullptr,*ref=nullptr;
+                                    for(int q=0;q<v2->componentCount;++q) {
+                                        const auto& k=v2->components[q];
+                                        if(k.ok && k.obj==known->compObj) self=&k;
+                                        if(k.ok && k.isRef) ref=&k;
+                                    }
+                                    dvr::hf::Xform br,lens,ilens;float ratio=1;
+                                    if(self && ref) {
+                                        const dvr::hf::Xform nr={ref->R,{ref->t[0],ref->t[1],ref->t[2]}};
+                                        const dvr::hf::Xform member={self->R,{self->t[0],self->t[1],self->t[2]}};
+                                        if(dvr::wf::bridge(nr,v2->L_hand,&br) &&
+                                           dvr::wf::view_lens(L2,dvr::hf::xform_mul(br,member),v2->forward,&lens,&ilens,&ratio))
+                                            space=dvr::hf::xform_mul(space,ilens);
+                                    }
+                                }
                                 if (dvr::wf::inverse(L2, &iL2)) {
                                     corr = dvr::hf::xform_mul(
                                         dvr::hf::xform_mul(iL2, space), L2);
@@ -1117,11 +1133,20 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
             c.predicted = dvr::hf::xform_mul(bridge, native);
             c.hand = h;
             c.assembly = (strstr(k->asset, "sword") || strstr(k->asset, "Sword")) ? 1 : 2;
-            candidates[count] = c; corrections[count] = v->D; members[count++] = k;
+            dvr::hf::Xform candidateCorrection=v->D;
+            dvr::hf::Xform lens, inverseLens; float lensRatio=1;
+            const float viewDistance=sqrtf(draw.t[0]*draw.t[0]+draw.t[1]*draw.t[1]+draw.t[2]*draw.t[2]);
+            if (g_waViewLens && !instStrongVeto && viewDistance<=g_waViewModelUU &&
+                dvr::wf::view_lens(draw,c.predicted,v->forward,&lens,&inverseLens,&lensRatio)) {
+                c.hasLens=true; c.unproject=inverseLens;
+                // Remove the extra lens before applying the SAME hand delta.
+                candidateCorrection=dvr::hf::xform_mul(v->D,inverseLens);
+            }
+            candidates[count] = c; corrections[count] = candidateCorrection; members[count++] = k;
             // A world-space pass has a second independently known prediction:
             // the native component transform itself. It also needs the delta
             // converted back out of the reference draw's rebased coordinates.
-            candidates[count] = c; candidates[count].predicted = native;
+            candidates[count] = c; candidates[count].hasLens=false; candidates[count].predicted = native;
             corrections[count] = nativeDelta; members[count++] = k;
             InterlockedIncrement(&g_waHandCompared[h]);
             const dvr::wf::Result one = dvr::wf::match(draw, &c, 1, g_waAngTolDeg, g_waPosTolUU, g_waMarginX);
@@ -1259,6 +1284,9 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     const WaComp* member = members[match.best];
     const int hand = candidates[match.best].hand;
     const WaCommon* wc = views[hand];
+    if(candidates[match.best].hasLens) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+        "wa/lens: accepted %s hand=%d after removing verified view-plane lens; angle=%.5f pos=%.5f scale=%.7f, original match guards retained",
+        member->asset,hand,match.angle,match.position,match.scale);
 
     IDirect3DVertexBuffer9* vb = NULL; UINT offset = 0, stride = 0;
     IDirect3DIndexBuffer9* ib = NULL;

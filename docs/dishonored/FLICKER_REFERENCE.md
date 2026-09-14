@@ -1811,3 +1811,14 @@ but repeated crossbow scale mismatch approximately0.0468 prevents its contract
 from being accepted (tolerance0.005); sword accepts. New VR-112, read-only
 matrix breakdown candidate. Evidence, counterprediction and next test in
 MONO_ANCHOR_UI_STATE.md latest entry. No scale tolerance relaxation.
+
+## 2026-09-14: VR-112 diagnostic establishes differential lens
+
+Build258 verified against installed hash and banner; archive
+build/mono-ui-test/playtest-20260914-101645. Crossbow tracking failure reproduced.
+Matrix trace identifies a symmetric view-plane stretch1.046635, predicting the
+translation mismatch within0.0014uu; hand bridge and sword remain rigid.
+Candidate AttachViewLens removes only a validated lens before strict matching
+and hand correction. No arbitrary scale tolerance expansion. See latest
+MONO_ANCHOR_UI_STATE.md for implementation, counterexamples and next test.
+Status: measured mechanism, host-tested candidate; headset result pending.

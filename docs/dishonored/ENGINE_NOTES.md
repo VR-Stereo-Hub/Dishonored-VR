@@ -5681,3 +5681,30 @@ velocity, minimum drop and a collision trace, with distance selecting do-now
 versus too-high. Do not patch a guessed camera angle or expand handback lists
 to fix an attack that never entered a finisher. No new engine offsets/hooks
 are introduced: all diagnostic fields resolve through reflection.
+
+## 2026-09-14: VR-112 view-plane lens isolated on build258
+
+Verified258-g4a78a745 compiled09:37:23, matching installed DLL hash. Both logs
+archived build/mono-ui-test/playtest-20260914-101645. Failure reproduced:
+crossbow retains native head aim; hand fore/aft affects its vertical position.
+For the late crossbow groups, draw basis times inverse predicted basis is a
+symmetric view-plane stretch, ratio1.0466343..1.0466350. Applying that same
+matrix to predicted translation reproduces rendered translation within0.0014uu.
+The body/hand bridge is rigid and sword has no extra stretch. This refutes a
+uniform-scale error, missing component, or corrupt bridge for these samples.
+
+Candidate AttachViewLens defaults0, with live F10 Hands checkbox and saved INI.
+Fit only S=s(I-ff^T)+ff^T using the current rendered view forward axis. Validate
+its matrix residual, then undo S before the existing strict rotation/position/
+scale matcher. Do not accept an arbitrary affine or uniform scale. The weapon
+correction is D_hand*S_inverse, so both position and orientation inherit the
+same hand delta without retaining the extra lens. Known sibling passes derive
+their own lens from current component/view snapshots. No engine writes or
+retained lens across frames; native animation handback remains first veto.
+
+Host tests cover lens fit, original refusal, strict match after removal,
+controller translation, noncommuting hand rotation, tilted view, identity,
+and refusal of uniform scale, shear, wrong axis and displaced world instance.
+Next test is the same hub-arrival crossbow tracking reproduction, including
+left controller fore/aft while holding head still. Expected native head aim
+and axis coupling disappear. Headset acceptance pending; no merge.

@@ -1789,6 +1789,8 @@ static void LoadConfig()
 #if DVR_WITH_LEGACY
     g_waProbe         = IniFloat(ini, "Hands", "AttachProbe", 1) != 0.0f;
 #endif
+    g_waViewLens = IniFloat(ini, "Hands", "AttachViewLens", 0) != 0.0f;
+    Log("config: [Hands] AttachViewLens=%d",g_waViewLens);
     g_waScaleTrace = IniFloat(ini, "Hands", "AttachScaleTrace", 0) != 0.0f;
     Log("config: [Hands] AttachScaleTrace=%d (read-only transform mismatch trace)", g_waScaleTrace);
     g_waCensusOn      = IniFloat(ini, "Hands", "AttachCensus", 1) != 0.0f;
@@ -2837,6 +2839,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
 #endif
     WritePrivateProfileStringA("Hands", "PaletteRotate", g_mpRotate ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachViewLens", g_waViewLens ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachWeapons", g_waOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", g_waAngTolDeg);
     WritePrivateProfileStringA("Hands", "AttachAngleTol", v, ini);

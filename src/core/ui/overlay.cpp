@@ -364,6 +364,7 @@ static void OverlayFrame()
     // resize a separately-componented crossbow and the weapon desynced from the
     // hand at any setting but 1.0. HandSize is still read from the ini for the
     // legacy drive; config.cpp warns if both are off 1.0.
+    ImGui::Checkbox("Correct weapon-specific lens", &g_waViewLens);
     ImGui::SliderFloat("hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
     ImGui::TextDisabled("hands AND held weapons, about the tracked palm - not the world scale");
     ImGui::Separator();

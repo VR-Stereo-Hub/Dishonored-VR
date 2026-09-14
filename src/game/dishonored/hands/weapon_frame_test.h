@@ -13,6 +13,40 @@ static inline int WeaponFrameTests()
         if (!ok) ++failed;
     };
     const Xform id = {identity3(), {0,0,0}};
+    // View-plane lens cases: rotation, shear and uniform duplicate scale
+    // cannot be fitted as a lens. Test cancellation through the hand delta.
+    {
+        const float f[3]={0,1,0};Xform lens,ilens;float ratio=0;
+        Xform native=id;native.t[0]=25;native.t[1]=50;native.t[2]=-20;
+        Xform s=id;s.r.m[0]=s.r.m[8]=1.046635f;
+        const Xform draw=xform_mul(s,native);
+        check("lens_fit",view_lens(draw,native,f,&lens,&ilens,&ratio) && fabsf(ratio-1.046635f)<1e-5f);
+        Candidate c={native,0,2};
+        check("lens_old_match_refuses",match(draw,&c,1,.25f,1,1.5f).best<0);
+        c.hasLens=true;c.unproject=ilens;
+        check("lens_unproject_match",match(draw,&c,1,.25f,1,1.5f).best==0);
+        Xform hand=id;hand.t[0]=8;hand.t[1]=-12;hand.t[2]=17;
+        hand.r={{0,-1,0,1,0,0,0,0,1}};
+        const Xform corrected=xform_mul(xform_mul(hand,ilens),draw);
+        const Xform expected=xform_mul(hand,native);
+        check("lens_hand_translation_axes",offset3(corrected.t,expected.t)<1e-4f);
+        float rotationError=0;for(int i=0;i<9;++i) rotationError+=fabsf(corrected.r.m[i]-expected.r.m[i]);
+        check("lens_noncommuting_hand_rotation",rotationError<1e-5f);
+        const float tilted[3]={0.6f,0.8f,0};Xform tiltedLens=id;
+        for(int i=0;i<3;++i) for(int j=0;j<3;++j)
+            tiltedLens.r.m[3*i+j]=1.1f*((i==j?1.0f:0.0f)-tilted[i]*tilted[j])+tilted[i]*tilted[j];
+        check("lens_rotated_view",view_lens(xform_mul(tiltedLens,native),native,tilted,&lens,&ilens,&ratio) && fabsf(ratio-1.1f)<1e-5f);
+
+        Xform uniform=draw;uniform.r.m[4]=1.046635f;
+        check("lens_uniform_scale_refused",!view_lens(uniform,native,f,&lens,&ilens,&ratio));
+        Xform shear=draw;shear.r.m[1]=.03f;
+        check("lens_shear_refused",!view_lens(shear,native,f,&lens,&ilens,&ratio));
+        const float wrong[3]={1,0,0};
+        check("lens_wrong_axis_refused",!view_lens(draw,native,wrong,&lens,&ilens,&ratio));
+        check("lens_identity",view_lens(native,native,f,&lens,&ilens,&ratio) && fabsf(ratio-1)<1e-6f);
+        Xform world=draw;world.t[0]+=500;
+        check("lens_world_offset_refused",match(world,&c,1,.25f,1,1.5f).best<0);
+    }
     int bufferA = 0, bufferB = 0, target = 0;
     const Geometry geometry = {&bufferA,&bufferB,32,0,4,0,0,257,310,0};
     Geometry other = geometry;
