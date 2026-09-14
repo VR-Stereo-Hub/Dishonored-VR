@@ -1,3 +1,17 @@
+## 2026-09-14: hand-eye candidate failed playtest; world baseline restored
+
+Build275-g66634db52 (16:00:44) still showed the hand flicker, and the tester
+reported substantially more lag. Banner and DLL hash verified before rollback.
+This candidate is NOT accepted. No root cause for the perceived lag is claimed.
+At the user's request, restored world-only272-ge3bb7ac2a and its exact accepted
+INI. Full INI diff removes only Hands.PaletteEyeRecord=1; world image orientation
+remains enabled. DLL/INI hashes and CRLF verified by the installer. Failed-run
+logs and previous DLL/INI archived in
+build/playtest-candidates/installs/20260914-183145-517454.
+No game launched. PR62 stays unmerged. Next baseline test: in the same scene,
+does physical head turning regain the accepted smoothness? Improvement isolates
+the regression to the hand candidate path; no improvement leaves it unresolved.
+
 ## Installed for hand-eye playtest, 2026-09-14
 
 The user subsequently requested installation. Build 275-g66634db52 (16:00:44)
