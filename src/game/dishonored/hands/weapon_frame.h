@@ -216,8 +216,14 @@ inline bool view_lens(const Xform& draw,const Xform& predicted,const float* forw
         if (!_finite(observed.m[i*3+j]) || fabsf(observed.m[i*3+j]-want)>0.005f) return false;
         lens->r.m[i*3+j]=want;
     }
+    *ratio=scale;
+    // Identity is not a lens correction. Inverting/multiplying a near-identity
+    // fit injects float roundoff into otherwise unchanged depth/colour passes.
+    // 32 float epsilons covers the inverse/multiply/project arithmetic, not
+    // an artistic scale band. The original matching guards still run.
+    if (fabsf(scale-1.0f)<=32.0f*FLT_EPSILON) return false;
     if (!inverse(*lens,inverseLens)) return false;
-    *ratio=scale;return true;
+    return true;
 }
 struct Candidate { Xform predicted; int hand, assembly; bool hasLens=false; Xform unproject={identity3(),{0,0,0}}; };
 struct Result { int best; bool ambiguous; float angle, position, scale, score; };

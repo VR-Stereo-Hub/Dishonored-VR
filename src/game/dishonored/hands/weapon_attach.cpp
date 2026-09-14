@@ -4,6 +4,25 @@
 // VR-33 W2/W3: identify the weapon's draws by a bridged full-transform match,
 // then carry them through the SAME correction the hand took.
 
+// Read-only, bounded evidence for partial weapon surfaces in one eye. Separate
+// each hand/eye/pass population; a shared throttle would hide the other eye.
+static void WaLensTrace(IDirect3DDevice9* dev,int hand,bool auxiliary,
+                        const WaCommon* view,bool applied,float ratio)
+{
+    if (!g_waScaleTrace || hand<0 || hand>1 || !view) return;
+    static ULONGLONG next[2][3][2]={};
+    const int eye=g_mpEyeState<0?0:(g_mpEyeState>0?2:1);
+    auto& due=next[hand][eye][auxiliary?1:0];
+    const auto now=GetTickCount64();if(now<due) return;due=now+2000;
+    DWORD zfunc=0,zwrite=0;D3DVIEWPORT9 vp={};
+    dev->GetRenderState(D3DRS_ZFUNC,&zfunc);
+    dev->GetRenderState(D3DRS_ZWRITEENABLE,&zwrite);dev->GetViewport(&vp);
+    Log("wa/lens-pass: hand=%d eye=%d commonEye=%d present=%u commonPresent=%u "
+        "path=%s applied=%d ratio=%.9f zfunc=%lu zwrite=%lu depth=%.6f/%.6f",
+        hand,g_mpEyeState,view->eye,(unsigned)dvr::frame::count(),view->present,
+        auxiliary?"auxiliary":"main",applied?1:0,ratio,zfunc,zwrite,vp.MinZ,vp.MaxZ);
+}
+
 // ---- reading a native component transform -----------------------------------
 
 // The component's own LocalToWorld, read with the SAME extraction the shader
@@ -929,9 +948,10 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                     if(self && ref) {
                                         const dvr::hf::Xform nr={ref->R,{ref->t[0],ref->t[1],ref->t[2]}};
                                         const dvr::hf::Xform member={self->R,{self->t[0],self->t[1],self->t[2]}};
-                                        if(dvr::wf::bridge(nr,v2->L_hand,&br) &&
-                                           dvr::wf::view_lens(L2,dvr::hf::xform_mul(br,member),v2->forward,&lens,&ilens,&ratio))
-                                            space=dvr::hf::xform_mul(space,ilens);
+                                        const bool applied=dvr::wf::bridge(nr,v2->L_hand,&br) &&
+                                            dvr::wf::view_lens(L2,dvr::hf::xform_mul(br,member),v2->forward,&lens,&ilens,&ratio);
+                                        if(applied) space=dvr::hf::xform_mul(space,ilens);
+                                        WaLensTrace(dev,known->hand,true,v2,applied,ratio);
                                     }
                                 }
                                 if (dvr::wf::inverse(L2, &iL2)) {
@@ -1080,6 +1100,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
 
     dvr::hf::Xform draw = {ctx.R_L, {ctx.t[0], ctx.t[1], ctx.t[2]}};
     dvr::wf::Candidate candidates[64];
+    float lensRatios[64]={};
     const WaComp* members[64];
     dvr::hf::Xform corrections[64];
     int count = 0;
@@ -1142,6 +1163,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                 // Remove the extra lens before applying the SAME hand delta.
                 candidateCorrection=dvr::hf::xform_mul(v->D,inverseLens);
             }
+            lensRatios[count]=lensRatio;
             candidates[count] = c; corrections[count] = candidateCorrection; members[count++] = k;
             // A world-space pass has a second independently known prediction:
             // the native component transform itself. It also needs the delta
@@ -1284,6 +1306,8 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     const WaComp* member = members[match.best];
     const int hand = candidates[match.best].hand;
     const WaCommon* wc = views[hand];
+    if(g_waViewLens && !(match.best&1))
+        WaLensTrace(dev,hand,false,wc,candidates[match.best].hasLens,lensRatios[match.best]);
     if(candidates[match.best].hasLens) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
         "wa/lens: accepted %s hand=%d after removing verified view-plane lens; angle=%.5f pos=%.5f scale=%.7f, original match guards retained",
         member->asset,hand,match.angle,match.position,match.scale);

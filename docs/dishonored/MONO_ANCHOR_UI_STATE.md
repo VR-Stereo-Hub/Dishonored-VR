@@ -370,3 +370,36 @@ and axis coupling disappear. Headset acceptance pending; no merge.
 Installed vr33-hands-working-260-g7a0bbd46, compiled10:23:35. DLL SHA256
 a37a0589c58697480d38253a112eccb7abfff2da5833d2576dd4b3fa4beee40b. INI adds AttachViewLens=1 only;
 hashes/CRLF verified. Eleven lens tests and existing suites pass.
+
+## 2026-09-14: partial left-eye weapon surfaces after lens correction (VR-112)
+
+Reported on verified build260-g7a0bbd46, compiled Sep14 10:23:35, DLL
+SHA256 a37a0589c58697480d38253a112eccb7abfff2da5833d2576dd4b3fa4beee40b.
+Both logs archived at build/mono-ui-test/playtest-20260914-104623.
+Crossbow unsheath/tracking is headset-confirmed. New report: parts of both
+weapon models intermittently disappear in the left eye, even while still;
+hands remain intact. This is distinct from whole-view VR-99 note flicker.
+
+Measured: all84 sampled draw/prediction matrix pairs (42 per hand) in this run
+have identity relative scale within float noise, unlike the real1.046635 lens
+in build258. Maximum eigenvalue deviation is9.72e-7 for sword and3.56e-7 for
+crossbow. Build260 nevertheless applied the fitted near-identity correction.
+Late-run no-delta stays126 while successful corrections continue; no restore
+failure. Suppression also continues, but its population is not proof of the
+reported partial-surface cause. Do not disable all auxiliary draws: prior
+experiments lost legitimate lighting/colour contributions.
+
+Candidate: reject identity lens fits within32 float epsilons and use the exact
+original correction path. Keep real lens cancellation and existing instance,
+rotation, position and scale guards. No new engine writes, stale matrix cache,
+or depth-state change. This removes a measured false positive; whether it
+caused the visible flicker still requires the headset. Two identity/roundoff
+regressions fail before the change and pass afterward; real-lens/axis and
+world-instance tests continue passing. AttachScaleTrace adds bounded per-eye,
+per-hand main/auxiliary lens decisions with common-eye and depth-state values.
+
+Next test: with both weapons drawn and head/controllers still, do their parts
+remain continuously visible in the left eye? Success supports roundoff as the
+cause. If it persists, inspect wa/lens-pass by eye and depth state, then capture
+matched depth/colour pass geometry before changing suppression or tolerances.
+PR58 remains draft; all three stacked PRs remain unmerged.

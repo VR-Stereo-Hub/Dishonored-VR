@@ -43,7 +43,17 @@ static inline int WeaponFrameTests()
         check("lens_shear_refused",!view_lens(shear,native,f,&lens,&ilens,&ratio));
         const float wrong[3]={1,0,0};
         check("lens_wrong_axis_refused",!view_lens(draw,native,wrong,&lens,&ilens,&ratio));
-        check("lens_identity",view_lens(native,native,f,&lens,&ilens,&ratio) && fabsf(ratio-1)<1e-6f);
+        check("lens_identity_unchanged",!view_lens(native,native,f,&lens,&ilens,&ratio));
+        // The reported partial-surface flicker run measured only identity
+        // lenses (maximum eigenvalue deviation below 1e-6). Roundoff must
+        // not introduce different depth/colour corrections on ordinary draws.
+        bool identityStable=true;
+        for(int n=-8;n<=8;++n) {
+            Xform noise=id;noise.r.m[0]=noise.r.m[8]=1.0f+n*1.192092896e-7f;
+            if(view_lens(xform_mul(noise,native),native,tilted,&lens,&ilens,&ratio))
+                identityStable=false;
+        }
+        check("lens_roundoff_keeps_original",identityStable);
         Xform world=draw;world.t[0]+=500;
         check("lens_world_offset_refused",match(world,&c,1,.25f,1,1.5f).best<0);
     }
