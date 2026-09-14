@@ -1,6 +1,7 @@
 ## Current state: two candidates awaiting separate headset tests
 
 Cinematic PR56 is draft/unmerged; build234 is preserved for the first test.
+Draft PR57 targets the cinematic branch (PR56). Both remain unmerged.
 Current branch codex/vr-106-standing-pitch-roll-arc was created from parent
 codex/vr-50-cinematic-fov-and-hands at6f85417a. VR-106 adds a default-off fix
 for the standing steep-pitch roll arc. Read STANDING_PITCH_ROLL_ARC.md in

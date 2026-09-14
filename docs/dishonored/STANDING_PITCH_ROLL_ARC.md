@@ -4,7 +4,7 @@
 
 Branch codex/vr-106-standing-pitch-roll-arc is based on
 codex/vr-50-cinematic-fov-and-hands at6f85417a, as explicitly requested.
-PR56 remains draft/unmerged. This child contains the parent cinematic candidate,
+PR57 targets the cinematic branch. PR56 and PR57 remain draft/unmerged. This child contains the parent cinematic candidate,
 plus one default-off positional correction. No headset test tonight; both builds
 must remain independently installable. No game launch and no merge approval.
 
