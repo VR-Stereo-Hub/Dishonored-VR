@@ -446,3 +446,9 @@ pass consistency; failure requires joined per-pass transform/depth evidence,
 not broad suppression or relaxed matching. wa/lens-pass logs reuse decisions.
 No game launch. PR58 remains draft; no merge. The prior Linear update is
 still blocked by automatic approval review pending explicit permission.
+
+Installed vr33-hands-working-264-gfe400945, compiled Sep14 11:06:45.
+Code fe400945e4b63da7fe16055c3ec1fad43b3fd267; DLL SHA256
+8af719668288d600db9e99c30cfb76d0ccd8570b79805673224fff68aba953d3.
+Full INI diff empty, CRLF and installed hashes verified; archive
+build/playtest-candidates/installs/20260914-110722-488634. No game launch.

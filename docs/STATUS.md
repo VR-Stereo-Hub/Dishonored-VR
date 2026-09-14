@@ -1,28 +1,26 @@
-## Current state: build262 weapon surface flicker candidate installed
+## Current state: build264 crossbow pass-consistency candidate installed
 
-Build260 confirmed crossbow unsheath and tracking, but introduced reported
-partial weapon-model flicker only in the left eye, with hands intact.
-Archive: build/mono-ui-test/playtest-20260914-104623. Sampled transforms
-show no extra lens, yet260 applied corrections to numerical identity fits.
+Build262 confirms both weapons are stable before travel and track after boat
+arrival. Sword transparency is gone in both eyes; crossbow has a smaller
+residual after travel. Verified run archived at
+build/mono-ui-test/playtest-20260914-110406.
+Six of25 same-Present/eye crossbow pairs show floating-point lens disagreement;
+no sampled common-eye mismatch. Build264 reuses numerical-equivalent inverse
+lenses only for the same component, Present and eye. Real changes stay active.
+Seven new scope/consistency checks and all existing frame/weapon/animation
+checks pass, along with release,9 exports,lint and golden INI.
 
-Installed262-g9f27c514, compiled Sep14 10:55:24, skips identity lens correction
-while preserving real weapon lens cancellation. Per-eye main/auxiliary trace
-is armed through existing AttachScaleTrace=1. Full INI diff is empty; bytes,
-hashes and CRLF verified. Both logs and previous install archived at
-build/playtest-candidates/installs/20260914-105531-305834.
-DLL SHA256 b8bf05fd81be9ce1ad53caf5dd2ba5937ae2c9a93c74db6d9fe4d2d5f3360f8d.
-Two identity regressions fail before the fix and pass afterward; all frame,
-weapon/animation tests, release,9 exports,lint and golden INI pass.
-
-Next launch question: with both weapons drawn and head/controllers still,
-do their parts stay continuously visible in the left eye? Success supports
-the identity-roundoff cause; persistent flicker requires wa/lens-pass eye,
-depth-state and main/auxiliary analysis before another behavioral change.
-Use the same area where the symptom appeared. Agent reads/archives the logs;
-never launches the game. No subagents. VR-112 stays In Progress, PR58 draft.
-All three stacked PRs remain unmerged. Earlier stereo/takedown acceptance
-stands; brief note flicker is the separate VR-99. Detailed evidence and
-recoverable investigation: MONO_ANCHOR_UI_STATE.md and FLICKER_REFERENCE.md.
+Installed vr33-hands-working-264-gfe400945, compiled Sep14 11:06:45.
+DLL SHA256 8af719668288d600db9e99c30cfb76d0ccd8570b79805673224fff68aba953d3.
+Full installed INI diff is empty; bytes,hashes and CRLF verified. Both previous
+logs archived at build/playtest-candidates/installs/20260914-110722-488634.
+AttachViewLens and AttachScaleTrace remain enabled; trace now reports reuse.
+Next launch question: after the boat arrival, with both weapons drawn and
+head/controllers still, does the crossbow stay fully opaque? Success supports
+pass consistency; otherwise inspect matched pass transforms and depth values.
+Agent reads logs and never launches. No subagents or merges; PR58 stays draft.
+VR-112 remains In Progress, with Linear comment approval still pending.
+Detailed recovery plan: MONO_ANCHOR_UI_STATE.md and FLICKER_REFERENCE.md.
 
 ## Earlier records
 
