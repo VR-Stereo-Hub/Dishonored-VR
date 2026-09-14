@@ -1,21 +1,33 @@
-## Current state: all three PRs accepted, final integration authorized
+## Current state: PR56, PR57 and PR58 merged to VR-Main
 
-Build264-gfe400945 (Sep14 11:06:45) is headset-confirmed for the final crossbow
-tracking/transparency fix. Banner and DLL hash verified; both logs archived at
-build/mono-ui-test/accepted-20260914-111707. PR56 cinematic/head-based movement,
-PR57 standing roll and PR58 mono/UI/loading/weapon work are accepted.
-The user explicitly authorized finalizing and merging all three to VR-Main.
-Merge in dependency order56,57,58 and retain every feature branch.
+Explicit merge approval was completed2026-09-14, in dependency order:
+- PR56 cinematic comfort/native animation/head-based movement:02a9abfa.
+- PR57 standing pitched-head roll:4162a732.
+- PR58 mono/UI/loading, weapon fixes and complete defaults:f020cdb9.
+All three feature branches are retained. GitHub reports all three MERGED.
+The merged tree exactly matches validated candidate commit5aa625ae.
 
-Complete installed INI/F10 profile is promoted, including diagnostics. Generated,
-packaged and golden INIs are byte-identical CRLF, SHA256
+Installed vr33-hands-working-266-g5aa625ae, compiled Sep14 11:25:16.
+DLL SHA256 257ab2551fadfec93d66a1e25067143c6643257709596f8303ecb5482015c7a4.
+This is the accepted build264 behavior plus repository default promotion;
+no additional headset result is claimed for266. Final accepted run and both
+logs: build/mono-ui-test/accepted-20260914-111707. Final installation and previous
+logs: build/playtest-candidates/installs/20260914-112603-417138.
+The full installed INI diff is empty. Installed, generated, golden and packaged
+profiles match byte-for-byte with CRLF preserved, SHA256
 364e79997823cd18e97b398a324edc20aaae9c222377e0c8d1f01db5dc060508.
-All17 changed/added missing-key fallbacks align; config version11 is unchanged.
-Detailed current findings, acceptance and remaining scope:
-[STACK_ACCEPTANCE.md](STACK_ACCEPTANCE.md).
-VR-50 broader cases, VR-109 character mode, VR-99 note flicker, VR-87 height and
-VR-102 startup timing remain open. Final build/install and ordered merges are
-being completed. No release declared. Agent never launches; no subagents.
+All17 added/changed missing-key defaults align; config version11 stays unchanged.
+
+Final host suites, production default-writer byte check, release/frame/weapon/
+animation tests,9 exports,lint and golden validation pass. Agent never launched
+the game. No subagents, release declaration, tag or branch deletion.
+
+Linear verified Done:VR-104/105/106/107/108/110/111/112/74/71.
+Remaining scope: VR-50 broader manual-FOV/kill-cam cases, VR-109 character-mode
+drift, VR-99 brief note flicker, VR-87 height ceiling and VR-102 startup timing.
+No new task is started. Next session begins from current VR-Main, reads this
+handoff and [STACK_ACCEPTANCE.md](STACK_ACCEPTANCE.md), and follows
+the selected remaining ticket. Never interpret the preserved264 log as266.
 
 ## Earlier records
 

@@ -291,3 +291,5 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] Full installed INI/F10 profile promoted to writer, package and missing-key defaults.
 - [x] All findings and rejected approaches consolidated in dishonored/STACK_ACCEPTANCE.md.
 - [ ] VR-50 broader manual-FOV/kill-cam validation, VR-109 character mode, VR-99 brief note flicker, VR-87 height ceiling and VR-102 startup timing remain separate.
+
+- [x] PR56/57/58 merged to VR-Main in order; all branches retained and10 linked tickets verified Done.

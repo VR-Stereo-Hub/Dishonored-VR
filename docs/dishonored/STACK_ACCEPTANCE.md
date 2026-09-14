@@ -2,8 +2,8 @@
 
 ## Final acceptance, 2026-09-14
 
-PR56, PR57 and PR58 are headset-accepted and explicitly authorized for ordered
-merge to VR-Main. This is integration of tested work, not a declared release.
+PR56, PR57 and PR58 are headset-accepted and merged to VR-Main in order:
+02a9abfa (PR56),4162a732 (PR57),f020cdb9 (PR58). All branches are retained. This is integration of tested work, not a declared release.
 Final crossbow test: build264-gfe400945, compiled Sep14 11:06:45, verified by
 log banner and installed DLL SHA256
 8af719668288d600db9e99c30cfb76d0ccd8570b79805673224fff68aba953d3.
@@ -74,7 +74,7 @@ Final host rerun: cinematic math/ownership and scoped writes,38 FOV/handback,
 lens consistency/isolation cases and identity roundoff regressions. The real
 production default writer is executed in a standalone x86 host and compared
 byte-for-byte with both repository profiles. Release build, exports, lint and
-golden checks are required before merge. The agent never launches the game;
+golden checks passed before merge. The agent never launches the game;
 no additional headset test is invented for the defaults-only integration.
 
 VR-104/105/106/107/108/110/112 acceptance is complete. Main-menu VR-74 and menu
@@ -90,3 +90,13 @@ Detailed chronology and measured failures remain in CINEMATIC_FOV_AND_HANDS.md,
 STANDING_PITCH_ROLL_ARC.md, MONO_ANCHOR_UI_STATE.md, ENGINE_NOTES.md and
 FLICKER_REFERENCE.md. Their old candidate/default/approval statements are dated
 history; this acceptance record and STATUS.md describe the final state.
+
+## Completed integration
+
+All three PRs report MERGED on GitHub. The merged tree equals the validated
+5aa625ae candidate exactly. Installed266-g5aa625ae, compiled11:25:16, has DLL
+SHA256 257ab2551fadfec93d66a1e25067143c6643257709596f8303ecb5482015c7a4.
+Full INI diff is empty; install archive ends20260914-112603-417138.
+All10 accepted linked tickets are verified Done; VR-50 and VR-109 remain open
+for the limits above. No release or tag was created. STATUS and NEXT_SESSION
+record the final installation and remaining work.

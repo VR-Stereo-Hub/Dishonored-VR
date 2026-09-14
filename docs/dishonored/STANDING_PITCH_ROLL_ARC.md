@@ -2,8 +2,8 @@
 
 Standing pitched-head roll is headset-accepted. The separate capsule-height limitation stays under VR-87; no retuned crouch or stereo eye-right behavior is claimed.
 
-Merge is explicitly authorized. The complete tested defaults are promoted in
-PR58. See [stack acceptance](STACK_ACCEPTANCE.md) for final settings, validation,
+PR56/57/58 are merged to VR-Main; all feature branches are retained.
+The complete tested defaults are promoted in PR58. See [stack acceptance](STACK_ACCEPTANCE.md) for final settings, validation,
 remaining issues and all findings. Earlier sections below are historical; their
 default-off and pending-test statements do not describe the accepted stack.
 

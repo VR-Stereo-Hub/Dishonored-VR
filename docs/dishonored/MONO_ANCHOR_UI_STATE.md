@@ -2,8 +2,8 @@
 
 Mono anchoring, current menu/loading ownership and post-load stereo handoff are accepted. Build264 confirms crossbow tracking and opacity after travel. Native takedown animation is accepted without changing eligibility.
 
-Merge is explicitly authorized. The complete tested defaults are promoted in
-PR58. See [stack acceptance](STACK_ACCEPTANCE.md) for final settings, validation,
+PR56/57/58 are merged to VR-Main; all feature branches are retained.
+The complete tested defaults are promoted in PR58. See [stack acceptance](STACK_ACCEPTANCE.md) for final settings, validation,
 remaining issues and all findings. Earlier sections below are historical; their
 default-off and pending-test statements do not describe the accepted stack.
 
