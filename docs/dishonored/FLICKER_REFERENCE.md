@@ -1697,3 +1697,15 @@ head composition plus pitch replacement. Upright composition and independent
 roll suppression are candidates; no headset acceptance yet. FOV exit improvement
 is reported successful; mantle was untested. See CINEMATIC_FOV_AND_HANDS.md for
 archived identity, numeric evidence, counterpredictions and the next test.
+
+## 2026-09-14: VR-109 cinematic activity regression
+
+Build234 confirms comfort/FOV/free look but reports mono exit recurrence. At
+752187 Walk is valid, pawn live, menu0 and sceneFresh1, yet view0. Quad lasts
+752203-753265 (1062ms). DvrScriptViewLive was counting writes that cinematic
+ownership intentionally suppresses, not the continuing PVR dispatches.
+Candidate records yielded dispatch activity with the existing750ms limit;
+menu/pawn gates unchanged. If a no-menu live-scene handoff still goes mono,
+the correction is incomplete. Host checks pass; headset result open.
+Exact archive, source changes and next test: CINEMATIC_FOV_AND_HANDS.md latest
+section. The later journal/movie transition is separate, not a no-menu example.

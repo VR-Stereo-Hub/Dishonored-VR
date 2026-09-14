@@ -449,7 +449,9 @@ static bool DvrScriptViewLive()
         return false;
     }
     noteSaid = false;
-    const bool fresh = g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0;
+    // A PVR dispatch deliberately left to the cinematic is still activity.
+    // Do not classify our suppressed write counter as a silent game camera.
+    const bool fresh = (g_scriptHeadOK && (now - g_scriptHeadMs) < 750.0) || CineHeadDispatchFresh();
     if (!fresh) {
         if (!silentSince) { silentSince = now; menuSilence = g_menuOpen || g_inMenu; }
         else if (g_menuOpen) menuSilence = true;

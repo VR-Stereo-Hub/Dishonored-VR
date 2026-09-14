@@ -181,6 +181,8 @@ extern "C" void __cdecl FaceRotationHandler(void* self, int32_t* rot)
     if (g_frWant < 0.0f || !rot) return;                 // lever off
     if (!self || (uint8_t*)self != g_yawPawn) return;    // not our pawn: untouched
     ++g_frOurs;
+    if(CineHeadOwnsInput()) { YawCinematicSuspend(); ++g_frStale; return; }
+    if(!YawFacingReady() || self!=g_yawPawn || !IsLiveObject((uint8_t*)self)) { ++g_frStale; return; }
     if (!g_yawValid) { ++g_frStale; return; }            // no fresh target: pass through
     if (!RangeReadable(rot, 12)) return;
     const int32_t asked = rot[1];

@@ -202,3 +202,48 @@ branch from this branch. It must not be confused with authored cinematic roll.
 The agent swaps builds, compares the entire installed INI and reads/archives
 both logs; the tester only launches and reports observations. One question per
 launch. No game launch or merge is authorized. Both candidates await testing.
+
+## 2026-09-14: build234 acceptance and VR-109 regressions
+
+Verified DLL SHA and log banner: vr33-hands-working-234-gcd0ee5f9,
+Sep13 23:11:43. Both logs and the actual INI archived at
+build/cinematic-regression/20260914-071943. Reported acceptance covers the
+roll/pitch comfort, FOV and cinematic free look. Mantling was not specifically
+confirmed. Reported regressions: about1s mono at cinematic exit and a persistent
+diagonal movement direction despite right-stick view turning.
+
+Measured stereo transitions: at752187ms Walk has view=0, fresh scene/c5age0,
+live pawn, valid state and no menu. Runtime quad begins752203 and ends753265,
+a1062ms interruption. Similar sequences occur at786734 and804500. The cause is
+that DvrScriptViewLive measured head WRITES, which cinematic ownership now
+suppresses intentionally despite live PVR dispatches. A later1048765 transition
+also overlaps ClientPlayMovie/OnToggleJournal and must not be called an identical
+no-menu case. No eye-tag/capture hypothesis is reopened.
+
+Body-facing code retained its previous published target while cinematic PVR
+returned early. Afterward, an old head-contribution accumulator survived the
+native camera reset. Log at1063750 asks-179.5deg and faces-228.5deg, approximately
+49deg apart. This supports the reported movement mismatch, but does not prove
+when it first became visible.
+
+VR-109 counts only PVR dispatches actually yielded to the live cinematic owner
+as activity, with the existing750ms silence limit. It does not fabricate head
+writes or loosen the menu/pawn/state stereo gates. Body-facing yields while the
+cinematic owns look, refuses targets older than150ms, and revalidates current
+GObjects slots, IsLiveObject, possession and full FName/class identity. The first
+fresh gameplay yaw publication discards the outgoing head contribution and
+seeds from the native incoming view. Later stick turns and head/body separation
+continue through the same arithmetic. Existing HeadLook toggle controls this
+ownership path; no new defaults or INI changes.
+
+Validation:17 production yaw/activity regression checks,39 cinematic math and
+ownership checks,13 scoped-write checks,38 FOV/handback checks, x86 build,
+9 exports, lint and INI golden pass. First build exposed missing unity forward
+declarations; corrected before candidate installation. Perceptual fix untested.
+
+Next single question: after a cinematic returns control, with the headset held
+forward, turn roughly90deg using the right stick and strafe left/right; does
+movement now remain straight sideways relative to that facing direction?
+Pass supports correct heading handoff; persistent diagonal motion falsifies the
+reference reset and requires view/body/native controller evidence from this run.
+Agent reads stereo transitions from the same log; no second question this launch.

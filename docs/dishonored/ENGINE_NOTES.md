@@ -5551,3 +5551,14 @@ ordinary gameplay blend ownership. New one-question test: holding the Empress,
 look left/right and up/down; expect no orbit or forced roll and unrestricted
 physical look. A remaining orbit rejects upright composition; a yaw lock points
 to ownership/constraint handling. FOV and mantle settings stay enabled.
+
+## 2026-09-14: cinematic input ownership must hand back activity and heading
+
+VR-109: live PVR dispatches can perform no mod writes by design. A write-age
+counter cannot alone describe camera activity during final-camera head ownership.
+FaceRotation also consumed the last published gameplay heading indefinitely;
+its producer stopped during cinematic free look. The candidate releases that
+consumer, bounds target age and resets outgoing head contribution at the first
+fresh gameplay publication. Full identity/possession and IsLiveObject checks
+precede the facing request write. No new native offsets. Evidence and untested
+acceptance are in CINEMATIC_FOV_AND_HANDS.md (2026-09-14).

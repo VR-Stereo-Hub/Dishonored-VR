@@ -1,3 +1,20 @@
+## Current state: build234 accepted features, handoff regressions under test
+
+2026-09-14. Verified build234 (23:11:43 Sep13) playtest confirms cinematic roll/
+pitch comfort, FOV and free look. New VR-109 tracks brief mono exits and diagonal
+movement after cinematic ownership. Fix extends draft PR56 on
+codex/vr-50-cinematic-fov-and-hands. No merge approval. Read the latest section
+of docs/dishonored/CINEMATIC_FOV_AND_HANDS.md before continuing.
+
+PR57/build237 and PR58/build240 remain preserved, unmerged and untested. They
+predate this correction: propagate an accepted parent fix before their next
+builds/tests. Never launch the game. No subagents. One question per launch.
+Agent archives both logs, verifies the banner and installed hash, builds/installs
+and checks the full INI diff and CRLF. Canonical install manifest is
+build/playtest-candidates/installed.json. Mantling still lacks explicit acceptance.
+
+## Previous session records
+
 ## Current candidate: upright cinematic tracking
 
 Branch codex/vr-50-cinematic-fov-and-hands; draft PR56 remains unmerged.
@@ -5633,3 +5650,10 @@ branch from this branch. It must not be confused with authored cinematic roll.
 The agent swaps builds, compares the entire installed INI and reads/archives
 both logs; the tester only launches and reports observations. One question per
 launch. No game launch or merge is authorized. Both candidates await testing.
+
+## Session 2026-09-14: VR-109 handoff correction
+
+Archived verified234 playtest. Accepted comfort/FOV/free look; mono handoff and
+movement-heading regressions remain open. Corrected activity accounting and
+body-facing ownership in PR56, keeping PR57/58 candidates separate. Tests and
+next single-question launch are in CINEMATIC_FOV_AND_HANDS.md. No merge.
