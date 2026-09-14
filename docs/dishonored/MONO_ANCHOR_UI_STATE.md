@@ -294,3 +294,43 @@ pairing change in this candidate. PR56/57/58 remain unmerged.
 Installed candidate: vr33-hands-working-256-gd98bcf36, compile09:15:20. DLL SHA256
 828037f579b7e8d6da7ae2f5c479238eb882e2391ea8f430c0a732d3604b0883. Full INI adds only DropWatch=1;
 CRLF and hashes verified. Release/exports/lint/golden checks pass.
+
+## 2026-09-14: build256 accepted transitions; crossbow loss VR-112
+
+Verified256-gd98bcf36 compiled09:15:20, installed DLL SHA256
+828037f579b7e8d6da7ae2f5c479238eb882e2391ea8f430c0a732d3604b0883.
+Both logs and INI archived build/mono-ui-test/playtest-20260914-093057.
+Tester reports mono transitions and takedown animations successful. A native
+drop is measured at8732781: context status2/type2, live target, masterAssassinate
+and GAME ownership; status3/Walk at8734687. The prior trigger failure did not
+reproduce there. No combat eligibility change was made in256, so do not claim
+the diagnostic fixed it. Crouched note flicker occurred briefly and recovered
+quickly, still not completely eliminated.
+
+After boat/cinematic travel and a level load to the hub, drawing previously
+sheathed weapons tracks the sword only. Pause/resume does not repair it.
+Current crossbow component is discovered from equipped inventory and readable.
+Sword contract accepted9058765. Late run has one contract (sword) and no
+crossbow contract. At9094687 crossbow nearest prediction differs0.0969deg,
+1.2489uu and0.04685 relative scale with a2.1ms snapshot; rejection threshold
+is0.005 scale. Repeated windows show the same approximately4.7 percent scale
+error. This is not the old absent-candidate failure and not evidence of a
+left controller pose failure. Route: FLICKER_REFERENCE section1 weapon
+reattachment after load, not stereo eye flicker.
+
+VR-112 plan: AttachScaleTrace (default0, read-only) captures near crossbow and
+sword draw, predicted, native component, bridge, native reference and hand-draw
+matrices/norms with frame, snapshot generation and component identities.
+Bounded at one six-line group per hand per2s, snapshots only on the render lane.
+No matching thresholds, ownership or engine memory writes changed. Compare
+healthy versus failed groups to distinguish uniform scale, projection-dependent
+axis scaling, and wrong/stale reference. Counterprediction: if matrices match
+within the original scale tolerance at failure, scale is not the cause and
+inspect the other matching/ambiguity guards. Do not widen scale tolerance or
+reuse pre-load GPU/object identity to hide the failure.
+
+Next launch: repeat the travel to the hub, draw crossbow, and check whether it
+follows the left controller. Failure provides the transform breakdown; success
+establishes an intermittent result rather than a diagnostic-induced fix.
+One question per launch; agent installs and reads logs, never launches game.
+All three PRs remain unmerged. Current candidate is diagnostic for VR-112.

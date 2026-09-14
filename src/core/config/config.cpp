@@ -1789,6 +1789,8 @@ static void LoadConfig()
 #if DVR_WITH_LEGACY
     g_waProbe         = IniFloat(ini, "Hands", "AttachProbe", 1) != 0.0f;
 #endif
+    g_waScaleTrace = IniFloat(ini, "Hands", "AttachScaleTrace", 0) != 0.0f;
+    Log("config: [Hands] AttachScaleTrace=%d (read-only transform mismatch trace)", g_waScaleTrace);
     g_waCensusOn      = IniFloat(ini, "Hands", "AttachCensus", 1) != 0.0f;
     g_waSuppressUnplaced = IniFloat(ini, "Hands", "AttachSuppressUnplaced", 1) != 0.0f;
     // 100 ms, not 20. It was tightened to 20 chasing a view-model sway theory

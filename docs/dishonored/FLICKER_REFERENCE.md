@@ -1796,3 +1796,18 @@ model before changing repair. Keep the accepted late-tag/relabel fix enabled.
 Separate initial-load mono dip is a successful-head-write heuristic failure,
 not a movie lease retrigger; MONO_ANCHOR_UI_STATE.md records the evidence and
 candidate fallback. Native drop rejection is separate VR-111.
+
+## 2026-09-14: build256 follow-up and VR-112
+
+Verified256-gd98bcf36 compiled09:15:20; archive
+build/mono-ui-test/playtest-20260914-093057. The tester reports a few brief
+crouched-note whole-view flickers, each recovering quickly. VR-99 remains
+residual/open; no pairing change was made in256, so improvement is reported,
+not attributed to its read-only drop diagnostic. Mono transitions accepted.
+
+Separate weapon reattachment row: after cinematic/level travel, crossbow loses
+tracking while sword works, not recovered by pause. Current components exist,
+but repeated crossbow scale mismatch approximately0.0468 prevents its contract
+from being accepted (tolerance0.005); sword accepts. New VR-112, read-only
+matrix breakdown candidate. Evidence, counterprediction and next test in
+MONO_ANCHOR_UI_STATE.md latest entry. No scale tolerance relaxation.

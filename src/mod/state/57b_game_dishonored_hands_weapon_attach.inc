@@ -364,6 +364,7 @@ struct WaCensus {
 };
 static WaCensus g_waCensus[WA_MAX_CENSUS];
 static int      g_waCensusN = 0;
+static bool     g_waScaleTrace = false; // [Hands] AttachScaleTrace, read-only VR-112
 static bool     g_waCensusOn = true;   // [Hands] AttachCensus
 
 // ---- KEEPING WORLD INSTANCES OUT OF THE HAND --------------------------------

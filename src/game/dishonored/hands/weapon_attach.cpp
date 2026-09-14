@@ -1125,6 +1125,31 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
             corrections[count] = nativeDelta; members[count++] = k;
             InterlockedIncrement(&g_waHandCompared[h]);
             const dvr::wf::Result one = dvr::wf::match(draw, &c, 1, g_waAngTolDeg, g_waPosTolUU, g_waMarginX);
+            // VR-112: distinguish native component, bridge and draw scaling.
+            // Copies only the existing frame's snapshots; no engine reads or
+            // GPU resource retention on the draw lane, and no matching changes.
+            if (g_waScaleTrace && (h!=0 || strstr(k->asset,"crossbow")) && one.angle<2.0f && one.position<5.0f) {
+                static unsigned long long nextTrace[2]={};
+                const auto now=GetTickCount64();
+                if (now>=nextTrace[h]) {
+                    nextTrace[h]=now+2000;
+                    auto emit=[&](const char* which,const dvr::hf::Xform& x) {
+                        float norm[3]={};
+                        for(int j=0;j<3;++j) {
+                            for(int r=0;r<3;++r) norm[j]+=x.r.m[r*3+j]*x.r.m[r*3+j];
+                            norm[j]=sqrtf(norm[j]);
+                        }
+                        Log("wa/scale: hand=%d asset=%s frame=%u gen=%u member=%p ref=%p kind=%s "
+                            "norm=%.7f/%.7f/%.7f R=%.7f/%.7f/%.7f;%.7f/%.7f/%.7f;%.7f/%.7f/%.7f "
+                            "T=%.4f/%.4f/%.4f angle=%.4f pos=%.4f scaleError=%.7f",
+                            h,k->asset,present,v->componentGen,k->obj,ref->obj,which,norm[0],norm[1],norm[2],
+                            x.r.m[0],x.r.m[1],x.r.m[2],x.r.m[3],x.r.m[4],x.r.m[5],x.r.m[6],x.r.m[7],x.r.m[8],
+                            x.t[0],x.t[1],x.t[2],one.angle,one.position,one.scale);
+                    };
+                    emit("draw",draw);emit("predicted",c.predicted);emit("native",native);
+                    emit("bridge",bridge);emit("nativeRef",nativeRef);emit("handDraw",v->L_hand);
+                }
+            }
             if (one.score < g_waNearestScore[h]) {
                 g_waNearestScore[h] = one.score; g_waNearestAngle[h] = one.angle;
                 g_waNearestPos[h] = one.position; g_waNearestScale[h] = one.scale;
