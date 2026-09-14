@@ -1,12 +1,49 @@
 # The HUD redo: a prompt for the next session
 
-This file IS the prompt. Paste it (or `git show
-claude/dishonored-vr-hud-cinematics-149a8e:docs/dishonored/HANDOFF-HUD-REDO.md`)
-into a fresh session started on `VR-Main`. The branch it lives on
-(`claude/dishonored-vr-hud-cinematics-149a8e`, PR #12, ticket VR-8) is ABANDONED:
-nothing on it merges. It is kept as the reference for the HUD work below and for
-nothing else. Its cinematic work ([Cine] keys, the soiree lane, the pause probe)
-is superseded by PR #56 and #58 on VR-Main and must not be ported.
+This file IS the prompt: paste the whole file into a fresh session started on
+`VR-Main`. It also lives at
+`git show claude/dishonored-vr-hud-cinematics-149a8e:docs/dishonored/HANDOFF-HUD-REDO.md`.
+The branch it lives on (`claude/dishonored-vr-hud-cinematics-149a8e`, PR #12,
+ticket VR-8) is ABANDONED: nothing on it merges. It is kept as the reference for
+the HUD work below and for nothing else. Its cinematic work ([Cine] keys, the
+soiree lane, the pause probe) is superseded by PR #56 and #58 on VR-Main and must
+not be ported.
+
+## The task in seven lines (the rest of this file is the detail behind each one)
+
+1. Start a new branch off the current `VR-Main` for a HUD redo, with a new Linear
+   ticket in "Dishonored VR Mod" (team VR). Follow this file.
+2. Replicate the head-locked HUD window from the abandoned branch (section 1):
+   the HUD draw rule is backbuffer + full viewport + depth off + alpha blend (the
+   opaque scene resolve must be excluded); redirect those draws to a private
+   A8R8G8B8 target, copy at Present into two shared slots (fence both ways, D3D11
+   queries need Flush, time waits with QPC), alpha-repair with max(r,g,b), clear
+   after the copy every present, hand the R8G8B8A8 texture to the runtime layer's
+   HUD quad through `set_hud_texture_provider`. Gate on GAME STATE, never on the
+   draw: the pause menu is the same draw class.
+3. Bring back the 38.92 wrist HUD as a second anchor on the tracked hands VR-Main
+   now has (section 2): its placement math, its shipped values (0.22 m wide,
+   0.06 m above the left grip), `get_hand_pose` grip poses, a LOCAL-space quad
+   layer, plus an orientation-follow option.
+4. Both anchors live at once, switchable per HUD element in F10 (window / hand /
+   in-frame / off). Elements are identified by the screen REGION of the redirected
+   draws' pre-transformed vertices, each region routed to its own target, slot
+   and quad (section 4.2).
+5. Full customisation in F10, all persisted in the ini: per-element anchor,
+   per-element position and scale on the window, position, size and hand on the
+   hand, and the window's own distance, width, height, vertical and lateral
+   offset, head-locked or world-locked-in-front. Presets in section 4.6 and a
+   `hud reset`.
+6. Pause menu, journal, notes, store and mission stats go INTO the window with
+   the world in stereo behind (measured possible). Gate on PR #58's reflected UI
+   owner, keep the 1500 ms resume stand-in so the projection never drops on
+   resume (that is the "no re-render on resume" fix), keep the ghost rule, and
+   make sure a screen riding the window does not also trigger its
+   `[Screen] Anchor*` mono anchor. The main menu keeps the screen. Verify on the
+   base that the stale-flag test no longer clears real pause menus at 1.5 s
+   (VR-71). Do not port the cinematic work: it is done on VR-Main.
+7. Validate on the simulator first (`dump hud`, per-eye captures, `quadLayers`,
+   the pause/resume sequence, section 6), then hand over the headset list.
 
 ---
 
