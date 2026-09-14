@@ -83,10 +83,12 @@ HRESULT raw_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseV
                          UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
 HRESULT raw_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
                       UINT primCount);
-// VR-117: the vertex shader constant rows c0..c3 as last set (16 floats), for
-// the HUD region probe: Scaleform's per-object 2D transform lives there. The
-// device is PURE, so this shadow is the only way to read them. Row 0..3.
+// VR-117/118: the vertex shader constant rows c0..c31 as last set, for the
+// HUD region probe (which registers Scaleform's 2D transform occupies is what
+// VR-118 measures). The device is PURE, so this shadow is the only way to
+// read them. A row outside the shadow returns null, never a different row.
 const float* vs_const_shadow_row(int row);
+int          vs_const_shadow_rows();
 
 uint32_t count();              // presents so far (the frame number everything stamps)
 uint32_t submit_count();       // presents that handed a texture to the runtime

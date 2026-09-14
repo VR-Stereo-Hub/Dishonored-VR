@@ -39,10 +39,13 @@ SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
 DrawIndexedFn     g_origDrawIndexed = nullptr;
 DrawPrimFn        g_origDrawPrim = nullptr;
-// VR-117: the inner draw seam (the HUD redirect) and the c0..c3 shadow.
+// VR-117: the inner draw seam (the HUD redirect) and the constant shadow.
+// VR-118: c0..c31 (the first shadow held c0..c3 and its reader wrapped a row
+// index past 3 back onto row 0, so a transform living in c4+ read as c0).
 DrawIndexedFn     g_innerDrawIndexed = nullptr;
 DrawPrimFn        g_innerDrawPrim = nullptr;
-float             g_vsConstShadow[16] = {};
+const int         kVsConstShadowRows = 32;
+float             g_vsConstShadow[kVsConstShadowRows * 4] = {};
 
 uint32_t      g_count = 0;
 uint32_t      g_submits = 0;
@@ -272,8 +275,9 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
 }
 
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
-    if (startReg < 4 && data && count) {   // VR-117: c0..c3, for the HUD region probe
-        const UINT n = (count < 4 - startReg) ? count : 4 - startReg;
+    if (startReg < (UINT)kVsConstShadowRows && data && count) {   // VR-117/118: c0..c31, for the HUD region probe
+        const UINT room = (UINT)kVsConstShadowRows - startReg;
+        const UINT n = (count < room) ? count : room;
         memcpy(&g_vsConstShadow[startReg * 4], data, n * 4 * sizeof(float));
     }
     if (g_cb.set_vs_const) return g_cb.set_vs_const(self, startReg, data, count);
@@ -396,8 +400,10 @@ void set_inner_draw_hooks(DrawIndexedFn drawIndexed, DrawPrimFn drawPrim) {
 }
 
 const float* vs_const_shadow_row(int row) {
-    return &g_vsConstShadow[(row & 3) * 4];
+    if (row < 0 || row >= kVsConstShadowRows) return nullptr;   // never another row in disguise
+    return &g_vsConstShadow[row * 4];
 }
+int vs_const_shadow_rows() { return kVsConstShadowRows; }
 
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt) {
     return g_origSetRt ? g_origSetRt(dev, idx, rt) : E_FAIL;

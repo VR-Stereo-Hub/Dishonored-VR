@@ -8,7 +8,9 @@
 #include "core/gfx/hud_layout.h"
 #include "core/hooks/vtable.h"
 #include "core/util/log.h"
+#include "core/util/paths.h"
 
+#include <d3dcommon.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +36,9 @@ typedef HRESULT (__stdcall *PFN_SetStreamSource)(IDirect3DDevice9*, UINT, IDirec
 typedef HRESULT (__stdcall *PFN_CreateStateBlock)(IDirect3DDevice9*, D3DSTATEBLOCKTYPE,
                                                   IDirect3DStateBlock9**);
 typedef HRESULT (__stdcall *PFN_EndStateBlock)(IDirect3DDevice9*, IDirect3DStateBlock9**);
+typedef HRESULT (__stdcall *PFN_SetTransform)(IDirect3DDevice9*, D3DTRANSFORMSTATETYPE, const D3DMATRIX*);
 
+PFN_SetTransform            g_origSetXf = nullptr;
 PFN_DrawPrimitiveUP         g_origDpUp = nullptr;
 PFN_DrawIndexedPrimitiveUP  g_origDipUp = nullptr;
 PFN_SetViewport             g_origSetVp = nullptr;
@@ -89,6 +93,18 @@ void*               g_tex0 = nullptr;
 IDirect3DVertexBuffer9* g_vb0 = nullptr;    // stream 0, pointer value only
 UINT                g_vb0Offset = 0, g_vb0Stride = 0;
 
+// VR-118: the fixed-function transform, shadowed from SetTransform (slot 44).
+// The hypothesis this answers: a HUD draw with NO vertex shader bound takes
+// its 2D transform from D3DTS_WORLD/VIEW/PROJECTION, and the c0..c3 shadow
+// read the same values on every HUD draw because nothing had uploaded them
+// since the last shader draw. Row-vector convention: out = v * W * V * P.
+float    g_xfWorld[16] = {}, g_xfView[16] = {}, g_xfProj[16] = {};
+uint8_t  g_xfKnown = 0;             // bit 0 world, 1 view, 2 projection (set since the device came up)
+uint32_t g_xfCallsPresent = 0;      // SetTransform calls this present
+uint32_t g_winXfCalls = 0;          // and per window
+uint32_t g_winVsNull = 0, g_winVsSet = 0;   // HUD-class draws with no / a vertex shader bound
+bool     g_vsDumpArmed = false;     // `draws vsdump`: disassemble the next distinct HUD vertex shader
+
 // ---- caches keyed on pointer VALUE ---------------------------------------
 template <int N> struct PtrMap {
     void*    key[N];
@@ -109,6 +125,7 @@ PtrMap<2048> g_texIsRt;    // texture -> 1 when it carries D3DUSAGE_RENDERTARGET
 PtrMap<256>  g_surfSize;   // surface -> (w << 16) | h
 PtrMap<128>  g_declPos;    // vertex declaration -> its position element, packed
 PtrMap<256>  g_vbUsage;    // vertex buffer -> D3DUSAGE flags
+PtrMap<64>   g_vsDumped;   // vertex shader -> 1 once `draws vsdump` wrote it
 
 uint32_t g_psDistinct = 0;
 
@@ -135,6 +152,81 @@ uint32_t ps_hash(void* ps) {
     DVR_LOG(DVR_CAT, ::dvr::log::Level::Debug, "draws: ps %08x first seen (%u bytes)",
             (unsigned)h, (unsigned)size);
     return h;
+}
+
+// VR-118: `draws vsdump` - the bound vertex shader's bytecode, disassembled by
+// d3dcompiler_47 (which reads D3D9 bytecode too) into <data_dir>\dumps, once
+// per distinct shader. The text is game-derived and never enters the tree; the
+// log carries only the register lines that matter: dcl_*, def, and every
+// instruction that reads the position input, so the register the transform
+// lives in is one grep away. Runs on the draw thread, one shot per shader.
+typedef HRESULT (WINAPI *PFN_D3DDisassemble)(LPCVOID, SIZE_T, UINT, LPCSTR, ID3DBlob**);
+
+void vs_dump(void* vs, uint32_t psHash) {
+    if (!vs) return;
+    uint32_t* slot = g_vsDumped.find_or_add(vs);
+    if (!slot || *slot == 1) return;
+    *slot = 1;
+    IDirect3DVertexShader9* s = (IDirect3DVertexShader9*)vs;
+    UINT size = 0;
+    if (FAILED(s->GetFunction(nullptr, &size)) || !size || size > 16384) {
+        DVR_WARN("draws/vsdump: vertex shader %p would not give its function (%u bytes)", vs, (unsigned)size);
+        return;
+    }
+    uint8_t buf[16384];
+    if (FAILED(s->GetFunction(buf, &size))) return;
+    const uint32_t h = fnv32(buf, size);
+    HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
+    PFN_D3DDisassemble dis = compiler ? (PFN_D3DDisassemble)GetProcAddress(compiler, "D3DDisassemble") : nullptr;
+    ID3DBlob* blob = nullptr;
+    if (!dis || FAILED(dis(buf, size, 0, nullptr, &blob)) || !blob) {
+        DVR_WARN("draws/vsdump: vs %08x (%u bytes, version dword %08x) - D3DDisassemble unavailable or refused; "
+                 "the raw bytecode is written instead", (unsigned)h, (unsigned)size, (unsigned)*(uint32_t*)buf);
+    }
+    char path[MAX_PATH];
+    _snprintf(path, sizeof(path), "%s\\vs_%08x_ps_%08x.%s", dvr::paths::dumps_dir(), (unsigned)h, (unsigned)psHash,
+              blob ? "txt" : "bin");
+    path[sizeof(path) - 1] = 0;
+    FILE* f = fopen(path, "wb");
+    if (f) {
+        if (blob) fwrite(blob->GetBufferPointer(), 1, blob->GetBufferSize() ? blob->GetBufferSize() - 1 : 0, f);
+        else fwrite(buf, 1, size, f);
+        fclose(f);
+    }
+    DVR_INFO("draws/vsdump: vs %08x (%u bytes, version dword %08x, the partner of ps %08x) -> %s%s",
+             (unsigned)h, (unsigned)size, (unsigned)*(uint32_t*)buf, (unsigned)psHash, path,
+             f ? "" : " (the file could not be written)");
+    if (blob) {
+        // The register lines: declarations, constants defined in the shader,
+        // and every instruction reading the position input register.
+        const char* t = (const char*)blob->GetBufferPointer();
+        char posReg[8] = "";
+        int lines = 0;
+        while (*t && lines < 40) {
+            const char* e = strchr(t, '\n');
+            const size_t n = e ? (size_t)(e - t) : strlen(t);
+            char line[200];
+            const size_t c = n < sizeof(line) - 1 ? n : sizeof(line) - 1;
+            memcpy(line, t, c); line[c] = 0;
+            if (c && line[c - 1] == '\r') line[c - 1] = 0;
+            const char* p = line;
+            while (*p == ' ' || *p == '\t') ++p;
+            bool show = !strncmp(p, "dcl", 3) || !strncmp(p, "def", 3) || !strncmp(p, "vs_", 3);
+            if (!strncmp(p, "dcl_position", 12) && !posReg[0]) {
+                const char* v = strchr(p, 'v');
+                if (v) { size_t k = 0; while (v[k] && v[k] != ' ' && v[k] != '\n' && k < 6) { posReg[k] = v[k]; ++k; } posReg[k] = 0; }
+            }
+            if (!show && posReg[0]) {
+                const char* at = strstr(p, posReg);
+                // "v0" inside "v0." or "v0," or end: the input register, not v01
+                if (at && (at[strlen(posReg)] == 0 || at[strlen(posReg)] == '.' || at[strlen(posReg)] == ',' || at[strlen(posReg)] == ' ')) show = true;
+            }
+            if (show) { DVR_INFO("draws/vsdump:   %s", p); ++lines; }
+            if (!e) break;
+            t = e + 1;
+        }
+        blob->Release();
+    }
 }
 
 // 0 = no texture at stage 0, 1 = a plain texture, 2 = a render target, 3 = unknown.
@@ -260,6 +352,12 @@ struct Probe {
     float    bbox[4] = {};
     float    raw[4] = {};        // the vertices' own x/y range, before any transform
     float    c0[4] = {}, c1[4] = {}, c3[4] = {};
+    // VR-118: what else was bound at the draw. vs = the vertex shader (null =
+    // fixed function); m0/m1/m3 = columns 0, 1 and 3 of W*V*P as shadowed from
+    // SetTransform, in the same "row applied to (x,y,z,1)" shape as c0/c1/c3.
+    void*    vs = nullptr;
+    uint8_t  xfKnown = 0;
+    float    m0[4] = {}, m1[4] = {}, m3[4] = {};
 };
 uint32_t g_probeSamples = 0, g_probeReads = 0, g_probeFails = 0;
 long long g_probeQpc = 0;      // time spent in the probe this window
@@ -271,6 +369,24 @@ const char* probe_why(uint8_t w) {
 }
 
 long long qpc_now() { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
+
+// out = a * b for two row-major D3DMATRIX blocks (row-vector convention).
+void mat_mul(const float* a, const float* b, float* out) {
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            out[r * 4 + c] = a[r * 4 + 0] * b[0 * 4 + c] + a[r * 4 + 1] * b[1 * 4 + c] +
+                             a[r * 4 + 2] * b[2 * 4 + c] + a[r * 4 + 3] * b[3 * 4 + c];
+}
+
+// The shadowed fixed-function transform as three "rows applied to (x,y,z,1)":
+// column c of M = W*V*P is (M[0][c], M[1][c], M[2][c], M[3][c]).
+void xf_columns(float m0[4], float m1[4], float m3[4]) {
+    float wv[16], m[16];
+    static const float kIdentity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    mat_mul((g_xfKnown & 1) ? g_xfWorld : kIdentity, (g_xfKnown & 2) ? g_xfView : kIdentity, wv);
+    mat_mul(wv, (g_xfKnown & 4) ? g_xfProj : kIdentity, m);
+    for (int r = 0; r < 4; ++r) { m0[r] = m[r * 4 + 0]; m1[r] = m[r * 4 + 1]; m3[r] = m[r * 4 + 3]; }
+}
 
 // Walks the vertex range of a draw and returns its screen rectangle. `verts`
 // is the user pointer for the UP entries; for the buffer entries the bound
@@ -290,6 +406,11 @@ void probe_draw(uint8_t entry, D3DPRIMITIVETYPE type, UINT prims, const void* ve
     memcpy(out.c0, dvr::frame::vs_const_shadow_row(0), sizeof(out.c0));
     memcpy(out.c1, dvr::frame::vs_const_shadow_row(1), sizeof(out.c1));
     memcpy(out.c3, dvr::frame::vs_const_shadow_row(3), sizeof(out.c3));
+    out.vs = g_vs;
+    out.xfKnown = g_xfKnown;
+    xf_columns(out.m0, out.m1, out.m3);
+    if (g_vs) ++g_winVsSet; else ++g_winVsNull;
+    if (g_vsDumpArmed && g_vs) vs_dump(g_vs, ps_hash(g_ps));
     if (vertexCount == 0) vertexCount = verts_for(type, prims);
     if (!vertexCount) { out.why = 3; ++g_probeFails; g_probeQpc += qpc_now() - t0; return; }
 
@@ -382,6 +503,7 @@ struct Sig {
     uint8_t  tex0;       // 0 none, 1 plain, 2 render target
     uint8_t  afterTm;
     uint8_t  primBand;   // 0: <=2, 1: <=16, 2: <=256, 3: more
+    uint32_t vs;         // VR-118: low bits of the vertex shader pointer; 0 = fixed function
 };
 #pragma pack(pop)
 
@@ -422,10 +544,10 @@ void sig_text(const Sig& s, char* out, size_t n) {
     else if (s.rtClass == 1) _snprintf(rt, sizeof(rt), "rt%ux%u", (unsigned)s.rtW, (unsigned)s.rtH);
     else _snprintf(rt, sizeof(rt), "rt?");
     rt[sizeof(rt) - 1] = 0;
-    _snprintf(out, n, "%-3s %-10s %s z%u %s %s %s ps=%08x vd=%08x %s",
+    _snprintf(out, n, "%-3s %-10s %s z%u %s %s %s ps=%08x vs=%08x vd=%08x %s",
               kEntry[s.entry & 3], rt, s.vpFull ? "vpF" : "vpP", (unsigned)s.zEnable,
               s.alphaBlend ? "blend" : "opaque", kTex[s.tex0 & 3],
-              s.afterTm ? "aTM" : "bTM", (unsigned)s.psHash, (unsigned)s.vdecl,
+              s.afterTm ? "aTM" : "bTM", (unsigned)s.psHash, (unsigned)s.vs, (unsigned)s.vdecl,
               kPrim[s.primBand & 3]);
     out[n - 1] = 0;
 }
@@ -442,6 +564,8 @@ struct Row {
     uint32_t bbN, bbFail;
     uint8_t  posType, posT, lastWhy;
     float    bb[4], raw[4], c0[4], c1[4];
+    uint8_t  xfKnown;                 // VR-118: the fixed-function columns at the last draw
+    float    m0[4], m1[4], m3[4];
     int      lastElement;
 };
 const int kRows = 512;
@@ -533,6 +657,7 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
     s.alphaBlend = g_alphaBlend ? 1 : 0;
     s.tex0 = tex0_class(g_tex0);
     s.primBand = prims <= 2 ? 0 : prims <= 16 ? 1 : prims <= 256 ? 2 : 3;
+    s.vs = (uint32_t)(uintptr_t)g_vs;
 
     IDirect3DSurface9* rt = g_rt0;
     uint16_t rw = 0, rh = 0;
@@ -570,6 +695,9 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
         if (probe) {
             r->posType = probe->type; r->posT = probe->transformed ? 1 : 0; r->lastWhy = probe->why;
             memcpy(r->c0, probe->c0, sizeof(r->c0)); memcpy(r->c1, probe->c1, sizeof(r->c1));
+            r->xfKnown = probe->xfKnown;
+            memcpy(r->m0, probe->m0, sizeof(r->m0)); memcpy(r->m1, probe->m1, sizeof(r->m1));
+            memcpy(r->m3, probe->m3, sizeof(r->m3));
             r->lastElement = element;
             if (probe->ok) {
                 ++r->bbN;
@@ -699,8 +827,20 @@ HRESULT __stdcall hkSetVertexDeclaration(IDirect3DDevice9* self,
 }
 
 HRESULT __stdcall hkSetVertexShader(IDirect3DDevice9* self, IDirect3DVertexShader9* vs) {
-    if (g_track) g_vs = vs;
+    if (shadowing()) g_vs = vs;   // VR-118: the probe needs it too (null = fixed function)
     return g_origSetVs(self, vs);
+}
+
+// VR-118: the fixed-function transform. Shadowed only while a lever wants it;
+// counted always (one increment) so the 3 s line can say how many arrive.
+HRESULT __stdcall hkSetTransform(IDirect3DDevice9* self, D3DTRANSFORMSTATETYPE state, const D3DMATRIX* m) {
+    ++g_xfCallsPresent;
+    if (m && shadowing()) {
+        if (state == D3DTS_WORLD) { memcpy(g_xfWorld, m, sizeof(g_xfWorld)); g_xfKnown |= 1; }
+        else if (state == D3DTS_VIEW) { memcpy(g_xfView, m, sizeof(g_xfView)); g_xfKnown |= 2; }
+        else if (state == D3DTS_PROJECTION) { memcpy(g_xfProj, m, sizeof(g_xfProj)); g_xfKnown |= 4; }
+    }
+    return g_origSetXf(self, state, m);
 }
 
 HRESULT __stdcall hkSetPixelShader(IDirect3DDevice9* self, IDirect3DPixelShader9* ps) {
@@ -826,11 +966,13 @@ void install(IDirect3DDevice9* dev) {
     if (old && !g_origCreateSb) g_origCreateSb = (PFN_CreateStateBlock)old;
     old = PatchVtable(dev, 61, (void*)hkEndStateBlock);
     if (old && !g_origEndSb) g_origEndSb = (PFN_EndStateBlock)old;
+    old = PatchVtable(dev, 44, (void*)hkSetTransform);   // VR-118: the fixed-function transform
+    if (old && !g_origSetXf) g_origSetXf = (PFN_SetTransform)old;
     g_hooksOk = g_origDpUp && g_origDipUp && g_origSetVp && g_origSetRs && g_origSetTex &&
-                g_origSetDecl && g_origSetVs && g_origSetPs && g_origSetSs;
+                g_origSetDecl && g_origSetVs && g_origSetPs && g_origSetSs && g_origSetXf;
     DVR_INFO("draws: hooks %s on device %p (the two buffer draws through frame_hooks' inner seam, "
              "innermost of the chain; DrawPrimitiveUP, DrawIndexedPrimitiveUP, SetViewport, SetRenderState, "
-             "SetTexture, SetVertexDeclaration, SetVertexShader, SetPixelShader, SetStreamSource, state "
+             "SetTexture, SetVertexDeclaration, SetVertexShader, SetPixelShader, SetStreamSource, SetTransform, state "
              "blocks patched here; SetRenderTarget is observed through frame_hooks). Forward-only until "
              "a lever is on",
              g_hooksOk ? "installed" : "PARTIAL - the census and the redirect will refuse", dev);
@@ -881,15 +1023,21 @@ void present_tick(IDirect3DDevice9* dev) {
             bb->Release();
         }
     }
+    g_winXfCalls += g_xfCallsPresent;
+    g_xfCallsPresent = 0;
     if (g_regions && !g_regWinStartMs) g_regWinStartMs = GetTickCount();
     if (g_regions && GetTickCount() - g_regWinStartMs >= 3000 && !g_track) {
         // The probe's own beat when the census is off: how much it costs and
         // how often it could not read. The table itself needs the census.
         const double us = g_probeQpc ? (double)g_probeQpc * 1e6 / (double)[]{ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart; }() : 0.0;
-        DVR_INFO("draws/regions: %u probes, %u vertices read, %u refused, %.0f us total (%.1f us/probe) - "
-                 "`draws on` for the per-bucket rectangles", g_probeSamples, g_probeReads, g_probeFails, us,
-                 g_probeSamples ? us / g_probeSamples : 0.0);
+        DVR_INFO("draws/regions: %u probes, %u vertices read, %u refused, %.0f us total (%.1f us/probe); "
+                 "HUD draws with a vertex shader %u, without %u (fixed function); SetTransform calls %u "
+                 "(W/V/P seen: %d/%d/%d) - `draws on` for the per-bucket rectangles",
+                 g_probeSamples, g_probeReads, g_probeFails, us, g_probeSamples ? us / g_probeSamples : 0.0,
+                 g_winVsSet, g_winVsNull, g_winXfCalls, (int)(g_xfKnown & 1), (int)((g_xfKnown >> 1) & 1),
+                 (int)((g_xfKnown >> 2) & 1));
         g_probeSamples = g_probeReads = g_probeFails = 0; g_probeQpc = 0;
+        g_winVsSet = g_winVsNull = g_winXfCalls = 0;
         g_regWinStartMs = GetTickCount();
     }
     if (!g_track) return;
@@ -919,7 +1067,8 @@ void on_reset() {
     g_vpKnown = false;
     g_ps = g_vs = g_vdecl = g_tex0 = nullptr;
     g_vb0 = nullptr; g_vb0Offset = g_vb0Stride = 0;
-    g_declPos.clear(); g_vbUsage.clear();
+    g_xfKnown = 0;
+    g_declPos.clear(); g_vbUsage.clear(); g_vsDumped.clear();
     window_reset();
 }
 
@@ -951,10 +1100,14 @@ void log_regions(const char* why) {
     qsort(sorted, kRows, sizeof(Row), cmp_rows);
     const uint32_t presents = g_winPresents ? g_winPresents : 1;
     const double us = g_probeQpc ? (double)g_probeQpc * 1e6 / (double)[]{ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart; }() : 0.0;
-    DVR_INFO("draws/regions: %s: %u probes, %u vertices read, %u refused, %.1f us/probe; HUD-class buckets "
-             "with their screen rectangles (normalised, y down; raw = the vertices' own range; c0/c1 = the "
-             "vertex shader's first two constant rows at the last draw):",
-             why, g_probeSamples, g_probeReads, g_probeFails, g_probeSamples ? us / g_probeSamples : 0.0);
+    DVR_INFO("draws/regions: %s: %u probes, %u vertices read, %u refused, %.1f us/probe; HUD draws with a vertex "
+             "shader %u, without %u; SetTransform calls %u (W/V/P seen %d/%d/%d); HUD-class buckets with their "
+             "screen rectangles (normalised, y down; raw = the vertices' own range; c0/c1 = the vertex shader's "
+             "first two constant rows at the last draw; m0/m1/m3 = columns 0/1/3 of the shadowed W*V*P, the "
+             "fixed-function transform, at the last draw):",
+             why, g_probeSamples, g_probeReads, g_probeFails, g_probeSamples ? us / g_probeSamples : 0.0,
+             g_winVsSet, g_winVsNull, g_winXfCalls, (int)(g_xfKnown & 1), (int)((g_xfKnown >> 1) & 1),
+             (int)((g_xfKnown >> 2) & 1));
     char txt[160];
     for (int i = 0, shown = 0; i < kRows && shown < 24; i++) {
         const Row& r = sorted[i];
@@ -969,12 +1122,21 @@ void log_regions(const char* why) {
                      r.c0[0], r.c0[1], r.c0[2], r.c0[3], r.c1[0], r.c1[1], r.c1[2], r.c1[3], r.bbN, r.bbFail,
                      probe_why(r.lastWhy), r.lastElement >= 0 ? dvr::hudlayout::element_name(r.lastElement) : "-");
         else
-            DVR_INFO("draws/regions:   k=%08x %s n=%.1f/present pos=%s%s NO rectangle: %s (x%u) c0=(%.3f %.3f %.3f %.3f) -> %s",
+            DVR_INFO("draws/regions:   k=%08x %s n=%.1f/present pos=%s%s NO rectangle: %s (x%u) c0=(%.3f %.3f %.3f %.3f) "
+                     "c1=(%.3f %.3f %.3f %.3f) raw=[%.0f,%.0f - %.0f,%.0f] -> %s",
                      (unsigned)short_key(r.key), txt, (double)r.draws / presents, decl_type_name(r.posType),
                      r.posT ? "T" : "", probe_why(r.lastWhy), r.bbFail, r.c0[0], r.c0[1], r.c0[2], r.c0[3],
+                     r.c1[0], r.c1[1], r.c1[2], r.c1[3], r.raw[0], r.raw[1], r.raw[2], r.raw[3],
                      r.lastElement >= 0 ? dvr::hudlayout::element_name(r.lastElement) : "-");
+        if (r.xfKnown)
+            DVR_INFO("draws/regions:     fixed-function at the last draw (W/V/P %d/%d/%d): m0=(%.6f %.6f %.6f %.6f) "
+                     "m1=(%.6f %.6f %.6f %.6f) m3=(%.6f %.6f %.6f %.6f)",
+                     (int)(r.xfKnown & 1), (int)((r.xfKnown >> 1) & 1), (int)((r.xfKnown >> 2) & 1),
+                     r.m0[0], r.m0[1], r.m0[2], r.m0[3], r.m1[0], r.m1[1], r.m1[2], r.m1[3],
+                     r.m3[0], r.m3[1], r.m3[2], r.m3[3]);
     }
     g_probeSamples = g_probeReads = g_probeFails = 0; g_probeQpc = 0;
+    g_winVsSet = g_winVsNull = g_winXfCalls = 0;
 }
 
 void log_summary(const char* why) {
@@ -1139,6 +1301,19 @@ bool command(const char* args) {
     if (!strcmp(args, "on"))  { set_census_enabled(true);  return true; }
     if (!strcmp(args, "off")) { set_census_enabled(false); return true; }
     if (!strcmp(args, "regions")) { log_regions("asked"); return true; }
+    if (!strcmp(args, "vsdump")) {   // VR-118
+        if (!g_regions) {
+            DVR_WARN("draws: vsdump needs the region probe on (`hud regions on`) - it dumps the vertex shader "
+                     "bound at the next HUD-class draw the probe sees");
+            return true;
+        }
+        g_vsDumpArmed = true;
+        g_vsDumped.clear();
+        DVR_INFO("draws: vsdump armed - the next distinct vertex shader bound at a HUD-class draw is disassembled "
+                 "into %s (a HUD draw with NO shader bound prints nothing here: that is the fixed-function "
+                 "answer, and the `draws/regions` line counts it)", dvr::paths::dumps_dir());
+        return true;
+    }
     if (!strcmp(args, "unkill")) {
         g_killN = 0; g_killHud = false;
         DVR_INFO("draws: kill list cleared - the game's own draws again");
