@@ -2,7 +2,7 @@
 
 ### Changed
 
-- The complete September 13 tested INI and saved F10 profile are now the generated
+- The complete September 14 accepted INI and saved F10 profile are now the generated
   and packaged defaults, by maintainer request. This includes diagnostic flags,
   calibration values and the configured data directory. Existing INIs keep their
   overrides; the config version is unchanged.
@@ -17,11 +17,22 @@
 
 ### Fixed
 
-- Cinematic head look now composes over authored camera motion, preserves its
-  reference through draw pacing gaps and avoids unused gameplay neck cancellation
-  (VR-70). F10 View also offers native cinematic border removal. Both controls
-  default off and are headset-confirmed on the installed test profile. Dialogue
-  state stereo transitions remain tracked separately in VR-103.
+- Cinematic free look stays natural through tilted authored cameras and dialogue
+  framing. Pitch/roll comfort controls preserve physical head motion; cinematic
+  zoom and its exit blend retain a full-size view. Native hands/arms and mantle
+  animation resume game control during those actions, then return to tracking.
+- Head-based movement avoids the post-cutscene heading drift in the retained
+  character-oriented mode. Standing pitch compensation no longer adds a curved
+  translation when rolling while looking steeply up or down.
+- Mono screens anchor in front of the player, with per-context exceptions and
+  recenter. Current menu ownership prevents the underground main-menu camera
+  and stolen controller navigation. Loading remains mono through Continue,
+  then releases to stereo without the observed post-load mono interruption.
+- Crossbow tracking survives cinematic level travel. Weapon-specific lens
+  cancellation preserves strict identity checks; identity roundoff bypass and
+  same-view pass consistency resolve the observed partial-surface transparency.
+- These accepted settings and the complete saved diagnostic profile now default
+  on as recorded in dishonored/STACK_ACCEPTANCE.md. Existing INI overrides remain.
 
 - Pausing after a crouched save reload no longer receives corruption from the
   crawl-release writer (VR-96). It validates current object identity before

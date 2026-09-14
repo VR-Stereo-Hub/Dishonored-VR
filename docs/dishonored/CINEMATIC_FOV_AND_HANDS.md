@@ -1,3 +1,14 @@
+# Final status, 2026-09-14
+
+Cinematic comfort/FOV/free look, native hands/arms and mantle handback, continuous stereo, and head-based movement are accepted. VR-50 broader FOV cases and VR-109 character-mode drift remain open.
+
+Merge is explicitly authorized. The complete tested defaults are promoted in
+PR58. See [stack acceptance](STACK_ACCEPTANCE.md) for final settings, validation,
+remaining issues and all findings. Earlier sections below are historical; their
+default-off and pending-test statements do not describe the accepted stack.
+
+---
+
 # Cinematic FOV and native hands, 2026-09-13
 
 ## Starting point

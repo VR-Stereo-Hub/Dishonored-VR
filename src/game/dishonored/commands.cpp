@@ -63,6 +63,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "cinefov") && DvrOnOff(args, &b)) { CineFovSet(b); return true; }
     if (!strcmp(cmd, "cinestereo") && DvrOnOff(args, &b)) { StereoStateSet(b); return true; }
     if (!strcmp(cmd, "cineborders") && DvrOnOff(args, &b)) { CineBordersSet(b); return true; }
+    if (!strcmp(cmd, "uiguard") && DvrOnOff(args, &b)) { UiSurfaceSet(b); return true; }
+    if (!strcmp(cmd, "monoanchor")) {
+        if (!strcmp(args,"recenter")) dvr::vr::recenter_mono_anchor();
+        else if (DvrOnOff(args,&b)) dvr::vr::set_mono_anchor(b,dvr::vr::mono_anchor_contexts());
+        return true;
+    }
     if (!strcmp(cmd, "cinehead") && DvrOnOff(args, &b)) { CineHeadSet(b); return true; }
     if (!strcmp(cmd, "cinetrace") && DvrOnOff(args, &b)) { CineTraceSet(b); return true; }
     if (!strcmp(cmd, "recenter")) { RecenterHead(); return true; }
@@ -486,8 +492,9 @@ static void GameStateTick()
 {
     // VR-62: sample the terms INDIVIDUALLY, so the scoreboard scores exactly the
     // values this function decides on and cannot disagree with it.
+    UiSurfacePoll();
     const bool suCyl    = CylTruthLive();
-    const bool suNoMenu = !g_menuOpen && !g_inMenu && !g_mainMenu;
+    const bool suNoMenu = !g_menuOpen && !g_inMenu && !g_mainMenu && !UiSurfaceBlocks();
     const bool suView   = DvrScriptViewLive();
     // VR-62 observation. Sampled with the same values the state machine is
     // about to decide on, so its "proposed" verdict cannot disagree with the

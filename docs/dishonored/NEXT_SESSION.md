@@ -1,3 +1,24 @@
+## Current state: all three PRs accepted, final integration authorized
+
+Build264-gfe400945 (Sep14 11:06:45) is headset-confirmed for the final crossbow
+tracking/transparency fix. Banner and DLL hash verified; both logs archived at
+build/mono-ui-test/accepted-20260914-111707. PR56 cinematic/head-based movement,
+PR57 standing roll and PR58 mono/UI/loading/weapon work are accepted.
+The user explicitly authorized finalizing and merging all three to VR-Main.
+Merge in dependency order56,57,58 and retain every feature branch.
+
+Complete installed INI/F10 profile is promoted, including diagnostics. Generated,
+packaged and golden INIs are byte-identical CRLF, SHA256
+364e79997823cd18e97b398a324edc20aaae9c222377e0c8d1f01db5dc060508.
+All17 changed/added missing-key fallbacks align; config version11 is unchanged.
+Detailed current findings, acceptance and remaining scope:
+[STACK_ACCEPTANCE.md](STACK_ACCEPTANCE.md).
+VR-50 broader cases, VR-109 character mode, VR-99 note flicker, VR-87 height and
+VR-102 startup timing remain open. Final build/install and ordered merges are
+being completed. No release declared. Agent never launches; no subagents.
+
+## Earlier records
+
 ## Current state: standing roll accepted; VR-87 remains open
 
 Build245 confirms roll while looking up/down. Remaining inverse vertical motion
@@ -24,6 +45,25 @@ Never launch the game, no subagents. Agent installs and reads/archives both logs
 Canonical installed identity: build/playtest-candidates/installed.json.
 
 ## Earlier records
+
+## Current state: three stacked candidates, no merge approval
+
+The new branch codex/vr-107-mono-anchors-and-ui-state starts at d27fdf6c on
+PR57's standing-camera branch. VR-107 adds configurable mono anchoring;
+VR-108 and existing VR-74/VR-71 cover loading/menu stereo and input ownership.
+Read docs/dishonored/MONO_ANCHOR_UI_STATE.md for implementation and test plan.
+Both new levers default off; preserved build240 enables them together.
+
+PR56 (cinematic build234) and PR57 (standing build237) remain draft/unmerged.
+Keep build234 installed first; build237 and the new cumulative UI candidate
+remain separately archived for agent-managed swaps. No headset testing has
+occurred on these candidates. One question per launch; never launch the game.
+No subagents. Build240 was installed and hash-verified, then build234 restored and verified.
+The next step is deferred headset testing in order234,237,240. The agent archives both
+logs and checks full INI diffs/CRLF every swap. installed.json under
+build/playtest-candidates is the active installation authority.
+
+## Earlier session records
 
 ## Current state: two candidates awaiting separate headset tests
 ## Current state: PR56 accepted; next is standing-roll PR57

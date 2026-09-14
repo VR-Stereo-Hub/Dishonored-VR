@@ -244,6 +244,7 @@
 #include "game/dishonored/aim_seam.cpp"
 #include "game/dishonored/fire_aim.cpp"
 #include "game/dishonored/ue3/ui_state.cpp"
+#include "game/dishonored/ue3/ui_surface.cpp"
 #include "game/dishonored/startup.cpp"
 #undef DVR_CAT
 #if DVR_WITH_LEGACY

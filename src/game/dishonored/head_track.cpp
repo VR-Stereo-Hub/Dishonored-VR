@@ -640,7 +640,7 @@ static void RotInjectTick()
         f5Was = f5;
     }
     if (!g_rotInject) return;
-    if (CineHeadOwnsInput()) { g_rotHaveRef=false; g_rotHaveLast=false; return; }
+    if (UiSurfaceBlocks() || CineHeadOwnsInput()) { g_rotHaveRef=false; g_rotHaveLast=false; return; }
     // 38.68: scripted-camera manners. Quiet script writes are not always an
     // emergency - a keyhole seat-in or a cutscene mutes them ON PURPOSE, and
     // grabbing the controller there is what broke the intro boat (see the
@@ -865,8 +865,8 @@ static void ApplyHeadToViewRotation(void* parms)
     static float prevYaw = 0, prevPitch = 0;
     static bool havePrev = false;
     double frNow = MaimNowMs();
-    if (CineHeadOwnsInput()) {
-        CineHeadNoteDispatch();
+    if (UiSurfaceBlocks() || CineHeadOwnsInput()) {
+        if (!UiSurfaceBlocks()) CineHeadNoteDispatch();
         YawCinematicSuspend();
         // Keep the resume reference current, but do not feed HMD deltas into
         // the native dialogue constraints: the final camera owns them once.
@@ -1643,7 +1643,7 @@ static void TrackHead(const float (*m)[4])
             // The other three guards are unchanged and they are what make this
             // safe: a live pawn (which excludes the main menu and its dispatching
             // 3D background), no cursor, and the flag standing for 1500 ms.
-            if (g_menuOpen && !cursorVis && CylTruthLive()) {
+            if (!UiSurfaceBlocks() && g_menuOpen && !cursorVis && CylTruthLive()) {
                 double now = MaimNowMs();
                 if (g_pvrHits != hitsAtStale) { hitsAtStale = g_pvrHits; lastHitMs = now; }
                 if (!wasOpen) { wasOpen = true; menuSince = now; hitsAtStale = g_pvrHits; lastHitMs = now; }
@@ -1677,7 +1677,7 @@ static void TrackHead(const float (*m)[4])
             static double curSince = 0.0;
             static bool   curWas   = false;
             static LONG   curHits  = 0;
-            if (cursorVis && !g_menuOpen) {
+            if (!UiSurfaceBlocks() && cursorVis && !g_menuOpen) {
                 double now = MaimNowMs();
                 if (!curWas) { curWas = true; curSince = now; curHits = g_pvrHits; }
                 else if (now - curSince > 1500.0 && (g_pvrHits - curHits) > 20) {
@@ -1705,7 +1705,7 @@ static void TrackHead(const float (*m)[4])
             }
             g_f9Was = f9;
         }
-        bool menu = g_menuOpen || cursorVis;
+        bool menu = UiSurfaceBlocks() || g_menuOpen || cursorVis;
         if (menu != g_inMenu) {
             g_inMenu = menu;
             Log("pad: %s (cursor %s, script menu %s)",

@@ -65,6 +65,7 @@ static void WriteDefaultIni(const char* ini)
         "LagAB=0\n"
         "SingleTagRepair=1\n"
         "[Camera]\n"
+        "HeadBasedMovement=1\n"
         "; EyeField= the camera field the per-eye offset is written to. 0x330 was measured\n"
         "; 2026-09-02 with `camera eyetest` (HONOURED 119/120; docs/dishonored/ENGINE_NOTES.md,\n"
         "; the per-eye camera seam); none disables the write.\n"
@@ -118,8 +119,6 @@ static void WriteDefaultIni(const char* ini)
         "BodyYawLock=-1\n"
         "ArmStripMeshRot=-1\n"
         "ArmBodyFacing=1\n"
-        "; 1 uses native head/view-facing movement; 0 retains separate character heading.\n"
-        "HeadBasedMovement=0\n"
         "[Capture]\n"
         "; Mode=sync|deferred|shared: how the game's frame reaches the headset\n"
         "; (core/gfx/capture). sync reads the frame back and waits for it every present\n"
@@ -225,6 +224,17 @@ static void WriteDefaultIni(const char* ini)
         "; `device shadowfullcopy on|off` is the live A/B; 0 restores the fault.\n"
         "ShadowFullCopy=1\n"
         "[Screen]\n"
+        "AnchorCinematic=1\n"
+        "AnchorMissionStats=1\n"
+        "AnchorStore=1\n"
+        "AnchorWheel=1\n"
+        "AnchorJournal=1\n"
+        "AnchorNote=1\n"
+        "AnchorPause=1\n"
+        "AnchorLoading=1\n"
+        "AnchorMainMenu=1\n"
+        "AnchorOther=1\n"
+        "AnchorMono=1\n"
         "; The mono screen: a head-locked quad DistanceMeters away and WidthMeters\n"
         "; wide. Per-eye rendering will replace it (docs/ROADMAP.md).\n"
         "DistanceMeters=1.75\n"
@@ -310,7 +320,7 @@ static void WriteDefaultIni(const char* ini)
         "Deadzone=0.12\n"
         "Haptics=1\n"
         "[PosTrack]\n"
-        "ZAccount=0\n"
+        "ZAccount=1\n"
         "ZAccountRoll=0\n"
         "; Stage 5: positional head tracking - lean/peek/crouch with your real\n"
         "; head. F4 = toggle, F5 = re-center to your current head position.\n"
@@ -338,6 +348,7 @@ static void WriteDefaultIni(const char* ini)
         "MaxMeters=0.80\n"
         "FlipX=0\n"
         "[Neck]\n"
+        "UprightPitchArc=1\n"
         "; The pitch pivot (41.1). A real head pitches about a point below and behind the\n"
         "; eyes, so looking up or down moves the eye on an arc. Mode=off|add|cancel, under\n"
         "; a projection layer only: off = the tracked displacement alone; add = the\n"
@@ -551,6 +562,8 @@ static void WriteDefaultIni(const char* ini)
         "RouteByDrawOrder=0\n"
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
+        "AttachViewLens=1\n"
+        "AttachScaleTrace=1\n"
         "AttachKeepOnMenu=1\n"
         "AttachKeepOnNote=1\n"
         "; PoseLag (41.2, VR-68): which generation of the head the hand and the weapon are\n"
@@ -837,6 +850,7 @@ static void WriteDefaultIni(const char* ini)
         "FlipPitch=1\n"
         "FlipRoll=1\n"
         "[Menu]\n"
+        "SurfaceGuard=1\n"
         "UiKeepOnMenu=1\n"
         "NoteFastMono=1\n"
         "UiFlags=1\n"
@@ -844,7 +858,21 @@ static void WriteDefaultIni(const char* ini)
         "CacheNameLookups=0\n"
         "\n"
         "[Diagnostics]\n"
-        "GcFaultDump=1\n", kConfigVersion);
+        "GcFaultDump=1\n"
+        "\n"
+        "[Cine]\n"
+        "LockPitch=1\n"
+        "LockFov=1\n"
+        "StereoState=1\n"
+        "HideBorders=1\n"
+        "HeadLook=1\n"
+        "Trace=1\n"
+        "LockRoll=1\n"
+        "\n"
+        "[Anim]\n"
+        "DropWatch=1\n"
+        "MantleHandBack=1\n"
+        "CinematicHandBack=1\n", kConfigVersion);
     fclose(f);
 }
 
@@ -979,7 +1007,7 @@ static void LoadConfig()
         else if (acy >= 0.0f)
             ArmFollowSetCounterYaw(acy, "ini");
         // VR-30: the core fix - hold the body instead of correcting the arms
-        HeadMovementSet(GetPrivateProfileIntA("Camera","HeadBasedMovement",0,ini)!=0);
+        HeadMovementSet(GetPrivateProfileIntA("Camera","HeadBasedMovement",1,ini)!=0);
         const float fac = IniFloat(ini, "Camera", "ArmBodyFacing", 1.0f);
         if (fac >= 0.0f) ArmFollowSetFacing(fac, "ini");
         const float asr = IniFloat(ini, "Camera", "ArmStripMeshRot", -1.0f);
@@ -1132,7 +1160,7 @@ static void LoadConfig()
         // VR-91: whether ROLL enters the arc. It must not - the arc models the
         // engine's own neck and the engine's is a pitch arc - so this ships 0 and
         // 1 is the one-key A/B back to the measured fault.
-        dvr::camera::set_upright_pitch_arc(IniFloat(ini,"Neck","UprightPitchArc",0)!=0);
+        dvr::camera::set_upright_pitch_arc(IniFloat(ini,"Neck","UprightPitchArc",1)!=0);
         g_neckRollArc = IniFloat(ini, "Neck", "RollArc", 0) != 0.0f;
         g_neckStanceBlendMs = IniFloat(ini, "Neck", "StanceBlendMs", 150.0f);
         if (g_neckStanceBlendMs < 0.0f) g_neckStanceBlendMs = 0.0f;
@@ -1613,11 +1641,10 @@ static void LoadConfig()
         GetPrivateProfileIntA("Diagnostics", "GcFaultDump", 1, ini) ? kGcReferenceReadFault : 0,
         kGcReferenceReadBytes, sizeof(kGcReferenceReadBytes));
 
-    // VR-78: the vertical accounting probe. Read here and deliberately NOT written
-    // by WriteDefaultIni or the save: an absent key is the compiled default (off),
-    // and a save must never materialise a diagnostic into a player's ini.
+    // VR-78: vertical accounting is part of the explicitly promoted tested
+    // profile. Missing keys now enable it; explicit user overrides still win.
     {
-        const int za = GetPrivateProfileIntA("PosTrack", "ZAccount", 0, ini);
+        const int za = GetPrivateProfileIntA("PosTrack", "ZAccount", 1, ini);
         if (za >= 0) dvr::zacct::set_enabled(za != 0, "[PosTrack] ZAccount in the ini");
         // VR-80: the pair trace - bounded per-present lines joining the ring's eye,
         // the eye chosen, the camera write the tag carries and c5, after a return
@@ -1773,6 +1800,10 @@ static void LoadConfig()
 #if DVR_WITH_LEGACY
     g_waProbe         = IniFloat(ini, "Hands", "AttachProbe", 1) != 0.0f;
 #endif
+    g_waViewLens = IniFloat(ini, "Hands", "AttachViewLens", 1) != 0.0f;
+    Log("config: [Hands] AttachViewLens=%d",g_waViewLens);
+    g_waScaleTrace = IniFloat(ini, "Hands", "AttachScaleTrace", 1) != 0.0f;
+    Log("config: [Hands] AttachScaleTrace=%d (read-only transform mismatch trace)", g_waScaleTrace);
     g_waCensusOn      = IniFloat(ini, "Hands", "AttachCensus", 1) != 0.0f;
     g_waSuppressUnplaced = IniFloat(ini, "Hands", "AttachSuppressUnplaced", 1) != 0.0f;
     // 100 ms, not 20. It was tightened to 20 chasing a view-model sway theory
@@ -1831,6 +1862,7 @@ static void LoadConfig()
     // reporter nobody enables reports nothing.
     dvr::anim::configure(ini);
     CineTraceConfigure(ini);
+    UiSurfaceConfigure(ini);
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
     CineFovConfigure(ini);
@@ -2818,6 +2850,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteStep", g_mpStep ? "1" : "0", ini);
 #endif
     WritePrivateProfileStringA("Hands", "PaletteRotate", g_mpRotate ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "AttachViewLens", g_waViewLens ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "AttachWeapons", g_waOn ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", g_waAngTolDeg);
     WritePrivateProfileStringA("Hands", "AttachAngleTol", v, ini);
@@ -3007,6 +3040,12 @@ static void OverlaySaveDefaults()
                                    g_skcRotSignP < 0 ? "-1" : "1", ini);
     }
     dvr::anim::save(ini);   // VR-88: the F10 Hands checkbox must survive a restart
+    WritePrivateProfileStringA("Menu","SurfaceGuard",UiSurfaceEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Screen","AnchorMono",dvr::vr::mono_anchor_enabled() ? "1" : "0",ini);
+    for(unsigned i=0;i<dvr::mono::Count;++i) {
+        char key[64]; _snprintf(key,sizeof(key),"Anchor%s",dvr::mono::names[i]);
+        WritePrivateProfileStringA("Screen",key,(dvr::vr::mono_anchor_contexts()&(1u<<i)) ? "1" : "0",ini);
+    }
     WritePrivateProfileStringA("Cine","HeadLook",CineHeadEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);

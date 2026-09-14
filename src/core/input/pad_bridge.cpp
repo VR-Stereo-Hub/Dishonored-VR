@@ -241,7 +241,7 @@ static void UpdateVirtualPad()
     // 38.46: walking in the room pushes the movement stick, so the pawn goes
     // where you went - through the game's own collision, no wall clipping.
     // Never during a menu; that stick is navigation there.
-    if (g_roomScaleCfg && active && !g_menuOpen && !g_inMenu &&
+    if (g_roomScaleCfg && active && !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu &&
         !CineActive()) {
         float f = g_roomFwdM, rr = g_roomRightM;
         float len = sqrtf(f * f + rr * rr);
@@ -264,7 +264,7 @@ static void UpdateVirtualPad()
     // dropped (a stray A or a chair-shuffle B pulse must never eject the
     // player from a scripted sequence again); sticks and triggers go to
     // zero. The game's own toggle giveth and taketh away.
-    if (active && !g_menuOpen && !g_inMenu && CineActive()) {
+    if (active && !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu && CineActive()) {
         xs.Gamepad.wButtons &= XINPUT_GAMEPAD_START;
         xs.Gamepad.sThumbLX = 0; xs.Gamepad.sThumbLY = 0;
         xs.Gamepad.sThumbRX = 0; xs.Gamepad.sThumbRY = 0;
@@ -281,7 +281,7 @@ static void UpdateVirtualPad()
     // the same signal the skc gates trust), so menu shaping now requires
     // the renderer to AGREE a menu is showing. A real menu is unchanged; a
     // ghost flag during stereo gameplay can no longer eat the sticks.
-    if (g_menuOpen && active) {
+    if ((g_menuOpen || UiSurfaceBlocks()) && active) {
         xs.Gamepad.sThumbLX = MenuStep(xs.Gamepad.sThumbLX, 0);
         xs.Gamepad.sThumbLY = MenuStep(xs.Gamepad.sThumbLY, 1);
         xs.Gamepad.sThumbRX = 0;   // one navigation axis only - a second one
@@ -315,7 +315,7 @@ static void UpdateVirtualPad()
     // stays paused until the player touches the mouse. If the player is
     // actively driving the pad while we still think a menu is up, send a
     // net-zero 1-count mouse wiggle to make the game update its cursor state.
-    if (g_inMenu) {
+    if (g_inMenu && !UiSurfaceBlocks()) {
         // 30.56: REVERTED to the 30.54 nudge. Suppressing it during stick use
         // (30.55, to stop the menu highlight fighting) also stopped it from
         // clearing a stale "cursor visible" state - which is what lets head

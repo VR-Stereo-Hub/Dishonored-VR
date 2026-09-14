@@ -1,3 +1,14 @@
+# Final status, 2026-09-14
+
+Standing pitched-head roll is headset-accepted. The separate capsule-height limitation stays under VR-87; no retuned crouch or stereo eye-right behavior is claimed.
+
+Merge is explicitly authorized. The complete tested defaults are promoted in
+PR58. See [stack acceptance](STACK_ACCEPTANCE.md) for final settings, validation,
+remaining issues and all findings. Earlier sections below are historical; their
+default-off and pending-test statements do not describe the accepted stack.
+
+---
+
 ## Headset result, 2026-09-14
 
 Build245-g0cd7b263 (Sep14 07:57:48) confirms the pitched-head roll fix in

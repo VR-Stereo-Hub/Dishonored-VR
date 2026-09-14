@@ -598,3 +598,10 @@ static void YawCinematicSuspend();
 static bool YawFacingReady();
 static bool HeadMovementEnabled();
 static void HeadMovementSet(bool on);
+
+static bool UiSurfaceEnabled();
+static bool UiSurfaceBlocks();
+static void UiSurfacePoll();
+static void UiSurfaceTick();
+static void UiSurfaceSet(bool on);
+static void UiSurfaceConfigure(const char* ini);

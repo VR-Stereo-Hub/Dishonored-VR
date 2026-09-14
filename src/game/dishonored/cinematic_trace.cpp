@@ -28,9 +28,9 @@ float CtWeight(uint8_t* cam, int index) {
 }
 }
 static void CineTraceConfigure(const char* ini) {
-    g_cineHead.store(GetPrivateProfileIntA("Cine", "HeadLook", 0, ini) != 0);
+    g_cineHead.store(GetPrivateProfileIntA("Cine", "HeadLook", 1, ini) != 0);
     Log("cine/head: %s ([Cine] HeadLook), draw-scoped authored rotation", g_cineHead.load() ? "ON" : "off");
-    g_cineTrace.store(GetPrivateProfileIntA("Cine", "Trace", 0, ini) != 0);
+    g_cineTrace.store(GetPrivateProfileIntA("Cine", "Trace", 1, ini) != 0);
     Log("cine/trace: %s ([Cine] Trace), read-only camera ownership at draw entry, 100 ms cadence",
         g_cineTrace.load() ? "ON" : "off");
 }
@@ -247,7 +247,7 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
         animWeight>=0 && playerWeight>=0 && lookWeight>=0;
     const dvr::cine::Conditions conditions={
         g_cineHead.load() && g_trackingEnabled && g_rotInject,
-        g_menuOpen || g_inMenu || g_mainMenu, ownerChanged,
+        UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu, ownerChanged,
         known, scripted || animWeight>0, dvr::cine::owns_rotation(scripted,animWeight,playerWeight,lookWeight),
         sceneDraw, runtimeReady, poseReady};
     const auto action=dvr::cine::action(conditions);

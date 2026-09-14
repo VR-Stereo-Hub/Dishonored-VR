@@ -810,3 +810,23 @@ analytic yaw-frame pitch arc replaces the old near-pole rolled-up fallback
 behind UprightPitchArc. Camera positional axes remain horizontal/world-up,
 while eye separation keeps the true rolled right. No native offsets or new
 engine writers. Parent cinematic behavior remains separately testable.
+
+### 2026-09-14: separate mono placement from UI stereo eligibility
+
+VR-107 seeds an upright LOCAL-space panel once per mono interval with independent
+per-context opt-outs and explicit recenter. VR-108/VR-74/VR-71 add a read-only
+current-owner UI guard shared by rendering, camera and input. Unknown ownership
+cannot authorize background stereo. The loading lease follows movie lifetime,
+not a view-dispatch timeout. Both levers default off pending headset testing.
+See dishonored/MONO_ANCHOR_UI_STATE.md for lifecycle and refusal contracts.
+
+## 2026-09-14: accepted stacked fixes and tested defaults
+
+Promote the complete accepted installed INI and saved F10 profile, including
+diagnostics, by explicit maintainer request. Keep config version11 and existing
+overrides; align generated/package profiles and missing-key fallbacks. Execute
+the actual x86 default writer and require byte equality to both profiles.
+Numerically equivalent weapon inverse lenses share a value only within the same
+component/Present/eye; no hand delta or engine-object lifetime is extended.
+The accepted design, rejected alternatives and remaining scope are consolidated
+in [STACK_ACCEPTANCE.md](dishonored/STACK_ACCEPTANCE.md).

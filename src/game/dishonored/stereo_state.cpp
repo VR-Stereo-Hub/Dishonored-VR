@@ -8,9 +8,10 @@ static void StereoStateSet(bool on) {
     Log("stereo/state: enabled=%d (live; gameplay input gates unchanged)",on?1:0);
 }
 static void StereoStateConfigure(const char* ini) {
-    StereoStateSet(GetPrivateProfileIntA("Cine","StereoState",0,ini)!=0);
+    StereoStateSet(GetPrivateProfileIntA("Cine","StereoState",1,ini)!=0);
 }
 static bool DvrSceneVerdict() {
+    if (UiSurfaceBlocks()) return false;
     const bool strict=DvrGameplayVerdict();
     if (!StereoStateEnabled()) return strict;
     const auto state=dvr::anim::snapshot(); // current live-object checked FSM, 150 ms expiry
@@ -33,7 +34,7 @@ static bool DvrSceneVerdict() {
     if (current!=serial) { serial=current; moved=now; }
     if (menu || !pawn || !state.valid) moved=0;
     const bool sceneFresh=moved && now>=moved && now-moved<=150;
-    const bool result=dvr::scene_state::eligible(strict,pawn,menu,view,state.valid,state.state[0],sceneFresh);
+    const bool result=dvr::scene_state::eligible(strict,pawn,menu,view,state.valid,state.state[0],sceneFresh,UiSurfaceEnabled() && !UiSurfaceBlocks());
     if ((int)result!=last || lastDialog!=state.dialogState || strcmp(lastState,state.state[0])) {
         last=result; lastDialog=state.dialogState;
         strncpy_s(lastState,state.state[0],_TRUNCATE);

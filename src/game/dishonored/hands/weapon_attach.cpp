@@ -4,6 +4,27 @@
 // VR-33 W2/W3: identify the weapon's draws by a bridged full-transform match,
 // then carry them through the SAME correction the hand took.
 
+static dvr::wf::LensSample g_waLensSamples[64]={};
+
+// Read-only, bounded evidence for partial weapon surfaces in one eye. Separate
+// each hand/eye/pass population; a shared throttle would hide the other eye.
+static void WaLensTrace(IDirect3DDevice9* dev,int hand,bool auxiliary,
+                        const WaCommon* view,bool applied,float ratio,bool reused)
+{
+    if (!g_waScaleTrace || hand<0 || hand>1 || !view) return;
+    static ULONGLONG next[2][3][2]={};
+    const int eye=g_mpEyeState<0?0:(g_mpEyeState>0?2:1);
+    auto& due=next[hand][eye][auxiliary?1:0];
+    const auto now=GetTickCount64();if(now<due) return;due=now+2000;
+    DWORD zfunc=0,zwrite=0;D3DVIEWPORT9 vp={};
+    dev->GetRenderState(D3DRS_ZFUNC,&zfunc);
+    dev->GetRenderState(D3DRS_ZWRITEENABLE,&zwrite);dev->GetViewport(&vp);
+    Log("wa/lens-pass: hand=%d eye=%d commonEye=%d present=%u commonPresent=%u "
+        "path=%s applied=%d ratio=%.9f reused=%d zfunc=%lu zwrite=%lu depth=%.6f/%.6f",
+        hand,g_mpEyeState,view->eye,(unsigned)dvr::frame::count(),view->present,
+        auxiliary?"auxiliary":"main",applied?1:0,ratio,reused?1:0,zfunc,zwrite,vp.MinZ,vp.MaxZ);
+}
+
 // ---- reading a native component transform -----------------------------------
 
 // The component's own LocalToWorld, read with the SAME extraction the shader
@@ -918,6 +939,25 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                 }
                                 dvr::hf::Xform L2 = {c2.R_L,
                                     {c2.t[0], c2.t[1], c2.t[2]}}, iL2;
+                                if (g_waViewLens && !known->useNative) {
+                                    const WaComp *self=nullptr,*ref=nullptr;
+                                    for(int q=0;q<v2->componentCount;++q) {
+                                        const auto& k=v2->components[q];
+                                        if(k.ok && k.obj==known->compObj) self=&k;
+                                        if(k.ok && k.isRef) ref=&k;
+                                    }
+                                    dvr::hf::Xform br,lens,ilens;float ratio=1;
+                                    if(self && ref) {
+                                        const dvr::hf::Xform nr={ref->R,{ref->t[0],ref->t[1],ref->t[2]}};
+                                        const dvr::hf::Xform member={self->R,{self->t[0],self->t[1],self->t[2]}};
+                                        const bool applied=dvr::wf::bridge(nr,v2->L_hand,&br) &&
+                                            dvr::wf::view_lens(L2,dvr::hf::xform_mul(br,member),v2->forward,&lens,&ilens,&ratio);
+                                        const bool reused=applied && dvr::wf::coherent_lens(g_waLensSamples,64,
+                                            self->obj,(unsigned)dvr::frame::count(),g_mpEyeState,&ilens);
+                                        if(applied) space=dvr::hf::xform_mul(space,ilens);
+                                        WaLensTrace(dev,known->hand,true,v2,applied,ratio,reused);
+                                    }
+                                }
                                 if (dvr::wf::inverse(L2, &iL2)) {
                                     corr = dvr::hf::xform_mul(
                                         dvr::hf::xform_mul(iL2, space), L2);
@@ -1064,6 +1104,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
 
     dvr::hf::Xform draw = {ctx.R_L, {ctx.t[0], ctx.t[1], ctx.t[2]}};
     dvr::wf::Candidate candidates[64];
+    float lensRatios[64]={};
     const WaComp* members[64];
     dvr::hf::Xform corrections[64];
     int count = 0;
@@ -1117,14 +1158,49 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
             c.predicted = dvr::hf::xform_mul(bridge, native);
             c.hand = h;
             c.assembly = (strstr(k->asset, "sword") || strstr(k->asset, "Sword")) ? 1 : 2;
-            candidates[count] = c; corrections[count] = v->D; members[count++] = k;
+            dvr::hf::Xform candidateCorrection=v->D;
+            dvr::hf::Xform lens, inverseLens; float lensRatio=1;
+            const float viewDistance=sqrtf(draw.t[0]*draw.t[0]+draw.t[1]*draw.t[1]+draw.t[2]*draw.t[2]);
+            if (g_waViewLens && !instStrongVeto && viewDistance<=g_waViewModelUU &&
+                dvr::wf::view_lens(draw,c.predicted,v->forward,&lens,&inverseLens,&lensRatio)) {
+                c.hasLens=true; c.unproject=inverseLens;
+                // Remove the extra lens before applying the SAME hand delta.
+                candidateCorrection=dvr::hf::xform_mul(v->D,inverseLens);
+            }
+            lensRatios[count]=lensRatio;
+            candidates[count] = c; corrections[count] = candidateCorrection; members[count++] = k;
             // A world-space pass has a second independently known prediction:
             // the native component transform itself. It also needs the delta
             // converted back out of the reference draw's rebased coordinates.
-            candidates[count] = c; candidates[count].predicted = native;
+            candidates[count] = c; candidates[count].hasLens=false; candidates[count].predicted = native;
             corrections[count] = nativeDelta; members[count++] = k;
             InterlockedIncrement(&g_waHandCompared[h]);
             const dvr::wf::Result one = dvr::wf::match(draw, &c, 1, g_waAngTolDeg, g_waPosTolUU, g_waMarginX);
+            // VR-112: distinguish native component, bridge and draw scaling.
+            // Copies only the existing frame's snapshots; no engine reads or
+            // GPU resource retention on the draw lane, and no matching changes.
+            if (g_waScaleTrace && (h!=0 || strstr(k->asset,"crossbow")) && one.angle<2.0f && one.position<5.0f) {
+                static unsigned long long nextTrace[2]={};
+                const auto now=GetTickCount64();
+                if (now>=nextTrace[h]) {
+                    nextTrace[h]=now+2000;
+                    auto emit=[&](const char* which,const dvr::hf::Xform& x) {
+                        float norm[3]={};
+                        for(int j=0;j<3;++j) {
+                            for(int r=0;r<3;++r) norm[j]+=x.r.m[r*3+j]*x.r.m[r*3+j];
+                            norm[j]=sqrtf(norm[j]);
+                        }
+                        Log("wa/scale: hand=%d asset=%s frame=%u gen=%u member=%p ref=%p kind=%s "
+                            "norm=%.7f/%.7f/%.7f R=%.7f/%.7f/%.7f;%.7f/%.7f/%.7f;%.7f/%.7f/%.7f "
+                            "T=%.4f/%.4f/%.4f angle=%.4f pos=%.4f scaleError=%.7f",
+                            h,k->asset,present,v->componentGen,k->obj,ref->obj,which,norm[0],norm[1],norm[2],
+                            x.r.m[0],x.r.m[1],x.r.m[2],x.r.m[3],x.r.m[4],x.r.m[5],x.r.m[6],x.r.m[7],x.r.m[8],
+                            x.t[0],x.t[1],x.t[2],one.angle,one.position,one.scale);
+                    };
+                    emit("draw",draw);emit("predicted",c.predicted);emit("native",native);
+                    emit("bridge",bridge);emit("nativeRef",nativeRef);emit("handDraw",v->L_hand);
+                }
+            }
             if (one.score < g_waNearestScore[h]) {
                 g_waNearestScore[h] = one.score; g_waNearestAngle[h] = one.angle;
                 g_waNearestPos[h] = one.position; g_waNearestScale[h] = one.scale;
@@ -1234,6 +1310,16 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     const WaComp* member = members[match.best];
     const int hand = candidates[match.best].hand;
     const WaCommon* wc = views[hand];
+    if(g_waViewLens && !(match.best&1)) {
+        auto& chosen=candidates[match.best];
+        const bool reused=chosen.hasLens && dvr::wf::coherent_lens(g_waLensSamples,64,
+            member->obj,present,g_mpEyeState,&chosen.unproject);
+        if(chosen.hasLens) corrections[match.best]=dvr::hf::xform_mul(wc->D,chosen.unproject);
+        WaLensTrace(dev,hand,false,wc,chosen.hasLens,lensRatios[match.best],reused);
+    }
+    if(candidates[match.best].hasLens) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+        "wa/lens: accepted %s hand=%d after removing verified view-plane lens; angle=%.5f pos=%.5f scale=%.7f, original match guards retained",
+        member->asset,hand,match.angle,match.position,match.scale);
 
     IDirect3DVertexBuffer9* vb = NULL; UINT offset = 0, stride = 0;
     IDirect3DIndexBuffer9* ib = NULL;

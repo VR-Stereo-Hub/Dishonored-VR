@@ -5584,3 +5584,206 @@ leaves its request untouched and adds no engine writer or input rotation. The
 character mode remains available and its post-cinematic drift remains open.
 15 production-handler host checks pass; headset acceptance is pending. Details
 and recorded failed reference reset: CINEMATIC_FOV_AND_HANDS.md latest section.
+
+
+## 2026-09-14: native UI ownership versus background rendering
+
+VR-107/VR-108 and existing VR-74/VR-71 use reflected current engine/player/world/
+UI-manager ownership and GFx open/main-screen state. Loading uses the Bink overlay
+movie lifetime across the Continue prompt, primed by loading mode/start/map-hints.
+The save notification alone is insufficient. No fixed offsets or engine writes.
+Declarations establish the properties; native timing is still unverified.
+See [mono UI state](MONO_ANCHOR_UI_STATE.md) for exact field names, identity and
+cadence contracts, historical build60 clamp evidence, controls and falsification.
+
+## 2026-09-14: VR-108 persistent movie service is not presentation
+
+Verified build250-g78abb4fa (Sep14 08:17:32), matching installed DLL hash.
+Logs/INI archived at build/mono-ui-test/playtest-20260914-082607. Main-menu
+anchoring/navigation is reported successful, but gameplay remains mono while
+weapons track. ui/surface enters Loading at5282609 and never releases before
+exit5313921. This falsifies the service-pointer lifetime lease.
+
+Decompiled DisBinkOverlayManager declares m_pBinkMovie as native Pointer.
+Verified ue3-natives derives metadata01350cf0, constructor00bb5000 and vtable
+0115d130. Native initialization00b9e4ee copies global movie service0145be80
+into the overlay movie field and registers the overlay through service slot24.
+It is a persistent service, not an active movie allocation. Draw gate00bb9880
+calls service slot1c and draws overlay text only for nonzero result.
+Global initialization009dd3ef selects0093d470 (real service) or004ebb60 (null).
+Real constructor0093d130 sets vtable010a4610; slot1c is00932cc0, a pure
+32-bit read at service+130 then return (8b8130010000c3). Null vtable00fcde60
+slot1c is00722980, returning0 (33c0c3). Real active field is initialized0,
+set1 at00932c57/009337ad and cleared at00932c31/00935ea4.
+
+Candidate reads that presentation field without calling native code. Requires
+expected vtable, exact getter address/bytes, readable field and boolean range;
+revalidates current live overlay pointer and service vtable after reading.
+The service is not a UObject; no IsLiveObject claim is made for that allocation.
+Overlay/engine reads retain current UObject liveness checks. No engine writes.
+All new native addresses/offsets are centralized in patterns.h.
+
+Loading mode/transition can acquire before presentation starts. Continue keeps
+the lease while presentation is active. Idle service releases despite stale
+started/hints metadata. Unknown layout does not release. Periodic ui/loading
+prints each input, service pointer and presentation state, including failure.
+24 host anchor/lease cases pass; native timing and headset acceptance pending.
+
+## 2026-09-14: build252 rejected; follow script WaitMovie completion
+
+Verified252-g2d62aca2, Sep14 08:35:52; matching installed DLL. Both logs/INI
+archived at build/mono-ui-test/playtest-20260914-084045. Main menu starts with
+service field+130 already1; after loading it remains1 through gameplay and
+pause/unpause. At6156625 mode0 transition0 started0 hints1 yet lease1.
+The claim that+130 proves visible presentation is retracted. It is overlay
+selection/enabling state and remains set beyond movie playback. Do not reuse.
+
+Additional decompiled declarations: Engine.WaitMovie, StopMovie with delayed
+stop until game rendered; GamePlayerController.ShowLoadingMovie,
+KeepPlayingLoadingMovie and ClientStopMovie. Native Engine.WaitMovie005e2600
+calls service slot34 ->004dbc30, which waits on service+1c event via event slot14.
+The service's movie-status queries004eb190/004eb2a0 also sample that event with
+zero timeout and return complementary finished/unfinished results. This is a
+completion signal, not hand tracking or an arbitrary button press.
+
+Constructor00500cfe creates the event with manual-reset1 and initially false,
+stores at+1c, then signals at00500d62 for initial idle. Factory00420500 creates
+event vtable00fb98a8, Win32 HANDLE at+4. Its slot14 ->00416670 invokes imported
+WaitForSingleObject with the caller timeout. Factory initialization uses
+CreateEventW at IAT00f941d8; SetEvent/ResetEvent are00f941dc/00f941e0.
+Code/slot/create bytes are verified before reading the current event handle.
+A SYNCHRONIZE-only duplicate is observed at zero timeout then closed. Manual
+reset means observing cannot consume completion. Current owner/service/event/
+handle identity is checked; unknown/failed reads retain mono. No engine writes,
+no native function calls, and no retaining handles across polls.
+
+31 host checks include actual manual-reset event pending, completion, repeated
+observation without consumption, second-load reset and invalid handle refusal.
+The prior overlay-enabled value remains diagnostic only. Movie completion now
+controls the existing loading lease. Headset timing is still unconfirmed.
+
+## 2026-09-14: native drop-assassination decision (VR-111)
+
+Decompiled DisItemContext_DropAssassinate derives directly from DisItemContext,
+not the melee/finisher context. Reflected fields m_pPlayerOwner,
+m_ContextStatus (idle0/failed1/in-progress2/finished3), m_CachedDropType
+(none0/too-high1/do-now2), m_pCachedTarget and
+m_TickTagAtWhichCacheIsValid expose its cached decision. Actor.Velocity is
+secondary telemetry. Read-only diagnostic must distinguish cached tick from
+an observed attack; it cannot prove rejection reason from type0 alone.
+
+Verified ue3-natives class derivation: metadata0135ff60, constructor00c0b180,
+vtable0116c7f8. Offline slot198 leads00c14960, which caches the result of
+00c09a50. That routine calls00c09900 for candidate eligibility and uses a
+trajectory from00c09810. The trajectory uses pawn velocity and gravity,
+not the physical head's view ray. Eligibility includes target state, vertical
+velocity, minimum drop and a collision trace, with distance selecting do-now
+versus too-high. Do not patch a guessed camera angle or expand handback lists
+to fix an attack that never entered a finisher. No new engine offsets/hooks
+are introduced: all diagnostic fields resolve through reflection.
+
+## 2026-09-14: VR-112 view-plane lens isolated on build258
+
+Verified258-g4a78a745 compiled09:37:23, matching installed DLL hash. Both logs
+archived build/mono-ui-test/playtest-20260914-101645. Failure reproduced:
+crossbow retains native head aim; hand fore/aft affects its vertical position.
+For the late crossbow groups, draw basis times inverse predicted basis is a
+symmetric view-plane stretch, ratio1.0466343..1.0466350. Applying that same
+matrix to predicted translation reproduces rendered translation within0.0014uu.
+The body/hand bridge is rigid and sword has no extra stretch. This refutes a
+uniform-scale error, missing component, or corrupt bridge for these samples.
+
+Candidate AttachViewLens defaults0, with live F10 Hands checkbox and saved INI.
+Fit only S=s(I-ff^T)+ff^T using the current rendered view forward axis. Validate
+its matrix residual, then undo S before the existing strict rotation/position/
+scale matcher. Do not accept an arbitrary affine or uniform scale. The weapon
+correction is D_hand*S_inverse, so both position and orientation inherit the
+same hand delta without retaining the extra lens. Known sibling passes derive
+their own lens from current component/view snapshots. No engine writes or
+retained lens across frames; native animation handback remains first veto.
+
+Host tests cover lens fit, original refusal, strict match after removal,
+controller translation, noncommuting hand rotation, tilted view, identity,
+and refusal of uniform scale, shear, wrong axis and displaced world instance.
+Next test is the same hub-arrival crossbow tracking reproduction, including
+left controller fore/aft while holding head still. Expected native head aim
+and axis coupling disappear. Headset acceptance pending; no merge.
+
+## 2026-09-14: partial left-eye weapon surfaces after lens correction (VR-112)
+
+Reported on verified build260-g7a0bbd46, compiled Sep14 10:23:35, DLL
+SHA256 a37a0589c58697480d38253a112eccb7abfff2da5833d2576dd4b3fa4beee40b.
+Both logs archived at build/mono-ui-test/playtest-20260914-104623.
+Crossbow unsheath/tracking is headset-confirmed. New report: parts of both
+weapon models intermittently disappear in the left eye, even while still;
+hands remain intact. This is distinct from whole-view VR-99 note flicker.
+
+Measured: all84 sampled draw/prediction matrix pairs (42 per hand) in this run
+have identity relative scale within float noise, unlike the real1.046635 lens
+in build258. Maximum eigenvalue deviation is9.72e-7 for sword and3.56e-7 for
+crossbow. Build260 nevertheless applied the fitted near-identity correction.
+Late-run no-delta stays126 while successful corrections continue; no restore
+failure. Suppression also continues, but its population is not proof of the
+reported partial-surface cause. Do not disable all auxiliary draws: prior
+experiments lost legitimate lighting/colour contributions.
+
+Candidate: reject identity lens fits within32 float epsilons and use the exact
+original correction path. Keep real lens cancellation and existing instance,
+rotation, position and scale guards. No new engine writes, stale matrix cache,
+or depth-state change. This removes a measured false positive; whether it
+caused the visible flicker still requires the headset. Two identity/roundoff
+regressions fail before the change and pass afterward; real-lens/axis and
+world-instance tests continue passing. AttachScaleTrace adds bounded per-eye,
+per-hand main/auxiliary lens decisions with common-eye and depth-state values.
+
+Next test: with both weapons drawn and head/controllers still, do their parts
+remain continuously visible in the left eye? Success supports roundoff as the
+cause. If it persists, inspect wa/lens-pass by eye and depth state, then capture
+matched depth/colour pass geometry before changing suppression or tolerances.
+PR58 remains draft; all three stacked PRs remain unmerged.
+
+## 2026-09-14: residual crossbow-only transparency after boat travel (VR-112)
+
+Verified build262-g9f27c514, compiled10:55:24, DLL SHA256
+b8bf05fd81be9ce1ad53caf5dd2ba5937ae2c9a93c74db6d9fe4d2d5f3360f8d.
+Both logs archived at build/mono-ui-test/playtest-20260914-110406.
+Headset result: weapons stable before travel; both track after arrival;
+sword has no transparency in either eye. Crossbow retains smaller partial
+transparency after travel. This supports the identity bypass and narrows the
+remaining symptom to real lens cancellation. The residual eye distribution
+was not separately specified; do not claim it changed eyes.
+
+Measured: crossbow now has a real lens around1.0356818. Of25 sampled same-eye,
+same-Present main/auxiliary pairs with active correction,6 differ in fitted
+ratio, maximum2.38e-7. No sampled common-eye mismatch. Sword lens remains
+inactive. This is roundoff disagreement, not evidence of two different zooms.
+
+Candidate reuses an identical inverse lens for numerically equivalent fits
+of the same component, same Present and same eye. Reuse tolerance is32 float
+epsilons, matching the identity arithmetic guard. A meaningful lens change
+replaces the value immediately. Different eyes, Presents and components do
+not borrow it. The fixed64-slot table contains only numeric lens snapshots
+and component identity tokens, never retained hand deltas or engine writes.
+Normal current identity/matching gates still authorize each draw. This is
+not the retired stale-draw rescue or auxiliary-pass suppression experiment.
+
+Seven host checks cover first fit, exact same-view roundoff reuse, opposite
+eye, next Present, other component, real lens change and unknown eye. Existing
+lens/identity/controller/world-instance tests pass. Release, exports, lint and
+golden INI pass. The visual cause remains a hypothesis until the next test.
+Next launch question: after the boat arrival, with weapons drawn and head/
+controllers still, does the crossbow remain fully opaque? Success supports
+pass consistency; failure requires joined per-pass transform/depth evidence,
+not broad suppression or relaxed matching. wa/lens-pass logs reuse decisions.
+No game launch. PR58 remains draft; no merge. The prior Linear update is
+still blocked by automatic approval review pending explicit permission.
+
+## 2026-09-14: accepted cinematic/UI/weapon integration
+
+Build264 verifies the final residual crossbow surface fix on the headset.
+The full findings and failure-to-fix chronology across PR56/57/58 are consolidated
+in [STACK_ACCEPTANCE.md](STACK_ACCEPTANCE.md). It records scoped cinematic
+ownership, upright pitch/roll math, head-based movement, native loading completion,
+post-load stereo permission, unchanged aerial eligibility, and per-view lens
+consistency. The current installed profile is promoted verbatim by request;
+no new engine layout or memory writer is introduced by default promotion.

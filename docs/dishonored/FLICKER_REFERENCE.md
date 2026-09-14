@@ -78,6 +78,7 @@ pose metadata without reopening the disproved historical theories.
 | Pause causes XR session loss | Hold overwrites saved layer with empty local structures; `XR_ERROR_HANDLE_INVALID` | VR-54 snapshot-bank correction implemented |
 | Mono after loading until jump/crouch/stairs; hands precede weapon tracking | Capsule liveness depended on an event-latched pawn while the controller already possessed the player; separate startup discovery stalls | Headset-confirmed startup stereo; weapon freeze remains: [load startup](LOAD_STARTUP_IMPLEMENTATION.md); `PawnFromController` and separate `CacheNameLookups` ship off |
 | Severe first-seconds flicker after loading, then stable | Startup eye starvation with asymmetric eye updates and slow ticks | Open historical startup issue (VR-16); brief settling accepted in later runs |
+| Parts of both weapon models intermittently vanish only in the left eye, hands intact | Near-identity lens corrections measured on unzoomed draws; depth/colour agreement under investigation | VR-112 confirmed resolved on build264: identity bypass plus per-view inverse-lens consistency; latest acceptance below |
 | Dark animated weapon copy at native position | Another render pass of the same geometry was not corrected | VR-33 pass identity/suppression fixes confirmed |
 | Both weapons disappear together, hands still place | Shared correction/publication gate; overly tight snapshot age | 100 ms snapshot bound restored; rare single-frame refusal historically accepted |
 | Weapon detaches or flicker returns after swap/load | Candidate list, contract lifetime/capacity, equipment roots, or config gate | Recovery/retention fixes landed; distinguish from eye-state regression |
@@ -1730,3 +1731,175 @@ is resolved on the headset. Logs/INI archived at cinematic-regression/20260914-0
 under build. Counting yielded PVR activity remains the accepted correction.
 Character-heading drift did not resolve; it is a separate movement issue, not
 stereo instability. VR-110 offers selectable native head-facing movement.
+
+
+## 2026-09-14: main-menu/loading projection leakage (VR-107/108, VR-74/71)
+
+Surface: whole view changes mono/projection while a menu/loading UI remains.
+Reported main-menu stereo after several seconds, underground camera and lost
+stick navigation; brief loading stereo before Continue. Historical build60
+17:25:41 logs measure a -4153.935 uu clamp offset and stale-menu clearance after
+1503ms; they are not results from this candidate. Hypothesis: background scene
+activity overrides UI ownership. Candidate uses reflected UI/movie lifetime as
+a veto across rendering, camera and input, plus configurable mono anchoring.
+Counterprediction: if the same fault occurs with ui/surface blocked=1, a consumer
+bypasses the veto; if blocked=0 during visible UI, the ownership classifier is
+wrong. Persistent unknown or loading after Continue also fails the policy.
+Status: implemented, headset test deferred; no confirmed fix. Existing eye-tag
+and weapon hypotheses are not reopened. Recoverable plan and exact controls:
+[mono UI state](MONO_ANCHOR_UI_STATE.md).
+
+## 2026-09-14: final mono UI candidate updated
+
+Build250-g78abb4fa incorporates accepted cinematic mono handoff and standing roll.
+UI ownership also gates stale-cursor pad nudges. Whole-view mono/projection
+leakage remains untested; no eye-tag/weapon hypothesis reopened. Installed with
+complete INI/hash/CRLF evidence, host suites and standalone XR smoke passing.
+See MONO_ANCHOR_UI_STATE.md for the main-menu test and subsequent loading test.
+
+## 2026-09-14: build250 loading guard does not release
+
+Whole view remains mono in gameplay despite tracked weapons. Verified250 log
+holds Loading from5282609 until exit5313921. The persistent movie-service pointer
+was mistaken for presentation lifetime. Main-menu anchoring is reported working.
+Native overlay draw uses service slot1c; candidate reads its verified active field
+and retains the lease only through active presentation. No hand-tracking gate.
+Counterprediction: presenting0 with load mode/transition cleared must release;
+presenting1 through Continue must remain mono. Unknown layout is logged/refused.
+See MONO_ANCHOR_UI_STATE.md and ENGINE_NOTES for derivation and archived run.
+
+## 2026-09-14: build252 active-field hypothesis retracted
+
+Verified252 still holds mono in gameplay and after pause. Movie service+130
+stays1 throughout; mode0/transition0/started0/hints1 cannot release the lease.
+The overlay draw-enabled predicate is not presentation lifetime. Candidate
+follows script Engine.WaitMovie to the manual-reset movie-completion event.
+Zero-time observation is nonconsuming and tested on real host events. Expected:
+completion releases mono after Continue, not before; other menu guards remain.
+Full derivation, archive and failure record: MONO_ANCHOR_UI_STATE.md.
+
+## 2026-09-14: VR-99 recurrence on build254 (open)
+
+Route: section1 whole-view both-eye after-note/crouched symptom, detailed3.15.
+Tester reports approximately one in five note closes, improved by standing.
+Verified254-g43551c09 compiled08:50:11; installed DLL matched. Archive:
+build/mono-ui-test/playtest-20260914-085908. LateTagRepair on, SharedWait0.
+At7046281 the 10s ledger has27 owes,22 repairs,5 expired,22 slot relabels and
+zero refusals; at7056281 it has107 owes,102 repairs,5 expired,102 relabels,
+zero refusals. Eye+1 duplicate total rises129 at7045421 to147 at7054437.
+The repair is active and not sufficient for every transition. No evidence
+that mono anchoring itself causes eye swaps; UI does not reopen after these
+closes. Exact visible frame is unmarked, so expired owes are still a suspect,
+not proven cause. No pairing change is justified solely by those counters.
+Next: use a dedicated crouched-note run, join complete ledger around expired
+owes and duplicate pushes, and reproduce the failing schedule in the host
+model before changing repair. Keep the accepted late-tag/relabel fix enabled.
+Separate initial-load mono dip is a successful-head-write heuristic failure,
+not a movie lease retrigger; MONO_ANCHOR_UI_STATE.md records the evidence and
+candidate fallback. Native drop rejection is separate VR-111.
+
+## 2026-09-14: build256 follow-up and VR-112
+
+Verified256-gd98bcf36 compiled09:15:20; archive
+build/mono-ui-test/playtest-20260914-093057. The tester reports a few brief
+crouched-note whole-view flickers, each recovering quickly. VR-99 remains
+residual/open; no pairing change was made in256, so improvement is reported,
+not attributed to its read-only drop diagnostic. Mono transitions accepted.
+
+Separate weapon reattachment row: after cinematic/level travel, crossbow loses
+tracking while sword works, not recovered by pause. Current components exist,
+but repeated crossbow scale mismatch approximately0.0468 prevents its contract
+from being accepted (tolerance0.005); sword accepts. New VR-112, read-only
+matrix breakdown candidate. Evidence, counterprediction and next test in
+MONO_ANCHOR_UI_STATE.md latest entry. No scale tolerance relaxation.
+
+## 2026-09-14: VR-112 diagnostic establishes differential lens
+
+Build258 verified against installed hash and banner; archive
+build/mono-ui-test/playtest-20260914-101645. Crossbow tracking failure reproduced.
+Matrix trace identifies a symmetric view-plane stretch1.046635, predicting the
+translation mismatch within0.0014uu; hand bridge and sword remain rigid.
+Candidate AttachViewLens removes only a validated lens before strict matching
+and hand correction. No arbitrary scale tolerance expansion. See latest
+MONO_ANCHOR_UI_STATE.md for implementation, counterexamples and next test.
+Status: measured mechanism, host-tested candidate; headset result pending.
+
+## 2026-09-14: partial left-eye weapon surfaces after lens correction (VR-112)
+
+Reported on verified build260-g7a0bbd46, compiled Sep14 10:23:35, DLL
+SHA256 a37a0589c58697480d38253a112eccb7abfff2da5833d2576dd4b3fa4beee40b.
+Both logs archived at build/mono-ui-test/playtest-20260914-104623.
+Crossbow unsheath/tracking is headset-confirmed. New report: parts of both
+weapon models intermittently disappear in the left eye, even while still;
+hands remain intact. This is distinct from whole-view VR-99 note flicker.
+
+Measured: all84 sampled draw/prediction matrix pairs (42 per hand) in this run
+have identity relative scale within float noise, unlike the real1.046635 lens
+in build258. Maximum eigenvalue deviation is9.72e-7 for sword and3.56e-7 for
+crossbow. Build260 nevertheless applied the fitted near-identity correction.
+Late-run no-delta stays126 while successful corrections continue; no restore
+failure. Suppression also continues, but its population is not proof of the
+reported partial-surface cause. Do not disable all auxiliary draws: prior
+experiments lost legitimate lighting/colour contributions.
+
+Candidate: reject identity lens fits within32 float epsilons and use the exact
+original correction path. Keep real lens cancellation and existing instance,
+rotation, position and scale guards. No new engine writes, stale matrix cache,
+or depth-state change. This removes a measured false positive; whether it
+caused the visible flicker still requires the headset. Two identity/roundoff
+regressions fail before the change and pass afterward; real-lens/axis and
+world-instance tests continue passing. AttachScaleTrace adds bounded per-eye,
+per-hand main/auxiliary lens decisions with common-eye and depth-state values.
+
+Next test: with both weapons drawn and head/controllers still, do their parts
+remain continuously visible in the left eye? Success supports roundoff as the
+cause. If it persists, inspect wa/lens-pass by eye and depth state, then capture
+matched depth/colour pass geometry before changing suppression or tolerances.
+PR58 remains draft; all three stacked PRs remain unmerged.
+
+## 2026-09-14: residual crossbow-only transparency after boat travel (VR-112)
+
+Verified build262-g9f27c514, compiled10:55:24, DLL SHA256
+b8bf05fd81be9ce1ad53caf5dd2ba5937ae2c9a93c74db6d9fe4d2d5f3360f8d.
+Both logs archived at build/mono-ui-test/playtest-20260914-110406.
+Headset result: weapons stable before travel; both track after arrival;
+sword has no transparency in either eye. Crossbow retains smaller partial
+transparency after travel. This supports the identity bypass and narrows the
+remaining symptom to real lens cancellation. The residual eye distribution
+was not separately specified; do not claim it changed eyes.
+
+Measured: crossbow now has a real lens around1.0356818. Of25 sampled same-eye,
+same-Present main/auxiliary pairs with active correction,6 differ in fitted
+ratio, maximum2.38e-7. No sampled common-eye mismatch. Sword lens remains
+inactive. This is roundoff disagreement, not evidence of two different zooms.
+
+Candidate reuses an identical inverse lens for numerically equivalent fits
+of the same component, same Present and same eye. Reuse tolerance is32 float
+epsilons, matching the identity arithmetic guard. A meaningful lens change
+replaces the value immediately. Different eyes, Presents and components do
+not borrow it. The fixed64-slot table contains only numeric lens snapshots
+and component identity tokens, never retained hand deltas or engine writes.
+Normal current identity/matching gates still authorize each draw. This is
+not the retired stale-draw rescue or auxiliary-pass suppression experiment.
+
+Seven host checks cover first fit, exact same-view roundoff reuse, opposite
+eye, next Present, other component, real lens change and unknown eye. Existing
+lens/identity/controller/world-instance tests pass. Release, exports, lint and
+golden INI pass. The visual cause remains a hypothesis until the next test.
+Next launch question: after the boat arrival, with weapons drawn and head/
+controllers still, does the crossbow remain fully opaque? Success supports
+pass consistency; failure requires joined per-pass transform/depth evidence,
+not broad suppression or relaxed matching. wa/lens-pass logs reuse decisions.
+No game launch. PR58 remains draft; no merge. The prior Linear update is
+still blocked by automatic approval review pending explicit permission.
+
+## 2026-09-14: weapon surface acceptance, build264
+
+Verified banner and installed hash; both logs archived at
+build/mono-ui-test/accepted-20260914-111707. The remaining crossbow partial
+transparency is headset-confirmed resolved. Build262 had already confirmed
+ordinary weapon stability and an opaque sword. The accepted combination is
+identity-fit bypass plus numerical-equivalent per-component/Present/eye inverse
+lens reuse. Both preserve real lens correction and current instance guards.
+See [final stack acceptance](STACK_ACCEPTANCE.md) for the complete evidence,
+promoted defaults and remaining unrelated VR-99 note flicker. Merge authorized.

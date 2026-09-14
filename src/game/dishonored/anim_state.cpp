@@ -73,6 +73,62 @@ void resolve() {
     resolved=true;
     Log("anim: resolved FSM offsets %x/%x/%x current=%x id=%x; history=%x picker=%x (optional)",pawnFsm[0],pawnFsm[1],pawnFsm[2],currentOff,idOff,historyOff,pickerOff);
 }
+// VR-111: read the native drop decision without altering combat eligibility.
+// This diagnostic is opt-in and bounded; cached addresses must still occupy
+// their current object slot and belong to this sample's live player pawn.
+bool dropWatch=false;
+void drop_sample(uint8_t* pawn,const Snapshot& s) {
+    if (!dropWatch || !s.valid || !pawn) return;
+    static uint32_t ownerOff=0,statusOff=0,typeOff=0,targetOff=0,tagOff=0,velocityOff=0;
+    static uint32_t scan=0,slot=0;
+    static uint8_t* context=nullptr;
+    static unsigned long long next=0,beat=0;
+    const auto now=GetTickCount64();
+    if (now<next) return;
+    next=now+20;
+    if (!ownerOff) {
+        ownerOff=RflOffsetOf("DisItemContext_DropAssassinate","m_pPlayerOwner");
+        statusOff=RflOffsetOf("DisItemContext","m_ContextStatus");
+        typeOff=RflOffsetOf("DisItemContext_DropAssassinate","m_CachedDropType");
+        targetOff=RflOffsetOf("DisItemContext_DropAssassinate","m_pCachedTarget");
+        tagOff=RflOffsetOf("DisItemContext_DropAssassinate","m_TickTagAtWhichCacheIsValid");
+        velocityOff=RflOffsetOf("Actor","Velocity");
+    }
+    if (!ownerOff || !statusOff || !typeOff || !targetOff || !tagOff || !velocityOff ||
+        !RangeReadable((void*)kGObjHdr,12)) return;
+    auto** objects=*(uint8_t***)(kGObjHdr);
+    const uint32_t count=*(uint32_t*)(kGObjHdr+4);
+    if (!objects || !count || count>4000000) return;
+    if (context && (slot>=count || !RangeReadable(objects+slot,sizeof(void*)) ||
+        objects[slot]!=context || !IsLiveObject(context) || object(context,ownerOff)!=pawn)) context=nullptr;
+    for (unsigned budget=0;!context && budget<1024;++budget) {
+        if (scan>=count) {scan=0;break;}
+        const uint32_t i=scan++;
+        if (!RangeReadable(objects+i,sizeof(void*))) break;
+        auto* candidate=objects[i];
+        if (!IsLiveObject(candidate)) continue;
+        const char* cls=ObjClassName(candidate);
+        if (!cls || strcmp(cls,"DisItemContext_DropAssassinate")) continue;
+        if (object(candidate,ownerOff)!=pawn) continue;
+        context=candidate;slot=i;
+        Log("drop/watch: current player context discovered slot=%u",slot);
+    }
+    unsigned char status=255,type=255; int tag=-1; uint8_t* target=nullptr;float velocity[3]={};
+    bool known=context && read(context,statusOff,&status,1) && status<4 &&
+        read(context,typeOff,&type,1) && type<3 && read(context,tagOff,&tag,4) &&
+        read(context,targetOff,&target,sizeof(target)) && read(pawn,velocityOff,velocity,sizeof(velocity));
+    static int previous=-1;
+    const int key=known?status*8+type:-1;
+    const bool falling=!strcmp(s.state[0],"StatePlayerMasterFalling");
+    if (key!=previous || now>=beat) {
+        Log("drop/watch: known=%d status=%u (0 idle 1 failed 2 active 3 finished) type=%u "
+            "(0 no-drop 1 too-high 2 do-now) cacheTick=%d targetLive=%d velocity=%.1f/%.1f/%.1f "
+            "master=%s upper=%s; cached native decision, not a forced attack",
+            known,(unsigned)status,(unsigned)type,tag,target && IsLiveObject(target),
+            velocity[0],velocity[1],velocity[2],s.state[0],s.state[1]);
+        previous=key;beat=now+(falling?100:1000);
+    }
+}
 void report(const Snapshot& s) {
     Log("anim: gen=%u %s master=%s upper=%s left=%s pending=%s body=%d seq=%s picker=%d reason=%s age=%llu ms",
         s.generation,!s.valid?"UNKNOWN":s.game?"GAME":"PLAYER",s.state[0],s.state[1],s.state[2],s.pending,s.bodyMode,s.sequence,s.picker,s.reason,GetTickCount64()-s.stamp);
@@ -181,6 +237,7 @@ void tick() {
             }
         } else { s.picker=-1; text(s.sequence,sizeof(s.sequence),"unavailable"); }
     }
+    drop_sample(pawn,s);
     if (!s.valid && staleTable && now>=nextRebuild) {
         nextRebuild=now+1000;   // a rebuild is a full GObjects copy and sort: at most once a second
         const bool built=BuildLiveSet(); ++tableRebuilds;
@@ -207,13 +264,15 @@ void tick() {
 }
 void configure(const char* ini) {
     AcquireSRWLockExclusive(&lock);
+    dropWatch=GetPrivateProfileIntA("Anim","DropWatch",1,ini)!=0;
+    Log("config: [Anim] DropWatch=%d (read-only native drop eligibility)",dropWatch);
     const int watchSetting=GetPrivateProfileIntA("Anim","StateWatch",-1,ini);
     const int backSetting=GetPrivateProfileIntA("Anim","HandBack",-1,ini);
     watch=watchSetting!=0;
     handback=backSetting!=0;
-    cinematicHandback=GetPrivateProfileIntA("Anim","CinematicHandBack",0,ini)!=0;
+    cinematicHandback=GetPrivateProfileIntA("Anim","CinematicHandBack",1,ini)!=0;
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
-    mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",0,ini)!=0;
+    mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
     releaseMs=(unsigned)GetPrivateProfileIntA("Anim","ReleaseMs",250,ini); if(releaseMs>5000) releaseMs=5000;
     blendMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendMs",150,ini); if(blendMs>2000) blendMs=2000;

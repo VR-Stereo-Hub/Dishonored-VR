@@ -3,16 +3,23 @@
 41.x is the FOUNDATION line for the new native-stereo render: it is not a release. The
 milestone in brackets is where the fix is planned (docs/ROADMAP.md).
 
-- Some dialogue-choice scenes remain mono until a selection, and cinematic
-  handoffs can briefly interrupt stereo (VR-103). Cinematic head look, natural
-  pitch and border removal are confirmed with the F10 View controls enabled.
+- The original character-oriented movement option can retain a heading offset
+  after cutscenes (VR-109). Head-based movement is now the tested default; the
+  older mode remains selectable for future repair.
+- Cinematic/dialogue FOV and exit blends are fixed in the tested scenes. Broader
+  manual FOV-lever and kill-cam cases remain unverified under VR-50.
+- A brief whole-view flicker may still occur after closing a note while crouched
+  (VR-99); recent tests recover quickly. The separate partial weapon-surface
+  transparency and crossbow tracking after cinematic travel are fixed.
+- The existing capsule-height ceiling can suppress some tracked vertical motion
+  (VR-87). Standing roll/pitch arc correction is accepted independently.
 - Initial weapon tracking still has a multi-second startup freeze. Startup stereo
   now recovers automatically; the separate name-cache timing lever remains off.
 
 - **Stereo ships ON: `[Stereo] Method=reentry`, `Armed=1`** [S2b]. The game's scene is drawn
   twice per tick, once per eye, into a projection layer (HEADSET-VERIFIED on a Quest 3,
   2026-09-03: depth, head tilt, lean, look and crouch). The F10 Display tab's `stereo armed`
-  tickbox (ticked) parks the game on the head-locked mono screen without forgetting the
+  tickbox (ticked) parks the game on the mono screen (anchored by default) without forgetting the
   method; `stereo arm on|off` on the seam. The tick rate halves while stereo runs (the second
   draw is a full scene draw). `stereo aer` is still a design stub.
 - **PERFORMANCE: the frame reaches the headset through a readback, twice per tick** [S1,

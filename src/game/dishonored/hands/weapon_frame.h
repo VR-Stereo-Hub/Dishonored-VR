@@ -188,7 +188,78 @@ static inline bool may_correct(Instance v) { return v == INSTANCE_HELD; }
 static inline bool may_suppress(Instance v) { return v == INSTANCE_HELD; }
 
 
-struct Candidate { Xform predicted; int hand, assembly; };
+// VR-112: a mesh-specific lens scales the view plane, leaving forward
+// depth unchanged. Fit only that one-parameter family against the current
+// render view, never a free affine transform or arbitrary uniform scale.
+inline bool view_lens(const Xform& draw,const Xform& predicted,const float* forward,
+                      Xform* lens,Xform* inverseLens,float* ratio) {
+    Xform inv;
+    if (!inverse(predicted,&inv)) return false;
+    float f[3]={forward[0],forward[1],forward[2]};
+    float fn=sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]);
+    if (!_finite(fn) || fn<0.99f || fn>1.01f) return false;
+    for(float& v:f) v/=fn;
+    const Mat3 observed=mul3(draw.r,inv.r);
+    float num=0,den=0;
+    for(int i=0;i<3;++i) for(int j=0;j<3;++j) {
+        const float ff=f[i]*f[j], plane=(i==j?1.0f:0.0f)-ff;
+        num+=plane*(observed.m[i*3+j]-ff);den+=plane*plane;
+    }
+    const float scale=num/den;
+    // Broad physical bound, not a fitted constant. The residual and original
+    // matching gates below decide identity; the measured 1.046635 is not coded.
+    if (!_finite(scale) || scale<0.5f || scale>2.0f) return false;
+    *lens={identity3(),{0,0,0}};
+    for(int i=0;i<3;++i) for(int j=0;j<3;++j) {
+        const float ff=f[i]*f[j];
+        const float want=scale*((i==j?1.0f:0.0f)-ff)+ff;
+        if (!_finite(observed.m[i*3+j]) || fabsf(observed.m[i*3+j]-want)>0.005f) return false;
+        lens->r.m[i*3+j]=want;
+    }
+    *ratio=scale;
+    // Identity is not a lens correction. Inverting/multiplying a near-identity
+    // fit injects float roundoff into otherwise unchanged depth/colour passes.
+    // 32 float epsilons covers the inverse/multiply/project arithmetic, not
+    // an artistic scale band. The original matching guards still run.
+    if (fabsf(scale-1.0f)<=32.0f*FLT_EPSILON) return false;
+    if (!inverse(*lens,inverseLens)) return false;
+    return true;
+}
+// Share only numerical-equivalent lens fits for one component in one view.
+// These are value snapshots, never retained engine objects or hand deltas.
+struct LensSample {
+    const void* component=nullptr;
+    unsigned present=0;
+    int eye=0;
+    Xform inverse={identity3(),{0,0,0}};
+};
+inline bool coherent_lens(LensSample* samples,int capacity,const void* component,
+                          unsigned present,int eye,Xform* inverseLens) {
+    if (!component || (eye!=-1 && eye!=1)) return false;
+    int freeSlot=-1;
+    for(int i=0;i<capacity;++i) {
+        auto& sample=samples[i];
+        if(!sample.component || sample.present!=present || sample.eye!=eye) {
+            if(freeSlot<0) freeSlot=i;
+            continue;
+        }
+        if(sample.component!=component) continue;
+        float error=0;
+        for(int j=0;j<9;++j) {
+            const float delta=fabsf(sample.inverse.r.m[j]-inverseLens->r.m[j]);
+            if(!_finite(delta)) return false;
+            if(delta>error) error=delta;
+        }
+        if(error<=32.0f*FLT_EPSILON) {
+            *inverseLens=sample.inverse;return true;
+        }
+        // A real change is new evidence even within a Present.
+        sample.inverse=*inverseLens;return false;
+    }
+    if(freeSlot>=0) samples[freeSlot]={component,present,eye,*inverseLens};
+    return false;
+}
+struct Candidate { Xform predicted; int hand, assembly; bool hasLens=false; Xform unproject={identity3(),{0,0,0}}; };
 struct Result { int best; bool ambiguous; float angle, position, scale, score; };
 
 // Compare every eligible member across BOTH hands. A tied assembly may share
@@ -202,7 +273,8 @@ static inline Result match(const Xform& draw, const Candidate* c, int n,
     if (n > 64 || !(angleTol > 0) || !(posTol > 0)) return out;
     for (int i = 0; i < n; ++i) {
         scores[i] = FLT_MAX;
-        Mat3 a = draw.r, b = c[i].predicted.r;
+        const Xform measured=c[i].hasLens?xform_mul(c[i].unproject,draw):draw;
+        Mat3 a = measured.r, b = c[i].predicted.r;
         float scale = 0, pos = 0;
         bool valid = true;
         for (int j = 0; j < 3; ++j) {
@@ -216,7 +288,7 @@ static inline Result match(const Xform& draw, const Candidate* c, int n,
             const float ds = fabsf(an-bn) / an;
             if (ds > scale) scale = ds;
             for (int r = 0; r < 3; ++r) { a.m[r*3+j] /= an; b.m[r*3+j] /= bn; }
-            const float dp = draw.t[j] - c[i].predicted.t[j];
+            const float dp = measured.t[j] - c[i].predicted.t[j];
             pos += dp*dp;
         }
         if (!valid || !basis_is_orthonormal(a, .02f) ||
