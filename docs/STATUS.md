@@ -1,21 +1,28 @@
-## Current state: build260 crossbow lens fix installed
+## Current state: build262 weapon surface flicker candidate installed
 
-Installed260-g7a0bbd46, compiled Sep14 10:23:35. Full INI diff adds only
-Hands.AttachViewLens=1; hashes and CRLF verified. Both logs archived at
-build/playtest-candidates/installs/20260914-102430-394900.
-Build258 reproduced crossbow head-aim/axis coupling after hub travel. Trace
-isolates an extra view-plane lens1.046635; translation agrees within0.0014uu.
-260 removes that validated lens before strict matching and hand correction.
-No engine writes or tolerance expansion. Default-off switch is live in F10
-Hands and saved with settings. Eleven new lens tests plus existing frame,
-weapon and animation tests pass; release,exports,lint,golden INI pass.
-Next launch question: after hub travel, does the crossbow track the left hand
-correctly, including forward/back without moving up/down, with head still?
-Success supports the lens fix; failure requires wa/lens and wa/scale logs.
-Agent reads and archives logs; never launches game. No subagents.
-Build256 mono transitions/takedowns accepted; brief residual note flicker
-remains VR-99. VR-112 awaits this test. All three PRs remain unmerged.
-Evidence and math: MONO_ANCHOR_UI_STATE.md latest section, ENGINE_NOTES.md.
+Build260 confirmed crossbow unsheath and tracking, but introduced reported
+partial weapon-model flicker only in the left eye, with hands intact.
+Archive: build/mono-ui-test/playtest-20260914-104623. Sampled transforms
+show no extra lens, yet260 applied corrections to numerical identity fits.
+
+Installed262-g9f27c514, compiled Sep14 10:55:24, skips identity lens correction
+while preserving real weapon lens cancellation. Per-eye main/auxiliary trace
+is armed through existing AttachScaleTrace=1. Full INI diff is empty; bytes,
+hashes and CRLF verified. Both logs and previous install archived at
+build/playtest-candidates/installs/20260914-105531-305834.
+DLL SHA256 b8bf05fd81be9ce1ad53caf5dd2ba5937ae2c9a93c74db6d9fe4d2d5f3360f8d.
+Two identity regressions fail before the fix and pass afterward; all frame,
+weapon/animation tests, release,9 exports,lint and golden INI pass.
+
+Next launch question: with both weapons drawn and head/controllers still,
+do their parts stay continuously visible in the left eye? Success supports
+the identity-roundoff cause; persistent flicker requires wa/lens-pass eye,
+depth-state and main/auxiliary analysis before another behavioral change.
+Use the same area where the symptom appeared. Agent reads/archives the logs;
+never launches the game. No subagents. VR-112 stays In Progress, PR58 draft.
+All three stacked PRs remain unmerged. Earlier stereo/takedown acceptance
+stands; brief note flicker is the separate VR-99. Detailed evidence and
+recoverable investigation: MONO_ANCHOR_UI_STATE.md and FLICKER_REFERENCE.md.
 
 ## Earlier records
 

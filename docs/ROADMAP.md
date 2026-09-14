@@ -1,5 +1,10 @@
 # Roadmap
 
+## Weapon lens follow-up (2026-09-14)
+
+- [x] VR-112 crossbow unsheath/tracking recovery confirmed on build260.
+- [ ] Resolve partial left-eye weapon surfaces; build262 identity-lens bypass awaiting test.
+
 ## Load/reload stability (2026-09-13)
 
 - [x] Startup stereo without vertical movement, headset-confirmed.

@@ -403,3 +403,10 @@ remain continuously visible in the left eye? Success supports roundoff as the
 cause. If it persists, inspect wa/lens-pass by eye and depth state, then capture
 matched depth/colour pass geometry before changing suppression or tolerances.
 PR58 remains draft; all three stacked PRs remain unmerged.
+
+Installed262-g9f27c514 (Sep14 10:55:24), code9f27c514883fb03cea14bbc121ffd7b1c04d808c.
+DLL SHA256 b8bf05fd81be9ce1ad53caf5dd2ba5937ae2c9a93c74db6d9fe4d2d5f3360f8d.
+INI SHA256 364e79997823cd18e97b398a324edc20aaae9c222377e0c8d1f01db5dc060508.
+Complete installed INI diff is empty, CRLF verified. Install/log archive:
+build/playtest-candidates/installs/20260914-105531-305834. Release, frame tests,
+9 exports, lint and golden INI pass; no game launch or perceptual claim.
