@@ -6,6 +6,13 @@ implements default-off F10 modes for reduced desktop delivery and fully stopped
 desktop updates while XR capture remains live. Full mode retains accepted behavior.
 The VR-113 audit remains independently on its documentation branch/PR59.
 
+Preserved build271-g160949cb from clean source160949cb, not installed:
+`build/playtest-candidates/vr-115-desktop-present/manifest.json`.
+DLL SHA256 `9e1f5190935f09adfad5509533aa0f40be9188b3826d1e20e971ebc481343d0e`.
+Candidate default-off INI SHA256 `5e13b7f454a6717b78b24338e4884b5c1c3bb98c770270538b00dcc7411a4f65`.
+Final exports9/9 and repository lint pass. This manifest is separate from the
+installed266 manifest; documentation-only handoff commits do not change its binary.
+
 Installed build266 and its INI are unchanged. The user is testing the whole opening
 on that accepted main build. Do not install this candidate, change diagnostics or
 replace the installed manifest until requested. No game launch or merge occurred.

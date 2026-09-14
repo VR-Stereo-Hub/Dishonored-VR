@@ -5,6 +5,14 @@
 First implementation from the [VR-113 performance audit](https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/codex/vr-113-performance-audit/docs/dishonored/PERFORMANCE_AUDIT.md).
 Not installed or headset-tested. No game launch or merge.
 
+Preserved candidate: `vr33-hands-working-271-g160949cb`, compiled from clean
+source commit160949cb, Win32 RelWithDebInfo. Local artifacts and manifest:
+`build/playtest-candidates/vr-115-desktop-present/`.
+DLL SHA256 `9e1f5190935f09adfad5509533aa0f40be9188b3826d1e20e971ebc481343d0e`.
+Candidate INI SHA256 `5e13b7f454a6717b78b24338e4884b5c1c3bb98c770270538b00dcc7411a4f65`.
+Both levers are 0. Final exports are9/9; lint is clean. Installed build266 DLL
+and entire INI hashes remain the accepted values in installed.json.
+
 ## Purpose and scope
 
 The accepted pipeline performs two original desktop Presents and a left snapshot
