@@ -1,5 +1,8 @@
 ## Current state: standing camera-roll candidate after accepted PR56
 
+Installed245-g0cd7b263 (Sep14 07:57:48), standing-roll fix and ZAccount ON.
+Full INI diff contains only those two changes; hashes/CRLF verified.
+
 PR56 is ready for review and unmerged. Build239-gadebc947 confirmed head-based
 movement, alongside the accepted cinematic comfort/FOV and mono handoff fixes.
 PR57 now includes that parent through cb77328d. Its next build retains all

@@ -109,3 +109,17 @@ No new game launch or game log exists for either pending candidate.
 Final checks:12 x86 standing-arc regressions,39 parent math/ownership checks,
 13 camera-scope checks, Release build, lint, nine exports, golden INI and standalone
 XR60 frames FOCUSED/zero errors pass. Headset acceptance remains pending.
+
+## Updated installation, 2026-09-14
+
+Installed vr33-hands-working-245-g0cd7b263, Sep14 07:57:48, source 0cd7b2630eb0d0495cfe29368213771394ff122e.
+Bundle build/playtest-candidates/standing-arc-245 includes accepted PR56 parent.
+DLL SHA256 e67175b9cddc9da5822035310c47a01cc0bd804c8da476fe3f0479943b22d318.
+INI SHA256 e9fde6ffb0b01a9c95e5cc0f38ec98c862ce063556349972c1dfab5e35cbb8cc.
+Full INI diff: add Neck.UprightPitchArc=1 and PosTrack.ZAccount=0->1 only.
+HeadBasedMovement=1 and all accepted cinematic settings preserved. Hashes and
+CRLF verified, both logs archived at
+build/playtest-candidates/installs/20260914-075910-008829.
+12 standing,15 production-facing,17 handoff,39 cinematic math and13 scoped-write
+checks pass; release build,9 exports, lint and INI golden pass. No game launch.
+PR57 remains draft until the standing/crouched rolled-head comparison is tested.
