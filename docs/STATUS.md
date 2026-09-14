@@ -1,33 +1,52 @@
-## Current state: PR56, PR57 and PR58 merged to VR-Main
+## Current acceptance: world smoothness approved for main, 2026-09-14
 
-Explicit merge approval was completed2026-09-14, in dependency order:
-- PR56 cinematic comfort/native animation/head-based movement:02a9abfa.
-- PR57 standing pitched-head roll:4162a732.
-- PR58 mono/UI/loading, weapon fixes and complete defaults:f020cdb9.
-All three feature branches are retained. GitHub reports all three MERGED.
-The merged tree exactly matches validated candidate commit5aa625ae.
+The exact original world candidate 271-g8cd27652 was restored and independently
+reconfirmed on the headset. Exceptional world stability returned. Its installed
+INI is now copied byte-for-byte to the release and golden INIs, and the default
+writer matches it. `Pace.ImageOrientation=1` is the generated and missing-key
+default by explicit user request after acceptance; explicit 0 remains respected.
 
-Installed vr33-hands-working-266-g5aa625ae, compiled Sep14 11:25:16.
-DLL SHA256 257ab2551fadfec93d66a1e25067143c6643257709596f8303ecb5482015c7a4.
-This is the accepted build264 behavior plus repository default promotion;
-no additional headset result is claimed for266. Final accepted run and both
-logs: build/mono-ui-test/accepted-20260914-111707. Final installation and previous
-logs: build/playtest-candidates/installs/20260914-112603-417138.
-The full installed INI diff is empty. Installed, generated, golden and packaged
-profiles match byte-for-byte with CRLF preserved, SHA256
-364e79997823cd18e97b398a324edc20aaae9c222377e0c8d1f01db5dc060508.
-All17 added/changed missing-key defaults align; config version11 stays unchanged.
+This merge contains the WORLD fix from 8cd27652 only. The unaccepted hand
+normalization code from 12a974134 is absent. The branch
+`codex/vr-116-flicker-fix-patch` preserves that experiment for later investigation.
+The accepted DLL/INI bundle and `vr-116-world-smooth-271` tag remain recoverable.
+The user explicitly approved publishing this accepted state to VR-Main.
 
-Final host suites, production default-writer byte check, release/frame/weapon/
-animation tests,9 exports,lint and golden validation pass. Agent never launched
-the game. No subagents, release declaration, tag or branch deletion.
+Latest symptom refinement: residual left-eye hand flicker was observed after
+exiting the opening cutscene, while loading a sewer save was essentially clean.
+This makes transition state relevant; it does not prove the precise cause.
+Track the deferred hand issue with VR-95 and preserve its historical predictor
+regression. Do not resume or include hand changes in this merge.
 
-Linear verified Done:VR-104/105/106/107/108/110/111/112/74/71.
-Remaining scope: VR-50 broader manual-FOV/kill-cam cases, VR-109 character-mode
-drift, VR-99 brief note flicker, VR-87 height ceiling and VR-102 startup timing.
-No new task is started. Next session begins from current VR-Main, reads this
-handoff and [STACK_ACCEPTANCE.md](dishonored/STACK_ACCEPTANCE.md), and follows
-the selected remaining ticket. Never interpret the preserved264 log as266.
+Reconfirmation logs/INI: `build/flicker-120/reconfirmed-world`; banner and DLL
+hash match 271-g8cd27652, compiled 13:46:59. Source changes beyond that checkpoint
+are documentation and INI/default promotion only. No engine-memory writer,
+camera transform, hand pose or frame pacing change is introduced by promotion.
+
+Next: complete and verify the authorized main merge; hand/cutscene work waits.
+Historical pending, publication-blocked and candidate text below records earlier
+stages and does not override this scope or the new explicit merge authorization.
+
+## Earlier records
+
+## Current state: VR-116 120Hz physical-head-turn flicker investigation
+
+VR-115 desktop branch is parked at committed1d6558a3; no uncommitted changes
+needed a stash. Its build271 was never installed. Do not mix that experiment
+into this investigation. New branch codex/vr-116-120hz-head-motion from main255d1c91.
+Verified main build266 run shows120Hz, world/hand lag2, automatic A/Bs off.
+Physical head turns alone trigger severe world flicker; stick turns and still
+head do not. Both cinematic and gameplay scenes affected. Both logs archived
+at build/flicker-120/20260914-133932. Ring/eye summaries remain healthy; uneven
+cadence and occasional pose disagreement are measured, causality unresolved.
+
+Default-off Pace.ImageOrientation candidate uses same-eye captured camera-record
+orientation for submission, with numeric lag fallback; positions and game/hand
+behavior unchanged. F10 View provides live A/B and Save. Eight new host checks
+and existing frame suites pass; release,exports,lint,golden pass. No game launch.
+Exact findings, rejected claims and one-question120Hz test:
+[HEAD_MOTION_120HZ.md](dishonored/HEAD_MOTION_120HZ.md).
+Build/install identity will be recorded after packaging. No merge authorized.
 
 ## Earlier records
 

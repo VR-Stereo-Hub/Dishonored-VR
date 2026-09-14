@@ -316,6 +316,8 @@ bool pair_strict();
 // (reprojection wobble). DEFAULT 1 IN CORE - BS1/BS2 never call this and
 // behave byte-identically; the Infinite adapter exposes the in-headset A/B.
 void set_pose_lag(int lag);
+void set_image_orientation(bool on);
+bool image_orientation_enabled();
 // VR-65: run the announced lag comparison - baseline, alternative, baseline
 // again, alternative - and restore the baseline at the end. Segment length in
 // milliseconds; 0 disables.
