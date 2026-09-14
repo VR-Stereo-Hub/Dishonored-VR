@@ -51,8 +51,8 @@ every HUD element on its own anchor (off, frame, window, world window, left hand
 right hand), elements identified by what they are (the Scaleform movie or display
 object), measured first. The VR-118 transform stays the fallback route.
 
-Rung 3 as it stood before that prompt: rung 3
-(VR-118): the region probe reads the HUD's vertices (DrawIndexedPrimitiveUP, SHORT2
+The VR-118 route as it stood
+(rung 3): the region probe reads the HUD's vertices (DrawIndexedPrimitiveUP, SHORT2
 shape coordinates, 0.5 us per draw) but the c0/c1 transform hypothesis is wrong on
 this GFx build (nonsense rectangles), so per-element routing is NOT in this branch;
 the next step is the HUD vertex shader's bytecode to find the transform's registers,
