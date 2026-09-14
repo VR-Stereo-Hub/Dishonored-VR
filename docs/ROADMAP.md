@@ -1,5 +1,11 @@
 # Roadmap
 
+## Performance audit (2026-09-14)
+
+- [x] VR-113: complete source/evidence audit and prioritized [performance plan](dishonored/PERFORMANCE_AUDIT.md), documentation only.
+- [ ] Future scope, not started: correct timing attribution and measure a repeatable 120 Hz workload before implementing the ranked candidates.
+- [ ] VR-114: make shared-capture fence timeout/error handling preserve safe slot ownership; source finding, not an observed FPS diagnosis.
+
 ## Weapon lens follow-up (2026-09-14)
 
 - [x] VR-112 crossbow unsheath/tracking recovery confirmed on build260.

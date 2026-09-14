@@ -5787,3 +5787,21 @@ ownership, upright pitch/roll math, head-based movement, native loading completi
 post-load stereo permission, unchanged aerial eligibility, and per-view lens
 consistency. The current installed profile is promoted verbatim by request;
 no new engine layout or memory writer is introduced by default promotion.
+
+## 2026-09-14: performance source audit and measurement boundaries
+
+[PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) records the VR-113 audit against
+integrated source 255d1c91, with separately verified installed266 and historical264
+identities. It traces the shared D3D9Ex path through the D3D11 intermediate and
+XR copy, desktop mirror and two original Presents. PcRefreshLayout caches only
+the immediately preceding shader layout, so shader switches can repeat bytecode
+reflection. UiSurfacePoll rebuilds the live set periodically; cinematic trace
+rebuilds only during failed-liveness recovery, bounded to once per second.
+
+The D3D9 GPU span ends at Present entry, before the capture bracket. Subtracting
+that later capture interval from the span does not isolate scene work. The small
+capture CPU subtotal excludes the full D3D11 bridge and Flush. The report gives
+timestamp-matched historical windows, source links, missing GPU measurements and
+ranked future tests. It does not establish current installed FPS or a new headset
+verdict. Shared-fence timeout/error propagation is separately recorded as VR-114;
+the selected slow window had no timeout. No engine address or layout was added.

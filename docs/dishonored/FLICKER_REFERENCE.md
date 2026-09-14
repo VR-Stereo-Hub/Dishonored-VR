@@ -28,6 +28,15 @@ they are outside this committed baseline and are not assigned a flicker verdict.
 
 ## Contents
 
+Performance follow-up, 2026-09-14: [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md)
+records source and historical timing evidence under VR-113, without a new visual
+verdict or implementation. Its future optimizations must preserve current-draw
+versus delivered-image identity, menu/load liveness, and accepted weapon lens
+consistency. VR-77 scheduling and VR-79 visibility remain separate constraints.
+VR-114 records a source-confirmed shared-fence timeout/error path that proceeds
+without proven completion; no timeout occurred in the selected slow window.
+This finding does not establish the cause of a reported flicker or performance drop.
+
 1. [Symptom routing and current status](#1-symptom-routing-and-current-status)
 2. [The frame path and its identities](#2-the-frame-path-and-its-identities)
 3. [Detailed issue history](#3-detailed-issue-history)

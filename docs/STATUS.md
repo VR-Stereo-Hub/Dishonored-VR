@@ -1,3 +1,31 @@
+## Current state: performance audit complete, implementation deferred
+
+2026-09-14. [Performance audit and improvement plan](dishonored/PERFORMANCE_AUDIT.md)
+records VR-113 on `codex/vr-113-performance-audit`, from VR-Main `255d1c91`.
+This is documentation only. No code, settings, build, installation, or game launch.
+Installed build266 and its full INI remain unchanged. The preserved installed log
+is build264, verified against its accepted archive, not a new build266 playtest.
+
+The plan prioritizes trustworthy pair/GPU timing, desktop Present/mirror cost,
+shader reflection caching, repeated draw-state queries/locks, diagnostic work,
+liveness/discovery, and D3D11 bridge consolidation. It also covers streaming,
+scene pass reuse, resolution tradeoffs, runtime pacing, and memory pressure.
+Existing capture uses shared GPU surfaces; its small CPU subtotal does not
+measure the entire bridge. The report separates source opportunities from
+measured historical costs and does not promise a 120 Hz result.
+
+VR-114 separately tracks shared-capture fence timeout/error handling found in
+source. No timeout was observed in the selected slow window, and no fix was made.
+VR-67/17/77/102 remain the related measurement, hitch, scheduling and startup work.
+
+Next steps: wait for the user's choice of implementation scope. When requested,
+start with report Phase A and one discriminating experiment, with one question
+per launch and a defined contrary outcome. Preserve current-level IsLiveObject,
+eye/image/pose identity, accepted defaults, and the no-launch/no-merge rules.
+No performance playtest is pending from this audit.
+
+## Earlier records
+
 ## Current state: PR56, PR57 and PR58 merged to VR-Main
 
 Explicit merge approval was completed2026-09-14, in dependency order:
@@ -5786,3 +5814,14 @@ placement. Historical build60 logs support the menu clamp/stale input diagnosis;
 current game log is232, not a new candidate test. Host camera/UI suites and
 standalone60-frame XR smoke pass. Packaging and deferred headset verification
 are recorded in MONO_ANCHOR_UI_STATE.md; no merge approval.
+
+## Session 2026-09-14: performance audit and plan
+
+Created VR-113 and the performance audit branch from integrated VR-Main. Reviewed
+the active render/capture/XR pipeline, per-draw and event hooks, object discovery,
+diagnostics, streaming emulation and historical timing. Archived both installed
+logs and the INI locally; verified that the retained run is accepted build264
+while the unchanged installed binary is build266. Published the ranked report
+and future falsifiable A/B sequence in PERFORMANCE_AUDIT.md. Created VR-114 for
+the independent shared-fence failure path. Implementation remains deferred at
+the user's request; no build, installation, settings change or game launch.
