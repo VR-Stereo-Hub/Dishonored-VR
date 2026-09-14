@@ -1,4 +1,4 @@
-## Current state: the HUD on its anchors (VR-117), simulator-verified, headset pending - 2026-09-15
+## Current state: the HUD on its anchors (VR-117), headset-confirmed, PR #63 ready for review - 2026-09-15
 
 Branch `claude/vr-117-hud-redo` off VR-Main 85f9ef6e, PR open, NOT merged. The game's
 Scaleform HUD leaves the eye textures and is shown on quad layers: a head-locked or
@@ -41,10 +41,11 @@ sewer level the beat now reads `presents=467 armed=467` in every window (it read
 `pause-ride.xrs` 31/31. Release build 278 of this tree is installed with the repo
 default ini (WindowWheel=1) for the second headset run.
 
-Next: the second headset run on VR-117's pass criteria (legibility of both anchors at the
-presets, the hand panel's size/lift/tilt sign, the pause menu navigable with the pad
-for 10 s and A selecting, a note in the window, the main menu untouched, whether
-the faint dark strokes of the max(r,g,b) alpha repair are acceptable). Then rung 3
+Second headset run (2026-09-15, release build 278, repo default ini): no flicker, the
+weapon scroll and the grip-hold loadout stay in the window, the screens judged good.
+PR #63 is out of draft and waits for review; the merge is the user's call.
+
+Next: rung 3
 (VR-118): the region probe reads the HUD's vertices (DrawIndexedPrimitiveUP, SHORT2
 shape coordinates, 0.5 us per draw) but the c0/c1 transform hypothesis is wrong on
 this GFx build (nonsense rectangles), so per-element routing is NOT in this branch;

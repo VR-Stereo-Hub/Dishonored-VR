@@ -148,7 +148,7 @@ pose metadata without reopening the disproved historical theories.
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
-| The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset re-check pending |
+| The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
 
 VR-78 crouched-pitch motion was fixed later with a measured zero crouched neck
@@ -1502,9 +1502,11 @@ than the evidence supports.
    armed=461..471 redirected=21.0/present empty-while-armed=0` in every 3 s window
    over 40 s with `stereo: beat out/s=154..156 L/s=77 R/s=77 none/s=0..1`; `hud-panel.xrs`,
    `pause-ride.xrs` 31/31 and the new `wheel-ride.xrs` 27/27 pass on the build.
-   Not measured: the headset (the second run is the verdict).
-6. **Status:** headset-measured cause, simulator-verified fix, headset re-check
-   pending; VR-117. Adjacent, same run: the weapon scroll and the grip-hold loadout
+   Second headset run (2026-09-15, release build 278 of the tree, the repo default
+   ini): no window/frame flicker reported in gameplay, the weapon scroll and the
+   grip-hold loadout stay in the window.
+6. **Status:** headset-measured cause, simulator-verified fix, headset-confirmed;
+   VR-117. Adjacent, same run: the weapon scroll and the grip-hold loadout
    dropping the world to the mono screen for a second were the power wheel
    (`context=Wheel blocked=1 rides=0`, 48 times); the wheel now rides the window
    (`WindowWheel=1`, `wheel-ride.xrs`), not a flicker row.

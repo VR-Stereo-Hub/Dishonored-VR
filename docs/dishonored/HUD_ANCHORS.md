@@ -261,5 +261,10 @@ death loop at the intro boat and cannot be used).
   `presents=450 armed=433`), `wheel-ride.xrs` 27/27 (`ui/ride: Wheel -> RIDING`,
   the projection and a quad layer through the hold, both eyes fresh on release,
   the mono screen with `hud menu Wheel off`), `pause-ride.xrs` 31/31 again.
+- The second HEADSET run (2026-09-15, the release build with the repo default ini):
+  no window/frame flicker in gameplay, the weapon scroll and the grip-hold loadout
+  stay in the window, the pause, journal, note and the rest judged good. VR-117's
+  pass criteria met as far as one run judges them; the alpha repair's faint dark
+  strokes drew no complaint.
 - The cost: two sinks at SlotScale 0.50 = 7.5 MB StretchRect each per present;
   fences `blit waits 5357 timeouts 0, read waits 0 timeouts 0` over the run.
