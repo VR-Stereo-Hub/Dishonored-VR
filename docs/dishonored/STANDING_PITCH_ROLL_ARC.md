@@ -76,3 +76,20 @@ lint and golden INI pass; final identity/remaining checks recorded below.
 Every swap verifies DLL/INI hashes, CRLF and a full INI diff and archives both
 logs. Verify the new log banner before interpretation. No launch is requested
 until the tester resumes. Do not merge either PR based on automated checks.
+
+## Final artifacts and installation, 2026-09-13
+
+Standing candidate237: vr33-hands-working-237-gfd7a830d, compile23:34:10.
+DLL SHA256 b9cca3b0e0b77212424d25158807df66178a689f617f4d3d067e5efb975671a5.
+Bundle: build/playtest-candidates/standing-arc-237 (DLL, CRLF INI, manifest).
+The candidate was installed and hash-verified; full INI diff only added
+Neck.UprightPitchArc=1 and changed PosTrack.ZAccount=0 to1. Both logs and prior
+files archived at build/playtest-candidates/installs/20260913-233449-048351.
+Then cinematic234 was restored for the first deferred test, with both hashes
+verified and the exact inverse full INI diff. Restore archive ends233449-390590.
+Active install is234, NOT237. Canonical record: build/playtest-candidates/installed.json.
+No new game launch or game log exists for either pending candidate.
+
+Final checks:12 x86 standing-arc regressions,39 parent math/ownership checks,
+13 camera-scope checks, Release build, lint, nine exports, golden INI and standalone
+XR60 frames FOCUSED/zero errors pass. Headset acceptance remains pending.
