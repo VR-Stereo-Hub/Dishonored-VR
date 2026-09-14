@@ -1,0 +1,161 @@
+// VR-107/VR-108, VR-74/VR-71: current UI ownership, not background scene activity.
+// Read-only. Root identity is checked against its current GObjects slot; child
+// identities are read afresh from the engine/player/world/UI-manager chain.
+#include "core/vr/mono_anchor.h"
+namespace {
+std::atomic<bool> g_usEnabled{false},g_usBlocked{true};
+SRWLOCK g_usLock=SRWLOCK_INIT;
+CtIdentity g_usEngine;
+uint32_t g_usScan=0;
+double g_usTickNext=0;
+double g_usNext=0,g_usRefresh=0,g_usResolveAt=0;
+bool g_usResolved=false;
+uint32_t g_usPlayers,g_usActor,g_usWorld,g_usGame,g_usManager,g_usOverlay;
+uint32_t g_usMode,g_usTransition,g_usMovie,g_usStarted,g_usStartedMask,g_usScreen,g_usOpen,g_usOpenMask;
+uint32_t g_usHints=0,g_usHintsMask=0,g_usNote=0,g_usNoteMask=0,g_usWheel=0,g_usWheelMask=0;
+uint32_t g_usMenus[10]={};
+const char* g_usProps[]={"m_pMainMenu","m_pPauseMenu","m_pNote","m_pJournal","m_pPowerWheel","m_pStore","m_pMissionStats","m_pChallengeMenu","m_pBrief","m_pResultsMenu"};
+const dvr::mono::Context g_usKinds[]={dvr::mono::MainMenu,dvr::mono::Pause,dvr::mono::Note,dvr::mono::Journal,dvr::mono::Wheel,dvr::mono::Store,dvr::mono::MissionStats,dvr::mono::Other,dvr::mono::Other,dvr::mono::Other};
+dvr::mono::LoadingLease g_usLoading;
+void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int movie,int mode) {
+    g_usBlocked.store(blocked);
+    dvr::vr::set_mono_context(context,g_usEnabled.load() && blocked);
+    static int last=-1;
+    const int key=(int)context+32*blocked+64*known;
+    if(key!=last) {
+        Log("ui/surface: context=%s blocked=%d known=%d mainScreen=%d loadingMovie=%d saveLoadMode=%d lease=%d; background rendering cannot authorize stereo/input",
+            dvr::mono::names[context],(int)blocked,(int)known,screen,movie,mode,(int)g_usLoading.active);
+        last=key;
+    }
+}
+bool UsResolve() {
+    if(g_usResolved) return true;
+    const double now=MaimNowMs();
+    if(now<g_usResolveAt || !RflNamesReady()) return false;
+    g_usResolveAt=now+5000;
+    struct Field { const char* cls; const char* prop; uint32_t* out; };
+    const Field fields[]={
+        {"Engine","GamePlayers",&g_usPlayers},{"Player","Actor",&g_usActor},
+        {"Actor","WorldInfo",&g_usWorld},{"WorldInfo","Game",&g_usGame},
+        {"DishonoredGameInfo","m_pGlobalUIManager",&g_usManager},
+        {"DishonoredEngine","m_pBinkOverlayManager",&g_usOverlay},
+        {"DishonoredEngine","m_SaveLoadMode",&g_usMode},{"Engine","TransitionType",&g_usTransition},
+        {"DisBinkOverlayManager","m_pBinkMovie",&g_usMovie},
+        {"DisGFxMoviePlayerMainMenu","m_Screen",&g_usScreen}};
+    bool ok=true;
+    for(const auto& f:fields) if(!*f.out && !FindPropOffsetChecked(f.cls,f.prop,f.out)) {
+        ok=false; Log("ui/surface: missing property %s.%s",f.cls,f.prop);
+    }
+    if(!g_usNoteMask) ok=FindBoolProp("DisGFxMoviePlayerNote","m_bNoteVisible",&g_usNote,&g_usNoteMask) && ok;
+    if(!g_usWheelMask) ok=FindBoolProp("DisGFxMoviePlayerPowerWheel","m_bWheelIsOpen",&g_usWheel,&g_usWheelMask) && ok;
+    if(!g_usOpenMask) ok=FindBoolProp("GFxMoviePlayer","bMovieIsOpen",&g_usOpen,&g_usOpenMask) && ok;
+    if(!g_usHintsMask) ok=FindBoolProp("DisBinkOverlayManager","m_bShowMapNameAndHints",&g_usHints,&g_usHintsMask) && ok;
+    if(!g_usStartedMask) ok=FindBoolProp("DisBinkOverlayManager","m_bLoadingStarted",&g_usStarted,&g_usStartedMask) && ok;
+    for(int i=0;i<10;++i) if(!g_usMenus[i]) {
+        bool found=FindPropOffsetChecked("DisGlobalUIManager",g_usProps[i],&g_usMenus[i]);
+        if(i<7) ok=found && ok; // DLC holder is optional.
+    }
+    g_usResolved=ok;
+    Log("ui/surface: reflected root/movie layout %s; read-only, retry missing fields in 5 s",ok?"ready":"unavailable");
+    return ok;
+}
+}
+static bool UiSurfaceEnabled() { return g_usEnabled.load(); }
+static bool UiSurfaceBlocks() { return g_usEnabled.load() && g_usBlocked.load(); }
+static void UiSurfaceSet(bool on) {
+    g_usEnabled.store(on);
+    dvr::vr::set_mono_context(dvr::mono::Other,on && g_usBlocked.load());
+    Log("ui/surface: guard=%d (live)",(int)on);
+}
+static void UiSurfaceConfigure(const char* ini) {
+    UiSurfaceSet(GetPrivateProfileIntA("Menu","SurfaceGuard",0,ini)!=0);
+    uint32_t mask=0;
+    for(unsigned i=0;i<dvr::mono::Count;++i) {
+        char key[64]; _snprintf(key,sizeof(key),"Anchor%s",dvr::mono::names[i]);
+        if(GetPrivateProfileIntA("Screen",key,1,ini)) mask|=1u<<i;
+    }
+    dvr::vr::set_mono_anchor(GetPrivateProfileIntA("Screen","AnchorMono",0,ini)!=0,mask);
+}
+static void UiSurfacePoll() {
+    if((!g_usEnabled.load() && !dvr::vr::mono_anchor_enabled()) || !TryAcquireSRWLockExclusive(&g_usLock)) return;
+    struct Unlock { ~Unlock(){ReleaseSRWLockExclusive(&g_usLock);} } unlock;
+    const double now=MaimNowMs();
+    if(now<g_usNext) return;
+    g_usNext=now+50;
+    if(!g_usResolved) { UsPublish(dvr::mono::Other,true,false,-1,-1,-1); return; }
+    if(now>=g_usRefresh) { BuildLiveSet(); g_usRefresh=now+1000; }
+    if(!ChSlot(g_usEngine)) { UsPublish(dvr::mono::Other,true,false,-1,-1,-1); return; }
+    auto* engine=(uint8_t*)g_usEngine.value.obj;
+    uint8_t mode=0,transition=0; uint32_t started=0,hints=0; void* movie=nullptr;
+    auto* overlay=CtObject(engine,g_usOverlay);
+    const bool loadKnown=CtRead(engine,g_usMode,&mode,1) && CtRead(engine,g_usTransition,&transition,1) &&
+        overlay && CtRead(overlay,g_usStarted,&started,4) && CtRead(overlay,g_usMovie,&movie,sizeof(movie)) && CtRead(overlay,g_usHints,&hints,4);
+    const bool loading=g_usLoading.update(loadKnown,mode==2 || transition==2 || transition==4 || transition==5,
+        (started&g_usStartedMask)!=0 || (movie && (hints&g_usHintsMask)),movie!=nullptr);
+    if(loading) { UsPublish(dvr::mono::Loading,true,loadKnown,-1,movie?1:0,mode); return; }
+    struct Array { uint8_t** data; int count,capacity; } players={};
+    uint8_t* player=nullptr;
+    if(CtRead(engine,g_usPlayers,&players,sizeof(players)) && players.count>0 && players.count<=4 &&
+       players.capacity>=players.count && RangeReadable(players.data,sizeof(player))) memcpy(&player,players.data,sizeof(player));
+    auto* pc=CtObject(player,g_usActor);
+    auto* world=CtObject(pc,g_usWorld);
+    auto* game=CtObject(world,g_usGame);
+    auto* manager=CtObject(game,g_usManager);
+    bool known=manager && loadKnown;
+    if(!known) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,5000,
+        "ui/surface: refusing unknown chain engine=%p player=%p pc=%p world=%p game=%p manager=%p overlay=%p loadKnown=%d",
+        engine,player,pc,world,game,manager,overlay,(int)loadKnown);
+    int screen=-1;
+    dvr::mono::Context context=dvr::mono::Other;
+    bool blocked=false;
+    for(int i=0;manager && i<10;++i) {
+        if(!g_usMenus[i]) continue;
+        uint8_t* obj=nullptr;
+        if(!CtRead(manager,g_usMenus[i],&obj,sizeof(obj))) { known=false; continue; }
+        if(!obj) continue;
+        uint32_t bits=0;
+        if(!CtRead(obj,g_usOpen,&bits,4)) { known=false; continue; }
+        if(i==2 || i==4) {
+            const uint32_t off=i==2?g_usNote:g_usWheel;
+            const uint32_t mask=i==2?g_usNoteMask:g_usWheelMask;
+            if(!CtRead(obj,off,&bits,4)) {known=false;continue;}
+            if(!(bits&mask)) continue;
+        } else if(!(bits&g_usOpenMask)) continue;
+        if(i==0) {
+            uint8_t value=0;
+            if(!CtRead(obj,g_usScreen,&value,1)) { known=false; continue; }
+            screen=value;
+            if(value==0) continue;
+            if(value>3) { known=false; continue; }
+        }
+        blocked=true; context=g_usKinds[i]; break;
+    }
+    if(!known && !blocked) { blocked=true; context=dvr::mono::Other; }
+    if(!blocked && g_cineNow) context=dvr::mono::Cinematic;
+    UsPublish(context,blocked,known,screen,movie?1:0,mode);
+}
+static void UiSurfaceTick() {
+    if((!g_usEnabled.load() && !dvr::vr::mono_anchor_enabled()) || !TryAcquireSRWLockExclusive(&g_usLock)) return;
+    struct Unlock { ~Unlock(){ReleaseSRWLockExclusive(&g_usLock);} } unlock;
+    const double now=MaimNowMs();
+    if(now<g_usTickNext) return;
+    g_usTickNext=now+16;
+    if(!UsResolve() || ChSlot(g_usEngine) || !RangeReadable((void*)kGObjHdr,12)) return;
+    auto** objects=*(uint8_t***)kGObjHdr;
+    const uint32_t count=*(uint32_t*)(kGObjHdr+4);
+    if(!objects || count>4000000) return;
+    // Bounded discovery; never a full object scan every frame.
+    for(unsigned budget=0;budget<1024 && count;++budget) {
+        if(g_usScan>=count) {g_usScan=0; break;}
+        const auto index=g_usScan++;
+        if(!RangeReadable(objects+index,sizeof(void*))) break;
+        auto* obj=objects[index];
+        if(!IsLiveObject(obj)) continue;
+        const char* cls=ObjClassName(obj);
+        if(!cls || strcmp(cls,"DishonoredEngine")) continue;
+        const char* name=RealName(*(uint32_t*)(obj+kNameOff));
+        if(!name || strstr(name,"Default__")) continue;
+        MkReadIdentity(obj,&g_usEngine.value); g_usEngine.index=index;
+        Log("ui/surface: engine identity discovered in slot %u",index); break;
+    }
+}

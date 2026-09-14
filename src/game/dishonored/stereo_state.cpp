@@ -11,6 +11,7 @@ static void StereoStateConfigure(const char* ini) {
     StereoStateSet(GetPrivateProfileIntA("Cine","StereoState",0,ini)!=0);
 }
 static bool DvrSceneVerdict() {
+    if (UiSurfaceBlocks()) return false;
     const bool strict=DvrGameplayVerdict();
     if (!StereoStateEnabled()) return strict;
     const auto state=dvr::anim::snapshot(); // current live-object checked FSM, 150 ms expiry

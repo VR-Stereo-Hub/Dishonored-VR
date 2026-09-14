@@ -229,6 +229,20 @@ static void WriteDefaultIni(const char* ini)
         "; HeadLocked=1 keeps the screen in front of your eyes (turning your head turns the\n"
         "; game camera); 0 leaves it standing in the room where you recentered.\n"
         "HeadLocked=1\n"
+        "; AnchorMono places a level screen in front of you once per mono interval.\n"
+        "; Per-context switches choose anchored (1) or head-following (0).\n"
+        "; Runtime View controls and monoanchor recenter reposition the screen.\n"
+        "AnchorMono=0\n"
+        "AnchorOther=1\n"
+        "AnchorMainMenu=1\n"
+        "AnchorLoading=1\n"
+        "AnchorPause=1\n"
+        "AnchorNote=1\n"
+        "AnchorJournal=1\n"
+        "AnchorWheel=1\n"
+        "AnchorStore=1\n"
+        "AnchorMissionStats=1\n"
+        "AnchorCinematic=1\n"
         "WidthMeters=2.4\n"
         "; RenderWidth/RenderHeight/RenderFullscreen (41.1): the render-resolution picker's\n"
         "; ask, 0 = the game's own size. It takes effect at the NEXT LAUNCH, and THESE FOUR\n"
@@ -835,6 +849,8 @@ static void WriteDefaultIni(const char* ini)
         "FlipPitch=1\n"
         "FlipRoll=1\n"
         "[Menu]\n"
+        "; Read current engine UI ownership to veto background stereo and head-mouse.\n"
+        "SurfaceGuard=0\n"
         "UiKeepOnMenu=1\n"
         "NoteFastMono=1\n"
         "UiFlags=1\n"
@@ -1828,6 +1844,7 @@ static void LoadConfig()
     // reporter nobody enables reports nothing.
     dvr::anim::configure(ini);
     CineTraceConfigure(ini);
+    UiSurfaceConfigure(ini);
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
     CineFovConfigure(ini);
@@ -3004,6 +3021,12 @@ static void OverlaySaveDefaults()
                                    g_skcRotSignP < 0 ? "-1" : "1", ini);
     }
     dvr::anim::save(ini);   // VR-88: the F10 Hands checkbox must survive a restart
+    WritePrivateProfileStringA("Menu","SurfaceGuard",UiSurfaceEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Screen","AnchorMono",dvr::vr::mono_anchor_enabled() ? "1" : "0",ini);
+    for(unsigned i=0;i<dvr::mono::Count;++i) {
+        char key[64]; _snprintf(key,sizeof(key),"Anchor%s",dvr::mono::names[i]);
+        WritePrivateProfileStringA("Screen",key,(dvr::vr::mono_anchor_contexts()&(1u<<i)) ? "1" : "0",ini);
+    }
     WritePrivateProfileStringA("Cine","HeadLook",CineHeadEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);

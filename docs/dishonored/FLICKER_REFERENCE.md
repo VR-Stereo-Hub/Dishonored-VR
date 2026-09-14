@@ -1711,3 +1711,19 @@ pitch parity and12 numerical regressions pass. Exact-pole position refusal is
 logged; normal pitch is clamped short of it. Full plan, limits and staged
 playtest sequence: [standing arc](STANDING_PITCH_ROLL_ARC.md). Parent PR56 and
 this child remain unmerged pending separate testing.
+
+## 2026-09-14: main-menu/loading projection leakage (VR-107/108, VR-74/71)
+
+Surface: whole view changes mono/projection while a menu/loading UI remains.
+Reported main-menu stereo after several seconds, underground camera and lost
+stick navigation; brief loading stereo before Continue. Historical build60
+17:25:41 logs measure a -4153.935 uu clamp offset and stale-menu clearance after
+1503ms; they are not results from this candidate. Hypothesis: background scene
+activity overrides UI ownership. Candidate uses reflected UI/movie lifetime as
+a veto across rendering, camera and input, plus configurable mono anchoring.
+Counterprediction: if the same fault occurs with ui/surface blocked=1, a consumer
+bypasses the veto; if blocked=0 during visible UI, the ownership classifier is
+wrong. Persistent unknown or loading after Continue also fails the policy.
+Status: implemented, headset test deferred; no confirmed fix. Existing eye-tag
+and weapon hypotheses are not reopened. Recoverable plan and exact controls:
+[mono UI state](MONO_ANCHOR_UI_STATE.md).

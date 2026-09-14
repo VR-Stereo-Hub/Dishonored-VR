@@ -810,3 +810,12 @@ analytic yaw-frame pitch arc replaces the old near-pole rolled-up fallback
 behind UprightPitchArc. Camera positional axes remain horizontal/world-up,
 while eye separation keeps the true rolled right. No native offsets or new
 engine writers. Parent cinematic behavior remains separately testable.
+
+### 2026-09-14: separate mono placement from UI stereo eligibility
+
+VR-107 seeds an upright LOCAL-space panel once per mono interval with independent
+per-context opt-outs and explicit recenter. VR-108/VR-74/VR-71 add a read-only
+current-owner UI guard shared by rendering, camera and input. Unknown ownership
+cannot authorize background stereo. The loading lease follows movie lifetime,
+not a view-dispatch timeout. Both levers default off pending headset testing.
+See dishonored/MONO_ANCHOR_UI_STATE.md for lifecycle and refusal contracts.

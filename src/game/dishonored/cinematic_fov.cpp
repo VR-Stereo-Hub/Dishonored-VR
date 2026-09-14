@@ -45,7 +45,7 @@ static float CineFovClaim() {
 static float CineFovScopeTarget() { return g_cfScope.field && GetCurrentThreadId()==g_sdDrawTid ? g_cfScope.written : 0; }
 static void CineFovBegin(bool scene) {
     const auto state=dvr::anim::snapshot();
-    const bool menu=g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
+    const bool menu=UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
         (g_uiNoteOpen && MaimNowMs()-g_uiPollMs<500);
     const bool projection=dvr::stereo::wants_projection() && dvr::vr::session_live() &&
         !dvr::vr::cinematic_active() && !dvr::camera::eyetest_active() && !dvr::camera::postest_active();

@@ -4,7 +4,7 @@
 
 static bool CineActive()
 {
-    if (!g_cineNow) return false;
+    if (UiSurfaceBlocks() || !g_cineNow) return false;
     // 38.66: the MAIN MENU's 3D background fires the same cinematic toggle,
     // which parked the pad at the menu ("can't move my joystick in the main
     // menu"). No live pawn = no gameplay cutscene to protect - clear the

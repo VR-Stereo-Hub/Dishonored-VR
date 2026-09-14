@@ -261,3 +261,8 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [ ] VR-104 mantle handback: not exercised in build232 playtest.
 
 - [ ] VR-106: standing pitched-head roll arc candidate on child branch; numerical regression reproduced, headset test deferred.
+
+## Deferred UI candidate (2026-09-14)
+
+- [x] Implement VR-107 configurable mono anchoring and VR-108 menu/loading ownership guard.
+- [ ] Headset verification of VR-107/VR-108 and existing VR-74/VR-71; no merge approval.

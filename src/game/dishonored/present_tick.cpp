@@ -376,7 +376,7 @@ static bool DvrGameplayVerdict()
 {
     const bool pawn = CylTruthLive();
     const bool viewLive = DvrScriptViewLive();
-    const bool verdict = pawn && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow && viewLive;
+    const bool verdict = !UiSurfaceBlocks() && pawn && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow && viewLive;
 
     // Name the strict gate that flipped. This is not a layer observation:
     // stereo/state reports the separate presentation decision when enabled.

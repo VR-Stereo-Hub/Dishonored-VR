@@ -1,3 +1,22 @@
+## Current state: three stacked candidates, no merge approval
+
+The new branch codex/vr-107-mono-anchors-and-ui-state starts at d27fdf6c on
+PR57's standing-camera branch. VR-107 adds configurable mono anchoring;
+VR-108 and existing VR-74/VR-71 cover loading/menu stereo and input ownership.
+Read docs/dishonored/MONO_ANCHOR_UI_STATE.md for implementation and test plan.
+Both new levers default off and will be enabled together in its candidate.
+
+PR56 (cinematic build234) and PR57 (standing build237) remain draft/unmerged.
+Keep build234 installed first; build237 and the new cumulative UI candidate
+remain separately archived for agent-managed swaps. No headset testing has
+occurred on these candidates. One question per launch; never launch the game.
+No subagents. The next step is package/hash/install verification of the new
+candidate, restore234, then open its stacked draft PR. The agent archives both
+logs and checks full INI diffs/CRLF every swap. installed.json under
+build/playtest-candidates is the active installation authority.
+
+## Earlier session records
+
 ## Current state: two candidates awaiting separate headset tests
 
 Cinematic PR56 is draft/unmerged; build234 is preserved for the first test.
@@ -5643,3 +5662,12 @@ No new game launch or game log exists for either pending candidate.
 Final checks:12 x86 standing-arc regressions,39 parent math/ownership checks,
 13 camera-scope checks, Release build, lint, nine exports, golden INI and standalone
 XR60 frames FOCUSED/zero errors pass. Headset acceptance remains pending.
+
+## Session 2026-09-14: mono UI ownership and anchoring
+
+Created VR-107/VR-108, reused VR-74/VR-71 and branched from the standing candidate.
+Implemented reflected current-owner UI gating and upright configurable mono
+placement. Historical build60 logs support the menu clamp/stale input diagnosis;
+current game log is232, not a new candidate test. Host camera/UI suites and
+standalone60-frame XR smoke pass. Packaging and deferred headset verification
+are recorded in MONO_ANCHOR_UI_STATE.md; no merge approval.

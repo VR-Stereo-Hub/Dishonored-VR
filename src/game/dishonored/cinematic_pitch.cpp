@@ -36,7 +36,7 @@ static void CinePitchBegin(bool scene,bool doubleDraw) {
     if (g_chScope) { g_cpHaveOwner=false; return; }
     const auto state=dvr::anim::snapshot();
     const double now=MaimNowMs();
-    const bool menu=g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
+    const bool menu=UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
         (g_uiNoteOpen && now-g_uiPollMs<500);
     const bool animation=state.valid && (state.game || dvr::scene_state::cinematic(state.state[0]));
     const bool rollLock=CineRollEnabled() && state.valid && dvr::scene_state::cinematic(state.state[0]);

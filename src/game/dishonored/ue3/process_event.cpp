@@ -75,6 +75,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     if (g_bqDepth > 0) return;
 #endif
 
+    UiSurfaceTick(); // bounded read-only UI discovery, independent of motion hands
     InterlockedIncrement(&g_peCalls);
 
     // 41.1: the ProcessEvent CALLER's return address, for the scene probe.

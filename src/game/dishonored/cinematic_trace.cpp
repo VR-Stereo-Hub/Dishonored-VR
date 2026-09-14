@@ -240,7 +240,7 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
         animWeight>=0 && playerWeight>=0 && lookWeight>=0;
     const dvr::cine::Conditions conditions={
         g_cineHead.load() && g_trackingEnabled && g_rotInject,
-        g_menuOpen || g_inMenu || g_mainMenu, ownerChanged,
+        UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu, ownerChanged,
         known, scripted || animWeight>0, dvr::cine::owns_rotation(scripted,animWeight,playerWeight,lookWeight),
         sceneDraw, runtimeReady, poseReady};
     const auto action=dvr::cine::action(conditions);

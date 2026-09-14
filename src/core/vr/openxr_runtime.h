@@ -19,6 +19,7 @@
 // request.
 
 #include <cstdint>
+#include "mono_anchor.h"
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -60,6 +61,11 @@ void set_runtime_json(const char* manifestPath);
 void set_screen(float distM, float widthM);
 // The mono screen follows the head (default) or sits in the world ([Screen] HeadLocked).
 void set_screen_head_locked(bool on);
+void set_mono_anchor(bool on, uint32_t contexts);
+bool mono_anchor_enabled();
+uint32_t mono_anchor_contexts();
+void recenter_mono_anchor();
+void set_mono_context(dvr::mono::Context context, bool forceMono);
 // The DXGI format the eye swapchains were created with (0 before the first
 // frame); the stereo methods render into the same typeless family.
 int64_t swapchain_format();

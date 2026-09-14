@@ -184,6 +184,11 @@ std::atomic<float> g_screenDistM{1.75f};  // quad distance in meters
 // BioShock's quad sat in the world-locked LOCAL space; [Screen] HeadLocked=0
 // restores that (a screen you turn away from).
 std::atomic<bool> g_screenHeadLocked{true};
+std::atomic<bool> g_monoAnchored{false};
+std::atomic<uint32_t> g_monoMask{0xffffffffu},g_monoContext{0},g_monoReset{0};
+dvr::mono::Anchor g_monoAnchor;
+uint32_t g_monoResetSeen=0;
+XrTime g_monoSpaceChange=0;
 std::atomic<float> g_screenWidthM{2.4f};  // quad width in meters
 std::atomic<bool> g_cameraMode{false};    // M3: drive the game camera from the HMD
 
@@ -2082,6 +2087,7 @@ void teardown_session(const char* why) {
     {
         std::lock_guard<std::mutex> lock(g_poseMutex);
         g_poseValid = false;
+        g_monoAnchor.reset(); g_monoSpaceChange=0;
     }
     g_viewsValid = false;
     g_viewsContentValid = false;
@@ -2428,6 +2434,9 @@ void pump_events() {
                 default:
                     break;
             }
+        } else if (ev.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
+            const auto* change=reinterpret_cast<const XrEventDataReferenceSpaceChangePending*>(&ev);
+            if(change->referenceSpaceType==XR_REFERENCE_SPACE_TYPE_LOCAL) g_monoSpaceChange=change->changeTime;
         } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
             teardown_session("instance loss pending");
             return;
@@ -4017,6 +4026,12 @@ void on_present_end(ID3D11Texture2D* frame) {
             g_cineActive.store(false, std::memory_order_relaxed); // kill switch
     }
 
+    // The host UI veto is immediate, independent of cinematic heuristics and
+    // their hysteresis. A background pawn or scene cannot override a real UI.
+    const uint32_t monoContext=g_monoContext.load();
+    const bool uiForceMono=(monoContext & 0x100u)!=0;
+    if(uiForceMono) projectionMode=false;
+
     // SequentialReentry (rung 2): one tag pop per Present, ALWAYS - the ring
     // must drain even in quad mode so a mode change cannot leave stale tags.
     // A tagged present carries a known eye (game thread pushed the sign at
@@ -4776,13 +4791,15 @@ void on_present_end(ID3D11Texture2D* frame) {
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
     XrCompositionLayerQuad holdQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    bool heldProjection=false;
     if (layerCount == 0 && g_frameState.shouldRender) {
         bool have = false;
         {
             std::lock_guard<std::mutex> lk(g_feedSnapMutex);
             if (g_feedSnap.valid) {
                 have = true;
-                if (g_feedSnap.isProj) {
+                heldProjection=g_feedSnap.isProj;
+                if (heldProjection) {
                     holdProj = g_feedSnap.proj;
                     holdViews[0] = g_feedSnap.views[0];
                     holdViews[1] = g_feedSnap.views[1];
@@ -4792,7 +4809,17 @@ void on_present_end(ID3D11Texture2D* frame) {
             }
         }
         if (have) {
-            if (g_feedSnap.isProj) {
+            if (heldProjection && uiForceMono) {
+                holdQuad.space=g_viewSpace;
+                holdQuad.eyeVisibility=XR_EYE_VISIBILITY_BOTH;
+                holdQuad.subImage=holdViews[0].subImage;
+                holdQuad.pose.orientation.w=1;
+                holdQuad.pose.position.z=-g_screenDistM.load();
+                const float width=g_screenWidthM.load();
+                const auto extent=holdQuad.subImage.imageRect.extent;
+                holdQuad.size={width,width*(float)extent.height/(float)(extent.width>0?extent.width:1)};
+                layers[0]=reinterpret_cast<const XrCompositionLayerBaseHeader*>(&holdQuad);
+            } else if (heldProjection) {
                 holdProj.views = holdViews;   // the snapshot's pointer is not ours
                 layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&holdProj);
             } else {
@@ -4814,6 +4841,34 @@ void on_present_end(ID3D11Texture2D* frame) {
                 g_zeroLayerHeld.load(std::memory_order_relaxed),
                 g_zeroLayerBlack.load(std::memory_order_relaxed));
     }
+
+    // Apply placement to fresh AND held mono layers. Never bank a temporary
+    // hold as a new frame; the existing snapshot ownership rule stays intact.
+    const uint32_t reset=g_monoReset.load();
+    if(reset!=g_monoResetSeen || (g_monoSpaceChange && g_frameState.predictedDisplayTime>=g_monoSpaceChange)) {
+        g_monoAnchor.reset(); g_monoResetSeen=reset; g_monoSpaceChange=0;
+    }
+    if(layerCount && layers[0]->type==XR_TYPE_COMPOSITION_LAYER_QUAD) {
+        auto* panel=const_cast<XrCompositionLayerQuad*>(reinterpret_cast<const XrCompositionLayerQuad*>(layers[0]));
+        if(g_monoAnchored.load()) {
+            const unsigned context=monoContext&0xffu;
+            const bool anchor=context<dvr::mono::Count && (g_monoMask.load()&(1u<<context));
+            if(anchor && !g_monoAnchor.valid) {
+                HeadPose h;
+                if(peek_head_pose(h) && g_monoAnchor.seed({h.px,h.py,h.pz,h.qx,h.qy,h.qz,h.qw},g_screenDistM.load()))
+                    XRLOG("xr: mono anchor seeded context=%s local=(%.3f %.3f %.3f)",dvr::mono::names[context],
+                        g_monoAnchor.pose.x,g_monoAnchor.pose.y,g_monoAnchor.pose.z);
+            }
+            if(anchor && g_monoAnchor.valid) {
+                const auto& p=g_monoAnchor.pose;
+                panel->space=g_space;
+                panel->pose={{p.qx,p.qy,p.qz,p.qw},{p.x,p.y,p.z}};
+            } else {
+                panel->space=g_viewSpace;
+                panel->pose={{0,0,0,1},{0,0,-g_screenDistM.load()}};
+            }
+        }
+    } else if(layerCount) g_monoAnchor.reset();
 
     // 41.2 (Dishonored, VR-57): AFTER the hold fallback. A single-draw hold
     // must not blink the controller dot off. These are already-computed XR
@@ -5240,6 +5295,18 @@ void draw_debug_ui() {
     input_draw_debug_ui(); // M5 action-layer status line
 
     if (!camMode) {
+        bool anchored=g_monoAnchored.load();
+        if(ImGui::Checkbox("Anchor mono screens",&anchored)) set_mono_anchor(anchored,g_monoMask.load());
+        if(ImGui::Button("Recenter mono screen")) recenter_mono_anchor();
+        if(anchored) {
+            uint32_t mask=g_monoMask.load();
+            for(unsigned i=0;i<dvr::mono::Count;++i) {
+                bool on=(mask&(1u<<i))!=0;
+                if(ImGui::Checkbox(dvr::mono::names[i],&on)) {
+                    mask=on?(mask|(1u<<i)):(mask&~(1u<<i)); g_monoMask.store(mask);
+                }
+            }
+        }
         float dist = g_screenDistM.load(std::memory_order_relaxed);
         if (ImGui::SliderFloat("Screen distance (m)", &dist, 0.5f, 5.0f))
             g_screenDistM.store(dist, std::memory_order_relaxed);
@@ -6284,6 +6351,16 @@ void set_runtime_json(const char* manifestPath) {
     else g_runtimeJson[0] = 0;
 }
 
+void set_mono_anchor(bool on,uint32_t contexts) {
+    g_monoMask.store(contexts); g_monoAnchored.store(on); g_monoReset.fetch_add(1);
+    XRLOG("xr: mono anchor=%d contexts=0x%x",(int)on,contexts);
+}
+bool mono_anchor_enabled() { return g_monoAnchored.load(); }
+uint32_t mono_anchor_contexts() { return g_monoMask.load(); }
+void recenter_mono_anchor() { g_monoReset.fetch_add(1); }
+void set_mono_context(dvr::mono::Context context,bool forceMono) {
+    g_monoContext.store((uint32_t)context | (forceMono?0x100u:0u));
+}
 void set_screen_head_locked(bool on) { g_screenHeadLocked.store(on, std::memory_order_relaxed); }
 
 void set_screen(float distM, float widthM) {
@@ -6336,6 +6413,11 @@ void set_runtime_mode(const char*) {}
 void set_runtime_json(const char*) {}
 void set_screen(float, float) {}
 void set_screen_head_locked(bool) {}
+void set_mono_anchor(bool,uint32_t) {}
+bool mono_anchor_enabled() { return false; }
+uint32_t mono_anchor_contexts() { return 0; }
+void recenter_mono_anchor() {}
+void set_mono_context(dvr::mono::Context,bool) {}
 int64_t swapchain_format() { return 0; }
 const char* runtime_name() { return "none"; }
 bool eye_separation_m(float*) { return false; }

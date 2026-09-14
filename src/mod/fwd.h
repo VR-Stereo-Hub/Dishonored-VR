@@ -591,3 +591,10 @@ bool YawSelfTest();
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/palette_packet_capture_fwd.inc"
 #endif
+
+static bool UiSurfaceEnabled();
+static bool UiSurfaceBlocks();
+static void UiSurfacePoll();
+static void UiSurfaceTick();
+static void UiSurfaceSet(bool on);
+static void UiSurfaceConfigure(const char* ini);

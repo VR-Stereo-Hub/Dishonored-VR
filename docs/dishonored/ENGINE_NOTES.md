@@ -5565,3 +5565,13 @@ pitch parity and12 numerical regressions pass. Exact-pole position refusal is
 logged; normal pitch is clamped short of it. Full plan, limits and staged
 playtest sequence: [standing arc](STANDING_PITCH_ROLL_ARC.md). Parent PR56 and
 this child remain unmerged pending separate testing.
+
+## 2026-09-14: native UI ownership versus background rendering
+
+VR-107/VR-108 and existing VR-74/VR-71 use reflected current engine/player/world/
+UI-manager ownership and GFx open/main-screen state. Loading uses the Bink overlay
+movie lifetime across the Continue prompt, primed by loading mode/start/map-hints.
+The save notification alone is insufficient. No fixed offsets or engine writes.
+Declarations establish the properties; native timing is still unverified.
+See [mono UI state](MONO_ANCHOR_UI_STATE.md) for exact field names, identity and
+cadence contracts, historical build60 clamp evidence, controls and falsification.

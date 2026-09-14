@@ -95,6 +95,8 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Native cinematic hands and arms",&cineHands)) dvr::anim::set_cinematic(cineHands);
         bool fov=CineFovEnabled();
         if (ImGui::Checkbox("Suppress cinematic FOV zoom",&fov)) CineFovSet(fov);
+        bool surface=UiSurfaceEnabled();
+        if (ImGui::Checkbox("Guard menu/loading stereo and input",&surface)) UiSurfaceSet(surface);
         bool sceneState=StereoStateEnabled();
         if (ImGui::Checkbox("Stereo cinematic/dialogue states",&sceneState)) StereoStateSet(sceneState);
         bool borders=CineBordersEnabled();

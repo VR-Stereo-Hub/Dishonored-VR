@@ -13,6 +13,7 @@ static inline void LevWrite(uint8_t* p, float t)
 
 static inline void FovLeverApply()
 {
+    if (UiSurfaceBlocks()) { dvr::camera::set_eye_ceiling(0.0f,false); return; }
     float deg = dvr::camera::fov_deg();   // 41.0: the seam's target (= [Screen] FovLever unless a method moved it)
     if (!(deg >= 40.0f && deg <= 160.0f)) {
         if (g_fovNatural != 0.0f) {          // lever just turned off - re-arm
