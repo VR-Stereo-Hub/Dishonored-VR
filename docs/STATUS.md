@@ -1,12 +1,14 @@
-## Current state: loading release build252 installed
+## Current state: movie completion build254 installed
 
-Installed252-g2d62aca2 (Sep14 08:35:52), full INI unchanged and hashes/CRLF
-verified. Build250 main-menu anchoring works; gameplay stayed mono because the
-movie service persists while idle. New read-only native presentation predicate
-replaces service existence. See MONO_ANCHOR_UI_STATE.md for evidence and test:
-load, wait5 seconds at Continue, dismiss, expect mono-to-stereo only on dismissal.
-24 loading/anchor and17 handoff checks, release/exports/lint/golden pass.
-Never launch the game, no subagents, all three PRs remain unmerged.
+Installed254-g43551c09 (Sep14 08:50:11), full INI unchanged, hashes/CRLF verified.
+Both logs archived at build/playtest-candidates/installs/20260914-085129-389882.
+Build252 still failed: overlay-enabled state remains set during gameplay.
+254 observes the manual-reset completion event used by Engine.WaitMovie.
+31 anchor/loading/completion checks and17 handoff checks pass; release,
+9 exports, lint and golden INI pass. Main-menu anchoring is preserved.
+Next test: wait5 seconds at loading Continue, dismiss, expect mono to become
+stereo only after dismissal. Logs distinguish overlayEnabled and finished.
+Never launch game, no subagents, all three PRs remain unmerged.
 
 ## Earlier records
 

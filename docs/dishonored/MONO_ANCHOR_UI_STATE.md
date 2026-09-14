@@ -1,3 +1,15 @@
+## Current state: movie completion build254 installed
+
+Installed254-g43551c09 (Sep14 08:50:11), full INI unchanged, hashes/CRLF verified.
+Both logs archived at build/playtest-candidates/installs/20260914-085129-389882.
+Build252 still failed: overlay-enabled state remains set during gameplay.
+254 observes the manual-reset completion event used by Engine.WaitMovie.
+31 anchor/loading/completion checks and17 handoff checks pass; release,
+9 exports, lint and golden INI pass. Main-menu anchoring is preserved.
+Next test: wait5 seconds at loading Continue, dismiss, expect mono to become
+stereo only after dismissal. Logs distinguish overlayEnabled and finished.
+Never launch game, no subagents, all three PRs remain unmerged.
+
 ## Current candidate: loading presentation release252
 
 Installed vr33-hands-working-252-g2d62aca2, Sep14 08:35:52. Verified DLL hash
