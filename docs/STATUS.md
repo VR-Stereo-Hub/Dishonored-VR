@@ -1,4 +1,7 @@
-## Current state: head-based movement candidate
+## Current state: head-based movement239 installed
+
+Installed239-gadebc947 (Sep14 07:44:40), HeadBasedMovement=1. Full INI
+diff adds that key only; hashes/CRLF verified and both logs archived.
 
 Cinematic237-g563e14d6 confirms the mono handoff fix. Character movement drift
 persists; VR-109 remains open for that part. VR-110 adds a selectable, saved

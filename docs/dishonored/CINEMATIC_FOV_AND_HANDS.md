@@ -293,3 +293,14 @@ stick. Does movement consistently follow where you are looking without the
 diagonal offset? Pass supports native head-based movement; a persistent offset
 means the final camera and native movement direction still disagree. The agent
 reads the archived run and never launches the game.
+
+## Installed head-based candidate
+
+vr33-hands-working-239-gadebc947, Sep14 07:44:40, source adebc94720a92076849b5e09c7846355b12ed28a.
+Bundle: build/playtest-candidates/head-movement-239.
+DLL SHA256: 552239ccb091d63df676f93ce0b708bf6e403267a60b014a03764c8ce57e4611.
+INI SHA256: a5c8468b60b16ef3f3906dcc082d61f1d1a556ee2227ac93334a8d3b74a2f05f.
+Installed/hash-verified; full settings diff adds only Camera.HeadBasedMovement=1.
+CRLF checked. Previous DLL/INI and both logs archived under
+build/playtest-candidates/installs/20260914-074519-801836. No game launch.
+PR56 remains draft/unmerged. VR-109 character drift and VR-110 acceptance open.
