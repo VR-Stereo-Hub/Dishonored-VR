@@ -3,7 +3,7 @@
 ## Weapon lens follow-up (2026-09-14)
 
 - [x] VR-112 crossbow unsheath/tracking recovery confirmed on build260.
-- [ ] Resolve partial left-eye weapon surfaces; build262 identity-lens bypass awaiting test.
+- [x] VR-112 residual crossbow surfaces: build264 headset-confirmed; inverse-lens consistency accepted.
 
 ## Load/reload stability (2026-09-13)
 
@@ -13,7 +13,7 @@
 - [x] VR-96 crawl-release stale write rejected, regression and headset confirmed.
 - [x] Complete installed settings/F10 profile promoted to generated/package defaults.
 - [x] VR-70 cinematic head look, natural pitch and native border control: headset-confirmed; PR54 merge authorized.
-- [ ] VR-103 dialogue and cinematic handoffs: improve state reading to preserve continuous stereo.
+- [x] VR-103 dialogue/cinematic stereo accepted; later post-load handoff refinements accepted in PR58.
 - [ ] Remaining weapon startup freeze: separate timing work, name cache still off.
 
 ## VR-57 native launch (2026-09-12)
@@ -254,33 +254,40 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 - [x] VR-103: script-state cinematic/dialogue stereo transitions; candidate225 headset-confirmed, PR55 approved for merge.
 
-- [ ] VR-50: cinematic FOV suppression candidate; speaker/choice test pending.
-- [ ] VR-104: native cinematic hands/arms implemented; combined FOV/handback test pending.
+- [x] VR-50 cinematic/speaker FOV suppression accepted; broader manual-FOV and kill-cam cases remain open.
+- [x] VR-104 native cinematic hands/arms and gameplay restoration accepted.
 
-- [ ] VR-105: physical-pitch-only animation comfort; combined headset test pending.
-- [ ] VR-104 follow-up: mantle handback enabled in combined candidate.
-- [ ] VR-50 follow-up: cover measured1125ms native FOV exit blend.
+- [x] VR-105 authored pitch suppression accepted; physical tilt and actual height remain active.
+- [x] VR-104 mantle handback headset-confirmed in later combined tests.
+- [x] VR-50 exit blend and full-size cinematic transition headset-confirmed.
 
 - [x] VR-50 cinematic exit recovery: build232 headset-confirmed (broader ticket remains open).
-- [ ] VR-105 follow-up: upright yaw, authored roll suppression and dialogue tracking candidate.
-- [ ] VR-104 mantle handback: not exercised in build232 playtest.
+- [x] VR-105 upright yaw, roll comfort and dialogue free look headset-confirmed.
+- [x] VR-104 later tests confirmed mantle and block-counter handback.
 
-- [ ] VR-106: standing pitched-head roll arc candidate on child branch; numerical regression reproduced, headset test deferred.
+- [x] VR-106 standing pitched-head roll accepted on build245 and subsequent stack tests.
 ## Cinematic handoff regression (2026-09-14)
 
 - [x] Build234 roll/pitch comfort, FOV and free look reported accepted.
 - [x] VR-109 yielded-dispatch activity and body-heading handoff implemented and host-tested.
-- [ ] Verify movement and uninterrupted stereo on the headset before PR56 merge.
+- [x] Continuous stereo and head-based movement verified; character-mode drift remains separately open.
 
 ## Movement mode follow-up (2026-09-14)
 
 - [x] VR-109 mono handoff correction headset-confirmed.
 - [ ] VR-109 character-oriented movement drift after cinematics remains open.
 - [x] VR-110 saved head-based movement option implemented and host-tested.
-- [ ] Confirm head-based direction on the headset.
+- [x] Head-based direction accepted on build239 and retained through final stack.
 
 
 ## Deferred UI candidate (2026-09-14)
 
 - [x] Implement VR-107 configurable mono anchoring and VR-108 menu/loading ownership guard.
-- [ ] Headset verification of VR-107/VR-108 and existing VR-74/VR-71; no merge approval.
+- [x] Mono anchoring, loading release and main-menu/navigation fixes accepted; ordered merge explicitly authorized.
+
+## Accepted defaults and stack integration (2026-09-14)
+
+- [x] Build264 final crossbow tracking/opacity acceptance verified and archived.
+- [x] Full installed INI/F10 profile promoted to writer, package and missing-key defaults.
+- [x] All findings and rejected approaches consolidated in dishonored/STACK_ACCEPTANCE.md.
+- [ ] VR-50 broader manual-FOV/kill-cam validation, VR-109 character mode, VR-99 brief note flicker, VR-87 height ceiling and VR-102 startup timing remain separate.

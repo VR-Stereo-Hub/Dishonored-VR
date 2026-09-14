@@ -5777,3 +5777,13 @@ pass consistency; failure requires joined per-pass transform/depth evidence,
 not broad suppression or relaxed matching. wa/lens-pass logs reuse decisions.
 No game launch. PR58 remains draft; no merge. The prior Linear update is
 still blocked by automatic approval review pending explicit permission.
+
+## 2026-09-14: accepted cinematic/UI/weapon integration
+
+Build264 verifies the final residual crossbow surface fix on the headset.
+The full findings and failure-to-fix chronology across PR56/57/58 are consolidated
+in [STACK_ACCEPTANCE.md](STACK_ACCEPTANCE.md). It records scoped cinematic
+ownership, upright pitch/roll math, head-based movement, native loading completion,
+post-load stereo permission, unchanged aerial eligibility, and per-view lens
+consistency. The current installed profile is promoted verbatim by request;
+no new engine layout or memory writer is introduced by default promotion.

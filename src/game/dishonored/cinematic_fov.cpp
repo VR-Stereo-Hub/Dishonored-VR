@@ -34,7 +34,7 @@ static void CineFovSet(bool on) {
     g_cineFov.store(on); if (!on) CfPublish(0);
     Log("cine/fov: %s (live; final scene FOV, gameplay zoom unchanged)",on?"ON":"off");
 }
-static void CineFovConfigure(const char* ini) { CineFovSet(GetPrivateProfileIntA("Cine","LockFov",0,ini)!=0); }
+static void CineFovConfigure(const char* ini) { CineFovSet(GetPrivateProfileIntA("Cine","LockFov",1,ini)!=0); }
 static float CineFovClaim() {
     if (!CineFovEnabled()) return 0;
     AcquireSRWLockShared(&g_cfLock);

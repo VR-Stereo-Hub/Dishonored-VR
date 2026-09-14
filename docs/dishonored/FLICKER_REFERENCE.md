@@ -78,7 +78,7 @@ pose metadata without reopening the disproved historical theories.
 | Pause causes XR session loss | Hold overwrites saved layer with empty local structures; `XR_ERROR_HANDLE_INVALID` | VR-54 snapshot-bank correction implemented |
 | Mono after loading until jump/crouch/stairs; hands precede weapon tracking | Capsule liveness depended on an event-latched pawn while the controller already possessed the player; separate startup discovery stalls | Headset-confirmed startup stereo; weapon freeze remains: [load startup](LOAD_STARTUP_IMPLEMENTATION.md); `PawnFromController` and separate `CacheNameLookups` ship off |
 | Severe first-seconds flicker after loading, then stable | Startup eye starvation with asymmetric eye updates and slow ticks | Open historical startup issue (VR-16); brief settling accepted in later runs |
-| Parts of both weapon models intermittently vanish only in the left eye, hands intact | Near-identity lens corrections measured on unzoomed draws; depth/colour agreement under investigation | VR-112 build260 regression; identity correction bypass candidate, latest entry below |
+| Parts of both weapon models intermittently vanish only in the left eye, hands intact | Near-identity lens corrections measured on unzoomed draws; depth/colour agreement under investigation | VR-112 confirmed resolved on build264: identity bypass plus per-view inverse-lens consistency; latest acceptance below |
 | Dark animated weapon copy at native position | Another render pass of the same geometry was not corrected | VR-33 pass identity/suppression fixes confirmed |
 | Both weapons disappear together, hands still place | Shared correction/publication gate; overly tight snapshot age | 100 ms snapshot bound restored; rare single-frame refusal historically accepted |
 | Weapon detaches or flicker returns after swap/load | Candidate list, contract lifetime/capacity, equipment roots, or config gate | Recovery/retention fixes landed; distinguish from eye-state regression |
@@ -1892,3 +1892,14 @@ pass consistency; failure requires joined per-pass transform/depth evidence,
 not broad suppression or relaxed matching. wa/lens-pass logs reuse decisions.
 No game launch. PR58 remains draft; no merge. The prior Linear update is
 still blocked by automatic approval review pending explicit permission.
+
+## 2026-09-14: weapon surface acceptance, build264
+
+Verified banner and installed hash; both logs archived at
+build/mono-ui-test/accepted-20260914-111707. The remaining crossbow partial
+transparency is headset-confirmed resolved. Build262 had already confirmed
+ordinary weapon stability and an opaque sword. The accepted combination is
+identity-fit bypass plus numerical-equivalent per-component/Present/eye inverse
+lens reuse. Both preserve real lens correction and current instance guards.
+See [final stack acceptance](STACK_ACCEPTANCE.md) for the complete evidence,
+promoted defaults and remaining unrelated VR-99 note flicker. Merge authorized.

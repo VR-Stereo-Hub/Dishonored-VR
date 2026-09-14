@@ -123,13 +123,13 @@ static void UiSurfaceSet(bool on) {
     Log("ui/surface: guard=%d (live)",(int)on);
 }
 static void UiSurfaceConfigure(const char* ini) {
-    UiSurfaceSet(GetPrivateProfileIntA("Menu","SurfaceGuard",0,ini)!=0);
+    UiSurfaceSet(GetPrivateProfileIntA("Menu","SurfaceGuard",1,ini)!=0);
     uint32_t mask=0;
     for(unsigned i=0;i<dvr::mono::Count;++i) {
         char key[64]; _snprintf(key,sizeof(key),"Anchor%s",dvr::mono::names[i]);
         if(GetPrivateProfileIntA("Screen",key,1,ini)) mask|=1u<<i;
     }
-    dvr::vr::set_mono_anchor(GetPrivateProfileIntA("Screen","AnchorMono",0,ini)!=0,mask);
+    dvr::vr::set_mono_anchor(GetPrivateProfileIntA("Screen","AnchorMono",1,ini)!=0,mask);
 }
 static void UiSurfacePoll() {
     if((!g_usEnabled.load() && !dvr::vr::mono_anchor_enabled()) || !TryAcquireSRWLockExclusive(&g_usLock)) return;

@@ -264,15 +264,15 @@ void tick() {
 }
 void configure(const char* ini) {
     AcquireSRWLockExclusive(&lock);
-    dropWatch=GetPrivateProfileIntA("Anim","DropWatch",0,ini)!=0;
+    dropWatch=GetPrivateProfileIntA("Anim","DropWatch",1,ini)!=0;
     Log("config: [Anim] DropWatch=%d (read-only native drop eligibility)",dropWatch);
     const int watchSetting=GetPrivateProfileIntA("Anim","StateWatch",-1,ini);
     const int backSetting=GetPrivateProfileIntA("Anim","HandBack",-1,ini);
     watch=watchSetting!=0;
     handback=backSetting!=0;
-    cinematicHandback=GetPrivateProfileIntA("Anim","CinematicHandBack",0,ini)!=0;
+    cinematicHandback=GetPrivateProfileIntA("Anim","CinematicHandBack",1,ini)!=0;
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
-    mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",0,ini)!=0;
+    mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
     releaseMs=(unsigned)GetPrivateProfileIntA("Anim","ReleaseMs",250,ini); if(releaseMs>5000) releaseMs=5000;
     blendMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendMs",150,ini); if(blendMs>2000) blendMs=2000;

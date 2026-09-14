@@ -1,26 +1,21 @@
-## Current state: build264 crossbow pass-consistency candidate installed
+## Current state: all three PRs accepted, final integration authorized
 
-Build262 confirms both weapons are stable before travel and track after boat
-arrival. Sword transparency is gone in both eyes; crossbow has a smaller
-residual after travel. Verified run archived at
-build/mono-ui-test/playtest-20260914-110406.
-Six of25 same-Present/eye crossbow pairs show floating-point lens disagreement;
-no sampled common-eye mismatch. Build264 reuses numerical-equivalent inverse
-lenses only for the same component, Present and eye. Real changes stay active.
-Seven new scope/consistency checks and all existing frame/weapon/animation
-checks pass, along with release,9 exports,lint and golden INI.
+Build264-gfe400945 (Sep14 11:06:45) is headset-confirmed for the final crossbow
+tracking/transparency fix. Banner and DLL hash verified; both logs archived at
+build/mono-ui-test/accepted-20260914-111707. PR56 cinematic/head-based movement,
+PR57 standing roll and PR58 mono/UI/loading/weapon work are accepted.
+The user explicitly authorized finalizing and merging all three to VR-Main.
+Merge in dependency order56,57,58 and retain every feature branch.
 
-Installed vr33-hands-working-264-gfe400945, compiled Sep14 11:06:45.
-DLL SHA256 8af719668288d600db9e99c30cfb76d0ccd8570b79805673224fff68aba953d3.
-Full installed INI diff is empty; bytes,hashes and CRLF verified. Both previous
-logs archived at build/playtest-candidates/installs/20260914-110722-488634.
-AttachViewLens and AttachScaleTrace remain enabled; trace now reports reuse.
-Next launch question: after the boat arrival, with both weapons drawn and
-head/controllers still, does the crossbow stay fully opaque? Success supports
-pass consistency; otherwise inspect matched pass transforms and depth values.
-Agent reads logs and never launches. No subagents or merges; PR58 stays draft.
-VR-112 remains In Progress, with Linear comment approval still pending.
-Detailed recovery plan: MONO_ANCHOR_UI_STATE.md and FLICKER_REFERENCE.md.
+Complete installed INI/F10 profile is promoted, including diagnostics. Generated,
+packaged and golden INIs are byte-identical CRLF, SHA256
+364e79997823cd18e97b398a324edc20aaae9c222377e0c8d1f01db5dc060508.
+All17 changed/added missing-key fallbacks align; config version11 is unchanged.
+Detailed current findings, acceptance and remaining scope:
+[STACK_ACCEPTANCE.md](dishonored/STACK_ACCEPTANCE.md).
+VR-50 broader cases, VR-109 character mode, VR-99 note flicker, VR-87 height and
+VR-102 startup timing remain open. Final build/install and ordered merges are
+being completed. No release declared. Agent never launches; no subagents.
 
 ## Earlier records
 

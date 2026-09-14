@@ -8,7 +8,7 @@ static void StereoStateSet(bool on) {
     Log("stereo/state: enabled=%d (live; gameplay input gates unchanged)",on?1:0);
 }
 static void StereoStateConfigure(const char* ini) {
-    StereoStateSet(GetPrivateProfileIntA("Cine","StereoState",0,ini)!=0);
+    StereoStateSet(GetPrivateProfileIntA("Cine","StereoState",1,ini)!=0);
 }
 static bool DvrSceneVerdict() {
     if (UiSurfaceBlocks()) return false;

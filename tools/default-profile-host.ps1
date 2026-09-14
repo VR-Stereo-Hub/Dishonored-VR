@@ -21,7 +21,7 @@ try {
     $env:INCLUDE = "$eyeVc\include;$eyeSdk\ucrt;$eyeSdk\shared;$eyeSdk\um"
     $env:LIB = "$eyeVc\lib\x86;$eyeLib\ucrt\x86;$eyeLib\um\x86"
     & "$eyeVc\bin\Hostx64\x86\cl.exe" /nologo /std:c++20 /EHsc /W3 /I. /I (Join-Path $repo 'src') /I (Join-Path $repo 'build\generated') /Fe:default_profile_test.exe (Join-Path $PSScriptRoot 'default-profile-tests.cpp')
-    if ($LASTEXITCODE -ne 0) { throw 'Crash-capture test compilation failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Default-profile test compilation failed.' }
     & .\default_profile_test.exe
     $eyeExit = $LASTEXITCODE
 } finally {
@@ -29,4 +29,12 @@ try {
     $env:INCLUDE = $eyeOldInclude
     $env:LIB = $eyeOldLib
 }
-exit $eyeExit
+if ($eyeExit -ne 0) { exit $eyeExit }
+$actualHash = (Get-FileHash (Join-Path $eyeOut 'actual.ini') -Algorithm SHA256).Hash
+foreach ($profile in @('release/dishonored_vr.ini','tests/golden/dishonored_vr.ini')) {
+    if ((Get-FileHash (Join-Path $repo $profile) -Algorithm SHA256).Hash -ne $actualHash) {
+        throw "Production writer differs byte-for-byte from $profile"
+    }
+}
+'Production writer, packaged profile and golden INI are byte-identical.'
+exit 0

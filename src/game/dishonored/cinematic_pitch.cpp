@@ -24,8 +24,8 @@ static void CinePitchSet(bool on) {
     g_cinePitch.store(on); Log("cine/pitch: %s (physical HMD pitch; authored yaw/roll and height retained)",on?"ON":"off");
 }
 static void CinePitchConfigure(const char* ini) {
-    CinePitchSet(GetPrivateProfileIntA("Cine","LockPitch",0,ini)!=0);
-    CineRollSet(GetPrivateProfileIntA("Cine","LockRoll",0,ini)!=0);
+    CinePitchSet(GetPrivateProfileIntA("Cine","LockPitch",1,ini)!=0);
+    CineRollSet(GetPrivateProfileIntA("Cine","LockRoll",1,ini)!=0);
 }
 static void CinePitchPublish() {
     if (g_cpScope) HtPublishCameraRecord(3,g_cpHead,g_cpWritten[1]*360.0f/65536,

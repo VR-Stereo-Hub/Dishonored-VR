@@ -39,7 +39,7 @@ static void CineBordersSet(bool on) {
     Log("cine/borders: %s (live); changes stripe visibility on the next HUD movie update",on ? "hide" : "native");
 }
 static void CineBordersConfigure(const char* ini) {
-    g_letterboxHide.store(GetPrivateProfileIntA("Cine","HideBorders",0,ini)!=0);
+    g_letterboxHide.store(GetPrivateProfileIntA("Cine","HideBorders",1,ini)!=0);
     Log("cine/borders: %s ([Cine] HideBorders); default off, no viewport or FOV changes",g_letterboxHide.load() ? "hide" : "native");
 }
 // Patch once on the game/script lane, as with the existing scene draw hook.

@@ -819,3 +819,14 @@ current-owner UI guard shared by rendering, camera and input. Unknown ownership
 cannot authorize background stereo. The loading lease follows movie lifetime,
 not a view-dispatch timeout. Both levers default off pending headset testing.
 See dishonored/MONO_ANCHOR_UI_STATE.md for lifecycle and refusal contracts.
+
+## 2026-09-14: accepted stacked fixes and tested defaults
+
+Promote the complete accepted installed INI and saved F10 profile, including
+diagnostics, by explicit maintainer request. Keep config version11 and existing
+overrides; align generated/package profiles and missing-key fallbacks. Execute
+the actual x86 default writer and require byte equality to both profiles.
+Numerically equivalent weapon inverse lenses share a value only within the same
+component/Present/eye; no hand delta or engine-object lifetime is extended.
+The accepted design, rejected alternatives and remaining scope are consolidated
+in [STACK_ACCEPTANCE.md](dishonored/STACK_ACCEPTANCE.md).
