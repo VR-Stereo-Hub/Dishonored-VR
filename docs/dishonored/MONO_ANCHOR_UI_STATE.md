@@ -334,3 +334,8 @@ follows the left controller. Failure provides the transform breakdown; success
 establishes an intermittent result rather than a diagnostic-induced fix.
 One question per launch; agent installs and reads logs, never launches game.
 All three PRs remain unmerged. Current candidate is diagnostic for VR-112.
+
+Installed258-g4a78a745, compile09:37:23. DLL SHA256
+b59b0c594f19f0309289621cf4eb77628954ed63fc29ec22b763e55b56fc5025.
+Full INI diff adds Hands.AttachScaleTrace=1 only; hashes/CRLF verified.
+Release,9 exports,lint and golden INI pass; matching code remains unchanged.

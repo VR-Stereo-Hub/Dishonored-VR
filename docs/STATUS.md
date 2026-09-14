@@ -1,20 +1,20 @@
-## Current state: build256 installed; drop eligibility test next
+## Current state: build258 crossbow scale diagnostic installed
 
-Installed256-gd98bcf36 (Sep14 09:15:20). Full INI diff adds only
-Anim.DropWatch=1; hashes and CRLF verified. Both logs archived at
-build/playtest-candidates/installs/20260914-091620-006198.
-Build254 confirmed loading release, mantle and block-counter hand positioning.
-256 fixes the separate post-load mono interruption from the head-write
-liveness heuristic. Thirty stereo policy and31 UI/completion tests pass;
-release build,9 exports,lint and golden INI pass. Headset result pending.
-Aerial attempts became ordinary slashes, not failed handback. VR-111 now
-traces the native drop eligibility read-only; no trigger fix claimed yet.
-Next launch: reproduce one aerial takedown; does it still become a slash?
-If yes, inspect drop/watch for the rejection stage; if no, inspect accepted
-context/state transition. Agent reads logs; do not ask tester for commands.
-Whole-view both-eye crouched note flicker remains VR-99, documented with
-residual repair counters in FLICKER_REFERENCE. No speculative pairing change.
-PR56/57 ready,PR58 draft; all remain unmerged. Never launch game, no subagents.
+Installed258-g4a78a745, compiled Sep14 09:37:23. Full INI diff adds only
+Hands.AttachScaleTrace=1; hashes and CRLF verified. Both logs archived at
+build/playtest-candidates/installs/20260914-093755-955854.
+Build256 playtest accepted mono transitions and takedown animations. Brief
+crouched-note flicker still recovers quickly; residual VR-99 stays open.
+After cinematic/level travel to the hub, sword tracked but crossbow did not;
+pause/resume did not recover it. VR-112 tracks the measured approximately4.7
+percent crossbow match scale error despite current readable components.
+258 adds read-only matrix breakdown diagnostics. No tracking fix claimed,
+no matching tolerance change. Release build,exports,lint,golden INI pass.
+Next launch question: after the same hub travel and drawing the weapons,
+does the crossbow follow the left controller? Failure supplies source matrices;
+success is intermittent, not proof of a diagnostic fix. Agent reads logs.
+Evidence/plan: MONO_ANCHOR_UI_STATE.md latest entry and FLICKER_REFERENCE.md.
+All three PRs unmerged; PR58 draft. Never launch game, no subagents.
 
 ## Earlier records
 
