@@ -1,3 +1,85 @@
+## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), headset run 1 good, PR #64 open - 2026-09-15
+
+Branch `claude/vr-120-hud-elements` off `claude/vr-117-hud-redo` (PR #63, still NOT
+merged; this branch's PR #64 is stacked on it and says `Ref`, not `Fixes`, until
+VR-117 lands). NOT merged to VR-Main. Never merge without permission.
+
+What this branch delivers, on top of VR-117's redirect and quads:
+
+- **VR-118 answered.** The HUD's 2D transform is the vertex shader's own `Transform`
+  at c6..c9 (four columns; the textured variants add a `TextureMatrix` at c10..c13),
+  read from each shader's disassembly at first sight (`d3dcompiler_47`, never a
+  hard-coded register); c0..c3 were stale constants. The fixed-function hypothesis
+  was tested and died in one window (0 SetTransform calls, every HUD draw with a
+  shader). The probe now reads 9324 rectangles per 3 s with 0 refused at 1.0 us each,
+  and `draws regions` clusters them into the element census (`draws/cluster`).
+- **VR-119: the alpha.** `[Hud] AlphaMode=repair|captured|mix` (ships `repair`, the
+  41.2 picture), gain/floor/gamma/mix sliders, a backdrop plate per anchor kind, all
+  on the F10 HUD tab and `hud alpha ...`; `captured` forces the coverage equation on
+  every redirected draw (the game's own equation replaces alpha per draw with
+  ONE/ZERO, which is why black strokes vanished under the repair). `dump hud` writes
+  the alpha as grey; the sim's `quadAlphaPct` fails a mode that collapses to zero.
+  Measured: the vitals' strokes solid in `captured` (7.96 % of the corner at alpha
+  >= 200) against mottled in `repair` (2.54 %).
+- **VR-120: the element table.** Rows: `default`, `vitals` (health + mana: they
+  interleave), `reticle`, `prompt` (measured regions), eight unmeasured rows that
+  ride `default` until `hud region <name> ...` names them, `vignette`, and the six
+  screens by their UI owner context. Anchors per row: off, frame, window, world,
+  handL, handR; two hand panels; sinks per (anchor, crop|all); one quad per cropped
+  element with a stable crop-sized swapchain slot; a screen set off or frame takes
+  the mono screen. Ships with everything on the window (the VR-117 picture) and
+  `Regions=1`; `Regions=0` is the one-quad A/B. Design and every number:
+  `docs/dishonored/HUD_ANCHORS.md` (sections 2 and 7), ENGINE_NOTES ("How the
+  Scaleform HUD identifies its elements", "The HUD's blend equation").
+
+Simulator, the sewer level (`console open L_PrsnSewer_P` from the MAIN menu, then one
+Return; sent from the title screen it left the game on the loading board for eight
+minutes): `hud-elements.xrs` 33/33, `hud-quads.xrs` 35/35, `hud-panel.xrs` 24/24,
+`pause-ride.xrs` 31/31, `wheel-ride.xrs` 27/27, `hud-alpha.xrs` 32/32. Host: 20
+hud-route, 30 hud-anchor, 107 ui-ride checks. Lint clean, exports 9/9, golden ini
+MATCH, the installed ini a byte copy of `release/dishonored_vr.ini`. Cost `perf: tick
+13.5 ms (73.7/s)` with the probe, the routing and two quads (VR-117: 13.2 ms, one
+quad). Two faults found and fixed on the way (the lazy sinks and the armed-only
+router deadlocked; a hand-anchored element placed by its screen offset), one setup
+trap (the console open from the title screen); all in TRAPS.
+
+Installed on this PC for the headset run: the RelWithDebInfo build of this branch
+(d3d9.dll SHA256 starting F1E5782EF0EC218C, 2026-09-15 03:34) with the repo default ini
+(SHA256 starting C0DC094D, a byte copy of `release/dishonored_vr.ini`); the Debug runs'
+logs are under `D:\dvr-data\logs\vr120-run*.log`.
+
+First headset run (2026-09-15, Release build 287, the repo ini): the preset, the
+vitals on the left hand, the `default` row on the left hand / in the frame / off, the
+vitals off, the pause, a note and the wheel riding, all judged good (HUD_ANCHORS section
+7 has the log's lines). The alpha modes were not changed during that run, so `repair`
+is the only mode judged so far; the VR-119 list (captured vs repair, floor, gain, a
+backdrop) is still open. The shipped preset and the alpha default stay as they are
+until the user names a change.
+
+## Next steps
+
+1. The alpha modes in the headset (VR-119's list: `captured` vs `repair` on the window and
+   a hand, floor 0.2, gain 1.5, a 0.3 window backdrop). Flip `AlphaMode` and the preset in
+   `WriteDefaultIni` + `tools\ini-golden.py` + the release ini if the user says so.
+2. Review and merge VR-117 (PR #63) first; then retarget this PR to VR-Main and change
+   its `Ref` lines to `Fixes VR-118, VR-119, VR-120`. Never merge without permission.
+3. The eight unmeasured rows (equipment, subtitles, objective marker, toast, tutorial,
+   detection, skip gauge, dark vision) need a level where they draw; the recipe is
+   `docs/dishonored/HUD_ELEMENTS_HOWTO.md`: `draws on` +
+   `hud regions on`, read `draws/cluster`, name each with `hud region <name>
+   x0,y0,x1,y1` live, then move the rectangle into `kRows` in `hud_layout.cpp` and
+   `WriteDefaultIni`. The objective marker moves with the world and cannot be claimed
+   by a rectangle; if it matters, that is the Scaleform display-object identity
+   (instance names), a Research ticket, not built.
+4. Copy the headset log out before every relaunch.
+
+Session log 2026-09-15 (this branch): VR-119 and VR-120 created; VR-118 answered (the
+transform, the shader-read columns, the clusters); the alpha capture; the element
+table with six anchors and two hands; seven simulator runs on this PC, six
+sequences green; the PR stacked on `claude/vr-117-hud-redo`.
+
+## Earlier records
+
 ## Current state: the HUD on its anchors (VR-117), headset-confirmed, PR #63 ready for review - 2026-09-15
 
 Branch `claude/vr-117-hud-redo` off VR-Main 85f9ef6e, PR open, NOT merged. The game's

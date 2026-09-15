@@ -852,3 +852,24 @@ Numerically equivalent weapon inverse lenses share a value only within the same
 component/Present/eye; no hand delta or engine-object lifetime is extended.
 The accepted design, rejected alternatives and remaining scope are consolidated
 in [STACK_ACCEPTANCE.md](dishonored/STACK_ACCEPTANCE.md).
+
+### 2026-09-15: the HUD elements, their identity and their alpha (VR-118, VR-119, VR-120)
+
+Three choices. (1) The identity a HUD draw routes on is the PAIR (UI owner
+context, screen rectangle), never a bucket or a draw ordinal: the context is
+free and names the riding screens, the rectangle comes through the vertex
+shader's own transform (parsed from its disassembly at first sight, never a
+hard-coded register: c0..c3 were stale, c6..c9 hold it on this build), and
+tex0 stays a tie-breaker. A movie-object or display-object hook was not needed
+for the list this level yields and is not built. (2) The layout is a TABLE of
+rows (core/gfx/hud_layout.cpp) with a pure router (core/gfx/hud_route.h, host
+tested): sinks are per (anchor, crop|all), quads per cropped element and per
+catch-all sink, each with a stable swapchain slot sized to its crop; an unnamed
+element rides `default` and is counted, so a new element is one row and no
+draw is ever dropped. A screen set off or frame takes the mono screen rather
+than vanish. (3) The alpha is a mode on the blit, not a change to the quad's
+blend flag: `captured` forces the coverage equation on every redirected draw
+(the game's own separate-alpha ONE/ZERO replaces alpha per draw, which is why
+`repair` lost black strokes) and ships OFF behind `repair` until the headset
+judges. See dishonored/HUD_ANCHORS.md and ENGINE_NOTES, "How the Scaleform
+HUD identifies its elements".

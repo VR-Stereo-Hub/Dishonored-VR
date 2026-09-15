@@ -112,7 +112,9 @@ static unsigned __stdcall DumpPngThread(void* arg)
 
 // A D3D11 texture -> PNG through WIC (already linked for the hand skins): the
 // present thread copies the pixels out, a worker thread encodes them.
-static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex)
+// alphaOnly (VR-119): the A channel as a grey image, so a dump can say whether
+// a stroke's coverage is in the alpha or only in the colour.
+static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex, bool alphaOnly = false)
 {
     if (!g_dev11 || !g_ctx11 || !tex) return false;
     D3D11_TEXTURE2D_DESC d; tex->GetDesc(&d);
@@ -129,6 +131,13 @@ static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex)
         if (job && px) {
             for (uint32_t y = 0; y < d.Height; y++)
                 memcpy(px + (size_t)y * d.Width * 4, (const uint8_t*)m.pData + (size_t)y * m.RowPitch, (size_t)d.Width * 4);
+            if (alphaOnly) {
+                for (size_t i = 0, n = (size_t)d.Width * d.Height; i < n; ++i) {
+                    uint8_t* p = px + i * 4;
+                    p[0] = p[1] = p[2] = p[3];   // grey = alpha, whatever the channel order
+                    p[3] = 255;
+                }
+            }
             strncpy(job->path, path, MAX_PATH - 1);
             job->pixels = px; job->w = d.Width; job->h = d.Height;
             job->bgra = d.Format == DXGI_FORMAT_B8G8R8A8_UNORM || d.Format == DXGI_FORMAT_B8G8R8X8_UNORM;
@@ -156,6 +165,11 @@ static void FrameDumpTick(IDirect3DDevice9* dev)
         Log("dump: hud sink %d %s -> %s", sink,
             !t ? "FAILED (no texture on that sink - is [Hud] Panel on and the sink in use? `hud status`)"
                : DumpTexturePng(path, t) ? "queued (the dump thread writes it)" : "FAILED", path);
+        if (t) {   // VR-119: the alpha channel beside it, as grey
+            snprintf(path, MAX_PATH, "%s\\hud_s%d_%lu_alpha.png", dvr::paths::dumps_dir(), sink, (unsigned long)g_frame);
+            Log("dump: hud sink %d alpha %s -> %s (grey = the quad's alpha; in mode repair it is max(r,g,b), in "
+                "captured the sink's own coverage)", sink, DumpTexturePng(path, t, true) ? "queued" : "FAILED", path);
+        }
     }
     if (g_dumpReqCapture) {
         g_dumpReqCapture = 0;

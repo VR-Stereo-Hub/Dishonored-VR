@@ -1,25 +1,31 @@
-// core/gfx/hud_layout.h - which HUD element goes where (VR-117).
+// core/gfx/hud_layout.h - which HUD element goes where (VR-117, VR-120).
 //
 // The game's HUD is one Scaleform movie painted onto the backbuffer at the
 // tail of the frame (ENGINE_NOTES, "The Scaleform HUD draw class, measured").
 // core/gfx/hud_class recognises those draws and core/gfx/hud_capture redirects
 // them into private targets ("sinks"). This module is the ONE OWNER of the
-// choices a player makes about them: which anchor each element rides (the
-// window in front of the player, the tracked hand, the eye textures, or off),
-// where it sits on that anchor, and the window's and the hand panel's own
-// placement. Every value is an ini key under [Hud], every change has an F10
-// control and a seam word, and `hud reset` puts the presets back.
+// choices a player makes about them: which ANCHOR each element rides (off, the
+// eye textures, the head-locked window, the world-parked window, the left
+// hand, the right hand), where it sits on that anchor, the window's and the
+// two hand panels' own placement, and the alpha. Every value is an ini key
+// under [Hud], every change has an F10 control and a seam word, and `hud
+// reset` puts the presets back.
 //
-// Elements are told apart by the screen REGION of the redirected draws
-// (hud_class's region probe): health top-left, mana beside it, the equipment
-// bottom corners, the reticle at the centre, subtitles bottom centre, the
-// interaction prompt, the objective marker. A draw that spans regions (a
-// vignette, a full-screen fill) goes to the window; a draw whose region cannot
-// be read goes to the window too and is counted, so a misroute is visible in
-// `hud status` and fixable with one `Region.<name>=` line in the ini.
+// Elements are a TABLE (hud_layout.cpp, kRows): one row per element with the
+// identity that claims a draw (core/gfx/hud_route.h: a riding screen's UI
+// owner context, or the draw's screen rectangle read through the vertex
+// shader's own transform) and its placement. A draw no row claims routes to
+// `default`, is drawn on whatever anchor `default` rides, and is counted, so
+// an element the mod has not named yet is visible and can be named from the
+// log (`hud list`). A new element is one row.
+//
+// Sinks are per (anchor, cropped): every element with a measured rectangle on
+// an anchor shares that anchor's CROP sink and gets its own quad as a
+// sub-rectangle of it; elements without a rectangle share the anchor's
+// CATCH-ALL sink and one whole-sink quad. Only anchors in use pay a copy.
 //
 // The runtime layer knows nothing of elements: provide() hands it a flat list
-// of quad descriptors (texture + anchor + placement), one per sink in use.
+// of quad descriptors (texture + crop + anchor + placement + a stable slot).
 #pragma once
 #include <stdint.h>
 
@@ -29,34 +35,37 @@ namespace dvr::vr { struct HudQuadDesc; }
 
 namespace dvr::hudlayout {
 
-enum Anchor : int { AnchorOff = 0, AnchorFrame = 1, AnchorWindow = 2, AnchorHand = 3 };
+enum Anchor : int { AnchorOff = 0, AnchorFrame = 1, AnchorWindow = 2, AnchorWorld = 3, AnchorHandL = 4,
+                    AnchorHandR = 5, AnchorCount = 6 };
 const char* anchor_name(int a);
-int anchor_from_name(const char* s);   // -1 when unknown
+int anchor_from_name(const char* s);   // -1 when unknown; the legacy "hand" resolves by the legacy HandHand
+inline bool anchor_visible(int a) { return a >= AnchorWindow && a < AnchorCount; }
+inline bool anchor_is_hand(int a) { return a == AnchorHandL || a == AnchorHandR; }
 
-// The elements, in the order the ini and the F10 tab list them. "all" is the
-// fallback every draw without a readable region takes; "menu" is what the
-// in-game screens (pause, journal, note, store, mission stats) are routed to
-// while they ride the window.
+// The elements, in the order the ini, the F10 tab and `hud list` show them.
+// `default` takes every draw no row claims; the six screens route by their UI
+// owner context while they ride.
 enum Element : int {
-    ElAll = 0, ElHealth, ElMana, ElEquipment, ElReticle, ElSubtitles, ElPrompt,
-    ElObjective, ElVignette, ElMenu, ElCount
+    ElDefault = 0, ElVitals, ElReticle, ElPrompt, ElEquipment, ElSubtitles, ElObjective, ElToast,
+    ElTutorial, ElDetection, ElSkipGauge, ElDarkVision, ElVignette,
+    ElPause, ElNote, ElJournal, ElWheel, ElStore, ElMissionStats, ElCount
 };
 const char* element_name(int e);
-int element_from_name(const char* s);   // -1 when unknown
+int element_from_name(const char* s);   // -1 when unknown (the legacy names all, health, mana, menu map)
+bool element_is_screen(int e);
+int  element_for_context(int context);  // dvr::mono::Context -> the screen's row, or -1
 
 struct ElementCfg {
     int   anchor;                    // Anchor
-    float winX, winY, winScale;      // placement within the window (m, m, x)
-    float handX, handY, handScale;   // placement within the hand panel (m, m, x)
+    float winX, winY, winScale;      // placement on the window or the world window (m, m, x)
+    float handX, handY, handScale;   // placement on either hand panel (m, m, x)
     float rect[4];                   // the region, normalised backbuffer x0,y0,x1,y1 (0,0,0,0 = unmeasured)
 };
 struct WindowCfg {
-    bool  worldLocked;               // false = VIEW space (head-locked), true = LOCAL, seeded at recenter
     float distM, widthM, heightM;    // heightM 0 = the texture's aspect
     float upM, latM;
 };
 struct HandCfg {
-    int   hand;                      // 0 left, 1 right
     float x, y, z;                   // offset in the grip frame, metres
     float liftM;                     // along world up
     float widthM;
@@ -64,24 +73,39 @@ struct HandCfg {
     float tiltDeg;                   // FollowGrip: nod about the panel's right axis
 };
 
+// VR-119: the HUD alpha (core/gfx/blit_quad.h explains the modes) and a
+// backdrop plate per anchor KIND: 0 = the window (view or world), 1 = a hand.
+enum AlphaMode : int { AlphaRepair = 0, AlphaCaptured = 1, AlphaMix = 2 };
+struct AlphaCfg { int mode; float gain, floorA, gamma, mixK; };
+struct Backdrop { float r, g, b, a; };
+const char* alpha_mode_name(int m);
+int  alpha_mode_from_name(const char* s);    // -1 when unknown
+const AlphaCfg& alpha();
+void set_alpha(const AlphaCfg& a, const char* who);
+const Backdrop& backdrop(int kind);
+void set_backdrop(int kind, const Backdrop& b, const char* who);
+void backdrop_for_sink(int sink, float rgba[4]);
+
 const ElementCfg& element(int e);
 const WindowCfg&  window();
-const HandCfg&    hand();
+const HandCfg&    hand(int which);   // 0 left, 1 right
 void set_element_anchor(int e, int anchor, const char* who);
 void set_element_place(int e, bool onHand, float x, float y, float scale, const char* who);
 void set_element_rect(int e, const float rect[4], const char* who);
 void set_window(const WindowCfg& w, const char* who);
-void set_hand(const HandCfg& h, const char* who);
+void set_hand(int which, const HandCfg& h, const char* who);
 void reset_presets(const char* who);
 
-// Menus riding the window: the master and the per-context opt-ins, kept here
-// so the F10 tab and the ini have one owner; the game side reads them
-// through the mask (bit = dvr::mono::Context).
+// Screens riding the HUD anchors: the master and the per-context opt-ins, kept
+// here so the F10 tab and the ini have one owner; the game side reads them
+// through the mask (bit = dvr::mono::Context). A screen rides only when its
+// row's anchor is visible (off or frame = the mono screen takes it).
 bool     menu_in_window();
 void     set_menu_in_window(bool on, const char* who);
 uint32_t menu_context_mask();
 void     set_menu_context_mask(uint32_t mask, const char* who);
-void     set_menu_riding(bool riding);   // published by the game side each poll
+bool     screen_can_ride(int context);          // the row exists and its anchor is visible
+void     set_menu_riding(bool riding, int context);   // published by the game side each poll
 bool     menu_riding();
 
 // ---- routing (the classifier's side, present thread) ----------------------
@@ -89,10 +113,12 @@ bool     menu_riding();
 // (x0,y0,x1,y1), or null when the region probe could not read it. Returns -1
 // when the element stays in the frame (AnchorFrame), else a sink index.
 int  sink_for(const float* bbox, int* elementOut);
-// The element a sink currently carries (-1 = free), and the sink of an element.
-int  sink_element(int sink);
-int  element_sink(int e);
-static const int kMaxSinks = 6;
+// Sinks: in use, and a label for the log ("window/crop", "handL/all").
+bool sink_in_use(int sink);
+bool sink_hidden(int sink);                     // an "off" element's sink: redirected, cleared, never delivered
+const char* sink_label(int sink);
+int  sink_anchor(int sink);                     // -1 when free
+static const int kMaxSinks = 12;                // (anchor, crop|all) for the four visible anchors, plus room
 
 // ---- the runtime's side (present thread) ---------------------------------
 // Fills `out` with up to `max` quad descriptors from the sinks that delivered
@@ -105,6 +131,8 @@ void save(const char* ini);             // OverlaySaveDefaults
 bool command(const char* args);         // the `hud` word's layout half (see commands.cpp)
 void status(dvr::status::Writer& w);
 void log_status();
+void log_alpha();                       // `hud alpha status`
+void log_list();                        // `hud list`: every row, its anchor, its region, draws seen
 const char* status_line();              // one line: each element's anchor and why any is hidden
 void draw_ui();                         // the F10 HUD tab (ImGui; overlay draw callback only)
 

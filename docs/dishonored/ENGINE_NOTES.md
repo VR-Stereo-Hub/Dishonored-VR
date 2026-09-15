@@ -6522,3 +6522,86 @@ predates this session (`dump eyes` shipped in session 9) and it has never been l
 because those dumps are read for geometry and for left-against-right differences rather than for
 colour. Worth fixing; do not read a colour verdict off a dump until it is.
 
+
+## How the Scaleform HUD identifies its elements (VR-118, VR-120, 2026-09-15)
+
+Measured on the simulator (Debug build of `claude/vr-120-hud-elements`, the sewer level
+opened through the console, 2750x2850, `stereo reentry`, `draws on` + `hud regions on`).
+
+**The 2D transform is in the vertex shader, and the register it lives in is read from the
+shader itself.** Every HUD-class draw on this build binds a `vs_3_0` shader (none runs on the
+fixed-function path: 0 SetTransform calls per present with the slot 44 hook counting, every
+probed draw with a shader bound). The four HUD shaders seen so far (the gameplay fills, the
+gameplay textured draws, the menus' SHORT2 draws, the menus' FLOAT2 user-pointer draws) all
+compute the position output as
+
+    o = c[K+0]*v.x + c[K+1]*v.y + c[K+2]*v.z + c[K+3]*v.w      with K = 6
+
+a `float4x4 Transform` held as four COLUMNS (the compiler's parameter table names it), with
+the textured variants adding a `TextureMatrix` at c10..c13. Nothing uploads c0..c3 between
+HUD draws, so VR-117's c0..c3 shadow read whatever the last non-HUD shader had left (the same
+values on every HUD draw and every present: the signature of a stale read, not of a
+transform), and its rectangles were nonsense. A SHORT2 or FLOAT2 position expands to
+`(x, y, 0, 1)`, so the screen position is `(o.x/o.w, o.y/o.w)` from the x, y and w columns.
+
+How the mod reads it, per shader, at its first HUD-class draw (`core/gfx/hud_class.cpp`,
+`vs_xform_for`): `GetFunction` fetches the bytecode, `D3DDisassemble` from
+`d3dcompiler_47.dll` (which reads D3D9 bytecode) disassembles it, and a parse finds the
+instruction that writes the declared position output (`dcl_position oN`, or `oPos`): its
+`c#` operand paired with the input's `.w` swizzle is the w column and its `r#` operand is the
+sum; the instructions BEFORE it that write that sum register name the x, y and z columns
+(the texgen after it reuses `r0` with other constants, so the order matters). The register
+numbers are never hard-coded (the rule from the view-model's vertex path holds). A shader
+that does not parse gets no rectangle and says so once (`draws/xform: ... could not be
+read`); the constant shadow (`frame_hooks.cpp`) now covers c0..c31 and a row outside it
+returns null, never another row. `draws vsdump` writes each shader's disassembly under
+`<data_dir>\dumps` (game-derived: never committed) and logs its register lines.
+
+Result: 9324 probes per 3 s, 0 refused, 1.0 us per probe (0.6 us before the parse; the
+D3DDisassemble runs once per shader). Every rectangle inside [0,1]; the health bar's bucket
+reads top-left.
+
+**The elements are the clusters of draw rectangles, not the buckets.** A bucket is a draw
+CLASS (shader, declaration, state) and its rectangle union spans everything drawn with it;
+the census now keys each probed draw by (bucket, rectangle quantised to 1/40 of the screen)
+and `draws regions` prints the clusters by frequency (`draws/cluster:`). Clusters are not
+collected while a screen rides (a screen routes by its UI owner context, and the pause
+menu's text alone overflowed a 256-row table). What the sewer level showed (normalised
+backbuffer, y down):
+
+| what | rectangle | draws/present | seen |
+|---|---|---|---|
+| the vitals block (health and mana bars, their frames, the splatter) | union [-0.009,0.013 - 0.172,0.253]; the health fill [0.050,0.065 - 0.101,0.210], the mana fill [0.067,0.101 - 0.129,0.213], the frames [0.035,0.031 - 0.119,0.217] and [0.048,0.071 - 0.159,0.220], one background spanning both [0.015,0.074 - 0.148,0.220] | 20 | always |
+| the reticle dot | [0.497,0.497 - 0.503,0.503]; [0.480,0.481 - 0.520,0.519] with an interactable focused | 1 | always |
+| the interaction prompt (label right of the reticle) | [0.524,0.481 - 0.774,0.602]: a plate, a text run [0.538,0.493 - 0.636,0.514], a rule, two icons | 4 | an interactable focused |
+| an objective marker | a 0.033 x 0.032 square wherever the target projects (0.182,0.401 here) | 1 | a target in view |
+| the power wheel (context Wheel) | the ring [0.226,0.275 - 0.774,0.716] and its rings, the slot icons bottom-left [0.06,0.79 - 0.23,0.95] and bottom-right [0.71,0.85 - 0.95,0.96], labels right [0.84,0.36 - 1.0,0.50], a full-screen fill | 30 | the wheel held |
+| the pause menu, the journal (contexts Pause, Journal) | hundreds of glyph-sized draws | 35, 40 | riding |
+
+The health and mana bars interleave in x (fills centred 0.076 and 0.098, frames 0.077 and
+0.103, a shared background centred 0.081), so a per-draw rectangle cannot separate them
+without misrouting the shared draws: they are ONE element (`vitals`). Equipment icons,
+subtitles, toasts, tutorials, detection arrows, the skip gauge and dark vision did not draw on
+this level from the spot reachable on the simulator; their rows exist in the layout table
+without a region and route to `default` until measured (`hud region <el> x0,y0,x1,y1` live).
+
+The identity the layout routes on is therefore the PAIR (UI owner context, rectangle): the
+context separates the riding screens from the gameplay HUD at no cost, the rectangle
+separates the gameplay elements, `tex0` stays in the census as a tie-breaker. The movie
+identity route (a hook on the Scaleform movie's Display) was not needed for this list and is
+not built; the display-object route (instance names) is a ticket.
+
+## The HUD's blend equation, and the alpha it leaves in a sink (VR-119, 2026-09-15)
+
+Measured with `draws/blend` (the first HUD-class draw of each colour blend tuple): every
+HUD-class draw on the sewer level runs `SRCBLEND=5 DESTBLEND=6 BLENDOP=1` (SRCALPHA /
+INVSRCALPHA, add) on colour with `SEPARATEALPHABLENDENABLE=1` and `SRCBLENDALPHA=2
+DESTBLENDALPHA=1` (ONE / ZERO) on alpha: the game REPLACES the target's alpha with each
+draw's source alpha. Into a sink cleared to transparent black that leaves the LAST draw's
+alpha per pixel, not the coverage, and a black stroke (alpha 1, colour 0) reads as nothing
+to the `max(r,g,b)` repair. No additive (ONE/ONE) tuple was seen on this level. The redirect
+in `captured` and `mix` modes forces `ONE / INVSRCALPHA, add` on alpha around each
+redirected draw through the original SetRenderState (the shadow must not see the mod's own
+writes) and restores the shadowed values after: dstA = srcA + dstA*(1-srcA), the "over"
+coverage, with the colour equation untouched so the colour stays premultiplied. State
+blocks would bypass the forcing: `g_stateBlocksCreated` reads 0 for a whole run.

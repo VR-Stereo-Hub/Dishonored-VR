@@ -1,3 +1,9 @@
+> **Done on `claude/vr-120-hud-elements` (2026-09-15).** VR-118 answered (the transform is the
+> vertex shader's own columns), VR-119 (the alpha) and VR-120 (the element table) built and
+> simulator-green; the headset verdicts are the open item. Current state: `docs/STATUS.md`;
+> the design and the numbers: `docs/dishonored/HUD_ANCHORS.md`. This file stays as the intent
+> the work was measured against.
+
 # Handoff: every HUD element on its own anchor, and a real alpha capture
 
 Session prompt for the follow-up to VR-117 (the HUD redo). Read this whole file, then

@@ -28,13 +28,13 @@ void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int
     // redirect is up and drawing. The input class (UiSurfaceBlocks) does not
     // change: a riding menu still parks the head-mouse and the pad shaping.
     const bool windowOn=dvr::hudcap::enabled() &&
-        dvr::hudlayout::element(dvr::hudlayout::ElMenu).anchor==dvr::hudlayout::AnchorWindow;
+        dvr::hudlayout::screen_can_ride((int)context);   // VR-120: the screen's own row and anchor
     const bool want=dvr::ui_ride::rides(g_usEnabled.load(),blocked,context,dvr::hudlayout::menu_context_mask(),
                                         dvr::hudlayout::menu_in_window(),windowOn,dvr::hudcap::redirect_healthy());
     const bool rides=g_usRideLatch.update(context,blocked,want,dvr::hudcap::redirect_failed());
     g_usBlocked.store(blocked);
     g_usRides.store(rides);
-    dvr::hudlayout::set_menu_riding(rides);
+    dvr::hudlayout::set_menu_riding(rides,(int)context);
     dvr::vr::set_mono_context(context,g_usEnabled.load() && blocked && !rides);
     static int last=-1;
     const int key=(int)context+32*blocked+64*known+128*rides;
@@ -147,7 +147,7 @@ static bool UiSurfaceRidesHud() { return g_usEnabled.load() && g_usBlocked.load(
 static bool UiSurfaceOwnsPresentation() { return UiSurfaceBlocks() && !g_usRides.load(); }
 static void UiSurfaceSet(bool on) {
     g_usEnabled.store(on);
-    if(!on) { g_usRides.store(false); dvr::hudlayout::set_menu_riding(false); }
+    if(!on) { g_usRides.store(false); dvr::hudlayout::set_menu_riding(false,-1); }
     dvr::vr::set_mono_context(dvr::mono::Other,on && g_usBlocked.load() && !g_usRides.load());
     Log("ui/surface: guard=%d (live)",(int)on);
 }

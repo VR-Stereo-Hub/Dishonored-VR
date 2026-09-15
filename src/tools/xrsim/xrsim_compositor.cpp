@@ -138,6 +138,7 @@ bool g_disabled = false;
 std::atomic<uint32_t> g_lastLayerCount{0};
 std::atomic<uint32_t> g_lastProjViews{0};
 std::atomic<uint32_t> g_lastQuadLayers{0};
+std::atomic<uint32_t> g_lastQuadAlphaPctX100{0};   // VR-119: the first quad's alpha coverage at the last shot
 // 41.1: the per-eye freshness of a projection submit, in FRAMES. A view names a
 // swapchain, and the compositor shows that swapchain's most recently released
 // image; `age` = this submit's frame index minus the frame the image was
@@ -509,6 +510,7 @@ struct SrcStat {
     bool present = false;
     uint32_t w = 0, h = 0, imageIndex = 0, releasedOnFrame = 0;
     double nonBlackPct = 0.0;
+    double alphaPct = 0.0;      // VR-119: pixels with alpha above 8/255 (a quad's coverage)
     uint32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;   // non-black bbox, inclusive
 };
 struct LayerStat {
@@ -671,8 +673,8 @@ const char* src_json(const SrcStat& s, char* buf, size_t n) {
     if (!s.present) { sprintf_s(buf, n, "null"); return buf; }
     sprintf_s(buf, n,
               "{\"w\": %u, \"h\": %u, \"image\": %u, \"releasedOnFrame\": %u, "
-              "\"nonBlackPct\": %.2f, \"bbox\": [%u, %u, %u, %u]}",
-              s.w, s.h, s.imageIndex, s.releasedOnFrame, s.nonBlackPct, s.x0, s.y0, s.x1, s.y1);
+              "\"nonBlackPct\": %.2f, \"alphaPct\": %.2f, \"bbox\": [%u, %u, %u, %u]}",
+              s.w, s.h, s.imageIndex, s.releasedOnFrame, s.nonBlackPct, s.alphaPct, s.x0, s.y0, s.x1, s.y1);
     return buf;
 }
 
@@ -696,7 +698,7 @@ void source_stat(XrSwapchain handle, SrcStat& out) {
     D3D11_MAPPED_SUBRESOURCE m{};
     if (SUCCEEDED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m))) {
         const auto* src = static_cast<const uint8_t*>(m.pData);
-        uint64_t nonBlack = 0, total = 0;
+        uint64_t nonBlack = 0, total = 0, withAlpha = 0;
         uint32_t x0 = w, y0 = h, x1 = 0, y1 = 0;
         const uint32_t step = 4;   // every 4th row and column: 1/16 of the image
         for (uint32_t y = 0; y < h; y += step) {
@@ -704,6 +706,7 @@ void source_stat(XrSwapchain handle, SrcStat& out) {
             for (uint32_t x = 0; x < w; x += step) {
                 ++total;
                 const uint8_t* p = row + x * 4;   // any 8-bit 4-channel order: black is black
+                if (p[3] > 8) ++withAlpha;         // and alpha is the fourth byte in both orders
                 if (p[0] > 8 || p[1] > 8 || p[2] > 8) {
                     ++nonBlack;
                     if (x < x0) x0 = x;
@@ -717,6 +720,7 @@ void source_stat(XrSwapchain handle, SrcStat& out) {
         out.present = true;
         out.w = w; out.h = h;
         out.nonBlackPct = total ? 100.0 * nonBlack / total : 0.0;
+        out.alphaPct = total ? 100.0 * withAlpha / total : 0.0;
         if (nonBlack) { out.x0 = x0; out.y0 = y0; out.x1 = x1; out.y1 = y1; }
         swapchain_last_info(handle, &out.imageIndex, &out.releasedOnFrame);
         swapchain_note_black(handle, nonBlack == 0);
@@ -801,9 +805,18 @@ std::string build_json(const SimSubmission& sub, const std::vector<LayerStat>& s
 
     sprintf_s(buf, "  \"layerCount\": %u,\n  \"layers\": [\n", sub.layerCount);
     out += buf;
+    bool firstQuadSeen = false;
     for (uint32_t i = 0; i < sub.layerCount; ++i) {
         const SimLayer& L = sub.layers[i];
         const LayerStat& st = (i < stats.size()) ? stats[i] : LayerStat{};
+        // VR-119: the first quad layer's alpha coverage reaches state.json as
+        // quadAlphaPct after a shot, so a sequence can fail a HUD whose alpha
+        // collapsed to zero (the eye capture cannot: the projection behind the
+        // quad is non-black either way).
+        if (L.type == XR_TYPE_COMPOSITION_LAYER_QUAD && !firstQuadSeen && st.src[0].present) {
+            firstQuadSeen = true;
+            g_lastQuadAlphaPctX100.store(static_cast<uint32_t>(st.src[0].alphaPct * 100.0 + 0.5));
+        }
         char sb0[320], sb1[320];
         const bool isProj = L.type == XR_TYPE_COMPOSITION_LAYER_PROJECTION;
         SimSpace* sp = space_get(L.space);
@@ -987,6 +1000,7 @@ void compositor_reset_pair_stats() {
 }
 
 uint32_t compositor_last_quad_layers() { return g_lastQuadLayers.load(); }
+double compositor_last_quad_alpha_pct() { return g_lastQuadAlphaPctX100.load() / 100.0; }
 int compositor_last_capture_nonblack(int eye) {
     return (eye == 0 || eye == 1) ? g_capNonBlackPct[eye].load() : 0;
 }

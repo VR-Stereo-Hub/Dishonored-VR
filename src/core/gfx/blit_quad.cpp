@@ -32,9 +32,24 @@ const char* kSrc =
     // with the HUD drawn over it, so the colour is already premultiplied and
     // black is "nothing there"; alpha = max(r,g,b) turns that into the
     // coverage the compositor wants, and gives the original's additive look.
+    // VR-119: the same shader now takes the mode and the legibility controls
+    // from a constant buffer (blit_quad.h, AlphaParams); mode 0 at identity
+    // is the 41.2 shader exactly.
+    "cbuffer AlphaCB : register(b0) {\n"
+    "    float4 p0;      // mode, gain, floor, gamma\n"
+    "    float4 p1;      // mixK, 0, 0, 0\n"
+    "    float4 plate;   // backdrop r, g, b, a (straight colour, composed under)\n"
+    "};\n"
     "float4 psalpha(VSOut i) : SV_Target {\n"
-    "    float3 c = srcTex.Sample(samp, i.uv).rgb;\n"
-    "    return float4(c, max(c.r, max(c.g, c.b)));\n"
+    "    float4 c = srcTex.Sample(samp, i.uv);\n"
+    "    float repair = max(c.r, max(c.g, c.b));\n"
+    "    float a = p0.x < 0.5 ? repair : (p0.x < 1.5 ? c.a : max(c.a, repair * p1.x));\n"
+    "    a = a * p0.y;\n"
+    "    if (a < p0.z && repair > 0.004) a = p0.z;\n"
+    "    a = saturate(a);\n"
+    "    float3 rgb = p0.w > 0.0 && abs(p0.w - 1.0) > 0.001 ? pow(max(c.rgb, 0.0), 1.0 / p0.w) : c.rgb;\n"
+    "    float pa = plate.a * (1.0 - a);\n"
+    "    return float4(rgb + plate.rgb * pa, a + pa);\n"
     "}\n";
 
 } // namespace
@@ -74,6 +89,14 @@ bool BlitQuad::init(ID3D11Device* dev) {
             if (FAILED(dev->CreatePixelShader(pab->GetBufferPointer(), pab->GetBufferSize(), nullptr, &psAlpha_)))
                 DVR_WARN("blit: the alpha-repair pixel shader would not create - the HUD panel would be opaque");
             pab->Release();
+            D3D11_BUFFER_DESC bd = {};
+            bd.ByteWidth = 48;   // three float4s
+            bd.Usage = D3D11_USAGE_DEFAULT;
+            bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            if (FAILED(dev->CreateBuffer(&bd, nullptr, &cb_)) || !cb_) {
+                DVR_WARN("blit: the HUD alpha constant buffer would not create - the HUD panel would be opaque");
+                if (psAlpha_) { psAlpha_->Release(); psAlpha_ = nullptr; }
+            }
         } else {
             DVR_WARN("blit: alpha-repair PS compile failed: %s",
                      err ? (const char*)err->GetBufferPointer() : "?");
@@ -109,6 +132,7 @@ void BlitQuad::shutdown() {
     if (blend_) { blend_->Release(); blend_ = nullptr; }
     if (raster_) { raster_->Release(); raster_ = nullptr; }
     if (sampler_) { sampler_->Release(); sampler_ = nullptr; }
+    if (cb_) { cb_->Release(); cb_ = nullptr; }
     if (psAlpha_) { psAlpha_->Release(); psAlpha_ = nullptr; }
     if (ps_) { ps_->Release(); ps_ = nullptr; }
     if (vs_) { vs_->Release(); vs_ = nullptr; }
@@ -116,8 +140,16 @@ void BlitQuad::shutdown() {
 }
 
 void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
-                    ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, bool alphaRepair) {
+                    ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, const AlphaParams* alpha) {
     if (!ready_ || !ctx || !src || !dst) return;
+    const bool alphaRepair = alpha && psAlpha_ && cb_;
+    if (alphaRepair) {
+        const float k[12] = { (float)alpha->mode, alpha->gain, alpha->floorA, alpha->gamma,
+                              alpha->mixK, 0.0f, 0.0f, 0.0f,
+                              alpha->backdrop[0], alpha->backdrop[1], alpha->backdrop[2], alpha->backdrop[3] };
+        ctx->UpdateSubresource(cb_, 0, nullptr, k, 0, 0);
+        ctx->PSSetConstantBuffers(0, 1, &cb_);
+    }
     D3D11_VIEWPORT vp = {0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f};
     ctx->RSSetViewports(1, &vp);
     ctx->RSSetState(raster_);
@@ -128,7 +160,7 @@ void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
     ctx->IASetInputLayout(nullptr);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ctx->VSSetShader(vs_, nullptr, 0);
-    ctx->PSSetShader(alphaRepair && psAlpha_ ? psAlpha_ : ps_, nullptr, 0);
+    ctx->PSSetShader(alphaRepair ? psAlpha_ : ps_, nullptr, 0);
     ctx->PSSetShaderResources(0, 1, &src);
     ctx->PSSetSamplers(0, 1, &sampler_);
     ctx->Draw(3, 0);

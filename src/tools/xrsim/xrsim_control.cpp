@@ -678,6 +678,7 @@ void write_state_json() {
     fprintf(f, "  \"layersLastFrame\": %u,\n", compositor_last_layer_count());
     fprintf(f, "  \"projectionViews\": %u,\n", compositor_last_projection_views());
     fprintf(f, "  \"quadLayers\": %u,\n", compositor_last_quad_layers());
+    fprintf(f, "  \"quadAlphaPct\": %.2f,\n", compositor_last_quad_alpha_pct());
     fprintf(f, "  \"capNonBlackL\": %d,\n", compositor_last_capture_nonblack(0));
     fprintf(f, "  \"capNonBlackR\": %d,\n", compositor_last_capture_nonblack(1));
     // 41.1: per-eye freshness of the last projection submit (a healthy pair reads

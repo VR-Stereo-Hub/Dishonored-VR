@@ -236,6 +236,7 @@ void compositor_note_layers(const SimSubmission& sub);
 uint32_t compositor_last_layer_count();
 uint32_t compositor_last_projection_views();
 uint32_t compositor_last_quad_layers();
+double compositor_last_quad_alpha_pct();          // VR-119: the first quad's alpha coverage at the last shot (%)
 int compositor_last_capture_nonblack(int eye);   // percent, last capture frame
 // 41.1: per-eye release age of the last projection submit, in frames (0 = released
 // inside the submitting frame; 1+ = a held image), the max since `reset`, whether

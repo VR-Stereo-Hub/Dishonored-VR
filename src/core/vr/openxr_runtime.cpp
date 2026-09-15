@@ -4967,19 +4967,24 @@ void on_present_end(ID3D11Texture2D* frame) {
             pose.position.y += right[1] * d.planeOff[0] + up[1] * d.planeOff[1];
             pose.position.z += right[2] * d.planeOff[0] + up[2] * d.planeOff[1];
 
-            // The pixels: this slot's swapchain, sized to the whole texture
-            // (CopyResource needs identical sizes); the crop is the imageRect.
-            HudSlot& hs = g_hudSlots[i];
-            if (hs.sc == XR_NULL_HANDLE || hs.w != hd.Width || hs.h != hd.Height)
-                create_hud_swapchain(i, hd.Width, hd.Height);
+            // The pixels: the descriptor's own slot (VR-120: stable per element,
+            // so a quad that comes and goes churns no other), a swapchain sized
+            // to the CROP, filled by CopySubresourceRegion from the sink.
+            const int slot = (d.slot >= 0 && d.slot < kMaxHudQuads) ? d.slot : i;
+            HudSlot& hs = g_hudSlots[slot];
+            if (crop.w <= 0 || crop.h <= 0) continue;
+            if (hs.sc == XR_NULL_HANDLE || hs.w != (uint32_t)crop.w || hs.h != (uint32_t)crop.h)
+                create_hud_swapchain(slot, (uint32_t)crop.w, (uint32_t)crop.h);
             if (hs.sc == XR_NULL_HANDLE) continue;
             uint32_t idx = 0;
             XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
             if (XR_FAILED(xrAcquireSwapchainImage(hs.sc, &ai, &idx))) continue;
             XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
             wi.timeout = XR_INFINITE_DURATION;
-            if (XR_SUCCEEDED(xrWaitSwapchainImage(hs.sc, &wi)))
-                g_context->CopyResource(hs.images[idx].texture, d.tex);
+            if (XR_SUCCEEDED(xrWaitSwapchainImage(hs.sc, &wi))) {
+                const D3D11_BOX box = {(UINT)crop.x, (UINT)crop.y, 0, (UINT)(crop.x + crop.w), (UINT)(crop.y + crop.h), 1};
+                g_context->CopySubresourceRegion(hs.images[idx].texture, 0, 0, 0, 0, d.tex, 0, &box);
+            }
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             xrReleaseSwapchainImage(hs.sc, &ri);
 
@@ -4991,7 +4996,7 @@ void on_present_end(ID3D11Texture2D* frame) {
             q.space = space;
             q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             q.subImage.swapchain = hs.sc;
-            q.subImage.imageRect = {{crop.x, crop.y}, {crop.w, crop.h}};
+            q.subImage.imageRect = {{0, 0}, {crop.w, crop.h}};
             q.pose = pose;
             q.size = {crop.widthM, crop.heightM};
             layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&q);
@@ -5002,7 +5007,7 @@ void on_present_end(ID3D11Texture2D* frame) {
                                          pose.position.z * pose.position.z);
                 XRLOG("xr: HUD quad[%d] live (%s anchor%s%c, element %d, %ux%u crop %d,%d %dx%d, %.2f x %.2f m, "
                       "%.2f m from the %s, subtends %.1f deg)",
-                      i, anchorName, d.anchor == HudAnchor::Hand ? ", hand " : "",
+                      slot, anchorName, d.anchor == HudAnchor::Hand ? ", hand " : "",
                       d.anchor == HudAnchor::Hand ? (d.hand ? 'R' : 'L') : ' ', d.element,
                       hd.Width, hd.Height, crop.x, crop.y, crop.w, crop.h, crop.widthM, crop.heightM,
                       dist, space == g_viewSpace ? "eyes" : "origin",

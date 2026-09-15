@@ -1,12 +1,16 @@
-# The HUD on its anchors (VR-117)
+# The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
 
 The game's Scaleform HUD, taken out of the eye textures and shown on quads the
-runtime layer composites: a WINDOW in front of the player and the tracked HAND
-(what build 38.92 shipped as the wrist HUD), per element, with every placement
-value in the ini and on the F10 HUD tab. In-game screens (pause, journal, note,
-store, mission stats) ride the window with the world in stereo behind them.
+runtime layer composites: a head-locked WINDOW, a WORLD-parked window, and the
+LEFT and RIGHT hands (what build 38.92 shipped as the wrist HUD), per ELEMENT
+(VR-120: a table of rows, each claimed by a screen rectangle or a screen's UI
+owner context, an unnamed element riding `default`), with every placement value
+in the ini and on the F10 HUD tab, and the quads' alpha derived by a chosen mode
+(VR-119). In-game screens (pause, journal, note, wheel, store, mission stats)
+ride their own row's anchor with the world in stereo behind them.
 
-Ticket VR-117. Supersedes the abandoned PR #12 (VR-8) and VR-38. The measured
+Tickets VR-117 (the redo), VR-118 (the transform), VR-119 (the alpha), VR-120
+(the elements). Supersedes the abandoned PR #12 (VR-8) and VR-38. The measured
 facts it rests on are in ENGINE_NOTES, "The HUD sections carried from the
 abandoned PR #12 branch": the whole HUD is painted onto the BACKBUFFER at the
 tail of the frame while the world goes to an offscreen scene target, so the
@@ -14,17 +18,25 @@ render target alone separates the two; the scene resolve is the one opaque
 full-frame draw and alpha blending excludes it; the pause menu and the power
 wheel are the same draw class; the paused world is a live stereo pair.
 
+To measure and name one more element (the eight unmeasured rows, or a new one):
+`HUD_ELEMENTS_HOWTO.md`.
+
 ## 1. The pieces
 
 ```
 game draws -> core/gfx/hud_class   the rule (rt0=backbuffer, full viewport, depth off, blend on),
-                                   the census (`draws`), the region probe ([Hud] Regions)
-           -> core/gfx/hud_capture N sinks: a private A8R8G8B8 target each, two shared slots,
-                                   D3D11 alpha repair (alpha = max(r,g,b)), an R8G8B8A8 texture
-           -> core/gfx/hud_layout  elements, regions, anchors, placement: the ONE owner of
-                                   [Hud]; the provider that describes the quads
-           -> openxr_runtime.cpp   "41.x (Dishonored, VR-117) HUD anchors": up to 6 quad
-                                   layers, one swapchain slot each, VIEW / LOCAL space
+                                   the census (`draws`), the region probe ([Hud] Regions: each
+                                   draw's rectangle through the vertex shader's own transform,
+                                   VR-118), the forced coverage equation (VR-119)
+           -> core/gfx/hud_route   PURE: (context, rectangle) -> the element row (host tested)
+           -> core/gfx/hud_capture N sinks, one per (anchor, crop|all): a private A8R8G8B8
+                                   target each, two shared slots, the D3D11 alpha pass
+                                   (repair | captured | mix, VR-119), an R8G8B8A8 texture
+           -> core/gfx/hud_layout  the element TABLE, anchors, placement, the alpha: the ONE
+                                   owner of [Hud]; the provider that describes the quads (one
+                                   per cropped element, one per catch-all sink)
+           -> openxr_runtime.cpp   "41.x (Dishonored, VR-117) HUD anchors": quad layers with a
+                                   stable slot each, crop-sized swapchains, VIEW / LOCAL space
 game state -> ue3/ui_surface.cpp   the ride predicate (ui_ride_policy.h)
            -> stereo_state.cpp     the scene verdict's stand-in while a screen rides
            -> present_tick.cpp     hudcap::set_game_gate(sceneVerdict && !wheel, rides)
@@ -42,37 +54,55 @@ its sink through the raw SetRenderTarget, so no backbuffer detector sees it.
 |---|---|---|
 | `Panel` | 1 | the redirect and the quads; 0 = the game draws the HUD into the frame |
 | `SlotScale` | 0.50 | a sink's texture is the render's size times this |
-| `Regions` | 0 | route elements by the screen rectangle of each draw (the probe); 0 = one element, `all` |
-| `Element.<name>` | preset | `off` / `frame` (left in the eyes) / `window` / `hand` |
-| `Element.<name>.WinX/WinY/WinScale` | 0,0,1 | placement on the window (m, m, factor) |
-| `Element.<name>.HandX/HandY/HandScale` | 0,0,1 | placement on the hand panel |
-| `Region.<name>` | unset | `x0,y0,x1,y1`, normalised backbuffer, y down; unset = unmeasured |
-| `WindowAnchor` | view | `view` head-locked, `world` parked at the last recenter (LOCAL space) |
-| `WindowDistance/Width/Height` | 1.30 / 1.25 / 0 | metres; Height 0 = the texture's aspect, else a centred crop |
+| `Regions` | 1 | route by each draw's rectangle (the probe, through the shader's transform); 0 = every draw rides `default` as one quad (the A/B) |
+| `Element.<name>` | window | `off` / `frame` (left in the eyes) / `window` / `world` / `handL` / `handR` |
+| `Element.<name>.WinX/WinY/WinScale` | 0,0,1 | placement on the window or the world window (m, m, factor) |
+| `Element.<name>.HandX/HandY/HandScale` | 0,0,1 | placement on either hand panel |
+| `Region.<name>` | measured for vitals, reticle, prompt | `x0,y0,x1,y1`, normalised backbuffer, y down: claims a draw whose centre lies inside; unset = unmeasured (rides `default`) |
+| `WindowDistance/Width/Height` | 1.30 / 1.25 / 0 | metres, shared by `window` and `world`; Height 0 = the texture's aspect, else a centred crop |
 | `WindowUp/Lateral` | -0.10 / 0 | in the window's plane |
-| `HandHand` | 0 | 0 left, 1 right |
-| `HandX/Y/Z` | 0 | offset in the grip's own frame |
-| `HandLift` | 0.06 | along world up (38.92 lifted along HEAD up; differs only pitched) |
-| `HandWidth` | 0.22 | the tuned 38.92 value |
-| `HandOrient` | billboard | `billboard` faces the head, never rolls; `grip` = a watch face |
-| `HandTilt` | 0 | grip only: degrees of nod toward the eyes |
-| `MenuInWindow` | 1 | in-game screens ride the window |
+| `HandL.X/Y/Z`, `HandR.X/Y/Z` | 0 | offset in that grip's own frame |
+| `HandL.Lift`, `HandR.Lift` | 0.06 | along world up (38.92 lifted along HEAD up; differs only pitched) |
+| `HandL.Width`, `HandR.Width` | 0.22 | the tuned 38.92 value |
+| `HandL.Orient`, `HandR.Orient` | billboard | `billboard` faces the head, never rolls; `grip` = a watch face |
+| `HandL.Tilt`, `HandR.Tilt` | 0 | grip only: degrees of nod toward the eyes |
+| `AlphaMode` | repair | `repair` = max(r,g,b) (41.2); `captured` = the sink's own coverage (the redirect forces the equation); `mix` = the larger, repair scaled by `AlphaMix` |
+| `AlphaGain/Floor/Gamma/Mix` | 1 / 0 / 1 / 1 | multiply the alpha; a minimum for any pixel with colour; a colour nudge; the mix weight |
+| `Backdrop.window`, `Backdrop.hand` | 0,0,0,0 | `r,g,b,a`: a plate composed UNDER the quads of that anchor kind (a=0 none) |
+| `MenuInWindow` | 1 | in-game screens ride their row's anchor |
 | `WindowPause/Note/Journal/Wheel/Store/MissionStats` | 1 | per-context opt-in (the wheel is what the weapon scroll and the grip-hold loadout open) |
-| `[Draws] Census` | 0 | the bucket table and VERDICT every 3 s |
+| `[Draws] Census` | 0 | the bucket table, the VERDICT and the element clusters every 3 s |
 
-Elements: `all` (every draw without a readable region), `health`, `mana`,
-`equipment`, `reticle`, `subtitles`, `prompt`, `objective`, `vignette` (a
-draw spanning more than 60 % of both axes), `menu` (the riding screens; never
-the hand). Presets: status elements on the hand, text on the window.
+VR-117's keys (`Element.all/health/mana/menu`, `WindowAnchor`, `HandHand`,
+`Hand*`) are read once, mapped onto the rows and deleted by the next save.
+
+Elements (the rows of `hud_layout.cpp`, in `hud list` order): `default`
+(every draw no row claims), `vitals` (the health and mana bars, one row: they
+interleave in x), `reticle`, `prompt`, `equipment`, `subtitles`, `objective`,
+`toast`, `tutorial`, `detection`, `skipgauge`, `darkvision` (the last eight
+UNMEASURED: they ride `default` until `hud region` names them), `vignette` (a
+draw wider and taller than 60 %), and the screens `pause`, `note`, `journal`,
+`wheel`, `store`, `missionstats` (claimed by their UI owner context while they
+ride; set off or frame, a screen takes the mono screen). Sinks are per (anchor,
+crop|all): the rows with a region on one anchor share its crop sink and each
+gets a quad that is a sub-rectangle of it; rows without a region share the
+anchor's catch-all sink and one whole quad, placed by `default` (or by the
+riding screen's row). On a hand an element fills the panel's width at the
+grip; on the window it keeps its place on the screen. Presets: everything on
+the window (the VR-117 picture) until the headset judges the split.
 
 Seam words: `hud on|off|status|scale <f>`, `hud regions on|off`, `hud anchor
-<el> off|frame|window|hand`, `hud window view|world|recenter|dist|width|height|
-up|lateral <v>`, `hud hand left|right|billboard|grip|x|y|z|lift|width|tilt <v>`,
-`hud place <el> window|hand <x> <y> [scale]`, `hud region <el> x0,y0,x1,y1`,
-`hud menu on|off`, `hud menu <Context> on|off`, `hud reset`, `hud layout`;
-`draws on|off|status|regions|kill <key>|hud|unkill`; `dump hud [sink]`.
-F10: the HUD tab. status.json: `draws`, `hud` (with `layout`), `hudQuads`,
-`uiBlocks`, `uiRides`.
+<el|all> off|frame|window|world|handL|handR`, `hud window view|world|recenter|
+dist|width|height|up|lateral <v>` (`view`/`world` move every window-kind row),
+`hud hand l|r billboard|grip|x|y|z|lift|width|tilt <v>`, `hud place <el>
+window|hand <x> <y> [scale]`, `hud region <el> x0,y0,x1,y1`, `hud alpha mode
+repair|captured|mix`, `hud alpha gain|floor|gamma|mix <f>`, `hud alpha backdrop
+window|hand r,g,b,a`, `hud alpha status`, `hud menu on|off`, `hud menu
+<Context> on|off`, `hud reset`, `hud layout`, `hud list`; `draws on|off|status|
+regions|vsdump|kill <key>|hud|unkill`; `dump hud [sink]` (the colour PNG and
+the alpha as grey). F10: the HUD tab. status.json: `draws`, `hud` (with
+`layout`: the anchors, `seen`, `sinks`, the alpha), `hudQuads`, `uiBlocks`,
+`uiRides`.
 
 ## 3. The gate
 
@@ -88,8 +118,9 @@ drew the HUD into the frame on each of them, a 10 Hz window/frame flicker on
 the first headset run.
 
 The ride (`ui_ride_policy.h`): a blocked UI owner in {Pause, Note, Journal,
-Wheel, Store, MissionStats} with its opt-in bit, `MenuInWindow=1`, the menu element on
-the window, and the redirect healthy (armed, a redirected draw within 500 ms)
+Wheel, Store, MissionStats} with its opt-in bit, `MenuInWindow=1`, the screen's own
+row on a visible anchor (`screen_can_ride`, VR-120), and the redirect healthy (a
+redirected draw within 500 ms, or no sink in use yet with the blit compiled)
 RIDES. Decided once per blocked interval (a health flap mid-menu cannot flip
 the picture); only a latched D3D failure drops it (to the mono screen: fail
 soft). While riding: the runtime is told the context does NOT force mono, so
@@ -268,3 +299,82 @@ death loop at the intro boat and cannot be used).
   strokes drew no complaint.
 - The cost: two sinks at SlotScale 0.50 = 7.5 MB StretchRect each per present;
   fences `blit waits 5357 timeouts 0, read waits 0 timeouts 0` over the run.
+
+## 7. Measured on the simulator (2026-09-15, `claude/vr-120-hud-elements`)
+
+Debug builds of this branch, `dvr-xrsim` at 90 Hz, 2750x2850, `stereo reentry`, the sewer
+level through the console (from the MAIN menu: the same command sent from the title screen
+left the game on the loading board for eight minutes, run 1 of this branch).
+
+- **VR-118 answered: the transform is the vertex shader's own `Transform` at c6..c9**, read
+  from each shader's disassembly at first sight (ENGINE_NOTES, "How the Scaleform HUD
+  identifies its elements"). The fixed-function hypothesis was tested first and died in one
+  window: `HUD draws with a vertex shader 8862, without 0; SetTransform calls 0`. With the
+  columns applied: `9324 probes, 0 refused, 1.0 us/probe`, every bucket rectangle inside
+  [0,1], the health bar's bucket at `[0.007,0.053 - 0.148,0.220]`. The old c0/c1 rows were
+  stale constants: `(0.000 0.002 0.999 1.000)` and `(0.726 0 0 0)` on every HUD draw because
+  nothing uploads c0..c3 between them.
+- **The element census** (`draws/cluster`, per-draw rectangles quantised to 1/40): gameplay
+  idle 17 clusters, all inside the vitals block `[-0.009,0.013 - 0.172,0.253]` except the
+  reticle dot `[0.497,0.497 - 0.503,0.503]`; walking up to a door: the reticle grows to
+  `[0.480,0.481 - 0.520,0.519]`, the interaction prompt appears at
+  `[0.524,0.481 - 0.774,0.602]` (a plate, a text run, a rule, two icons: 4 draws/present) and
+  an objective marker (0.033 square) sits where its target projects. The wheel adds 30
+  draws/present (the ring, the slot icons bottom-left and bottom-right, labels right, a
+  full-screen fill); the pause menu and the journal are hundreds of glyph draws and overflowed
+  a 256-row cluster table (1372 over), so clusters are not collected while a screen rides
+  (its context is its identity). Health and mana interleave in x (fills at centres 0.076 and
+  0.098, frames 0.077 and 0.103, one shared background at 0.081): one row, `vitals`.
+- Cost with the parse and the clusters: `perf: tick 15.8 ms (62.0/s)` on the Debug build with
+  the census, the probe and the redirect all on (the census is a measuring lever and stays
+  off in play).
+- **The alpha (VR-119)**: the HUD's own colour equation is `src=5 dst=6 op=1` (SRCALPHA /
+  INVSRCALPHA, add) with `separateAlpha=1` and alpha `src=2 dst=1` (ONE/ZERO): the game
+  writes each draw's source alpha over the sink's, so a black stroke with alpha 1 lands as
+  alpha 1 there too, but the colour stays black and `repair` (max of r,g,b) reads it as
+  nothing. The forced equation (ONE/INVSRCALPHA add on alpha) accumulates the coverage
+  instead. `hud-alpha.xrs` 32/32: the first quad's alpha coverage `quadAlphaPct` 1.18 in
+  `repair`, 1.22 in `captured` and `mix`, 100.00 with a half-opaque window backdrop, 1.18
+  back at identity (the vitals block is 1.2 % of a 1375x1425 sink). `dump hud 0` in both
+  modes, the vitals corner (0..0.2 x 0..0.27) of the alpha PNG: pixels at alpha >= 200 are
+  7.96 % of the crop in `captured` against 2.54 % in `repair`, with `repair` spreading the
+  bars over the 9..199 band (19.44 % against 14.80 %): the strokes and the bar bodies are
+  solid in `captured` and mottled by the bars' own texture in `repair`. Cost: eight
+  SetRenderState calls per redirected draw, about 170 per present.
+- **The elements (VR-120)**, `hud-elements.xrs` 33/33 on the sewer level: with `Regions=1`
+  and the preset the HUD is two quads in VIEW space (the vitals crop 275x385 of the
+  1375x1425 sink, 0.25 x 0.35 m at (-0.50, 0.37, -1.30); the reticle crop 82x85, 0.075 x
+  0.078 m at (0, -0.10, -1.30)); `hud anchor vitals handL; hud anchor reticle handR` with
+  the sim's grips at (-0.20, 1.10, -0.40) and (0.20, 1.10, -0.40) puts two LOCAL quads at
+  (-0.20, 1.16, -0.40) 0.22 x 0.31 m and (0.20, 1.16, -0.40) 0.22 x 0.23 m: the grip plus
+  the 0.06 m lift, the panel's width; `hand r valid off` removes the reticle's quad alone;
+  `hud anchor vitals frame` leaves its 20 draws per present in the eyes (`left in frame
+  8820` per 3 s window) with the reticle's quad still up; `hud anchor vitals off` hides
+  them with no quad. Before the hand rule the vitals crop came out 0.044 m wide and 0.16 m
+  up-left of the grip (its screen offset scaled to the panel): a wrist HUD fills the panel
+  at the hand, a window keeps the screen layout. Every sink line in the log names its
+  (anchor, crop|all): `s0[window/crop]=21.0` draws per present in gameplay; a riding pause
+  takes `sink 1 = window/all, for the riding screen` and releases it on resume.
+  `hud-quads.xrs` 35/35 (`hud anchor all <anchor>` moves every row), `hud-panel.xrs` 24/24,
+  `pause-ride.xrs` 31/31, `wheel-ride.xrs` 27/27, `hud-alpha.xrs` 32/32 on the same build.
+  Host: 20 hud-route, 30 hud-anchor, 107 ui-ride checks. Cost: `perf: tick 13.5 ms
+  (73.7/s)` with the probe, the routing and two quads, against 13.2 ms with `hud on` and
+  one quad on VR-117 (the census off).
+- A trap found on the way: sinks are acquired by the first draw routed to them, and a draw
+  is routed only while the redirect is ARMED, which required a sink's hand-off to be
+  ready: the first build of the table never armed (`hud/beat: ... (no sink in use)
+  ... handoff=0`). The hand-off now counts as ready on the blit alone while no sink is in
+  use; the first sink proves the rest or latches the failure as before.
+- **The first HEADSET run of this branch** (2026-09-15, Quest 3 through VirtualDesktopXR,
+  90 Hz, the Release build 287-g4c3e5aa6 with the repo default ini, log
+  `vr120-headset-run1-build287`): the preset (two window quads: the vitals crop 275x385
+  subtending 9.9 deg, the reticle 82x85 at 3.3 deg), the pause, a note and the wheel riding
+  the window, the vitals on the LEFT hand (`hud/layout: element vitals anchor window ->
+  handL`), the `default` row on the left hand, in the frame and off, and the vitals off,
+  all judged good; the vitals' left-hand quad read `0.22 x 0.23 m, 0.49 m from the origin,
+  subtends 25.5 deg`. Nothing in the log says the alpha mode was changed during the run
+  (no `hud/alpha: mode ... (F10 HUD)` line), so `repair` is the only mode the headset has
+  judged and VR-119's list is still open. The three caught first-chance exceptions at
+  start-up (`EXCEPTION 0xc0000005 ... [d3d9.dll+...] (other)`, right after the reflection
+  resolves) are in every log since the VR-Main base 274-g85f9ef6e, three per run, at a
+  different offset per build: a guarded probe reading a page edge, not this branch's.

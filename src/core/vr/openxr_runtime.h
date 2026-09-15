@@ -654,7 +654,14 @@ void set_hud_texture_provider(HudTextureProviderFn fn);
 // height 0 = the crop's own aspect, else a centred crop to width:height.
 // The placement lives with the game side (core/gfx/hud_layout); the runtime
 // only locates and submits. Present thread.
-constexpr int kMaxHudQuads = 6;
+// VR-120: one descriptor per ELEMENT (a crop of its anchor's sink) or per
+// catch-all sink; `slot` is a stable id the swapchain slot follows, so a quad
+// that comes and goes (a prompt) keeps its swapchain instead of churning every
+// other descriptor's. The swapchain is sized to the CROP and filled with
+// CopySubresourceRegion, so a quad costs its own pixels, not the whole sink.
+// The runtime accepts 16 layers; the array holds the slots, the cap hides the
+// rest and counts them.
+constexpr int kMaxHudQuads = 32;
 enum class HudAnchor : uint8_t { Window = 0, WindowWorld = 1, Hand = 2 };
 enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1 };
 struct HudQuadDesc {
@@ -663,6 +670,7 @@ struct HudQuadDesc {
     HudOrient orient = HudOrient::Billboard;
     int   hand = 0;                    // Hand: 0 left, 1 right
     int   element = -1;                // the game side's element id, for the log
+    int   slot = 0;                    // the swapchain slot this quad owns (0..kMaxHudQuads-1)
     float base[3] = {0.0f, -0.10f, -1.30f};
     float lift = 0.0f;
     float planeOff[2] = {0.0f, 0.0f};

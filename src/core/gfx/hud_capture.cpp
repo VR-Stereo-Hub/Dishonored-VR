@@ -343,14 +343,15 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         else g_lastRedirectMs = GetTickCount();
     }
 
-    bool anyReady = false;
+    bool anyReady = false, anyInUse = false, blitOk = false;
     if (g_on && dev9 && dev11 && ctx11 && !g_failed) {
         g_lastCtx = ctx11;
-        const bool blitOk = g_blit.init(dev11);
+        blitOk = g_blit.init(dev11);
         for (int i = 0; i < dvr::hudlayout::kMaxSinks; ++i) {
             Sink& s = g_sink[i];
             s.delivered = false;
-            const bool inUse = dvr::hudlayout::sink_element(i) >= 0;
+            const bool inUse = dvr::hudlayout::sink_in_use(i);
+            anyInUse |= inUse;
             if (!inUse) {
                 // A sink nobody routes to holds no default-pool memory and
                 // costs no copy; a stale target is cleared once and released.
@@ -360,6 +361,15 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 continue;
             }
             if (!ensure_rt(dev9, i)) { s.redirected = 0; continue; }
+            if (dvr::hudlayout::sink_hidden(i)) {
+                // An "off" element: its draws left the frame and stop here.
+                // No copy, no slot, no quad; the target is cleared every present.
+                if (s.ready) release_slots(s);
+                s.winRedirected += s.redirected;
+                clear_rt(dev9, s);
+                s.redirected = 0;
+                continue;
+            }
             if (!blitOk || !ensure_slots(dev9, dev11, i)) { s.redirected = 0; continue; }
             anyReady = true;
             s.winRedirected += s.redirected;
@@ -384,7 +394,14 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             const int other = s.cur ^ 1;
             if (s.slotValid[other]) {
                 blit_wait(s, other);
-                g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, true);
+                // VR-119: the alpha mode and the legibility controls are the
+                // layout's; the backdrop plate follows the anchor this sink's
+                // element rides (the window wants one, a hand none).
+                dvr::gfx::AlphaParams ap;
+                const dvr::hudlayout::AlphaCfg& a = dvr::hudlayout::alpha();
+                ap.mode = a.mode; ap.gain = a.gain; ap.floorA = a.floorA; ap.gamma = a.gamma; ap.mixK = a.mixK;
+                dvr::hudlayout::backdrop_for_sink(i, ap.backdrop);
+                g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, &ap);
                 if (s.readFence[other]) {
                     ctx11->End(s.readFence[other]);
                     ctx11->Flush();   // an event query does not complete until the work is submitted
@@ -403,7 +420,11 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             s.redirected = 0;
         }
     }
-    g_handoffReady = anyReady;
+    // VR-120: sinks are acquired by the first draw routed to them, and a draw
+    // is routed only while armed, so with no sink in use yet the hand-off is
+    // "ready" on the blit alone; the first sink proves the rest or latches
+    // the failure like any other.
+    g_handoffReady = anyReady || (!anyInUse && blitOk);
     if (g_on && !g_handoffReady)
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
                          "hud: the redirect is ON but no sink's hand-off to D3D11 is ready, so it stays OFF "
@@ -422,10 +443,10 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         char per[160] = "";
         for (int i = 0; i < dvr::hudlayout::kMaxSinks; ++i) {
             const Sink& s = g_sink[i];
-            if (dvr::hudlayout::sink_element(i) < 0) continue;
+            if (!dvr::hudlayout::sink_in_use(i)) continue;
             redir += s.winRedirected; deliv += s.winDelivered;
             char one[40];
-            _snprintf(one, sizeof(one), " s%d[%s]=%.1f", i, dvr::hudlayout::element_name(dvr::hudlayout::sink_element(i)),
+            _snprintf(one, sizeof(one), " s%d[%s]=%.1f", i, dvr::hudlayout::sink_label(i),
                       g_winPresents ? (double)s.winRedirected / g_winPresents : 0.0);
             one[39] = 0;
             strncat(per, one, sizeof(per) - strlen(per) - 1);
@@ -539,7 +560,7 @@ bool command(const char* args) {
     }
     if (!args[0] || !strcmp(args, "status")) { log_status(); return true; }
     if (dvr::hudlayout::command(args)) return true;
-    DVR_WARN("hud: unknown `hud %s` - on|off|status|scale <f>|regions on|off|anchor <element> <anchor>|window ...|hand ...|place ...|region ...|menu ...|reset|layout", args);
+    DVR_WARN("hud: unknown `hud %s` - on|off|status|scale <f>|regions on|off|anchor <element> <anchor>|window ...|hand ...|place ...|region ...|alpha ...|menu ...|reset|layout", args);
     return true;
 }
 

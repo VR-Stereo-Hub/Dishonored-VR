@@ -247,7 +247,11 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
       `[Mode] GamepadOnly=0` default again when they hold
       - [x] The HUD on its anchors (VR-117, 2026-09-14): the window and the hand quads through
             the runtime's provider seam, the whole HUD as one element, menus in the window;
-            per-element routing follows the region measurement (headset verdicts pending)
+            headset-confirmed 2026-09-15
+      - [x] Per element (VR-118, VR-119, VR-120, 2026-09-15): the transform read from the
+            HUD's vertex shader, the element table (vitals, reticle, prompt measured; the rest
+            ride `default` until named), six anchors, two hands, the captured alpha; simulator
+            green, the headset picks the shipped preset and the alpha mode
 - [ ] The losing method kept registered as the A/B (every render lever ships with a live
       toggle)
 
