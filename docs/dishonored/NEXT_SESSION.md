@@ -1,3 +1,15 @@
+## Current VR-125: instruction sampling narrows attribution
+
+Approved findings posted; ticket cleanup leaves only VR-125 and VR-122 In Progress.
+Non-elevated pub-view instruction sampling completed twice. Render samples:
+36% game,13-14% native D3D9,13% proxy; these include waits, not CPU percentages.
+Driver hot region contains polling; its fraction is sensitive to sampling order.
+Do not equate driver CPU usage with useful work or claim a performance fix.
+Next: exact DLL/PDB preservation and default-off scoped CPU-vs-wall rendering
+attribution, without thread suspension. Details and caveats: RESOLUTION_FLOOR.md.
+Game closed; accepted installed DLL/full INI unchanged. Launch authorization
+continues until shutdown requested. No merge and no pending headset test.
+
 ## Latest VR-125: CPU-side rendering and driver work measured
 
 Automated four-view sweep completed; pub view79.3 ticks/s vs simpler110-118.

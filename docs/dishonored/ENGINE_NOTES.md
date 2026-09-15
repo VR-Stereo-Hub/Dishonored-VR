@@ -6605,3 +6605,12 @@ redirected draw through the original SetRenderState (the shadow must not see the
 writes) and restores the shadowed values after: dstA = srcA + dstA*(1-srcA), the "over"
 coverage, with the colour equation untouched so the colour stays premultiplied. State
 blocks would bypass the forcing: `g_stateBlocksCreated` reads 0 for a whole run.
+
+## VR-125 CPU attribution correction (2026-09-15)
+
+Pub-view thread IP sampling finds a bounded polling loop with PAUSE in the
+NVIDIA D3D9 worker's hot region. High worker CPU therefore includes spinning;
+it cannot all be described as useful submission work. The observed region share
+changes with sampling order. Render-thread samples are consistently spread
+across engine, native D3D9 and proxy. No engine address or hook derived.
+See RESOLUTION_FLOOR.md for method, evidence, limits and next scoped measurement.

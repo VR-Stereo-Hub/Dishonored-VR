@@ -130,3 +130,65 @@ on the real runtime; the sim view still exceeds the headset62-66 ticks/s.
 
 Evidence: build/performance-results/vr125-view-sweep and build/vr125-sim captures.
 Game closed after capture; full installed INI and DLL match pre-run. No merge.
+
+## Non-elevated instruction samples (2026-09-15)
+
+Continued VR-125 without another ticket or renderer install. Automated pub-view
+run used verified298-g3d80740a9, original2750x2850, simulated120Hz. Archived
+both logs before and after; installed DLL and full INI hashes unchanged, game
+closed. Evidence: ignored build/performance-results/vr125-ip-sample.
+
+New tools/thread-ip-profile.ps1 uses documented WOW64 context capture from an
+external64-bit process. Opens verified-owner thread handles, briefly suspends
+one thread, captures control registers, and resumes in compiled finally before
+allocation/output. Retained handles prevent thread-ID reuse redirecting samples.
+No target-memory writes, injection, symbols or full stack unwind. Jittered
+7-17ms requested sampling sleeps are quantized by Windows. Full module paths
+separate native D3D9 from the identically named proxy. Module list is a snapshot;
+use only with a stable scene, not across module unloading/loading.
+
+Three-sample smoke passed, followed by1500 samples/thread and1000/thread with
+reversed thread order, zero context failures. Mean measured suspend/capture/
+resume span52us, maximum1.18ms and1.90ms. These are perturbing WALL-TIME instruction
+samples, including waits and WOW64 transitions, not on-CPU percentages, exclusive
+function times, frame benchmarks or call stacks. Do not infer time savings from
+their fractions. The sampler itself can change scheduling and lock behavior.
+
+| Render thread sample location | First1500 | Reverse-order1000 |
+|---|---:|---:|
+| Game executable |36.27%|35.90%|
+| Native Windows D3D9 |13.20%|14.10%|
+| Mod proxy |12.87%|13.30%|
+| ntdll |26.20%|28.70%|
+| NVIDIA D3D9 |4.67%|3.90%|
+
+Before/after unsuspended5-second CPU accounting put render thread near78% of
+one core and driver worker69-74%. Correction to earlier interpretation: high
+worker CPU does NOT establish equivalent useful submission work. Its sampled
+hot region contains a bounded polling loop with PAUSE, counter increment and
+back edge. Region share fell17.6% to8.2% when sampling order changed, so polling
+exists but exact share is unreliable and potentially profiler-influenced.
+The third thread landed in ntdll88-89% of samples; WOW64 transition return IPs
+are present and cannot be labeled a particular wait without stack/API evidence.
+
+This establishes mixed engine/proxy/native execution, not a single removable
+hotspot. Exact installed-build PDB was not found among archived candidates;
+do not resolve this DLL against the newer build-folder PDB. Next: preserve an
+exact DLL/PDB pair and add default-off CPU-vs-wall scopes across engine rendering
+and the proxy stage boundaries, then use unsuspended measurements in the same
+pub view. Full executing stacks remain unavailable. No driver setting change,
+AER experiment or performance improvement is claimed. Real-runtime validation
+remains necessary before promoting any optimization.
+
+API reference: https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-wow64getthreadcontext
+
+## Ticket cleanup (2026-09-15)
+
+Posted the approved previous findings to VR-125. Verified merged PR64 and moved
+VR-118/119/120 to Done. Completed profiling VR-121/123/124 moved to In Review;
+this is measurement review, not a claim their branches merged. Parked unresolved
+VR-115/95/109/50 moved to Backlog. PR56 explicitly retained the remaining
+VR-50/109 scope, so they were not closed. No ticket or branch deleted.
+Re-query confirmed only VR-125 and the other collaborator's VR-122 In Progress.
+Continue this investigation under VR-125 rather than multiplying experiments
+into new tickets. No merge authorized or performed.

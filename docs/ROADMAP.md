@@ -5,6 +5,8 @@
 - [x] Reuse tested sampler at hook and native D3D9 call boundaries.
 - [x] Capture hub draw/state-call attribution: 34 windows; visual validation passed.
 - [x] Measure existing resource/state hooks: low sampled lock/upload cost.
+- [x] Attribute busy threads and collect bounded pub-view instruction samples (VR-125).
+- [ ] Separate engine/proxy active CPU from waits with scoped CPU-vs-wall measurements.
 - [ ] Correlate whole-scene GPU execution and engine rendering time before optimization.
 
 
