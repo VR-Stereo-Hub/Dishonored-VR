@@ -6690,3 +6690,29 @@ precise visibility/occlusion/mesh-gather split remains unclassified. Do not
 label every sample as occlusion cost or use the low query-read result to
 exclude this surrounding work. No hook or bypass is added to that child.
 Measurement results and subsequent decisions belong in PERFORMANCE.md.
+
+## Frustum-culling and reflection selector, 2026-09-15
+
+The dominant InitViews child VA00864AD0 references the executable's own
+ProcessViewFrustumCulling label at VA0107EAC4 and ParsingOctree at VA0107EAE0.
+At VA00864CCA it reads its sole stack argument (renderer), then the pointer at
+renderer+0x60. The dword at that pointer+0x48 selects a nonzero branch labelled
+ProcessPrimitiveCullingReflectionScene versus a zero branch labelled
+ProcessPrimitiveCulling. These are exact engine branch names, not inferred
+from runtime addresses or class names. The reflection path filters primitive
+flags before invoking the culling helpers; ordinary path processes its lists
+without that reflection filter. This does not prove which visible reflection
+surface owns any invocation, or that its visibility data can be reused.
+
+ABI is cdecl, one renderer argument on the stack; plain ret at VA00865012 and
+caller cleanup at VA008671D9. Its stack-realignment prefix matches InitViews:
+16 verified bytes, first6 relocated, resume before alignment. Both addresses,
+signatures and the two selector offsets are in patterns.h.
+
+The diagnostic reads this selector from the borrowed live call argument, with
+null/access-exception classification as unknown. It retains only scalar class,
+ordinal and timings after return. It rechecks the selector at nested culling
+entry and reports changes. A stack-local invocation retains the receiver only
+for the duration of the original call to match its child, then is discarded.
+No UObject write, delayed dereference, COM reference or menu-retained identity
+is introduced. Nested timing is a subset of InitViews time, never additive.

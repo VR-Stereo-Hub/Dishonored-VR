@@ -13,6 +13,142 @@ Old performance paths are redirect stubs. Historical source reports are retained
 below with explicit provenance, so failed experiments and corrections survive.
 The current verdicts below override every older plan or pending-test instruction.
 
+## Current result: reflection identified, ordinary culling dominates, 2026-09-15
+
+Completed the next test autonomously under the user's explicit authorization.
+Build349 classified the additional left-interval InitViews as the engine's
+reflection branch. It costs only0.199ms per equivalent tagged pair. Ordinary
+left/right preparation costs1.322ms, of which1.082ms is frustum culling. The
+extra reflection invocation is not the large repeated preparation cost.
+No engine behavior changed, and no culling result was reused or skipped.
+Game exited; exact307 baseline restored. No user headset test is pending.
+
+### Identity and method
+
+Candidate: build/playtest-candidates/vr125-culling-classification.
+Build `vr33-hands-working-349-g227da088c-dirty`; DLL SHA256
+`37381a10e8d409d4014df0114f3753389a85e111f0014c92d9f3565d5f683b12`.
+INI SHA256 `cda8d714639d5f43b68d16e26e50d5806a82d65643a13c3ff119cb21accd8032`.
+Verified banner/hash before analysis. Simulator120Hz, existing Hound Pits pub
+save, fixed yaw90, actual2750x2850 source images. No save, HUD, orientation or
+synchronization edits. Engine selector was re-read at culling entry and never
+changed from InitViews entry in selected windows.
+
+All four phase marks were acknowledged. Selected complete windows only, as
+in the preceding test.13 scope windows total39.056s:8,179 InitViews calls and
+4152.868ms inclusive wall time (10.633% elapsed).2,708 left/2,707 right/40
+unknown intervals. Unknown intervals contain80 calls and34.851ms, excluded
+from the tagged estimate. Every InitViews invocation had one matched culling
+call. No unknown classification, table overflow, foreign calls, unmatched child,
+nested InitViews, ordinal clamp or changed selector. Wall time includes waits.
+
+| Class and interval | Ordinal | Calls | InitViews total ms | Nested culling ms |
+|---|---:|---:|---:|---:|
+|Reflection, left|1|2,684|540.043|378.403|
+|Ordinary, left after reflection|2|2,684|1808.822|1486.497|
+|Ordinary, left without preceding reflection|1|24|16.268|13.285|
+|Ordinary, right|1|2,707|1752.884|1429.158|
+
+Dividing tagged totals by2707.5 equivalent pairs (mean L/R interval count):
+
+| Class | InitViews ms/pair | Nested culling ms/pair |
+|---|---:|---:|
+|Ordinary left + right|1.322|1.082|
+|Reflection|0.199|0.140|
+|Total|1.521|1.222|
+
+Culling is a subset of InitViews: do not add the two columns. Reflection ran
+before ordinary left preparation in2,684 of2,708 tagged left intervals, and
+never in a tagged right interval. This confirms the reflection-branch prediction,
+but does not identify the exact reflected surface. Ordinary preparation runs
+once per tagged eye, and its culling is about82% of its InitViews wall time.
+This does not establish safe eye-independent reuse or duplicated simulation.
+
+### Off/on/off control and limits
+
+| Phase | Complete perf windows | Mean ticks/s | SRT/present range |
+|---|---:|---:|---:|
+|Off before|15|67.627|77.5-81.6|
+|On|13|69.046|74.4-75.5|
+|Off after|10|68.160|80.1-81.5|
+
+No observed throughput collapse under instrumentation, but the on phase has a
+lower render workload by SRT count. Consequently these phases cannot bound a
+small instrumentation penalty or support the on-phase rate as a gain. The
+classification and nested timing remain measured; this is not an optimization
+result. No additional launch is needed solely to repeat this overhead control.
+The1.521ms total is close to prior347's1.523ms in a separate run, not proof of
+identical workload. Simulator numbers are not headset performance/comfort.
+
+### Next engineering decision
+
+Deprioritize removing/reusing the extra reflection preparation: its measured
+whole InitViews cost is only0.199ms/pair in this view, and it is real separate
+reflection work. Focus any preparation optimization on ordinary per-eye frustum
+culling. Use existing CPU stacks and the now-labelled ParsingOctree / ordinary
+ProcessPrimitiveCulling paths to separate candidate gathering from per-view
+primitive tests before implementing reuse. A shared conservative candidate
+list would need proof that it includes both eyes and all dynamic changes;
+copying visibility results or skipping the right eye is not justified. The
+larger draw-submission stages remain alternative targets. Query-helper and
+unchanged shadow/desktop tests remain eliminated; no HUD work.
+
+### Validation and restoration
+
+Standalone tests, Release build, exports, INI consistency and lint passed.
+After a gradual15-degree head turn, two projection views and nonblack eyes
+remained. Final simulator state23,479 frames,0 errors/discarded/out-of-order
+ends. Game closed with console quit. No headset acceptance inferred.
+
+Artifacts: build/performance-results/vr125-culling-classification/sim-20260915-183218
+contains both game logs, INI/installation identity, reproducible analysis.py and
+analysis.json, pub/after-turn captures, final simulator state. Raw data ignored.
+Initial install archived307 plus both logs under
+build/playtest-candidates/installs/20260915-183217-687163.
+After testing, full INI byte-equal to the pre-launch349 INI, including empty
+XrRuntimeJson. Restore archive:
+build/playtest-candidates/installs/20260915-183805-018147.
+Complete restore diff removes ScenePrepareProfile=1 and returns NativeProfile,
+BridgeGpu,GpuQueries,FrameId from0 to1, exactly restoring307. Installed hashes
+and CRLF verified. Candidate349 remains recoverable. No merge or publication.
+
+## Tested plan: classify and time frustum culling, 2026-09-15
+
+User authorized the next test autonomously. Existing installed307 verified
+before changes. The executable identifies the sampled InitViews child as
+ProcessViewFrustumCulling, containing ParsingOctree and distinct reflection/
+ordinary primitive-culling branches. ENGINE_NOTES records the exact selector,
+ABI and signature derivation. No scene or culling work is bypassed.
+
+Extended the existing default-off ScenePrepareProfile with per-interval call
+ordinal and the engine reflection-branch selector. A second byte-verified
+hook measures culling nested inside each InitViews invocation. It reports
+missing/unmatched/foreign calls, unknown classification, selector changes,
+nested InitViews and ordinal overflow. Neither hook measures unless both
+installed; partial failure remains pass-through and live ON refuses. No new
+INI lever. All copied identity is scalar; renderer pointers live only on the
+active call stack and are never reused after return. Orientation, fences and
+HUD unchanged. No guessed render flag or native result is written.
+
+One launch question: is the extra left-interval preparation the reflection
+branch, and how much culling time belongs to that branch versus ordinary
+views? Prediction: one reflection InitViews in the left interval, followed
+by ordinary left preparation; ordinary right preparation once. If classification
+shows otherwise, reject the reflection explanation and retain ordinal/context
+as unresolved. If reflection is small, target ordinary view culling instead.
+No automatic skip/reuse follows merely from repeated calls.
+
+Run same fixed pub view at2750x2850/simulator120Hz with off/on/off controls,
+then inspect the image/runtime counters and quit. Simulator results do not
+establish headset comfort or performance. Restore exact307 after archiving
+both logs and full INI comparison. No user headset task is pending.
+
+Standalone x86 tests pass both aligned ABIs, exact receiver/result forwarding,
+two-hook refusal, ordinary/reflection/unknown classification, nested timing,
+selector mismatch detection, ordinal reset/clamp, foreign and unmatched child
+accounting,10,000 calls, live toggles and removal. Release build, nine exports,
+INI consistency and lint pass. Candidate/result identity follows after testing.
+
 ## Current result: autonomous InitViews test complete, 2026-09-15
 
 The user explicitly authorized performing this test autonomously, superseding

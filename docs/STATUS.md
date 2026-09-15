@@ -1,18 +1,19 @@
-## Current performance session: InitViews measured, 2026-09-15
+## Current performance session: ordinary frustum culling measured, 2026-09-15
 
-Continue on `codex/performance-research`, active ticket VR-125. User authorized
-an autonomous test; build347 simulator off/on/off is complete and game closed.
-Exact installed307 baseline restored; installed.json remains installation truth.
-[PERFORMANCE.md](dishonored/PERFORMANCE.md) contains all measurements, limits, artifacts and restore.
-InitViews cost1.523ms per equivalent tagged pair,10.458% elapsed in the fixed
-pub view. Calls average1.993 per left interval and1.000 per right. No obvious
-probe overhead:67.54/68.59/67.85 logged ticks/s off/on/off. No headset claim.
-Next: classify the extra left-interval invocation and the sampled dominant
-InitViews child before attempting reuse. Additional view/capture work remains
-possible; duplicated AI and safe reuse are not established. No unchanged
-query-helper repeat, HUD work, fence/orientation change, subagents or merge.
-No pending headset test for this diagnostic. The user authorized this automated
-test specifically; do not infer unlimited launch permission from its completion.
+Continue on `codex/performance-research`, active ticket VR-125. Next autonomous
+test completed with build349; game closed and exact307 baseline restored.
+[PERFORMANCE.md](dishonored/PERFORMANCE.md) contains all findings, limits, identities and artifacts.
+Extra left-interval InitViews is reflection preparation, only0.199ms/pair.
+Ordinary left/right preparation costs1.322ms/pair, including1.082ms frustum
+culling. All selected InitViews calls have one matched culling call; no unknown
+classification/overflow/selector changes. Reflection work is deprioritized.
+Next: separate octree candidate gathering from per-view primitive tests using
+existing CPU stacks/offline code before considering conservative shared candidates.
+No visibility-result copying or eye skipping justified; no duplicated AI claim.
+Off/on/off69-ish simulator rate is not a gain: on-phase SRT workload was lower.
+No headset task pending. HUD, orientation and fences unchanged; no subagents,
+merge or branch deletion. User authorized this next autonomous test. See the
+current conversation for further launch authority; do not infer a blanket policy.
 Publication remains local under the prior GitHub/Linear approval block.
 
 ## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), headset run 1 good, PR #64 open - 2026-09-15

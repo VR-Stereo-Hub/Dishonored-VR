@@ -298,3 +298,11 @@ static const float    kHudTailFractionSeen = 0.92f;
 // First six whole non-relative bytes are sufficient for the trampoline.
 static constexpr uintptr_t kSceneInitViews = 0x008662A0;
 static const uint8_t kSceneInitViewsPrefix[] = {0x53,0x8B,0xDC,0x83,0xEC,0x08,0x83,0xE4,0xF0,0x83,0xC4,0x04,0x55,0x8B,0x6B,0x04};
+
+// ProcessViewFrustumCulling: cdecl one renderer argument, caller cleans stack.
+static constexpr uintptr_t kSceneFrustumCull = 0x00864AD0;
+static const uint8_t kSceneFrustumCullPrefix[] = {0x53,0x8B,0xDC,0x83,0xEC,0x08,0x83,0xE4,0xF0,0x83,0xC4,0x04,0x55,0x8B,0x6B,0x04};
+// Exact reflection-culling selector at VA00864CCA..00864CE4.
+// Read only during the borrowed renderer invocation; no retained identity.
+static constexpr size_t kSceneRendererFamilyPointer = 0x60;
+static constexpr size_t kSceneFamilyReflectionBranch = 0x48;
