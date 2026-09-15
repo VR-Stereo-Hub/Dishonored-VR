@@ -112,3 +112,31 @@ A menu/load aborts the comparison. Read matching log for three valid phases.
 No main merge authorization. This experiment's Linear updates and draft GitHub
 publication are explicitly authorized.
 
+
+## First diagnostic hub run: normal behavior, incomplete comparison
+
+Verified295-gdb73d0a49 /21:26:07 against installed DLL and log. Archived both logs
+and INI at build/performance-results/diagnostic-hub-20260914-213154. Normal
+world/weapon behavior reported, runtime120Hz.
+
+| Phase | n | Fresh pairs/s | Mean ms | p50 ms | p95 ms | p99 ms | Max ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Baseline |1946|64.90|15.408|15.213|18.845|26.057|44.507|
+| Reduced |1992|66.44|15.052|15.069|17.807|25.049|40.967|
+
+Both completed phases valid, no overflow. Reduction is about2.37% throughput
+versus the first baseline, with smaller p95/p99, but no causal gain is established.
+The pause menu opened at10176734. Final baseline started10143796 and needed to
+reach10176796: abort62ms before completion. No final baseline distribution was
+emitted. Coarser late tick windows also vary substantially, so do not substitute
+them for the missing matched distribution. The run correctly restored normal
+collection on menu loss; the comparison is invalid as a complete A/B/A.
+
+Repeat on the same installed build, no code/INI changes needed. Load hub, wait
+until gameplay is controllable and both weapons are visible, then hold the same
+busy view for150 seconds without menus/combat/walking. Only after that interval
+turn the head and move the hands. One question: did world and both weapons remain
+normal throughout? This adds margin beyond the109-second internal schedule;
+the earlier two-minute instruction did not allow enough margin after loading.
+No diagnostic defaults promoted, no merge authorized.
+
