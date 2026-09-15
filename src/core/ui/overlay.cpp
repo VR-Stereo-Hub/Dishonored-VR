@@ -764,6 +764,12 @@ static void OverlayFrame()
         bool bridgeProfile=dvr::bridge_profile::enabled();
         if(ImGui::Checkbox("Bridge GPU timing (diagnostic)",&bridgeProfile))
             dvr::bridge_profile::set_enabled(bridgeProfile);
+        bool diagnosticAb=dvr::diag_ab::enabled();
+        if(ImGui::Checkbox("Diagnostic overhead A/B/A (about 110s)",&diagnosticAb)) {
+            if(diagnosticAb) dvr::perf::ab_command("off");
+            dvr::diag_ab::set_enabled(diagnosticAb);
+        }
+        ImGui::TextDisabled("Collection: %s",dvr::diag_ab::reduced()?"reduced for test":"normal");
         const dvr::perf::Window pw = dvr::perf::last_window();
         ImGui::Text("tick %.1f ms (%.1f/s) = in %.1f + out %.1f (idle %.1f R %.1f) | capture %.1f [lock %.1f] wait %.1f%s",
                     pw.tickMs, pw.ticksPerS, pw.inMs, pw.outMs, pw.idleMs, pw.rMs, pw.captureMs, pw.lockMs,

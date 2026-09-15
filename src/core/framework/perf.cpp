@@ -1,6 +1,7 @@
 // core/framework/perf.cpp - see perf.h.
 #define DVR_CAT ::dvr::log::Cat::perf
 #include "core/framework/perf.h"
+#include "core/framework/diagnostic_ab.h"
 
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
@@ -719,6 +720,7 @@ void mark(const char* text, const char* origin) {
 void set_context_provider(ContextProvider fn) { g_context = fn; }
 
 void note(Flag f) {
+    dvr::diag_ab::invalidate();
     if (f == kFlagReset) g_flagReset = true;
     else if (f == kFlagLevelLoad) g_flagLoad = true;
 }
@@ -749,6 +751,7 @@ void gpu_mark(GpuPoint p) {
 }
 
 void on_reset() {
+    dvr::diag_ab::invalidate();
     gpu_release();
     g_lastPresentTs = 0;
     g_flagReset = true;

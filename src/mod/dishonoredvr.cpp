@@ -37,6 +37,7 @@
 #include "core/framework/native_profile.h"
 #include "core/framework/query_wait_profile.h"
 #include "core/framework/bridge_profile.h"
+#include "core/framework/diagnostic_ab.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/vr/pose_record.h"

@@ -35,6 +35,11 @@ Canonical findings and next steps: [PERFORMANCE.md](dishonored/PERFORMANCE.md).
 - [x] VR-121 CPU profile ranks reflection as low priority; independent branch retained.
 - [x] VR-123 bounded asynchronous bridge GPU profiler and host validation.
 - [x] VR-123 hub workload: conversion/copy GPU cost small; prioritize broader CPU/driver attribution.
+## Diagnostic overhead (VR-124)
+
+- [x] Audit collector dependencies and implement reversible baseline/reduced/baseline.
+- [x] Host validation of pair identity, sample boundaries and restoration.
+- [x] Hub A/B/A complete: no compelling throughput/tail benefit; retain defaults.
 
 
 ## World head-motion stability (2026-09-14)

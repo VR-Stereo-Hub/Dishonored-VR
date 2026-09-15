@@ -910,3 +910,12 @@ conversion and XR eye copies, not around CPU wait or compositor intervals.
 Random stage selection avoids eye-stride alias and permits at most one bracket
 per native Present. No new flush, ownership change or engine-memory writer.
 See dishonored/BRIDGE_GPU_PROFILE.md for the result population and limitations.
+
+### 2026-09-14: mask collection without changing settings (VR-124)
+
+A read-only diagnostic group is measured with an opt-in baseline/reduced/baseline
+mask. The original INI and F10 values never change, so saving during the reduced
+phase cannot accidentally promote diagnostic changes. Exclude collectors with
+functional initialization or mesh recovery dependencies. Fresh-pair identity
+uses capture serials at successful XR submission, independently of FrameId
+thumbnails. See dishonored/DIAGNOSTIC_OVERHEAD_AB.md for exact limits.

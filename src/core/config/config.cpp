@@ -187,6 +187,8 @@ static void WriteDefaultIni(const char* ini)
         "QueryWaitProfile=0\n"
         "; Optional asynchronous D3D11 conversion/copy timing; F10 Display live toggle.\n"
         "BridgeGpu=0\n"
+        "; Opt-in diagnostic overhead comparison, baseline/reduced/baseline.\n"
+        "DiagnosticAb=0\n"
         "ForceNoVSync=1\n"
         "FrameId=1\n"
         "FrameIdEvery=8\n"
@@ -1418,10 +1420,12 @@ static void LoadConfig()
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
-        dvr::perf::ab_set_enabled(GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        const bool diagnosticAb=GetPrivateProfileIntA("Perf","DiagnosticAb",0,ini)!=0;
+        dvr::perf::ab_set_enabled(!diagnosticAb && GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        dvr::diag_ab::set_enabled(diagnosticAb);
         const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
         dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
-        dvr::perf::desktop_ab_set_enabled(desktopTrial == 1 || desktopTrial == 2);
+        dvr::perf::desktop_ab_set_enabled(!diagnosticAb && (desktopTrial == 1 || desktopTrial == 2));
         dvr::render_profile::set_enabled(GetPrivateProfileIntA("Perf", "RenderProfile", 0, ini) != 0);
         // VR-68: which head generation the HAND normalisation uses. 0 = the
         // freshest (historical); 2 = the one the rendered view was built from,

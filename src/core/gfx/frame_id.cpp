@@ -1,6 +1,7 @@
 // core/gfx/frame_id.cpp - see frame_id.h.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/frame_id.h"
+#include "core/framework/diagnostic_ab.h"
 
 #include "core/framework/status.h"
 #include "core/gfx/blit_quad.h"
@@ -43,6 +44,7 @@ struct Record {
 };
 Record   g_rec[kRecords];
 bool     g_enabled = true;
+bool collecting() { return g_enabled && !dvr::diag_ab::reduced(); }
 // 41.1 (session 9, headset run 07): sampled, not per present. The backbuffer
 // stage's GetRenderTargetData is a pipeline sync on the user's GPU: read every
 // present it cost 1.5 ms of GPU idle per present and the tick went 13.9 ->
@@ -300,7 +302,7 @@ void read11(ID3D11DeviceContext* ctx, Stage st, uint32_t serial) {
 }
 
 void draw11(ID3D11Device* dev, ID3D11DeviceContext* ctx, Stage st, ID3D11ShaderResourceView* src) {
-    if (!g_enabled || !dev || !ctx || !src || !ensure11(dev, st)) return;
+    if (!collecting() || !dev || !ctx || !src || !ensure11(dev, st)) return;
     const int s = st == kSlot ? 0 : 1;
     read11(ctx, st, g_curSerial);   // the reads three deliveries back, sampled or not
     if (!g_curValid) return;
@@ -472,7 +474,7 @@ void note_c5(const float c5[3], bool ok, const float right[3], bool rightOk) {
 }
 
 void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t serial, int tag) {
-    if (!g_enabled) return;
+    if (!collecting()) return;
     if (tag < 0) {
         if (g_countdown == 0) { g_sampleSerial = serial; g_sampleValid = true; g_countdown = g_every > 1 ? g_every : 1; }
         --g_countdown;
@@ -508,7 +510,7 @@ void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t ser
 }
 
 void note_delivery(uint32_t serial, int tag, int slot, const char* modeName) {
-    g_curSerial = serial; g_curValid = g_enabled && sampled(serial); g_curTag = tag;
+    g_curSerial = serial; g_curValid = collecting() && sampled(serial); g_curTag = tag;
     if (modeName) { strncpy(g_modeName, modeName, sizeof(g_modeName) - 1); g_modeName[sizeof(g_modeName) - 1] = 0; }
     if (Record* r = rec_get(serial)) { r->slot = slot; if (r->tag == 0) r->tag = tag; }
     if (slot >= 0 && slot == g_lastSlot) ++g_slotRepeats;
@@ -519,7 +521,7 @@ void stage_slot(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourc
 void stage_out(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* outSrv) { draw11(dev, ctx, kOut, outSrv); }
 
 void stage_swapchain(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* image, int target, uint32_t index) {
-    if (!g_enabled || !dev || !ctx || !image || g_dead11[kSc]) return;
+    if (!collecting() || !dev || !ctx || !image || g_dead11[kSc]) return;
     if (g_dev11 != dev) { release11(); g_dev11 = dev; }
     D3D11_TEXTURE2D_DESC id; image->GetDesc(&id);
     if (id.Width < kThumb || id.Height < kThumb) return;
@@ -551,7 +553,7 @@ void begin_present() {
     // note_delivery says so. The judgement runs every present (a sampled
     // pair's reads land three deliveries after it).
     g_curValid = false;
-    if (!g_enabled) return;
+    if (!collecting()) return;
     // Judge every serial old enough for all four reads to have been attempted
     // (the sc read for serial e happens at delivered serial e + kReadBack).
     // Sampled: the reads of a pair land at the sibling's delivery and the two
