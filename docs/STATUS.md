@@ -1,3 +1,11 @@
+## New investigation: VR-125 resolution floor
+
+Branch codex/vr-125-resolution-floor, installed renderer unchanged at original
+2750x2850. Plan: docs/dishonored/RESOLUTION_FLOOR.md. Use system CPU stacks,
+scheduling/waits and GPU correlation rather than further small API probes.
+Recorder elevation requested after non-admin profiling-policy refusal. Verify
+recording status before test; stop/save on the next user report. No merge.
+
 ## Resolution trial concluded; original setting restored
 
 Verified build298-g3d80740a9 and actual CreateDevice3850x3990. High-resolution
