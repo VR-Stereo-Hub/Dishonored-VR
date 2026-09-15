@@ -123,3 +123,13 @@ VR.ReduceDesktopPresent=0 and VR.DesktopMirrorOff=0. Current PR63 HUD keys are
 retained but inert in this main-based build. No game launched. Next log must
 match276-g48a632e48 /19:23:53 before interpreting the trial. Build numbers
 reflect branch ancestry;276 here does not mean the old rejected hand candidate.
+
+## Publication pending explicit approval
+
+The installed trial and local commits are complete. Automatic approval review
+rejected the feature-branch push, including after origin was verified as the
+public VR-Stereo-Hub/Dishonored-VR repository, because it requires explicit
+user authorization for this exact source/documentation export. No push or new
+PR occurred. The prepared PR body is local at build/performance-rollout-pr.md.
+VR-115 was updated successfully and remains In Progress. Ask permission to
+publish this branch and open its draft PR; do not bypass the review rejection.
