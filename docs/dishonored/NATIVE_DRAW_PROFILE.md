@@ -216,3 +216,25 @@ requires two rendered views per completed pair; savings depend on avoided
 simulation/render work and scheduling, not the AER name or a presents/s counter.
 No AER implementation or installation authorized by this test configuration.
 
+## Current test: high-resolution hub trial
+
+Quarter-pixel run verified against DLL/banner298-g3d80740a9 and actual
+CreateDevice1375x1425. Reported image quality substantially reduced without
+noticeable lag relief. Last20 full gameplay timing windows after settling:
+original2750x2850 mean logged tick16.01ms /62.165 ticks/s; quarter-pixel15.02ms /
+66.125 ticks/s. Roughly6.4% throughput gain for75% fewer pixels. These are means
+of3-second diagnostic windows across separate runs, not a controlled ABA or
+fresh-pair distribution; no exact tail comparison or CPU saturation claim.
+Evidence: build/performance-results/quarter-pixel-20260914-221912, both logs
+archived. Strong resolution insensitivity lowers priority of upscaling as the
+primary lag fix; engine, driver submission, geometry and synchronization remain.
+
+Installed same DLL with3850x3990,1.4x original dimensions /1.96x original pixels.
+Only Screen.RenderWidth/Height changed; full INI diff verified and CRLF retained.
+Backup: build/playtest-candidates/installs/20260914-222004-638846.
+This supersedes the previous instruction to restore original resolution now,
+following the request to test higher image quality. Original remains2750x2850.
+Next: same hub120Hz, same view60 seconds, then brief head movement. Question:
+is lag noticeably worse than at the original resolution? Similar lag supports
+keeping extra clarity provisionally, subject to actual dimensions and log timing;
+worse lag means exceeding useful headroom. No new default or merge. Game not launched.
