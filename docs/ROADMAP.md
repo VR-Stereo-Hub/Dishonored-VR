@@ -1,3 +1,10 @@
+## Performance research consolidation (2026-09-15)
+
+- [x] Combine active performance experiment branches into `codex/performance-research`, preserving source branches.
+- [x] Build and validate integrated diagnostics; retain installed307 baseline.
+- [x] Record next-session plan in [PERFORMANCE.md](dishonored/PERFORMANCE.md).
+- [ ] Attribute repeated per-eye scene preparation/draw work and prepare one targeted test.
+
 # Roadmap
 
 ## Native draw profiling (VR-121 continuation)

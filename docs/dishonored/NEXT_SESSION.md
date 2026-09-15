@@ -1,11 +1,17 @@
-## Current performance work (VR-125)
+## Current performance session: consolidated branch, 2026-09-15
 
-[PERFORMANCE.md](PERFORMANCE.md) is the single research and experiment record.
-316 headset result: query helper costs0.102ms/pair, not a major hub bottleneck.
-Phase helper expired before launch; continuous profiling was usable, no A/B claim.
-Restored307 baseline. Next inspect existing CPU evidence for duplicated scene
-preparation/draw work. Details in PERFORMANCE.md. No merge approval.
-All performance findings, provenance and future plans belong in that document.
+Continue on `codex/performance-research`, active ticket VR-125. The performance
+branches are integrated and preserved; no VR-Main merge authorized.
+[PERFORMANCE.md](PERFORMANCE.md) contains the branch inventory, current verdicts,
+artifact locations, rollback identity and numbered next-test preparation plan.
+Read its current sections first, not the entire historical appendix.
+Installed build307 remains unchanged; consolidated code builds and standalone
+checks pass but has not been installed or headset-tested. Query-helper316 cost
+was0.102ms/pair, so no repeat query test. Next investigate repeated per-eye scene
+preparation/draw submission using the existing normal CPU capture, then prepare
+one targeted test. HUD excluded. Never launch the game or use subagents.
+GitHub/Linear publication remains blocked by earlier automatic approval review;
+do not claim the local branch or pending update was published.
 
 ## Completed merge and installed state: 2026-09-14
 

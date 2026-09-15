@@ -15,7 +15,7 @@ The current verdicts below override every older plan or pending-test instruction
 
 ## Current state and next decision
 
-- Active ticket VR-125, branch codex/vr-125-resolution-floor. No merge approved.
+- Active ticket VR-125, branch codex/performance-research. No merge approved.
 - Query-helper diagnostic316 measured; restored previous307 with the probe off.
   Original2750x2850/120Hz and CpuScopes=0 remain the baseline.
 - Quarter pixels improved rate about6%; almost twice the pixels worsened rate to
@@ -32,6 +32,82 @@ The current verdicts below override every older plan or pending-test instruction
   Next: inspect existing CPU samples and viewport render preparation/culling
   boundaries for duplicated per-view work. No further unchanged query test.
   Do not infer double AI updates: only viewport Draw is doubled, after world tick.
+
+## Consolidated research branch and next session, 2026-09-15
+
+Continue all performance work on `codex/performance-research`, created at user
+request. VR-125 remains the active investigation; existing experiment tickets
+remain their original provenance. No new ticket is needed for consolidation.
+All branches below are ancestors of the combined branch and remain preserved.
+
+| Source branch | Preserved tip |
+|---|---|
+|`codex/vr-113-performance-audit`|`ad3c2b168`|
+|`codex/vr-115-desktop-present`|`1d6558a32`|
+|`codex/vr-115-performance-rollout`|`39125145e`|
+|`codex/vr-121-render-thread-profile`|`d3c64c731`|
+|`codex/vr-121-native-draw-profile`|`7afcefd6f`|
+|`codex/vr-123-bridge-gpu-profile`|`71ad522f8`|
+|`codex/vr-124-diagnostic-overhead`|`dbfdffb0f`|
+|`codex/vr-125-resolution-floor`|`62738ec88`|
+|`performance-fix`|`958426910`|
+
+The desktop rollout supersedes the earlier desktop candidate with identical
+core desktop implementation/tests. Its audit retains the original VR-113 text
+plus a later status preface. Those two earlier branches were ancestry-merged
+with the current tree retained after verifying this equivalence. Other unique
+code branches were merged normally with explicit conflict resolution. Shared
+released-eye serial state is deduplicated; desktop and diagnostic benchmarks
+consume the same successful-submission identity. All experiment switches ship
+OFF; the nonblocking desktop experiment takes precedence when explicitly enabled.
+Run only one benchmark/behavior experiment at a time. Consolidation is not
+acceptance of rejected experiments or authorization to merge to VR-Main.
+
+Older branches whose names contain perf/research but whose unique changes are
+historic eye re-arming, camera/FOV or unrelated stereo strategies are not imported:
+`origin/claude/dishonored-vr-perf-9f4b10` and
+`head-tilt-fix-and-resolution-research`. Their unique code predates the accepted
+stereo/camera fixes. `performance-fix` is already inherited. No branches deleted.
+
+Research from the merged branches is already preserved in this document's
+historical appendix. Their old standalone report paths now redirect here.
+Your installed307 baseline is unchanged by consolidation; the combined DLL is
+built but NOT installed or headset-validated. Keep installed.json as installation
+truth rather than inferring installed build from the checked-out branch.
+
+### Next test preparation
+
+1. Read this current section and verdicts, then only the relevant evidence below.
+   Existing normal CPU capture: build/performance-results/vr125-light-headset.
+   Avoid heavy ETW capture: it perturbed throughput and lost gameplay GPU coverage.
+2. Inspect render-thread sampled stacks and the viewport/render-command boundary
+   to locate repeated scene preparation, visibility and native draw submission.
+   Huge exported .plain files can be single-line: parse them or read bounded slices.
+   World tick runs once; viewport Draw runs twice. Do not assume duplicated AI.
+3. Identify an expensive measured boundary and a falsifiable intervention or
+   narrow timing probe. If deriving an address, use existing RE tools and
+   ENGINE_NOTES, put verified addresses/signatures in patterns.h. Preserve HUD,
+   stereo synchronization and image-owned orientation. No guessed bypasses.
+4. Build and run appropriate standalone tests on this consolidated branch before
+   installation. Archive both game logs; install a named recoverable candidate
+   based on the currently installed INI, full diff and CRLF/hash verification.
+   All unrelated diagnostic/benchmark switches stay off. Build307 rollback is
+   build/playtest-candidates/vr125-cpu-scopes. The new probe is not yet designed.
+5. Give one question for one launch in the same populated hub view at original
+   resolution/120Hz. Define expected outcome and counterprediction. The tester
+   launches; never launch the game or simulator. Do not leave a15-minute helper
+   to expire silently: use a long configurable launch wait and separate gameplay
+   deadline, or an in-process phase controller, and verify phase marks in the log.
+6. Compare only complete matching gameplay windows. Record failures as well as
+   results here. Do not repeat the eliminated query-helper, DONOTWAIT, diagnostic
+   suppression, quarter-resolution or same shadow tests unchanged.
+
+Local validation: Release build, standalone desktop benchmark/native D3D9,
+render/native profiling, bridge policy/device lifecycle, diagnostic A/B,
+query trampoline and generated/package/golden INI checks pass. No game launched.
+Publication remains local: previous automatic approval review blocked GitHub and
+Linear payloads. Do not bypass or silently retry that block. A short proposed
+Linear update is pending explicit approval; no ticket state change is claimed.
 
 ## Query-helper headset result, 2026-09-15
 
