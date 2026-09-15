@@ -86,6 +86,12 @@ bool                g_vpKnown = false;
 DWORD               g_zEnable = D3DZB_TRUE;
 DWORD               g_zWrite = TRUE;
 DWORD               g_alphaBlend = FALSE;
+// VR-119: the blend equation as the game left it (D3D9's defaults until set),
+// so the coverage equation forced on a redirected draw can be put back exactly.
+DWORD               g_srcBlend = D3DBLEND_ONE, g_dstBlend = D3DBLEND_ZERO, g_blendOp = D3DBLENDOP_ADD;
+DWORD               g_sepAlpha = FALSE, g_srcBlendA = D3DBLEND_ONE, g_dstBlendA = D3DBLEND_ZERO,
+                    g_blendOpA = D3DBLENDOP_ADD;
+uint32_t            g_winAlphaForced = 0;   // redirected draws that ran under the forced equation
 void*               g_ps = nullptr;
 void*               g_vs = nullptr;
 void*               g_vdecl = nullptr;
@@ -779,7 +785,7 @@ struct Cluster {
     float    bb[4];           // the union of the member rectangles
     int      lastElement;
 };
-const int kClusters = 256;
+const int kClusters = 1024;
 const int kClusterQ = 40;
 Cluster  g_cluster[kClusters];
 uint32_t g_clustersUsed = 0, g_clusterOverflow = 0;
@@ -943,7 +949,10 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
             if (probe->ok) {
                 const uint8_t q[4] = { quant(probe->bbox[0]), quant(probe->bbox[1]),
                                        quant(probe->bbox[2]), quant(probe->bbox[3]) };
-                if (Cluster* c = cluster_for(short_key(r->key), q)) {
+                // A riding screen routes by its context, not by rectangle, and
+                // its text alone overflowed the table (1372 over in the pause
+                // menu): the clusters are the gameplay HUD's element census.
+                if (Cluster* c = dvr::hudlayout::menu_riding() ? nullptr : cluster_for(short_key(r->key), q)) {
                     ++c->draws;
                     if (c->lastPresent != g_presentNo) { c->lastPresent = g_presentNo; ++c->presents; }
                     c->tex0 = s.tex0;
@@ -972,6 +981,58 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
     return false;
 }
 
+// ---- VR-119: the coverage equation --------------------------------------------
+// A sink is cleared to transparent black and the game's HUD draws land on it
+// with the game's own blend state: SRCALPHA/INVSRCALPHA on colour, and
+// without separate alpha blending the SAME equation on alpha, which yields
+// srcA*srcA + dstA*(1-srcA): too transparent for every semi-transparent pixel
+// and exactly zero for a black stroke. With the alpha mode off "repair" every
+// redirected draw runs under SEPARATEALPHABLENDENABLE with ONE/INVSRCALPHA
+// (ADD) on alpha, which accumulates the "over" coverage dstA = srcA +
+// dstA*(1-srcA); the colour equation is untouched, so the colour stays
+// premultiplied. Additive colour draws (ONE/ONE) get the same alpha equation.
+// The shadowed values go back after the draw through the ORIGINAL setter (the
+// shadow must not see our own writes). Eight calls per draw, about 170 per
+// present in gameplay. State blocks would bypass this: g_stateBlocksCreated
+// reads 0 for a whole run (`draws status` prints it).
+inline bool alpha_force_wanted() { return dvr::hudlayout::alpha().mode != dvr::hudlayout::AlphaRepair; }
+
+void alpha_force_begin(IDirect3DDevice9* dev) {
+    g_origSetRs(dev, D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
+    g_origSetRs(dev, D3DRS_SRCBLENDALPHA, D3DBLEND_ONE);
+    g_origSetRs(dev, D3DRS_DESTBLENDALPHA, D3DBLEND_INVSRCALPHA);
+    g_origSetRs(dev, D3DRS_BLENDOPALPHA, D3DBLENDOP_ADD);
+    ++g_winAlphaForced;
+    DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Info,
+                 "draws/alpha: forcing the coverage equation on redirected HUD draws (separate alpha "
+                 "ONE/INVSRCALPHA add; the game's colour equation untouched) - eight SetRenderState calls "
+                 "per draw; `hud alpha mode repair` stops it");
+}
+
+void alpha_force_end(IDirect3DDevice9* dev) {
+    g_origSetRs(dev, D3DRS_SEPARATEALPHABLENDENABLE, g_sepAlpha);
+    g_origSetRs(dev, D3DRS_SRCBLENDALPHA, g_srcBlendA);
+    g_origSetRs(dev, D3DRS_DESTBLENDALPHA, g_dstBlendA);
+    g_origSetRs(dev, D3DRS_BLENDOPALPHA, g_blendOpA);
+}
+
+// The first HUD-class draw of each colour blend tuple, so the census can say
+// which equations the HUD uses (SRCALPHA/INVSRCALPHA, and whether any glow is
+// additive).
+void note_blend_tuple() {
+    static uint32_t seen[8];
+    static int n = 0;
+    const uint32_t t = (g_srcBlend & 0xff) | ((g_dstBlend & 0xff) << 8) | ((g_blendOp & 0xff) << 16) |
+                       ((g_sepAlpha ? 1u : 0u) << 24);
+    for (int i = 0; i < n; ++i) if (seen[i] == t) return;
+    if (n < 8) seen[n++] = t;
+    DVR_INFO("draws/blend: HUD-class draw with colour src=%lu dst=%lu op=%lu separateAlpha=%lu (alpha src=%lu dst=%lu) "
+             "first seen (D3DBLEND: 2 ONE 5 SRCALPHA 6 INVSRCALPHA; a black stroke under SRCALPHA/INVSRCALPHA on "
+             "alpha writes srcA*srcA, which is why 'repair' loses it)",
+             (unsigned long)g_srcBlend, (unsigned long)g_dstBlend, (unsigned long)g_blendOp, (unsigned long)g_sepAlpha,
+             (unsigned long)g_srcBlendA, (unsigned long)g_dstBlendA);
+}
+
 // ---- the hooks ------------------------------------------------------------
 // Every draw hook: note the thread, classify once, probe once (if asked),
 // record (the census), then route (the redirect) or forward.
@@ -985,8 +1046,10 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
         if (probe.ok) pbb = probe.bbox;                                                           \
     }                                                                                             \
     int sink = -1;                                                                                \
+    if (hudNow) note_blend_tuple();                                                               \
     if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element); \
-    if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;
+    if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
+    const bool forceAlpha = sink >= 0 && alpha_force_wanted();
 
 HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,
                                   UINT prims) {
@@ -995,7 +1058,9 @@ HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
         IDirect3DSurface9* gameRt = g_rt0;
         const D3DVIEWPORT9 vp = g_vp;
         if (dvr::hudcap::begin(self, vp, sink)) {
+            if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = dvr::frame::raw_draw_prim(self, type, start, prims);
+            if (forceAlpha) alpha_force_end(self);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1010,7 +1075,9 @@ HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE ty
         IDirect3DSurface9* gameRt = g_rt0;
         const D3DVIEWPORT9 vp = g_vp;
         if (dvr::hudcap::begin(self, vp, sink)) {
+            if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
+            if (forceAlpha) alpha_force_end(self);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1025,7 +1092,9 @@ HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE typ
         IDirect3DSurface9* gameRt = g_rt0;
         const D3DVIEWPORT9 vp = g_vp;
         if (dvr::hudcap::begin(self, vp, sink)) {
+            if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = g_origDpUp(self, type, prims, verts, stride);
+            if (forceAlpha) alpha_force_end(self);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1042,7 +1111,9 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
         IDirect3DSurface9* gameRt = g_rt0;
         const D3DVIEWPORT9 vp = g_vp;
         if (dvr::hudcap::begin(self, vp, sink)) {
+            if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
+            if (forceAlpha) alpha_force_end(self);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1064,6 +1135,13 @@ HRESULT __stdcall hkSetRenderState(IDirect3DDevice9* self, D3DRENDERSTATETYPE st
         if (state == D3DRS_ZENABLE) g_zEnable = value;
         else if (state == D3DRS_ZWRITEENABLE) g_zWrite = value;
         else if (state == D3DRS_ALPHABLENDENABLE) g_alphaBlend = value;
+        else if (state == D3DRS_SRCBLEND) g_srcBlend = value;              // VR-119: the blend equation
+        else if (state == D3DRS_DESTBLEND) g_dstBlend = value;
+        else if (state == D3DRS_BLENDOP) g_blendOp = value;
+        else if (state == D3DRS_SEPARATEALPHABLENDENABLE) g_sepAlpha = value;
+        else if (state == D3DRS_SRCBLENDALPHA) g_srcBlendA = value;
+        else if (state == D3DRS_DESTBLENDALPHA) g_dstBlendA = value;
+        else if (state == D3DRS_BLENDOPALPHA) g_blendOpA = value;
     }
     return g_origSetRs(self, state, value);
 }
@@ -1572,6 +1650,7 @@ void status(dvr::status::Writer& w) {
     w.kv("candBuckets", (unsigned long)g_candBuckets);
     w.kv("candPerPresent", g_candPerPresent);
     w.kv("stateBlocks", (unsigned long)g_stateBlocksCreated);
+    w.kv("alphaForced", (unsigned long)g_winAlphaForced);
     w.kv("killHud", g_killHud);
     w.kv("killKeys", (int)g_killN);
     w.kv("postRender", (unsigned long)(g_postRender ? g_postRender() : 0));

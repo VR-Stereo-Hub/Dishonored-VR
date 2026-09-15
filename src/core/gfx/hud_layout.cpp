@@ -49,9 +49,17 @@ const char* const kMenuContextNames[] = { "Pause", "Note", "Journal", "Wheel", "
 const unsigned    kMenuContextBits[]  = { 3, 4, 5, 6, 7, 8 };
 const int         kMenuContexts = 6;
 
+// VR-119: every alpha value at identity reproduces 41.2's picture exactly.
+const char* const kAlphaModeNames[3] = { "repair", "captured", "mix" };
+const AlphaCfg  kPresetAlpha = { AlphaRepair, 1.0f, 0.0f, 1.0f, 1.0f };
+const Backdrop  kPresetBackdrop = { 0.0f, 0.0f, 0.0f, 0.0f };
+const char* const kBackdropKindNames[2] = { "window", "hand" };
+
 ElementCfg g_el[ElCount];
 WindowCfg  g_win = kPresetWindow;
 HandCfg    g_hand = kPresetHand;
+AlphaCfg   g_alpha = kPresetAlpha;
+Backdrop   g_backdrop[2] = { kPresetBackdrop, kPresetBackdrop };
 bool       g_menuInWindow = true;
 uint32_t   g_menuMask = kPresetMenuMask;
 bool       g_menuRiding = false;
@@ -167,6 +175,57 @@ const ElementCfg& element(int e) { return g_el[(e >= 0 && e < ElCount) ? e : 0];
 const WindowCfg&  window() { return g_win; }
 const HandCfg&    hand() { return g_hand; }
 
+// ---- VR-119: the alpha and the backdrops ------------------------------------
+
+const char* alpha_mode_name(int m) { return kAlphaModeNames[(m >= 0 && m < 3) ? m : 0]; }
+int alpha_mode_from_name(const char* s) {
+    for (int i = 0; i < 3; ++i) if (!_stricmp(s, kAlphaModeNames[i])) return i;
+    return -1;
+}
+const AlphaCfg& alpha() { return g_alpha; }
+void set_alpha(const AlphaCfg& a, const char* who) {
+    AlphaCfg c = a;
+    if (c.mode < 0 || c.mode > 2) c.mode = AlphaRepair;
+    if (c.gain < 0.0f) c.gain = 0.0f;   if (c.gain > 4.0f) c.gain = 4.0f;
+    if (c.floorA < 0.0f) c.floorA = 0.0f; if (c.floorA > 1.0f) c.floorA = 1.0f;
+    if (c.gamma < 0.25f) c.gamma = 0.25f; if (c.gamma > 4.0f) c.gamma = 4.0f;
+    if (c.mixK < 0.0f) c.mixK = 0.0f;   if (c.mixK > 4.0f) c.mixK = 4.0f;
+    const bool changed = memcmp(&c, &g_alpha, sizeof(c)) != 0;
+    g_alpha = c;
+    if (changed)
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+                         "hud/alpha: mode %s gain %.2f floor %.2f gamma %.2f mix %.2f (%s)%s",
+                         kAlphaModeNames[c.mode], c.gain, c.floorA, c.gamma, c.mixK, who,
+                         c.mode == AlphaRepair ? "" : " - the redirect forces the coverage equation on every HUD draw");
+    write_key("AlphaMode", kAlphaModeNames[c.mode]);
+    write_f("AlphaGain", c.gain);
+    write_f("AlphaFloor", c.floorA);
+    write_f("AlphaGamma", c.gamma);
+    write_f("AlphaMix", c.mixK);
+}
+const Backdrop& backdrop(int kind) { return g_backdrop[kind ? 1 : 0]; }
+void set_backdrop(int kind, const Backdrop& b, const char* who) {
+    Backdrop c = b;
+    float* v[4] = { &c.r, &c.g, &c.b, &c.a };
+    for (float* f : v) { if (*f < 0.0f) *f = 0.0f; if (*f > 1.0f) *f = 1.0f; }
+    kind = kind ? 1 : 0;
+    const bool changed = memcmp(&c, &g_backdrop[kind], sizeof(c)) != 0;
+    g_backdrop[kind] = c;
+    if (changed)
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+                         "hud/alpha: %s backdrop %.2f %.2f %.2f alpha %.2f (%s)", kBackdropKindNames[kind],
+                         c.r, c.g, c.b, c.a, who);
+    char key[64], val[96];
+    _snprintf(key, sizeof(key), "Backdrop.%s", kBackdropKindNames[kind]); key[63] = 0;
+    _snprintf(val, sizeof(val), "%.3f,%.3f,%.3f,%.3f", c.r, c.g, c.b, c.a); val[95] = 0;
+    write_key(key, val);
+}
+void backdrop_for_sink(int sink, float rgba[4]) {
+    const int e = sink_element(sink);
+    const int kind = (e >= 0 && g_el[e].anchor == AnchorHand) ? 1 : 0;
+    rgba[0] = g_backdrop[kind].r; rgba[1] = g_backdrop[kind].g; rgba[2] = g_backdrop[kind].b; rgba[3] = g_backdrop[kind].a;
+}
+
 void set_element_anchor(int e, int anchor, const char* who) {
     if (e < 0 || e >= ElCount) return;
     if (anchor < 0 || anchor > 3) return;
@@ -281,6 +340,9 @@ void reset_presets(const char* who) {
     }
     set_window(kPresetWindow, who);
     set_hand(kPresetHand, who);
+    set_alpha(kPresetAlpha, who);
+    set_backdrop(0, kPresetBackdrop, who);
+    set_backdrop(1, kPresetBackdrop, who);
     set_menu_in_window(true, who);
     set_menu_context_mask(kPresetMenuMask, who);
     rebalance();
@@ -457,6 +519,30 @@ void configure(const char* ini) {
     { char v[16] = ""; GetPrivateProfileStringA("Hud", "HandOrient", "billboard", v, sizeof(v), ini); h.followGrip = !_stricmp(v, "grip"); }
     h.tiltDeg = read_f(ini, "HandTilt", h.tiltDeg);
     g_hand = h;
+    {   // VR-119
+        AlphaCfg a = kPresetAlpha;
+        char v[24] = "";
+        GetPrivateProfileStringA("Hud", "AlphaMode", "repair", v, sizeof(v), ini);
+        const int m = alpha_mode_from_name(v);
+        if (m >= 0) a.mode = m;
+        else DVR_WARN("hud/layout: [Hud] AlphaMode=%s is not repair|captured|mix; repair stands", v);
+        a.gain = read_f(ini, "AlphaGain", a.gain);
+        a.floorA = read_f(ini, "AlphaFloor", a.floorA);
+        a.gamma = read_f(ini, "AlphaGamma", a.gamma);
+        a.mixK = read_f(ini, "AlphaMix", a.mixK);
+        g_alpha = a;
+        for (int k = 0; k < 2; ++k) {
+            char key[64], b[96] = "";
+            _snprintf(key, sizeof(key), "Backdrop.%s", kBackdropKindNames[k]); key[63] = 0;
+            GetPrivateProfileStringA("Hud", key, "", b, sizeof(b), ini);
+            Backdrop d = kPresetBackdrop;
+            if (b[0] && sscanf(b, "%f,%f,%f,%f", &d.r, &d.g, &d.b, &d.a) != 4) {
+                DVR_WARN("hud/layout: [Hud] %s=%s is not r,g,b,a; no plate", key, b);
+                d = kPresetBackdrop;
+            }
+            g_backdrop[k] = d;
+        }
+    }
     g_menuInWindow = read_i(ini, "MenuInWindow", 1) != 0;
     uint32_t mask = 0;
     for (int i = 0; i < kMenuContexts; ++i) {
@@ -505,6 +591,9 @@ void save(const char* ini) {
     write_f("HandWidth", g_hand.widthM);
     write_key("HandOrient", g_hand.followGrip ? "grip" : "billboard");
     write_f("HandTilt", g_hand.tiltDeg);
+    set_alpha(g_alpha, "save");
+    set_backdrop(0, g_backdrop[0], "save");
+    set_backdrop(1, g_backdrop[1], "save");
     write_key("MenuInWindow", g_menuInWindow ? "1" : "0");
     set_menu_context_mask(g_menuMask, "save");
     strncpy_s(g_ini, keep, _TRUNCATE);
@@ -592,13 +681,51 @@ bool command(const char* args) {
         set_element_rect(e, r, "the seam");
         return true;
     }
+    // VR-119: hud alpha mode repair|captured|mix, hud alpha gain|floor|gamma|mix <f>,
+    // hud alpha backdrop window|hand r,g,b,a, hud alpha status
+    if (!strcmp(w1, "alpha")) {
+        if (n < 2 || !strcmp(w2, "status")) { log_alpha(); return true; }
+        AlphaCfg c = g_alpha;
+        if (!strcmp(w2, "mode") && n >= 3) {
+            const int m = alpha_mode_from_name(w3);
+            if (m < 0) { DVR_WARN("hud: alpha mode wants repair|captured|mix"); return true; }
+            c.mode = m; set_alpha(c, "the seam"); return true;
+        }
+        if (!strcmp(w2, "backdrop") && n >= 4) {
+            const int kind = !_stricmp(w3, "hand") ? 1 : !_stricmp(w3, "window") ? 0 : -1;
+            Backdrop b = {};
+            if (kind < 0 || sscanf(w4, "%f,%f,%f,%f", &b.r, &b.g, &b.b, &b.a) != 4) {
+                DVR_WARN("hud: alpha backdrop wants window|hand r,g,b,a (0..1; a=0 removes the plate)"); return true;
+            }
+            set_backdrop(kind, b, "the seam"); return true;
+        }
+        if (n < 3) { DVR_WARN("hud: alpha wants mode <m>, gain|floor|gamma|mix <f>, backdrop window|hand r,g,b,a, or status"); return true; }
+        const float v = (float)atof(w3);
+        if (!strcmp(w2, "gain")) c.gain = v;
+        else if (!strcmp(w2, "floor")) c.floorA = v;
+        else if (!strcmp(w2, "gamma")) c.gamma = v;
+        else if (!strcmp(w2, "mix")) c.mixK = v;
+        else { DVR_WARN("hud: alpha wants mode <m>, gain|floor|gamma|mix <f>, backdrop window|hand r,g,b,a, or status"); return true; }
+        set_alpha(c, "the seam");
+        return true;
+    }
     return false;
+}
+
+void log_alpha() {
+    DVR_INFO("hud/alpha: mode %s (0 repair = max(r,g,b); captured = the sink's coverage, forced per draw; mix = "
+             "max(captured, repair*mix)) gain %.2f floor %.2f gamma %.2f mix %.2f | backdrop window %.2f,%.2f,%.2f a=%.2f "
+             "hand %.2f,%.2f,%.2f a=%.2f | `hud alpha mode|gain|floor|gamma|mix|backdrop ...`",
+             kAlphaModeNames[g_alpha.mode], g_alpha.gain, g_alpha.floorA, g_alpha.gamma, g_alpha.mixK,
+             g_backdrop[0].r, g_backdrop[0].g, g_backdrop[0].b, g_backdrop[0].a,
+             g_backdrop[1].r, g_backdrop[1].g, g_backdrop[1].b, g_backdrop[1].a);
 }
 
 const char* status_line() { return g_statusLine; }
 
 void log_status() {
     DVR_INFO("hud/layout: %s", g_statusLine);
+    log_alpha();
     DVR_INFO("hud/layout: routed this window: all=%u health=%u mana=%u equipment=%u reticle=%u subtitles=%u "
              "prompt=%u objective=%u vignette=%u menu=%u | no-region->all %u, no-sink->all %u, left in frame %u "
              "(no-region reads the whole count while [Hud] Regions=0: that is by design, not a fault)",
@@ -617,6 +744,13 @@ void status(dvr::status::Writer& w) {
     w.kv("handWidth", (double)g_hand.widthM);
     w.kv("menuInWindow", g_menuInWindow);
     w.kv("menuRiding", g_menuRiding);
+    w.kv("alphaMode", kAlphaModeNames[g_alpha.mode]);
+    w.kv("alphaGain", (double)g_alpha.gain);
+    w.kv("alphaFloor", (double)g_alpha.floorA);
+    w.kv("alphaGamma", (double)g_alpha.gamma);
+    w.kv("alphaMix", (double)g_alpha.mixK);
+    w.kv("backdropWindowA", (double)g_backdrop[0].a);
+    w.kv("backdropHandA", (double)g_backdrop[1].a);
     w.kv("noRegion", (unsigned long)g_routeNoRegion);
     w.kv("noSink", (unsigned long)g_routeOverflow);
     w.obj("elements");
@@ -696,6 +830,32 @@ void draw_ui() {
         ch |= ImGui::SliderFloat("panel width (m)", &c.widthM, 0.06f, 0.40f, "%.2f");
         if (c.followGrip) ch |= ImGui::SliderFloat("tilt toward the eyes (deg)", &c.tiltDeg, -90.0f, 90.0f, "%.0f");
         if (ch) set_hand(c, "F10 HUD");
+    }
+    ImGui::Separator();
+    ImGui::Text("THE ALPHA (VR-119: how the quads' transparency is derived; repair = 41.2's max(r,g,b))");
+    {
+        AlphaCfg c = g_alpha;
+        bool ch = false;
+        int mode = c.mode;
+        ch |= ImGui::RadioButton("repair (max of r,g,b)", &mode, AlphaRepair); ImGui::SameLine();
+        ch |= ImGui::RadioButton("captured (the sink's coverage)", &mode, AlphaCaptured); ImGui::SameLine();
+        ch |= ImGui::RadioButton("mix (max of both)", &mode, AlphaMix);
+        c.mode = mode;
+        ch |= ImGui::SliderFloat("alpha gain", &c.gain, 0.0f, 3.0f, "%.2f");
+        ch |= ImGui::SliderFloat("alpha floor (pixels with any colour)", &c.floorA, 0.0f, 1.0f, "%.2f");
+        ch |= ImGui::SliderFloat("gamma nudge", &c.gamma, 0.5f, 2.0f, "%.2f");
+        if (c.mode == AlphaMix) ch |= ImGui::SliderFloat("mix: repair weight", &c.mixK, 0.0f, 2.0f, "%.2f");
+        if (ch) set_alpha(c, "F10 HUD");
+        for (int k = 0; k < 2; ++k) {
+            ImGui::PushID(100 + k);
+            Backdrop b = g_backdrop[k];
+            float col[4] = { b.r, b.g, b.b, b.a };
+            ImGui::Text("%s backdrop", kBackdropKindNames[k]); ImGui::SameLine();
+            bool bc = ImGui::ColorEdit3("colour", col, ImGuiColorEditFlags_NoInputs); ImGui::SameLine();
+            bc |= ImGui::SliderFloat("opacity (0 = no plate)", &col[3], 0.0f, 1.0f, "%.2f");
+            if (bc) { b.r = col[0]; b.g = col[1]; b.b = col[2]; b.a = col[3]; set_backdrop(k, b, "F10 HUD"); }
+            ImGui::PopID();
+        }
     }
     ImGui::Separator();
     ImGui::Text("MENUS IN THE WINDOW (the world stays in stereo behind them; the main menu keeps the screen)");

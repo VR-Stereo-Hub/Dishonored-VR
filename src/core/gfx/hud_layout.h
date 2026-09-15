@@ -64,6 +64,20 @@ struct HandCfg {
     float tiltDeg;                   // FollowGrip: nod about the panel's right axis
 };
 
+// VR-119: the HUD alpha (core/gfx/blit_quad.h explains the modes) and a
+// backdrop plate per anchor KIND: 0 = the window (view or world), 1 = a hand.
+enum AlphaMode : int { AlphaRepair = 0, AlphaCaptured = 1, AlphaMix = 2 };
+struct AlphaCfg { int mode; float gain, floorA, gamma, mixK; };
+struct Backdrop { float r, g, b, a; };
+const char* alpha_mode_name(int m);
+int  alpha_mode_from_name(const char* s);    // -1 when unknown
+const AlphaCfg& alpha();
+void set_alpha(const AlphaCfg& a, const char* who);
+const Backdrop& backdrop(int kind);
+void set_backdrop(int kind, const Backdrop& b, const char* who);
+// The plate under a sink's quad, by the anchor kind of the element it carries.
+void backdrop_for_sink(int sink, float rgba[4]);
+
 const ElementCfg& element(int e);
 const WindowCfg&  window();
 const HandCfg&    hand();
@@ -105,6 +119,7 @@ void save(const char* ini);             // OverlaySaveDefaults
 bool command(const char* args);         // the `hud` word's layout half (see commands.cpp)
 void status(dvr::status::Writer& w);
 void log_status();
+void log_alpha();                       // `hud alpha status`
 const char* status_line();              // one line: each element's anchor and why any is hidden
 void draw_ui();                         // the F10 HUD tab (ImGui; overlay draw callback only)
 

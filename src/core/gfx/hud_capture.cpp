@@ -384,7 +384,14 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             const int other = s.cur ^ 1;
             if (s.slotValid[other]) {
                 blit_wait(s, other);
-                g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, true);
+                // VR-119: the alpha mode and the legibility controls are the
+                // layout's; the backdrop plate follows the anchor this sink's
+                // element rides (the window wants one, a hand none).
+                dvr::gfx::AlphaParams ap;
+                const dvr::hudlayout::AlphaCfg& a = dvr::hudlayout::alpha();
+                ap.mode = a.mode; ap.gain = a.gain; ap.floorA = a.floorA; ap.gamma = a.gamma; ap.mixK = a.mixK;
+                dvr::hudlayout::backdrop_for_sink(i, ap.backdrop);
+                g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, &ap);
                 if (s.readFence[other]) {
                     ctx11->End(s.readFence[other]);
                     ctx11->Flush();   // an event query does not complete until the work is submitted
@@ -539,7 +546,7 @@ bool command(const char* args) {
     }
     if (!args[0] || !strcmp(args, "status")) { log_status(); return true; }
     if (dvr::hudlayout::command(args)) return true;
-    DVR_WARN("hud: unknown `hud %s` - on|off|status|scale <f>|regions on|off|anchor <element> <anchor>|window ...|hand ...|place ...|region ...|menu ...|reset|layout", args);
+    DVR_WARN("hud: unknown `hud %s` - on|off|status|scale <f>|regions on|off|anchor <element> <anchor>|window ...|hand ...|place ...|region ...|alpha ...|menu ...|reset|layout", args);
     return true;
 }
 

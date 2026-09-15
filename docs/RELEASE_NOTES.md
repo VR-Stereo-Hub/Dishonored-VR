@@ -2,6 +2,20 @@
 
 ### Added
 
+- **A real alpha for the HUD quads (VR-119).** The quads' transparency can now come
+  from the sink's own coverage instead of `max(r,g,b)`: `[Hud] AlphaMode=captured`
+  makes the redirect force the coverage blend equation on every HUD draw, so dark
+  strokes (text outlines, the bars' edges) keep their weight; `mix` takes the larger
+  of the two. Alpha gain, an alpha floor for thin strokes, a gamma nudge and a
+  backdrop plate per anchor (`Backdrop.window`, `Backdrop.hand`) are F10 sliders on
+  the HUD tab and `hud alpha ...` words. Ships at `repair` with every control at
+  identity (the 41.2 picture); `dump hud` now writes the alpha channel as a grey PNG.
+- **The HUD's element census (VR-118).** The region probe reads each HUD draw's
+  rectangle through the vertex shader's own transform (found by disassembling the
+  shader at first sight, never by a hard-coded register), and `draws regions` lists
+  the elements it sees by rectangle and frequency. `draws vsdump` writes a HUD
+  shader's disassembly under the data directory.
+
 - **The HUD on its anchors (VR-117).** The game's HUD leaves the eye textures and
   is shown on quads the headset composites: a window in front of you (head-locked,
   or parked in the room where you recentred) and the tracked hand, the return of

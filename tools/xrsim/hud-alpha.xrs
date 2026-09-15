@@ -1,0 +1,52 @@
+# hud-alpha.xrs - the HUD quad keeps its coverage in every alpha mode (VR-119).
+#
+# The blit that feeds the HUD quad derives its alpha in one of three ways
+# (repair = max(r,g,b), captured = the sink's own coverage under the forced
+# separate-alpha blend, mix = the larger). quadAlphaPct is the first quad
+# layer's share of pixels with alpha above 8/255 at the last shot: a mode that
+# produced alpha 0 everywhere FAILS the assert below, which is the point of the
+# sequence. Run in GAMEPLAY with stereo reentry armed.
+#
+#   tools\xrsim-run.ps1 -Path tools\xrsim\hud-alpha.xrs -Dir D:\dvr-data\xrsim
+reset
+@mod stereo reentry
+@frames 240
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+@mod crosshair dot off
+@frames 60
+
+# repair (41.2, the shipped default): the baseline coverage.
+@mod hud on; hud alpha mode repair
+@frames 180
+@assert quadLayers ge 1
+@shot hud_alpha_repair
+@assert quadAlphaPct ge 1
+
+# captured: the sink's alpha, accumulated by the forced equation on every
+# redirected draw. The prediction: the vitals block still covers pixels.
+@mod hud alpha mode captured
+@frames 180
+@assert quadLayers ge 1
+@shot hud_alpha_captured
+@assert quadAlphaPct ge 1
+
+# mix: never less than either.
+@mod hud alpha mode mix
+@frames 180
+@assert quadLayers ge 1
+@shot hud_alpha_mix
+@assert quadAlphaPct ge 1
+
+# The sliders and the plate move the numbers, never to zero: a floor of 0.5 and
+# a window backdrop raise the coverage; back at identity it returns.
+@mod hud alpha floor 0.5; hud alpha backdrop window 0,0,0,0.5
+@frames 120
+@shot hud_alpha_plate
+@assert quadAlphaPct ge 50
+@mod hud alpha floor 0; hud alpha backdrop window 0,0,0,0; hud alpha mode repair
+@frames 120
+@shot hud_alpha_back
+@assert quadAlphaPct ge 1
+@mod crosshair dot on
+@frames 60
