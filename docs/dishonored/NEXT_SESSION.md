@@ -1,3 +1,13 @@
+## Current state: VR-124 diagnostic overhead comparison
+
+Independent branch codex/vr-124-diagnostic-overhead from main18ae4ebda. Default-off
+A/B/A masks only ZAccount, PairTrace, FrameId collection and AttachCensus during
+the middle phase; saved settings and functional rendering/tracking unchanged.
+33 production host checks and release build pass. Next: install with only the
+DiagnosticAb arm flag changed, then two-minute fixed-view hub test. Details in
+DIAGNOSTIC_OVERHEAD_AB.md. Earlier performance branches retained. Publication of
+this ticket, build/test results and draft PR is explicitly authorized; no merge.
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.

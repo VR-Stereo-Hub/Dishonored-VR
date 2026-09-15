@@ -382,7 +382,7 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
                          UINT primCount, const char* nearest, float angle,
                          float position, bool corrected)
 {
-    if (!g_waCensusOn || !dev) return;
+    if (!g_waCensusOn || !dev || dvr::diag_ab::reduced()) return;
     IDirect3DVertexBuffer9* vbo = NULL; UINT off = 0, stride = 0;
     if (FAILED(dev->GetStreamSource(0, &vbo, &off, &stride)) || !vbo) return;
     void* vb = vbo; vbo->Release();

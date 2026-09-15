@@ -1,5 +1,6 @@
 // game/dishonored/z_account.cpp - see z_account.h.
 #include "game/dishonored/z_account.h"
+#include "core/framework/diagnostic_ab.h"
 
 #include <windows.h>
 #include <math.h>
@@ -725,7 +726,7 @@ void set_enabled(bool on, const char* source) {
     }
 }
 
-bool enabled() { return InterlockedCompareExchange(&g_on, 0, 0) != 0; }
+bool enabled() { return InterlockedCompareExchange(&g_on, 0, 0) != 0 && !dvr::diag_ab::reduced(); }
 
 // ---- VR-80 pair trace lever ------------------------------------------------------
 void set_trace(bool on, const char* source) {
@@ -742,7 +743,7 @@ void set_trace(bool on, const char* source) {
         ZA_INFO("vr80/trace: off (%s), %u dump(s) printed", source ? source : "?", g_trDumps);
     }
 }
-bool trace_enabled() { return InterlockedCompareExchange(&g_trOn, 0, 0) != 0; }
+bool trace_enabled() { return InterlockedCompareExchange(&g_trOn, 0, 0) != 0 && !dvr::diag_ab::reduced(); }
 bool capturing() { return enabled() || trace_enabled(); }
 void trace_arm(const char* why) {
     if (!trace_enabled()) return;

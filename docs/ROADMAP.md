@@ -1,5 +1,12 @@
 # Roadmap
 
+## Diagnostic overhead (VR-124)
+
+- [x] Audit collector dependencies and implement reversible baseline/reduced/baseline.
+- [x] Host validation of pair identity, sample boundaries and restoration.
+- [ ] Hub headset run and benefit-versus-baseline-spread decision.
+
+
 ## World head-motion stability (2026-09-14)
 
 - [x] VR-116 image-linked world orientation confirmed and reconfirmed at 120 Hz.

@@ -1,3 +1,13 @@
+## Current state: VR-124 diagnostic overhead comparison
+
+Independent branch codex/vr-124-diagnostic-overhead from main18ae4ebda. Default-off
+A/B/A masks only ZAccount, PairTrace, FrameId collection and AttachCensus during
+the middle phase; saved settings and functional rendering/tracking unchanged.
+33 production host checks and release build pass. Next: install with only the
+DiagnosticAb arm flag changed, then two-minute fixed-view hub test. Details in
+DIAGNOSTIC_OVERHEAD_AB.md. Earlier performance branches retained. Publication of
+this ticket, build/test results and draft PR is explicitly authorized; no merge.
+
 ## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), headset run 1 good, PR #64 open - 2026-09-15
 
 Branch `claude/vr-120-hud-elements` off `claude/vr-117-hud-redo` (PR #63, still NOT

@@ -873,3 +873,13 @@ blend flag: `captured` forces the coverage equation on every redirected draw
 `repair` lost black strokes) and ships OFF behind `repair` until the headset
 judges. See dishonored/HUD_ANCHORS.md and ENGINE_NOTES, "How the Scaleform
 HUD identifies its elements".
+
+
+### 2026-09-14: mask collection without changing settings (VR-124)
+
+A read-only diagnostic group is measured with an opt-in baseline/reduced/baseline
+mask. The original INI and F10 values never change, so saving during the reduced
+phase cannot accidentally promote diagnostic changes. Exclude collectors with
+functional initialization or mesh recovery dependencies. Fresh-pair identity
+uses capture serials at successful XR submission, independently of FrameId
+thumbnails. See dishonored/DIAGNOSTIC_OVERHEAD_AB.md for exact limits.
