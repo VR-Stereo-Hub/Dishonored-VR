@@ -1,3 +1,13 @@
+## Latest VR-125: CPU-side rendering and driver work measured
+
+Automated four-view sweep completed; pub view79.3 ticks/s vs simpler110-118.
+Render thread77.6% of one core, separate D3D9 worker71.1% in pub view.
+CPU work established, active stacks and removable cost remain unknown.
+Next: executing-stack attribution or scoped CPU-vs-wall timing in rendering.
+Simulator differs from headset runtime; no performance gain claimed.
+Game closed, installed DLL/full INI unchanged. Launch authorization persists
+until user requests shutdown. Full evidence in RESOLUTION_FLOOR.md.
+
 ## Latest: automated simulator launch recovered
 
 User now authorizes automated game launches for VR-125. Fixed simulator GPU

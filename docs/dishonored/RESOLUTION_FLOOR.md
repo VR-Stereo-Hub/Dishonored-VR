@@ -86,3 +86,47 @@ CPU-vs-wall spans without elevation. ETW still requires Windows elevation.
 Game closed after capture. Full installed INI byte-identical to pre-launch;
 DLL hash unchanged. Evidence: build/performance-results/vr125-sim-working,
 vr125-direct-crash, vr125-wrong-adapter. No pending test for the user.
+
+## Same-run view and thread attribution
+
+Agent-run permission persists until the user requests a shutdown command.
+Automated Steam/simulator run retained installed298-g3d80740a9, original
+2750x2850 shared swapchains and120Hz; logged FOV half-angles54/55 and game
+horizontal108.1 match the headset log. Recommended eye size differs, actual
+swapchains match. Simulator does not model VDXR encoding/transport/scheduling;
+never add artificial delay merely to reproduce an FPS number.
+
+Read-only tools/thread-cpu-profile.ps1 samples thread CPU time, user/kernel
+split, descriptions and start addresses without suspension or elevation.
+Handles close and process start identity is checked. Existing threads only;
+thread-ID reuse within a sample remains a limitation. Start address is not a
+sampled executing stack, and time not on CPU cannot be labeled waiting vs ready.
+It was exercised on four20-second gameplay intervals in the same process.
+
+| Sim head yaw | Mean logged ticks/s | Render CPU, one-core percent | D3D9 worker CPU, one-core percent |
+|---|---:|---:|---:|
+|0|118.34|53.46|48.15|
+|90, pub view|79.32|77.56|71.08|
+|180, tower view|82.90|78.06|69.55|
+|270|110.40|74.47|70.57|
+
+CPU intervals20.02s; rates are5-6 complete3-second windows approximately aligned
+by process start UTC and log boot milliseconds, excluding first3s. Not an exact
+fresh-pair ledger or tail analysis. Captures precede sampling. Render thread
+32980 identified by the log, starts in game executable; worker35652 starts in
+nvd3dum.dll. Another busy thread31920 starts in executable CRT entry; its role
+is unclassified. No thread-start address used as proof of its active stack.
+Heavier views use roughly9-10ms render-thread CPU and8-9ms driver-worker CPU
+per reported tick. These run in parallel and MUST NOT be summed as frame cost.
+Meaningful CPU-side render/submission work is established, sole bottleneck and
+removable cost are not. No optimized build or gain is claimed.
+
+Next concrete measurement: executing call-stack attribution on the render thread
+and D3D9 worker in the reproducible pub view, or scoped CPU-vs-wall attribution
+across render-command processing if non-elevated stack capture is unavailable.
+Avoid shader-quality reductions, driver setting changes, AER changes or more
+small API probes until the CPU work is attributed. Confirm any resulting change
+on the real runtime; the sim view still exceeds the headset62-66 ticks/s.
+
+Evidence: build/performance-results/vr125-view-sweep and build/vr125-sim captures.
+Game closed after capture; full installed INI and DLL match pre-run. No merge.
