@@ -88,3 +88,41 @@ Local commit only: the earlier publication block remains pending explicit
 user authorization, so no push or PR retry was attempted.
 
 Tracking note: VR-121 exists and is In Progress. The later installation-detail update did not succeed; a read-back confirmed the original description. The full implementation and install evidence remain in this local document for reconciliation.
+
+## First headset profile result
+
+Verified275-gdeeaf66e5 /20:03:32 and installed DLL hash. Both logs/INI archived
+at build/performance-results/render-profile-first. Tester reports no visual
+problems.42 complete gameplay windows total126.15s; an early state transition
+discarded partial data as designed. The first uninterrupted minute gives the
+same ranking as the complete gameplay set. It is not assumed that the entire
+126s was stationary.
+
+| Scope | Calls | Samples | Estimated inclusive ms/s | First quiet-minute estimate ms/s |
+|---|---:|---:|---:|---:|
+| Layout refresh |14747408|230454|16.015|15.861|
+| CTAB reflection |1490253|23231|2.801|2.848|
+| Bytecode reads |1490253|23231|2.203|2.205|
+| Weapon draw, inclusive |14539616|227170|67.873|66.036|
+| Initial buffer queries |14539616|227121|17.743|17.406|
+| Animation weight/lock |29541117|461759|17.051|16.745|
+
+Reflection and bytecode reads together estimate about5ms per second, not5ms
+per frame. Their volume is high but the measured cost is small. A shader cache
+is therefore lower priority for this workload, particularly given lifetime
+complexity. The whole sampled weapon router is roughly6.8% of elapsed time
+on this thread, about0.7-0.8ms per frame at90-100fps; nested scope numbers
+must not be added to it. This is wall time including waits and sampling
+overhead, not a guaranteed recoverable budget or an optimized-build result.
+
+Late mostly tagged windows show existing D3D9 render-to-Present-entry spans
+around7.1-7.3ms per pair and roughly10-11ms total frame intervals. The old GPU
+line's span-minus-capture and lock-minus-capture claims are invalid, as already
+recorded in the audit; use only its independently bracketed intervals. These
+observations do not prove GPU saturation or identify the whole GPU workload.
+
+Next priority: async D3D11 bridge GPU measurements and further CPU attribution
+of unmeasured native draw/diagnostic work. Do not start a complex shader lifetime
+cache on the assumption that 1.49 million reflections must be expensive. Buffer
+query/animation optimizations remain smaller candidates after larger costs are
+located. No performance gain or stable120Hz result is claimed.

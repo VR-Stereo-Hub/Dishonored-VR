@@ -1,3 +1,13 @@
+## CPU profile read and visually accepted
+
+Build275-gdeeaf66e5: no visual problems reported.42 gameplay windows126.15s;
+reflection plus bytecode estimate5ms/s, whole inclusive weapon path67.9ms/s,
+initial buffer queries17.7ms/s and animation locking17.1ms/s. These scopes
+overlap and are sampled wall times, not additive/recoverable savings. The
+first uninterrupted minute corroborates the ranking. Shader caching is lower
+priority; next target is async bridge GPU timing and unmeasured CPU work.
+Details and evidence: RENDER_THREAD_PROFILE.md. No optimization gain claimed.
+
 Installed profiling candidate275-gdeeaf66e5 /20:03:32. Perf.RenderProfile=1;
 only one INI key added, full CRLF diff verified.60-second sewer test ready.
 
