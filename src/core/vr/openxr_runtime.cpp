@@ -388,7 +388,6 @@ std::atomic<bool> g_aerEnabled{false};   // overlay checkbox
 std::atomic<bool> g_aerSwapEyes{false};  // diagnostic: negate the sign (inverted-depth test)
 std::atomic<int> g_aerEyeSign{0};        // -1 left, +1 right, 0 = AER off
 int g_currentEye = 0;                    // eye slot the next captured frame belongs to
-uint32_t g_eyeContentSerial[2] = {}; // diagnostic released-content identity
 XrPosef g_eyePose[2] = {};               // pose claimed for each eye's held image
 uint32_t g_eyeContentSerial[2] = {}; // identity of released eye contents
 bool g_eyeValid[2] = {false, false};     // eye slot holds a released image + pose
@@ -1979,7 +1978,6 @@ void mirror_present(int eyeSign) {
 
 
 void reset_aer() {
-    g_eyeContentSerial[0]=g_eyeContentSerial[1]=0;
     g_eyeValid[0] = g_eyeValid[1] = false;
     g_eyeContentSerial[0] = g_eyeContentSerial[1] = 0;
     g_currentEye = 0;
