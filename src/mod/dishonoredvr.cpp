@@ -34,6 +34,7 @@
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
 #include "core/framework/perf.h"
+#include "core/framework/bridge_profile.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/vr/pose_record.h"

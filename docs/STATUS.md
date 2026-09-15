@@ -1,3 +1,15 @@
+## Current state: bridge GPU profiling candidate (VR-123)
+
+Performance work resumed on `codex/vr-123-bridge-gpu-profile` from current main
+18ae4ebda, preserving the accepted HUD and earlier independent experiment branches.
+Prior CPU profile did not justify shader caching (reflection plus bytecode about
+5 ms/s). Next experiment measures asynchronous D3D11 conversion and XR eye copies.
+See [BRIDGE_GPU_PROFILE.md](dishonored/BRIDGE_GPU_PROFILE.md) for boundaries,
+limitations, validation and the one-question quiet sewer test. Diagnostic off by
+default; installed test will use Perf.BridgeGpu=1 with all current settings retained.
+No merge permission. No game launch. Source/host validation complete; final build
+and installation identity follow below when installed.
+
 ## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), headset run 1 good, PR #64 open - 2026-09-15
 
 Branch `claude/vr-120-hud-elements` off `claude/vr-117-hud-redo` (PR #63, still NOT

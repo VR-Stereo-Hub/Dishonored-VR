@@ -1,3 +1,15 @@
+## Current state: bridge GPU profiling candidate (VR-123)
+
+Performance work resumed on `codex/vr-123-bridge-gpu-profile` from current main
+18ae4ebda, preserving the accepted HUD and earlier independent experiment branches.
+Prior CPU profile did not justify shader caching (reflection plus bytecode about
+5 ms/s). Next experiment measures asynchronous D3D11 conversion and XR eye copies.
+See [BRIDGE_GPU_PROFILE.md](BRIDGE_GPU_PROFILE.md) for boundaries,
+limitations, validation and the one-question quiet sewer test. Diagnostic off by
+default; installed test will use Perf.BridgeGpu=1 with all current settings retained.
+No merge permission. No game launch. Source/host validation complete; final build
+and installation identity follow below when installed.
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.

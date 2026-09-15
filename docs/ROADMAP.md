@@ -1,5 +1,12 @@
 # Roadmap
 
+## Performance measurement continuation
+
+- [x] VR-121 CPU profile ranks reflection as low priority; independent branch retained.
+- [x] VR-123 bounded asynchronous bridge GPU profiler and host validation.
+- [ ] VR-123 headset workload and GPU cost ranking before optimizing copies.
+
+
 ## World head-motion stability (2026-09-14)
 
 - [x] VR-116 image-linked world orientation confirmed and reconfirmed at 120 Hz.

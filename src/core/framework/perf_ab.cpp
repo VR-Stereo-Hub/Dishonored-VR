@@ -482,6 +482,6 @@ bool ab_command(const char* args)
 void ab_set_enabled(bool on) { g_abOn = on; g_abDone = false; g_abSeg = -1; g_abWaitLogged = false; }
 
 // From the present path, where the gameplay verdict is already computed.
-void ab_set_gameplay(bool inPlay) { g_abGameplay = inPlay; }
+void ab_set_gameplay(bool inPlay) { g_abGameplay = inPlay; dvr::bridge_profile::set_gameplay(inPlay); }
 
 } // namespace dvr::perf

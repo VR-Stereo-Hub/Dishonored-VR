@@ -5,6 +5,7 @@
 // is where each guard was paid for; do not renumber them.
 
 #include "core/vr/openxr_runtime.h"
+#include "core/framework/bridge_profile.h"
 #include "core/vr/aim_visual.h" // 41.2 (Dishonored, VR-57): explicit one-ray visuals
 
 #include "core/util/log.h"
@@ -2115,6 +2116,7 @@ void teardown_session(const char* why) {
     if (g_viewSpace != XR_NULL_HANDLE) { xrDestroySpace(g_viewSpace); g_viewSpace = XR_NULL_HANDLE; }
     if (g_space != XR_NULL_HANDLE) { xrDestroySpace(g_space); g_space = XR_NULL_HANDLE; }
     if (g_session != XR_NULL_HANDLE) { xrDestroySession(g_session); g_session = XR_NULL_HANDLE; }
+    dvr::bridge_profile::reset();
     if (g_context) { g_context->Release(); g_context = nullptr; }
     if (g_device) { g_device->Release(); g_device = nullptr; }
     g_sessionBegun = false;
@@ -4229,7 +4231,11 @@ void on_present_end(ID3D11Texture2D* frame) {
                     // included. Under an engine letterbox the copy becomes an
                     // unsqueeze blit instead (session 22, capture_frame).
                     int64_t tCap = phase_now();
-                    capture_frame(g_images[target][index].texture, backbuffer);
+                    {
+                        dvr::bridge_profile::Scope sample(g_device,g_context,dvr::bridge_profile::EyeCopy,
+                            projectionMode ? (target==0?-1:1) : 0);
+                        capture_frame(g_images[target][index].texture, backbuffer);
+                    }
                     phase_record(kPhCapture, tCap);
                     // 41.1 (Dishonored): the frame-identity trace's last stage - the
                     // centre of the swapchain image this present's frame was copied

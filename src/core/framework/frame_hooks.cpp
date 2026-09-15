@@ -3,6 +3,7 @@
 #include "core/framework/frame_hooks.h"
 
 #include "core/framework/perf.h"
+#include "core/framework/bridge_profile.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
@@ -163,6 +164,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool hooked = false;
         if (!hooked) { hooked = true; dvr::vr::set_mirror_hook(&dvr::desktop_eye::on_present); }
     }
+    dvr::bridge_profile::present();
     dvr::perf::stamp(dvr::perf::kEntry);
     dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
     if (g_cb.pre_tick) g_cb.pre_tick(self);

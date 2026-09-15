@@ -1,0 +1,97 @@
+# D3D11 bridge GPU measurement
+
+VR-123, branch `codex/vr-123-bridge-gpu-profile`, independent from accepted main
+18ae4ebda. No main merge is authorized. The prior desktop and render-thread
+profiling branches remain intact and are not dependencies of this candidate.
+
+## Why this experiment
+
+The VR-121 profile measured reflection at 2.801 ms/s and bytecode reads at
+2.203 ms/s. These are milliseconds per second, not per frame. Inclusive weapon
+routing was 67.873 ms/s, with nested work that must not be summed. A complex
+shader lifetime cache is lower priority than measuring the still-unattributed
+D3D11 bridge. VR-115 desktop alternatives did not consistently improve tails;
+the normal desktop path stays active. Current main's HUD behavior was reported
+good before this experiment. No performance improvement is claimed here.
+
+## Measurement contract
+
+`Perf.BridgeGpu=0` is the generated, release and missing-key default. Set 1 to
+collect samples. F10 Display offers a live checkbox; the existing Save action
+persists it. The installed playtest profile enables it without changing the
+current HUD or any other setting. No automated A/B or rendering changes occur.
+
+Two independent stage labels:
+
+- `conversion`: only the fullscreen blit from the captured texture into the
+  RGBA intermediate. Excludes the later overlay, native hand helper, frame-ID
+  thumbnails and existing shared-ownership flush.
+- `eye-copy`: only the GPU CopyResource into the acquired OpenXR image. Excludes
+  acquire/wait/release, compositor, encoding and HUD swapchain copies.
+
+At each native Present a xorshift gate selects either stage with probability
+1/16 each, or neither. At most one disjoint bracket is issued per Present;
+there is no fixed-stride eye alias and missing stages do not transfer their
+sample opportunity to a different stage. D3D11 does not present independently:
+the unit here is a native eye Present, not a fresh complete stereo pair.
+
+Each stage has 16 reusable slots (48 queries), allocated lazily. A pending slot
+is not overwritten. Poll after at least eight subsequent calls to that stage,
+using GetData(DONOTFLUSH), once per eligible slot per call with no retry loop.
+Full storage drops a new sample; failed creation disables that stage until
+reset. A disjoint frequency, zero frequency or inverted timestamps rejects the
+result. Device identity is held by an owned COM reference; runtime teardown
+releases every query and the reference without waiting. Disabled startup
+creates no queries. A live disable leaves existing closed queries parked until
+re-enable or teardown; it never leaves an open bracket.
+
+The 3-second `perf/bridge` report separates stage and eye (-1/0/+1), with
+current gameplay/menu context. It reports calls, issued/resolved/pending,
+late polls, full-slot drops, invalid results, errors and epoch discards.
+Toggle/context changes discard partial statistics and invalidate pending samples.
+Pending work can cross reporting windows; issued and resolved are not the same
+cohort. Late polls count attempts, not unique stalled frames. Final pending
+samples can be lost at teardown. Zero resolved samples mean unknown cost.
+
+Means/maxima cover all resolved samples; p50/p95 use up to 512 stored samples
+per stage/eye/window, with explicit overflow. The selected stage interval can
+include GPU scheduling effects. It is not total GPU busy time, an end-to-end
+frame budget, or guaranteed recoverable time. Stage percentiles must not be
+added, and menus or level transitions must not be used as steady gameplay.
+Sampling and query insertion can affect scheduling: check diagnostic overhead
+before treating a small difference as an optimization.
+
+API references: [D3D11 query semantics](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_query)
+and [non-flushing result reads](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_async_getdata_flag).
+
+## Validation
+
+18 policy checks cover timestamp validity, queue saturation, age, context
+identity, reuse/reset and stage/eye sampling. Standalone hardware D3D11 test
+exercises the production profiler with clear/copy commands: 60 conversion and
+67 copy samples resolved, no query errors, context aggregates discarded and
+queries released on reset. This is not the game's bridge workload and makes
+no performance claim. Only the standalone test submits its own commands with
+Flush; the production profiler never flushes or waits.
+
+Win32 release compilation, lint and golden checks pass. The existing unity
+DVR_CAT redefinition warning remains. No game or game-based simulator launched.
+Installation identity and exports check are recorded in the next handoff update.
+
+## First playtest
+
+Use the same sewer save at 120 Hz and the current resolution. Face a normal
+quiet corridor with both weapons visible for about 60 seconds, avoiding combat
+and menus during the measurement. Then briefly turn the head left/right and
+look up/down while moving both hands. No wall-facing requirement, no phase
+switches and no 110-second schedule.
+
+One question: does the world and both weapons still look and track normally?
+Normal behavior accepts the diagnostic for cost ranking. Any new visual or
+tracking problem rejects it and requires inspecting the matching build log
+before making a performance conclusion. The agent reads and archives the log.
+
+Next decision: if conversion/copy cost is material, design the smallest isolated
+bridge optimization. If it is small, profile diagnostics/native draw dispatch
+and broader CPU work next. Do not remove synchronization based on a cheap
+CopyResource CPU call or infer D3D9 saturation from these D3D11 markers.

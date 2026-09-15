@@ -873,3 +873,13 @@ blend flag: `captured` forces the coverage equation on every redirected draw
 `repair` lost black strokes) and ships OFF behind `repair` until the headset
 judges. See dishonored/HUD_ANCHORS.md and ENGINE_NOTES, "How the Scaleform
 HUD identifies its elements".
+
+
+### 2026-09-14: measure bridge GPU intervals before changing copies (VR-123)
+
+The prior CPU profile did not justify a shader lifetime cache. A separate
+main-based diagnostic uses bounded asynchronous D3D11 timestamp queries around
+conversion and XR eye copies, not around CPU wait or compositor intervals.
+Random stage selection avoids eye-stride alias and permits at most one bracket
+per native Present. No new flush, ownership change or engine-memory writer.
+See dishonored/BRIDGE_GPU_PROFILE.md for the result population and limitations.
