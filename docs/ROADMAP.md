@@ -3,7 +3,8 @@
 ## Native draw profiling (VR-121 continuation)
 
 - [x] Reuse tested sampler at hook and native D3D9 call boundaries.
-- [ ] Hub workload attribution before next optimization.
+- [x] Capture hub draw/state-call attribution: 34 windows; visual validation passed.
+- [ ] Attribute remaining rendering/API work and waits before next optimization.
 
 
 ## World head-motion stability (2026-09-14)

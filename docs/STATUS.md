@@ -5,8 +5,12 @@ the existing render-thread profiler to draw, shader-constant and render-target
 hooks versus native API calls. Previous diagnostic A/B completed without a
 compelling gain; all earlier experiment branches retained. NativeProfile defaults
 0; test install enables1 and disarms DiagnosticAb. See NATIVE_DRAW_PROFILE.md.
-Next:60-second fixed-view hub capture, then brief head/hand checks. No phase
-switching, game launch or merge.
+Headset run passed visually. 34 complete gameplay windows (102.136 seconds):
+indexed hook 161.08 ms/s, native indexed 69.18; constant hook 99.84, native
+constant 58.50. Nested estimates are not additive or exact removable overhead.
+Full result: docs/dishonored/NATIVE_DRAW_PROFILE.md. Next: attribute remaining
+rendering/API work and waits; no repeat needed and no performance gain claimed.
+No merge.
 
 Installed and hash-verified build `vr33-hands-working-295-gf4062ba4b`, compiled 21:46:15. Release build and host checks passed. Full INI comparison: only NativeProfile=1 added and DiagnosticAb changed from1 to0; CRLF preserved. Both previous logs and binaries archived in `C:\dev\Dishonored-VR\build\playtest-candidates\installs\20260914-214922-606852`. Game not launched.
 

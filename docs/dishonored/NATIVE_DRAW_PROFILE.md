@@ -68,4 +68,37 @@ Installed and hash-verified build `vr33-hands-working-295-gf4062ba4b`, compiled 
 Source commit: `f4062ba4b442f57db86b6aa44edacec297f15f04`.
 DLL SHA256: `7deb90501bda330b7e22a31f3ea27fc06dd95f60382853f70ef1ecafcae90566`.
 INI SHA256: `74d092be1ac4fa29e5b1b06fadc0b100a686664fdda82eb2e1986b556dc1241b`.
-Headset validation pending.
+Headset validation completed: no new visual or tracking problems reported.
+
+## Hub result, 2026-09-14
+
+Verified installed DLL hash and matching build/compile banner before analysis.
+Runtime period was 120 Hz. Archived both logs, current INI and install identity
+in `build/performance-results/native-hub-20260914-215400`.
+34 complete gameplay windows cover 102.136 seconds. These include the full
+gameplay capture, not a separately marked stationary-only segment.
+
+| Scope | Calls | Samples | Sample mean (us) | Estimated inclusive ms/s |
+|---|---:|---:|---:|---:|
+| indexed-hook-inclusive | 24,631,125 | 385,155 | 0.668 | 161.08 |
+| primitive-hook-inclusive | 51,092 | 800 | 2.589 | 1.30 |
+| native-indexed-call | 24,684,073 | 386,009 | 0.286 | 69.18 |
+| native-primitive-call | 51,092 | 800 | 1.274 | 0.62 |
+| vs-constant-hook-inclusive | 73,958,051 | 1,155,955 | 0.138 | 99.84 |
+| native-vs-constant-call | 74,255,542 | 1,160,726 | 0.081 | 58.50 |
+| render-target-hook-inclusive | 1,058,669 | 16,325 | 0.285 | 2.95 |
+| native-render-target-call | 1,798,633 | 28,061 | 0.152 | 2.68 |
+
+Means are sample-count weighted; ms/s estimates are duration weighted across
+windows. Indexed hooks and constant hooks dominate these measured boundaries,
+but are insufficient to explain the whole render interval. Late logged pair
+intervals remain about 15-16 ms. These are diagnostic timings, not an improvement
+comparison. Native API spans measure CPU wall time, not GPU execution.
+Nested scopes must not be added, and different call populations prevent treating
+the hook/native difference as an exact removable cost. Sub-microsecond timings
+also include timer overhead. No evidence here justifies replacing synchronization
+or compromising the accepted tracking path.
+
+Next: attribute the remaining engine rendering/API work and waits, including
+buffer locks and uninstrumented state calls, before selecting a performance
+change. Keep profiler default off. No further repeat of this capture is needed.
