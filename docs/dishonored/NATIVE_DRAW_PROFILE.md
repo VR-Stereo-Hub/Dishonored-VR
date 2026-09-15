@@ -102,3 +102,21 @@ or compromising the accepted tracking path.
 Next: attribute the remaining engine rendering/API work and waits, including
 buffer locks and uninstrumented state calls, before selecting a performance
 change. Keep profiler default off. No further repeat of this capture is needed.
+
+## Follow-up candidate: existing state and resource hooks
+
+Extends this branch and the same default-off NativeProfile switch with20
+additional inclusive scopes: vertex/index buffer Lock; texture/cube/volume/
+surface Lock and Unlock; viewport, render state, texture, declaration, vertex/
+pixel shader, transform and stream-source setters; both user-pointer draw calls.
+These measure existing hooks including any native call, shadow upload, accounting
+and recursion. They are not exclusive native timings. Same-kind recursive shadow
+redirects can overlap; never add these totals. No new hook, resource reference,
+engine write or synchronization change. Coverage depends on existing hooks being
+installed and calls executing on the Present owner thread. A zero sample count
+does not exclude a rare stall or an unhooked call. All scopes retain1/64 sampling.
+
+Validation: host suite checks every scope has a label and receives calls, plus
+existing sampling/owner/reset tests. Repeat the same60-second stationary hub
+view, then briefly move head and hands; one question is whether the world and
+both weapons still look and track normally. No automatic phases.

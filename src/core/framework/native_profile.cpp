@@ -14,7 +14,27 @@ bool wasOn=false, wasGameplay=false;
 double windowStart=0;
 const char* names[Count]={"indexed-hook-inclusive","primitive-hook-inclusive",
     "native-indexed-call","native-primitive-call","vs-constant-hook-inclusive",
-    "native-vs-constant-call","render-target-hook-inclusive","native-render-target-call"};
+    "native-vs-constant-call","render-target-hook-inclusive","native-render-target-call",
+    "VbLock-hook-inclusive",
+    "IbLock-hook-inclusive",
+    "TexLockRect-hook-inclusive",
+    "TexUnlockRect-hook-inclusive",
+    "CubeLockRect-hook-inclusive",
+    "CubeUnlockRect-hook-inclusive",
+    "VolLockBox-hook-inclusive",
+    "VolUnlockBox-hook-inclusive",
+    "SurfLockRect-hook-inclusive",
+    "SurfUnlockRect-hook-inclusive",
+    "SetViewport-hook-inclusive",
+    "SetRenderState-hook-inclusive",
+    "SetTexture-hook-inclusive",
+    "SetVertexDeclaration-hook-inclusive",
+    "SetVertexShader-hook-inclusive",
+    "SetTransform-hook-inclusive",
+    "SetPixelShader-hook-inclusive",
+    "SetStreamSource-hook-inclusive",
+    "DrawPrimitiveUP-hook-inclusive",
+    "DrawIndexedPrimitiveUP-hook-inclusive"};
 void clear() { for(auto& s:stats) s.clear(); }
 }
 void set_enabled(bool value) { on.store(value,std::memory_order_relaxed); }

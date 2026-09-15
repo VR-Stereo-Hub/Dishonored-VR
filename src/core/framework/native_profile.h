@@ -1,6 +1,6 @@
 #pragma once
 namespace dvr::native_profile {
-enum Kind { IndexedHook, PrimitiveHook, NativeIndexed, NativePrimitive, ConstHook, NativeConst, TargetHook, NativeTarget, Count };
+enum Kind { IndexedHook, PrimitiveHook, NativeIndexed, NativePrimitive, ConstHook, NativeConst, TargetHook, NativeTarget, VbLockInclusive, IbLockInclusive, TexLockRectInclusive, TexUnlockRectInclusive, CubeLockRectInclusive, CubeUnlockRectInclusive, VolLockBoxInclusive, VolUnlockBoxInclusive, SurfLockRectInclusive, SurfUnlockRectInclusive, SetViewportInclusive, SetRenderStateInclusive, SetTextureInclusive, SetVertexDeclarationInclusive, SetVertexShaderInclusive, SetTransformInclusive, SetPixelShaderInclusive, SetStreamSourceInclusive, DrawPrimitiveUPInclusive, DrawIndexedPrimitiveUPInclusive, Count };
 void set_enabled(bool on);
 bool enabled();
 void tick(bool gameplay);

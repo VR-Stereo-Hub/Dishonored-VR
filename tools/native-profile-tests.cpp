@@ -30,5 +30,8 @@ int main() {
     { Scope p(NativeIndexed); } assert(stats[NativeIndexed].calls==1);
     tick(false); assert(!stats[NativeIndexed].calls); // menu transition discards partial window
     set_enabled(false); tick(false); { Scope p(NativePrimitive); } assert(!stats[NativePrimitive].calls);
+    set_enabled(true); tick(true);
+    for(int k=0;k<Count;++k) { assert(names[k] && names[k][0]); Scope p(static_cast<Kind>(k)); }
+    for(int k=0;k<Count;++k) assert(stats[k].calls==1);
     puts("PASS: sampling population, bounded aggregation, idempotent close, off/owner guards and transition reset");
 }
