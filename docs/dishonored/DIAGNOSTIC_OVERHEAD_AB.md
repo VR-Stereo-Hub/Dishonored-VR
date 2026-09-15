@@ -92,3 +92,23 @@ One question: did the world and both weapons look and track normally throughout?
 Normal behavior allows ranking the logged A/B/A measurements. Any new visual or
 tracking fault rejects the candidate before interpreting a speed difference.
 The agent verifies the build banner, archives both logs and reads the results.
+
+## Installed diagnostic A/B candidate: VR-124
+
+Build `vr33-hands-working-295-gdb73d0a49`, compiled21:26:07, source db73d0a49.
+DLL SHA256 `1b9db8ba0f48bf4ee127afe3919a5dfa82881aad7be66fe63438462f710cbb47`.
+INI SHA256 `f690dd877923bfbdd7de7309d528d7dba460029a23cc1f188424c38cc4397c81`.
+Bundle build/playtest-candidates/diagnostic-overhead. Previous DLL/INI and both
+logs archived20260914-212649-927506. Full INI comparison adds only
+Perf.DiagnosticAb=1; CRLF and hashes verified. The295 count is shared with the
+previous independent branch: always check suffix gdb73d0a49, not the count alone.
+33 host checks, release, lint, golden and9 exports passed. No game launched.
+
+Next: same hub save, stand facing the busy view with weapons drawn for two minutes,
+no menus/combat/walking; then briefly turn head and move hands. One question:
+did the world and both weapons look and track normally throughout? The benchmark
+waits10s then runs baseline/reduced/baseline33s each, restoring normal collection.
+A menu/load aborts the comparison. Read matching log for three valid phases.
+No main merge authorization. This experiment's Linear updates and draft GitHub
+publication are explicitly authorized.
+
