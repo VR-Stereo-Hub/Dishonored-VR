@@ -13,7 +13,92 @@ Old performance paths are redirect stubs. Historical source reports are retained
 below with explicit provenance, so failed experiments and corrections survive.
 The current verdicts below override every older plan or pending-test instruction.
 
-## Current targeted candidate: InitViews timing, 2026-09-15
+## Current result: autonomous InitViews test complete, 2026-09-15
+
+The user explicitly authorized performing this test autonomously, superseding
+the earlier no-launch constraint for this test. Ran build347 through Steam with
+the simulator; this is not headset acceptance. No further headset repeat is
+needed just to collect these diagnostic counts. The game exited normally via
+console quit. Exact307 baseline is restored, and no test is pending for the user.
+
+### Test identity and selection
+
+Verified347 DLL hash and new log banner before interpreting the run. Runtime
+reported dvr-xrsim and120Hz. Captures confirm Hound Pits pub view, simulated
+head yaw90, existing weapon state, two projection views with actual2750x2850
+source textures. Simulator compositor output is1032x1104 and does not represent
+VDXR transport, scheduling or perceptual comfort. No save edits or HUD changes.
+
+Kept the fixed pub view across profiler off/on/off. Commands and phase marks
+were acknowledged in the log. Complete perf windows exclude the first3100ms
+of each phase and end before the next mark. Runtime scene variation remains:
+SRT74.5-81.5/present in all three phases. Rates are rounded logged ticks/s,
+not a fresh-submission ledger or a statistically powered overhead bound.
+
+| Phase | Complete perf windows | Mean ticks/s | Mean tick ms |
+|---|---:|---:|---:|
+|Off before|14|67.54|14.729|
+|On|15|68.59|14.493|
+|Off after|19|67.85|14.684|
+
+No obvious throughput penalty from the narrow probe in this run. The higher
+on mean is not a performance improvement; the diagnostic changes no rendering
+policy. No claim of headset speed or pacing acceptance.
+
+### Scope result and changed hypothesis
+
+16 complete scope windows,48.075s:9,890 InitViews calls,5027.762ms inclusive
+wall time,10.458% elapsed. No overflow or other-thread calls. All calls came
+through return RVA0046C0C1. Of6,595 completed intervals,44 were unknown; their
+88 calls/40.345ms are kept separate from the tagged pair estimate.
+
+| Completed interval | Intervals | InitViews calls | Wall ms | Largest call ms |
+|---|---:|---:|---:|---:|
+|Left (-1)|3,275|6,526|2878.788|2.597|
+|Right (+1)|3,276|3,276|2108.630|1.470|
+|Unknown|44|88|40.345|1.051|
+
+Tagged aggregate4987.418ms divided by3275.5 equivalent pairs (mean L/R
+interval count) gives1.523ms per pair. This is a completed-interval estimate,
+not cost per verified fresh XR submission. It includes waits. It clears the
+predeclared1ms threshold for continuing preparation research.
+
+The simple one-call-per-eye prediction is falsified: this view averages1.993
+calls per left interval and1.000 per right interval. It establishes repeated
+preparation, but cannot establish identical renderer/view contents, safe reuse,
+duplicated AI, or that the extra call is redundant. A capture/auxiliary scene
+or other additional view remains possible. The probe intentionally retained
+no renderer identity. Do not skip every second call based on this result.
+
+Next engineering target: classify the extra left-interval invocation and the
+conditional child at VA00864AD0 (about80% of InitViews' inclusive CPU samples
+in the existing headset trace). Use executable control flow and existing trace
+before another probe. Separate visibility, occlusion-result processing and mesh
+collection before designing reuse. The0.102ms query-helper result remains
+eliminated; it does not exclude surrounding preparation cost. Larger draw-pass
+stages remain the fallback if preparation cannot safely share meaningful work.
+
+### Validation, artifacts and restore
+
+After measurement a gradual yaw90-to105 head turn still produced two projection
+views and nonblack eyes. Final simulator state:32,668 frames,0 errors,0 discarded,
+0 out-of-order ends. These are bounded runtime checks, not headset comfort proof.
+Image-preview attempts initially failed because the ordinary filesystem sandbox
+helper was broken and the PATH Python lacked Pillow. A compact Windows image
+library preview succeeded; these did not affect the subsequent marked phases.
+
+Local artifacts: build/performance-results/vr125-initviews/sim-20260915-181540
+contains both logs, pre/post INI, analysis.json and its script, initial installation
+record, simulator state, and pub/after-turn captures. Raw captures remain ignored.
+Before restoring307, verified full installed INI was byte-identical to pre-sim
+347 configuration, so no simulator runtime path remained. Restore archive:
+build/playtest-candidates/installs/20260915-182316-329268. Complete restore diff
+removes ScenePrepareProfile=1 and returns NativeProfile/BridgeGpu/GpuQueries/
+FrameId from0 to1, restoring the exact307 baseline. Installed DLL and INI hashes
+and CRLF verified.347 candidate remains recoverable at vr125-initviews.
+No game process remains, no merge or publication performed.
+
+## Tested candidate: InitViews timing, 2026-09-15
 
 Continued on codex/performance-research. Verified installed.json before edits,
 then actual installed DLL SHA256 against the archived307 baseline. The current

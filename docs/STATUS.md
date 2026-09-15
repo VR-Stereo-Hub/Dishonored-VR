@@ -1,20 +1,19 @@
-## Current performance session: InitViews candidate installed, 2026-09-15
+## Current performance session: InitViews measured, 2026-09-15
 
-Continue on `codex/performance-research`, active ticket VR-125. Build347
-`vr33-hands-working-347-g5a46c6ead-dirty` is installed, pending one headset test.
-[PERFORMANCE.md](dishonored/PERFORMANCE.md) is the sole research record and contains the measured
-boundary, ABI/validation details, candidate hashes, full INI changes and protocol.
-Existing normal CPU capture places engine InitViews at12.21% inclusive render
-CPU samples. The new default-off, launch-armed timing probe measures its cost
-and call frequency per completed eye interval; no scene work is bypassed.
-Next: tester launches the same populated hub, original resolution/120Hz, holds
-view90 seconds then briefly moves head/hands and exits. One question: was lag
-and image behavior representative? Read the installed build banner first, then
-complete scene-prepare gameplay windows. No speedup claimed. Both old logs and
-307 DLL/INI archived; rollback remains `vr125-cpu-scopes`. No game or simulator
-launched, HUD excluded, orientation/fences unchanged, no subagents or merge.
-Query-helper0.102ms/pair remains eliminated. See installed.json for install truth.
-Publication remains local under the prior GitHub/Linear approval block; no retry.
+Continue on `codex/performance-research`, active ticket VR-125. User authorized
+an autonomous test; build347 simulator off/on/off is complete and game closed.
+Exact installed307 baseline restored; installed.json remains installation truth.
+[PERFORMANCE.md](dishonored/PERFORMANCE.md) contains all measurements, limits, artifacts and restore.
+InitViews cost1.523ms per equivalent tagged pair,10.458% elapsed in the fixed
+pub view. Calls average1.993 per left interval and1.000 per right. No obvious
+probe overhead:67.54/68.59/67.85 logged ticks/s off/on/off. No headset claim.
+Next: classify the extra left-interval invocation and the sampled dominant
+InitViews child before attempting reuse. Additional view/capture work remains
+possible; duplicated AI and safe reuse are not established. No unchanged
+query-helper repeat, HUD work, fence/orientation change, subagents or merge.
+No pending headset test for this diagnostic. The user authorized this automated
+test specifically; do not infer unlimited launch permission from its completion.
+Publication remains local under the prior GitHub/Linear approval block.
 
 ## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), headset run 1 good, PR #64 open - 2026-09-15
 
