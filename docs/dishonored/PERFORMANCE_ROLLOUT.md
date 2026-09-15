@@ -110,3 +110,16 @@ launch is not run because the user prohibits launching the game.
 
 Installation identity is recorded below after packaging. Headset benefit is
 pending. Release defaults remain Full; the installed trial alone arms DesktopAb.
+
+## Installed first trial
+
+Build `vr33-hands-working-276-g48a632e48`, compiled19:23:53, source48a632e48.
+DLL SHA256 `e651d5818ca89c0d7f0c888c9d6b24c4e561032091dfeb7e9ffae61fe4195402`.
+INI SHA256 `7d0dc649ea56ff4e17906a30f56325480c5cb6457dfa513ce2f9abd78a437a13`.
+Bundle: `build/playtest-candidates/performance-desktop-rollout`.
+Previous DLL, INI and both logs: `build/playtest-candidates/installs/20260914-192446-013854`.
+The full CRLF-verified INI diff adds only Perf.DesktopAb=1,
+VR.ReduceDesktopPresent=0 and VR.DesktopMirrorOff=0. Current PR63 HUD keys are
+retained but inert in this main-based build. No game launched. Next log must
+match276-g48a632e48 /19:23:53 before interpreting the trial. Build numbers
+reflect branch ancestry;276 here does not mean the old rejected hand candidate.

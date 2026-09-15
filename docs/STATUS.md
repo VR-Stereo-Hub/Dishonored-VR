@@ -1,5 +1,9 @@
 ## Performance rollout active, 2026-09-14
 
+Installed performance trial:276-g48a632e48, compiled19:23:53. Full/Off/Full
+benchmark armed; only three new INI keys, CRLF and full diff verified. Previous
+PR63 DLL/INI/logs archived20260914-192446-013854. No game launched.
+
 New branch `codex/vr-115-performance-rollout` from current VR-Main85f9ef6e4
 ports PR60 onto the accepted world fix. PR59 / VR-113 is the full audit;
 VR-115 remains In Progress. See [performance rollout](dishonored/PERFORMANCE_ROLLOUT.md)
