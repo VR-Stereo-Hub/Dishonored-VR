@@ -7,6 +7,7 @@
 - [x] Measure existing resource/state hooks: low sampled lock/upload cost.
 - [x] Attribute busy threads and collect bounded pub-view instruction samples (VR-125).
 - [x] Locate render-stage cycle consumption; coarse CPU-ms attribution rejected (VR-125).
+- [x] Survey game INIs and bracket dynamic-shadow removal; no useful hub gain (VR-125).
 - [ ] Identify expensive engine/proxy work inside the outside-Present region.
 - [ ] Correlate whole-scene GPU execution and engine rendering time before optimization.
 

@@ -253,3 +253,53 @@ No merge. Next concrete target is the outside-Present region: use the saved
 matching symbols to identify costly proxy draw paths, then one bounded
 redundant-work/caching experiment if the source and timing justify it. Do not
 repeat resolution reduction, desktop skipping or broad threading toggles.
+
+## Game INI survey and dynamic-shadow test (2026-09-15)
+
+Read active DishonoredEngine.ini and compatibility presets section-by-section.
+Active SystemSettings has DynamicShadows=True, LightEnvironmentShadows=True,
+DetailMode=2, Static/SkeletalLODDistanceFactorMultiplier=1, static/dynamic/
+unbatched decals enabled and DecalCullDistanceScale=1. Candidate workload
+levers, not recommended defaults. Active UseVsync=False and bSmoothFrameRate
+False; AO, motion blur and DOF already off. OneFrameThreadLag=True retained.
+Shader compilation threading already enabled; it is not a steady-state renderer
+parallelization switch. Texture pool160 is a separate streaming lead, not proof
+of the stationary-view bottleneck. Some compatibility buckets retain Vsync=True;
+do not confuse those with active settings or the mod's ForceNoVSync override.
+
+Reused exact307 diagnostic and matching symbols, original2750x2850/sim120Hz.
+Three automated Steam launches, Continue to same save and gradual yaw90 pub view.
+Banners checked every run; logs archived before relaunch. Console scale get/set
+DynamicShadows returned empty replies without a clear visual result, so that
+live-toggle interval is NOT accepted as a verified setting comparison. Baseline
+uses only the interval before the attempted set. Do not assume an empty reply
+means successful application; the shipping console may omit a command/output.
+
+Then changed ONLY SystemSettings.DynamicShadows from True to False in the game
+INI while closed, preserving CRLF and verifying a complete file diff. Restarted
+for the off sample, restored the entire original INI byte-for-byte, restarted
+for final baseline. Backed up all game INIs and verified every file identical
+to its pretest backup afterward. No graphics default promoted.
+
+| Setting | Complete3s windows | Mean logged ticks/s | Outside-Present wall ms/present | Outside million cycles/present | SRT/present |
+|---|---:|---:|---:|---:|---:|
+| Original shadows on |7|79.94|4.369|15.601|81.43|
+| INI shadows off |9|80.63|4.325|15.474|72.93|
+| Original restored |9|79.26|4.392|15.695|78.39|
+
+First4s after each mark excluded; scopes enabled across compared intervals.
+CPU-ms attribution remains rejected; use cycles relatively, not converted to
+elapsed time. SRT is render-target changes, NOT draw calls or shadow passes.
+The decrease is consistent with a real workload change, not a full engine
+setting readback. Final baseline SRT differs from initial, so scene variation
+remains a confounder. Observed throughput gain is only0.9-1.7% against bracketing
+runs, and cycles about0.8-1.4% lower. This does not establish a useful win or
+eliminate shadow cost in other scenes. No20-40% gain here; keep original quality.
+Not a headset timing/comfort test and not a fresh-pair tail comparison.
+
+Evidence: build/performance-results/vr125-shadows, including raw logs, complete
+config backups/diff and summary; eye captures under build/vr125-sim. Closed game,
+restored accepted298 and exact original mod INI (only CpuScopes=0 removed).
+No new ticket, no merge. Continue VR-125 with matching-symbol identification of
+expensive proxy draw work. DetailMode/LOD/decal controls remain optional bounded
+quality-cost experiments, not a blanket low-settings prescription.

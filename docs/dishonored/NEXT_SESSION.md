@@ -1,3 +1,16 @@
+## Current VR-125: INI shadow test produces no useful hub gain
+
+Surveyed actual engine/compat INIs; active Vsync/smoothing/AO/blur/DOF already off.
+DynamicShadows on/off/restored across three automated runs:79.94/80.63/79.26
+logged ticks/s. Render-target changes fell, render cycles only about1%; retain
+original quality. Empty console replies were not treated as a successful toggle;
+accepted off test used one backed-up INI edit plus restart. Full evidence and
+limits in RESOLUTION_FLOOR.md, setting candidates in GAME_CONFIG_MAP.md.
+Next: matching-symbol identification of expensive proxy draw paths inside the
+outside-Present region. Keep using VR-125; no new ticket or merge.
+Game closed; accepted298, exact original mod INI and ALL game INIs restored.
+Agent launch authorization continues until shutdown requested. No headset test pending.
+
 ## Current VR-125: rendering between Presents dominates measured cycles
 
 Automated default-off scoped diagnostic307 tested in the pub view. About88%
