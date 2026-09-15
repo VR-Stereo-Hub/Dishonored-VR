@@ -1,0 +1,112 @@
+# Performance rollout
+
+## Current work, 2026-09-14
+
+PR59 / VR-113 contains the overall audit. PR60 / VR-115 implements the first
+candidate, reduced or disabled desktop presentation. Implementation of the
+larger plan is now authorized; no performance merge is authorized.
+
+Branch `codex/vr-115-performance-rollout` starts at VR-Main `85f9ef6e4` and ports
+PR60 source `160949cb3` as `bc6e2230f`. It retains the accepted image-linked world
+orientation, world/hand lag 2 and current camera/weapon behavior. PR63 HUD work
+remains independent: its initial playtest was reported favorable, and its
+contributor continues it. Neither PR63 nor the rejected PR62 hand experiment
+is included here. The latest PR63 log banner matches build282, compiled18:53:23;
+its timing windows are not a controlled performance baseline for this branch.
+
+## First candidate and measurement contract
+
+Full remains the default. `VR.ReduceDesktopPresent=0` and
+`VR.DesktopMirrorOff=0` have live F10 Display controls and the existing
+`desktoppresent full|reduced|off` command. See
+[DESKTOP_PRESENT_PERFORMANCE.md](DESKTOP_PRESENT_PERFORMANCE.md) for guards,
+current-stream submission, failed approaches and native-driver evidence.
+
+New `Perf.DesktopAb=1` arms a bounded trial; its absent-key default is0.
+F10 Display can start or stop it. It disables the legacy latency sweep.
+After ten seconds of uninterrupted strict gameplay, the trial runs three
+30-second segments: Full, Off, Full. The first three seconds of each segment
+are discarded. Pausing, a note, a load or a cinematic aborts the comparison
+and restores the pre-trial desktop flags. Completion and explicit stop also
+restore those flags. No resolution, quality, lag or image pose setting changes.
+
+Successful eye-copy/release publishes the delivered capture serial. Only a
+successful xrEndFrame with two separate game-eye projection swapchains and
+both serials advancing contributes a fresh-pair observation. Mono, held,
+replayed, one-eye-only and failed submissions are not counted as new pairs.
+Intervals span rejected submissions, so stalls remain visible. This measures
+application submission cadence, not physical display refresh, GPU completion,
+photon latency, or a proof that both eyes belong to the same game simulation tick.
+Existing pose/image-age and desktop fallback logs must be checked alongside it.
+
+Storage is bounded to16384 intervals per segment; overflow invalidates the
+segment. Severe stalls stay in the quantiles. Logs report count, mean/rate,
+p50/p95/p99/p99.9/max and counts over8.333/16.667/33.333ms. At least32 samples
+and no overflow are required. The returned Full baseline establishes a noise
+floor for each metric; no automatic FPS-benefit verdict is printed.
+
+The old GPU line subtracted post-entry capture from the earlier render span
+and subtracted a GPU interval from CPU lock time. Those independent intervals
+now carry accurate labels without a fabricated recoverable-cost calculation.
+Old `perf/ab` Present-parity statistics remain historical and are not the new
+fresh-pair population. Broader mixed tagged/untagged accumulation and GPU-stage
+coverage remain in Phase A.
+
+## First headset test
+
+Load the same sewer save, face a quiet stationary view and stay there for
+110 seconds after gameplay appears. Keep headset refresh120Hz and current
+resolution, avoid menus, movement and combat during the timed portion.
+The desktop may freeze in the middle30 seconds; the headset should remain
+stereo and responsive. After the timed portion, a brief head turn can check
+that the view is still responding. One question: did the headset remain
+correctly stereo and responsive throughout? A pass permits timing comparison;
+a failure rejects the candidate regardless of its frame-time numbers.
+The agent archives and reads the logs, not the tester.
+
+## Full plan, with explicit remaining work
+
+- [x] Restore the audit on current main and preserve the accepted world fix.
+- [x] Port guarded desktop modes and add a repeatable Full/Off/Full trial.
+- [x] Count successful fresh-eye submissions; fix misleading GPU subtraction.
+- [ ] Measure Full/Off/Full on the headset; repeat promising results and test Reduced separately.
+- [ ] Complete Phase A: asynchronous D3D11 bridge GPU timestamps, missing D3D9
+      mirror/pass timings, mixed-population accounting, per-eye age and bounded
+      CPU sampling/scheduling evidence (VR-67, VR-17).
+- [ ] Compare pixel load at fixed aspect/FOV if GPU work owns the deadline;
+      do not silently lower the accepted quality or resolution.
+- [ ] Implement bounded shader-layout caching with real shader lifetime identity,
+      negative results and eviction; measure parse calls and CPU cost.
+- [ ] Share lazy per-draw state snapshots; then reduce animation-weight locking
+      with coherent per-frame publication and immediate ownership handback.
+- [ ] Measure individual diagnostics, starting with Cine.Trace; keep failure
+      breadcrumbs and separate collection costs from text-output costs.
+- [ ] Measure/coalesce liveness rebuilds, name/property discovery and event work;
+      current-level IsLiveObject and menu revalidation remain mandatory (VR-102).
+- [ ] Repair shared-fence timeout/error ownership before bridge/slot changes
+      (VR-114); then measure direct-to-XR copy and queue scheduling candidates.
+- [ ] Profile managed-texture uploads, dirty regions and32-bit memory pressure.
+- [ ] Identify expensive native passes; share only verified eye-independent work
+      and preserve visibility, transparency, weapon depth and lens consistency
+      (VR-79). Upscaling/dynamic resolution are later quality tradeoffs.
+- [ ] Confirm chosen wins in opening, heavier levels, menu/load/cinematic/weapon
+      transitions and physical head movement. One question per launch.
+
+The ordered phases and counterpredictions in PERFORMANCE_AUDIT.md remain the
+full specification. One lever per candidate: a reduction in API call count
+alone is not a performance result. No shader, liveness, bridge, texture-streaming
+or scene-sharing optimization is claimed implemented by this first build.
+
+## Validation
+
+Standalone production benchmark tests cover serial advancement, replay/mono/
+one-eye rejection, wraparound, warmup, repeated baselines, severe stalls,
+bounded overflow, explicit restart/stop and menu handback. Desktop policy:
+79339 assertions plus legacy negative control; production copy/tail:431857;
+native D3D9Ex:120 GPU completions/pixel checks, Full return and ResetEx.
+Reentry248 and single-tag23 checks pass; frame/weapon/animation/image-orientation
+suite passes. Win32 release build, lint and golden INI check pass. Simulator
+launch is not run because the user prohibits launching the game.
+
+Installation identity is recorded below after packaging. Headset benefit is
+pending. Release defaults remain Full; the installed trial alone arms DesktopAb.

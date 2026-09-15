@@ -202,7 +202,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
             g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
     }
     {   // VR-67: the A/B measures gameplay, never a menu or a load
-        dvr::perf::ab_set_gameplay(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
+        const bool benchmarkGameplay = g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true;
+        dvr::perf::ab_set_gameplay(benchmarkGameplay);
+        dvr::perf::desktop_ab_tick(benchmarkGameplay);
     }
 
     if (g_cb.game_tick) g_cb.game_tick(self);

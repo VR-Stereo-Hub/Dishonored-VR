@@ -5973,3 +5973,12 @@ camera transform, hand pose or frame pacing change is introduced by promotion.
 Next: complete and verify the authorized main merge; hand/cutscene work waits.
 Historical pending, publication-blocked and candidate text below records earlier
 stages and does not override this scope or the new explicit merge authorization.
+
+## 2026-09-14: performance measurement population
+
+The rollout adds no engine address or memory writer. Strict DvrGameplayVerdict
+gates the desktop trial; cinematic presentation permission is intentionally not
+enough. Real fresh-pair sampling uses delivered capture serials after successful
+XR wait/copy/release, separate eye swapchains and successful xrEndFrame. Held
+submissions cannot become new pairs merely by arriving on an even Present.
+See PERFORMANCE_ROLLOUT.md for limitations and the full optimization sequence.

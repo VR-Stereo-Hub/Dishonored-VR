@@ -2113,3 +2113,16 @@ runtime variability or baseline perception unresolved. This is a baseline
 comparison, not a claimed hand fix. Afterward, instrument actual per-view eye
 identity and deferred classifier agreement before changing eye offsets.
 Never launch the game. No merge or external publication authorized this turn.
+
+## 2026-09-14: performance rollout preserves the world checkpoint
+
+VR-115 now ports PR60 onto current main, retaining accepted image-linked world
+orientation. This is desktop-output scheduling work, not a new hand-flicker
+fix. Later perception of smoothness was uncertain; failed hand-candidate lag
+attribution remains a report, not a demonstrated cause. PR63 HUD testing was
+reported favorable but is not a controlled performance comparison.
+No new headset result exists for this performance build. Full/Off/Full uses
+actual renewed eye serials, not every-second-Present counting. A faster result
+with stale eyes or broken stereo fails. See PERFORMANCE_ROLLOUT.md for the
+recoverable plan, counterprediction and first test. World pose, hand correction,
+image lag and scene rendering remain unchanged.

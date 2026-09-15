@@ -1,3 +1,20 @@
+## Performance rollout active, 2026-09-14
+
+New branch `codex/vr-115-performance-rollout` from current VR-Main85f9ef6e4
+ports PR60 onto the accepted world fix. PR59 / VR-113 is the full audit;
+VR-115 remains In Progress. See [performance rollout](PERFORMANCE_ROLLOUT.md)
+for the staged plan, implemented first step and one-question110-second test.
+The candidate automatically compares Full/Off/Full desktop presentation using
+fresh-image stereo submission intervals. No measured performance gain yet.
+PR63 HUD work and PR62 hand experiments remain separate. No merge authorized.
+
+Next: inspect the installed candidate's matching banner and automatic benchmark
+segments; compare tails/rate against both Full baselines and inspect eye-age,
+hold/fallback counters before choosing the next optimization. Complete remaining
+Phase A instrumentation and proceed through the linked audit, one lever per test.
+
+## Historical handoffs below
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.

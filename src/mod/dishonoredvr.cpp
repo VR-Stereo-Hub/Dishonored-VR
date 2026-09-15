@@ -129,6 +129,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/perf_ab.cpp"
+#include "core/framework/desktop_benchmark.cpp"
 #include "core/framework/vs_const_hook.cpp"
 #include "game/dishonored/present_tick.cpp"
 #undef DVR_CAT

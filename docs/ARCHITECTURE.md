@@ -843,3 +843,11 @@ capture ownership fences remain independent. Mode/lifecycle boundaries invalidat
 permission and stale pin provenance. This choice trades driver presentation work
 for explicit submission and must be judged by total frame tails, not one timing
 column. See [DESKTOP_PRESENT_PERFORMANCE.md](dishonored/DESKTOP_PRESENT_PERFORMANCE.md).
+
+## 2026-09-14: fresh-pair desktop experiment
+
+The Present lane owns the bounded Full/Off/Full controller. OpenXR publishes
+copy/release serial identity for each eye and counts only successful distinct
+eye projection submissions with both serials advancing. No pose or rendering
+choice is made by the instrument. GPU render span and capture are independent
+intervals; their subtraction is invalid. See dishonored/PERFORMANCE_ROLLOUT.md.

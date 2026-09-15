@@ -338,10 +338,8 @@ void window_close(uint64_t nowMs) {
                   g_windowIncomplete ? " | incomplete presents dropped" : "");
     }
     g_lastLine[sizeof(g_lastLine) - 1] = 0;
-    // The GPU line: per tick under stereo (P1 + P2 means), per present under
-    // mono. The 3d tail = the CPU's lock wait minus the readback's own GPU
-    // time: what the lock spent waiting for the GPU to FINISH THE FRAME, the
-    // part no capture path removes.
+    // Independent intervals: capture follows Present entry, outside GPU span.
+    // CPU lock and GPU copy can overlap; subtracting them cannot identify a tail.
     {
         const uint32_t gn = g_p1.gpuN + g_p2.gpuN + g_m.gpuN;
         const uint32_t late = g_p1.gpuLate + g_p2.gpuLate + g_m.gpuLate;
@@ -366,14 +364,13 @@ void window_close(uint64_t nowMs) {
                 idleP = idleT = g_m.gms(g_m.gpuIdle); lockT = w.lockMs;
             }
             w.gpuSpanMs = spanT; w.gpuDmaMs = dmaT; w.gpuIdleMs = idleT;
-            const float tail = lockT > dmaT ? lockT - dmaT : 0.0f;
             const uint32_t population = gn + late + dis + unm;
             _snprintf(g_lastGpuLine, sizeof(g_lastGpuLine),
-                      "perf: gpu/present span=%.1f ms (3d %.1f + readback dma %.1f) idle(d3d9)=%.1f ms | per %s "
+                      "perf: gpu/present render-to-entry=%.1f ms capture=%.1f idle(d3d9)=%.1f ms | per %s "
                       "span=%.1f dma=%.1f idle=%.1f | %u resolved, %u late, %u disjoint, %u unmarked of %u | cpu "
-                      "lock=%.1f -> 3d tail = lock - dma = %.1f ms%s%s",
-                      spanP, spanP > dmaP ? spanP - dmaP : 0.0f, dmaP, idleP, w.stereo ? "tick" : "present",
-                      spanT, dmaT, idleT, gn, late, dis, unm, population, lockT, tail,
+                      "lock=%.1f; independent intervals, no subtraction or recoverable-cost claim%s%s",
+                      spanP, dmaP, idleP, w.stereo ? "tick" : "present",
+                      spanT, dmaT, idleT, gn, late, dis, unm, population, lockT,
                       population && late * 4 > population ? " (late > 25 %: K=5 too shallow for this queue)" : "",
                       gn == 0 && population ? " (nothing resolved: no marker, or every set late)" : "");
         }

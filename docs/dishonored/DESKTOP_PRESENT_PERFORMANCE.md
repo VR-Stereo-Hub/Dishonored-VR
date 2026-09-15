@@ -159,3 +159,11 @@ Then separately validate menus, notes, loading, cinematics, weapon/head movement
 return to Full, focus changes and device reset. One question per launch, with
 outcomes defined before the tester starts. No FPS gain, headset correctness or
 120 Hz result is claimed yet. No merge until explicitly authorized.
+
+## 2026-09-14 resumed on current main
+
+The old271 candidate above is historical and must not be installed over the
+accepted world fix. The new rollout ports source160949cb3 onto main85f9ef6e4,
+adds an automatic Full/Off/Full trial and accurate fresh-eye submission timing.
+See PERFORMANCE_ROLLOUT.md for the current install identity and test contract.
+No headset performance gain is established yet.
