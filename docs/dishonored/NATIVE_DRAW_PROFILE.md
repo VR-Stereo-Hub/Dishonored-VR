@@ -190,3 +190,29 @@ Next priority: whole-scene GPU timing or CPU/GPU correlation across the render
 span, followed by engine-side attribution if GPU execution is small. Avoid
 more small-state micro-optimizations until the missing cost is identified.
 No performance gain claimed, no new install, no repeat needed for this capture.
+
+## Current test: quarter-pixel hub comparison
+
+Same verified DLL298-g3d80740a9; only installed Screen.RenderWidth/Height
+changed from2750x2850 to1375x1425. Full INI diff confirms exactly those two
+changes; CRLF preserved. Backup: build/playtest-candidates/installs/20260914-221349-153396.
+Candidate: build/playtest-candidates/quarter-pixel-hub. No new code/build needed.
+Existing whole-frame D3D9 GPU timestamp instrumentation was already enabled:
+late previous-run windows report roughly10.6-11.6ms/tick GPU span. This is not
+exclusive GPU busy time; gaps in submission can contribute. Earlier handoffs
+incorrectly implied this measurement was absent. Resolution sensitivity is the
+next discriminating experiment. Verify actual CreateDevice/capture dimensions
+before accepting the result. The INI overrides the launch-file mirror.
+Test same hub120Hz, same view for60 seconds; ask whether lag is noticeably
+reduced despite the deliberately softer image. Compare timing and tails with
+the archived full-resolution run. A gain supports pixel-dependent work; little
+gain lowers upscaling priority but alone does not prove a CPU bottleneck.
+Restore original dimensions after collecting this result. No game launched.
+
+AER is a separate future investigation. Prior implementation was reported
+broken and must not be treated as a working starting point. Proposed alternative:
+freeze world simulation between eye renders for matched world state. This still
+requires two rendered views per completed pair; savings depend on avoided
+simulation/render work and scheduling, not the AER name or a presents/s counter.
+No AER implementation or installation authorized by this test configuration.
+
