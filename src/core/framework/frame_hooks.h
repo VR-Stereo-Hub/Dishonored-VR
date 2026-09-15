@@ -96,6 +96,8 @@ void set_disabled(bool on);    // disable_vr.txt: hooks stay, the VR path does n
 bool disabled();
 void set_exiting();            // PreExit: VR stands down, the session comes down next present
 bool exiting();
+void set_desktop_nonblocking(bool on); // default off, live Present-thread toggle
+bool desktop_nonblocking();
 void set_fps_cap(float fps);   // [VR] FpsCap (0 = off)
 float fps_cap();
 bool xr_live();                // the runtime session is live as of this present

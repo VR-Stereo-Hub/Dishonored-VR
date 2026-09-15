@@ -11,6 +11,8 @@
 - [x] Resolve proxy instruction samples against matching symbols; no single dominant leaf.
 - [x] Capture elevated CPU samples and waits; establish combined-trace overhead (VR-125).
 - [x] Validate narrow CPU capture against same-run untraced intervals before optimization.
+- [x] Build default-off nonblocking desktop Present candidate; native host validates API/error policy.
+- [ ] Evaluate same-run desktop nonblocking off/on/off throughput and pacing.
 - [ ] Compare opt-in compiler inlining if normal-workload attribution supports it.
 - [ ] Attribute remaining engine-side rendering costs if compiler comparison is inconclusive.
 - [ ] Correlate whole-scene GPU execution and engine rendering time before optimization.

@@ -152,6 +152,9 @@ bool is_ex_object(IDirect3D9* d3d) {
 HRESULT create_device(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND wnd, DWORD flags,
                       D3DPRESENT_PARAMETERS* pp, PFN_CreateDevice orig, IDirect3DDevice9** outDev) {
     cs_init();
+    g_deviceFromEx = false;
+    g_deviceIsEx = false;
+    g_dev = nullptr;
     if (!is_ex_object(self)) {
         const HRESULT hr = orig(self, adapter, type, wnd, flags, pp, outDev);
         strcpy_s(g_route, sizeof(g_route), "plain CreateDevice on the plain object");
@@ -223,6 +226,13 @@ HRESULT create_device(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND wnd,
              : g_managed == Managed::Dynamic ? "DEFAULT + DYNAMIC on textures (READONLY locks read uncached VRAM)"
                                              : "DEFAULT with a SYSTEMMEM shadow twin per texture (locks redirected)");
     return hr;
+}
+
+IDirect3DDevice9Ex* presenting_ex_device(IDirect3DDevice9* current) {
+    // CreateDeviceEx handed this inherited interface directly to the game.
+    // No QI, reference ownership or dereference of retained identity here.
+    return current && current == g_dev && g_deviceFromEx
+        ? static_cast<IDirect3DDevice9Ex*>(current) : nullptr;
 }
 
 bool device_is_ex() { return g_deviceIsEx; }

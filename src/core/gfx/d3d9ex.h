@@ -71,6 +71,8 @@ typedef HRESULT (__stdcall *PFN_CreateDevice)(IDirect3D9*, UINT, D3DDEVTYPE, HWN
                                               IDirect3DDevice9**);
 HRESULT create_device(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND wnd, DWORD flags,
                       D3DPRESENT_PARAMETERS* pp, PFN_CreateDevice orig, IDirect3DDevice9** outDev);
+// Borrow only for a current Present invocation on the exact CreateDeviceEx result.
+IDirect3DDevice9Ex* presenting_ex_device(IDirect3DDevice9* current);
 bool device_is_ex();          // the created device answers QueryInterface(IDirect3DDevice9Ex)
 bool adapter_luid(LUID* out); // from IDirect3D9Ex::GetAdapterLUID (false on a plain object)
 

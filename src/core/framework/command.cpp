@@ -1,5 +1,6 @@
 #define DVR_CAT ::dvr::log::Cat::cmd
 #include "core/framework/command.h"
+#include "core/framework/frame_hooks.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/framework/perf.h"
 #include "core/framework/status.h"
@@ -57,6 +58,12 @@ uint32_t sequence() { return g_seq; }
 
 bool core_command(const char* cmd, const char* args)
 {
+    if (!strcmp(cmd, "desktopnonblocking")) {
+        if (!strcmp(args, "on")) dvr::frame::set_desktop_nonblocking(true);
+        else if (!strcmp(args, "off")) dvr::frame::set_desktop_nonblocking(false);
+        else DVR_INFO("desktopnonblocking: %s; usage on|off", dvr::frame::desktop_nonblocking() ? "ON" : "OFF");
+        return true;
+    }
     if (!strcmp(cmd, "desktopeye")) {
         if (!strcmp(args, "on")) dvr::desktop_eye::set_enabled(true);
         else if (!strcmp(args, "off")) dvr::desktop_eye::set_enabled(false);

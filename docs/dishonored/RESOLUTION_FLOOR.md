@@ -492,3 +492,60 @@ must target meaningful cost rather than convenient small functions. Preserve
 working stereo synchronization. No new build installed, no pending playtest,
 no agent game launch, no merge. CPU capture complete; GPU execution attribution
 remains unavailable from the overwritten heavy trace.
+
+
+## 2026-09-15: desktop nonblocking intervention, not yet headset-tested
+
+Revisited preserved VR-115 performance-rollout evidence. Completely omitting
+native desktop Present produced about14-17% more fresh pairs in repeated sewer
+runs, but worsened frame-time tails. Reduced presentation moved most waiting to
+the remaining calls. Those results are not a forecast for the current heavy hub.
+Do not repeat those policies unchanged or promote their averages over pacing.
+
+New narrow intervention: after the existing stereo capture and runtime submission,
+try native IDirect3DDevice9Ex::PresentEx with D3DPRESENT_DONOTWAIT. Microsoft's
+[PresentEx contract](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9ex-presentex)
+returns WASSTILLDRAWING when busy instead of waiting for presentation. Only that
+busy result becomes success for the game. INVALIDCALL latches ordinary Present
+until reset or a live toggle; device-lost/hung/removed failures propagate unchanged.
+A busy desktop update is omitted, never an eye capture. No FORCEIMMEDIATE/FLIPEX
+assumption, new COM ownership, engine-memory writer, HUD change or fence removal.
+
+Eligibility requires the exact device returned by our successful CreateDeviceEx,
+live XR, projection requested, gameplay verdict, nonnull captured texture and a
+current-present +/-1 draw record; any rectangle/window/dirty-region override
+falls back. Menus/loading/mono/unknown context use the original Present. A native
+reentry guard prevents a driver's internal Present route from capturing twice.
+`Device.DesktopNonblocking=0` ships off; `desktopnonblocking on|off` switches live.
+Counters identify attempts/accepted/busy/fallback/errors and all context gates.
+This may move blocking elsewhere rather than remove it; an improvement requires
+higher actual throughput without a pacing or visual regression.
+
+Validation: 32-bit policy host exercised context fallback, busy skip, real device
+failures, occlusion status, INVALIDCALL refusal latch and reset. A hidden standalone
+native-D3D9Ex window executed200 PresentEx calls on this driver, no refusal/error;
+no busy return in that tiny workload, so busy behavior is covered by policy tests,
+not hardware reproduction. No game launched. Release build, nine exports, lint,
+PowerShell parser and production/golden/package INI checks passed. Existing missing
+CpuScopes=0 was synchronized into the release profile to match the writer; it
+remains off. No profiler is recording.
+
+Candidate: `build/playtest-candidates/vr125-desktop-nonblocking`, build
+`vr33-hands-working-313-ga3dacd055-dirty`, exact DLL SHA256
+`dd801875156d552092e13cf6a26d814126a5767aafcbda77380bd0a73e36ac09`.
+Installed INI SHA256 `09346198ea0f5b80f62ca28c518c79fc190c5025c1c4da2fcecfeda0d4b459b2`.
+Complete install diff contains only Device.DesktopNonblocking=0 added. CRLF
+verified; previous307 DLL/INI and both logs archived by the installer. Restore
+`build/playtest-candidates/vr125-cpu-scopes` for the exact pre-intervention state.
+
+Headset protocol: launch and continue to the same laggy hub, same resolution,
+120Hz and weapon state. Face the same expensive view for two minutes; briefly
+turn the head near the end. `tools/timed-desktop-present.ps1` waits for a fresh
+matching build and the established populated-hub SRT threshold, then30s off,
+40s on,30s off. This threshold is a test trigger, not a universal gameplay flag.
+The runtime gate independently checks actual gameplay. No ETW overhead. Read
+only complete log windows within each marked phase, verify attempts actually
+occurred, then compare native Present cost, fresh pairs/tails and logged tick rate.
+The single user question is whether visuals and responsiveness remain normal
+throughout. Normal permits quantitative evaluation, not automatic promotion;
+any new artifact rejects this candidate. No performance claim before the run.
