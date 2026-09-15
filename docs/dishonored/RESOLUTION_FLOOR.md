@@ -303,3 +303,54 @@ restored accepted298 and exact original mod INI (only CpuScopes=0 removed).
 No new ticket, no merge. Continue VR-125 with matching-symbol identification of
 expensive proxy draw work. DetailMode/LOD/decal controls remain optional bounded
 quality-cost experiments, not a blanket low-settings prescription.
+
+## Matching-symbol render-thread samples (2026-09-15)
+
+Two2000-sample batches in the pub view on verified307, same archived DLL/PDB
+hashes as the scoped timing test. CpuScopes stayed off; NativeProfile remained
+on as in preceding comparisons. Read-only5-second accounting identified render
+thread42324 at74.4% of one logical core. Only this thread was suspended for IP
+capture; no driver-thread sampling order interaction. Mean capture span63.9/
+63.4us, maxima1.33/0.50ms. Attribution only, not an FPS benchmark.
+
+New tools/resolve-candidate-symbols.ps1 verifies archived DLL and PDB SHA256
+against manifest, then uses local64-bit SDK DbgHelp with exact-symbol loading,
+local search path, no environment symbol path or prompts. No game process is
+opened for resolution. Smoke lookup found hkPresent/source line in the archive.
+All sampled proxy RVAs resolved in both batches. Symbols are leaf locations,
+not inclusive call stacks; inline frames, linker thunks and runtime helpers
+limit source attribution. Do not feed another build's RVAs to this resolver.
+
+| Leaf function | Batch A | Batch B |
+|---|---:|---:|
+| hkSetVSConstF |30|40|
+| native_profile Scope constructor |19|17|
+| memcpy |14|21|
+| CmpPtr (live-object table comparator) |12|10|
+| WaDrawInner |10|9|
+| native_profile Scope finish |6|10|
+| native_profile enabled |6|10|
+| weapon-frame match |6|8|
+
+Proxy samples223/2000 and267/2000; game executable751/2000 and667/2000;
+native Windows D3D9322/2000 and319/2000. Remaining include waits, kernel
+transition return sites and other modules. No zero-error sample count is
+proof of on-CPU sampling. Vertex-constant handling totals70/4000 wall-time
+samples, not1.75% of CPU or guaranteed frame-time savings. No single proxy
+leaf dominates. Profiler code itself appears, so diagnostic overhead remains
+part of these captures; prior controlled diagnostic results must not be ignored.
+Never remove liveness checks to optimize the comparator samples.
+
+Inspected generated dvr_proxy.vcxproj after seeing small helper and incremental
+link thunks: tested RelWithDebInfo already uses MaxSpeed (/O2), but inlining is
+OnlyExplicitInline (/Ob1) and incremental linking enabled. Release permits
+AnySuitable (/Ob2) and disables incremental linking. This is NOT an unoptimized
+Debug build. A bounded compiler-inlining comparison is a reasonable next
+experiment, with unchanged runtime settings and default-off opt-in build flag;
+no claim of gain, no compiler setting or shipping default changed in this test.
+
+Evidence build/performance-results/vr125-symbols: both raw IP batches, symbol
+maps, CPU baseline, summary and both game logs. Full installed hashes matched
+candidate before restore. Game closed; accepted298 and exact original INI
+restored with complete diff only removing CpuScopes=0. No game INI changes,
+no merge. Continue under VR-125; do not open a ticket for each measurement.

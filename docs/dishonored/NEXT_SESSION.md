@@ -1,3 +1,15 @@
+## Current VR-125: proxy functions identified with matching symbols
+
+Two2000-IP batches on exact307/PDB repeat vertex-constant, profiler, memcpy and
+weapon-processing leaves; no single large proxy leaf. Counts include waiting
+and are not CPU percentages or recoverable time. Evidence RESOLUTION_FLOOR.md.
+Added offline hash-verified symbol resolver. Build inspection: RelWithDebInfo
+already /O2, but /Ob1 and incremental linking; do not call it an unoptimized build.
+Next bounded experiment: opt-in compiler inlining comparison, same source/runtime
+settings, then runtime/headset verification before any promotion. Keep VR-125.
+Game closed; accepted298 and exact original INI restored. No merge. Agent launch
+authorization continues until shutdown requested; no pending headset test.
+
 ## Current VR-125: INI shadow test produces no useful hub gain
 
 Surveyed actual engine/compat INIs; active Vsync/smoothing/AO/blur/DOF already off.

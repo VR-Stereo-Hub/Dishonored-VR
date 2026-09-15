@@ -8,7 +8,9 @@
 - [x] Attribute busy threads and collect bounded pub-view instruction samples (VR-125).
 - [x] Locate render-stage cycle consumption; coarse CPU-ms attribution rejected (VR-125).
 - [x] Survey game INIs and bracket dynamic-shadow removal; no useful hub gain (VR-125).
-- [ ] Identify expensive engine/proxy work inside the outside-Present region.
+- [x] Resolve proxy instruction samples against matching symbols; no single dominant leaf.
+- [ ] Compare opt-in compiler inlining before changing rendering behavior.
+- [ ] Attribute remaining engine-side rendering costs if compiler comparison is inconclusive.
 - [ ] Correlate whole-scene GPU execution and engine rendering time before optimization.
 
 
