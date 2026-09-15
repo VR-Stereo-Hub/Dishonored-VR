@@ -16,8 +16,8 @@ The current verdicts below override every older plan or pending-test instruction
 ## Current state and next decision
 
 - Active ticket VR-125, branch codex/vr-125-resolution-floor. No merge approved.
-- Installed query-wait diagnostic316-g7e140527d-dirty, QueryWaitProfile=1,
-  CpuScopes=0, original2750x2850/120Hz; previous307 archived.
+- Query-helper diagnostic316 measured; restored previous307 with the probe off.
+  Original2750x2850/120Hz and CpuScopes=0 remain the baseline.
 - Quarter pixels improved rate about6%; almost twice the pixels worsened rate to
   approximately45-50fps. There is a resolution-independent floor, not proof that
   GPU cost is absent. Simulator performance is not headset performance.
@@ -28,11 +28,54 @@ The current verdicts below override every older plan or pending-test instruction
 - Nonblocking desktop Present313 rejected:58.21/57.70/58.29ticks/s off/on/off;
   last on heartbeat4818 accepted attempts,0 busy skips. Previous307 restored.
 - HUD excluded. Preserve accepted image-owned orientation and stereo fences.
-- Next: attribute game-owned D3D9 EVENT/OCCLUSION query waits by caller and eye.
+- Measured engine query-helper cost is only0.102ms/stereo pair (0.596% elapsed).
+  Next: inspect existing CPU samples and viewport render preparation/culling
+  boundaries for duplicated per-view work. No further unchanged query test.
   Do not infer double AI updates: only viewport Draw is doubled, after world tick.
-  If query waits are cheap, pursue duplicated scene preparation/culling instead.
 
-## Current candidate: engine query helper timing, 2026-09-15
+## Query-helper headset result, 2026-09-15
+
+Verified current log banner316-g7e140527d-dirty and installed DLL SHA256 against
+its candidate before analysis. Archived current/previous logs and installed INI
+under build/performance-results/vr125-query-waits/run-20260915-172646;
+analysis.json contains aggregate data. These local artifacts are not committed.
+
+The automatic phase helper expired after its15-minute launch wait, before the
+tester launched. Therefore no off/on/off comparison occurred. QueryWaitProfile=1
+was active from launch and the byte-verified hook installed successfully, so the
+run still measures helper cost. It does not measure instrumentation overhead or
+establish a subjective performance/visual result; the tester reported completion
+only. Do not request another run solely to replace the absent control phases.
+
+Selected81 complete gameplay query windows,243.335s and14230 completed stereo
+pairs, using nearby perf tick windows with SRT>=70/present and>=45ticks/s.
+Selected timestamps34642234 through34882562; startup/exit excluded. The selection
+is an operational hub-view filter, not a general-purpose game-state classifier.
+Total inclusive helper wall time1450.505ms,0.5961% elapsed,0.10193ms/pair.
+No row overflow, other-thread calls or helper-false results in this selection.
+
+| Caller RVA | Runtime type | Calls | Total helper ms | Largest call ms |
+|---|---|---:|---:|---:|
+|005BF54A|EVENT(8)|28624|31.915|0.176|
+|005C131F|OCCLUSION(9)|8257273|1418.581|0.932|
+|005BD170 /005BD18A|TIMESTAMP(10)|3 each|0.000 rounded each|0.000 rounded|
+
+Verdict: this shared query-read helper is not a major steady hub bottleneck.
+Even eliminating all its measured cost would recover only about0.10ms/pair.
+This includes native polling inside the helper, but excludes query issue work,
+GetType/counter bookkeeping, other native paths, and waits inside Present/draw.
+It does not establish that occlusion culling itself is cheap, only these reads.
+The high query-call count is not evidence that AI/world simulation ran twice.
+
+Exact307 baseline restored; full INI diff only removes QueryWaitProfile=1,
+CRLF and candidate hashes verified. Install archive:
+build/playtest-candidates/installs/20260915-172812-753329.
+Next action: inspect the existing normal CPU trace
+for duplicated per-view scene preparation, visibility and draw submission. Map a
+specific expensive boundary before adding another probe or requesting a headset
+run. Preserve synchronization and accepted image-owned orientation; HUD excluded.
+
+## Tested candidate: engine query helper timing, 2026-09-15
 
 Offline derivation found the shared native query-read helper and five direct
 callers. It polls GetData with FLUSH when permitted; existence does not establish
@@ -58,7 +101,7 @@ trampoline/four-argument ABI, unchanged full return/data, type classification,
 completed interval assignment, other-thread exclusion, toggle/transition reset,
 and hook removal. Installed game matches the15-byte signature. Release build,
 exports, lint and generated/golden/release profile equality pass. No game launched.
-No actual engine cost measured yet.
+Engine cost is now measured above; the original test setup below is historical.
 
 Candidate archive: build/playtest-candidates/vr125-query-waits.
 DLL SHA256: `ac836a714818bb8132600c06489d8c1bf45302d94c42a0903f4beca20a37d67f`.
@@ -92,7 +135,7 @@ caller and prove a safe scheduling/reuse change before implementing it.
 | Bridge GPU copies | Individually small |~0.10ms/eye conversion and~0.057ms/eye XR copy, VR-123 |
 | Buffer/texture locks | Low sampled cost | Native draw profile; sampled maxima do not bound all calls |
 | Shader reflection | Small measured aggregate cost |~5ms/s; not a large frame-budget recovery |
-| Query/frame synchronization | Open; next attribution | Game queries not yet separated from mod fences/type/caller/eye |
+| Engine query-read helper | Not a major hub cost |316:0.102ms/pair,0.596% elapsed; other native wait paths remain open |
 | Visibility/culling/captures | Open, conditional second priority | Per-eye redundant work possible, not yet established |
 | AER rewrite | Major alternative, not implemented | Existing legacy path broken; stable eyes/world sync required |
 | Epic x64 port | Unmeasured alternative | Different executable requires real mod port; bitness promises no gain |

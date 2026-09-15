@@ -1,9 +1,10 @@
 ## Current performance work (VR-125)
 
 [PERFORMANCE.md](PERFORMANCE.md) is the single research and experiment record.
-Installed316 query-helper diagnostic; automatic30s off/40s on/30s off awaits
-tester launch in the same hub. Full setup, hashes, rollback and one-question
-protocol are in PERFORMANCE.md. No result or merge approval yet.
+316 headset result: query helper costs0.102ms/pair, not a major hub bottleneck.
+Phase helper expired before launch; continuous profiling was usable, no A/B claim.
+Restored307 baseline. Next inspect existing CPU evidence for duplicated scene
+preparation/draw work. Details in PERFORMANCE.md. No merge approval.
 All performance findings, provenance and future plans belong in that document.
 
 ## Completed merge and installed state: 2026-09-14
