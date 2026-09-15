@@ -1,3 +1,13 @@
+## Current VR-125: UE3 online research completed, 2026-09-15
+
+See UE3_PERFORMANCE_RESEARCH.md for primary sources and ranked leads.
+Priority: check whether engine-owned query/frame waits repeat per eye; no
+existing timing separates game query type/caller/eye from mod ownership fences.
+If cheap, pursue duplicated scene preparation/culling/draw submission. Actual
+AI/world tick is outside the doubled viewport draw. Low aggregate utilization
+is not proof of spare capacity on the critical render/driver dependency.
+No new tweak/test armed;307 and exact INI unchanged. HUD excluded. No merge.
+
 ## Current VR-125: nonblocking desktop test rejected, 2026-09-15
 
 Verified313 banner/hash; automatic off/on/off completed. Complete windows:
