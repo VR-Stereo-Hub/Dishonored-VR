@@ -1,3 +1,21 @@
+## Installed VR-123 bridge GPU profile
+
+Build `vr33-hands-working-295-g63d1cde30`, compiled 21:03:29, source 63d1cde30.
+DLL SHA256 `ec410903b25fb54f45a4bb02bf53f330bba1d503883b069e45e96b1b09c76067`.
+INI SHA256 `6e1b9832cfd0606ed4c18aa373303c0b8fa670c0acbb7eefd973c0918bf8e916`.
+Bundle build/playtest-candidates/bridge-gpu-profile. Prior DLL, INI and both logs
+archived20260914-210414-300341. Complete INI diff adds only Perf.BridgeGpu=1;
+CRLF and installed hashes verified. 18 host checks, standalone hardware query
+lifecycle, release, lint, golden and 9 exports pass. No game launched or merge
+permission. Local publication blocked by automatic approval review pending
+specific authorization to push the branch and open its draft PR on GitHub.
+
+Next: laggy hub at120Hz, typical busy view, stay in one spot with both weapons
+visible for about60 seconds without combat/menus, then brief head/hand movement.
+One test question: do the world and both weapons still look and track normally?
+Match build295 before interpreting the log. This workload is not directly
+comparable to the earlier quiet sewer CPU profile. See BRIDGE_GPU_PROFILE.md.
+
 ## Current state: bridge GPU profiling candidate (VR-123)
 
 Performance work resumed on `codex/vr-123-bridge-gpu-profile` from current main
