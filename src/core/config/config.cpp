@@ -1,3 +1,4 @@
+#include "core/framework/render_profile.h"
 // core/config/config.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -1418,6 +1419,7 @@ static void LoadConfig()
         const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
         dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
         dvr::perf::desktop_ab_set_enabled(desktopTrial == 1 || desktopTrial == 2);
+        dvr::render_profile::set_enabled(GetPrivateProfileIntA("Perf", "RenderProfile", 0, ini) != 0);
         // VR-68: which head generation the HAND normalisation uses. 0 = the
         // freshest (historical); 2 = the one the rendered view was built from,
         // which is what bv/lag measured. PoseLagAb walks 0/2/0/2 so a headset

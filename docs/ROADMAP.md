@@ -336,3 +336,10 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [ ] VR-50 broader manual-FOV/kill-cam validation, VR-109 character mode, VR-99 brief note flicker, VR-87 height ceiling and VR-102 startup timing remain separate.
 
 - [x] PR56/57/58 merged to VR-Main in order; all branches retained and10 linked tickets verified Done.
+
+## Render-thread performance investigation
+
+- [x] VR-121 independent profiling branch from accepted main.
+- [x] Bounded sampled scopes and production host checks.
+- [ ] Headset log attribution, then choose a measured optimization.
+- [ ] Integration branch validation after independent wins are established.

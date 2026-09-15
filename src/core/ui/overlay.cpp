@@ -1,3 +1,4 @@
+#include "core/framework/render_profile.h"
 // core/ui/overlay.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -665,6 +666,11 @@ static void OverlayFrame()
         }
         ImGui::TextDisabled("Keeps both headset eyes; avoids redundant desktop updates when safe.");
         if (mirrorOff) ImGui::EndDisabled();
+    }
+    bool renderProfile=dvr::render_profile::enabled();
+    if(ImGui::Checkbox("Sample render-thread CPU costs", &renderProfile)) {
+        dvr::render_profile::set_enabled(renderProfile);
+        ConfigWriteKey("Perf", "RenderProfile", renderProfile?"1":"0", "F10 Display");
     }
     // 41.1: the stereo arming tickbox, TICKED by default (the user's ask). It
     // parks the selected method on the mono screen without forgetting it; the

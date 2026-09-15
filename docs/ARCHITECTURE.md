@@ -894,3 +894,10 @@ copy/release serial identity for each eye and counts only successful distinct
 eye projection submissions with both serials advancing. No pose or rendering
 choice is made by the instrument. GPU render span and capture are independent
 intervals; their subtraction is invalid. See dishonored/PERFORMANCE_ROLLOUT.md.
+## 2026-09-14: independent performance branches and sampled CPU scopes
+
+Independent experiments branch from accepted main; stack genuine dependencies
+only. Combine validated successes on an integration branch and test interactions.
+VR-121 sampling is render-thread-owned and fixed-size; per-call enable/owner
+checks precede randomized timing. Inclusive nested scopes are not additive.
+See dishonored/RENDER_THREAD_PROFILE.md. No rendering choice changes here.
