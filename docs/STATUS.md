@@ -6,7 +6,10 @@ hooks versus native API calls. Previous diagnostic A/B completed without a
 compelling gain; all earlier experiment branches retained. NativeProfile defaults
 0; test install enables1 and disarms DiagnosticAb. See NATIVE_DRAW_PROFILE.md.
 Next:60-second fixed-view hub capture, then brief head/hand checks. No phase
-switching, game launch or merge. Build/install identity follows once verified.
+switching, game launch or merge.
+
+Installed and hash-verified build `vr33-hands-working-295-gf4062ba4b`, compiled 21:46:15. Release build and host checks passed. Full INI comparison: only NativeProfile=1 added and DiagnosticAb changed from1 to0; CRLF preserved. Both previous logs and binaries archived in `C:\dev\Dishonored-VR\build\playtest-candidates\installs\20260914-214922-606852`. Game not launched.
+
 
 ## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), headset run 1 good, PR #64 open - 2026-09-15
 

@@ -60,3 +60,12 @@ Next decision: materially expensive hook totals with small native calls point
 toward mod CPU work; expensive native-call spans point toward driver submission
 or waiting, requiring GPU/CPU correlation before identifying the cause. If both
 are small, examine uninstrumented engine/API work rather than claiming a solution.
+
+## Installed candidate
+
+Installed and hash-verified build `vr33-hands-working-295-gf4062ba4b`, compiled 21:46:15. Release build and host checks passed. Full INI comparison: only NativeProfile=1 added and DiagnosticAb changed from1 to0; CRLF preserved. Both previous logs and binaries archived in `C:\dev\Dishonored-VR\build\playtest-candidates\installs\20260914-214922-606852`. Game not launched.
+
+Source commit: `f4062ba4b442f57db86b6aa44edacec297f15f04`.
+DLL SHA256: `7deb90501bda330b7e22a31f3ea27fc06dd95f60382853f70ef1ecafcae90566`.
+INI SHA256: `74d092be1ac4fa29e5b1b06fadc0b100a686664fdda82eb2e1986b556dc1241b`.
+Headset validation pending.
