@@ -1,3 +1,6 @@
+Installed next trial:280-g8ab31c78e /19:47:38, Perf.DesktopAb=2.
+Only that INI value changed; full diff and CRLF verified.
+
 ## Repeat confirms mixed result; Reduced comparison next
 
 Second Full/Off/Full run:81.86 /95.62 /84.02 fresh pairs/s. Off repeats the

@@ -212,3 +212,13 @@ Reduced should keep the desktop updating. Logs must prove eligibility and actual
 omitted Presents before calling this an effective reduced-delivery comparison.
 A gain with more held images or visual faults fails; no gain means this path
 is not an adequate solution and the audit proceeds to CPU/GPU discrimination.
+
+## Reduced candidate installed
+
+Build `vr33-hands-working-280-g8ab31c78e`, compiled19:47:38, source8ab31c78e.
+DLL SHA256 `95e4975a3ad91d7bac55f2766b879e168a0081541217b6a90eb39a92807c4933`.
+INI SHA256 `8e3eea040b384c9de669317888c39383293a8a866ccd40adb2335c3cd5ef6b6d`.
+Complete INI diff: only Perf.DesktopAb1 ->2; CRLF verified. Previous DLL,
+INI and both logs archived20260914-194819-889376. Release build, benchmark
+host, lint, golden and9 exports passed. No game launched. Next run must
+match280-g8ab31c78e /19:47:38. Full/Reduced/Full110-second test is ready.
