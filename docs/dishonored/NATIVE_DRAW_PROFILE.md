@@ -238,3 +238,22 @@ Next: same hub120Hz, same view60 seconds, then brief head movement. Question:
 is lag noticeably worse than at the original resolution? Similar lag supports
 keeping extra clarity provisionally, subject to actual dimensions and log timing;
 worse lag means exceeding useful headroom. No new default or merge. Game not launched.
+
+## Resolution trial concluded; original setting restored
+
+Verified build298-g3d80740a9 and actual CreateDevice3850x3990. High-resolution
+hub slowdown reported around45-50fps; log contains consecutive20-22ms tick
+windows around44-49 ticks/s. Later windows return near69/s, so the whole run
+must not be averaged as one fixed hub workload. Test was not completed as
+prescribed; sufficient to reject the proposed high-resolution setting, not to
+claim a controlled performance percentage. Both logs archived at
+build/performance-results/high-resolution-20260914-222549.
+
+Restored installed2750x2850, same DLL and all other settings. Full INI comparison
+contains only width/height restoration; CRLF verified by installer. Canonical
+installed.json records backup and hashes. No game launched. No repeat requested.
+Quarter-pixel offered little gain, nearly double pixels caused substantial loss:
+consistent with mixed limits / a resolution-independent floor plus higher-resolution
+GPU or transfer pressure. Does not prove a particular engine or GPU bottleneck.
+Next development should identify engine/submission/wait costs at original size,
+not promise upscaling or AER gains from these observations. No main merge.
