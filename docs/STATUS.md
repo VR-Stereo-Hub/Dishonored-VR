@@ -1,3 +1,15 @@
+## Current VR-125: representative CPU trace complete; HUD excluded
+
+Same-run before/during/after55.47/55.80/56.80 logged ticks/s; tester reports
+consistent lag. Lightweight trace saved/stopped with zero lost events.
+Interior render thread72.43% running,26.91% blocked,0.57% ready; NVIDIA worker
+wakes most blocked time and repeats a sampled polling hotspot. This identifies
+a dependency, not removable cost. Details RESOLUTION_FLOOR.md.
+HUD changes are explicitly out of scope: tester reports unchanged performance
+across recent HUD update; normal HUD conversion only0.99% of render CPU samples.
+No HUD code changed. Continue engine/native-driver draw submission attribution.
+Installed307/INI unchanged. No pending playtest, game launch, or merge.
+
 ## Current VR-125: untraced control and lightweight CPU capture
 
 Same307/original INI: untraced hub57.14ticks/s versus heavy trace45.85.

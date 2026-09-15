@@ -455,3 +455,40 @@ was lag close to the untraced control throughout? If yes, attribute normal
 CPU/wait work with lower disturbance; if no, inspect before/during/after
 markers and reject a materially perturbed interval. No frame-rate gain claimed.
 Continue VR-125; no new ticket, branch, merge, or default change.
+
+## Lightweight headset result and scope correction, 2026-09-15
+
+Verified307 banner and archived final/previous logs under
+build/performance-results/vr125-light-headset. Helper completed, all six phase
+marks acknowledged; trace saved/stopped. Same-run mean logged ticks/s before/
+during/after:55.4667/55.8/56.8 across9/12/10 complete3s windows, excluding
+windows overlapping phase starts. Means17.9556/17.8417/17.57ms. Tester reports
+consistent lag. No obvious material throughput penalty from this narrow trace;
+not an optimization result. ETL41.1685s, zero lost buffers/events.
+
+Interior trace5-35s: render19568 running21.729464s (72.43%), blocked8.073922s
+(26.91%), ready0.171685s (0.57%), unclassified0.014044s. About7.381696s of
+blocking ends at wake events from game-process worker14260. Its sampled stack
+root is NVIDIA D3D9, and the previously disassembled polling region remains:
+RVA0x14d095f alone2932 samples (14.99% of worker CPU stack samples), nearby
+0x14d095b309 (1.58%). This is actual on-CPU sampling, unlike earlier suspended
+IP batches, but polling time is not automatically reclaimable frame time.
+No claim that removing waits or spinning is safe, or that driver waits identify
+the ultimate cause rather than a downstream dependency.
+
+HUD route withdrawn from this investigation. Tester reports unchanged
+performance across the recent HUD update and explicitly rejects HUD work.
+Normal trace HUD end_frame209 samples (0.99% of render CPU stack samples);
+scene read_done118 (0.56%). Neither supports treating HUD conversion as a
+substantial bottleneck. No HUD source, config, submission, or fence change was
+made. Earlier proposed batching work is NOT the next step. Record the tested
+negative and avoid revisiting it without new contradictory evidence.
+
+Current target: engine draw/state submission and the native D3D9 driver
+dependency, including distinguishing useful worker work from polling. Normal
+render CPU leaves include native indexed drawing, texture binding and shader
+constant updates; no single engine instruction dominates. Further changes
+must target meaningful cost rather than convenient small functions. Preserve
+working stereo synchronization. No new build installed, no pending playtest,
+no agent game launch, no merge. CPU capture complete; GPU execution attribution
+remains unavailable from the overwritten heavy trace.
