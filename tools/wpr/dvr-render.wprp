@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0">
+ <Profiles>
+  <SystemCollector Id="Kernel" Name="DVR rendering CPU"><BufferSize Value="1024"/><Buffers Value="256"/></SystemCollector>
+  <SystemProvider Id="CpuEvents">
+   <Keywords><Keyword Value="CpuConfig"/><Keyword Value="ProcessThread"/><Keyword Value="Loader"/><Keyword Value="CSwitch"/><Keyword Value="ReadyThread"/><Keyword Value="SampledProfile"/></Keywords>
+   <Stacks><Stack Value="SampledProfile"/></Stacks>
+  </SystemProvider>
+  <Profile Id="DvrRender.Verbose.Memory" Name="DvrRender" Description="CPU samples and scheduling only; no GPU or syscall event tracing" LoggingMode="Memory" DetailLevel="Verbose">
+   <Collectors>
+    <SystemCollectorId Value="Kernel"><SystemProviderId Value="CpuEvents"/></SystemCollectorId>
+     </Collectors>
+  </Profile>
+ </Profiles>
+</WindowsPerformanceRecorder>
+

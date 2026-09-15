@@ -1,3 +1,16 @@
+## Current VR-125: untraced control and lightweight CPU capture
+
+Same307/original INI: untraced hub57.14ticks/s versus heavy trace45.85.
+Heavy trace GPU events rolled past gameplay despite zero lost-event count;
+CPU scheduling/samples retained. No usable gameplay GPU timeline in that ETL.
+Prepared verified CPU-only profile: samples/stacks plus scheduling, no syscall
+or GPU events. Timed helper armed at build/performance-results/vr125-light-headset,
+awaiting tester launch. Same hub/weapons/120Hz for3min; question: is lag close
+to untraced control throughout? Automatic30s baseline/40s trace/save/cooldown/
+30s baseline. Read markers, event coverage and log banner before analysis.
+HUD submission batching is a candidate only, not an implemented optimization.
+Details RESOLUTION_FLOOR.md. No agent game launch or merge authorized.
+
 ## Current VR-125: elevated trace adds measurable driver overhead
 
 Headset combined CPU/GPU trace saved and stopped. Exact307/original resolution.

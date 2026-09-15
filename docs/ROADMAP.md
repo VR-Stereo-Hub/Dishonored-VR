@@ -9,7 +9,9 @@
 - [x] Locate render-stage cycle consumption; coarse CPU-ms attribution rejected (VR-125).
 - [x] Survey game INIs and bracket dynamic-shadow removal; no useful hub gain (VR-125).
 - [x] Resolve proxy instruction samples against matching symbols; no single dominant leaf.
-- [ ] Compare opt-in compiler inlining before changing rendering behavior.
+- [x] Capture elevated CPU samples and waits; establish combined-trace overhead (VR-125).
+- [ ] Validate narrow CPU capture against same-run untraced intervals before optimization.
+- [ ] Compare opt-in compiler inlining if normal-workload attribution supports it.
 - [ ] Attribute remaining engine-side rendering costs if compiler comparison is inconclusive.
 - [ ] Correlate whole-scene GPU execution and engine rendering time before optimization.
 

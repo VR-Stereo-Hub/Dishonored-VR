@@ -405,3 +405,53 @@ Tester launches current headset tests. No merge authorized. Both game logs
 archived. Accepted298 was briefly restored, then exact307 reinstalled for the
 same-build recorder-off control; full INI diff only CpuScopes=0 addition,
 CRLF verified by installer. No game INI changes.
+
+## Untraced control and narrower capture, 2026-09-15
+
+Same307 banner verified (23:39:36), same installed INI and original resolution.
+Both logs archived in build/performance-results/vr125-etw-off-control.
+Tester reports only slightly worse lag than the prior evening. Sixteen stable
+hub windows, log2211171-2256187ms, average57.1375ticks/s and17.41875ms/tick.
+Combined-trace windows averaged45.85ticks/s,21.65ms. The control is about24.6%
+faster, consistent with significant recorder overhead; separate views/runs
+and residual baseline variation prevent assigning the entire delta to tracing.
+
+Correction to GPU availability: raw GPU queue events for the gameplay interval
+190-230s are absent. First retained GPU event is312.751821s, AFTER game exit at
+239.448196s. The rolling event collector overwrote gameplay while the kernel
+collector retained CPU data. Zero dropped events is not proof of retained
+interval coverage. GPU queue correlation cannot be performed on this run.
+Original ETL preserved; large derivative GPU export stopped after proving this.
+Do not publish or commit traces, logs, dumps, or symbol caches.
+
+Source/stack follow-up: HUD end_frame flushes each active converted sink, and
+scene read_done flushes its fence. CPU samples include HUD end_frame602/24416
+(2.47%) and scene read_done361/24416 (1.48%), inclusive of nested work.
+Mixed CPU/scheduling stack counts contain driver waits but are NOT duration
+fractions. Batching HUD submissions is a bounded candidate, not an established
+large win. Normal scene capture fence waits were zero in inspected late windows.
+Do not remove image ownership fences or apply a synchronization change yet.
+
+Added tools/timed-render-trace.ps1 and tools/wpr/dvr-render.wprp. Final profile
+collects CPU samples with stacks plus process/image and scheduling events;
+no syscall events, no GPU events, no CSwitch/ReadyThread stacks. Local profile
+validation and elevated2s smoke confirmed sampled stacks and scheduling data.
+An attempted custom GPU provider emitted no queue data at levels5 or255;
+it is removed from the final profile, not presented as a validated GPU capture.
+
+Helper requires an administrator token and an idle WPR session, never launches
+the game, waits for a new process and expected build plus a populated hub
+perf line (SRT>=70). This threshold is a test-specific workload trigger,
+not a general gameplay detector. It marks30s baseline,40s trace, saves
+immediately, excludes save/rundown plus10s cooldown, then marks30s baseline.
+15min launch/load timeout; early game exit saves an owned trace. Never cancels
+another recording. Read markers/acks and retained event coverage after the run.
+Bounded64KB tail reads avoid streaming a growing log indefinitely.
+
+Next headset run is armed in build/performance-results/vr125-light-headset.
+Same307 and INI remain installed; no game launch or renderer change.
+Tester: same hub view,120Hz,weapons out,stay3min,then exit. One question:
+was lag close to the untraced control throughout? If yes, attribute normal
+CPU/wait work with lower disturbance; if no, inspect before/during/after
+markers and reject a materially perturbed interval. No frame-rate gain claimed.
+Continue VR-125; no new ticket, branch, merge, or default change.
