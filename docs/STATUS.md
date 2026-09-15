@@ -1,4 +1,4 @@
-## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), simulator-green, PR #64 open - 2026-09-15
+## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), headset run 1 good, PR #64 open - 2026-09-15
 
 Branch `claude/vr-120-hud-elements` off `claude/vr-117-hud-redo` (PR #63, still NOT
 merged; this branch's PR #64 is stacked on it and says `Ref`, not `Fixes`, until
@@ -48,18 +48,19 @@ Installed on this PC for the headset run: the RelWithDebInfo build of this branc
 (SHA256 starting C0DC094D, a byte copy of `release/dishonored_vr.ini`); the Debug runs'
 logs are under `D:\dvr-data\logs\vr120-run*.log`.
 
-NOT headset-tested yet. The headset list is on VR-119 and VR-120 (numbered, with the
-F10 fields): alpha mode per anchor, the two hands' tilt signs, whether the reticle
-belongs in the frame, the proposed preset (vitals on the left hand, text on the
-window, reticle in the frame, screens on the window) against the shipped one. The
-shipped preset and the alpha default are the user's call after that run.
+First headset run (2026-09-15, Release build 287, the repo ini): the preset, the
+vitals on the left hand, the `default` row on the left hand / in the frame / off, the
+vitals off, the pause, a note and the wheel riding, all judged good (HUD_ANCHORS section
+7 has the log's lines). The alpha modes were not changed during that run, so `repair`
+is the only mode judged so far; the VR-119 list (captured vs repair, floor, gain, a
+backdrop) is still open. The shipped preset and the alpha default stay as they are
+until the user names a change.
 
 ## Next steps
 
-1. Headset run on the Release build of this branch (`tools\build.ps1 -Release`,
-   `tools\install.ps1 -Release`, the release ini byte-copied; the F10 HUD tab moves
-   everything live). Verdicts on VR-119 and VR-120; flip `AlphaMode` and the preset in
-   `WriteDefaultIni` + `tools\ini-golden.py` + the release ini if the headset says so.
+1. The alpha modes in the headset (VR-119's list: `captured` vs `repair` on the window and
+   a hand, floor 0.2, gain 1.5, a 0.3 window backdrop). Flip `AlphaMode` and the preset in
+   `WriteDefaultIni` + `tools\ini-golden.py` + the release ini if the user says so.
 2. Review and merge VR-117 (PR #63) first; then retarget this PR to VR-Main and change
    its `Ref` lines to `Fixes VR-118, VR-119, VR-120`. Never merge without permission.
 3. The eight unmeasured rows (equipment, subtitles, objective marker, toast, tutorial,
