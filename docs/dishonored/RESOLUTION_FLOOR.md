@@ -354,3 +354,54 @@ maps, CPU baseline, summary and both game logs. Full installed hashes matched
 candidate before restore. Game closed; accepted298 and exact original INI
 restored with complete diff only removing CpuScopes=0. No game INI changes,
 no merge. Continue under VR-125; do not open a ticket for each measurement.
+
+## Elevated headset trace, 2026-09-15
+
+User reported substantially worse lag than prior evening. Exact307 banner
+23:39:36 verified against candidate DLL/PDB; original2750x2850 and120Hz.
+GeneralProfile plus GPU captured in memory, saved locally as
+build/performance-results/vr125-etw-headset-20260915/headset.etl.
+WPR successfully stopped and saved; zero lost buffers/events reported. Do not
+read a still-merging ETL: early reads lacked CPU data until save completed.
+Non-elevated WPR status incorrectly showed no recording while elevated status
+confirmed active collectors; query recorder state in the elevated context.
+
+Analysis interval190-230s from trace start, approximately log642936-682936ms.
+Twelve complete log windows inside it average45.85ticks/s and21.65ms/tick,
+versus earlier separate headset runs around62-66ticks/s. Not a matched control.
+Scheduling reconstruction from CSwitch and ReadyThread agrees with xperf CPU:
+render9692 runs25.550s (63.87%), blocked14.068s (35.17%), ready0.367s (0.92%).
+Boundary/unclassified time about0.02s. Worker19852 runs28.697s (71.74%);
+game-thread11460 runs10.104s (25.26%). Total system busy about27.49%.
+These thread times overlap. Ready time is distinct from blocking; aggregate
+CPU utilization does not establish readily usable parallel capacity.
+About13.166s of render blocking ends at non-DPC wake events on worker19852.
+Sampled stacks establish this worker is rooted in NVIDIA D3D9 driver code.
+A wake event identifies the wake context, not necessarily the full dependency
+chain or a removable wait. Do not infer wait durations from stack hit counts.
+
+Render CPU stack samples (24416 with stacks): engine42.76%, native D3D9
+20.56%, proxy13.07%, kernel8.69%, NVIDIA D3D9 driver5.12%, remaining modules.
+These are exclusive sample shares of this thread's CPU execution, not total
+frame-time fractions or potential gains. Proxy symbols match archived307.
+NVIDIA worker27316 CPU stacks: EtwpEventWriteFull inclusive4919 (18.01%);
+RtlWalkFrameChain4731 (17.32%), heavily overlapping. Render thread also
+shows RtlWalkFrameChain957 (3.92%) and EtwpEventWriteFull692 (2.83%).
+Recorder overhead therefore affects a worker the renderer waits on. It does
+not prove the entire slowdown is recording overhead; same-day control needed.
+The full GPU trace remains available for queue correlation after controlling
+measurement perturbation. No rendering fix, speedup or sole bottleneck claim.
+
+Next test: same307, identical INI, recorder OFF, real headset120Hz/original
+resolution, same hub view and weapons for60s. One question: does performance
+return to the earlier normal hub level? If yes, heavy tracing substantially
+perturbed the run; if not, investigate today's baseline before using it as a
+control. A future trace should be short CPU-only or custom GPU events without
+per-event GPU stacks, bracketed by untraced intervals. Do not repeat the heavy
+combined profile as a normal FPS benchmark. Keep VR-125; defer compiler test.
+
+Previous agent-launch authorization ended with the requested shutdown.
+Tester launches current headset tests. No merge authorized. Both game logs
+archived. Accepted298 was briefly restored, then exact307 reinstalled for the
+same-build recorder-off control; full INI diff only CpuScopes=0 addition,
+CRLF verified by installer. No game INI changes.

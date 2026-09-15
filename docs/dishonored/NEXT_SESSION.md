@@ -1,3 +1,14 @@
+## Current VR-125: elevated trace adds measurable driver overhead
+
+Headset combined CPU/GPU trace saved and stopped. Exact307/original resolution.
+User reports worse lag; steady windows45.85ticks/s. Render thread63.87% running,
+35.17% blocked,0.92% ready; NVIDIA worker wakes most blocked time and spends
+18.01% of CPU stack samples within ETW event writing. Heavy trace is perturbed,
+not a normal baseline. Full evidence and limitations: RESOLUTION_FLOOR.md.
+Next headset test: identical307/INI with recorder OFF, same hub60s. No game
+launched by agent. Prior launch grant ended with shutdown. No merge.
+Raw ETL, matching symbols, logs and reports are local under ignored build/.
+
 ## Current VR-125: proxy functions identified with matching symbols
 
 Two2000-IP batches on exact307/PDB repeat vertex-constant, profiler, memcpy and
