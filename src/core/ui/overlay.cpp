@@ -728,6 +728,9 @@ static void OverlayFrame()
     // the last 3 s window's (core/framework/perf); MARK stamps the log with
     // the ring's surroundings so an attack freeze becomes evidence.
     {
+        bool nativeProfile=dvr::native_profile::enabled();
+        if(ImGui::Checkbox("Native draw CPU timing (diagnostic)",&nativeProfile))
+            dvr::native_profile::set_enabled(nativeProfile);
         const dvr::perf::Window pw = dvr::perf::last_window();
         ImGui::Text("tick %.1f ms (%.1f/s) = in %.1f + out %.1f (idle %.1f R %.1f) | capture %.1f [lock %.1f] wait %.1f%s",
                     pw.tickMs, pw.ticksPerS, pw.inMs, pw.outMs, pw.idleMs, pw.rMs, pw.captureMs, pw.lockMs,

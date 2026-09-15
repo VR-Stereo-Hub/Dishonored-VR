@@ -1,3 +1,13 @@
+## Current candidate: native draw profile, VR-121 continuation
+
+Independent branch codex/vr-121-native-draw-profile from main18ae4ebda extends
+the existing render-thread profiler to draw, shader-constant and render-target
+hooks versus native API calls. Previous diagnostic A/B completed without a
+compelling gain; all earlier experiment branches retained. NativeProfile defaults
+0; test install enables1 and disarms DiagnosticAb. See NATIVE_DRAW_PROFILE.md.
+Next:60-second fixed-view hub capture, then brief head/hand checks. No phase
+switching, game launch or merge. Build/install identity follows once verified.
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.

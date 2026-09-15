@@ -1,5 +1,11 @@
 # Roadmap
 
+## Native draw profiling (VR-121 continuation)
+
+- [x] Reuse tested sampler at hook and native D3D9 call boundaries.
+- [ ] Hub workload attribution before next optimization.
+
+
 ## World head-motion stability (2026-09-14)
 
 - [x] VR-116 image-linked world orientation confirmed and reconfirmed at 120 Hz.

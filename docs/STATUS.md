@@ -1,3 +1,13 @@
+## Current candidate: native draw profile, VR-121 continuation
+
+Independent branch codex/vr-121-native-draw-profile from main18ae4ebda extends
+the existing render-thread profiler to draw, shader-constant and render-target
+hooks versus native API calls. Previous diagnostic A/B completed without a
+compelling gain; all earlier experiment branches retained. NativeProfile defaults
+0; test install enables1 and disarms DiagnosticAb. See NATIVE_DRAW_PROFILE.md.
+Next:60-second fixed-view hub capture, then brief head/hand checks. No phase
+switching, game launch or merge. Build/install identity follows once verified.
+
 ## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), headset run 1 good, PR #64 open - 2026-09-15
 
 Branch `claude/vr-120-hud-elements` off `claude/vr-117-hud-redo` (PR #63, still NOT

@@ -178,6 +178,8 @@ static void WriteDefaultIni(const char* ini)
         "; `frameid on|off|status` live.\n"
         "Instruments=1\n"
         "GpuQueries=1\n"
+        "; Optional sampled draw-hook and native D3D9 CPU wall-time profile.\n"
+        "NativeProfile=0\n"
         "ForceNoVSync=1\n"
         "FrameId=1\n"
         "FrameIdEvery=8\n"
@@ -1391,6 +1393,7 @@ static void LoadConfig()
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
+        dvr::native_profile::set_enabled(GetPrivateProfileIntA("Perf", "NativeProfile", 0, ini)!=0);
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
         if (!inst) dvr::perf::set_enabled(false);
         if (!gpu) dvr::perf::set_gpu_enabled(false);
@@ -2849,6 +2852,7 @@ static void OverlaySaveDefaults()
 {
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Perf", "NativeProfile", dvr::native_profile::enabled() ? "1" : "0", ini);
     WritePrivateProfileStringA("Menu", "CacheNameLookups", g_nameIndexCacheOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Menu", "PawnFromController", g_pawnFromController ? "1" : "0", ini);
     char v[64];

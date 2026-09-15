@@ -3,6 +3,7 @@
 #include "core/framework/frame_hooks.h"
 
 #include "core/framework/perf.h"
+#include "core/framework/native_profile.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
@@ -275,6 +276,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
 }
 
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
+    dvr::native_profile::Scope timing(dvr::native_profile::ConstHook);
     if (startReg < (UINT)kVsConstShadowRows && data && count) {   // VR-117/118: c0..c31, for the HUD region probe
         const UINT room = (UINT)kVsConstShadowRows - startReg;
         const UINT n = (count < room) ? count : room;
@@ -286,6 +288,7 @@ HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const floa
 
 HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT baseVertex,
                                 UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    dvr::native_profile::Scope timing(dvr::native_profile::IndexedHook);
     ++g_actDraws;
     if (g_cb.draw_indexed)
         return g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices,
@@ -295,12 +298,14 @@ HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, I
 
 HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex,
                              UINT primCount) {
+    dvr::native_profile::Scope timing(dvr::native_profile::PrimitiveHook);
     ++g_actDraws;
     if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
     return orig_draw_prim(self, type, startVertex, primCount);
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
+    dvr::native_profile::Scope timing(dvr::native_profile::TargetHook);
     ++g_actSrts;
     dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
     dvr::hudclass::on_set_render_target(idx, rt);   // VR-117: the classifier's rt0 shadow (pointer value only)
@@ -365,11 +370,13 @@ bool hook_d3d9(IDirect3D9* d3d) {
 }
 
 HRESULT orig_set_vs_const(IDirect3DDevice9* dev, UINT startReg, const float* data, UINT count) {
+    dvr::native_profile::Scope timing(dvr::native_profile::NativeConst);
     return g_origSetVsConst ? g_origSetVsConst(dev, startReg, data, count) : E_FAIL;
 }
 
 HRESULT raw_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                          UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    dvr::native_profile::Scope timing(dvr::native_profile::NativeIndexed);
     return g_origDrawIndexed ? g_origDrawIndexed(dev, type, baseVertex, minIndex, numVertices,
                                                  startIndex, primCount)
                              : D3DERR_INVALIDCALL;
@@ -377,6 +384,7 @@ HRESULT raw_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseV
 
 HRESULT raw_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
                       UINT primCount) {
+    dvr::native_profile::Scope timing(dvr::native_profile::NativePrimitive);
     return g_origDrawPrim ? g_origDrawPrim(dev, type, startVertex, primCount)
                           : D3DERR_INVALIDCALL;
 }
@@ -406,6 +414,7 @@ const float* vs_const_shadow_row(int row) {
 int vs_const_shadow_rows() { return kVsConstShadowRows; }
 
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt) {
+    dvr::native_profile::Scope timing(dvr::native_profile::NativeTarget);
     return g_origSetRt ? g_origSetRt(dev, idx, rt) : E_FAIL;
 }
 
