@@ -1,3 +1,12 @@
+## Latest: automated simulator launch recovered
+
+User now authorizes automated game launches for VR-125. Fixed simulator GPU
+adapter tie selection; added scoped layer opt-outs to selftest. Steam launch,
+Continue, Hound Pits and gradual turn verified. Shared capture and eye shots
+work. Preliminary automated timing is not equivalent to headset workload.
+Game closed; installed DLL/INI unchanged. See RESOLUTION_FLOOR.md for evidence
+and exact continuation. Next identify thread owners and match heavy view.
+
 ## New investigation: VR-125 resolution floor
 
 Branch codex/vr-125-resolution-floor, installed renderer unchanged at original

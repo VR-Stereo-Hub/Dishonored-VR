@@ -45,3 +45,44 @@ waits dominate, identify the waited-on owner and why. If GPU work dominates,
 identify resolution-independent geometry/shadow cost and compare resolution
 experiments. No speculative synchronization removal, AER rewrite or upscaler.
 Select one bounded change only when this evidence identifies a meaningful cost.
+
+## Automated launch recovery and initial run
+
+Current user explicitly authorized agent game launches for this investigation,
+superseding the earlier no-launch rule. No merge permission. The simulator is
+now usable through Steam with an explicit local control directory. Direct launch
+crashed shortly after startup; dump and logs retained, cause not proven.
+
+Standalone selftest initially failed xrCreateInstance -32 because of an enabled
+incompatible OpenXR capture layer. A manifest-declared process-local opt-out
+allowed60 frames with zero errors. xrsim-selftest now accepts
+-DisableLayerEnvironment, restores prior values in finally, and does not change
+registry registration. Read the installed layer manifest for its opt-out name.
+
+The simulator selected the LAST adapter tied for largest reported VRAM because
+its comparator used >=. This machine enumerates duplicate same-name adapters;
+D3D9 and real runtime use the first, simulator picked the second. Changed ties
+to retain the first and log the final choice. Verified selftest selected the
+same LUID as D3D9; Steam game run changed from sync fallback to shared capture,
+and previously failed compositor eye captures succeeded. Not a headset fix.
+
+Launch commands: xrsim-selftest -Release with manifest-derived layer opt-out;
+xrsim-launch -Release -AllowStale -ViaSteam -Dir <repo>/build/vr125-sim.
+AllowStale deliberately retains the exact validated298-g3d80740a9 game DLL;
+only simulator code changed. Set DVR_DATA_DIR to installed Paths.DataDir for
+mod commands, and always pass identical explicit -Dir to simulator tools.
+Use refresh120; inspect capture between each Return (title, Continue, loading
+confirmation). Hound Pits loaded. Gradual head to0 1.6 0 180 0 0 3000 turned
+successfully; instant180-degree changes did not establish a reliable orientation.
+Screenshots in ignored build/vr125-sim document the views. No save edits.
+
+55.039s process-thread CPU accounting: busiest threads75.94%,71.23%,38.27%
+of one logical core. Thread ownership is unclassified, no stack evidence yet.
+Open courtyard view roughly89-90 logged ticks/s versus62-66/s headset workload;
+not a matched comparison. Runtime/streaming/FOV and exact view differ. Do not
+claim a performance improvement or identify a bottleneck from this run.
+Next: match the exact heavy view and identify thread owners/active stacks or
+CPU-vs-wall spans without elevation. ETW still requires Windows elevation.
+Game closed after capture. Full installed INI byte-identical to pre-launch;
+DLL hash unchanged. Evidence: build/performance-results/vr125-sim-working,
+vr125-direct-crash, vr125-wrong-adapter. No pending test for the user.
