@@ -114,3 +114,43 @@ One test question: do the world and both weapons still look and track normally?
 Match build295 before interpreting the log. This workload is not directly
 comparable to the earlier quiet sewer CPU profile. See BRIDGE_GPU_PROFILE.md.
 
+
+## Hub measurement result: 2026-09-14
+
+Build295-g63d1cde30 /21:03:29 verified against installed DLL hash and log banner.
+Logs and INI archived at build/performance-results/bridge-hub-20260914-210808;
+summary.json contains sample-weighted means. Tester reports normal visuals,
+tracking and the usual hub lag. Runtime120Hz, no period changes. Gameplay epoch
+8627765..8742656 (114.891s), 38 complete bridge windows. This is the reported hub
+workload, not proof that every recorded second was stationary.
+
+| Stage | Eye | Resolved samples | Weighted mean ms | Sampled maximum ms |
+|---|---|---:|---:|---:|
+| Conversion | Left |455|0.10547|2.1859|
+| Conversion | Right |441|0.10175|1.8176|
+| XR eye copy | Left |451|0.05758|0.7795|
+| XR eye copy | Right |412|0.05676|2.6425|
+
+Seven untagged conversion samples are separate (mean0.08614ms). No gameplay
+query errors, invalid/disjoint results, late polls, full-slot drops or sample
+storage overflow. Window p95 values are not a pooled percentile; raw sample
+values were not logged. Sporadic millisecond-scale maxima do not establish
+which event or GPU scheduling condition caused them.
+
+Decision: conversion/copy execution is low priority for sustained hub performance.
+These small stage means do not explain the large120Hz deficit. This does not
+clear ownership waits, runtime/compositor scheduling, HUD copies or unmeasured
+D3D9 work. No performance improvement was implemented or claimed.
+
+Late tick windows show roughly14.5..15.9ms with low pacing waits. Native render
+execution/wait spans total about9..10ms across two eyes and native Presents about
+4..5ms; these are CPU wall spans, not proof of CPU saturation. Some frame gaps
+sit in xrEndFrame (for example46.1ms at timestamp8709453), a separate tail cost.
+Next experiment should measure diagnostic/native draw-dispatch overhead and
+separate scene cost from driver wait. Do not remove capture synchronization or
+build a shader cache based on these results. Retain this diagnostic branch.
+
+No build or install change after this run. GitHub publication and Linear result
+posting remain blocked pending the previously requested specific authorization;
+no blocked external action was retried.
+

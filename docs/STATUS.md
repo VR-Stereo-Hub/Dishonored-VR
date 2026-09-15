@@ -1,3 +1,13 @@
+## Current result: VR-123 hub bridge profile accepted
+
+Build295 run verified; normal visual/tracking behavior reported.38 complete
+bridge windows show conversion about0.10ms/eye and XR copy about0.057ms/eye,
+with no query failures. These stages are low priority for sustained hub lag;
+next investigate diagnostic/native draw CPU work and driver waits. Detailed
+measurements and limits: docs/dishonored/BRIDGE_GPU_PROFILE.md. Both logs saved
+under build/performance-results/bridge-hub-20260914-210808. Installed build and
+INI unchanged. No game launch or merge. Publication authorization remains pending.
+
 ## Installed VR-123 bridge GPU profile
 
 Build `vr33-hands-working-295-g63d1cde30`, compiled 21:03:29, source 63d1cde30.

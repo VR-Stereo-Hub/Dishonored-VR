@@ -4,7 +4,7 @@
 
 - [x] VR-121 CPU profile ranks reflection as low priority; independent branch retained.
 - [x] VR-123 bounded asynchronous bridge GPU profiler and host validation.
-- [ ] VR-123 headset workload and GPU cost ranking before optimizing copies.
+- [x] VR-123 hub workload: conversion/copy GPU cost small; prioritize broader CPU/driver attribution.
 
 
 ## World head-motion stability (2026-09-14)
