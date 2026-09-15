@@ -1,3 +1,16 @@
+## Current VR-125: rendering between Presents dominates measured cycles
+
+Automated default-off scoped diagnostic307 tested in the pub view. About88%
+of render-thread cycles occur outside Present (engine rendering + draw hooks).
+Game-thread viewport calls total about1.23ms wall; adding game-thread workers
+is not the indicated next step. Coarse GetThreadTimes per-stage values proved
+unreliable; use relative cycles, never convert cycles to ms. Full evidence and
+limits in RESOLUTION_FLOOR.md. Off/on/off rates80.23/82.36/80.68 are not a gain.
+Next identify costly proxy draw paths using the archived matching DLL/PDB,
+then select one bounded redundant-work experiment. All work stays VR-125.
+Game closed; accepted298 and exact original INI restored. Launch authorization
+continues until shutdown requested. No merge and no pending headset test.
+
 ## Current VR-125: instruction sampling narrows attribution
 
 Approved findings posted; ticket cleanup leaves only VR-125 and VR-122 In Progress.

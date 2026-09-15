@@ -52,6 +52,18 @@ enum Point {
 };
 void stamp(Point p);
 
+// VR-125: aggregate thread CPU/cycles versus wall time, default off.
+// Viewport scopes run on the game thread and overlap render-thread stages.
+struct CpuToken {
+    uint64_t wall = 0, cpu = 0, cycles = 0;
+    uint32_t epoch = 0, tid = 0;
+};
+void set_cpu_scopes(bool on);
+bool cpu_scopes_enabled();
+CpuToken cpu_scope_begin();
+void cpu_scope_end(int lane, const CpuToken& begin); // 8 first draw, 9 second draw
+
+
 // The performance A/B (VR-67, perf_ab.cpp). One run walks an announced plan of
 // segments, switching ONE lever at a time and returning to the baseline between
 // alternatives, and reports a DISTRIBUTION per segment (p50/p95/p99/max and how

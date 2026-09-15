@@ -6614,3 +6614,13 @@ it cannot all be described as useful submission work. The observed region share
 changes with sampling order. Render-thread samples are consistently spread
 across engine, native D3D9 and proxy. No engine address or hook derived.
 See RESOLUTION_FLOOR.md for method, evidence, limits and next scoped measurement.
+
+## VR-125 scoped rendering attribution (2026-09-15)
+
+Same pub-view307 diagnostic: outside-Present engine rendering and draw hooks
+account for87.95% of measured render-thread cycles. Original viewport calls on
+the game thread total1.23ms wall. Counter scopes are on different threads and
+overlap; no serial sum or threading speedup is implied. GetThreadTimes per-stage
+CPU attribution failed the wall-time sanity check due coarse accounting; keep
+QueryThreadCycleTime relative only. RESOLUTION_FLOOR.md has exact populations,
+restore identity, off/on/off control and the next bounded investigation.

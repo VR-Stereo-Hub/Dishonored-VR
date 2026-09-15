@@ -6,7 +6,8 @@
 - [x] Capture hub draw/state-call attribution: 34 windows; visual validation passed.
 - [x] Measure existing resource/state hooks: low sampled lock/upload cost.
 - [x] Attribute busy threads and collect bounded pub-view instruction samples (VR-125).
-- [ ] Separate engine/proxy active CPU from waits with scoped CPU-vs-wall measurements.
+- [x] Locate render-stage cycle consumption; coarse CPU-ms attribution rejected (VR-125).
+- [ ] Identify expensive engine/proxy work inside the outside-Present region.
 - [ ] Correlate whole-scene GPU execution and engine rendering time before optimization.
 
 

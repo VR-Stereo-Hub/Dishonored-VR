@@ -10,6 +10,7 @@
 #include "core/vr/openxr_runtime.h"
 
 #include <windows.h>
+#include <atomic>
 #include <d3d9.h>
 #include <stdio.h>
 #include <string.h>
@@ -456,7 +457,94 @@ void record_close(Rec& r, int64_t tNextEntry) {
 
 } // namespace
 
+// VR-125: no engine access. Thread-local totals avoid locks between render/game.
+namespace {
+std::atomic<uint32_t> g_cpuEpoch{0}; // odd means enabled, changes invalidate tokens
+struct CpuSum { uint64_t wall = 0, cpu = 0, cycles = 0; uint32_t n = 0; };
+struct CpuLocal {
+    CpuSum sums[10];
+    CpuToken previous;
+    int point = -1;
+    uint32_t epoch = 0, failures = 0;
+    uint64_t reportMs = 0;
+};
+thread_local CpuLocal g_cpuLocal;
+const char* const kCpuNames[10] = {"pre", "xr-begin", "game-tick", "capture",
+    "xr-end", "pre-present", "native-present", "outside-present", "viewport-first", "viewport-second"};
+void cpu_stamp(Point point) {
+    const CpuToken now = cpu_scope_begin();
+    if (!now.epoch) { g_cpuLocal.previous = {}; g_cpuLocal.point = -1; return; }
+    const int last = g_cpuLocal.point;
+    if ((point == kEntry && last == kAfterGamePresent) ||
+        (point > kEntry && last == (int)point - 1)) {
+        // Use the already captured endpoint; no second counter read.
+        const CpuToken before = g_cpuLocal.previous;
+        if (before.epoch == now.epoch && before.tid == now.tid) {
+            CpuSum& sum = g_cpuLocal.sums[last];
+            if (now.wall >= before.wall && now.cpu >= before.cpu && now.cycles >= before.cycles) {
+                ++sum.n; sum.wall += now.wall-before.wall;
+                sum.cpu += now.cpu-before.cpu; sum.cycles += now.cycles-before.cycles;
+            } else ++g_cpuLocal.failures;
+        }
+    }
+    g_cpuLocal.previous = now;
+    g_cpuLocal.point = (int)point;
+}
+void cpu_report() {
+    const uint64_t now = GetTickCount64();
+    if (!g_cpuLocal.reportMs) g_cpuLocal.reportMs = now;
+    if (now - g_cpuLocal.reportMs < 3000) return;
+    LARGE_INTEGER frequency;
+    QueryPerformanceFrequency(&frequency);
+    for (int i=0; i<10; ++i) {
+        const CpuSum& sum = g_cpuLocal.sums[i];
+        if (!sum.n) continue;
+        DVR_INFO("cpu-scope: tid=%lu stage=%s n=%u window=%llu ms wall=%.3f ms/call "
+                 "cpu=%.3f ms/call cycles=%.3f M/call failures=%u "
+                 "(CPU accounting coarse; cross-thread scopes overlap; outside includes engine+draw hooks)",
+                 (unsigned long)GetCurrentThreadId(), kCpuNames[i], sum.n,
+                 (unsigned long long)(now-g_cpuLocal.reportMs),
+                 sum.wall*1000.0/frequency.QuadPart/sum.n, sum.cpu/10000.0/sum.n,
+                 sum.cycles/1000000.0/sum.n, g_cpuLocal.failures);
+    }
+    for (auto& sum : g_cpuLocal.sums) sum = {};
+    g_cpuLocal.failures = 0; g_cpuLocal.reportMs = now;
+}
+}
+bool cpu_scopes_enabled() { return (g_cpuEpoch.load(std::memory_order_relaxed) & 1u) != 0; }
+void set_cpu_scopes(bool on) {
+    uint32_t old = g_cpuEpoch.load();
+    while (!g_cpuEpoch.compare_exchange_weak(old, ((old+2u)&~1u) | (on ? 1u : 0u))) {}
+    DVR_INFO("cpu-scope: %s (diagnostic only; no thread suspension)", on ? "on" : "off");
+}
+CpuToken cpu_scope_begin() {
+    const uint32_t epoch = g_cpuEpoch.load(std::memory_order_relaxed);
+    if (!(epoch&1u)) return {};
+    if (g_cpuLocal.epoch != epoch) { g_cpuLocal = {}; g_cpuLocal.epoch = epoch; }
+    FILETIME created, exited, kernel, user;
+    ULONG64 cycles = 0;
+    if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user) ||
+        !QueryThreadCycleTime(GetCurrentThread(), &cycles)) { ++g_cpuLocal.failures; return {}; }
+    LARGE_INTEGER wall; QueryPerformanceCounter(&wall);
+    const uint64_t cpu = ((uint64_t)kernel.dwHighDateTime<<32) + kernel.dwLowDateTime +
+                         ((uint64_t)user.dwHighDateTime<<32) + user.dwLowDateTime;
+    return {(uint64_t)wall.QuadPart, cpu, cycles, epoch, GetCurrentThreadId()};
+}
+void cpu_scope_end(int lane, const CpuToken& before) {
+    if (!before.epoch || lane<8 || lane>9) return;
+    const CpuToken after = cpu_scope_begin();
+    if (after.epoch != before.epoch || after.tid != before.tid) return;
+    if (after.wall<before.wall || after.cpu<before.cpu || after.cycles<before.cycles) {
+        ++g_cpuLocal.failures; return;
+    }
+    CpuSum& sum = g_cpuLocal.sums[lane];
+    ++sum.n; sum.wall += after.wall-before.wall;
+    sum.cpu += after.cpu-before.cpu; sum.cycles += after.cycles-before.cycles;
+    cpu_report();
+}
+
 void stamp(Point p) {
+    if (p >= 0 && p < kPointCount) { cpu_stamp(p); if (p == kEntry && cpu_scopes_enabled()) cpu_report(); }
     if (!g_enabled || p < 0 || p >= kPointCount) return;
     const int64_t t = now_qpc();
     g_t[p] = t;

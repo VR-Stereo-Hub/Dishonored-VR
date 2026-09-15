@@ -62,6 +62,7 @@
 // from pass 1's (logged by the method as the tagged presents arrive).
 
 #include <intrin.h>
+#include "core/framework/perf.h"
 
 typedef void (__fastcall* DvrViewportDrawFn)(void* self, void* edx, int bShouldPresent);
 
@@ -383,7 +384,9 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
     QueryPerformanceCounter(&t0);
+    const auto cpuSecond = dvr::perf::cpu_scope_begin();
     const bool ok = SceneDrawCallGuarded((DvrViewportDrawFn)kViewportDraw, self, b);
+    dvr::perf::cpu_scope_end(9, cpuSecond);
     QueryPerformanceCounter(&t1);
     dvr::vr::set_draw_stage(NULL);
     dvr::camera::set_second_pass(false);
@@ -460,7 +463,9 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         }
 
     }
+    const auto cpuFirst = depth == 0 ? dvr::perf::cpu_scope_begin() : dvr::perf::CpuToken{};
     ((DvrViewportDrawFn)kViewportDraw)(self, NULL, bShouldPresent);
+    if (depth == 0) dvr::perf::cpu_scope_end(8, cpuFirst);
     if (depth == 0) {
         QueryPerformanceCounter(&t1);
         g_sdCall1Us = (uint32_t)((t1.QuadPart - t0.QuadPart) * 1000000 / (g_qpcFreq ? g_qpcFreq : 1));

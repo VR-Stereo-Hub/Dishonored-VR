@@ -192,3 +192,64 @@ VR-50/109 scope, so they were not closed. No ticket or branch deleted.
 Re-query confirmed only VR-125 and the other collaborator's VR-122 In Progress.
 Continue this investigation under VR-125 rather than multiplying experiments
 into new tickets. No merge authorized or performed.
+
+## Scoped CPU-cycle attribution (2026-09-15)
+
+Built and installed307-ga658ed7a9-dirty, compiled23:39:36. Exact source patch,
+DLL, PDB and hashes retained in build/playtest-candidates/vr125-cpu-scopes.
+The only installed INI difference was new Perf.CpuScopes=0. Full CRLF diff
+verified. Default-off instrument and live `perf cpu on|off` wrap the existing
+Present stage stamps plus each original viewport call on the game thread.
+No rendering algorithm or engine-memory write added. TLS accumulation and
+an atomic generation invalidate intervals across off/on changes; invalid
+counter/thread intervals are rejected. Cycles include user and kernel work.
+
+Automated120Hz simulator, original2750x2850, same pub view. One toggle was
+initially overwritten by a following seam command before its1Hz poll; the log
+proved CPU scopes remained off. Reissued toggle and mark as ONE multi-line
+command and verified the on acknowledgement before interpreting measurements.
+Always batch related seam commands or wait for their logged acknowledgement.
+
+Accepted on segment lasted51.16s,17 windows, zero counter failures, about8445
+render-stage intervals. Per-present weighted means:
+
+| Render stage | Wall ms/call | Million measured thread cycles/call |
+|---|---:|---:|
+| Outside Present: engine rendering + draw hooks |4.227|15.117|
+| Native Present |1.236|0.690|
+| Pre-tick |0.123|0.417|
+| Game tick callback |0.096|0.346|
+| XR end |0.114|0.306|
+| Capture/method |0.096|0.260|
+| XR begin |0.147|0.047|
+| Pre-native-Present |0.001|0.005|
+
+Outside-Present accounts for87.95% of measured render-thread cycles. This is
+NOT87.95% recoverable frame time, and does not separate engine from proxy draw
+hooks or prove GPU work is irrelevant. Under reentry there are two presents
+per stereo tick. Game-thread viewport-first/second measured0.640/0.590ms wall
+and2.349/2.155million cycles. Those scopes overlap the render thread and must
+not be added to its frame cost. They do not support moving viewport calls to
+more threads as the immediate remedy.
+
+Measurement limitation found: GetThreadTimes accounting is too coarse and
+phase-biased for these short scopes. Some per-stage CPU ms exceed wall ms
+(e.g. pre0.803 vs0.123), despite zero API errors. Do NOT use those per-stage
+CPU-ms fields for attribution, calculate blocked time by subtraction, or
+interpret them as evidence of a CPU bug. QueryThreadCycleTime is the useful
+relative signal here; keep cycles as cycles, never convert to milliseconds.
+Reference: https://learn.microsoft.com/en-us/windows/win32/api/realtimeapiset/nf-realtimeapiset-querythreadcycletime
+
+Off/on/off complete3s log windows, discarding first4s of each interval:
+80.23 /82.36 /80.68 ticks/s (20/15/5 windows). Unequal durations, one run, mean
+logged ticks rather than fresh-pair tail analysis. No evident throughput
+penalty at this precision, and the higher on mean is NOT an optimization.
+Screenshots verified scene/equipment before timing. No headset comfort claim.
+
+Build, exports, INI golden and lint passed. Game closed and accepted298 DLL
+and exact original INI restored through the candidate installer; full restore
+diff only removes CpuScopes=0. Evidence build/performance-results/vr125-cpu-scopes.
+No merge. Next concrete target is the outside-Present region: use the saved
+matching symbols to identify costly proxy draw paths, then one bounded
+redundant-work/caching experiment if the source and timing justify it. Do not
+repeat resolution reduction, desktop skipping or broad threading toggles.
