@@ -1,3 +1,4 @@
+#include "core/framework/render_profile.h"
 // core/framework/frame_hooks.cpp - see frame_hooks.h.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/frame_hooks.h"
@@ -201,7 +202,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
             g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
     }
     {   // VR-67: the A/B measures gameplay, never a menu or a load
-        dvr::perf::ab_set_gameplay(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
+        const bool profilingGameplay=g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true;
+        dvr::perf::ab_set_gameplay(profilingGameplay);
+        dvr::render_profile::tick(profilingGameplay);
     }
 
     if (g_cb.game_tick) g_cb.game_tick(self);

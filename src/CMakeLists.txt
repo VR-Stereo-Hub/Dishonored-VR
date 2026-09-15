@@ -45,6 +45,7 @@ set(DVR_REAL_SOURCES
     core/framework/status.cpp  core/framework/status.h
     core/framework/frame_hooks.cpp core/framework/frame_hooks.h
     core/framework/perf.cpp    core/framework/perf.h
+    core/framework/render_profile.cpp core/framework/render_profile.h
     core/gfx/stereo.cpp        core/gfx/stereo.h
     core/gfx/capture.cpp       core/gfx/capture.h
     core/gfx/frame_id.cpp      core/gfx/frame_id.h

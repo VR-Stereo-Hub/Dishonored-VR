@@ -830,3 +830,11 @@ Numerically equivalent weapon inverse lenses share a value only within the same
 component/Present/eye; no hand delta or engine-object lifetime is extended.
 The accepted design, rejected alternatives and remaining scope are consolidated
 in [STACK_ACCEPTANCE.md](dishonored/STACK_ACCEPTANCE.md).
+
+## 2026-09-14: independent performance branches and sampled CPU scopes
+
+Independent experiments branch from accepted main; stack genuine dependencies
+only. Combine validated successes on an integration branch and test interactions.
+VR-121 sampling is render-thread-owned and fixed-size; per-call enable/owner
+checks precede randomized timing. Inclusive nested scopes are not additive.
+See dishonored/RENDER_THREAD_PROFILE.md. No rendering choice changes here.

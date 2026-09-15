@@ -1,3 +1,14 @@
+## Current: independent render-thread profile, VR-121
+
+Branch codex/vr-121-render-thread-profile starts from accepted main85f9ef6e4.
+Desktop experiments are preserved on their separate branch; no candidate mode
+is carried here. See RENDER_THREAD_PROFILE.md for scope, measurement limits and
+the60-second sewer test with both weapons visible. Next: read sampled costs,
+then select the smallest measured optimization. No performance gain claimed.
+Separate independent branches, integrate successful changes later and retest.
+Publication remains pending explicit approval from the earlier review rejection;
+no push retry and no merge. Prior handoffs below are historical.
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.
