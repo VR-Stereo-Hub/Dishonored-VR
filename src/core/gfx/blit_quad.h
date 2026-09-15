@@ -26,13 +26,18 @@ public:
     bool ready() const { return ready_; }
     void shutdown();
     // Draws `src` over the whole of `dst` (w x h). Sets every state it uses.
+    // alphaRepair writes alpha = max(r,g,b) instead of 1 and keeps the colour as
+    // it is: for a source cleared to black and drawn over, that is premultiplied
+    // coverage, which is what the runtime's HUD quad wants. Falls back to the
+    // opaque shader when the variant did not compile.
     void draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
-              ID3D11RenderTargetView* dst, uint32_t w, uint32_t h);
+              ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, bool alphaRepair = false);
 private:
     bool ready_ = false;
     bool failed_ = false;
     ID3D11VertexShader*      vs_ = nullptr;
     ID3D11PixelShader*       ps_ = nullptr;
+    ID3D11PixelShader*       psAlpha_ = nullptr;
     ID3D11SamplerState*      sampler_ = nullptr;
     ID3D11RasterizerState*   raster_ = nullptr;
     ID3D11BlendState*        blend_ = nullptr;

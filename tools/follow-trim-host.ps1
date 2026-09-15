@@ -9,8 +9,8 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $ftOut = Join-Path $repo 'build\follow-trim-test'
 New-Item -ItemType Directory -Force -Path $ftOut | Out-Null
-$ftVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$ftVc = Get-DvrMsvcRoot
 $ftSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $ftLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |

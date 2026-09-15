@@ -52,6 +52,10 @@ set(DVR_REAL_SOURCES
     core/gfx/device_census.cpp core/gfx/device_census.h
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
+    core/gfx/hud_class.cpp     core/gfx/hud_class.h
+    core/gfx/hud_capture.cpp   core/gfx/hud_capture.h
+    core/gfx/hud_layout.cpp    core/gfx/hud_layout.h
+    core/vr/hud_anchor.h
     core/gfx/desktop_eye.cpp   core/gfx/desktop_eye.h
     core/gfx/desktop_eye_policy.h
     core/gfx/mono_screen.cpp

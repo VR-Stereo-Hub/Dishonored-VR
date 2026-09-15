@@ -11,9 +11,10 @@ static void StereoStateConfigure(const char* ini) {
     StereoStateSet(GetPrivateProfileIntA("Cine","StereoState",1,ini)!=0);
 }
 static bool DvrSceneVerdict() {
-    if (UiSurfaceBlocks()) return false;
+    // VR-117: a UI owner that RIDES the HUD window does not own presentation;
+    // one that does not ride still forces the mono quad, as before.
+    if (UiSurfaceOwnsPresentation()) return false;
     const bool strict=DvrGameplayVerdict();
-    if (!StereoStateEnabled()) return strict;
     const auto state=dvr::anim::snapshot(); // current live-object checked FSM, 150 ms expiry
     const bool pawn=CylTruthLive();
     const bool view=DvrScriptViewLive();
@@ -25,23 +26,53 @@ static bool DvrSceneVerdict() {
     // must not make its second reader conclude the scene stopped drawing.
     static SRWLOCK lock=SRWLOCK_INIT;
     static uint32_t serial=0;
-    static unsigned long long moved=0;
-    static int last=-1, lastDialog=-2;
+    static unsigned long long moved=0, movedRaw=0;
+    static int last=-1, lastDialog=-2, lastStandIn=-1;
     static char lastState[96]={};
+    static dvr::ui_ride::RideGrace grace;
+    static double pendingSince=0;
     const auto now=GetTickCount64();
     AcquireSRWLockExclusive(&lock);
     const uint32_t current=(uint32_t)dvr::camera::render_pos_serial();
-    if (current!=serial) { serial=current; moved=now; }
+    if (current!=serial) { serial=current; moved=now; movedRaw=now; }
     if (menu || !pawn || !state.valid) moved=0;
     const bool sceneFresh=moved && now>=moved && now-moved<=150;
-    const bool result=dvr::scene_state::eligible(strict,pawn,menu,view,state.valid,state.state[0],sceneFresh,UiSurfaceEnabled() && !UiSurfaceBlocks());
-    if ((int)result!=last || lastDialog!=state.dialogState || strcmp(lastState,state.state[0])) {
-        last=result; lastDialog=state.dialogState;
+    // VR-117: the ride stand-in. While an in-game screen rides the HUD window
+    // (or for 1500 ms after it closes: the resume gap, and for 300 ms after a
+    // menu flag rises before the owner read has published: the open gap) the
+    // ordinary terms are silent by construction - the pause stops the view
+    // dispatches and the FSM snapshot expires - so eligibility is a live pawn
+    // plus proof the scene is still drawing: the RAW camera-upload clock (never
+    // killed by the menu term; the paused world keeps uploading, measured) or
+    // a tagged projection present within the last few presents.
+    const bool rides=UiSurfaceRidesHud();
+    const bool sceneFreshRaw=movedRaw && now>=movedRaw && now-movedRaw<=150;
+    const bool gateFresh=dvr::hud::gate_age_ms()<=250;
+    const bool inGrace=grace.update(rides,UiSurfaceBlocks(),(double)now);
+    const bool ridePossible=dvr::hudlayout::menu_in_window() && dvr::hudcap::enabled() &&
+                            dvr::hudcap::redirect_healthy() && !g_mainMenu && UiSurfaceEnabled();
+    // The open gap holds for its whole window once it has started: only the
+    // owner read (blocked), the ride itself or the menu flag dropping end it.
+    // A health blink must not (the first measured pause fell to the mono
+    // screen exactly that way).
+    if (rides || UiSurfaceBlocks() || !menu) pendingSince=0;
+    else if (!pendingSince && ridePossible) pendingSince=(double)now;
+    const bool pending=pendingSince>0 && (double)now-pendingSince<300.0;
+    const int standIn=rides?1:inGrace?2:pending?3:0;
+    const bool result=standIn ? dvr::ui_ride::ride_eligible(pawn,sceneFreshRaw,gateFresh)
+                    : !StereoStateEnabled() ? strict
+                    : dvr::scene_state::eligible(strict,pawn,menu,view,state.valid,state.state[0],sceneFresh,UiSurfaceEnabled() && !UiSurfaceBlocks());
+    if ((int)result!=last || lastDialog!=state.dialogState || strcmp(lastState,state.state[0]) || standIn!=lastStandIn) {
+        last=result; lastDialog=state.dialogState; lastStandIn=standIn;
         strncpy_s(lastState,state.state[0],_TRUNCATE);
+        static const char* const kStandIn[4]={"none","riding","resume grace","open pending"};
         Log("stereo/state: %s strict=%d pawn=%d menu=%d note=%d view=%d latch=%d "
             "valid=%d master=%s dialog=%d (0=listening 1=choosing -1=unknown) sceneFresh=%d c5age=%llu "
-            "-> presentation only; input locks retained",result?"STEREO":"FALLBACK",strict,pawn,menu,note,
-            view,g_cineNow,state.valid,state.state[0],state.dialogState,sceneFresh,moved?now-moved:~0ull);
+            "standIn=%s rawAge=%llu gateAge=%lu -> presentation only; input locks retained%s",
+            result?"STEREO":"FALLBACK",strict,pawn,menu,note,
+            view,g_cineNow,state.valid,state.state[0],state.dialogState,sceneFresh,moved?now-moved:~0ull,
+            kStandIn[standIn],movedRaw?now-movedRaw:~0ull,dvr::hud::gate_age_ms(),
+            standIn?" (a screen on the HUD window, the world on the projection)":"");
     }
     ReleaseSRWLockExclusive(&lock);
     return result;

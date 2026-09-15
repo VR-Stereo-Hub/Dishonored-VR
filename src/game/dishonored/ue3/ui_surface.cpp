@@ -5,6 +5,9 @@
 #include "game/dishonored/movie_completion.h"
 namespace {
 std::atomic<bool> g_usEnabled{false},g_usBlocked{true};
+// VR-117: the owner on top rides the HUD window (the projection stays up).
+std::atomic<bool> g_usRides{false};
+dvr::ui_ride::RideLatch g_usRideLatch;
 SRWLOCK g_usLock=SRWLOCK_INIT;
 CtIdentity g_usEngine;
 uint32_t g_usScan=0;
@@ -19,13 +22,32 @@ const char* g_usProps[]={"m_pMainMenu","m_pPauseMenu","m_pNote","m_pJournal","m_
 const dvr::mono::Context g_usKinds[]={dvr::mono::MainMenu,dvr::mono::Pause,dvr::mono::Note,dvr::mono::Journal,dvr::mono::Wheel,dvr::mono::Store,dvr::mono::MissionStats,dvr::mono::Other,dvr::mono::Other,dvr::mono::Other};
 dvr::mono::LoadingLease g_usLoading;
 void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int movie,int mode) {
+    // VR-117: may this owner RIDE the HUD window instead of forcing the mono
+    // quad? Decided once per blocked interval (a health flap mid-menu must not
+    // flip the picture), only for the contexts that opted in, only while the
+    // redirect is up and drawing. The input class (UiSurfaceBlocks) does not
+    // change: a riding menu still parks the head-mouse and the pad shaping.
+    const bool windowOn=dvr::hudcap::enabled() &&
+        dvr::hudlayout::element(dvr::hudlayout::ElMenu).anchor==dvr::hudlayout::AnchorWindow;
+    const bool want=dvr::ui_ride::rides(g_usEnabled.load(),blocked,context,dvr::hudlayout::menu_context_mask(),
+                                        dvr::hudlayout::menu_in_window(),windowOn,dvr::hudcap::redirect_healthy());
+    const bool rides=g_usRideLatch.update(context,blocked,want,dvr::hudcap::redirect_failed());
     g_usBlocked.store(blocked);
-    dvr::vr::set_mono_context(context,g_usEnabled.load() && blocked);
+    g_usRides.store(rides);
+    dvr::hudlayout::set_menu_riding(rides);
+    dvr::vr::set_mono_context(context,g_usEnabled.load() && blocked && !rides);
     static int last=-1;
-    const int key=(int)context+32*blocked+64*known;
+    const int key=(int)context+32*blocked+64*known+128*rides;
     if(key!=last) {
-        Log("ui/surface: context=%s blocked=%d known=%d mainScreen=%d loadingMovie=%d saveLoadMode=%d lease=%d; background rendering cannot authorize stereo/input",
-            dvr::mono::names[context],(int)blocked,(int)known,screen,movie,mode,(int)g_usLoading.active);
+        Log("ui/surface: context=%s blocked=%d known=%d rides=%d mainScreen=%d loadingMovie=%d saveLoadMode=%d lease=%d; background rendering cannot authorize stereo/input",
+            dvr::mono::names[context],(int)blocked,(int)known,(int)rides,screen,movie,mode,(int)g_usLoading.active);
+        if(blocked && dvr::ui_ride::context_can_ride(context)) {
+            if(rides) Log("ui/ride: %s -> RIDING the HUD window (the world stays on the projection; input stays parked)",dvr::mono::names[context]);
+            else Log("ui/ride: %s refused - menuInWindow=%d optIn=%d window=%d healthy=%d failed=%d guard=%d (the mono screen takes it)",
+                     dvr::mono::names[context],(int)dvr::hudlayout::menu_in_window(),
+                     (int)((dvr::hudlayout::menu_context_mask()>>(unsigned)context)&1u),(int)windowOn,
+                     (int)dvr::hudcap::redirect_healthy(),(int)dvr::hudcap::redirect_failed(),(int)g_usEnabled.load());
+        }
         last=key;
     }
 }
@@ -117,9 +139,16 @@ bool UsResolve() {
 }
 static bool UiSurfaceEnabled() { return g_usEnabled.load(); }
 static bool UiSurfaceBlocks() { return g_usEnabled.load() && g_usBlocked.load(); }
+// VR-117: the presentation class. Blocked AND riding = the projection stays
+// up with the screen on the HUD window; blocked and NOT riding = today's mono
+// quad. Readers that decide what the HEADSET SHOWS use OwnsPresentation;
+// readers that decide what the PLAYER MAY DO keep UiSurfaceBlocks.
+static bool UiSurfaceRidesHud() { return g_usEnabled.load() && g_usBlocked.load() && g_usRides.load(); }
+static bool UiSurfaceOwnsPresentation() { return UiSurfaceBlocks() && !g_usRides.load(); }
 static void UiSurfaceSet(bool on) {
     g_usEnabled.store(on);
-    dvr::vr::set_mono_context(dvr::mono::Other,on && g_usBlocked.load());
+    if(!on) { g_usRides.store(false); dvr::hudlayout::set_menu_riding(false); }
+    dvr::vr::set_mono_context(dvr::mono::Other,on && g_usBlocked.load() && !g_usRides.load());
     Log("ui/surface: guard=%d (live)",(int)on);
 }
 static void UiSurfaceConfigure(const char* ini) {

@@ -10,8 +10,8 @@ $body = [regex]::Match($captureText, '(?ms)^bool retire_last_right_grab\(.*?^\}'
 if (-not $body.Success) { throw 'Capture guard function not found' }
 $eyeBody = $body.Value
 [IO.File]::WriteAllText((Join-Path $eyeOut 'single_tag_body.inc'), $eyeBody, [Text.UTF8Encoding]::new($false))
-$eyeVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$eyeVc = Get-DvrMsvcRoot
 $eyeSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $eyeLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |

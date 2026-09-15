@@ -6,6 +6,8 @@
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
+#include "core/gfx/hud_capture.h"
+#include "core/gfx/hud_class.h"
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
 #include "core/util/crash.h"
@@ -37,6 +39,10 @@ SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
 DrawIndexedFn     g_origDrawIndexed = nullptr;
 DrawPrimFn        g_origDrawPrim = nullptr;
+// VR-117: the inner draw seam (the HUD redirect) and the c0..c3 shadow.
+DrawIndexedFn     g_innerDrawIndexed = nullptr;
+DrawPrimFn        g_innerDrawPrim = nullptr;
+float             g_vsConstShadow[16] = {};
 
 uint32_t      g_count = 0;
 uint32_t      g_submits = 0;
@@ -135,7 +141,11 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // PreExit). The session comes down here, on the present thread, once.
     if (InterlockedCompareExchange(&g_exiting, 0, 0)) {
         static bool torn = false;
-        if (!torn) { torn = true; dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit"); }
+        if (!torn) {
+            torn = true;
+            dvr::hudclass::shutdown(); dvr::hudcap::shutdown();   // VR-117: before the method and the runtime
+            dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit");
+        }
         return g_origPresent(self, src, dst, wnd, dirty);
     }
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
@@ -153,6 +163,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::perf::stamp(dvr::perf::kEntry);
     dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
     if (g_cb.pre_tick) g_cb.pre_tick(self);
+    dvr::hudclass::present_tick(self);   // VR-117: close the present's draw record, refresh the backbuffer identity
     // 41.1: a method that presents twice per tick is paced by the runtime's
     // pair pacing (one xrWaitFrame per pair); a per-present cap would halve
     // the tick rate.
@@ -215,6 +226,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::desktop_eye::begin_present(g_count);
     dvr::stereo::end_frame(devs, out);
     dvr::perf::stamp(dvr::perf::kAfterEnd);
+    // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
+    // method and the runtime on purpose: they belong to no stereo method.
+    dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
     if (out.tex) ++g_submits;
     dvr::vr::on_present_end(out.tex);
     dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
@@ -246,6 +260,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     // (38.63: a forgotten one made the game's Reset fail forever).
     dvr::perf::on_reset();
     dvr::stereo::on_reset();
+    dvr::hudclass::on_reset(); dvr::hudcap::on_reset();   // VR-117: the sinks are DEFAULT-pool; the hkReset LAW
     dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
     const HRESULT hr = g_origReset(self, pp);
     if (FAILED(hr))
@@ -257,6 +272,10 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
 }
 
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
+    if (startReg < 4 && data && count) {   // VR-117: c0..c3, for the HUD region probe
+        const UINT n = (count < 4 - startReg) ? count : 4 - startReg;
+        memcpy(&g_vsConstShadow[startReg * 4], data, n * 4 * sizeof(float));
+    }
     if (g_cb.set_vs_const) return g_cb.set_vs_const(self, startReg, data, count);
     return g_origSetVsConst(self, startReg, data, count);
 }
@@ -267,19 +286,20 @@ HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, I
     if (g_cb.draw_indexed)
         return g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices,
                                  startIndex, primCount);
-    return g_origDrawIndexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    return orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
 }
 
 HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex,
                              UINT primCount) {
     ++g_actDraws;
     if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
-    return g_origDrawPrim(self, type, startVertex, primCount);
+    return orig_draw_prim(self, type, startVertex, primCount);
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
     ++g_actSrts;
     dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
+    dvr::hudclass::on_set_render_target(idx, rt);   // VR-117: the classifier's rt0 shadow (pointer value only)
     if (g_cb.set_render_target) return g_cb.set_render_target(self, idx, rt);
     return g_origSetRt(self, idx, rt);
 }
@@ -324,6 +344,7 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         // 41.1 (session 8): the creation census - what the game asks of this
         // device, the go/no-go for the D3D9Ex route (core/gfx/device_census).
         dvr::census::install(*outDev, self, adapter, type, flags, pp);
+        dvr::hudclass::install(*outDev);   // VR-117: the HUD draw class (its own slots + the inner draw seam)
     }
     return hr;
 }
@@ -343,17 +364,39 @@ HRESULT orig_set_vs_const(IDirect3DDevice9* dev, UINT startReg, const float* dat
     return g_origSetVsConst ? g_origSetVsConst(dev, startReg, data, count) : E_FAIL;
 }
 
-HRESULT orig_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
-                          UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+HRESULT raw_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                         UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
     return g_origDrawIndexed ? g_origDrawIndexed(dev, type, baseVertex, minIndex, numVertices,
                                                  startIndex, primCount)
                              : D3DERR_INVALIDCALL;
 }
 
-HRESULT orig_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
-                       UINT primCount) {
+HRESULT raw_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
+                      UINT primCount) {
     return g_origDrawPrim ? g_origDrawPrim(dev, type, startVertex, primCount)
                           : D3DERR_INVALIDCALL;
+}
+
+HRESULT orig_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                          UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    if (g_innerDrawIndexed)
+        return g_innerDrawIndexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    return raw_draw_indexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+}
+
+HRESULT orig_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
+                       UINT primCount) {
+    if (g_innerDrawPrim) return g_innerDrawPrim(dev, type, startVertex, primCount);
+    return raw_draw_prim(dev, type, startVertex, primCount);
+}
+
+void set_inner_draw_hooks(DrawIndexedFn drawIndexed, DrawPrimFn drawPrim) {
+    g_innerDrawIndexed = drawIndexed;
+    g_innerDrawPrim = drawPrim;
+}
+
+const float* vs_const_shadow_row(int row) {
+    return &g_vsConstShadow[(row & 3) * 4];
 }
 
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt) {

@@ -17,8 +17,8 @@ foreach ($camFn in @('current_base', 'write_offset', 'clamp_written_z', 'restore
 }
 if (-not $eyeBody.Contains('struct Writer')) { throw 'Production Writer type not found.' }
 [IO.File]::WriteAllText((Join-Path $eyeOut 'camera_clamp_body.inc'), $eyeBody, [Text.UTF8Encoding]::new($false))
-$eyeVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory |
-    Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$eyeVc = Get-DvrMsvcRoot
 $eyeSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |
     Sort-Object Name -Descending | Select-Object -First 1).FullName
 $eyeLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' |

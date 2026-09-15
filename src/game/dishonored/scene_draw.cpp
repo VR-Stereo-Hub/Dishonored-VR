@@ -253,7 +253,7 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
     // terms are slow by construction (a ghost menu flag, and a viewLive rule that
     // needs a full second of dispatches to leave LOADING). Both were measured
     // holding the picture mono after a load while the scene was already up.
-    if (UiSurfaceBlocks()) { ++g_sdSkipState; d.why="UI surface owns presentation"; return d; }
+    if (UiSurfaceOwnsPresentation()) { ++g_sdSkipState; d.why="UI surface owns presentation"; return d; }   // VR-117: a riding screen does not
     if (!DvrSceneVerdict()) {
         if (StereoStateEnabled()) { ++g_sdSkipState; d.why="scene state refused"; return d; }
         // Track when the camera upload serial last MOVED - the honest "the scene

@@ -33,6 +33,25 @@ ID3D11ShaderResourceView* srv(ID3D11DeviceContext* ctx);   // always null
 ID3D11Texture2D* texture(ID3D11DeviceContext* ctx);        // always null
 bool redirected_this_interval();                            // always false
 
+// The runtime layer's own gate, remembered rather than discarded (41.2): true
+// while a projection-mode present carries a SequentialReentry eye tag, i.e.
+// while stereo gameplay frames are flowing. Menus, loading screens and the
+// cinematic quad all drop it, because they drop the projection or the tag.
+bool gate();
+// VR-117: milliseconds since the gate was last TRUE (0xffffffff = never). The
+// ride predicate's second leg: while an in-game screen rides the HUD window
+// the eye tags keep flowing, so a fresh gate HOLDS a ride the camera-upload
+// clock started; it cannot start one (the tags are downstream of the verdict).
+unsigned long gate_age_ms();
+// VR-117: the runtime's presentation MODE this present (a projection layer is
+// up, as opposed to the mono or cinematic quad). The redirect arms on this,
+// not on the per-present tag: under re-entry 6 to 21 presents a second carry
+// no tag by design (none/s in the stereo beat), and a gate that followed the
+// tag put the HUD back into the frame on each of them, a 10 Hz window/frame
+// flicker measured on the first headset run (2026-09-15).
+void set_projection_mode(bool on);
+bool projection_mode();
+
 void set_enabled(bool on);
 bool enabled();
 void set_gate(bool stereoActive);

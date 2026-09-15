@@ -1,3 +1,66 @@
+## Current state: the HUD on its anchors (VR-117), headset-confirmed, PR #63 ready for review - 2026-09-15
+
+Branch `claude/vr-117-hud-redo` off VR-Main 85f9ef6e, PR open, NOT merged. The game's
+Scaleform HUD leaves the eye textures and is shown on quad layers: a head-locked or
+world-parked WINDOW (1.25 m at 1.30 m, the PR #12 preset) and the tracked HAND (38.92's
+wrist HUD: 0.22 m, 0.06 m above the grip, billboarded), switchable per element with
+every placement value in `[Hud]` and on the new F10 HUD tab. In-game screens (pause,
+note, journal, store, mission stats) RIDE the window with the world in stereo behind
+them under a ride predicate on the reflected UI owner; the main menu and loading
+screens keep the mono screen. Ships ON (`[Hud] Panel=1`, the user's call) with the
+whole HUD as one element; per-element routing (`[Hud] Regions`) is an instrument
+until the region table is measured. Design and every measurement:
+docs/dishonored/HUD_ANCHORS.md. Ticket VR-117 (VR-8 and VR-38 canceled into it).
+
+Simulator, on the sewer level (`console open L_PrsnSewer_P`; the newest save on this
+PC is a death loop at the intro boat): `hud-panel.xrs` 24/24, `hud-quads.xrs` 35/35,
+`pause-ride.xrs` 31/31. The redirect takes 20.4 HUD draws per present with no empty
+armed present on either re-entry pass; the pause rides with the projection up
+(`L/s=46 R/s=45 mono/s=0`) and 94.9 menu draws per present on its own sink, 10 s with
+no stale-flag clear, resume with both eyes fresh; `hud menu off` gives the old mono
+pause as the A/B. Cost 0.3 ms per tick. Host: 107 ride-policy and 30 anchor checks,
+plus the existing verdict suites, green. Three faults found and fixed on the way (a
+health blink cancelling the open-gap stand-in; the HUD quads vanishing on held
+presents so a riding menu blinked; a focus loss latching a permanent thread refusal).
+
+This PC's setup was reset to the tested profile first: `release/dishonored_vr.ini`
+byte-copied over the installed ini (SHA256 de20bd79 before this branch added the
+`[Hud]` keys; the backup is `dishonored_vr.ini.pre-hud-redo-20260914`), the game's
+`-VRBaseline` and `-Console` applied (the mouse-smoothing key was missing from this
+machine's input ini and the script now appends it), 2750x2850 armed in all four
+places. The host suites needed `tools/lib/msvc.ps1` to find the Build Tools here.
+
+First headset run (2026-09-15, Quest 3 / VirtualDesktopXR): the window, the hand
+panel, the pause and a note judged good. Two reports fixed from its log and
+re-verified on the simulator: a ~10 Hz HUD flicker between the window and the frame
+(the redirect's gate followed the per-present eye tag; it now follows the
+projection mode) and the weapon scroll / grip-hold loadout dropping the world flat
+(both are the power wheel, which now rides the window, `WindowWheel=1`). On the
+sewer level the beat now reads `presents=467 armed=467` in every window (it read
+`presents=450 armed=433` before) and `wheel-ride.xrs` passes 27/27 beside
+`pause-ride.xrs` 31/31. Release build 278 of this tree is installed with the repo
+default ini (WindowWheel=1) for the second headset run.
+
+Second headset run (2026-09-15, release build 278, repo default ini): no flicker, the
+weapon scroll and the grip-hold loadout stay in the window, the screens judged good.
+PR #63 is out of draft and waits for review; the merge is the user's call.
+
+Next session's prompt: `docs/dishonored/HANDOFF-HUD-ELEMENTS.md` (branch off
+`claude/vr-117-hud-redo`, not VR-Main): a real alpha capture with F10 controls, and
+every HUD element on its own anchor (off, frame, window, world window, left hand,
+right hand), elements identified by what they are (the Scaleform movie or display
+object), measured first. The VR-118 transform stays the fallback route.
+
+The VR-118 route as it stood
+(rung 3): the region probe reads the HUD's vertices (DrawIndexedPrimitiveUP, SHORT2
+shape coordinates, 0.5 us per draw) but the c0/c1 transform hypothesis is wrong on
+this GFx build (nonsense rectangles), so per-element routing is NOT in this branch;
+the next step is the HUD vertex shader's bytecode to find the transform's registers,
+then `[Hud] Region.*` so health, mana and the equipment separate onto the hand.
+Never merge without permission.
+
+## Earlier records
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.
@@ -4542,6 +4605,33 @@ Still open from earlier sessions: (1) the PITCH PIVOT with `[Neck] Mode=cancel` 
   an Escape pair clears it. Look at an `xrsim-shot` before trusting a state line.
 
 ## Session log
+
+### 2026-09-14/15 - session 40: the HUD redo (VR-117)
+
+**The HUD leaves the eyes.** The abandoned PR #12 redirect was rebuilt on VR-Main as three
+core modules (draw class, capture with N sinks, layout) and one runtime block, with the
+38.92 wrist HUD back as a hand anchor and every placement value in `[Hud]` and on the F10
+HUD tab. In-game screens ride the window with the world in stereo behind them, decided
+once per blocked interval by a pure ride policy over the reflected UI owner. Simulator
+first: three sequences and 137 host checks, three faults found and fixed before the
+headset saw it (a health blink cancelling the open-gap stand-in, the HUD quads skipped on
+held presents so a riding menu blinked, a focus loss latching a thread refusal).
+
+**The region probe falsified its own hypothesis.** The HUD draws are
+DrawIndexedPrimitiveUP with SHORT2 positions, read correctly at 0.5 us per draw, but the
+c0/c1 constant rows are not the 2x4 transform on this GFx build, so per-element routing is
+an instrument, not a feature (VR-118).
+
+**The first headset run judged the anchors good and reported two faults, both in the log.**
+The HUD flickered between the window and the frame at about 10 Hz: the redirect armed on
+the per-present eye tag and re-entry leaves 6 to 21 presents a second untagged by design,
+so each untagged present put the next present's HUD into the frame (`presents=441
+armed=400`). The gate now follows the projection mode (`presents=467 armed=467` on the
+sim). The weapon scroll and the grip-hold loadout dropped the world flat for a second:
+both open the power wheel, which was excluded from riding and parked the redirect through
+the wheel-held flag. The wheel rides now (`WindowWheel=1`, `wheel-ride.xrs`). The setup on
+this PC was reset to the repo's tested profile first (mod ini byte copy, game inis
+`-VRBaseline` and `-Console`, 2750x2850 armed).
 
 ### 2026-09-13 - session 39: a late tag, and a note that waited on the load rules
 

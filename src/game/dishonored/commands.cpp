@@ -32,7 +32,12 @@
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
 //   console <text>               run a game console command on the script lane
-//   dump frame|capture|eyes
+//   dump frame|capture|eyes|hud [sink]
+//   hud on|off|status|scale <f>  the HUD redirect (core/gfx/hud_capture) - VR-117
+//   hud regions on|off           route elements by screen region (the probe)
+//   hud anchor <el> <anchor>     an element's anchor: off|frame|window|hand
+//   hud window|hand|place|region|menu|reset|layout   the layout (core/gfx/hud_layout)
+//   draws on|off|status|regions|kill <key>|hud|unkill   the HUD draw census (core/gfx/hud_class)
 //   cfg dump                     print the live values the seam can change
 // Line numbers in comments refer to the original single file (commit 48766c07).
 
@@ -381,6 +386,21 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         FrameDumpRequest(args[0] ? args : "frame");
         return true;
     }
+    if (!strcmp(cmd, "hud")) {   // VR-117: the HUD redirect and its layout
+        if (!strncmp(args, "regions", 7)) {
+            const char* a = args + 7;
+            while (*a == ' ') ++a;
+            if (DvrOnOff(a, &b)) { dvr::hudclass::set_regions_enabled(b); ConfigWriteKey("Hud", "Regions", b ? "1" : "0", "the seam"); }
+            else dvr::hudclass::log_regions("asked");
+            return true;
+        }
+        if (DvrOnOff(args, &b)) ConfigWriteKey("Hud", "Panel", b ? "1" : "0", "the seam");
+        return dvr::hudcap::command(args);
+    }
+    if (!strcmp(cmd, "draws")) {
+        if (DvrOnOff(args, &b)) ConfigWriteKey("Draws", "Census", b ? "1" : "0", "the seam");
+        return dvr::hudclass::command(args);
+    }
     if (!strcmp(cmd, "frameid")) {   // 41.1 (session 9): the frame-identity trace
         if (DvrOnOff(args, &b)) { dvr::frameid::set_enabled(b); return true; }
         { char sub[16] = "", v[16] = ""; if (sscanf(args, "%15s %15s", sub, v) == 2 && !strcmp(sub, "every")) { dvr::frameid::set_every((uint32_t)atoi(v)); return true; } }
@@ -559,6 +579,10 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("frameid"); dvr::frameid::status(w); w.end_obj();   // 41.1 (session 9): the frame-identity trace
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
+    w.obj("draws"); dvr::hudclass::status(w); w.end_obj();   // VR-117: the HUD draw census
+    w.obj("hud"); dvr::hudcap::status(w); w.end_obj();       // VR-117: the redirect and the layout
+    { const dvr::vr::HudQuadStats hq = dvr::vr::hud_quad_stats(); w.obj("hudQuads"); w.kv("submitted", (unsigned long)hq.submitted);
+      w.kv("untracked", (unsigned long)hq.untracked); w.kv("hiddenBudget", (unsigned long)hq.hiddenBudget); w.end_obj(); }
 
     w.obj("head");
     w.kv("yaw", (double)g_hmdYaw); w.kv("pitch", (double)g_hmdPitch); w.kv("roll", (double)g_hmdRoll);
@@ -602,6 +626,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);
+    w.kv("uiBlocks", UiSurfaceBlocks()); w.kv("uiRides", UiSurfaceRidesHud());   // VR-117
     w.kv("exiting", InterlockedCompareExchange(&g_gameExiting, 0, 0) != 0);
     w.obj("counters");
     w.kv("submits", (unsigned long)dvr::frame::submit_count()); w.kv("gameFrames", (unsigned long)g_gameFrames);

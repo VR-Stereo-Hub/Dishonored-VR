@@ -416,6 +416,12 @@ static void DvrGameTick(IDirect3DDevice9* self)
     g_xrOn = g_vrReady = dvr::frame::xr_live();   // the session, as of this present
     MfNoteTag();   // VR-76: the runtime's eye tag for the flicker history
     dvr::aim::tick(DvrGameplayVerdict(), dvr::stereo::wants_projection());
+    // VR-117: the HUD redirect's game-side gate: the scene is drawing (the
+    // presentation verdict, which a riding screen keeps true). The power wheel
+    // is the same draw class as the HUD and RIDES the window like a menu (its
+    // owner is DisGFxMoviePlayerPowerWheel; the mouse scroll opens it too), so
+    // it no longer parks the redirect.
+    dvr::hudcap::set_game_gate(DvrSceneVerdict(), UiSurfaceRidesHud());
         // 30.24: hitch detector. Any Present-to-Present gap over 80 ms gets
         // logged with what was in flight, so "lag spike on swing" becomes a
         // measured correlation instead of a hunch. 41.1 (session 8): the tick
@@ -869,6 +875,10 @@ static void DvrInstallFrameHooks()
     rh.present_tag = SceneDrawPresentTag;   // VR-78: the accounting probe's join
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
+    // VR-117: the HUD anchors. The census borrows two game counters; the
+    // runtime takes its quads from the layout's provider.
+    dvr::hudclass::set_game_counters(SceneDrawDraws, DvrPostRenderCount);
+    dvr::vr::set_hud_quad_provider(dvr::hudlayout::provide);
     // VR-33 step 2: the capture worker. Started here rather than lazily at the
     // first draw, so its thread never has to be created from inside a detour.
 #if DVR_WITH_LEGACY

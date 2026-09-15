@@ -1,5 +1,19 @@
 ## Unreleased
 
+### Added
+
+- **The HUD on its anchors (VR-117).** The game's HUD leaves the eye textures and
+  is shown on quads the headset composites: a window in front of you (head-locked,
+  or parked in the room where you recentred) and the tracked hand, the return of
+  build 38.92's wrist HUD. Which anchor each element rides, where it sits, and the
+  window's and hand panel's own placement are all F10 controls on the new HUD tab
+  and `[Hud]` keys. In-game screens (pause, journal, notes, store, mission stats)
+  ride the window with the world in stereo behind them, and resuming never drops
+  the projection; the main menu and loading screens keep the mono screen. Ships ON
+  (`[Hud] Panel=1`) with the window preset (1.25 m wide at 1.30 m) and the whole
+  HUD as one element; per-element routing (`[Hud] Regions`) waits on the region
+  measurement. `hud off` puts the HUD back in the frame.
+
 ### Changed
 
 - Image-linked world head orientation is enabled by default after repeated

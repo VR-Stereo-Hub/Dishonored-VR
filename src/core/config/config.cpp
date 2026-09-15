@@ -188,6 +188,86 @@ static void WriteDefaultIni(const char* ini)
         "; frame drop, which is why this exists. Nothing about what is rendered changes, and\n"
         "; the baseline is restored when the plan ends. `perf ab status|off|restart|seg <ms>`.\n"
         "Ab=0\n"
+        "[Draws]\n"
+        "; The HUD draw census (core/gfx/hud_class), default OFF. Census=1 buckets every draw in\n"
+        "; a present by entry point, render target, viewport, depth state, blend, texture stage\n"
+        "; 0, pixel shader, vertex declaration and primitive count, and prints a table and a\n"
+        "; VERDICT every 3 s: whether the Scaleform HUD draws separate from the world with NO\n"
+        "; overlap. It costs a bucket lookup per draw, so leave it off unless you are measuring.\n"
+        "; `draws on|off|status|regions|kill <key>|hud|unkill` live, and the F10 HUD tickbox.\n"
+        "Census=0\n"
+        "[Hud]\n"
+        "; THE HUD ON ITS ANCHORS (VR-117; core/gfx/hud_class, hud_capture, hud_layout).\n"
+        "; Panel=1 redirects the game's own Scaleform HUD draws into private targets and shows\n"
+        "; them on quads in the headset instead of in the world: a WINDOW in front of the\n"
+        "; player and the tracked HAND (what build 38.92 shipped as the wrist HUD). While it\n"
+        "; is on the HUD is NOT in the eye textures and NOT in the desktop window: that is\n"
+        "; what a redirect means. 0 leaves the HUD in the frame, as the game draws it. If the\n"
+        "; hand-off to D3D11 cannot be built the redirect stays off and the HUD keeps drawing\n"
+        "; into the frame, because losing it entirely would be worse. Loading screens, the\n"
+        "; main menu, cutscenes on the mono screen and the power wheel leave it in the frame.\n"
+        "; `hud on|off|status` live, and the F10 HUD tab.\n"
+        "Panel=1\n"
+        "; SlotScale: each sink's texture is the render's size times this. The window subtends\n"
+        "; about 50 degrees, so half is already more than the headset resolves.\n"
+        "SlotScale=0.50\n"
+        "; Regions=1 reads each HUD draw's screen rectangle from its vertices and routes it to\n"
+        "; an ELEMENT (health, mana, equipment, reticle, subtitles, prompt, objective, vignette)\n"
+        "; by the Region.<element> table below; 0 treats the whole HUD as one element ('all').\n"
+        "; The rectangles are measured with `draws on` + `draws regions` (default OFF until the\n"
+        "; table is measured on this build). `hud regions on|off` live.\n"
+        "Regions=0\n"
+        "; Element.<name>=off|frame|window|hand: which anchor an element rides ('frame' = left\n"
+        "; in the eye textures, 'off' = hidden). 'all' is every draw without a readable region;\n"
+        "; 'menu' is the in-game screens while they ride the window (never the hand).\n"
+        "; Element.<name>.WinX/WinY/WinScale and .HandX/HandY/HandScale place it on its anchor\n"
+        "; (metres in the anchor's plane, and a size factor). `hud anchor <el> <anchor>`,\n"
+        "; `hud place <el> window|hand <x> <y> [scale]`, the F10 HUD tab, `hud reset`.\n"
+        "Element.all=window\n"
+        "Element.health=hand\n"
+        "Element.mana=hand\n"
+        "Element.equipment=hand\n"
+        "Element.reticle=window\n"
+        "Element.subtitles=window\n"
+        "Element.prompt=window\n"
+        "Element.objective=window\n"
+        "Element.vignette=window\n"
+        "Element.menu=window\n"
+        "; Region.<name>=x0,y0,x1,y1 (normalised backbuffer, y down): the screen rectangle that\n"
+        "; names an element. Unset = unmeasured (the element rides 'all'). `hud region <el> ...`.\n"
+        "; The window: WindowAnchor=view keeps it in front of your eyes; world parks it where\n"
+        "; you recentred (F5, `hud window recenter`). Distance and width in metres; Height 0 =\n"
+        "; the texture's aspect, else a centred crop; Up and Lateral offset it in its plane.\n"
+        "WindowAnchor=view\n"
+        "WindowDistance=1.300\n"
+        "WindowWidth=1.250\n"
+        "WindowHeight=0.000\n"
+        "WindowUp=-0.100\n"
+        "WindowLateral=0.000\n"
+        "; The hand panel (38.92's values): HandHand 0 = left, 1 = right; HandX/Y/Z an offset in\n"
+        "; the grip's own frame; HandLift along world up; HandWidth in metres; HandOrient\n"
+        "; billboard (faces the head, never rolls: what 38.92 did) or grip (a watch face on the\n"
+        "; back of the hand, HandTilt degrees toward the eyes).\n"
+        "HandHand=0\n"
+        "HandX=0.000\n"
+        "HandY=0.000\n"
+        "HandZ=0.000\n"
+        "HandLift=0.060\n"
+        "HandWidth=0.220\n"
+        "HandOrient=billboard\n"
+        "HandTilt=0.000\n"
+        "; MenuInWindow=1 lets the in-game screens (pause, note, journal, the power wheel, store,\n"
+        "; mission stats, each with its own Window<Context> opt-in) ride the HUD window with the world in\n"
+        "; stereo behind them; resuming never drops the projection. 0 is the old behaviour:\n"
+        "; every screen takes the mono screen ([Screen] Anchor* place it). The MAIN menu and\n"
+        "; loading screens always use the mono screen. `hud menu on|off`, `hud menu Pause on|off`.\n"
+        "MenuInWindow=1\n"
+        "WindowPause=1\n"
+        "WindowNote=1\n"
+        "WindowJournal=1\n"
+        "WindowWheel=1\n"
+        "WindowStore=1\n"
+        "WindowMissionStats=1\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -1864,6 +1944,13 @@ static void LoadConfig()
     dvr::anim::configure(ini);
     CineTraceConfigure(ini);
     UiSurfaceConfigure(ini);
+    {   // VR-117: the HUD on its anchors. The layout owns the [Hud] placement keys.
+        dvr::hudlayout::configure(ini);
+        dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
+        dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 1) != 0.0f);
+        dvr::hudclass::set_regions_enabled(IniFloat(ini, "Hud", "Regions", 0) != 0.0f);
+        dvr::hudclass::set_census_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
+    }
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
     CineFovConfigure(ini);
@@ -3042,6 +3129,13 @@ static void OverlaySaveDefaults()
                                    g_skcRotSignP < 0 ? "-1" : "1", ini);
     }
     dvr::anim::save(ini);   // VR-88: the F10 Hands checkbox must survive a restart
+    // VR-117: the HUD redirect, the census, the region probe and the layout
+    WritePrivateProfileStringA("Hud", "Panel", dvr::hudcap::enabled() ? "1" : "0", ini);
+    _snprintf(v, 64, "%.2f", dvr::hudcap::slot_scale());
+    WritePrivateProfileStringA("Hud", "SlotScale", v, ini);
+    WritePrivateProfileStringA("Hud", "Regions", dvr::hudclass::regions_enabled() ? "1" : "0", ini);
+    WritePrivateProfileStringA("Draws", "Census", dvr::hudclass::census_enabled() ? "1" : "0", ini);
+    dvr::hudlayout::save(ini);
     WritePrivateProfileStringA("Menu","SurfaceGuard",UiSurfaceEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Screen","AnchorMono",dvr::vr::mono_anchor_enabled() ? "1" : "0",ini);
     for(unsigned i=0;i<dvr::mono::Count;++i) {

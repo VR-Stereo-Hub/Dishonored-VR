@@ -73,7 +73,26 @@ function Set-IniKeyInSection($path, $section, $key, $value) {
             return $true
         }
     }
-    throw "could not find $key in [$section] of $path - the file is not the shape this expects, nothing was written"
+    # VR-117: a key the game's ini does not carry is appended at the end of its
+    # section (the engine reads it the same way), because throwing here after
+    # the earlier keys were already written left the baseline half applied and
+    # the exit code saying nothing was.
+    $lines = [System.IO.File]::ReadAllLines($path)
+    $secIdx = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*\[(.+)\]\s*$') {
+            if ($secIdx -ge 0) { break }
+            if ($matches[1] -eq $section) { $secIdx = $i }
+        }
+    }
+    if ($secIdx -lt 0) { throw "could not find [$section] in $path - the file is not the shape this expects, nothing was written" }
+    $end = $i
+    while ($end -gt $secIdx + 1 -and $lines[$end - 1].Trim() -eq '') { $end-- }
+    $out = @($lines[0..($end - 1)]) + @("$key=$value")
+    if ($end -lt $lines.Count) { $out += $lines[$end..($lines.Count - 1)] }
+    [System.IO.File]::WriteAllLines($path, [string[]]$out)
+    Write-Host ("  [{0}] {1}={2} was MISSING - appended at the end of the section" -f $section, $key, $value)
+    return $true
 }
 
 if ($VRBaseline) {

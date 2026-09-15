@@ -633,17 +633,48 @@ void set_aim_dot(const AimDotConfig& cfg);
 void set_laser_slot(int slot, const LaserConfig& cfg);
 void set_aim_dot_slot(int slot, const AimDotConfig& cfg);
 
-// Session 19 HUD floating quad placement (meters; head-locked). Persisted by
-// the VR preset; sliders in the VR overlay section.
-void set_hud_quad(float distM, float widthM, float upM);
-void get_hud_quad(float* distM, float* widthM, float* upM);
-
 // s52 (Infinite I9): the HUD quad's texture source, as a provider seam. When
 // set, the quad consumer prefers the provider's texture; null (the default,
 // and a null provider RESULT) falls through to dvr::hud::texture() - BS1's
-// path, byte-identical for games that never call this.
+// path, byte-identical for games that never call this. On its own it feeds
+// ONE head-locked quad at the compiled defaults (1.30 m, 1.25 m wide, 0.10 m
+// below); the multi-quad provider below supersedes it when set.
 using HudTextureProviderFn = ID3D11Texture2D* (*)(ID3D11DeviceContext* ctx);
 void set_hud_texture_provider(HudTextureProviderFn fn);
+
+// 41.x (Dishonored, VR-117) HUD anchors: up to kMaxHudQuads quad layers per
+// present, each described by the game side. Window = VIEW space (head-locked)
+// at base (lateral, up, -distance); WindowWorld = LOCAL space, parked where
+// the head was at the last recenter (yaw only, like the mono anchor) plus the
+// same base offsets; Hand = LOCAL space at the located GRIP pose plus base
+// (x, y, z in the grip frame) plus lift along world up, billboarded to the
+// head or following the grip as a watch face. planeOff moves the quad in its
+// own plane after the orientation is known (an element's place on its
+// anchor, metres). subrect crops the texture (u0,v0,u1,v1);
+// height 0 = the crop's own aspect, else a centred crop to width:height.
+// The placement lives with the game side (core/gfx/hud_layout); the runtime
+// only locates and submits. Present thread.
+constexpr int kMaxHudQuads = 6;
+enum class HudAnchor : uint8_t { Window = 0, WindowWorld = 1, Hand = 2 };
+enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1 };
+struct HudQuadDesc {
+    ID3D11Texture2D* tex = nullptr;    // R8G8B8A8 family, premultiplied + repaired alpha
+    HudAnchor anchor = HudAnchor::Window;
+    HudOrient orient = HudOrient::Billboard;
+    int   hand = 0;                    // Hand: 0 left, 1 right
+    int   element = -1;                // the game side's element id, for the log
+    float base[3] = {0.0f, -0.10f, -1.30f};
+    float lift = 0.0f;
+    float planeOff[2] = {0.0f, 0.0f};
+    float width = 1.25f, height = 0.0f;
+    float tiltDeg = 0.0f;
+    float subrect[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+};
+using HudQuadProviderFn = int (*)(ID3D11DeviceContext* ctx, HudQuadDesc* out, int max);
+void set_hud_quad_provider(HudQuadProviderFn fn);   // null = the single-quad path above
+void recenter_hud_world_anchor();                   // re-seed the world-locked window at the head
+struct HudQuadStats { uint32_t submitted, hiddenBehind, hiddenNear, hiddenDegenerate, hiddenBudget, untracked; };
+HudQuadStats hud_quad_stats();
 
 // Session 33: the session's state as a short string ("FOCUSED", "SYNCHRONIZED",
 // "none"...) and whether it has EVER been FOCUSED. Cheap, for a heartbeat.

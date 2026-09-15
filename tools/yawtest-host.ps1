@@ -8,8 +8,8 @@ $out  = Join-Path $repo "build\yawtest"
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 python (Join-Path $PSScriptRoot "yawtest-slice.py") $src (Join-Path $out "yawtest_host.cpp")
 if ($LASTEXITCODE -ne 0) { throw "Yaw source extraction failed." }
-$root = (Get-ChildItem "C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*" -Directory |
-         Sort-Object Name -Descending | Select-Object -First 1).FullName
+. (Join-Path $PSScriptRoot "lib\msvc.ps1")
+$root = Get-DvrMsvcRoot
 $sdk  = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" | Sort-Object Name -Descending | Select-Object -First 1).FullName
 $libv = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Lib"     | Sort-Object Name -Descending | Select-Object -First 1).FullName
 $env:INCLUDE = "$root\include;$sdk\ucrt;$sdk\shared;$sdk\um"

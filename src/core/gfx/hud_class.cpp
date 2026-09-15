@@ -1,0 +1,1181 @@
+// core/gfx/hud_class.cpp - see hud_class.h.
+#define DVR_CAT ::dvr::log::Cat::d3d
+#include "core/gfx/hud_class.h"
+
+#include "core/framework/frame_hooks.h"
+#include "core/framework/status.h"
+#include "core/gfx/hud_capture.h"
+#include "core/gfx/hud_layout.h"
+#include "core/hooks/vtable.h"
+#include "core/util/log.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+namespace dvr::hudclass {
+namespace {
+
+typedef HRESULT (__stdcall *PFN_DrawPrimitiveUP)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT,
+                                                 const void*, UINT);
+typedef HRESULT (__stdcall *PFN_DrawIndexedPrimitiveUP)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT,
+                                                        UINT, UINT, const void*, D3DFORMAT,
+                                                        const void*, UINT);
+typedef HRESULT (__stdcall *PFN_SetViewport)(IDirect3DDevice9*, const D3DVIEWPORT9*);
+typedef HRESULT (__stdcall *PFN_SetRenderState)(IDirect3DDevice9*, D3DRENDERSTATETYPE, DWORD);
+typedef HRESULT (__stdcall *PFN_SetTexture)(IDirect3DDevice9*, DWORD, IDirect3DBaseTexture9*);
+typedef HRESULT (__stdcall *PFN_SetVertexDeclaration)(IDirect3DDevice9*,
+                                                      IDirect3DVertexDeclaration9*);
+typedef HRESULT (__stdcall *PFN_SetVertexShader)(IDirect3DDevice9*, IDirect3DVertexShader9*);
+typedef HRESULT (__stdcall *PFN_SetPixelShader)(IDirect3DDevice9*, IDirect3DPixelShader9*);
+typedef HRESULT (__stdcall *PFN_SetStreamSource)(IDirect3DDevice9*, UINT, IDirect3DVertexBuffer9*,
+                                                 UINT, UINT);
+typedef HRESULT (__stdcall *PFN_CreateStateBlock)(IDirect3DDevice9*, D3DSTATEBLOCKTYPE,
+                                                  IDirect3DStateBlock9**);
+typedef HRESULT (__stdcall *PFN_EndStateBlock)(IDirect3DDevice9*, IDirect3DStateBlock9**);
+
+PFN_DrawPrimitiveUP         g_origDpUp = nullptr;
+PFN_DrawIndexedPrimitiveUP  g_origDipUp = nullptr;
+PFN_SetViewport             g_origSetVp = nullptr;
+PFN_SetRenderState          g_origSetRs = nullptr;
+PFN_SetTexture              g_origSetTex = nullptr;
+PFN_SetVertexDeclaration    g_origSetDecl = nullptr;
+PFN_SetVertexShader         g_origSetVs = nullptr;
+PFN_SetPixelShader          g_origSetPs = nullptr;
+PFN_SetStreamSource         g_origSetSs = nullptr;
+PFN_CreateStateBlock        g_origCreateSb = nullptr;
+PFN_EndStateBlock           g_origEndSb = nullptr;
+
+bool g_hooksOk = false;
+
+// The levers. g_wanted* is what the ini or the seam asked for, which can be
+// BEFORE the device exists (the config is read at DllMain); it is applied when
+// the hooks install.
+bool g_track = false;        // the census
+bool g_wanted = false;
+bool g_regions = false;      // the region probe (and the routing it feeds)
+
+// The render-thread assumption, measured rather than assumed. Draws and
+// Present normally share the game's render thread; when the game loses focus
+// (OnLostFocusPause) UE3 parks that thread and presents from the game thread
+// until focus returns, and the two threads HAND OFF rather than race. So a
+// mismatch is logged as a topology change with both ids and counted, but does
+// not refuse: the first build latched a permanent refusal on that hand-off
+// and switched the redirect off for the run on the tester's first alt-tab.
+DWORD g_drawTid = 0;
+DWORD g_lastDrawTid = 0;
+bool  g_threadMismatch = false;
+uint32_t g_threadMismatchPresents = 0;
+
+// State blocks bypass the Set* hooks: a tracked value after an Apply would be
+// stale. Counting them says whether the Apply slot has to be hooked too; a
+// zero here is the licence not to (it read 0 for a whole run in session 10).
+uint32_t g_stateBlocksCreated = 0;
+
+// ---- the shadowed device state -------------------------------------------
+IDirect3DSurface9*  g_rt0 = nullptr;        // pointer VALUE only, never a reference
+IDirect3DSurface9*  g_bbPtr = nullptr;
+uint32_t            g_bbW = 0, g_bbH = 0;
+D3DVIEWPORT9        g_vp = {};
+bool                g_vpKnown = false;
+DWORD               g_zEnable = D3DZB_TRUE;
+DWORD               g_zWrite = TRUE;
+DWORD               g_alphaBlend = FALSE;
+void*               g_ps = nullptr;
+void*               g_vs = nullptr;
+void*               g_vdecl = nullptr;
+void*               g_tex0 = nullptr;
+IDirect3DVertexBuffer9* g_vb0 = nullptr;    // stream 0, pointer value only
+UINT                g_vb0Offset = 0, g_vb0Stride = 0;
+
+// ---- caches keyed on pointer VALUE ---------------------------------------
+template <int N> struct PtrMap {
+    void*    key[N];
+    uint32_t val[N];
+    void clear() { memset(key, 0, sizeof(key)); memset(val, 0, sizeof(val)); }
+    uint32_t* find_or_add(void* k) {
+        uint32_t h = (uint32_t)(((uintptr_t)k >> 4) * 2654435761u) & (N - 1);
+        for (int i = 0; i < 16; i++) {
+            const uint32_t s = (h + i) & (N - 1);
+            if (key[s] == k) return &val[s];
+            if (key[s] == nullptr) { key[s] = k; val[s] = 0xffffffffu; return &val[s]; }
+        }
+        return nullptr;   // full: this pointer goes uncached this window
+    }
+};
+PtrMap<512>  g_psHash;     // pixel shader -> FNV-1a of its bytecode
+PtrMap<2048> g_texIsRt;    // texture -> 1 when it carries D3DUSAGE_RENDERTARGET
+PtrMap<256>  g_surfSize;   // surface -> (w << 16) | h
+PtrMap<128>  g_declPos;    // vertex declaration -> its position element, packed
+PtrMap<256>  g_vbUsage;    // vertex buffer -> D3DUSAGE flags
+
+uint32_t g_psDistinct = 0;
+
+uint32_t fnv32(const uint8_t* p, size_t n) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; i++) { h ^= p[i]; h *= 16777619u; }
+    return h;
+}
+
+uint32_t ps_hash(void* ps) {
+    if (!ps) return 0;
+    uint32_t* slot = g_psHash.find_or_add(ps);
+    if (!slot) return 0;
+    if (*slot != 0xffffffffu) return *slot;
+    uint32_t h = 0;
+    UINT size = 0;
+    IDirect3DPixelShader9* s = (IDirect3DPixelShader9*)ps;
+    if (SUCCEEDED(s->GetFunction(nullptr, &size)) && size && size <= 16384) {
+        uint8_t buf[16384];
+        if (SUCCEEDED(s->GetFunction(buf, &size))) h = fnv32(buf, size);
+    }
+    *slot = h;
+    ++g_psDistinct;
+    DVR_LOG(DVR_CAT, ::dvr::log::Level::Debug, "draws: ps %08x first seen (%u bytes)",
+            (unsigned)h, (unsigned)size);
+    return h;
+}
+
+// 0 = no texture at stage 0, 1 = a plain texture, 2 = a render target, 3 = unknown.
+uint8_t tex0_class(void* t) {
+    if (!t) return 0;
+    uint32_t* slot = g_texIsRt.find_or_add(t);
+    if (!slot) return 3;
+    if (*slot != 0xffffffffu) return (uint8_t)*slot;
+    uint32_t isRt = 0;
+    IDirect3DBaseTexture9* b = (IDirect3DBaseTexture9*)t;
+    if (b->GetType() == D3DRTYPE_TEXTURE) {
+        D3DSURFACE_DESC d;
+        if (SUCCEEDED(((IDirect3DTexture9*)b)->GetLevelDesc(0, &d)) &&
+            (d.Usage & D3DUSAGE_RENDERTARGET))
+            isRt = 1;
+    }
+    *slot = isRt;
+    return isRt ? 2 : 1;
+}
+
+void surf_size(IDirect3DSurface9* s, uint16_t* w, uint16_t* h) {
+    *w = 0; *h = 0;
+    if (!s) return;
+    uint32_t* slot = g_surfSize.find_or_add(s);
+    if (!slot) return;
+    if (*slot == 0xffffffffu) {
+        D3DSURFACE_DESC d;
+        *slot = SUCCEEDED(s->GetDesc(&d)) ? ((d.Width & 0xffff) << 16) | (d.Height & 0xffff) : 0;
+    }
+    *w = (uint16_t)(*slot >> 16); *h = (uint16_t)(*slot & 0xffff);
+}
+
+// ---- the region probe -----------------------------------------------------
+// The position element of the bound declaration: packed as
+//   bit 31 known, bit 30 pre-transformed (POSITIONT), bits 16..23 type,
+//   bits 12..15 stream, bits 0..11 offset. 0xff in the type = no position.
+uint32_t decl_pos(void* decl) {
+    if (!decl) return 0;
+    uint32_t* slot = g_declPos.find_or_add(decl);
+    if (!slot) return 0;
+    if (*slot != 0xffffffffu) return *slot;
+    uint32_t packed = 0x80000000u | (0xffu << 16);
+    D3DVERTEXELEMENT9 el[64];
+    UINT n = 64;
+    if (SUCCEEDED(((IDirect3DVertexDeclaration9*)decl)->GetDeclaration(el, &n))) {
+        for (UINT i = 0; i < n && i < 64; ++i) {
+            if (el[i].Stream == 0xff) break;
+            if (el[i].UsageIndex != 0) continue;
+            if (el[i].Usage != D3DDECLUSAGE_POSITION && el[i].Usage != D3DDECLUSAGE_POSITIONT) continue;
+            packed = 0x80000000u | (el[i].Usage == D3DDECLUSAGE_POSITIONT ? 0x40000000u : 0) |
+                     ((uint32_t)el[i].Type << 16) | ((uint32_t)(el[i].Stream & 0xf) << 12) |
+                     (el[i].Offset & 0xfff);
+            break;
+        }
+    }
+    *slot = packed;
+    return packed;
+}
+
+const char* decl_type_name(uint32_t type) {
+    switch (type) {
+        case D3DDECLTYPE_FLOAT1: return "f1"; case D3DDECLTYPE_FLOAT2: return "f2";
+        case D3DDECLTYPE_FLOAT3: return "f3"; case D3DDECLTYPE_FLOAT4: return "f4";
+        case D3DDECLTYPE_SHORT2: return "s2"; case D3DDECLTYPE_SHORT4: return "s4";
+        case D3DDECLTYPE_FLOAT16_2: return "h2"; case D3DDECLTYPE_FLOAT16_4: return "h4";
+        case D3DDECLTYPE_SHORT2N: return "s2n"; case D3DDECLTYPE_SHORT4N: return "s4n";
+        case 0xff: return "none";
+        default: return "other";
+    }
+}
+
+float half_to_float(uint16_t h) {
+    const uint32_t s = (h >> 15) & 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+    float v;
+    if (e == 0) v = ldexpf((float)m, -24);
+    else if (e == 31) v = m ? 0.0f : 65504.0f;
+    else v = ldexpf((float)(m | 0x400), (int)e - 25);
+    return s ? -v : v;
+}
+
+// Reads one vertex's position (x, y, z) by declaration type. False = a type
+// the probe does not read.
+bool read_pos(const uint8_t* p, uint32_t type, float out[3]) {
+    out[0] = out[1] = out[2] = 0.0f;
+    switch (type) {
+        case D3DDECLTYPE_FLOAT1: out[0] = ((const float*)p)[0]; return true;
+        case D3DDECLTYPE_FLOAT2: out[0] = ((const float*)p)[0]; out[1] = ((const float*)p)[1]; return true;
+        case D3DDECLTYPE_FLOAT3: case D3DDECLTYPE_FLOAT4:
+            out[0] = ((const float*)p)[0]; out[1] = ((const float*)p)[1]; out[2] = ((const float*)p)[2]; return true;
+        case D3DDECLTYPE_SHORT2: out[0] = ((const int16_t*)p)[0]; out[1] = ((const int16_t*)p)[1]; return true;
+        case D3DDECLTYPE_SHORT4:
+            out[0] = ((const int16_t*)p)[0]; out[1] = ((const int16_t*)p)[1]; out[2] = ((const int16_t*)p)[2]; return true;
+        case D3DDECLTYPE_SHORT2N: out[0] = ((const int16_t*)p)[0] / 32767.0f; out[1] = ((const int16_t*)p)[1] / 32767.0f; return true;
+        case D3DDECLTYPE_SHORT4N:
+            out[0] = ((const int16_t*)p)[0] / 32767.0f; out[1] = ((const int16_t*)p)[1] / 32767.0f;
+            out[2] = ((const int16_t*)p)[2] / 32767.0f; return true;
+        case D3DDECLTYPE_FLOAT16_2:
+            out[0] = half_to_float(((const uint16_t*)p)[0]); out[1] = half_to_float(((const uint16_t*)p)[1]); return true;
+        case D3DDECLTYPE_FLOAT16_4:
+            out[0] = half_to_float(((const uint16_t*)p)[0]); out[1] = half_to_float(((const uint16_t*)p)[1]);
+            out[2] = half_to_float(((const uint16_t*)p)[2]); return true;
+        default: return false;
+    }
+}
+
+uint32_t verts_for(D3DPRIMITIVETYPE t, UINT prims) {
+    switch (t) {
+        case D3DPT_POINTLIST: return prims;
+        case D3DPT_LINELIST: return prims * 2;
+        case D3DPT_LINESTRIP: return prims + 1;
+        case D3DPT_TRIANGLELIST: return prims * 3;
+        case D3DPT_TRIANGLESTRIP: case D3DPT_TRIANGLEFAN: return prims + 2;
+        default: return prims * 3;
+    }
+}
+
+// The probe's answer for one draw, kept for the table and the route.
+struct Probe {
+    bool     ok = false;         // bbox[] is a screen rectangle (normalised, y down)
+    bool     transformed = false;
+    uint8_t  type = 0xff;
+    uint8_t  why = 0;            // 0 ok, 1 no decl/position, 2 type unread, 3 no data, 4 write-only VB, 5 lock failed, 6 not finite, 7 off screen
+    float    bbox[4] = {};
+    float    raw[4] = {};        // the vertices' own x/y range, before any transform
+    float    c0[4] = {}, c1[4] = {}, c3[4] = {};
+};
+uint32_t g_probeSamples = 0, g_probeReads = 0, g_probeFails = 0;
+long long g_probeQpc = 0;      // time spent in the probe this window
+
+const char* probe_why(uint8_t w) {
+    static const char* const k[] = { "ok", "no position element", "unread type", "no data", "write-only VB",
+                                     "lock failed", "not finite", "off screen" };
+    return k[w < 8 ? w : 0];
+}
+
+long long qpc_now() { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
+
+// Walks the vertex range of a draw and returns its screen rectangle. `verts`
+// is the user pointer for the UP entries; for the buffer entries the bound
+// stream 0 is locked READONLY (a buffer created write-only is refused by D3D,
+// so it is not asked). Vertices are sampled strided, at most 64 per draw.
+void probe_draw(uint8_t entry, D3DPRIMITIVETYPE type, UINT prims, const void* verts, UINT stride,
+                UINT firstVertex, UINT vertexCount, Probe& out) {
+    const long long t0 = qpc_now();
+    out = Probe();
+    ++g_probeSamples;
+    const uint32_t pk = decl_pos(g_vdecl);
+    if (!(pk & 0x80000000u) || ((pk >> 16) & 0xff) == 0xff) { out.why = 1; ++g_probeFails; g_probeQpc += qpc_now() - t0; return; }
+    out.type = (uint8_t)((pk >> 16) & 0xff);
+    out.transformed = (pk & 0x40000000u) != 0;
+    const uint32_t posOff = pk & 0xfff;
+    const uint32_t posStream = (pk >> 12) & 0xf;
+    memcpy(out.c0, dvr::frame::vs_const_shadow_row(0), sizeof(out.c0));
+    memcpy(out.c1, dvr::frame::vs_const_shadow_row(1), sizeof(out.c1));
+    memcpy(out.c3, dvr::frame::vs_const_shadow_row(3), sizeof(out.c3));
+    if (vertexCount == 0) vertexCount = verts_for(type, prims);
+    if (!vertexCount) { out.why = 3; ++g_probeFails; g_probeQpc += qpc_now() - t0; return; }
+
+    const uint8_t* base = nullptr;
+    IDirect3DVertexBuffer9* locked = nullptr;
+    if (entry >= 2) {
+        if (!verts || !stride) { out.why = 3; ++g_probeFails; g_probeQpc += qpc_now() - t0; return; }
+        base = (const uint8_t*)verts + firstVertex * stride;
+    } else {
+        if (posStream != 0 || !g_vb0 || !g_vb0Stride) { out.why = 3; ++g_probeFails; g_probeQpc += qpc_now() - t0; return; }
+        stride = g_vb0Stride;
+        uint32_t* us = g_vbUsage.find_or_add(g_vb0);
+        uint32_t usage = 0;
+        if (us && *us != 0xffffffffu) usage = *us;
+        else {
+            D3DVERTEXBUFFER_DESC d;
+            usage = SUCCEEDED(g_vb0->GetDesc(&d)) ? d.Usage : D3DUSAGE_WRITEONLY;
+            if (us) *us = usage;
+            DVR_LOG(DVR_CAT, ::dvr::log::Level::Debug, "draws: vertex buffer %p usage 0x%x stride %u first seen%s",
+                    (void*)g_vb0, usage, stride, (usage & D3DUSAGE_WRITEONLY) ? " (write-only: its positions cannot be read)" : "");
+        }
+        if (usage & D3DUSAGE_WRITEONLY) { out.why = 4; ++g_probeFails; g_probeQpc += qpc_now() - t0; return; }
+        void* p = nullptr;
+        const UINT off = g_vb0Offset + firstVertex * stride;
+        if (FAILED(g_vb0->Lock(off, vertexCount * stride, &p, D3DLOCK_READONLY)) || !p) {
+            out.why = 5; ++g_probeFails; g_probeQpc += qpc_now() - t0; return;
+        }
+        base = (const uint8_t*)p;
+        locked = g_vb0;
+    }
+
+    const uint32_t step = vertexCount > 64 ? vertexCount / 64 : 1;
+    float rawMin[2] = {1e30f, 1e30f}, rawMax[2] = {-1e30f, -1e30f};
+    float scrMin[2] = {1e30f, 1e30f}, scrMax[2] = {-1e30f, -1e30f};
+    bool finite = true, typeOk = true;
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < vertexCount; i += step) {
+        float v[3];
+        if (!read_pos(base + i * stride + posOff, out.type, v)) { typeOk = false; break; }
+        ++n;
+        if (v[0] < rawMin[0]) rawMin[0] = v[0]; if (v[0] > rawMax[0]) rawMax[0] = v[0];
+        if (v[1] < rawMin[1]) rawMin[1] = v[1]; if (v[1] > rawMax[1]) rawMax[1] = v[1];
+        float sx, sy;
+        if (out.transformed) {
+            // POSITIONT: screen pixels of the bound target.
+            sx = g_bbW ? v[0] / (float)g_bbW : 0.0f;
+            sy = g_bbH ? v[1] / (float)g_bbH : 0.0f;
+        } else {
+            // The vertex shader's constants as rows: the 2x4 (or 4x4) transform
+            // Scaleform uploads per display object. A zero c3 means no
+            // perspective row: w = 1.
+            const float x = v[0], y = v[1], z = v[2];
+            const float ox = out.c0[0] * x + out.c0[1] * y + out.c0[2] * z + out.c0[3];
+            const float oy = out.c1[0] * x + out.c1[1] * y + out.c1[2] * z + out.c1[3];
+            float ow = out.c3[0] * x + out.c3[1] * y + out.c3[2] * z + out.c3[3];
+            if (fabsf(ow) < 1e-6f) ow = 1.0f;
+            sx = (ox / ow + 1.0f) * 0.5f;
+            sy = (1.0f - oy / ow) * 0.5f;
+        }
+        if (!(sx == sx) || !(sy == sy) || fabsf(sx) > 1e6f || fabsf(sy) > 1e6f) { finite = false; break; }
+        if (sx < scrMin[0]) scrMin[0] = sx; if (sx > scrMax[0]) scrMax[0] = sx;
+        if (sy < scrMin[1]) scrMin[1] = sy; if (sy > scrMax[1]) scrMax[1] = sy;
+    }
+    if (locked) locked->Unlock();
+    g_probeReads += n;
+    if (!typeOk) { out.why = 2; ++g_probeFails; }
+    else if (!finite || !n) { out.why = 6; ++g_probeFails; }
+    else {
+        out.raw[0] = rawMin[0]; out.raw[1] = rawMin[1]; out.raw[2] = rawMax[0]; out.raw[3] = rawMax[1];
+        out.bbox[0] = scrMin[0]; out.bbox[1] = scrMin[1]; out.bbox[2] = scrMax[0]; out.bbox[3] = scrMax[1];
+        // A rectangle entirely outside the screen is a transform hypothesis
+        // that failed for this draw, not a HUD element; say so.
+        if (scrMax[0] < -0.5f || scrMin[0] > 1.5f || scrMax[1] < -0.5f || scrMin[1] > 1.5f) { out.why = 7; ++g_probeFails; }
+        else out.ok = true;
+    }
+    g_probeQpc += qpc_now() - t0;
+}
+
+// ---- the bucket signature -------------------------------------------------
+#pragma pack(push, 1)
+struct Sig {
+    uint32_t psHash;
+    uint32_t vdecl;      // low bits of the declaration pointer: an identity, not an address
+    uint16_t rtW, rtH;
+    uint8_t  entry;      // 0 DrawPrimitive, 1 Indexed, 2 UP, 3 IndexedUP
+    uint8_t  rtClass;    // 0 the backbuffer, 1 another target, 2 unknown
+    uint8_t  vpFull;
+    uint8_t  zEnable;
+    uint8_t  alphaBlend;
+    uint8_t  tex0;       // 0 none, 1 plain, 2 render target
+    uint8_t  afterTm;
+    uint8_t  primBand;   // 0: <=2, 1: <=16, 2: <=256, 3: more
+};
+#pragma pack(pop)
+
+uint64_t sig_key(const Sig& s) {
+    const uint8_t* p = (const uint8_t*)&s;
+    uint64_t h = 1469598103934665603ull;
+    for (size_t i = 0; i < sizeof(Sig); i++) { h ^= p[i]; h *= 1099511628211ull; }
+    return h;
+}
+
+// The rule as run 46-01/46-04 measured this engine (ENGINE_NOTES, "The
+// Scaleform HUD draw class, measured"): the target, the viewport, depth, and
+// ALPHA BLENDING - the last is what leaves the scene resolve, the one opaque
+// full-frame draw to the backbuffer, writing the world where it belongs.
+enum { kTermRt = 0, kTermVp, kTermZ, kTermBlend, kTermCount };
+const char* const kTermName[kTermCount] = { "rt=backbuffer", "viewport=full", "z=off", "blend=on" };
+
+void sig_terms(const Sig& s, bool* t) {
+    t[kTermRt]    = (s.rtClass == 0);
+    t[kTermVp]    = (s.vpFull != 0);
+    t[kTermZ]     = (s.zEnable == D3DZB_FALSE);
+    t[kTermBlend] = (s.alphaBlend != 0);
+}
+
+bool is_candidate(const Sig& s) {
+    bool t[kTermCount];
+    sig_terms(s, t);
+    for (int i = 0; i < kTermCount; i++) if (!t[i]) return false;
+    return true;
+}
+
+void sig_text(const Sig& s, char* out, size_t n) {
+    static const char* kEntry[4] = { "DP", "DIP", "UP", "IUP" };
+    static const char* kTex[4]   = { "tex=none", "tex=plain", "tex=RT", "tex=?" };
+    static const char* kPrim[4]  = { "p<=2", "p<=16", "p<=256", "p>256" };
+    char rt[32];
+    if (s.rtClass == 0) _snprintf(rt, sizeof(rt), "bb");
+    else if (s.rtClass == 1) _snprintf(rt, sizeof(rt), "rt%ux%u", (unsigned)s.rtW, (unsigned)s.rtH);
+    else _snprintf(rt, sizeof(rt), "rt?");
+    rt[sizeof(rt) - 1] = 0;
+    _snprintf(out, n, "%-3s %-10s %s z%u %s %s %s ps=%08x vd=%08x %s",
+              kEntry[s.entry & 3], rt, s.vpFull ? "vpF" : "vpP", (unsigned)s.zEnable,
+              s.alphaBlend ? "blend" : "opaque", kTex[s.tex0 & 3],
+              s.afterTm ? "aTM" : "bTM", (unsigned)s.psHash, (unsigned)s.vdecl,
+              kPrim[s.primBand & 3]);
+    out[n - 1] = 0;
+}
+
+// ---- the window's table ---------------------------------------------------
+struct Row {
+    uint64_t key;
+    Sig      sig;
+    uint32_t draws;
+    uint32_t presents;
+    uint32_t lastPresent;
+    uint32_t minOrd, maxOrd;
+    // The region probe's union for this bucket (HUD-class buckets only).
+    uint32_t bbN, bbFail;
+    uint8_t  posType, posT, lastWhy;
+    float    bb[4], raw[4], c0[4], c1[4];
+    int      lastElement;
+};
+const int kRows = 512;
+Row      g_row[kRows];
+uint32_t g_rowsUsed = 0;
+uint32_t g_rowOverflow = 0;
+
+Row* row_for(const Sig& s) {
+    const uint64_t k = sig_key(s);
+    uint32_t h = (uint32_t)(k ^ (k >> 32)) & (kRows - 1);
+    for (int i = 0; i < 24; i++) {
+        const uint32_t slot = (h + i) & (kRows - 1);
+        Row& r = g_row[slot];
+        if (r.key == k && r.draws) return &r;
+        if (!r.draws) {
+            memset(&r, 0, sizeof(r));
+            r.key = k; r.sig = s; r.minOrd = 0xffffffffu;
+            r.bb[0] = r.bb[1] = 1e30f; r.bb[2] = r.bb[3] = -1e30f;
+            r.raw[0] = r.raw[1] = 1e30f; r.raw[2] = r.raw[3] = -1e30f;
+            r.lastElement = -1;
+            ++g_rowsUsed;
+            return &r;
+        }
+    }
+    ++g_rowOverflow;
+    return nullptr;
+}
+
+// ---- window counters ------------------------------------------------------
+uint32_t g_winPresents = 0;
+uint32_t g_winDraws = 0;
+uint32_t g_winByEntry[4] = {};
+uint32_t g_winTonemapDraws = 0;
+uint32_t g_winTmFirstOrdSum = 0, g_winTmLastOrdSum = 0, g_winTmPresents = 0;
+uint32_t g_winOrdSum = 0;
+uint32_t g_winRtSampleAfterCand = 0;
+unsigned long g_winStartMs = 0;
+unsigned long g_regWinStartMs = 0;
+
+// ---- per-present state ----------------------------------------------------
+uint32_t g_ord = 0;
+uint32_t g_presentNo = 0;
+bool     g_tmSeen = false;
+uint32_t g_tmFirstOrd = 0, g_tmLastOrd = 0;
+bool     g_candSeen = false;
+
+// `draws kill`: the project's rule for identifying a render pass is to make it
+// MOVE. A killed bucket's draws are dropped, so a capture before and after says
+// by PICTURE whether the class is the HUD.
+const int kKills = 8;
+uint32_t g_kill[kKills] = {};
+int      g_killN = 0;
+bool     g_killHud = false;
+uint32_t g_winKilled = 0;
+
+uint32_t (*g_viewportDraws)() = nullptr;
+uint32_t (*g_postRender)() = nullptr;
+uint32_t g_prAtWinStart = 0, g_vdAtWinStart = 0;
+uint32_t g_prLast = 0, g_prDeltaLast = 0;
+
+inline uint32_t short_key(uint64_t k) { return (uint32_t)(k >> 32); }
+
+char     g_verdict[320] = "not measured yet";
+uint32_t g_candBuckets = 0;
+double   g_candPerPresent = 0.0;
+
+void note_draw() {
+    g_lastDrawTid = GetCurrentThreadId();
+}
+
+// The rule, without the census's bookkeeping: four compares and no lookups.
+inline bool hud_class() {
+    if (g_rt0 && g_rt0 != g_bbPtr) return false;
+    if (!g_vpKnown || !g_bbW) return false;
+    if (g_vp.X != 0 || g_vp.Y != 0 || g_vp.Width != g_bbW || g_vp.Height != g_bbH) return false;
+    if (g_zEnable != D3DZB_FALSE) return false;
+    return g_alphaBlend != FALSE;
+}
+
+// Returns true when this draw is to be DROPPED (the kill lever).
+bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
+    ++g_ord;
+    Sig s;
+    memset(&s, 0, sizeof(s));
+    s.entry = entry;
+    s.psHash = ps_hash(g_ps);
+    s.vdecl = (uint32_t)(uintptr_t)g_vdecl;
+    s.zEnable = (uint8_t)g_zEnable;
+    s.alphaBlend = g_alphaBlend ? 1 : 0;
+    s.tex0 = tex0_class(g_tex0);
+    s.primBand = prims <= 2 ? 0 : prims <= 16 ? 1 : prims <= 256 ? 2 : 3;
+
+    IDirect3DSurface9* rt = g_rt0;
+    uint16_t rw = 0, rh = 0;
+    if (!rt || rt == g_bbPtr) {
+        s.rtClass = 0;
+        rw = (uint16_t)g_bbW; rh = (uint16_t)g_bbH;
+    } else {
+        s.rtClass = 1;
+        surf_size(rt, &rw, &rh);
+        if (!rw) s.rtClass = 2;
+    }
+    s.rtW = rw; s.rtH = rh;
+    s.vpFull = (g_vpKnown && rw && g_vp.X == 0 && g_vp.Y == 0 &&
+                g_vp.Width == rw && g_vp.Height == rh) ? 1 : 0;
+
+    const bool isTonemap = (s.rtClass == 0 && s.vpFull && !s.alphaBlend);
+    if (isTonemap) {
+        ++g_winTonemapDraws;
+        if (!g_tmSeen) { g_tmSeen = true; g_tmFirstOrd = g_ord; }
+        g_tmLastOrd = g_ord;
+        if (g_candSeen) ++g_winRtSampleAfterCand;
+    }
+    s.afterTm = g_tmSeen ? 1 : 0;
+
+    if (is_candidate(s)) g_candSeen = true;
+
+    ++g_winDraws;
+    ++g_winByEntry[entry & 3];
+    Row* r = row_for(s);
+    if (r) {
+        ++r->draws;
+        if (r->lastPresent != g_presentNo) { r->lastPresent = g_presentNo; ++r->presents; }
+        if (g_ord < r->minOrd) r->minOrd = g_ord;
+        if (g_ord > r->maxOrd) r->maxOrd = g_ord;
+        if (probe) {
+            r->posType = probe->type; r->posT = probe->transformed ? 1 : 0; r->lastWhy = probe->why;
+            memcpy(r->c0, probe->c0, sizeof(r->c0)); memcpy(r->c1, probe->c1, sizeof(r->c1));
+            r->lastElement = element;
+            if (probe->ok) {
+                ++r->bbN;
+                for (int k = 0; k < 2; ++k) {
+                    if (probe->bbox[k] < r->bb[k]) r->bb[k] = probe->bbox[k];
+                    if (probe->bbox[k + 2] > r->bb[k + 2]) r->bb[k + 2] = probe->bbox[k + 2];
+                    if (probe->raw[k] < r->raw[k]) r->raw[k] = probe->raw[k];
+                    if (probe->raw[k + 2] > r->raw[k + 2]) r->raw[k + 2] = probe->raw[k + 2];
+                }
+            } else ++r->bbFail;
+        }
+    }
+
+    if (!g_killN && !g_killHud) return false;
+    if (g_killHud && is_candidate(s)) { ++g_winKilled; return true; }
+    const uint32_t sk = short_key(sig_key(s));
+    for (int i = 0; i < g_killN; i++)
+        if (g_kill[i] == sk) { ++g_winKilled; return true; }
+    return false;
+}
+
+// ---- the hooks ------------------------------------------------------------
+// Every draw hook: note the thread, classify once, probe once (if asked),
+// record (the census), then route (the redirect) or forward.
+
+#define HUD_DRAW_PROLOGUE(ENTRY, PRIMTYPE, PRIMS, VERTS, STRIDE, FIRST, COUNT)                     \
+    note_draw();                                                                                  \
+    const bool hudNow = (g_track || dvr::hudcap::armed()) && hud_class();                         \
+    Probe probe; const float* pbb = nullptr; int element = -1;                                    \
+    if (hudNow && g_regions) {                                                                    \
+        probe_draw(ENTRY, PRIMTYPE, PRIMS, VERTS, STRIDE, FIRST, COUNT, probe);                   \
+        if (probe.ok) pbb = probe.bbox;                                                           \
+    }                                                                                             \
+    int sink = -1;                                                                                \
+    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element); \
+    if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;
+
+HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,
+                                  UINT prims) {
+    HUD_DRAW_PROLOGUE(0, type, prims, nullptr, 0, start, verts_for(type, prims))
+    if (sink >= 0) {
+        IDirect3DSurface9* gameRt = g_rt0;
+        const D3DVIEWPORT9 vp = g_vp;
+        if (dvr::hudcap::begin(self, vp, sink)) {
+            const HRESULT r = dvr::frame::raw_draw_prim(self, type, start, prims);
+            dvr::hudcap::end(self, gameRt, vp);
+            return r;
+        }
+    }
+    return dvr::frame::raw_draw_prim(self, type, start, prims);
+}
+
+HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT base,
+                                     UINT minIdx, UINT numVerts, UINT startIdx, UINT prims) {
+    HUD_DRAW_PROLOGUE(1, type, prims, nullptr, 0, (UINT)(base + (INT)minIdx), numVerts)
+    if (sink >= 0) {
+        IDirect3DSurface9* gameRt = g_rt0;
+        const D3DVIEWPORT9 vp = g_vp;
+        if (dvr::hudcap::begin(self, vp, sink)) {
+            const HRESULT r = dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
+            dvr::hudcap::end(self, gameRt, vp);
+            return r;
+        }
+    }
+    return dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
+}
+
+HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT prims,
+                                    const void* verts, UINT stride) {
+    HUD_DRAW_PROLOGUE(2, type, prims, verts, stride, 0, verts_for(type, prims))
+    if (sink >= 0) {
+        IDirect3DSurface9* gameRt = g_rt0;
+        const D3DVIEWPORT9 vp = g_vp;
+        if (dvr::hudcap::begin(self, vp, sink)) {
+            const HRESULT r = g_origDpUp(self, type, prims, verts, stride);
+            dvr::hudcap::end(self, gameRt, vp);
+            return r;
+        }
+    }
+    return g_origDpUp(self, type, prims, verts, stride);
+}
+
+HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
+                                           UINT minIdx, UINT numVerts, UINT prims,
+                                           const void* idxData, D3DFORMAT idxFmt,
+                                           const void* verts, UINT stride) {
+    HUD_DRAW_PROLOGUE(3, type, prims, verts, stride, minIdx, numVerts)
+    if (sink >= 0) {
+        IDirect3DSurface9* gameRt = g_rt0;
+        const D3DVIEWPORT9 vp = g_vp;
+        if (dvr::hudcap::begin(self, vp, sink)) {
+            const HRESULT r = g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
+            dvr::hudcap::end(self, gameRt, vp);
+            return r;
+        }
+    }
+    return g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
+}
+
+#undef HUD_DRAW_PROLOGUE
+
+inline bool shadowing() { return g_track || g_regions || dvr::hudcap::armed() || dvr::hudcap::enabled(); }
+
+HRESULT __stdcall hkSetViewport(IDirect3DDevice9* self, const D3DVIEWPORT9* vp) {
+    if (vp && shadowing()) { g_vp = *vp; g_vpKnown = true; }
+    return g_origSetVp(self, vp);
+}
+
+HRESULT __stdcall hkSetRenderState(IDirect3DDevice9* self, D3DRENDERSTATETYPE state, DWORD value) {
+    if (shadowing()) {
+        if (state == D3DRS_ZENABLE) g_zEnable = value;
+        else if (state == D3DRS_ZWRITEENABLE) g_zWrite = value;
+        else if (state == D3DRS_ALPHABLENDENABLE) g_alphaBlend = value;
+    }
+    return g_origSetRs(self, state, value);
+}
+
+HRESULT __stdcall hkSetTexture(IDirect3DDevice9* self, DWORD stage, IDirect3DBaseTexture9* tex) {
+    if (g_track && stage == 0) g_tex0 = tex;
+    return g_origSetTex(self, stage, tex);
+}
+
+HRESULT __stdcall hkSetVertexDeclaration(IDirect3DDevice9* self,
+                                         IDirect3DVertexDeclaration9* decl) {
+    if (g_track || g_regions) g_vdecl = decl;
+    return g_origSetDecl(self, decl);
+}
+
+HRESULT __stdcall hkSetVertexShader(IDirect3DDevice9* self, IDirect3DVertexShader9* vs) {
+    if (g_track) g_vs = vs;
+    return g_origSetVs(self, vs);
+}
+
+HRESULT __stdcall hkSetPixelShader(IDirect3DDevice9* self, IDirect3DPixelShader9* ps) {
+    if (g_track) g_ps = ps;
+    return g_origSetPs(self, ps);
+}
+
+HRESULT __stdcall hkSetStreamSource(IDirect3DDevice9* self, UINT stream, IDirect3DVertexBuffer9* vb,
+                                    UINT offset, UINT stride) {
+    if (g_regions && stream == 0) { g_vb0 = vb; g_vb0Offset = offset; g_vb0Stride = stride; }
+    return g_origSetSs(self, stream, vb, offset, stride);
+}
+
+HRESULT __stdcall hkCreateStateBlock(IDirect3DDevice9* self, D3DSTATEBLOCKTYPE type,
+                                     IDirect3DStateBlock9** out) {
+    ++g_stateBlocksCreated;
+    return g_origCreateSb(self, type, out);
+}
+
+HRESULT __stdcall hkEndStateBlock(IDirect3DDevice9* self, IDirect3DStateBlock9** out) {
+    ++g_stateBlocksCreated;
+    return g_origEndSb(self, out);
+}
+
+// ---- the separator search -------------------------------------------------
+struct ValSet {
+    uint32_t v[24];
+    int      n = 0;
+    bool     over = false;
+    void add(uint32_t x) {
+        for (int i = 0; i < n; i++) if (v[i] == x) return;
+        if (n >= 24) { over = true; return; }
+        v[n++] = x;
+    }
+    bool disjoint(const ValSet& o) const {
+        if (over || o.over) return false;
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < o.n; j++) if (v[i] == o.v[j]) return false;
+        return true;
+    }
+};
+
+uint32_t column(const Sig& s, int c) {
+    switch (c) {
+        case 0: return s.entry;
+        case 1: return s.rtClass;
+        case 2: return s.vpFull;
+        case 3: return s.zEnable;
+        case 4: return s.alphaBlend;
+        case 5: return s.tex0;
+        case 6: return s.afterTm;
+        case 7: return s.psHash;
+        case 8: return s.vdecl;
+        default: return s.primBand;
+    }
+}
+const char* const kColName[10] = { "entry", "rt", "viewport", "z", "blend",
+                                   "tex0", "afterTonemap", "ps", "vdecl", "prims" };
+
+void window_reset() {
+    memset(g_row, 0, sizeof(g_row));
+    g_rowsUsed = 0; g_rowOverflow = 0;
+    g_winPresents = 0; g_winDraws = 0; g_winTonemapDraws = 0;
+    g_winTmFirstOrdSum = g_winTmLastOrdSum = g_winTmPresents = 0;
+    g_winOrdSum = 0; g_winRtSampleAfterCand = 0; g_winKilled = 0;
+    g_prAtWinStart = g_postRender ? g_postRender() : 0;
+    g_vdAtWinStart = g_viewportDraws ? g_viewportDraws() : 0;
+    memset(g_winByEntry, 0, sizeof(g_winByEntry));
+    g_psHash.clear(); g_texIsRt.clear(); g_surfSize.clear();
+    g_psDistinct = 0;
+    g_winStartMs = GetTickCount();
+}
+
+int cmp_rows(const void* a, const void* b) {
+    const Row* x = (const Row*)a; const Row* y = (const Row*)b;
+    return x->draws == y->draws ? 0 : (x->draws < y->draws ? 1 : -1);
+}
+
+void apply_wanted(const char* why) {
+    if (g_wanted == g_track) return;
+    if (g_wanted) {
+        if (!g_hooksOk) {
+            DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Info,
+                         "draws: census ARMED (%s) - it starts when the device is created and the "
+                         "draw hooks install", why);
+            return;
+        }
+        window_reset();
+    }
+    g_track = g_wanted;
+    DVR_INFO("draws: census %s (%s)%s",
+             g_track ? "ON - a summary and a VERDICT every 3 s" : "off", why,
+             g_track ? " - this costs one bucket lookup per draw, so turn it off when you are done"
+                     : "");
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+
+void install(IDirect3DDevice9* dev) {
+    if (!dev) return;
+    dvr::frame::set_inner_draw_hooks(hkDrawIndexedInner, hkDrawPrimInner);
+    void* old = PatchVtable(dev, 83, (void*)hkDrawPrimitiveUP);
+    if (old && !g_origDpUp) g_origDpUp = (PFN_DrawPrimitiveUP)old;
+    old = PatchVtable(dev, 84, (void*)hkDrawIndexedPrimitiveUP);
+    if (old && !g_origDipUp) g_origDipUp = (PFN_DrawIndexedPrimitiveUP)old;
+    old = PatchVtable(dev, 47, (void*)hkSetViewport);
+    if (old && !g_origSetVp) g_origSetVp = (PFN_SetViewport)old;
+    old = PatchVtable(dev, 57, (void*)hkSetRenderState);
+    if (old && !g_origSetRs) g_origSetRs = (PFN_SetRenderState)old;
+    old = PatchVtable(dev, 65, (void*)hkSetTexture);
+    if (old && !g_origSetTex) g_origSetTex = (PFN_SetTexture)old;
+    old = PatchVtable(dev, 87, (void*)hkSetVertexDeclaration);
+    if (old && !g_origSetDecl) g_origSetDecl = (PFN_SetVertexDeclaration)old;
+    old = PatchVtable(dev, 92, (void*)hkSetVertexShader);
+    if (old && !g_origSetVs) g_origSetVs = (PFN_SetVertexShader)old;
+    old = PatchVtable(dev, 107, (void*)hkSetPixelShader);
+    if (old && !g_origSetPs) g_origSetPs = (PFN_SetPixelShader)old;
+    old = PatchVtable(dev, 100, (void*)hkSetStreamSource);
+    if (old && !g_origSetSs) g_origSetSs = (PFN_SetStreamSource)old;
+    old = PatchVtable(dev, 59, (void*)hkCreateStateBlock);
+    if (old && !g_origCreateSb) g_origCreateSb = (PFN_CreateStateBlock)old;
+    old = PatchVtable(dev, 61, (void*)hkEndStateBlock);
+    if (old && !g_origEndSb) g_origEndSb = (PFN_EndStateBlock)old;
+    g_hooksOk = g_origDpUp && g_origDipUp && g_origSetVp && g_origSetRs && g_origSetTex &&
+                g_origSetDecl && g_origSetVs && g_origSetPs && g_origSetSs;
+    DVR_INFO("draws: hooks %s on device %p (the two buffer draws through frame_hooks' inner seam, "
+             "innermost of the chain; DrawPrimitiveUP, DrawIndexedPrimitiveUP, SetViewport, SetRenderState, "
+             "SetTexture, SetVertexDeclaration, SetVertexShader, SetPixelShader, SetStreamSource, state "
+             "blocks patched here; SetRenderTarget is observed through frame_hooks). Forward-only until "
+             "a lever is on",
+             g_hooksOk ? "installed" : "PARTIAL - the census and the redirect will refuse", dev);
+    apply_wanted("armed by the ini");
+}
+
+void set_game_counters(uint32_t (*viewportDraws)(), uint32_t (*postRenderDispatches)()) {
+    g_viewportDraws = viewportDraws;
+    g_postRender = postRenderDispatches;
+    g_prLast = g_postRender ? g_postRender() : 0;
+}
+
+void on_set_render_target(DWORD idx, IDirect3DSurface9* rt) {
+    if (idx == 0) g_rt0 = rt;   // pointer VALUE; no reference is taken
+}
+
+void present_tick(IDirect3DDevice9* dev) {
+    const DWORD tid = GetCurrentThreadId();
+    const DWORD drew = g_lastDrawTid;
+    const bool mismatch = drew && drew != tid;
+    if (mismatch) ++g_threadMismatchPresents;
+    if (mismatch != g_threadMismatch) {
+        g_threadMismatch = mismatch;
+        if (mismatch)
+            DVR_WARN("draws: the last D3D draw came from thread %lu and this Present from thread %lu "
+                     "(the game parks its render thread on a focus loss and presents from the game "
+                     "thread; the two hand off, they do not race). The census and the redirect keep "
+                     "running; this line and status.json's threadMismatchPresents say how often",
+                     (unsigned long)drew, (unsigned long)tid);
+        else
+            DVR_INFO("draws: the draw thread and the present thread agree again (%lu) after %u "
+                     "mismatched present(s)", (unsigned long)tid, g_threadMismatchPresents);
+    } else if (drew && !g_drawTid) {
+        DVR_INFO("draws: the draw thread IS the present thread (%lu) - the state may stay unlocked",
+                 (unsigned long)tid);
+    }
+    g_drawTid = drew;
+
+    // The backbuffer's identity and the shadowed viewport are what the HUD
+    // redirect classifies on, so they are kept whenever any lever wants them.
+    if (!shadowing()) return;
+    if (dev) {
+        IDirect3DSurface9* bb = nullptr;
+        if (SUCCEEDED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb) {
+            D3DSURFACE_DESC d;
+            if (SUCCEEDED(bb->GetDesc(&d))) { g_bbW = d.Width; g_bbH = d.Height; }
+            g_bbPtr = bb;
+            bb->Release();
+        }
+    }
+    if (g_regions && !g_regWinStartMs) g_regWinStartMs = GetTickCount();
+    if (g_regions && GetTickCount() - g_regWinStartMs >= 3000 && !g_track) {
+        // The probe's own beat when the census is off: how much it costs and
+        // how often it could not read. The table itself needs the census.
+        const double us = g_probeQpc ? (double)g_probeQpc * 1e6 / (double)[]{ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart; }() : 0.0;
+        DVR_INFO("draws/regions: %u probes, %u vertices read, %u refused, %.0f us total (%.1f us/probe) - "
+                 "`draws on` for the per-bucket rectangles", g_probeSamples, g_probeReads, g_probeFails, us,
+                 g_probeSamples ? us / g_probeSamples : 0.0);
+        g_probeSamples = g_probeReads = g_probeFails = 0; g_probeQpc = 0;
+        g_regWinStartMs = GetTickCount();
+    }
+    if (!g_track) return;
+
+    if (g_ord) {
+        ++g_winPresents;
+        g_winOrdSum += g_ord;
+        if (g_tmSeen) { ++g_winTmPresents; g_winTmFirstOrdSum += g_tmFirstOrd; g_winTmLastOrdSum += g_tmLastOrd; }
+    }
+    ++g_presentNo;
+    g_ord = 0; g_tmSeen = false; g_tmFirstOrd = g_tmLastOrd = 0; g_candSeen = false;
+    if (g_postRender) {
+        const uint32_t pr = g_postRender();
+        g_prDeltaLast = pr - g_prLast;
+        g_prLast = pr;
+    }
+    if (GetTickCount() - g_winStartMs >= 3000) {
+        if (g_regions) log_regions("3s");
+        log_summary("3s");
+    }
+}
+
+void on_reset() {
+    g_stateBlocksCreated = 0;
+    g_lastDrawTid = 0;
+    g_rt0 = nullptr; g_bbPtr = nullptr; g_bbW = g_bbH = 0;
+    g_vpKnown = false;
+    g_ps = g_vs = g_vdecl = g_tex0 = nullptr;
+    g_vb0 = nullptr; g_vb0Offset = g_vb0Stride = 0;
+    g_declPos.clear(); g_vbUsage.clear();
+    window_reset();
+}
+
+void shutdown() {
+    g_track = false;
+    g_regions = false;
+    g_killN = 0; g_killHud = false;
+}
+
+bool census_enabled() { return g_track; }
+void set_census_enabled(bool on) { g_wanted = on; apply_wanted("asked"); }
+
+bool regions_enabled() { return g_regions; }
+void set_regions_enabled(bool on) {
+    if (on == g_regions) return;
+    g_regions = on;
+    g_declPos.clear(); g_vbUsage.clear();
+    g_probeSamples = g_probeReads = g_probeFails = 0; g_probeQpc = 0; g_regWinStartMs = 0;
+    DVR_INFO("draws: the region probe is %s - %s", on ? "ON" : "off",
+             on ? "every HUD-class draw's screen rectangle is read from its vertices and routes it to an element "
+                  "(core/gfx/hud_layout); `draws status` prints the rectangles per bucket"
+                : "every HUD-class draw routes to the element 'all'");
+}
+
+void log_regions(const char* why) {
+    if (!g_track) { DVR_INFO("draws/regions: the table needs the census (`draws on`)"); return; }
+    static Row sorted[kRows];
+    memcpy(sorted, g_row, sizeof(sorted));
+    qsort(sorted, kRows, sizeof(Row), cmp_rows);
+    const uint32_t presents = g_winPresents ? g_winPresents : 1;
+    const double us = g_probeQpc ? (double)g_probeQpc * 1e6 / (double)[]{ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart; }() : 0.0;
+    DVR_INFO("draws/regions: %s: %u probes, %u vertices read, %u refused, %.1f us/probe; HUD-class buckets "
+             "with their screen rectangles (normalised, y down; raw = the vertices' own range; c0/c1 = the "
+             "vertex shader's first two constant rows at the last draw):",
+             why, g_probeSamples, g_probeReads, g_probeFails, g_probeSamples ? us / g_probeSamples : 0.0);
+    char txt[160];
+    for (int i = 0, shown = 0; i < kRows && shown < 24; i++) {
+        const Row& r = sorted[i];
+        if (!r.draws || !is_candidate(r.sig)) continue;
+        ++shown;
+        sig_text(r.sig, txt, sizeof(txt));
+        if (r.bbN)
+            DVR_INFO("draws/regions:   k=%08x %s n=%.1f/present pos=%s%s bbox=[%.3f,%.3f - %.3f,%.3f] raw=[%.0f,%.0f - %.0f,%.0f] "
+                     "c0=(%.3f %.3f %.3f %.3f) c1=(%.3f %.3f %.3f %.3f) ok=%u fail=%u(%s) -> %s",
+                     (unsigned)short_key(r.key), txt, (double)r.draws / presents, decl_type_name(r.posType),
+                     r.posT ? "T" : "", r.bb[0], r.bb[1], r.bb[2], r.bb[3], r.raw[0], r.raw[1], r.raw[2], r.raw[3],
+                     r.c0[0], r.c0[1], r.c0[2], r.c0[3], r.c1[0], r.c1[1], r.c1[2], r.c1[3], r.bbN, r.bbFail,
+                     probe_why(r.lastWhy), r.lastElement >= 0 ? dvr::hudlayout::element_name(r.lastElement) : "-");
+        else
+            DVR_INFO("draws/regions:   k=%08x %s n=%.1f/present pos=%s%s NO rectangle: %s (x%u) c0=(%.3f %.3f %.3f %.3f) -> %s",
+                     (unsigned)short_key(r.key), txt, (double)r.draws / presents, decl_type_name(r.posType),
+                     r.posT ? "T" : "", probe_why(r.lastWhy), r.bbFail, r.c0[0], r.c0[1], r.c0[2], r.c0[3],
+                     r.lastElement >= 0 ? dvr::hudlayout::element_name(r.lastElement) : "-");
+    }
+    g_probeSamples = g_probeReads = g_probeFails = 0; g_probeQpc = 0;
+}
+
+void log_summary(const char* why) {
+    if (!g_track) { DVR_INFO("draws: census is off ([Draws] Census=1 or `draws on`)"); return; }
+    const uint32_t presents = g_winPresents ? g_winPresents : 1;
+    const double perPresent = (double)g_winDraws / (double)presents;
+    DVR_INFO("draws: %s: presents=%u draws/present=%.0f (DP %.0f, DIP %.0f, UP %.0f, IUP %.0f) "
+             "buckets=%u (overflow %u) ps distinct=%u stateBlocks=%u resolve draws/present=%.1f "
+             "at ord %u..%u of %.0f",
+             why, (unsigned)g_winPresents, perPresent,
+             (double)g_winByEntry[0] / presents, (double)g_winByEntry[1] / presents,
+             (double)g_winByEntry[2] / presents, (double)g_winByEntry[3] / presents,
+             (unsigned)g_rowsUsed, (unsigned)g_rowOverflow, (unsigned)g_psDistinct,
+             (unsigned)g_stateBlocksCreated, (double)g_winTonemapDraws / presents,
+             (unsigned)(g_winTmPresents ? g_winTmFirstOrdSum / g_winTmPresents : 0),
+             (unsigned)(g_winTmPresents ? g_winTmLastOrdSum / g_winTmPresents : 0),
+             (double)g_winOrdSum / presents);
+    if (!g_winTonemapDraws)
+        DVR_INFO("draws: NO scene-resolve draw in the window - nothing opaque covered the whole "
+                 "backbuffer, so either the frame arrives there by StretchRect or the classifier "
+                 "is not seeing the resolve");
+    {
+        const uint32_t pr = g_postRender ? g_postRender() - g_prAtWinStart : 0;
+        const uint32_t vd = g_viewportDraws ? g_viewportDraws() - g_vdAtWinStart : 0;
+        if (!g_postRender)
+            DVR_INFO("draws: postRender: no counter registered (the game side handed none over)");
+        else if (!pr)
+            DVR_INFO("draws: postRender: 0 dispatches in the window - the event never fired, so "
+                     "this column says nothing about whether the HUD was drawn");
+        else
+            DVR_INFO("draws: postRender %u dispatches over %u viewport draws = %.2f per pass "
+                     "(the name is dispatched on several objects per pass; what matters is that "
+                     "it scales with the passes). Last present's delta %u is a game-thread count "
+                     "read a frame ahead of these draws and is NOT aligned to this present",
+                     (unsigned)pr, (unsigned)vd, vd ? (double)pr / (double)vd : 0.0,
+                     (unsigned)g_prDeltaLast);
+    }
+    if (g_killN || g_killHud)
+        DVR_INFO("draws: KILLING %s%s%d key(s): %.1f draws/present dropped - the picture is NOT "
+                 "what the game drew", g_killHud ? "the HUD candidates" : "", g_killHud && g_killN ? " and " : "",
+                 g_killN, (double)g_winKilled / presents);
+
+    if (!g_winDraws) {
+        DVR_INFO("draws: no draws in the window - the census sees nothing (is the game rendering?)");
+        window_reset();
+        return;
+    }
+
+    static Row sorted[kRows];
+    memcpy(sorted, g_row, sizeof(sorted));
+    qsort(sorted, kRows, sizeof(Row), cmp_rows);
+
+    char txt[160];
+    uint32_t candBuckets = 0, candDraws = 0;
+    for (int i = 0; i < kRows; i++)
+        if (sorted[i].draws && is_candidate(sorted[i].sig)) { ++candBuckets; candDraws += sorted[i].draws; }
+
+    for (int i = 0; i < kRows && i < 12; i++) {
+        const Row& r = sorted[i];
+        if (!r.draws) break;
+        sig_text(r.sig, txt, sizeof(txt));
+        DVR_INFO("draws:   %s k=%08x %s n=%.1f/present ord %u..%u in %u presents",
+                 is_candidate(r.sig) ? "HUD?" : "    ", (unsigned)short_key(r.key), txt,
+                 (double)r.draws / presents, (unsigned)r.minOrd, (unsigned)r.maxOrd,
+                 (unsigned)r.presents);
+    }
+
+    {
+        uint32_t bbBuckets = 0, bbDraws = 0;
+        for (int i = 0; i < kRows; i++)
+            if (g_row[i].draws && g_row[i].sig.rtClass == 0) { ++bbBuckets; bbDraws += g_row[i].draws; }
+        DVR_INFO("draws: the BACKBUFFER population: %u buckets, %.1f draws/present of %.0f (the "
+                 "rest goes to the offscreen scene target)",
+                 (unsigned)bbBuckets, (double)bbDraws / presents, perPresent);
+        for (int i = 0, shown = 0; i < kRows && shown < 16; i++) {
+            const Row& r = sorted[i];
+            if (!r.draws || r.sig.rtClass != 0) continue;
+            ++shown;
+            sig_text(r.sig, txt, sizeof(txt));
+            DVR_INFO("draws:   %s k=%08x %s n=%.1f/present ord %u..%u in %u presents",
+                     is_candidate(r.sig) ? "HUD?" : "    ", (unsigned)short_key(r.key), txt,
+                     (double)r.draws / presents, (unsigned)r.minOrd, (unsigned)r.maxOrd,
+                     (unsigned)r.presents);
+        }
+    }
+
+    ValSet cand[10], rest[10];
+    uint32_t restBuckets = 0;
+    for (int i = 0; i < kRows; i++) {
+        const Row& r = g_row[i];
+        if (!r.draws) continue;
+        const bool c = is_candidate(r.sig);
+        if (!c) ++restBuckets;
+        for (int col = 0; col < 10; col++) (c ? cand[col] : rest[col]).add(column(r.sig, col));
+    }
+    char seps[192] = "";
+    for (int col = 0; col < 10; col++) {
+        if (!cand[col].disjoint(rest[col])) continue;
+        if (seps[0]) strncat(seps, ", ", sizeof(seps) - strlen(seps) - 1);
+        strncat(seps, kColName[col], sizeof(seps) - strlen(seps) - 1);
+    }
+
+    if (!candBuckets) {
+        _snprintf(g_verdict, sizeof(g_verdict),
+                  "NO HUD-CLASS DRAWS: nothing in %u buckets draws to the whole backbuffer with "
+                  "depth off and blending", (unsigned)g_rowsUsed);
+    } else if (!restBuckets) {
+        _snprintf(g_verdict, sizeof(g_verdict),
+                  "NO CLEAN SEPARATOR: EVERY bucket in the window is a candidate (%u), so the rule "
+                  "does not separate anything - it would put the world on the panel",
+                  (unsigned)candBuckets);
+    } else if (!seps[0]) {
+        _snprintf(g_verdict, sizeof(g_verdict),
+                  "NO CLEAN SEPARATOR: %u candidate buckets, and NO column tells them from the "
+                  "other %u - every value a candidate takes, some non-candidate takes too, so any "
+                  "redirect would carry world draws with it",
+                  (unsigned)candBuckets, (unsigned)restBuckets);
+    } else {
+        _snprintf(g_verdict, sizeof(g_verdict),
+                  "HUD candidates %u buckets, %.1f draws/present of %.0f; separators with NO "
+                  "overlap: %s", (unsigned)candBuckets, (double)candDraws / presents, perPresent, seps);
+    }
+    g_verdict[sizeof(g_verdict) - 1] = 0;
+    g_candBuckets = candBuckets;
+    g_candPerPresent = (double)candDraws / presents;
+    DVR_INFO("draws: VERDICT: %s | rtSampleAfterCandidate=%u (0 = the resolve never runs after a "
+             "candidate, so after-first equals after-last)",
+             g_verdict, (unsigned)g_winRtSampleAfterCand);
+
+    for (int i = 0, shown = 0; i < kRows && shown < 5; i++) {
+        const Row& r = sorted[i];
+        if (!r.draws || is_candidate(r.sig)) continue;
+        bool t[kTermCount]; sig_terms(r.sig, t);
+        int missing = -1, misses = 0;
+        for (int k = 0; k < kTermCount; k++) if (!t[k]) { missing = k; ++misses; }
+        if (misses != 1) continue;
+        ++shown;
+        sig_text(r.sig, txt, sizeof(txt));
+        DVR_INFO("draws:   NEAR MISS (fails only %s): k=%08x %s n=%.1f/present",
+                 kTermName[missing], (unsigned)short_key(r.key), txt,
+                 (double)r.draws / presents);
+    }
+    window_reset();
+}
+
+void status(dvr::status::Writer& w) {
+    w.kv("on", g_track);
+    w.kv("regions", g_regions);
+    w.kv("hooks", g_hooksOk);
+    w.kv("threadMismatchPresents", (unsigned long)g_threadMismatchPresents);
+    w.kv("candBuckets", (unsigned long)g_candBuckets);
+    w.kv("candPerPresent", g_candPerPresent);
+    w.kv("stateBlocks", (unsigned long)g_stateBlocksCreated);
+    w.kv("killHud", g_killHud);
+    w.kv("killKeys", (int)g_killN);
+    w.kv("postRender", (unsigned long)(g_postRender ? g_postRender() : 0));
+    w.kv("probeFails", (unsigned long)g_probeFails);
+    w.kv("verdict", g_verdict);
+}
+
+bool command(const char* args) {
+    if (!strcmp(args, "on"))  { set_census_enabled(true);  return true; }
+    if (!strcmp(args, "off")) { set_census_enabled(false); return true; }
+    if (!strcmp(args, "regions")) { log_regions("asked"); return true; }
+    if (!strcmp(args, "unkill")) {
+        g_killN = 0; g_killHud = false;
+        DVR_INFO("draws: kill list cleared - the game's own draws again");
+        return true;
+    }
+    if (!strncmp(args, "kill", 4)) {
+        const char* a = args + 4;
+        while (*a == ' ') ++a;
+        if (!g_track) {
+            DVR_WARN("draws: kill needs the census on (the buckets are what it kills) - `draws on`");
+            return true;
+        }
+        if (!strcmp(a, "hud")) {
+            g_killHud = true;
+            DVR_INFO("draws: kill HUD armed - every candidate draw is dropped. Take `dump capture` "
+                     "before and after: if exactly the HUD went and the world did not, the rule "
+                     "found the HUD; if any world geometry went, it did not");
+            return true;
+        }
+        const uint32_t k = (uint32_t)strtoul(a, nullptr, 16);
+        if (!k) {
+            DVR_WARN("draws: kill wants a bucket key from the table (`draws kill 1a2b3c4d`) or "
+                     "`draws kill hud`; got '%s'", a);
+            return true;
+        }
+        if (g_killN >= kKills) {
+            DVR_WARN("draws: kill list is full (%d) - `draws unkill` first", kKills);
+            return true;
+        }
+        g_kill[g_killN++] = k;
+        DVR_INFO("draws: kill %08x armed (%d in the list) - dump a capture before and after",
+                 (unsigned)k, g_killN);
+        return true;
+    }
+    if (g_regions) log_regions("status");
+    log_summary("status");
+    return true;
+}
+
+} // namespace dvr::hudclass

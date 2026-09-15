@@ -825,6 +825,35 @@ static void OverlayFrame()
 
     ImGui::EndTabItem(); }
 
+    if (ImGui::BeginTabItem("HUD")) {   // VR-117: the HUD on its anchors
+        bool hp = dvr::hudcap::enabled();
+        if (ImGui::Checkbox("HUD on its anchors (the redirect; off = the game draws it into the frame)", &hp)) {
+            dvr::hudcap::set_enabled(hp);
+            ConfigWriteKey("Hud", "Panel", dvr::hudcap::enabled() ? "1" : "0", "F10 HUD");
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", dvr::hudcap::armed() ? "armed: the HUD is on its anchors now"
+                                 : dvr::hudcap::enabled() ? "on but idle (a menu on the mono screen, a load, the wheel, or the hand-off is not up: `hud status`)"
+                                                          : "off");
+        bool rg = dvr::hudclass::regions_enabled();
+        if (ImGui::Checkbox("route elements by screen region (the probe; off = the whole HUD is one element, 'all')", &rg)) {
+            dvr::hudclass::set_regions_enabled(rg);
+            ConfigWriteKey("Hud", "Regions", rg ? "1" : "0", "F10 HUD");
+        }
+        bool dc = dvr::hudclass::census_enabled();
+        if (ImGui::Checkbox("draw census (a table and a VERDICT every 3 s; costs a lookup per draw)", &dc)) {
+            dvr::hudclass::set_census_enabled(dc);
+            ConfigWriteKey("Draws", "Census", dvr::hudclass::census_enabled() ? "1" : "0", "F10 HUD");
+        }
+        {
+            const dvr::vr::HudQuadStats hq = dvr::vr::hud_quad_stats();
+            ImGui::TextDisabled("quads submitted last present: %u; hand untracked %u; layer budget hits %u",
+                                hq.submitted, hq.untracked, hq.hiddenBudget);
+        }
+        ImGui::Separator();
+        dvr::hudlayout::draw_ui();
+    ImGui::EndTabItem(); }
+
     if (ImGui::BeginTabItem("Runtime")) {
         dvr::vr::draw_debug_ui();   // the runtime layer's own panel
     ImGui::EndTabItem(); }

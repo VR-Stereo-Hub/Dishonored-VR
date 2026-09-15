@@ -1,0 +1,44 @@
+# wheel-ride.xrs - the power wheel rides the HUD window (VR-117, second headset
+# report): a weapon switch by mouse scroll and the grip-hold loadout both open
+# DisGFxMoviePlayerPowerWheel, and on the mono screen every switch dropped the
+# world flat for a second. The pad maps a held LEFT grip to the wheel
+# (pad_bridge: gripL > 0.9 -> LEFT_SHOULDER), so the sim squeezes it.
+#
+# Needs GAMEPLAY and the game window reachable. Log lines beside it:
+# `ui/surface: context=Wheel ... rides=1`, `ui/ride: Wheel -> RIDING`.
+#
+#   tools\xrsim-run.ps1 -Path tools\xrsim\wheel-ride.xrs -Dir D:\dvr-data\xrsim
+reset
+# The aim dot (VR-57) is a quad layer too: park it so quadLayers counts the HUD alone.
+@mod stereo reentry; hud on; hud menu on; crosshair dot off
+@frames 240
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+@assert quadLayers ge 1
+
+# Hold the wheel open: the projection must STAY and the wheel ride the window.
+grip l 1.0
+@frames 150
+@assert projectionViews eq 2
+@assert quadLayers ge 1
+@shot wheel_riding
+
+# Release: back to gameplay with both eyes fresh, no drop to the screen.
+grip l 0.0
+@frames 120
+@assert projectionViews eq 2
+@assert eyeAgeL le 0
+@assert eyeAgeR le 0
+@shot wheel_released
+
+# The A/B: with the wheel's opt-in off, the same hold takes the mono screen.
+@mod hud menu Wheel off
+@frames 30
+grip l 1.0
+@frames 150
+@assert projectionViews eq 0
+@shot wheel_screen
+grip l 0.0
+@frames 120
+@assert projectionViews eq 2
+@mod hud menu Wheel on; crosshair dot on
