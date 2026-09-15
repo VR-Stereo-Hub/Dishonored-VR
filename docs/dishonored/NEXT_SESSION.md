@@ -1,3 +1,16 @@
+## Current installed follow-up: resource and state profiling
+
+Build `vr33-hands-working-298-g3d80740a9`, compiled 21:57:19, extends the
+visually accepted profiler with20 existing state/resource hook scopes.
+Release build, host sampling/label coverage, lint and9 exports passed.
+Full installed INI comparison: zero changes; byte-identical CRLF.
+Prior DLL, INI and both logs archived at
+`build/playtest-candidates/installs/20260914-215824-690251`.
+Next: same hub at120Hz for60 seconds, then head/hand movements.
+Question: do the world and both weapons still look and track normally?
+Normal allows timing analysis; new visual/tracking issues reject the candidate.
+Agent has not launched the game. Headset result pending. No merge.
+
 ## Current candidate: native draw profile, VR-121 continuation
 
 Independent branch codex/vr-121-native-draw-profile from main18ae4ebda extends

@@ -120,3 +120,19 @@ Validation: host suite checks every scope has a label and receives calls, plus
 existing sampling/owner/reset tests. Repeat the same60-second stationary hub
 view, then briefly move head and hands; one question is whether the world and
 both weapons still look and track normally. No automatic phases.
+
+## Current installed follow-up: resource and state profiling
+
+Build `vr33-hands-working-298-g3d80740a9`, compiled 21:57:19, extends the
+visually accepted profiler with20 existing state/resource hook scopes.
+Release build, host sampling/label coverage, lint and9 exports passed.
+Full installed INI comparison: zero changes; byte-identical CRLF.
+Prior DLL, INI and both logs archived at
+`build/playtest-candidates/installs/20260914-215824-690251`.
+Next: same hub at120Hz for60 seconds, then head/hand movements.
+Question: do the world and both weapons still look and track normally?
+Normal allows timing analysis; new visual/tracking issues reject the candidate.
+Agent has not launched the game. Headset result pending. No merge.
+
+DLL SHA256: `459d4b9c95ade32ca1526521dff1c5df2829e239e895daef1e5184c010265412`.
+INI SHA256: `74d092be1ac4fa29e5b1b06fadc0b100a686664fdda82eb2e1986b556dc1241b`.
