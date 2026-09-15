@@ -1,3 +1,13 @@
+## Desktop comparison complete; no default promotion
+
+Reduced trial280:86.34 /90.28 /89.27 fresh pairs/s; small throughput effect
+and no consistent tail improvement.2723 native Presents skipped,2727 kept.
+Remaining calls cost2.913ms each versus Full1.54-1.56ms, so much waiting
+remained. Preserve Full and disable automatic desktop trials. Next: Phase A
+render-thread CPU/GPU attribution and measured hot-path improvements. Full
+results in PERFORMANCE_ROLLOUT.md; archive desktop-reduced-first.
+No new visual verdict, no merge, publication approval still pending.
+
 Installed next trial:280-g8ab31c78e /19:47:38, Perf.DesktopAb=2.
 Only that INI value changed; full diff and CRLF verified.
 

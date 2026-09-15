@@ -222,3 +222,47 @@ Complete INI diff: only Perf.DesktopAb1 ->2; CRLF verified. Previous DLL,
 INI and both logs archived20260914-194819-889376. Release build, benchmark
 host, lint, golden and9 exports passed. No game launched. Next run must
 match280-g8ab31c78e /19:47:38. Full/Reduced/Full110-second test is ready.
+
+## Reduced result, 2026-09-14
+
+Verified build280-g8ab31c78e /19:47:38 and installed DLL hash. All phases
+completed, valid with no overflow; both logs and INI archived at
+build/performance-results/desktop-reduced-first. This report supplied no
+additional visual verdict, so none is inferred.
+
+| Metric | Full first | Reduced | Full return |
+|---|---:|---:|---:|
+| Fresh pairs/s |86.34|90.28|89.27|
+| Median ms |10.893|10.577|10.752|
+| p95 ms |18.385|18.488|17.656|
+| p99 ms |36.087|31.890|28.255|
+| p99.9 ms |97.260|62.419|61.713|
+| Max ms |100.674|100.344|69.962|
+| Intervals over16.667ms |153/2325 (6.58%)|164/2437 (6.73%)|146/2409 (6.06%)|
+| Rejected submissions |1|1|13|
+
+Reduced skipped2723 desktop Presents and retained2727: policy was effective.
+Throughput is1.13-4.56% above the two baselines, a modest effect against a
+3.39% baseline rate drift. Median improves1.63-2.90%; p95 is worse than both
+baselines and p99 falls inside their range. No clear frame-consistency win.
+
+Using the nine desktop windows fully after the3s warmup in each phase,
+weighted native Present cost per hook was1.560 /1.457 /1.542ms. Cost per
+actual native call was1.560 /2.913 /1.542ms. Nearly halving the calls did not
+halve their aggregate CPU cost: the remaining calls absorbed much of the
+waiting. This is measured timing redistribution, not proof of a specific
+driver or GPU bottleneck. No errors were present in the printed Reduced
+window counters. No render/pose behavior or default is promoted.
+
+Decision: park both desktop alternatives as optional experiments and keep
+Full. The repeated Off throughput gain is real in these workloads but carries
+a repeated long-frame penalty. Reduced is too small/inconsistent to be the
+primary performance solution. Stop automatic desktop trials after this run.
+Next work follows the audit's Phase A render-thread CPU/GPU attribution,
+then measured shader-reflection/state-query/diagnostic optimization. Do not
+request another identical desktop trial without a new hypothesis.
+
+Post-trial installed configuration: same280 DLL, Perf.DesktopAb=0. Full
+INI diff contains only2 ->0; CRLF verified. INI SHA256
+`6ffe0fe51ad6a78e8ecfcce4e91ad9242f194916334160af18921275438e98f2`; prior install/logs archived195539-485737.
+No new binary behavior or game launch.
