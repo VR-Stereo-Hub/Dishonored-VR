@@ -30,6 +30,13 @@ Canonical findings and next steps: [PERFORMANCE.md](dishonored/PERFORMANCE.md).
 - [ ] Headset comparison and repeated-baseline performance evidence.
 - [ ] VR-113 full staged plan: [rollout](dishonored/PERFORMANCE_ROLLOUT.md).
 
+## Performance measurement continuation
+
+- [x] VR-121 CPU profile ranks reflection as low priority; independent branch retained.
+- [x] VR-123 bounded asynchronous bridge GPU profiler and host validation.
+- [x] VR-123 hub workload: conversion/copy GPU cost small; prioritize broader CPU/driver attribution.
+
+
 ## World head-motion stability (2026-09-14)
 
 - [x] VR-116 image-linked world orientation confirmed and reconfirmed at 120 Hz.

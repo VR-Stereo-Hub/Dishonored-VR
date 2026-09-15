@@ -761,6 +761,9 @@ static void OverlayFrame()
         bool nativeProfile=dvr::native_profile::enabled();
         if(ImGui::Checkbox("Native draw CPU timing (diagnostic)",&nativeProfile))
             dvr::native_profile::set_enabled(nativeProfile);
+        bool bridgeProfile=dvr::bridge_profile::enabled();
+        if(ImGui::Checkbox("Bridge GPU timing (diagnostic)",&bridgeProfile))
+            dvr::bridge_profile::set_enabled(bridgeProfile);
         const dvr::perf::Window pw = dvr::perf::last_window();
         ImGui::Text("tick %.1f ms (%.1f/s) = in %.1f + out %.1f (idle %.1f R %.1f) | capture %.1f [lock %.1f] wait %.1f%s",
                     pw.tickMs, pw.ticksPerS, pw.inMs, pw.outMs, pw.idleMs, pw.rMs, pw.captureMs, pw.lockMs,

@@ -185,6 +185,8 @@ static void WriteDefaultIni(const char* ini)
         "CpuScopes=0\n"
         "; Engine query helper timing; launch arm, live: querywait on|off.\n"
         "QueryWaitProfile=0\n"
+        "; Optional asynchronous D3D11 conversion/copy timing; F10 Display live toggle.\n"
+        "BridgeGpu=0\n"
         "ForceNoVSync=1\n"
         "FrameId=1\n"
         "FrameIdEvery=8\n"
@@ -1409,6 +1411,7 @@ static void LoadConfig()
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
         dvr::perf::set_cpu_scopes(GetPrivateProfileIntA("Perf", "CpuScopes", 0, ini)!=0);
         dvr::native_profile::set_enabled(GetPrivateProfileIntA("Perf", "NativeProfile", 0, ini)!=0);
+        dvr::bridge_profile::set_enabled(GetPrivateProfileIntA("Perf", "BridgeGpu", 0, ini)!=0);
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
         if (!inst) dvr::perf::set_enabled(false);
         if (!gpu) dvr::perf::set_gpu_enabled(false);
@@ -2875,6 +2878,7 @@ static void OverlaySaveDefaults()
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     WritePrivateProfileStringA("Perf", "CpuScopes", dvr::perf::cpu_scopes_enabled() ? "1" : "0", ini);
     WritePrivateProfileStringA("Perf", "NativeProfile", dvr::native_profile::enabled() ? "1" : "0", ini);
+    WritePrivateProfileStringA("Perf", "BridgeGpu", dvr::bridge_profile::enabled() ? "1" : "0", ini);
     WritePrivateProfileStringA("Menu", "CacheNameLookups", g_nameIndexCacheOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Menu", "PawnFromController", g_pawnFromController ? "1" : "0", ini);
     char v[64];

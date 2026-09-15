@@ -901,3 +901,12 @@ only. Combine validated successes on an integration branch and test interactions
 VR-121 sampling is render-thread-owned and fixed-size; per-call enable/owner
 checks precede randomized timing. Inclusive nested scopes are not additive.
 See dishonored/RENDER_THREAD_PROFILE.md. No rendering choice changes here.
+
+### 2026-09-14: measure bridge GPU intervals before changing copies (VR-123)
+
+The prior CPU profile did not justify a shader lifetime cache. A separate
+main-based diagnostic uses bounded asynchronous D3D11 timestamp queries around
+conversion and XR eye copies, not around CPU wait or compositor intervals.
+Random stage selection avoids eye-stride alias and permits at most one bracket
+per native Present. No new flush, ownership change or engine-memory writer.
+See dishonored/BRIDGE_GPU_PROFILE.md for the result population and limitations.
