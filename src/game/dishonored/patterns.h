@@ -293,3 +293,8 @@ static const uint32_t kHudRequiresAlphaBlend     = 1;   // excludes the opaque s
 // Diagnostic only: nothing gates on it, because a bucket's ordinal moves with
 // what is on screen. 1177/1205 in gameplay, 1126/1221 in the pause menu.
 static const float    kHudTailFractionSeen = 0.92f;
+
+// Engine-labelled InitViews: two direct callers; thiscall, no stack arguments.
+// First six whole non-relative bytes are sufficient for the trampoline.
+static constexpr uintptr_t kSceneInitViews = 0x008662A0;
+static const uint8_t kSceneInitViewsPrefix[] = {0x53,0x8B,0xDC,0x83,0xEC,0x08,0x83,0xE4,0xF0,0x83,0xC4,0x04,0x55,0x8B,0x6B,0x04};

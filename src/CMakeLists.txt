@@ -46,6 +46,7 @@ set(DVR_REAL_SOURCES
     core/framework/frame_hooks.cpp core/framework/frame_hooks.h
     core/framework/native_profile.cpp core/framework/native_profile.h
     core/framework/query_wait_profile.cpp core/framework/query_wait_profile.h
+    core/framework/scene_prepare_profile.cpp core/framework/scene_prepare_profile.h
     core/framework/bridge_profile.cpp core/framework/bridge_profile.h
     core/framework/diagnostic_ab.cpp core/framework/diagnostic_ab.h
     core/framework/perf.cpp    core/framework/perf.h

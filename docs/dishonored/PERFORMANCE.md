@@ -13,7 +13,99 @@ Old performance paths are redirect stubs. Historical source reports are retained
 below with explicit provenance, so failed experiments and corrections survive.
 The current verdicts below override every older plan or pending-test instruction.
 
-## Current state and next decision
+## Current targeted candidate: InitViews timing, 2026-09-15
+
+Continued on codex/performance-research. Verified installed.json before edits,
+then actual installed DLL SHA256 against the archived307 baseline. The current
+log still has the previous316 query-test banner, so it is not a new307 run.
+No query-helper repeat, HUD change, synchronization change or game launch.
+
+### Existing capture attribution
+
+Parsed the bounded HTML table from the normal real-headset CPU capture,
+build/performance-results/vr125-light-headset/render-cpu.html. Population is
+21,085 render-thread sampled CPU stacks in that report, distinct from the
+24,416 stacks in the older heavy capture. This is inclusive sampled CPU share,
+not wall duration or guaranteed recoverable frame time.
+
+| Sampled return RVA | Boundary established offline | Inclusive samples | Share |
+|---|---|---:|---:|
+|0046C0C1|Engine-labelled InitViews, before render-pass loop|2,575|12.21%|
+|004671D9|Conditional child inside InitViews|2,062|9.78%|
+|0046C1F4|First render-pass stage|7,796|36.97%|
+|0046C208|Second render-pass stage|7,019|33.29%|
+
+The InitViews child accounts for about80% of the parent's sampled population;
+these inclusive rows overlap and must not be added. Engine debug strings
+identify InitViews and the later World/Foreground/editor pass labels. The
+four-pass loop is not a four-eye loop. This local executable evidence supplies
+a specific preparation boundary, not proof that its work can be shared safely.
+ENGINE_NOTES records ABI/address derivation; patterns.h holds the signature.
+Bounded extracted rows and source hash are archived locally under
+build/performance-results/vr125-initviews/sample-boundaries.json.
+
+### Falsifiable measurement and limits
+
+New Perf.ScenePrepareProfile ships0, installed candidate arms1. It times the
+complete InitViews function on the Present thread and groups calls, total/max
+wall time and caller return RVA by completed render interval (-1/0/+1). Three
+second windows report L/unknown/R interval counts, foreign-thread calls and
+row overflow. The first partial interval and gameplay/toggle transitions are
+discarded. sceneprepare on/off toggles measurement live, with refusal if the
+hook was not launch-armed. Fixed tables, no per-call allocation/logging, no
+retained renderer identity, no scene changes or new waits. QueryWaitProfile
+stays off. Engine writers, image-owned orientation and stereo fences unchanged.
+
+Prediction: in a steady populated hub InitViews executes on both eye intervals
+with material aggregate cost. Near one call per L and R interval supports
+repeated per-eye preparation, not redundant AI. If total cost is at least1ms
+per pair, investigate the dominant child for eye-independent subwork. If it
+is below0.3ms per pair, deprioritize this stage and investigate the larger draw
+submission boundaries. Intermediate costs require benefit/risk judgment. These
+are decision thresholds, not predicted savings. Foreign/unknown coverage,
+missing hooks or unstable gameplay prevent an inference of negligible cost.
+Wall time includes waits; it cannot be added to nested samples or GPU timings.
+No preparation skipping/reuse is implemented without establishing valid state.
+
+The diagnostic is active at launch and needs no expiring external phase helper.
+This run measures scope cost and call frequency, not profiler-off speedup.
+There is no new throughput or visual acceptance yet. The consolidated branch
+also remains untested in the headset until this launch.
+
+### Validation and one-launch protocol
+
+Standalone x86 host passes signature refusal, exact stack-realignment
+trampoline,10,000 receiver/result-preserving calls, eye accounting, foreign
+thread exclusion, live off/on transition reset, logging and hook removal.
+Initial test assertion failed because its synthetic clock advanced past the
+three-second reporting boundary; corrected the test clock and reran. This was
+a test-window assumption failure, not a changed engine hypothesis.
+Generated/golden/release INI checks and lint pass. Release build and all nine exports pass. No game or simulator launched.
+
+Installed build `vr33-hands-working-347-g5a46c6ead-dirty`, candidate
+`build/playtest-candidates/vr125-initviews`. DLL SHA256:
+`28740649ac05e6ea9e845e3aad3566d7994c9ce411104b27b2669f78dfff27c8`.
+INI SHA256:
+`cda8d714639d5f43b68d16e26e50d5806a82d65643a13c3ff119cb21accd8032`.
+Prior307 DLL/INI and both logs archived before installation in
+`build/playtest-candidates/installs/20260915-174718-586872`.
+Complete INI diff: add ScenePrepareProfile=1; change NativeProfile, BridgeGpu,
+GpuQueries and FrameId from1 to0. Those inherited unrelated profiling passes
+are disabled; basic Instruments=1 frame timing and existing state traces remain.
+All other INI bytes are unchanged; CRLF and installed hashes verified. Thus
+this is not a controlled307-versus347 throughput comparison: instrumentation
+configuration and consolidated code differ. No frame-rate gain is claimed.
+
+One launch: same populated hub view, original2750x2850 at120Hz, same weapons.
+Remain facing the expensive view for90 seconds, briefly turn head/hands near
+the end, then exit. One question: did the usual lag and image behavior remain
+representative throughout? Expected unchanged. If yes, read matching complete
+windows for InitViews cost/frequency; if noticeably worse or visually changed,
+treat the candidate as a regression and restore307 before attributing a win.
+No ETW recorder, simulator or agent-launched game. Both logs must be archived
+before installation. Exact rollback remains vr125-cpu-scopes/build307.
+
+## Previous baseline verdicts (current installed candidate above)
 
 - Active ticket VR-125, branch codex/performance-research. No merge approved.
 - Query-helper diagnostic316 measured; restored previous307 with the probe off.
@@ -33,7 +125,7 @@ The current verdicts below override every older plan or pending-test instruction
   boundaries for duplicated per-view work. No further unchanged query test.
   Do not infer double AI updates: only viewport Draw is doubled, after world tick.
 
-## Consolidated research branch and next session, 2026-09-15
+## Consolidation checkpoint before InitViews candidate, 2026-09-15
 
 Continue all performance work on `codex/performance-research`, created at user
 request. VR-125 remains the active investigation; existing experiment tickets

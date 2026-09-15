@@ -6,6 +6,7 @@
 #include "core/framework/perf.h"
 #include "core/framework/native_profile.h"
 #include "core/framework/query_wait_profile.h"
+#include "core/framework/scene_prepare_profile.h"
 #include "core/framework/bridge_profile.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/capture.h"
@@ -248,6 +249,8 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     {
         dvr::desktop_eye::Record record;
         const bool known = dvr::desktop_eye::record_for(g_count, record);
+        dvr::scene_prepare::end_frame(known ? record.draw : 0,
+            g_cb.gameplay_verdict && g_cb.gameplay_verdict());
         dvr::query_profile::end_frame(known ? record.draw : 0,
             g_cb.gameplay_verdict && g_cb.gameplay_verdict());
     }

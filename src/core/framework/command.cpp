@@ -2,6 +2,7 @@
 #include "core/framework/command.h"
 #include "core/framework/frame_hooks.h"
 #include "core/framework/query_wait_profile.h"
+#include "core/framework/scene_prepare_profile.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/framework/perf.h"
 #include "core/framework/status.h"
@@ -59,6 +60,12 @@ uint32_t sequence() { return g_seq; }
 
 bool core_command(const char* cmd, const char* args)
 {
+    if (!strcmp(cmd, "sceneprepare")) {
+        if (!strcmp(args, "on")) dvr::scene_prepare::set_enabled(true);
+        else if (!strcmp(args, "off")) dvr::scene_prepare::set_enabled(false);
+        else DVR_INFO("sceneprepare: armed=%d enabled=%d; usage on|off", dvr::scene_prepare::armed(), dvr::scene_prepare::enabled());
+        return true;
+    }
     if (!strcmp(cmd, "querywait")) {
         if (!strcmp(args, "on")) dvr::query_profile::set_enabled(true);
         else if (!strcmp(args, "off")) dvr::query_profile::set_enabled(false);

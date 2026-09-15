@@ -6663,3 +6663,30 @@ enough. Real fresh-pair sampling uses delivered capture serials after successful
 XR wait/copy/release, separate eye swapchains and successful xrEndFrame. Held
 submissions cannot become new pairs merely by arriving on an even Present.
 See PERFORMANCE_ROLLOUT.md for limitations and the full optimization sequence.
+
+## InitViews timing boundary, 2026-09-15
+
+Offline derivation from the normal headset CPU capture in PERFORMANCE.md.
+Sampled return RVA0046C0C1 follows a direct call at RVA0046C0BC to VA008662A0.
+The callee references the executable's own ASCII and UTF-16 InitViews labels.
+Its other direct caller is RVA0046A21E; the diagnostic groups return RVAs so
+these callers cannot be conflated. This is the scene renderer's preparation
+stage before the caller's four-pass loop. That loop calls VA0086BF00 and
+VA00864290, with shipped World/Foreground/editor pass labels. Its pass index
+is not the VR eye index. World simulation is outside this render-thread path.
+
+InitViews has ECX receiver, no stack arguments, and a plain ret at VA00867598.
+The entry realigns the stack. A 16-byte signature in patterns.h guards the
+hook; its first six bytes comprise three whole non-relative instructions (push ebx,
+mov ebx/esp, sub esp/8) are copied to the trampoline, which resumes before stack
+alignment. The receiver is forwarded only during the original call; no engine
+object identity is retained or dereferenced by the diagnostic. No UObject
+memory write is introduced. Synthetic x86 tests reproduce the alignment and
+verify receiver/return/stack preservation through repeated calls and removal.
+
+Within InitViews, sampled return RVA004671D9 follows its conditional cdecl
+one-argument call to VA00864AD0. It is the main sampled descendant, but its
+precise visibility/occlusion/mesh-gather split remains unclassified. Do not
+label every sample as occlusion cost or use the low query-read result to
+exclude this surrounding work. No hook or bypass is added to that child.
+Measurement results and subsequent decisions belong in PERFORMANCE.md.

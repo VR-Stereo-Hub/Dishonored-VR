@@ -185,6 +185,8 @@ static void WriteDefaultIni(const char* ini)
         "CpuScopes=0\n"
         "; Engine query helper timing; launch arm, live: querywait on|off.\n"
         "QueryWaitProfile=0\n"
+        "; InitViews timing; launch arm, live: sceneprepare on|off.\n"
+        "ScenePrepareProfile=0\n"
         "; Optional asynchronous D3D11 conversion/copy timing; F10 Display live toggle.\n"
         "BridgeGpu=0\n"
         "; Opt-in diagnostic overhead comparison, baseline/reduced/baseline.\n"
@@ -1407,6 +1409,7 @@ static void LoadConfig()
         // VR-15: the per-level push, the candidate fix for black-at-distance
         dvr::d3d9ex::set_full_copy(IniFloat(ini, "Device", "ShadowFullCopy", 1) != 0.0f);
         dvr::frame::set_desktop_nonblocking(IniFloat(ini, "Device", "DesktopNonblocking", 0) != 0.0f);
+        dvr::scene_prepare::configure(IniFloat(ini, "Perf", "ScenePrepareProfile", 0) != 0.0f);
         dvr::query_profile::configure(IniFloat(ini, "Perf", "QueryWaitProfile", 0) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on

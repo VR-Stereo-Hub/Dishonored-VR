@@ -1,17 +1,20 @@
-## Current performance session: consolidated branch, 2026-09-15
+## Current performance session: InitViews candidate installed, 2026-09-15
 
-Continue on `codex/performance-research`, active ticket VR-125. The performance
-branches are integrated and preserved; no VR-Main merge authorized.
-[PERFORMANCE.md](PERFORMANCE.md) contains the branch inventory, current verdicts,
-artifact locations, rollback identity and numbered next-test preparation plan.
-Read its current sections first, not the entire historical appendix.
-Installed build307 remains unchanged; consolidated code builds and standalone
-checks pass but has not been installed or headset-tested. Query-helper316 cost
-was0.102ms/pair, so no repeat query test. Next investigate repeated per-eye scene
-preparation/draw submission using the existing normal CPU capture, then prepare
-one targeted test. HUD excluded. Never launch the game or use subagents.
-GitHub/Linear publication remains blocked by earlier automatic approval review;
-do not claim the local branch or pending update was published.
+Continue on `codex/performance-research`, active ticket VR-125. Build347
+`vr33-hands-working-347-g5a46c6ead-dirty` is installed, pending one headset test.
+[PERFORMANCE.md](PERFORMANCE.md) is the sole research record and contains the measured
+boundary, ABI/validation details, candidate hashes, full INI changes and protocol.
+Existing normal CPU capture places engine InitViews at12.21% inclusive render
+CPU samples. The new default-off, launch-armed timing probe measures its cost
+and call frequency per completed eye interval; no scene work is bypassed.
+Next: tester launches the same populated hub, original resolution/120Hz, holds
+view90 seconds then briefly moves head/hands and exits. One question: was lag
+and image behavior representative? Read the installed build banner first, then
+complete scene-prepare gameplay windows. No speedup claimed. Both old logs and
+307 DLL/INI archived; rollback remains `vr125-cpu-scopes`. No game or simulator
+launched, HUD excluded, orientation/fences unchanged, no subagents or merge.
+Query-helper0.102ms/pair remains eliminated. See installed.json for install truth.
+Publication remains local under the prior GitHub/Linear approval block; no retry.
 
 ## Completed merge and installed state: 2026-09-14
 
