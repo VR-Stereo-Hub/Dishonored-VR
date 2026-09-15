@@ -362,3 +362,16 @@ left the game on the loading board for eight minutes, run 1 of this branch).
   ready: the first build of the table never armed (`hud/beat: ... (no sink in use)
   ... handoff=0`). The hand-off now counts as ready on the blit alone while no sink is in
   use; the first sink proves the rest or latches the failure as before.
+- **The first HEADSET run of this branch** (2026-09-15, Quest 3 through VirtualDesktopXR,
+  90 Hz, the Release build 287-g4c3e5aa6 with the repo default ini, log
+  `vr120-headset-run1-build287`): the preset (two window quads: the vitals crop 275x385
+  subtending 9.9 deg, the reticle 82x85 at 3.3 deg), the pause, a note and the wheel riding
+  the window, the vitals on the LEFT hand (`hud/layout: element vitals anchor window ->
+  handL`), the `default` row on the left hand, in the frame and off, and the vitals off,
+  all judged good; the vitals' left-hand quad read `0.22 x 0.23 m, 0.49 m from the origin,
+  subtends 25.5 deg`. Nothing in the log says the alpha mode was changed during the run
+  (no `hud/alpha: mode ... (F10 HUD)` line), so `repair` is the only mode the headset has
+  judged and VR-119's list is still open. The three caught first-chance exceptions at
+  start-up (`EXCEPTION 0xc0000005 ... [d3d9.dll+...] (other)`, right after the reflection
+  resolves) are in every log since the VR-Main base 274-g85f9ef6e, three per run, at a
+  different offset per build: a guarded probe reading a page edge, not this branch's.
