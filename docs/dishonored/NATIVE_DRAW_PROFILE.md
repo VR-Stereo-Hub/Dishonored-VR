@@ -136,3 +136,57 @@ Agent has not launched the game. Headset result pending. No merge.
 
 DLL SHA256: `459d4b9c95ade32ca1526521dff1c5df2829e239e895daef1e5184c010265412`.
 INI SHA256: `74d092be1ac4fa29e5b1b06fadc0b100a686664fdda82eb2e1986b556dc1241b`.
+
+## Resource/state hub result, 2026-09-14
+
+Installed DLL hash and log banner verified:298-g3d80740a9, compiled21:57:19.
+Runtime120Hz; no new visual or tracking problems reported. Both logs, installed
+INI and identity archived in `build/performance-results/native-state-hub-20260914-220319`.
+38 complete gameplay windows cover114.202 seconds in the final uninterrupted
+gameplay segment. Earlier brief gameplay transitions yielded no full windows.
+
+| Scope | Calls | Samples | Estimated inclusive ms/s |
+|---|---:|---:|---:|
+| indexed-hook-inclusive | 27,955,975 | 437,164 | 163.425 |
+| primitive-hook-inclusive | 56,712 | 891 | 1.232 |
+| native-indexed-call | 28,026,789 | 438,314 | 69.956 |
+| native-primitive-call | 56,712 | 891 | 0.567 |
+| vs-constant-hook-inclusive | 84,189,431 | 1,315,320 | 100.680 |
+| native-vs-constant-call | 84,543,729 | 1,320,766 | 60.582 |
+| render-target-hook-inclusive | 1,166,207 | 18,066 | 2.920 |
+| native-render-target-call | 1,985,975 | 31,133 | 2.654 |
+| VbLock-hook-inclusive | 56,712 | 879 | 0.515 |
+| IbLock-hook-inclusive | 0 | 0 | 0.000 |
+| TexLockRect-hook-inclusive | 4,697 | 80 | 0.090 |
+| TexUnlockRect-hook-inclusive | 4,697 | 80 | 0.016 |
+| CubeLockRect-hook-inclusive | 0 | 0 | 0.000 |
+| CubeUnlockRect-hook-inclusive | 0 | 0 | 0.000 |
+| VolLockBox-hook-inclusive | 0 | 0 | 0.000 |
+| VolUnlockBox-hook-inclusive | 0 | 0 | 0.000 |
+| SurfLockRect-hook-inclusive | 0 | 0 | 0.000 |
+| SurfUnlockRect-hook-inclusive | 0 | 0 | 0.000 |
+| SetViewport-hook-inclusive | 1,864,883 | 29,119 | 1.614 |
+| SetRenderState-hook-inclusive | 13,047,264 | 203,840 | 8.981 |
+| SetTexture-hook-inclusive | 44,926,834 | 701,769 | 23.680 |
+| SetVertexDeclaration-hook-inclusive | 1,809,030 | 28,256 | 1.211 |
+| SetVertexShader-hook-inclusive | 2,401,188 | 37,688 | 2.905 |
+| SetTransform-hook-inclusive | 0 | 0 | 0.000 |
+| SetPixelShader-hook-inclusive | 5,145,715 | 80,588 | 7.555 |
+| SetStreamSource-hook-inclusive | 17,115,863 | 267,905 | 10.378 |
+| DrawPrimitiveUP-hook-inclusive | 211,543 | 3,248 | 1.386 |
+| DrawIndexedPrimitiveUP-hook-inclusive | 4,448,243 | 69,592 | 13.931 |
+
+Duration-weighted estimates, not additive. Sampled vertex-buffer locks average
+1.043us (879 samples,8.1us sampled max); texture locks average1.924us
+(80 samples,24.2us sampled max). These captured paths do not explain sustained
+hub lag. Zero calls only describes this instrument's owner-thread coverage;
+it does not establish that no resource of that type was used. Rare stalls can
+be missed. Sub-microsecond state timings include timer overhead.
+
+Late broad timing windows remain around15ms/tick, with several milliseconds
+per eye in the rendering span and roughly4ms combined native Present wall time.
+Neither span proves GPU saturation: engine CPU work and waiting are unresolved.
+Next priority: whole-scene GPU timing or CPU/GPU correlation across the render
+span, followed by engine-side attribution if GPU execution is small. Avoid
+more small-state micro-optimizations until the missing cost is identified.
+No performance gain claimed, no new install, no repeat needed for this capture.

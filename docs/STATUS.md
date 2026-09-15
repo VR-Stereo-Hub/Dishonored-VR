@@ -1,3 +1,13 @@
+## Latest result: resource/state profiler validated
+
+Build298-g3d80740a9 passed headset validation.38 complete gameplay windows,
+114.202 seconds at120Hz. Largest new path: texture setter23.68ms/s;
+vertex-buffer locks0.515ms/s, texture locks0.090ms/s. Nested scopes are not
+additive. These captured paths do not explain sustained lag; zero calls do
+not establish complete API coverage. Full results in NATIVE_DRAW_PROFILE.md.
+Next: whole-scene GPU timing / CPU-GPU correlation, then engine attribution.
+No repeat required, no performance gain claimed. Installed build unchanged.
+
 ## Current installed follow-up: resource and state profiling
 
 Build `vr33-hands-working-298-g3d80740a9`, compiled 21:57:19, extends the

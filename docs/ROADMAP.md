@@ -4,7 +4,8 @@
 
 - [x] Reuse tested sampler at hook and native D3D9 call boundaries.
 - [x] Capture hub draw/state-call attribution: 34 windows; visual validation passed.
-- [ ] Attribute remaining rendering/API work and waits before next optimization.
+- [x] Measure existing resource/state hooks: low sampled lock/upload cost.
+- [ ] Correlate whole-scene GPU execution and engine rendering time before optimization.
 
 
 ## World head-motion stability (2026-09-14)
