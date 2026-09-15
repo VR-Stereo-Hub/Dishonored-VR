@@ -64,7 +64,8 @@ until the user names a change.
 2. Review and merge VR-117 (PR #63) first; then retarget this PR to VR-Main and change
    its `Ref` lines to `Fixes VR-118, VR-119, VR-120`. Never merge without permission.
 3. The eight unmeasured rows (equipment, subtitles, objective marker, toast, tutorial,
-   detection, skip gauge, dark vision) need a level where they draw: `draws on` +
+   detection, skip gauge, dark vision) need a level where they draw; the recipe is
+   `docs/dishonored/HUD_ELEMENTS_HOWTO.md`: `draws on` +
    `hud regions on`, read `draws/cluster`, name each with `hud region <name>
    x0,y0,x1,y1` live, then move the rectangle into `kRows` in `hud_layout.cpp` and
    `WriteDefaultIni`. The objective marker moves with the world and cannot be claimed

@@ -18,6 +18,9 @@ render target alone separates the two; the scene resolve is the one opaque
 full-frame draw and alpha blending excludes it; the pause menu and the power
 wheel are the same draw class; the paused world is a live stereo pair.
 
+To measure and name one more element (the eight unmeasured rows, or a new one):
+`HUD_ELEMENTS_HOWTO.md`.
+
 ## 1. The pieces
 
 ```
