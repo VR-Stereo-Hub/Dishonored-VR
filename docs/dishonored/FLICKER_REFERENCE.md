@@ -2126,3 +2126,11 @@ actual renewed eye serials, not every-second-Present counting. A faster result
 with stale eyes or broken stereo fails. See PERFORMANCE_ROLLOUT.md for the
 recoverable plan, counterprediction and first test. World pose, hand correction,
 image lag and scene rendering remain unchanged.
+
+## VR-115 first desktop comparison result
+
+Build276-g48a632e48 completed Full/Off/Full. During limited headset observation
+no new visual problem was reported; sampled image-orientation fallbacks stayed
+L0/R2 and Off hold diagnostics report black0. Throughput improved but p95 and
+16.667ms exceedance share worsened, so no smoothness or flicker fix is claimed.
+Full metrics and preserved logs are indexed in PERFORMANCE_ROLLOUT.md.

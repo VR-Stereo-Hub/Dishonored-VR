@@ -1,3 +1,12 @@
+## First performance trial completed
+
+Build276-g48a632e48 completed Full/Off/Full. Fresh pair rate87.01 /98.28 /84.72
+per second; median10.759 /7.894 /10.711ms. Off improves throughput but raises
+p95 and the share over16.667ms; no confirmed smoothness win. Limited observed
+headset behavior was reported fine. Full restored, INI unchanged, logs archived
+build/performance-results/desktop-first. See PERFORMANCE_ROLLOUT.md for full
+metrics and repeat-test decision. No merge or default promotion.
+
 ## Publication pending explicit approval
 
 The installed trial and local commits are complete. Automatic approval review

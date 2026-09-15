@@ -133,3 +133,46 @@ user authorization for this exact source/documentation export. No push or new
 PR occurred. The prepared PR body is local at build/performance-rollout-pr.md.
 VR-115 was updated successfully and remains In Progress. Ask permission to
 publish this branch and open its draft PR; do not bypass the review rejection.
+
+## First headset comparison, 2026-09-14
+
+Verified installed DLL hash and log banner276-g48a632e48 /19:23:53. Both logs
+and INI archived at build/performance-results/desktop-first. All three30s
+segments completed; each discarded3s warmup, no overflow, all valid.
+The tester reported no headset problem during observation, but did not watch
+continuously. This is limited perceptual evidence, not exhaustive acceptance.
+
+| Metric | Full first | Off | Full return |
+|---|---:|---:|---:|
+| Fresh pair intervals |2349|2652|2287|
+| Fresh pair rate /s |87.01|98.28|84.72|
+| Mean ms |11.492|10.175|11.804|
+| Median ms |10.759|7.894|10.711|
+| p95 ms |18.878|21.250|20.486|
+| p99 ms |37.350|35.166|40.814|
+| p99.9 ms |80.168|85.976|88.825|
+| Maximum ms |100.340|103.410|100.523|
+| Intervals over16.667ms |158 (6.73%)|279 (10.52%)|197 (8.61%)|
+| Intervals over33.333ms |28|31|39|
+| Rejected submissions |12|25|7|
+
+Off improved observed throughput by12.95-16.01% over the two Full segments,
+and median interval by about26.5%. Tail evidence is mixed: p95 is worse than
+both baselines, over16.667ms share increases, p99 is lower, and p99.9/max
+do not establish a consistent improvement. Do not call this a smoothness fix
+or stable120Hz. Rejected submissions also increased and need follow-up.
+
+The Off desktop windows show5887 omitted Presents and28 native fallbacks,
+all context refusals; no query/nonOK failure. Off freezes the last image,
+not a black screen. Sampled world orientation still matches captured input;
+left/right fallback totals stayed0/2. Held-layer diagnostics during Off
+report black=0. These do not measure physical image age or prove the absence
+of every transient. Full was restored at completion; installed defaults were
+not promoted and no new build or INI edit was made after this run.
+
+Next: repeat the identical scene to confirm throughput/tail changes before
+promoting Off; compare Reduced as a separate controlled candidate if the
+Off tail penalty repeats. Continue the remaining Phase A timing/CPU work in
+parallel with the broader rollout; do not treat removed Present CPU time as
+fully recovered render budget. Publication remains blocked pending explicit
+user permission, as already recorded. No merge authorized.
