@@ -86,3 +86,5 @@ pass. Existing DVR_CAT redefinition warning remains. No game launched.
 The next log must match275-gdeeaf66e5 /20:03:32 before interpreting timings.
 Local commit only: the earlier publication block remains pending explicit
 user authorization, so no push or PR retry was attempted.
+
+Tracking note: VR-121 exists and is In Progress. The later installation-detail update did not succeed; a read-back confirmed the original description. The full implementation and install evidence remain in this local document for reconciliation.
