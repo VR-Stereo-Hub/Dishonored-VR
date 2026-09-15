@@ -193,6 +193,32 @@ rather than from the code.
   a byte copy of `release/dishonored_vr.ini`, checked by SHA256, then `arm-res.ps1 -Status`
   for the four resolution places.
 
+### VR-118/VR-120: three traps in the HUD element work (2026-09-15)
+
+- **A shadow reader that wrapped its index.** VR-117's vertex-constant shadow held c0..c3
+  and its reader did `row & 3`, so a caller asking for c6 read c2 and could not know it. The
+  transform it looked for lived in c6..c9; every HUD draw read the same stale values and
+  the rectangles were nonsense. A reader that cannot say "outside my range" returns a wrong
+  answer with a straight face: it now returns null, and the probe refuses with a reason.
+  The register numbers themselves are never hard-coded: they are parsed from each shader's
+  own disassembly (`draws vsdump`).
+- **The census recorded the pixel shader and not the vertex shader**, which hid the very
+  thing that decided the transform (whether one was bound at all, and which). The fixed-
+  function hypothesis had to be built as an instrument (the SetTransform hook and a
+  per-bucket `vs=`) before it could be killed in one window: `HUD draws with a vertex
+  shader 8862, without 0; SetTransform calls 0`. Record what the hypothesis space needs,
+  not what the first hypothesis needed.
+- **Lazy sinks and an armed-only router deadlock.** The element table acquires a sink on
+  the first draw routed to it; a draw is routed only while the redirect is armed; the
+  redirect armed only when a sink's hand-off was ready. The first table build never armed
+  and the log said so in one line (`hud/beat: ... (no sink in use) ... handoff=0`). The
+  hand-off now counts as ready on the blit alone while nothing is in use. When two lazy
+  things wait on each other, one of them has to be allowed to go first.
+- **The screen offset is not the hand's.** Placing a cropped element on the hand by its
+  screen-relative offset (as the window does) put the vitals 0.16 m up-left of the grip at
+  0.044 m wide: a fraction of a 0.22 m panel scaled by a fraction of the screen. A wrist HUD
+  fills the panel at the hand; the sim's pose numbers said so before a headset run did.
+
 ## 2. Instruments that could not fail their own hypothesis
 
 Every one of these produced a confident number that meant nothing. They are

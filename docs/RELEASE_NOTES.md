@@ -10,6 +10,17 @@
   backdrop plate per anchor (`Backdrop.window`, `Backdrop.hand`) are F10 sliders on
   the HUD tab and `hud alpha ...` words. Ships at `repair` with every control at
   identity (the 41.2 picture); `dump hud` now writes the alpha channel as a grey PNG.
+- **Every HUD element on its own anchor (VR-120).** The HUD tab is now a table: each
+  element (the vitals, the reticle, the interaction prompt, and rows for the
+  equipment, subtitles, objective marker, toasts, tutorials, detection arrows, skip
+  gauge and dark vision to be named as they are measured) and each in-game screen
+  (pause, note, journal, wheel, store, mission stats) rides `off`, `frame`, the
+  head-locked `window`, the `world`-parked window, or the `handL` / `handR` panel,
+  with its own placement; the two hands have their own size, lift, orientation and
+  tilt (`[Hud] HandL.*`, `HandR.*`). An element the mod has not named rides `default`
+  and shows in `hud list` with a count. Ships with everything on the window, so the
+  picture is VR-117's until the headset judges the split; `[Hud] Regions=0` is the
+  one-quad A/B. VR-117's single-hand keys are read once and rewritten.
 - **The HUD's element census (VR-118).** The region probe reads each HUD draw's
   rectangle through the vertex shader's own transform (found by disassembling the
   shader at first sight, never by a hard-coded register), and `draws regions` lists

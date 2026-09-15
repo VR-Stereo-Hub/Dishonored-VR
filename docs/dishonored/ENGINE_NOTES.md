@@ -6590,3 +6590,18 @@ context separates the riding screens from the gameplay HUD at no cost, the recta
 separates the gameplay elements, `tex0` stays in the census as a tie-breaker. The movie
 identity route (a hook on the Scaleform movie's Display) was not needed for this list and is
 not built; the display-object route (instance names) is a ticket.
+
+## The HUD's blend equation, and the alpha it leaves in a sink (VR-119, 2026-09-15)
+
+Measured with `draws/blend` (the first HUD-class draw of each colour blend tuple): every
+HUD-class draw on the sewer level runs `SRCBLEND=5 DESTBLEND=6 BLENDOP=1` (SRCALPHA /
+INVSRCALPHA, add) on colour with `SEPARATEALPHABLENDENABLE=1` and `SRCBLENDALPHA=2
+DESTBLENDALPHA=1` (ONE / ZERO) on alpha: the game REPLACES the target's alpha with each
+draw's source alpha. Into a sink cleared to transparent black that leaves the LAST draw's
+alpha per pixel, not the coverage, and a black stroke (alpha 1, colour 0) reads as nothing
+to the `max(r,g,b)` repair. No additive (ONE/ONE) tuple was seen on this level. The redirect
+in `captured` and `mix` modes forces `ONE / INVSRCALPHA, add` on alpha around each
+redirected draw through the original SetRenderState (the shadow must not see the mod's own
+writes) and restores the shadowed values after: dstA = srcA + dstA*(1-srcA), the "over"
+coverage, with the colour equation untouched so the colour stays premultiplied. State
+blocks would bypass the forcing: `g_stateBlocksCreated` reads 0 for a whole run.
