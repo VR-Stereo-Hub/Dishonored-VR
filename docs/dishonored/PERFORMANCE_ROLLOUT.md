@@ -176,3 +176,39 @@ Off tail penalty repeats. Continue the remaining Phase A timing/CPU work in
 parallel with the broader rollout; do not treat removed Present CPU time as
 fully recovered render budget. Publication remains blocked pending explicit
 user permission, as already recorded. No merge authorized.
+
+## Repeat result and Reduced trial
+
+Second run verified276-g48a632e48 /19:23:53, archived with both logs and INI
+at build/performance-results/desktop-second. All three segments completed,
+valid with no overflow. This report did not include a new visual verdict.
+
+| Metric | Full first | Off | Full return |
+|---|---:|---:|---:|
+| Fresh pairs/s |81.86|95.62|84.02|
+| Median ms |11.031|8.108|10.907|
+| p95 ms |21.364|22.440|21.309|
+| p99 ms |42.446|36.959|36.806|
+| p99.9 ms |100.051|65.953|75.390|
+| Max ms |101.346|93.974|80.132|
+| Intervals over16.667ms |193/2209 (8.74%)|267/2581 (10.34%)|195/2268 (8.60%)|
+| Rejected submissions |11|29|12|
+
+Off omitted5697 desktop Presents,31 context fallbacks. Its throughput gain
+of13.8-16.8% repeats, as do worse p95, higher16.667ms exceedance share and
+more rejected submissions. p99 is within the baseline range this time.
+Do not promote Off as a smoothness fix. Full remains the default.
+
+Next candidate changes only the benchmark's alternative: Perf.DesktopAb=2
+selects Full/Reduced/Full;1 retains Full/Off/Full;0 or an unknown value is off.
+F10 Display selects the alternative while stopped. Duration, warmup, fresh-eye
+sampling and restore behavior are unchanged. Actual desktop policy is unchanged
+from the tested PR60 port. Production host tests now cover all three Reduced
+phases and restoration as well as existing Off tests.
+
+The one-question test is the same110-second quiet sewer view at120Hz, then
+a brief head turn: does the headset remain correctly stereo and responsive?
+Reduced should keep the desktop updating. Logs must prove eligibility and actual
+omitted Presents before calling this an effective reduced-delivery comparison.
+A gain with more held images or visual faults fails; no gain means this path
+is not an adequate solution and the audit proceeds to CPU/GPU discrimination.

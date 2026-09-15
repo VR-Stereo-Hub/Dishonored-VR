@@ -644,7 +644,12 @@ static void OverlayFrame()
     if (ImGui::BeginTabItem("Display")) {
     if (ImGui::Button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
         dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());
-    ImGui::TextDisabled("Full / Off / Full: 100 seconds of stationary gameplay; menu aborts.");
+    bool reducedTrial = dvr::perf::desktop_ab_reduced();
+    if (dvr::perf::desktop_ab_enabled()) ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Benchmark Reduced instead of Off", &reducedTrial))
+        dvr::perf::desktop_ab_set_reduced(reducedTrial);
+    if (dvr::perf::desktop_ab_enabled()) ImGui::EndDisabled();
+    ImGui::TextDisabled("Full / %s / Full: 100 seconds; menu aborts.", reducedTrial ? "Reduced" : "Off");
     {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
         if (ImGui::Checkbox("Disable desktop mirror (candidate)", &mirrorOff)) {

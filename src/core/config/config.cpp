@@ -1282,7 +1282,9 @@ static void LoadConfig()
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
         dvr::perf::ab_set_enabled(GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
-        dvr::perf::desktop_ab_set_enabled(GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini) != 0);
+        const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
+        dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
+        dvr::perf::desktop_ab_set_enabled(desktopTrial == 1 || desktopTrial == 2);
         // VR-68: which head generation the HAND normalisation uses. 0 = the
         // freshest (historical); 2 = the one the rendered view was built from,
         // which is what bv/lag measured. PoseLagAb walks 0/2/0/2 so a headset

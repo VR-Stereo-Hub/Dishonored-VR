@@ -65,5 +65,17 @@ int main() {
     for(uint32_t i=0;i<16400;++i) { testNow+=.01; desktop_ab_submit(true,i*2+1,i*2+2); }
     assert(desktopN==16384 && desktopOverflow==15);
     desktop_ab_set_enabled(false);
+    // Reduced leaves native delivery enabled; restoration still returns both flags.
+    dvr::desktop_eye::off=false; dvr::desktop_eye::reduced=false;
+    desktop_ab_set_reduced(true); desktop_ab_set_enabled(true); desktop_ab_tick(true);
+    testNow+=10000; desktop_ab_tick(true);
+    assert(!dvr::desktop_eye::off && !dvr::desktop_eye::reduced);
+    testNow+=30000; desktop_ab_tick(true);
+    assert(!dvr::desktop_eye::off && dvr::desktop_eye::reduced);
+    testNow+=30000; desktop_ab_tick(true);
+    assert(!dvr::desktop_eye::off && !dvr::desktop_eye::reduced);
+    testNow+=30000; desktop_ab_tick(true);
+    assert(!desktopArmed && !dvr::desktop_eye::off && !dvr::desktop_eye::reduced);
+    assert(testLog.find("mode=reduced")!=std::string::npos);
     puts("PASS: fresh identities, warmup, full/off/full, severe stalls, menu abort and restoration");
 }

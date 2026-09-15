@@ -1,3 +1,11 @@
+## Repeat confirms mixed result; Reduced comparison next
+
+Second Full/Off/Full run:81.86 /95.62 /84.02 fresh pairs/s. Off repeats the
+throughput gain but also worse p95 and more intervals over16.667ms. No default
+promotion. Next candidate arms Perf.DesktopAb=2 for Full/Reduced/Full, retaining
+the same110-second test, poses and resolution. See PERFORMANCE_ROLLOUT.md.
+Publication remains blocked pending explicit approval; no merge authorized.
+
 ## First performance trial completed
 
 Build276-g48a632e48 completed Full/Off/Full. Fresh pair rate87.01 /98.28 /84.72

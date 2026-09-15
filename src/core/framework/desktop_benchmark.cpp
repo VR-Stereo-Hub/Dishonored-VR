@@ -5,6 +5,8 @@ namespace dvr::perf {
 namespace {
 bool desktopArmed=false, desktopPlaying=false, desktopSaved=false;
 bool desktopWasOff=false, desktopWasReduced=false;
+bool desktopTestReduced=false;
+const char* desktop_alternative() { return desktopTestReduced ? "reduced" : "off"; }
 int desktopSegment=-1;
 double desktopWait=0, desktopStart=0, desktopPrevious=0;
 FreshPair desktopPair;
@@ -31,7 +33,7 @@ void desktop_close() {
              "fresh-pair interval ms p50=%.3f p95=%.3f p99=%.3f p99.9=%.3f max=%.3f "
              "mean=%.3f rate=%.2f/s over8.333=%u over16.667=%u over33.333=%u valid=%d; "
              "successful submissions with BOTH captured serials renewed, not display FPS",
-             desktopSegment+1,desktopSegment==1?"off":"full",desktopN,desktopOverflow,desktopRejected,
+             desktopSegment+1,desktopSegment==1?desktop_alternative():"full",desktopN,desktopOverflow,desktopRejected,
              desktopMedians[desktopSegment],AbPct(desktopSamples,desktopN,.95f),
              desktopTails[desktopSegment],AbPct(desktopSamples,desktopN,.999f),
              desktopN?desktopSamples[desktopN-1]:0,desktopN?sum/desktopN:0,
@@ -39,13 +41,18 @@ void desktop_close() {
 }
 } // namespace
 bool desktop_ab_enabled() { return desktopArmed; }
+bool desktop_ab_reduced() { return desktopTestReduced; }
+void desktop_ab_set_reduced(bool reduced) {
+    if (desktopArmed) desktop_ab_set_enabled(false);
+    desktopTestReduced=reduced;
+}
 void desktop_ab_set_enabled(bool on) {
     if (on) ab_command("off"); // never combine with the historical latency sweep
     desktop_restore(); desktopArmed=on; desktopSegment=-1;
     desktopWait=desktopPrevious=0; desktopPair={};
-    DVR_INFO("perf/desktop-ab: %s; Full/Off/Full, 10s settle then three 30s segments, "
+    DVR_INFO("perf/desktop-ab: %s; Full/%s/Full, 10s settle then three 30s segments, "
              "discard first 3s each; menu/load aborts; original desktop mode restored",
-             on?"ARMED, waiting for gameplay":"STOPPED");
+             on?"ARMED, waiting for gameplay":"STOPPED",desktop_alternative());
 }
 void desktop_ab_tick(bool gameplay) {
     desktopPlaying=gameplay;
@@ -68,18 +75,18 @@ void desktop_ab_tick(bool gameplay) {
     else desktop_close();
     if(++desktopSegment==3) {
         DVR_INFO("perf/desktop-ab: COMPLETE. Full baselines p50=%.3f/%.3f p99=%.3f/%.3f; "
-                 "Off p50=%.3f p99=%.3f. Compare each metric against baseline spread; "
+                 "%s p50=%.3f p99=%.3f. Compare each metric against baseline spread; "
                  "check validity, desktop fallback counters and scene stability before claiming benefit.",
                  desktopMedians[0],desktopMedians[2],desktopTails[0],desktopTails[2],
-                 desktopMedians[1],desktopTails[1]);
+                 desktop_alternative(),desktopMedians[1],desktopTails[1]);
         desktop_ab_set_enabled(false); return;
     }
     desktopStart=now; desktopN=desktopOverflow=desktopRejected=0; desktopPrevious=0;
     // Keep accepted identities across boundaries: a held pair is still held.
-    dvr::desktop_eye::set_reduced_present(false);
-    dvr::desktop_eye::set_mirror_off(desktopSegment==1);
+    dvr::desktop_eye::set_reduced_present(desktopSegment==1 && desktopTestReduced);
+    dvr::desktop_eye::set_mirror_off(desktopSegment==1 && !desktopTestReduced);
     DVR_INFO("perf/desktop-ab: BEGIN segment=%d mode=%s duration=30s warmup=3s",
-             desktopSegment+1,desktopSegment==1?"off":"full");
+             desktopSegment+1,desktopSegment==1?desktop_alternative():"full");
 }
 void desktop_ab_submit(bool stereoSubmitted,uint32_t left,uint32_t right) {
     if(!desktopArmed||desktopSegment<0||!desktopPlaying) return;

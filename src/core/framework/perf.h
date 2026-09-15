@@ -63,6 +63,8 @@ void ab_set_enabled(bool on);
 void ab_set_gameplay(bool inPlay);   // the plan only runs in gameplay
 void desktop_ab_set_enabled(bool on); // default off, bounded Full/Off/Full trial
 bool desktop_ab_enabled();
+bool desktop_ab_reduced();
+void desktop_ab_set_reduced(bool reduced);
 void desktop_ab_tick(bool gameplay);
 void desktop_ab_submit(bool stereoSubmitted, uint32_t left, uint32_t right);
 
