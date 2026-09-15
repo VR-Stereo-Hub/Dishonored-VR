@@ -1,15 +1,16 @@
-## Current VR-125: nonblocking desktop Present candidate ready, 2026-09-15
+## Current VR-125: nonblocking desktop test rejected, 2026-09-15
 
-Built/installed313-ga3dacd055-dirty. Experimental Device.DesktopNonblocking=0
-added to the installed INI; the timed helper switches it live off/on/off.
-No recorder runs. Same hub view for two minutes: automatic30s baseline,
-40s nonblocking desktop presentation,30s restored baseline after hub detection.
-One question: does the headset remain visually normal and responsive throughout?
-Agent reads phase markers, eligibility/busy/fallback counters and performance.
-No speedup or headset acceptance yet. Main/menus/loading retain normal Present;
-headset capture, read-done fences and image-owned orientation are unchanged.
-Original307 archived by installer. Details and rollback: RESOLUTION_FLOOR.md.
-User launches game. No merge authorized. Prior new-tool publication remains pending.
+Verified313 banner/hash; automatic off/on/off completed. Complete windows:
+58.21 /57.70 /58.29 ticks/s (10/13/9 windows). Native desktop Present summed
+across both eyes4.840 /4.869 /4.878ms. Last on heartbeat4818 attempts,
+4818 accepted,0 busy,64 context fallbacks,0 errors. The path engaged but did
+not bypass the driver wait; no useful gain. Tester reports no apparent change.
+Do not repeat this test or promote the default-off lever. Preserved on branch.
+Restored exact307 DLL/INI, full diff only removes DesktopNonblocking=0; CRLF
+verified and both logs archived. No recorder, helper, game or playtest pending.
+Continue engine/native-driver draw-cost attribution; usable GPU execution
+correlation remains missing. Do not infer all blocked time is removable or
+promise a large gain. HUD stays excluded. No merge authorized.
 
 ## Current VR-125: representative CPU trace complete; HUD excluded
 

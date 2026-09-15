@@ -549,3 +549,35 @@ occurred, then compare native Present cost, fresh pairs/tails and logged tick ra
 The single user question is whether visuals and responsiveness remain normal
 throughout. Normal permits quantitative evaluation, not automatic promotion;
 any new artifact rejects this candidate. No performance claim before the run.
+
+
+### Headset result: no benefit, previous build restored
+
+Verified installed313 SHA256 and matching log banner (Sep15 09:06:05). Timed
+helper completed off/on/off and exited. Archived final/previous logs locally in
+`build/performance-results/vr125-desktop-nonblocking`. Exclude3s performance
+windows crossing a phase boundary or live-toggle boundary. Complete-window means:
+
+| Phase | Windows | Logged ticks/s | Tick ms | Native Present ms, both eyes summed |
+|---|---:|---:|---:|---:|
+| Before, normal |10|58.21|17.060|4.840|
+| Nonblocking |13|57.70|17.254|4.869|
+| After, normal |9|58.29|17.033|4.878|
+
+Last on-phase heartbeat:4818 attempts,4818 accepted,0 busy,64 context fallbacks,
+0 errors, no refusal. These are last-heartbeat counts, not claimed final totals.
+Actual new API path was active; every attempted call returned success without a
+busy skip. The measured wait was not bypassed. On-phase throughput is about0.94%
+lower than the mean of the two controls, not a useful difference or speedup.
+Tester reports no apparent effect. Reject for promotion and do not repeat this
+mechanism unchanged. No need to infer frame-time-tail improvement from averages.
+This eliminates this API flag as a useful remedy on this workload, not all
+desktop overhead, GPU waits or native draw submission as possible costs.
+
+Restored exact pre-test307 DLL/INI from `vr125-cpu-scopes`. Full installed INI diff
+only removes DesktopNonblocking=0; CRLF verified. Restore archive:
+`build/playtest-candidates/installs/20260915-091631-188152`. Experiment remains
+recoverable and default-off on the branch. No helper/recorder or test pending.
+Next attribution must target engine/native draw work and its driver dependency;
+a usable gameplay GPU timeline is still absent. Do not continue API-wait guesses
+or reinterpret the measured blocked fraction as guaranteed recoverable time.
