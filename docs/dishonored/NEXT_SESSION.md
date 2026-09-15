@@ -1,3 +1,6 @@
+Installed profiling candidate275-gdeeaf66e5 /20:03:32. Perf.RenderProfile=1;
+only one INI key added, full CRLF diff verified.60-second sewer test ready.
+
 ## Current: independent render-thread profile, VR-121
 
 Branch codex/vr-121-render-thread-profile starts from accepted main85f9ef6e4.
