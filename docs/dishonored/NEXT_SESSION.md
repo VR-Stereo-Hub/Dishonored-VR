@@ -1,3 +1,30 @@
+## Completed hub diagnostic comparison: no compelling benefit
+
+Verified build295-gdb73d0a49 /21:26:07 and installed DLL hash. Runtime120Hz;
+normal world/weapon behavior reported throughout. Both logs and INI archived at
+build/performance-results/diagnostic-hub-repeat-20260914-214029.
+All three phases valid, zero overflow, COMPLETE valid=1, normal collection restored.
+
+| Phase | n | Fresh pairs/s | Mean ms | p50 ms | p95 ms | p99 ms | Max ms | >33.333ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Baseline1 |1909|63.66|15.709|15.493|19.001|26.173|59.859|5|
+| Reduced |1934|64.48|15.509|15.141|19.249|27.109|100.010|14|
+| Baseline2 |1927|64.27|15.558|15.267|19.330|27.202|58.716|10|
+
+Reduced throughput is1.29% above baseline1 but only0.33% above baseline2;
+baselines themselves differ about0.96%. Median improves modestly, while p95/p99
+sit within baseline spread and the reduced phase has more >33.333ms intervals
+than either baseline. The100ms maximum is one observed event, not proof that
+suppression causes stalls. No confidence interval or repeatability claim is made.
+
+Decision: no compelling sustained or tail benefit; retain existing diagnostic
+defaults and preserve this experiment. Do not spend another hub run isolating
+members of this group now. Next priority is native draw/render-thread CPU and
+driver-wait attribution, separate from these diagnostic and bridge candidates.
+No new build, INI edit or merge. DiagnosticAb remains armed in the installed INI
+for another launch, but this run completed and restored normal collection.
+PR65 remains draft as a recoverable measurement tool, not an accepted speedup.
+
 ## First diagnostic hub run: normal behavior, incomplete comparison
 
 Verified295-gdb73d0a49 /21:26:07 against installed DLL and log. Archived both logs

@@ -4,7 +4,7 @@
 
 - [x] Audit collector dependencies and implement reversible baseline/reduced/baseline.
 - [x] Host validation of pair identity, sample boundaries and restoration.
-- [ ] Hub headset run and benefit-versus-baseline-spread decision.
+- [x] Hub A/B/A complete: no compelling throughput/tail benefit; retain defaults.
 
 
 ## World head-motion stability (2026-09-14)
