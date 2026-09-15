@@ -1,8 +1,8 @@
-## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), simulator-green, PR open - 2026-09-15
+## Current state: every HUD element on its own anchor, and a real alpha (VR-118, VR-119, VR-120), simulator-green, PR #64 open - 2026-09-15
 
 Branch `claude/vr-120-hud-elements` off `claude/vr-117-hud-redo` (PR #63, still NOT
-merged; this branch's PR is stacked on it and says `Ref`, not `Fixes`, until VR-117
-lands). NOT merged to VR-Main. Never merge without permission.
+merged; this branch's PR #64 is stacked on it and says `Ref`, not `Fixes`, until
+VR-117 lands). NOT merged to VR-Main. Never merge without permission.
 
 What this branch delivers, on top of VR-117's redirect and quads:
 
