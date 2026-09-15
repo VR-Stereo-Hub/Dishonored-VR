@@ -6624,3 +6624,33 @@ overlap; no serial sum or threading speedup is implied. GetThreadTimes per-stage
 CPU attribution failed the wall-time sanity check due coarse accounting; keep
 QueryThreadCycleTime relative only. RESOLUTION_FLOOR.md has exact populations,
 restore identity, off/on/off control and the next bounded investigation.
+
+
+## VR-125: D3D9 query-read helper, 2026-09-15
+
+Offline reference-tool derivation on the installed Steam executable. The ASCII
+CreateQuery OCCLUSION error expression leads via its .text xref to creation of
+a query with type9. Immediately adjacent is the shared native query-read helper
+at VA009BCF50 (patterns.h kD3D9QueryRead). Its native query argument calls vtable
+slot7/GetData, always flags1/D3DGETDATA_FLUSH; if S_FALSE and the fourth stack
+argument permits waiting, it polls again until completion or its own timeout.
+It returns a boolean, not HRESULT. Observed successful and false paths clean
+16 stack bytes. ABI: thiscall ECX owner, query/data/size/wait on the stack.
+The15-byte prologue signature is verified; only the first6 whole non-relative
+instruction bytes are relocated into the diagnostic trampoline.
+
+Existing disasm-rva.py calls census finds five direct callsites (RVAs):005BD16B,
+005BD185,005BF545,005BF596,005C131A. The first two read8-byte data; the last is
+reached from the cached occlusion-result path and reads4 bytes. The005BF596
+caller passes wait=1 and can retry until returned query data is nonzero. These
+are offline control-flow findings, not proof the callers are active or expensive
+in the hub. No interpretation of query type is made from data size alone.
+
+The diagnostic reads GetType only on the live query argument, takes no COM
+reference, retains no engine-object identity and changes no query flags/results.
+It times complete helper calls on the Present thread, classifies caller return
+RVA/type/wait permission, and groups them by the completed render interval's eye.
+That eye label is not the issuing/creation eye of a retained query. Other-thread
+calls and table overflow are reported so missing coverage cannot look like zero
+cost. Performance verdicts and all subsequent research belong only in
+[PERFORMANCE.md](PERFORMANCE.md).

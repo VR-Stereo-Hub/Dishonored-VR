@@ -19,6 +19,11 @@ static const uintptr_t kModEnd     = 0x400000 + 0x1206A0C; // end of .reloc
 static const uintptr_t kDataStart  = 0x400000 + 0xE69000;  // .data VA
 static const uintptr_t kDataEnd    = kDataStart + 0x21B3BC;
 
+// VR-125: D3D9 query-read helper, thiscall + four stack args, ret16.
+// Complete polling loop preserved by diagnostic; ENGINE_NOTES derivation.
+static const uintptr_t kD3D9QueryRead = 0x009bcf50;
+static const uint8_t kD3D9QueryReadPrefix[15] = {0x55,0x8b,0xec,0x83,0xec,0x1c,0x56,0x8b,0x75,0x08,0x89,0x4d,0xfc,0x85,0xf6};
+
 // ---- GC fault capture (read-only, no hook or engine-memory write) ----
 // Offline image verification and first-fault registers: ENGINE_NOTES,
 // "GC reference crash recurrence, 2026-09-13". Reads referenced object flags.

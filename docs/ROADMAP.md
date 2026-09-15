@@ -2,6 +2,12 @@
 
 ## Native draw profiling (VR-121 continuation)
 
+Canonical findings and next steps: [PERFORMANCE.md](dishonored/PERFORMANCE.md).
+
+- [x] Consolidate performance reports and session maintenance rules.
+- [x] Derive and validate engine query-helper timing diagnostic.
+- [ ] Measure game query waiting in the real hub with same-run off/on/off.
+
 - [x] Reuse tested sampler at hook and native D3D9 call boundaries.
 - [x] Capture hub draw/state-call attribution: 34 windows; visual validation passed.
 - [x] Measure existing resource/state hooks: low sampled lock/upload cost.

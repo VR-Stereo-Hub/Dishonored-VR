@@ -182,6 +182,8 @@ static void WriteDefaultIni(const char* ini)
         "NativeProfile=0\n"
         "; Aggregate CPU/wall stage timing; diagnostic, live: perf cpu on|off.\n"
         "CpuScopes=0\n"
+        "; Engine query helper timing; launch arm, live: querywait on|off.\n"
+        "QueryWaitProfile=0\n"
         "ForceNoVSync=1\n"
         "FrameId=1\n"
         "FrameIdEvery=8\n"
@@ -1395,6 +1397,7 @@ static void LoadConfig()
         // VR-15: the per-level push, the candidate fix for black-at-distance
         dvr::d3d9ex::set_full_copy(IniFloat(ini, "Device", "ShadowFullCopy", 1) != 0.0f);
         dvr::frame::set_desktop_nonblocking(IniFloat(ini, "Device", "DesktopNonblocking", 0) != 0.0f);
+        dvr::query_profile::configure(IniFloat(ini, "Perf", "QueryWaitProfile", 0) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;

@@ -1,6 +1,7 @@
 #define DVR_CAT ::dvr::log::Cat::cmd
 #include "core/framework/command.h"
 #include "core/framework/frame_hooks.h"
+#include "core/framework/query_wait_profile.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/framework/perf.h"
 #include "core/framework/status.h"
@@ -58,6 +59,12 @@ uint32_t sequence() { return g_seq; }
 
 bool core_command(const char* cmd, const char* args)
 {
+    if (!strcmp(cmd, "querywait")) {
+        if (!strcmp(args, "on")) dvr::query_profile::set_enabled(true);
+        else if (!strcmp(args, "off")) dvr::query_profile::set_enabled(false);
+        else DVR_INFO("querywait: armed=%d enabled=%d; usage on|off", dvr::query_profile::armed(), dvr::query_profile::enabled());
+        return true;
+    }
     if (!strcmp(cmd, "desktopnonblocking")) {
         if (!strcmp(args, "on")) dvr::frame::set_desktop_nonblocking(true);
         else if (!strcmp(args, "off")) dvr::frame::set_desktop_nonblocking(false);

@@ -4,6 +4,7 @@
 
 #include "core/framework/perf.h"
 #include "core/framework/native_profile.h"
+#include "core/framework/query_wait_profile.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/nonblocking_present.h"
@@ -236,6 +237,12 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::desktop_eye::begin_present(g_count);
     dvr::stereo::end_frame(devs, out);
     dvr::perf::stamp(dvr::perf::kAfterEnd);
+    {
+        dvr::desktop_eye::Record record;
+        const bool known = dvr::desktop_eye::record_for(g_count, record);
+        dvr::query_profile::end_frame(known ? record.draw : 0,
+            g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+    }
     // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
     // method and the runtime on purpose: they belong to no stereo method.
     dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
