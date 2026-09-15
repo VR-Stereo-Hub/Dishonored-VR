@@ -73,6 +73,12 @@ void ab_tick(IDirect3DDevice9* dev);   // present thread, at kEntry
 bool ab_command(const char* args);
 void ab_set_enabled(bool on);
 void ab_set_gameplay(bool inPlay);   // the plan only runs in gameplay
+void desktop_ab_set_enabled(bool on); // default off, bounded Full/Off/Full trial
+bool desktop_ab_enabled();
+bool desktop_ab_reduced();
+void desktop_ab_set_reduced(bool reduced);
+void desktop_ab_tick(bool gameplay);
+void desktop_ab_submit(bool stereoSubmitted, uint32_t left, uint32_t right);
 
 // The frame-start marker (commit 2): the first BeginScene after the game's
 // Present returned splits OUT into idle (the render thread had nothing queued:
@@ -86,9 +92,8 @@ void frame_start_marker(const char* which);
 // device - a TIMESTAMPDISJOINT bracket per present, TIMESTAMPFREQ, and four
 // TIMESTAMPs: the first BeginScene after Present (the GPU starts the frame),
 // hkPresent entry (the GPU's frame is complete when it passes here), and a
-// pair around the capture's readback copy (its OWN GPU cost, the number that
-// splits the CPU's lock wait into "the GPU finishing the frame" and "the
-// readback"). Read back five presents later with GetData(0): never flushed,
+// pair around the capture's copy (its OWN GPU interval, outside the earlier
+// render span; it must not be subtracted from that span or the CPU lock). Read back five presents later with GetData(0): never flushed,
 // never waited on. The device comes from hkPresent; the queries are released
 // on Reset (the hkReset LAW) and recreated lazily.
 enum GpuPoint { kGpuRtdA = 0, kGpuRtdB };

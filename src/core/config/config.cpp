@@ -429,6 +429,11 @@ static void WriteDefaultIni(const char* ini)
         "; DesktopEyeSource=tag|draw: draw pins by current backbuffer identity (VR-76).\n"
         "; Live A/B: desktopeye draw|tag. tag is the legacy pin, which leaks the other eye under shared capture.\n"
         "DesktopEyeSource=draw\n"
+        "; ReduceDesktopPresent omits a redundant right-eye desktop delivery after a successful left.\n"
+        "; Candidate, default off. Live A/B: desktoppresent full|reduced|off; F10 Display.\n"
+        "ReduceDesktopPresent=0\n"
+        "; DesktopMirrorOff freezes desktop updates while XR capture is live; overrides reduction.\n"
+        "DesktopMirrorOff=0\n"
         "DisableBadApiLayers=1\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
@@ -1410,6 +1415,9 @@ static void LoadConfig()
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
         dvr::perf::ab_set_enabled(GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
+        dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
+        dvr::perf::desktop_ab_set_enabled(desktopTrial == 1 || desktopTrial == 2);
         // VR-68: which head generation the HAND normalisation uses. 0 = the
         // freshest (historical); 2 = the one the rendered view was built from,
         // which is what bv/lag measured. PoseLagAb walks 0/2/0/2 so a headset
@@ -2681,6 +2689,8 @@ static void LoadConfig()
             GetPrivateProfileStringA("VR", "DesktopEyeSource", "", source, sizeof(source), ini);
             dvr::desktop_eye::set_source(source[0] ? source : "draw",
                 source[0] ? ini : "compiled default (ini key absent)");
+            dvr::desktop_eye::set_reduced_present(GetPrivateProfileIntA("VR", "ReduceDesktopPresent", 0, ini) != 0);
+            dvr::desktop_eye::set_mirror_off(GetPrivateProfileIntA("VR", "DesktopMirrorOff", 0, ini) != 0);
         }
         // ApiLayerGuard runs before LoadConfig and reads this key itself; the
         // read here only keeps the global in step for the ini rewrite.
@@ -3311,6 +3321,8 @@ static void OverlaySaveDefaults()
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("VR", "DesktopEyeSource", dvr::desktop_eye::source_name(), ini);
+    WritePrivateProfileStringA("VR", "ReduceDesktopPresent", dvr::desktop_eye::reduced_present() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "DesktopMirrorOff", dvr::desktop_eye::mirror_off() ? "1" : "0", ini);
     {
         const auto crosshair = dvr::aim::config();
         WritePrivateProfileStringA("Aim", "FireFromHand", FireAimEnabled() ? "1" : "0", ini);

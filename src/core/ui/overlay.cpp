@@ -642,6 +642,30 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Display")) {
+    if (ImGui::Button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
+        dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());
+    bool reducedTrial = dvr::perf::desktop_ab_reduced();
+    if (dvr::perf::desktop_ab_enabled()) ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Benchmark Reduced instead of Off", &reducedTrial))
+        dvr::perf::desktop_ab_set_reduced(reducedTrial);
+    if (dvr::perf::desktop_ab_enabled()) ImGui::EndDisabled();
+    ImGui::TextDisabled("Full / %s / Full: 100 seconds; menu aborts.", reducedTrial ? "Reduced" : "Off");
+    {
+        bool mirrorOff = dvr::desktop_eye::mirror_off();
+        if (ImGui::Checkbox("Disable desktop mirror (candidate)", &mirrorOff)) {
+            dvr::desktop_eye::set_mirror_off(mirrorOff);
+            ConfigWriteKey("VR", "DesktopMirrorOff", mirrorOff ? "1" : "0", "F10 Display");
+        }
+        ImGui::TextDisabled("Freezes the desktop image while VR is active; headset keeps rendering.");
+        if (mirrorOff) ImGui::BeginDisabled();
+        bool reduced = dvr::desktop_eye::reduced_present();
+        if (ImGui::Checkbox("Reduce desktop presentation (candidate)", &reduced)) {
+            dvr::desktop_eye::set_reduced_present(reduced);
+            ConfigWriteKey("VR", "ReduceDesktopPresent", reduced ? "1" : "0", "F10 Display");
+        }
+        ImGui::TextDisabled("Keeps both headset eyes; avoids redundant desktop updates when safe.");
+        if (mirrorOff) ImGui::EndDisabled();
+    }
     // 41.1: the stereo arming tickbox, TICKED by default (the user's ask). It
     // parks the selected method on the mono screen without forgetting it; the
     // selection is the ini's [Stereo] Method or `stereo <name>`.

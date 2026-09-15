@@ -24,6 +24,12 @@ Canonical findings and next steps: [PERFORMANCE.md](dishonored/PERFORMANCE.md).
 - [ ] Correlate whole-scene GPU execution and engine rendering time before optimization.
 
 
+## Performance rollout (2026-09-14)
+
+- [x] VR-115 desktop modes ported to current main and automatic fresh-pair trial implemented.
+- [ ] Headset comparison and repeated-baseline performance evidence.
+- [ ] VR-113 full staged plan: [rollout](dishonored/PERFORMANCE_ROLLOUT.md).
+
 ## World head-motion stability (2026-09-14)
 
 - [x] VR-116 image-linked world orientation confirmed and reconfirmed at 120 Hz.

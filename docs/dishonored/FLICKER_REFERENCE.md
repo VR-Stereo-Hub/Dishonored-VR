@@ -84,6 +84,14 @@ they are outside this committed baseline and are not assigned a flicker verdict.
 
 ## Contents
 
+2026-09-14 performance candidate: [DESKTOP_PRESENT_PERFORMANCE.md](DESKTOP_PRESENT_PERFORMANCE.md)
+records VR-115's default-off reduced/off desktop modes. This touches the desktop
+alternation and delayed-tag rows below, not a new headset flicker diagnosis.
+Current-draw identity still controls the Reduced pin; Off omits desktop delivery
+after capture and invalidates old pin provenance. Host and standalone D3D9Ex
+GPU tests pass; headset/engine pacing, menu/load and visual acceptance remain
+open. Candidate is not installed; accepted build266 remains in place.
+
 1. [Symptom routing and current status](#1-symptom-routing-and-current-status)
 2. [The frame path and its identities](#2-the-frame-path-and-its-identities)
 3. [Detailed issue history](#3-detailed-issue-history)
@@ -2176,3 +2184,24 @@ runtime variability or baseline perception unresolved. This is a baseline
 comparison, not a claimed hand fix. Afterward, instrument actual per-view eye
 identity and deferred classifier agreement before changing eye offsets.
 Never launch the game. No merge or external publication authorized this turn.
+
+## 2026-09-14: performance rollout preserves the world checkpoint
+
+VR-115 now ports PR60 onto current main, retaining accepted image-linked world
+orientation. This is desktop-output scheduling work, not a new hand-flicker
+fix. Later perception of smoothness was uncertain; failed hand-candidate lag
+attribution remains a report, not a demonstrated cause. PR63 HUD testing was
+reported favorable but is not a controlled performance comparison.
+No new headset result exists for this performance build. Full/Off/Full uses
+actual renewed eye serials, not every-second-Present counting. A faster result
+with stale eyes or broken stereo fails. See PERFORMANCE_ROLLOUT.md for the
+recoverable plan, counterprediction and first test. World pose, hand correction,
+image lag and scene rendering remain unchanged.
+
+## VR-115 first desktop comparison result
+
+Build276-g48a632e48 completed Full/Off/Full. During limited headset observation
+no new visual problem was reported; sampled image-orientation fallbacks stayed
+L0/R2 and Off hold diagnostics report black0. Throughput improved but p95 and
+16.667ms exceedance share worsened, so no smoothness or flicker fix is claimed.
+Full metrics and preserved logs are indexed in PERFORMANCE_ROLLOUT.md.

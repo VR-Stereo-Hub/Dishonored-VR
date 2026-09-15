@@ -6654,3 +6654,12 @@ That eye label is not the issuing/creation eye of a retained query. Other-thread
 calls and table overflow are reported so missing coverage cannot look like zero
 cost. Performance verdicts and all subsequent research belong only in
 [PERFORMANCE.md](PERFORMANCE.md).
+
+## 2026-09-14: performance measurement population
+
+The rollout adds no engine address or memory writer. Strict DvrGameplayVerdict
+gates the desktop trial; cinematic presentation permission is intentionally not
+enough. Real fresh-pair sampling uses delivered capture serials after successful
+XR wait/copy/release, separate eye swapchains and successful xrEndFrame. Held
+submissions cannot become new pairs merely by arriving on an even Present.
+See PERFORMANCE_ROLLOUT.md for limitations and the full optimization sequence.
