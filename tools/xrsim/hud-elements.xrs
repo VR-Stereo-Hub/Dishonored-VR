@@ -1,0 +1,56 @@
+# hud-elements.xrs - every HUD element on its own anchor (VR-120).
+#
+# With the region probe on, the gameplay HUD on the sewer level is two named
+# elements: the vitals (top-left) and the reticle (centre). Each rides the
+# anchor its row names, as its own quad: vitals on the LEFT hand, reticle on
+# the RIGHT hand, and the count follows the anchors, not the sinks. An
+# untracked right hand hides only its quad; 'frame' puts an element back in
+# the eye textures (no quad for it). Run in GAMEPLAY with stereo reentry armed.
+#
+#   tools\xrsim-run.ps1 -Path tools\xrsim\hud-elements.xrs -Dir D:\dvr-data\xrsim
+reset
+hand l grip pose -0.20 1.10 -0.40 0 0 0
+hand r grip pose 0.20 1.10 -0.40 0 0 0
+@mod stereo reentry; crosshair dot off
+@frames 240
+@assert sessionState eq FOCUSED
+@assert projectionViews eq 2
+
+# The preset: everything on the window, split into its elements' quads.
+@mod hud on; hud regions on; hud reset
+@frames 180
+@assert quadLayers ge 2
+@shot hud_el_window
+
+# Vitals on the left hand, the reticle on the right: two quads in LOCAL space
+# within 0.15 m of each posed grip (compare the poses in hud_el_hands.json).
+@mod hud anchor vitals handL; hud anchor reticle handR
+@frames 180
+@assert quadLayers eq 2
+@shot hud_el_hands
+
+# The right hand loses tracking: only its quad goes.
+hand r valid off
+@frames 120
+@assert quadLayers eq 1
+@shot hud_el_r_untracked
+hand r valid on
+@frames 120
+@assert quadLayers eq 2
+
+# The vitals back in the frame: their draws stay in the eyes, no quad for them.
+@mod hud anchor vitals frame
+@frames 120
+@assert quadLayers eq 1
+@shot hud_el_vitals_frame
+
+# Hidden: no quad, and not in the frame either.
+@mod hud anchor vitals off
+@frames 120
+@assert quadLayers eq 1
+@shot hud_el_vitals_off
+
+# The presets again, the aim dot back.
+@mod hud reset; crosshair dot on
+@frames 120
+@assert quadLayers ge 3

@@ -1,11 +1,12 @@
-# hud-quads.xrs - the HUD's two anchors reach the compositor (VR-117).
+# hud-quads.xrs - the HUD's anchors reach the compositor (VR-117, VR-120).
 #
 # The runtime submits the HUD as quad layers, so it exists only in the
 # compositor: quadLayers is the field that sees it, and the per-shot JSON
-# carries each layer's space and pose. Run this in GAMEPLAY (walk in first,
-# Continue the newest save) with stereo reentry armed, or the gate is down by
-# design and nothing arms. The sim's left hand is posed where a controller
-# would be held, so the hand anchor has something to locate.
+# carries each layer's space and pose. Run this in GAMEPLAY (walk in first)
+# with stereo reentry armed, or the gate is down by design and nothing arms.
+# The sim's left hand is posed where a controller would be held, so the hand
+# anchor has something to locate. `hud anchor all <anchor>` moves EVERY row
+# (VR-120), so the whole HUD follows one anchor as it did with one element.
 #
 #   tools\xrsim-run.ps1 -Path tools\xrsim\hud-quads.xrs -Dir D:\dvr-data\xrsim
 reset
@@ -16,8 +17,8 @@ hand l grip pose -0.20 1.10 -0.40 0 0 0
 @assert sessionState eq FOCUSED
 @assert projectionViews eq 2
 
-# The whole HUD on the window (the preset): one quad, VIEW space.
-@mod hud on; hud regions off; hud anchor all window; hud window view
+# The whole HUD on the window (the preset): every quad in VIEW space.
+@mod hud on; hud anchor all window
 @frames 180
 @assert projectionViews eq 2
 @assert quadLayers ge 1
@@ -25,8 +26,8 @@ hand l grip pose -0.20 1.10 -0.40 0 0 0
 @assert capNonBlackL ge 30
 @assert capNonBlackR ge 30
 
-# The whole HUD on the HAND: one quad, LOCAL space, at the posed grip.
-@mod hud anchor all hand
+# The whole HUD on the LEFT HAND: LOCAL space, at the posed grip.
+@mod hud anchor all handL
 @frames 120
 @assert quadLayers ge 1
 @shot hud_hand
@@ -42,7 +43,7 @@ hand l valid on
 
 # The world-locked window stays put when the head turns (compare the pose in
 # hud_world_a.json with hud_world_b.json: same LOCAL position).
-@mod hud anchor all window; hud window world; hud window recenter
+@mod hud anchor all world; hud window recenter
 @frames 120
 @assert quadLayers ge 1
 @shot hud_world_a
@@ -52,6 +53,6 @@ head rot 0 30 0
 head rot 0 0 0
 
 # And back to the preset, with the aim dot back.
-@mod hud window view; crosshair dot on
+@mod hud anchor all window; crosshair dot on
 @frames 60
 @assert quadLayers ge 2
