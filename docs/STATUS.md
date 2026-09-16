@@ -3,6 +3,9 @@
 - PR69 merged into VR-Main at0afbadc83, source branch codex/hud-weapon-dial preserved.
   Accepted378 profile is the byte-identical generated/packaged/golden default on main.
 - Working branch codex/hud-fixes, VR-127. New work remains local and unmerged.
+- VR-127 exists/In Progress. Automatic approval review blocked the later detailed
+  Linear build/install summary as an external export; permission question is pending.
+  Full evidence is in local HUD_ANCHORS. Do not retry that export without approval.
 - Shared Notes/Books/Journal alpha, independent Interactables alpha, and original
   general-alpha reset implemented. All five alpha fields/capture mode are isolated.
 - Reading contexts4/5 retain continuous deadzone-shaped vertical input; horizontal
