@@ -22,6 +22,15 @@
   checks and all user INI settings. No subagents, game/simulator launches, branch
   deletion or main merge. Archive both logs and full-diff CRLF INI every install.
 
+- Mirror review: repo defaults103 FOV/130% pixels/mirror-off confirmed. Original
+  sewer A/B had faster typical frames, modestly worse p95, mixed extreme tails.
+  Capture fence waits rose from1-4% to10-13%; large logged gaps were in xrEndFrame
+  in both modes. Queue pacing is a hypothesis, not a proven fix. Details and one
+  hub benchmark question in PERFORMANCE.md, Mirror-off pacing review. No new
+  build/install/pacing change or automatic benchmark armed. Current359 logs backed
+  up in build/performance-results/vr50-mirror-review-20260915-224832; actual live
+  machine INI now stores120%, while repo default remains requested130%.
+
 ### Minimal next-chat prompt
 
 Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md/CLAUDE.md,

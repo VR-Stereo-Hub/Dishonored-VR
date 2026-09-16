@@ -1,6 +1,6 @@
 # Performance research
 
-## Status: broader research shelved; VR-50 FOV exception active
+## Status: broader research shelved; VR-50 FOV/mirror exception active
 
 The earlier research established a substantial
 resolution-independent rendering cost, ruled out several cheap fixes, and measured
@@ -134,7 +134,7 @@ non-OK results in one late3-second window. FOV was also adjusted during this run
 uncontrolled rate changes cannot isolate the reported percentage. No extra capture is
 required merely to honor the requested default.
 
-**Current requested defaults and live resize:**102-degree FOV, desktop mirror off,
+**Build357 defaults and live resize (superseded by359 below):**102-degree FOV, desktop mirror off,
 120% total pixels (3012x3122 versus2750x2850; rounding only). Mirror-off is promoted in
 runtime/missing-key/generated/package defaults by explicit request; guarded non-XR/menu
 presentation fallback remains. ReduceDesktopPresent stays off. All unrelated settings
@@ -186,6 +186,75 @@ steady103-degree gameplay projection and no repeating zoom pulses. Continued fli
 requires reading the newly explicit scope gate reasons and the actual submitted FOV;
 do not assume an eye-sync or resolution-flapping cause. No F11 during this test.
 
+## Mirror-off pacing review (2026-09-15)
+
+**Repository defaults verified:** 103-degree FOV, 130% total pixels (3135x3250),
+DesktopMirrorOff=1 in runtime/missing-key defaults, generated/release/golden INIs
+and F10 reset/fallback values. Both golden comparisons pass. No new binary is
+needed for this request; installed359 already contains these defaults. A later
+live Set saved120% in the machine INI; this does not change the repo defaults.
+
+**Correction to the broad "worse tails" warning:** rereading the two original sewer
+Full/Off/Full captures shows a consistent small p95 regression and faster typical
+frames, but not consistently worse extreme stalls. These are fresh stereo-pair
+submission intervals, not headset display FPS or measured motion-to-photon latency.
+
+| Run / metric | Full before | Mirror off | Full after |
+|---|---:|---:|---:|
+| First, fresh pairs/s | 87.01 | 98.28 | 84.72 |
+| First, p95 interval ms | 18.878 | 21.250 | 20.486 |
+| First, p99 interval ms | 37.350 | 35.166 | 40.814 |
+| Second, fresh pairs/s | 81.86 | 95.62 | 84.02 |
+| Second, p95 interval ms | 21.364 | 22.440 | 21.309 |
+| Second, p99 interval ms | 42.446 | 36.959 | 36.806 |
+
+**More specific boundary:** fully interior three-second capture windows, ending
+more than six seconds after each phase starts and before its end, show D3D9 blit
+fence waits rising with mirror off:
+
+- First run:149/4178 (3.57%) ->631/4724 (13.36%) ->124/4091 (3.03%).
+- Second run:42/3915 (1.07%) ->471/4604 (10.23%) ->76/4054 (1.87%).
+- Every logged large frame-gap event in those windows is attributed to
+  `present-tail (xrEndFrame)`, in all three modes. Counts are11/11/16 and18/10/13.
+  These gap events use a dynamic threshold; counts are not a fixed-threshold
+  stutter comparison, nor does API attribution establish the underlying cause.
+
+Mirror-off skips the desktop snapshot/re-blit and native Present after capture/XR.
+It issues a current-work D3D9 event and one GetData(FLUSH), accepting S_FALSE as
+submitted-but-pending. This is submission, not a completion wait. Capture keeps its
+separate ownership fences. Microsoft's [D3D9 queries reference](https://learn.microsoft.com/en-us/windows/win32/direct3d9/queries)
+confirms that distinction. Removing Present's waiting plausibly lets capture reach
+unfinished work sooner; that is an inference supported by the increased wait
+frequency, not proof that an unbounded GPU queue causes every long frame.
+
+**Routes:** preserve mirror-off. Best prospective mitigation is pacing complete
+stereo pairs or bounding queued work without restoring desktop presentation.
+Existing `Pace.SyncHz` gates only pair opening; the generic per-Present FpsCap is
+bypassed by reentry. No arbitrary cap is promoted: a cap may trade some peak FPS
+for regularity and cannot shorten a frame already slow inside xrEndFrame. A bound
+on outstanding GPU work would need independent completion events; the current
+submit-only query deliberately abandons prior results and cannot serve as that
+bound. Never remove the capture ownership fences or change image/pose identities.
+Reduced desktop cadence already failed to provide consistent tail improvement;
+nonblocking Present and maximum-frame-latency sweeps are also exhausted routes.
+
+**Next discriminating check, using existing359:** in the slow hub at fixed103 FOV
+and130% pixels, F10 Display's existing Full/Off/Full benchmark compares one stationary
+view for100 seconds and restores the original mirror mode. One question: does the
+current hub benefit also worsen fresh-pair p95/p99? If both improve, retain off
+without adding a limiter. If throughput improves but p95 worsens beyond both full
+baselines, test pair-opening pacing against off/unpaced/off with the target derived
+from this hub's measured sustainable rate. If the bracketing full runs drift or
+settings/view change, the comparison is inconclusive. No benchmark was armed or run
+in this review; no new headset run is claimed.
+
+Evidence: existing `build/performance-results/desktop-first`, `desktop-second`,
+`desktop-reduced-first`. Current359 DLL/banner verified and both logs/INI/manifest
+archived to `build/performance-results/vr50-mirror-review-20260915-224832`. Current
+run has no controlled desktop A/B; do not infer a new mirror causal result from it.
+No install or runtime policy change. Visible acceptance of the prior FOV fix still
+requires the tester's report.
+
 ## Results and routes
 
 Numbers below come from different matched workloads. They must not be combined into
@@ -199,7 +268,7 @@ refresh rate are different populations. Baseline rendering was 2750x2850 at 120 
 | Extra left-view preparation | Reflection, not a second world tick: 0.199 ms/pair, including 0.140 ms culling. Lower priority than ordinary views. |
 | Engine query-result waits | Real headset build316: 0.102 ms/pair across 14,230 pairs, 0.596% of elapsed time. Not a useful hub target; do not repeat unchanged. This bounds the measured helper, not all occlusion/visibility work. |
 | Nonblocking desktop Present | Build313 off/on/off 58.21 / 57.70 / 58.29 ticks/s. 4,818 accepted attempts, zero busy skips. Failed hypothesis; implementation and one-off harness removed. |
-| Omit desktop Present completely | Two sewer Full/Off/Full runs: 87.01 / 98.28 / 84.72 and 81.86 / 95.62 / 84.02 fresh pairs/s. Repeatable throughput gain with worse frame-time tails. Earlier opt-in result; now mirror-off is the requested default after the separate hub report above. Sewer numbers are not a hub forecast. |
+| Omit desktop Present completely | Two sewer Full/Off/Full runs: 87.01 / 98.28 / 84.72 and 81.86 / 95.62 / 84.02 fresh pairs/s. Repeatable throughput gain, modestly worse p95, mixed p99/extreme tails (see review above). Earlier opt-in result; now mirror-off is the requested default after the separate hub report above. Sewer numbers are not a hub forecast. |
 | Reduce desktop Present cadence | Full/Reduced/Full 86.34 / 90.28 / 89.27 pairs/s; p95 18.385 / 18.488 / 17.656 ms. Much waiting moved into remaining calls (about 1.46 ms/hook, 2.91 ms/actual call). No consistent tail benefit. |
 | Dynamic shadows via game INI | Applied settings, simulator 79.94 / 80.63 / 79.26 ticks/s. No useful gain; do not repeat unchanged. Does not eliminate all lighting/shadow work. |
 | Suppress selected diagnostics | Build295 baseline/reduced/baseline 63.66 / 64.48 / 64.27 fresh pairs/s, no consistent tail improvement. Keep accepted diagnostics. Mask covered ZAccount, PairTrace, FrameId and AttachCensus only. Cine.Trace/DrawCensus/PoseReport have functional dependencies. |
@@ -334,7 +403,7 @@ settings remain intact. Run only one behavioral benchmark at a time.
 | NativeProfile / RenderProfile | Bounded sampled native API/draw-hook and reflection/router/state timing. Useful for regression attribution; nested wall times and sampled maxima are not additive/exhaustive. |
 | BridgeGpu | Bounded delayed timestamp/disjoint rings for conversion and XR copy; no profiling flush or wait. Keep unresolved/late/invalid/overflow counts. |
 | CpuScopes, `perf cpu on/off` | Thread-cycle and wall-time boundaries, with thread/epoch checks. Coarse GetThreadTimes CPU-ms output removed because it was phase-biased and sometimes exceeded wall time. Cycles are not milliseconds. |
-| Desktop Full/Reduced/Off and DesktopAb | Preserves a real throughput/tail tradeoff for future controlled comparison. Full default; fresh-capture/session/parameter guards and current-work submission query required. Earlier old-query design failed frame 2 and was corrected. |
+| Desktop Full/Reduced/Off and DesktopAb | Preserves a real throughput/tail tradeoff for future controlled comparison. Mirror-off now default by request; fresh-capture/session/parameter guards and current-work submission query required. Earlier old-query design failed frame 2 and was corrected. |
 | DiagnosticAb and fresh-pair counters | Reversible collector-overhead check after future changes. Counts successful submissions with both eye serials renewed; restores on completion/abort. Not all enabled diagnostics can be suppressed safely. |
 | Host tests, symbol resolver, thread profiles, WPR profile/timed recorder | Reusable validation and attribution without rebuilding tools. IP suspension samples are not on-CPU percentages; ETW needs a perturbation control. Helpers do not authorize game launches. |
 
