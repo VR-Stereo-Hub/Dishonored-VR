@@ -2262,3 +2262,19 @@ Full metrics and preserved logs are indexed in PERFORMANCE_ROLLOUT.md.
    timeout or image-metadata change. Close Display as a discriminator if it recurs.
    Preserve the accepted image-owned orientation/stereo synchronization. Performance
    and sizing context: [PERFORMANCE.md](PERFORMANCE.md), active F11 section.
+
+### Pair-pacing diagnostic with mirror off (2026-09-15)
+
+1. **Symptom:** uneven fresh-pair delivery in earlier mirror-off tests, not a new
+   eye swap or FOV-pulsing report. Cadence/scheduling is the boundary under test.
+2. **Identity:** installed361, 103 FOV/3135x3250, mirror-off, DesktopAb=3. Detailed
+   identity, archive and measurements: PERFORMANCE.md, Pair-pacing test prepared.
+3. **Prediction:** modest pair-opening pacing reduces tails beyond both unpaced
+   baselines; lower rate alone is not success. Zero gate delays is inconclusive.
+4. **Change:** automatic unpaced/paced/unpaced driver around the existing gate,
+   with adaptive target and restoration. No image-owned orientation, stereo tag,
+   resource fence, camera writer or pacing algorithm changes.
+5. **Result:**26 production-control host checks and build pass; installed and armed.
+   No game/simulator launch or rendered/perceptual result. This is not a flicker fix.
+6. **Open:** headset cadence/comfort and measured tails. Any stereo regression
+   rejects the trial. Preserve prior FOV-fix acceptance as a separate open question.

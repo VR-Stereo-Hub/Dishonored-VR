@@ -1,48 +1,38 @@
-## Current handoff: Display FOV flicker fix (VR-50),2026-09-15
+## Current handoff: automatic pair-pacing trial (VR-50), 2026-09-15
 
-- Branch `codex/hud-fixes`; newer commits local, GitHub publication still blocked
-  pending explicit user approval from the earlier automatic review. Do not retry
-  publication without that approval. No main merge authorized.
-- Installed359 (`vr33-hands-working-359-gb5e0af9dc-dirty`):103 FOV,130% total pixels
- 3135x3250, mirror-off. Full INI comparison only changes FOV102->103; live Set had
-  already saved the130% dimensions. Hashes/CRLF and both log backups verified.
--357 live resize worked: one Reset and stable3135x3250 afterward. Reported zoom-like
-  flicker instead matches repeated104/108.05 FOV changes. Legacy F10 Display FOV
-  control had missing braces and wrote0 into the automatic target every idle frame.
--359 fixes that control to write only on edits and logs future FOV-release gate
-  reasons. Actual production-control regression7/7 passes, old control7/7 fails;
- 20,000 idle frames tested. Build/exports/golden/lint passed. No game/simulator launch.
-- Visible fix awaits headset acceptance: one question, stable with Display open
-  and after Set120% then130%? Expect103-degree projection without repeated pulses.
-  No F11. Read installed.json/new log banner; existing logs are still357.
-- Required detailed reference: FLICKER_REFERENCE.md latest VR-50 entry. Performance
-  context: PERFORMANCE.md active F11 section. Initial expiry-only hypothesis was
-  superseded by explicit releases and the idle writer; do not blindly extend timeout.
-- Preserve image-owned orientation, stereo synchronization, live engine-object
-  checks and all user INI settings. No subagents, game/simulator launches, branch
-  deletion or main merge. Archive both logs and full-diff CRLF INI every install.
-
-- Mirror review: repo defaults103 FOV/130% pixels/mirror-off confirmed. Original
-  sewer A/B had faster typical frames, modestly worse p95, mixed extreme tails.
-  Capture fence waits rose from1-4% to10-13%; large logged gaps were in xrEndFrame
-  in both modes. Queue pacing is a hypothesis, not a proven fix. Details and one
-  hub benchmark question in PERFORMANCE.md, Mirror-off pacing review. No new
-  build/install/pacing change or automatic benchmark armed. Current359 logs backed
-  up in build/performance-results/vr50-mirror-review-20260915-224832; actual live
-  machine INI now stores120%, while repo default remains requested130%.
+- Branch `codex/hud-fixes`; local commits newer than origin. Publication remains
+  blocked pending explicit user approval; no main merge authorized.
+- Installed `vr33-hands-working-361-g140afb6e7-dirty` from
+  `build/playtest-candidates/vr50-pair-pacing-ab`.103 FOV,130% total pixels
+  (3135x3250), mirror off. DesktopAb=3 armed; all unrelated experiments off.
+- Test automatically allows30 seconds to settle into the hub, then30 seconds each
+  unpaced/paced/unpaced, mirror off throughout. Cap=floor(90% of first fresh-pair
+  rate), bounded by headset refresh. Logs actual gate delays and fresh-pair tails.
+- One question: fewer hitches with useful throughput retained in the middle phase?
+  Same stationary view, no menus/F10/F11/settings changes, two minutes from gameplay.
+  End/abort restores runtime modes. Agent must disarm installed DesktopAb afterward;
+  its INI value otherwise rearms on next launch. No game/simulator launched.
+-26 production benchmark checks pass, build/exports/golden/lint pass. Full installed
+  INI diff only DesktopAb0->3 and dimensions120%->130%. Both logs archived before
+  install at build/playtest-candidates/installs/20260915-230217-845830; hashes/CRLF
+  verified. Read installed.json and verify the next log banner before interpretation.
+- See PERFORMANCE.md, Pair-pacing test prepared, for evidence and verdict criteria.
+  Mirror-off's earlier sewer p95 cost was modest; extreme tails were mixed, not
+  consistently worse. Increased capture waits motivate pacing, not a proven fix.
+- Preserve accepted image-owned orientation/stereo ownership. No subagents, game/
+  simulator launches, branch deletion or merge. Prior359 FOV UI fix remains in361;
+  no new visual acceptance is inferred from this benchmark preparation.
 
 ### Minimal next-chat prompt
 
-Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md/CLAUDE.md,
-then current STATUS/NEXT_SESSION and latest VR-50 entry in FLICKER_REFERENCE.md.
-Installed359:103 FOV,130% pixels3135x3250, mirror-off.357's live resize worked once,
-but F10 Display's legacy FOV control wrote0 on every idle frame (missing braces),
-causing104/108-degree pulses.359 fixes the actual control; regression passes and
-old code fails. Visual acceptance pending: Display open, Set120 then130 without
-relaunch/F11. Inspect banner/actual FOV/resets and archive both logs. Do not alter
-accepted stereo/orientation or restart broad performance research. No game/simulator
-launches, subagents or main merge. Publication remains awaiting explicit approval;
-local commits are newer than origin. Preserve full INI settings and CRLF.
+Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS/CLAUDE,
+current STATUS/NEXT_SESSION, and PERFORMANCE.md's Pair-pacing test prepared section.
+Installed361 has103 FOV,130% pixels, mirror off and DesktopAb=3:30s settle then
+30s unpaced/paced/unpaced; cap90% of baseline fresh-pair rate. User launches only.
+Read/verify/archive both logs, compare fresh-pair tails/rates and actual pace delays,
+then disarm DesktopAb with full-INI comparison/CRLF. Keep accepted stereo/image
+orientation; no subagents, game/simulator launches or main merge. Publishing awaits
+explicit approval. Do not restart the broad performance program.
 
 ## Performance research shelved, 2026-09-15
 

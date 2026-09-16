@@ -255,6 +255,53 @@ run has no controlled desktop A/B; do not infer a new mirror causal result from 
 No install or runtime policy change. Visible acceptance of the prior FOV fix still
 requires the tester's report.
 
+## Pair-pacing test prepared (2026-09-15, build361)
+
+The user requested the pacing comparison directly, superseding the proposed extra
+mirror on/off hub test. Installed `vr33-hands-working-361-g140afb6e7-dirty` from
+`build/playtest-candidates/vr50-pair-pacing-ab`. Existing pair-opening pacing is
+unchanged; this adds automatic A/B/A control and an actual delay-event counter.
+No engine-memory, eye-tag, image-owned orientation or capture-fence policy changes.
+
+- `[Perf] DesktopAb=3` arms one comparison per launch. Repo/missing-key default
+  remains off; F10 Display has a live pair-pacing benchmark selector and Start/Stop.
+-30 seconds of gameplay settle, then30 seconds each: mirror-off/unpaced,
+  mirror-off/paced, mirror-off/unpaced. First3 seconds of each segment excluded.
+- Target is floor(90% of baseline fresh-pair rate), capped at measured headset Hz.
+  The10% margin is an experimental choice, not a measured optimum. Invalid/empty/
+  overflowing baseline refuses a target. No new fixed FPS default is promoted.
+- Counts successful submissions with both captured serials renewed. Logs p50/p95/
+  p99/p99.9/max, rate, fixed-threshold exceedances, held submissions and full-phase
+  pacing-delay events. Zero actual delay events means pacing was not exercised.
+- End, manual stop or menu/load abort restores original mirror/reduction/pacing/
+  target. Changing mirror or pacing during measurement aborts the comparison.
+  Installed ini keeps DesktopAb=3 until the agent disarms it after reading results.
+
+**Validation:**26 production-benchmark host checks pass: transition order, automatic
+rate selection, display bound, held/warmup rejection, retaining long gaps, insufficient
+samples/overflow, external mode changes, completion/abort restoration and original
+Full/Off/Reduced behavior. Release build,9 exports, package golden and lint pass.
+No game/simulator launched. These prove benchmark control, not headset smoothness.
+
+Both build359 logs/INI/manifest preserved before changes in
+`build/performance-results/pair-pacing-before-20260915-230201`; DLL/banner verified.
+Install archive `C:/dev/Dishonored-VR/build/playtest-candidates/installs/20260915-230217-845830`.
+Full INI diff: DesktopAb0->3, RenderWidth3012->3135, RenderHeight3122->3250; this
+restores requested130% pixels for all three phases.103 FOV and mirror-off preserved,
+all unrelated settings preserved, installed hashes/CRLF verified. Source snapshot
+ships in candidate/source.patch. Exact359 rollback remains archived.
+
+**One launch question:** does pair pacing reduce hitching versus both surrounding
+unpaced phases while retaining useful mirror-off throughput? Load the slow hub;
+use the30-second grace to settle into one view, then remain there for the90-second
+comparison (two minutes total after gameplay starts). No F10/F11/setting changes or
+menus during the comparison. Expected: pacing actually engages, rate approaches the
+calculated target, and slow-frame intervals improve. Better p95/p99 beyond baseline
+spread with modest throughput cost supports this target; lower rate without better
+tails rejects it. Zero delays, mode abort or drifting baselines is inconclusive.
+Visible discomfort or stereo instability rejects the candidate regardless of averages.
+Agent reads and archives the result and disarms DesktopAb; no visual result claimed yet.
+
 ## Results and routes
 
 Numbers below come from different matched workloads. They must not be combined into

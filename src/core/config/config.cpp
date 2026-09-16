@@ -1429,7 +1429,8 @@ static void LoadConfig()
         dvr::diag_ab::set_enabled(diagnosticAb);
         const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
         dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
-        dvr::perf::desktop_ab_set_enabled(!diagnosticAb && (desktopTrial == 1 || desktopTrial == 2));
+        dvr::perf::desktop_ab_set_pacing(desktopTrial == 3);
+        dvr::perf::desktop_ab_set_enabled(!diagnosticAb && desktopTrial >= 1 && desktopTrial <= 3);
         dvr::render_profile::set_enabled(GetPrivateProfileIntA("Perf", "RenderProfile", 0, ini) != 0);
         // VR-68: which head generation the HAND normalisation uses. 0 = the
         // freshest (historical); 2 = the one the rendered view was built from,

@@ -5705,6 +5705,7 @@ void set_pace_sync_hz(unsigned hz) {
 
 unsigned pace_sync_hz() { return g_paceSyncHz.load(std::memory_order_relaxed); }
 bool pace_sync() { return g_paceSync.load(std::memory_order_relaxed); }
+uint32_t pace_sync_delays() { return g_paceSyncDelays.load(std::memory_order_relaxed); }
 
 void set_pace_ahead(int periods) {
     if (periods < 0) periods = 0;
@@ -6673,6 +6674,7 @@ void set_pace_sync(bool) {}
 void set_pace_sync_hz(unsigned) {}
 unsigned pace_sync_hz() { return 0; }
 bool pace_sync() { return false; }
+uint32_t pace_sync_delays() { return 0; }
 void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }

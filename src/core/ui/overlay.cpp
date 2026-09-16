@@ -688,11 +688,19 @@ static void OverlayFrame()
     if (ImGui::Button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
         dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());
     bool reducedTrial = dvr::perf::desktop_ab_reduced();
+    bool pacingTrial = dvr::perf::desktop_ab_pacing();
     if (dvr::perf::desktop_ab_enabled()) ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Benchmark pair pacing (mirror stays off)", &pacingTrial))
+        dvr::perf::desktop_ab_set_pacing(pacingTrial);
+    if (pacingTrial) ImGui::BeginDisabled();
     if (ImGui::Checkbox("Benchmark Reduced instead of Off", &reducedTrial))
         dvr::perf::desktop_ab_set_reduced(reducedTrial);
+    if (pacingTrial) ImGui::EndDisabled();
     if (dvr::perf::desktop_ab_enabled()) ImGui::EndDisabled();
-    ImGui::TextDisabled("Full / %s / Full: 100 seconds; menu aborts.", reducedTrial ? "Reduced" : "Off");
+    if (pacingTrial)
+        ImGui::TextDisabled("Unpaced / Paced / Unpaced: 120 seconds; menu aborts. Target follows baseline.");
+    else
+        ImGui::TextDisabled("Full / %s / Full: 100 seconds; menu aborts.", reducedTrial ? "Reduced" : "Off");
     {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
         if (ImGui::Checkbox("Disable desktop mirror", &mirrorOff)) {

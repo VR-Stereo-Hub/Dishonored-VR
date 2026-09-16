@@ -297,6 +297,7 @@ void set_pace_sync(bool on);
 void set_pace_sync_hz(unsigned hz);
 unsigned pace_sync_hz();
 bool pace_sync();
+uint32_t pace_sync_delays(); // Cumulative pair-opening delay events for A/B validation.
 
 // 41.1 (Dishonored): strict pairs - a stereo submit whose eye is older than one
 // present (the held-eye case: pass 1 tagged, pass 2 skipped in the resume

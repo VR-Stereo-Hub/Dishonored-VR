@@ -12,6 +12,9 @@
 - [x] Fix idle F10 Display FOV writer; old-code negative control fails, corrected control passes.
 - [ ]359 headset check for zoom-pulse removal at103 FOV/130% pixels; no main merge authorized.
 
+- [x] Build/install automatic mirror-off pair-pacing A/B/A;26 host checks pass.
+- [ ]361 headset/log result for pacing benefit; disarm diagnostic after analysis.
+
 ## Performance research shelved (2026-09-15)
 
 - [x] Consolidate findings and reusable default-off tools; preserve source branches.
