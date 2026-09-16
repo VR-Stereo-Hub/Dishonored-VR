@@ -35,5 +35,12 @@ int main(){
  check(dvr::hudnative::square_icon(edge,8,10) && dvr::hudnative::edge_icon(edge),"observed marker topology and edge location recognized");
  check(!dvr::hudnative::square_icon(text,8,10),"wide title is not an isolated icon");
  check(!dvr::hudnative::square_icon(edge,24,18),"batched geometry not guessed as a marker");
+ dvr::hudnative::Markers markers;
+ const float center[4]={.48f,.48f,.52f,.52f};
+ check(!markers.observe(45,1,center,8,10),"center sprite alone does not prove objective identity");
+ check(markers.observe(45,2,edge,8,10),"edge observation seeds marker content");
+ check(markers.observe(45,3,center,8,10),"same marker remains native in center interaction region");
+ check(!markers.observe(46,3,center,8,10),"another icon does not inherit marker ownership");
+ markers.clear();check(!markers.observe(45,4,center,8,10),"resource reset clears learned content");
  printf("%u native HUD checks passed\n",checks);
 }

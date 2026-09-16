@@ -115,6 +115,19 @@ inline bool billboard_degenerate(const float toHead[3], float minRight = 0.2f) {
     return r < minRight;
 }
 
+// Preserve the initial upright page, then rigidly follow grip rotation.
+struct GripPanel {
+    bool valid=false;float relative[4]={0,0,0,1};
+    void reset(){valid=false;}
+    bool orient(const float grip[4],const float initial[4],float out[4]) {
+        float norm=0;for(int i=0;i<4;++i){if(!std::isfinite(grip[i])) return false;norm+=grip[i]*grip[i];}
+        if(norm<.5f || norm>1.5f) return false;
+        float q[4];for(int i=0;i<4;++i)q[i]=grip[i]/std::sqrt(norm);
+        if(!valid){const float inv[4]={-q[0],-q[1],-q[2],q[3]};dvr::xrmath::quat_mul(inv,initial,relative);valid=true;}
+        dvr::xrmath::quat_mul(q,relative,out);return true;
+    }
+};
+
 // A quad's pixel rectangle inside a texture of texW x texH, from a normalised
 // sub-rectangle (u0,v0,u1,v1) and the wanted metres (width, height). height 0
 // means "the texture's own aspect": the whole sub-rectangle is shown and the

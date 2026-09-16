@@ -6937,3 +6937,22 @@ render callback corresponding to each UI object. Do not turn these declarations 
 unchecked memory offsets. The current default-off routing candidates instead test
 measured marker geometry and bounded neighboring prompt draws; exact tolerances,
 limits, evidence and next question live in HUD_ANCHORS. No new addresses added.
+
+
+## HUD closing ownership and pause upload timing (2026-09-16)
+
+Local declaration inspection identifies DisGFxMoviePlayerBase.m_bIsClosing separately
+from DisGFxMoviePlayerPowerWheel.m_bWheelIsOpen. The candidate resolves the closing
+bool through FindBoolProp, reads the current manager-owned wheel instance using
+CtRead, and uses it only for HUD visual ownership. No fixed offset or engine write.
+Missing reflection leaves the existing owner read plus delayed-capture tail; new
+hud/layout closing logs must establish runtime exercise. bMovieIsOpen alone is not
+suitable because persistent movie packages can survive hiding. Installed native
+m_fTimeTransition=0.0 does not establish when queued draw pixels finish.
+
+387 pause intervals contain camera-silent refusals and mono output. The existing
+serial increments on every observed c5 upload, including unchanged values. Saving
+it at draw END and requiring advancement before next draw can discard uploads
+inside the previous draw. The default-off pause-only recent-draw trial and its
+limits are recorded in FLICKER_REFERENCE; this does not supersede historical pause
+results with a claim that all pauses are mono or that a c5 serial proves eye geometry.

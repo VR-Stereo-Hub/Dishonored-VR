@@ -55,7 +55,28 @@ static int checks=0;
 void check(bool ok,const char* why){++checks;if(!ok){printf("FAIL %s\n",why);exit(1);}}
 void link(uint8_t* p,unsigned off,uint8_t* obj){memcpy(p+off,&obj,sizeof(obj));}
 void weight(float f){memcpy(pp+16,&f,4);}float weight(){float f;memcpy(&f,pp+16,4);return f;}
+#include "core/gfx/pause_scene_freshness.h"
+#include "core/gfx/hud_menu_lifecycle.h"
 int main(){
+ dvr::stereo::PauseSceneFreshness fresh;
+ check(!fresh.recent(true,3,true,0),"no observed scene cannot authorize pause doubling");
+ fresh.complete(4,8,100);
+ check(fresh.recent(true,3,true,110),"uploads during prior draw survive an idle between-draw interval");
+ check(!fresh.recent(false,3,true,110),"default-off keeps original gate");
+ check(!fresh.recent(true,6,true,110),"wheel policy unchanged");
+ check(!fresh.recent(true,3,false,110),"head-look disabled refuses freshness exception");
+ check(!fresh.recent(true,3,true,200),"100ms expiry refuses stale scene");
+ check(!fresh.recent(true,3,true,99),"clock rollback refuses");
+ fresh.complete(8,8,195);check(!fresh.recent(true,3,true,200),"silent draw does not renew evidence");
+ fresh.clear();check(!fresh.recent(true,3,true,110),"context exit clears evidence");
+ dvr::hudlayout::WheelVisualLease visual;
+ check(visual.update(true,6,false,1),"wheel pixels own wheel layout");
+ check(visual.update(false,0,true,8),"native closing keeps crop after input releases");
+ check(visual.update(false,0,false,20),"observer delay starts tail when close is observed");
+ check(visual.update(false,0,false,23),"three delayed presents keep wheel layout");
+ check(!visual.update(false,0,false,24),"expired visual tail releases gameplay HUD");
+ visual.update(true,6,false,30);check(!visual.update(true,3,false,31),"pause replaces wheel immediately");
+ visual.update(true,6,false,40);check(!visual.update(false,2,false,41),"loading cannot retain old wheel");
  link(pc,4,cam);link(pc,8,pawn);link(pc,12,world);link(world,4,game);link(game,4,pp);
  MenuHeadBegin(true,true);check(g_mhScope&&builds==1,"first menu refreshes live table and starts scope");MenuHeadEnd();
  sample.yaw=.2f;sample.gen=2;MenuHeadBegin(true,true);

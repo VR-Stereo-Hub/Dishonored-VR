@@ -7,7 +7,7 @@
 #include <initializer_list>
 namespace dvr::hudlayout {
 static dvr::hudalpha::Bank g_alphaBank;
-static bool g_menuRiding=false;static int g_ridingContext=-1;
+static bool g_visualRiding=false;static int g_ridingContext=-1;
 static ElementCfg g_el[ElCount]{};
 struct Sink {int anchor=-1;bool crop=false;int element=-1;} g_sink[kMaxSinks];
 int element_for_context(int c) {return c==4?ElNote:c==5?ElJournal:c==6?ElWheel:ElPause;}
@@ -37,20 +37,24 @@ int main(){
  g_alphaBank.special[2]={2,1.5f,.4f,.8f,.9f};
  g_sink[0]={AnchorWindow,false,-1};g_sink[1]={AnchorWindow,true,ElPrompt};g_sink[2]={AnchorHandR,true,ElVitals};
  g_el[ElWheel].anchor=g_el[ElNote].anchor=g_el[ElJournal].anchor=AnchorWindow;
- g_menuRiding=true;g_ridingContext=6;
+ g_visualRiding=true;g_ridingContext=6;
  check(alpha_for_sink(0).gain==3 && !alpha_force_wanted(0),"wheel uses its own profile and capture mode");
  g_ridingContext=4;auto note=alpha_for_sink(0);
  check(note.gamma==.7f && note.mode==1 && alpha_force_wanted(0),"reading coverage is forced from reading alpha");
  g_ridingContext=5;auto journal=alpha_for_sink(0);
  check(journal.mode==note.mode && journal.gamma==note.gamma && journal.gain==note.gain,"notes books and journal share profile");
- g_menuRiding=false;
+ g_alphaBank.special[3]={1,1.3f,.2f,.9f,.8f};g_el[ElPause].anchor=AnchorWindow;
+ g_ridingContext=3;check(alpha_for_sink(0).gain==1.3f && alpha_force_wanted(0),"pause owns independent alpha and coverage");
+ g_alphaBank.reset_general();check(alpha_for_sink(0).gamma==.9f,"general reset preserves pause alpha");
+ g_alphaBank.general={2,2,.2f,.6f,.4f};
+ g_visualRiding=false;
  check(alpha_for_sink(1).gain==1.5f && alpha_force_wanted(1),"interaction profile selects its private sink");
  check(alpha_for_sink(2).gain==2 && alpha_force_wanted(2),"unscoped HUD uses general alpha");
  g_alphaBank.reset_general();auto orig=alpha_for_sink(2);
  check(orig.mode==0 && orig.gain==1 && orig.floorA==0 && orig.gamma==1 && orig.mixK==1,"original general reset restores all five fields");
  check(!alpha_force_wanted(2) && alpha_force_wanted(1),"general reset preserves interaction capture coverage");
  check(alpha_for_sink(1).gamma==.8f,"general reset preserves interaction gamma");
- g_menuRiding=true;g_ridingContext=4;
+ g_visualRiding=true;g_ridingContext=4;
  check(alpha_for_sink(0).gamma==.7f && alpha_force_wanted(0),"general reset preserves reading gamma and coverage");
  g_ridingContext=6;check(alpha_for_sink(0).gain==3 && alpha_for_sink(0).gamma==.5f,"general reset preserves wheel");
  using dvr::reading_input::continuous;using dvr::reading_input::vertical;

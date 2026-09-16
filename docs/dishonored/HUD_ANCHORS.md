@@ -21,6 +21,48 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Current:387 feedback, rigid readers and visual lifecycle (2026-09-16)
+
+Verified387 DLL/banner and unchanged full INI; logs archived in
+`build/playtest-candidates/vr128-menu-half-step/reported-pause-scale`.
+Crouch transition grouping accepted, hue correction provisionally accepted.
+Wheel hand/weapon flicker improved enough to park; accepted half-step setting kept.
+Pause navigation remains accepted. New pause world-scale pulsing is separate;
+see newest FLICKER_REFERENCE entry for evidence, trial and launch question.
+
+Implemented candidate, headset pending:
+- Readers open at the current upright yaw/offset then store inverse(openingGrip)*
+  openingPage. Each frame uses currentGrip*relativePage, so rotation AND offsets
+  follow the hand like a held page. No head-driven swivel. Existing widths/right/
+  distance and shared reading alpha retained.
+- Separate PauseAlpha mode/gain/floor/gamma/mix and F10 section. Initially inherits
+  saved general settings; general reset leaves it independent. Native frame anchor
+  still uses game alpha, as with other scoped groups.
+-387 wheel exit invalidation was insufficient: late draws can arrive after input
+  ownership ends. Optional reflected DisGFxMoviePlayerBase.m_bIsClosing now informs
+  a VISUAL-only wheel lease. Closing plus three delayed presents retain wheel crop,
+  pose and alpha. Input/mono ownership still exits normally. Other menus/loading
+  preempt the lease. Closing-flag runtime behavior still requires verification.
+-387 later wheel context entries at13059109 through13077640 have no accompanying
+  hud/dial input opens (last12863390). Retained visual state could therefore reuse
+  the prior opening origin. Actual screen entry now seeds the current tracked hand
+  independently of the grip-input edge, with new hud/dial visual-entry diagnostics.
+  Grip selection retains its shared opening pose when active.
+-387 native marker trial failed: content5fe329e6fc06bdf0 routes objective at edges
+  but prompt elsewhere. It also mislabeled stationary vitals-shaped icons. A bounded
+  edge-learned content set now retains marker ownership through interaction regions;
+  positional grouping cannot steal it. Learning survives menus but clears on resource
+  reset and expires after2400 unseen presents. Original transform sizing remains70%
+  around native centers, preserving the game's own perspective/edge size variation.
+  New/unseen artwork and coincident icons remain heuristic limits; no semantic movie
+  identity is claimed. Isolated unlearned icons can remain native without resizing.
+
+Validation:462 anchor checks (initial pose, grip rotation, rigid offset, reopen),
+97 production alpha/input checks,16 production native-scope/ownership checks,
+33 menu lifecycle/freshness checks,465 routes and2186 dial checks pass. Full default
+writer/release/golden remain byte-identical. Closing-lease tests cover delayed polls,
+three capture presents and loading/other-menu preemption. No headset result yet.
+
 ## Current:385 results and transition/native-icon candidate (2026-09-16)
 
 Installed387 (`vr33-hands-working-387-g998e2ab78`), clean source998e2ab78.

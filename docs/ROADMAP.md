@@ -21,6 +21,10 @@
 
 ## HUD Weapon Dial (VR-126)
 
+- [x]387 crouch transition grouping accepted; gamma color correction provisionally accepted.
+- [x]387 wheel hand stability improved enough to park; retain menu half-step setting.
+- [ ] Pause world-scale stability and wheel visual lifecycle candidate headset validation.
+
 - [x] Continuous wheel analog input and independent world-space hand dial implemented.
 - [x] Standalone dial geometry/input and existing HUD regression checks pass.
 - [x]372 hand dial accepted and physical size/crop tuned.

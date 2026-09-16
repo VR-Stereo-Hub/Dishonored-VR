@@ -108,7 +108,8 @@ void     set_menu_in_window(bool on, const char* who);
 uint32_t menu_context_mask();
 void     set_menu_context_mask(uint32_t mask, const char* who);
 bool     screen_can_ride(int context);          // the row exists and its anchor is visible
-void     set_menu_riding(bool riding, int context);   // published by the game side each poll
+void     set_menu_riding(bool riding, int context, bool wheelClosing = false);
+bool pause_scene_freshness();   // published by the game side each poll
 void forget_draw_owners();
 bool menu_riding();
 float native_objective_scale(int element);

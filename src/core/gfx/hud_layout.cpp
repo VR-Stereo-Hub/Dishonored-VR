@@ -1,3 +1,4 @@
+#include "hud_menu_lifecycle.h"
 // core/gfx/hud_layout.cpp - see hud_layout.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_layout.h"
@@ -81,6 +82,7 @@ const int         kMenuContexts = 6;
 
 ElementCfg g_el[ElCount];
 hudroute::StableRoutes g_stableRoutes;
+dvr::hudnative::Markers g_nativeMarkers;
 hudroute::InteractionGroup g_interactionGroup;
 bool g_groupInteractions=false,g_routeObjectives=false,g_objectiveScreen=false;
 bool g_nativeObjectives=false;
@@ -99,9 +101,13 @@ WindowCfg  g_win = kPresetWindow;
 HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
 dvr::hudalpha::Bank g_alphaBank;
 AlphaCfg& g_alpha=g_alphaBank.general;
-const char* kScopedAlpha[3]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha"};
+const char* kScopedAlpha[4]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha","PauseAlpha"};
 bool g_readHand[2]={false,false};
 dvr::hudanchor::OpeningOrientation g_readOpening;
+dvr::hudanchor::GripPanel g_readGrip;
+std::atomic<bool> g_pauseSceneFreshness{false};
+bool g_visualRiding=false;
+WheelVisualLease g_wheelVisual;
 float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
 const char* kReadNames[2]={"Note","Journal"};
 Backdrop   g_backdrop[2] = { kPresetBackdrop, kPresetBackdrop };
@@ -179,7 +185,7 @@ int acquire_sink(int anchor, bool crop, int element = -1) {
     if (have >= 0) return have;
     for (int s = 0; s < kMaxSinks; ++s) {
         if (g_sink[s].anchor >= 0) continue;
-        g_sink[s].anchor = anchor; g_sink[s].crop = crop; g_sink[s].rideOnly = g_menuRiding;
+        g_sink[s].anchor = anchor; g_sink[s].crop = crop; g_sink[s].rideOnly = g_visualRiding;
         g_sink[s].element = element;
         if(element >= 0) g_elementSink[element] = s;
         else g_sinkOf[anchor][crop ? 1 : 0] = s;
@@ -258,11 +264,12 @@ AlphaCfg alpha_for_sink(int sink) {
     using namespace dvr::hudalpha;
     Owner owner=General;
     if(sink>=0 && sink<kMaxSinks) {
-        if(g_menuRiding && !g_sink[sink].crop) {
+        if(g_visualRiding && !g_sink[sink].crop) {
             const int e=element_for_context(g_ridingContext);
             if(e>=0 && g_sink[sink].anchor==g_el[e].anchor) {
                 if(e==ElWheel) owner=Wheel;
                 else if(e==ElNote || e==ElJournal) owner=Reading;
+                else if(e==ElPause) owner=Pause;
             }
         } else if(g_sink[sink].element==ElPrompt) owner=Interaction;
     }
@@ -486,27 +493,50 @@ bool screen_can_ride(int context) {
     const int e = element_for_context(context);
     return e >= 0 && anchor_visible(g_el[e].anchor);
 }
-void set_menu_riding(bool riding, int context) {
-    if (riding == g_menuRiding && (!riding || context == g_ridingContext)) return;
+void set_menu_riding(bool riding, int context, bool wheelClosing) {
+    const uint32_t frame=(uint32_t)dvr::frame::count();
+    const bool newWheel=riding && context==6 && (!g_menuRiding || g_ridingContext!=6);
+    const bool wheelVisual=g_wheelVisual.update(riding,context,wheelClosing,frame);
+    const bool tail=g_wheelVisual.tail;
+    const bool visual=riding || wheelVisual;
+    if(newWheel) {
+        g_dial.reset();g_dialVisual.reset();
+        // The game can open the wheel without our grip-held input path. Every
+        // actual screen entry gets a fresh visual origin, never the prior wheel.
+        float hp[3]{},hq[4]{},x=0,y=0;dvr::vr::HeadPose head{};
+        const bool tracked=dvr::vr::peek_head_pose(head) && dvr::vr::input_get_hand_pose(0,false,hp,hq);
+        const float eye[3]={head.px,head.py,head.pz},camera[4]={head.qx,head.qy,head.qz,head.qw},f[3]={0,0,-1};
+        g_dialVisual.update(true,tracked,hp,eye,g_dialRadius,g_dialDeadM,x,y,camera,g_dialDirection);
+        dvr::xrmath::quat_rotate(camera[0],camera[1],camera[2],camera[3],f,g_dialForward);
+        DVR_INFO("hud/dial: visual entry tracked=%d valid=%d center=%.3f/%.3f/%.3f frame=%u",
+            (int)tracked,(int)g_dialVisual.valid,hp[0],hp[1],hp[2],frame);
+    }
+    const int visualContext=riding ? context : visual ? 6 : -1;
+    const bool changed=visual!=g_visualRiding || visualContext!=g_ridingContext;
+    g_menuRiding=riding;
+    if(!changed) return;
     dvr::hudcap::invalidate_content();
-    g_readOpening.reset();
+    g_readOpening.reset();g_readGrip.reset();
     if(riding && (context==4 || context==5)) {
-        dvr::vr::HeadPose h{};
-        if(dvr::vr::peek_head_pose(h)) {const float q[4]={h.qx,h.qy,h.qz,h.qw};g_readOpening.capture_upright(q);}
+        dvr::vr::HeadPose h{};float hp[3],hq[4],out[4];
+        if(dvr::vr::peek_head_pose(h)) {
+            const float q[4]={h.qx,h.qy,h.qz,h.qw};
+            if(g_readOpening.capture_upright(q) && dvr::vr::input_get_hand_pose(0,false,hp,hq))
+                g_readGrip.orient(hq,g_readOpening.q,out);
+        }
     }
-    g_menuRiding = riding;
-    g_ridingContext = riding ? context : -1;
-    if (!riding) {
-        // The sinks the ride acquired go back: their copy stops with the ride.
-        for (int s = 0; s < kMaxSinks; ++s) if (g_sink[s].anchor >= 0 && g_sink[s].rideOnly) free_sink(s);
+    g_visualRiding=visual;g_ridingContext=visualContext;
+    if(!visual) {
+        for(int s=0;s<kMaxSinks;++s) if(g_sink[s].anchor>=0 && g_sink[s].rideOnly) free_sink(s);
     }
-    const int e = element_for_context(context);
-    DVR_INFO("hud/layout: %s", riding ? "a screen is riding: every HUD-class draw routes to its row" : "the screen left: routing by element again");
-    g_stableRoutes.clear();g_interactionGroup.clear(); // resource/content identities do not survive a menu transition
-    if (riding && e >= 0)
-        DVR_INFO("hud/layout: the screen is %s on the %s", kRows[e].name, kAnchorNames[g_el[e].anchor]);
+    g_stableRoutes.clear();g_interactionGroup.clear();
+    DVR_INFO("hud/layout: visual context=%d inputRiding=%d closing=%d tail=%d frame=%u",
+        visualContext,(int)riding,(int)wheelClosing,(int)tail,frame);
+    if(visual) DVR_INFO("hud/layout: the screen is %s on the %s",kRows[element_for_context(visualContext)].name,kAnchorNames[g_el[element_for_context(visualContext)].anchor]);
+    else DVR_INFO("hud/layout: the screen left: routing by element again");
 }
-void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear(); }
+void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear(); }
+bool pause_scene_freshness() {return g_pauseSceneFreshness.load();}
 bool menu_riding() { return g_menuRiding; }
 float native_objective_scale(int e) {return g_nativeObjectives && !g_menuRiding && e==ElObjective ? g_nativeObjectiveScale : 1.f;}
 bool menu_stereo_hold() { return g_menuRiding && menu_head_look(g_ridingContext); }
@@ -514,7 +544,7 @@ bool menu_head_look(int c) { return c>=3 && c<=8 && (g_menuHeadMask.load() & (1u
 bool menu_no_blur(int c) { return c>=3 && c<=8 && (g_menuBlurMask.load() & (1u<<c)); }
 void circle_for_sink(int sink,uint32_t width,uint32_t height,float ellipse[4]) {
     memset(ellipse,0,4*sizeof(float));
-    if(g_dialOn && g_dialCircle && g_menuRiding && g_ridingContext==6 &&
+    if(g_dialOn && g_dialCircle && g_visualRiding && g_ridingContext==6 &&
        sink>=0 && sink<kMaxSinks && g_sink[sink].anchor==g_el[ElWheel].anchor && !g_sink[sink].crop) {
         ellipse[0]=ellipse[1]=.5f;
         if(!width || !height) return;
@@ -550,7 +580,7 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
 
 int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives) {
     hudroute::Identity id;
-    id.context = g_menuRiding ? g_ridingContext : -1;
+    id.context = g_visualRiding ? g_ridingContext : -1;
     id.hasRect = bbox != nullptr;
     if (bbox) memcpy(id.rect, bbox, sizeof(id.rect)); else memset(id.rect, 0, sizeof(id.rect));
     const int spatial = hudroute::route(g_rows, ElCount, id, ElDefault);
@@ -563,12 +593,9 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
         // Group decisions outrank the first spatial hint retained by the old
         // cache, otherwise title and action can stay split for their lifetime.
         const bool icon=dvr::hudnative::square_icon(bbox,vertices,primitives);
-        const bool reticle=hudroute::centered_reticle(bbox,primitives) ||
-            (icon && fabsf(bbox[0]+bbox[2]-1)<.002f && fabsf(bbox[1]+bbox[3]-1)<.002f);
-        const bool nativeIcon=g_nativeObjectives && icon && !reticle &&
-            (dvr::hudnative::edge_icon(bbox) ||
-             (e!=ElPrompt && !g_interactionGroup.near_group(bbox,drawFrame)));
-        if(nativeIcon || (g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
+        const bool nativeIcon=g_nativeObjectives &&
+            g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives);
+        if(nativeIcon || (!g_nativeObjectives && g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
             e=ElObjective;g_stableRoutes.adopt(drawKey,drawFrame,e);
         } else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
             // A title crossing the central region is not the reticle. Preserve
@@ -587,6 +614,8 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     g_lastRouted[e] = g_presentNo;
     int anchor = g_el[e].anchor;
     if(g_nativeObjectives && e==ElObjective && id.context<0) {++g_routeFrame;return -1;}
+    if(g_nativeObjectives && id.context<0 && isolatedIcon && spatial!=ElVitals && e!=ElPrompt &&
+       !hudroute::centered_reticle(bbox,primitives)) {if(elementOut) *elementOut=ElDefault;++g_routeFrame;return -1;}
     if (anchor == AnchorFrame) { ++g_routeFrame; return -1; }
     if (anchor == AnchorOff) anchor = AnchorOff;   // a hidden sink: redirected, never delivered
     const bool crop = crop_eligible(e);
@@ -722,7 +751,7 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         tex->GetDesc(&td);
         const float aspect = td.Width ? (float)td.Height / (float)td.Width : 1.0f;
         int e = ElDefault;
-        if (g_menuRiding) { const int se = element_for_context(g_ridingContext); if (se >= 0 && g_el[se].anchor == a) e = se; }
+        if (g_visualRiding) { const int se = element_for_context(g_ridingContext); if (se >= 0 && g_el[se].anchor == a) e = se; }
         const float whole[4] = {0, 0, 1, 1};
         dvr::vr::HudQuadDesc& d = out[n++];
         d = dvr::vr::HudQuadDesc();
@@ -737,8 +766,8 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
             d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
             if(!g_readOpening.capture_upright(camera)) {--n;continue;}
             d.orient=dvr::vr::HudOrient::OpeningPlane;
-            memcpy(d.orientation,g_readOpening.q,sizeof(d.orientation));
-            dvr::hudanchor::camera_panel_position(hp,g_readOpening.q,g_readDistance[readPanel],d.base);
+            if(!g_readGrip.orient(hq,g_readOpening.q,d.orientation)) {--n;continue;}
+            dvr::hudanchor::camera_panel_position(hp,d.orientation,g_readDistance[readPanel],d.base);
             d.width=g_readWidth[readPanel];d.height=0;
             d.planeOff[0]=g_readRight[readPanel];d.planeOff[1]=0;
         }
@@ -768,7 +797,7 @@ void configure(const char* ini) {
     for (int s = 0; s < kMaxSinks; ++s) { g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false; g_sink[s].element=-1; g_sinkLabel[s][0] = 0; }
     for (int a = 0; a < AnchorCount; ++a) g_sinkOf[a][0] = g_sinkOf[a][1] = -1;
     for(int e=0;e<ElCount;++e) g_elementSink[e]=-1;
-    g_stableRoutes.clear();g_interactionGroup.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();
     memset(g_seen, 0, sizeof(g_seen));
     memset(g_lastRouted, 0, sizeof(g_lastRouted));
     // VR-117's keys, read once and rewritten on the next save: one hand
@@ -885,10 +914,11 @@ void configure(const char* ini) {
     g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
     g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
+    g_pauseSceneFreshness.store(read_i(ini,"PauseSceneFreshness",0)!=0);
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeObjectiveScale=fminf(1.f,fmaxf(.25f,read_f(ini,"NativeObjectiveScale",.70f)));
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
-    for(int i=0;i<3;++i) {
+    for(int i=0;i<4;++i) {
         auto& a=g_alphaBank.special[i];a=g_alpha;char key[64],mode[32];
         _snprintf(key,sizeof(key),"%sMode",kScopedAlpha[i]);
         if(read_s(ini,key,mode,sizeof(mode))) {const int m=alpha_mode_from_name(mode);if(m>=0) a.mode=m;}
@@ -961,10 +991,11 @@ void save(const char* ini) {
     set_hand(0, g_hand[0], "save");
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
+    write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
     write_i("ObjectiveScreenTracking",g_objectiveScreen);
     write_i("NativeObjectiveIcons",g_nativeObjectives);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
-    for(int i=0;i<3;++i) save_scoped_alpha(i);
+    for(int i=0;i<4;++i) save_scoped_alpha(i);
     for(int i=0;i<2;++i) {
         char key[64];
         _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
@@ -1089,7 +1120,7 @@ bool command(const char* args) {
     if (!strcmp(w1, "alpha")) {
         if (n < 2 || !strcmp(w2, "status")) { log_alpha(); return true; }
         if(!strcmp(w2,"reset")) {
-            for(int i=0;i<3;++i) save_scoped_alpha(i);
+            for(int i=0;i<4;++i) save_scoped_alpha(i);
             g_alphaBank.reset_general();set_alpha(g_alpha,"original general alpha");return true;
         }
         AlphaCfg c = g_alpha;
@@ -1219,6 +1250,11 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
+    if(ImGui::CollapsingHeader("Pause menu alpha")) {
+        draw_scoped_alpha(3);
+        bool fresh=g_pauseSceneFreshness.load();
+        if(ImGui::Checkbox("Recent pause scene uploads (test)",&fresh)) {g_pauseSceneFreshness.store(fresh);write_i("PauseSceneFreshness",fresh);}
+    }
     if(ImGui::CollapsingHeader("Notes, books and journal alpha")) {
         draw_scoped_alpha(1);
         ImGui::TextWrapped("One shared alpha profile for notes, books and the journal.");
@@ -1229,7 +1265,7 @@ void draw_ui() {
         change|=ImGui::Checkbox("Objective markers follow screen",&g_objectiveScreen);
         change|=ImGui::Checkbox("Native objective icons (test)",&g_nativeObjectives);
         change|=ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx");
-        ImGui::TextWrapped("Native test bypasses HUD capture for isolated marker-shaped icons and scales them around their original position. Similar icons can match. Overrides screen tracking.");
+        ImGui::TextWrapped("Native test learns edge-clamped marker content and keeps it native when it moves through the center. Size preserves the native center. Unlearned isolated icons remain native at original size; similar artwork can match.");
         ImGui::TextWrapped("Screen tracking separates marker size from screen position. Window/world markers follow the rendered field of view; their window scale controls icon size. Native game edge indicators remain.");
         ImGui::TextWrapped("Test controls: group nearby interaction draws and recognize the measured objective-marker shape. Other similar icons may match; disable to compare. Objective uses its own anchor and placement below.");
         if(change) {
@@ -1244,7 +1280,7 @@ void draw_ui() {
         ImGui::TextWrapped("Applies to the interaction title, action prompt and icons routed onto a HUD panel. Frame keeps native game rendering.");
     }
     if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
-        ImGui::TextWrapped("Follow the left hand with a vertical panel. Opening yaw sets its facing; head pitch and roll never tilt the page. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
+        ImGui::TextWrapped("Opens upright at the saved hand offset, then rotates and moves rigidly with the left hand. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
         for(int i=0;i<2;++i) {
             ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);
             bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);
@@ -1357,7 +1393,7 @@ void draw_ui() {
     ImGui::Text("GENERAL HUD ALPHA (excludes wheel, reading panels and interactables)");
     {
         if(ImGui::Button("Restore original general alpha")) {
-            for(int i=0;i<3;++i) save_scoped_alpha(i);
+            for(int i=0;i<4;++i) save_scoped_alpha(i);
             g_alphaBank.reset_general();set_alpha(g_alpha,"F10 original general alpha");
         }
         ImGui::TextWrapped("General HUD only. Original: repair, gain 1, floor 0, gamma 1, mix 1. Wheel, reading and interactable alpha remain independent.");

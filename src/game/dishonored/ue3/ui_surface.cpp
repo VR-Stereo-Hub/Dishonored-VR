@@ -19,12 +19,13 @@ double g_usNext=0,g_usRefresh=0,g_usResolveAt=0;
 bool g_usResolved=false;
 uint32_t g_usPlayers,g_usActor,g_usWorld,g_usGame,g_usManager,g_usOverlay;
 uint32_t g_usMode,g_usTransition,g_usMovie,g_usStarted,g_usStartedMask,g_usScreen,g_usOpen,g_usOpenMask;
+uint32_t g_usClosing=0,g_usClosingMask=0;
 uint32_t g_usHints=0,g_usHintsMask=0,g_usNote=0,g_usNoteMask=0,g_usWheel=0,g_usWheelMask=0;
 uint32_t g_usMenus[10]={};
 const char* g_usProps[]={"m_pMainMenu","m_pPauseMenu","m_pNote","m_pJournal","m_pPowerWheel","m_pStore","m_pMissionStats","m_pChallengeMenu","m_pBrief","m_pResultsMenu"};
 const dvr::mono::Context g_usKinds[]={dvr::mono::MainMenu,dvr::mono::Pause,dvr::mono::Note,dvr::mono::Journal,dvr::mono::Wheel,dvr::mono::Store,dvr::mono::MissionStats,dvr::mono::Other,dvr::mono::Other,dvr::mono::Other};
 dvr::mono::LoadingLease g_usLoading;
-void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int movie,int mode) {
+void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int movie,int mode,bool wheelClosing=false) {
     // VR-117: may this owner RIDE the HUD window instead of forcing the mono
     // quad? Decided once per blocked interval (a health flap mid-menu must not
     // flip the picture), only for the contexts that opted in, only while the
@@ -40,7 +41,7 @@ void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int
     g_usWheelActive.store(known && blocked && context == dvr::mono::Wheel);
     g_usBlocked.store(blocked);
     g_usRides.store(rides);
-    dvr::hudlayout::set_menu_riding(rides,(int)context);
+    dvr::hudlayout::set_menu_riding(rides,(int)context,wheelClosing && known && !blocked);
     dvr::vr::set_mono_context(context,g_usEnabled.load() && blocked && !rides);
     static int last=-1;
     const int key=(int)context+32*blocked+64*known+128*rides;
@@ -131,6 +132,7 @@ bool UsResolve() {
     }
     if(!g_usNoteMask) ok=FindBoolProp("DisGFxMoviePlayerNote","m_bNoteVisible",&g_usNote,&g_usNoteMask) && ok;
     if(!g_usWheelMask) ok=FindBoolProp("DisGFxMoviePlayerPowerWheel","m_bWheelIsOpen",&g_usWheel,&g_usWheelMask) && ok;
+    if(!g_usClosingMask) FindBoolProp("DisGFxMoviePlayerBase","m_bIsClosing",&g_usClosing,&g_usClosingMask);
     if(!g_usOpenMask) ok=FindBoolProp("GFxMoviePlayer","bMovieIsOpen",&g_usOpen,&g_usOpenMask) && ok;
     if(!g_usHintsMask) ok=FindBoolProp("DisBinkOverlayManager","m_bShowMapNameAndHints",&g_usHints,&g_usHintsMask) && ok;
     if(!g_usStartedMask) ok=FindBoolProp("DisBinkOverlayManager","m_bLoadingStarted",&g_usStarted,&g_usStartedMask) && ok;
@@ -207,7 +209,7 @@ static void UiSurfacePoll() {
         engine,player,pc,world,game,manager,overlay,(int)loadKnown);
     int screen=-1;
     dvr::mono::Context context=dvr::mono::Other;
-    bool blocked=false;
+    bool blocked=false,wheelClosing=false;
     for(int i=0;manager && i<10;++i) {
         if(!g_usMenus[i]) continue;
         uint8_t* obj=nullptr;
@@ -219,7 +221,12 @@ static void UiSurfacePoll() {
             const uint32_t off=i==2?g_usNote:g_usWheel;
             const uint32_t mask=i==2?g_usNoteMask:g_usWheelMask;
             if(!CtRead(obj,off,&bits,4)) {known=false;continue;}
-            if(!(bits&mask)) continue;
+            if(!(bits&mask)) {
+                if(i==4 && g_usClosingMask) {uint32_t closing=0;
+                    if(CtRead(obj,g_usClosing,&closing,4)) wheelClosing=(closing&g_usClosingMask)!=0;
+                }
+                continue;
+            }
         } else if(!(bits&g_usOpenMask)) continue;
         if(i==0) {
             uint8_t value=0;
@@ -232,7 +239,7 @@ static void UiSurfacePoll() {
     }
     if(!known && !blocked) { blocked=true; context=dvr::mono::Other; }
     if(!blocked && g_cineNow) context=dvr::mono::Cinematic;
-    UsPublish(context,blocked,known,screen,presenting?1:0,mode);
+    UsPublish(context,blocked,known,screen,presenting?1:0,mode,wheelClosing);
 }
 static void UiSurfaceTick() {
     if((!g_usEnabled.load() && !dvr::vr::mono_anchor_enabled()) || !TryAcquireSRWLockExclusive(&g_usLock)) return;

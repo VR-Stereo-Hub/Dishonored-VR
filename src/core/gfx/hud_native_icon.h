@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <cstdint>
 namespace dvr::hudnative {
 inline bool square_icon(const float* r,unsigned vertices,unsigned primitives) {
     if(!r || vertices!=8 || primitives!=10) return false;
@@ -11,6 +12,22 @@ inline bool edge_icon(const float* r) {
     return std::fabs(x-.05f)<.006f || std::fabs(x-.95f)<.006f ||
            std::fabs(y-.05f)<.006f || std::fabs(y-.95f)<.006f;
 }
+// An edge-clamped sprite identifies a marker family. Keep that ownership as
+// identical content moves through the interaction region; position is not identity.
+struct Markers {
+    struct Entry {uint64_t key=0;uint32_t seen=0;} entries[64]{};
+    void clear(){for(auto& e:entries)e=Entry{};}
+    bool observe(uint64_t key,uint32_t frame,const float* r,unsigned vertices,unsigned primitives) {
+        if(!key || !r) return false;
+        Entry* oldest=&entries[0];
+        for(auto& e:entries) {
+            if(e.key==key && frame-e.seen<=2400){e.seen=frame;return true;}
+            if(!e.key || frame-e.seen>frame-oldest->seen) oldest=&e;
+        }
+        if(square_icon(r,vertices,primitives) && edge_icon(r)){*oldest={key,frame};return true;}
+        return false;
+    }
+};
 // Scale projected geometry about its own center; keep clip w/depth unchanged.
 inline bool scale_column(const float* src,const float* rect,float scale,float* dst) {
     if(!(scale>=.25f && scale<=1)) return false;

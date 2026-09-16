@@ -1,5 +1,42 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## New387 result: accepted wheel hands, recurrent pause mono (2026-09-16)
+
+387 DLL hash/banner verified; both logs and unchanged saved INI archived at
+`build/playtest-candidates/vr128-menu-half-step/reported-pause-scale`.
+Reported: wheel hands/weapons sufficiently improved to park; preserve menu half-step
+recognition. Two sampled wheel mismatch lines remain; unlike385's20 mixed samples,
+these do not share controlled exposure, so do not infer a percentage improvement.
+Pause now has recurrent WHOLE-WORLD size/depth changes, not just hand flicker.
+Route via section1's mono interruption and menu stereo/projection transition rows.
+
+Measured intervals >3.1s inside a riding episode: pause11 beat intervals,7 nonzero
+mono;22 rate-limited150ms cap-expiry lines,21 sampled camera-silent gate lines and
+9 present-stall gate lines. Wheel10 intervals,2 nonzero mono; note5,zero. Sampled
+counts are not frame counts or timestamped perceptual events. Example12784390
+returns DOUBLE after114 single ticks during pause. User's observation is compatible
+with repeated mono fallback; it is not proof of FOV changes or swapped eye geometry.
+
+Code boundary: SceneDrawDecide compares current c5 upload serial to the serial
+saved at the END of the previous draw. If camera uploads happen during that draw,
+with none in the idle interval, this evidence of a live scene is discarded. Prior
+historical pause acceptance does not establish this gate for the current schedule.
+New default-off Hud.PauseSceneFreshness trial records serial advancement during
+completed gameplay-dispatch draws. Only pause context3 with head look may use it,
+only for100ms, and all session/ownership/scene/present-stall/camera safety guards
+still apply. Silent draws do not renew evidence; context exit clears it. No forced
+scene permission, indefinite compositor hold, pixel retagging or pose-policy change.
+This is a falsifiable gate hypothesis, not a confirmed correction: pause/scene logs
+report prior-draw-upload age and whether the exception was used. If ages stay stale,
+the hypothesis is not exercised and the upstream scene schedule remains open.
+
+33 menu host checks include recent/stale/unseen uploads, disabled option, wrong
+context, head-look off, clock rollback and context reset. Accepted image-owned
+orientation, pair synchronization,150ms gap hold and hand correction unchanged.
+ONE launch question: does the paused world's size/depth stay stable for about20s,
+including slow head turns? Stable supports the gate exception; unchanged requires
+age/mono comparison; worse rejects it. No game/simulator launch. Headset pending.
+
 ## New385 result: measured left-eye menu hand misclassification (2026-09-16)
 
 Installed387 (`vr33-hands-working-387-g998e2ab78`), clean source998e2ab78.

@@ -1,35 +1,25 @@
-## Current: HUD transition and menu-hand candidate (2026-09-16)
+## Current:387 accepted pieces and pause-scale follow-up (2026-09-16)
 
-Installed387 (`vr33-hands-working-387-g998e2ab78`), clean source998e2ab78.
-Candidate `build/playtest-candidates/vr128-menu-half-step`; both previous logs,
-DLL and INI archived at `build/playtest-candidates/installs/20260916-142216-456210`.
-Full INI diff: add PaletteEyeMenuHalfStep=1,NativeObjectiveIcons=1,
-NativeObjectiveScale=0.700; change ObjectiveScreenTracking1 to0. All other saved
-values retained, CRLF verified. DLL SHA256
-`097cd453ecc27c101854340f67b425c15bc84c699a757a6bb18b55e85bf08a5c`.
-Clean release build,9 exports, lint and listed host/GPU checks pass. Installed
-hashes verified. Game/simulator not launched; current log remains385 until launch.
-Headset validation pending. Changes remain local on codex/hud-fixes.
-
-- Branch codex/hud-fixes, local only.385 DLL/banner verified; both logs and INI
-  archived in build/playtest-candidates/vr127-opening-hud/reported-transitions-tint.
-  Saved F10 settings unchanged and retained. Pause navigation accepted.
-- New candidate: upright readers retaining opening yaw; wheel close visual latch
-  and capture invalidation; hue-preserving gamma; interaction history keyed to
-  actual draw presents with expiring ambiguity; native objective icon scaling.
-- Hand evidence:20 sampled mismatches (15 wheel,5 pause), all right correction on
-  left draws. Menu-only half-step threshold is an opt-in test, not a proven fix.
-- Native objective classification remains heuristic.385 ObjectiveScreenTracking
-  produced no objective diagnostics; its old topology assumption was not exercised.
-- Installed identity remains authoritative in build/playtest-candidates/installed.json.
-  Candidate installation details are recorded below when installed. Preserve full
-  INI/CRLF, archive both logs; never launch game/simulator or use subagents.
-- ONE launch question: with the wheel open and controllers still, do slow head
-  turns keep the left-eye hands/weapons stable? Include a still-head baseline.
-  Stable supports the half-step hypothesis; unchanged requires comparing completed
-  eye mismatches; new still-head flicker rejects this candidate threshold.
-- Detailed evidence/limits: HUD_ANCHORS and newest FLICKER_REFERENCE section.
-  No new publication/merge authorized. Prior Linear export permission still pending.
+- Local branch codex/hud-fixes.387 DLL/hash/banner verified; both logs and unchanged
+  saved INI archived under vr128-menu-half-step/reported-pause-scale.
+- Accepted: crouch transition grouping, hue correction, wheel hand stability good
+  enough to park. Preserve PaletteEyeMenuHalfStep=1; old predictors stay off.
+- New candidate: readers rigidly follow grip rotation from their initial upright
+  placement; pause alpha independent; wheel visual entry seeds current hand even
+  without grip input, closing uses native closing flag plus delayed-image tail.
+- Native objectives retain edge-learned content ownership through center/prompt
+  regions; no fixed local panel for learned icons. Unknown/new art remains a limit.
+- Pause world scale is a separate mono interruption:7/11 interior beat intervals
+  contain mono;22 sampled cap expiries. Scene camera-silent gate is the target.
+  Default-off PauseSceneFreshness accepts uploads during a prior draw only when
+  recent (<100ms), pause head look is on, and all other scene gates still pass.
+- Next ONE launch question: does the paused world's size/depth remain stable for
+  about20 seconds, including slow head turns? Stable supports recent-draw evidence;
+  unchanged requires the new pause/scene age log plus mono counters; worse rejects
+  the gate exception. No extra wheel/reader/objective acceptance questions this run.
+- Installed identity: build/playtest-candidates/installed.json. Installation below.
+  No game/simulator/subagents. Preserve full INI/CRLF; archive both logs each launch.
+  No publication/merge; prior Linear export permission remains pending.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

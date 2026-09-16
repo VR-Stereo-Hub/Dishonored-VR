@@ -174,6 +174,15 @@ int main() {
             check(crop[0]<=r[0] && crop[2]>=r[2],"padded crop retains marker pixels");
         }
     }
+    {
+        GripPanel p;const float initial[4]={0,0,0,1},grip[4]={0,.70710678f,0,.70710678f};float q[4];
+        check(p.orient(grip,initial,q) && fabsf(q[3]-1)<.0001f,"grip attachment preserves initial vertical placement");
+        const float next[4]={0,1,0,0};
+        check(p.orient(next,initial,q) && fabsf(q[1]-.70710678f)<.0001f,"page follows grip rotation delta");
+        float pos[3],hp[3]={1,2,3};camera_panel_position(hp,q,.2f,pos);
+        check(fabsf(pos[0]-.8f)<.0001f && fabsf(pos[2]-3)<.0001f,"page depth offset rotates rigidly with grip");
+        p.reset();check(p.orient(next,initial,q) && fabsf(q[3]-1)<.0001f,"reopening recaptures initial pose");
+    }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;
 }
