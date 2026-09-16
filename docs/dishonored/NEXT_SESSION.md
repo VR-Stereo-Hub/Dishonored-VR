@@ -18,6 +18,9 @@
   moving your head, do its title and action prompt stay together on the same plane?
   Expected: one stable group. Continued separation means heuristic grouping is
   insufficient; inspect hud/owner rectangles and pursue native UI identity.
+- Installed382-g048c1e461; vr127-hud-fixes candidate. Both logs archived at
+  installs/20260916-032558-653882; full INI adds14 keys with no old value changes.
+  Hashes/CRLF verified; log remains378 until next tester launch.
 - See installed.json for installed identity. Preserve both logs/full saved INI/CRLF.
   No game/simulator launch, subagents, branch deletion or new main merge.
 

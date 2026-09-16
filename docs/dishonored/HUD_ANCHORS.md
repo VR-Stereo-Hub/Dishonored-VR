@@ -23,6 +23,17 @@ To measure and name one more element (the eight unmeasured rows, or a new one):
 
 ## Current follow-up: alpha, reading input and HUD grouping (VR-127)
 
+**Installed382** (`vr33-hands-working-382-g048c1e461`), clean local source048c1e461.
+Candidate `build/playtest-candidates/vr127-hud-fixes`; prior logs/DLL/INI archived at
+`build/playtest-candidates/installs/20260916-032558-653882`. Complete INI comparison:
+14 new keys only, no previous values changed. GroupInteractions/RouteObjectives=1
+for this test (repository defaults0); new alpha values preserve the prior appearance.
+DLL SHA256 `09dbbac42cbcddfde2ea5b460a8496617af1f110fb3cde05c3a46618372dc0fb`.
+Hashes/CRLF verified. Release build, exports9/9, lint, default-writer bytes and the
+listed host checks pass. No game/simulator launched. Existing log still shows378
+until the tester launches382; do not interpret it as a new result. Follow-up branch
+remains local/unmerged and headset acceptance is pending.
+
 PR69 merged to VR-Main at0afbadc83; source branch preserved. codex/hud-fixes
 starts from that merge. Main contains the complete accepted saved378 F10 profile.
 New work stays local; no second main merge is authorized.
