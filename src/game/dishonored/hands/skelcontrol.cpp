@@ -1119,8 +1119,15 @@ static void SkcSetCrawlStrength(float strength)
         return;
     }
     int written = 0, refused = 0;
+    bool cameraSkipped = false, cameraWritten = false;
     for (int i = 0; i < g_skcPlayerN && i < 8; ++i) {
         uint8_t* obj = g_skcPlayer[i];
+        // VR-122: the camera's look-at control is what pitches the rendered view
+        // with the controller. A tuck (0.0) leaves it alone unless [Hands]
+        // CrawlTuckCamera asks for the old behaviour; a release (1.0) always
+        // reaches it, so a camera an earlier tuck zeroed comes back to stock.
+        const bool isCamera = (i == g_skcCamIdx);
+        if (isCamera && !g_crawlTuckCamera && strength < 0.5f) { cameraSkipped = true; continue; }
         if (!IsLiveObject(obj) || !SkcAlive(i) ||
             !RangeReadable(obj + g_graftOffStr, sizeof(float)) ||
             (g_graftOffSTgt && !RangeReadable(obj + g_graftOffSTgt, sizeof(float)))) {
@@ -1133,8 +1140,45 @@ static void SkcSetCrawlStrength(float strength)
         *(float*)(obj + g_graftOffStr) = strength;
         if (g_graftOffSTgt) *(float*)(obj + g_graftOffSTgt) = strength;
         ++written;
+        if (isCamera) cameraWritten = true;
     }
-    Log("hands/crawl-strength: %.1f, wrote %d validated controls, refused %d", strength, written, refused);
+    Log("hands/crawl-strength: %.1f, wrote %d validated controls, refused %d | LookAtControl_Camera %s",
+        strength, written, refused,
+        g_skcCamIdx < 0 || g_skcCamIdx >= g_skcPlayerN ? "not latched (no camera slot to protect)"
+        : cameraSkipped ? "LEFT ALONE (CrawlTuckCamera=0: the crouched view keeps pitching with the head)"
+        : cameraWritten ? (strength < 0.5f ? "WRITTEN TOO (CrawlTuckCamera=1: the pre-VR-122 behaviour, the crouched view will not pitch)"
+                                          : "restored to stock")
+        : "refused (see above)");
+}
+
+// VR-122: the live A/B for the camera half of the crawl tuck. Flipping it while
+// tucked applies at once - on releases the camera control like the hands (0.0),
+// off restores it (1.0, the measured stock strength) - through the same guards
+// the edge writer uses, so a reload can never hand this a recycled object.
+static void SkcTuckCameraSet(bool on, const char* who)
+{
+    g_crawlTuckCamera = on;
+    Log("hands/tuckcam: %s (by %s) - the crouched tuck %s LookAtControl_Camera%s", on ? "ON" : "off",
+        who ? who : "?", on ? "RELEASES" : "leaves", g_skcTucked ? " (tucked now: applied at once)" : "");
+    if (!g_skcTucked || g_skcCamIdx < 0 || g_skcCamIdx >= g_skcPlayerN || !g_graftOffStr) return;
+    if (!BuildLiveSet()) {
+        g_skcStale = 1;
+        Log("hands/tuckcam: refused (live-object refresh failed)");
+        return;
+    }
+    uint8_t* obj = g_skcPlayer[g_skcCamIdx];
+    if (!IsLiveObject(obj) || !SkcAlive(g_skcCamIdx) ||
+        !RangeReadable(obj + g_graftOffStr, sizeof(float)) ||
+        (g_graftOffSTgt && !RangeReadable(obj + g_graftOffSTgt, sizeof(float)))) {
+        g_skcStale = 1;
+        Log("hands/tuckcam: refused slot %d @ %p (dead, reused identity or unreadable strength)",
+            g_skcCamIdx, (void*)obj);
+        return;
+    }
+    const float strength = on ? 0.0f : 1.0f;
+    *(float*)(obj + g_graftOffStr) = strength;
+    if (g_graftOffSTgt) *(float*)(obj + g_graftOffSTgt) = strength;
+    Log("hands/tuckcam: LookAtControl_Camera strength -> %.1f", strength);
 }
 
 // The fault boundary. Everything the hand-mesh system touches - the collect
@@ -1164,10 +1208,9 @@ static void ApplyHandToMesh()
     // HOME does; the engine's own recompute restores the animation pose
     // within a frame, and we resume the moment the crawl ends.
     {
-        static bool tucked = false;
         bool t = CrawlTuckNow();
-        if (t != tucked) {
-            tucked = t;
+        if (t != g_skcTucked) {
+            g_skcTucked = t;
             // 38.20: a tuck must RELEASE the arms, not freeze them - 38.19
             // skipped the writes but left the bone controls latched at the
             // last world position ("hands stayed in the world", and a
