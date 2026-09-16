@@ -1,3 +1,4 @@
+#include "core/framework/render_profile.h"
 // Live shader reflection for hand and weapon placement.
 // ---- shader reflection ------------------------------------------------------
 //
@@ -17,6 +18,7 @@ struct PcLayout {
 
 static bool PcReflect(const uint8_t* code, UINT len, PcLayout* out)
 {
+    dvr::render_profile::Scope profile(dvr::render_profile::Reflection);
     if (!code || len < 8 || !out) return false;
     memset(out, 0, sizeof(*out));
     out->vp = out->bones = out->localToWorld = out->worldToLocal = -1;
@@ -74,6 +76,7 @@ static bool PcReflect(const uint8_t* code, UINT len, PcLayout* out)
 // the registers always come from the shader actually bound.
 static void PcRefreshLayout(IDirect3DDevice9* dev)
 {
+    dvr::render_profile::Scope profile(dvr::render_profile::LayoutRefresh);
     IDirect3DVertexShader9* vs = NULL;
     if (FAILED(dev->GetVertexShader(&vs)) || !vs) {
         if (vs) vs->Release();
@@ -86,8 +89,10 @@ static void PcRefreshLayout(IDirect3DDevice9* dev)
 
     UINT len = 0;
     static uint8_t code[PC_MAX_BYTECODE];
+    dvr::render_profile::Scope bytecodeProfile(dvr::render_profile::Bytecode);
     bool ok = SUCCEEDED(vs->GetFunction(NULL, &len)) && len > 0 && len <= PC_MAX_BYTECODE;
     if (ok) ok = SUCCEEDED(vs->GetFunction(code, &len));
+    bytecodeProfile.finish();
     void* key = (void*)vs;
     vs->Release();                        // released before anything can return
 

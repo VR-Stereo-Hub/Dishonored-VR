@@ -123,3 +123,24 @@ The mod now exposes [Cine] HideBorders (default0) and a live F10 View control.
 It intercepts only the native stripe query; it does not add or edit a game INI
 key and does not change resolution,FOV or camera aspect fields. Its installed
 acceptance test remains pending; details are in CINEMATIC_HEAD_TRACKING.md.
+
+## Performance survey and measured shadow limit (2026-09-15, VR-125)
+
+Active SystemSettings exposes DynamicShadows, LightEnvironmentShadows, DetailMode,
+StaticLODDistanceFactorMultiplier, SkeletalLODDistanceFactorMultiplier, StaticDecals,
+DynamicDecals, UnbatchedDecals and DecalCullDistanceScale. These may reduce rendering
+work at a quality cost. Shadow resolution mainly targets a different cost from
+removing shadow passes. No unsupported key was added and no default was changed.
+
+On this installation, active Vsync/frame smoothing/AO/motion blur/DOF were already
+off. Shader compilation threading was already enabled; that does not make ordinary
+render-command execution parallel. OneFrameThreadLag remains True. The160 texture
+streaming pool is not evidence of the stationary hub bottleneck and was not changed.
+Compatibility buckets have separate values; inspect the active section and runtime.
+
+DynamicShadows=False, alone with restart, reduced SRT/present but only changed
+hub throughput79.94 ->80.63 ->79.26 logged ticks/s in on/off/restored runs. No useful
+win established; original setting restored and every game INI verified identical
+to backup. The same scene did not show a clear change from console scale get/set;
+empty replies are not proof a setting took. See RESOLUTION_FLOOR.md for populations,
+cycle costs, variation and retained evidence. Detail/LOD/decal levers remain untested.

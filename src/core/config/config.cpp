@@ -1,3 +1,4 @@
+#include "core/framework/render_profile.h"
 // core/config/config.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -178,6 +179,18 @@ static void WriteDefaultIni(const char* ini)
         "; `frameid on|off|status` live.\n"
         "Instruments=1\n"
         "GpuQueries=1\n"
+        "; Optional sampled draw-hook and native D3D9 CPU wall-time profile.\n"
+        "NativeProfile=0\n"
+        "; Aggregate thread cycles/wall stage timing; diagnostic, live: perf cpu on|off.\n"
+        "CpuScopes=0\n"
+        "; Engine query helper timing; launch arm, live: querywait on|off.\n"
+        "QueryWaitProfile=0\n"
+        "; InitViews timing; launch arm, live: sceneprepare on|off.\n"
+        "ScenePrepareProfile=0\n"
+        "; Optional asynchronous D3D11 conversion/copy timing; F10 Display live toggle.\n"
+        "BridgeGpu=0\n"
+        "; Opt-in diagnostic overhead comparison, baseline/reduced/baseline.\n"
+        "DiagnosticAb=0\n"
         "ForceNoVSync=1\n"
         "FrameId=1\n"
         "FrameIdEvery=8\n"
@@ -421,6 +434,11 @@ static void WriteDefaultIni(const char* ini)
         "; DesktopEyeSource=tag|draw: draw pins by current backbuffer identity (VR-76).\n"
         "; Live A/B: desktopeye draw|tag. tag is the legacy pin, which leaks the other eye under shared capture.\n"
         "DesktopEyeSource=draw\n"
+        "; ReduceDesktopPresent omits a redundant right-eye desktop delivery after a successful left.\n"
+        "; Candidate, default off. Live A/B: desktoppresent full|reduced|off; F10 Display.\n"
+        "ReduceDesktopPresent=0\n"
+        "; DesktopMirrorOff freezes desktop updates while XR capture is live; overrides reduction.\n"
+        "DesktopMirrorOff=0\n"
         "DisableBadApiLayers=1\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
@@ -1388,16 +1406,27 @@ static void LoadConfig()
         dvr::census::set_shadow_surfaces(IniFloat(ini, "Device", "ShadowSurfaces", 0) != 0.0f);
         // VR-15: the per-level push, the candidate fix for black-at-distance
         dvr::d3d9ex::set_full_copy(IniFloat(ini, "Device", "ShadowFullCopy", 1) != 0.0f);
+        dvr::scene_prepare::configure(IniFloat(ini, "Perf", "ScenePrepareProfile", 0) != 0.0f);
+        dvr::query_profile::configure(IniFloat(ini, "Perf", "QueryWaitProfile", 0) != 0.0f);
     }
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
+        dvr::perf::set_cpu_scopes(GetPrivateProfileIntA("Perf", "CpuScopes", 0, ini)!=0);
+        dvr::native_profile::set_enabled(GetPrivateProfileIntA("Perf", "NativeProfile", 0, ini)!=0);
+        dvr::bridge_profile::set_enabled(GetPrivateProfileIntA("Perf", "BridgeGpu", 0, ini)!=0);
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
         if (!inst) dvr::perf::set_enabled(false);
         if (!gpu) dvr::perf::set_gpu_enabled(false);
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
-        dvr::perf::ab_set_enabled(GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        const bool diagnosticAb=GetPrivateProfileIntA("Perf","DiagnosticAb",0,ini)!=0;
+        dvr::perf::ab_set_enabled(!diagnosticAb && GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        dvr::diag_ab::set_enabled(diagnosticAb);
+        const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
+        dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
+        dvr::perf::desktop_ab_set_enabled(!diagnosticAb && (desktopTrial == 1 || desktopTrial == 2));
+        dvr::render_profile::set_enabled(GetPrivateProfileIntA("Perf", "RenderProfile", 0, ini) != 0);
         // VR-68: which head generation the HAND normalisation uses. 0 = the
         // freshest (historical); 2 = the one the rendered view was built from,
         // which is what bv/lag measured. PoseLagAb walks 0/2/0/2 so a headset
@@ -2669,6 +2698,8 @@ static void LoadConfig()
             GetPrivateProfileStringA("VR", "DesktopEyeSource", "", source, sizeof(source), ini);
             dvr::desktop_eye::set_source(source[0] ? source : "draw",
                 source[0] ? ini : "compiled default (ini key absent)");
+            dvr::desktop_eye::set_reduced_present(GetPrivateProfileIntA("VR", "ReduceDesktopPresent", 0, ini) != 0);
+            dvr::desktop_eye::set_mirror_off(GetPrivateProfileIntA("VR", "DesktopMirrorOff", 0, ini) != 0);
         }
         // ApiLayerGuard runs before LoadConfig and reads this key itself; the
         // read here only keeps the global in step for the ini rewrite.
@@ -2849,6 +2880,9 @@ static void OverlaySaveDefaults()
 {
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+    WritePrivateProfileStringA("Perf", "CpuScopes", dvr::perf::cpu_scopes_enabled() ? "1" : "0", ini);
+    WritePrivateProfileStringA("Perf", "NativeProfile", dvr::native_profile::enabled() ? "1" : "0", ini);
+    WritePrivateProfileStringA("Perf", "BridgeGpu", dvr::bridge_profile::enabled() ? "1" : "0", ini);
     WritePrivateProfileStringA("Menu", "CacheNameLookups", g_nameIndexCacheOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Menu", "PawnFromController", g_pawnFromController ? "1" : "0", ini);
     char v[64];
@@ -3296,6 +3330,8 @@ static void OverlaySaveDefaults()
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("VR", "DesktopEyeSource", dvr::desktop_eye::source_name(), ini);
+    WritePrivateProfileStringA("VR", "ReduceDesktopPresent", dvr::desktop_eye::reduced_present() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "DesktopMirrorOff", dvr::desktop_eye::mirror_off() ? "1" : "0", ini);
     {
         const auto crosshair = dvr::aim::config();
         WritePrivateProfileStringA("Aim", "FireFromHand", FireAimEnabled() ? "1" : "0", ini);

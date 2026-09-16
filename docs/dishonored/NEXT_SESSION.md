@@ -1,3 +1,17 @@
+## Performance research shelved, 2026-09-15
+
+No performance investigation or playtest is pending. Unfinished performance tickets
+are Backlog and unassigned. [PERFORMANCE.md](PERFORMANCE.md) is the compact canonical
+record of measured results, rejected routes, useful tools and resumption options.
+Ordinary per-eye preparation measured 1.322 ms/pair including 1.082 ms culling;
+no safe work-sharing optimization is established. Default-off profilers and the
+measured desktop throughput/tail experiment are retained. Failed nonblocking
+Present and invalid coarse CPU-ms instrumentation are removed.
+Exact installed307 remains unchanged. Research cleanup is build/host-validated;
+no new install or headset acceptance is claimed. Source branches are preserved.
+The user authorized a consolidation PR and merge to VR-Main; this is research
+preservation, not promotion of experimental rendering settings.
+
 ## Completed merge and installed state: 2026-09-14
 
 World-only PR #61 is integrated into VR-Main at a60516c4b.

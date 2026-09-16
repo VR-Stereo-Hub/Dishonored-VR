@@ -19,6 +19,11 @@ static const uintptr_t kModEnd     = 0x400000 + 0x1206A0C; // end of .reloc
 static const uintptr_t kDataStart  = 0x400000 + 0xE69000;  // .data VA
 static const uintptr_t kDataEnd    = kDataStart + 0x21B3BC;
 
+// VR-125: D3D9 query-read helper, thiscall + four stack args, ret16.
+// Complete polling loop preserved by diagnostic; ENGINE_NOTES derivation.
+static const uintptr_t kD3D9QueryRead = 0x009bcf50;
+static const uint8_t kD3D9QueryReadPrefix[15] = {0x55,0x8b,0xec,0x83,0xec,0x1c,0x56,0x8b,0x75,0x08,0x89,0x4d,0xfc,0x85,0xf6};
+
 // ---- GC fault capture (read-only, no hook or engine-memory write) ----
 // Offline image verification and first-fault registers: ENGINE_NOTES,
 // "GC reference crash recurrence, 2026-09-13". Reads referenced object flags.
@@ -288,3 +293,16 @@ static const uint32_t kHudRequiresAlphaBlend     = 1;   // excludes the opaque s
 // Diagnostic only: nothing gates on it, because a bucket's ordinal moves with
 // what is on screen. 1177/1205 in gameplay, 1126/1221 in the pause menu.
 static const float    kHudTailFractionSeen = 0.92f;
+
+// Engine-labelled InitViews: two direct callers; thiscall, no stack arguments.
+// First six whole non-relative bytes are sufficient for the trampoline.
+static constexpr uintptr_t kSceneInitViews = 0x008662A0;
+static const uint8_t kSceneInitViewsPrefix[] = {0x53,0x8B,0xDC,0x83,0xEC,0x08,0x83,0xE4,0xF0,0x83,0xC4,0x04,0x55,0x8B,0x6B,0x04};
+
+// ProcessViewFrustumCulling: cdecl one renderer argument, caller cleans stack.
+static constexpr uintptr_t kSceneFrustumCull = 0x00864AD0;
+static const uint8_t kSceneFrustumCullPrefix[] = {0x53,0x8B,0xDC,0x83,0xEC,0x08,0x83,0xE4,0xF0,0x83,0xC4,0x04,0x55,0x8B,0x6B,0x04};
+// Exact reflection-culling selector at VA00864CCA..00864CE4.
+// Read only during the borrowed renderer invocation; no retained identity.
+static constexpr size_t kSceneRendererFamilyPointer = 0x60;
+static constexpr size_t kSceneFamilyReflectionBranch = 0x48;

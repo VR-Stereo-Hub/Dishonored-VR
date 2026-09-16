@@ -34,6 +34,11 @@
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
 #include "core/framework/perf.h"
+#include "core/framework/native_profile.h"
+#include "core/framework/query_wait_profile.h"
+#include "core/framework/scene_prepare_profile.h"
+#include "core/framework/bridge_profile.h"
+#include "core/framework/diagnostic_ab.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/vr/pose_record.h"
@@ -134,6 +139,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/perf_ab.cpp"
+#include "core/framework/desktop_benchmark.cpp"
 #include "core/framework/vs_const_hook.cpp"
 #include "game/dishonored/present_tick.cpp"
 #undef DVR_CAT

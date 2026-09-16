@@ -1,3 +1,4 @@
+#include "core/framework/render_profile.h"
 // game/dishonored/hands/weapon_attach.cpp - included by src/mod/dishonoredvr.cpp
 // (unity build). See state chunk 57b for the design and why it changed.
 //
@@ -382,7 +383,7 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
                          UINT primCount, const char* nearest, float angle,
                          float position, bool corrected)
 {
-    if (!g_waCensusOn || !dev) return;
+    if (!g_waCensusOn || !dev || dvr::diag_ab::reduced()) return;
     IDirect3DVertexBuffer9* vbo = NULL; UINT off = 0, stride = 0;
     if (FAILED(dev->GetStreamSource(0, &vbo, &off, &stride)) || !vbo) return;
     void* vb = vbo; vbo->Release();
@@ -729,6 +730,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                    UINT minIndex, UINT numVertices, UINT startIndex,
                    UINT primCount, HRESULT* hr, bool* onWeaponBuffers)
 {
+    dvr::render_profile::Scope profile(dvr::render_profile::WeaponDraw);
     if (hr) *hr = D3D_OK;
     if (!g_waOn || !dev) return false;
     InterlockedIncrement(&g_waSeen);
@@ -764,11 +766,13 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // that IDENTIFYING it needs. Two device reads on the indexed path, the same
     // pair the mesh lock already pays for every frame.
     if (g_waMeshN) {
+        dvr::render_profile::Scope bufferProfile(dvr::render_profile::BufferQueries);
         IDirect3DVertexBuffer9* vbo = NULL; UINT off0 = 0, str0 = 0;
         if (SUCCEEDED(dev->GetStreamSource(0, &vbo, &off0, &str0)) && vbo) {
             void* vb0 = vbo; vbo->Release();
             IDirect3DIndexBuffer9* ibo = NULL; void* ib0 = NULL;
             if (SUCCEEDED(dev->GetIndices(&ibo)) && ibo) { ib0 = ibo; ibo->Release(); }
+            bufferProfile.finish();
             if (onWeaponBuffers) *onWeaponBuffers = false;
             WaMesh* known = NULL;
             for (int i = 0; i < g_waMeshN; ++i)

@@ -1,3 +1,4 @@
+#include "core/framework/render_profile.h"
 // VR-88: included after reflect.cpp in the unity TU. Engine reads only.
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/anim_policy.h"
@@ -155,6 +156,7 @@ void set_enabled(bool on) {
     Log("anim: HandBack=%d (live)",on?1:0);
 }
 float weight() {
+    dvr::render_profile::Scope profile(dvr::render_profile::AnimationWeight);
     AcquireSRWLockExclusive(&lock);
     const auto now=GetTickCount64();
     const bool valid=watch && handback && published.valid && fresh(published.stamp,now);

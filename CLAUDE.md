@@ -364,3 +364,11 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/dishonored/BRIEF-eye-flicker.md` | The eye-flicker investigation: four hypotheses argued and killed. ANSWERED - kept as the graveyard |
 | `docs/dishonored/XR_HANDOFF.md` | The pre-41.0 OpenXR/Quest presentation bug (historical; the pipeline it describes is gone) |
 | `docs/dishonored/HANDOFF-GINGASVR.md` | **The original author's handoff** (their build 39.4): what was measured, disproved, the traps, the process rules, the 39.x fixes our base lacks |
+
+## Performance research maintenance
+
+Per user instruction (2026-09-15), `docs/dishonored/PERFORMANCE.md` is the single
+maintained performance research and experiment record. Add future findings,
+failed tests, online sources and plans there; do not create separate performance
+reports. STATUS/NEXT_SESSION summarize and link to it. Required engine-address
+and flicker documentation remain in their existing reference files.
