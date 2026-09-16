@@ -1,6 +1,7 @@
 // VR-126: pure wheel geometry/input, shared by production and host tests.
 #pragma once
 #include <cmath>
+#include "core/util/xr_math.h"
 namespace dvr::weapon_dial {
 inline void radial(float x, float y, float dead, float& ox, float& oy) {
     ox = oy = 0;
@@ -15,7 +16,7 @@ struct State {
     float center[3] = {};
     void reset() { held = valid = lost = false; }
     bool update(bool down, bool tracked, const float hand[3], const float head[3],
-                float radius, float deadM, float& x, float& y) {
+                float radius, float deadM, float& x, float& y, const float* cameraQ = nullptr, bool directionOnly = false) {
         x = y = 0;
         if (!down) { reset(); return false; }
         for (int i=0;i<3;++i) tracked = tracked && std::isfinite(hand[i]) && std::isfinite(head[i]);
@@ -29,12 +30,20 @@ struct State {
         if (len < .05f) return false;
         for (float& v:n) v/=len;
         const float rl=std::sqrt(n[2]*n[2]+n[0]*n[0]);
-        if (rl < .2f) return false;
-        const float right[3]={n[2]/rl,0,-n[0]/rl};
-        const float up[3]={n[1]*right[2], n[2]*right[0]-n[0]*right[2], -n[1]*right[0]};
+        if (rl < .2f && !cameraQ) return false;
+        float right[3]={rl>.0001f ? n[2]/rl : 1,0,rl>.0001f ? -n[0]/rl : 0};
+        float up[3]={n[1]*right[2], n[2]*right[0]-n[0]*right[2], -n[1]*right[0]};
+        if (cameraQ) {
+            const float rx[3]={1,0,0},uy[3]={0,1,0};
+            dvr::xrmath::quat_rotate(cameraQ[0],cameraQ[1],cameraQ[2],cameraQ[3],rx,right);
+            dvr::xrmath::quat_rotate(cameraQ[0],cameraQ[1],cameraQ[2],cameraQ[3],uy,up);
+        }
         float dx=0,dy=0;
         for(int i=0;i<3;++i) { dx+=(hand[i]-center[i])*right[i]; dy+=(hand[i]-center[i])*up[i]; }
-        radial(dx/radius,dy/radius,deadM/radius,x,y);
+        if (directionOnly) {
+            const float distance=std::sqrt(dx*dx+dy*dy);
+            if (distance>deadM) { x=dx/distance; y=dy/distance; }
+        } else radial(dx/radius,dy/radius,deadM/radius,x,y);
         return true;
     }
 };

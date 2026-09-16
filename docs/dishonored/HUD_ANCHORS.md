@@ -21,6 +21,87 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Current VR-126 refinement: dial comfort and menu immersion (2026-09-16)
+
+Build372 is headset-accepted as a usable hand dial. The tester tuned width to
+0.350m, travel to0.040m, and crop to0.400x0.400. DLL hash and log banner match372;
+both logs and the exact INI are archived under
+build/playtest-candidates/vr126-weapon-dial/accepted-tuning. The log has33 dial
+openings and460 final wheel-input samples. These do not measure selection accuracy.
+
+Requested refinements now implemented, pending the next headset test:
+
+- Direction-only mode outputs full analog magnitude after2mm of hand displacement,
+  preserving the angle. A0.5..10mm F10 neutral radius controls jitter. Analog travel
+  remains available with direction-only off. Neither stick's radial shaping changes.
+- Camera-plane orientation uses the head quaternion, independent of opening hand
+  location. Input uses that same right/up plane. Moving the hand lower or sideways
+  no longer aims the panel's normal toward the eye position.
+- Circular crop runs in the existing HUD alpha shader only on the wheel-owned sink.
+  Both RGB and alpha are feathered to zero outside a pixel-aspect-correct inscribed
+  circle. The tuned crop still determines its bounds; other HUD sinks are unchanged.
+- F10 distance offset ranges -0.30m (closer) to+0.50m (farther), initial0. It moves
+  the quad along the opening camera's forward axis. The physical hand's starting
+  point stays the input origin, so changing depth does not require reaching the panel.
+- F10 HUD / Menu immersion exposes independent HeadLook and NoBlur toggles for
+  Pause, Note, Journal, Wheel, Store and MissionStats. New immersion controls are
+  default off in repo; the installed test enables head look for Wheel/Note and
+  blur suppression for Wheel only. Saved user dimensions and all other settings stay.
+
+### Frozen world view: cause and scoped fix
+
+UiSurfaceBlocks intentionally parks the normal script/direct camera writers even
+when a menu rides a stereo HUD quad. ENGINE_NOTES' measured paused-menu rendering
+already established that scene draws and camera uploads can continue with a fixed
+camera. Therefore seeing an old FOV boundary while turning does not prove GPU
+rendering stopped. This is a world-camera/menu issue, not the residual hand flicker.
+
+MenuHeadBegin applies head rotation relative to the menu-entry sample to the current
+camera cache only across both viewport draws. MenuHeadPublish tags both eyes with
+the exact sample used, preserving image-owned orientation. MenuHeadEnd restores the
+incoming rotation, location and writer provenance. Existing main-menu, cinematic,
+loading, identity and stereo guards remain. Gameplay remains paused and its input
+remains blocked. Head translation preserves the menu-entry offset plus subsequent
+raw physical translation, avoiding a changing gameplay neck cancellation on a
+camera whose animation is paused. Temporary render gaps hold the reference; a new
+UI context epoch refreshes live identities even when pointers are unchanged.
+
+### Gray blur: targeted hypothesis, not yet visually verified
+
+The named movie flag m_bBlurGameWhileActive is not sufficient evidence for the wheel:
+its class does not opt into that flag in the local declarations. Native registration
+search found no callable UI blur toggle. DisPostProcessManager does expose a dedicated
+m_UIPPWeight separate from Kismet and other effects. The candidate reflects
+Actor.WorldInfo -> WorldInfo.Game -> DishonoredGameInfo.m_pPpManager and that weight.
+On the game/draw lane, an opted-in riding menu temporarily zeros only the UI blend.
+It records the latest nonzero game value and restores only its own exact zero when
+ownership ends. Every writer checks IsLiveObject/current slot identity and current
+owner chain; entry and context/owner changes refresh BuildLiveSet. Dead/replaced
+owners are never restored. Reflection failure logs and leaves the native effect.
+A successful write is not proof that this field reaches the visible effect. If gray
+blur remains, use menu/blur observed weight/writes plus head-scope logs; do not broaden
+to global DOF, motion blur or unrelated post-process switches without evidence.
+
+### Validation and next launch
+
+2185 dial math/input checks; native D3D11 WARP test of the actual HUD shader
+(57312 transparent pixels,394 feather pixels,7830 solid for a256-square circle test;
+unmasked control65536 solid);16 production menu lifecycle checks; existing cinematic
+math/scope/FOV checks,30 HUD anchor and20 route checks pass. Scope tests cover dead
+identity, wrong thread, external rewrites, exact restoration and nonfinite custom
+translation. No game or simulator launched. GPU tests create no visible window.
+
+One launch question: with the wheel held open, does turning the head reveal fresh
+world scenery beyond the old FOV rectangle, then return normally on release?
+Expected: the circular camera-parallel dial stays parked, small hand movements select,
+and world head look continues without unpausing gameplay. Wheel blur suppression is
+armed; Note head look is armed for normal use, but this launch's question is Wheel.
+If the old rectangle remains, inspect menu/head scope/base/out/gen and fresh eye
+counts to separate refused camera ownership from stale rendering. If the world moves
+but the gray blur persists, head look succeeded and the UI-weight hypothesis needs
+more work. If there is a close/resume jump, inspect restore/refused and context epoch
+before changing synchronization. User launches; agent reads and archives both logs.
+
 ## VR-126: world-space weapon dial (2026-09-16)
 
 Branch `codex/hud-weapon-dial` starts at VR-Main52107a094 after the accepted

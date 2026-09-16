@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
+#include <atomic>
 
 namespace dvr::hudlayout {
 namespace {
@@ -79,9 +80,13 @@ const int         kMenuContexts = 6;
 ElementCfg g_el[ElCount];
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
+bool g_dialDirection = true, g_dialCircle = true;
+float g_dialDeadM = .002f, g_dialDistance = 0;
+float g_dialForward[3] = {0,0,-1};
+std::atomic<uint32_t> g_menuHeadMask{0},g_menuBlurMask{0};
 bool g_dialOn = false; // experimental placement: installed test opts in
-float g_dialWidth = .42f, g_dialRadius = .12f;
-float g_dialCropX = .60f, g_dialCropY = .50f;
+float g_dialWidth = .35f, g_dialRadius = .04f;
+float g_dialCropX = .40f, g_dialCropY = .40f;
 WindowCfg  g_win = kPresetWindow;
 HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
 AlphaCfg   g_alpha = kPresetAlpha;
@@ -439,6 +444,18 @@ void set_menu_riding(bool riding, int context) {
         DVR_INFO("hud/layout: the screen is %s on the %s", kRows[e].name, kAnchorNames[g_el[e].anchor]);
 }
 bool menu_riding() { return g_menuRiding; }
+bool menu_head_look(int c) { return c>=3 && c<=8 && (g_menuHeadMask.load() & (1u<<c)); }
+bool menu_no_blur(int c) { return c>=3 && c<=8 && (g_menuBlurMask.load() & (1u<<c)); }
+void circle_for_sink(int sink,uint32_t width,uint32_t height,float ellipse[4]) {
+    memset(ellipse,0,4*sizeof(float));
+    if(g_dialOn && g_dialCircle && g_menuRiding && g_ridingContext==6 &&
+       sink>=0 && sink<kMaxSinks && g_sink[sink].anchor==g_el[ElWheel].anchor && !g_sink[sink].crop) {
+        ellipse[0]=ellipse[1]=.5f;
+        if(!width || !height) return;
+        const float radius=.5f*fminf(g_dialCropX*width,g_dialCropY*height);
+        ellipse[2]=radius/width; ellipse[3]=radius/height; // round in pixels/metres, not just UVs
+    }
+}
 
 void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelected) {
     dvr::vr::HeadPose head{};
@@ -446,9 +463,14 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
     const bool tracked = dvr::vr::peek_head_pose(head) &&
         dvr::vr::input_get_hand_pose(0, false, hp, hq);
     const float eye[3] = {head.px, head.py, head.pz};
+    const float hqCamera[4] = {head.qx,head.qy,head.qz,head.qw};
     const bool was = g_dial.held;
     handSelected = g_dial.update(held && permitted && g_dialOn, tracked, hp, eye,
-                                g_dialRadius, .015f, x, y);
+                                g_dialRadius, g_dialDeadM, x, y, hqCamera, g_dialDirection);
+    if (!was && g_dial.held) {
+        const float f[3]={0,0,-1};
+        dvr::xrmath::quat_rotate(head.qx,head.qy,head.qz,head.qw,f,g_dialForward);
+    }
     if (was != g_dial.held)
         DVR_INFO("hud/dial: %s tracked=%d valid=%d center=(%.3f %.3f %.3f) width=%.3f radius=%.3f crop=%.3fx%.3f",
             g_dial.held ? "open" : "close", (int)tracked, (int)g_dial.valid,
@@ -572,8 +594,8 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         if (e == ElWheel && g_dialOn && g_dial.held) {
             if (!g_dial.valid) { --n; continue; }
             d.anchor = dvr::vr::HudAnchor::LocalBillboard;
-            d.orient = dvr::vr::HudOrient::Billboard; d.hand = 0;
-            memcpy(d.base, g_dial.center, sizeof(d.base));
+            d.orient = dvr::vr::HudOrient::CameraPlane; d.hand = 0;
+            for(int k=0;k<3;++k) d.base[k]=g_dial.center[k]+g_dialForward[k]*g_dialDistance;
             d.width = g_dialWidth; d.height = 0;
             d.planeOff[0] = d.planeOff[1] = 0;
             // Wheel ring measured [0.226,.275 - .774,.716] in ENGINE_NOTES.
@@ -698,11 +720,24 @@ void configure(const char* ini) {
             g_backdrop[k] = d;
         }
     }
+    uint32_t headMask=0,blurMask=0;
+    for(int i=0;i<kMenuContexts;++i) {
+        char key[64];
+        _snprintf(key,sizeof(key),"HeadLook%s",kMenuContextNames[i]);
+        if(read_i(ini,key,0)) headMask|=1u<<kMenuContextBits[i];
+        _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]);
+        if(read_i(ini,key,0)) blurMask|=1u<<kMenuContextBits[i];
+    }
+    g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
+    g_dialDistance=fminf(.50f,fmaxf(-.30f,read_f(ini,"WeaponDialDistance",0)));
+    g_dialDirection = read_i(ini,"WeaponDialDirectionOnly",1)!=0;
+    g_dialCircle = read_i(ini,"WeaponDialCircle",1)!=0;
+    g_dialDeadM = fminf(.01f,fmaxf(.0005f,read_f(ini,"WeaponDialDeadzone",.002f)));
     g_dialOn = read_i(ini, "WeaponDial", 0) != 0;
-    g_dialWidth = fminf(1.2f, fmaxf(.15f, read_f(ini,"WeaponDialWidth",.42f)));
-    g_dialRadius = fminf(.30f, fmaxf(.04f, read_f(ini,"WeaponDialRadius",.12f)));
-    g_dialCropX = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropX",.60f)));
-    g_dialCropY = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropY",.50f)));
+    g_dialWidth = fminf(1.2f, fmaxf(.15f, read_f(ini,"WeaponDialWidth",.35f)));
+    g_dialRadius = fminf(.30f, fmaxf(.04f, read_f(ini,"WeaponDialRadius",.04f)));
+    g_dialCropX = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropX",.40f)));
+    g_dialCropY = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropY",.40f)));
     g_dial.reset();
     g_menuInWindow = read_i(ini, "MenuInWindow", 1) != 0;
     uint32_t mask = 0;
@@ -753,6 +788,15 @@ void save(const char* ini) {
     set_alpha(g_alpha, "save");
     set_backdrop(0, g_backdrop[0], "save");
     set_backdrop(1, g_backdrop[1], "save");
+    for(int i=0;i<kMenuContexts;++i) {
+        char key[64];
+        _snprintf(key,sizeof(key),"HeadLook%s",kMenuContextNames[i]); write_i(key,menu_head_look(kMenuContextBits[i]));
+        _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]); write_i(key,menu_no_blur(kMenuContextBits[i]));
+    }
+    write_f("WeaponDialDistance",g_dialDistance);
+    write_i("WeaponDialDirectionOnly",g_dialDirection);
+    write_i("WeaponDialCircle",g_dialCircle);
+    write_f("WeaponDialDeadzone",g_dialDeadM);
     write_i("WeaponDial", g_dialOn ? 1 : 0);
     write_f("WeaponDialWidth",g_dialWidth);
     write_f("WeaponDialRadius",g_dialRadius);
@@ -966,15 +1010,41 @@ void status(dvr::status::Writer& w) {
 // ---- F10 ------------------------------------------------------------------
 
 void draw_ui() {
+    if(ImGui::CollapsingHeader("Menu immersion")) {
+        ImGui::TextWrapped("Per-menu controls. Head look keeps the world paused and rotates the rendered camera. Blur suppression is experimental; reopen the menu after changing it.");
+        for(int i=0;i<kMenuContexts;++i) {
+            ImGui::PushID(100+i); ImGui::Text("%s",kMenuContextNames[i]);
+            const auto bit=1u<<kMenuContextBits[i]; char key[64];
+            bool h=(g_menuHeadMask.load()&bit)!=0,b=(g_menuBlurMask.load()&bit)!=0;
+            if(ImGui::Checkbox("Live head look",&h)) {
+                if(h) g_menuHeadMask.fetch_or(bit); else g_menuHeadMask.fetch_and(~bit);
+                _snprintf(key,sizeof(key),"HeadLook%s",kMenuContextNames[i]);write_i(key,h);
+            }
+            ImGui::SameLine();
+            if(ImGui::Checkbox("Remove menu blur",&b)) {
+                if(b) g_menuBlurMask.fetch_or(bit); else g_menuBlurMask.fetch_and(~bit);
+                _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]);write_i(key,b);
+            }
+            ImGui::PopID();
+        }
+    }
     if (ImGui::CollapsingHeader("Weapon dial")) {
         bool changed = ImGui::Checkbox("World-space left-hand dial", &g_dialOn);
+        changed |= ImGui::SliderFloat("Distance offset (m, + farther)",&g_dialDistance,-.30f,.50f,"%.2f");
+        changed |= ImGui::Checkbox("Direction only (tiny movement selects)",&g_dialDirection);
+        changed |= ImGui::Checkbox("Circular crop",&g_dialCircle);
+        changed |= ImGui::SliderFloat("Neutral radius (m)",&g_dialDeadM,.0005f,.010f,"%.4f");
         changed |= ImGui::SliderFloat("Dial width (m)", &g_dialWidth, .15f, 1.2f, "%.2f");
-        changed |= ImGui::SliderFloat("Hand travel for full input (m)", &g_dialRadius, .04f, .30f, "%.2f");
+        if(!g_dialDirection) changed |= ImGui::SliderFloat("Hand travel for full input (m)", &g_dialRadius, .04f, .30f, "%.2f");
         changed |= ImGui::SliderFloat("Dial crop width", &g_dialCropX, .30f, 1.f, "%.2f");
         changed |= ImGui::SliderFloat("Dial crop height", &g_dialCropY, .30f, 1.f, "%.2f");
         ImGui::TextWrapped("Hold left grip: the dial stays at the opening hand position and faces your head. Move the left hand to select. Either stick overrides hand selection. Release grip to equip. Reopen after changing settings.");
         if (changed) {
             g_dial.reset();
+            write_f("WeaponDialDistance",g_dialDistance);
+            write_i("WeaponDialDirectionOnly",g_dialDirection);
+            write_i("WeaponDialCircle",g_dialCircle);
+            write_f("WeaponDialDeadzone",g_dialDeadM);
             write_i("WeaponDial",g_dialOn ? 1 : 0);
             write_f("WeaponDialWidth",g_dialWidth); write_f("WeaponDialRadius",g_dialRadius);
             write_f("WeaponDialCropX",g_dialCropX); write_f("WeaponDialCropY",g_dialCropY);

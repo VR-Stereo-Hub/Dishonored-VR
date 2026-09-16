@@ -32,6 +32,7 @@ namespace dvr::gfx {
 // strokes), gamma (a nudge on the colour), and a backdrop plate composed UNDER
 // the HUD in premultiplied form. Every value at identity reproduces 41.2.
 struct AlphaParams {
+    float ellipse[4] = {0,0,0,0}; // center UV and radii; zero radii disable
     int   mode = 0;
     float gain = 1.0f, floorA = 0.0f, gamma = 1.0f, mixK = 1.0f;
     float backdrop[4] = {0, 0, 0, 0};   // r, g, b, a (a = 0: no plate)

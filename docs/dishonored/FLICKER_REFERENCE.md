@@ -1,5 +1,23 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## Current menu-world investigation (VR-126, 2026-09-16)
+
+Reported on verified build372: weapon wheel and notes expose a stationary world FOV
+rectangle when the head turns. Surface is the WORLD behind a riding HUD menu, not
+hand/weapon settling. Existing paused-render evidence plus explicit UiSurfaceBlocks
+camera-writer gates support a frozen camera; the report alone does not establish
+stopped rendering. Added a distinct symptom-routing row below.
+
+Candidate implements menu-relative draw-scoped head look, exact sample publication
+for both eyes, guarded restoration and entry-relative physical translation. It
+preserves accepted image-owned orientation and stereo synchronization. Default-off
+per-menu toggles are enabled for Wheel/Note in the installed test. No perceptual fix
+is claimed yet. Lifecycle/scoped-camera host checks pass; game/simulator not launched.
+
+Menu gray blur is separate: a reflected UI-only blend-weight candidate, not an eye
+synchronization change. Full evidence, false leads, settings and next single launch
+question: [HUD_ANCHORS.md](HUD_ANCHORS.md), current VR-126 refinement section.
+
 ## Current VR-50 follow-up: Display-tab FOV pulsing (2026-09-15)
 
 Build359 fixes a code-confirmed idle F10 Display writer; headset confirmation is pending.
@@ -142,6 +160,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |

@@ -4961,7 +4961,10 @@ void on_present_end(ID3D11Texture2D* frame) {
                 if (dvr::hudanchor::too_near(toHead)) { g_hudStatNear.fetch_add(1, std::memory_order_relaxed); continue; }
                 if (dvr::hudanchor::behind_face(toHead, headFwd)) { g_hudStatBehind.fetch_add(1, std::memory_order_relaxed); continue; }
                 float oq[4];
-                if (d.orient == HudOrient::FollowGrip) {
+                if (d.orient == HudOrient::CameraPlane) {
+                    const auto& q=g_views[0].pose.orientation;
+                    oq[0]=q.x; oq[1]=q.y; oq[2]=q.z; oq[3]=q.w;
+                } else if (d.orient == HudOrient::FollowGrip) {
                     dvr::hudanchor::follow_grip_orientation(gq, d.hand ? 1 : 0, d.tiltDeg, oq);
                 } else {
                     if (dvr::hudanchor::billboard_degenerate(toHead)) { g_hudStatDegenerate.fetch_add(1, std::memory_order_relaxed); continue; }

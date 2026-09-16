@@ -377,6 +377,7 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     // rather than presenting the reuse as a fresh sample.
     CineHeadPublish();
     CinePitchPublish();
+    MenuHeadPublish();
     const uint32_t acct2 = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);   // VR-78: this write, by id
     dvr::stereo::reentry_push_tag_draw(+1, wrote ? wrotePos : NULL,
                                        SdOpenPoseRecord(+1, g_sdPairId, true), acct2, ++g_sdDrawAttempt);
@@ -438,6 +439,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         // pass 2 will run, so a present can never carry a -1 whose +1 sibling
         // was skipped (41.1: the resume-window one-sided stream).
         g_sdTick = SceneDrawDecide(callerRet);
+        MenuHeadBegin(g_sdTick.gameplay,g_sdTick.doubleIt);
         CineHeadBegin(g_sdTick.gameplay, g_sdTick.doubleIt);
         CinePitchBegin(g_sdTick.gameplay,g_sdTick.doubleIt);
         CineFovBegin(g_sdTick.gameplay);
@@ -477,6 +479,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         CineFovEnd();
         CinePitchEnd();
         CineHeadEnd();
+        MenuHeadEnd();
         if (g_sdSecondDraws != call2Before) g_sdSumCall2Us += g_sdCall2Us;
         QueryPerformanceCounter(&g_sdRetPrev);
         g_sdLastDrawPresent = g_frame;

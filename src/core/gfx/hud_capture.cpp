@@ -401,6 +401,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 const dvr::hudlayout::AlphaCfg& a = dvr::hudlayout::alpha();
                 ap.mode = a.mode; ap.gain = a.gain; ap.floorA = a.floorA; ap.gamma = a.gamma; ap.mixK = a.mixK;
                 dvr::hudlayout::backdrop_for_sink(i, ap.backdrop);
+                dvr::hudlayout::circle_for_sink(i, s.slotW, s.slotH, ap.ellipse);
                 g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, &ap);
                 if (s.readFence[other]) {
                     ctx11->End(s.readFence[other]);

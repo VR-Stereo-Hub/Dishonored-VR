@@ -82,6 +82,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
 #endif
 
     UiSurfaceTick(); // bounded read-only UI discovery, independent of motion hands
+    MenuEffectsTick(); // game lane only; independently selected menu UI blend
     InterlockedIncrement(&g_peCalls);
 
     // 41.1: the ProcessEvent CALLER's return address, for the scene probe.

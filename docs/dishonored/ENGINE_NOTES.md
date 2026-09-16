@@ -6882,3 +6882,20 @@ continuous-angle fault is in pad_bridge's final generic menu shaping: Wheel is
 a blocked UI context and was fed through independent cardinal MenuStep pulses,
 with the right stick erased. Final output now bypasses that block for Wheel and
 uses radial shaping. See HUD_ANCHORS for geometry, validation and pending test.
+
+## Menu immersion camera and UI blend (VR-126, 2026-09-16)
+
+The existing reflected Camera.CameraCache.POV.Rotation is scoped across both eye
+draws for opted-in riding menus. Camera/controller/pawn are captured from the
+current chain with BuildLiveSet and ChSlot/IsLiveObject guards. A context epoch
+forces refresh on each new menu interval; no address or unchecked writer is added.
+Head sample publication uses the same per-image path as cinematic scopes.
+
+The UI-only blur candidate resolves Actor.WorldInfo, WorldInfo.Game,
+DishonoredGameInfo.m_pPpManager and DisPostProcessManager.m_UIPPWeight by property
+name. Declarations identify a separate UI effect weight/parameters from the Kismet
+effect. The wheel's m_bBlurGameWhileActive default is not established true, so that
+flag alone was rejected as a sufficient route. The verified native-registration
+search returned radial component functions but no UI blur toggle. Weight suppression
+and visible consumption remain separate claims; headset validation is pending.
+Full implementation and failed-hypothesis record: HUD_ANCHORS current VR-126 section.

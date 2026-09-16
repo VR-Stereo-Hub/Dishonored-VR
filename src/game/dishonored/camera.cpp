@@ -550,7 +550,7 @@ bool clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax) {
 // Rotation lives only across the two draws. Save both the field and its offset
 // provenance, so the next authored update sees precisely the incoming camera.
 bool begin_view_scope(uint8_t* cam,uint32_t rotOff,const int32_t rot[3],
-                      const float right[3],int firstEye,bool (*validate)(uint8_t*),bool authoredPosition) {
+                      const float right[3],int firstEye,bool (*validate)(uint8_t*),bool authoredPosition,const float* positionOverride) {
     if (g_viewScope.thread || g_field < 0 || kFields[g_field].off != kPovOffs[0] ||
         !validate || !validate(cam) || !RangeReadable(cam+rotOff,12) ||
         !RangeReadable(cam+kFields[g_field].off,12)) return false;
@@ -566,6 +566,9 @@ bool begin_view_scope(uint8_t* cam,uint32_t rotOff,const int32_t rot[3],
     // alternative is published alongside the unchanged gameplay request.
     if (authoredPosition) cinematic_position_offset_uu(next.pos);
     else position_offset_uu(next.pos); // pitch-only scope preserves gameplay position/neck policy
+    if(positionOverride) {
+        for(int i=0;i<3;++i) { if(!std::isfinite(positionOverride[i])) return false;next.pos[i]=positionOverride[i]; }
+    }
     if (!validate(cam)) return false;
     next.thread=GetCurrentThreadId(); g_viewScope=next;
     memcpy(cam+rotOff,rot,12);

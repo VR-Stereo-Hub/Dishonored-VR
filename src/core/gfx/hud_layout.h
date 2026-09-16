@@ -85,6 +85,7 @@ void set_alpha(const AlphaCfg& a, const char* who);
 const Backdrop& backdrop(int kind);
 void set_backdrop(int kind, const Backdrop& b, const char* who);
 void backdrop_for_sink(int sink, float rgba[4]);
+void circle_for_sink(int sink, uint32_t width, uint32_t height, float ellipse[4]);
 
 const ElementCfg& element(int e);
 const WindowCfg&  window();
@@ -106,7 +107,9 @@ uint32_t menu_context_mask();
 void     set_menu_context_mask(uint32_t mask, const char* who);
 bool     screen_can_ride(int context);          // the row exists and its anchor is visible
 void     set_menu_riding(bool riding, int context);   // published by the game side each poll
-bool     menu_riding();
+bool menu_riding();
+bool menu_head_look(int context);
+bool menu_no_blur(int context);
 
 // ---- routing (the classifier's side, present thread) ----------------------
 // The sink a draw goes to. bbox = the draw's normalised backbuffer rectangle

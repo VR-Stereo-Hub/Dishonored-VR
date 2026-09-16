@@ -1,40 +1,31 @@
-## Current handoff: HUD Weapon Dial (VR-126, 2026-09-16)
+## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 
-- PR67 and PR68 merged with explicit user authorization after build369 was
-  accepted. Main52107a094 matches its source tree. Both source branches retained.
-- Active branch `codex/hud-weapon-dial`, created from that main. Implements a
-  cropped, larger, camera-facing weapon wheel fixed at the left grip opening
-  position, with hand displacement emulating continuous analog selection.
-- Found/fixed generic menu stepping quantizing wheel input. Either stick remains
-  a continuous override; ordinary menus keep their repeat pulses.
-- Details, controls, measured crop, tests and single launch question are in
-  [HUD_ANCHORS.md](dishonored/HUD_ANCHORS.md), VR-126 section. Bottom-corner
-  widgets deferred. PERFORMANCE.md remains the performance record.
-- Installed372 (`vr33-hands-working-372-gab770282c`), clean source ab770282c.
-  Candidate build/playtest-candidates/vr126-weapon-dial. Both logs and previous
-  DLL/INI archived in build/playtest-candidates/installs/20260916-003048-979346.
-  Complete INI diff adds only five WeaponDial keys; hashes and CRLF verified.
-- Build/install identity is authoritative in build/playtest-candidates/installed.json.
-  Preserve FOV103/120% pixels/strict mirror suppression and all saved settings.
-  New dial placement defaults off in repo and is opted in only for this test.
-- Standalone1815 dial checks,30 anchor checks,20 route checks,release build,
-  exports,golden,lint pass. Headset gesture/crop acceptance remains pending.
-- Before interpreting a report verify the installed build banner; archive both
-  logs before relaunch. No game/simulator launch,subagents,branch deletion or HUD
-  merge authorized. User launches only. Full INI comparison and CRLF required.
+- Branch codex/hud-weapon-dial; PR67/68 already merged, no HUD merge authorized.
+- Build372 dial accepted and tuned: width0.350m,travel0.040m,crop0.400x0.400.
+  Verified logs/INI archived in build/playtest-candidates/vr126-weapon-dial/accepted-tuning.
+- New work: tiny-motion direction selection, camera-parallel panel, true circular
+  feathered crop, closer/farther slider, per-menu live head look and UI blur controls.
+- Current candidate identity is in build/playtest-candidates/installed.json.
+  Preserve all installed settings/CRLF; compare the entire INI and archive both logs.
+- Read only the current VR-126 refinement section in [HUD_ANCHORS](dishonored/HUD_ANCHORS.md) for
+  details, evidence, failed hypotheses, validation and the single launch question.
+- Next question: with Wheel open, does turning reveal fresh world scenery beyond
+  the old FOV rectangle and return normally on release? Camera and UI-blur fixes
+  remain headset-unverified. Scope and effect diagnostics distinguish the outcomes.
+- Standalone2185 dial checks, actual GPU mask test,16 production menu lifecycle
+  checks, existing camera/FOV and HUD tests pass. No game/simulator launched.
+- No subagents, source branch deletion or new main merge. User launches only.
 
 ### Minimal next-chat prompt
 
-Continue Dishonored VR on codex/hud-weapon-dial, ticket VR-126. Read AGENTS/CLAUDE,
-current STATUS/NEXT_SESSION, then HUD_ANCHORS VR-126 section only as needed.
-PR67/68 are merged and accepted; preserve their103 FOV/120% pixels/strict mirror
-suppression. The new weapon dial latches at left grip opening position, faces the
-head, crops around the measured ring, and maps hand displacement to continuous
-LX/LY. Generic menu pulses were wrongly quantizing wheel directions and are now
-bypassed for Wheel context. Check installed.json and verify log banner before
-analysis; archive both logs/full INI/CRLF. User tests every hand-selected wedge,
-especially7 o'clock; read final pad/wheel telemetry. No subagents or game/simulator
-launches. Bottom-corner widgets deferred. HUD work is not authorized for main merge.
+Continue VR-126 on codex/hud-weapon-dial. Read AGENTS/CLAUDE, current STATUS and
+HUD_ANCHORS current refinement section; FLICKER_REFERENCE current menu-world entry
+for camera work.372 dial accepted; preserve tuned35cm width and0.4x0.4 crop. New
+candidate adds2mm direction-only selection,camera-plane orientation,circle mask,
+distance offset,and per-menu head-look/UI-blur controls. Check installed.json and
+verify log banner before analysis; archive both logs and preserve full INI/CRLF.
+User checks head turns beyond old FOV while Wheel open. Inspect menu/head and
+menu/blur; a write is not visual acceptance. No subagents or game/simulator launches.
 
 ## Performance research shelved, 2026-09-15
 

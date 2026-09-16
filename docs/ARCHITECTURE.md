@@ -928,3 +928,14 @@ fresh live-owner validation. The engine retains its window/resource lifecycle in
 of the proxy resetting D3D underneath it. Capture dimensions confirm completion.
 Derivation/ABI: dishonored/ENGINE_NOTES.md, "Live resolution through the F11 viewport
 path". Candidate acceptance: dishonored/PERFORMANCE.md.
+
+### 2026-09-16: menu immersion remains a render-only camera owner
+
+Riding HUD menus retain input/pause ownership. Their optional head-look overlay uses
+the existing camera scope across both viewport draws and restores native fields; it
+does not enable gameplay input or unpause the game. A UI context epoch separates
+ownership intervals even at identical addresses. Both eye records receive the same
+consumed head sample. Menu translation retains its entry offset and adds raw physical
+translation, avoiding gameplay neck cancellation while animation is paused. UI blur
+is a separate opt-in per-context reflected effect-weight control, with its own guards
+and conservative restore. Details/validation: dishonored/HUD_ANCHORS.md, VR-126.

@@ -23,7 +23,10 @@
 
 - [x] Continuous wheel analog input and independent world-space hand dial implemented.
 - [x] Standalone dial geometry/input and existing HUD regression checks pass.
-- [ ] Headset acceptance: every wedge reachable, stationary camera-facing cropped dial.
+- [x]372 hand dial accepted and physical size/crop tuned.
+- [x] Tiny-motion direction, camera-plane orientation, circular crop and distance controls.
+- [x] Scoped menu head look and per-menu UI blur candidate with host/GPU validation.
+- [ ] Headset acceptance: refined dial and live world view during Wheel/Note.
 
 ## Performance research shelved (2026-09-15)
 
