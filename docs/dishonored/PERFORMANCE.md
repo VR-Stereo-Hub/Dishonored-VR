@@ -1,6 +1,6 @@
 # Performance research
 
-## Status: broader research shelved; VR-50 FOV/mirror exception active
+## Status: accepted FOV/mirror improvements merged; broader research shelved
 
 The earlier research established a substantial
 resolution-independent rendering cost, ruled out several cheap fixes, and measured
@@ -624,3 +624,15 @@ Sources explain mechanisms, not measured Dishonored savings:
 - [D3D11 Flush](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-flush) and [shared resources](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-opensharedresource): submission does not prove completion.
 - [OpenXR wait](https://registry.khronos.org/OpenXR/specs/1.0/man/html/xrWaitSwapchainImage.html) and [release](https://registry.khronos.org/OpenXR/specs/1.0/man/html/xrReleaseSwapchainImage.html): image ownership contract.
 - [Microsoft GPU accounting](https://devblogs.microsoft.com/directx/gpus-in-the-task-manager/): engine-specific utilization and summary semantics.
+
+## Accepted combined main merge (2026-09-16)
+
+The tester accepted build369 combining performance PR68 and crouch-camera PR67,
+then explicitly authorized both merges. Installed DLL hash and log banner match
+vr33-hands-working-369-g6c3ef07b4. Both logs and INI preserved under
+build/playtest-candidates/pr67-combined/accepted-20260916. Crouch logs confirm
+camera LEFT ALONE and standing pivot retained. PR67 merged as6ec63636e and PR68
+as52107a094; resulting source/release/test trees match the accepted combination.
+Source branches remain.103 FOV,120% pixels and strict desktop suppression remain
+the accepted profile. No new controlled performance percentage is established.
+Subsequent HUD work is VR-126 and is documented in HUD_ANCHORS, outside this research.

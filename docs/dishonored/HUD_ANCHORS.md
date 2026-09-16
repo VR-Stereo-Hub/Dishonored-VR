@@ -21,6 +21,68 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## VR-126: world-space weapon dial (2026-09-16)
+
+Branch `codex/hud-weapon-dial` starts at VR-Main52107a094 after the accepted
+combined build369. PR67 (crouch camera) and PR68 (performance) are merged;
+source/release/test trees were checked against accepted merge6c3ef07b4.
+
+**Input finding:** UpdateVirtualPad called MenuStep independently on LX/LY
+whenever UiSurfaceBlocks or g_menuOpen was set. MenuStep quantizes each axis
+to +/-32000 pulses, with separate380/170ms repeat timers, and zeros RX/RY.
+Wheel is a blocked UI owner even when it rides a stereo HUD quad. Consequently
+continuous radial directions were destroyed by the mod. PadStick also applied
+an independent per-axis deadzone, distorting angles. This is a code-confirmed
+fault matching the reported cardinal bias; game-side wedge reachability still
+needs the headset. The old pad/rs diagnostic was BEFORE final menu shaping and
+could not prove what the game received.
+
+**Implementation:** a published Wheel-context bit exempts the wheel from list
+stepping. Either stick uses an angle-preserving radial deadzone and delivers
+continuous LX/LY, with the stronger stick taking priority. RX/RY stay zero to
+avoid two competing navigation streams. Final pad/wheel telemetry names the
+source, both raw sticks and delivered axes. Other menus retain step repeats.
+
+With `[Hud] WeaponDial=1`, hold left grip to seed the quad center at the left
+GRIP position in XR LOCAL space. Subsequent hand position does not move that
+center. Both selection and rendering use a world-up billboard facing the head;
+hand displacement projected on its current right/up axes supplies LX/LY.
+Depth displacement does not select.15mm neutral radius;120mm full input by
+default. Tracking loss neutralizes hand selection and requires release/reopen
+before re-seeding. Pose reads use existing APIs; no engine memory writes added.
+The new descriptor changes only the wheel quad, not scene/eye synchronization.
+
+The wheel ring was previously measured at [0.226,0.275 -0.774,0.716] in
+ENGINE_NOTES, How the Scaleform HUD identifies its elements. Initial crop is
+[0.20,0.25 -0.80,0.75], with margins and original pixel aspect preserved.
+This excludes the measured bottom-corner widgets and right-edge labels; their
+independent display/interaction is deferred. Cropping only changes the submitted
+quad's source rectangle, not draw classification. Bounds from the sewer are
+not proof that every inventory/aspect fits; F10 exposes crop width/height.
+
+F10 HUD / Weapon dial has an enable checkbox, width0.15..1.20m, hand travel
+0.04..0.30m, crop width/height0.30..1.00. Initial cropped width0.42m is independent
+of HandL.Width, its grip tilt, lift, element offsets, and scale. Keep the wheel's
+existing handL routing enabled. New placement is default OFF in the repository,
+ON in the installed candidate pending headset acceptance; continuous wheel stick
+input is corrected regardless. Existing saved settings are preserved.
+
+**Validation:**1815 production-math checks cover360 directions at two stick
+magnitudes,360 hand directions, fixed center, depth motion, tilted panel, release,
+tracking loss/recovery, nonfinite input, menu gating and crop bounds. Existing
+HUD anchor30 and route20 checks pass; release build,9 exports, golden and lint
+pass. No game or simulator launched. Headset result remains pending.
+
+**One launch question:** Can the left hand smoothly select every weapon wedge,
+especially7 o'clock, while the enlarged cropped wheel stays at its opening
+position? Hold left grip with the hand comfortably forward, leave both sticks
+neutral, and slowly draw a small circle roughly12cm from the opening center.
+Release on the lower-left wedge. Expected: continuous highlight, fixed center,
+camera-facing wheel and selected item equipped. Success accepts the gesture;
+missing wedges despite varied final logged axes points downstream to the game;
+wrong/zero axes points to input gating or geometry. A clipped wheel points to
+crop bounds, not input quantization. Agent reads logs after the report.
+
 ## 1. The pieces
 
 ```

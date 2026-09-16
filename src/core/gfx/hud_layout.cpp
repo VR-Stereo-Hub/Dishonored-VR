@@ -1,6 +1,8 @@
 // core/gfx/hud_layout.cpp - see hud_layout.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_layout.h"
+#include "core/input/weapon_dial.h"
+#include "core/vr/openxr_input.h"
 
 #include "core/framework/status.h"
 #include "core/gfx/hud_capture.h"
@@ -76,6 +78,10 @@ const int         kMenuContexts = 6;
 
 ElementCfg g_el[ElCount];
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
+dvr::weapon_dial::State g_dial;
+bool g_dialOn = false; // experimental placement: installed test opts in
+float g_dialWidth = .42f, g_dialRadius = .12f;
+float g_dialCropX = .60f, g_dialCropY = .50f;
 WindowCfg  g_win = kPresetWindow;
 HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
 AlphaCfg   g_alpha = kPresetAlpha;
@@ -434,6 +440,22 @@ void set_menu_riding(bool riding, int context) {
 }
 bool menu_riding() { return g_menuRiding; }
 
+void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelected) {
+    dvr::vr::HeadPose head{};
+    float hp[3]{}, hq[4]{};
+    const bool tracked = dvr::vr::peek_head_pose(head) &&
+        dvr::vr::input_get_hand_pose(0, false, hp, hq);
+    const float eye[3] = {head.px, head.py, head.pz};
+    const bool was = g_dial.held;
+    handSelected = g_dial.update(held && permitted && g_dialOn, tracked, hp, eye,
+                                g_dialRadius, .015f, x, y);
+    if (was != g_dial.held)
+        DVR_INFO("hud/dial: %s tracked=%d valid=%d center=(%.3f %.3f %.3f) width=%.3f radius=%.3f crop=%.3fx%.3f",
+            g_dial.held ? "open" : "close", (int)tracked, (int)g_dial.valid,
+            g_dial.center[0],g_dial.center[1],g_dial.center[2],g_dialWidth,g_dialRadius,g_dialCropX,g_dialCropY);
+}
+
+
 // ---- routing --------------------------------------------------------------
 
 int sink_for(const float* bbox, int* elementOut) {
@@ -547,6 +569,20 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         d.tex = tex; d.element = e; d.slot = ElCount + a;
         memcpy(d.subrect, whole, sizeof(d.subrect));
         place(d, e, a, whole, aspect, true);
+        if (e == ElWheel && g_dialOn && g_dial.held) {
+            if (!g_dial.valid) { --n; continue; }
+            d.anchor = dvr::vr::HudAnchor::LocalBillboard;
+            d.orient = dvr::vr::HudOrient::Billboard; d.hand = 0;
+            memcpy(d.base, g_dial.center, sizeof(d.base));
+            d.width = g_dialWidth; d.height = 0;
+            d.planeOff[0] = d.planeOff[1] = 0;
+            // Wheel ring measured [0.226,.275 - .774,.716] in ENGINE_NOTES.
+            // Margin is adjustable for other aspect ratios and inventories.
+            d.subrect[0] = .5f - g_dialCropX*.5f;
+            d.subrect[2] = .5f + g_dialCropX*.5f;
+            d.subrect[1] = .5f - g_dialCropY*.5f;
+            d.subrect[3] = .5f + g_dialCropY*.5f;
+        }
     }
     return n;
 }
@@ -662,6 +698,12 @@ void configure(const char* ini) {
             g_backdrop[k] = d;
         }
     }
+    g_dialOn = read_i(ini, "WeaponDial", 0) != 0;
+    g_dialWidth = fminf(1.2f, fmaxf(.15f, read_f(ini,"WeaponDialWidth",.42f)));
+    g_dialRadius = fminf(.30f, fmaxf(.04f, read_f(ini,"WeaponDialRadius",.12f)));
+    g_dialCropX = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropX",.60f)));
+    g_dialCropY = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropY",.50f)));
+    g_dial.reset();
     g_menuInWindow = read_i(ini, "MenuInWindow", 1) != 0;
     uint32_t mask = 0;
     for (int i = 0; i < kMenuContexts; ++i) {
@@ -711,6 +753,11 @@ void save(const char* ini) {
     set_alpha(g_alpha, "save");
     set_backdrop(0, g_backdrop[0], "save");
     set_backdrop(1, g_backdrop[1], "save");
+    write_i("WeaponDial", g_dialOn ? 1 : 0);
+    write_f("WeaponDialWidth",g_dialWidth);
+    write_f("WeaponDialRadius",g_dialRadius);
+    write_f("WeaponDialCropX",g_dialCropX);
+    write_f("WeaponDialCropY",g_dialCropY);
     write_key("MenuInWindow", g_menuInWindow ? "1" : "0");
     set_menu_context_mask(g_menuMask, "save");
     strncpy_s(g_ini, keep, _TRUNCATE);
@@ -919,6 +966,20 @@ void status(dvr::status::Writer& w) {
 // ---- F10 ------------------------------------------------------------------
 
 void draw_ui() {
+    if (ImGui::CollapsingHeader("Weapon dial")) {
+        bool changed = ImGui::Checkbox("World-space left-hand dial", &g_dialOn);
+        changed |= ImGui::SliderFloat("Dial width (m)", &g_dialWidth, .15f, 1.2f, "%.2f");
+        changed |= ImGui::SliderFloat("Hand travel for full input (m)", &g_dialRadius, .04f, .30f, "%.2f");
+        changed |= ImGui::SliderFloat("Dial crop width", &g_dialCropX, .30f, 1.f, "%.2f");
+        changed |= ImGui::SliderFloat("Dial crop height", &g_dialCropY, .30f, 1.f, "%.2f");
+        ImGui::TextWrapped("Hold left grip: the dial stays at the opening hand position and faces your head. Move the left hand to select. Either stick overrides hand selection. Release grip to equip. Reopen after changing settings.");
+        if (changed) {
+            g_dial.reset();
+            write_i("WeaponDial",g_dialOn ? 1 : 0);
+            write_f("WeaponDialWidth",g_dialWidth); write_f("WeaponDialRadius",g_dialRadius);
+            write_f("WeaponDialCropX",g_dialCropX); write_f("WeaponDialCropY",g_dialCropY);
+        }
+    }
     ImGui::TextDisabled("%s", g_statusLine);
     ImGui::Separator();
     ImGui::Text("ELEMENTS (which anchor each one rides; 'seen' = draws routed to it this session; a row without a region rides 'default')");

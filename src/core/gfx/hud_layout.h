@@ -134,6 +134,8 @@ void log_status();
 void log_alpha();                       // `hud alpha status`
 void log_list();                        // `hud list`: every row, its anchor, its region, draws seen
 const char* status_line();              // one line: each element's anchor and why any is hidden
+// Present-thread wheel input and placement share one opening-position latch.
+void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelected);
 void draw_ui();                         // the F10 HUD tab (ImGui; overlay draw callback only)
 
 } // namespace dvr::hudlayout

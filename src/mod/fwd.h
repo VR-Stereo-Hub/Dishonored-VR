@@ -609,6 +609,7 @@ static bool HeadMovementEnabled();
 static void HeadMovementSet(bool on);
 
 static bool UiSurfaceEnabled();
+static bool UiSurfaceWheel();
 static bool UiSurfaceBlocks();            // the INPUT class: a UI owner is on top (VR-71 guards read this)
 static bool UiSurfaceRidesHud();          // VR-117: that owner rides the HUD window (projection stays up)
 static bool UiSurfaceOwnsPresentation();  // VR-117: blocked AND not riding (the presentation class)

@@ -19,6 +19,12 @@
 - [x] Promote complete saved profile and rename performance improvements branch.
 - [ ] Open performance PR; prepare local combined PR67 crouched-pitch playtest.
 
+## HUD Weapon Dial (VR-126)
+
+- [x] Continuous wheel analog input and independent world-space hand dial implemented.
+- [x] Standalone dial geometry/input and existing HUD regression checks pass.
+- [ ] Headset acceptance: every wedge reachable, stationary camera-facing cropped dial.
+
 ## Performance research shelved (2026-09-15)
 
 - [x] Consolidate findings and reusable default-off tools; preserve source branches.

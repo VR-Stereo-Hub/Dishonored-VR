@@ -6873,3 +6873,12 @@ about 5 uu in BOTH stances on both machines, the VR-87 residual, and the crouche
 episodes clipped 0 presents); the cinematic pitch and head-look scopes (`cinepitch off`,
 `cinehead off`: no change); the game's own crouched pitch limits (with `hands off` the
 crouched camera pitched to the written -30 deg).
+
+## Weapon dial input and crop reuse (VR-126, 2026-09-16)
+
+The existing measured wheel rectangle above is reused with margins by HUD_ANCHORS'
+VR-126 implementation. No new engine addresses or writes are introduced. The
+continuous-angle fault is in pad_bridge's final generic menu shaping: Wheel is
+a blocked UI context and was fed through independent cardinal MenuStep pulses,
+with the right stick erased. Final output now bypasses that block for Wheel and
+uses radial shaping. See HUD_ANCHORS for geometry, validation and pending test.

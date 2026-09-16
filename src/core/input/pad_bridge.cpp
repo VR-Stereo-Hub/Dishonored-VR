@@ -3,6 +3,8 @@
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
 
 
+#include "core/input/weapon_dial.h"
+
 static inline SHORT PadStick(float v)
 {
     float a = fabsf(v);
@@ -15,7 +17,11 @@ static inline SHORT PadStick(float v)
 
 static void UpdateVirtualPad()
 {
-    if (!g_padEnabled || !g_xrOn) { g_padActive = false; return; }
+    if (!g_padEnabled || !g_xrOn) {
+        float x=0,y=0; bool selected=false;
+        dvr::hudlayout::wheel_input(false,false,x,y,selected);
+        g_padActive = false; return;
+    }
     MeleeTick();
 
     bool active = false;
@@ -281,7 +287,31 @@ static void UpdateVirtualPad()
     // the same signal the skc gates trust), so menu shaping now requires
     // the renderer to AGREE a menu is showing. A real menu is unchanged; a
     // ghost flag during stereo gameplay can no longer eat the sticks.
-    if ((g_menuOpen || UiSurfaceBlocks()) && active) {
+    const bool wheelInput = active && (UiSurfaceWheel() ||
+        (g_wheelHeld && !UiSurfaceBlocks() && !g_menuOpen && !CineActive()));
+    float handX=0,handY=0; bool handSelected=false;
+    dvr::hudlayout::wheel_input(active && g_wheelHeld, wheelInput && !g_ovlVisible,
+                               handX,handY,handSelected);
+    if (wheelInput) {
+        float x=handSelected ? handX : 0, y=handSelected ? handY : 0;
+        const float lm=in.mv[0]*in.mv[0]+in.mv[1]*in.mv[1];
+        const float rm=in.lk[0]*in.lk[0]+in.lk[1]*in.lk[1];
+        const bool stick = fmaxf(lm,rm) > g_padDeadzone*g_padDeadzone;
+        if (stick) {
+            const float* s=rm>lm ? in.lk : in.mv;
+            dvr::weapon_dial::radial(s[0],s[1],g_padDeadzone,x,y);
+        }
+        xs.Gamepad.sThumbLX=(SHORT)(x*32767); xs.Gamepad.sThumbLY=(SHORT)(y*32767);
+        xs.Gamepad.sThumbRX=xs.Gamepad.sThumbRY=0;
+        MenuStep(0,0); MenuStep(0,1); // clear repeat clocks for the next ordinary menu
+        static double dialLog=0; const double now=MaimNowMs();
+        if(now-dialLog>500) { dialLog=now;
+            Log("pad/wheel: source=%s rawL=(%.3f %.3f) rawR=(%.3f %.3f) out=(%d %d) continuous=1",
+                stick ? "stick" : handSelected ? "hand" : "neutral",in.mv[0],in.mv[1],in.lk[0],in.lk[1],
+                (int)xs.Gamepad.sThumbLX,(int)xs.Gamepad.sThumbLY);
+        }
+    }
+    if (dvr::weapon_dial::step_menu(g_menuOpen || UiSurfaceBlocks(), wheelInput) && active) {
         xs.Gamepad.sThumbLX = MenuStep(xs.Gamepad.sThumbLX, 0);
         xs.Gamepad.sThumbLY = MenuStep(xs.Gamepad.sThumbLY, 1);
         xs.Gamepad.sThumbRX = 0;   // one navigation axis only - a second one

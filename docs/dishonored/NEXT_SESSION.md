@@ -1,29 +1,36 @@
-## Current handoff: accepted performance profile, PR preparation
+## Current handoff: HUD Weapon Dial (VR-126, 2026-09-16)
 
-- Branch `codex/performance-improvements` (renamed at user request). Publishing a
-  PR is authorized; merging to VR-Main is not. Preserve finalized/source branches.
--363 strict mirror-off accepted. Verified DLL/log;621 strict-mode windows with zero
-  native desktop Presents. Evidence: build/performance-results/strict-mirror-accepted-20260915-235444.
-  Possible subjective improvement; no new controlled FPS percentage claimed.
-- Complete installed INI promoted to release/golden and generated defaults:103 FOV,
- 120% pixels3012x3122, mirror off+strict off, pacing/benchmark off, saved HUD/hand/
-  crouch settings and existing diagnostic flags. Both INI defaults match exactly.
-- User requests PR67 test next and explicitly chose a local combination with the
-  performance branch. PR67 fixes crouched head pitch by keeping camera look-at out
-  of the hand tuck. Build/install combination on separate codex/pr-67-playtest;
-  do not modify its author branch or merge either PR on GitHub.
-- PERFORMANCE.md is the sole performance record. One crouch/pitch question per
-  launch after setup; user launches only. Archive both logs, full-diff INI and CRLF.
-  No subagents, game/simulator launches or main merge.
+- PR67 and PR68 merged with explicit user authorization after build369 was
+  accepted. Main52107a094 matches its source tree. Both source branches retained.
+- Active branch `codex/hud-weapon-dial`, created from that main. Implements a
+  cropped, larger, camera-facing weapon wheel fixed at the left grip opening
+  position, with hand displacement emulating continuous analog selection.
+- Found/fixed generic menu stepping quantizing wheel input. Either stick remains
+  a continuous override; ordinary menus keep their repeat pulses.
+- Details, controls, measured crop, tests and single launch question are in
+  [HUD_ANCHORS.md](HUD_ANCHORS.md), VR-126 section. Bottom-corner
+  widgets deferred. PERFORMANCE.md remains the performance record.
+- Build/install identity is authoritative in build/playtest-candidates/installed.json.
+  Preserve FOV103/120% pixels/strict mirror suppression and all saved settings.
+  New dial placement defaults off in repo and is opted in only for this test.
+- Standalone1815 dial checks,30 anchor checks,20 route checks,release build,
+  exports,golden,lint pass. Headset gesture/crop acceptance remains pending.
+- Before interpreting a report verify the installed build banner; archive both
+  logs before relaunch. No game/simulator launch,subagents,branch deletion or HUD
+  merge authorized. User launches only. Full INI comparison and CRLF required.
 
 ### Minimal next-chat prompt
 
-Continue Dishonored VR. Read AGENTS/CLAUDE then current STATUS/NEXT_SESSION. Accepted
-performance branch codex/performance-improvements has103 FOV/120% pixels/strict
-mirror-off and complete saved profile. User authorized its PR and a LOCAL combined
-PR67 test (crouched pitch), not a main merge. Inspect installed.json and current
-git branch before acting. Keep both logs archived and full INI/CRLF preserved.
-No subagents or game/simulator launches. PERFORMANCE.md holds the findings.
+Continue Dishonored VR on codex/hud-weapon-dial, ticket VR-126. Read AGENTS/CLAUDE,
+current STATUS/NEXT_SESSION, then HUD_ANCHORS VR-126 section only as needed.
+PR67/68 are merged and accepted; preserve their103 FOV/120% pixels/strict mirror
+suppression. The new weapon dial latches at left grip opening position, faces the
+head, crops around the measured ring, and maps hand displacement to continuous
+LX/LY. Generic menu pulses were wrongly quantizing wheel directions and are now
+bypassed for Wheel context. Check installed.json and verify log banner before
+analysis; archive both logs/full INI/CRLF. User tests every hand-selected wedge,
+especially7 o'clock; read final pad/wheel telemetry. No subagents or game/simulator
+launches. Bottom-corner widgets deferred. HUD work is not authorized for main merge.
 
 ## Performance research shelved, 2026-09-15
 
