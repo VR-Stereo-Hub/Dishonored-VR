@@ -125,6 +125,7 @@ int main() {
     check(stable.resolve(777,610,Prompt,atPrompt)==Prompt,"distinct sprite initially associated");
     check(stable.resolve(777,610,Vitals,atVitals)==Vitals,"same content at two positions is ambiguous");
     check(stable.resolve(777,611,Default,atPrompt)==Default,"ambiguous key falls back instead of borrowing another owner");
+    check(stable.resolve(777,615,Prompt,atPrompt)==Prompt,"transient stereo/stance ambiguity expires");
     {
         using dvr::hudroute::objective_shape;
         for(int step=0;step<80;++step) {

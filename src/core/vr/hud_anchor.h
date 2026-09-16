@@ -125,6 +125,17 @@ struct OpeningOrientation {
     bool valid=false;
     float q[4]={0,0,0,1};
     void reset() {valid=false;}
+    bool capture_upright(const float* camera) {
+        if(valid) return true;
+        const float forward[3]={0,0,-1};float f[3];
+        dvr::xrmath::quat_rotate(camera[0],camera[1],camera[2],camera[3],forward,f);
+        if(!std::isfinite(f[0]) || !std::isfinite(f[2])) return false;
+        const float horizontal=std::sqrt(f[0]*f[0]+f[2]*f[2]);
+        if(horizontal<.01f) return false;
+        const float yaw=std::atan2(-f[0],-f[2]);
+        const float upright[4]={0,std::sin(yaw*.5f),0,std::cos(yaw*.5f)};
+        return capture(upright);
+    }
     bool capture(const float* camera) {
         if(valid) return true;
         float norm=0;

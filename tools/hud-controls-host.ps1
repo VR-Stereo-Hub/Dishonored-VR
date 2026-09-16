@@ -11,6 +11,9 @@ if(-not $selector.Success -or -not $capture.Success -or -not $menu.Success){thro
 [IO.File]::WriteAllText((Join-Path $out 'hud_alpha_selector.inc'),$selector.Value)
 [IO.File]::WriteAllText((Join-Path $out 'hud_alpha_capture.inc'),$capture.Value)
 [IO.File]::WriteAllText((Join-Path $out 'hud_menu_step.inc'),$menu.Value)
+$invalidate=[regex]::Match([IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_capture.cpp')),'(?ms)^void invalidate_content\(\).*?^\}')
+if(-not $invalidate.Success){throw 'Content invalidation extraction failed'}
+[IO.File]::WriteAllText((Join-Path $out 'hud_invalidate.inc'),$invalidate.Value)
 . (Join-Path $PSScriptRoot "lib\msvc.ps1")
 $root = Get-DvrMsvcRoot
 $sdk = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" |

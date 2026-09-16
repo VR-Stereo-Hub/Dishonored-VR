@@ -39,6 +39,7 @@ struct Sink {
     ID3D11Query*        readFence[2] = {};
     bool blitIssued[2] = {}, readIssued[2] = {}, slotValid[2] = {};
     dvr::hudmarker::Delivery markers;
+    bool clearBeforeDraw=false;
     int  cur = 0;
     ID3D11Texture2D*        outTex = nullptr;
     ID3D11RenderTargetView* outRtv = nullptr;
@@ -279,12 +280,19 @@ float slot_scale() { return g_slotScale; }
 
 void set_game_gate(bool arm, bool menuOverride) { g_gameGate = arm; g_menuOverride = menuOverride; }
 bool armed() { return g_armed; }
+void invalidate_content() {
+    for(auto& s:g_sink) {
+        s.slotValid[0]=s.slotValid[1]=false;s.delivered=false;
+        s.markers.reset();s.redirected=0;s.clearBeforeDraw=true;
+    }
+}
 
 bool begin(IDirect3DDevice9* dev, const D3DVIEWPORT9& vp, int sink) {
     if (!g_armed || g_inRedirect >= 0 || !dev) return false;
     if (sink < 0 || sink >= dvr::hudlayout::kMaxSinks) return false;
     Sink& s = g_sink[sink];
     if (!s.rt) return false;
+    if(s.clearBeforeDraw) {clear_rt(dev,s);s.clearBeforeDraw=false;}
     if (FAILED(dvr::frame::orig_set_render_target(dev, 0, s.rt))) return false;
     // SetRenderTarget resets the viewport to the whole target; the game's own
     // viewport goes back. The device is PURE, so it comes from the shadow.
@@ -363,6 +371,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 continue;
             }
             if (!ensure_rt(dev9, i)) { s.redirected = 0; continue; }
+            if(s.clearBeforeDraw) {clear_rt(dev9,s);s.clearBeforeDraw=false;}
             if (dvr::hudlayout::sink_hidden(i)) {
                 // An "off" element: its draws left the frame and stop here.
                 // No copy, no slot, no quad; the target is cleared every present.

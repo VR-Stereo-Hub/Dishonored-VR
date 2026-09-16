@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <cmath>
 #include "../src/core/gfx/blit_quad.cpp"
 namespace dvr::log {
 uint8_t g_levels[(int)Cat::COUNT]={};
@@ -37,5 +38,17 @@ int main() {
    else check(solid==size*size && clear==0 && soft==0,"ordinary HUD unchanged");
    printf("mask=%d clear=%u feather=%u solid=%u PASS\n",mask,clear,soft,solid);ctx->Unmap(cpu,0);
  }
+ // Hue regression: production shader must retain channel ratios at gamma .25.
+ for(auto& p:pixels) p=0xffb4d2b4; // RGB 180,210,180
+ ctx->UpdateSubresource(src,0,nullptr,pixels.data(),size*4,0);
+ dvr::gfx::AlphaParams tint;tint.gamma=.25f;tint.gain=1.09f;
+ blit.draw(ctx,srv,rtv,size,size,&tint);ctx->CopyResource(cpu,dst);
+ D3D11_MAPPED_SUBRESOURCE mapped{};check(SUCCEEDED(ctx->Map(cpu,0,D3D11_MAP_READ,0,&mapped)),"tint readback");
+ const auto* sample=(const unsigned char*)mapped.pData;
+ const float ratio=(float)sample[0]/sample[1];
+ check(std::fabs(ratio-180.f/210.f)<.015f,"gamma retains input color ratio");
+ check(std::fabs(std::pow(180.f/210.f,4.f)-180.f/210.f)>.25f,"old per-channel gamma fails this hue case");
+ printf("hue-preserving gamma RGB=%u/%u/%u ratio=%.3f PASS\n",sample[0],sample[1],sample[2],ratio);
+ ctx->Unmap(cpu,0);
  blit.shutdown();rtv->Release();srv->Release();cpu->Release();dst->Release();src->Release();ctx->Release();dev->Release();
 }

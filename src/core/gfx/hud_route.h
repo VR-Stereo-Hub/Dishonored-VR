@@ -20,7 +20,7 @@ namespace dvr::hudroute {
 // it cannot change an observed draw's owner while the same content moves.
 // This is not semantic Scaleform identity: animated/rebuilt geometry can miss.
 struct StableRoutes {
-    struct Entry { uint64_t key=0; uint32_t frame=0; int owner=0; bool ambiguous=false; float x=0,y=0; } entries[2048]{};
+    struct Entry { uint64_t key=0; uint32_t frame=0; int owner=0; bool ambiguous=false; uint32_t ambiguousFrame=0; float x=0,y=0; } entries[2048]{};
     void clear() { for(auto& e:entries) e=Entry{}; }
     void adopt(uint64_t key,uint32_t frame,int owner) {
         if(!key) return;
@@ -31,12 +31,13 @@ struct StableRoutes {
         if(!key) return initial;
         Entry& e=entries[(key^(key>>32))%2048];
         if(e.key!=key || frame-e.frame>240) e={key,frame,initial};
+        if(e.ambiguous && frame-e.ambiguousFrame>2) e.ambiguous=false;
         const float x=rect ? (rect[0]+rect[2])*.5f : 0;
         const float y=rect ? (rect[1]+rect[3])*.5f : 0;
         // Repeated identical sprites can share every byte and resource. Two
         // positions in one present prove this key is not a unique element.
         if(e.frame==frame && rect && (e.x!=0 || e.y!=0) &&
-           ((e.x-x)*(e.x-x)+(e.y-y)*(e.y-y))>.000004f) e.ambiguous=true;
+           ((e.x-x)*(e.x-x)+(e.y-y)*(e.y-y))>.000004f) {e.ambiguous=true;e.ambiguousFrame=frame;}
         e.x=x;e.y=y;e.frame=frame;return e.ambiguous ? initial : e.owner;
     }
 };
@@ -75,6 +76,11 @@ struct InteractionGroup {
     uint32_t frame=0,previousFrame=0;bool currentOk=false,previousOk=false;
     float current[4]{},previous[4]{};
     void clear() {*this=InteractionGroup{};}
+    bool near_group(const float r[4],uint32_t now) const {
+        auto touches=[&](const float b[4]) {return r[0]<=b[2]+.02f && r[2]>=b[0]-.02f && r[1]<=b[3]+.025f && r[3]>=b[1]-.025f;};
+        return (currentOk && now-frame<=2 && touches(current)) ||
+               (previousOk && now-previousFrame<=2 && touches(previous));
+    }
     bool claim(const float r[4],uint32_t now,bool seed) {
         if(now!=frame) {
             previousOk=currentOk && now-frame<=2;

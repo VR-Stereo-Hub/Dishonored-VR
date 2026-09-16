@@ -5,8 +5,10 @@
 #include "core/vr/openxr_input.h"
 
 #include "core/framework/status.h"
+#include "core/framework/frame_hooks.h"
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/hud_route.h"
+#include "core/gfx/hud_native_icon.h"
 #include "core/util/log.h"
 #include "core/vr/hud_anchor.h"
 #include "core/vr/openxr_runtime.h"
@@ -81,8 +83,11 @@ ElementCfg g_el[ElCount];
 hudroute::StableRoutes g_stableRoutes;
 hudroute::InteractionGroup g_interactionGroup;
 bool g_groupInteractions=false,g_routeObjectives=false,g_objectiveScreen=false;
+bool g_nativeObjectives=false;
+float g_nativeObjectiveScale=.70f;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
+dvr::weapon_dial::State g_dialVisual; // survives grip release until the screen closes
 bool g_dialDirection = true, g_dialCircle = true;
 float g_dialDeadM = .002f, g_dialDistance = 0;
 float g_dialForward[3] = {0,0,-1};
@@ -483,10 +488,11 @@ bool screen_can_ride(int context) {
 }
 void set_menu_riding(bool riding, int context) {
     if (riding == g_menuRiding && (!riding || context == g_ridingContext)) return;
+    dvr::hudcap::invalidate_content();
     g_readOpening.reset();
     if(riding && (context==4 || context==5)) {
         dvr::vr::HeadPose h{};
-        if(dvr::vr::peek_head_pose(h)) {const float q[4]={h.qx,h.qy,h.qz,h.qw};g_readOpening.capture(q);}
+        if(dvr::vr::peek_head_pose(h)) {const float q[4]={h.qx,h.qy,h.qz,h.qw};g_readOpening.capture_upright(q);}
     }
     g_menuRiding = riding;
     g_ridingContext = riding ? context : -1;
@@ -502,6 +508,7 @@ void set_menu_riding(bool riding, int context) {
 }
 void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear(); }
 bool menu_riding() { return g_menuRiding; }
+float native_objective_scale(int e) {return g_nativeObjectives && !g_menuRiding && e==ElObjective ? g_nativeObjectiveScale : 1.f;}
 bool menu_stereo_hold() { return g_menuRiding && menu_head_look(g_ridingContext); }
 bool menu_head_look(int c) { return c>=3 && c<=8 && (g_menuHeadMask.load() & (1u<<c)); }
 bool menu_no_blur(int c) { return c>=3 && c<=8 && (g_menuBlurMask.load() & (1u<<c)); }
@@ -527,9 +534,11 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
     handSelected = g_dial.update(held && permitted && g_dialOn, tracked, hp, eye,
                                 g_dialRadius, g_dialDeadM, x, y, hqCamera, g_dialDirection);
     if (!was && g_dial.held) {
+        g_dialVisual.reset();
         const float f[3]={0,0,-1};
         dvr::xrmath::quat_rotate(head.qx,head.qy,head.qz,head.qw,f,g_dialForward);
     }
+    if(g_dial.held) {if(g_dial.valid) g_dialVisual=g_dial;else g_dialVisual.reset();}
     if (was != g_dial.held)
         DVR_INFO("hud/dial: %s tracked=%d valid=%d center=(%.3f %.3f %.3f) width=%.3f radius=%.3f crop=%.3fx%.3f",
             g_dial.held ? "open" : "close", (int)tracked, (int)g_dial.valid,
@@ -545,17 +554,28 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     id.hasRect = bbox != nullptr;
     if (bbox) memcpy(id.rect, bbox, sizeof(id.rect)); else memset(id.rect, 0, sizeof(id.rect));
     const int spatial = hudroute::route(g_rows, ElCount, id, ElDefault);
-    int e = id.context >= 0 ? spatial : g_stableRoutes.resolve(drawKey, g_presentNo, spatial, bbox);
+    const uint32_t drawFrame=(uint32_t)dvr::frame::count();
+    const bool isolatedIcon=id.context<0 && g_nativeObjectives && bbox &&
+        dvr::hudnative::square_icon(bbox,vertices,primitives) && !g_interactionGroup.near_group(bbox,drawFrame);
+    int e = id.context >= 0 ? spatial : g_stableRoutes.resolve(drawKey, drawFrame,
+        isolatedIcon && spatial==ElPrompt ? ElDefault : spatial,bbox);
     if(id.context<0 && bbox) {
         // Group decisions outrank the first spatial hint retained by the old
         // cache, otherwise title and action can stay split for their lifetime.
-        if(g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives)) e=ElObjective;
-        else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
+        const bool icon=dvr::hudnative::square_icon(bbox,vertices,primitives);
+        const bool reticle=hudroute::centered_reticle(bbox,primitives) ||
+            (icon && fabsf(bbox[0]+bbox[2]-1)<.002f && fabsf(bbox[1]+bbox[3]-1)<.002f);
+        const bool nativeIcon=g_nativeObjectives && icon && !reticle &&
+            (dvr::hudnative::edge_icon(bbox) ||
+             (e!=ElPrompt && !g_interactionGroup.near_group(bbox,drawFrame)));
+        if(nativeIcon || (g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
+            e=ElObjective;g_stableRoutes.adopt(drawKey,drawFrame,e);
+        } else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
             // A title crossing the central region is not the reticle. Preserve
             // the native measured dot/grown reticle rather than adopting it.
             !hudroute::centered_reticle(bbox,primitives) &&
-            g_interactionGroup.claim(bbox,g_presentNo,spatial==ElPrompt || e==ElPrompt)) {
-            e=ElPrompt;g_stableRoutes.adopt(drawKey,g_presentNo,e);
+            g_interactionGroup.claim(bbox,drawFrame,(!g_nativeObjectives || !icon) && (spatial==ElPrompt || e==ElPrompt))) {
+            e=ElPrompt;g_stableRoutes.adopt(drawKey,drawFrame,e);
         }
     }
     if(e != spatial) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
@@ -566,6 +586,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     ++g_routeCounts[e]; ++g_seen[e];
     g_lastRouted[e] = g_presentNo;
     int anchor = g_el[e].anchor;
+    if(g_nativeObjectives && e==ElObjective && id.context<0) {++g_routeFrame;return -1;}
     if (anchor == AnchorFrame) { ++g_routeFrame; return -1; }
     if (anchor == AnchorOff) anchor = AnchorOff;   // a hidden sink: redirected, never delivered
     const bool crop = crop_eligible(e);
@@ -634,7 +655,7 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
     // present's slot, so two presents of grace).
     for (int e = 0; e < ElCount && n < max; ++e) {
         const int a = g_el[e].anchor;
-        if (!anchor_visible(a) || !crop_eligible(e)) continue;
+        if (!anchor_visible(a) || !crop_eligible(e) || (g_nativeObjectives && e==ElObjective)) continue;
         if (g_presentNo - g_lastRouted[e] > 2) continue;
         const int s = g_elementSink[e];
         if (s < 0) continue;
@@ -714,19 +735,19 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
             if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) || !dvr::vr::peek_head_pose(head)) {--n;continue;}
             const float camera[4]={head.qx,head.qy,head.qz,head.qw};
             d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
-            if(!g_readOpening.capture(camera)) {--n;continue;}
+            if(!g_readOpening.capture_upright(camera)) {--n;continue;}
             d.orient=dvr::vr::HudOrient::OpeningPlane;
             memcpy(d.orientation,g_readOpening.q,sizeof(d.orientation));
             dvr::hudanchor::camera_panel_position(hp,g_readOpening.q,g_readDistance[readPanel],d.base);
             d.width=g_readWidth[readPanel];d.height=0;
             d.planeOff[0]=g_readRight[readPanel];d.planeOff[1]=0;
         }
-        if (e == ElWheel && g_dialOn && g_dial.held) {
-            if (!g_dial.valid) { --n; continue; }
+        if (e == ElWheel && g_dialOn) {
+            if (!g_dialVisual.valid) { --n; continue; }
             d.anchor = dvr::vr::HudAnchor::LocalBillboard;
             d.orient = dvr::vr::HudOrient::OpeningPlane; d.hand = 0;
-            memcpy(d.orientation,g_dial.opening.q,sizeof(d.orientation));
-            for(int k=0;k<3;++k) d.base[k]=g_dial.center[k]+g_dialForward[k]*g_dialDistance;
+            memcpy(d.orientation,g_dialVisual.opening.q,sizeof(d.orientation));
+            for(int k=0;k<3;++k) d.base[k]=g_dialVisual.center[k]+g_dialForward[k]*g_dialDistance;
             d.width = g_dialWidth; d.height = 0;
             d.planeOff[0] = d.planeOff[1] = 0;
             // Wheel ring measured [0.226,.275 - .774,.716] in ENGINE_NOTES.
@@ -864,6 +885,8 @@ void configure(const char* ini) {
     g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
     g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
+    g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
+    g_nativeObjectiveScale=fminf(1.f,fmaxf(.25f,read_f(ini,"NativeObjectiveScale",.70f)));
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
     for(int i=0;i<3;++i) {
         auto& a=g_alphaBank.special[i];a=g_alpha;char key[64],mode[32];
@@ -940,6 +963,7 @@ void save(const char* ini) {
     set_alpha(g_alpha, "save");
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
     write_i("ObjectiveScreenTracking",g_objectiveScreen);
+    write_i("NativeObjectiveIcons",g_nativeObjectives);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
     for(int i=0;i<3;++i) save_scoped_alpha(i);
     for(int i=0;i<2;++i) {
         char key[64];
@@ -1203,11 +1227,15 @@ void draw_ui() {
         bool change=ImGui::Checkbox("Keep interaction labels together",&g_groupInteractions);
         change|=ImGui::Checkbox("Route moving objective markers",&g_routeObjectives);
         change|=ImGui::Checkbox("Objective markers follow screen",&g_objectiveScreen);
+        change|=ImGui::Checkbox("Native objective icons (test)",&g_nativeObjectives);
+        change|=ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx");
+        ImGui::TextWrapped("Native test bypasses HUD capture for isolated marker-shaped icons and scales them around their original position. Similar icons can match. Overrides screen tracking.");
         ImGui::TextWrapped("Screen tracking separates marker size from screen position. Window/world markers follow the rendered field of view; their window scale controls icon size. Native game edge indicators remain.");
         ImGui::TextWrapped("Test controls: group nearby interaction draws and recognize the measured objective-marker shape. Other similar icons may match; disable to compare. Objective uses its own anchor and placement below.");
         if(change) {
             write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
             write_i("ObjectiveScreenTracking",g_objectiveScreen);
+            write_i("NativeObjectiveIcons",g_nativeObjectives);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
             rebalance();refresh_status_line();
         }
     }
@@ -1216,7 +1244,7 @@ void draw_ui() {
         ImGui::TextWrapped("Applies to the interaction title, action prompt and icons routed onto a HUD panel. Frame keeps native game rendering.");
     }
     if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
-        ImGui::TextWrapped("Follow the left hand while retaining the camera orientation from opening. Independent of wrist rotation and later head turns. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
+        ImGui::TextWrapped("Follow the left hand with a vertical panel. Opening yaw sets its facing; head pitch and roll never tilt the page. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
         for(int i=0;i<2;++i) {
             ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);
             bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);

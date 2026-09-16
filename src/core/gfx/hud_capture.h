@@ -57,6 +57,8 @@ void set_game_gate(bool arm, bool menuOverride);
 
 // True while the redirect should run this present. The draw path tests this first.
 bool armed();
+// Prevent an old screen image from being presented under a new HUD owner.
+void invalidate_content();
 
 // Around one HUD-class draw. begin() binds sink `sink`'s target and re-applies
 // the viewport SetRenderTarget just reset (the device is PURE: the viewport

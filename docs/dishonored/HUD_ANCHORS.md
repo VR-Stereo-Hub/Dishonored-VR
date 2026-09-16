@@ -21,6 +21,48 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Current:385 results and transition/native-icon candidate (2026-09-16)
+
+385 banner and installed DLL hash verified. Both logs and full INI archived under
+`build/playtest-candidates/vr127-opening-hud/reported-transitions-tint`; INI unchanged.
+Pause navigation accepted. Wheel layout and readers accepted except closing flash,
+reader opening pitch, transient interaction routing, green prompts/objectives and
+left-eye hand/weapon flicker. Pause residual is hands; mono causation is unproven.
+
+Changes prepared, headset validation pending:
+- Readers retain opening yaw but discard pitch/roll; hand-following position remains.
+- Wheel release keeps a separate visual pose until its context ends. Context changes
+  invalidate both capture slots and request a clear before the next draw/copy, so
+  old wheel pixels cannot be delivered under the next menu's layout.
+- Alpha gamma previously exponentiated RGB channels separately. The shader now
+  scales brightness uniformly, preserving RGB ratios and existing alpha/settings.
+  Actual production shader on D3D11 WARP:180/210/180 becomes101/117/101 at gamma.25;
+  ratio.863 versus input.857 within byte rounding. Old per-channel control fails.
+  This removes artificial tint amplification; it does not remove native green art.
+- Interaction history now counts actual draw presents, not HUD provider calls.
+  Duplicate-key ambiguity expires after two frames instead of permanently poisoning
+  an entry.385 arming stayed fully enabled after startup; no stance off-gate evidence.
+  Semantic grouping during animation remains a hypothesis until playtested.
+- NativeObjectiveIcons bypasses private HUD capture for recognized objectives and
+  scales their original draw about its native center (70% width/height), retaining
+  native screen-edge placement, source blend/color and depth. Shader constant edits
+  restore exactly after the draw, including partial failure; no engine-memory writes.
+  POSITIONT/unreadable/aliased constant layouts refuse scaling.
+
+Failed385 objective hypothesis: zero hud/objective lines. Moving square draws in
+this log have8 vertices/10 primitives, not the older2-primitive classifier. New
+classification uses measured square dimensions and edge clamping plus interaction
+exclusion. This is NOT semantic identity: similar icons can match, markers near
+interaction text can miss, and an isolated button before its title can be ambiguous.
+Native path is explicitly a test. Disable old ObjectiveScreenTracking in candidate.
+No promise that every objective has been completely uncaptured yet.
+
+Host checks:458 anchor,465 routing,2186 dial,95 controls,11 native draw-scope checks;
+actual GPU circle/hue test and41 palette-eye checks pass. Default writer/release/
+golden remain byte-identical. See newest FLICKER_REFERENCE for the single launch
+question and measured hand hypothesis. Saved user values retained; new experimental
+keys are enabled only in installed candidate, not promoted into repo defaults.
+
 ## Current: opening orientation, pause input and crouched grouping (VR-127, 2026-09-16)
 
 **Installed385** (`vr33-hands-working-385-gd6abf293f`), clean source d6abf293f.

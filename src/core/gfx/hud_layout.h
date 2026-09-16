@@ -111,6 +111,7 @@ bool     screen_can_ride(int context);          // the row exists and its anchor
 void     set_menu_riding(bool riding, int context);   // published by the game side each poll
 void forget_draw_owners();
 bool menu_riding();
+float native_objective_scale(int element);
 bool menu_stereo_hold();
 bool menu_head_look(int context);
 bool menu_no_blur(int context);

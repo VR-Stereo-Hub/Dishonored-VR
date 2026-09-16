@@ -1,5 +1,32 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## New385 result: measured left-eye menu hand misclassification (2026-09-16)
+
+Verified385 DLL hash/banner; both logs and INI preserved under
+`build/playtest-candidates/vr127-opening-hud/reported-transitions-tint`.
+20 rate-limited mismatch lines:15 wheel(context6),5 pause(context3), ALL handEye+1,
+completed drawEye-1, decision S. Positive measured jumps2.291..2.831uu fall just
+below .45*6.309=2.839uu. Sampled placements3/3, refusals0/0, weapon hits11..15,
+misses0. These are sampled mismatches, not a complete visible-flicker count.
+Frequent menu center/eye transitions are approximately half-IPD. The current
+same-eye band can hold a right-eye correction on a completed left-eye draw.
+
+Candidate Hands.PaletteEyeMenuHalfStep=1 lowers only menu contexts3..8 to .25IPD
+(the midpoint between zero and half-IPD). Sign still selects the eye; no guessed
+alternation, queued-draw retagging or camera changes. Gameplay keeps .45IPD.
+Ten recorded jumps replay correctly; old threshold controls reproduce the wrong
+hold. Stationary menu and gameplay controls pass;41 palette checks total pass.
+This remains a heuristic susceptible to head-motion false crossings, NOT an
+established flicker fix. Old VR95 predictor/alternation settings remain OFF;
+accepted image-owned orientation, synchronization and gap hold are unchanged.
+
+User confirms pause issue is minor hand flicker, not proven mono. Wheel residual
+is left-eye hands/weapons only. Do not label either corrected without headset data.
+ONE launch question: with wheel open and controllers still, do slow head turns
+keep left-eye hands/weapons stable, relative to a still-head baseline? Stable
+supports half-step recognition; unchanged requires new completed-eye comparison;
+new still-head flicker rejects the threshold. Logs remain agent-inspected.
+
 ## New382 result: wheel hands and pause interruption (2026-09-16)
 
 **Installed385** (`vr33-hands-working-385-gd6abf293f`), clean source d6abf293f.

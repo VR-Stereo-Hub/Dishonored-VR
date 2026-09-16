@@ -2397,14 +2397,19 @@ static void MpEyeForPresent(const MpDrawCtx* c)
     const float d = c->projRight - g_mpEyePrevFirst;
     const float ad = fabsf(d);
     char why;
-    if (ad > 0.45f * ipdUU && ad < 2.0f * ipdUU) {
+    const int menuContext=UiSurfaceContext();
+    // Menu single (center) draws introduce half-IPD steps. The nearest-level
+    // threshold between zero and half-IPD is quarter-IPD. Test only in menus;
+    // ordinary gameplay and the retired toggle predictor remain unchanged.
+    const float band=g_mpEyeMenuHalfStep && menuContext>=3 && menuContext<=8 ? .25f : .45f;
+    if (ad > band * ipdUU && ad < 2.0f * ipdUU) {
         // The eye changed. The SIGN gives it absolutely, with no vote: the
         // smaller right-axis projection is the right eye.
         g_mpEyeState = (d < 0.0f) ? +1 : -1;
         g_mpEyeToggles++;
         g_mpEyePredictRun = 0;       // VR-95: a readable jump ends a prediction run
         why = 'T';
-    } else if (ad <= 0.45f * ipdUU) {
+    } else if (ad <= band * ipdUU) {
         // VR-95: "SAME" MEANS "TOO SMALL TO TELL APART", NOT "THE SAME EYE",
         // AND HOLDING THE PREVIOUS EYE IS THEREFORE A GUESS - A BAD ONE.
         //

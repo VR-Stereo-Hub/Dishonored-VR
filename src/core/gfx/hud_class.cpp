@@ -7,6 +7,7 @@
 #include "core/framework/status.h"
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/hud_layout.h"
+#include "core/gfx/hud_native_icon.h"
 #include "core/hooks/vtable.h"
 #include "core/util/log.h"
 #include "core/util/paths.h"
@@ -1050,6 +1051,35 @@ void note_blend_tuple() {
              (unsigned long)g_srcBlendA, (unsigned long)g_dstBlendA);
 }
 
+// Native icon sizing changes only its own shader transform, then restores every
+// touched row through the original setter. Never changes the shadow or capture.
+struct NativeIconScope {
+    IDirect3DDevice9* dev;int rows[4]{},count=0;float saved[4][4]{};
+    NativeIconScope(IDirect3DDevice9* device,const Probe& p,int element):dev(device) {
+        const float scale=dvr::hudlayout::native_objective_scale(element);
+        if(scale>=1 || !p.ok || p.transformed) return;
+        float changed[4][4]{};int n=0;
+        for(int i=0;i<4;++i) {
+            const int row=p.xcol[i];if(row<0) continue;
+            if(row>=256) return;
+            for(int j=0;j<n;++j) if(rows[j]==row) return;
+            rows[n]=row;memcpy(saved[n],dvr::frame::vs_const_shadow_row(row),sizeof(saved[n]));
+            if(!dvr::hudnative::scale_column(saved[n],p.bbox,scale,changed[n])) return;
+            ++n;
+        }
+        if(n<3) return;
+        for(int i=0;i<n;++i) {
+            count=i+1;
+            if(FAILED(dvr::frame::orig_set_vs_const(dev,rows[i],changed[i],1))) {restore();return;}
+        }
+        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+            "hud/native-icon: scale=%.3f rect=%.3f/%.3f/%.3f/%.3f; game target/color retained, heuristic identity",
+            scale,p.bbox[0],p.bbox[1],p.bbox[2],p.bbox[3]);
+    }
+    void restore() {for(int i=0;i<count;++i) dvr::frame::orig_set_vs_const(dev,rows[i],saved[i],1);count=0;}
+    ~NativeIconScope(){restore();}
+};
+
 // ---- the hooks ------------------------------------------------------------
 // Every draw hook: note the thread, classify once, probe once (if asked),
 // record (the census), then route (the redirect) or forward.
@@ -1066,6 +1096,7 @@ void note_blend_tuple() {
     if (hudNow) note_blend_tuple();                                                               \
     if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives); \
     if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
+    NativeIconScope nativeIcon(self,probe,element); \
     const bool forceAlpha = sink >= 0 && alpha_force_wanted(sink);
 
 HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,

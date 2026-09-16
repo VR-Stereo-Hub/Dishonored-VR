@@ -464,6 +464,7 @@ static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
 // VR-95: on an unreadable jump, predict the toggle instead of holding the
 // previous eye. Ships OFF; `[Hands] PaletteEyePredictToggle`, F10 Hands.
 static bool     g_mpEyePredict = false;
+static bool     g_mpEyeMenuHalfStep = false;
 static int      g_mpEyePredictRun = 0;   // consecutive predictions, capped at 2
 static LONG     g_mpEyePredicted = 0;
 static LONG     g_mpEyeMethodAgree[3] = {0, 0, 0};

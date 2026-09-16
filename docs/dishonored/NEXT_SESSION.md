@@ -1,31 +1,24 @@
-## Current: HUD orientation, pause input and crouched grouping (2026-09-16)
+## Current: HUD transition and menu-hand candidate (2026-09-16)
 
-- Installed385-gd6abf293f, candidate vr127-opening-hud. Full INI adds only
-  ObjectiveScreenTracking=1; all saved settings retained. Both logs/DLL/INI archived
-  in installs/20260916-121620-467921. Hashes/CRLF/build/exports/lint/host tests pass.
-  Old log remains382 until tester launch. Headset validation pending.
-- Branch codex/hud-fixes, local only. PR69 already merged at0afbadc83; source
-  codex/hud-weapon-dial preserved. No new main merge/publication authorized.
--382 DLL/banner verified; both logs and updated F10 profile archived under
-  vr127-hud-fixes/reported-crouch-pause. Complete profile promoted byte-for-byte
-  to generated/release/golden defaults, including world pause and latest alpha.
-- Implemented continuous pause navigation, opening-fixed wheel/reader orientation
-  with matching selection/offset axes, retained interaction grouping across large
-  position changes, and narrower reticle exclusion for button alpha consistency.
-- ObjectiveScreenTracking is a new default-off F10 candidate: matching-image crops
-  use full rendered-frustum travel while keeping saved icon size. Candidate opts
-  in; native edge indicators and shape-classification limits remain.
-- Flicker is NOT claimed fixed.382 wheel interior11/11 zero mono; pause15/54 and
-  note4/52 include mono after some150ms hold expiries. VR-128 remains open. New
-  passive hand diagnostics split context/completed eye and expose mismatches.
-- ONE next launch question: does the same interactable's title/button stay
-  together with matching opacity during crouch and head motion? Expected stable
-  grouping; separation rejects content continuity as sufficient. Matching location
-  with different opacity instead points to source coverage. See HUD_ANCHORS current
-  section for validation/limits; FLICKER_REFERENCE newest section for next evidence.
-- installed.json is the build authority. Archive both logs/full INI, compare the
-  entire INI on install and verify CRLF. No game/simulator launch or subagents.
-- Prior detailed Linear export remains blocked/pending permission; do not retry.
+- Branch codex/hud-fixes, local only.385 DLL/banner verified; both logs and INI
+  archived in build/playtest-candidates/vr127-opening-hud/reported-transitions-tint.
+  Saved F10 settings unchanged and retained. Pause navigation accepted.
+- New candidate: upright readers retaining opening yaw; wheel close visual latch
+  and capture invalidation; hue-preserving gamma; interaction history keyed to
+  actual draw presents with expiring ambiguity; native objective icon scaling.
+- Hand evidence:20 sampled mismatches (15 wheel,5 pause), all right correction on
+  left draws. Menu-only half-step threshold is an opt-in test, not a proven fix.
+- Native objective classification remains heuristic.385 ObjectiveScreenTracking
+  produced no objective diagnostics; its old topology assumption was not exercised.
+- Installed identity remains authoritative in build/playtest-candidates/installed.json.
+  Candidate installation details are recorded below when installed. Preserve full
+  INI/CRLF, archive both logs; never launch game/simulator or use subagents.
+- ONE launch question: with the wheel open and controllers still, do slow head
+  turns keep the left-eye hands/weapons stable? Include a still-head baseline.
+  Stable supports the half-step hypothesis; unchanged requires comparing completed
+  eye mismatches; new still-head flicker rejects this candidate threshold.
+- Detailed evidence/limits: HUD_ANCHORS and newest FLICKER_REFERENCE section.
+  No new publication/merge authorized. Prior Linear export permission still pending.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

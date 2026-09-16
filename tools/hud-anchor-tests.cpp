@@ -126,6 +126,13 @@ int main() {
         check(std::fabs((offset[0]+(.9f-.5f)*width)-(.9f-.66f)*width)<1e-6f,"moving content is not clipped at old region edge");
     }
     {
+        OpeningOrientation vertical;
+        const float down[4]={-.5f,0,0,.8660254f};
+        check(vertical.capture_upright(down) && std::fabs(vertical.q[0])<.00001f && std::fabs(vertical.q[2])<.00001f,
+              "looking down to open a reader cannot tilt it");
+        const float upAxis[3]={0,1,0};float pageUp[3];
+        dvr::xrmath::quat_rotate(vertical.q[0],vertical.q[1],vertical.q[2],vertical.q[3],upAxis,pageUp);
+        check(std::fabs(pageUp[1]-1)<.00001f,"reader up axis is vertical");
         OpeningOrientation opening;const float first[4]={0,0,0,1},turned[4]={0,.7071068f,0,.7071068f};
         check(opening.capture(first) && opening.capture(turned) && opening.q[3]==1,"opening rotation cannot swivel with head");
         opening.reset();check(opening.capture(turned) && opening.q[1]>.70f,"next opening takes new rotation");

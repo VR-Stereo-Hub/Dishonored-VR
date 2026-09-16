@@ -48,7 +48,10 @@ const char* kSrc =
     "    a = a * p0.y;\n"
     "    if (a < p0.z && repair > 0.004) a = p0.z;\n"
     "    a = saturate(a);\n"
-    "    float3 rgb = p0.w > 0.0 && abs(p0.w - 1.0) > 0.001 ? pow(max(c.rgb, 0.0), 1.0 / p0.w) : c.rgb;\n"
+    // Apply one brightness factor to all channels. Per-channel powers amplify
+    // saturation (e.g. pale green becomes strong green at gamma 0.25).
+    "    float brightness = p0.w > 0.0 && abs(p0.w - 1.0) > 0.001 && repair > 0.00001 ? pow(repair, 1.0 / p0.w) / repair : 1.0;\n"
+    "    float3 rgb = c.rgb * brightness;\n"
     "    float pa = plate.a * (1.0 - a);\n"
     "    float coverage = 1.0;\n"
     "    if (ellipse.z > 0 && ellipse.w > 0) {\n"

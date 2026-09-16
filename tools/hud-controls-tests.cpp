@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include "core/gfx/hud_marker.h"
 #include <initializer_list>
 namespace dvr::hudlayout {
 static dvr::hudalpha::Bank g_alphaBank;
@@ -17,10 +18,19 @@ using SHORT=int16_t;
 static double testTime=0;
 static double MaimNowMs(){return testTime;}
 #include "hud_menu_step.inc"
+namespace dvr::hudcap {
+struct Sink {bool slotValid[2]={true,true},delivered=true,clearBeforeDraw=false;unsigned redirected=5;dvr::hudmarker::Delivery markers;};
+static Sink g_sink[3];
+#include "hud_invalidate.inc"
+}
 static unsigned checks=0;
 static void check(bool v,const char* why){++checks;if(!v){std::printf("FAIL %s\n",why);std::exit(1);}}
 int main(){
  using namespace dvr::hudlayout;
+ dvr::hudcap::invalidate_content();
+ for(const auto& s:dvr::hudcap::g_sink)
+   check(!s.slotValid[0] && !s.slotValid[1] && !s.delivered && s.redirected==0 && s.clearBeforeDraw,
+         "menu owner change invalidates both delayed images and clears target before reuse");
  g_alphaBank.general={2,2,.2f,.6f,.4f};
  g_alphaBank.special[0]={0,3,0,.5f,1};
  g_alphaBank.special[1]={1,1.2f,.1f,.7f,.3f};

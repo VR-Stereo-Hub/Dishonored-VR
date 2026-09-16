@@ -2095,6 +2095,8 @@ static void LoadConfig()
     // the previous eye. Ships OFF as a new lever must; the fault it removes was
     // measured on the headset as 90 flagged presents, every one of them the
     // classifier saying RIGHT while the tag said LEFT.
+    g_mpEyeMenuHalfStep = IniFloat(ini,"Hands","PaletteEyeMenuHalfStep",0)!=0;
+    Log("config: [Hands] PaletteEyeMenuHalfStep=%d - menu signed half-IPD jump candidate; no toggle prediction",(int)g_mpEyeMenuHalfStep);
     g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
     Log("config: [Hands] PaletteEyePredictToggle=%d - an unreadable eye jump %s. "
         "Holding was measured robbing the LEFT eye's hands of their own half-IPD "
@@ -3184,6 +3186,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteWorld", g_mpWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteDepthRange", g_mpDepth ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands","PaletteEyeMenuHalfStep",g_mpEyeMenuHalfStep ? "1" : "0",ini);
     WritePrivateProfileStringA("Hands", "PaletteEyePredictToggle", g_mpEyePredict ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
 #if DVR_WITH_LEGACY
