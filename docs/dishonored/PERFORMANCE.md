@@ -85,13 +85,22 @@ rays, potentially changing head-motion gain and stereo geometry. A stereo quad/s
 a different presentation mode and would need explicit design/testing. Do not silently
 replace the accepted projection with that mode. Evidence: `build/performance-results/vr50-fov90-headset-20260915-203910`.
 
-**One launch question:** does automatic 90-degree gameplay provide a useful larger view
-while retaining the clarity and comfortable stereo of the F11 discovery? Load the same
-area without pressing F11 and look/walk normally. Expected: larger angular coverage than
-75, smaller than 108, correct depth/head motion. Clear and large enough supports keeping
-90; clear but too small motivates 95; adequate size but lost clarity exposes the density
-tradeoff. Warping or unexpected size requires checking rendered FOV versus submitted FOV
-before further tuning. Read the build353 banner and scoped/readback FOV logs afterward.
+**Live slider follow-up:** build355 (`vr33-hands-working-355-gf8380e1e3-dirty`) is now
+installed from `build/playtest-candidates/vr50-fov-slider`. F10 -> View exposes Custom
+gameplay FOV, a live60-120 slider and Reset FOV to90. Existing Save As Defaults persists
+it. This is UI over the353 setter, with no new render behavior. Default remains90.
+Build, exports, lint and diff checks pass; UI/headset operation is not yet validated.
+Both logs and prior files archived at
+`build/playtest-candidates/installs/20260915-204101-720438`; complete INI diff is empty,
+installed hashes and CRLF verified by installer. No game/simulator launched.
+
+**One launch question:** can live FOV tuning find enough coverage without losing the
+preferred clarity? Start90, use F10 -> View to try95 and100, closing F10 to judge each.
+Increasing FOV should expand coverage with some central sharpness loss; decreasing
+should reverse it. A useful balance establishes a preferred setting; no useful balance
+means a uniform-FOV tradeoff cannot meet both goals. No visible change or distorted head
+motion requires a rendered/submitted FOV check before another tweak. Save As Defaults
+only when a setting is preferred. Agent reads and archives logs after the report.
 
 ## Results and routes
 

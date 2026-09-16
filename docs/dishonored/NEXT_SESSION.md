@@ -2,15 +2,20 @@
 
 - Branch `codex/hud-fixes`, based on VR-Main after merged PR #66. The user redirected
   this session to the F11 sharp-square discovery; no HUD implementation is underway.
-- Build353 (`vr33-hands-working-353-gf0fa9fef4-dirty`) is installed with
-  `[Screen] ProjectionFov=90`, default on by explicit request. Built/host-tested;
-  headset acceptance is pending. No game or simulator was launched for this candidate.
+- Build355 (`vr33-hands-working-355-gf8380e1e3-dirty`) is installed, default90.
+  F10 -> View now has a live60-120 gameplay FOV slider, reset90 and disable control;
+  Save As Defaults persists it. Zero INI changes on this install. Build/exports/lint
+  pass; slider interaction awaits the user. No game/simulator launched.
+- Prior353 headset report:90 looks better than108 but square boundary remains.
+  Verified90 submission and zero scope refusals. Next question is whether live95/100
+  gives useful coverage while retaining clarity. Do not assume moving a projection
+  screen closer is a distance-only change; there is no screen distance in this path.
 - Canonical findings, F11 timeline, density tradeoff, limitations and the one launch
   question are in PERFORMANCE.md, section "Active exception: F11 clarity and
   90-degree view". Read that section only initially.
 - Verify `build/playtest-candidates/installed.json` and the new log banner before
-  interpreting the next run. The existing logs still describe build307. Both were
-  archived before installing353. Exact307 remains recoverable.
+  interpreting the next run. The existing logs still describe build353. Both were
+  archived before installing355. Exact307 remains recoverable.
 - VR-50 is In Progress, unassigned. Other unfinished performance tickets stay Backlog,
   unassigned; their broader optimization work remains shelved.
 - Preserve image-owned orientation, stereo synchronization and IsLiveObject guards.
@@ -22,12 +27,12 @@
 
 Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md and CLAUDE.md,
 then only the current STATUS/NEXT_SESSION handoff and the active F11/90-degree section
-of docs/dishonored/PERFORMANCE.md. Build353 is installed, default ProjectionFov=90;
+of docs/dishonored/PERFORMANCE.md. Build355 is installed with the F10 View slider, default ProjectionFov=90;
 verify installed.json and log banner. Next step is interpreting the user's headset
 result, not launching anything. The F11 discovery restored 2750x2850 while FOV remained
 74.89 degrees versus normal108.07; the candidate scopes gameplay to90 with proportional
-zoom and restores camera memory after both eyes. All standalone checks passed, headset
-acceptance pending. Keep other performance work shelved. Preserve accepted stereo and
+zoom and restores camera memory after both eyes. Prior353 clarity improved but the border remains;355 slider interaction
+awaits testing. Keep other performance work shelved. Preserve accepted stereo and
 orientation, all current user INI settings and CRLF. No subagents or main merge.
 
 ## Performance research shelved, 2026-09-15

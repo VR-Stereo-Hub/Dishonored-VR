@@ -84,6 +84,23 @@ static void OverlayFrame()
 
     if (ImGui::BeginTabItem("View")) {
     {
+        float projectionFov=ProjectionFovGet();
+        bool customFov=projectionFov>0;
+        if (ImGui::Checkbox("Custom gameplay FOV",&customFov)) {
+            projectionFov=customFov?90.0f:0.0f;
+            ProjectionFovSet(projectionFov);
+        }
+        ImGui::BeginDisabled(!customFov);
+        float degrees=customFov?projectionFov:90.0f;
+        if (ImGui::SliderFloat("Gameplay FOV (degrees)",&degrees,60.0f,120.0f,"%.0f",ImGuiSliderFlags_AlwaysClamp))
+            ProjectionFovSet(degrees);
+        if (ImGui::SmallButton("Reset FOV to 90")) ProjectionFovSet(90.0f);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Lower: sharper, smaller view. Higher: wider coverage.");
+        ImGui::TextDisabled("Changes live. SAVE AS DEFAULTS keeps it for next launch.");
+        ImGui::Separator();
+    }
+    {
         bool on=CineHeadEnabled();
         if (ImGui::Checkbox("Cinematic head look (candidate)",&on)) CineHeadSet(on);
         bool pitchLock=CinePitchEnabled();
