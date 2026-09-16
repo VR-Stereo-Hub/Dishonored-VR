@@ -66,5 +66,11 @@ int main() {
  s.reset();float tiny[3]={0,0,-.5f},eye3[3]={0,0,0};
  s.update(true,true,tiny,eye3,.04f,.002f,x,y,cameraQ,true);tiny[0]=.001f;
  s.update(true,true,tiny,eye3,.04f,.002f,x,y,cameraQ,true);check(x==0 && y==0,"1mm tracking jitter remains neutral");
+ // Opening axes and selection must agree after a head turn.
+ s.reset();float fixedHand[3]={0,0,-.5f},fixedHead[3]={0,0,0};
+ const float turnedQ[4]={0,.7071068f,0,.7071068f};
+ s.update(true,true,fixedHand,fixedHead,.04f,.002f,x,y,cameraQ,true);
+ fixedHand[0]=.003f;s.update(true,true,fixedHand,fixedHead,.04f,.002f,x,y,turnedQ,true);
+ check(x>.999f && std::fabs(y)<.00001f && s.opening.q[3]==1,"head turn cannot rotate dial or selection axes");
  std::printf("weapon dial: %d checks PASS\n",checks);
 }

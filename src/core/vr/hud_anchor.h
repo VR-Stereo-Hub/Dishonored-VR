@@ -115,11 +115,51 @@ inline bool billboard_degenerate(const float toHead[3], float minRight = 0.2f) {
     return r < minRight;
 }
 
+// Preserve the initial upright page, then rigidly follow grip rotation.
+struct GripPanel {
+    bool valid=false;float relative[4]={0,0,0,1};
+    void reset(){valid=false;}
+    bool orient(const float grip[4],const float initial[4],float out[4]) {
+        float norm=0;for(int i=0;i<4;++i){if(!std::isfinite(grip[i])) return false;norm+=grip[i]*grip[i];}
+        if(norm<.5f || norm>1.5f) return false;
+        float q[4];for(int i=0;i<4;++i)q[i]=grip[i]/std::sqrt(norm);
+        if(!valid){const float inv[4]={-q[0],-q[1],-q[2],q[3]};dvr::xrmath::quat_mul(inv,initial,relative);valid=true;}
+        dvr::xrmath::quat_mul(q,relative,out);return true;
+    }
+};
+
 // A quad's pixel rectangle inside a texture of texW x texH, from a normalised
 // sub-rectangle (u0,v0,u1,v1) and the wanted metres (width, height). height 0
 // means "the texture's own aspect": the whole sub-rectangle is shown and the
 // height follows. A given height crops the sub-rectangle CENTRED to the asked
 // aspect so pixels keep their shape; stretching text is never an option.
+// Opening orientation belongs to the panel, not each new head pose.
+struct OpeningOrientation {
+    bool valid=false;
+    float q[4]={0,0,0,1};
+    void reset() {valid=false;}
+    bool capture_upright(const float* camera) {
+        if(valid) return true;
+        const float forward[3]={0,0,-1};float f[3];
+        dvr::xrmath::quat_rotate(camera[0],camera[1],camera[2],camera[3],forward,f);
+        if(!std::isfinite(f[0]) || !std::isfinite(f[2])) return false;
+        const float horizontal=std::sqrt(f[0]*f[0]+f[2]*f[2]);
+        if(horizontal<.01f) return false;
+        const float yaw=std::atan2(-f[0],-f[2]);
+        const float upright[4]={0,std::sin(yaw*.5f),0,std::cos(yaw*.5f)};
+        return capture(upright);
+    }
+    bool capture(const float* camera) {
+        if(valid) return true;
+        float norm=0;
+        for(int i=0;i<4;++i) {if(!std::isfinite(camera[i])) return false;norm+=camera[i]*camera[i];}
+        if(norm<.0001f) return false;
+        norm=std::sqrt(norm);
+        for(int i=0;i<4;++i) q[i]=camera[i]/norm;
+        valid=true;return true;
+    }
+};
+
 struct Crop { int32_t x, y, w, h; float widthM, heightM; };
 inline Crop crop_rect(uint32_t texW, uint32_t texH, const float sub[4], float widthM, float heightM) {
     Crop c{};

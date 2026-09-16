@@ -21,6 +21,12 @@
 
 ## HUD Weapon Dial (VR-126)
 
+- [x]387 crouch transition grouping accepted; gamma color correction provisionally accepted.
+- [x]387 wheel hand stability improved enough to park; retain menu half-step setting.
+- [x]389 pause world stability, reader rotation and wheel origin accepted; closing flash provisionally absent.
+- [ ] Menu exit yaw retention and native objective title/distance association trial.
+- [ ] Pause hand apparent-size change: collect scale/depth diagnostics.
+
 - [x] Continuous wheel analog input and independent world-space hand dial implemented.
 - [x] Standalone dial geometry/input and existing HUD regression checks pass.
 - [x]372 hand dial accepted and physical size/crop tuned.
@@ -33,7 +39,10 @@
 - [x] Add reader right-offset sliders, bounded menu stereo gap hold, private measured HUD textures/content continuity.
 - [x]378 reading flicker removed and wheel greatly improved; accepted for merge.
 - [ ] VR-128: remaining left-eye hands/weapons flicker during wheel head motion.
-- [ ] VR-127: remaining objective/interaction grouping, reading scroll and alpha controls.
+- [x] PR69 merged; saved378 profile promoted; codex/hud-fixes created from main.
+- [x] VR-127: shared reading/interaction alpha, isolated original general reset, continuous reading vertical input.
+- [x] VR-127: default-off moving-marker/interaction grouping candidates and host regressions.
+- [ ] VR-127 headset: complete interaction grouping, objective identity, reading scroll and alpha acceptance.
 
 ## Performance research shelved (2026-09-15)
 

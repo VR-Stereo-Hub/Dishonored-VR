@@ -2205,15 +2205,23 @@ static void MfNoteTag(void)
     else if(rec.draw==hand->eye) ++g_mpEyeMethodAgree[cls];
     else ++g_mpEyeMethodDisagree[cls];
     if(hand->menuContext>=3 && hand->menuContext<=8) {
-        static uint32_t agree=0,mismatch=0,unknown=0,refused=0,miss=0;
-        if(!known) ++unknown;else if(rec.draw==hand->eye) ++agree;else ++mismatch;
-        refused+=hand->refused[0]+hand->refused[1];miss+=hand->waMiss;
+        struct Totals {uint32_t agree=0,mismatch=0,unknown=0,refused=0,miss=0;};
+        static Totals totals[9][3];
+        auto& t=totals[hand->menuContext][known ? (rec.draw<0 ? 0 : 1) : 2];
+        if(!known) ++t.unknown;else if(rec.draw==hand->eye) ++t.agree;else ++t.mismatch;
+        t.refused+=hand->refused[0]+hand->refused[1];t.miss+=hand->waMiss;
+        if(known && rec.draw!=hand->eye) {
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
+                "menu/hands-mismatch: context=%d completedPresent=%u handEye=%d drawEye=%d decision=%c jump=%.3f ipd=%.3f pose=%u placed=%u/%u refused=%u/%u weaponHit=%u weaponMiss=%u; completed draw identity, diagnostic only",
+                hand->menuContext,wanted+1,(int)hand->eye,rec.draw,hand->why,hand->d,hand->ipdUU,hand->poseGen,
+                hand->placed[0],hand->placed[1],hand->refused[0],hand->refused[1],hand->waHit,hand->waMiss);
+        }
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
             "menu/hands: context=%d completedPresent=%u handEye=%d drawEye=%d known=%d decision=%c "
             "jump=%.3f ipd=%.3f pose=%u agree=%u mismatch=%u unknown=%u refused=%u weaponMiss=%u; "
-            "menu hand-present totals, no fitted phase or render override",
+            "totals ONLY for this context and draw-eye bucket (0=unknown); misses include unassociated weapon candidates",
             hand->menuContext,wanted+1,(int)hand->eye,rec.draw,known,hand->why,hand->d,hand->ipdUU,
-            hand->poseGen,agree,mismatch,unknown,refused,miss);
+            hand->poseGen,t.agree,t.mismatch,t.unknown,t.refused,t.miss);
     }
 }
 
@@ -2389,14 +2397,19 @@ static void MpEyeForPresent(const MpDrawCtx* c)
     const float d = c->projRight - g_mpEyePrevFirst;
     const float ad = fabsf(d);
     char why;
-    if (ad > 0.45f * ipdUU && ad < 2.0f * ipdUU) {
+    const int menuContext=UiSurfaceContext();
+    // Menu single (center) draws introduce half-IPD steps. The nearest-level
+    // threshold between zero and half-IPD is quarter-IPD. Test only in menus;
+    // ordinary gameplay and the retired toggle predictor remain unchanged.
+    const float band=g_mpEyeMenuHalfStep && menuContext>=3 && menuContext<=8 ? .25f : .45f;
+    if (ad > band * ipdUU && ad < 2.0f * ipdUU) {
         // The eye changed. The SIGN gives it absolutely, with no vote: the
         // smaller right-axis projection is the right eye.
         g_mpEyeState = (d < 0.0f) ? +1 : -1;
         g_mpEyeToggles++;
         g_mpEyePredictRun = 0;       // VR-95: a readable jump ends a prediction run
         why = 'T';
-    } else if (ad <= 0.45f * ipdUU) {
+    } else if (ad <= band * ipdUU) {
         // VR-95: "SAME" MEANS "TOO SMALL TO TELL APART", NOT "THE SAME EYE",
         // AND HOLDING THE PREVIOUS EYE IS THEREFORE A GUESS - A BAD ONE.
         //
@@ -2741,6 +2754,20 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
           targetLocal[j] = c->col[j][0]*d[0] + c->col[j][1]*d[1] + c->col[j][2]*d[2]; }
     memcpy(g_mpLastTargetLocal[hand], targetLocal, sizeof(targetLocal));
     memcpy(g_mpLastPCam[hand], dcam, sizeof(dcam));
+    if(UiSurfaceContext()==3) {
+        static double nextDepth[2]{};const double now=MaimNowMs();
+        if(now>=nextDepth[hand]) {
+            nextDepth[hand]=now+250;
+            float local[3]{},actual[3]{};
+            for(int i=0;i<3;++i) local[i]=D.r.m[i*3]*qLocal[0]+D.r.m[i*3+1]*qLocal[1]+D.r.m[i*3+2]*qLocal[2]+D.t[i];
+            for(int i=0;i<3;++i) actual[i]=c->col[0][i]*local[0]+c->col[1][i]*local[1]+c->col[2][i]*local[2]+c->t[i];
+            float depth=c->vp[15],targetDepth=0,norm=0,focal=0;
+            for(int i=0;i<3;++i) {depth+=actual[i]*c->vp[i*4+3];targetDepth+=dcam[i]*c->f[i];focal+=c->vp[i*4]*c->vp[i*4];}
+            for(int i=0;i<9;++i) norm+=D.r.m[i]*D.r.m[i];
+            Log("menu/hand-depth: hand=%d eye=%d present=%u pose=%u sourceScale=%.6f deltaScale=%.6f clipW=%.4f targetDepth=%.4f viewW=%.4f focalX=%.4f blend=%.4f; original draw, read-only",
+                hand,g_mpEyeState,(unsigned)dvr::frame::count(),c->pose.gen,g_mpSrcScale[hand],sqrtf(norm/3),depth,targetDepth,c->vp[15],sqrtf(focal),dvr::anim::weight());
+        }
+    }
     MfNoteHand(hand, c, dcam);                   // VR-76: the flicker history
     return true;
 }

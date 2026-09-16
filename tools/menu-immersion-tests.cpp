@@ -31,10 +31,14 @@ int UiSurfaceContext(){return context;}
 unsigned UiSurfaceEpoch(){return epoch;}
 bool UiSurfaceHeadLook(){return headOn&&riding&&context>=3&&context<=8;}
 bool UiSurfaceRidesHud(){return riding;}
-namespace dvr::hudlayout {bool menu_no_blur(int c){return blurOn&&c>=3&&c<=8;}}
+bool UiSurfaceBlocks(){return context>=3 && context<=8;}
+bool CineActive(){return false;}
+bool exitHeading=true;
+namespace dvr::hudlayout {bool menu_exit_heading(){return exitHeading;}bool menu_no_blur(int c){return blurOn&&c>=3&&c<=8;}}
 namespace dvr::vr {bool session_live(){return runtime;}bool cinematic_active(){return false;}}
 namespace dvr::stereo {bool wants_projection(){return true;}}
 namespace dvr::camera {
+ bool second_pass_for_current_thread(){return false;}
  bool eyetest_active(){return false;}bool postest_active(){return false;}
  void position_offset_uu(float* p){p[0]=1;p[1]=2;p[2]=3;}
  void cinematic_position_offset_uu(float* p){p[0]=1;p[1]=2;p[2]=3;}
@@ -55,7 +59,28 @@ static int checks=0;
 void check(bool ok,const char* why){++checks;if(!ok){printf("FAIL %s\n",why);exit(1);}}
 void link(uint8_t* p,unsigned off,uint8_t* obj){memcpy(p+off,&obj,sizeof(obj));}
 void weight(float f){memcpy(pp+16,&f,4);}float weight(){float f;memcpy(&f,pp+16,4);return f;}
+#include "core/gfx/pause_scene_freshness.h"
+#include "core/gfx/hud_menu_lifecycle.h"
 int main(){
+ dvr::stereo::PauseSceneFreshness fresh;
+ check(!fresh.recent(true,3,true,0),"no observed scene cannot authorize pause doubling");
+ fresh.complete(4,8,100);
+ check(fresh.recent(true,3,true,110),"uploads during prior draw survive an idle between-draw interval");
+ check(!fresh.recent(false,3,true,110),"default-off keeps original gate");
+ check(!fresh.recent(true,6,true,110),"wheel policy unchanged");
+ check(!fresh.recent(true,3,false,110),"head-look disabled refuses freshness exception");
+ check(!fresh.recent(true,3,true,200),"100ms expiry refuses stale scene");
+ check(!fresh.recent(true,3,true,99),"clock rollback refuses");
+ fresh.complete(8,8,195);check(!fresh.recent(true,3,true,200),"silent draw does not renew evidence");
+ fresh.clear();check(!fresh.recent(true,3,true,110),"context exit clears evidence");
+ dvr::hudlayout::WheelVisualLease visual;
+ check(visual.update(true,6,false,1),"wheel pixels own wheel layout");
+ check(visual.update(false,0,true,8),"native closing keeps crop after input releases");
+ check(visual.update(false,0,false,20),"observer delay starts tail when close is observed");
+ check(visual.update(false,0,false,23),"three delayed presents keep wheel layout");
+ check(!visual.update(false,0,false,24),"expired visual tail releases gameplay HUD");
+ visual.update(true,6,false,30);check(!visual.update(true,3,false,31),"pause replaces wheel immediately");
+ visual.update(true,6,false,40);check(!visual.update(false,2,false,41),"loading cannot retain old wheel");
  link(pc,4,cam);link(pc,8,pawn);link(pc,12,world);link(world,4,game);link(game,4,pp);
  MenuHeadBegin(true,true);check(g_mhScope&&builds==1,"first menu refreshes live table and starts scope");MenuHeadEnd();
  sample.yaw=.2f;sample.gen=2;MenuHeadBegin(true,true);
@@ -69,7 +94,16 @@ int main(){
  check(std::abs(g_mhWritten[1])<2&&builds==previousBuilds+1,"new menu interval revalidates unchanged pointers");MenuHeadEnd();
  live=false;MenuHeadBegin(true,true);check(!g_mhScope,"dead camera cannot be written");live=true;
  ++generation;sample.yaw=.4f;MenuHeadBegin(true,true);check(g_mhScope&&std::abs(g_mhWritten[1])<2,"replaced owner gets fresh reference");MenuHeadEnd();
- context=-1;MenuHeadBegin(true,true);check(!g_mhHave&&!g_mhScope,"gameplay releases menu ownership");
+ sample.yaw=.7f;context=-1;MenuHeadBegin(true,true);int32_t delta=0;
+ check(g_mhHave&&!g_mhScope,"exit retains identity only for guarded handoff");
+ check(MenuHeadResumeYaw(delta) && std::abs(delta-(int32_t)(.3f*65536/6.2831853f))<3,"menu turn carried to gameplay without reseeding to exit direction");
+ check(!MenuHeadResumeYaw(delta),"menu turn is never applied twice");
+ context=6;++epoch;MenuHeadBegin(true,true);MenuHeadEnd();context=-1;++generation;
+ check(!MenuHeadResumeYaw(delta),"same pointer with replaced identity cannot carry menu turn");
+ context=6;++epoch;MenuHeadBegin(true,true);MenuHeadEnd();context=-1;exitHeading=false;
+ check(!MenuHeadResumeYaw(delta),"option off preserves old handoff behavior");exitHeading=true;
+ context=6;++epoch;MenuHeadBegin(true,true);MenuHeadEnd();context=-1;buildOk=false;
+ check(!MenuHeadResumeYaw(delta),"failed live-table refresh refuses retained menu identity");buildOk=true;
  context=6;++epoch;blurOn=true;weight(.8f);MenuEffectsTick();check(weight()==0&&g_mbBefore==.8f,"UI-only weight suppressed");
  weight(.6f);MenuEffectsTick();check(weight()==0&&g_mbBefore==.6f,"game's latest effect value retained");
  blurOn=false;MenuEffectsTick();check(std::fabs(weight()-.6f)<.001f&&!g_mbHave,"option off restores exact owned value");

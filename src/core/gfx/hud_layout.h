@@ -28,6 +28,7 @@
 // of quad descriptors (texture + crop + anchor + placement + a stable slot).
 #pragma once
 #include <stdint.h>
+#include "core/gfx/hud_alpha.h"
 
 struct ID3D11DeviceContext;
 namespace dvr::status { class Writer; }
@@ -76,7 +77,7 @@ struct HandCfg {
 // VR-119: the HUD alpha (core/gfx/blit_quad.h explains the modes) and a
 // backdrop plate per anchor KIND: 0 = the window (view or world), 1 = a hand.
 enum AlphaMode : int { AlphaRepair = 0, AlphaCaptured = 1, AlphaMix = 2 };
-struct AlphaCfg { int mode; float gain, floorA, gamma, mixK; };
+using AlphaCfg = dvr::hudalpha::Config;
 struct Backdrop { float r, g, b, a; };
 const char* alpha_mode_name(int m);
 int  alpha_mode_from_name(const char* s);    // -1 when unknown
@@ -107,9 +108,12 @@ void     set_menu_in_window(bool on, const char* who);
 uint32_t menu_context_mask();
 void     set_menu_context_mask(uint32_t mask, const char* who);
 bool     screen_can_ride(int context);          // the row exists and its anchor is visible
-void     set_menu_riding(bool riding, int context);   // published by the game side each poll
+void     set_menu_riding(bool riding, int context, bool wheelClosing = false);
+bool pause_scene_freshness();
+bool menu_exit_heading();   // published by the game side each poll
 void forget_draw_owners();
 bool menu_riding();
+float native_objective_scale(int element);
 bool menu_stereo_hold();
 bool menu_head_look(int context);
 bool menu_no_blur(int context);
@@ -118,7 +122,7 @@ bool menu_no_blur(int context);
 // The sink a draw goes to. bbox = the draw's normalised backbuffer rectangle
 // (x0,y0,x1,y1), or null when the region probe could not read it. Returns -1
 // when the element stays in the frame (AnchorFrame), else a sink index.
-int  sink_for(const float* bbox, int* elementOut, uint64_t drawKey = 0);
+int  sink_for(const float* bbox, int* elementOut, uint64_t drawKey = 0, unsigned vertices = 0, unsigned primitives = 0, float* nativePivot = nullptr);
 // Sinks: in use, and a label for the log ("window/crop", "handL/all").
 bool sink_in_use(int sink);
 bool sink_hidden(int sink);                     // an "off" element's sink: redirected, cleared, never delivered

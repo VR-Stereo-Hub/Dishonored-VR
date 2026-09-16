@@ -109,6 +109,9 @@ static uint32_t       g_sdCall1Us = 0, g_sdCall1MaxUs = 0;
 static uint64_t       g_sdSumPeriodUs = 0, g_sdSumCall1Us = 0, g_sdSumCall2Us = 0, g_sdSumOutsideUs = 0;
 static uint32_t       g_sdMinPeriodUs = UINT32_MAX, g_sdMaxPeriodUs = 0, g_sdBeatTicks = 0;
 static uint32_t       g_sdLastDrawPresent = 0;
+#include "core/gfx/pause_scene_freshness.h"
+static dvr::stereo::PauseSceneFreshness g_sdPauseScene;
+static uint32_t g_sdDrawEntryC5=0;
 static uint32_t       g_sdLastDrawC5Serial = 0;
 static uint64_t       g_sdBeatMs = 0;
 static uint32_t       g_sdBeatDraws = 0, g_sdBeatSecond = 0, g_sdBeatPresents = 0;
@@ -288,7 +291,14 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
     if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; d.why = "eyetest/postest running"; return d; }
     // The camera-silent hole: a c5 upload must have arrived since the previous
     // tick's draws (a load screen draws no scene). The serial counts uploads.
-    if (dvr::camera::render_pos_serial() == g_sdLastDrawC5Serial) { ++g_sdSkipSilent; d.why = "camera silent (no c5 upload since the previous draw)"; return d; }
+    if (dvr::camera::render_pos_serial() == g_sdLastDrawC5Serial) {
+        const bool recent=g_sdPauseScene.recent(dvr::hudlayout::pause_scene_freshness(),UiSurfaceContext(),
+            dvr::hudlayout::menu_head_look(3),MaimNowMs());
+        DVR_LOG_EVERY_MS(dvr::log::Cat::present,dvr::log::Level::Info,1000,
+            "pause/scene: between-draw camera silent context=%d prior-draw-upload-age=%.1f ms recent=%d; other gates retained",
+            UiSurfaceContext(),g_sdPauseScene.uploaded<0 ? -1.0 : MaimNowMs()-g_sdPauseScene.uploaded,(int)recent);
+        if(!recent) {++g_sdSkipSilent;d.why="camera silent (no c5 upload since the previous draw)";return d;}
+    }
     // Present-stall guard (liveness only): at least one present since the
     // previous tick's draw; pulses bypass it so the A/B works while paused.
     if (g_frame == g_sdLastDrawPresent && !d.pulse) { ++g_sdSkipStall; d.why = "no present since the previous draw"; return d; }
@@ -438,6 +448,8 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         // The tick's ONE decision, before pass 1's tag: the tag is pushed iff
         // pass 2 will run, so a present can never carry a -1 whose +1 sibling
         // was skipped (41.1: the resume-window one-sided stream).
+        g_sdDrawEntryC5=dvr::camera::render_pos_serial();
+        if(UiSurfaceContext()!=3 || callerRet!=kViewportDrawGameplayRet || UiSurfaceOwnsPresentation()) g_sdPauseScene.clear();
         g_sdTick = SceneDrawDecide(callerRet);
         MenuHeadBegin(g_sdTick.gameplay,g_sdTick.doubleIt);
         CineHeadBegin(g_sdTick.gameplay, g_sdTick.doubleIt);
@@ -484,6 +496,8 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         QueryPerformanceCounter(&g_sdRetPrev);
         g_sdLastDrawPresent = g_frame;
         g_sdLastDrawC5Serial = dvr::camera::render_pos_serial();
+        if(callerRet==kViewportDrawGameplayRet && g_sdTick.gameplay && UiSurfaceContext()==3)
+            g_sdPauseScene.complete(g_sdDrawEntryC5,g_sdLastDrawC5Serial,MaimNowMs());
         SceneDrawBeat();
     }
     if (depth == 0) InterlockedExchange(&g_sdInDrawTid, 0);

@@ -615,6 +615,7 @@ static bool UiSurfaceHeadLook();
 static void MenuHeadBegin(bool scene,bool doubleDraw);
 static void MenuHeadPublish();
 static void MenuHeadEnd();
+static bool MenuHeadResumeYaw(int32_t& delta);
 static void MenuEffectsTick();
 static bool UiSurfaceWheel();
 static bool UiSurfaceBlocks();            // the INPUT class: a UI owner is on top (VR-71 guards read this)

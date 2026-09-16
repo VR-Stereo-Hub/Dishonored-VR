@@ -4871,11 +4871,14 @@ void on_present_end(ID3D11Texture2D* frame) {
     // space, as before. The placement math is core/vr/hud_anchor.h (pure, host
     // tested); this block only locates, copies and submits.
     if (layerCount && projectionMode && g_viewSpace != XR_NULL_HANDLE) {
+        const int cap = (int)g_aimLayerLimit < (int)(sizeof(layers) / sizeof(layers[0]))
+                            ? (int)g_aimLayerLimit : (int)(sizeof(layers) / sizeof(layers[0]));
         HudQuadDesc descs[kMaxHudQuads];
         int nDesc = 0;
         HudQuadProviderFn qp = g_hudQuadProvider.load(std::memory_order_relaxed);
         if (qp) {
-            nDesc = qp(g_context, descs, kMaxHudQuads);
+            const int available=cap>(int)layerCount ? cap-(int)layerCount : 0;
+            nDesc = qp(g_context, descs, available<kMaxHudQuads ? available : kMaxHudQuads);
             if (nDesc < 0) nDesc = 0;
             if (nDesc > kMaxHudQuads) nDesc = kMaxHudQuads;
         } else {
@@ -4905,8 +4908,7 @@ void on_present_end(ID3D11Texture2D* frame) {
                 g_hudWorldAnchor.reset(); g_hudWorldResetSeen = reset;
             }
         }
-        const int cap = (int)g_aimLayerLimit < (int)(sizeof(layers) / sizeof(layers[0]))
-                            ? (int)g_aimLayerLimit : (int)(sizeof(layers) / sizeof(layers[0]));
+
         uint32_t submitted = 0;
         for (int i = 0; i < nDesc; ++i) {
             const HudQuadDesc& d = descs[i];
@@ -4961,7 +4963,9 @@ void on_present_end(ID3D11Texture2D* frame) {
                 if (dvr::hudanchor::too_near(toHead)) { g_hudStatNear.fetch_add(1, std::memory_order_relaxed); continue; }
                 if (dvr::hudanchor::behind_face(toHead, headFwd)) { g_hudStatBehind.fetch_add(1, std::memory_order_relaxed); continue; }
                 float oq[4];
-                if (d.orient == HudOrient::CameraPlane) {
+                if (d.orient == HudOrient::OpeningPlane) {
+                    memcpy(oq,d.orientation,sizeof(oq));
+                } else if (d.orient == HudOrient::CameraPlane) {
                     const auto& q=g_views[0].pose.orientation;
                     oq[0]=q.x; oq[1]=q.y; oq[2]=q.z; oq[3]=q.w;
                 } else if (d.orient == HudOrient::FollowGrip) {

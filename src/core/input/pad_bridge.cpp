@@ -4,6 +4,7 @@
 
 
 #include "core/input/weapon_dial.h"
+#include "core/input/reading_input.h"
 
 static inline SHORT PadStick(float v)
 {
@@ -311,7 +312,23 @@ static void UpdateVirtualPad()
                 (int)xs.Gamepad.sThumbLX,(int)xs.Gamepad.sThumbLY);
         }
     }
-    if (dvr::weapon_dial::step_menu(g_menuOpen || UiSurfaceBlocks(), wheelInput) && active) {
+    const bool readingInput=dvr::reading_input::continuous(UiSurfaceContext(),wheelInput,active);
+    if(readingInput) {
+        xs.Gamepad.sThumbLX=MenuStep(xs.Gamepad.sThumbLX,0);
+        MenuStep(0,1); // clear vertical repeat state when entering or leaving reading
+        xs.Gamepad.sThumbLY=dvr::reading_input::vertical(xs.Gamepad.sThumbLY);
+        xs.Gamepad.sThumbRX=xs.Gamepad.sThumbRY=0;
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,2000,
+            "pad/reading: context=%d vertical=%d continuous=1 horizontal=stepped",UiSurfaceContext(),(int)xs.Gamepad.sThumbLY);
+    } else if(dvr::reading_input::pause(UiSurfaceContext(),wheelInput,active)) {
+        // Preserve native axes and sustained input. One-frame synthetic pulses
+        // can fall between engine polls; the game owns navigation repeat.
+        MenuStep(0,0); MenuStep(0,1);
+        xs.Gamepad.sThumbRX=xs.Gamepad.sThumbRY=0;
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,2000,
+            "pad/pause: raw=(%.3f %.3f) out=(%d %d) continuous=1 native-axes=1",
+            in.mv[0],in.mv[1],(int)xs.Gamepad.sThumbLX,(int)xs.Gamepad.sThumbLY);
+    } else if (dvr::weapon_dial::step_menu(g_menuOpen || UiSurfaceBlocks(), wheelInput) && active) {
         xs.Gamepad.sThumbLX = MenuStep(xs.Gamepad.sThumbLX, 0);
         xs.Gamepad.sThumbLY = MenuStep(xs.Gamepad.sThumbLY, 1);
         xs.Gamepad.sThumbRX = 0;   // one navigation axis only - a second one

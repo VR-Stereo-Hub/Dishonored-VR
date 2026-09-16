@@ -321,6 +321,9 @@ static void OverlayFrame()
     if (ImGui::BeginTabItem("Hands")) {
     bool animBack = dvr::anim::enabled();
     if (ImGui::Checkbox("Game arms during scripted actions", &animBack)) dvr::anim::set_enabled(animBack);
+    if(ImGui::Checkbox("Menu hand eye: recognize half-IPD steps",&g_mpEyeMenuHalfStep))
+        Log("hands: menu signed half-step candidate=%d",(int)g_mpEyeMenuHalfStep);
+    ImGui::TextDisabled("Menu-only test. Uses measured jump direction; does not predict alternating eyes.");
     {   // VR-95: the left-eye arm flicker on a head roll.
         bool pt = g_mpEyePredict;
         if (ImGui::Checkbox("Predict the eye when the jump is unreadable", &pt)) {

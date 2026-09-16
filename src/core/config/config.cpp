@@ -902,6 +902,20 @@ static void WriteDefaultIni(const char* ini)
         "; `draws on|off|status|regions|kill <key>|hud|unkill` live, and the F10 HUD tickbox.\n"
         "Census=0\n"
         "[Hud]\n"
+        "GroupInteractions=1\n"
+        "RouteObjectives=1\n"
+        "WeaponDialAlphaMode=repair\n"
+        "WeaponDialAlphaMix=1.000\n"
+        "ReadingAlphaMode=repair\n"
+        "ReadingAlphaGain=1.000\n"
+        "ReadingAlphaFloor=0.000\n"
+        "ReadingAlphaGamma=1.020\n"
+        "ReadingAlphaMix=0.990\n"
+        "InteractionAlphaMode=repair\n"
+        "InteractionAlphaGain=1.090\n"
+        "InteractionAlphaFloor=0.000\n"
+        "InteractionAlphaGamma=0.250\n"
+        "InteractionAlphaMix=1.000\n"
         "NoteHandRight=0.320\n"
         "JournalHandRight=0.320\n"
         "WeaponDialAlphaGain=3.000\n"
@@ -917,8 +931,8 @@ static void WriteDefaultIni(const char* ini)
         "WeaponDialDeadzone=0.002\n"
         "WeaponDialCircle=1\n"
         "WeaponDialDistance=0.050\n"
-        "HeadLookPause=0\n"
-        "NoBlurPause=0\n"
+        "HeadLookPause=1\n"
+        "NoBlurPause=1\n"
         "HeadLookNote=1\n"
         "NoBlurNote=1\n"
         "HeadLookJournal=1\n"
@@ -978,7 +992,7 @@ static void WriteDefaultIni(const char* ini)
         "Element.skipgauge=window\n"
         "Element.darkvision=window\n"
         "Element.vignette=window\n"
-        "Element.pause=window\n"
+        "Element.pause=world\n"
         "Element.note=window\n"
         "Element.journal=window\n"
         "Element.wheel=window\n"
@@ -1029,7 +1043,7 @@ static void WriteDefaultIni(const char* ini)
         "AlphaMode=repair\n"
         "AlphaGain=1.000\n"
         "AlphaFloor=0.000\n"
-        "AlphaGamma=0.500\n"
+        "AlphaGamma=1.000\n"
         "AlphaMix=1.000\n"
         "Backdrop.window=0.000,0.000,0.000,0.000\n"
         "Backdrop.hand=0.000,0.000,0.000,0.000\n"
@@ -1040,7 +1054,7 @@ static void WriteDefaultIni(const char* ini)
         "; MAIN menu and loading screens always use the mono screen. `hud menu on|off`, `hud menu\n"
         "; Pause on|off`.\n"
         "MenuInWindow=1\n"
-        "WindowPause=0\n"
+        "WindowPause=1\n"
         "WindowNote=1\n"
         "WindowJournal=1\n"
         "WindowWheel=1\n"
@@ -1126,7 +1140,7 @@ static void WriteDefaultIni(const char* ini)
         "Element.vignette.HandScale=1.000\n"
         "Element.pause.WinX=0.000\n"
         "Element.pause.WinY=0.000\n"
-        "Element.pause.WinScale=0.990\n"
+        "Element.pause.WinScale=1.520\n"
         "Element.pause.HandX=0.000\n"
         "Element.pause.HandY=0.000\n"
         "Element.pause.HandScale=1.000\n"
@@ -2081,6 +2095,8 @@ static void LoadConfig()
     // the previous eye. Ships OFF as a new lever must; the fault it removes was
     // measured on the headset as 90 flagged presents, every one of them the
     // classifier saying RIGHT while the tag said LEFT.
+    g_mpEyeMenuHalfStep = IniFloat(ini,"Hands","PaletteEyeMenuHalfStep",0)!=0;
+    Log("config: [Hands] PaletteEyeMenuHalfStep=%d - menu signed half-IPD jump candidate; no toggle prediction",(int)g_mpEyeMenuHalfStep);
     g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
     Log("config: [Hands] PaletteEyePredictToggle=%d - an unreadable eye jump %s. "
         "Holding was measured robbing the LEFT eye's hands of their own half-IPD "
@@ -3170,6 +3186,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteWorld", g_mpWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteDepthRange", g_mpDepth ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands","PaletteEyeMenuHalfStep",g_mpEyeMenuHalfStep ? "1" : "0",ini);
     WritePrivateProfileStringA("Hands", "PaletteEyePredictToggle", g_mpEyePredict ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
 #if DVR_WITH_LEGACY

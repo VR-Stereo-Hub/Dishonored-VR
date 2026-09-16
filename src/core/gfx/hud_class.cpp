@@ -7,6 +7,7 @@
 #include "core/framework/status.h"
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/hud_layout.h"
+#include "core/gfx/hud_native_icon.h"
 #include "core/hooks/vtable.h"
 #include "core/util/log.h"
 #include "core/util/paths.h"
@@ -528,11 +529,13 @@ uint32_t verts_for(D3DPRIMITIVETYPE t, UINT prims) {
 // The probe's answer for one draw, kept for the table and the route.
 struct Probe {
     uint64_t drawKey=0;
+    unsigned vertices=0,primitives=0;
     bool     ok = false;         // bbox[] is a screen rectangle (normalised, y down)
     bool     transformed = false;
     uint8_t  type = 0xff;
     uint8_t  why = 0;            // 0 ok, 1 no decl/position, 2 type unread, 3 no data, 4 write-only VB, 5 lock failed, 6 not finite, 7 off screen, 8 no transform map
     float    bbox[4] = {};
+    float    nativePivot[4] = {};
     float    raw[4] = {};        // the vertices' own x/y range, before any transform
     // The transform columns applied: x, y and w (c0/c1/c3 by the old names;
     // now the shader's own registers, xcol[] says which).
@@ -609,6 +612,7 @@ void probe_draw(uint8_t entry, D3DPRIMITIVETYPE type, UINT prims, const void* ve
         if (xf->col[2] >= 0) { memcpy(cz, dvr::frame::vs_const_shadow_row(xf->col[2]), sizeof(cz)); haveZ = true; }
     }
     if (vertexCount == 0) vertexCount = verts_for(type, prims);
+    out.vertices=vertexCount;out.primitives=prims;
     if (!vertexCount) { out.why = 3; ++g_probeFails; g_probeQpc += qpc_now() - t0; return; }
 
     const uint8_t* base = nullptr;
@@ -1010,7 +1014,7 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
 // shadow must not see our own writes). Eight calls per draw, about 170 per
 // present in gameplay. State blocks would bypass this: g_stateBlocksCreated
 // reads 0 for a whole run (`draws status` prints it).
-inline bool alpha_force_wanted() { return dvr::hudlayout::alpha().mode != dvr::hudlayout::AlphaRepair; }
+inline bool alpha_force_wanted(int sink) { return dvr::hudlayout::alpha_for_sink(sink).mode != dvr::hudlayout::AlphaRepair; }
 
 void alpha_force_begin(IDirect3DDevice9* dev) {
     g_origSetRs(dev, D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
@@ -1048,6 +1052,35 @@ void note_blend_tuple() {
              (unsigned long)g_srcBlendA, (unsigned long)g_dstBlendA);
 }
 
+// Native icon sizing changes only its own shader transform, then restores every
+// touched row through the original setter. Never changes the shadow or capture.
+struct NativeIconScope {
+    IDirect3DDevice9* dev;int rows[4]{},count=0;float saved[4][4]{};
+    NativeIconScope(IDirect3DDevice9* device,const Probe& p,int element):dev(device) {
+        const float scale=dvr::hudlayout::native_objective_scale(element);
+        if(scale>=1 || !p.ok || p.transformed) return;
+        float changed[4][4]{};int n=0;
+        for(int i=0;i<4;++i) {
+            const int row=p.xcol[i];if(row<0) continue;
+            if(row>=256) return;
+            for(int j=0;j<n;++j) if(rows[j]==row) return;
+            rows[n]=row;memcpy(saved[n],dvr::frame::vs_const_shadow_row(row),sizeof(saved[n]));
+            if(!dvr::hudnative::scale_column(saved[n],p.nativePivot,scale,changed[n])) return;
+            ++n;
+        }
+        if(n<3) return;
+        for(int i=0;i<n;++i) {
+            count=i+1;
+            if(FAILED(dvr::frame::orig_set_vs_const(dev,rows[i],changed[i],1))) {restore();return;}
+        }
+        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+            "hud/native-icon: scale=%.3f rect=%.3f/%.3f/%.3f/%.3f; game target/color retained, heuristic identity",
+            scale,p.bbox[0],p.bbox[1],p.bbox[2],p.bbox[3]);
+    }
+    void restore() {for(int i=0;i<count;++i) dvr::frame::orig_set_vs_const(dev,rows[i],saved[i],1);count=0;}
+    ~NativeIconScope(){restore();}
+};
+
 // ---- the hooks ------------------------------------------------------------
 // Every draw hook: note the thread, classify once, probe once (if asked),
 // record (the census), then route (the redirect) or forward.
@@ -1062,9 +1095,10 @@ void note_blend_tuple() {
     }                                                                                             \
     int sink = -1;                                                                                \
     if (hudNow) note_blend_tuple();                                                               \
-    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey); \
+    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives, probe.nativePivot); \
     if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
-    const bool forceAlpha = sink >= 0 && alpha_force_wanted();
+    NativeIconScope nativeIcon(self,probe,element); \
+    const bool forceAlpha = sink >= 0 && alpha_force_wanted(sink);
 
 HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,
                                   UINT prims) {
@@ -1076,6 +1110,7 @@ HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
             if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = dvr::frame::raw_draw_prim(self, type, start, prims);
             if (forceAlpha) alpha_force_end(self);
+            if(SUCCEEDED(r) && element==dvr::hudlayout::ElObjective) dvr::hudcap::note_marker(sink,pbb);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1093,6 +1128,7 @@ HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE ty
             if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
             if (forceAlpha) alpha_force_end(self);
+            if(SUCCEEDED(r) && element==dvr::hudlayout::ElObjective) dvr::hudcap::note_marker(sink,pbb);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1111,6 +1147,7 @@ HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE typ
             if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = g_origDpUp(self, type, prims, verts, stride);
             if (forceAlpha) alpha_force_end(self);
+            if(SUCCEEDED(r) && element==dvr::hudlayout::ElObjective) dvr::hudcap::note_marker(sink,pbb);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1131,6 +1168,7 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
             if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
             if (forceAlpha) alpha_force_end(self);
+            if(SUCCEEDED(r) && element==dvr::hudlayout::ElObjective) dvr::hudcap::note_marker(sink,pbb);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }

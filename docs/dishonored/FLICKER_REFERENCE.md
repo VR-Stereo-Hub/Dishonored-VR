@@ -1,5 +1,199 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+
+## Merge disposition (2026-09-16)
+
+Current HUD follow-up accepted as sufficient for merge by the maintainer. This is
+aggregate acceptance, not proof that pause hand-size variation is fixed.391 DLL
+hash/banner verified and both logs archived locally at the merge checkpoint.
+Keep measured389 pause-world acceptance and the open hand-depth distinction below.
+Menu exit and objective-label candidates retain their documented limits. No further
+headset launch is requested as a merge condition; no game or simulator launched.
+
+
+## Build389 result: pause world accepted, hand depth still open (2026-09-16)
+
+Installed391 (`vr33-hands-working-391-g56b422dc2`), clean source56b422dc2.
+Candidate `build/playtest-candidates/hud-menu-exit`; both logs, previous DLL and
+full INI archived in `build/playtest-candidates/installs/20260916-155406-323310`.
+Entire INI diff: only add Hud.MenuExitHeading=1 and NativeObjectiveLabels=1.
+All prior saved values retained; installed DLL/INI hashes and CRLF verified.
+DLL SHA256 `7a0779f52716a029778db0511122dda7dbf08636e7c241cd00359108396b2126`.
+Release build,9 exports,38 menu/23 native HUD checks, default writer/package/golden
+byte parity, lint and diff checks pass. No game/simulator launch. Current log is
+still389 until tester launch;391 headset acceptance pending. Local commits only.
+
+Identity: build389/source dc3ffee45, DLL SHA256
+`0488e78c3136e4dbce49015018899b87e26f2d896676a514af1410033198efc8`;
+installed DLL/banner verified, full INI unchanged. Both logs archived at
+`build/playtest-candidates/hud-visual-lifecycle/reported-menu-exit`.
+
+Surface/route: prior WHOLE-WORLD pause scale pulsing belongs to section1's mono
+interruption row. Reported fixed with PauseSceneFreshness=1. Seven beat intervals
+more than3.1s inside pause episodes show zero mono; note5 and wheel2 likewise zero.
+These are interval counts, not frame counts or synchronized perceptual events.
+Keep the accepted gate exception. This does not establish all menus on all scenes.
+
+Remaining symptom is smooth HAND/WEAPON size change during paused head yaw, not
+reported world mono. Source palette scale samples0.999512 with zero logged
+anisotropy/orthogonality error; sampled weapon lens ratios approximately1.000000
+with no applied lens correction. Applied delta scale and actual corrected depth
+were not logged, so neither model scaling nor projection depth is established.
+Code inspection rejects naive linear matrix blending as an explanation: the
+existing animation blend uses rotation slerp and separate scale interpolation.
+No evidence to revive lens experiments or alter the accepted hand correction.
+
+New read-only menu/hand-depth measurements distinguish those possibilities:
+changing deltaScale supports transform scaling; stable scales with varying clipW
+supports depth change; stable scale/depth requires image/pass correspondence next.
+Samples carry hand, eye, present and pose identity and are rate limited; they are
+not a complete census. Hand-size fix remains OPEN. Keep VR-128 wheel residual
+parked as requested; this is a separate pause observation.
+
+Menu exit snapback is a camera handoff boundary: scoped head look restores native
+entry rotation after each draw, while blocked gameplay updates its previous head
+sample. On exit it therefore has no accumulated menu delta to apply. Default-off
+MenuExitHeading carries that delta once through the existing script writer, after
+fresh live-table and retained-owner validation. No camera offsets or eye policy
+change.38 menu host checks pass; headset transition is pending. Next one-question
+launch checks whether pause exit retains current direction. Refusal/snapback and
+duplicate/overshoot are both logged/testable failure outcomes. Accepted orientation,
+pair synchronization, pause freshness and menu hand half-step remain unchanged.
+
+## New387 result: accepted wheel hands, recurrent pause mono (2026-09-16)
+
+Installed389 (`vr33-hands-working-389-gdc3ffee45`), clean source dc3ffee45.
+Candidate `build/playtest-candidates/hud-visual-lifecycle`; both previous logs,
+DLL and INI archived in `build/playtest-candidates/installs/20260916-152612-084229`.
+Entire INI diff is six added keys only: PauseSceneFreshness=1 and five PauseAlpha
+values matching saved general alpha (repair,1,0,1,1). Every existing value retained.
+Installed hashes and CRLF verified; release build,9 exports, lint and listed host
+checks pass. DLL SHA256 `0488e78c3136e4dbce49015018899b87e26f2d896676a514af1410033198efc8`.
+No game/simulator launch. Current log remains387 until tester launch; no headset
+acceptance claimed. Local only; no push or merge.
+
+387 DLL hash/banner verified; both logs and unchanged saved INI archived at
+`build/playtest-candidates/vr128-menu-half-step/reported-pause-scale`.
+Reported: wheel hands/weapons sufficiently improved to park; preserve menu half-step
+recognition. Two sampled wheel mismatch lines remain; unlike385's20 mixed samples,
+these do not share controlled exposure, so do not infer a percentage improvement.
+Pause now has recurrent WHOLE-WORLD size/depth changes, not just hand flicker.
+Route via section1's mono interruption and menu stereo/projection transition rows.
+
+Measured intervals >3.1s inside a riding episode: pause11 beat intervals,7 nonzero
+mono;22 rate-limited150ms cap-expiry lines,21 sampled camera-silent gate lines and
+9 present-stall gate lines. Wheel10 intervals,2 nonzero mono; note5,zero. Sampled
+counts are not frame counts or timestamped perceptual events. Example12784390
+returns DOUBLE after114 single ticks during pause. User's observation is compatible
+with repeated mono fallback; it is not proof of FOV changes or swapped eye geometry.
+
+Code boundary: SceneDrawDecide compares current c5 upload serial to the serial
+saved at the END of the previous draw. If camera uploads happen during that draw,
+with none in the idle interval, this evidence of a live scene is discarded. Prior
+historical pause acceptance does not establish this gate for the current schedule.
+New default-off Hud.PauseSceneFreshness trial records serial advancement during
+completed gameplay-dispatch draws. Only pause context3 with head look may use it,
+only for100ms, and all session/ownership/scene/present-stall/camera safety guards
+still apply. Silent draws do not renew evidence; context exit clears it. No forced
+scene permission, indefinite compositor hold, pixel retagging or pose-policy change.
+This is a falsifiable gate hypothesis, not a confirmed correction: pause/scene logs
+report prior-draw-upload age and whether the exception was used. If ages stay stale,
+the hypothesis is not exercised and the upstream scene schedule remains open.
+
+33 menu host checks include recent/stale/unseen uploads, disabled option, wrong
+context, head-look off, clock rollback and context reset. Accepted image-owned
+orientation, pair synchronization,150ms gap hold and hand correction unchanged.
+ONE launch question: does the paused world's size/depth stay stable for about20s,
+including slow head turns? Stable supports the gate exception; unchanged requires
+age/mono comparison; worse rejects it. No game/simulator launch. Headset pending.
+
+## New385 result: measured left-eye menu hand misclassification (2026-09-16)
+
+Installed387 (`vr33-hands-working-387-g998e2ab78`), clean source998e2ab78.
+Candidate `build/playtest-candidates/vr128-menu-half-step`; both previous logs,
+DLL and INI archived at `build/playtest-candidates/installs/20260916-142216-456210`.
+Full INI diff: add PaletteEyeMenuHalfStep=1,NativeObjectiveIcons=1,
+NativeObjectiveScale=0.700; change ObjectiveScreenTracking1 to0. All other saved
+values retained, CRLF verified. DLL SHA256
+`097cd453ecc27c101854340f67b425c15bc84c699a757a6bb18b55e85bf08a5c`.
+Clean release build,9 exports, lint and listed host/GPU checks pass. Installed
+hashes verified. Game/simulator not launched; current log remains385 until launch.
+Headset validation pending. Changes remain local on codex/hud-fixes.
+
+Verified385 DLL hash/banner; both logs and INI preserved under
+`build/playtest-candidates/vr127-opening-hud/reported-transitions-tint`.
+20 rate-limited mismatch lines:15 wheel(context6),5 pause(context3), ALL handEye+1,
+completed drawEye-1, decision S. Positive measured jumps2.291..2.831uu fall just
+below .45*6.309=2.839uu. Sampled placements3/3, refusals0/0, weapon hits11..15,
+misses0. These are sampled mismatches, not a complete visible-flicker count.
+Frequent menu center/eye transitions are approximately half-IPD. The current
+same-eye band can hold a right-eye correction on a completed left-eye draw.
+
+Candidate Hands.PaletteEyeMenuHalfStep=1 lowers only menu contexts3..8 to .25IPD
+(the midpoint between zero and half-IPD). Sign still selects the eye; no guessed
+alternation, queued-draw retagging or camera changes. Gameplay keeps .45IPD.
+Ten recorded jumps replay correctly; old threshold controls reproduce the wrong
+hold. Stationary menu and gameplay controls pass;41 palette checks total pass.
+This remains a heuristic susceptible to head-motion false crossings, NOT an
+established flicker fix. Old VR95 predictor/alternation settings remain OFF;
+accepted image-owned orientation, synchronization and gap hold are unchanged.
+
+User confirms pause issue is minor hand flicker, not proven mono. Wheel residual
+is left-eye hands/weapons only. Do not label either corrected without headset data.
+ONE launch question: with wheel open and controllers still, do slow head turns
+keep left-eye hands/weapons stable, relative to a still-head baseline? Stable
+supports half-step recognition; unchanged requires new completed-eye comparison;
+new still-head flicker rejects the threshold. Logs remain agent-inspected.
+
+## New382 result: wheel hands and pause interruption (2026-09-16)
+
+**Installed385** (`vr33-hands-working-385-gd6abf293f`), clean source d6abf293f.
+Candidate `build/playtest-candidates/vr127-opening-hud`; prior logs/DLL/INI archived
+at `build/playtest-candidates/installs/20260916-121620-467921`. Entire INI comparison:
+exactly one new key, ObjectiveScreenTracking=1; all saved values retained. DLL SHA256
+`d929115f9bfc117d1d5493cefd6c2baafa2a6159b400713fca99217af9201a02`. Hashes/CRLF verified.
+Release build,9 exports, lint, byte-identical default writer/golden and listed host
+checks pass (also404 pair-policy and17 menu-scope checks). No game/simulator launch;
+current log still382 until the tester launches385. Headset result pending.
+
+Build382-g048c1e461 DLL hash/banner verified. Both logs and full saved profile:
+`build/playtest-candidates/vr127-hud-fixes/reported-crouch-pause`.
+Report: residual left-eye wheel flicker, new pause flicker after enabling pause
+head look/world anchoring. Pause image surface is unconfirmed; clarification asked.
+Route wheel to section1's hand/weapon eye/correction rows. Pause also requires
+the mono-interruption row until the visible surface is known. No perceptual fix claimed.
+
+Measured beat intervals fully inside riding episodes (over3.1s from entry):
+wheel11 samples,0 with nonzero mono; pause54,15 nonzero; note52,4 nonzero.
+Sampled150ms cap-expiry lines inside those episodes: wheel0,pause29,note10.
+Held-gap samples: wheel32,pause138,note156. These are rate-limited intervals,
+not counts of visible flickers.378's no-mono reading result does not clear the
+new pause workload. Menu restore refusals remain0 in sampled scope logs.
+
+The150ms bound explicitly permits fallback after longer gaps. Increasing it
+indefinitely would freeze world updates; forcing doubling past liveness guards
+would abandon accepted synchronization. Neither is included. Global FOV/eye-tag
+changes cannot be justified by this evidence. Wheel's zero-mono sampled intervals
+mean mono-gap hold alone cannot be presented as its remaining hand fix.
+
+Hand diagnostic totals at the last sample:50382 agreements,155 mismatches,
+25113 unknown,65562 refused draws and589067 unassociated weapon candidates.
+These were cumulative across ALL menu contexts. Missing anchors among generic
+weapon candidates do not prove that a visible weapon missed correction. The
+1Hz healthy sample can hide a mismatch earlier in that interval. New read-only
+telemetry separates context and completed draw-eye bucket and explicitly emits
+mismatch samples with placement/refusal/hit/miss fields. Existing deferred join
+N hand draw to completed present N+1 is preserved and host-tested; predictions
+and image normalization experiments remain off. No new flicker correction.
+
+Recoverable next steps (VR-128): identify pause surface; collect new context/eye
+populations on the next ordinary HUD playtest. If wheel has known left mismatches,
+inspect their render-owned geometry/pose before changing the classifier. If known
+eyes agree but placement refuses, trace that refusal; if corrections succeed,
+compare the hand pose to the image-owned pose. For whole-world pause interruptions,
+join cap expiries to scene gates before proposing a render-scheduling change.
+HUD corrections/test question are in HUD_ANCHORS's current VR-127 section.
+
 ## Accepted menu stability; residual left-eye hands (2026-09-16)
 
 Build378-g9bce8a13b DLL/banner verified. Logs and latest saved INI archived in
@@ -15,6 +209,8 @@ This supports the bounded hold addressing menu mono interruptions. It does not
 prove every hand draw is corrected; cumulative deferred hand totals still include
 unknowns and several contexts. No new world-scale failure is reported.
 
+PR69 merged at0afbadc83. The subsequent VR-127 HUD alpha/input/grouping candidate
+preserves all accepted camera/stereo/hand settings and introduces no new hand correction.
 Residual is VR-128, Backlog. Route to the hand/weapon eye-identity/correction rows,
 not another FOV change or global stereo retag. Preserve the accepted menu translation,
 image-owned orientation and pair synchronization. Next investigation should isolate

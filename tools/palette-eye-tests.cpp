@@ -18,6 +18,8 @@ static float g_ipdM = 0.0631f, g_skcWorldScale = 100.0f, g_mpDriveGain = 1.0f;
 static volatile long g_sdDoublingNow;
 static bool g_mpEyeAlternate = false;
 static bool g_mpEyePredict = false;
+static bool g_mpEyeMenuHalfStep=false;static int testMenuContext=-1;
+static int UiSurfaceContext(){return testMenuContext;}
 static int  g_mpEyePredictRun = 0;
 static long g_mpEyePredicted = 0;
 static double g_mpEyeSameAdSum; static long g_mpEyeSameAdN;
@@ -81,6 +83,23 @@ static void draw(uint32_t present, float right, long scriptDoubling) {
     MpDrawCtx c{right}; MpEyeForPresent(&c);
 }
 int main() {
+    // Replay observed385 menu left-eye jumps below the old 0.45-IPD band.
+    const float measured[]={2.797f,2.831f,2.666f,2.678f,2.541f,2.482f,2.496f,2.291f,2.388f,2.820f};
+    for(float jump:measured) {
+        reset();testMenuContext=6;g_mpEyeMenuHalfStep=false;
+        draw(1,0,1);draw(2,-6.808f,1);draw(3,-6.808f+jump,1);
+        check("measured_menu_negative_control_holds_wrong_right",g_mpEyeState==1);
+        reset();g_mpEyeMenuHalfStep=true;
+        draw(1,0,1);draw(2,-6.808f,1);draw(3,-6.808f+jump,1);
+        check("signed_menu_half_step_recognizes_left",g_mpEyeState==-1);
+    }
+    reset();testMenuContext=3;draw(1,0,1);draw(2,-6.808f,1);
+    for(unsigned i=3;i<30;++i) draw(i,-6.808f+.001f*(i-2),0);
+    check("stationary_menu_does_not_predict_alternation",g_mpEyeState==1 && g_mpEyePredicted==0);
+    reset();testMenuContext=-1;draw(1,0,1);draw(2,-6.808f,1);draw(3,-4.2f,1);
+    check("gameplay_keeps_original_band",g_mpEyeState==1);
+    g_mpEyeMenuHalfStep=false;testMenuContext=-1;
+
     g_mfHead=0;g_mfRing[0].present=10;g_mfRing[0].eye=1;
     dvr::desktop_eye::completedPresent=11;dvr::desktop_eye::completedEye=1;
     testPresent=11;MfNoteTag();

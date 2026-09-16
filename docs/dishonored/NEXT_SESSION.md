@@ -1,19 +1,24 @@
-## Current: weapon dial accepted for merge; HUD follow-up (2026-09-16)
+## Current: HUD follow-up accepted for merge (2026-09-16)
 
-- User explicitly authorized PR/merge of codex/hud-weapon-dial to VR-Main and
-  promotion of the complete new F10 profile. Build378 DLL/banner verified; both
-  logs/INI archived at build/playtest-candidates/vr126-hud-owner/accepted-profile.
-- Headset: no reported note/book flicker; wheel mostly stable. Remaining head-motion
-  positional flicker appears confined to left-eye hands/weapons (VR-128, Backlog).
-  Interior log intervals:36 notes and10 wheel, all zero mono output.
-- Generated/packaged/golden defaults are byte-identical to the accepted saved INI.
-  Eight latest changes tune vitals and match reader width0.660/distance0.020/right0.320.
-- After the accepted merge, create codex/hud-fixes from updated VR-Main for VR-127:
-  shared reading alpha, interaction alpha, original general-alpha reset, slow book
-  scrolling, independent objective markers and unified interaction title/action routing.
-- Preserve stereo/pose ownership and camera translation. No subagents, game/simulator
-  launch or branch deletion. Installed.json remains build authority; keep one question
-  per launch and archive both logs before any next candidate installation.
+The maintainer accepted the current work as sufficient and explicitly authorized
+PR publication and merge to VR-Main. This ends the active HUD test loop; it is not
+a claim that every residual issue has been eliminated. Preserve codex/hud-fixes
+after merge. Installed391/source56b422dc2 remains the playtest build, with its DLL
+hash and log banner verified before the merge checkpoint; both logs and full INI
+are archived under build/playtest-candidates/hud-menu-exit/merge-checkpoint-*.
+No install or settings change is part of this merge.
+
+Accepted earlier reports: reader grip rotation, wheel origin, crouch grouping,
+interaction hue and pause world stability; closing flash provisionally absent.
+Residual pause hand-size variation remains open. Native objective text association
+and menu exit heading are implemented with tests; final acceptance is aggregate,
+not a separate detailed verdict for each mechanism. Candidate levers retain their
+repository defaults. Latest installed settings remain preserved independently.
+
+Validation: clean release,9 exports,38 menu and23 native HUD checks; default
+writer/package/golden byte parity and lint pass. No game/simulator or subagents.
+Canonical details: HUD_ANCHORS.md and FLICKER_REFERENCE.md. Reopen a targeted
+investigation only when requested; verify installed.json and preserve both logs.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 
