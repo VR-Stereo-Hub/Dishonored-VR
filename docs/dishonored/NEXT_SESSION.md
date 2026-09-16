@@ -1,5 +1,9 @@
 ## Current: HUD orientation, pause input and crouched grouping (2026-09-16)
 
+- Installed385-gd6abf293f, candidate vr127-opening-hud. Full INI adds only
+  ObjectiveScreenTracking=1; all saved settings retained. Both logs/DLL/INI archived
+  in installs/20260916-121620-467921. Hashes/CRLF/build/exports/lint/host tests pass.
+  Old log remains382 until tester launch. Headset validation pending.
 - Branch codex/hud-fixes, local only. PR69 already merged at0afbadc83; source
   codex/hud-weapon-dial preserved. No new main merge/publication authorized.
 -382 DLL/banner verified; both logs and updated F10 profile archived under

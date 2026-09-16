@@ -23,6 +23,15 @@ To measure and name one more element (the eight unmeasured rows, or a new one):
 
 ## Current: opening orientation, pause input and crouched grouping (VR-127, 2026-09-16)
 
+**Installed385** (`vr33-hands-working-385-gd6abf293f`), clean source d6abf293f.
+Candidate `build/playtest-candidates/vr127-opening-hud`; prior logs/DLL/INI archived
+at `build/playtest-candidates/installs/20260916-121620-467921`. Entire INI comparison:
+exactly one new key, ObjectiveScreenTracking=1; all saved values retained. DLL SHA256
+`d929115f9bfc117d1d5493cefd6c2baafa2a6159b400713fca99217af9201a02`. Hashes/CRLF verified.
+Release build,9 exports, lint, byte-identical default writer/golden and listed host
+checks pass (also404 pair-policy and17 menu-scope checks). No game/simulator launch;
+current log still382 until the tester launches385. Headset result pending.
+
 Build382 DLL/banner verified before interpretation; both logs and newest saved INI
 archived at `build/playtest-candidates/vr127-hud-fixes/reported-crouch-pause`.
 Reported: standing interaction grouping improved, crouching still separates title
