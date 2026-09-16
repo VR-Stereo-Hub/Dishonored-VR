@@ -94,13 +94,42 @@ Both logs and prior files archived at
 `build/playtest-candidates/installs/20260915-204101-720438`; complete INI diff is empty,
 installed hashes and CRLF verified by installer. No game/simulator launched.
 
-**One launch question:** can live FOV tuning find enough coverage without losing the
-preferred clarity? Start90, use F10 -> View to try95 and100, closing F10 to judge each.
-Increasing FOV should expand coverage with some central sharpness loss; decreasing
-should reverse it. A useful balance establishes a preferred setting; no useful balance
-means a uniform-FOV tradeoff cannot meet both goals. No visible change or distorted head
-motion requires a rendered/submitted FOV check before another tweak. Save As Defaults
-only when a setting is preferred. Agent reads and archives logs after the report.
+**Build355 acceptance and new default:** the user reports100 degrees removes the visible
+black rectangle and retains a substantial apparent clarity improvement. The verified355
+log records live slider changes and100.00-degree submission at2750x2850. This confirms
+slider operation and the preferred FOV; it does not measure a resolution increase from
+FOV alone. Accepted evidence is archived under
+`build/performance-results/vr50-fov100-accepted-20260915-205050`.
+100 is now the runtime, missing-key, generated/package and F10 reset default.
+
+**Current candidate:** build356 (`vr33-hands-working-356-g0b1b9ca55-dirty`), installed
+from `build/playtest-candidates/vr50-fov100-pixels110`. User clarified the resolution
+control should represent TOTAL PIXELS, superseding the initial per-axis interpretation.
+100% always means2750x2850;110% produces2884x2989 (109.988% after pixel rounding).
+Both axes scale by sqrt(percent/100), preserving aspect within half-pixel rounding per
+axis. F10 -> Display -> Total pixels (%) offers50-200%, previews width/height, and
+Set for next launch saves via the existing ResRequest path. Dragging alone changes
+nothing. Settings survive restart without Save As Defaults. No new live reset is
+introduced: prior engine setres tests were inert. The mod INI is authoritative at the
+next launch and reconciles its launch-argument mirror automatically.
+
+100-degree FOV is accepted;110% resolution is a new unaccepted trial. It adds about10%
+pixels, not21%. The uninstalled per-axis110% draft was superseded before installation.
+Build, exports, golden INIs, lint and arithmetic checks passed. Both prior logs/DLL/INI
+archived before install at `build/playtest-candidates/installs/20260915-205309-560273`.
+The full installed INI comparison changes only RenderWidth2750->2884 and
+RenderHeight2850->2989; saved100-degree FOV and all other settings are preserved.
+CRLF/hashes verified. No game/simulator launched; UI operation and rendered size await
+headset/log verification.
+
+**One launch question:** at the accepted100-degree FOV, is110% total-pixel resolution
+visibly sharper while staying acceptably smooth? Launch normally in the same area;
+leave the scale at110 for this first comparison. Expected: unchanged coverage, sharper
+fine detail, possibly some performance cost. Sharper and smooth supports keeping110;
+no visible benefit or worse smoothness supports returning to100% pixels. Unexpected
+coverage/black borders require comparing actual resolution and submitted FOV before
+another change. Agent reads the356 banner, CreateDevice/capture dimensions and FOV
+logs after the user reports. Slider interaction can be checked on a later launch.
 
 ## Results and routes
 

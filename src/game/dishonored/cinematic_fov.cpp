@@ -3,7 +3,7 @@
 #include "game/dishonored/stereo_state_policy.h"
 namespace {
 std::atomic<bool> g_cineFov{false};
-std::atomic<float> g_projectionFov{90.0f}; // Explicit user-requested default; 0 restores headset-derived FOV.
+std::atomic<float> g_projectionFov{100.0f}; // Explicit user-requested default; 0 restores headset-derived FOV.
 bool g_cfGameplayScope=false; // Script/draw lane only; the render lane uses CfPublish.
 CtIdentity g_cfOwner[3];
 bool g_cfHaveOwner=false;
@@ -52,7 +52,7 @@ static void CineFovSet(bool on) {
 }
 static void CineFovConfigure(const char* ini) {
     CineFovSet(GetPrivateProfileIntA("Cine","LockFov",1,ini)!=0);
-    ProjectionFovSet(IniFloat(ini,"Screen","ProjectionFov",90.0f));
+    ProjectionFovSet(IniFloat(ini,"Screen","ProjectionFov",100.0f));
 }
 static float CineFovClaim() {
     if (!CineFovEnabled() && ProjectionFovGet()==0) return 0;

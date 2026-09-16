@@ -1,39 +1,37 @@
-## Current handoff: VR-50 default 90-degree gameplay candidate, 2026-09-15
+## Current handoff: accepted100 FOV,110% pixel trial (VR-50),2026-09-15
 
-- Branch `codex/hud-fixes`, based on VR-Main after merged PR #66. The user redirected
-  this session to the F11 sharp-square discovery; no HUD implementation is underway.
-- Build355 (`vr33-hands-working-355-gf8380e1e3-dirty`) is installed, default90.
-  F10 -> View now has a live60-120 gameplay FOV slider, reset90 and disable control;
-  Save As Defaults persists it. Zero INI changes on this install. Build/exports/lint
-  pass; slider interaction awaits the user. No game/simulator launched.
-- Prior353 headset report:90 looks better than108 but square boundary remains.
-  Verified90 submission and zero scope refusals. Next question is whether live95/100
-  gives useful coverage while retaining clarity. Do not assume moving a projection
-  screen closer is a distance-only change; there is no screen distance in this path.
-- Canonical findings, F11 timeline, density tradeoff, limitations and the one launch
-  question are in PERFORMANCE.md, section "Active exception: F11 clarity and
-  90-degree view". Read that section only initially.
+- Branch `codex/hud-fixes`, following merged performance PR66. The user redirected
+  work to the F11 clarity discovery. Broader performance work remains shelved.
+- User accepted100-degree gameplay FOV: no visible black rectangle, better apparent
+  clarity. Verified355 logs show100-degree submission at2750x2850.100 is now the
+  runtime/config/package/reset default. F10 View provides the live FOV slider.
+- Build356 (`vr33-hands-working-356-g0b1b9ca55-dirty`) is installed at2884x2989,
+ 110% TOTAL PIXELS versus2750x2850. F10 Display has a50-200% total-pixel slider,
+  resolution preview and Set for next launch. Both axes scale equally with pixel
+  rounding; dragging alone does nothing. Set persists through existing ResRequest.
+- Next launch asks only whether110% is sharper while remaining smooth at100 FOV.
+  Build/exports/golden/lint passed; new resolution and UI await headset verification.
+  No game/simulator launched. Both prior logs archived before install. Full installed
+  INI comparison changes only width/height; user settings and CRLF preserved.
 - Verify `build/playtest-candidates/installed.json` and the new log banner before
-  interpreting the next run. The existing logs still describe build353. Both were
-  archived before installing355. Exact307 remains recoverable.
-- VR-50 is In Progress, unassigned. Other unfinished performance tickets stay Backlog,
-  unassigned; their broader optimization work remains shelved.
-- Preserve image-owned orientation, stereo synchronization and IsLiveObject guards.
+  interpreting a run. Old logs still belong to355. Canonical findings, rollback
+  artifacts and launch outcomes: PERFORMANCE.md active F11 section only.
+- Preserve image-owned orientation, stereo synchronization and IsLiveObject checks.
   No game/simulator launches, subagents, preserved-branch deletion or main merge.
-- Agent handles build/install/config/logs. Archive both logs before another launch;
-  compare the entire installed INI and verify CRLF. One question per user launch.
+  Agent handles commands/build/install/config/logs. Archive both logs and compare
+  the entire INI on every install. One question per user launch.
 
 ### Minimal next-chat prompt
 
-Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md and CLAUDE.md,
-then only the current STATUS/NEXT_SESSION handoff and the active F11/90-degree section
-of docs/dishonored/PERFORMANCE.md. Build355 is installed with the F10 View slider, default ProjectionFov=90;
-verify installed.json and log banner. Next step is interpreting the user's headset
-result, not launching anything. The F11 discovery restored 2750x2850 while FOV remained
-74.89 degrees versus normal108.07; the candidate scopes gameplay to90 with proportional
-zoom and restores camera memory after both eyes. Prior353 clarity improved but the border remains;355 slider interaction
-awaits testing. Keep other performance work shelved. Preserve accepted stereo and
-orientation, all current user INI settings and CRLF. No subagents or main merge.
+Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md/CLAUDE.md,
+then only current STATUS/NEXT_SESSION and the active F11 section of PERFORMANCE.md.
+100-degree FOV is headset-accepted and now default;355's live F10 FOV slider worked.
+Build356 is installed for a110% TOTAL-PIXEL trial:2884x2989 versus2750x2850, with F10
+Display percentage slider and resolution preview. Set saves for next launch, not a live
+resize. Next task is checking the user's clarity/smoothness result and actual356 log
+resolution/FOV. Verify installed.json/banner and archive both logs. Keep other performance
+work shelved and accepted stereo/orientation unchanged. No game/simulator launches,
+subagents or main merge. Full INI comparison and CRLF required on installs.
 
 ## Performance research shelved, 2026-09-15
 

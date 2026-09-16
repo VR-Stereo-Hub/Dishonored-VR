@@ -87,14 +87,14 @@ static void OverlayFrame()
         float projectionFov=ProjectionFovGet();
         bool customFov=projectionFov>0;
         if (ImGui::Checkbox("Custom gameplay FOV",&customFov)) {
-            projectionFov=customFov?90.0f:0.0f;
+            projectionFov=customFov?100.0f:0.0f;
             ProjectionFovSet(projectionFov);
         }
         ImGui::BeginDisabled(!customFov);
-        float degrees=customFov?projectionFov:90.0f;
+        float degrees=customFov?projectionFov:100.0f;
         if (ImGui::SliderFloat("Gameplay FOV (degrees)",&degrees,60.0f,120.0f,"%.0f",ImGuiSliderFlags_AlwaysClamp))
             ProjectionFovSet(degrees);
-        if (ImGui::SmallButton("Reset FOV to 90")) ProjectionFovSet(90.0f);
+        if (ImGui::SmallButton("Reset FOV to 100")) ProjectionFovSet(100.0f);
         ImGui::EndDisabled();
         ImGui::TextDisabled("Lower: sharper, smaller view. Higher: wider coverage.");
         ImGui::TextDisabled("Changes live. SAVE AS DEFAULTS keeps it for next launch.");
@@ -660,6 +660,29 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Display")) {
+    {
+        // Stable total-pixel reference; scale both axes by sqrt(pixel multiplier).
+        // Integer rounding is at most half a pixel per axis, without compounding.
+        static float pixelPercent=-1.0f;
+        if (pixelPercent<0)
+            pixelPercent=g_resWantW && g_resWantH
+                ? 100.0f*((float)g_resWantW/2750.0f)*((float)g_resWantH/2850.0f) : 110.0f;
+        ImGui::TextUnformatted("Render resolution scale");
+        ImGui::SliderFloat("Total pixels (%)",&pixelPercent,50.0f,200.0f,"%.0f%%",ImGuiSliderFlags_AlwaysClamp);
+        const float axisScale=sqrtf(pixelPercent*0.01f);
+        const uint32_t width=(uint32_t)(2750.0f*axisScale+0.5f);
+        const uint32_t height=(uint32_t)(2850.0f*axisScale+0.5f);
+        ImGui::Text("Preview: %ux%u | %.0f%% total pixels",width,height,pixelPercent);
+        ImGui::TextDisabled("100%% = 2750x2850. Both axes scale equally, rounded to pixels.");
+        ImGui::Text("Current: %ux%u | next launch: %ux%u",dvr::capture::width(),dvr::capture::height(),g_resWantW,g_resWantH);
+        if (ImGui::Button("Set for next launch")) {
+            g_resVirtual=true;
+            ResRequest(width,height,true,"F10 total-pixel scale");
+        }
+        ImGui::TextDisabled("Set saves the size. Restart the game to apply.");
+        ImGui::TextDisabled("110%% means 10%% more pixels. FOV remains unchanged.");
+        ImGui::Separator();
+    }
     if (ImGui::Button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
         dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());
     bool reducedTrial = dvr::perf::desktop_ab_reduced();

@@ -4,7 +4,9 @@
 
 - [x] Trace fullscreen reset and narrow-FOV feedback; preserve findings in PERFORMANCE.md.
 - [x] Build/install default 90-degree gameplay candidate with standalone validation.
-- [ ] Headset acceptance of coverage, clarity and stereo; no new main merge authorized.
+- [x]100-degree gameplay FOV and live F10 slider headset-accepted; default promoted.
+- [x] Add F10 total-pixel scale/preview/Set; install110% pixel trial.
+- [ ] Verify110% clarity/smoothness and requested resolution; no new main merge authorized.
 
 ## Performance research shelved (2026-09-15)
 
