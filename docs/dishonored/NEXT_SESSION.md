@@ -1,5 +1,15 @@
 ## Current:387 accepted pieces and pause-scale follow-up (2026-09-16)
 
+Installed389 (`vr33-hands-working-389-gdc3ffee45`), clean source dc3ffee45.
+Candidate `build/playtest-candidates/hud-visual-lifecycle`; both previous logs,
+DLL and INI archived in `build/playtest-candidates/installs/20260916-152612-084229`.
+Entire INI diff is six added keys only: PauseSceneFreshness=1 and five PauseAlpha
+values matching saved general alpha (repair,1,0,1,1). Every existing value retained.
+Installed hashes and CRLF verified; release build,9 exports, lint and listed host
+checks pass. DLL SHA256 `0488e78c3136e4dbce49015018899b87e26f2d896676a514af1410033198efc8`.
+No game/simulator launch. Current log remains387 until tester launch; no headset
+acceptance claimed. Local only; no push or merge.
+
 - Local branch codex/hud-fixes.387 DLL/hash/banner verified; both logs and unchanged
   saved INI archived under vr128-menu-half-step/reported-pause-scale.
 - Accepted: crouch transition grouping, hue correction, wheel hand stability good
