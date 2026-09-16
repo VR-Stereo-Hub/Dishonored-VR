@@ -29,7 +29,10 @@
 - [x]374 wheel appearance/selection accepted; motion-dependent camera issue reported.
 - [x] Scoped single-draw and translation-frame corrections pass host negative controls.
 - [x] Independent wheel alpha and hand-following note/journal controls implemented.
-- [ ] Headset acceptance: menu head-motion stability and hand-following readers.
+- [x]376 positional camera slide appears fixed; readers accepted except horizontal alignment.
+- [x] Add reader right-offset sliders, bounded menu stereo gap hold, private measured HUD textures/content continuity.
+- [ ] Headset acceptance: world scale/eye alignment during wheel head motion; remaining hands/weapons flicker.
+- [ ] Headset acceptance: moving HUD ownership (content cache has explicit semantic limits).
 
 ## Performance research shelved (2026-09-15)
 

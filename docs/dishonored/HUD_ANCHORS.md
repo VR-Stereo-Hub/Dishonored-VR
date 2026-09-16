@@ -21,6 +21,49 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Current: right-hand-side readers and moving HUD ownership (2026-09-16)
+
+376 reader placement accepted except horizontal alignment; camera sliding appears
+fixed. Preserve saved Note width0.660m/distance+0.040m and every other F10 value.
+New `NoteHandRight` and `JournalHandRight` default+0.200m, range-0.75..+0.75m.
+F10 **Notes and journal on the hand > Horizontal offset (m, + right)** moves along
+the camera-facing panel's right axis. Width/distance remain independent, panel
+follows the left grip and stays parallel to the camera.
+
+**Plane switching is understandable from source:** gameplay HUD routing selects a
+row by draw center inside screen regions. A moving draw can become reticle/prompt/
+default and inherit a different anchor/scale. Existing saved Default scale1.570
+versus Prompt1.170 makes such a switch visible. In addition, measured elements on
+one anchor share a crop texture; overlapping configured regions can display pixels
+owned by a different row. This is not physical quad collision.
+
+**Candidate:** initial location still seeds a row, but a bounded cache retains it
+while identical local vertex content/material resources move via shader transforms.
+Includes default ownership, so an unknown moving draw cannot suddenly become a
+prompt simply by crossing that rectangle. Hash all bytes for eligible small draws
+(max8KiB), no extra GPU read or buffer lock. Reset on menu/config/device changes;
+expire after240 provider frames of absence. Duplicate content at different positions
+in one frame is ambiguous and falls back, never intentionally aliases another owner.
+Each measured element gets a private texture; expand around its reference region
+without changing pixel scale/location, so motion outside that region is not clipped
+and overlapping regions cannot see each other's pixels. Keep the12-sink ceiling and
+existing overflow fallback. Unmeasured elements still share the default catch-all.
+
+**Limits:** this is content continuity, not a named Scaleform object hook. Rebuilt,
+large, animated/colour-changing or unreadable geometry may fall back to positional
+routing; an initially wrong positional hint can remain wrong until expiry/reset.
+Do not claim every interaction prompt is semantically identified. `hud/owner` logs
+retained-vs-spatial disagreements. Headset test still required; if transitions remain,
+inspect those draws and pursue semantic owner identification rather than widening
+rectangles. Private textures may add copies when multiple measured elements previously
+shared one anchor; do not promote a performance claim from host tests.
+
+Validation:279 production route checks (moving/default/expiry/reset/collision/ambiguity),
+38 anchor checks including expanded reference geometry. Menu world-scale investigation,
+correction, host evidence and single launch question: [FLICKER_REFERENCE](FLICKER_REFERENCE.md#menu-depth-interruption-follow-up-vr-126-2026-09-16).
+Local only. Installed manifest remains the build authority; preserve both logs and
+entire saved INI on install. Acceptance pending.
+
 ## Current follow-up: motion stability, reading panels and alpha (2026-09-16)
 
 374 wheel usability/appearance accepted; hands/weapons flicker and separate camera translation

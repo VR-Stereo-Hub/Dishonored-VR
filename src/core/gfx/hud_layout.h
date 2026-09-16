@@ -19,10 +19,10 @@
 // an element the mod has not named yet is visible and can be named from the
 // log (`hud list`). A new element is one row.
 //
-// Sinks are per (anchor, cropped): every element with a measured rectangle on
-// an anchor shares that anchor's CROP sink and gets its own quad as a
-// sub-rectangle of it; elements without a rectangle share the anchor's
-// CATCH-ALL sink and one whole-sink quad. Only anchors in use pay a copy.
+// Measured elements have private sinks: overlapping/moving content cannot
+// leak between element quads. Initial regions establish scale/placement but
+// no longer clip the isolated texture. Unmeasured elements share the anchor's
+// CATCH-ALL sink and one whole-sink quad. Only sinks in use pay a copy.
 //
 // The runtime layer knows nothing of elements: provide() hands it a flat list
 // of quad descriptors (texture + crop + anchor + placement + a stable slot).
@@ -108,7 +108,9 @@ uint32_t menu_context_mask();
 void     set_menu_context_mask(uint32_t mask, const char* who);
 bool     screen_can_ride(int context);          // the row exists and its anchor is visible
 void     set_menu_riding(bool riding, int context);   // published by the game side each poll
+void forget_draw_owners();
 bool menu_riding();
+bool menu_stereo_hold();
 bool menu_head_look(int context);
 bool menu_no_blur(int context);
 
@@ -116,13 +118,13 @@ bool menu_no_blur(int context);
 // The sink a draw goes to. bbox = the draw's normalised backbuffer rectangle
 // (x0,y0,x1,y1), or null when the region probe could not read it. Returns -1
 // when the element stays in the frame (AnchorFrame), else a sink index.
-int  sink_for(const float* bbox, int* elementOut);
+int  sink_for(const float* bbox, int* elementOut, uint64_t drawKey = 0);
 // Sinks: in use, and a label for the log ("window/crop", "handL/all").
 bool sink_in_use(int sink);
 bool sink_hidden(int sink);                     // an "off" element's sink: redirected, cleared, never delivered
 const char* sink_label(int sink);
 int  sink_anchor(int sink);                     // -1 when free
-static const int kMaxSinks = 12;                // (anchor, crop|all) for the four visible anchors, plus room
+static const int kMaxSinks = 12;                // bounded pool for private measured elements and anchor catch-alls
 
 // ---- the runtime's side (present thread) ---------------------------------
 // Fills `out` with up to `max` quad descriptors from the sinks that delivered

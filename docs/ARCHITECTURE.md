@@ -949,3 +949,13 @@ controls eye separation. Menu entry neck correction is a vector in its original
 head-yaw frame and must be rebased before adding current physical translation.
 Single menu scene draws keep this same scope with eye0. Tag/hold policy stays owned
 by the existing stereo path. Perceptual acceptance remains pending.
+
+### 2026-09-16: bounded menu stereo continuity and HUD content ownership
+
+Keep image-owned pose/tag synchronization unchanged. Head-tracked riding screens
+extend the short mono gap hold by150ms, then retain the existing bounded fallback.
+Gameplay HUD rectangles are initial hints, not stable element identities. Small
+unchanged local draw content retains its initial row briefly; ambiguous/rebuilt
+content falls back. Private measured-element textures eliminate cross-crop leakage
+and preserve reference placement while allowing motion outside the initial rectangle.
+This remains provisional until headset validation/semantic owner identification.

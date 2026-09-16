@@ -111,6 +111,19 @@ int main() {
         c = crop_rect(100, 100, bad, 1.0f, 0.0f);
         check(c.w == 100 && c.h == 100, "an empty sub-rectangle falls back to the whole texture");
     }
+    {
+        const float r[4]={.52f,.46f,.80f,.62f};
+        float width=.28f,offset[2]={.16f,-.04f};
+        expand_reference_panel(r,1,width,offset);
+        check(std::fabs(width-1)<1e-6f,"full private texture preserves prompt pixel scale");
+        check(std::fabs(offset[0])<1e-6f && std::fabs(offset[1])<1e-6f,"reference window position preserved");
+        width=.40f;offset[0]=offset[1]=0;
+        expand_reference_panel(r,1,width,offset);
+        check(std::fabs(offset[0]+.16f*width)<1e-6f,"hand crop remains centered at grip after expansion");
+        check(std::fabs(offset[1]-.04f*width)<1e-6f,"hand crop vertical position preserved");
+        // A point outside the old prompt rectangle still has a stable mapping.
+        check(std::fabs((offset[0]+(.9f-.5f)*width)-(.9f-.66f)*width)<1e-6f,"moving content is not clipped at old region edge");
+    }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;
 }

@@ -37,6 +37,17 @@ inline void camera_panel_position(const float grip[3],const float camera[4],floa
 }
 
 
+// A private element texture can show the whole image without stretching or
+// clipping at its initial identification rectangle. Preserve every reference
+// pixel's world location while expanding the transparent surrounding panel.
+inline void expand_reference_panel(const float r[4],float aspect,float& width,float offset[2]) {
+    const float rw=r[2]-r[0];
+    if(!(rw>0)) return;
+    width/=rw;
+    offset[0]-=((r[0]+r[2])*.5f-.5f)*width;
+    offset[1]-=(.5f-(r[1]+r[3])*.5f)*aspect*width;
+}
+
 // Watch-face tilt. The grip pose per the OpenXR specification (6.3, "grip"):
 // +X is the ray normal to the open palm, AWAY from the palm on the left hand
 // and INTO the palm on the right; -Z runs through the tube the closed fingers

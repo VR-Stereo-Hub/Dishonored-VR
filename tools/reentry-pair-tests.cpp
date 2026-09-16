@@ -10,6 +10,7 @@
 // to be (no fault, no skew; the model resets), so the table cannot be fitted to a
 // hypothesis by the assertions.
 #include <windows.h>
+#include "core/gfx/stereo_menu_hold.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -179,6 +180,17 @@ static void print(const Scenario& s, const Result& r) {
 }
 
 int main() {
+    dvr::stereo::MenuGapHold menuHold;
+    check(!menuHold.hold(0,true,1000),"menu: no history cannot hold mono");
+    check(!menuHold.hold(-1,true,1000),"menu: left image is never held");
+    check(!menuHold.hold(+1,true,1005),"menu: right image is never held");
+    for(int ms=1006;ms<1155;++ms)
+        check(menuHold.hold(0,true,ms),"menu: short center-eye gap retains stereo");
+    check(!menuHold.hold(0,true,1155),"menu: 150ms cap prevents indefinite freeze");
+    check(!menuHold.hold(0,false,1010),"menu: actual menu exit bypasses extra hold");
+    check(!menuHold.hold(0,true,900),"menu: invalid clock does not freeze");
+    menuHold.clear();
+    check(!menuHold.hold(0,true,1010),"menu: reset clears stereo history");
     std::vector<Scenario> table;
     for (int lead = 0; lead <= 3; ++lead)
         for (float walk : {0.0f, 1.5f}) {

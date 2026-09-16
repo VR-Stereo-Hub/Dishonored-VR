@@ -1,5 +1,50 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## Menu depth interruption follow-up (VR-126, 2026-09-16)
+
+**376 verdict:** camera sliding when turning appears fixed. Notes follow the hand
+well. Residual wheel flicker includes hands/weapons and a newly reported brief
+whole-world enlargement/eye misalignment. Do not classify the entire fault as hands.
+Do not undo the accepted composed-yaw/coherent-position correction.
+
+**Evidence:** installed376 DLL hash/banner verified before reading. Both logs and
+current INI are archived in `build/playtest-candidates/vr126-menu-motion/reported-scale-routing`.
+Across intervals fully inside a riding episode (more than3.1s after entry),17/26
+wheel and58/72 note stereo beat intervals report nonzero mono output. Example:
+66320046 reads61L/s,61R/s,17mono/s and40none/s. The existing count hold expires
+at the fourth consecutive untagged delivery; center-eye images can then show in
+both eyes even though this screen is intended to retain stereo. This is a concrete
+scale/depth interruption, not proof that it explains every reported flicker.
+
+FOV audit changes only at startup/pause transitions (108.06/103); no logged
+fovMismatch=1 supports another live FOV-slider bug during Wheel. The pair-geometry
+probe sometimes reads halfIPD (3.41/3.42uu vs6.81 at66674000/66678000), but joins
+current render c5 to pipelined delivery, so it is NOT image-owned proof of a bad
+submitted pair. No pass2 write or menu restore refusal was logged. Whole-session
+hand mismatch/unknown counters mix menu contexts and cannot clear the hand classifier.
+Earlier same-present hand comparisons were invalid; retain the corrected deferred join.
+
+**Targeted correction:** while a head-tracked screen rides the HUD, suppress delivered
+center/untagged images for150ms after a tagged stereo image. Submit the existing pair
+instead through the established no-output/compositor hold. Never relabel pixels,
+change pose records, bypass scene gates or change the accepted eye synchronization.
+After150ms the existing three-present fallback applies; a genuine context exit
+immediately bypasses the extra hold. Reset/disarm clears history. Logs identify held
+gaps and cap expiry. A long stall may still reach mono; increasing the cap indefinitely
+would freeze live head rendering and is not a solution.
+
+**Validation:** production policy host cases cover both eyes, 149ms gaps,150ms expiry,
+real context exit, clock rollback and reset. Reentry harness404 checks passes.
+No headset acceptance yet. The world may stabilize while hand/weapon flicker remains.
+
+**ONE next launch question:** with Wheel held open and controllers still, do slow
+head turns still make the whole world briefly enlarge or lose eye alignment?
+Expected: stable world scale/depth. If stable, short mono interruptions were a contributor.
+If unchanged, read held/cap diagnostics and trace image-owned camera geometry next;
+do not substitute the hand classifier or current-c5 telemetry as proof. Hand-only
+flicker is a separate remaining surface. HUD routing/readers are available but are
+not additional acceptance questions for this launch.
+
 ## Menu head-motion follow-up (VR-126, 2026-09-16)
 
 **Reported:** refined wheel appearance and selection are accepted on374. Moving the

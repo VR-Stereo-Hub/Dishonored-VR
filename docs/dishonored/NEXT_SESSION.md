@@ -1,23 +1,22 @@
-## Current: menu-motion correction and hand-following readers (2026-09-16)
+## Current: menu depth stability and HUD ownership (2026-09-16)
 
-- Keep local on codex/hud-weapon-dial; no push or main merge authorized.
-- Verified374 report: wheel appearance/selection good; head motion flickers on hands/weapons;
-  separately appears to translate menus/cutscenes. Both logs and saved INI archived under
-  build/playtest-candidates/vr126-dial-immersion/reported-head-motion.
-- Candidate tracks menu single scene draws, uses composed yaw for scoped translation,
-  rebases entry neck correction between yaw frames, and snapshots position with head
-  orientation. Accepted image orientation/stereo synchronization unchanged.
-- Adds independent wheel alpha gain/floor/gamma and camera-parallel hand-following
-  Note/Journal panels with independent width/distance. Existing F10 settings preserved.
-- Installed376-g35a50573b from clean35a50573b; candidate vr126-menu-motion.
-  Both logs/INI archived at installs/20260916-015200-720588. Full INI adds9 keys
-  only, retaining all saved settings; hashes/CRLF verified.
-- Check installed.json for current candidate. Read only latest HUD_ANCHORS and
-  FLICKER_REFERENCE follow-up sections for evidence, limitations and launch question.
-- One question: does turning the head left/right with Wheel held open and controllers
-  still stop hand/weapon flicker? Headset verdict pending. Read menu/hands delayed
-  independent eye comparison; old all-unknown eyecheck did not clear the classifier.
-- No subagents, game/simulator launch, branch deletion or publication.
+- Local only on codex/hud-weapon-dial, VR-126. No push/PR/merge authorized.
+- Verified376 DLL/banner; both logs and saved F10 profile archived under
+  build/playtest-candidates/vr126-menu-motion/reported-scale-routing.
+- Tester: positional sliding appears fixed; readers good but need right offset;
+  wheel hand/weapon flicker persists and sometimes the world briefly enlarges/misaligns.
+- Source/log evidence and candidate limits: latest FLICKER_REFERENCE and HUD_ANCHORS
+  sections. Mono output persists inside wheel episodes; location-only HUD routing can
+  change ownership and shared crop textures can expose another element's pixels.
+- Candidate: 150ms menu stereo gap hold, private measured-element textures with
+  short-lived content ownership, independent Note/Journal horizontal sliders (+0.20m).
+  Preserve accepted scoped camera translation and all saved settings.
+- Check build/playtest-candidates/installed.json for installed identity. Headset
+  acceptance pending; no game/simulator launch or subagents. Keep changes local.
+- Next launch, ONE question: with Wheel open and controllers still, do slow head turns
+  still make the whole world jump in size or become misaligned? Stable world supports
+  short mono interruptions; persistence needs per-image geometry/identity investigation.
+  Report hand-only flicker separately; it does not establish a world-scale failure.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

@@ -6909,3 +6909,17 @@ Head sample publication now includes same-locate normal/raw translation. Entry n
 correction is rebased between physical yaw frames. Existing liveness/identity and
 exact owned-field restoration remain. FLICKER_REFERENCE records the verified374
 report, host negative control, single-scene scope gap and pending perceptual test.
+
+## VR-126 menu mono gaps and HUD ownership limits (2026-09-16)
+
+Build376 playtest confirms unintended camera sliding appears fixed. Interior wheel
+stereo beat intervals still include mono in17/26 samples; notes58/72. This establishes
+mono interruptions, not a complete explanation for transient enlargement. HalfIPD
+current-c5 telemetry is not image-owned geometry evidence. Full evidence/fix/test is
+in FLICKER_REFERENCE, latest menu depth interruption section.
+
+HUD shader/declaration/texture-class buckets are not semantic element names. Region
+center routing can switch a moving draw between anchors. Candidate adds short-lived
+local-content continuity plus private measured-element textures; initial spatial
+classification, geometry changes and shared-content ambiguity remain limitations.
+No engine-memory writes or new engine addresses introduced. HUD_ANCHORS is authoritative.

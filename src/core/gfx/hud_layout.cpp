@@ -78,6 +78,7 @@ const unsigned    kMenuContextBits[]  = { 3, 4, 5, 6, 7, 8 };
 const int         kMenuContexts = 6;
 
 ElementCfg g_el[ElCount];
+hudroute::StableRoutes g_stableRoutes;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
 bool g_dialDirection = true, g_dialCircle = true;
@@ -92,7 +93,7 @@ HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
 AlphaCfg   g_alpha = kPresetAlpha;
 float g_wheelAlphaGain=1,g_wheelAlphaFloor=0,g_wheelAlphaGamma=1;
 bool g_readHand[2]={false,false};
-float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f};
+float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
 const char* kReadNames[2]={"Note","Journal"};
 Backdrop   g_backdrop[2] = { kPresetBackdrop, kPresetBackdrop };
 bool       g_menuInWindow = true;
@@ -101,12 +102,13 @@ bool       g_menuRiding = false;
 int        g_ridingContext = -1;
 char       g_ini[MAX_PATH] = "";
 
-// Sinks: (anchor, crop) -> sink. Present thread only (draws, the seam poll, the
+// Sinks: private measured elements, shared catch-alls per anchor. Present thread only (draws, the seam poll, the
 // overlay's draw callback and the runtime's provider all run there);
 // configure() runs at DllMain before any of them.
-struct SinkUse { int anchor; bool crop; bool rideOnly; };
+struct SinkUse { int anchor; bool crop; bool rideOnly; int element = -1; };
 SinkUse  g_sink[kMaxSinks];
 int      g_sinkOf[AnchorCount][2];
+int      g_elementSink[ElCount];
 char     g_sinkLabel[kMaxSinks][24];
 uint32_t g_routeCounts[ElCount];     // draws routed per element this window
 uint32_t g_seen[ElCount];            // and this session
@@ -144,6 +146,7 @@ inline bool crop_eligible(int e) { return e != ElDefault && !kRows[e].vignette &
 inline int  anchor_kind(int a) { return anchor_is_hand(a) ? 1 : 0; }
 
 void rebuild_rows() {
+    g_stableRoutes.clear();
     for (int e = 0; e < ElCount; ++e) {
         g_rows[e].name = kRows[e].name;
         g_rows[e].context = kRows[e].context;
@@ -154,20 +157,24 @@ void rebuild_rows() {
 
 void free_sink(int s) {
     if (s < 0 || s >= kMaxSinks || g_sink[s].anchor < 0) return;
-    g_sinkOf[g_sink[s].anchor][g_sink[s].crop ? 1 : 0] = -1;
+    if(g_sink[s].element >= 0) g_elementSink[g_sink[s].element] = -1;
+    else g_sinkOf[g_sink[s].anchor][g_sink[s].crop ? 1 : 0] = -1;
+    g_sink[s].element = -1;
     DVR_INFO("hud/layout: sink %d (%s) released", s, g_sinkLabel[s]);
     g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false;
     g_sinkLabel[s][0] = 0;
 }
 
-int acquire_sink(int anchor, bool crop) {
-    const int have = g_sinkOf[anchor][crop ? 1 : 0];
+int acquire_sink(int anchor, bool crop, int element = -1) {
+    const int have = element >= 0 ? g_elementSink[element] : g_sinkOf[anchor][crop ? 1 : 0];
     if (have >= 0) return have;
     for (int s = 0; s < kMaxSinks; ++s) {
         if (g_sink[s].anchor >= 0) continue;
         g_sink[s].anchor = anchor; g_sink[s].crop = crop; g_sink[s].rideOnly = g_menuRiding;
-        g_sinkOf[anchor][crop ? 1 : 0] = s;
-        _snprintf(g_sinkLabel[s], sizeof(g_sinkLabel[s]), "%s/%s", kAnchorNames[anchor], crop ? "crop" : "all");
+        g_sink[s].element = element;
+        if(element >= 0) g_elementSink[element] = s;
+        else g_sinkOf[anchor][crop ? 1 : 0] = s;
+        _snprintf(g_sinkLabel[s], sizeof(g_sinkLabel[s]), "%s/%s", kAnchorNames[anchor], element>=0 ? kRows[element].name : "all");
         g_sinkLabel[s][sizeof(g_sinkLabel[s]) - 1] = 0;
         DVR_INFO("hud/layout: sink %d = %s%s (a copy per present from here on)", s, g_sinkLabel[s],
                  g_menuRiding ? ", for the riding screen" : "");
@@ -179,6 +186,7 @@ int acquire_sink(int anchor, bool crop) {
 // Every sink goes back to the pool; the next draws re-acquire what they need
 // (a config change costs one target rebuild, never a dropped draw).
 void rebalance() {
+    g_stableRoutes.clear();
     for (int s = 0; s < kMaxSinks; ++s) free_sink(s);
 }
 
@@ -452,10 +460,13 @@ void set_menu_riding(bool riding, int context) {
     }
     const int e = element_for_context(context);
     DVR_INFO("hud/layout: %s", riding ? "a screen is riding: every HUD-class draw routes to its row" : "the screen left: routing by element again");
+    g_stableRoutes.clear(); // resource/content identities do not survive a menu transition
     if (riding && e >= 0)
         DVR_INFO("hud/layout: the screen is %s on the %s", kRows[e].name, kAnchorNames[g_el[e].anchor]);
 }
+void forget_draw_owners() { g_stableRoutes.clear(); }
 bool menu_riding() { return g_menuRiding; }
+bool menu_stereo_hold() { return g_menuRiding && menu_head_look(g_ridingContext); }
 bool menu_head_look(int c) { return c>=3 && c<=8 && (g_menuHeadMask.load() & (1u<<c)); }
 bool menu_no_blur(int c) { return c>=3 && c<=8 && (g_menuBlurMask.load() & (1u<<c)); }
 void circle_for_sink(int sink,uint32_t width,uint32_t height,float ellipse[4]) {
@@ -492,12 +503,15 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
 
 // ---- routing --------------------------------------------------------------
 
-int sink_for(const float* bbox, int* elementOut) {
+int sink_for(const float* bbox, int* elementOut, uint64_t drawKey) {
     hudroute::Identity id;
     id.context = g_menuRiding ? g_ridingContext : -1;
     id.hasRect = bbox != nullptr;
     if (bbox) memcpy(id.rect, bbox, sizeof(id.rect)); else memset(id.rect, 0, sizeof(id.rect));
-    const int e = hudroute::route(g_rows, ElCount, id, ElDefault);
+    const int spatial = hudroute::route(g_rows, ElCount, id, ElDefault);
+    const int e = id.context >= 0 ? spatial : g_stableRoutes.resolve(drawKey, g_presentNo, spatial, bbox);
+    if(e != spatial) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+        "hud/owner: retained %s instead of positional %s; key=%016llx",kRows[e].name,kRows[spatial].name,drawKey);
     if (!bbox && !g_menuRiding) ++g_routeNoRegion;
     if (elementOut) *elementOut = e;
     ++g_routeCounts[e]; ++g_seen[e];
@@ -506,8 +520,8 @@ int sink_for(const float* bbox, int* elementOut) {
     if (anchor == AnchorFrame) { ++g_routeFrame; return -1; }
     if (anchor == AnchorOff) anchor = AnchorOff;   // a hidden sink: redirected, never delivered
     const bool crop = crop_eligible(e);
-    int s = g_sinkOf[anchor][crop ? 1 : 0];
-    if (s < 0) s = acquire_sink(anchor, crop);
+    int s = crop ? g_elementSink[e] : g_sinkOf[anchor][0];
+    if (s < 0) s = acquire_sink(anchor, crop, crop ? e : -1);
     if (s < 0) {                    // out of sinks: it rides default's catch-all
         ++g_routeOverflow;
         const int da = g_el[ElDefault].anchor;
@@ -565,14 +579,15 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
 int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
     ++g_presentNo;
     int n = 0;
-    // The cropped elements: one quad each, a sub-rectangle of its anchor's crop
-    // sink, only while its draws keep arriving (the sink delivers the previous
+    // The measured elements: one isolated full-texture quad each, preserving
+    // its reference region's placement while allowing motion outside it.
+    // Only while its draws keep arriving (the sink delivers the previous
     // present's slot, so two presents of grace).
     for (int e = 0; e < ElCount && n < max; ++e) {
         const int a = g_el[e].anchor;
         if (!anchor_visible(a) || !crop_eligible(e)) continue;
         if (g_presentNo - g_lastRouted[e] > 2) continue;
-        const int s = g_sinkOf[a][1];
+        const int s = g_elementSink[e];
         if (s < 0) continue;
         ID3D11Texture2D* tex = dvr::hudcap::sink_texture(s, ctx);
         if (!tex) continue;
@@ -582,8 +597,14 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         dvr::vr::HudQuadDesc& d = out[n++];
         d = dvr::vr::HudQuadDesc();
         d.tex = tex; d.element = e; d.slot = e;
-        memcpy(d.subrect, g_el[e].rect, sizeof(d.subrect));
+        const float whole[4]={0,0,1,1};
+        memcpy(d.subrect,whole,sizeof(d.subrect));
         place(d, e, a, g_el[e].rect, aspect, false);
+        // Expand the isolated texture around the same reference rectangle.
+        // Preserve pixel scale/placement while allowing this element to move
+        // outside its original identification region without clipping.
+        dvr::hudanchor::expand_reference_panel(g_el[e].rect,aspect,d.width,d.planeOff);
+        d.height=0;
     }
     // The catch-all sinks: one whole-sink quad per anchor in use, placed by
     // the riding screen's row while a screen rides, else by `default`.
@@ -612,7 +633,7 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
             d.orient=dvr::vr::HudOrient::CameraPlane;
             dvr::hudanchor::camera_panel_position(hp,camera,g_readDistance[readPanel],d.base);
             d.width=g_readWidth[readPanel];d.height=0;
-            d.planeOff[0]=d.planeOff[1]=0;
+            d.planeOff[0]=g_readRight[readPanel];d.planeOff[1]=0;
         }
         if (e == ElWheel && g_dialOn && g_dial.held) {
             if (!g_dial.valid) { --n; continue; }
@@ -636,8 +657,10 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
 
 void configure(const char* ini) {
     strncpy_s(g_ini, ini ? ini : "", _TRUNCATE);
-    for (int s = 0; s < kMaxSinks; ++s) { g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false; g_sinkLabel[s][0] = 0; }
+    for (int s = 0; s < kMaxSinks; ++s) { g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false; g_sink[s].element=-1; g_sinkLabel[s][0] = 0; }
     for (int a = 0; a < AnchorCount; ++a) g_sinkOf[a][0] = g_sinkOf[a][1] = -1;
+    for(int e=0;e<ElCount;++e) g_elementSink[e]=-1;
+    g_stableRoutes.clear();
     memset(g_seen, 0, sizeof(g_seen));
     memset(g_lastRouted, 0, sizeof(g_lastRouted));
     // VR-117's keys, read once and rewritten on the next save: one hand
@@ -760,6 +783,7 @@ void configure(const char* ini) {
         _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);g_readHand[i]=read_i(ini,key,0)!=0;
         _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);g_readWidth[i]=fminf(1.5f,fmaxf(.15f,read_f(ini,key,g_readWidth[i])));
         _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);g_readDistance[i]=fminf(.5f,fmaxf(-.3f,read_f(ini,key,-.05f)));
+        _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);g_readRight[i]=fminf(.75f,fmaxf(-.75f,read_f(ini,key,.20f)));
     }
     g_dialDistance=fminf(.50f,fmaxf(-.30f,read_f(ini,"WeaponDialDistance",0)));
     g_dialDirection = read_i(ini,"WeaponDialDirectionOnly",1)!=0;
@@ -826,6 +850,7 @@ void save(const char* ini) {
         _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
         _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
         _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
+        _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);write_f(key,g_readRight[i]);
     }
 
     set_backdrop(0, g_backdrop[0], "save");
@@ -1077,11 +1102,13 @@ void draw_ui() {
             bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);
             change|=ImGui::SliderFloat("Panel width (m)",&g_readWidth[i],.15f,1.5f,"%.2f");
             change|=ImGui::SliderFloat("Distance offset (m, + farther)",&g_readDistance[i],-.30f,.50f,"%.2f");
+            change|=ImGui::SliderFloat("Horizontal offset (m, + right)",&g_readRight[i],-.75f,.75f,"%.2f");
             if(change) {
                 char key[64];
                 _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
                 _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
                 _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
+                _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);write_f(key,g_readRight[i]);
             }
             ImGui::PopID();
         }
