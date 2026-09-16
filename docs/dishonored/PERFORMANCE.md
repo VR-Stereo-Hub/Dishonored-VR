@@ -74,6 +74,17 @@ Both logs, prior DLL and INI archived at
 The full installed INI comparison adds only ProjectionFov=90; existing saved HUD and hand
 trim changes since the old manifest are preserved. CRLF and installed hashes verified.
 
+**First build353 headset result:** improved appearance versus108 reported, but the
+rectangular boundary remains visible. Verified353 log shows gameplay submission90.00
+at2750x2850 and camera scopes108.07 ->90 with zero refusals through5,531 writes.
+This validates reported clarity improvement and scoped submission, not a complete
+world-matrix audit or a measured performance gain. The remaining request is to enlarge
+the angular presentation of the90-degree image. A projection layer has no screen-distance
+parameter; widening only its submitted frustum magnifies the image and mismatches rendered
+rays, potentially changing head-motion gain and stereo geometry. A stereo quad/screen is
+a different presentation mode and would need explicit design/testing. Do not silently
+replace the accepted projection with that mode. Evidence: `build/performance-results/vr50-fov90-headset-20260915-203910`.
+
 **One launch question:** does automatic 90-degree gameplay provide a useful larger view
 while retaining the clarity and comfortable stereo of the F11 discovery? Load the same
 area without pressing F11 and look/walk normally. Expected: larger angular coverage than
