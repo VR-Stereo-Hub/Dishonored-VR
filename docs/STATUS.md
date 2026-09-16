@@ -1,31 +1,39 @@
-## Current handoff: HUD fixes, 2026-09-15
+## Current handoff: VR-50 default 90-degree gameplay candidate, 2026-09-15
 
-- Worktree: `C:\dev\Dishonored-VR`; branch `codex/hud-fixes`, created from
-  `VR-Main` at `40ee5981d` (merged performance PR #66).
-- HUD PRs #63 and #64 are already merged (commits `0aa12ccbe` and `18ae4ebda`).
-  Older sections below calling them open or unmerged are historical.
-- No HUD defect or new implementation scope has been specified yet. Get the
-  concrete symptom and desired behavior before changing HUD code; then find or
-  create its Linear ticket. Do not infer a fix from the branch name.
-- Performance is shelved. Its unfinished tickets are Backlog/unassigned;
-  PERFORMANCE.md is the sole maintained record. Do not resume that work.
-- Exact build307 remains installed, not the current source build. Verify
-  `build/playtest-candidates/installed.json` and installed DLL/INI before changes.
-  The most recent game log can still be build349 from the earlier simulator
-  test; no new307 run is implied by rollback. Never infer log identity from HEAD.
-- Preserve accepted image-owned orientation, stereo synchronization and engine
-  liveness. No game/simulator launches, subagents, preserved-branch deletion or
-  main merge without new explicit authorization for that action.
-- Handle commands/build/install/diagnostics yourself. Before replacing or
-  rotating evidence, archive both game logs. Every install needs a full installed
-  INI comparison and byte-verified CRLF. One question per user launch, with
-  expected results and what each outcome means.
+- Branch `codex/hud-fixes`, based on VR-Main after merged PR #66. The user redirected
+  this session to the F11 sharp-square discovery; no HUD implementation is underway.
+- Build353 (`vr33-hands-working-353-gf0fa9fef4-dirty`) is installed with
+  `[Screen] ProjectionFov=90`, default on by explicit request. Built/host-tested;
+  headset acceptance is pending. No game or simulator was launched for this candidate.
+- Canonical findings, F11 timeline, density tradeoff, limitations and the one launch
+  question are in PERFORMANCE.md, section "Active exception: F11 clarity and
+  90-degree view". Read that section only initially.
+- Verify `build/playtest-candidates/installed.json` and the new log banner before
+  interpreting the next run. The existing logs still describe build307. Both were
+  archived before installing353. Exact307 remains recoverable.
+- VR-50 is In Progress, unassigned. Other unfinished performance tickets stay Backlog,
+  unassigned; their broader optimization work remains shelved.
+- Preserve image-owned orientation, stereo synchronization and IsLiveObject guards.
+  No game/simulator launches, subagents, preserved-branch deletion or main merge.
+- Agent handles build/install/config/logs. Archive both logs before another launch;
+  compare the entire installed INI and verify CRLF. One question per user launch.
 
-Detailed minimal reading list: [NEXT_SESSION.md](dishonored/NEXT_SESSION.md).
+### Minimal next-chat prompt
+
+Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md and CLAUDE.md,
+then only the current STATUS/NEXT_SESSION handoff and the active F11/90-degree section
+of docs/dishonored/PERFORMANCE.md. Build353 is installed, default ProjectionFov=90;
+verify installed.json and log banner. Next step is interpreting the user's headset
+result, not launching anything. The F11 discovery restored 2750x2850 while FOV remained
+74.89 degrees versus normal108.07; the candidate scopes gameplay to90 with proportional
+zoom and restores camera memory after both eyes. All standalone checks passed, headset
+acceptance pending. Keep other performance work shelved. Preserve accepted stereo and
+orientation, all current user INI settings and CRLF. No subagents or main merge.
 
 ## Performance research shelved, 2026-09-15
 
-No performance investigation or playtest is pending. Unfinished performance tickets
+Historical shelving checkpoint; the VR-50 exception above supersedes installation and
+playtest status. Unfinished performance tickets
 are Backlog and unassigned. [PERFORMANCE.md](dishonored/PERFORMANCE.md) is the compact canonical
 record of measured results, rejected routes, useful tools and resumption options.
 Ordinary per-eye preparation measured 1.322 ms/pair including 1.082 ms culling;

@@ -412,6 +412,9 @@ static void WriteDefaultIni(const char* ini)
         "; own FOV). 130 filled the old side-by-side render vertically; the mono screen\n"
         "; shows the frame as the game draws it, so it ships off.\n"
         "FovLever=0\n"
+        "; Gameplay horizontal FOV, scoped per stereo draw; 0=headset-derived.\n"
+        "; Default 90 by request. Live: projectionfov 60..120|off.\n"
+        "ProjectionFov=90\n"
         "[Mode]\n"
         "; GamepadOnly=1 makes the VR controllers behave as a plain gamepad:\n"
         "; hands, hand mesh, motion aim, motion melee, motion crouch and\n"
@@ -2894,6 +2897,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Tracking", "HeightOffsetM", v, ini);
     _snprintf(v, 64, "%.0f", (float)g_fovLever);      // 30.51: persist the lever
     WritePrivateProfileStringA("Screen", "FovLever", v, ini);
+    _snprintf(v,64,"%.2f",ProjectionFovGet());
+    WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
     WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);
     WritePrivateProfileStringA("HandRender", "DriveArms", g_rtdDoArms ? "1" : "0", ini);

@@ -528,6 +528,33 @@ tan(68.5) against the eye's own mean half-tangent, tan(54)/tan(44)): BioShock re
 the eye's own FOV, this lever renders the circumscribed one. Not a magnification error
 while the claim equals the render; `fovaudit src=readback` is the check.
 
+## F11 reset and natural-FOV feedback (VR-50, 2026-09-15)
+
+Offline native-key tracing identifies F11's engine fullscreen toggle before ordinary
+script input. The F11 name initializer at RVA 001FF5D1 stores the name index at VA
+01448708; virtual key 0x7a maps to it at RVA 005CAC21. Input code at RVA 005C8E6B
+compares this name; the branch through 005C8E7D..005C8F0A queries viewport fullscreen
+(vtable slot +0x58), inverts it and calls viewport resize, then returns before normal
+input at 005C8F40. This was derived with the local disassembly tools, not implemented
+as a new hook. Game-derived output remains uncommitted. The shipped F11 BendTime
+binding does not describe this earlier native handling.
+
+ResBeforePresentParams in render_size.cpp converts fullscreen to virtual windowed
+mode while retaining its requested backbuffer. The verified307 run reset
+2750x2850 -> 1355x1405 -> 2750x2850. Its FOV fell from108.07 to74.89. The earlier
+natural-cache recapture described above is only harmless at an unchanged target:
+FovLeverApply multiplies the current sensor by target/natural, so a slight aspect-driven
+target decrease can compound downward after natural captured the mod's own output.
+
+The353 candidate uses the existing reflected CameraCache.POV.FOV field, not a new
+offset. Gameplay scopes scale its half-angle tangent by tan(requested/2)/tan(target/2),
+retain zoom, and restore after both eye draws. The persistent FOV writer skips the active
+gameplay scope. CfValidate checks IsLiveObject, current GObjects identity slots, ownership
+and load generation; refresh rebuilds the live table before capturing new identities.
+Menu exit must reacquire identity. Cinematic/exit scopes keep precedence. Rendered
+acceptance remains a headset/log question. Full evidence and failed assumptions:
+[PERFORMANCE.md](PERFORMANCE.md), active F11 section.
+
 ## The scene-draw root, derived live (2026-09-03, S2b)
 
 The SequentialReentry seam needs the ONE function whose call tree draws the scene and

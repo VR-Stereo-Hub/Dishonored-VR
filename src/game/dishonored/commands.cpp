@@ -159,6 +159,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (DvrOnOff(args, &b)) { g_blkAimOnCfg = b; g_blkDriveUI = b; Log("blink: hand aim %s (seam)", b ? "ON" : "off"); return true; }
         return false;
     }
+    if (!strcmp(cmd, "projectionfov")) {
+        float f=0; char extra=0;
+        if (!strcmp(args,"off")) ProjectionFovSet(0);
+        else if (sscanf(args,"%f %c",&f,&extra)==1) ProjectionFovSet(f);
+        else Log("projectionfov: %.2f; use 60..120 or off",ProjectionFovGet());
+        return true;
+    }
     if (!strcmp(cmd, "fov")) {
         float f = (float)atof(args);
         if (f != 0.0f && (f < 40.0f || f > 150.0f)) { Log("fov: %g out of range (40..150, or 0 to disarm)", f); return true; }

@@ -1,12 +1,18 @@
 # Roadmap
 
+## VR-50 F11 clarity follow-up (2026-09-15)
+
+- [x] Trace fullscreen reset and narrow-FOV feedback; preserve findings in PERFORMANCE.md.
+- [x] Build/install default 90-degree gameplay candidate with standalone validation.
+- [ ] Headset acceptance of coverage, clarity and stereo; no new main merge authorized.
+
 ## Performance research shelved (2026-09-15)
 
 - [x] Consolidate findings and reusable default-off tools; preserve source branches.
 - [x] Complete query-helper and classified per-eye preparation measurements.
 - [x] Remove failed nonblocking Present and invalid coarse CPU-time output.
 - [x] Park unfinished performance tickets in Backlog, unassigned.
-- No active performance task. Routes and evidence: [PERFORMANCE.md](dishonored/PERFORMANCE.md).
+- Broader work remains shelved; VR-50 exception above. Routes and evidence: [PERFORMANCE.md](dishonored/PERFORMANCE.md).
 
 ## World head-motion stability (2026-09-14)
 

@@ -1,8 +1,8 @@
 # Performance research
 
-## Status: shelved, 2026-09-15
+## Status: broader research shelved; VR-50 FOV exception active
 
-No optimization or new playtest is pending. Research established a substantial
+The earlier research established a substantial
 resolution-independent rendering cost, ruled out several cheap fixes, and measured
 ordinary per-eye scene preparation. It did **not** establish a safe way to eliminate
 that work or a single CPU/GPU bottleneck. HUD is outside this investigation.
@@ -16,12 +16,71 @@ Unfinished performance tickets VR-17, VR-67, VR-77, VR-113, VR-115, VR-121, VR-1
 VR-124 and VR-125 are parked in Backlog, unassigned. Completed stability fixes stay
 completed. Merging this research does not promote experimental settings.
 
-**Installation:** exact build307 (`vr33-hands-working-307-ga658ed7a9-dirty`) remains
-installed. DLL SHA256 `20f48b184b2d610cd27d5fdc6586871c30c0669a450ce121cb76218ccd97a82b`;
-INI SHA256 `633d1411daa800aea46a59003b5d1aa9d5e8d4f5fe0f56a782b75cfad1ac7f78`.
-`build/playtest-candidates/installed.json` is the installation authority. Build349
-was simulator-tested and then rolled back; the current log can still have its banner.
-The shelving cleanup is built/host-tested, not installed or headset-accepted.
+## Active exception: F11 clarity and 90-degree view (VR-50, 2026-09-15)
+
+The broader optimization program remains shelved. A new headset observation reopened
+VR-50 only: toggling F11 twice yielded a sharp, smooth, smaller square view with stereo
+depth and normal head/walking response. This is a reported perceptual improvement,
+not a controlled FPS result or proof of a new anti-aliasing mode.
+
+Verified build307 DLL and log banner. Both logs and installed configuration are in
+`build/performance-results/f11-discovery-20260915-201742`. Native F11 toggles engine
+fullscreen/windowed; the mod's VirtualMode converts fullscreen requests to windowed
+while retaining the requested backbuffer dimensions.
+
+| State | Backbuffer / XR swapchain | Horizontal FOV |
+|---|---|---|
+| Before F11 | 2750x2850 | 108.07 degrees |
+| First F11 | 1355x1405 | Falls gradually toward 75 degrees |
+| Second F11 | 2750x2850 | 74.89 degrees, remains narrow |
+
+Both source bounding boxes remain full-size. Projection layers stay enabled, runtime
+quad stays off, and eye separation remains about 6.8 uu. This was not a mono cinema
+screen or an embedded low-resolution rectangle. Immediate Present was applied before
+and after the resets, so this did not newly unlock vsync.
+
+**Specific boundary:** the persistent FOV lever's natural-base cache had recaptured its
+own widened 108-degree output. It then multiplies the sensor by target/natural on every
+script dispatch. The small aspect change (2750/2850 versus 1355/1405) makes the target
+slightly smaller; feedback can repeatedly narrow the FOV. Restoring the original aspect
+makes the ratio approximately one and retains the narrow result. Logs show 3,710
+natural-base captures, with the later 3,709 recapturing about 108 before F11. The old
+assumption that this recapture was harmless fails when the target changes.
+
+At the restored width, central density is about 31.34 pixels/degree at 74.89 degrees,
+24.00 at 90, and 17.41 at 108.07. Thus the narrow view has roughly 1.80x the normal
+central linear density; 90 offers about 1.38x with more angular coverage than 75.
+These are projection arithmetic, not optical headset resolution or added AA samples.
+A narrower frustum may also reduce visible work, but moving-view tick windows averaged
+74.67 before, 85.8 at lower resolution, and 77.63 after restoration. Different views
+prevent a causal performance claim. Do not repeat the failed query-helper hypothesis.
+
+**Candidate:** `vr33-hands-working-353-gf0fa9fef4-dirty`, archived under
+`build/playtest-candidates/vr50-projection-fov90`, installed with `[Screen] ProjectionFov=90`.
+The explicit request makes 90 the runtime, missing-key, generated and packaged default;
+0 or live `projectionfov off` restores the old headset-derived route. Valid range 60-120.
+It uses the existing temporary reflected CameraCache.POV.FOV scope around both eye draws,
+with proportional tangent-space zoom, identity/liveness validation and restoration.
+The persistent ratio writer is suspended during the gameplay scope, avoiding feeding the
+temporary narrow FOV back into itself. Cinematic handling retains precedence. This does
+not repair all legacy natural-base behavior, especially after another F11/aspect change.
+No image-owned orientation or stereo-pair synchronization policy was changed.
+
+Build and standalone tests passed: 30,045 FOV/restore checks including 10,000 repeated
+scopes, frame math, 248 reentry checks, 23 single-tag checks, 9 exports, golden INIs and
+lint. No game/simulator launched. Final rendered acceptance and comfort remain untested.
+Both logs, prior DLL and INI archived at
+`build/playtest-candidates/installs/20260915-203356-472356` before replacement.
+The full installed INI comparison adds only ProjectionFov=90; existing saved HUD and hand
+trim changes since the old manifest are preserved. CRLF and installed hashes verified.
+
+**One launch question:** does automatic 90-degree gameplay provide a useful larger view
+while retaining the clarity and comfortable stereo of the F11 discovery? Load the same
+area without pressing F11 and look/walk normally. Expected: larger angular coverage than
+75, smaller than 108, correct depth/head motion. Clear and large enough supports keeping
+90; clear but too small motivates 95; adequate size but lost clarity exposes the density
+tradeoff. Warping or unexpected size requires checking rendered FOV versus submitted FOV
+before further tuning. Read the build353 banner and scoped/readback FOV logs afterward.
 
 ## Results and routes
 
