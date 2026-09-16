@@ -1,20 +1,16 @@
-## Current performance session: ordinary frustum culling measured, 2026-09-15
+## Performance research shelved, 2026-09-15
 
-Continue on `codex/performance-research`, active ticket VR-125. Next autonomous
-test completed with build349; game closed and exact307 baseline restored.
-[PERFORMANCE.md](PERFORMANCE.md) contains all findings, limits, identities and artifacts.
-Extra left-interval InitViews is reflection preparation, only0.199ms/pair.
-Ordinary left/right preparation costs1.322ms/pair, including1.082ms frustum
-culling. All selected InitViews calls have one matched culling call; no unknown
-classification/overflow/selector changes. Reflection work is deprioritized.
-Next: separate octree candidate gathering from per-view primitive tests using
-existing CPU stacks/offline code before considering conservative shared candidates.
-No visibility-result copying or eye skipping justified; no duplicated AI claim.
-Off/on/off69-ish simulator rate is not a gain: on-phase SRT workload was lower.
-No headset task pending. HUD, orientation and fences unchanged; no subagents,
-merge or branch deletion. User authorized this next autonomous test. See the
-current conversation for further launch authority; do not infer a blanket policy.
-Publication remains local under the prior GitHub/Linear approval block.
+No performance investigation or playtest is pending. Unfinished performance tickets
+are Backlog and unassigned. [PERFORMANCE.md](PERFORMANCE.md) is the compact canonical
+record of measured results, rejected routes, useful tools and resumption options.
+Ordinary per-eye preparation measured 1.322 ms/pair including 1.082 ms culling;
+no safe work-sharing optimization is established. Default-off profilers and the
+measured desktop throughput/tail experiment are retained. Failed nonblocking
+Present and invalid coarse CPU-ms instrumentation are removed.
+Exact installed307 remains unchanged. Research cleanup is build/host-validated;
+no new install or headset acceptance is claimed. Source branches are preserved.
+The user authorized a consolidation PR and merge to VR-Main; this is research
+preservation, not promotion of experimental rendering settings.
 
 ## Completed merge and installed state: 2026-09-14
 

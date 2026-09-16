@@ -11,7 +11,6 @@
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/d3d9ex.h"
-#include "core/gfx/nonblocking_present.h"
 #include "core/gfx/device_census.h"
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/hud_class.h"
@@ -60,9 +59,6 @@ bool          g_disabled = false;
 volatile LONG g_exiting = 0;
 float         g_fpsCap = 0.0f;
 bool          g_xrLive = false;
-bool          g_desktopNonblocking = false;
-dvr::desktop::NonblockingPresent g_desktopPolicy;
-thread_local bool g_nativePresentActive = false;
 LONGLONG      g_qpcFreq = 0;
 // VR-80: the Present caller
 uintptr_t     g_presentRet = 0;
@@ -139,8 +135,6 @@ void track_session() {
 
 HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT* dst, HWND wnd,
                             const RGNDATA* dirty) {
-    // A driver may route PresentEx through Present. Do not capture twice.
-    if (g_nativePresentActive) return g_origPresent(self, src, dst, wnd, dirty);
     g_presentRet = (uintptr_t)_ReturnAddress();   // VR-80: the game's call site of this present
     g_actLast.draws = g_actDraws; g_actLast.begins = g_actBegins; g_actLast.srts = g_actSrts;
     g_actLast.srcRect = src != nullptr; g_actLast.dstRect = dst != nullptr; g_actLast.hwnd = wnd != nullptr; g_actLast.dirty = dirty != nullptr;
@@ -269,34 +263,8 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         dvr::vr::session_live();
     const bool desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
         !strcmp(dvr::stereo::active_name(), "reentry");
-    HRESULT hr;
-    if (!g_desktopNonblocking) {
-        hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
-            desktopStereoReady, desktopXrReady);
-    } else {
-        dvr::desktop_eye::Record record;
-        const bool recordOk = dvr::desktop_eye::record_for(g_count, record);
-        const bool gameplay = g_cb.gameplay_verdict && g_cb.gameplay_verdict();
-        IDirect3DDevice9Ex* ex = dvr::d3d9ex::presenting_ex_device(self);
-        const bool eligible = ex && out.tex && dvr::vr::session_live()
-            && dvr::stereo::wants_projection() && gameplay && recordOk
-            && (record.draw == -1 || record.draw == 1)
-            && !src && !dst && !wnd && !dirty;
-        const bool wasRefused = g_desktopPolicy.refused;
-        g_nativePresentActive = true;
-        hr = g_desktopPolicy.present(eligible,
-            [&]() { return ex->PresentEx(src, dst, wnd, dirty, D3DPRESENT_DONOTWAIT); },
-            [&]() { return g_origPresent(self, src, dst, wnd, dirty); });
-        g_nativePresentActive = false;
-        if (!wasRefused && g_desktopPolicy.refused)
-            DVR_WARN("desktop/nonblocking: INVALIDCALL; normal Present latched until reset or toggle");
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-            "desktop/nonblocking: eligible=%d ex=%d refused=%d attempts=%u accepted=%u busy=%u fallback=%u errors=%u (cumulative; busy skips desktop only) gates tex=%d live=%d proj=%d gameplay=%d record=%d draw=%d args=%d",
-            eligible, ex != nullptr, g_desktopPolicy.refused, g_desktopPolicy.attempts,
-            g_desktopPolicy.accepted, g_desktopPolicy.busy, g_desktopPolicy.fallback, g_desktopPolicy.errors,
-            out.tex != nullptr, dvr::vr::session_live(), dvr::stereo::wants_projection(), gameplay, recordOk,
-            record.draw, src || dst || wnd || dirty);
-    }
+    const HRESULT hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
+        desktopStereoReady, desktopXrReady);
     dvr::perf::stamp(dvr::perf::kAfterGamePresent);
     // 41.1 (session 8): the codes only a 9Ex device returns (the game never
     // handles them); the first of each is named so a TDR reads as a TDR.
@@ -326,7 +294,6 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     dvr::hudclass::on_reset(); dvr::hudcap::on_reset();   // VR-117: the sinks are DEFAULT-pool; the hkReset LAW
     dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
     const HRESULT hr = g_origReset(self, pp);
-    if (SUCCEEDED(hr)) g_desktopPolicy = {};
     if (FAILED(hr))
         DVR_ERROR("device Reset FAILED 0x%08lx (%ux%u windowed=%d) - %s", (unsigned long)hr, pp ? pp->BackBufferWidth : 0,
                   pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1,
@@ -484,13 +451,6 @@ void set_disabled(bool on) { g_disabled = on; }
 bool disabled() { return g_disabled; }
 void set_exiting() { InterlockedExchange(&g_exiting, 1); }
 bool exiting() { return InterlockedCompareExchange(&g_exiting, 0, 0) != 0; }
-void set_desktop_nonblocking(bool on) {
-    g_desktopNonblocking = on;
-    g_desktopPolicy = {};
-    DVR_INFO("desktop/nonblocking: %s (gameplay with current stereo capture only; normal Present elsewhere)", on ? "ON" : "OFF");
-}
-bool desktop_nonblocking() { return g_desktopNonblocking; }
-
 void set_fps_cap(float fps) { g_fpsCap = fps; }
 float fps_cap() { return g_fpsCap; }
 bool xr_live() { return g_xrLive; }

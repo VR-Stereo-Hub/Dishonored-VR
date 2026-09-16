@@ -181,7 +181,7 @@ static void WriteDefaultIni(const char* ini)
         "GpuQueries=1\n"
         "; Optional sampled draw-hook and native D3D9 CPU wall-time profile.\n"
         "NativeProfile=0\n"
-        "; Aggregate CPU/wall stage timing; diagnostic, live: perf cpu on|off.\n"
+        "; Aggregate thread cycles/wall stage timing; diagnostic, live: perf cpu on|off.\n"
         "CpuScopes=0\n"
         "; Engine query helper timing; launch arm, live: querywait on|off.\n"
         "QueryWaitProfile=0\n"
@@ -358,8 +358,6 @@ static void WriteDefaultIni(const char* ini)
         "; because 0 is a visible rendering bug, the same call as [Stereo] HoldUntagged.\n"
         "; `device shadowfullcopy on|off` is the live A/B; 0 restores the fault.\n"
         "ShadowFullCopy=1\n"
-        "; Experimental desktop-only busy skip; live: desktopnonblocking on|off\n"
-        "DesktopNonblocking=0\n"
         "[Screen]\n"
         "AnchorCinematic=1\n"
         "AnchorMissionStats=1\n"
@@ -1408,7 +1406,6 @@ static void LoadConfig()
         dvr::census::set_shadow_surfaces(IniFloat(ini, "Device", "ShadowSurfaces", 0) != 0.0f);
         // VR-15: the per-level push, the candidate fix for black-at-distance
         dvr::d3d9ex::set_full_copy(IniFloat(ini, "Device", "ShadowFullCopy", 1) != 0.0f);
-        dvr::frame::set_desktop_nonblocking(IniFloat(ini, "Device", "DesktopNonblocking", 0) != 0.0f);
         dvr::scene_prepare::configure(IniFloat(ini, "Perf", "ScenePrepareProfile", 0) != 0.0f);
         dvr::query_profile::configure(IniFloat(ini, "Perf", "QueryWaitProfile", 0) != 0.0f);
     }
@@ -3330,7 +3327,6 @@ static void OverlaySaveDefaults()
         GetPrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(dvr::d3d9ex::managed_mode()), cur, sizeof(cur), ini);
         WritePrivateProfileStringA("Device", "Managed", cur, ini);
     }
-    WritePrivateProfileStringA("Device", "DesktopNonblocking", dvr::frame::desktop_nonblocking() ? "1" : "0", ini);
     // 41.1: the stereo selection and the tickbox
     WritePrivateProfileStringA("Stereo", "Method", dvr::stereo::wanted_name(), ini);
     WritePrivateProfileStringA("VR", "DesktopEyeSource", dvr::desktop_eye::source_name(), ini);

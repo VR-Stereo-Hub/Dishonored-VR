@@ -72,12 +72,6 @@ bool core_command(const char* cmd, const char* args)
         else DVR_INFO("querywait: armed=%d enabled=%d; usage on|off", dvr::query_profile::armed(), dvr::query_profile::enabled());
         return true;
     }
-    if (!strcmp(cmd, "desktopnonblocking")) {
-        if (!strcmp(args, "on")) dvr::frame::set_desktop_nonblocking(true);
-        else if (!strcmp(args, "off")) dvr::frame::set_desktop_nonblocking(false);
-        else DVR_INFO("desktopnonblocking: %s; usage on|off", dvr::frame::desktop_nonblocking() ? "ON" : "OFF");
-        return true;
-    }
     if (!strcmp(cmd, "desktoppresent")) {
         if (!strcmp(args, "full") || !strcmp(args, "reduced") || !strcmp(args, "off")) {
             dvr::desktop_eye::set_mirror_off(!strcmp(args, "off"));

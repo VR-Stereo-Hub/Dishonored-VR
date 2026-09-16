@@ -1,5 +1,5 @@
 # Performance research moved
 
-See [PERFORMANCE.md](PERFORMANCE.md), the single maintained research and experiment
-record. The historical contents of this report are preserved there with branch
-provenance; its current verdicts supersede historical test instructions.
+See [PERFORMANCE.md](PERFORMANCE.md), the single maintained record of findings,
+failed hypotheses and routes worth revisiting. Full historical reports remain
+recoverable through the provenance section and git history. Work is shelved.

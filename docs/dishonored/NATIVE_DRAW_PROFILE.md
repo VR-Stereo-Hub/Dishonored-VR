@@ -1,7 +1,5 @@
 # Performance research moved
 
-The complete contents of this report are preserved in
-[PERFORMANCE.md, record 2](PERFORMANCE.md#record-2).
-
-Use [PERFORMANCE.md](PERFORMANCE.md) for current verdicts and all future
-performance research. This path remains only to preserve old links.
+See [PERFORMANCE.md](PERFORMANCE.md), the single maintained record of findings,
+failed hypotheses and routes worth revisiting. Full historical reports remain
+recoverable through the provenance section and git history. Work is shelved.

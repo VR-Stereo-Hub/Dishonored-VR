@@ -52,10 +52,10 @@ enum Point {
 };
 void stamp(Point p);
 
-// VR-125: aggregate thread CPU/cycles versus wall time, default off.
+// VR-125: aggregate thread cycles versus wall time, default off.
 // Viewport scopes run on the game thread and overlap render-thread stages.
 struct CpuToken {
-    uint64_t wall = 0, cpu = 0, cycles = 0;
+    uint64_t wall = 0, cycles = 0;
     uint32_t epoch = 0, tid = 0;
 };
 void set_cpu_scopes(bool on);

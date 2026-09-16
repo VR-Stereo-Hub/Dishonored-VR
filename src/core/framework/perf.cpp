@@ -458,7 +458,7 @@ void record_close(Rec& r, int64_t tNextEntry) {
 // VR-125: no engine access. Thread-local totals avoid locks between render/game.
 namespace {
 std::atomic<uint32_t> g_cpuEpoch{0}; // odd means enabled, changes invalidate tokens
-struct CpuSum { uint64_t wall = 0, cpu = 0, cycles = 0; uint32_t n = 0; };
+struct CpuSum { uint64_t wall = 0, cycles = 0; uint32_t n = 0; };
 struct CpuLocal {
     CpuSum sums[10];
     CpuToken previous;
@@ -479,9 +479,9 @@ void cpu_stamp(Point point) {
         const CpuToken before = g_cpuLocal.previous;
         if (before.epoch == now.epoch && before.tid == now.tid) {
             CpuSum& sum = g_cpuLocal.sums[last];
-            if (now.wall >= before.wall && now.cpu >= before.cpu && now.cycles >= before.cycles) {
+            if (now.wall >= before.wall && now.cycles >= before.cycles) {
                 ++sum.n; sum.wall += now.wall-before.wall;
-                sum.cpu += now.cpu-before.cpu; sum.cycles += now.cycles-before.cycles;
+                sum.cycles += now.cycles-before.cycles;
             } else ++g_cpuLocal.failures;
         }
     }
@@ -498,11 +498,11 @@ void cpu_report() {
         const CpuSum& sum = g_cpuLocal.sums[i];
         if (!sum.n) continue;
         DVR_INFO("cpu-scope: tid=%lu stage=%s n=%u window=%llu ms wall=%.3f ms/call "
-                 "cpu=%.3f ms/call cycles=%.3f M/call failures=%u "
-                 "(CPU accounting coarse; cross-thread scopes overlap; outside includes engine+draw hooks)",
+                 "cycles=%.3f M/call failures=%u "
+                 "(cycles are relative work, not ms; cross-thread scopes overlap; outside includes engine+draw hooks)",
                  (unsigned long)GetCurrentThreadId(), kCpuNames[i], sum.n,
                  (unsigned long long)(now-g_cpuLocal.reportMs),
-                 sum.wall*1000.0/frequency.QuadPart/sum.n, sum.cpu/10000.0/sum.n,
+                 sum.wall*1000.0/frequency.QuadPart/sum.n,
                  sum.cycles/1000000.0/sum.n, g_cpuLocal.failures);
     }
     for (auto& sum : g_cpuLocal.sums) sum = {};
@@ -519,25 +519,21 @@ CpuToken cpu_scope_begin() {
     const uint32_t epoch = g_cpuEpoch.load(std::memory_order_relaxed);
     if (!(epoch&1u)) return {};
     if (g_cpuLocal.epoch != epoch) { g_cpuLocal = {}; g_cpuLocal.epoch = epoch; }
-    FILETIME created, exited, kernel, user;
     ULONG64 cycles = 0;
-    if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user) ||
-        !QueryThreadCycleTime(GetCurrentThread(), &cycles)) { ++g_cpuLocal.failures; return {}; }
+    if (!QueryThreadCycleTime(GetCurrentThread(), &cycles)) { ++g_cpuLocal.failures; return {}; }
     LARGE_INTEGER wall; QueryPerformanceCounter(&wall);
-    const uint64_t cpu = ((uint64_t)kernel.dwHighDateTime<<32) + kernel.dwLowDateTime +
-                         ((uint64_t)user.dwHighDateTime<<32) + user.dwLowDateTime;
-    return {(uint64_t)wall.QuadPart, cpu, cycles, epoch, GetCurrentThreadId()};
+    return {(uint64_t)wall.QuadPart, cycles, epoch, GetCurrentThreadId()};
 }
 void cpu_scope_end(int lane, const CpuToken& before) {
     if (!before.epoch || lane<8 || lane>9) return;
     const CpuToken after = cpu_scope_begin();
     if (after.epoch != before.epoch || after.tid != before.tid) return;
-    if (after.wall<before.wall || after.cpu<before.cpu || after.cycles<before.cycles) {
+    if (after.wall<before.wall || after.cycles<before.cycles) {
         ++g_cpuLocal.failures; return;
     }
     CpuSum& sum = g_cpuLocal.sums[lane];
     ++sum.n; sum.wall += after.wall-before.wall;
-    sum.cpu += after.cpu-before.cpu; sum.cycles += after.cycles-before.cycles;
+    sum.cycles += after.cycles-before.cycles;
     cpu_report();
 }
 
