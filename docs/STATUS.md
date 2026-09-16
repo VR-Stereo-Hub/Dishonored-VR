@@ -1,37 +1,38 @@
-## Current handoff: accepted100 FOV,110% pixel trial (VR-50),2026-09-15
+## Current handoff: hub mirror-off defaults and live resize (VR-50),2026-09-15
 
-- Branch `codex/hud-fixes`, following merged performance PR66. The user redirected
-  work to the F11 clarity discovery. Broader performance work remains shelved.
-- User accepted100-degree gameplay FOV: no visible black rectangle, better apparent
-  clarity. Verified355 logs show100-degree submission at2750x2850.100 is now the
-  runtime/config/package/reset default. F10 View provides the live FOV slider.
-- Build356 (`vr33-hands-working-356-g0b1b9ca55-dirty`) is installed at2884x2989,
- 110% TOTAL PIXELS versus2750x2850. F10 Display has a50-200% total-pixel slider,
-  resolution preview and Set for next launch. Both axes scale equally with pixel
-  rounding; dragging alone does nothing. Set persists through existing ResRequest.
-- Next launch asks only whether110% is sharper while remaining smooth at100 FOV.
-  Build/exports/golden/lint passed; new resolution and UI await headset verification.
-  No game/simulator launched. Both prior logs archived before install. Full installed
-  INI comparison changes only width/height; user settings and CRLF preserved.
-- Verify `build/playtest-candidates/installed.json` and the new log banner before
-  interpreting a run. Old logs still belong to355. Canonical findings, rollback
-  artifacts and launch outcomes: PERFORMANCE.md active F11 section only.
-- Preserve image-owned orientation, stereo synchronization and IsLiveObject checks.
-  No game/simulator launches, subagents, preserved-branch deletion or main merge.
-  Agent handles commands/build/install/config/logs. Archive both logs and compare
-  the entire INI on every install. One question per user launch.
+- Branch `codex/hud-fixes`. Broader performance tickets remain parked/unassigned.
+- User reports30-40% hub improvement with mirror off; sewer experience differed.
+  Verified356 logs confirm skips, not a controlled measurement of that percentage.
+- Build357 (`vr33-hands-working-357-g847030698-dirty`) installed:102 FOV,
+ 120% TOTAL PIXELS3012x3122, DesktopMirrorOff=1. Unrelated settings preserved.
+- F10 Display Set now queues the native six-argument ResizeViewport call at the
+  next game-thread draw, before camera scopes/eye tags. Fresh IsLiveObject owner,
+  window/thread/vtable/ABI guards; no retained pointer. Capture must confirm Applied.
+- Build,23 production resize fixture checks, native D3D9Ex mirror-off/reset test,
+ 248 reentry checks,23 single-tag checks, exports/golden/lint passed. No game or
+  simulator launched. Native engine resize has NOT been headset-tested.
+- One launch question: can Set110% then120% change Current dimensions in this run
+  while retaining stereo/head motion? No F11. Full evidence/outcomes: PERFORMANCE.md
+  active F11 section. Native derivation: ENGINE_NOTES live-resolution section.
+- Verify installed.json and log banner. Existing logs still belong to356. Both logs
+  and prior files archived at installs/20260915-211639-478150. Full INI diff changes
+  only FOV/width/height; mirror-off was already saved. Hashes and CRLF verified.
+- Preserve image-owned orientation and stereo sync. No game/simulator launches,
+  subagents, preserved-branch deletion or main merge. Agent handles build/install/
+  config/logs; archive both logs and compare the entire INI on every install.
 
 ### Minimal next-chat prompt
 
 Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md/CLAUDE.md,
-then only current STATUS/NEXT_SESSION and the active F11 section of PERFORMANCE.md.
-100-degree FOV is headset-accepted and now default;355's live F10 FOV slider worked.
-Build356 is installed for a110% TOTAL-PIXEL trial:2884x2989 versus2750x2850, with F10
-Display percentage slider and resolution preview. Set saves for next launch, not a live
-resize. Next task is checking the user's clarity/smoothness result and actual356 log
-resolution/FOV. Verify installed.json/banner and archive both logs. Keep other performance
-work shelved and accepted stereo/orientation unchanged. No game/simulator launches,
-subagents or main merge. Full INI comparison and CRLF required on installs.
+then only current STATUS/NEXT_SESSION and active F11 section of PERFORMANCE.md.
+Build357 is installed:102 FOV,120% pixels3012x3122, desktop mirror off. User reported
+large hub gains with mirror off, unlike their sewer experience. F10 FOV slider works;
+resolution Set now queues native engine ResizeViewport with fresh live-owner/ABI
+checks before stereo draws. Host tests pass; engine resizing has NOT run. Next task:
+interpret Set110% then120% test, verify installed.json/banner and actual capture/XR
+size/FOV/stereo. Archive both logs before relaunch. Keep other research parked. No
+launching game/simulator, subagents or main merge. Preserve stereo/orientation and
+INI settings; full INI comparison and CRLF verification required on installs.
 
 ## Performance research shelved, 2026-09-15
 

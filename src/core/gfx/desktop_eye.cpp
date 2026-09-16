@@ -16,7 +16,7 @@ UINT g_w = 0, g_h = 0;
 D3DFORMAT g_fmt = D3DFMT_UNKNOWN;
 bool g_on = true, g_refused = false;
 bool g_reduce = false, g_callbackPending = false;
-bool g_mirrorOff = false, g_submitRefused = false;
+bool g_mirrorOff = true, g_submitRefused = false;
 IDirect3DQuery9* g_submitQuery = nullptr;
 int g_callbackTag = 0;
 uint32_t g_leftPresented = 0;

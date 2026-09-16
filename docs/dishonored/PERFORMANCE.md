@@ -16,7 +16,7 @@ Unfinished performance tickets VR-17, VR-67, VR-77, VR-113, VR-115, VR-121, VR-1
 VR-124 and VR-125 are parked in Backlog, unassigned. Completed stability fixes stay
 completed. Merging this research does not promote experimental settings.
 
-## Active exception: F11 clarity and 90-degree view (VR-50, 2026-09-15)
+## Active exception: F11 clarity, FOV and desktop presentation (VR-50, 2026-09-15)
 
 The broader optimization program remains shelved. A new headset observation reopened
 VR-50 only: toggling F11 twice yielded a sharp, smooth, smaller square view with stereo
@@ -122,14 +122,53 @@ RenderHeight2850->2989; saved100-degree FOV and all other settings are preserved
 CRLF/hashes verified. No game/simulator launched; UI operation and rendered size await
 headset/log verification.
 
-**One launch question:** at the accepted100-degree FOV, is110% total-pixel resolution
-visibly sharper while staying acceptably smooth? Launch normally in the same area;
-leave the scale at110 for this first comparison. Expected: unchanged coverage, sharper
-fine detail, possibly some performance cost. Sharper and smooth supports keeping110;
-no visible benefit or worse smoothness supports returning to100% pixels. Unexpected
-coverage/black borders require comparing actual resolution and submitted FOV before
-another change. Agent reads the356 banner, CreateDevice/capture dimensions and FOV
-logs after the user reports. Slider interaction can be checked on a later launch.
+**Hub mirror-off discovery (verified356,2026-09-15):** the user reports an approximately
+30-40% FPS improvement in the slow hub area after disabling the desktop mirror in F10.
+Earlier sewer experience showed little perceived benefit. This is an area-dependent
+headset observation, not a new matched A/B measurement or proof all performance issues
+are solved. Earlier controlled sewer captures did show throughput gains with worse
+frame-time tails; preserve those results rather than treating either scene as universal.
+Evidence: `build/performance-results/vr50-hub-mirror-off-20260915-210745`. The356 banner
+and DLL match; mirror-off logs confirm real skips, e.g.657/665 hooks skipped with zero
+non-OK results in one late3-second window. FOV was also adjusted during this run, so
+uncontrolled rate changes cannot isolate the reported percentage. No extra capture is
+required merely to honor the requested default.
+
+**Current requested defaults and live resize:**102-degree FOV, desktop mirror off,
+120% total pixels (3012x3122 versus2750x2850; rounding only). Mirror-off is promoted in
+runtime/missing-key/generated/package defaults by explicit request; guarded non-XR/menu
+presentation fallback remains. ReduceDesktopPresent stays off. All unrelated settings
+and accepted image-owned orientation/stereo policies remain intact.
+
+The scale button now queues a byte-verified six-argument engine ResizeViewport call on
+the next game-thread draw, before both eyes. The engine owns its window/RHI reset; no
+proxy-forced D3D reset or synthetic F11 toggle. Fresh live-table/IsLiveObject owner,
+current HWND/thread and vtable/ABI checks refuse unsupported calls. Set persists the
+size and applies it in this run; only matched downstream capture shows Applied. A
+10-second timeout reports unconfirmed without automatic retries. Static derivation and
+23 production-code host fixture checks are in ENGINE_NOTES and viewport-resize-host.
+Native D3D9Ex mirror-off regression passed120 GPU markers plus full-return/reset;
+248 reentry and23 single-tag checks, release build, exports, golden INIs and lint pass.
+No game/simulator launched. Native resize acceptance remains pending in the headset.
+The earlier per-axis110% draft never installed; next-launch-only scale is superseded.
+
+**Installed357:** `vr33-hands-working-357-g847030698-dirty`, bundle
+`build/playtest-candidates/vr50-live-resize-hub`. Prior logs/DLL/INI archived at
+`build/playtest-candidates/installs/20260915-211639-478150`. Full INI diff changes
+ProjectionFov100.00->102, RenderWidth2884->3012, RenderHeight2989->3122 only.
+DesktopMirrorOff was already1 from the F10 test. All other settings are preserved;
+CRLF and hashes verified. Native resize is installed but not game-tested. Exact356
+rollback remains archived.
+
+**One launch question:** does Set resolution change the current render size without a
+restart while preserving a usable stereo view? Start with the installed120% profile.
+In F10 Display set110% and press Set, then return to120% and press Set. Expected: a brief
+pause, Current dimensions change2884x2989 then3012x3122, and status says Applied with
+normal depth/head motion. That supports live resizing; Refused/Unconfirmed or unchanged
+Current means a guard/engine path needs investigation. Distorted/cropped/stale stereo
+means capture/viewport/eye reconstruction needs inspection before further tuning.
+The agent checks the installed banner, res/live verdict, device reset, XR swapchain and
+FOV logs after the report. Do not use F11 during this test.
 
 ## Results and routes
 
@@ -144,7 +183,7 @@ refresh rate are different populations. Baseline rendering was 2750x2850 at 120 
 | Extra left-view preparation | Reflection, not a second world tick: 0.199 ms/pair, including 0.140 ms culling. Lower priority than ordinary views. |
 | Engine query-result waits | Real headset build316: 0.102 ms/pair across 14,230 pairs, 0.596% of elapsed time. Not a useful hub target; do not repeat unchanged. This bounds the measured helper, not all occlusion/visibility work. |
 | Nonblocking desktop Present | Build313 off/on/off 58.21 / 57.70 / 58.29 ticks/s. 4,818 accepted attempts, zero busy skips. Failed hypothesis; implementation and one-off harness removed. |
-| Omit desktop Present completely | Two sewer Full/Off/Full runs: 87.01 / 98.28 / 84.72 and 81.86 / 95.62 / 84.02 fresh pairs/s. Repeatable throughput gain with worse frame-time tails. Retained as an opt-in experiment, Full remains default. Not a hub forecast or accepted smoothness fix. |
+| Omit desktop Present completely | Two sewer Full/Off/Full runs: 87.01 / 98.28 / 84.72 and 81.86 / 95.62 / 84.02 fresh pairs/s. Repeatable throughput gain with worse frame-time tails. Earlier opt-in result; now mirror-off is the requested default after the separate hub report above. Sewer numbers are not a hub forecast. |
 | Reduce desktop Present cadence | Full/Reduced/Full 86.34 / 90.28 / 89.27 pairs/s; p95 18.385 / 18.488 / 17.656 ms. Much waiting moved into remaining calls (about 1.46 ms/hook, 2.91 ms/actual call). No consistent tail benefit. |
 | Dynamic shadows via game INI | Applied settings, simulator 79.94 / 80.63 / 79.26 ticks/s. No useful gain; do not repeat unchanged. Does not eliminate all lighting/shadow work. |
 | Suppress selected diagnostics | Build295 baseline/reduced/baseline 63.66 / 64.48 / 64.27 fresh pairs/s, no consistent tail improvement. Keep accepted diagnostics. Mask covered ZAccount, PairTrace, FrameId and AttachCensus only. Cine.Trace/DrawCensus/PoseReport have functional dependencies. |

@@ -196,6 +196,7 @@ static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who)
 // verdict against the ask, with the density the picture will have.
 static void ResVerdictTick()
 {
+    ResLivePoll();
     const uint32_t cw = dvr::capture::width(), ch = dvr::capture::height();
     if (!cw || !ch) return;
     if (cw == g_resVerdictW && ch == g_resVerdictH) return;

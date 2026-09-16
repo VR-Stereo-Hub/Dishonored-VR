@@ -403,9 +403,9 @@ static void WriteDefaultIni(const char* ini)
         "; 90 Hz, still reported at 120). The SAME size at 120 Hz beats at 1.05-1.11 slots and\n"
         "; ghosts badly - the fault was never the resolution, it was the tick not dividing into\n"
         "; the display period. If you change one, check `stereo: rate` for the other.\n"
-        "; 2026-09-15: requested 110%% total-pixel trial; 100% reference is 2750x2850.\n"
-        "RenderWidth=2884\n"
-        "RenderHeight=2989\n"
+        "; 2026-09-15: requested 120%% total-pixel trial; 100%% reference is 2750x2850.\n"
+        "RenderWidth=3012\n"
+        "RenderHeight=3122\n"
         "RenderFullscreen=1\n"
         "VirtualMode=1\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
@@ -414,8 +414,8 @@ static void WriteDefaultIni(const char* ini)
         "; shows the frame as the game draws it, so it ships off.\n"
         "FovLever=0\n"
         "; Gameplay horizontal FOV, scoped per stereo draw; 0=headset-derived.\n"
-        "; Default 100 after headset acceptance. Live: projectionfov 60..120|off.\n"
-        "ProjectionFov=100\n"
+        "; Default 102 by request after headset tuning. Live: projectionfov 60..120|off.\n"
+        "ProjectionFov=102\n"
         "[Mode]\n"
         "; GamepadOnly=1 makes the VR controllers behave as a plain gamepad:\n"
         "; hands, hand mesh, motion aim, motion melee, motion crouch and\n"
@@ -442,7 +442,7 @@ static void WriteDefaultIni(const char* ini)
         "; Candidate, default off. Live A/B: desktoppresent full|reduced|off; F10 Display.\n"
         "ReduceDesktopPresent=0\n"
         "; DesktopMirrorOff freezes desktop updates while XR capture is live; overrides reduction.\n"
-        "DesktopMirrorOff=0\n"
+        "DesktopMirrorOff=1\n"
         "DisableBadApiLayers=1\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
@@ -1086,8 +1086,8 @@ static void LoadConfig()
         // display period at 90 Hz, which is what killed the ghosting (see
         // ENGINE_NOTES, "The ghosting was the cadence beat"). At 120 Hz the same
         // size beats at 1.05-1.11 slots per frame and ghosts.
-        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2884, ini);
-        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2989, ini);
+        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 3012, ini);
+        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 3122, ini);
         g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
         g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 1, ini) != 0 || g_launchVirtual;
         if (!g_resWantW && g_launchW && g_launchH) {   // the launch file carried an ask the ini lost
@@ -2703,7 +2703,7 @@ static void LoadConfig()
             dvr::desktop_eye::set_source(source[0] ? source : "draw",
                 source[0] ? ini : "compiled default (ini key absent)");
             dvr::desktop_eye::set_reduced_present(GetPrivateProfileIntA("VR", "ReduceDesktopPresent", 0, ini) != 0);
-            dvr::desktop_eye::set_mirror_off(GetPrivateProfileIntA("VR", "DesktopMirrorOff", 0, ini) != 0);
+            dvr::desktop_eye::set_mirror_off(GetPrivateProfileIntA("VR", "DesktopMirrorOff", 1, ini) != 0);
         }
         // ApiLayerGuard runs before LoadConfig and reads this key itself; the
         // read here only keeps the global in step for the ini rewrite.

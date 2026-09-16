@@ -28,6 +28,11 @@ static void SceneDrawPresentTag(int ringEye, int finalEye, bool tagged, uint32_t
 static const char* NeckModeName(int mode);     // 41.1: the [Neck] lever
 static void ResEnumModes(const char* who);     // 41.1: the render-resolution picker (core/window/render_size.cpp)
 static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who);
+static void ResLiveQueue(uint32_t w,uint32_t h);
+static void ResLiveApply(void* viewport);
+static void ResLivePoll();
+static int ResLiveState();
+static const char* ResLiveStatus();
 static void ResVerdictTick();
 static void ResStatusLine();
 static bool ResCommand(const char* args);

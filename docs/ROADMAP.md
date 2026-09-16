@@ -6,7 +6,9 @@
 - [x] Build/install default 90-degree gameplay candidate with standalone validation.
 - [x]100-degree gameplay FOV and live F10 slider headset-accepted; default promoted.
 - [x] Add F10 total-pixel scale/preview/Set; install110% pixel trial.
-- [ ] Verify110% clarity/smoothness and requested resolution; no new main merge authorized.
+- [x] Record hub mirror-off improvement; promote102 FOV/120% pixels/mirror-off defaults.
+- [x] Add guarded engine-owned live resize and production host tests.
+- [ ] Headset-verify live Set110%/120% and stereo; no new main merge authorized.
 
 ## Performance research shelved (2026-09-15)
 

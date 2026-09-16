@@ -919,3 +919,12 @@ phase cannot accidentally promote diagnostic changes. Exclude collectors with
 functional initialization or mesh recovery dependencies. Fresh-pair identity
 uses capture serials at successful XR submission, independently of FrameId
 thumbnails. See dishonored/DIAGNOSTIC_OVERHEAD_AB.md for exact limits.
+
+### 2026-09-15: live resolution at the game viewport draw boundary
+
+F10 Set queues dimensions. The game-thread gameplay Draw hook consumes the request
+before camera scopes/eye tags and invokes the verified native F11 viewport resize, with
+fresh live-owner validation. The engine retains its window/resource lifecycle instead
+of the proxy resetting D3D underneath it. Capture dimensions confirm completion.
+Derivation/ABI: dishonored/ENGINE_NOTES.md, "Live resolution through the F11 viewport
+path". Candidate acceptance: dishonored/PERFORMANCE.md.

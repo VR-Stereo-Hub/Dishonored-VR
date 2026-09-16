@@ -87,14 +87,14 @@ static void OverlayFrame()
         float projectionFov=ProjectionFovGet();
         bool customFov=projectionFov>0;
         if (ImGui::Checkbox("Custom gameplay FOV",&customFov)) {
-            projectionFov=customFov?100.0f:0.0f;
+            projectionFov=customFov?102.0f:0.0f;
             ProjectionFovSet(projectionFov);
         }
         ImGui::BeginDisabled(!customFov);
-        float degrees=customFov?projectionFov:100.0f;
+        float degrees=customFov?projectionFov:102.0f;
         if (ImGui::SliderFloat("Gameplay FOV (degrees)",&degrees,60.0f,120.0f,"%.0f",ImGuiSliderFlags_AlwaysClamp))
             ProjectionFovSet(degrees);
-        if (ImGui::SmallButton("Reset FOV to 100")) ProjectionFovSet(100.0f);
+        if (ImGui::SmallButton("Reset FOV to 102")) ProjectionFovSet(102.0f);
         ImGui::EndDisabled();
         ImGui::TextDisabled("Lower: sharper, smaller view. Higher: wider coverage.");
         ImGui::TextDisabled("Changes live. SAVE AS DEFAULTS keeps it for next launch.");
@@ -666,7 +666,7 @@ static void OverlayFrame()
         static float pixelPercent=-1.0f;
         if (pixelPercent<0)
             pixelPercent=g_resWantW && g_resWantH
-                ? 100.0f*((float)g_resWantW/2750.0f)*((float)g_resWantH/2850.0f) : 110.0f;
+                ? 100.0f*((float)g_resWantW/2750.0f)*((float)g_resWantH/2850.0f) : 120.0f;
         ImGui::TextUnformatted("Render resolution scale");
         ImGui::SliderFloat("Total pixels (%)",&pixelPercent,50.0f,200.0f,"%.0f%%",ImGuiSliderFlags_AlwaysClamp);
         const float axisScale=sqrtf(pixelPercent*0.01f);
@@ -675,11 +675,12 @@ static void OverlayFrame()
         ImGui::Text("Preview: %ux%u | %.0f%% total pixels",width,height,pixelPercent);
         ImGui::TextDisabled("100%% = 2750x2850. Both axes scale equally, rounded to pixels.");
         ImGui::Text("Current: %ux%u | next launch: %ux%u",dvr::capture::width(),dvr::capture::height(),g_resWantW,g_resWantH);
-        if (ImGui::Button("Set for next launch")) {
-            g_resVirtual=true;
-            ResRequest(width,height,true,"F10 total-pixel scale");
-        }
-        ImGui::TextDisabled("Set saves the size. Restart the game to apply.");
+        const int resizeState=ResLiveState();
+        ImGui::BeginDisabled(resizeState==1 || resizeState==2 || resizeState==4);
+        if (ImGui::Button("Set resolution")) ResLiveQueue(width,height);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("%s",ResLiveStatus());
+        ImGui::TextDisabled("Set applies and saves. A brief pause during resize is expected.");
         ImGui::TextDisabled("110%% means 10%% more pixels. FOV remains unchanged.");
         ImGui::Separator();
     }
@@ -693,7 +694,7 @@ static void OverlayFrame()
     ImGui::TextDisabled("Full / %s / Full: 100 seconds; menu aborts.", reducedTrial ? "Reduced" : "Off");
     {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
-        if (ImGui::Checkbox("Disable desktop mirror (candidate)", &mirrorOff)) {
+        if (ImGui::Checkbox("Disable desktop mirror", &mirrorOff)) {
             dvr::desktop_eye::set_mirror_off(mirrorOff);
             ConfigWriteKey("VR", "DesktopMirrorOff", mirrorOff ? "1" : "0", "F10 Display");
         }

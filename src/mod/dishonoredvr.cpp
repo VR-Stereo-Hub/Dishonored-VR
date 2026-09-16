@@ -234,6 +234,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/scene_probe.cpp"
+#include "game/dishonored/viewport_resize.cpp"
 #include "game/dishonored/scene_draw.cpp"
 #include "game/dishonored/ue3/process_event.cpp"
 #undef DVR_CAT
