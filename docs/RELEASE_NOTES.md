@@ -61,6 +61,18 @@
 
 ### Fixed
 
+- **Crouched, the view pitches with the head again (VR-122).** On a crouch the hands' tuck
+  (the arms handed back to the game's crouch animation) also switched off the camera's own
+  look-at bone control, so the crouched render stayed level while the head pitched and the
+  world appeared to move with the head. The tuck now leaves the camera control alone
+  (`[Hands] CrawlTuckCamera=0`; `1` is the old behaviour, `hands tuckcam on|off` live).
+  With that control kept the crouched camera pitches about the same neck as standing, so
+  the crouched pivot keys (`[Neck] CrouchPivot*`, VR-78) now apply only while the tuck has
+  released the camera control; otherwise a crouch keeps the standing pivot. Measured on
+  the simulator: crouched residual at 30 deg matches standing to 0.05 uu. The run now logs
+  `config: [Hands] CrawlTuck=.. CrawlTuckCamera=..` and names what each tuck did to the
+  camera control.
+
 - Cinematic free look stays natural through tilted authored cameras and dialogue
   framing. Pitch/roll comfort controls preserve physical head motion; cinematic
   zoom and its exit blend retain a full-size view. Native hands/arms and mantle

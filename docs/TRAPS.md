@@ -219,6 +219,45 @@ rather than from the code.
   0.044 m wide: a fraction of a 0.22 m panel scaled by a fraction of the screen. A wrist HUD
   fills the panel at the hand; the sim's pose numbers said so before a headset run did.
 
+### VR-122: a lever with one purpose switched off a control with another (2026-09-16)
+
+The crawl tuck (38.19) exists to hand the ARMS back to the game's crouch animation: on a
+crouch it wrote `ControlStrength=0` to "our hand controls", and the list it walked held
+three player look-at controls, of which slot 0 is `LookAtControl_Camera`, the camera's own
+bone control (ENGINE_NOTES VR-30: "do not zero it"). Crouched, the rendered view stopped
+pitching with the head, and under a projection layer that reads as the world moving with
+the head. It had done this on every crouch since the list gained the camera slot, and the
+log line said `wrote 3 validated controls` without naming them. Two rules from it:
+
+- **A writer that walks a list must say what is on the list.** The line now names what it
+  did to the camera control. A count of writes is not evidence of which object was written.
+- **A measurement made under a mod lever describes the game WITH that lever.** VR-78
+  measured "no crouched neck arc" while this write had the camera control at 0, so its
+  crouched pivot (0/0) is right for that camera and wrong for the stock one (0.291/0.052 m,
+  the standing neck). Before fitting an engine constant, list the mod's own writes that were
+  live on the object being measured.
+
+Eliminated on the way, each with the counterprediction that killed it (ENGINE_NOTES
+"Crouched pitch on two machines"): the crouched neck term (`neck off` changed the crouched
+capture by 2.6 mean-abs, noise), the eye ceiling (the cap trims about 5 uu in both stances
+on both machines and the crouched episodes clipped 0 presents), the cinematic pitch and
+head-look scopes (`cinepitch off`, `cinehead off`: no change). The hypothesis that survived
+was the fourth, found by A/B and not by argument: `hands off` before the crouch, 63.2.
+
+### The console-opened level's "press any key" board never took a key on this build (2026-09-16)
+
+`console open L_PrsnSewer_P` from the MAIN menu, on the simulator, with the RelWithDebInfo
+build 287 and later 294, left the Dunwall Sewers loading board up for over 15 minutes on
+four launches: Return, Space, letters, virtual-key Return, mouse clicks, pad A/B/X/Start,
+stick and trigger, with the game window in the foreground, `pad: xbtn=` confirming the pad
+composed the buttons, and the level's pawn live behind it. The mod's movie-completion
+observer read `finished=0` throughout; on the Debug run that had worked (vr120-run8) it
+flipped to `finished=1` 37 s after the open with no key logged. Not diagnosed: it is not
+this ticket's fault, and the loading board is a separate question. **What worked**: the
+saved-game route (main menu, Return on Continue, Return again on the confirmation, ~30 s,
+one Return on the board), which reached GAMEPLAY in one try, twice. The newest save on this
+PC is at the Hound Pits pub, not the intro boat.
+
 ## 2. Instruments that could not fail their own hypothesis
 
 Every one of these produced a confident number that meant nothing. They are
@@ -610,6 +649,7 @@ reached the ring. The counters could not tell onset from repair because both mov
 | Serving a neutral virtual pad when its sample is older than 150 ms, for the boat fall (VR-73) | Still fell. The first fresh sample after the hitch still held A, so the guard itself produced a new jump press; the runs without it show no jump at the seat-in at all. Patch kept outside the tree. | ENGINE_NOTES, VR-73 |
 | A name test (`pPlayerMesh`, asset names) as the licence to write a component | Names do not establish ownership; the pointer walk reaches world meshes (the intro boat, doors, props). Read `ActorComponent.Owner`. | ENGINE_NOTES, VR-73 |
 | Blaming the three-disagreement drain for the sustained after-note flicker (VR-80) | The host model found no self-sustaining drain loop, and the headset ledger showed the drain removing the correct tag. The onset was a late tag. | FLICKER_REFERENCE 3.15 |
+| Explaining the crouched pitch report by the neck term, the eye ceiling or a cinematic scope (VR-122) | Each was A/B'd live on the simulator and changed the crouched capture by noise (1.8 to 2.6 mean-abs); `hands off` changed it by 63. The owner was the crawl tuck zeroing the camera's look-at control, a hands lever. | ENGINE_NOTES, "Crouched pitch on two machines" |
 | A Vulkan translation layer (the DXVK fork) | Removed in 41.0. The game renders natively through D3D9; do not bring it back. Git history keeps it under the `dxvk-*` tags. | CLAUDE.md |
 
 ---
