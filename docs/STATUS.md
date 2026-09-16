@@ -21,6 +21,11 @@
   subagents, preserved-branch deletion or main merge. Agent handles build/install/
   config/logs; archive both logs and compare the entire INI on every install.
 
+Publication status: changes are committed locally (implementation6820218cd). Automatic
+approval review blocked pushing to the verified public origin because it requires
+explicit user authorization for this source/documentation payload. Do not imply remote
+contains this candidate; request permission to push codex/hud-fixes. Installation is done.
+
 ### Minimal next-chat prompt
 
 Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md/CLAUDE.md,
