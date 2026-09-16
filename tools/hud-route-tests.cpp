@@ -154,6 +154,21 @@ int main() {
         group.clear();check(!group.claim(old,41,false),"menu/device reset forgets interaction");
         check(!group.claim(full,41,true),"large fill cannot seed an interaction group");
     }
+    {
+        dvr::hudroute::StableRoutes retained;dvr::hudroute::InteractionGroup group;
+        const float title[4]={.54f,.49f,.68f,.52f},crouched[4]={.25f,.29f,.39f,.32f};
+        check(retained.resolve(99,1,Default,title)==Default,"new content initially defaults");
+        retained.adopt(99,1,Prompt);
+        check(retained.resolve(99,2,Default,crouched)==Prompt,"group ownership survives crouch-sized movement");
+        check(group.claim(crouched,2,true),"retained owner reseeds moved neighborhood");
+        const float button[4]={.26f,.335f,.30f,.373f};
+        check(group.claim(button,2,false),"button joins moved title");
+        const float centralButton[4]={.480f,.481f,.520f,.519f};
+        check(!dvr::hudroute::centered_reticle(centralButton,10),"observed 10-primitive button is not the reticle");
+        check(dvr::hudroute::centered_reticle(centralButton,2),"measured centered reticle remains protected");
+        retained.resolve(99,2,Default,button);retained.adopt(99,2,Prompt);
+        check(retained.resolve(99,3,Default,title)==Default,"ambiguous shared sprites cannot be adopted");
+    }
     std::printf("%u hud-route checks passed\n", checks);
     return 0;
 }

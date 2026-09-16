@@ -22,6 +22,11 @@ namespace dvr::hudroute {
 struct StableRoutes {
     struct Entry { uint64_t key=0; uint32_t frame=0; int owner=0; bool ambiguous=false; float x=0,y=0; } entries[2048]{};
     void clear() { for(auto& e:entries) e=Entry{}; }
+    void adopt(uint64_t key,uint32_t frame,int owner) {
+        if(!key) return;
+        Entry& e=entries[(key^(key>>32))%2048];
+        if(e.key==key && e.frame==frame && !e.ambiguous) e.owner=owner;
+    }
     int resolve(uint64_t key,uint32_t frame,int initial,const float* rect=nullptr) {
         if(!key) return initial;
         Entry& e=entries[(key^(key>>32))%2048];
@@ -58,6 +63,13 @@ inline bool objective_shape(const float r[4],unsigned vertices,unsigned primitiv
     const float w=r[2]-r[0],h=r[3]-r[1];
     return vertices>=4 && vertices<=8 && primitives==2 &&
         w>=.030f && w<=.036f && h>=.029f && h<=.035f;
+}
+// Only the measured centered reticle is exempt from interaction grouping.
+// A small button glyph passing THROUGH this region is not a reticle.
+inline bool centered_reticle(const float r[4],unsigned primitives) {
+    const float cx=(r[0]+r[2])*.5f,cy=(r[1]+r[3])*.5f;
+    return primitives==2 && cx>=.499f && cx<=.501f && cy>=.499f && cy<=.501f &&
+        r[2]-r[0]<.05f && r[3]-r[1]<.05f;
 }
 struct InteractionGroup {
     uint32_t frame=0,previousFrame=0;bool currentOk=false,previousOk=false;

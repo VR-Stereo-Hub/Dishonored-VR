@@ -740,3 +740,13 @@ request; the submission-only event may abandon its old result. Never do that to
 a fence whose completion authorizes texture reuse. A device double alone missed
 this driver behavior. Corrected native test passes120 frames without Present;
 details: [desktop candidate](dishonored/DESKTOP_PRESENT_PERFORMANCE.md).
+
+## HUD grouping ownership must be retained (2026-09-16)
+
+The382 proximity group changed the current route but did not update the draw's
+cached owner. A later larger move could restore its initial unrelated row and
+lose the group's only seed. Adopt only unambiguous matched content, then let it
+reseed the neighborhood. Small size plus central position also does not identify
+the reticle: moving10-primitive button draws were eligible for that exclusion.
+Measured centered two-primitive reticle protection is narrower. These corrections
+do not establish semantic identity for animated/rebatched UI. See HUD_ANCHORS.

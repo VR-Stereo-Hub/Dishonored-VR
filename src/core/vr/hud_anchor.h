@@ -120,6 +120,22 @@ inline bool billboard_degenerate(const float toHead[3], float minRight = 0.2f) {
 // means "the texture's own aspect": the whole sub-rectangle is shown and the
 // height follows. A given height crops the sub-rectangle CENTRED to the asked
 // aspect so pixels keep their shape; stretching text is never an option.
+// Opening orientation belongs to the panel, not each new head pose.
+struct OpeningOrientation {
+    bool valid=false;
+    float q[4]={0,0,0,1};
+    void reset() {valid=false;}
+    bool capture(const float* camera) {
+        if(valid) return true;
+        float norm=0;
+        for(int i=0;i<4;++i) {if(!std::isfinite(camera[i])) return false;norm+=camera[i]*camera[i];}
+        if(norm<.0001f) return false;
+        norm=std::sqrt(norm);
+        for(int i=0;i<4;++i) q[i]=camera[i]/norm;
+        valid=true;return true;
+    }
+};
+
 struct Crop { int32_t x, y, w, h; float widthM, heightM; };
 inline Crop crop_rect(uint32_t texW, uint32_t texH, const float sub[4], float widthM, float heightM) {
     Crop c{};

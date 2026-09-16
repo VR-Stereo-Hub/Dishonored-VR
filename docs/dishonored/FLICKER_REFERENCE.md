@@ -1,5 +1,45 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## New382 result: wheel hands and pause interruption (2026-09-16)
+
+Build382-g048c1e461 DLL hash/banner verified. Both logs and full saved profile:
+`build/playtest-candidates/vr127-hud-fixes/reported-crouch-pause`.
+Report: residual left-eye wheel flicker, new pause flicker after enabling pause
+head look/world anchoring. Pause image surface is unconfirmed; clarification asked.
+Route wheel to section1's hand/weapon eye/correction rows. Pause also requires
+the mono-interruption row until the visible surface is known. No perceptual fix claimed.
+
+Measured beat intervals fully inside riding episodes (over3.1s from entry):
+wheel11 samples,0 with nonzero mono; pause54,15 nonzero; note52,4 nonzero.
+Sampled150ms cap-expiry lines inside those episodes: wheel0,pause29,note10.
+Held-gap samples: wheel32,pause138,note156. These are rate-limited intervals,
+not counts of visible flickers.378's no-mono reading result does not clear the
+new pause workload. Menu restore refusals remain0 in sampled scope logs.
+
+The150ms bound explicitly permits fallback after longer gaps. Increasing it
+indefinitely would freeze world updates; forcing doubling past liveness guards
+would abandon accepted synchronization. Neither is included. Global FOV/eye-tag
+changes cannot be justified by this evidence. Wheel's zero-mono sampled intervals
+mean mono-gap hold alone cannot be presented as its remaining hand fix.
+
+Hand diagnostic totals at the last sample:50382 agreements,155 mismatches,
+25113 unknown,65562 refused draws and589067 unassociated weapon candidates.
+These were cumulative across ALL menu contexts. Missing anchors among generic
+weapon candidates do not prove that a visible weapon missed correction. The
+1Hz healthy sample can hide a mismatch earlier in that interval. New read-only
+telemetry separates context and completed draw-eye bucket and explicitly emits
+mismatch samples with placement/refusal/hit/miss fields. Existing deferred join
+N hand draw to completed present N+1 is preserved and host-tested; predictions
+and image normalization experiments remain off. No new flicker correction.
+
+Recoverable next steps (VR-128): identify pause surface; collect new context/eye
+populations on the next ordinary HUD playtest. If wheel has known left mismatches,
+inspect their render-owned geometry/pose before changing the classifier. If known
+eyes agree but placement refuses, trace that refusal; if corrections succeed,
+compare the hand pose to the image-owned pose. For whole-world pause interruptions,
+join cap expiries to scene gates before proposing a render-scheduling change.
+HUD corrections/test question are in HUD_ANCHORS's current VR-127 section.
+
 ## Accepted menu stability; residual left-eye hands (2026-09-16)
 
 Build378-g9bce8a13b DLL/banner verified. Logs and latest saved INI archived in

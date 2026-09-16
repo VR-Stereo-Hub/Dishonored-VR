@@ -1,6 +1,7 @@
 // tools/hud-anchor-tests.cpp - the HUD anchors' placement math on the host
 // (VR-117). Run by tools/hud-anchor-host.ps1; never launches the game.
 #include "core/vr/hud_anchor.h"
+#include "core/gfx/hud_marker.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -123,6 +124,48 @@ int main() {
         check(std::fabs(offset[1]-.04f*width)<1e-6f,"hand crop vertical position preserved");
         // A point outside the old prompt rectangle still has a stable mapping.
         check(std::fabs((offset[0]+(.9f-.5f)*width)-(.9f-.66f)*width)<1e-6f,"moving content is not clipped at old region edge");
+    }
+    {
+        OpeningOrientation opening;const float first[4]={0,0,0,1},turned[4]={0,.7071068f,0,.7071068f};
+        check(opening.capture(first) && opening.capture(turned) && opening.q[3]==1,"opening rotation cannot swivel with head");
+        opening.reset();check(opening.capture(turned) && opening.q[1]>.70f,"next opening takes new rotation");
+        const float grip[3]={.1f,.2f,-.4f};float pos[3];
+        camera_panel_position(grip,opening.q,.1f,pos);
+        check(std::fabs(pos[0])<.00001f && std::fabs(pos[1]-.2f)<.00001f,"reader offset uses opening axes while position follows hand");
+        using namespace dvr::hudmarker;
+        Delivery delivery;const float a[4]={.1f,.2f,.133f,.232f},b[4]={.8f,.2f,.833f,.232f};
+        delivery.drawing.add(a);delivery.copied(0,true);
+        delivery.drawing.add(b);delivery.copied(1,true);delivery.delivered(0);
+        check(delivery.output.count==1 && delivery.output.rect[0][0]==a[0],"delayed image gets its own marker bounds");
+        delivery.copied(0,true);delivery.delivered(0);check(delivery.output.count==0,"empty image cannot retain old markers");
+        delivery.drawing.add(a);delivery.copied(1,false);delivery.delivered(1);
+        check(delivery.output.rect[0][0]==b[0],"failed copy retains old image metadata");
+        delivery.reset();check(delivery.output.count==0 && delivery.slot[1].count==0,"device reset clears metadata");
+        Regions regions;regions.add(a);regions.add(a);check(regions.count==1,"duplicate marker draw has one crop");
+        for(int i=0;i<kMax+1;++i) {float r[4]={i*.12f,0,i*.12f+.03f,.03f};regions.add(r);}
+        check(regions.overflow,"marker budget overflow requests complete panel");
+        regions=Regions{};regions.add(a);const float overlap[4]={.11f,.2f,.143f,.232f};regions.add(overlap);
+        check(regions.overflow,"overlapping marker pixels use complete panel");
+        regions=Regions{};regions.add(a);regions.add(b);
+        check(separable(regions,1506,1561),"distant markers have independent crops");
+        const float close[4]={.134f,.2f,.167f,.232f};regions.add(close);
+        check(!separable(regions,1506,1561),"padded crop cannot duplicate adjacent marker pixels");
+        float offset[2],small=0,big=0;
+        check(placement(b,1.3f,1.257f,1.3f,1.25f,offset,small),"valid marker projection");
+        const float x=offset[0];placement(b,1.3f,1.257f,1.3f,2.5f,offset,big);
+        check(offset[0]==x && std::fabs(big-2*small)<.00001f,"icon scale does not change tracking position");
+        check(x>.9f,"marker travel reaches rendered frustum beyond small panel");
+        float crop[4],paddedOff[2],paddedWidth;
+        check(cropped_placement(b,1506,1561,1.3f,1.257f,1.3f,1.25f,crop,paddedOff,paddedWidth),"padded marker placement valid");
+        const float iconCenter=paddedOff[0]+((b[0]+b[2]-crop[0]-crop[2])*.5f)*1.25f;
+        check(std::fabs(iconCenter-x)<.000001f,"crop padding cannot shift projected marker center");
+        check(!placement(b,0,1,1,1,offset,small),"invalid projection falls back");
+        for(int i=0;i<200;++i) {
+            float r[4]={i*.0048f,.2f,i*.0048f+.033f,.232f},crop[4];padded_crop(r,1506,1561,crop);
+            auto c=crop_rect(1506,1561,crop,1,0);
+            check(c.w==64 && c.h==64 && c.x>=0 && c.x+c.w<=1506,"marker crop size stable and in texture across motion");
+            check(crop[0]<=r[0] && crop[2]>=r[2],"padded crop retains marker pixels");
+        }
     }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;

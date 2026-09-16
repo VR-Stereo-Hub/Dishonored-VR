@@ -1078,6 +1078,7 @@ HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
             if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = dvr::frame::raw_draw_prim(self, type, start, prims);
             if (forceAlpha) alpha_force_end(self);
+            if(SUCCEEDED(r) && element==dvr::hudlayout::ElObjective) dvr::hudcap::note_marker(sink,pbb);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1095,6 +1096,7 @@ HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE ty
             if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
             if (forceAlpha) alpha_force_end(self);
+            if(SUCCEEDED(r) && element==dvr::hudlayout::ElObjective) dvr::hudcap::note_marker(sink,pbb);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1113,6 +1115,7 @@ HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE typ
             if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = g_origDpUp(self, type, prims, verts, stride);
             if (forceAlpha) alpha_force_end(self);
+            if(SUCCEEDED(r) && element==dvr::hudlayout::ElObjective) dvr::hudcap::note_marker(sink,pbb);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }
@@ -1133,6 +1136,7 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
             if (forceAlpha) alpha_force_begin(self);
             const HRESULT r = g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
             if (forceAlpha) alpha_force_end(self);
+            if(SUCCEEDED(r) && element==dvr::hudlayout::ElObjective) dvr::hudcap::note_marker(sink,pbb);
             dvr::hudcap::end(self, gameRt, vp);
             return r;
         }

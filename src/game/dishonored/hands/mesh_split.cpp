@@ -2205,15 +2205,23 @@ static void MfNoteTag(void)
     else if(rec.draw==hand->eye) ++g_mpEyeMethodAgree[cls];
     else ++g_mpEyeMethodDisagree[cls];
     if(hand->menuContext>=3 && hand->menuContext<=8) {
-        static uint32_t agree=0,mismatch=0,unknown=0,refused=0,miss=0;
-        if(!known) ++unknown;else if(rec.draw==hand->eye) ++agree;else ++mismatch;
-        refused+=hand->refused[0]+hand->refused[1];miss+=hand->waMiss;
+        struct Totals {uint32_t agree=0,mismatch=0,unknown=0,refused=0,miss=0;};
+        static Totals totals[9][3];
+        auto& t=totals[hand->menuContext][known ? (rec.draw<0 ? 0 : 1) : 2];
+        if(!known) ++t.unknown;else if(rec.draw==hand->eye) ++t.agree;else ++t.mismatch;
+        t.refused+=hand->refused[0]+hand->refused[1];t.miss+=hand->waMiss;
+        if(known && rec.draw!=hand->eye) {
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
+                "menu/hands-mismatch: context=%d completedPresent=%u handEye=%d drawEye=%d decision=%c jump=%.3f ipd=%.3f pose=%u placed=%u/%u refused=%u/%u weaponHit=%u weaponMiss=%u; completed draw identity, diagnostic only",
+                hand->menuContext,wanted+1,(int)hand->eye,rec.draw,hand->why,hand->d,hand->ipdUU,hand->poseGen,
+                hand->placed[0],hand->placed[1],hand->refused[0],hand->refused[1],hand->waHit,hand->waMiss);
+        }
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
             "menu/hands: context=%d completedPresent=%u handEye=%d drawEye=%d known=%d decision=%c "
             "jump=%.3f ipd=%.3f pose=%u agree=%u mismatch=%u unknown=%u refused=%u weaponMiss=%u; "
-            "menu hand-present totals, no fitted phase or render override",
+            "totals ONLY for this context and draw-eye bucket (0=unknown); misses include unassociated weapon candidates",
             hand->menuContext,wanted+1,(int)hand->eye,rec.draw,known,hand->why,hand->d,hand->ipdUU,
-            hand->poseGen,agree,mismatch,unknown,refused,miss);
+            hand->poseGen,t.agree,t.mismatch,t.unknown,t.refused,t.miss);
     }
 }
 

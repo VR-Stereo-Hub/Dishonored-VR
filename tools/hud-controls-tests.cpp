@@ -46,6 +46,8 @@ int main(){
  using dvr::reading_input::continuous;using dvr::reading_input::vertical;
  for(int context=-1;context<=8;++context) for(bool active:{false,true}) for(bool wheel:{false,true})
    check(continuous(context,wheel,active)==(active&&!wheel&&(context==4||context==5)),"continuous reading is strictly context scoped");
+ for(int c=-1;c<=8;++c) for(bool active:{false,true}) for(bool wheel:{false,true})
+   check(dvr::reading_input::pause(c,wheel,active)==(active&&!wheel&&c==3),"continuous pause is context scoped");
  int oldPulses=0,newSamples=0;
  for(int i=0;i<120;++i){testTime=i*1000./120;if(MenuStep(-32767,1))++oldPulses;if(vertical(-32767)==-32767)++newSamples;}
  check(oldPulses<10 && newSamples==120,"one-second reading hold keeps 120 analog samples instead of sparse menu pulses");

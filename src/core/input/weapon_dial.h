@@ -2,6 +2,7 @@
 #pragma once
 #include <cmath>
 #include "core/util/xr_math.h"
+#include "core/vr/hud_anchor.h"
 namespace dvr::weapon_dial {
 inline void radial(float x, float y, float dead, float& ox, float& oy) {
     ox = oy = 0;
@@ -14,14 +15,16 @@ inline bool step_menu(bool menu, bool wheel) { return menu && !wheel; }
 struct State {
     bool held = false, valid = false, lost = false;
     float center[3] = {};
-    void reset() { held = valid = lost = false; }
+    dvr::hudanchor::OpeningOrientation opening;
+    void reset() { held = valid = lost = false; opening.reset(); }
     bool update(bool down, bool tracked, const float hand[3], const float head[3],
                 float radius, float deadM, float& x, float& y, const float* cameraQ = nullptr, bool directionOnly = false) {
         x = y = 0;
         if (!down) { reset(); return false; }
         for (int i=0;i<3;++i) tracked = tracked && std::isfinite(hand[i]) && std::isfinite(head[i]);
         if (!held) { held = true; lost = false; valid = tracked;
-            if (valid) for (int i=0;i<3;++i) center[i]=hand[i]; }
+            if (valid) { for (int i=0;i<3;++i) center[i]=hand[i];
+                if(cameraQ && !opening.capture(cameraQ)) valid=false; } }
         if (!tracked) { valid = false; lost = true; }
         // Never re-seed mid-gesture after a tracking loss or invalid opening.
         if (!valid || lost || radius <= deadM || radius <= 0) return false;
@@ -33,7 +36,8 @@ struct State {
         if (rl < .2f && !cameraQ) return false;
         float right[3]={rl>.0001f ? n[2]/rl : 1,0,rl>.0001f ? -n[0]/rl : 0};
         float up[3]={n[1]*right[2], n[2]*right[0]-n[0]*right[2], -n[1]*right[0]};
-        if (cameraQ) {
+        if (opening.valid) {
+            cameraQ=opening.q;
             const float rx[3]={1,0,0},uy[3]={0,1,0};
             dvr::xrmath::quat_rotate(cameraQ[0],cameraQ[1],cameraQ[2],cameraQ[3],rx,right);
             dvr::xrmath::quat_rotate(cameraQ[0],cameraQ[1],cameraQ[2],cameraQ[3],uy,up);

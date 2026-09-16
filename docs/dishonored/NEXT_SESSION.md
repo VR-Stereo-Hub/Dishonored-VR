@@ -1,31 +1,27 @@
-## Current: HUD controls and grouping follow-up (2026-09-16)
+## Current: HUD orientation, pause input and crouched grouping (2026-09-16)
 
-- PR69 merged into VR-Main at0afbadc83, source branch codex/hud-weapon-dial preserved.
-  Accepted378 profile is the byte-identical generated/packaged/golden default on main.
-- Working branch codex/hud-fixes, VR-127. New work remains local and unmerged.
-- VR-127 exists/In Progress. Automatic approval review blocked the later detailed
-  Linear build/install summary as an external export; permission question is pending.
-  Full evidence is in local HUD_ANCHORS. Do not retry that export without approval.
-- Shared Notes/Books/Journal alpha, independent Interactables alpha, and original
-  general-alpha reset implemented. All five alpha fields/capture mode are isolated.
-- Reading contexts4/5 retain continuous deadzone-shaped vertical input; horizontal
-  navigation stays stepped. Native MenuStep negative control emits5/120 nonzero
-  samples for a one-second120Hz hold; reading preserves120/120.
-- GroupInteractions/RouteObjectives are default-off live F10 candidates, enabled
-  for the next installed test. Neighbor grouping and measured marker shape are
-  heuristic, not semantic identities; similar icons/batched geometry remain risks.
-- Accepted378 report/logs: note/book flicker absent; wheel greatly improved;36 note
-  and10 wheel interior intervals with zero mono. Remaining left-eye hands/weapons
-  head-motion positional flicker is VR-128 (Backlog), not changed by this candidate.
-- One next launch question: while maintaining focus on the same interactable and
-  moving your head, do its title and action prompt stay together on the same plane?
-  Expected: one stable group. Continued separation means heuristic grouping is
-  insufficient; inspect hud/owner rectangles and pursue native UI identity.
-- Installed382-g048c1e461; vr127-hud-fixes candidate. Both logs archived at
-  installs/20260916-032558-653882; full INI adds14 keys with no old value changes.
-  Hashes/CRLF verified; log remains378 until next tester launch.
-- See installed.json for installed identity. Preserve both logs/full saved INI/CRLF.
-  No game/simulator launch, subagents, branch deletion or new main merge.
+- Branch codex/hud-fixes, local only. PR69 already merged at0afbadc83; source
+  codex/hud-weapon-dial preserved. No new main merge/publication authorized.
+-382 DLL/banner verified; both logs and updated F10 profile archived under
+  vr127-hud-fixes/reported-crouch-pause. Complete profile promoted byte-for-byte
+  to generated/release/golden defaults, including world pause and latest alpha.
+- Implemented continuous pause navigation, opening-fixed wheel/reader orientation
+  with matching selection/offset axes, retained interaction grouping across large
+  position changes, and narrower reticle exclusion for button alpha consistency.
+- ObjectiveScreenTracking is a new default-off F10 candidate: matching-image crops
+  use full rendered-frustum travel while keeping saved icon size. Candidate opts
+  in; native edge indicators and shape-classification limits remain.
+- Flicker is NOT claimed fixed.382 wheel interior11/11 zero mono; pause15/54 and
+  note4/52 include mono after some150ms hold expiries. VR-128 remains open. New
+  passive hand diagnostics split context/completed eye and expose mismatches.
+- ONE next launch question: does the same interactable's title/button stay
+  together with matching opacity during crouch and head motion? Expected stable
+  grouping; separation rejects content continuity as sufficient. Matching location
+  with different opacity instead points to source coverage. See HUD_ANCHORS current
+  section for validation/limits; FLICKER_REFERENCE newest section for next evidence.
+- installed.json is the build authority. Archive both logs/full INI, compare the
+  entire INI on install and verify CRLF. No game/simulator launch or subagents.
+- Prior detailed Linear export remains blocked/pending permission; do not retry.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

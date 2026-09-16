@@ -665,7 +665,7 @@ void set_hud_texture_provider(HudTextureProviderFn fn);
 // rest and counts them.
 constexpr int kMaxHudQuads = 32;
 enum class HudAnchor : uint8_t { Window = 0, WindowWorld = 1, Hand = 2, LocalBillboard = 3 };
-enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1, CameraPlane = 2 };
+enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1, CameraPlane = 2, OpeningPlane = 3 };
 struct HudQuadDesc {
     ID3D11Texture2D* tex = nullptr;    // R8G8B8A8 family, premultiplied + repaired alpha
     HudAnchor anchor = HudAnchor::Window;
@@ -678,6 +678,7 @@ struct HudQuadDesc {
     float planeOff[2] = {0.0f, 0.0f};
     float width = 1.25f, height = 0.0f;
     float tiltDeg = 0.0f;
+    float orientation[4] = {0,0,0,1}; // OpeningPlane: LOCAL-space opening orientation
     float subrect[4] = {0.0f, 0.0f, 1.0f, 1.0f};
 };
 using HudQuadProviderFn = int (*)(ID3D11DeviceContext* ctx, HudQuadDesc* out, int max);

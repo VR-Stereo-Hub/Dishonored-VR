@@ -21,7 +21,87 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
-## Current follow-up: alpha, reading input and HUD grouping (VR-127)
+## Current: opening orientation, pause input and crouched grouping (VR-127, 2026-09-16)
+
+Build382 DLL/banner verified before interpretation; both logs and newest saved INI
+archived at `build/playtest-candidates/vr127-hud-fixes/reported-crouch-pause`.
+Reported: standing interaction grouping improved, crouching still separates title
+and action; action opacity differs from accepted title. Objectives now separate,
+but their travel reaches the small panel boundary too soon. World-anchored pause
+is preferred, with poor vertical stick navigation. Wheel/readers should face the
+opening camera and then retain that orientation; readers still follow the hand.
+Left-eye wheel flicker persists and pause also flickers; pause surface unconfirmed.
+
+### Complete saved defaults
+
+Generated/release/golden profiles are the full saved382 INI, byte-identical CRLF.
+Ten changes versus the382 candidate: ReadingAlphaGamma1.020/Mix0.990;
+InteractionAlphaGain1.090/Gamma0.250; HeadLookPause1,NoBlurPause1,WindowPause1;
+Element.pause=world, pause WinScale1.520; general AlphaGamma1.000.
+GroupInteractions/RouteObjectives remain1 because that is the saved tested profile.
+The new ObjectiveScreenTracking lever is absent/default OFF in repository defaults;
+the candidate opts in with one new key, retaining every saved value.
+
+### Corrections and evidence limits
+
+- Pause context3 now retains continuous deadzone-shaped left-stick axes; right
+  stick is neutral and repeat clocks clear. No head-relative rotation is applied.
+  The old pulse negative control emits5/120 nonzero samples over a one-second hold.
+  Native navigation repeat owns the new stream. Reading/wheel/gameplay policies
+  are unchanged. `pad/pause` reports raw and delivered axes.
+- OpeningPlane stores a normalized LOCAL-space opening quaternion. Wheel placement
+  AND hand-selection axes use it; notes/journal retain it while tracking grip
+  position. Their right/depth offsets also use opening axes, so a head turn cannot
+  swing the panel around the hand. Close/context change resets reader orientation;
+  releasing grip resets dial. No camera writer or stereo tag is changed.
+- Interaction grouping previously never adopted successful group ownership into
+  StableRoutes. A draw first seen elsewhere could revert after a crouch-sized
+  position step. Adopt only unambiguous matching content; retained prompt owners
+  reseed the moving neighborhood. The reticle exclusion now recognizes a centered
+  two-primitive draw rather than every small icon in its rectangle. The archived
+  moving prompt includes8-vertex/10-primitive draws around0.039x0.038, which the
+  former size-only exclusion could reject. Grouped buttons and title share the
+  same InteractionAlpha sink. This is a code-supported correction, not proof
+  every crouched/animated/batched interaction is identified semantically.
+- ObjectiveScreenTracking (F10 HUD grouping: Objective markers follow screen)
+  separates position across the rendered frustum from accepted icon pixel size.
+  Window/world objectives use view-space positions; their window scale changes
+  size only. Hand/frame/off policies retain their meaning. Crop bounds follow
+  successful D3D9 draws into the SAME delayed slot as the pixels, including empty
+  frames, failed copies and reset. Quantized padded crops avoid swapchain churn
+  from subpixel extent jitter. At most6 markers; overlapping/ambiguous/overflow
+  crops and insufficient layer budget fall back to the complete existing panel.
+  Other HUD layers retain reserved budget. The engine's native edge indicators,
+  marker visibility and heuristic shape recognition remain; no target world
+  position or guessed engine field is introduced. The 103-degree rendered edge
+  is still the source boundary, not the physical headset's entire peripheral view.
+
+### Flicker remains a separate investigation
+
+See FLICKER_REFERENCE, newest382 result. Wheel interior samples11/11 contain zero
+mono; pause15/54 and note4/52 contain mono. The150ms menu hold expires during some
+pause/note gaps. This cannot explain every hand-only symptom and does not justify
+forcing double draws or extending hold indefinitely. Existing aggregate hand
+totals mix contexts and unassociated weapon candidates. Diagnostic counters now
+split by menu context and completed draw-eye bucket; rate-limited mismatch events
+include actual completed identity, decision, placement/refusal and weapon-hit/miss.
+No new hand correction, eye predictor, FOV, pacing or synchronization experiment.
+
+### Verification and next launch
+
+Production-host checks:456 HUD anchor/capture metadata,464 route ownership,
+2186 dial,92 alpha/input,19 eye-decision/deferred-join. Default writer and INI golden
+match. Release, exports and lint required before install. No game/simulator launch.
+Headset validation is pending; local branch only, no new publication/main merge.
+
+ONE question: while focused on the same interactable, do its title and button
+prompt stay together with matching opacity as you crouch and turn your head?
+Expected: one consistently styled group. Success supports retained group ownership;
+continued separation means content/geometry changes need a native owner boundary
+or better measured draw identity. If together but opacity still differs, compare
+source coverage rather than increasing global alpha. Flicker telemetry is passive.
+
+## Prior382 candidate: alpha, reading input and HUD grouping (VR-127)
 
 **Installed382** (`vr33-hands-working-382-g048c1e461`), clean local source048c1e461.
 Candidate `build/playtest-candidates/vr127-hud-fixes`; prior logs/DLL/INI archived at

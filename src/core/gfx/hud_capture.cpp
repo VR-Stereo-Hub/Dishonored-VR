@@ -38,6 +38,7 @@ struct Sink {
     ID3D11ShaderResourceView* slotSrv[2] = {};
     ID3D11Query*        readFence[2] = {};
     bool blitIssued[2] = {}, readIssued[2] = {}, slotValid[2] = {};
+    dvr::hudmarker::Delivery markers;
     int  cur = 0;
     ID3D11Texture2D*        outTex = nullptr;
     ID3D11RenderTargetView* outRtv = nullptr;
@@ -86,6 +87,7 @@ void release_slots(Sink& s) {
         if (s.slotRt[i]) { s.slotRt[i]->Release(); s.slotRt[i] = nullptr; }
         s.blitIssued[i] = s.readIssued[i] = s.slotValid[i] = false;
     }
+    s.markers.reset();
     s.cur = 0;
     if (s.outRtv) { s.outRtv->Release(); s.outRtv = nullptr; }
     if (s.outTex) { s.outTex->Release(); s.outTex = nullptr; }
@@ -357,7 +359,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 // costs no copy; a stale target is cleared once and released.
                 if (s.rt) { clear_rt(dev9, s); release_rt(s); }
                 if (s.ready) release_slots(s);
-                s.redirected = 0;
+                s.redirected = 0; s.markers.drawing=dvr::hudmarker::Regions{};
                 continue;
             }
             if (!ensure_rt(dev9, i)) { s.redirected = 0; continue; }
@@ -367,7 +369,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 if (s.ready) release_slots(s);
                 s.winRedirected += s.redirected;
                 clear_rt(dev9, s);
-                s.redirected = 0;
+                s.redirected = 0; s.markers.drawing=dvr::hudmarker::Regions{};
                 continue;
             }
             if (!blitOk || !ensure_slots(dev9, dev11, i)) { s.redirected = 0; continue; }
@@ -378,6 +380,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 read_wait(s, s.cur);
                 RECT src = {0, 0, (LONG)g_rtW, (LONG)g_rtH};
                 const HRESULT sr = dev9->StretchRect(s.rt, &src, s.slotRt[s.cur], nullptr, D3DTEXF_LINEAR);
+                s.markers.copied(s.cur,SUCCEEDED(sr));
                 if (SUCCEEDED(sr)) {
                     if (s.blitFence[s.cur]) { s.blitFence[s.cur]->Issue(D3DISSUE_END); s.blitIssued[s.cur] = true; }
                     s.slotValid[s.cur] = true;
@@ -408,17 +411,18 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                     ctx11->Flush();   // an event query does not complete until the work is submitted
                     s.readIssued[other] = true;
                 }
+                s.markers.delivered(other);
                 s.delivered = true;
                 ++s.winDelivered;
             }
             s.cur ^= 1;
-            s.redirected = 0;
+            s.redirected = 0; s.markers.drawing=dvr::hudmarker::Regions{};
         }
     } else {
         for (Sink& s : g_sink) {
             s.delivered = false;
             if (s.rt && dev9 && !g_on) clear_rt(dev9, s);
-            s.redirected = 0;
+            s.redirected = 0; s.markers.drawing=dvr::hudmarker::Regions{};
         }
     }
     // VR-120: sinks are acquired by the first draw routed to them, and a draw
@@ -486,6 +490,12 @@ ID3D11Texture2D* sink_texture(int sink, ID3D11DeviceContext*) {
     if (!g_on || sink < 0 || sink >= dvr::hudlayout::kMaxSinks) return nullptr;
     const Sink& s = g_sink[sink];
     return s.delivered ? s.outTex : nullptr;
+}
+void note_marker(int sink,const float* rect) {
+    if(sink>=0 && sink<dvr::hudlayout::kMaxSinks) g_sink[sink].markers.drawing.add(rect);
+}
+const dvr::hudmarker::Regions* marker_regions(int sink) {
+    return sink>=0 && sink<dvr::hudlayout::kMaxSinks && g_sink[sink].delivered ? &g_sink[sink].markers.output : nullptr;
 }
 ID3D11Texture2D* panel_texture(int sink) {
     if (sink < 0 || sink >= dvr::hudlayout::kMaxSinks) return nullptr;

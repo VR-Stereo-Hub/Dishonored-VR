@@ -28,6 +28,7 @@
 // on_reset() (38.63: a forgotten one makes the game's Reset fail forever).
 #pragma once
 #include <stdint.h>
+#include "core/gfx/hud_marker.h"
 #include <windows.h>
 #include <d3d9.h>
 
@@ -73,6 +74,8 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
 // provider uses); and the ungated one for `dump hud [sink]`.
 ID3D11Texture2D* sink_texture(int sink, ID3D11DeviceContext* ctx);
 ID3D11Texture2D* panel_texture(int sink);
+void note_marker(int sink,const float* rect);
+const dvr::hudmarker::Regions* marker_regions(int sink);
 
 // For the ride predicate (game/dishonored/ue3/ui_surface.cpp): the redirect
 // is up and drawing (a sink at the backbuffer's size, the repair pass

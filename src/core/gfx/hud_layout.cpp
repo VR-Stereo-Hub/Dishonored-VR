@@ -80,7 +80,7 @@ const int         kMenuContexts = 6;
 ElementCfg g_el[ElCount];
 hudroute::StableRoutes g_stableRoutes;
 hudroute::InteractionGroup g_interactionGroup;
-bool g_groupInteractions=false,g_routeObjectives=false;
+bool g_groupInteractions=false,g_routeObjectives=false,g_objectiveScreen=false;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
 bool g_dialDirection = true, g_dialCircle = true;
@@ -96,6 +96,7 @@ dvr::hudalpha::Bank g_alphaBank;
 AlphaCfg& g_alpha=g_alphaBank.general;
 const char* kScopedAlpha[3]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha"};
 bool g_readHand[2]={false,false};
+dvr::hudanchor::OpeningOrientation g_readOpening;
 float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
 const char* kReadNames[2]={"Note","Journal"};
 Backdrop   g_backdrop[2] = { kPresetBackdrop, kPresetBackdrop };
@@ -482,6 +483,11 @@ bool screen_can_ride(int context) {
 }
 void set_menu_riding(bool riding, int context) {
     if (riding == g_menuRiding && (!riding || context == g_ridingContext)) return;
+    g_readOpening.reset();
+    if(riding && (context==4 || context==5)) {
+        dvr::vr::HeadPose h{};
+        if(dvr::vr::peek_head_pose(h)) {const float q[4]={h.qx,h.qy,h.qz,h.qw};g_readOpening.capture(q);}
+    }
     g_menuRiding = riding;
     g_ridingContext = riding ? context : -1;
     if (!riding) {
@@ -547,8 +553,10 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
         else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
             // A title crossing the central region is not the reticle. Preserve
             // the native measured dot/grown reticle rather than adopting it.
-            !(spatial==ElReticle && bbox[2]-bbox[0]<.05f && bbox[3]-bbox[1]<.05f) &&
-            g_interactionGroup.claim(bbox,g_presentNo,spatial==ElPrompt)) e=ElPrompt;
+            !hudroute::centered_reticle(bbox,primitives) &&
+            g_interactionGroup.claim(bbox,g_presentNo,spatial==ElPrompt || e==ElPrompt)) {
+            e=ElPrompt;g_stableRoutes.adopt(drawKey,g_presentNo,e);
+        }
     }
     if(e != spatial) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
         "hud/owner: routed %s instead of positional %s; key=%016llx rect=%.3f/%.3f/%.3f/%.3f verts=%u prims=%u",
@@ -635,6 +643,40 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         D3D11_TEXTURE2D_DESC td{};
         tex->GetDesc(&td);
         const float aspect = td.Width ? (float)td.Height / (float)td.Width : 1.0f;
+        if(e==ElObjective && g_objectiveScreen && !anchor_is_hand(a)) {
+            const auto* regions=dvr::hudcap::marker_regions(s);
+            float th=0,tv=0;int source=0;unsigned sw=0,sh=0;
+            dvr::vr::fov_audit(&th,&tv,&source,&sw,&sh);
+            const float dist=g_win.distM;
+            int reserve=0;
+            for(int later=e+1;later<ElCount;++later)
+                if(anchor_visible(g_el[later].anchor) && crop_eligible(later) &&
+                   g_presentNo-g_lastRouted[later]<=2 && g_elementSink[later]>=0) ++reserve;
+            for(int anchor=AnchorWindow;anchor<AnchorCount;++anchor) if(g_sinkOf[anchor][0]>=0) ++reserve;
+            if(regions && dvr::hudmarker::separable(*regions,td.Width,td.Height) && regions->count>0 &&
+               n+regions->count+reserve<=max && th>0 && tv>0 && dist>.05f) {
+                for(int i=0;i<regions->count;++i) {
+                    auto& marker=out[n++];marker=dvr::vr::HudQuadDesc{};
+                    marker.tex=tex;marker.element=e;
+                    marker.slot=i==0 ? ElObjective : ElCount+AnchorCount+i-1;
+                    static_assert(ElCount+AnchorCount+dvr::hudmarker::kMax-1<=dvr::vr::kMaxHudQuads,"marker slots must be disjoint");
+                    marker.anchor=dvr::vr::HudAnchor::Window;
+                    marker.base[0]=marker.base[1]=0;marker.base[2]=-dist;
+                    // Two source pixels of padding avoid trimming antialiased edges.
+                    const float* r=regions->rect[i];
+                    dvr::hudmarker::cropped_placement(r,td.Width,td.Height,dist,th,tv,g_win.widthM*g_el[e].winScale,
+                                                       marker.subrect,marker.planeOff,marker.width);
+                    marker.height=0;
+                }
+                DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
+                    "hud/objective: %d image-owned marker crops, frustum=%.3f/%.3f sizeScale=%.3f; native clamp retained",
+                    regions->count,th,tv,g_el[e].winScale);
+                continue;
+            }
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
+                "hud/objective: complete panel fallback (count=%d overflow=%d frustum=%.3f/%.3f)",
+                regions?regions->count:0,regions?regions->overflow:0,th,tv);
+        }
         dvr::vr::HudQuadDesc& d = out[n++];
         d = dvr::vr::HudQuadDesc();
         d.tex = tex; d.element = e; d.slot = e;
@@ -672,15 +714,18 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
             if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) || !dvr::vr::peek_head_pose(head)) {--n;continue;}
             const float camera[4]={head.qx,head.qy,head.qz,head.qw};
             d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
-            d.orient=dvr::vr::HudOrient::CameraPlane;
-            dvr::hudanchor::camera_panel_position(hp,camera,g_readDistance[readPanel],d.base);
+            if(!g_readOpening.capture(camera)) {--n;continue;}
+            d.orient=dvr::vr::HudOrient::OpeningPlane;
+            memcpy(d.orientation,g_readOpening.q,sizeof(d.orientation));
+            dvr::hudanchor::camera_panel_position(hp,g_readOpening.q,g_readDistance[readPanel],d.base);
             d.width=g_readWidth[readPanel];d.height=0;
             d.planeOff[0]=g_readRight[readPanel];d.planeOff[1]=0;
         }
         if (e == ElWheel && g_dialOn && g_dial.held) {
             if (!g_dial.valid) { --n; continue; }
             d.anchor = dvr::vr::HudAnchor::LocalBillboard;
-            d.orient = dvr::vr::HudOrient::CameraPlane; d.hand = 0;
+            d.orient = dvr::vr::HudOrient::OpeningPlane; d.hand = 0;
+            memcpy(d.orientation,g_dial.opening.q,sizeof(d.orientation));
             for(int k=0;k<3;++k) d.base[k]=g_dial.center[k]+g_dialForward[k]*g_dialDistance;
             d.width = g_dialWidth; d.height = 0;
             d.planeOff[0] = d.planeOff[1] = 0;
@@ -818,6 +863,7 @@ void configure(const char* ini) {
     }
     g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
     g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
+    g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
     for(int i=0;i<3;++i) {
         auto& a=g_alphaBank.special[i];a=g_alpha;char key[64],mode[32];
@@ -893,6 +939,7 @@ void save(const char* ini) {
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
+    write_i("ObjectiveScreenTracking",g_objectiveScreen);
     for(int i=0;i<3;++i) save_scoped_alpha(i);
     for(int i=0;i<2;++i) {
         char key[64];
@@ -1155,9 +1202,12 @@ void draw_ui() {
     if(ImGui::CollapsingHeader("HUD grouping")) {
         bool change=ImGui::Checkbox("Keep interaction labels together",&g_groupInteractions);
         change|=ImGui::Checkbox("Route moving objective markers",&g_routeObjectives);
+        change|=ImGui::Checkbox("Objective markers follow screen",&g_objectiveScreen);
+        ImGui::TextWrapped("Screen tracking separates marker size from screen position. Window/world markers follow the rendered field of view; their window scale controls icon size. Native game edge indicators remain.");
         ImGui::TextWrapped("Test controls: group nearby interaction draws and recognize the measured objective-marker shape. Other similar icons may match; disable to compare. Objective uses its own anchor and placement below.");
         if(change) {
             write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
+            write_i("ObjectiveScreenTracking",g_objectiveScreen);
             rebalance();refresh_status_line();
         }
     }
@@ -1166,7 +1216,7 @@ void draw_ui() {
         ImGui::TextWrapped("Applies to the interaction title, action prompt and icons routed onto a HUD panel. Frame keeps native game rendering.");
     }
     if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
-        ImGui::TextWrapped("Follow the left hand with a flat camera-facing panel. Independent of wrist rotation, tilt and offsets. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
+        ImGui::TextWrapped("Follow the left hand while retaining the camera orientation from opening. Independent of wrist rotation and later head turns. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
         for(int i=0;i<2;++i) {
             ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);
             bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);

@@ -320,6 +320,14 @@ static void UpdateVirtualPad()
         xs.Gamepad.sThumbRX=xs.Gamepad.sThumbRY=0;
         DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,2000,
             "pad/reading: context=%d vertical=%d continuous=1 horizontal=stepped",UiSurfaceContext(),(int)xs.Gamepad.sThumbLY);
+    } else if(dvr::reading_input::pause(UiSurfaceContext(),wheelInput,active)) {
+        // Preserve native axes and sustained input. One-frame synthetic pulses
+        // can fall between engine polls; the game owns navigation repeat.
+        MenuStep(0,0); MenuStep(0,1);
+        xs.Gamepad.sThumbRX=xs.Gamepad.sThumbRY=0;
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,2000,
+            "pad/pause: raw=(%.3f %.3f) out=(%d %d) continuous=1 native-axes=1",
+            in.mv[0],in.mv[1],(int)xs.Gamepad.sThumbLX,(int)xs.Gamepad.sThumbLY);
     } else if (dvr::weapon_dial::step_menu(g_menuOpen || UiSurfaceBlocks(), wheelInput) && active) {
         xs.Gamepad.sThumbLX = MenuStep(xs.Gamepad.sThumbLX, 0);
         xs.Gamepad.sThumbLY = MenuStep(xs.Gamepad.sThumbLY, 1);
