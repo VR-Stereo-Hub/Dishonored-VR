@@ -31,8 +31,9 @@
 - [x] Independent wheel alpha and hand-following note/journal controls implemented.
 - [x]376 positional camera slide appears fixed; readers accepted except horizontal alignment.
 - [x] Add reader right-offset sliders, bounded menu stereo gap hold, private measured HUD textures/content continuity.
-- [ ] Headset acceptance: world scale/eye alignment during wheel head motion; remaining hands/weapons flicker.
-- [ ] Headset acceptance: moving HUD ownership (content cache has explicit semantic limits).
+- [x]378 reading flicker removed and wheel greatly improved; accepted for merge.
+- [ ] VR-128: remaining left-eye hands/weapons flicker during wheel head motion.
+- [ ] VR-127: remaining objective/interaction grouping, reading scroll and alpha controls.
 
 ## Performance research shelved (2026-09-15)
 

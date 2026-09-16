@@ -1,5 +1,26 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## Accepted menu stability; residual left-eye hands (2026-09-16)
+
+Build378-g9bce8a13b DLL/banner verified. Logs and latest saved INI archived in
+`build/playtest-candidates/vr126-hud-owner/accepted-profile`. Headset reports no
+flicker while reading notes/books and most wheel flicker removed. Remaining symptom
+is positional flicker on hands/weapons, apparently left eye only and only during
+physical head movement. User authorized merging the accepted dial/menu work.
+
+Measured:36 note and10 wheel beat intervals more than3.1s inside their episodes,
+all with zero mono output (376:58/72 and17/26 respectively had mono).178 sampled
+menu gap-hold messages, one no-recent-stereo message across the entire session.
+This supports the bounded hold addressing menu mono interruptions. It does not
+prove every hand draw is corrected; cumulative deferred hand totals still include
+unknowns and several contexts. No new world-scale failure is reported.
+
+Residual is VR-128, Backlog. Route to the hand/weapon eye-identity/correction rows,
+not another FOV change or global stereo retag. Preserve the accepted menu translation,
+image-owned orientation and pair synchronization. Next investigation should isolate
+Wheel context and left-eye hand draws with image-owned evidence. No new hand
+correction is included in this merge. HUD ownership/reading UI follow-ups are VR-127.
+
 ## Menu depth interruption follow-up (VR-126, 2026-09-16)
 
 **Installed378** (`vr33-hands-working-378-g9bce8a13b`), clean source9bce8a13b.

@@ -1,25 +1,19 @@
-## Current: menu depth stability and HUD ownership (2026-09-16)
+## Current: weapon dial accepted for merge; HUD follow-up (2026-09-16)
 
-- Local only on codex/hud-weapon-dial, VR-126. No push/PR/merge authorized.
-- Verified376 DLL/banner; both logs and saved F10 profile archived under
-  build/playtest-candidates/vr126-menu-motion/reported-scale-routing.
-- Tester: positional sliding appears fixed; readers good but need right offset;
-  wheel hand/weapon flicker persists and sometimes the world briefly enlarges/misaligns.
-- Source/log evidence and candidate limits: latest FLICKER_REFERENCE and HUD_ANCHORS
-  sections. Mono output persists inside wheel episodes; location-only HUD routing can
-  change ownership and shared crop textures can expose another element's pixels.
-- Candidate: 150ms menu stereo gap hold, private measured-element textures with
-  short-lived content ownership, independent Note/Journal horizontal sliders (+0.20m).
-  Preserve accepted scoped camera translation and all saved settings.
-- Installed378-g9bce8a13b, clean source9bce8a13b; candidate vr126-hud-owner.
-  Full INI adds only Note/JournalHandRight=0.200; all existing settings preserved.
-  Both logs archived at installs/20260916-023823-085684; hashes/CRLF verified.
-- Check build/playtest-candidates/installed.json for installed identity. Headset
-  acceptance pending; no game/simulator launch or subagents. Keep changes local.
-- Next launch, ONE question: with Wheel open and controllers still, do slow head turns
-  still make the whole world jump in size or become misaligned? Stable world supports
-  short mono interruptions; persistence needs per-image geometry/identity investigation.
-  Report hand-only flicker separately; it does not establish a world-scale failure.
+- User explicitly authorized PR/merge of codex/hud-weapon-dial to VR-Main and
+  promotion of the complete new F10 profile. Build378 DLL/banner verified; both
+  logs/INI archived at build/playtest-candidates/vr126-hud-owner/accepted-profile.
+- Headset: no reported note/book flicker; wheel mostly stable. Remaining head-motion
+  positional flicker appears confined to left-eye hands/weapons (VR-128, Backlog).
+  Interior log intervals:36 notes and10 wheel, all zero mono output.
+- Generated/packaged/golden defaults are byte-identical to the accepted saved INI.
+  Eight latest changes tune vitals and match reader width0.660/distance0.020/right0.320.
+- After the accepted merge, create codex/hud-fixes from updated VR-Main for VR-127:
+  shared reading alpha, interaction alpha, original general-alpha reset, slow book
+  scrolling, independent objective markers and unified interaction title/action routing.
+- Preserve stereo/pose ownership and camera translation. No subagents, game/simulator
+  launch or branch deletion. Installed.json remains build authority; keep one question
+  per launch and archive both logs before any next candidate installation.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

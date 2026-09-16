@@ -21,6 +21,21 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Accepted dial and saved profile (2026-09-16)
+
+Build378 accepted for merge. Reading is stable and wheel flicker greatly reduced;
+remaining left-eye hand/weapon head-motion flicker is VR-128. New saved profile is
+promoted byte-for-byte to WriteDefaultIni, release and golden defaults. Latest
+changes: vitals HandX0.065/HandY-0.102/HandScale0.270; Note/Journal width0.660,
+distance0.020,right0.320. Both logs and full profile are in the candidate's
+accepted-profile archive. Existing diagnostics/performance settings retained.
+
+HUD plane routing improved but is incomplete: objectives still fall through to
+default, and some interaction title/action draws split. VR-127 on codex/hud-fixes
+will own grouped routing, reading/interaction alpha, original general-alpha reset
+and slow left-stick book scrolling. The accepted content cache is not semantic
+owner identification; do not mark these remaining cases fixed.
+
 ## Current: right-hand-side readers and moving HUD ownership (2026-09-16)
 
 **Installed378** (`vr33-hands-working-378-g9bce8a13b`), clean source9bce8a13b.
