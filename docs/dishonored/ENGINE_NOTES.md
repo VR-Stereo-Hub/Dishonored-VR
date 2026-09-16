@@ -6873,3 +6873,53 @@ about 5 uu in BOTH stances on both machines, the VR-87 residual, and the crouche
 episodes clipped 0 presents); the cinematic pitch and head-look scopes (`cinepitch off`,
 `cinehead off`: no change); the game's own crouched pitch limits (with `hands off` the
 crouched camera pitched to the written -30 deg).
+
+## Weapon dial input and crop reuse (VR-126, 2026-09-16)
+
+The existing measured wheel rectangle above is reused with margins by HUD_ANCHORS'
+VR-126 implementation. No new engine addresses or writes are introduced. The
+continuous-angle fault is in pad_bridge's final generic menu shaping: Wheel is
+a blocked UI context and was fed through independent cardinal MenuStep pulses,
+with the right stick erased. Final output now bypasses that block for Wheel and
+uses radial shaping. See HUD_ANCHORS for geometry, validation and pending test.
+
+## Menu immersion camera and UI blend (VR-126, 2026-09-16)
+
+The existing reflected Camera.CameraCache.POV.Rotation is scoped across both eye
+draws for opted-in riding menus. Camera/controller/pawn are captured from the
+current chain with BuildLiveSet and ChSlot/IsLiveObject guards. A context epoch
+forces refresh on each new menu interval; no address or unchecked writer is added.
+Head sample publication uses the same per-image path as cinematic scopes.
+
+The UI-only blur candidate resolves Actor.WorldInfo, WorldInfo.Game,
+DishonoredGameInfo.m_pPpManager and DisPostProcessManager.m_UIPPWeight by property
+name. Declarations identify a separate UI effect weight/parameters from the Kismet
+effect. The wheel's m_bBlurGameWhileActive default is not established true, so that
+flag alone was rejected as a sufficient route. The verified native-registration
+search returned radial component functions but no UI blur toggle. Weight suppression
+and visible consumption remain separate claims; headset validation is pending.
+Full implementation and failed-hypothesis record: HUD_ANCHORS current VR-126 section.
+
+## Scoped menu/cinematic translation frame correction (2026-09-16)
+
+CameraCache.POV.Rotation is draw-scoped, while the cached camera matrix rows remain
+native. The menu/cinematic scopes must map current head-yaw-relative translation
+through the written composed yaw, not those rows. No new engine offset is required.
+Head sample publication now includes same-locate normal/raw translation. Entry neck
+correction is rebased between physical yaw frames. Existing liveness/identity and
+exact owned-field restoration remain. FLICKER_REFERENCE records the verified374
+report, host negative control, single-scene scope gap and pending perceptual test.
+
+## VR-126 menu mono gaps and HUD ownership limits (2026-09-16)
+
+Build376 playtest confirms unintended camera sliding appears fixed. Interior wheel
+stereo beat intervals still include mono in17/26 samples; notes58/72. This establishes
+mono interruptions, not a complete explanation for transient enlargement. HalfIPD
+current-c5 telemetry is not image-owned geometry evidence. Full evidence/fix/test is
+in FLICKER_REFERENCE, latest menu depth interruption section.
+
+HUD shader/declaration/texture-class buckets are not semantic element names. Region
+center routing can switch a moving draw between anchors. Candidate adds short-lived
+local-content continuity plus private measured-element textures; initial spatial
+classification, geometry changes and shared-content ambiguity remain limitations.
+No engine-memory writes or new engine addresses introduced. HUD_ANCHORS is authoritative.

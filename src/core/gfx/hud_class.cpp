@@ -527,6 +527,7 @@ uint32_t verts_for(D3DPRIMITIVETYPE t, UINT prims) {
 
 // The probe's answer for one draw, kept for the table and the route.
 struct Probe {
+    uint64_t drawKey=0;
     bool     ok = false;         // bbox[] is a screen rectangle (normalised, y down)
     bool     transformed = false;
     uint8_t  type = 0xff;
@@ -638,7 +639,20 @@ void probe_draw(uint8_t entry, D3DPRIMITIVETYPE type, UINT prims, const void* ve
         locked = g_vb0;
     }
 
-    const uint32_t step = vertexCount > 64 ? vertexCount / 64 : 1;
+    const uint32_t step = vertexCount > 64 ? (vertexCount+63) / 64 : 1;
+    uint64_t content=1469598103934665603ull;
+    auto hashBytes=[&](const void* data,size_t len) {
+        const auto* bytes=(const uint8_t*)data;
+        for(size_t j=0;j<len;++j) {content^=bytes[j];content*=1099511628211ull;}
+    };
+    hashBytes(&g_tex0,sizeof(g_tex0));hashBytes(&g_vs,sizeof(g_vs));
+    hashBytes(&g_ps,sizeof(g_ps));hashBytes(&g_vdecl,sizeof(g_vdecl));
+    hashBytes(&vertexCount,sizeof(vertexCount));hashBytes(&type,sizeof(type));
+    hashBytes(&stride,sizeof(stride));
+    // Local geometry/UV/colour, excluding the shader's screen transform.
+    // No extra buffer lock or resource read; only the already-probed vertices.
+    const bool keyable=!out.transformed && stride<=64 && vertexCount<=512 && vertexCount*stride<=8192;
+    if(keyable) hashBytes(base,vertexCount*stride);
     float rawMin[2] = {1e30f, 1e30f}, rawMax[2] = {-1e30f, -1e30f};
     float scrMin[2] = {1e30f, 1e30f}, scrMax[2] = {-1e30f, -1e30f};
     bool finite = true, typeOk = true;
@@ -680,7 +694,7 @@ void probe_draw(uint8_t entry, D3DPRIMITIVETYPE type, UINT prims, const void* ve
         // A rectangle entirely outside the screen is a transform hypothesis
         // that failed for this draw, not a HUD element; say so.
         if (scrMax[0] < -0.5f || scrMin[0] > 1.5f || scrMax[1] < -0.5f || scrMin[1] > 1.5f) { out.why = 7; ++g_probeFails; }
-        else out.ok = true;
+        else { out.ok = true; if(keyable) out.drawKey=content ? content : 1; }
     }
     g_probeQpc += qpc_now() - t0;
 }
@@ -1048,7 +1062,7 @@ void note_blend_tuple() {
     }                                                                                             \
     int sink = -1;                                                                                \
     if (hudNow) note_blend_tuple();                                                               \
-    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element); \
+    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey); \
     if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
     const bool forceAlpha = sink >= 0 && alpha_force_wanted();
 
@@ -1405,6 +1419,7 @@ void present_tick(IDirect3DDevice9* dev) {
 }
 
 void on_reset() {
+    dvr::hudlayout::forget_draw_owners();
     g_stateBlocksCreated = 0;
     g_lastDrawTid = 0;
     g_rt0 = nullptr; g_bbPtr = nullptr; g_bbW = g_bbH = 0;
@@ -1428,6 +1443,7 @@ void set_census_enabled(bool on) { g_wanted = on; apply_wanted("asked"); }
 
 bool regions_enabled() { return g_regions; }
 void set_regions_enabled(bool on) {
+    dvr::hudlayout::forget_draw_owners();
     if (on == g_regions) return;
     g_regions = on;
     g_declPos.clear(); g_vbUsage.clear();

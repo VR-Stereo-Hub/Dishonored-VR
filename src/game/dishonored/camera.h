@@ -104,7 +104,7 @@ bool clamp_location_z(uint8_t* camObj, uint32_t fieldOff, float zMax);
 // membership, retained identity and possession before each engine write.
 bool begin_view_scope(uint8_t* cam, uint32_t rotOff, const int32_t rot[3],
                       const float right[3], int firstEye, bool (*validate)(uint8_t*),
-                      bool authoredPosition);
+                      bool authoredPosition, const float* positionOverride = nullptr);
 // Returns false when identity or engine recomputation prevented an exact restore.
 bool end_view_scope();
 bool apply_offsets(uint8_t* camObj);

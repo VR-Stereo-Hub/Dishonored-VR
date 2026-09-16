@@ -1,5 +1,184 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## Accepted menu stability; residual left-eye hands (2026-09-16)
+
+Build378-g9bce8a13b DLL/banner verified. Logs and latest saved INI archived in
+`build/playtest-candidates/vr126-hud-owner/accepted-profile`. Headset reports no
+flicker while reading notes/books and most wheel flicker removed. Remaining symptom
+is positional flicker on hands/weapons, apparently left eye only and only during
+physical head movement. User authorized merging the accepted dial/menu work.
+
+Measured:36 note and10 wheel beat intervals more than3.1s inside their episodes,
+all with zero mono output (376:58/72 and17/26 respectively had mono).178 sampled
+menu gap-hold messages, one no-recent-stereo message across the entire session.
+This supports the bounded hold addressing menu mono interruptions. It does not
+prove every hand draw is corrected; cumulative deferred hand totals still include
+unknowns and several contexts. No new world-scale failure is reported.
+
+Residual is VR-128, Backlog. Route to the hand/weapon eye-identity/correction rows,
+not another FOV change or global stereo retag. Preserve the accepted menu translation,
+image-owned orientation and pair synchronization. Next investigation should isolate
+Wheel context and left-eye hand draws with image-owned evidence. No new hand
+correction is included in this merge. HUD ownership/reading UI follow-ups are VR-127.
+
+## Menu depth interruption follow-up (VR-126, 2026-09-16)
+
+**Installed378** (`vr33-hands-working-378-g9bce8a13b`), clean source9bce8a13b.
+Candidate `build/playtest-candidates/vr126-hud-owner`; preinstall logs/DLL/INI in
+`build/playtest-candidates/installs/20260916-023823-085684`. Whole INI comparison:
+exactly two new keys, NoteHandRight/JournalHandRight=0.200; every existing value
+retained. DLL SHA256 `9b6135b6e14b90a9e54672d7e6ae49ad9c18eba275d726b1027a457501123e1b`.
+Installed hashes/CRLF verified. Release build, exports, lint, golden INI and regression
+checks pass. No game/simulator launched; current old log remains376 until the tester
+launches378. Headset result pending. Local commits only.
+
+**376 verdict:** camera sliding when turning appears fixed. Notes follow the hand
+well. Residual wheel flicker includes hands/weapons and a newly reported brief
+whole-world enlargement/eye misalignment. Do not classify the entire fault as hands.
+Do not undo the accepted composed-yaw/coherent-position correction.
+
+**Evidence:** installed376 DLL hash/banner verified before reading. Both logs and
+current INI are archived in `build/playtest-candidates/vr126-menu-motion/reported-scale-routing`.
+Across intervals fully inside a riding episode (more than3.1s after entry),17/26
+wheel and58/72 note stereo beat intervals report nonzero mono output. Example:
+66320046 reads61L/s,61R/s,17mono/s and40none/s. The existing count hold expires
+at the fourth consecutive untagged delivery; center-eye images can then show in
+both eyes even though this screen is intended to retain stereo. This is a concrete
+scale/depth interruption, not proof that it explains every reported flicker.
+
+FOV audit changes only at startup/pause transitions (108.06/103); no logged
+fovMismatch=1 supports another live FOV-slider bug during Wheel. The pair-geometry
+probe sometimes reads halfIPD (3.41/3.42uu vs6.81 at66674000/66678000), but joins
+current render c5 to pipelined delivery, so it is NOT image-owned proof of a bad
+submitted pair. No pass2 write or menu restore refusal was logged. Whole-session
+hand mismatch/unknown counters mix menu contexts and cannot clear the hand classifier.
+Earlier same-present hand comparisons were invalid; retain the corrected deferred join.
+
+**Targeted correction:** while a head-tracked screen rides the HUD, suppress delivered
+center/untagged images for150ms after a tagged stereo image. Submit the existing pair
+instead through the established no-output/compositor hold. Never relabel pixels,
+change pose records, bypass scene gates or change the accepted eye synchronization.
+After150ms the existing three-present fallback applies; a genuine context exit
+immediately bypasses the extra hold. Reset/disarm clears history. Logs identify held
+gaps and cap expiry. A long stall may still reach mono; increasing the cap indefinitely
+would freeze live head rendering and is not a solution.
+
+**Validation:** production policy host cases cover both eyes, 149ms gaps,150ms expiry,
+real context exit, clock rollback and reset. Reentry harness404 checks passes.
+No headset acceptance yet. The world may stabilize while hand/weapon flicker remains.
+
+**ONE next launch question:** with Wheel held open and controllers still, do slow
+head turns still make the whole world briefly enlarge or lose eye alignment?
+Expected: stable world scale/depth. If stable, short mono interruptions were a contributor.
+If unchanged, read held/cap diagnostics and trace image-owned camera geometry next;
+do not substitute the hand classifier or current-c5 telemetry as proof. Hand-only
+flicker is a separate remaining surface. HUD routing/readers are available but are
+not additional acceptance questions for this launch.
+
+## Menu head-motion follow-up (VR-126, 2026-09-16)
+
+**Reported:** refined wheel appearance and selection are accepted on374. Moving the
+head while Wheel is open causes flicker, possibly both eyes; stationary view is
+stable. Left/right head turns also appear to move the viewpoint in menus and
+cinematics. Later clarification identifies hands/weapons as the likely flickering surface.
+Route to the shared hand correction/eye-identity rows (3.11 and VR-116 hand follow-up),
+not a claimed world or wheel-panel regression. The positional slide is separate.
+
+**Identity/evidence:** log banner374-ga51e1799f and installed DLL SHA256
+5ed4b0c9a840d14aae28304cff1336d791f2035d749dd7454c8638b2d3ee977a match.
+Both logs and saved INI are preserved in
+build/playtest-candidates/vr126-dial-immersion/reported-head-motion.
+There are537 sampled successful menu scopes,274 sampled waits with scene=1/double=0,
+and zero menu restoration refusals. These rate-limited lines are NOT tick counts
+or visual correlations. Final image-orientation counters: left59508 accepted/0
+fallback; right59506/1. Existing accepted image-owned orientation is active.
+
+**Code findings and candidate:**
+
+1. MenuHeadBegin required doubleDraw, unlike the established cinematic scope.
+   Single scene draws therefore reverted to native untracked orientation while
+   adjacent pairs used head look. Scope single draws too, with eye0 and their own
+   exact pose record. Do not force doubling or change tag repair/hold/synchronization.
+   Log double/singles counters so exercise of the corrected route is observable.
+2. Scoped rotator writes did not update the native camera matrix rows. Position
+   offsets were in CURRENT physical head-yaw axes but mapped through those native
+   rows. At a nonzero tracked displacement, a yaw turn could rotate the offset
+   despite no physical translation. Menu/cinematic scopes now map translation
+   through their composed yaw. Stereo separation still uses composed full right.
+   Ordinary gameplay and pitch-only scopes retain their accepted mapping.
+3. Menu entry offset subtraction mixed vectors from different head-yaw frames.
+   Preserve only entry neck correction, rotate it into the current yaw frame,
+   then add current raw displacement. Translation and orientation now share one
+   HtSample publication; cinematic scopes consume its raw position too. No new
+   engine offsets or unchecked writers. Existing live identity/restore guards stay.
+
+**Validation:** production menu module17 checks, including formerly refused single
+draw;42 cinematic math checks including a361-angle fixed-position sweep and an old
+native-basis negative control exceeding10uu false travel;16 production scope
+restoration checks.33 HUD anchor checks,20 routing checks,2185 dial checks and30045
+FOV/handback checks pass. Release build, exports, lint and golden INI checks required
+before install. No game/simulator launched. Host evidence is not headset acceptance.
+
+**Failed/limited hypotheses:** absence of restore refusals does not prove correct
+pixels. Healthy same-eye image metadata does not establish correct camera translation.
+Single-draw gating is a code defect with observed exercise, but the old capture hold
+may reject some affected images, so it is not yet a proved cause of perceived flicker.
+The saved global alpha could affect the wheel independently; separate transparency
+controls are a UI change, not evidence for a world-flicker fix. No global blur/DOF,
+lag, resolution, mirror or palette experiments enabled.
+
+**Hand-specific follow-up:**374's palette eyecheck has zero agreements/disagreements
+and only unknowns. Source review found it asks for present N+1 WHILE drawing at N,
+before that record exists. This cannot clear the classifier. Move that read-only
+comparison to N+2, joining the hand history at N to completed draw identity N+1.
+Nineteen production eye/diagnostic host checks pass, including completed-record
+agreement, mismatch, untagged and future-record negative controls.
+Bounded menu/hands telemetry reports known/unknown, classifier decision/jump, actual
+resolved draw eye, hand refusals and weapon correction misses. No phase fitting,
+queue mutation, predictor activation or parked hand-normalization patch is used.
+The camera single-draw correction removes an inconsistent input to the shared
+hand transform; it remains a candidate for the reported hand symptom, not proof.
+
+**Next launch question:** with Wheel held open and controllers still, does turning
+the head left/right stop the hand/weapon flicker? Expected: hands stay stable while
+the wheel remains usable. Improvement supports consistent menu camera inputs;
+unchanged flicker calls for menu/hands known mismatch/refusal populations and pose
+timing before another rendering change. Worse rejects this candidate. Positional
+slide, reading panels and cinematic comfort remain separate acceptance scopes.
+
+### Installed follow-up candidate
+
+Installed build376 (`vr33-hands-working-376-g35a50573b`), clean source35a50573b.
+Candidate: build/playtest-candidates/vr126-menu-motion.
+DLL SHA256:32411cc1479702892e09aeb31689d2ad2aa75ce675cf378a3e51a1d4fd386f75.
+Both prior logs, DLL and INI archived in
+build/playtest-candidates/installs/20260916-015200-720588.
+Complete INI comparison: nine new keys only; EVERY previous setting retained.
+Wheel gain3/floor0/gamma0.5; Note/Journal follow enabled, distance-0.05m,
+width0.60/0.70m. Installed hashes and CRLF verified. Release, nine exports,
+INI golden and lint pass. No game/simulator launch. Headset verdict pending.
+
+## Current menu-world investigation (VR-126, 2026-09-16)
+
+Reported on verified build372: weapon wheel and notes expose a stationary world FOV
+rectangle when the head turns. Surface is the WORLD behind a riding HUD menu, not
+hand/weapon settling. Existing paused-render evidence plus explicit UiSurfaceBlocks
+camera-writer gates support a frozen camera; the report alone does not establish
+stopped rendering. Added a distinct symptom-routing row below.
+
+Installed374 (`vr33-hands-working-374-ga51e1799f`), clean source a51e1799f.
+Archive: build/playtest-candidates/installs/20260916-010814-146048.
+
+Candidate implements menu-relative draw-scoped head look, exact sample publication
+for both eyes, guarded restoration and entry-relative physical translation. It
+preserves accepted image-owned orientation and stereo synchronization. Default-off
+per-menu toggles are enabled for Wheel/Note in the installed test. No perceptual fix
+is claimed yet. Lifecycle/scoped-camera host checks pass; game/simulator not launched.
+
+Menu gray blur is separate: a reflected UI-only blend-weight candidate, not an eye
+synchronization change. Full evidence, false leads, settings and next single launch
+question: [HUD_ANCHORS.md](HUD_ANCHORS.md), current VR-126 refinement section.
+
 ## Current VR-50 follow-up: Display-tab FOV pulsing (2026-09-15)
 
 Build359 fixes a code-confirmed idle F10 Display writer; headset confirmation is pending.
@@ -142,6 +321,8 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| Hands/weapons flicker on head turns during Wheel; separate yaw-induced menu/cinematic translation | Scoped single-draw gap plus shared hand eye/pose inputs; translation-basis mismatch is a separate cause | VR-126 code/host corrections; headset pending, latest entry above |
+| World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |

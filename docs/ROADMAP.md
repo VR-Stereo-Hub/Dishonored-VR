@@ -19,6 +19,22 @@
 - [x] Promote complete saved profile and rename performance improvements branch.
 - [ ] Open performance PR; prepare local combined PR67 crouched-pitch playtest.
 
+## HUD Weapon Dial (VR-126)
+
+- [x] Continuous wheel analog input and independent world-space hand dial implemented.
+- [x] Standalone dial geometry/input and existing HUD regression checks pass.
+- [x]372 hand dial accepted and physical size/crop tuned.
+- [x] Tiny-motion direction, camera-plane orientation, circular crop and distance controls.
+- [x] Scoped menu head look and per-menu UI blur candidate with host/GPU validation.
+- [x]374 wheel appearance/selection accepted; motion-dependent camera issue reported.
+- [x] Scoped single-draw and translation-frame corrections pass host negative controls.
+- [x] Independent wheel alpha and hand-following note/journal controls implemented.
+- [x]376 positional camera slide appears fixed; readers accepted except horizontal alignment.
+- [x] Add reader right-offset sliders, bounded menu stereo gap hold, private measured HUD textures/content continuity.
+- [x]378 reading flicker removed and wheel greatly improved; accepted for merge.
+- [ ] VR-128: remaining left-eye hands/weapons flicker during wheel head motion.
+- [ ] VR-127: remaining objective/interaction grouping, reading scroll and alpha controls.
+
 ## Performance research shelved (2026-09-15)
 
 - [x] Consolidate findings and reusable default-off tools; preserve source branches.

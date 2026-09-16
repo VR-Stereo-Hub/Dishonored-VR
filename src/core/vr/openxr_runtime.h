@@ -664,8 +664,8 @@ void set_hud_texture_provider(HudTextureProviderFn fn);
 // The runtime accepts 16 layers; the array holds the slots, the cap hides the
 // rest and counts them.
 constexpr int kMaxHudQuads = 32;
-enum class HudAnchor : uint8_t { Window = 0, WindowWorld = 1, Hand = 2 };
-enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1 };
+enum class HudAnchor : uint8_t { Window = 0, WindowWorld = 1, Hand = 2, LocalBillboard = 3 };
+enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1, CameraPlane = 2 };
 struct HudQuadDesc {
     ID3D11Texture2D* tex = nullptr;    // R8G8B8A8 family, premultiplied + repaired alpha
     HudAnchor anchor = HudAnchor::Window;

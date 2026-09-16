@@ -7,6 +7,9 @@ namespace {
 std::atomic<bool> g_usEnabled{false},g_usBlocked{true};
 // VR-117: the owner on top rides the HUD window (the projection stays up).
 std::atomic<bool> g_usRides{false};
+std::atomic<bool> g_usWheelActive{false};
+std::atomic<int> g_usActiveContext{-1};
+std::atomic<unsigned> g_usContextEpoch{0};
 dvr::ui_ride::RideLatch g_usRideLatch;
 SRWLOCK g_usLock=SRWLOCK_INIT;
 CtIdentity g_usEngine;
@@ -32,6 +35,9 @@ void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int
     const bool want=dvr::ui_ride::rides(g_usEnabled.load(),blocked,context,dvr::hudlayout::menu_context_mask(),
                                         dvr::hudlayout::menu_in_window(),windowOn,dvr::hudcap::redirect_healthy());
     const bool rides=g_usRideLatch.update(context,blocked,want,dvr::hudcap::redirect_failed());
+    const int inputContext=known && blocked ? (int)context : -1;
+    if(g_usActiveContext.exchange(inputContext)!=inputContext) g_usContextEpoch.fetch_add(1);
+    g_usWheelActive.store(known && blocked && context == dvr::mono::Wheel);
     g_usBlocked.store(blocked);
     g_usRides.store(rides);
     dvr::hudlayout::set_menu_riding(rides,(int)context);
@@ -138,6 +144,10 @@ bool UsResolve() {
 }
 }
 static bool UiSurfaceEnabled() { return g_usEnabled.load(); }
+static unsigned UiSurfaceEpoch() { return g_usContextEpoch.load(); }
+static int UiSurfaceContext() { return g_usEnabled.load() ? g_usActiveContext.load() : -1; }
+static bool UiSurfaceHeadLook() { return g_usRides.load() && dvr::hudlayout::menu_head_look(UiSurfaceContext()); }
+static bool UiSurfaceWheel() { return g_usEnabled.load() && g_usWheelActive.load(); }
 static bool UiSurfaceBlocks() { return g_usEnabled.load() && g_usBlocked.load(); }
 // VR-117: the presentation class. Blocked AND riding = the projection stays
 // up with the screen on the HUD window; blocked and NOT riding = today's mono

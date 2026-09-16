@@ -1,6 +1,7 @@
 // Standalone cinematic rotation checks. Never loads or launches the game.
 #include "../src/game/dishonored/cinematic_math.h"
 #include "../src/game/dishonored/cinematic_policy.h"
+#include "../src/game/dishonored/positional_math.h"
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
@@ -197,6 +198,27 @@ int main() {
           close(basis,expectedWrap,0.0002),"upright comfort yaw crosses wrap continuously");
     check(!comfort(steep,0,0,0,0,std::numeric_limits<double>::quiet_NaN(),0,true,true,out,&basis),
           "comfort rejects invalid physical orientation");
+    bool fixed=true,negative=false,reframed=true;
+    const float start[3]={12,3,-21};
+    for(int degrees=-180;degrees<=180;++degrees) {
+        const float yaw=(float)(degrees*pi/180),heading=.7f;
+        float relative[3],r[3],u[3],f[3],r0[3],u0[3],f0[3];
+        dvr::position_math::reframe_yaw(start,0,yaw,relative);
+        dvr::position_math::yaw_axes(heading+yaw,r,u,f);
+        dvr::position_math::yaw_axes(heading,r0,u0,f0);
+        float back[3];dvr::position_math::reframe_yaw(relative,yaw,0,back);
+        for(int k=0;k<3;++k) {
+            const float want=r0[k]*start[0]+u0[k]*start[1]+f0[k]*start[2];
+            const float got=r[k]*relative[0]+u[k]*relative[1]+f[k]*relative[2];
+            const float old=r0[k]*relative[0]+u0[k]*relative[1]+f0[k]*relative[2];
+            fixed &= std::abs(got-want)<.00002f;
+            negative |= std::abs(old-want)>10;
+            reframed &= std::abs(back[k]-start[k])<.00002f;
+        }
+    }
+    check(fixed,"361 physical yaw angles preserve fixed room position with composed camera heading");
+    check(negative,"old native-matrix basis produces more than10uu false travel at fixed position");
+    check(reframed,"menu entry neck correction round-trips yaw frames without positional drift");
     std::printf("Cinematic head math: %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }

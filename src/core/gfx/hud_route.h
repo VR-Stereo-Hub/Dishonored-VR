@@ -5,14 +5,36 @@
 // Scaleform HUD identifies its elements"): the UI owner CONTEXT while a screen
 // rides (the pause menu, a note, the journal, the wheel, the store, mission
 // stats: the screen routes as one element whatever its draws' rectangles),
-// and otherwise the draw's screen RECTANGLE (normalised backbuffer, y down),
+// otherwise initially the draw's screen RECTANGLE (normalised backbuffer, y down),
 // read from its vertices through the vertex shader's own transform. A row of
 // the table names an element by one of the two; a draw no row claims routes
 // to the DEFAULT row, so nothing is ever dropped and an unnamed element is
-// still visible (and counted, so it can be named).
+// still visible (and counted, so it can be named). StableRoutes retains that
+// initial hint for unchanged local draw content moving through shader transforms.
 #pragma once
+#include <stdint.h>
 
 namespace dvr::hudroute {
+
+// Short-lived draw-content association. Position is only the initial hint;
+// it cannot change an observed draw's owner while the same content moves.
+// This is not semantic Scaleform identity: animated/rebuilt geometry can miss.
+struct StableRoutes {
+    struct Entry { uint64_t key=0; uint32_t frame=0; int owner=0; bool ambiguous=false; float x=0,y=0; } entries[2048]{};
+    void clear() { for(auto& e:entries) e=Entry{}; }
+    int resolve(uint64_t key,uint32_t frame,int initial,const float* rect=nullptr) {
+        if(!key) return initial;
+        Entry& e=entries[(key^(key>>32))%2048];
+        if(e.key!=key || frame-e.frame>240) e={key,frame,initial};
+        const float x=rect ? (rect[0]+rect[2])*.5f : 0;
+        const float y=rect ? (rect[1]+rect[3])*.5f : 0;
+        // Repeated identical sprites can share every byte and resource. Two
+        // positions in one present prove this key is not a unique element.
+        if(e.frame==frame && rect && (e.x!=0 || e.y!=0) &&
+           ((e.x-x)*(e.x-x)+(e.y-y)*(e.y-y))>.000004f) e.ambiguous=true;
+        e.x=x;e.y=y;e.frame=frame;return e.ambiguous ? initial : e.owner;
+    }
+};
 
 struct Row {
     const char* name;

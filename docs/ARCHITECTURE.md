@@ -928,3 +928,34 @@ fresh live-owner validation. The engine retains its window/resource lifecycle in
 of the proxy resetting D3D underneath it. Capture dimensions confirm completion.
 Derivation/ABI: dishonored/ENGINE_NOTES.md, "Live resolution through the F11 viewport
 path". Candidate acceptance: dishonored/PERFORMANCE.md.
+
+### 2026-09-16: menu immersion remains a render-only camera owner
+
+Riding HUD menus retain input/pause ownership. Their optional head-look overlay uses
+the existing camera scope across both viewport draws and restores native fields; it
+does not enable gameplay input or unpause the game. A UI context epoch separates
+ownership intervals even at identical addresses. Both eye records receive the same
+consumed head sample. Menu translation retains its entry offset and adds raw physical
+translation, avoiding gameplay neck cancellation while animation is paused. UI blur
+is a separate opt-in per-context reflected effect-weight control, with its own guards
+and conservative restore. Details/validation: dishonored/HUD_ANCHORS.md, VR-126.
+
+### 2026-09-16: one positional frame for scoped head look
+
+Menu and authored cinematic scopes use a coherent HtSample for both rotation and
+translation. Their native camera matrix rows do not follow the temporary rotator,
+so positional right/forward come from the composed yaw; full composed right still
+controls eye separation. Menu entry neck correction is a vector in its original
+head-yaw frame and must be rebased before adding current physical translation.
+Single menu scene draws keep this same scope with eye0. Tag/hold policy stays owned
+by the existing stereo path. Perceptual acceptance remains pending.
+
+### 2026-09-16: bounded menu stereo continuity and HUD content ownership
+
+Keep image-owned pose/tag synchronization unchanged. Head-tracked riding screens
+extend the short mono gap hold by150ms, then retain the existing bounded fallback.
+Gameplay HUD rectangles are initial hints, not stable element identities. Small
+unchanged local draw content retains its initial row briefly; ambiguous/rebuilt
+content falls back. Private measured-element textures eliminate cross-crop leakage
+and preserve reference placement while allowing motion outside the initial rectangle.
+This remains provisional until headset validation/semantic owner identification.

@@ -1,5 +1,17 @@
 ## Unreleased
 
+### Accepted weapon dial and reading panels
+
+- World-space left-hand weapon dial supports continuous stick/hand direction,
+  camera-facing orientation, circular crop, independent size/distance and alpha.
+- Notes/journal follow the left hand with independent width, depth and horizontal
+  placement. Scoped menu head look and UI-blur controls preserve world rendering.
+- Bounded stereo gap hold removes reported reading flicker and greatly reduces wheel
+  flicker. Residual head-motion left-eye hand/weapon flicker is tracked in VR-128.
+- HUD content continuity and private element textures reduce plane switching;
+  objective/interaction grouping remains in VR-127. The complete accepted F10 profile
+  is now the generated, packaged and golden default, at explicit user request.
+
 ### Performance and accepted profile
 
 - Scoped gameplay FOV defaults to103 degrees. F10 offers live FOV adjustment and

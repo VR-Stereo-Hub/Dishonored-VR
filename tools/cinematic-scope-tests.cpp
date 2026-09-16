@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 using DWORD = uint32_t;
 DWORD threadId=1;
 DWORD GetCurrentThreadId() { return threadId; }
@@ -54,7 +55,7 @@ void reset() {
     memcpy(g_eyeWriter.last,originalPos,12);g_eyeWriter.lastOff[0]=2;g_eyeWriter.writes=91;
     threadId=1;identityLive=readable=applyOk=baseOk=true;validates=dieOnValidate=applies=0;g_field=0;
 }
-bool begin() { return begin_view_scope(memory,0,injected,right,-1,validate,true); }
+bool begin() { return begin_view_scope(memory,0,injected,right,-1,validate,true,nullptr); }
 bool fieldsOriginal() {return memcmp(memory,originalRot,12)==0 && memcmp(memory+32,originalPos,12)==0;}
 bool writerSame(const Writer& a,const Writer& b) {
     return a.lastOk==b.lastOk && a.camera==b.camera && a.fieldOff==b.fieldOff &&
@@ -88,9 +89,17 @@ int main() {
     reset();baseOk=false;
     check(!begin() && fieldsOriginal() && applies==0,"unavailable authored base refuses before writes");
     reset();
-    check(begin_view_scope(memory,0,injected,right,-1,validate,false) &&
+    check(begin_view_scope(memory,0,injected,right,-1,validate,false,nullptr) &&
           g_viewScope.pos[0]==11 && g_viewScope.pos[1]==22 && g_viewScope.pos[2]==33,
           "pitch-only scope preserves gameplay translation request");
     check(end_view_scope() && fieldsOriginal(),"pitch-only scope restores exact incoming fields");
+    reset();const float menuPos[3]={7,8,9};
+    check(begin_view_scope(memory,0,injected,right,-1,validate,false,menuPos) &&
+          g_viewScope.pos[0]==7 && g_viewScope.pos[1]==8 && g_viewScope.pos[2]==9,
+          "menu entry-relative translation overrides changing gameplay neck cancellation");
+    check(end_view_scope() && fieldsOriginal(),"menu position override restores exact incoming fields");
+    reset();const float invalidPos[3]={NAN,0,0};
+    check(!begin_view_scope(memory,0,injected,right,-1,validate,false,invalidPos) && fieldsOriginal(),
+          "nonfinite menu position refused before writing");
     printf("Cinematic scope: %d failure(s)\n",failures);return failures?1:0;
 }

@@ -292,7 +292,7 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     }
     const float right[3]={(float)composed.m[0][1],(float)composed.m[1][1],(float)composed.m[2][1]};
     g_chHead=head;
-    g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true);
+    g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true,head.rawPosition);
     if (!g_chScope) { ++g_chRefused; ChReason("hold: scope write refused"); return; }
     g_chInputUntil=scripted ? now+100 : 0;
     ++g_chWrites; CineHeadPublish();

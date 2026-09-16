@@ -1,6 +1,8 @@
 // core/gfx/hud_layout.cpp - see hud_layout.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_layout.h"
+#include "core/input/weapon_dial.h"
+#include "core/vr/openxr_input.h"
 
 #include "core/framework/status.h"
 #include "core/gfx/hud_capture.h"
@@ -15,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
+#include <atomic>
 
 namespace dvr::hudlayout {
 namespace {
@@ -75,10 +78,23 @@ const unsigned    kMenuContextBits[]  = { 3, 4, 5, 6, 7, 8 };
 const int         kMenuContexts = 6;
 
 ElementCfg g_el[ElCount];
+hudroute::StableRoutes g_stableRoutes;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
+dvr::weapon_dial::State g_dial;
+bool g_dialDirection = true, g_dialCircle = true;
+float g_dialDeadM = .002f, g_dialDistance = 0;
+float g_dialForward[3] = {0,0,-1};
+std::atomic<uint32_t> g_menuHeadMask{0},g_menuBlurMask{0};
+bool g_dialOn = false; // experimental placement: installed test opts in
+float g_dialWidth = .35f, g_dialRadius = .04f;
+float g_dialCropX = .40f, g_dialCropY = .40f;
 WindowCfg  g_win = kPresetWindow;
 HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
 AlphaCfg   g_alpha = kPresetAlpha;
+float g_wheelAlphaGain=1,g_wheelAlphaFloor=0,g_wheelAlphaGamma=1;
+bool g_readHand[2]={false,false};
+float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
+const char* kReadNames[2]={"Note","Journal"};
 Backdrop   g_backdrop[2] = { kPresetBackdrop, kPresetBackdrop };
 bool       g_menuInWindow = true;
 uint32_t   g_menuMask = kPresetMenuMask;
@@ -86,12 +102,13 @@ bool       g_menuRiding = false;
 int        g_ridingContext = -1;
 char       g_ini[MAX_PATH] = "";
 
-// Sinks: (anchor, crop) -> sink. Present thread only (draws, the seam poll, the
+// Sinks: private measured elements, shared catch-alls per anchor. Present thread only (draws, the seam poll, the
 // overlay's draw callback and the runtime's provider all run there);
 // configure() runs at DllMain before any of them.
-struct SinkUse { int anchor; bool crop; bool rideOnly; };
+struct SinkUse { int anchor; bool crop; bool rideOnly; int element = -1; };
 SinkUse  g_sink[kMaxSinks];
 int      g_sinkOf[AnchorCount][2];
+int      g_elementSink[ElCount];
 char     g_sinkLabel[kMaxSinks][24];
 uint32_t g_routeCounts[ElCount];     // draws routed per element this window
 uint32_t g_seen[ElCount];            // and this session
@@ -129,6 +146,7 @@ inline bool crop_eligible(int e) { return e != ElDefault && !kRows[e].vignette &
 inline int  anchor_kind(int a) { return anchor_is_hand(a) ? 1 : 0; }
 
 void rebuild_rows() {
+    g_stableRoutes.clear();
     for (int e = 0; e < ElCount; ++e) {
         g_rows[e].name = kRows[e].name;
         g_rows[e].context = kRows[e].context;
@@ -139,20 +157,24 @@ void rebuild_rows() {
 
 void free_sink(int s) {
     if (s < 0 || s >= kMaxSinks || g_sink[s].anchor < 0) return;
-    g_sinkOf[g_sink[s].anchor][g_sink[s].crop ? 1 : 0] = -1;
+    if(g_sink[s].element >= 0) g_elementSink[g_sink[s].element] = -1;
+    else g_sinkOf[g_sink[s].anchor][g_sink[s].crop ? 1 : 0] = -1;
+    g_sink[s].element = -1;
     DVR_INFO("hud/layout: sink %d (%s) released", s, g_sinkLabel[s]);
     g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false;
     g_sinkLabel[s][0] = 0;
 }
 
-int acquire_sink(int anchor, bool crop) {
-    const int have = g_sinkOf[anchor][crop ? 1 : 0];
+int acquire_sink(int anchor, bool crop, int element = -1) {
+    const int have = element >= 0 ? g_elementSink[element] : g_sinkOf[anchor][crop ? 1 : 0];
     if (have >= 0) return have;
     for (int s = 0; s < kMaxSinks; ++s) {
         if (g_sink[s].anchor >= 0) continue;
         g_sink[s].anchor = anchor; g_sink[s].crop = crop; g_sink[s].rideOnly = g_menuRiding;
-        g_sinkOf[anchor][crop ? 1 : 0] = s;
-        _snprintf(g_sinkLabel[s], sizeof(g_sinkLabel[s]), "%s/%s", kAnchorNames[anchor], crop ? "crop" : "all");
+        g_sink[s].element = element;
+        if(element >= 0) g_elementSink[element] = s;
+        else g_sinkOf[anchor][crop ? 1 : 0] = s;
+        _snprintf(g_sinkLabel[s], sizeof(g_sinkLabel[s]), "%s/%s", kAnchorNames[anchor], element>=0 ? kRows[element].name : "all");
         g_sinkLabel[s][sizeof(g_sinkLabel[s]) - 1] = 0;
         DVR_INFO("hud/layout: sink %d = %s%s (a copy per present from here on)", s, g_sinkLabel[s],
                  g_menuRiding ? ", for the riding screen" : "");
@@ -164,6 +186,7 @@ int acquire_sink(int anchor, bool crop) {
 // Every sink goes back to the pool; the next draws re-acquire what they need
 // (a config change costs one target rebuild, never a dropped draw).
 void rebalance() {
+    g_stableRoutes.clear();
     for (int s = 0; s < kMaxSinks; ++s) free_sink(s);
 }
 
@@ -221,6 +244,14 @@ int alpha_mode_from_name(const char* s) {
     return -1;
 }
 const AlphaCfg& alpha() { return g_alpha; }
+AlphaCfg alpha_for_sink(int sink) {
+    AlphaCfg a=g_alpha;
+    if(g_menuRiding && g_ridingContext==6 && sink>=0 && sink<kMaxSinks &&
+       g_sink[sink].anchor==g_el[ElWheel].anchor && !g_sink[sink].crop) {
+        a.gain=g_wheelAlphaGain;a.floorA=g_wheelAlphaFloor;a.gamma=g_wheelAlphaGamma;
+    }
+    return a;
+}
 void set_alpha(const AlphaCfg& a, const char* who) {
     AlphaCfg c = a;
     if (c.mode < 0 || c.mode > 2) c.mode = AlphaRepair;
@@ -429,19 +460,58 @@ void set_menu_riding(bool riding, int context) {
     }
     const int e = element_for_context(context);
     DVR_INFO("hud/layout: %s", riding ? "a screen is riding: every HUD-class draw routes to its row" : "the screen left: routing by element again");
+    g_stableRoutes.clear(); // resource/content identities do not survive a menu transition
     if (riding && e >= 0)
         DVR_INFO("hud/layout: the screen is %s on the %s", kRows[e].name, kAnchorNames[g_el[e].anchor]);
 }
+void forget_draw_owners() { g_stableRoutes.clear(); }
 bool menu_riding() { return g_menuRiding; }
+bool menu_stereo_hold() { return g_menuRiding && menu_head_look(g_ridingContext); }
+bool menu_head_look(int c) { return c>=3 && c<=8 && (g_menuHeadMask.load() & (1u<<c)); }
+bool menu_no_blur(int c) { return c>=3 && c<=8 && (g_menuBlurMask.load() & (1u<<c)); }
+void circle_for_sink(int sink,uint32_t width,uint32_t height,float ellipse[4]) {
+    memset(ellipse,0,4*sizeof(float));
+    if(g_dialOn && g_dialCircle && g_menuRiding && g_ridingContext==6 &&
+       sink>=0 && sink<kMaxSinks && g_sink[sink].anchor==g_el[ElWheel].anchor && !g_sink[sink].crop) {
+        ellipse[0]=ellipse[1]=.5f;
+        if(!width || !height) return;
+        const float radius=.5f*fminf(g_dialCropX*width,g_dialCropY*height);
+        ellipse[2]=radius/width; ellipse[3]=radius/height; // round in pixels/metres, not just UVs
+    }
+}
+
+void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelected) {
+    dvr::vr::HeadPose head{};
+    float hp[3]{}, hq[4]{};
+    const bool tracked = dvr::vr::peek_head_pose(head) &&
+        dvr::vr::input_get_hand_pose(0, false, hp, hq);
+    const float eye[3] = {head.px, head.py, head.pz};
+    const float hqCamera[4] = {head.qx,head.qy,head.qz,head.qw};
+    const bool was = g_dial.held;
+    handSelected = g_dial.update(held && permitted && g_dialOn, tracked, hp, eye,
+                                g_dialRadius, g_dialDeadM, x, y, hqCamera, g_dialDirection);
+    if (!was && g_dial.held) {
+        const float f[3]={0,0,-1};
+        dvr::xrmath::quat_rotate(head.qx,head.qy,head.qz,head.qw,f,g_dialForward);
+    }
+    if (was != g_dial.held)
+        DVR_INFO("hud/dial: %s tracked=%d valid=%d center=(%.3f %.3f %.3f) width=%.3f radius=%.3f crop=%.3fx%.3f",
+            g_dial.held ? "open" : "close", (int)tracked, (int)g_dial.valid,
+            g_dial.center[0],g_dial.center[1],g_dial.center[2],g_dialWidth,g_dialRadius,g_dialCropX,g_dialCropY);
+}
+
 
 // ---- routing --------------------------------------------------------------
 
-int sink_for(const float* bbox, int* elementOut) {
+int sink_for(const float* bbox, int* elementOut, uint64_t drawKey) {
     hudroute::Identity id;
     id.context = g_menuRiding ? g_ridingContext : -1;
     id.hasRect = bbox != nullptr;
     if (bbox) memcpy(id.rect, bbox, sizeof(id.rect)); else memset(id.rect, 0, sizeof(id.rect));
-    const int e = hudroute::route(g_rows, ElCount, id, ElDefault);
+    const int spatial = hudroute::route(g_rows, ElCount, id, ElDefault);
+    const int e = id.context >= 0 ? spatial : g_stableRoutes.resolve(drawKey, g_presentNo, spatial, bbox);
+    if(e != spatial) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+        "hud/owner: retained %s instead of positional %s; key=%016llx",kRows[e].name,kRows[spatial].name,drawKey);
     if (!bbox && !g_menuRiding) ++g_routeNoRegion;
     if (elementOut) *elementOut = e;
     ++g_routeCounts[e]; ++g_seen[e];
@@ -450,8 +520,8 @@ int sink_for(const float* bbox, int* elementOut) {
     if (anchor == AnchorFrame) { ++g_routeFrame; return -1; }
     if (anchor == AnchorOff) anchor = AnchorOff;   // a hidden sink: redirected, never delivered
     const bool crop = crop_eligible(e);
-    int s = g_sinkOf[anchor][crop ? 1 : 0];
-    if (s < 0) s = acquire_sink(anchor, crop);
+    int s = crop ? g_elementSink[e] : g_sinkOf[anchor][0];
+    if (s < 0) s = acquire_sink(anchor, crop, crop ? e : -1);
     if (s < 0) {                    // out of sinks: it rides default's catch-all
         ++g_routeOverflow;
         const int da = g_el[ElDefault].anchor;
@@ -509,14 +579,15 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
 int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
     ++g_presentNo;
     int n = 0;
-    // The cropped elements: one quad each, a sub-rectangle of its anchor's crop
-    // sink, only while its draws keep arriving (the sink delivers the previous
+    // The measured elements: one isolated full-texture quad each, preserving
+    // its reference region's placement while allowing motion outside it.
+    // Only while its draws keep arriving (the sink delivers the previous
     // present's slot, so two presents of grace).
     for (int e = 0; e < ElCount && n < max; ++e) {
         const int a = g_el[e].anchor;
         if (!anchor_visible(a) || !crop_eligible(e)) continue;
         if (g_presentNo - g_lastRouted[e] > 2) continue;
-        const int s = g_sinkOf[a][1];
+        const int s = g_elementSink[e];
         if (s < 0) continue;
         ID3D11Texture2D* tex = dvr::hudcap::sink_texture(s, ctx);
         if (!tex) continue;
@@ -526,8 +597,14 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         dvr::vr::HudQuadDesc& d = out[n++];
         d = dvr::vr::HudQuadDesc();
         d.tex = tex; d.element = e; d.slot = e;
-        memcpy(d.subrect, g_el[e].rect, sizeof(d.subrect));
+        const float whole[4]={0,0,1,1};
+        memcpy(d.subrect,whole,sizeof(d.subrect));
         place(d, e, a, g_el[e].rect, aspect, false);
+        // Expand the isolated texture around the same reference rectangle.
+        // Preserve pixel scale/placement while allowing this element to move
+        // outside its original identification region without clipping.
+        dvr::hudanchor::expand_reference_panel(g_el[e].rect,aspect,d.width,d.planeOff);
+        d.height=0;
     }
     // The catch-all sinks: one whole-sink quad per anchor in use, placed by
     // the riding screen's row while a screen rides, else by `default`.
@@ -547,6 +624,31 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         d.tex = tex; d.element = e; d.slot = ElCount + a;
         memcpy(d.subrect, whole, sizeof(d.subrect));
         place(d, e, a, whole, aspect, true);
+        const int readPanel=e==ElNote?0:e==ElJournal?1:-1;
+        if(readPanel>=0 && g_readHand[readPanel]) {
+            float hp[3],hq[4]; dvr::vr::HeadPose head{};
+            if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) || !dvr::vr::peek_head_pose(head)) {--n;continue;}
+            const float camera[4]={head.qx,head.qy,head.qz,head.qw};
+            d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
+            d.orient=dvr::vr::HudOrient::CameraPlane;
+            dvr::hudanchor::camera_panel_position(hp,camera,g_readDistance[readPanel],d.base);
+            d.width=g_readWidth[readPanel];d.height=0;
+            d.planeOff[0]=g_readRight[readPanel];d.planeOff[1]=0;
+        }
+        if (e == ElWheel && g_dialOn && g_dial.held) {
+            if (!g_dial.valid) { --n; continue; }
+            d.anchor = dvr::vr::HudAnchor::LocalBillboard;
+            d.orient = dvr::vr::HudOrient::CameraPlane; d.hand = 0;
+            for(int k=0;k<3;++k) d.base[k]=g_dial.center[k]+g_dialForward[k]*g_dialDistance;
+            d.width = g_dialWidth; d.height = 0;
+            d.planeOff[0] = d.planeOff[1] = 0;
+            // Wheel ring measured [0.226,.275 - .774,.716] in ENGINE_NOTES.
+            // Margin is adjustable for other aspect ratios and inventories.
+            d.subrect[0] = .5f - g_dialCropX*.5f;
+            d.subrect[2] = .5f + g_dialCropX*.5f;
+            d.subrect[1] = .5f - g_dialCropY*.5f;
+            d.subrect[3] = .5f + g_dialCropY*.5f;
+        }
     }
     return n;
 }
@@ -555,8 +657,10 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
 
 void configure(const char* ini) {
     strncpy_s(g_ini, ini ? ini : "", _TRUNCATE);
-    for (int s = 0; s < kMaxSinks; ++s) { g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false; g_sinkLabel[s][0] = 0; }
+    for (int s = 0; s < kMaxSinks; ++s) { g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false; g_sink[s].element=-1; g_sinkLabel[s][0] = 0; }
     for (int a = 0; a < AnchorCount; ++a) g_sinkOf[a][0] = g_sinkOf[a][1] = -1;
+    for(int e=0;e<ElCount;++e) g_elementSink[e]=-1;
+    g_stableRoutes.clear();
     memset(g_seen, 0, sizeof(g_seen));
     memset(g_lastRouted, 0, sizeof(g_lastRouted));
     // VR-117's keys, read once and rewritten on the next save: one hand
@@ -662,6 +766,35 @@ void configure(const char* ini) {
             g_backdrop[k] = d;
         }
     }
+    uint32_t headMask=0,blurMask=0;
+    for(int i=0;i<kMenuContexts;++i) {
+        char key[64];
+        _snprintf(key,sizeof(key),"HeadLook%s",kMenuContextNames[i]);
+        if(read_i(ini,key,0)) headMask|=1u<<kMenuContextBits[i];
+        _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]);
+        if(read_i(ini,key,0)) blurMask|=1u<<kMenuContextBits[i];
+    }
+    g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
+    g_wheelAlphaGain=fminf(4.f,fmaxf(0.f,read_f(ini,"WeaponDialAlphaGain",g_alpha.gain)));
+    g_wheelAlphaFloor=fminf(1.f,fmaxf(0.f,read_f(ini,"WeaponDialAlphaFloor",g_alpha.floorA)));
+    g_wheelAlphaGamma=fminf(4.f,fmaxf(.25f,read_f(ini,"WeaponDialAlphaGamma",g_alpha.gamma)));
+    for(int i=0;i<2;++i) {
+        char key[64];
+        _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);g_readHand[i]=read_i(ini,key,0)!=0;
+        _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);g_readWidth[i]=fminf(1.5f,fmaxf(.15f,read_f(ini,key,g_readWidth[i])));
+        _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);g_readDistance[i]=fminf(.5f,fmaxf(-.3f,read_f(ini,key,-.05f)));
+        _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);g_readRight[i]=fminf(.75f,fmaxf(-.75f,read_f(ini,key,.20f)));
+    }
+    g_dialDistance=fminf(.50f,fmaxf(-.30f,read_f(ini,"WeaponDialDistance",0)));
+    g_dialDirection = read_i(ini,"WeaponDialDirectionOnly",1)!=0;
+    g_dialCircle = read_i(ini,"WeaponDialCircle",1)!=0;
+    g_dialDeadM = fminf(.01f,fmaxf(.0005f,read_f(ini,"WeaponDialDeadzone",.002f)));
+    g_dialOn = read_i(ini, "WeaponDial", 0) != 0;
+    g_dialWidth = fminf(1.2f, fmaxf(.15f, read_f(ini,"WeaponDialWidth",.35f)));
+    g_dialRadius = fminf(.30f, fmaxf(.04f, read_f(ini,"WeaponDialRadius",.04f)));
+    g_dialCropX = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropX",.40f)));
+    g_dialCropY = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropY",.40f)));
+    g_dial.reset();
     g_menuInWindow = read_i(ini, "MenuInWindow", 1) != 0;
     uint32_t mask = 0;
     for (int i = 0; i < kMenuContexts; ++i) {
@@ -709,8 +842,33 @@ void save(const char* ini) {
     set_hand(0, g_hand[0], "save");
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
+    write_f("WeaponDialAlphaGain",g_wheelAlphaGain);
+    write_f("WeaponDialAlphaFloor",g_wheelAlphaFloor);
+    write_f("WeaponDialAlphaGamma",g_wheelAlphaGamma);
+    for(int i=0;i<2;++i) {
+        char key[64];
+        _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
+        _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
+        _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
+        _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);write_f(key,g_readRight[i]);
+    }
+
     set_backdrop(0, g_backdrop[0], "save");
     set_backdrop(1, g_backdrop[1], "save");
+    for(int i=0;i<kMenuContexts;++i) {
+        char key[64];
+        _snprintf(key,sizeof(key),"HeadLook%s",kMenuContextNames[i]); write_i(key,menu_head_look(kMenuContextBits[i]));
+        _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]); write_i(key,menu_no_blur(kMenuContextBits[i]));
+    }
+    write_f("WeaponDialDistance",g_dialDistance);
+    write_i("WeaponDialDirectionOnly",g_dialDirection);
+    write_i("WeaponDialCircle",g_dialCircle);
+    write_f("WeaponDialDeadzone",g_dialDeadM);
+    write_i("WeaponDial", g_dialOn ? 1 : 0);
+    write_f("WeaponDialWidth",g_dialWidth);
+    write_f("WeaponDialRadius",g_dialRadius);
+    write_f("WeaponDialCropX",g_dialCropX);
+    write_f("WeaponDialCropY",g_dialCropY);
     write_key("MenuInWindow", g_menuInWindow ? "1" : "0");
     set_menu_context_mask(g_menuMask, "save");
     strncpy_s(g_ini, keep, _TRUNCATE);
@@ -919,6 +1077,72 @@ void status(dvr::status::Writer& w) {
 // ---- F10 ------------------------------------------------------------------
 
 void draw_ui() {
+    if(ImGui::CollapsingHeader("Menu immersion")) {
+        ImGui::TextWrapped("Per-menu controls. Head look keeps the world paused and rotates the rendered camera. Blur suppression is experimental; reopen the menu after changing it.");
+        for(int i=0;i<kMenuContexts;++i) {
+            ImGui::PushID(100+i); ImGui::Text("%s",kMenuContextNames[i]);
+            const auto bit=1u<<kMenuContextBits[i]; char key[64];
+            bool h=(g_menuHeadMask.load()&bit)!=0,b=(g_menuBlurMask.load()&bit)!=0;
+            if(ImGui::Checkbox("Live head look",&h)) {
+                if(h) g_menuHeadMask.fetch_or(bit); else g_menuHeadMask.fetch_and(~bit);
+                _snprintf(key,sizeof(key),"HeadLook%s",kMenuContextNames[i]);write_i(key,h);
+            }
+            ImGui::SameLine();
+            if(ImGui::Checkbox("Remove menu blur",&b)) {
+                if(b) g_menuBlurMask.fetch_or(bit); else g_menuBlurMask.fetch_and(~bit);
+                _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]);write_i(key,b);
+            }
+            ImGui::PopID();
+        }
+    }
+    if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
+        ImGui::TextWrapped("Follow the left hand with a flat camera-facing panel. Independent of wrist rotation, tilt and offsets. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
+        for(int i=0;i<2;++i) {
+            ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);
+            bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);
+            change|=ImGui::SliderFloat("Panel width (m)",&g_readWidth[i],.15f,1.5f,"%.2f");
+            change|=ImGui::SliderFloat("Distance offset (m, + farther)",&g_readDistance[i],-.30f,.50f,"%.2f");
+            change|=ImGui::SliderFloat("Horizontal offset (m, + right)",&g_readRight[i],-.75f,.75f,"%.2f");
+            if(change) {
+                char key[64];
+                _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
+                _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
+                _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
+                _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);write_f(key,g_readRight[i]);
+            }
+            ImGui::PopID();
+        }
+    }
+    if (ImGui::CollapsingHeader("Weapon dial")) {
+        bool alphaChanged=ImGui::SliderFloat("Wheel alpha gain",&g_wheelAlphaGain,0,3,"%.2f");
+        alphaChanged|=ImGui::SliderFloat("Wheel alpha floor",&g_wheelAlphaFloor,0,1,"%.2f");
+        alphaChanged|=ImGui::SliderFloat("Wheel alpha gamma",&g_wheelAlphaGamma,.25f,4,"%.2f");
+        if(alphaChanged) {
+            write_f("WeaponDialAlphaGain",g_wheelAlphaGain);write_f("WeaponDialAlphaFloor",g_wheelAlphaFloor);
+            write_f("WeaponDialAlphaGamma",g_wheelAlphaGamma);
+        }
+        ImGui::TextWrapped("These three alpha values affect only the weapon wheel. The other HUD alpha controls affect everything else; alpha mode remains shared.");
+        bool changed = ImGui::Checkbox("World-space left-hand dial", &g_dialOn);
+        changed |= ImGui::SliderFloat("Distance offset (m, + farther)",&g_dialDistance,-.30f,.50f,"%.2f");
+        changed |= ImGui::Checkbox("Direction only (tiny movement selects)",&g_dialDirection);
+        changed |= ImGui::Checkbox("Circular crop",&g_dialCircle);
+        changed |= ImGui::SliderFloat("Neutral radius (m)",&g_dialDeadM,.0005f,.010f,"%.4f");
+        changed |= ImGui::SliderFloat("Dial width (m)", &g_dialWidth, .15f, 1.2f, "%.2f");
+        if(!g_dialDirection) changed |= ImGui::SliderFloat("Hand travel for full input (m)", &g_dialRadius, .04f, .30f, "%.2f");
+        changed |= ImGui::SliderFloat("Dial crop width", &g_dialCropX, .30f, 1.f, "%.2f");
+        changed |= ImGui::SliderFloat("Dial crop height", &g_dialCropY, .30f, 1.f, "%.2f");
+        ImGui::TextWrapped("Hold left grip: the dial stays at the opening hand position and faces your head. Move the left hand to select. Either stick overrides hand selection. Release grip to equip. Reopen after changing settings.");
+        if (changed) {
+            g_dial.reset();
+            write_f("WeaponDialDistance",g_dialDistance);
+            write_i("WeaponDialDirectionOnly",g_dialDirection);
+            write_i("WeaponDialCircle",g_dialCircle);
+            write_f("WeaponDialDeadzone",g_dialDeadM);
+            write_i("WeaponDial",g_dialOn ? 1 : 0);
+            write_f("WeaponDialWidth",g_dialWidth); write_f("WeaponDialRadius",g_dialRadius);
+            write_f("WeaponDialCropX",g_dialCropX); write_f("WeaponDialCropY",g_dialCropY);
+        }
+    }
     ImGui::TextDisabled("%s", g_statusLine);
     ImGui::Separator();
     ImGui::Text("ELEMENTS (which anchor each one rides; 'seen' = draws routed to it this session; a row without a region rides 'default')");
@@ -936,7 +1160,9 @@ void draw_ui() {
         else ImGui::TextDisabled("UNMEASURED");
         ImGui::SameLine();
         ImGui::TextDisabled("seen %u", g_seen[e]);
-        if (anchor_visible(a)) {
+        const bool dedicated=(e==ElWheel && g_dialOn) || (e==ElNote && g_readHand[0]) || (e==ElJournal && g_readHand[1]);
+        if(dedicated) ImGui::TextDisabled("Use this menu's dedicated panel controls above.");
+        if (anchor_visible(a) && !dedicated) {
             const bool onHand = anchor_is_hand(a);
             float x = onHand ? g_el[e].handX : g_el[e].winX;
             float y = onHand ? g_el[e].handY : g_el[e].winY;
@@ -985,7 +1211,7 @@ void draw_ui() {
         ImGui::PopID();
     }
     ImGui::Separator();
-    ImGui::Text("THE ALPHA (VR-119: how the quads' transparency is derived; repair = 41.2's max(r,g,b))");
+    ImGui::Text("OTHER HUD ALPHA (gain, floor and gamma exclude the weapon wheel)");
     {
         AlphaCfg c = g_alpha;
         bool ch = false;

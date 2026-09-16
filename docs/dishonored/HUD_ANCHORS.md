@@ -21,6 +21,281 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Accepted dial and saved profile (2026-09-16)
+
+Build378 accepted for merge. Reading is stable and wheel flicker greatly reduced;
+remaining left-eye hand/weapon head-motion flicker is VR-128. New saved profile is
+promoted byte-for-byte to WriteDefaultIni, release and golden defaults. Latest
+changes: vitals HandX0.065/HandY-0.102/HandScale0.270; Note/Journal width0.660,
+distance0.020,right0.320. Both logs and full profile are in the candidate's
+accepted-profile archive. Existing diagnostics/performance settings retained.
+
+HUD plane routing improved but is incomplete: objectives still fall through to
+default, and some interaction title/action draws split. VR-127 on codex/hud-fixes
+will own grouped routing, reading/interaction alpha, original general-alpha reset
+and slow left-stick book scrolling. The accepted content cache is not semantic
+owner identification; do not mark these remaining cases fixed.
+
+## Current: right-hand-side readers and moving HUD ownership (2026-09-16)
+
+**Installed378** (`vr33-hands-working-378-g9bce8a13b`), clean source9bce8a13b.
+Candidate `build/playtest-candidates/vr126-hud-owner`; preinstall logs/DLL/INI in
+`build/playtest-candidates/installs/20260916-023823-085684`. Whole INI comparison:
+exactly two new keys, NoteHandRight/JournalHandRight=0.200; every existing value
+retained. DLL SHA256 `9b6135b6e14b90a9e54672d7e6ae49ad9c18eba275d726b1027a457501123e1b`.
+Installed hashes/CRLF verified. Release build, exports, lint, golden INI and regression
+checks pass. No game/simulator launched; current old log remains376 until the tester
+launches378. Headset result pending. Local commits only.
+
+376 reader placement accepted except horizontal alignment; camera sliding appears
+fixed. Preserve saved Note width0.660m/distance+0.040m and every other F10 value.
+New `NoteHandRight` and `JournalHandRight` default+0.200m, range-0.75..+0.75m.
+F10 **Notes and journal on the hand > Horizontal offset (m, + right)** moves along
+the camera-facing panel's right axis. Width/distance remain independent, panel
+follows the left grip and stays parallel to the camera.
+
+**Plane switching is understandable from source:** gameplay HUD routing selects a
+row by draw center inside screen regions. A moving draw can become reticle/prompt/
+default and inherit a different anchor/scale. Existing saved Default scale1.570
+versus Prompt1.170 makes such a switch visible. In addition, measured elements on
+one anchor share a crop texture; overlapping configured regions can display pixels
+owned by a different row. This is not physical quad collision.
+
+**Candidate:** initial location still seeds a row, but a bounded cache retains it
+while identical local vertex content/material resources move via shader transforms.
+Includes default ownership, so an unknown moving draw cannot suddenly become a
+prompt simply by crossing that rectangle. Hash all bytes for eligible small draws
+(max8KiB), no extra GPU read or buffer lock. Reset on menu/config/device changes;
+expire after240 provider frames of absence. Duplicate content at different positions
+in one frame is ambiguous and falls back, never intentionally aliases another owner.
+Each measured element gets a private texture; expand around its reference region
+without changing pixel scale/location, so motion outside that region is not clipped
+and overlapping regions cannot see each other's pixels. Keep the12-sink ceiling and
+existing overflow fallback. Unmeasured elements still share the default catch-all.
+
+**Limits:** this is content continuity, not a named Scaleform object hook. Rebuilt,
+large, animated/colour-changing or unreadable geometry may fall back to positional
+routing; an initially wrong positional hint can remain wrong until expiry/reset.
+Do not claim every interaction prompt is semantically identified. `hud/owner` logs
+retained-vs-spatial disagreements. Headset test still required; if transitions remain,
+inspect those draws and pursue semantic owner identification rather than widening
+rectangles. Private textures may add copies when multiple measured elements previously
+shared one anchor; do not promote a performance claim from host tests.
+
+Validation:279 production route checks (moving/default/expiry/reset/collision/ambiguity),
+38 anchor checks including expanded reference geometry. Menu world-scale investigation,
+correction, host evidence and single launch question: [FLICKER_REFERENCE](FLICKER_REFERENCE.md#menu-depth-interruption-follow-up-vr-126-2026-09-16).
+Local only. Installed manifest remains the build authority; preserve both logs and
+entire saved INI on install. Acceptance pending.
+
+## Current follow-up: motion stability, reading panels and alpha (2026-09-16)
+
+374 wheel usability/appearance accepted; hands/weapons flicker and separate camera translation
+are pending. Full camera findings, failed hypotheses and next launch question are
+in [FLICKER_REFERENCE](FLICKER_REFERENCE.md#menu-head-motion-follow-up-vr-126-2026-09-16).
+All work stays local on codex/hud-weapon-dial by explicit instruction.
+
+Saved F10 profile archived with both logs under
+build/playtest-candidates/vr126-dial-immersion/reported-head-motion.
+Eight changed keys versus the prior candidate: width0.300m,travel0.080m,crop0.420x0.420,
+distance+0.050m,Note NoBlur1,Journal HeadLook1/NoBlur1. Other values preserved.
+The three current alpha values are gain3.000,floor0.000,gamma0.500.
+
+- Wheel now owns WeaponDialAlphaGain/Floor/Gamma. Existing AlphaGain/Floor/Gamma
+  control other HUD content. Mode and mix policy stay shared. Alpha selection is
+  scoped to Wheel's active catch-all sink, independent of whether the dial placement
+  toggle is on. Initial wheel values copy the saved profile, so appearance is retained.
+- NoteFollowHand and JournalFollowHand use camera-parallel panels centered on the
+  current left grip, with no grip rotation, wrist tilt/lift or inherited element
+  offsets. They FOLLOW the hand rather than latching the opening position. A visible
+  row anchor is still required; off/frame remains respected. Normal note/journal
+  rectangular content is retained, without the wheel's circular mask/crop.
+- Each reader has HandWidth and HandDistance keys (prefix Note or Journal), and F10
+  controls under Notes and journal on the hand. Initial widths0.60/0.70m are adjustable
+  starting choices, not measured ideal sizes. Distance-0.05m places the panel5cm
+  toward the camera from the hand to reduce overlap. Follow controls shipoff and are
+  enabled in the installed test. Existing wrist values stay saved for normal HUD.
+- Dedicated placement controls replace misleading generic x/y/scale controls for
+  these enabled panels and the dial. Hand-tracking loss hides the panel; existing
+  near/behind-face guards remain. Selection and game menu navigation are unchanged.
+
+33 host anchor checks cover5cm clearance, exact hand translation and zero-distance
+centering. Existing route/dial checks pass; no rendered/headset claim for new readers.
+User launches. Next launch focuses on hand/weapon stability during Wheel head motion; do not infer note,
+journal or cinematic acceptance from that one result.
+
+### Installed follow-up candidate
+
+Installed build376 (`vr33-hands-working-376-g35a50573b`), clean source35a50573b.
+Candidate: build/playtest-candidates/vr126-menu-motion.
+DLL SHA256:32411cc1479702892e09aeb31689d2ad2aa75ce675cf378a3e51a1d4fd386f75.
+Both prior logs, DLL and INI archived in
+build/playtest-candidates/installs/20260916-015200-720588.
+Complete INI comparison: nine new keys only; EVERY previous setting retained.
+Wheel gain3/floor0/gamma0.5; Note/Journal follow enabled, distance-0.05m,
+width0.60/0.70m. Installed hashes and CRLF verified. Release, nine exports,
+INI golden and lint pass. No game/simulator launch. Headset verdict pending.
+
+## Current VR-126 refinement: dial comfort and menu immersion (2026-09-16)
+
+Build372 is headset-accepted as a usable hand dial. The tester tuned width to
+0.350m, travel to0.040m, and crop to0.400x0.400. DLL hash and log banner match372;
+both logs and the exact INI are archived under
+build/playtest-candidates/vr126-weapon-dial/accepted-tuning. The log has33 dial
+openings and460 final wheel-input samples. These do not measure selection accuracy.
+
+Requested refinements now implemented, pending the next headset test:
+
+- Direction-only mode outputs full analog magnitude after2mm of hand displacement,
+  preserving the angle. A0.5..10mm F10 neutral radius controls jitter. Analog travel
+  remains available with direction-only off. Neither stick's radial shaping changes.
+- Camera-plane orientation uses the head quaternion, independent of opening hand
+  location. Input uses that same right/up plane. Moving the hand lower or sideways
+  no longer aims the panel's normal toward the eye position.
+- Circular crop runs in the existing HUD alpha shader only on the wheel-owned sink.
+  Both RGB and alpha are feathered to zero outside a pixel-aspect-correct inscribed
+  circle. The tuned crop still determines its bounds; other HUD sinks are unchanged.
+- F10 distance offset ranges -0.30m (closer) to+0.50m (farther), initial0. It moves
+  the quad along the opening camera's forward axis. The physical hand's starting
+  point stays the input origin, so changing depth does not require reaching the panel.
+- F10 HUD / Menu immersion exposes independent HeadLook and NoBlur toggles for
+  Pause, Note, Journal, Wheel, Store and MissionStats. New immersion controls are
+  default off in repo; the installed test enables head look for Wheel/Note and
+  blur suppression for Wheel only. Saved user dimensions and all other settings stay.
+
+### Frozen world view: cause and scoped fix
+
+UiSurfaceBlocks intentionally parks the normal script/direct camera writers even
+when a menu rides a stereo HUD quad. ENGINE_NOTES' measured paused-menu rendering
+already established that scene draws and camera uploads can continue with a fixed
+camera. Therefore seeing an old FOV boundary while turning does not prove GPU
+rendering stopped. This is a world-camera/menu issue, not the residual hand flicker.
+
+MenuHeadBegin applies head rotation relative to the menu-entry sample to the current
+camera cache only across both viewport draws. MenuHeadPublish tags both eyes with
+the exact sample used, preserving image-owned orientation. MenuHeadEnd restores the
+incoming rotation, location and writer provenance. Existing main-menu, cinematic,
+loading, identity and stereo guards remain. Gameplay remains paused and its input
+remains blocked. Head translation preserves the menu-entry offset plus subsequent
+raw physical translation, avoiding a changing gameplay neck cancellation on a
+camera whose animation is paused. Temporary render gaps hold the reference; a new
+UI context epoch refreshes live identities even when pointers are unchanged.
+
+### Gray blur: targeted hypothesis, not yet visually verified
+
+The named movie flag m_bBlurGameWhileActive is not sufficient evidence for the wheel:
+its class does not opt into that flag in the local declarations. Native registration
+search found no callable UI blur toggle. DisPostProcessManager does expose a dedicated
+m_UIPPWeight separate from Kismet and other effects. The candidate reflects
+Actor.WorldInfo -> WorldInfo.Game -> DishonoredGameInfo.m_pPpManager and that weight.
+On the game/draw lane, an opted-in riding menu temporarily zeros only the UI blend.
+It records the latest nonzero game value and restores only its own exact zero when
+ownership ends. Every writer checks IsLiveObject/current slot identity and current
+owner chain; entry and context/owner changes refresh BuildLiveSet. Dead/replaced
+owners are never restored. Reflection failure logs and leaves the native effect.
+A successful write is not proof that this field reaches the visible effect. If gray
+blur remains, use menu/blur observed weight/writes plus head-scope logs; do not broaden
+to global DOF, motion blur or unrelated post-process switches without evidence.
+
+### Installed refinement candidate
+
+Build374 (`vr33-hands-working-374-ga51e1799f`), clean source a51e1799f;
+build/playtest-candidates/vr126-dial-immersion. DLL SHA256
+`5ed4b0c9a840d14aae28304cff1336d791f2035d749dd7454c8638b2d3ee977a`.
+Both logs/previous DLL/INI archived in
+build/playtest-candidates/installs/20260916-010814-146048. Full INI comparison adds
+only16 new controls, preserving every old value and CRLF. HeadLookWheel/Note=1,
+NoBlurWheel=1,direction-only/circle=1,neutral2mm,distance0. No launch performed.
+
+### Validation and next launch
+
+2185 dial math/input checks; native D3D11 WARP test of the actual HUD shader
+(57312 transparent pixels,394 feather pixels,7830 solid for a256-square circle test;
+unmasked control65536 solid);16 production menu lifecycle checks; existing cinematic
+math/scope/FOV checks,30 HUD anchor and20 route checks pass. Scope tests cover dead
+identity, wrong thread, external rewrites, exact restoration and nonfinite custom
+translation. No game or simulator launched. GPU tests create no visible window.
+
+One launch question: with the wheel held open, does turning the head reveal fresh
+world scenery beyond the old FOV rectangle, then return normally on release?
+Expected: the circular camera-parallel dial stays parked, small hand movements select,
+and world head look continues without unpausing gameplay. Wheel blur suppression is
+armed; Note head look is armed for normal use, but this launch's question is Wheel.
+If the old rectangle remains, inspect menu/head scope/base/out/gen and fresh eye
+counts to separate refused camera ownership from stale rendering. If the world moves
+but the gray blur persists, head look succeeded and the UI-weight hypothesis needs
+more work. If there is a close/resume jump, inspect restore/refused and context epoch
+before changing synchronization. User launches; agent reads and archives both logs.
+
+## VR-126: world-space weapon dial (2026-09-16)
+
+Branch `codex/hud-weapon-dial` starts at VR-Main52107a094 after the accepted
+combined build369. PR67 (crouch camera) and PR68 (performance) are merged;
+source/release/test trees were checked against accepted merge6c3ef07b4.
+
+**Input finding:** UpdateVirtualPad called MenuStep independently on LX/LY
+whenever UiSurfaceBlocks or g_menuOpen was set. MenuStep quantizes each axis
+to +/-32000 pulses, with separate380/170ms repeat timers, and zeros RX/RY.
+Wheel is a blocked UI owner even when it rides a stereo HUD quad. Consequently
+continuous radial directions were destroyed by the mod. PadStick also applied
+an independent per-axis deadzone, distorting angles. This is a code-confirmed
+fault matching the reported cardinal bias; game-side wedge reachability still
+needs the headset. The old pad/rs diagnostic was BEFORE final menu shaping and
+could not prove what the game received.
+
+**Implementation:** a published Wheel-context bit exempts the wheel from list
+stepping. Either stick uses an angle-preserving radial deadzone and delivers
+continuous LX/LY, with the stronger stick taking priority. RX/RY stay zero to
+avoid two competing navigation streams. Final pad/wheel telemetry names the
+source, both raw sticks and delivered axes. Other menus retain step repeats.
+
+With `[Hud] WeaponDial=1`, hold left grip to seed the quad center at the left
+GRIP position in XR LOCAL space. Subsequent hand position does not move that
+center. Both selection and rendering use a world-up billboard facing the head;
+hand displacement projected on its current right/up axes supplies LX/LY.
+Depth displacement does not select.15mm neutral radius;120mm full input by
+default. Tracking loss neutralizes hand selection and requires release/reopen
+before re-seeding. Pose reads use existing APIs; no engine memory writes added.
+The new descriptor changes only the wheel quad, not scene/eye synchronization.
+
+The wheel ring was previously measured at [0.226,0.275 -0.774,0.716] in
+ENGINE_NOTES, How the Scaleform HUD identifies its elements. Initial crop is
+[0.20,0.25 -0.80,0.75], with margins and original pixel aspect preserved.
+This excludes the measured bottom-corner widgets and right-edge labels; their
+independent display/interaction is deferred. Cropping only changes the submitted
+quad's source rectangle, not draw classification. Bounds from the sewer are
+not proof that every inventory/aspect fits; F10 exposes crop width/height.
+
+F10 HUD / Weapon dial has an enable checkbox, width0.15..1.20m, hand travel
+0.04..0.30m, crop width/height0.30..1.00. Initial cropped width0.42m is independent
+of HandL.Width, its grip tilt, lift, element offsets, and scale. Keep the wheel's
+existing handL routing enabled. New placement is default OFF in the repository,
+ON in the installed candidate pending headset acceptance; continuous wheel stick
+input is corrected regardless. Existing saved settings are preserved.
+
+**Validation:**1815 production-math checks cover360 directions at two stick
+magnitudes,360 hand directions, fixed center, depth motion, tilted panel, release,
+tracking loss/recovery, nonfinite input, menu gating and crop bounds. Existing
+HUD anchor30 and route20 checks pass; release build,9 exports, golden and lint
+pass. No game or simulator launched. Headset result remains pending.
+
+**Installed candidate:**372 (`vr33-hands-working-372-gab770282c`), clean source
+ab770282c, build/playtest-candidates/vr126-weapon-dial. DLL SHA256
+`eb643ede5405b0718b372720c90d44573a0ef5bede7b51aeeff86d5ce89629bc`.
+Previous DLL/INI and both logs: build/playtest-candidates/installs/20260916-003048-979346.
+Complete INI diff adds only WeaponDial=1, Width0.420, Radius0.120, CropX0.600,
+CropY0.500. Installed hashes and CRLF verified. No launch performed.
+
+**One launch question:** Can the left hand smoothly select every weapon wedge,
+especially7 o'clock, while the enlarged cropped wheel stays at its opening
+position? Hold left grip with the hand comfortably forward, leave both sticks
+neutral, and slowly draw a small circle roughly12cm from the opening center.
+Release on the lower-left wedge. Expected: continuous highlight, fixed center,
+camera-facing wheel and selected item equipped. Success accepts the gesture;
+missing wedges despite varied final logged axes points downstream to the game;
+wrong/zero axes points to input gating or geometry. A clipped wheel points to
+crop bounds, not input quantization. Agent reads logs after the report.
+
 ## 1. The pieces
 
 ```

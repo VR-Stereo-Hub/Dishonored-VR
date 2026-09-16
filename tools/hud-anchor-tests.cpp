@@ -19,6 +19,14 @@ int main() {
     using namespace dvr::hudanchor;
     const float zAxis[3] = {0, 0, 1}, yAxis[3] = {0, 1, 0}, xAxis[3] = {1, 0, 0};
     float q[4], o[3];
+    const float grip[3]={.2f,1.1f,-.5f},eyeQ[4]={0,0,0,1};
+    camera_panel_position(grip,eyeQ,-.05f,o);
+    check(near3(o,.2f,1.1f,-.45f),"reading panel moves5cm toward camera from grip");
+    const float movedGrip[3]={.3f,1.3f,-.6f};
+    camera_panel_position(movedGrip,eyeQ,-.05f,o);
+    check(near3(o,.3f,1.3f,-.55f),"reading panel follows hand translation exactly");
+    camera_panel_position(grip,eyeQ,0,o);
+    check(near3(o,grip[0],grip[1],grip[2]),"zero distance centers reading panel on hand");
     // The watch-face tilt maps the panel's normal (+Z) onto the back of the
     // hand (grip -X right, +X left) and keeps the panel's up along grip +Y.
     tilt_right(q); rot(q, zAxis, o); check(near3(o, -1, 0, 0), "right tilt: panel normal = grip -X (the back of the right hand)");
@@ -102,6 +110,19 @@ int main() {
         const float bad[4] = {0.5f, 0.5f, 0.5f, 0.5f};
         c = crop_rect(100, 100, bad, 1.0f, 0.0f);
         check(c.w == 100 && c.h == 100, "an empty sub-rectangle falls back to the whole texture");
+    }
+    {
+        const float r[4]={.52f,.46f,.80f,.62f};
+        float width=.28f,offset[2]={.16f,-.04f};
+        expand_reference_panel(r,1,width,offset);
+        check(std::fabs(width-1)<1e-6f,"full private texture preserves prompt pixel scale");
+        check(std::fabs(offset[0])<1e-6f && std::fabs(offset[1])<1e-6f,"reference window position preserved");
+        width=.40f;offset[0]=offset[1]=0;
+        expand_reference_panel(r,1,width,offset);
+        check(std::fabs(offset[0]+.16f*width)<1e-6f,"hand crop remains centered at grip after expansion");
+        check(std::fabs(offset[1]-.04f*width)<1e-6f,"hand crop vertical position preserved");
+        // A point outside the old prompt rectangle still has a stable mapping.
+        check(std::fabs((offset[0]+(.9f-.5f)*width)-(.9f-.66f)*width)<1e-6f,"moving content is not clipped at old region edge");
     }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;

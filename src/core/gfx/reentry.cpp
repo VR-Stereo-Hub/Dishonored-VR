@@ -30,6 +30,8 @@
 // would destroy its verdict); `stereo mono` restores the call site.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/stereo.h"
+#include "core/gfx/stereo_menu_hold.h"
+#include "core/gfx/hud_layout.h"
 #include "core/gfx/desktop_eye.h"
 
 #include "core/framework/frame_hooks.h"
@@ -535,7 +537,18 @@ public:
         // returning false leaves out.tex NULL, the frame path submits nothing,
         // and the compositor holds the previous pair. Bounded by N so a real
         // transition (menu, load, cinematic) still reaches mono within N.
+        const bool menuGap=menuGap_.hold(delivered,dvr::hudlayout::menu_stereo_hold(),pair_now_ms());
+        if(menuGap) {
+            dvr::stereo::note_hold();
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                "menu/stereo: center-eye gap held; last stereo %.1f ms ago (150 ms cap); image tags unchanged",
+                pair_now_ms()-menuGap_.lastStereoMs);
+            commit(OUT_HOLD,delivered,fresh);return false;
+        }
         if (delivered == 0) {
+            if(dvr::hudlayout::menu_stereo_hold())
+                DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                    "menu/stereo: no recent stereo within 150 ms; normal bounded mono fallback");
             const int lim = dvr::stereo::hold_untagged();
             if (lim > 0 && taggedRecently_ && heldRun_ < lim) {
                 ++heldRun_;
@@ -581,7 +594,7 @@ public:
         return true;
     }
 
-    void on_reset() override { single_ = SingleTagState{}; dvr::capture::on_reset(); }
+    void on_reset() override { menuGap_.clear(); single_ = SingleTagState{}; dvr::capture::on_reset(); }
 
     void shutdown() override {
         if (armed_) {
@@ -602,6 +615,7 @@ public:
         arb_ = ArbState{};   // the c5 history and the disagreement streak
         g_lastPushedEye = 0;   // a re-select must not read as a repeat
         taggedRecently_ = false;
+        menuGap_.clear();
         heldRun_ = 0;
     }
 
@@ -676,6 +690,7 @@ private:
     uint32_t w_ = 0, h_ = 0;
 
     bool     drawnOnce_ = false;
+    MenuGapHold menuGap_;
     bool     taggedRecently_ = false;   // 41.1: the stream was stereo just now (the hold's precondition)
     int      heldRun_ = 0;              // consecutive untagged presents suppressed
     bool     armed_ = false;

@@ -108,6 +108,23 @@ int main() {
     check(dvr::hudroute::route(rows, n, rect_id(0.19f, 0.26f, 0.21f, 0.28f), Default) == Vitals,
           "a centre exactly on the region's far corner (0.20,0.27) is inside");
 
+    // A moving draw must not acquire a different owner at a region boundary.
+    dvr::hudroute::StableRoutes stable;
+    check(stable.resolve(123,1,Prompt)==Prompt,"initial prompt association");
+    for(unsigned frame=2;frame<250;++frame)
+        check(stable.resolve(123,frame,frame%2?Default:Reticle)==Prompt,"moving prompt retains owner");
+    check(stable.resolve(456,250,Default)==Default,"unknown draw starts on default");
+    check(stable.resolve(456,251,Prompt)==Default,"unknown draw crossing prompt remains default");
+    check(stable.resolve(0,251,Reticle)==Reticle,"unreadable content keeps spatial fallback");
+    check(stable.resolve(123,600,Vitals)==Vitals,"stale association expires");
+    stable.clear();
+    check(stable.resolve(123,601,Default)==Default,"configuration/menu reset clears association");
+    check(stable.resolve(123+2048,602,Prompt)==Prompt,"bounded cache collision replaces identity");
+    check(stable.resolve(123,603,Reticle)==Reticle,"collision never borrows another key owner");
+    const float atPrompt[4]={.55f,.50f,.60f,.55f},atVitals[4]={.05f,.05f,.10f,.10f};
+    check(stable.resolve(777,610,Prompt,atPrompt)==Prompt,"distinct sprite initially associated");
+    check(stable.resolve(777,610,Vitals,atVitals)==Vitals,"same content at two positions is ambiguous");
+    check(stable.resolve(777,611,Default,atPrompt)==Default,"ambiguous key falls back instead of borrowing another owner");
     std::printf("%u hud-route checks passed\n", checks);
     return 0;
 }

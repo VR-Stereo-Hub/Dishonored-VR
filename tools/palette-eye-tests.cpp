@@ -27,7 +27,8 @@ static long g_mpEyeMethodAgree[3], g_mpEyeMethodDisagree[3], g_mpEyeMethodNone[3
 // test, so the host stubs it as "the method published nothing".
 namespace dvr { namespace desktop_eye {
 struct Record { unsigned present; int draw, tag, shown; char action, source; };
-static bool record_for(unsigned, Record& out) { out = Record{}; return false; }
+static unsigned completedPresent=0;static int completedEye=0;
+static bool record_for(unsigned p, Record& out) { out = Record{};out.draw=completedEye;return p==completedPresent; }
 } }
 static long g_mpEyeFlipped;
 static long InterlockedCompareExchange(volatile long* p, long value, long expected) {
@@ -54,6 +55,14 @@ static bool heldEyeIs(int eye) {   // every doublet repeats THIS eye
 static void MpFlickTick() {}
 static void MpFlickNote(const char*) {}
 #include "palette_eye_body.inc"
+#define DVR_LOG_EVERY_MS(...) ((void)0)
+namespace dvr::stereo { struct Output{int eyeSign=0;};static Output last_output(){return {};}}
+struct MfRec {uint32_t present=0,poseGen=0;int menuContext=-1;int8_t eye=0;char why='T';float d=0,ipdUU=0;uint8_t refused[2]{},waMiss=0;};
+static constexpr int kMfRing=1024;
+static MfRec g_mfRing[kMfRing];
+static uint32_t g_mfTagCount[kMfRing];static int8_t g_mfTagSign[kMfRing];
+static int g_mfHead=-1,g_mfTagHead=-1;
+#include "palette_tag_body.inc"
 
 static int failed;
 static void check(const char* name, bool ok) {
@@ -72,6 +81,16 @@ static void draw(uint32_t present, float right, long scriptDoubling) {
     MpDrawCtx c{right}; MpEyeForPresent(&c);
 }
 int main() {
+    g_mfHead=0;g_mfRing[0].present=10;g_mfRing[0].eye=1;
+    dvr::desktop_eye::completedPresent=11;dvr::desktop_eye::completedEye=1;
+    testPresent=11;MfNoteTag();
+    check("does_not_query_future_present",g_mpEyeMethodAgree[0]==0&&g_mpEyeMethodNone[0]==0);
+    testPresent=12;MfNoteTag();
+    check("joins_hand_N_to_completed_present_N_plus_1",g_mpEyeMethodAgree[0]==1);
+    g_mfRing[0].eye=-1;MfNoteTag();
+    check("completed_present_mismatch_is_observable",g_mpEyeMethodDisagree[0]==1);
+    dvr::desktop_eye::completedEye=0;MfNoteTag();
+    check("untagged_present_is_unknown_not_agreement",g_mpEyeMethodNone[0]==1);
     reset();
     draw(1, 3.155f, 1);
     check("first_observation_is_unknown", g_mpEyeState == 0 && g_mpEyeHavePrev);

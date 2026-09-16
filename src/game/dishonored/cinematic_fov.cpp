@@ -68,6 +68,7 @@ static void CineFovBegin(bool scene) {
     const auto state=dvr::anim::snapshot();
     const bool menu=UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
         (g_uiNoteOpen && MaimNowMs()-g_uiPollMs<500);
+    const bool menuFovAllowed=UiSurfaceHeadLook();
     const bool projection=dvr::stereo::wants_projection() && dvr::vr::session_live() &&
         !dvr::vr::cinematic_active() && !dvr::camera::eyetest_active() && !dvr::camera::postest_active();
     const float target=dvr::camera::fov_deg();
@@ -80,7 +81,7 @@ static void CineFovBegin(bool scene) {
         dvr::camera::rendered_fov_deg(),target,GetTickCount64());
     const float requested=ProjectionFovGet();
     const bool gameplay=!keep && !dvr::scene_state::cinematic(state.state[0]) &&
-        dvr::cine_fov::eligible(requested>0,scene,menu,projection,state.valid,target);
+        dvr::cine_fov::eligible(requested>0,scene,menu && !menuFovAllowed,projection,state.valid,target);
     if (!keep && !gameplay) {
         if (g_cfHaveOwner) Log("cine/fov: released writes=%u restores=%u refused=%u master=%s menu=%d scene=%d projection=%d stateValid=%d target=%.2f requested=%.2f",g_cfWrites,g_cfRestores,g_cfRefused,state.state[0],menu,scene,projection,state.valid,target,requested);
         g_cfHaveOwner=false; CfPublish(0); return;

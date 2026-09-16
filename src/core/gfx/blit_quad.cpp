@@ -39,6 +39,7 @@ const char* kSrc =
     "    float4 p0;      // mode, gain, floor, gamma\n"
     "    float4 p1;      // mixK, 0, 0, 0\n"
     "    float4 plate;   // backdrop r, g, b, a (straight colour, composed under)\n"
+    "    float4 ellipse; // center UV, radii\n"
     "};\n"
     "float4 psalpha(VSOut i) : SV_Target {\n"
     "    float4 c = srcTex.Sample(samp, i.uv);\n"
@@ -49,7 +50,12 @@ const char* kSrc =
     "    a = saturate(a);\n"
     "    float3 rgb = p0.w > 0.0 && abs(p0.w - 1.0) > 0.001 ? pow(max(c.rgb, 0.0), 1.0 / p0.w) : c.rgb;\n"
     "    float pa = plate.a * (1.0 - a);\n"
-    "    return float4(rgb + plate.rgb * pa, a + pa);\n"
+    "    float coverage = 1.0;\n"
+    "    if (ellipse.z > 0 && ellipse.w > 0) {\n"
+    "        float r = length((i.uv - ellipse.xy) / ellipse.zw);\n"
+    "        coverage = saturate((1.0-r) / max(fwidth(r), 0.0001));\n"
+    "    }\n"
+    "    return float4(rgb + plate.rgb * pa, a + pa) * coverage;\n"
     "}\n";
 
 } // namespace
@@ -90,7 +96,7 @@ bool BlitQuad::init(ID3D11Device* dev) {
                 DVR_WARN("blit: the alpha-repair pixel shader would not create - the HUD panel would be opaque");
             pab->Release();
             D3D11_BUFFER_DESC bd = {};
-            bd.ByteWidth = 48;   // three float4s
+            bd.ByteWidth = 64;   // four float4s
             bd.Usage = D3D11_USAGE_DEFAULT;
             bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             if (FAILED(dev->CreateBuffer(&bd, nullptr, &cb_)) || !cb_) {
@@ -144,9 +150,10 @@ void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
     if (!ready_ || !ctx || !src || !dst) return;
     const bool alphaRepair = alpha && psAlpha_ && cb_;
     if (alphaRepair) {
-        const float k[12] = { (float)alpha->mode, alpha->gain, alpha->floorA, alpha->gamma,
+        const float k[16] = { (float)alpha->mode, alpha->gain, alpha->floorA, alpha->gamma,
                               alpha->mixK, 0.0f, 0.0f, 0.0f,
-                              alpha->backdrop[0], alpha->backdrop[1], alpha->backdrop[2], alpha->backdrop[3] };
+                              alpha->backdrop[0], alpha->backdrop[1], alpha->backdrop[2], alpha->backdrop[3],
+                              alpha->ellipse[0],alpha->ellipse[1],alpha->ellipse[2],alpha->ellipse[3] };
         ctx->UpdateSubresource(cb_, 0, nullptr, k, 0, 0);
         ctx->PSSetConstantBuffers(0, 1, &cb_);
     }

@@ -4946,7 +4946,7 @@ void on_present_end(ID3D11Texture2D* frame) {
                     pose.orientation = {a.qx, a.qy, a.qz, a.qw};
                     pose.position = {a.x + r[0], a.y + r[1], a.z + r[2]};
                 }   // not seedable yet (no head pose): head-locked this present
-            } else if (d.anchor == HudAnchor::Hand) {
+            } else if (d.anchor == HudAnchor::Hand || d.anchor == HudAnchor::LocalBillboard) {
                 anchorName = "hand";
                 float gp[3], gq[4];
                 if (!input_get_hand_pose(d.hand ? 1 : 0, /*aimPose=*/false, gp, gq)) {
@@ -4954,12 +4954,17 @@ void on_present_end(ID3D11Texture2D* frame) {
                     continue;   // untracked hand: no quad rather than a stale one
                 }
                 float pos[3];
-                dvr::hudanchor::wrist_position(gp, gq, d.base, d.lift, pos);
+                if (d.anchor == HudAnchor::LocalBillboard) {
+                    memcpy(pos, d.base, sizeof(pos)); anchorName = "weapon dial";
+                } else dvr::hudanchor::wrist_position(gp, gq, d.base, d.lift, pos);
                 const float toHead[3] = {head[0] - pos[0], head[1] - pos[1], head[2] - pos[2]};
                 if (dvr::hudanchor::too_near(toHead)) { g_hudStatNear.fetch_add(1, std::memory_order_relaxed); continue; }
                 if (dvr::hudanchor::behind_face(toHead, headFwd)) { g_hudStatBehind.fetch_add(1, std::memory_order_relaxed); continue; }
                 float oq[4];
-                if (d.orient == HudOrient::FollowGrip) {
+                if (d.orient == HudOrient::CameraPlane) {
+                    const auto& q=g_views[0].pose.orientation;
+                    oq[0]=q.x; oq[1]=q.y; oq[2]=q.z; oq[3]=q.w;
+                } else if (d.orient == HudOrient::FollowGrip) {
                     dvr::hudanchor::follow_grip_orientation(gq, d.hand ? 1 : 0, d.tiltDeg, oq);
                 } else {
                     if (dvr::hudanchor::billboard_degenerate(toHead)) { g_hudStatDegenerate.fetch_add(1, std::memory_order_relaxed); continue; }

@@ -1,29 +1,54 @@
-## Current handoff: accepted performance profile, PR preparation
+## Current: weapon dial accepted for merge; HUD follow-up (2026-09-16)
 
-- Branch `codex/performance-improvements` (renamed at user request). Publishing a
-  PR is authorized; merging to VR-Main is not. Preserve finalized/source branches.
--363 strict mirror-off accepted. Verified DLL/log;621 strict-mode windows with zero
-  native desktop Presents. Evidence: build/performance-results/strict-mirror-accepted-20260915-235444.
-  Possible subjective improvement; no new controlled FPS percentage claimed.
-- Complete installed INI promoted to release/golden and generated defaults:103 FOV,
- 120% pixels3012x3122, mirror off+strict off, pacing/benchmark off, saved HUD/hand/
-  crouch settings and existing diagnostic flags. Both INI defaults match exactly.
-- User requests PR67 test next and explicitly chose a local combination with the
-  performance branch. PR67 fixes crouched head pitch by keeping camera look-at out
-  of the hand tuck. Build/install combination on separate codex/pr-67-playtest;
-  do not modify its author branch or merge either PR on GitHub.
-- PERFORMANCE.md is the sole performance record. One crouch/pitch question per
-  launch after setup; user launches only. Archive both logs, full-diff INI and CRLF.
-  No subagents, game/simulator launches or main merge.
+- User explicitly authorized PR/merge of codex/hud-weapon-dial to VR-Main and
+  promotion of the complete new F10 profile. Build378 DLL/banner verified; both
+  logs/INI archived at build/playtest-candidates/vr126-hud-owner/accepted-profile.
+- Headset: no reported note/book flicker; wheel mostly stable. Remaining head-motion
+  positional flicker appears confined to left-eye hands/weapons (VR-128, Backlog).
+  Interior log intervals:36 notes and10 wheel, all zero mono output.
+- Generated/packaged/golden defaults are byte-identical to the accepted saved INI.
+  Eight latest changes tune vitals and match reader width0.660/distance0.020/right0.320.
+- After the accepted merge, create codex/hud-fixes from updated VR-Main for VR-127:
+  shared reading alpha, interaction alpha, original general-alpha reset, slow book
+  scrolling, independent objective markers and unified interaction title/action routing.
+- Preserve stereo/pose ownership and camera translation. No subagents, game/simulator
+  launch or branch deletion. Installed.json remains build authority; keep one question
+  per launch and archive both logs before any next candidate installation.
+
+## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
+
+- Branch codex/hud-weapon-dial; PR67/68 already merged, no HUD merge authorized.
+- Build372 dial accepted and tuned: width0.350m,travel0.040m,crop0.400x0.400.
+  Verified logs/INI archived in build/playtest-candidates/vr126-weapon-dial/accepted-tuning.
+- New work: tiny-motion direction selection, camera-parallel panel, true circular
+  feathered crop, closer/farther slider, per-menu live head look and UI blur controls.
+- Installed374 (`vr33-hands-working-374-ga51e1799f`), clean source a51e1799f.
+  Candidate build/playtest-candidates/vr126-dial-immersion; both logs and previous
+  DLL/INI archived in build/playtest-candidates/installs/20260916-010814-146048.
+  Full INI diff:16 new controls only; every previous value retained. Hashes/CRLF
+  verified. HeadLookWheel/Note=1,NoBlurWheel=1,direction-only/circle=1,deadzone2mm,
+  distance0; tuned width0.350m/crop0.400x0.400 retained. Not headset-tested yet.
+- Current candidate identity is in build/playtest-candidates/installed.json.
+  Preserve all installed settings/CRLF; compare the entire INI and archive both logs.
+- Read only the current VR-126 refinement section in [HUD_ANCHORS](HUD_ANCHORS.md) for
+  details, evidence, failed hypotheses, validation and the single launch question.
+- Next question: with Wheel open, does turning reveal fresh world scenery beyond
+  the old FOV rectangle and return normally on release? Camera and UI-blur fixes
+  remain headset-unverified. Scope and effect diagnostics distinguish the outcomes.
+- Standalone2185 dial checks, actual GPU mask test,16 production menu lifecycle
+  checks, existing camera/FOV and HUD tests pass. No game/simulator launched.
+- No subagents, source branch deletion or new main merge. User launches only.
 
 ### Minimal next-chat prompt
 
-Continue Dishonored VR. Read AGENTS/CLAUDE then current STATUS/NEXT_SESSION. Accepted
-performance branch codex/performance-improvements has103 FOV/120% pixels/strict
-mirror-off and complete saved profile. User authorized its PR and a LOCAL combined
-PR67 test (crouched pitch), not a main merge. Inspect installed.json and current
-git branch before acting. Keep both logs archived and full INI/CRLF preserved.
-No subagents or game/simulator launches. PERFORMANCE.md holds the findings.
+Continue VR-126 on codex/hud-weapon-dial. Read AGENTS/CLAUDE, current STATUS and
+HUD_ANCHORS current refinement section; FLICKER_REFERENCE current menu-world entry
+for camera work.372 dial accepted; preserve tuned35cm width and0.4x0.4 crop. New
+candidate adds2mm direction-only selection,camera-plane orientation,circle mask,
+distance offset,and per-menu head-look/UI-blur controls. Check installed.json and
+verify log banner before analysis; archive both logs and preserve full INI/CRLF.
+User checks head turns beyond old FOV while Wheel open. Inspect menu/head and
+menu/blur; a write is not visual acceptance. No subagents or game/simulator launches.
 
 ## Performance research shelved, 2026-09-15
 

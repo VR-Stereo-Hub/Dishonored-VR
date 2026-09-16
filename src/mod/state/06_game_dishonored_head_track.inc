@@ -59,6 +59,7 @@ static volatile float g_bvYaw = 0.0f; // rendered camera yaw, game space, DELTAS
 static volatile bool  g_bvWant = true;// the present thread asks for one sample per frame
 
 struct HtSample {
+    float    position[3]{}, rawPosition[3]{}; // same locate, head-yaw axes, uu
     float    yaw, pitch, roll;     // radians, as the camera writer uses them
     float    qx, qy, qz, qw;       // the same orientation, OpenXR convention
     float    px, py, pz;           // metres, XR LOCAL space
