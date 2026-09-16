@@ -8,6 +8,9 @@ hand/weapon settling. Existing paused-render evidence plus explicit UiSurfaceBlo
 camera-writer gates support a frozen camera; the report alone does not establish
 stopped rendering. Added a distinct symptom-routing row below.
 
+Installed374 (`vr33-hands-working-374-ga51e1799f`), clean source a51e1799f.
+Archive: build/playtest-candidates/installs/20260916-010814-146048.
+
 Candidate implements menu-relative draw-scoped head look, exact sample publication
 for both eyes, guarded restoration and entry-relative physical translation. It
 preserves accepted image-owned orientation and stereo synchronization. Default-off

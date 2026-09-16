@@ -82,6 +82,16 @@ A successful write is not proof that this field reaches the visible effect. If g
 blur remains, use menu/blur observed weight/writes plus head-scope logs; do not broaden
 to global DOF, motion blur or unrelated post-process switches without evidence.
 
+### Installed refinement candidate
+
+Build374 (`vr33-hands-working-374-ga51e1799f`), clean source a51e1799f;
+build/playtest-candidates/vr126-dial-immersion. DLL SHA256
+`5ed4b0c9a840d14aae28304cff1336d791f2035d749dd7454c8638b2d3ee977a`.
+Both logs/previous DLL/INI archived in
+build/playtest-candidates/installs/20260916-010814-146048. Full INI comparison adds
+only16 new controls, preserving every old value and CRLF. HeadLookWheel/Note=1,
+NoBlurWheel=1,direction-only/circle=1,neutral2mm,distance0. No launch performed.
+
 ### Validation and next launch
 
 2185 dial math/input checks; native D3D11 WARP test of the actual HUD shader

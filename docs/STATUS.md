@@ -5,6 +5,12 @@
   Verified logs/INI archived in build/playtest-candidates/vr126-weapon-dial/accepted-tuning.
 - New work: tiny-motion direction selection, camera-parallel panel, true circular
   feathered crop, closer/farther slider, per-menu live head look and UI blur controls.
+- Installed374 (`vr33-hands-working-374-ga51e1799f`), clean source a51e1799f.
+  Candidate build/playtest-candidates/vr126-dial-immersion; both logs and previous
+  DLL/INI archived in build/playtest-candidates/installs/20260916-010814-146048.
+  Full INI diff:16 new controls only; every previous value retained. Hashes/CRLF
+  verified. HeadLookWheel/Note=1,NoBlurWheel=1,direction-only/circle=1,deadzone2mm,
+  distance0; tuned width0.350m/crop0.400x0.400 retained. Not headset-tested yet.
 - Current candidate identity is in build/playtest-candidates/installed.json.
   Preserve all installed settings/CRLF; compare the entire INI and archive both logs.
 - Read only the current VR-126 refinement section in [HUD_ANCHORS](dishonored/HUD_ANCHORS.md) for
