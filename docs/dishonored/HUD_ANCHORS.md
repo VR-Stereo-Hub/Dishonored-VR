@@ -23,6 +23,17 @@ To measure and name one more element (the eight unmeasured rows, or a new one):
 
 ## Current:385 results and transition/native-icon candidate (2026-09-16)
 
+Installed387 (`vr33-hands-working-387-g998e2ab78`), clean source998e2ab78.
+Candidate `build/playtest-candidates/vr128-menu-half-step`; both previous logs,
+DLL and INI archived at `build/playtest-candidates/installs/20260916-142216-456210`.
+Full INI diff: add PaletteEyeMenuHalfStep=1,NativeObjectiveIcons=1,
+NativeObjectiveScale=0.700; change ObjectiveScreenTracking1 to0. All other saved
+values retained, CRLF verified. DLL SHA256
+`097cd453ecc27c101854340f67b425c15bc84c699a757a6bb18b55e85bf08a5c`.
+Clean release build,9 exports, lint and listed host/GPU checks pass. Installed
+hashes verified. Game/simulator not launched; current log remains385 until launch.
+Headset validation pending. Changes remain local on codex/hud-fixes.
+
 385 banner and installed DLL hash verified. Both logs and full INI archived under
 `build/playtest-candidates/vr127-opening-hud/reported-transitions-tint`; INI unchanged.
 Pause navigation accepted. Wheel layout and readers accepted except closing flash,
