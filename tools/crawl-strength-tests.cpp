@@ -4,7 +4,7 @@
 #include <set>
 static unsigned kClassOff=0x30, g_graftOffStr=0x64, g_graftOffSTgt=0x78;
 static uint8_t* g_skcPlayer[8]; static uint32_t g_skcObjIdx[8]; static void* g_skcObjCls[8];
-static int g_skcPlayerN=3, g_skcStale=0;
+static int g_skcPlayerN=3, g_skcStale=0, g_skcCamIdx=-1; static bool g_crawlTuckCamera=false;
 struct Header {void** data; uint32_t num,cap;};
 static void* objects[16]; static Header header={objects,16,16};
 static uintptr_t kGObjHdr=(uintptr_t)&header;
@@ -20,7 +20,7 @@ static int failed=0,checks=0;
 static void check(bool ok,const char* msg){++checks;if(!ok){++failed;printf("FAIL %s\n",msg);}}
 static void reset(){
  memset(memory,0x5a,sizeof(memory));memset(objects,0,sizeof(objects));
- live.clear();refreshOk=true;refreshes=0;unreadable=nullptr;g_skcStale=0;
+ live.clear();refreshOk=true;refreshes=0;unreadable=nullptr;g_skcStale=0;g_skcCamIdx=-1;g_crawlTuckCamera=false;
  for(int i=0;i<3;++i){g_skcPlayer[i]=memory[i];g_skcObjIdx[i]=i+1;
  g_skcObjCls[i]=(void*)0x12340000;*(void**)(memory[i]+kClassOff)=g_skcObjCls[i];objects[i+1]=memory[i];}
 }
@@ -45,6 +45,15 @@ int main(int argc,char**){
  check(legacy || memcmp(saved,memory,sizeof(memory))==0,"failed fresh table prevents all writes");
  reset();unreadable=memory[0]+0x78;memcpy(saved,memory,sizeof(memory));apply(0);
  check(legacy || memcmp(saved,memory[0],256)==0,"second field unreadable prevents partial write");
+ // VR-122: the camera's look-at control is not released with the hands.
+ reset();g_skcCamIdx=0;memcpy(saved,memory,sizeof(memory));apply(0);
+ check(legacy || memcmp(saved,memory[0],256)==0,"camera control left alone on tuck");
+ check(val(1,0x64)==0 && val(2,0x64)==0 && val(1,0x78)==0 && val(2,0x78)==0,"hand controls still released with a camera slot present");
+ {float z=0.0f;memcpy(memory[0]+0x64,&z,4);memcpy(memory[0]+0x78,&z,4);}apply(1);
+ check(val(0,0x64)==1 && val(0,0x78)==1,"a release restores a camera an earlier tuck zeroed");
+ reset();g_skcCamIdx=0;g_crawlTuckCamera=true;apply(0);
+ check(val(0,0x64)==0 && val(0,0x78)==0,"CrawlTuckCamera=1 releases the camera control (the old behaviour)");
+ reset();g_skcCamIdx=-1;apply(0);for(int i=0;i<3;++i)check(val(i,0x64)==0,"no camera slot: every control released");
  printf("crawl strength %s: %d checks, %d failures\n",legacy?"legacy":"current",checks,failed);
  return failed ? 1 : 0;
 }

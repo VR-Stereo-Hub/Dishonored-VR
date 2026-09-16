@@ -1,3 +1,89 @@
+## Current state: crouched pitch measured, owned and fixed on the simulator (VR-122), PR open, headset next - 2026-09-16
+
+Branch `claude/vr-122-crouch-pitch` off VR-Main 18ae4ebd. NOT merged. Never merge without
+permission.
+
+**The report**: on this PC (Quest 3 / VirtualDesktopXR, 90 Hz) the view was right everywhere
+except crouched while pitching the head, where the world appeared to move with the head; the
+other machine had judged crouched pitching fixed (VR-78).
+
+**Step one, the machines**: this PC's installed ini differs from `release/dishonored_vr.ini`
+in three `[Hud]` keys only; every `[Neck]`, `[PosTrack]`, `[Hands] Crouch*`, `[Pace]` and
+`[Mode]` key is the release value, and the run resolved them so (`Mode=cancel 0.321/0.062`,
+`CrouchPivot 0/0`, `ZAccount=1`, VDXR 90.0 Hz, 2750x2850). The setting diff is empty. The
+other machine's ini and log are not on this PC; its resolved values are on the ticket from
+the VR-78 / VR-87 / VR-106 record.
+
+**The measurement** (this PC's headset log, then the simulator on the Hound Pits save):
+crouched, the head pitched to -35 deg while the camera's basis stayed within -20..+2 deg
+and no DOWN/UP bucket ever filled; standing, head -29.4 / camera -29.7. On the simulator
+the crouched capture at head -30 deg differed from level by 3.7 mean-abs (standing: 64):
+the crouched render does not pitch at all. Live A/B: `neck off` 2.6, `cinehead off` 1.8,
+`cinepitch off` no change, **`hands off` 63.2**; with the tuck already engaged, `hands off`
+3.6. The owner is the crawl tuck (38.19): on every crouch it wrote `ControlStrength=0` to
+three player look-at controls and slot 0 is `LookAtControl_Camera`, the camera's own bone
+control (`hands/crawl-strength: 0.0, wrote 3 validated controls` on every crouch of the
+headset run too).
+
+**The fix**: `[Hands] CrawlTuckCamera=0` (ships; `1` is the old behaviour; `hands tuckcam
+on|off` live, applied at once while tucked; `status.json` `tuckCamera`/`tucked`): the tuck
+releases the two hand controls and leaves the camera's alone, and a release still restores
+all three. A second finding on the way: with its control kept, the crouched camera pitches
+about the STANDING neck (fitted 0.291/0.052 m, rms 0.5 uu); VR-78's "no crouched arc" was
+measured on the camera the tuck had zeroed. So the crouched keys (`[Neck] CrouchPivot*`)
+now apply only while the tuck has released the camera control; otherwise a crouch keeps the
+standing pivot whatever an older ini says, and the stance line names which and why.
+Simulator, fixed build 294: crouched DOWN residual up +0.02 / fwd -1.46 uu, UP +0.02 /
++1.72 (standing on the same run: -0.03 / -1.46, -0.03 / +1.73); captures crouched -30 deg
+vs level 62.9 (lever off), 4.7 (on), 62.9 (off again). Host: `crawl-strength-host.ps1` 20
+checks (the 3 legacy-mode failures are the VR-96 ones). Lint clean, exports 9/9, golden
+ini regenerated and copied to `release/`.
+
+**Why the machines differ is not closed** from this side: both inis lack `CrawlTuck`, both
+logs show the tuck writing three controls, and the other machine's crouched buckets (VR-78)
+filled with the base not moving, which is a camera that still pitched with its look-at
+control at 0. Candidates on the ticket, in order: an older ini carrying `CrawlTuck=0` (the
+2026-09-02 tester profile did), the camera slot not latched on that run, or a game option
+that decides whether the camera reads its rotation from the bone. The new config line and
+the named crawl-strength line answer the first two from a log.
+
+**This PC now**: the fixed RelWithDebInfo build 294 (d3d9.dll SHA256 starting 5EE94F42 was
+the first fix build; the installed one is the rebuild of 03:43) with this PC's own ini
+restored (SHA256 starting 3F7ED0A6, the HUD keys intact; the new keys absent, so the fixed
+defaults apply). Logs: `D:\dvr-data\logs\vr122-sim-run5-measured-before-fix-*.log`,
+`vr122-sim-run6-fix1-tuckcam-*.log`, `vr122-sim-run7-fix2-standing-pivot-*.log`, and the
+headset run it started from, `headset-run-2026-09-15-crouch-pitch\`.
+
+One trap on the way, recorded in TRAPS: the console-opened sewer level's "press any key"
+board never took a key on this build (four launches, every input path); the saved-game
+Continue route reached gameplay in one try, twice.
+
+## Next steps
+
+1. Headset, this PC (build 294 installed, own ini): crouch with the button, pitch about 30
+   deg down and up with the head held at one height. Expected: the world holds still as it
+   does standing. The A/B that would disprove it: `hands tuckcam on` (the old behaviour:
+   the view goes level again at once); `hands tuckcam off` brings it back. Then walk, run,
+   turn crouched and stand up: the hands must still tuck on a crouch and come back on the
+   stand (`hands: TUCKED` / `hands: back` with `wrote 2` / `wrote 3`). Copy the log out.
+2. The other developer, the same probe on their machine (numbered steps on VR-122): the
+   `config: [Hands] CrawlTuck=..` line and one crouch's `hands/crawl-strength` line answer
+   whether their run had the camera control released; then the crouched DOWN/UP rows with
+   the fixed build, expected to match this PC's table.
+3. If both tables agree, the ticket closes with the merge (the user's call); if the other
+   machine's crouched camera still pitches with the control at 0, that is the open question
+   named on the ticket (a game option or a latch difference), and it gets its own ticket.
+4. VR-87 (the eye ceiling's 5 uu trim in both stances) is unchanged and still open.
+
+Session log 2026-09-16: VR-122 created; the ini diff (empty) and the headset log's
+crouched buckets read; four stuck launches on the console route, the Continue route found;
+the fault reproduced and owned on the simulator by live A/B; the tuck's camera write
+found; the fix, the host test, the config lines; the crouched neck re-measured with the
+control kept (the standing neck) and the crouched pivot rule made to follow the control;
+ENGINE_NOTES, TRAPS, the ticket, the PR.
+
+## Earlier records
+
 ## Performance research shelved, 2026-09-15
 
 No performance investigation or playtest is pending. Unfinished performance tickets
@@ -92,7 +178,6 @@ transform, the shader-read columns, the clusters); the alpha capture; the elemen
 table with six anchors and two hands; seven simulator runs on this PC, six
 sequences green; the PR stacked on `claude/vr-117-hud-redo`.
 
-## Earlier records
 
 ## Current state: the HUD on its anchors (VR-117), headset-confirmed, PR #63 ready for review - 2026-09-15
 

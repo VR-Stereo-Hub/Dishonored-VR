@@ -265,7 +265,8 @@ static float g_neckCrouchBelowM  = 0.0f;
 static float g_neckCrouchBehindM = 0.0f;
 static float g_neckStanceBlendMs = 150.0f;   // NOT measured: the ease between the two pivots on a stance change
 static float g_neckStanceW       = 0.0f;     // 0 standing pivot .. 1 crouched pivot, eased
-static int   g_neckStanceTarget  = 0;
+static int   g_neckStanceTarget  = 0;       // the PIVOT selected: 1 = the crouched keys
+static int   g_neckStanceCapsule = 0;       // VR-122: the CAPSULE's stance (1 = plain crouch), for the ledger and the log
 static float g_neckEffBelowM = 0.321f, g_neckEffBehindM = 0.062f;   // the pivot the last arc used
 // 38.46 ROOMSCALE. Positional tracking was LEAN only: your real-world offset
 // slid the CAMERA, clamped to MaxMeters, and the pawn never moved - so every

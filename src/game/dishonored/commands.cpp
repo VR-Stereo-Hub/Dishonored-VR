@@ -82,6 +82,15 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "arms")) { if (ArmFollowCommand(args)) return true;
         Log("arms: usage - arms [probe|status|yawtest]  (read-only; it also reports itself every 30 s)");
         return true; }
+    // VR-122: the camera half of the crouched tuck, live (`hands tuckcam on|off`).
+    if (!strcmp(cmd, "hands") && !strncmp(args, "tuckcam", 7)) {
+        const char* v = args + 7;
+        while (*v == ' ') ++v;
+        if (DvrOnOff(v, &b)) SkcTuckCameraSet(b, "seam");
+        else Log("hands: tuckcam on|off (now %s, tucked=%d, camera slot %d)",
+                 g_crawlTuckCamera ? "ON" : "off", (int)g_skcTucked, g_skcCamIdx);
+        return true;
+    }
     if (!strcmp(cmd, "hands") && DvrOnOff(args, &b)) {
         g_skcDrive = b; g_handMesh = b; g_autoHandDone = true;
         Log("hands: %s (seam)", b ? "ON" : "off");
@@ -614,6 +623,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("features");
     w.kv("gamepadOnly", (bool)g_gamepadOnly);   // 40.3: names the OWNER of the zeroes below
     w.kv("hands", (bool)g_skcDrive); w.kv("handMesh", (bool)g_handMesh); w.kv("handModels", (bool)g_hmEnable);
+    w.kv("tuckCamera", (bool)g_crawlTuckCamera); w.kv("tucked", (bool)g_skcTucked);   // VR-122
     // 41.2 (VR-31): the drawn hands' own liveness. handModels alone cannot say
     // whether anything reached the screen - handModelTris is what does.
     w.kv("handModelTris", (int)g_hmTris); w.kv("handModelWhy", HmWhy(g_hmLastWhy));

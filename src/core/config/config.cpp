@@ -504,6 +504,10 @@ static void WriteDefaultIni(const char* ini)
         "Mode=cancel\n"
         "PivotBelowM=0.321\n"
         "PivotBehindM=0.062\n"
+        "; The crouched keys (VR-78) describe the crouched camera with its look-at control\n"
+        "; RELEASED by the crawl tuck ([Hands] CrawlTuckCamera=1). With the control kept, the\n"
+        "; default since VR-122, the engine's crouched neck is the standing one and the standing\n"
+        "; pivot applies whatever these say; they are kept for the A/B.\n"
         "CrouchPivotBelowM=0\n"
         "CrouchPivotBehindM=0\n"
         "RollArc=0\n"
@@ -742,6 +746,14 @@ static void WriteDefaultIni(const char* ini)
         "BlockOffRRight=0.0\n"
         "BlockOffRUp=0.0\n"
         "BlockTrim=1\n"
+        "; VR-122: a crouch (capsule below 76 uu) releases the HAND look-at controls so the\n"
+        "; game's crouch animation takes the arms back (CrawlTuck=1). It used to release the\n"
+        "; CAMERA's look-at control too, and that control is what pitches the rendered view\n"
+        "; with the head: crouched, the view stayed level while the head pitched (measured on\n"
+        "; the simulator and in a headset, 2026-09-16). CrawlTuckCamera=0 leaves the camera\n"
+        "; control alone; 1 is the old behaviour. `hands tuckcam on|off` switches it live.\n"
+        "CrawlTuck=1\n"
+        "CrawlTuckCamera=0\n"
         "CrouchSource=3\n"
         "CrouchDropUU=20\n"
         "CrouchHoldMs=250\n"
@@ -1309,7 +1321,9 @@ static void LoadConfig()
             g_neckCrouchBelowM, g_neckCrouchBehindM, g_neckStanceBlendMs, cbHave ? "from the ini" : "absent, compiled default",
             g_neckCrouchBelowM < 0.0f && g_neckCrouchBehindM < 0.0f
                 ? "-1 = the standing pivot while crouched: the pre-VR-78 behaviour"
-                : "plain crouch uses its own pivot; slides and vents keep the standing one");
+                : "plain crouch uses its own pivot ONLY while the crawl tuck has released the camera's look-at control "
+                  "([Hands] CrawlTuckCamera=1, the camera VR-78 measured); with the control kept the engine's crouched "
+                  "neck is the standing one and the standing pivot applies (VR-122). Slides and vents keep the standing one");
         Log("config: [Neck] RollArc=%d - the arc is built from a %s frame. Roll in the "
             "arc measured 17 to 19 uu of INVERTED lateral camera motion at 30 deg of "
             "roll (VR-91); the real lateral swing a roll produces is already in the "
@@ -1785,6 +1799,20 @@ static void LoadConfig()
     }
     g_skcBlockTrimOn = IniFloat(ini, "Hands", "BlockTrim", 1) != 0.0f;
     g_crawlTuckCfg   = IniFloat(ini, "Hands", "CrawlTuck", 1) != 0.0f;  // 38.19
+    {
+        // VR-122: both halves of the crouched tuck, resolved and logged with where
+        // each came from (TRAPS section 1: an ini key that exists beats the default).
+        const int tuckKey = GetPrivateProfileIntA("Hands", "CrawlTuck", -1, ini);
+        const int camKey  = GetPrivateProfileIntA("Hands", "CrawlTuckCamera", -1, ini);
+        g_crawlTuckCamera = camKey > 0;
+        Log("config: [Hands] CrawlTuck=%d (%s) CrawlTuckCamera=%d (%s) - a crouch (capsule below 76 uu) "
+            "releases the hand look-at controls to the game's animation; the camera's look-at control is %s. "
+            "VR-122: releasing it too held the crouched view level while the head pitched. `hands tuckcam on|off` "
+            "is the live A/B; the tuck edge logs `hands/crawl-strength` with what it did to LookAtControl_Camera.",
+            (int)g_crawlTuckCfg, tuckKey < 0 ? "absent from the ini, the built-in default" : "from the ini",
+            (int)g_crawlTuckCamera, camKey < 0 ? "absent from the ini, the built-in default" : "from the ini",
+            g_crawlTuckCamera ? "RELEASED too (the pre-VR-122 behaviour)" : "left alone");
+    }
     g_slideAssist    = IniFloat(ini, "Input", "SlideAssist", 1) != 0.0f; // 38.22
     // First-fault evidence is enabled in the explicitly requested tested profile.
     // Set Diagnostics/GcFaultDump=0 to disable full-memory capture.
@@ -3172,6 +3200,8 @@ static void OverlaySaveDefaults()
             }
         WritePrivateProfileStringA("Hands", "BlockTrim",
                                    g_skcBlockTrimOn ? "1" : "0", ini);
+        WritePrivateProfileStringA("Hands", "CrawlTuckCamera",           // VR-122
+                                   g_crawlTuckCamera ? "1" : "0", ini);
         _snprintf(v, 64, "%d", g_crouchSrc);
         WritePrivateProfileStringA("Hands", "CrouchSource", v, ini);
         _snprintf(v, 64, "%.0f", g_eyeDropUU);

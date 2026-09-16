@@ -1431,19 +1431,29 @@ static void TrackHead(const float (*m)[4])
                 const float cb = g_neckCrouchBelowM >= 0.0f ? g_neckCrouchBelowM : g_neckBelowM;
                 const float cf = g_neckCrouchBehindM >= 0.0f ? g_neckCrouchBehindM : g_neckBehindM;
                 const float ch = PawnCollisionHeight();
-                int target = g_neckStanceTarget;            // an unreadable capsule holds the last stance
-                if (ch > 76.0f) target = 0;
-                else if (ch > 50.0f) target = 1;
-                else if (ch > 0.0f) target = 0;
-                if (target != g_neckStanceTarget) {
-                    g_neckStanceTarget = target;
-                    dvr::stereo::reentry_ledger_stance(target ? 2 : 1);   // VR-80: the ring ledger's stance column
+                int crouched = g_neckStanceCapsule;         // an unreadable capsule holds the last stance
+                if (ch > 76.0f) crouched = 0;
+                else if (ch > 50.0f) crouched = 1;
+                else if (ch > 0.0f) crouched = 0;
+                // VR-122: the engine's crouched camera pitches about the STANDING neck for
+                // as long as its look-at control keeps its strength (fitted 0.291/0.052 m
+                // crouched against 0.292/0.052 m standing, rms 0.5 uu, simulator 2026-09-16).
+                // VR-78 measured "no crouched arc" while the crawl tuck had zeroed that
+                // control, so the crouched keys describe THAT camera and apply only while
+                // the tuck has released it ([Hands] CrawlTuckCamera=1). Otherwise a crouch
+                // keeps the standing pivot, whatever an older ini says in CrouchPivot*.
+                const bool camReleased = g_skcTucked && g_crawlTuckCamera;
+                const int target = (crouched && camReleased) ? 1 : 0;
+                if (target != g_neckStanceTarget || crouched != g_neckStanceCapsule) {
+                    g_neckStanceTarget = target; g_neckStanceCapsule = crouched;
+                    dvr::stereo::reentry_ledger_stance(crouched ? 2 : 1);   // VR-80: the ring ledger's stance column
                     Log("neck: stance -> %s (capsule %.1f uu): easing the pivot to below %.3f m behind %.3f m over ~%.0f ms "
-                        "(%s)", target ? "CROUCHED" : "standing", ch, target ? cb : g_neckBelowM, target ? cf : g_neckBehindM,
+                        "(%s)", crouched ? "CROUCHED" : "standing", ch, target ? cb : g_neckBelowM, target ? cf : g_neckBehindM,
                         g_neckStanceBlendMs,
-                        target ? "the engine's crouched pivot, [Neck] CrouchPivot*"
-                               : ch > 50.0f || ch <= 0.0f ? "the standing pivot"
-                                                          : "not a plain crouch: slide or vent, unmeasured, so the standing pivot");
+                        target ? "the crouched keys, [Neck] CrouchPivot*: the tuck released the camera's look-at control (CrawlTuckCamera=1)"
+                        : crouched ? "the standing pivot: the camera's look-at control is kept, and the engine's crouched neck is the standing one (VR-122)"
+                        : ch > 50.0f || ch <= 0.0f ? "the standing pivot"
+                                                   : "not a plain crouch: slide or vent, unmeasured, so the standing pivot");
                 }
                 static double neckLastMs = 0.0;
                 const double nowMs = MaimNowMs();

@@ -6716,3 +6716,93 @@ entry and reports changes. A stack-local invocation retains the receiver only
 for the duration of the original call to match its child, then is discarded.
 No UObject write, delayed dereference, COM reference or menu-retained identity
 is introduced. Nested timing is a subset of InitViews time, never additive.
+## Crouched pitch on two machines: the crawl tuck was switching the camera's own bone control off (VR-122, 2026-09-16)
+
+**The report.** On one machine (Quest 3 through VirtualDesktopXR, 90 Hz) the camera was
+judged right standing, walking, in cinematics and crouched while turning, but crouched and
+pitching the head the world appeared to move with the head. The other machine had judged
+crouched pitching fixed (VR-78). Step one was the inis and the logs, not the code (TRAPS
+section 1): the reporting machine's installed ini differed from `release/dishonored_vr.ini`
+in three `[Hud]` keys only; every `[Neck]`, `[PosTrack]`, `[Hands] Crouch*`, `[Pace]` and
+`[Mode]` key was the release value, and the run resolved `Mode=cancel 0.321/0.062`,
+`CrouchPivot 0.000/0.000`, `ZAccount=1`, VDXR at 90.0 Hz, 2750x2850. So the setting
+diff was empty, and the answer had to come from a measurement.
+
+**What the reporting machine's own log already said.** In its crouched episodes the
+accounting probe never filled a DOWN or UP bucket: the engine-pivot fit covered CAMERA
+pitch -20..+2 deg while the head pitched to -35 deg (the `headtrack:` line wrote -48.8 deg
+of view pitch from a -48.8 deg head), and the crouched LEVEL bucket averaged head -8.9 deg
+against camera -0.2 deg. Standing on the same run the DOWN bucket filled at head -29.4 /
+camera -29.7 deg. The written view pitch reached the controller (the engine handed it back
+next dispatch) but the camera's basis rows (`kCamFwd`) did not follow it while crouched.
+
+**Reproduced on the simulator** (button crouch through the pad bridge, `head rot 0 -30 0`
+held 7 s, the Hound Pits save), the same build and the release ini:
+
+| stance | bucket | head / camera pitch | accepted | residual up / fwd (uu) | notes |
+|---|---|---|---|---|---|
+| standing | DOWN | -30.0 / -30.2 | 415 per eye | -0.03 / -1.46 | base -7.12, neck +7.99: the standing cancel is right |
+| standing | UP | +30.0 / +29.8 | 392 per eye | -0.03 / +1.72 | |
+| crouched | DOWN | (none) | 0 | | every pitched sample was "settling" (under 500 ms) |
+| crouched | LEVEL | +0.2 / -0.2 | 1520 per eye | +50.51 / +5.19 | the reference; 3040 of 3040 accepted samples landed here |
+| crouched | UP | (none) | 0 | | |
+
+The picture said the same: `xrsim-shot` at head -30 deg differed from the level capture by
+mean-abs 64.2 standing and **3.7 crouched** (early and late in the hold), i.e. the crouched
+render did not pitch at all. Under a projection layer the compositor then shows a level
+image at a pitched pose, which is the report's "the world moves with the head".
+
+**The owner, by live A/B** (each: crouch, pitch -30 deg, capture, diff against crouched
+level): `neck off` 2.6, `cinehead off` 1.8, `cinepitch off` no bucket change, **`hands off`
+63.2** (the view pitched). Then, with the tuck already engaged: `hands off` 3.6 (still
+level), so it is not a per-frame effect but a write that persists. The write is the crawl
+tuck (38.19/38.20, `SkcSetCrawlStrength`): on every crouch it wrote `ControlStrength=0` to
+the three player look-at controls, and slot 0 is `LookAtControl_Camera` (the log:
+`skc: >>> PLAYER control #0 ControlName='LookAtControl_Camera'`, then
+`hands/crawl-strength: 0.0, wrote 3 validated controls`), the control this file already
+records as the camera's own bone control (VR-30: "do not zero it"). With it at 0 the camera
+bone rests in the crouch animation's pose, level, whatever the controller's pitch says.
+The headset run's log carries the identical `wrote 3 validated controls` line on every
+crouch (9 episodes).
+
+**The fix** (`[Hands] CrawlTuckCamera=0`, shipped; `hands tuckcam on|off` live; `1` is the
+old behaviour): the tuck releases the two HAND controls and leaves the camera's alone; a
+release (1.0) still reaches all three so a camera an earlier tuck zeroed comes back. On the
+same simulator session, crouched at -30 deg: DOWN filled (754 per eye, head -30.0 / camera
+-30.2), UP filled (409 per eye, +30.0 / +29.8); the captures: crouched -30 deg vs level
+**62.9** with the lever off, **4.7** with `hands tuckcam on` (applied at once while tucked),
+62.9 again with it off.
+
+**The second finding, which corrects VR-78.** With its look-at control kept, the crouched
+camera pitches about the SAME neck as standing: the probe fitted 0.291 m below / 0.052 m
+behind crouched (rms 0.5 uu, 3304 samples) against 0.292 / 0.052 standing on the same run,
+and the crouched DOWN row read base -7.03 uu, cap +4.97, forward residual +14.94 with the
+crouched pivot at 0/0 (UP: -16.51). VR-78's "crouched, the engine has no neck arc" was
+measured on a camera whose look-at control the tuck had just zeroed: it described that
+camera truthfully, and 0/0 is the right pivot for it. So the crouched keys now apply only
+while the tuck has released the camera control (`CrawlTuckCamera=1`); otherwise a crouch
+keeps the standing pivot whatever an older ini's `CrouchPivot*` says, and the stance line
+names which and why. Crouched at -30 deg with the standing pivot: residual up
++0.02 / fwd -1.46 uu; at +30 deg +0.02 /
++1.72 (standing on the same run: -0.03 / -1.46 and -0.03 / +1.72).
+
+**Why the two machines differed** cannot be closed from this side, and the ticket says so.
+Both machines' inis lack `CrawlTuck` (compiled default 1) and both logs show the tuck
+writing 0 into three controls; the other machine's crouched buckets (VR-78, camera-pitch
+buckets by construction, the probe never bucketed by head pitch) filled at -33/+32 deg
+with the base not moving, which is a camera that still pitched with its look-at control at
+0. The candidates, in order: an older ini that still carries `CrawlTuck=0` (the tester's
+2026-09-02 profile did, `tests/golden/f10-tuned-2026-09-02.ini`, and the key is never
+rewritten); the player-control latch not having matched the camera slot on that run (the
+33.3 note: after a checkpoint restore the name chain fails and the pointer match needs the
+component list populated); or a game option that decides whether the camera reads its
+rotation from the bone. The new `config: [Hands] CrawlTuck=.. CrawlTuckCamera=..` line and
+the `hands/crawl-strength ... | LookAtControl_Camera ...` line answer the first two from a
+log alone; the third is the open question and the other machine's next run answers it.
+
+**Not the cause** (each with the counterprediction that killed it): the crouched neck term
+(it already read 0/0 and `neck off` changed nothing: 2.6); the eye ceiling (the cap trims
+about 5 uu in BOTH stances on both machines, the VR-87 residual, and the crouched
+episodes clipped 0 presents); the cinematic pitch and head-look scopes (`cinepitch off`,
+`cinehead off`: no change); the game's own crouched pitch limits (with `hands off` the
+crouched camera pitched to the written -30 deg).

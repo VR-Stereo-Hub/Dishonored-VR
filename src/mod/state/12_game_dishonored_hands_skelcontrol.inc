@@ -384,6 +384,14 @@ static bool     g_skcRemoveMeshRot = false;
 static float    g_skcCamStrength = 1.0f;   // LookAtControl_Camera: 1 stock, 0 off
 static float    g_skcHandCtlStr[2] = { 1.0f, 1.0f };
 static int      g_skcCamIdx = -1;
+// VR-122: the crouched tuck (38.19) releases the HAND look-at controls so the
+// game's own crouch animation takes the arms back. It used to release the
+// CAMERA's look-at control with them, and that control is what pitches the
+// rendered view with the controller: crouched, the view stayed level while the
+// head pitched (measured on the simulator and in a headset, 2026-09-16).
+// CrawlTuckCamera=1 is the old behaviour; `hands tuckcam on|off` is the live A/B.
+static bool     g_crawlTuckCamera = false;
+static bool     g_skcTucked = false;       // the crawl tuck is engaged (hand controls released)
 // ---- 32.4: the probe was the freeze -----------------------------------------
 // The auto-probe walks all ~103,000 UObjects calling ObjClassName on each, and
 // it re-armed every 3 s for as long as no controls were found - which is the
