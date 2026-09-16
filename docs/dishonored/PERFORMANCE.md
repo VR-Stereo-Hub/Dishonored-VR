@@ -374,6 +374,28 @@ FPS gain. New stalls/eye instability rejects it. Remaining actual calls require
 matching session state and logged parameter/query/context refusal before broadening
 the guard. Pair pacing and its benchmark stay off throughout this test.
 
+## Accepted profile and publication (2026-09-15)
+
+User accepted363 strict mirror suppression and reports it may feel better. Verified
+363 DLL/banner and archived both logs, INI and exact DLL in
+`build/performance-results/strict-mirror-accepted-20260915-235444`. All621 logged
+strict-mode windows have actual=0 desktop Presents. This confirms suppression;
+subjective improvement is not a controlled FPS measurement.
+
+At explicit request the complete saved machine INI is promoted byte-for-byte to
+release/golden and the generated default writer, including HUD anchors/placements,
+alpha gain/gamma, hand trim, crouch hold mode and existing diagnostic flags. Strict
+mirror-off is now a compiled/missing-key default as well. FOV103,120% total pixels
+3012x3122, mirror-off and strict-off enabled, pair pacing and benchmarks off.
+Existing explicit INI settings still override defaults. New profiles reproduce the
+accepted saved settings; the promotion does not add new HUD rendering behavior.
+
+Branch renamed `codex/performance-improvements`; publication explicitly authorized.
+Performance PR targets VR-Main and remains unmerged. PR67's crouched pitch fix will
+be combined LOCALLY on a separate playtest branch, preserving this accepted profile;
+its author branch and both GitHub PRs remain unmerged. Local integration is a test
+of the combination, not a claim that the exact standalone PR67 head was tested.
+
 ## Results and routes
 
 Numbers below come from different matched workloads. They must not be combined into

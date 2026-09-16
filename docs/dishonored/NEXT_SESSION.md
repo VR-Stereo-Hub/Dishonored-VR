@@ -1,39 +1,29 @@
-## Current handoff: strict mirror-off trial (VR-50), 2026-09-15
+## Current handoff: accepted performance profile, PR preparation
 
-- Branch `codex/hud-fixes`; local commits newer than origin. Publication awaits
-  explicit approval after earlier automatic review. No main merge authorized.
-- Installed363 (`vr33-hands-working-363-g2714e9b73-dirty`), candidate
-  build/playtest-candidates/vr50-strict-mirror-off.103 FOV,120% pixels3012x3122,
-  DesktopMirrorOff=1, new DesktopMirrorStrictOff=1, DesktopAb=0, SyncHz=0.
--362 pacing trial completed at66 Hz: fresh pairs/s73.77/63.37/96.58; p95
-  22.319/20.490/16.104 ms;1645 real gate delays. Baselines drifted; no repeatable
-  smoothness benefit proven. User reports laggier feel. Pacing not promoted.
-- Residual desktop updates were real Present fallbacks on capture gaps. Strict
-  option skips them even without a fresh capture/callback while XR is begun.
-  Stopped XR, unsupported parameters or failed GPU submit still falls back.
-  Existing submit flush, ownership fences, image orientation and eye tags preserved.
-- One launch question: desktop stays frozen in hub while headset remains normal?
-  Read next verified banner and inspect strictSkips/actual/nonOK plus session states.
-  Healthy running windows should have actual=0. No new game/simulator launch by agent.
-- Native host240 GPU marker/pixel checks pass, including no callback/fresh capture;
-  strict-off negative control and stopped-session/error/reset paths pass. Build,
-  exports, golden INIs and lint pass. Installed hashes and INI CRLF verified.
-- Both prior logs/files archived at build/playtest-candidates/installs/20260915-231719-701999.
-  Full INI diff only DesktopAb3->0 and new DesktopMirrorStrictOff=1. Repo strict
-  default remains0 pending acceptance. All other existing settings preserved.
-- Details: PERFORMANCE.md, Pacing result and strict mirror-off trial. No subagents,
-  game/simulator launches, branch deletion or main merge. Archive both logs each run.
+- Branch `codex/performance-improvements` (renamed at user request). Publishing a
+  PR is authorized; merging to VR-Main is not. Preserve finalized/source branches.
+-363 strict mirror-off accepted. Verified DLL/log;621 strict-mode windows with zero
+  native desktop Presents. Evidence: build/performance-results/strict-mirror-accepted-20260915-235444.
+  Possible subjective improvement; no new controlled FPS percentage claimed.
+- Complete installed INI promoted to release/golden and generated defaults:103 FOV,
+ 120% pixels3012x3122, mirror off+strict off, pacing/benchmark off, saved HUD/hand/
+  crouch settings and existing diagnostic flags. Both INI defaults match exactly.
+- User requests PR67 test next and explicitly chose a local combination with the
+  performance branch. PR67 fixes crouched head pitch by keeping camera look-at out
+  of the hand tuck. Build/install combination on separate codex/pr-67-playtest;
+  do not modify its author branch or merge either PR on GitHub.
+- PERFORMANCE.md is the sole performance record. One crouch/pitch question per
+  launch after setup; user launches only. Archive both logs, full-diff INI and CRLF.
+  No subagents, game/simulator launches or main merge.
 
 ### Minimal next-chat prompt
 
-Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS/CLAUDE and
-current STATUS/NEXT_SESSION; PERFORMANCE.md's Pacing result and strict mirror-off
-trial has exact evidence. Installed363:103 FOV,120% pixels, mirror off plus new
-DesktopMirrorStrictOff=1. Pacing/benchmark off. User launches; verify/archive both
-logs and check actual=0 in healthy running-XR windows plus headset observation.
-Strict mode suppresses missing capture/callback desktop refresh; retains GPU submit
-and stopped-XR/error fallback. Preserve accepted stereo/image ownership. No subagents,
-game/simulator launches or merge. Publication still awaits explicit approval.
+Continue Dishonored VR. Read AGENTS/CLAUDE then current STATUS/NEXT_SESSION. Accepted
+performance branch codex/performance-improvements has103 FOV/120% pixels/strict
+mirror-off and complete saved profile. User authorized its PR and a LOCAL combined
+PR67 test (crouched pitch), not a main merge. Inspect installed.json and current
+git branch before acting. Keep both logs archived and full INI/CRLF preserved.
+No subagents or game/simulator launches. PERFORMANCE.md holds the findings.
 
 ## Performance research shelved, 2026-09-15
 

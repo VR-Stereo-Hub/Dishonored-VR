@@ -710,7 +710,7 @@ static void OverlayFrame()
         ImGui::TextDisabled("Freezes the desktop image while VR is active; headset keeps rendering.");
         bool strictOff = dvr::desktop_eye::strict_off();
         ImGui::BeginDisabled(!mirrorOff);
-        if (ImGui::Checkbox("Keep desktop frozen across VR frame gaps (test)", &strictOff)) {
+        if (ImGui::Checkbox("Keep desktop frozen across VR frame gaps", &strictOff)) {
             dvr::desktop_eye::set_strict_off(strictOff);
             ConfigWriteKey("VR", "DesktopMirrorStrictOff", strictOff ? "1" : "0", "F10 Display");
         }

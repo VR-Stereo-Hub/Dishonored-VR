@@ -1,5 +1,20 @@
 ## Unreleased
 
+### Performance and accepted profile
+
+- Scoped gameplay FOV defaults to103 degrees. F10 offers live FOV adjustment and
+  aspect-preserving total-pixel resolution scaling with an explicit live Set button.
+  Resolution defaults to120% (3012x3122 per eye).
+- Desktop mirror defaults off, including capture-gap refresh during a running XR
+  session. Graphics-error/stopped-session fallback remains. Strict mode was accepted
+  in headset testing with zero desktop Presents across621 recorded windows.
+- The complete accepted saved HUD/hand/crouch profile is now the generated and
+  packaged INI default, including its existing diagnostic settings. Pair pacing
+  and automatic benchmarks remain off. Earlier all-window HUD defaults below are
+  historical and superseded by this profile.
+- Fixed an idle F10 Display control overwriting the automatic FOV target and causing
+  repeated projection-scale changes. Research and failed routes are in PERFORMANCE.md.
+
 ### Added
 
 - **A real alpha for the HUD quads (VR-119).** The quads' transparency can now come

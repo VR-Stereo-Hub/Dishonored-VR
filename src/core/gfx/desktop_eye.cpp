@@ -17,7 +17,7 @@ D3DFORMAT g_fmt = D3DFMT_UNKNOWN;
 bool g_on = true, g_refused = false;
 bool g_reduce = false, g_callbackPending = false;
 bool g_mirrorOff = true, g_submitRefused = false;
-bool g_strictOff = false; // Opt-in: no desktop refresh for capture/callback gaps in a running XR session.
+bool g_strictOff = true; // Headset-accepted: no desktop refresh for capture/callback gaps in a running XR session.
 IDirect3DQuery9* g_submitQuery = nullptr;
 int g_callbackTag = 0;
 uint32_t g_leftPresented = 0;

@@ -2297,3 +2297,12 @@ Full metrics and preserved logs are indexed in PERFORMANCE_ROLLOUT.md.
 6. **Open:** headset acceptance and actual=0 in healthy running-XR windows. Full
    evidence, build hashes via manifest, archived INI and one launch question are
    maintained in PERFORMANCE.md, Pacing result and strict mirror-off trial.
+
+### Strict mirror-off accepted and defaults promoted (2026-09-15)
+
+The363 headset result accepts complete desktop suppression with normal VR behavior;
+621 logged strict windows have actual=0. The full saved profile is promoted at user
+request, with strict suppression enabled and pacing off. Performance improvement
+remains subjective. Exact acceptance identity/archive and promotion scope are in
+PERFORMANCE.md, Accepted profile and publication. Earlier strict-default0 and pending
+headset entries are historical. Accepted image-owned orientation remains unchanged.

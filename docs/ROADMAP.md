@@ -15,7 +15,9 @@
 - [x] Build/install automatic mirror-off pair-pacing A/B/A;26 host checks pass.
 - [x]362 pacing result recorded; baseline drift and laggier report; benchmark disarmed.
 - [x] Build/install strict mirror-off candidate363 with native GPU host validation.
-- [ ]363 headset/log acceptance: zero desktop updates across capture gaps.
+- [x]363 headset accepted;621 strict windows have zero desktop Presents.
+- [x] Promote complete saved profile and rename performance improvements branch.
+- [ ] Open performance PR; prepare local combined PR67 crouched-pitch playtest.
 
 ## Performance research shelved (2026-09-15)
 
