@@ -1,5 +1,8 @@
 #define DVR_CAT ::dvr::log::Cat::cmd
 #include "core/framework/command.h"
+#include "core/framework/frame_hooks.h"
+#include "core/framework/query_wait_profile.h"
+#include "core/framework/scene_prepare_profile.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/framework/perf.h"
 #include "core/framework/status.h"
@@ -57,6 +60,28 @@ uint32_t sequence() { return g_seq; }
 
 bool core_command(const char* cmd, const char* args)
 {
+    if (!strcmp(cmd, "sceneprepare")) {
+        if (!strcmp(args, "on")) dvr::scene_prepare::set_enabled(true);
+        else if (!strcmp(args, "off")) dvr::scene_prepare::set_enabled(false);
+        else DVR_INFO("sceneprepare: armed=%d enabled=%d; usage on|off", dvr::scene_prepare::armed(), dvr::scene_prepare::enabled());
+        return true;
+    }
+    if (!strcmp(cmd, "querywait")) {
+        if (!strcmp(args, "on")) dvr::query_profile::set_enabled(true);
+        else if (!strcmp(args, "off")) dvr::query_profile::set_enabled(false);
+        else DVR_INFO("querywait: armed=%d enabled=%d; usage on|off", dvr::query_profile::armed(), dvr::query_profile::enabled());
+        return true;
+    }
+    if (!strcmp(cmd, "desktoppresent")) {
+        if (!strcmp(args, "full") || !strcmp(args, "reduced") || !strcmp(args, "off")) {
+            dvr::desktop_eye::set_mirror_off(!strcmp(args, "off"));
+            dvr::desktop_eye::set_reduced_present(!strcmp(args, "reduced"));
+        }
+        else if (args[0] && strcmp(args, "status"))
+            DVR_WARN("desktoppresent: usage - desktoppresent full|reduced|off|status");
+        dvr::desktop_eye::log_status();
+        return true;
+    }
     if (!strcmp(cmd, "desktopeye")) {
         if (!strcmp(args, "on")) dvr::desktop_eye::set_enabled(true);
         else if (!strcmp(args, "off")) dvr::desktop_eye::set_enabled(false);
@@ -109,10 +134,12 @@ bool core_command(const char* cmd, const char* args)
         if (!strncmp(args, "mark", 4)) { dvr::perf::mark(args[4] == ' ' ? args + 5 : "(no text)", "seam"); return true; }
         if (!strcmp(args, "on"))  { dvr::perf::set_enabled(true); return true; }
         if (!strcmp(args, "off")) { dvr::perf::set_enabled(false); return true; }
+        if (!strcmp(args, "cpu on")) { dvr::perf::set_cpu_scopes(true); return true; }
+        if (!strcmp(args, "cpu off")) { dvr::perf::set_cpu_scopes(false); return true; }
         if (!strcmp(args, "gpu on"))  { dvr::perf::set_gpu_enabled(true); return true; }
         if (!strcmp(args, "gpu off")) { dvr::perf::set_gpu_enabled(false); return true; }
         if (!strncmp(args, "ab", 2))  return dvr::perf::ab_command(args[2] == ' ' ? args + 3 : "");
-        DVR_WARN("perf: usage - perf on|off|status|gpu on|off|ab on|off|restart|seg <ms> (the tick line and the "
+        DVR_WARN("perf: usage - perf on|off|status|cpu on|off|gpu on|off|ab on|off|restart|seg <ms> (the tick line and the "
                  "gpu line every 3 s; ab walks the segmented A/B plan and reports a distribution)");
         return true;
     }

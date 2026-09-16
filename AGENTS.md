@@ -24,3 +24,11 @@ supersede older repository guidance.
 - Commits, PRs, and merges have no trailers or generated-by attribution. Branch names
   contain no personal names; use codex/vr-<ticket>-<description> for Codex work.
 - Merge to VR-Main only with the user's explicit instruction to merge that work.
+
+## Performance research maintenance
+
+Per user instruction (2026-09-15), `docs/dishonored/PERFORMANCE.md` is the single
+maintained performance research and experiment record. Add future findings,
+failed tests, online sources and plans there; do not create separate performance
+reports. STATUS/NEXT_SESSION summarize and link to it. Required engine-address
+and flicker documentation remain in their existing reference files.

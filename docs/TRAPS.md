@@ -729,3 +729,14 @@ restoring correctly. Separate draw eligibility from reference lifetime. Hold
 through pacing/runtime/pose gaps; reset for actual ownership/menu transitions.
 The regression changes both yaw and pitch across32 holds and must retain one
 reference. Full evidence:CINEMATIC_HEAD_TRACKING.md under docs/dishonored.
+
+## 2026-09-14: an old completed query does not submit new D3D9 work
+
+VR-115's first mirror-off candidate polled a pending event on later frames. Once
+the older event completed, GetData(FLUSH) could return success without submitting
+new commands. A real D3D9Ex host test caught frame2's independent marker remaining
+pending for two seconds. Issue END covering the current stream before its FLUSH
+request; the submission-only event may abandon its old result. Never do that to
+a fence whose completion authorizes texture reuse. A device double alone missed
+this driver behavior. Corrected native test passes120 frames without Present;
+details: [desktop candidate](dishonored/DESKTOP_PRESENT_PERFORMANCE.md).

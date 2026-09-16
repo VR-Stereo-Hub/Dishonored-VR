@@ -1,3 +1,4 @@
+#include "core/framework/native_profile.h"
 // core/gfx/device_census.cpp - see device_census.h.
 #define DVR_CAT ::dvr::log::Cat::device
 #include "core/gfx/device_census.h"
@@ -293,6 +294,7 @@ SurfEnt* surf_slot(void* surf, bool create) {
 // original: it is not in the map), the unlock pushes the dirty regions to
 // the real texture, a dirty rect goes to the twin, the last Release drops it.
 HRESULT __stdcall hkTexLockRect(IDirect3DTexture9* self, UINT level, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags) {
+    dvr::native_profile::Scope timing(dvr::native_profile::TexLockRectInclusive);
     lock_count(kLcTexture, self, flags, rc != nullptr, level);
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
         ++g_shadowLocks;
@@ -306,6 +308,7 @@ HRESULT __stdcall hkTexLockRect(IDirect3DTexture9* self, UINT level, D3DLOCKED_R
     return hr;
 }
 HRESULT __stdcall hkTexUnlockRect(IDirect3DTexture9* self, UINT level) {
+    dvr::native_profile::Scope timing(dvr::native_profile::TexUnlockRectInclusive);
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DTexture9*)t)->UnlockRect(level);
@@ -327,6 +330,7 @@ ULONG __stdcall hkTexRelease(IUnknown* self) {
 }
 HRESULT __stdcall hkCubeLockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT* lr,
                                  const RECT* rc, DWORD flags) {
+    dvr::native_profile::Scope timing(dvr::native_profile::CubeLockRectInclusive);
     lock_count(kLcCube, self, flags, rc != nullptr, level);
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
         ++g_shadowLocks;
@@ -340,6 +344,7 @@ HRESULT __stdcall hkCubeLockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES f
     return hr;
 }
 HRESULT __stdcall hkCubeUnlockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level) {
+    dvr::native_profile::Scope timing(dvr::native_profile::CubeUnlockRectInclusive);
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DCubeTexture9*)t)->UnlockRect(face, level);
@@ -358,6 +363,7 @@ ULONG __stdcall hkCubeRelease(IUnknown* self) {
     return n;
 }
 HRESULT __stdcall hkVolLockBox(IDirect3DVolumeTexture9* self, UINT level, D3DLOCKED_BOX* lb, const D3DBOX* box, DWORD flags) {
+    dvr::native_profile::Scope timing(dvr::native_profile::VolLockBoxInclusive);
     lock_count(kLcVolume, self, flags, box != nullptr, level);
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
         ++g_shadowLocks;
@@ -371,6 +377,7 @@ HRESULT __stdcall hkVolLockBox(IDirect3DVolumeTexture9* self, UINT level, D3DLOC
     return hr;
 }
 HRESULT __stdcall hkVolUnlockBox(IDirect3DVolumeTexture9* self, UINT level) {
+    dvr::native_profile::Scope timing(dvr::native_profile::VolUnlockBoxInclusive);
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
         ++g_shadowUnlocks;
         const HRESULT hr = ((IDirect3DVolumeTexture9*)t)->UnlockBox(level);
@@ -390,10 +397,12 @@ ULONG __stdcall hkVolRelease(IUnknown* self) {
     return n;
 }
 HRESULT __stdcall hkVbLock(IDirect3DVertexBuffer9* self, UINT off, UINT size, void** data, DWORD flags) {
+    dvr::native_profile::Scope timing(dvr::native_profile::VbLockInclusive);
     lock_count(kLcVb, self, flags, off != 0 || size != 0, 0);
     return g_origVbLock(self, off, size, data, flags);
 }
 HRESULT __stdcall hkIbLock(IDirect3DIndexBuffer9* self, UINT off, UINT size, void** data, DWORD flags) {
+    dvr::native_profile::Scope timing(dvr::native_profile::IbLockInclusive);
     lock_count(kLcIb, self, flags, off != 0 || size != 0, 0);
     return g_origIbLock(self, off, size, data, flags);
 }
@@ -445,6 +454,7 @@ void surf_set_locked(void* surf, IDirect3DSurface9* ts) {
 }
 
 HRESULT __stdcall hkSurfLockRect(IDirect3DSurface9* self, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags) {
+    dvr::native_profile::Scope timing(dvr::native_profile::SurfLockRectInclusive);
     if (!g_origSurfLock) return D3DERR_INVALIDCALL;   // never installed without its original
     SurfEnt e = {};
     if (!surf_read(self, &e)) return g_origSurfLock(self, lr, rc, flags);
@@ -466,6 +476,7 @@ HRESULT __stdcall hkSurfLockRect(IDirect3DSurface9* self, D3DLOCKED_RECT* lr, co
     return hr;
 }
 HRESULT __stdcall hkSurfUnlockRect(IDirect3DSurface9* self) {
+    dvr::native_profile::Scope timing(dvr::native_profile::SurfUnlockRectInclusive);
     SurfEnt e = {};
     surf_read(self, &e);
     if (e.lockedTwin) {

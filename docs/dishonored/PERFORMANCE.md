@@ -1,0 +1,253 @@
+# Performance research
+
+## Status: shelved, 2026-09-15
+
+No optimization or new playtest is pending. Research established a substantial
+resolution-independent rendering cost, ruled out several cheap fixes, and measured
+ordinary per-eye scene preparation. It did **not** establish a safe way to eliminate
+that work or a single CPU/GPU bottleneck. HUD is outside this investigation.
+
+This is the single maintained performance record. Update findings, failed hypotheses,
+sources and resumption decisions here. STATUS/NEXT_SESSION only summarize and link.
+Engine derivations remain in [ENGINE_NOTES.md](ENGINE_NOTES.md); stereo correctness
+and pose history remain in [FLICKER_REFERENCE.md](FLICKER_REFERENCE.md).
+
+Unfinished performance tickets VR-17, VR-67, VR-77, VR-113, VR-115, VR-121, VR-123,
+VR-124 and VR-125 are parked in Backlog, unassigned. Completed stability fixes stay
+completed. Merging this research does not promote experimental settings.
+
+**Installation:** exact build307 (`vr33-hands-working-307-ga658ed7a9-dirty`) remains
+installed. DLL SHA256 `20f48b184b2d610cd27d5fdc6586871c30c0669a450ce121cb76218ccd97a82b`;
+INI SHA256 `633d1411daa800aea46a59003b5d1aa9d5e8d4f5fe0f56a782b75cfad1ac7f78`.
+`build/playtest-candidates/installed.json` is the installation authority. Build349
+was simulator-tested and then rolled back; the current log can still have its banner.
+The shelving cleanup is built/host-tested, not installed or headset-accepted.
+
+## Results and routes
+
+Numbers below come from different matched workloads. They must not be combined into
+one frame budget. Fresh stereo submissions, eye Presents, simulator ticks and headset
+refresh rate are different populations. Baseline rendering was 2750x2850 at 120 Hz.
+
+| Route | Evidence and decision |
+|---|---|
+| Lower resolution | 1375x1425 (quarter pixels) improved hub throughput only about 6%. 3850x3990 hurt substantially, to roughly 45-50 fps. Both a fixed rendering cost and a pixel-dependent cost exist; neither sole CPU nor sole GPU ownership is proven. Original resolution restored. |
+| Per-eye scene preparation | Ordinary InitViews costs 1.322 ms/pair in the fixed simulator pub view, including 1.082 ms of frustum culling. Best specific remaining CPU boundary; no sharing or skipping implemented. See detailed result below. |
+| Extra left-view preparation | Reflection, not a second world tick: 0.199 ms/pair, including 0.140 ms culling. Lower priority than ordinary views. |
+| Engine query-result waits | Real headset build316: 0.102 ms/pair across 14,230 pairs, 0.596% of elapsed time. Not a useful hub target; do not repeat unchanged. This bounds the measured helper, not all occlusion/visibility work. |
+| Nonblocking desktop Present | Build313 off/on/off 58.21 / 57.70 / 58.29 ticks/s. 4,818 accepted attempts, zero busy skips. Failed hypothesis; implementation and one-off harness removed. |
+| Omit desktop Present completely | Two sewer Full/Off/Full runs: 87.01 / 98.28 / 84.72 and 81.86 / 95.62 / 84.02 fresh pairs/s. Repeatable throughput gain with worse frame-time tails. Retained as an opt-in experiment, Full remains default. Not a hub forecast or accepted smoothness fix. |
+| Reduce desktop Present cadence | Full/Reduced/Full 86.34 / 90.28 / 89.27 pairs/s; p95 18.385 / 18.488 / 17.656 ms. Much waiting moved into remaining calls (about 1.46 ms/hook, 2.91 ms/actual call). No consistent tail benefit. |
+| Dynamic shadows via game INI | Applied settings, simulator 79.94 / 80.63 / 79.26 ticks/s. No useful gain; do not repeat unchanged. Does not eliminate all lighting/shadow work. |
+| Suppress selected diagnostics | Build295 baseline/reduced/baseline 63.66 / 64.48 / 64.27 fresh pairs/s, no consistent tail improvement. Keep accepted diagnostics. Mask covered ZAccount, PairTrace, FrameId and AttachCensus only. Cine.Trace/DrawCensus/PoseReport have functional dependencies. |
+| Shader reflection cache | Build275 estimated reflection 2.801 ms/s plus bytecode 2.203 ms/s, not ms/frame. Too small for a complex cache as a leading fix. Layout/router/state/locking measurements are inclusive, not additive. |
+| Native draw/state submission | Substantial aggregate sampled CPU wall cost. Resource-lock/upload samples small; their maxima do not bound unsampled calls. Driver waiting and deferred work remain unresolved. |
+| D3D11 bridge copies | Conversion about 0.10 ms/eye; XR copy about 0.057 ms/eye. Individually small. Timestamp intervals are not additive GPU busy time or end-to-end latency. |
+| FrameId readback / maximum frame latency | Earlier FrameId-off test remained inside baseline noise; D3D9Ex latency 1/2/3 sweep applied and read back successfully without benefit. Neither is an untapped proven fix. |
+| Head/hand pose lag | Head/view candidate failed its measured prediction. Historical PoseLag=2 weapon improvement is a separate correctness result. Preserve accepted image-owned orientation; do not alter image tags to chase FPS. |
+
+## Representative CPU evidence
+
+The normal headset CPU capture is `build/performance-results/vr125-light-headset`.
+Before/during/after rates were 55.47 / 55.80 / 56.80 ticks/s, with representative lag.
+In its interior 5-35 seconds, render thread 19568 was running 72.43%, blocked 26.91%,
+ready 0.57%. About 7.382 seconds of blocking ended with wakeups from NVIDIA worker
+14260. The worker also spent many CPU samples polling. That is not useful scene work,
+but neither polling nor the wakeup source identifies an automatically removable wait.
+Low whole-machine utilization does not rule out a critical-thread constraint.
+
+Of 21,085 render-thread CPU stacks, InitViews appeared in 2,575 (12.21% inclusive),
+its dominant child in 2,062 (9.78%). Later render-stage return RVAs 0046C1F4 and
+0046C208 appeared in 36.97% and 33.29%; inclusive shares can overlap. Those later
+render/submission paths remain substantial and less precisely attributed.
+Separate stage-cycle measurement put 87.95% of measured render-thread cycles outside
+Present, where engine rendering and draw hooks execute. The game-thread viewport
+calls totalled about 1.23 ms wall time but overlap queued render-thread execution.
+**World tick runs once; viewport Draw runs twice. Duplicated NPC AI is not established.**
+
+The heavy combined CPU/GPU capture changed the workload: 45.85 ticks/s versus 57.14
+untraced (control about 24.6% faster). Its rolling GPU events began at 312.752 seconds,
+after game exit at 239.448 seconds. Zero lost events did not make that GPU timeline
+usable. It cannot identify the game's GPU queue bottleneck. A future GPU trace needs
+short capture, retained in-game events, matching symbols and an overhead control.
+
+## Latest boundary: InitViews and frustum culling
+
+Build349 (`vr33-hands-working-349-g227da088c-dirty`) measured a fixed Hound Pits pub
+view at simulator yaw 90, original engine resolution, 120 Hz source setting. Simulator
+output was 1032x1104; this is CPU attribution, not headset performance acceptance.
+Selected 13 complete windows span 39.056 seconds and 8,179 InitViews calls. Total
+InitViews was 4,152.868 ms (10.633% elapsed). Unknown-eye boundary intervals were
+excluded from pair normalization, leaving 2,707.5 equivalent tagged stereo pairs.
+
+| Inclusive boundary | ms per tagged pair | Nested culling, ms per pair |
+|---|---:|---:|
+| Ordinary left + right preparation | 1.3215 | 1.0818 |
+| Reflection preparation | 0.1995 | 0.1398 |
+| Total | 1.5210 | 1.2216 |
+
+Culling is about 82% of ordinary preparation and is already contained in InitViews.
+Reflection appeared only in left intervals: 2,684 calls, usually ordinal 1 followed
+by ordinary ordinal 2. Ordinary right was ordinal 1 (2,707 calls). Every selected
+InitViews had one matched child call; no unknown classification, selector changes,
+foreign calls, unmatched child, nesting, ordinal clamp or row overflow occurred.
+Build347 independently measured approximately 1.523 ms/pair for total InitViews.
+
+Off/on/off rates were 67.63 / 69.05 / 68.16 ticks/s. On-phase render-target workload
+was lower, so this is neither a speedup nor a tight small-overhead bound. A subsequent
+yaw change retained two nonblack views; simulator finished 23,479 frames with zero
+errors, discarded frames or out-of-order submissions. No optimization was applied.
+
+The probe byte-verifies both hook boundaries and uses derived calling conventions.
+It classifies a borrowed renderer's family reflection selector only during the call,
+retains no engine object and changes no engine result. Addresses, ABI and label
+provenance are in ENGINE_NOTES, not duplicated here.
+
+If resumed, first distinguish octree candidate gathering from per-view primitive
+tests, using the existing stacks and offline code. A shared conservative candidate
+set would need to include both eyes and current dynamic objects. Do not copy the
+left visibility result or skip the right pass: existing VR-79 is a stereo-visibility
+correctness constraint. Reflection/scene captures can also be view-dependent.
+
+## Other routes worth preserving
+
+These are options, not queued work or promised gains.
+
+- **Submission and visibility history:** correlate later renderer stages, native
+  draw/state counts, driver workers and a valid GPU timeline. D3D9 can charge deferred
+  work to a later API call. Cheap query reads do not rule out excessive draw counts,
+  query issue cost or incorrect shared per-eye visibility history.
+- **Per-draw state:** share one lazy per-draw snapshot before attempting a global
+  binding cache. Any shader-layout cache needs resource-lifetime identity, negative
+  entries, bounded size and reset handling; a reused pointer is not an identity.
+  State-block Apply and mod-originated state changes must invalidate caches. Repeated
+  animation-weight locking and invariant weapon transforms are measurable candidates,
+  but never cache away fresh instance/liveness checks or animation handback.
+- **Object discovery and liveness:** early UiDiscover scans measured 367/547 ms in
+  build264. This is a load/tail route, not proof of stationary hub cost. Coalesce
+  lifecycle-aware live-set refreshes, cache validated metadata and budget discovery
+  by elapsed time. Keep current-level IsLiveObject for all engine writers; class names,
+  unchanged pointers and permanent readable-page caches are not substitutes.
+  ProcessEvent routing must retain synchronous writers on the script lane.
+- **Bridge ownership:** drawing directly from the shared SRV into an acquired XR RTV
+  could remove an intermediate copy. Formats, alpha, overlays, acquire/wait/release,
+  held-frame fallback and reset must remain correct. A third capture slot trades
+  memory/latency for reuse slack; no unmeasured queue gain is assumed. VR-114 separately
+  tracks capture timeout/error paths that proceed without explicit ready ownership.
+  No timeout explained the selected slow window. Never remove image-ownership fences
+  or Flush just because an elapsed interval looks expensive.
+- **Managed-resource emulation:** READONLY unlock uploads already skip. ShadowFullCopy
+  uploads the written mip, not the entire mip chain. Dirty rectangles, repeated uploads
+  and streaming pressure merit work only with measured bytes/use/lifetime evidence.
+  Delaying upload until bind misses already-bound resources. Preserve mip/reset/readback
+  behavior; 32-bit virtual-address pressure remains distinct from GPU memory capacity.
+- **Quality and reconstruction:** motion blur, depth of field, ambient occlusion,
+  frame smoothing and VSync were already off in inspected settings. Generic UE4/5
+  console recipes do not establish a Dishonored control. PoolSize=160 is a streaming
+  budget, not total VRAM. Dynamic resolution needs stable output resources and an
+  internal viewport/upscale path; recreating swapchains per change would hitch.
+  Temporal upscaling additionally needs history/depth/motion and stereo identity.
+- **Architecture:** alternate-eye rendering remains unimplemented and is a separate
+  tradeoff: 120 alternating images/s is only 60 fresh images/eye with temporal mismatch.
+  Single-pass stereo is a major engine/shader project. A different 64-bit executable
+  requires new ABI/addresses/hooks and compatibility validation; bitness alone does
+  not remove per-view work. Do not restore the retired DXVK path as a routine tweak.
+- **Other measured boundaries:** input/runtime calls, pose-publication contention,
+  periodic status I/O and per-frame hand correction need actual critical-path evidence.
+  Mesh identification/rebuild is not automatically per-frame work. Release optimization
+  already exists; LTO/PGO/inlining follow a hot-path profile, not a blanket fast-math edit.
+  Runtime/compositor/encoding/clocks/driver policy need independent evidence; a rate near
+  60 on a 120 Hz headset does not prove half-rate locking. SteamVR shim needs its own rig.
+
+## Retained tools and removed experiments
+
+All added experiment switches default off. Existing accepted rendering/diagnostic
+settings remain intact. Run only one behavioral benchmark at a time.
+
+| Retained code/tool | Concrete future use and limits |
+|---|---|
+| ScenePrepareProfile, `sceneprepare on/off` | Exact ordinary/reflection parent/child and per-eye classification on another scene or candidate. INI must arm hooks at launch; mismatch refuses safely. |
+| QueryWaitProfile, `querywait on/off` | Complete helper wall time by caller/type/eye on a materially different workload. Launch-armed, pass-through; do not repeat the resolved hub question. |
+| NativeProfile / RenderProfile | Bounded sampled native API/draw-hook and reflection/router/state timing. Useful for regression attribution; nested wall times and sampled maxima are not additive/exhaustive. |
+| BridgeGpu | Bounded delayed timestamp/disjoint rings for conversion and XR copy; no profiling flush or wait. Keep unresolved/late/invalid/overflow counts. |
+| CpuScopes, `perf cpu on/off` | Thread-cycle and wall-time boundaries, with thread/epoch checks. Coarse GetThreadTimes CPU-ms output removed because it was phase-biased and sometimes exceeded wall time. Cycles are not milliseconds. |
+| Desktop Full/Reduced/Off and DesktopAb | Preserves a real throughput/tail tradeoff for future controlled comparison. Full default; fresh-capture/session/parameter guards and current-work submission query required. Earlier old-query design failed frame 2 and was corrected. |
+| DiagnosticAb and fresh-pair counters | Reversible collector-overhead check after future changes. Counts successful submissions with both eye serials renewed; restores on completion/abort. Not all enabled diagnostics can be suppressed safely. |
+| Host tests, symbol resolver, thread profiles, WPR profile/timed recorder | Reusable validation and attribution without rebuilding tools. IP suspension samples are not on-CPU percentages; ETW needs a perturbation control. Helpers do not authorize game launches. |
+
+Removed: nonblocking PresentEx(DONOTWAIT) policy, configuration/command seam,
+borrowed Ex-device accessor, its two standalone test files and timed launch-phase
+helper. The measured negative and original implementation remain in git history and
+on the preserved resolution-floor branch. Also removed the invalid coarse CPU-ms
+field and its per-boundary GetThreadTimes calls. No other diagnostic earned deletion
+solely because one workload made its measured path cheap.
+
+Shelving validation: Win32 RelWithDebInfo build, all nine DLL exports, frame/weapon/
+animation tests, scene/query ABI tests, native/render sampler tests, bridge policy
+and real-device lifecycle tests, desktop policy/copy/benchmark/native-device tests,
+diagnostic A/B, reentry (248 checks), single-tag (23 checks), lint and both golden
+INI checks passed. Game and simulator were not launched for this cleanup. Installed
+DLL/INI hashes still match exact307; release/golden and installed INIs remain CRLF.
+
+## Evidence rules and corrected claims
+
+- Preserve exact DLL/PDB/INI identity and both logs before any future install/launch;
+  compare the entire installed INI and verify CRLF. Match log banner before analysis.
+  Keep matched saves, FOV, resolution, scene and warmup. Retain all baseline phases,
+  populations and tails; a mean or a changing view is not enough.
+- D3D9 GPU frame spans can contain feeding gaps. Capture DMA is outside the older
+  render span and must not be subtracted from it. D3D9 marker gaps are not whole-GPU
+  idle, and pending/unresolved queries are not zero time. CPU-side capture subtotals
+  do not bound the whole D3D11 bridge. Present wall time is not automatically savings.
+- Old reports mixed startup/menu and gameplay, mismatched timestamp windows, and
+  called elapsed intervals CPU work. The claimed migration of hitch ownership was
+  withdrawn: all 18 supposed outside gaps preceded gameplay; its 19 gameplay gaps
+  remained in the submission tail. The 12.4 ms GPU span belonged to 57.0/s, not 73.7/s;
+  the 66.7/s untagged post-menu row was unusable.
+- Controller sample age alone does not cause double correction. The relevant residual
+  is mismatched head/view bases; changing the whole image's Lag cannot isolate a
+  weapon-versus-world error. Earlier age arithmetic and pose-plumbing absence claims
+  were withdrawn. Accepted stereo fixes supersede those drafts; see FLICKER_REFERENCE.
+- Raw flat 240 fps at 1440p is capped and not a matched workload: two 2750x2850 eyes
+  contain about 4.25 times the pixels, plus wider view/submission work. Neither doubling
+  flat cost nor aggregate CPU/GPU utilization predicts VR throughput.
+
+## Provenance and recovery
+
+Full pre-trim chronology is recoverable at commit `e02c97d74`, in this same file.
+Earlier report paths redirect here. Local raw captures and analysis stay ignored;
+never commit game-derived dumps. Under `build/performance-results/`:
+
+| Evidence | Directory |
+|---|---|
+| Representative CPU stacks/waits | `vr125-light-headset` |
+| Latest classified culling result, reproducible analysis | `vr125-culling-classification/sim-20260915-183218` |
+| Original InitViews result | `vr125-initviews/sim-20260915-181540` |
+| Query helper headset result | `vr125-query-waits` |
+| Rejected nonblocking Present | `vr125-desktop-nonblocking` |
+| Heavy trace and control | `vr125-etw-headset-20260915`, `vr125-etw-off-control` |
+| CPU stages, shadows and symbols | `vr125-cpu-scopes`, `vr125-shadows`, `vr125-symbols` |
+| Resolution trials | `quarter-pixel-20260914-221912`, `high-resolution-20260914-222549` |
+| Native draw/state and reflection | `native-hub-20260914-215400`, `native-state-hub-20260914-220319`, `render-profile-first` |
+| Bridge and diagnostic comparison | `bridge-hub-20260914-210808`, `diagnostic-hub-repeat-20260914-214029` |
+| Desktop comparisons | `desktop-first`, `desktop-second`, `desktop-reduced-first` |
+
+Candidate manifests and DLL/PDB/INI bundles are under `build/playtest-candidates`.
+Exact307 restoration archive: `installs/20260915-183805-018147`. Preserve the branches
+`codex/vr-113-performance-audit`, `codex/vr-115-desktop-present`,
+`codex/vr-115-performance-rollout`, `codex/vr-121-render-thread-profile`,
+`codex/vr-121-native-draw-profile`, `codex/vr-123-bridge-gpu-profile`,
+`codex/vr-124-diagnostic-overhead`, `codex/vr-125-resolution-floor` and `performance-fix`.
+They are ancestors of the consolidation. Unrelated older perf/camera branches were
+not imported; their superseded stereo behavior is not part of this work.
+
+## Primary references
+
+Sources explain mechanisms, not measured Dishonored savings:
+
+- [Epic UE3 level optimization](https://docs.unrealengine.com/udk/Three/LevelOptimization.html): game/render threads, driver overhead, visibility and object/light interactions.
+- [Microsoft D3D9 profiling](https://learn.microsoft.com/en-us/windows/win32/direct3d9/accurately-profiling-direct3d-api-calls) and [optimization](https://learn.microsoft.com/en-us/windows/win32/direct3d9/performance-optimizations): deferred charges, batching, state and dynamic buffers.
+- [Microsoft D3D9 queries](https://learn.microsoft.com/en-us/windows/win32/direct3d9/queries) and [NVIDIA occlusion culling](https://developer.nvidia.com/gpugems/gpugems/part-v-performance-and-practicalities/chapter-29-efficient-occlusion-culling): polling, flush, latency and overlap.
+- [D3D11 Flush](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-flush) and [shared resources](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-opensharedresource): submission does not prove completion.
+- [OpenXR wait](https://registry.khronos.org/OpenXR/specs/1.0/man/html/xrWaitSwapchainImage.html) and [release](https://registry.khronos.org/OpenXR/specs/1.0/man/html/xrReleaseSwapchainImage.html): image ownership contract.
+- [Microsoft GPU accounting](https://devblogs.microsoft.com/directx/gpus-in-the-task-manager/): engine-specific utilization and summary semantics.

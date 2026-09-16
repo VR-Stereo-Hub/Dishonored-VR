@@ -6606,6 +6606,116 @@ writes) and restores the shadowed values after: dstA = srcA + dstA*(1-srcA), the
 coverage, with the colour equation untouched so the colour stays premultiplied. State
 blocks would bypass the forcing: `g_stateBlocksCreated` reads 0 for a whole run.
 
+## VR-125 CPU attribution correction (2026-09-15)
+
+Pub-view thread IP sampling finds a bounded polling loop with PAUSE in the
+NVIDIA D3D9 worker's hot region. High worker CPU therefore includes spinning;
+it cannot all be described as useful submission work. The observed region share
+changes with sampling order. Render-thread samples are consistently spread
+across engine, native D3D9 and proxy. No engine address or hook derived.
+See RESOLUTION_FLOOR.md for method, evidence, limits and next scoped measurement.
+
+## VR-125 scoped rendering attribution (2026-09-15)
+
+Same pub-view307 diagnostic: outside-Present engine rendering and draw hooks
+account for87.95% of measured render-thread cycles. Original viewport calls on
+the game thread total1.23ms wall. Counter scopes are on different threads and
+overlap; no serial sum or threading speedup is implied. GetThreadTimes per-stage
+CPU attribution failed the wall-time sanity check due coarse accounting; keep
+QueryThreadCycleTime relative only. RESOLUTION_FLOOR.md has exact populations,
+restore identity, off/on/off control and the next bounded investigation.
+
+
+## VR-125: D3D9 query-read helper, 2026-09-15
+
+Offline reference-tool derivation on the installed Steam executable. The ASCII
+CreateQuery OCCLUSION error expression leads via its .text xref to creation of
+a query with type9. Immediately adjacent is the shared native query-read helper
+at VA009BCF50 (patterns.h kD3D9QueryRead). Its native query argument calls vtable
+slot7/GetData, always flags1/D3DGETDATA_FLUSH; if S_FALSE and the fourth stack
+argument permits waiting, it polls again until completion or its own timeout.
+It returns a boolean, not HRESULT. Observed successful and false paths clean
+16 stack bytes. ABI: thiscall ECX owner, query/data/size/wait on the stack.
+The15-byte prologue signature is verified; only the first6 whole non-relative
+instruction bytes are relocated into the diagnostic trampoline.
+
+Existing disasm-rva.py calls census finds five direct callsites (RVAs):005BD16B,
+005BD185,005BF545,005BF596,005C131A. The first two read8-byte data; the last is
+reached from the cached occlusion-result path and reads4 bytes. The005BF596
+caller passes wait=1 and can retry until returned query data is nonzero. These
+are offline control-flow findings, not proof the callers are active or expensive
+in the hub. No interpretation of query type is made from data size alone.
+
+The diagnostic reads GetType only on the live query argument, takes no COM
+reference, retains no engine-object identity and changes no query flags/results.
+It times complete helper calls on the Present thread, classifies caller return
+RVA/type/wait permission, and groups them by the completed render interval's eye.
+That eye label is not the issuing/creation eye of a retained query. Other-thread
+calls and table overflow are reported so missing coverage cannot look like zero
+cost. Performance verdicts and all subsequent research belong only in
+[PERFORMANCE.md](PERFORMANCE.md).
+
+## 2026-09-14: performance measurement population
+
+The rollout adds no engine address or memory writer. Strict DvrGameplayVerdict
+gates the desktop trial; cinematic presentation permission is intentionally not
+enough. Real fresh-pair sampling uses delivered capture serials after successful
+XR wait/copy/release, separate eye swapchains and successful xrEndFrame. Held
+submissions cannot become new pairs merely by arriving on an even Present.
+See PERFORMANCE_ROLLOUT.md for limitations and the full optimization sequence.
+
+## InitViews timing boundary, 2026-09-15
+
+Offline derivation from the normal headset CPU capture in PERFORMANCE.md.
+Sampled return RVA0046C0C1 follows a direct call at RVA0046C0BC to VA008662A0.
+The callee references the executable's own ASCII and UTF-16 InitViews labels.
+Its other direct caller is RVA0046A21E; the diagnostic groups return RVAs so
+these callers cannot be conflated. This is the scene renderer's preparation
+stage before the caller's four-pass loop. That loop calls VA0086BF00 and
+VA00864290, with shipped World/Foreground/editor pass labels. Its pass index
+is not the VR eye index. World simulation is outside this render-thread path.
+
+InitViews has ECX receiver, no stack arguments, and a plain ret at VA00867598.
+The entry realigns the stack. A 16-byte signature in patterns.h guards the
+hook; its first six bytes comprise three whole non-relative instructions (push ebx,
+mov ebx/esp, sub esp/8) are copied to the trampoline, which resumes before stack
+alignment. The receiver is forwarded only during the original call; no engine
+object identity is retained or dereferenced by the diagnostic. No UObject
+memory write is introduced. Synthetic x86 tests reproduce the alignment and
+verify receiver/return/stack preservation through repeated calls and removal.
+
+Within InitViews, sampled return RVA004671D9 follows its conditional cdecl
+one-argument call to VA00864AD0. It is the main sampled descendant, but its
+precise visibility/occlusion/mesh-gather split remains unclassified. Do not
+label every sample as occlusion cost or use the low query-read result to
+exclude this surrounding work. No hook or bypass is added to that child.
+Measurement results and subsequent decisions belong in PERFORMANCE.md.
+
+## Frustum-culling and reflection selector, 2026-09-15
+
+The dominant InitViews child VA00864AD0 references the executable's own
+ProcessViewFrustumCulling label at VA0107EAC4 and ParsingOctree at VA0107EAE0.
+At VA00864CCA it reads its sole stack argument (renderer), then the pointer at
+renderer+0x60. The dword at that pointer+0x48 selects a nonzero branch labelled
+ProcessPrimitiveCullingReflectionScene versus a zero branch labelled
+ProcessPrimitiveCulling. These are exact engine branch names, not inferred
+from runtime addresses or class names. The reflection path filters primitive
+flags before invoking the culling helpers; ordinary path processes its lists
+without that reflection filter. This does not prove which visible reflection
+surface owns any invocation, or that its visibility data can be reused.
+
+ABI is cdecl, one renderer argument on the stack; plain ret at VA00865012 and
+caller cleanup at VA008671D9. Its stack-realignment prefix matches InitViews:
+16 verified bytes, first6 relocated, resume before alignment. Both addresses,
+signatures and the two selector offsets are in patterns.h.
+
+The diagnostic reads this selector from the borrowed live call argument, with
+null/access-exception classification as unknown. It retains only scalar class,
+ordinal and timings after return. It rechecks the selector at nested culling
+entry and reports changes. A stack-local invocation retains the receiver only
+for the duration of the original call to match its child, then is discarded.
+No UObject write, delayed dereference, COM reference or menu-retained identity
+is introduced. Nested timing is a subset of InitViews time, never additive.
 ## Crouched pitch on two machines: the crawl tuck was switching the camera's own bone control off (VR-122, 2026-09-16)
 
 **The report.** On one machine (Quest 3 through VirtualDesktopXR, 90 Hz) the camera was

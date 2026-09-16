@@ -17,7 +17,9 @@
 param(
     [switch]$Release,
     [string]$Dir = "$env:LOCALAPPDATA\DishonoredVR\xrsim\selftest",
-    [switch]$KeepFiles
+    [switch]$KeepFiles,
+    # Manifest-declared opt-outs, scoped to this probe and restored afterward.
+    [string[]]$DisableLayerEnvironment = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,12 +43,23 @@ $saved  = $env:XR_RUNTIME_JSON
 $savedD = $env:DVR_XRSIM_DIR
 $out = $null
 $code = 1
+$layerEnvBefore = @{}
 try {
+    foreach ($name in $DisableLayerEnvironment) {
+        if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { throw "Invalid environment variable name" }
+        if (-not $layerEnvBefore.ContainsKey($name)) {
+            $layerEnvBefore[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+        }
+        [Environment]::SetEnvironmentVariable($name, "1", "Process")
+    }
     $env:XR_RUNTIME_JSON = $install.Manifest
     $env:DVR_XRSIM_DIR   = $Dir
     $out = & $hello 2>&1 | Out-String
     $code = $LASTEXITCODE
 } finally {
+    foreach ($name in $layerEnvBefore.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $layerEnvBefore[$name], "Process")
+    }
     $env:XR_RUNTIME_JSON = $saved
     $env:DVR_XRSIM_DIR   = $savedD
 }

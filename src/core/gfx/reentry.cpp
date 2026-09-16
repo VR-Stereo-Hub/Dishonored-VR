@@ -35,6 +35,7 @@
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
 #include "core/gfx/blit_quad.h"
+#include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/frame_id.h"
 #include "core/util/log.h"
@@ -453,7 +454,11 @@ public:
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
         if (!ensure_target(d.dev11, w, h)) { commit(OUT_TARGET, 0, fresh); return false; }
         if (fresh || !drawnOnce_) {
-            blit_.draw(d.ctx11, src, rtv_, w, h);
+            {
+                dvr::bridge_profile::Scope sample(d.dev11,d.ctx11,dvr::bridge_profile::Conversion,
+                    fresh ? dvr::capture::delivered_tag() : 0);
+                blit_.draw(d.ctx11, src, rtv_, w, h);
+            }
             // 41.2 (VR-31): our own hands, over the game image and under the
             // F10 panel. The eye is the tag of the pixels JUST blitted, which
             // is NOT `eye` (the eye of the current D3D9 backbuffer) - one line

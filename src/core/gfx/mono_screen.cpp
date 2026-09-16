@@ -16,6 +16,7 @@
 
 #include "core/framework/status.h"
 #include "core/gfx/blit_quad.h"
+#include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
 #include "core/util/log.h"
 
@@ -46,7 +47,11 @@ public:
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
         if (!ensure_target(d.dev11, w, h)) return false;
         if (fresh || !drawnOnce_) {
-            blit_.draw(d.ctx11, src, rtv_, w, h);
+            {
+                dvr::bridge_profile::Scope sample(d.dev11,d.ctx11,dvr::bridge_profile::Conversion,
+                    fresh ? dvr::capture::delivered_tag() : 0);
+                blit_.draw(d.ctx11, src, rtv_, w, h);
+            }
             dvr::capture::read_done(d.ctx11);   // shared: the slot may be blitted into again only after this read
             // 41.2 (VR-31): the hand pass is CALLED here and expected to
             // refuse - this rung's output is a head-locked quad and eye-frustum

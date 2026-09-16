@@ -5,6 +5,8 @@
 // is where each guard was paid for; do not renumber them.
 
 #include "core/vr/openxr_runtime.h"
+#include "core/framework/bridge_profile.h"
+#include "core/framework/diagnostic_ab.h"
 #include "core/vr/aim_visual.h" // 41.2 (Dishonored, VR-57): explicit one-ray visuals
 
 #include "core/util/log.h"
@@ -17,6 +19,7 @@
 #include "core/gfx/capture.h"    // VR-65: the record that rode the delivered texture
 #include "core/vr/pose_record.h"
 #include "core/vr/image_orientation.h"
+#include "core/framework/perf.h"
 
 // The runtime layer logs under the openxr category at Info; every per-frame
 // line in it is first-N or rate-limited (the CLAUDE.md cost rules).
@@ -386,6 +389,7 @@ std::atomic<bool> g_aerSwapEyes{false};  // diagnostic: negate the sign (inverte
 std::atomic<int> g_aerEyeSign{0};        // -1 left, +1 right, 0 = AER off
 int g_currentEye = 0;                    // eye slot the next captured frame belongs to
 XrPosef g_eyePose[2] = {};               // pose claimed for each eye's held image
+uint32_t g_eyeContentSerial[2] = {}; // identity of released eye contents
 bool g_eyeValid[2] = {false, false};     // eye slot holds a released image + pose
 
 // s50 (Infinite): rendered-pose eye tags - see the header comment. Default
@@ -1975,6 +1979,7 @@ void mirror_present(int eyeSign) {
 
 void reset_aer() {
     g_eyeValid[0] = g_eyeValid[1] = false;
+    g_eyeContentSerial[0] = g_eyeContentSerial[1] = 0;
     g_currentEye = 0;
     g_aerEyeSign.store(0, std::memory_order_relaxed);
 }
@@ -2115,6 +2120,7 @@ void teardown_session(const char* why) {
     if (g_viewSpace != XR_NULL_HANDLE) { xrDestroySpace(g_viewSpace); g_viewSpace = XR_NULL_HANDLE; }
     if (g_space != XR_NULL_HANDLE) { xrDestroySpace(g_space); g_space = XR_NULL_HANDLE; }
     if (g_session != XR_NULL_HANDLE) { xrDestroySession(g_session); g_session = XR_NULL_HANDLE; }
+    dvr::bridge_profile::reset();
     if (g_context) { g_context->Release(); g_context = nullptr; }
     if (g_device) { g_device->Release(); g_device = nullptr; }
     g_sessionBegun = false;
@@ -4229,7 +4235,11 @@ void on_present_end(ID3D11Texture2D* frame) {
                     // included. Under an engine letterbox the copy becomes an
                     // unsqueeze blit instead (session 22, capture_frame).
                     int64_t tCap = phase_now();
-                    capture_frame(g_images[target][index].texture, backbuffer);
+                    {
+                        dvr::bridge_profile::Scope sample(g_device,g_context,dvr::bridge_profile::EyeCopy,
+                            projectionMode ? (target==0?-1:1) : 0);
+                        capture_frame(g_images[target][index].texture, backbuffer);
+                    }
                     phase_record(kPhCapture, tCap);
                     // 41.1 (Dishonored): the frame-identity trace's last stage - the
                     // centre of the swapchain image this present's frame was copied
@@ -4238,7 +4248,10 @@ void on_present_end(ID3D11Texture2D* frame) {
 
                 }
                 XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-                xrReleaseSwapchainImage(g_swapchains[target], &ri);
+                const XrResult contentRelease = xrReleaseSwapchainImage(g_swapchains[target], &ri);
+                if (srFrame || (aerActive && target == g_currentEye && imageSign == currentEyeSign))
+                    g_eyeContentSerial[srFrame ? srEye : g_currentEye] =
+                        imageReady && XR_SUCCEEDED(contentRelease) ? dvr::capture::delivered_serial() : 0;
 
                 // Captured content is attributed to the locate generation it
                 // was RENDERED from (g_viewsContent), never the fresh one -
@@ -5080,6 +5093,16 @@ void on_present_end(ID3D11Texture2D* frame) {
         PhaseMark mark(kPhEndFrame); // the measured pacer - name it while in flight
         r = xrEndFrame(g_session, &fei);
     }
+    // Successful stereo submissions, never Present parity or held-layer call counts.
+    bool measuredStereo = false;
+    if (XR_SUCCEEDED(r) && layerCount && layers[0]->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
+        const auto* measured = reinterpret_cast<const XrCompositionLayerProjection*>(layers[0]);
+        measuredStereo = measured->viewCount == 2 &&
+            measured->views[0].subImage.swapchain == g_swapchains[0] &&
+            measured->views[1].subImage.swapchain == g_swapchains[1];
+    }
+    dvr::perf::desktop_ab_submit(measuredStereo, g_eyeContentSerial[0], g_eyeContentSerial[1]);
+    dvr::diag_ab::submit(measuredStereo,g_eyeContentSerial[0],g_eyeContentSerial[1]);
     note_aim_visual(XR_FAILED(r) && visualResult == AimVisualResult::Submitted
                        ? AimVisualResult::EndFailed : visualResult,
                     XR_SUCCEEDED(r) ? visualDots : 0, XR_SUCCEEDED(r) ? visualBeam : 0);

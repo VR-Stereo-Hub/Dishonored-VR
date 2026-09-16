@@ -1,3 +1,4 @@
+#include "core/framework/render_profile.h"
 // core/ui/overlay.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -642,6 +643,35 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Display")) {
+    if (ImGui::Button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
+        dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());
+    bool reducedTrial = dvr::perf::desktop_ab_reduced();
+    if (dvr::perf::desktop_ab_enabled()) ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Benchmark Reduced instead of Off", &reducedTrial))
+        dvr::perf::desktop_ab_set_reduced(reducedTrial);
+    if (dvr::perf::desktop_ab_enabled()) ImGui::EndDisabled();
+    ImGui::TextDisabled("Full / %s / Full: 100 seconds; menu aborts.", reducedTrial ? "Reduced" : "Off");
+    {
+        bool mirrorOff = dvr::desktop_eye::mirror_off();
+        if (ImGui::Checkbox("Disable desktop mirror (candidate)", &mirrorOff)) {
+            dvr::desktop_eye::set_mirror_off(mirrorOff);
+            ConfigWriteKey("VR", "DesktopMirrorOff", mirrorOff ? "1" : "0", "F10 Display");
+        }
+        ImGui::TextDisabled("Freezes the desktop image while VR is active; headset keeps rendering.");
+        if (mirrorOff) ImGui::BeginDisabled();
+        bool reduced = dvr::desktop_eye::reduced_present();
+        if (ImGui::Checkbox("Reduce desktop presentation (candidate)", &reduced)) {
+            dvr::desktop_eye::set_reduced_present(reduced);
+            ConfigWriteKey("VR", "ReduceDesktopPresent", reduced ? "1" : "0", "F10 Display");
+        }
+        ImGui::TextDisabled("Keeps both headset eyes; avoids redundant desktop updates when safe.");
+        if (mirrorOff) ImGui::EndDisabled();
+    }
+    bool renderProfile=dvr::render_profile::enabled();
+    if(ImGui::Checkbox("Sample render-thread CPU costs", &renderProfile)) {
+        dvr::render_profile::set_enabled(renderProfile);
+        ConfigWriteKey("Perf", "RenderProfile", renderProfile?"1":"0", "F10 Display");
+    }
     // 41.1: the stereo arming tickbox, TICKED by default (the user's ask). It
     // parks the selected method on the mono screen without forgetting it; the
     // selection is the ini's [Stereo] Method or `stereo <name>`.
@@ -728,6 +758,18 @@ static void OverlayFrame()
     // the last 3 s window's (core/framework/perf); MARK stamps the log with
     // the ring's surroundings so an attack freeze becomes evidence.
     {
+        bool nativeProfile=dvr::native_profile::enabled();
+        if(ImGui::Checkbox("Native draw CPU timing (diagnostic)",&nativeProfile))
+            dvr::native_profile::set_enabled(nativeProfile);
+        bool bridgeProfile=dvr::bridge_profile::enabled();
+        if(ImGui::Checkbox("Bridge GPU timing (diagnostic)",&bridgeProfile))
+            dvr::bridge_profile::set_enabled(bridgeProfile);
+        bool diagnosticAb=dvr::diag_ab::enabled();
+        if(ImGui::Checkbox("Diagnostic overhead A/B/A (about 110s)",&diagnosticAb)) {
+            if(diagnosticAb) dvr::perf::ab_command("off");
+            dvr::diag_ab::set_enabled(diagnosticAb);
+        }
+        ImGui::TextDisabled("Collection: %s",dvr::diag_ab::reduced()?"reduced for test":"normal");
         const dvr::perf::Window pw = dvr::perf::last_window();
         ImGui::Text("tick %.1f ms (%.1f/s) = in %.1f + out %.1f (idle %.1f R %.1f) | capture %.1f [lock %.1f] wait %.1f%s",
                     pw.tickMs, pw.ticksPerS, pw.inMs, pw.outMs, pw.idleMs, pw.rMs, pw.captureMs, pw.lockMs,

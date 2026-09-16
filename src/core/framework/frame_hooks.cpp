@@ -1,9 +1,15 @@
+#include "core/framework/render_profile.h"
 // core/framework/frame_hooks.cpp - see frame_hooks.h.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/frame_hooks.h"
 
 #include "core/framework/perf.h"
+#include "core/framework/native_profile.h"
+#include "core/framework/query_wait_profile.h"
+#include "core/framework/scene_prepare_profile.h"
+#include "core/framework/bridge_profile.h"
 #include "core/gfx/desktop_eye.h"
+#include "core/gfx/capture.h"
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
 #include "core/gfx/hud_capture.h"
@@ -163,6 +169,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool hooked = false;
         if (!hooked) { hooked = true; dvr::vr::set_mirror_hook(&dvr::desktop_eye::on_present); }
     }
+    dvr::bridge_profile::present();
     dvr::perf::stamp(dvr::perf::kEntry);
     dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
     if (g_cb.pre_tick) g_cb.pre_tick(self);
@@ -215,7 +222,10 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
             g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
     }
     {   // VR-67: the A/B measures gameplay, never a menu or a load
-        dvr::perf::ab_set_gameplay(g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true);
+        const bool benchmarkGameplay = g_cb.gameplay_verdict ? g_cb.gameplay_verdict() : true;
+        dvr::perf::ab_set_gameplay(benchmarkGameplay);
+        dvr::perf::desktop_ab_tick(benchmarkGameplay);
+        dvr::render_profile::tick(benchmarkGameplay);
     }
 
     if (g_cb.game_tick) g_cb.game_tick(self);
@@ -227,8 +237,17 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
     dvr::stereo::FrameOutput out;
     dvr::desktop_eye::begin_present(g_count);
+    const uint32_t priorCapture = dvr::capture::delivered_serial();
     dvr::stereo::end_frame(devs, out);
     dvr::perf::stamp(dvr::perf::kAfterEnd);
+    {
+        dvr::desktop_eye::Record record;
+        const bool known = dvr::desktop_eye::record_for(g_count, record);
+        dvr::scene_prepare::end_frame(known ? record.draw : 0,
+            g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+        dvr::query_profile::end_frame(known ? record.draw : 0,
+            g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+    }
     // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
     // method and the runtime on purpose: they belong to no stereo method.
     dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
@@ -236,7 +255,16 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::vr::on_present_end(out.tex);
     dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
     dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
-    const HRESULT hr = g_origPresent(self, src, dst, wnd, dirty);
+    // VR-115: only desktop delivery can be omitted. All per-eye engine, capture,
+    // XR and hook accounting above runs unchanged. Check the final session state
+    // because xrEndFrame can fail after the runtime's mirror callback.
+    const uint32_t deliveredCapture = dvr::capture::delivered_serial();
+    const bool desktopXrReady = out.tex && deliveredCapture && deliveredCapture != priorCapture &&
+        dvr::vr::session_live();
+    const bool desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
+        !strcmp(dvr::stereo::active_name(), "reentry");
+    const HRESULT hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
+        desktopStereoReady, desktopXrReady);
     dvr::perf::stamp(dvr::perf::kAfterGamePresent);
     // 41.1 (session 8): the codes only a 9Ex device returns (the game never
     // handles them); the first of each is named so a TDR reads as a TDR.
@@ -275,6 +303,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
 }
 
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
+    dvr::native_profile::Scope timing(dvr::native_profile::ConstHook);
     if (startReg < (UINT)kVsConstShadowRows && data && count) {   // VR-117/118: c0..c31, for the HUD region probe
         const UINT room = (UINT)kVsConstShadowRows - startReg;
         const UINT n = (count < room) ? count : room;
@@ -286,6 +315,7 @@ HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const floa
 
 HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT baseVertex,
                                 UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    dvr::native_profile::Scope timing(dvr::native_profile::IndexedHook);
     ++g_actDraws;
     if (g_cb.draw_indexed)
         return g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices,
@@ -295,12 +325,14 @@ HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, I
 
 HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex,
                              UINT primCount) {
+    dvr::native_profile::Scope timing(dvr::native_profile::PrimitiveHook);
     ++g_actDraws;
     if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
     return orig_draw_prim(self, type, startVertex, primCount);
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
+    dvr::native_profile::Scope timing(dvr::native_profile::TargetHook);
     ++g_actSrts;
     dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
     dvr::hudclass::on_set_render_target(idx, rt);   // VR-117: the classifier's rt0 shadow (pointer value only)
@@ -365,11 +397,13 @@ bool hook_d3d9(IDirect3D9* d3d) {
 }
 
 HRESULT orig_set_vs_const(IDirect3DDevice9* dev, UINT startReg, const float* data, UINT count) {
+    dvr::native_profile::Scope timing(dvr::native_profile::NativeConst);
     return g_origSetVsConst ? g_origSetVsConst(dev, startReg, data, count) : E_FAIL;
 }
 
 HRESULT raw_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                          UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    dvr::native_profile::Scope timing(dvr::native_profile::NativeIndexed);
     return g_origDrawIndexed ? g_origDrawIndexed(dev, type, baseVertex, minIndex, numVertices,
                                                  startIndex, primCount)
                              : D3DERR_INVALIDCALL;
@@ -377,6 +411,7 @@ HRESULT raw_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseV
 
 HRESULT raw_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
                       UINT primCount) {
+    dvr::native_profile::Scope timing(dvr::native_profile::NativePrimitive);
     return g_origDrawPrim ? g_origDrawPrim(dev, type, startVertex, primCount)
                           : D3DERR_INVALIDCALL;
 }
@@ -406,6 +441,7 @@ const float* vs_const_shadow_row(int row) {
 int vs_const_shadow_rows() { return kVsConstShadowRows; }
 
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt) {
+    dvr::native_profile::Scope timing(dvr::native_profile::NativeTarget);
     return g_origSetRt ? g_origSetRt(dev, idx, rt) : E_FAIL;
 }
 

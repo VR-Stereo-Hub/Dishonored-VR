@@ -873,3 +873,49 @@ blend flag: `captured` forces the coverage equation on every redirected draw
 `repair` lost black strokes) and ships OFF behind `repair` until the headset
 judges. See dishonored/HUD_ANCHORS.md and ENGINE_NOTES, "How the Scaleform
 HUD identifies its elements".
+
+## 2026-09-14: separate desktop delivery from headset work
+
+VR-115 adds default-off Reduced and Off modes at the host Present tail. Preserve
+the runtime layer and all engine hook/capture calls. Defer the mirror callback's
+copy action only in candidate modes so the final session/capture state can decide
+whether native Present may be omitted. Full retains the accepted callback order.
+Reduced preserves left snapshots and permits only one adjacent omitted right.
+Off uses a current-frame D3D9 submission event without claiming GPU completion;
+capture ownership fences remain independent. Mode/lifecycle boundaries invalidate
+permission and stale pin provenance. This choice trades driver presentation work
+for explicit submission and must be judged by total frame tails, not one timing
+column. See [DESKTOP_PRESENT_PERFORMANCE.md](dishonored/DESKTOP_PRESENT_PERFORMANCE.md).
+
+## 2026-09-14: fresh-pair desktop experiment
+
+The Present lane owns the bounded Full/Off/Full controller. OpenXR publishes
+copy/release serial identity for each eye and counts only successful distinct
+eye projection submissions with both serials advancing. No pose or rendering
+choice is made by the instrument. GPU render span and capture are independent
+intervals; their subtraction is invalid. See dishonored/PERFORMANCE_ROLLOUT.md.
+## 2026-09-14: independent performance branches and sampled CPU scopes
+
+Independent experiments branch from accepted main; stack genuine dependencies
+only. Combine validated successes on an integration branch and test interactions.
+VR-121 sampling is render-thread-owned and fixed-size; per-call enable/owner
+checks precede randomized timing. Inclusive nested scopes are not additive.
+See dishonored/RENDER_THREAD_PROFILE.md. No rendering choice changes here.
+
+### 2026-09-14: measure bridge GPU intervals before changing copies (VR-123)
+
+The prior CPU profile did not justify a shader lifetime cache. A separate
+main-based diagnostic uses bounded asynchronous D3D11 timestamp queries around
+conversion and XR eye copies, not around CPU wait or compositor intervals.
+Random stage selection avoids eye-stride alias and permits at most one bracket
+per native Present. No new flush, ownership change or engine-memory writer.
+See dishonored/BRIDGE_GPU_PROFILE.md for the result population and limitations.
+
+### 2026-09-14: mask collection without changing settings (VR-124)
+
+A read-only diagnostic group is measured with an opt-in baseline/reduced/baseline
+mask. The original INI and F10 values never change, so saving during the reduced
+phase cannot accidentally promote diagnostic changes. Exclude collectors with
+functional initialization or mesh recovery dependencies. Fresh-pair identity
+uses capture serials at successful XR submission, independently of FrameId
+thumbnails. See dishonored/DIAGNOSTIC_OVERHEAD_AB.md for exact limits.

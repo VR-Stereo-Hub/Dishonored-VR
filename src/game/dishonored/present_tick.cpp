@@ -801,6 +801,9 @@ static void DvrBeforeCreateDevice(D3DPRESENT_PARAMETERS* pp)
 
 static void DvrAfterCreateDevice(HRESULT hr, HWND wnd, D3DPRESENT_PARAMETERS* pp)
 {
+    if (SUCCEEDED(hr)) dvr::scene_prepare::install(kSceneInitViews, kSceneInitViewsPrefix, kModBase, sizeof(kSceneInitViewsPrefix));
+    if (SUCCEEDED(hr)) dvr::scene_prepare::install_culling(kSceneFrustumCull, kSceneFrustumCullPrefix, sizeof(kSceneFrustumCullPrefix), kSceneRendererFamilyPointer, kSceneFamilyReflectionBranch);
+    if (SUCCEEDED(hr)) dvr::query_profile::install(kD3D9QueryRead, kD3D9QueryReadPrefix, kModBase, sizeof(kD3D9QueryReadPrefix));
     if (pp) {                                            // 32.9
         g_gameWindowed = pp->Windowed != FALSE;
         if (g_gameWindowed)

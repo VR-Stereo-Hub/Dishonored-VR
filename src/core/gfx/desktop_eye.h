@@ -30,14 +30,27 @@ void note_single_draw(); // game lane, counts actual single gameplay ticks
 // Called once per runtime present, after capture and before the HUD hook.
 // eyeSign belongs to the DELIVERED texture and can lag the live backbuffer.
 void on_present(int eyeSign);
+// VR-115: default-off, render-thread-only. The runtime callback can defer its
+// mirror work until this tail, after all XR work, where Present eligibility is
+// final. The native call still runs on every fallback path.
+using PresentFn = HRESULT (__stdcall *)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
+HRESULT present(PresentFn native, IDirect3DDevice9* dev, const RECT* src,
+                const RECT* dst, HWND wnd, const RGNDATA* dirty, bool stereoReady, bool xrReady = false);
+void set_reduced_present(bool on);
+bool reduced_present();
+void set_mirror_off(bool on);
+bool mirror_off();
 bool set_source(const char* name, const char* origin);
 const char* source_name();
 
 struct Record {
     uint32_t present = 0;
     int draw = 0, tag = 0, shown = 0;
-    char action = '?'; // S snapshot, B blit, N none, F failed copy, ? no callback
+    char action = '?'; // S snapshot, B blit, K keep left/skip, O mirror off, N none, F failed, ? no callback
     char source = 't';
+    char reduceReason = 'D'; // D full, C context, P parameters, I pin, L predecessor, R not right, K reduced, O off, Q query failed
+    bool nativeCalled = false;
+    double mirrorMs = 0, nativeMs = 0, flushMs = 0;
 };
 bool record_for(uint32_t present, Record& out);
 
