@@ -2,6 +2,15 @@
 
 ## Menu depth interruption follow-up (VR-126, 2026-09-16)
 
+**Installed378** (`vr33-hands-working-378-g9bce8a13b`), clean source9bce8a13b.
+Candidate `build/playtest-candidates/vr126-hud-owner`; preinstall logs/DLL/INI in
+`build/playtest-candidates/installs/20260916-023823-085684`. Whole INI comparison:
+exactly two new keys, NoteHandRight/JournalHandRight=0.200; every existing value
+retained. DLL SHA256 `9b6135b6e14b90a9e54672d7e6ae49ad9c18eba275d726b1027a457501123e1b`.
+Installed hashes/CRLF verified. Release build, exports, lint, golden INI and regression
+checks pass. No game/simulator launched; current old log remains376 until the tester
+launches378. Headset result pending. Local commits only.
+
 **376 verdict:** camera sliding when turning appears fixed. Notes follow the hand
 well. Residual wheel flicker includes hands/weapons and a newly reported brief
 whole-world enlargement/eye misalignment. Do not classify the entire fault as hands.

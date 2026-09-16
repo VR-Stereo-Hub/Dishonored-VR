@@ -23,6 +23,15 @@ To measure and name one more element (the eight unmeasured rows, or a new one):
 
 ## Current: right-hand-side readers and moving HUD ownership (2026-09-16)
 
+**Installed378** (`vr33-hands-working-378-g9bce8a13b`), clean source9bce8a13b.
+Candidate `build/playtest-candidates/vr126-hud-owner`; preinstall logs/DLL/INI in
+`build/playtest-candidates/installs/20260916-023823-085684`. Whole INI comparison:
+exactly two new keys, NoteHandRight/JournalHandRight=0.200; every existing value
+retained. DLL SHA256 `9b6135b6e14b90a9e54672d7e6ae49ad9c18eba275d726b1027a457501123e1b`.
+Installed hashes/CRLF verified. Release build, exports, lint, golden INI and regression
+checks pass. No game/simulator launched; current old log remains376 until the tester
+launches378. Headset result pending. Local commits only.
+
 376 reader placement accepted except horizontal alignment; camera sliding appears
 fixed. Preserve saved Note width0.660m/distance+0.040m and every other F10 value.
 New `NoteHandRight` and `JournalHandRight` default+0.200m, range-0.75..+0.75m.

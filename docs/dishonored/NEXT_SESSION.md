@@ -11,6 +11,9 @@
 - Candidate: 150ms menu stereo gap hold, private measured-element textures with
   short-lived content ownership, independent Note/Journal horizontal sliders (+0.20m).
   Preserve accepted scoped camera translation and all saved settings.
+- Installed378-g9bce8a13b, clean source9bce8a13b; candidate vr126-hud-owner.
+  Full INI adds only Note/JournalHandRight=0.200; all existing settings preserved.
+  Both logs archived at installs/20260916-023823-085684; hashes/CRLF verified.
 - Check build/playtest-candidates/installed.json for installed identity. Headset
   acceptance pending; no game/simulator launch or subagents. Keep changes local.
 - Next launch, ONE question: with Wheel open and controllers still, do slow head turns
