@@ -73,6 +73,13 @@ tracking loss/recovery, nonfinite input, menu gating and crop bounds. Existing
 HUD anchor30 and route20 checks pass; release build,9 exports, golden and lint
 pass. No game or simulator launched. Headset result remains pending.
 
+**Installed candidate:**372 (`vr33-hands-working-372-gab770282c`), clean source
+ab770282c, build/playtest-candidates/vr126-weapon-dial. DLL SHA256
+`eb643ede5405b0718b372720c90d44573a0ef5bede7b51aeeff86d5ce89629bc`.
+Previous DLL/INI and both logs: build/playtest-candidates/installs/20260916-003048-979346.
+Complete INI diff adds only WeaponDial=1, Width0.420, Radius0.120, CropX0.600,
+CropY0.500. Installed hashes and CRLF verified. No launch performed.
+
 **One launch question:** Can the left hand smoothly select every weapon wedge,
 especially7 o'clock, while the enlarged cropped wheel stays at its opening
 position? Hold left grip with the hand comfortably forward, leave both sticks

@@ -10,6 +10,10 @@
 - Details, controls, measured crop, tests and single launch question are in
   [HUD_ANCHORS.md](HUD_ANCHORS.md), VR-126 section. Bottom-corner
   widgets deferred. PERFORMANCE.md remains the performance record.
+- Installed372 (`vr33-hands-working-372-gab770282c`), clean source ab770282c.
+  Candidate build/playtest-candidates/vr126-weapon-dial. Both logs and previous
+  DLL/INI archived in build/playtest-candidates/installs/20260916-003048-979346.
+  Complete INI diff adds only five WeaponDial keys; hashes and CRLF verified.
 - Build/install identity is authoritative in build/playtest-candidates/installed.json.
   Preserve FOV103/120% pixels/strict mirror suppression and all saved settings.
   New dial placement defaults off in repo and is opted in only for this test.
