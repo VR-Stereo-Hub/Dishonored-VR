@@ -1,12 +1,17 @@
 ## Unreleased
 
-### HUD follow-up candidate (not yet merged)
+### HUD follow-up
 
 - Shared alpha for notes/books/journal and independent interaction alpha; original
   general-alpha reset preserves all specialized groups, including wheel alpha.
 - Continuous reading vertical stick input replaces sparse menu pulses.
-- Live, default-off interaction-group/objective-marker routing candidates await
-  headset validation. Shape/neighbor matching is not semantic UI identification.
+- Reader panels follow grip rotation; wheel entry and closing retain their own
+  origin, crop and alpha. Pause has independent alpha and continuous navigation.
+- Interaction grouping survives crouch transitions; alpha correction preserves hue.
+  Native objective icons retain game tracking; nearby text association is heuristic.
+- Scoped pause scene freshness removes reported world-depth interruptions. Menu
+  exit heading can carry the physical head turn into gameplay once. Experimental
+  controls retain repository defaults; pause hand-size variation remains open.
 
 ### Accepted weapon dial and reading panels
 

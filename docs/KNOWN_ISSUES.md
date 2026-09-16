@@ -2,8 +2,11 @@
 
 - Weapon wheel can still show positional flicker on left-eye hands/weapons during
   physical head turns (VR-128). Reading flicker is reported resolved on378.
-- Objective markers and some interaction labels are not grouped reliably on their
-  selected HUD anchors; book scrolling and scoped alpha controls have a candidate awaiting headset validation (VR-127).
+- Native objective icons are accepted; title/distance association still uses proximity
+  and can miss batched or unusual layouts. Menu-exit heading has a guarded handoff;
+  these final candidates received aggregate acceptance, not isolated confirmation
+  (VR-127). Pause hands can still vary in apparent size during head turns; read-only
+  scale/depth diagnostics are available. Pause world-depth stability is accepted.
 
 41.x is the FOUNDATION line for the new native-stereo render: it is not a release. The
 milestone in brackets is where the fix is planned (docs/ROADMAP.md).

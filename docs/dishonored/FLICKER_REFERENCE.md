@@ -1,6 +1,16 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
 
+## Merge disposition (2026-09-16)
+
+Current HUD follow-up accepted as sufficient for merge by the maintainer. This is
+aggregate acceptance, not proof that pause hand-size variation is fixed.391 DLL
+hash/banner verified and both logs archived locally at the merge checkpoint.
+Keep measured389 pause-world acceptance and the open hand-depth distinction below.
+Menu exit and objective-label candidates retain their documented limits. No further
+headset launch is requested as a merge condition; no game or simulator launched.
+
+
 ## Build389 result: pause world accepted, hand depth still open (2026-09-16)
 
 Installed391 (`vr33-hands-working-391-g56b422dc2`), clean source56b422dc2.

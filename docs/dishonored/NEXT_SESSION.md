@@ -1,37 +1,24 @@
-## Current:389 accepted, menu exit heading candidate (2026-09-16)
+## Current: HUD follow-up accepted for merge (2026-09-16)
 
-Installed391 (`vr33-hands-working-391-g56b422dc2`), clean source56b422dc2.
-Candidate `build/playtest-candidates/hud-menu-exit`; both logs, previous DLL and
-full INI archived in `build/playtest-candidates/installs/20260916-155406-323310`.
-Entire INI diff: only add Hud.MenuExitHeading=1 and NativeObjectiveLabels=1.
-All prior saved values retained; installed DLL/INI hashes and CRLF verified.
-DLL SHA256 `7a0779f52716a029778db0511122dda7dbf08636e7c241cd00359108396b2126`.
-Release build,9 exports,38 menu/23 native HUD checks, default writer/package/golden
-byte parity, lint and diff checks pass. No game/simulator launch. Current log is
-still389 until tester launch;391 headset acceptance pending. Local commits only.
+The maintainer accepted the current work as sufficient and explicitly authorized
+PR publication and merge to VR-Main. This ends the active HUD test loop; it is not
+a claim that every residual issue has been eliminated. Preserve codex/hud-fixes
+after merge. Installed391/source56b422dc2 remains the playtest build, with its DLL
+hash and log banner verified before the merge checkpoint; both logs and full INI
+are archived under build/playtest-candidates/hud-menu-exit/merge-checkpoint-*.
+No install or settings change is part of this merge.
 
-Local branch codex/hud-fixes. Verified installed389 DLL/hash/banner and archived
-both logs/full unchanged INI at
-`build/playtest-candidates/hud-visual-lifecycle/reported-menu-exit`.
-Accepted: rigid readers, wheel hand origin, native objective icon and pause world
-stability. Wheel closing flash provisionally absent. Objective title/distance still
-detached; pause hands change apparent size during yaw; closing head-look menus
-returns to entry heading. Accepted scene freshness and hand half-step stay enabled.
+Accepted earlier reports: reader grip rotation, wheel origin, crouch grouping,
+interaction hue and pause world stability; closing flash provisionally absent.
+Residual pause hand-size variation remains open. Native objective text association
+and menu exit heading are implemented with tests; final acceptance is aggregate,
+not a separate detailed verdict for each mechanism. Candidate levers retain their
+repository defaults. Latest installed settings remain preserved independently.
 
-Implemented default-off MenuExitHeading and NativeObjectiveLabels. First hands the
-menu's yaw to the existing gameplay writer exactly once after refreshed owner
-validation. Second associates nearby title/distance geometry with the native icon
-and scales both around its center; proximity is a trial, not semantic identity.
-Pause hand-depth/scale diagnostics are read-only; no hand-size fix claimed.
-38 production menu checks and23 native HUD checks pass; clean release and installation verified.
-See current HUD_ANCHORS and FLICKER_REFERENCE entries for evidence and limits.
-
-ONE launch question: after opening pause, turning head30-60 degrees and closing
-without turning back, does gameplay retain that exit direction? Expected: retain.
-Snapback means the handoff was refused, missed or not retained downstream; an
-overshoot suggests duplicate application. Inspect menu/exit and menu/hand-depth.
-No game/simulator/subagents or publication. Preserve full installed INI/CRLF and
-archive both logs before each next launch. No new default promotion requested.
+Validation: clean release,9 exports,38 menu and23 native HUD checks; default
+writer/package/golden byte parity and lint pass. No game/simulator or subagents.
+Canonical details: HUD_ANCHORS.md and FLICKER_REFERENCE.md. Reopen a targeted
+investigation only when requested; verify installed.json and preserve both logs.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 
