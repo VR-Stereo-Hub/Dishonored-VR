@@ -26,7 +26,10 @@
 - [x]372 hand dial accepted and physical size/crop tuned.
 - [x] Tiny-motion direction, camera-plane orientation, circular crop and distance controls.
 - [x] Scoped menu head look and per-menu UI blur candidate with host/GPU validation.
-- [ ] Headset acceptance: refined dial and live world view during Wheel/Note.
+- [x]374 wheel appearance/selection accepted; motion-dependent camera issue reported.
+- [x] Scoped single-draw and translation-frame corrections pass host negative controls.
+- [x] Independent wheel alpha and hand-following note/journal controls implemented.
+- [ ] Headset acceptance: menu head-motion stability and hand-following readers.
 
 ## Performance research shelved (2026-09-15)
 

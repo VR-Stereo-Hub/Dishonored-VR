@@ -1,5 +1,76 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## Menu head-motion follow-up (VR-126, 2026-09-16)
+
+**Reported:** refined wheel appearance and selection are accepted on374. Moving the
+head while Wheel is open causes flicker, possibly both eyes; stationary view is
+stable. Left/right head turns also appear to move the viewpoint in menus and
+cinematics. Later clarification identifies hands/weapons as the likely flickering surface.
+Route to the shared hand correction/eye-identity rows (3.11 and VR-116 hand follow-up),
+not a claimed world or wheel-panel regression. The positional slide is separate.
+
+**Identity/evidence:** log banner374-ga51e1799f and installed DLL SHA256
+5ed4b0c9a840d14aae28304cff1336d791f2035d749dd7454c8638b2d3ee977a match.
+Both logs and saved INI are preserved in
+build/playtest-candidates/vr126-dial-immersion/reported-head-motion.
+There are537 sampled successful menu scopes,274 sampled waits with scene=1/double=0,
+and zero menu restoration refusals. These rate-limited lines are NOT tick counts
+or visual correlations. Final image-orientation counters: left59508 accepted/0
+fallback; right59506/1. Existing accepted image-owned orientation is active.
+
+**Code findings and candidate:**
+
+1. MenuHeadBegin required doubleDraw, unlike the established cinematic scope.
+   Single scene draws therefore reverted to native untracked orientation while
+   adjacent pairs used head look. Scope single draws too, with eye0 and their own
+   exact pose record. Do not force doubling or change tag repair/hold/synchronization.
+   Log double/singles counters so exercise of the corrected route is observable.
+2. Scoped rotator writes did not update the native camera matrix rows. Position
+   offsets were in CURRENT physical head-yaw axes but mapped through those native
+   rows. At a nonzero tracked displacement, a yaw turn could rotate the offset
+   despite no physical translation. Menu/cinematic scopes now map translation
+   through their composed yaw. Stereo separation still uses composed full right.
+   Ordinary gameplay and pitch-only scopes retain their accepted mapping.
+3. Menu entry offset subtraction mixed vectors from different head-yaw frames.
+   Preserve only entry neck correction, rotate it into the current yaw frame,
+   then add current raw displacement. Translation and orientation now share one
+   HtSample publication; cinematic scopes consume its raw position too. No new
+   engine offsets or unchecked writers. Existing live identity/restore guards stay.
+
+**Validation:** production menu module17 checks, including formerly refused single
+draw;42 cinematic math checks including a361-angle fixed-position sweep and an old
+native-basis negative control exceeding10uu false travel;16 production scope
+restoration checks.33 HUD anchor checks,20 routing checks,2185 dial checks and30045
+FOV/handback checks pass. Release build, exports, lint and golden INI checks required
+before install. No game/simulator launched. Host evidence is not headset acceptance.
+
+**Failed/limited hypotheses:** absence of restore refusals does not prove correct
+pixels. Healthy same-eye image metadata does not establish correct camera translation.
+Single-draw gating is a code defect with observed exercise, but the old capture hold
+may reject some affected images, so it is not yet a proved cause of perceived flicker.
+The saved global alpha could affect the wheel independently; separate transparency
+controls are a UI change, not evidence for a world-flicker fix. No global blur/DOF,
+lag, resolution, mirror or palette experiments enabled.
+
+**Hand-specific follow-up:**374's palette eyecheck has zero agreements/disagreements
+and only unknowns. Source review found it asks for present N+1 WHILE drawing at N,
+before that record exists. This cannot clear the classifier. Move that read-only
+comparison to N+2, joining the hand history at N to completed draw identity N+1.
+Nineteen production eye/diagnostic host checks pass, including completed-record
+agreement, mismatch, untagged and future-record negative controls.
+Bounded menu/hands telemetry reports known/unknown, classifier decision/jump, actual
+resolved draw eye, hand refusals and weapon correction misses. No phase fitting,
+queue mutation, predictor activation or parked hand-normalization patch is used.
+The camera single-draw correction removes an inconsistent input to the shared
+hand transform; it remains a candidate for the reported hand symptom, not proof.
+
+**Next launch question:** with Wheel held open and controllers still, does turning
+the head left/right stop the hand/weapon flicker? Expected: hands stay stable while
+the wheel remains usable. Improvement supports consistent menu camera inputs;
+unchanged flicker calls for menu/hands known mismatch/refusal populations and pose
+timing before another rendering change. Worse rejects this candidate. Positional
+slide, reading panels and cinematic comfort remain separate acceptance scopes.
+
 ## Current menu-world investigation (VR-126, 2026-09-16)
 
 Reported on verified build372: weapon wheel and notes expose a stationary world FOV
@@ -163,6 +234,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| Hands/weapons flicker on head turns during Wheel; separate yaw-induced menu/cinematic translation | Scoped single-draw gap plus shared hand eye/pose inputs; translation-basis mismatch is a separate cause | VR-126 code/host corrections; headset pending, latest entry above |
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |

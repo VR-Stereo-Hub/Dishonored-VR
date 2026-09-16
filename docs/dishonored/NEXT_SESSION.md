@@ -1,3 +1,21 @@
+## Current: menu-motion correction and hand-following readers (2026-09-16)
+
+- Keep local on codex/hud-weapon-dial; no push or main merge authorized.
+- Verified374 report: wheel appearance/selection good; head motion flickers on hands/weapons;
+  separately appears to translate menus/cutscenes. Both logs and saved INI archived under
+  build/playtest-candidates/vr126-dial-immersion/reported-head-motion.
+- Candidate tracks menu single scene draws, uses composed yaw for scoped translation,
+  rebases entry neck correction between yaw frames, and snapshots position with head
+  orientation. Accepted image orientation/stereo synchronization unchanged.
+- Adds independent wheel alpha gain/floor/gamma and camera-parallel hand-following
+  Note/Journal panels with independent width/distance. Existing F10 settings preserved.
+- Check installed.json for current candidate. Read only latest HUD_ANCHORS and
+  FLICKER_REFERENCE follow-up sections for evidence, limitations and launch question.
+- One question: does turning the head left/right with Wheel held open and controllers
+  still stop hand/weapon flicker? Headset verdict pending. Read menu/hands delayed
+  independent eye comparison; old all-unknown eyecheck did not clear the classifier.
+- No subagents, game/simulator launch, branch deletion or publication.
+
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 
 - Branch codex/hud-weapon-dial; PR67/68 already merged, no HUD merge authorized.

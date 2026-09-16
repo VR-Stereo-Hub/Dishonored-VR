@@ -21,6 +21,42 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Current follow-up: motion stability, reading panels and alpha (2026-09-16)
+
+374 wheel usability/appearance accepted; hands/weapons flicker and separate camera translation
+are pending. Full camera findings, failed hypotheses and next launch question are
+in [FLICKER_REFERENCE](FLICKER_REFERENCE.md#menu-head-motion-follow-up-vr-126-2026-09-16).
+All work stays local on codex/hud-weapon-dial by explicit instruction.
+
+Saved F10 profile archived with both logs under
+build/playtest-candidates/vr126-dial-immersion/reported-head-motion.
+Eight changed keys versus the prior candidate: width0.300m,travel0.080m,crop0.420x0.420,
+distance+0.050m,Note NoBlur1,Journal HeadLook1/NoBlur1. Other values preserved.
+The three current alpha values are gain3.000,floor0.000,gamma0.500.
+
+- Wheel now owns WeaponDialAlphaGain/Floor/Gamma. Existing AlphaGain/Floor/Gamma
+  control other HUD content. Mode and mix policy stay shared. Alpha selection is
+  scoped to Wheel's active catch-all sink, independent of whether the dial placement
+  toggle is on. Initial wheel values copy the saved profile, so appearance is retained.
+- NoteFollowHand and JournalFollowHand use camera-parallel panels centered on the
+  current left grip, with no grip rotation, wrist tilt/lift or inherited element
+  offsets. They FOLLOW the hand rather than latching the opening position. A visible
+  row anchor is still required; off/frame remains respected. Normal note/journal
+  rectangular content is retained, without the wheel's circular mask/crop.
+- Each reader has HandWidth and HandDistance keys (prefix Note or Journal), and F10
+  controls under Notes and journal on the hand. Initial widths0.60/0.70m are adjustable
+  starting choices, not measured ideal sizes. Distance-0.05m places the panel5cm
+  toward the camera from the hand to reduce overlap. Follow controls shipoff and are
+  enabled in the installed test. Existing wrist values stay saved for normal HUD.
+- Dedicated placement controls replace misleading generic x/y/scale controls for
+  these enabled panels and the dial. Hand-tracking loss hides the panel; existing
+  near/behind-face guards remain. Selection and game menu navigation are unchanged.
+
+33 host anchor checks cover5cm clearance, exact hand translation and zero-distance
+centering. Existing route/dial checks pass; no rendered/headset claim for new readers.
+User launches. Next launch focuses on hand/weapon stability during Wheel head motion; do not infer note,
+journal or cinematic acceptance from that one result.
+
 ## Current VR-126 refinement: dial comfort and menu immersion (2026-09-16)
 
 Build372 is headset-accepted as a usable hand dial. The tester tuned width to

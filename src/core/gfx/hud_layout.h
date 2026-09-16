@@ -81,6 +81,7 @@ struct Backdrop { float r, g, b, a; };
 const char* alpha_mode_name(int m);
 int  alpha_mode_from_name(const char* s);    // -1 when unknown
 const AlphaCfg& alpha();
+AlphaCfg alpha_for_sink(int sink);
 void set_alpha(const AlphaCfg& a, const char* who);
 const Backdrop& backdrop(int kind);
 void set_backdrop(int kind, const Backdrop& b, const char* who);

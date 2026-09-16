@@ -398,7 +398,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 // layout's; the backdrop plate follows the anchor this sink's
                 // element rides (the window wants one, a hand none).
                 dvr::gfx::AlphaParams ap;
-                const dvr::hudlayout::AlphaCfg& a = dvr::hudlayout::alpha();
+                const auto a = dvr::hudlayout::alpha_for_sink(i);
                 ap.mode = a.mode; ap.gain = a.gain; ap.floorA = a.floorA; ap.gamma = a.gamma; ap.mixK = a.mixK;
                 dvr::hudlayout::backdrop_for_sink(i, ap.backdrop);
                 dvr::hudlayout::circle_for_sink(i, s.slotW, s.slotH, ap.ellipse);

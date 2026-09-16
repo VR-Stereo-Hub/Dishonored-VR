@@ -90,6 +90,10 @@ float g_dialCropX = .40f, g_dialCropY = .40f;
 WindowCfg  g_win = kPresetWindow;
 HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
 AlphaCfg   g_alpha = kPresetAlpha;
+float g_wheelAlphaGain=1,g_wheelAlphaFloor=0,g_wheelAlphaGamma=1;
+bool g_readHand[2]={false,false};
+float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f};
+const char* kReadNames[2]={"Note","Journal"};
 Backdrop   g_backdrop[2] = { kPresetBackdrop, kPresetBackdrop };
 bool       g_menuInWindow = true;
 uint32_t   g_menuMask = kPresetMenuMask;
@@ -232,6 +236,14 @@ int alpha_mode_from_name(const char* s) {
     return -1;
 }
 const AlphaCfg& alpha() { return g_alpha; }
+AlphaCfg alpha_for_sink(int sink) {
+    AlphaCfg a=g_alpha;
+    if(g_menuRiding && g_ridingContext==6 && sink>=0 && sink<kMaxSinks &&
+       g_sink[sink].anchor==g_el[ElWheel].anchor && !g_sink[sink].crop) {
+        a.gain=g_wheelAlphaGain;a.floorA=g_wheelAlphaFloor;a.gamma=g_wheelAlphaGamma;
+    }
+    return a;
+}
 void set_alpha(const AlphaCfg& a, const char* who) {
     AlphaCfg c = a;
     if (c.mode < 0 || c.mode > 2) c.mode = AlphaRepair;
@@ -591,6 +603,17 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         d.tex = tex; d.element = e; d.slot = ElCount + a;
         memcpy(d.subrect, whole, sizeof(d.subrect));
         place(d, e, a, whole, aspect, true);
+        const int readPanel=e==ElNote?0:e==ElJournal?1:-1;
+        if(readPanel>=0 && g_readHand[readPanel]) {
+            float hp[3],hq[4]; dvr::vr::HeadPose head{};
+            if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) || !dvr::vr::peek_head_pose(head)) {--n;continue;}
+            const float camera[4]={head.qx,head.qy,head.qz,head.qw};
+            d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
+            d.orient=dvr::vr::HudOrient::CameraPlane;
+            dvr::hudanchor::camera_panel_position(hp,camera,g_readDistance[readPanel],d.base);
+            d.width=g_readWidth[readPanel];d.height=0;
+            d.planeOff[0]=d.planeOff[1]=0;
+        }
         if (e == ElWheel && g_dialOn && g_dial.held) {
             if (!g_dial.valid) { --n; continue; }
             d.anchor = dvr::vr::HudAnchor::LocalBillboard;
@@ -729,6 +752,15 @@ void configure(const char* ini) {
         if(read_i(ini,key,0)) blurMask|=1u<<kMenuContextBits[i];
     }
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
+    g_wheelAlphaGain=fminf(4.f,fmaxf(0.f,read_f(ini,"WeaponDialAlphaGain",g_alpha.gain)));
+    g_wheelAlphaFloor=fminf(1.f,fmaxf(0.f,read_f(ini,"WeaponDialAlphaFloor",g_alpha.floorA)));
+    g_wheelAlphaGamma=fminf(4.f,fmaxf(.25f,read_f(ini,"WeaponDialAlphaGamma",g_alpha.gamma)));
+    for(int i=0;i<2;++i) {
+        char key[64];
+        _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);g_readHand[i]=read_i(ini,key,0)!=0;
+        _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);g_readWidth[i]=fminf(1.5f,fmaxf(.15f,read_f(ini,key,g_readWidth[i])));
+        _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);g_readDistance[i]=fminf(.5f,fmaxf(-.3f,read_f(ini,key,-.05f)));
+    }
     g_dialDistance=fminf(.50f,fmaxf(-.30f,read_f(ini,"WeaponDialDistance",0)));
     g_dialDirection = read_i(ini,"WeaponDialDirectionOnly",1)!=0;
     g_dialCircle = read_i(ini,"WeaponDialCircle",1)!=0;
@@ -786,6 +818,16 @@ void save(const char* ini) {
     set_hand(0, g_hand[0], "save");
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
+    write_f("WeaponDialAlphaGain",g_wheelAlphaGain);
+    write_f("WeaponDialAlphaFloor",g_wheelAlphaFloor);
+    write_f("WeaponDialAlphaGamma",g_wheelAlphaGamma);
+    for(int i=0;i<2;++i) {
+        char key[64];
+        _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
+        _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
+        _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
+    }
+
     set_backdrop(0, g_backdrop[0], "save");
     set_backdrop(1, g_backdrop[1], "save");
     for(int i=0;i<kMenuContexts;++i) {
@@ -1028,7 +1070,31 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
+    if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
+        ImGui::TextWrapped("Follow the left hand with a flat camera-facing panel. Independent of wrist rotation, tilt and offsets. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
+        for(int i=0;i<2;++i) {
+            ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);
+            bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);
+            change|=ImGui::SliderFloat("Panel width (m)",&g_readWidth[i],.15f,1.5f,"%.2f");
+            change|=ImGui::SliderFloat("Distance offset (m, + farther)",&g_readDistance[i],-.30f,.50f,"%.2f");
+            if(change) {
+                char key[64];
+                _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
+                _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
+                _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
+            }
+            ImGui::PopID();
+        }
+    }
     if (ImGui::CollapsingHeader("Weapon dial")) {
+        bool alphaChanged=ImGui::SliderFloat("Wheel alpha gain",&g_wheelAlphaGain,0,3,"%.2f");
+        alphaChanged|=ImGui::SliderFloat("Wheel alpha floor",&g_wheelAlphaFloor,0,1,"%.2f");
+        alphaChanged|=ImGui::SliderFloat("Wheel alpha gamma",&g_wheelAlphaGamma,.25f,4,"%.2f");
+        if(alphaChanged) {
+            write_f("WeaponDialAlphaGain",g_wheelAlphaGain);write_f("WeaponDialAlphaFloor",g_wheelAlphaFloor);
+            write_f("WeaponDialAlphaGamma",g_wheelAlphaGamma);
+        }
+        ImGui::TextWrapped("These three alpha values affect only the weapon wheel. The other HUD alpha controls affect everything else; alpha mode remains shared.");
         bool changed = ImGui::Checkbox("World-space left-hand dial", &g_dialOn);
         changed |= ImGui::SliderFloat("Distance offset (m, + farther)",&g_dialDistance,-.30f,.50f,"%.2f");
         changed |= ImGui::Checkbox("Direction only (tiny movement selects)",&g_dialDirection);
@@ -1067,7 +1133,9 @@ void draw_ui() {
         else ImGui::TextDisabled("UNMEASURED");
         ImGui::SameLine();
         ImGui::TextDisabled("seen %u", g_seen[e]);
-        if (anchor_visible(a)) {
+        const bool dedicated=(e==ElWheel && g_dialOn) || (e==ElNote && g_readHand[0]) || (e==ElJournal && g_readHand[1]);
+        if(dedicated) ImGui::TextDisabled("Use this menu's dedicated panel controls above.");
+        if (anchor_visible(a) && !dedicated) {
             const bool onHand = anchor_is_hand(a);
             float x = onHand ? g_el[e].handX : g_el[e].winX;
             float y = onHand ? g_el[e].handY : g_el[e].winY;
@@ -1116,7 +1184,7 @@ void draw_ui() {
         ImGui::PopID();
     }
     ImGui::Separator();
-    ImGui::Text("THE ALPHA (VR-119: how the quads' transparency is derived; repair = 41.2's max(r,g,b))");
+    ImGui::Text("OTHER HUD ALPHA (gain, floor and gamma exclude the weapon wheel)");
     {
         AlphaCfg c = g_alpha;
         bool ch = false;

@@ -6899,3 +6899,13 @@ flag alone was rejected as a sufficient route. The verified native-registration
 search returned radial component functions but no UI blur toggle. Weight suppression
 and visible consumption remain separate claims; headset validation is pending.
 Full implementation and failed-hypothesis record: HUD_ANCHORS current VR-126 section.
+
+## Scoped menu/cinematic translation frame correction (2026-09-16)
+
+CameraCache.POV.Rotation is draw-scoped, while the cached camera matrix rows remain
+native. The menu/cinematic scopes must map current head-yaw-relative translation
+through the written composed yaw, not those rows. No new engine offset is required.
+Head sample publication now includes same-locate normal/raw translation. Entry neck
+correction is rebased between physical yaw frames. Existing liveness/identity and
+exact owned-field restoration remain. FLICKER_REFERENCE records the verified374
+report, host negative control, single-scene scope gap and pending perceptual test.

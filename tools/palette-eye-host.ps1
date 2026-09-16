@@ -9,6 +9,9 @@ $eyeText = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Source))
 $eyeBody = [regex]::Match($eyeText, '(?ms)^static void MpEyeForPresent\(const MpDrawCtx\* c\)\r?\n\{.*?^\}')
 if (-not $eyeBody.Success) { throw 'Production eye decision was not found.' }
 [IO.File]::WriteAllText((Join-Path $eyeOut 'palette_eye_body.inc'), $eyeBody.Value, [Text.UTF8Encoding]::new($false))
+$tagBody = [regex]::Match($eyeText, '(?ms)^static void MfNoteTag\(void\)\r?\n\{.*?^\}')
+if (-not $tagBody.Success) { throw 'Completed-present diagnostic body was not found.' }
+[IO.File]::WriteAllText((Join-Path $eyeOut 'palette_tag_body.inc'), $tagBody.Value, [Text.UTF8Encoding]::new($false))
 . (Join-Path $PSScriptRoot "lib\msvc.ps1")
 $eyeVc = Get-DvrMsvcRoot
 $eyeSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' |

@@ -77,6 +77,7 @@ struct ViewScope {
     uint32_t rotOff=0, locOff=0;
     int32_t originalRot[3]={}, writtenRot[3]={};
     float originalPos[3]={}, base[3]={}, right[3]={}, pos[3]={};
+    bool composedPositionBasis=false;
     int firstEye=0;
     Writer previous;
     bool (*validate)(uint8_t*)=nullptr;
@@ -557,6 +558,7 @@ bool begin_view_scope(uint8_t* cam,uint32_t rotOff,const int32_t rot[3],
     ViewScope next;
     next.camera=cam; next.rotOff=rotOff; next.locOff=kFields[g_field].off;
     next.validate=validate; next.firstEye=firstEye; next.previous=g_eyeWriter;
+    next.composedPositionBasis=authoredPosition || positionOverride;
     Writer prior=g_eyeWriter;
     if (prior.camera != cam || prior.fieldOff != next.locOff) prior.lastOk=false;
     if (!current_base(cam,next.locOff,prior,next.base)) return false;
@@ -692,6 +694,13 @@ bool apply_offsets(uint8_t* camObj) {
         }
     } else {
         memcpy(pr, r, sizeof(pr));
+    }
+    // The cached matrix rows still describe the native camera during a scoped
+    // rotator write. Head-yaw-relative translation must follow the composed yaw,
+    // or rotating at a fixed room position produces an artificial orbit.
+    if (scoped() && g_viewScope.composedPositionBasis) {
+        const float yaw=g_viewScope.writtenRot[1]*(6.2831853071795864769f/65536.f);
+        dvr::position_math::yaw_axes(yaw,pr,u,f);haveBasis=true;
     }
     if (haveBasis) {
         memcpy(g_lastBasisF, f, sizeof(g_lastBasisF));

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "game/dishonored/cinematic_math.h"
+#include "game/dishonored/positional_math.h"
 #define DVR_LOG_EVERY_MS(...) ((void)0)
 using LONG=long;
 unsigned threadId=1,g_sdDrawTid=1,epoch=1;
@@ -42,7 +43,7 @@ namespace dvr::camera {
   if(!v(p))return false;validator=v;memcpy(saved,p+off,12);memcpy(p+off,rot,12);return true;}
  bool end_view_scope(){if(!validator(cam))return false;memcpy(cam+16,saved,12);return true;}
 }
-struct HtSample {float pitch=0,yaw=0,roll=0;unsigned gen=1;double locateMs=1000;bool ok=true,poseOk=true;} sample;
+struct HtSample {float position[3]{1,2,3},rawPosition[3]{1,2,3};float pitch=0,yaw=0,roll=0;unsigned gen=1;double locateMs=1000;bool ok=true,poseOk=true;} sample;
 bool HtConsumeSample(HtSample* out){*out=sample;return true;}
 double MaimNowMs(){return 1000;}
 void CineTraceTick(){}
@@ -61,6 +62,7 @@ int main(){
  check(g_mhScope&&g_mhWritten[1]>2000,"head yaw updates rendered camera");
  MenuHeadPublish();check(publishedGen==2&&publications==3,"both eyes publish the exact consumed sample");MenuHeadEnd();
  int32_t restored=1;memcpy(&restored,cam+20,4);check(restored==0,"native camera restored after pair");
+ MenuHeadBegin(true,false);check(g_mhScope,"single draw retains tracked camera instead of reverting to native view");MenuHeadEnd();
  MenuHeadBegin(false,false);sample.yaw=.3f;MenuHeadBegin(true,true);
  check(g_mhWritten[1]>3000,"temporary render gap does not reset head reference");MenuHeadEnd();
  const int previousBuilds=builds;++epoch;MenuHeadBegin(true,true);

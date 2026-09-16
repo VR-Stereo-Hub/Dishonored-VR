@@ -1176,8 +1176,9 @@ static void TrackHead(const float (*m)[4])
     //
     // The quaternion and the Euler angles here come from ONE matrix, in one pass,
     // with one generation. A consumer takes a copy of this and uses only the copy.
+    HtSample coherentHead{};
     {
-        HtSample s;
+        HtSample& s=coherentHead;
         s.yaw = g_hmdYaw; s.pitch = g_hmdPitch; s.roll = g_hmdRoll;
         s.gen = g_hmdGen;
         s.locateMs = dvr::vr::last_locate_ms();
@@ -1191,7 +1192,7 @@ static void TrackHead(const float (*m)[4])
             s.px = s.py = s.pz = 0.0f;
         }
         s.ok = true;
-        HtPublishSample(s);
+        // Publish after this locate's translation has also been computed.
     }
 
     // 31.8: physical crouch moved OUT of the positional-tracking block. It only
@@ -1570,6 +1571,10 @@ static void TrackHead(const float (*m)[4])
             dvr::zacct::publish_head(zh);
         }
     }
+
+    dvr::camera::position_offset_uu(coherentHead.position);
+    dvr::camera::cinematic_position_offset_uu(coherentHead.rawPosition);
+    HtPublishSample(coherentHead);
 
     // Menus show the Windows cursor; gameplay hides it. Track that state
     // ALWAYS (the virtual pad uses it too), and while a menu is up, pause the

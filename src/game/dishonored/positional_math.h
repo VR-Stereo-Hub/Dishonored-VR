@@ -2,6 +2,19 @@
 #pragma once
 #include <cmath>
 namespace dvr::position_math {
+// Re-express right/up/forward from one physical head-yaw frame in another.
+// Subtracting vectors from different yaw frames creates motion at fixed position.
+inline void reframe_yaw(const float in[3],float from,float to,float out[3]) {
+    const float c=std::cos(to-from),s=std::sin(to-from);
+    const float r=in[0],f=in[2];
+    out[0]=r*c-f*s;out[1]=in[1];out[2]=f*c+r*s;
+}
+inline void yaw_axes(float yaw,float right[3],float up[3],float forward[3]) {
+    const float c=std::cos(yaw),s=std::sin(yaw);
+    right[0]=-s;right[1]=c;right[2]=0;
+    forward[0]=c;forward[1]=s;forward[2]=0;
+    up[0]=up[1]=0;up[2]=1;
+}
 inline bool pitch_arc(float pitch,float below,float behind,float scale,float out[3]) {
     if (!std::isfinite(pitch) || !std::isfinite(below) || !std::isfinite(behind) || !std::isfinite(scale)) return false;
     // Match the controller's existing +/-16000 rotator pitch limit.

@@ -939,3 +939,13 @@ consumed head sample. Menu translation retains its entry offset and adds raw phy
 translation, avoiding gameplay neck cancellation while animation is paused. UI blur
 is a separate opt-in per-context reflected effect-weight control, with its own guards
 and conservative restore. Details/validation: dishonored/HUD_ANCHORS.md, VR-126.
+
+### 2026-09-16: one positional frame for scoped head look
+
+Menu and authored cinematic scopes use a coherent HtSample for both rotation and
+translation. Their native camera matrix rows do not follow the temporary rotator,
+so positional right/forward come from the composed yaw; full composed right still
+controls eye separation. Menu entry neck correction is a vector in its original
+head-yaw frame and must be rebased before adding current physical translation.
+Single menu scene draws keep this same scope with eye0. Tag/hold policy stays owned
+by the existing stereo path. Perceptual acceptance remains pending.

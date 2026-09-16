@@ -7,9 +7,9 @@ int g_mhContext=-1;
 unsigned g_mhEpoch=0;
 dvr::cine::Matrix g_mhRef;
 HtSample g_mhHead{};
-float g_mhEntryPos[3]{},g_mhEntryRaw[3]{};
+float g_mhEntryCorrection[3]{},g_mhEntryYaw=0;
 int32_t g_mhWritten[3]{};
-uint32_t g_mhWrites=0,g_mhRestores=0,g_mhRefused=0;
+uint32_t g_mhWrites=0,g_mhRestores=0,g_mhRefused=0,g_mhSingles=0;
 bool MhValidate(uint8_t* cam) {
     if(!g_mhHave || g_mhLoad!=g_mkLoadEvents || cam!=g_mhOwner[0].value.obj ||
        !ChSlot(g_mhOwner[0]) || !ChSlot(g_mhOwner[1]) || !ChSlot(g_mhOwner[2])) return false;
@@ -26,7 +26,7 @@ static void MenuHeadBegin(bool scene,bool doubleDraw) {
     const int context=UiSurfaceContext();
     const bool enabled=UiSurfaceHeadLook() && g_trackingEnabled && g_rotInject && !g_mainMenu && !g_gameExiting;
     if(!enabled) { g_mhHave=false; g_mhContext=-1; return; }
-    const bool ready=scene && doubleDraw &&
+    const bool ready=scene &&
         !g_mainMenu && !g_gameExiting && dvr::vr::session_live() && dvr::stereo::wants_projection() &&
         !dvr::vr::cinematic_active() && !dvr::camera::eyetest_active() && !dvr::camera::postest_active();
     if(!ready) {
@@ -45,8 +45,8 @@ static void MenuHeadBegin(bool scene,bool doubleDraw) {
         if(!cam || cam!=g_camObj || !pawn || !ChCapture(cam,&g_mhOwner[0]) ||
            !ChCapture(pc,&g_mhOwner[1]) || !ChCapture(pawn,&g_mhOwner[2])) return;
         g_mhHave=true;g_mhLoad=g_mkLoadEvents;g_mhContext=context;g_mhEpoch=UiSurfaceEpoch();g_mhRef=h;
-        dvr::camera::position_offset_uu(g_mhEntryPos);
-        dvr::camera::cinematic_position_offset_uu(g_mhEntryRaw);
+        g_mhEntryYaw=head.yaw;
+        for(int i=0;i<3;++i) g_mhEntryCorrection[i]=head.position[i]-head.rawPosition[i];
         Log("menu/head: context=%d acquired current camera/controller/pawn; render-only head look",context);
     }
     auto* cam=(uint8_t*)g_mhOwner[0].value.obj;
@@ -54,13 +54,14 @@ static void MenuHeadBegin(bool scene,bool doubleDraw) {
     if(!CtRead(cam,g_ctCache+g_ctPov+g_ctRot,base,12) ||
        !dvr::cine::compose(base,g_mhRef,h,g_mhWritten,&composed)) return;
     const float right[3]={(float)composed.m[0][1],(float)composed.m[1][1],(float)composed.m[2][1]};
-    float pos[3];dvr::camera::cinematic_position_offset_uu(pos);
-    for(int i=0;i<3;++i) pos[i]=g_mhEntryPos[i]+pos[i]-g_mhEntryRaw[i];
-    g_mhScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_mhWritten,right,-1,MhValidate,false,pos);
-    if(g_mhScope) { ++g_mhWrites;g_mhHead=head;MenuHeadPublish(); } else ++g_mhRefused;
+    float pos[3];
+    dvr::position_math::reframe_yaw(g_mhEntryCorrection,g_mhEntryYaw,head.yaw,pos);
+    for(int i=0;i<3;++i) pos[i]+=head.rawPosition[i];
+    g_mhScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_mhWritten,right,doubleDraw?-1:0,MhValidate,false,pos);
+    if(g_mhScope) { ++g_mhWrites;if(!doubleDraw) ++g_mhSingles;g_mhHead=head;MenuHeadPublish(); } else ++g_mhRefused;
     DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,500,
-        "menu/head: context=%d scope=%d base=%d/%d/%d out=%d/%d/%d gen=%u writes=%u restores=%u refused=%u",
-        context,g_mhScope,base[0],base[1],base[2],g_mhWritten[0],g_mhWritten[1],g_mhWritten[2],head.gen,g_mhWrites,g_mhRestores,g_mhRefused);
+        "menu/head: context=%d scope=%d base=%d/%d/%d out=%d/%d/%d gen=%u writes=%u restores=%u refused=%u double=%d singles=%u pos=%.3f/%.3f/%.3f",
+        context,g_mhScope,base[0],base[1],base[2],g_mhWritten[0],g_mhWritten[1],g_mhWritten[2],head.gen,g_mhWrites,g_mhRestores,g_mhRefused,(int)doubleDraw,g_mhSingles,pos[0],pos[1],pos[2]);
 }
 static void MenuHeadEnd() {
     if(!g_mhScope) return;

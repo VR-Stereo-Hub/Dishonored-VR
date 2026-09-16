@@ -28,6 +28,14 @@
 #include <cstdint>
 
 namespace dvr::hudanchor {
+// Reading panels follow grip position, with depth along the camera normal.
+// Grip rotation and wrist-panel calibration deliberately do not enter this path.
+inline void camera_panel_position(const float grip[3],const float camera[4],float distance,float out[3]) {
+    const float unit[3]={0,0,-1};float forward[3];
+    dvr::xrmath::quat_rotate(camera[0],camera[1],camera[2],camera[3],unit,forward);
+    for(int k=0;k<3;++k) out[k]=grip[k]+forward[k]*distance;
+}
+
 
 // Watch-face tilt. The grip pose per the OpenXR specification (6.3, "grip"):
 // +X is the ray normal to the open palm, AWAY from the palm on the left hand
