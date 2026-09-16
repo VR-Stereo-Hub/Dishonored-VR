@@ -37,15 +37,21 @@ int main() {
     require(SUCCEEDED(dev->CreateOffscreenPlainSurface(64,64,D3DFMT_X8R8G8B8,D3DPOOL_SYSTEMMEM,&cpu,nullptr)),"create readback");
     using namespace dvr::desktop_eye;
     set_device(dev); set_mirror_off(true);
+    set_strict_off(false);
+    begin_present(10000); on_present(0);
+    require(SUCCEEDED(present(nativePresent,dev,nullptr,nullptr,nullptr,nullptr,false,false,true)) && nativeCalls==1,"negative control: guarded off still presents a capture gap");
+    nativeCalls=0;
     unsigned completed=0;
-    for(unsigned frame=1;frame<=120;++frame) {
+    for(unsigned frame=1;frame<=240;++frame) {
         const D3DCOLOR color=(frame&1) ? 0x00123456u : 0x00654321u;
         require(SUCCEEDED(dev->Clear(0,nullptr,D3DCLEAR_TARGET,color,1,0)),"render synthetic color");
         // The marker is queued BEFORE the production tail. Poll it WITHOUT
         // FLUSH afterwards: only the production path can submit this work.
         require(SUCCEEDED(marker->Issue(D3DISSUE_END)),"issue pre-tail marker");
-        begin_present(frame); note_drawn_eye((frame&1) ? -1 : 1); on_present((frame&1) ? 1 : -1);
-        require(present(nativePresent,dev,nullptr,nullptr,nullptr,nullptr,true,true)==D3D_OK,"off tail succeeds");
+        if (frame==121) set_strict_off(true);
+        begin_present(frame); note_drawn_eye((frame&1) ? -1 : 1);
+        if (frame<=120 || !(frame&1)) on_present((frame&1) ? 1 : -1);
+        require(present(nativePresent,dev,nullptr,nullptr,nullptr,nullptr,frame<=120,frame<=120,true)==D3D_OK,"off tail succeeds including no fresh capture/callback");
         Record r; require(record_for(frame,r) && r.action=='O' && !r.nativeCalled,"off actually omits desktop call");
         HRESULT done=S_FALSE; const ULONGLONG deadline=GetTickCount64()+2000;
         do { done=marker->GetData(nullptr,0,0); if(done==S_FALSE) Sleep(1); }
@@ -62,10 +68,22 @@ int main() {
         cpu->UnlockRect(); require(pixel==color,"right/left synthetic pixels survive off tail");
     }
     require(nativeCalls==0,"zero original Presents in off interval");
+    // No XR session must still restore the flat window, even in strict mode.
+    begin_present(241); on_present(0);
+    require(SUCCEEDED(present(nativePresent,dev,nullptr,nullptr,nullptr,nullptr,false,false,false)) && nativeCalls==1,"stopped XR falls back");
+    // Submission failure must not strand queued GPU work behind fake success.
+    g_submitRefused=true;
+    begin_present(242);
+    require(SUCCEEDED(present(nativePresent,dev,nullptr,nullptr,nullptr,nullptr,false,false,true)) && nativeCalls==2,"submit failure falls back");
+    on_reset();
+    g_ppChecked=true;g_ppSupported=false;
+    begin_present(243);
+    require(SUCCEEDED(present(nativePresent,dev,nullptr,nullptr,nullptr,nullptr,false,false,true)) && nativeCalls==3,"unsupported swap parameters fall back");
+    on_reset();
     set_mirror_off(false);
-    begin_present(121); note_drawn_eye(-1); on_present(-1);
+    begin_present(244); note_drawn_eye(-1); on_present(-1);
     const HRESULT restored=present(nativePresent,dev,nullptr,nullptr,nullptr,nullptr,false,false);
-    require(SUCCEEDED(restored) && nativeCalls==1,"full mode restores original Present");
+    require(SUCCEEDED(restored) && nativeCalls==4,"full mode restores original Present");
     on_reset(); marker->Release(); cpu->Release();
     require(SUCCEEDED(dev->ResetEx(&pp,nullptr)),"no retained query/surface blocks ResetEx");
     shutdown(); dev->Release(); api->Release(); FreeLibrary(lib); DestroyWindow(wnd); UnregisterClassW(wc.lpszClassName,instance);

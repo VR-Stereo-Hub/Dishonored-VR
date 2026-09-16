@@ -129,6 +129,7 @@ void clear_sim_hand_poses();
 // while this holds - a live session and a replay would be two writers on the
 // same funnel.
 bool session_live();
+bool session_running(); // Begun XR session, independent of fresh capture availability.
 
 // The last xrWaitFrame's predictedDisplayTime (0 with no session) - recorded
 // as per-frame metadata.

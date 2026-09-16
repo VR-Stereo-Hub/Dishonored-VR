@@ -5579,6 +5579,9 @@ void clear_sim_hand_poses() {
 bool session_live() {
     return g_session != XR_NULL_HANDLE;
 }
+bool session_running() {
+    return g_session != XR_NULL_HANDLE && g_sessionBegun.load(std::memory_order_relaxed);
+}
 
 int64_t last_predicted_time() {
     return static_cast<int64_t>(g_frameState.predictedDisplayTime);
@@ -6651,6 +6654,7 @@ bool get_hand_pose(int, bool, HeadPose&) { return false; }
 void set_sim_hand_pose(int, bool, bool, const float[3], const float[4]) {}
 void clear_sim_hand_poses() {}
 bool session_live() { return false; }
+bool session_running() { return false; }
 int64_t last_predicted_time() { return 0; }
 int64_t display_period_ns() { return 0; }
 bool vr_camera_mode() { return false; }

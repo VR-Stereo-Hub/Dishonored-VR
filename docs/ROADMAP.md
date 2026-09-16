@@ -13,7 +13,9 @@
 - [ ]359 headset check for zoom-pulse removal at103 FOV/130% pixels; no main merge authorized.
 
 - [x] Build/install automatic mirror-off pair-pacing A/B/A;26 host checks pass.
-- [ ]361 headset/log result for pacing benefit; disarm diagnostic after analysis.
+- [x]362 pacing result recorded; baseline drift and laggier report; benchmark disarmed.
+- [x] Build/install strict mirror-off candidate363 with native GPU host validation.
+- [ ]363 headset/log acceptance: zero desktop updates across capture gaps.
 
 ## Performance research shelved (2026-09-15)
 

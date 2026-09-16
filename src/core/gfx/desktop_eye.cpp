@@ -17,12 +17,13 @@ D3DFORMAT g_fmt = D3DFMT_UNKNOWN;
 bool g_on = true, g_refused = false;
 bool g_reduce = false, g_callbackPending = false;
 bool g_mirrorOff = true, g_submitRefused = false;
+bool g_strictOff = false; // Opt-in: no desktop refresh for capture/callback gaps in a running XR session.
 IDirect3DQuery9* g_submitQuery = nullptr;
 int g_callbackTag = 0;
 uint32_t g_leftPresented = 0;
 bool g_ppChecked = false, g_ppSupported = false;
 struct PresentWindow {
-    uint32_t hooks = 0, calls = 0, skips = 0, offSkips = 0, errors = 0, queryFailed = 0;
+    uint32_t hooks = 0, calls = 0, skips = 0, offSkips = 0, errors = 0, queryFailed = 0, strictSkips = 0;
     uint32_t context = 0, parameters = 0, pin = 0, predecessor = 0, notRight = 0;
     double nativeMs = 0, mirrorMs = 0, flushMs = 0, nativeMaxMs = 0;
 } g_presentWindow;
@@ -221,16 +222,18 @@ void on_present(int eyeSign) {
 }
 
 HRESULT present(PresentFn native, IDirect3DDevice9* dev, const RECT* src,
-                const RECT* dst, HWND wnd, const RGNDATA* dirty, bool stereoReady, bool xrReady) {
+                const RECT* dst, HWND wnd, const RGNDATA* dirty, bool stereoReady, bool xrReady, bool xrRunning) {
     Record& r = g_records[g_present % 1024];
     const bool standard = !src && !dst && !wnd && !dirty && dev == g_dev;
     const bool context = stereoReady && standard;
     if (g_reduce || g_mirrorOff) r.reduceReason = 'I'; // missing callback or pin
-    if (g_callbackPending) {
+    const bool strictReady = g_mirrorOff && g_strictOff && xrRunning;
+    if (g_callbackPending || strictReady) {
+        if (!g_callbackPending) g_callbackTag = 0;
         g_callbackPending = false;
         bool offReady = false;
         if (g_mirrorOff) {
-            r.reduceReason = !(xrReady && standard) ? 'C' : !supported_parameters() ? 'P' : 'O';
+            r.reduceReason = !((xrReady || strictReady) && standard) ? 'C' : !supported_parameters() ? 'P' : 'O';
             if (r.reduceReason == 'O') {
                 const double start = dvr::clock::now_ms();
                 offReady = submit_without_present();
@@ -261,7 +264,7 @@ HRESULT present(PresentFn native, IDirect3DDevice9* dev, const RECT* src,
     auto& w = g_presentWindow;
     ++w.hooks;
     if (skip) ++w.skips; else ++w.calls;
-    if (r.action == 'O') ++w.offSkips;
+    if (r.action == 'O') { ++w.offSkips; if (strictReady) ++w.strictSkips; }
     if (hr != D3D_OK) ++w.errors;
     w.nativeMs += r.nativeMs; w.mirrorMs += r.mirrorMs; w.flushMs += r.flushMs;
     if (r.nativeMs > w.nativeMaxMs) w.nativeMaxMs = r.nativeMs;
@@ -276,11 +279,11 @@ HRESULT present(PresentFn native, IDirect3DDevice9* dev, const RECT* src,
         DVR_INFO("desktoppresent: reduced=%d off=%d window=%llu ms hooks=%u actual=%u skipped=%u offSkips=%u nonOK=%u "
             "fallback context/parameters/pin/predecessor/notRight/query=%u/%u/%u/%u/%u/%u "
             "cpu native=%.3f ms/hook %.3f ms/call max=%.3f ms mirror=%.3f ms/hook flush=%.3f ms/hook; "
-            "not a fresh-XR-pair count or GPU time; compare total frame tails for moved waits",
+            "strict=%d strictSkips=%u; not a fresh-XR-pair count or GPU time; compare total frame tails for moved waits",
             g_reduce, g_mirrorOff, now - g_presentBeatMs, w.hooks, w.calls, w.skips, w.offSkips, w.errors,
             w.context, w.parameters, w.pin, w.predecessor, w.notRight, w.queryFailed,
             w.nativeMs / w.hooks, w.calls ? w.nativeMs / w.calls : 0, w.nativeMaxMs,
-            w.mirrorMs / w.hooks, w.flushMs / w.hooks);
+            w.mirrorMs / w.hooks, w.flushMs / w.hooks, g_strictOff, w.strictSkips);
         w = PresentWindow{}; g_presentBeatMs = now;
     }
     return hr;
@@ -307,6 +310,11 @@ void set_mirror_off(bool on) {
     DVR_INFO("desktoppresent: DesktopMirrorOff=%d; OFF freezes desktop updates while XR capture remains live, guarded fallback still presents", g_mirrorOff);
 }
 bool mirror_off() { return g_mirrorOff; }
+void set_strict_off(bool on) {
+    if (on != g_strictOff) { g_strictOff = on; on_reset(); }
+    DVR_INFO("desktoppresent: DesktopMirrorStrictOff=%d; running XR suppresses capture/callback-gap desktop refresh; stopped XR, unsupported parameters or submit failure still fall back", g_strictOff);
+}
+bool strict_off() { return g_strictOff; }
 
 void on_reset() {
     if (g_submitQuery) { g_submitQuery->Release(); g_submitQuery = nullptr; }
@@ -342,6 +350,7 @@ bool set_source(const char* name, const char* origin) {
 void status(dvr::status::Writer& w) {
     w.kv("reduceDesktopPresent", g_reduce);
     w.kv("desktopMirrorOff", g_mirrorOff);
+    w.kv("desktopMirrorStrictOff", g_strictOff);
     w.kv("desktopEye", g_on);
     w.kv("desktopEyeSource", source_name());
     w.kv("desktopEyeValid", g_policy.valid);

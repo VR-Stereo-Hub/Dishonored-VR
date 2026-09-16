@@ -2278,3 +2278,22 @@ Full metrics and preserved logs are indexed in PERFORMANCE_ROLLOUT.md.
    No game/simulator launch or rendered/perceptual result. This is not a flicker fix.
 6. **Open:** headset cadence/comfort and measured tails. Any stereo regression
    rejects the trial. Preserve prior FOV-fix acceptance as a separate open question.
+
+### Strict mirror suppression across capture gaps (2026-09-15)
+
+1. **Symptom/surface:** occasional desktop refresh while mirror is disabled; user
+   separately reports pacing feels laggier. No new headset eye-instability claim.
+2. **Identity:** verified362 pacing log archived in
+   build/performance-results/pair-pacing-result-20260915-231337. Actual native desktop
+   calls persist at capture gaps. Exact distributions are in PERFORMANCE.md.
+3. **Prediction:** session-scoped suppression removes desktop refresh without needing
+   fresh capture/callback. Any new headset instability rejects the candidate.
+4. **Change:**363 opt-in DesktopMirrorStrictOff skips native Present while XR is
+   begun, retaining current-work flush and all ownership/pose/eye rules. Stopped XR,
+   unsupported parameters and explicit submit failures retain desktop fallback.
+5. **Results:**240 real native GPU marker/pixel checks pass, including absent capture/
+   callback; old guard negative control presents. Error/stop/reset paths pass.
+   Installed with pacing off,103 FOV,120% pixels. No game/simulator launch.
+6. **Open:** headset acceptance and actual=0 in healthy running-XR windows. Full
+   evidence, build hashes via manifest, archived INI and one launch question are
+   maintained in PERFORMANCE.md, Pacing result and strict mirror-off trial.

@@ -1,38 +1,39 @@
-## Current handoff: automatic pair-pacing trial (VR-50), 2026-09-15
+## Current handoff: strict mirror-off trial (VR-50), 2026-09-15
 
-- Branch `codex/hud-fixes`; local commits newer than origin. Publication remains
-  blocked pending explicit user approval; no main merge authorized.
-- Installed `vr33-hands-working-362-g40474ba59-dirty` from
-  `build/playtest-candidates/vr50-pair-pacing-120`.103 FOV,120% total pixels
-  (3012x3122), mirror off. DesktopAb=3 armed; all unrelated experiments off.
-- Test automatically allows30 seconds to settle into the hub, then30 seconds each
-  unpaced/paced/unpaced, mirror off throughout. Cap=floor(90% of first fresh-pair
-  rate), bounded by headset refresh. Logs actual gate delays and fresh-pair tails.
-- One question: fewer hitches with useful throughput retained in the middle phase?
-  Same stationary view, no menus/F10/F11/settings changes, two minutes from gameplay.
-  End/abort restores runtime modes. Agent must disarm installed DesktopAb afterward;
-  its INI value otherwise rearms on next launch. No game/simulator launched.
--26 production benchmark checks pass, build/exports/golden/lint pass. Full installed
-  INI diff only dimensions130%->120%; DesktopAb=3 preserved. Both logs archived before
-  install at build/playtest-candidates/installs/20260915-230558-957582; hashes/CRLF
-  verified. Read installed.json and verify the next log banner before interpretation.
-- See PERFORMANCE.md, Pair-pacing test prepared, for evidence and verdict criteria.
-  Mirror-off's earlier sewer p95 cost was modest; extreme tails were mixed, not
-  consistently worse. Increased capture waits motivate pacing, not a proven fix.
-- Preserve accepted image-owned orientation/stereo ownership. No subagents, game/
-  simulator launches, branch deletion or merge. Prior359 FOV UI fix remains in361;
-  no new visual acceptance is inferred from this benchmark preparation.
+- Branch `codex/hud-fixes`; local commits newer than origin. Publication awaits
+  explicit approval after earlier automatic review. No main merge authorized.
+- Installed363 (`vr33-hands-working-363-g2714e9b73-dirty`), candidate
+  build/playtest-candidates/vr50-strict-mirror-off.103 FOV,120% pixels3012x3122,
+  DesktopMirrorOff=1, new DesktopMirrorStrictOff=1, DesktopAb=0, SyncHz=0.
+-362 pacing trial completed at66 Hz: fresh pairs/s73.77/63.37/96.58; p95
+  22.319/20.490/16.104 ms;1645 real gate delays. Baselines drifted; no repeatable
+  smoothness benefit proven. User reports laggier feel. Pacing not promoted.
+- Residual desktop updates were real Present fallbacks on capture gaps. Strict
+  option skips them even without a fresh capture/callback while XR is begun.
+  Stopped XR, unsupported parameters or failed GPU submit still falls back.
+  Existing submit flush, ownership fences, image orientation and eye tags preserved.
+- One launch question: desktop stays frozen in hub while headset remains normal?
+  Read next verified banner and inspect strictSkips/actual/nonOK plus session states.
+  Healthy running windows should have actual=0. No new game/simulator launch by agent.
+- Native host240 GPU marker/pixel checks pass, including no callback/fresh capture;
+  strict-off negative control and stopped-session/error/reset paths pass. Build,
+  exports, golden INIs and lint pass. Installed hashes and INI CRLF verified.
+- Both prior logs/files archived at build/playtest-candidates/installs/20260915-231719-701999.
+  Full INI diff only DesktopAb3->0 and new DesktopMirrorStrictOff=1. Repo strict
+  default remains0 pending acceptance. All other existing settings preserved.
+- Details: PERFORMANCE.md, Pacing result and strict mirror-off trial. No subagents,
+  game/simulator launches, branch deletion or main merge. Archive both logs each run.
 
 ### Minimal next-chat prompt
 
-Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS/CLAUDE,
-current STATUS/NEXT_SESSION, and PERFORMANCE.md's Pair-pacing test prepared section.
-Installed362 has103 FOV,120% pixels, mirror off and DesktopAb=3:30s settle then
-30s unpaced/paced/unpaced; cap90% of baseline fresh-pair rate. User launches only.
-Read/verify/archive both logs, compare fresh-pair tails/rates and actual pace delays,
-then disarm DesktopAb with full-INI comparison/CRLF. Keep accepted stereo/image
-orientation; no subagents, game/simulator launches or main merge. Publishing awaits
-explicit approval. Do not restart the broad performance program.
+Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS/CLAUDE and
+current STATUS/NEXT_SESSION; PERFORMANCE.md's Pacing result and strict mirror-off
+trial has exact evidence. Installed363:103 FOV,120% pixels, mirror off plus new
+DesktopMirrorStrictOff=1. Pacing/benchmark off. User launches; verify/archive both
+logs and check actual=0 in healthy running-XR windows plus headset observation.
+Strict mode suppresses missing capture/callback desktop refresh; retains GPU submit
+and stopped-XR/error fallback. Preserve accepted stereo/image ownership. No subagents,
+game/simulator launches or merge. Publication still awaits explicit approval.
 
 ## Performance research shelved, 2026-09-15
 

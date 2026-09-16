@@ -443,6 +443,8 @@ static void WriteDefaultIni(const char* ini)
         "ReduceDesktopPresent=0\n"
         "; DesktopMirrorOff freezes desktop updates while XR capture is live; overrides reduction.\n"
         "DesktopMirrorOff=1\n"
+        "; StrictOff also suppresses capture-gap desktop refresh while XR is running.\n"
+        "DesktopMirrorStrictOff=0\n"
         "DisableBadApiLayers=1\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
@@ -2705,6 +2707,7 @@ static void LoadConfig()
                 source[0] ? ini : "compiled default (ini key absent)");
             dvr::desktop_eye::set_reduced_present(GetPrivateProfileIntA("VR", "ReduceDesktopPresent", 0, ini) != 0);
             dvr::desktop_eye::set_mirror_off(GetPrivateProfileIntA("VR", "DesktopMirrorOff", 1, ini) != 0);
+            dvr::desktop_eye::set_strict_off(GetPrivateProfileIntA("VR", "DesktopMirrorStrictOff", 0, ini) != 0);
         }
         // ApiLayerGuard runs before LoadConfig and reads this key itself; the
         // read here only keeps the global in step for the ini rewrite.
@@ -3339,6 +3342,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("VR", "DesktopEyeSource", dvr::desktop_eye::source_name(), ini);
     WritePrivateProfileStringA("VR", "ReduceDesktopPresent", dvr::desktop_eye::reduced_present() ? "1" : "0", ini);
     WritePrivateProfileStringA("VR", "DesktopMirrorOff", dvr::desktop_eye::mirror_off() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "DesktopMirrorStrictOff", dvr::desktop_eye::strict_off() ? "1" : "0", ini);
     {
         const auto crosshair = dvr::aim::config();
         WritePrivateProfileStringA("Aim", "FireFromHand", FireAimEnabled() ? "1" : "0", ini);

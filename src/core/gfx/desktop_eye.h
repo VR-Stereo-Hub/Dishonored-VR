@@ -35,11 +35,13 @@ void on_present(int eyeSign);
 // final. The native call still runs on every fallback path.
 using PresentFn = HRESULT (__stdcall *)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
 HRESULT present(PresentFn native, IDirect3DDevice9* dev, const RECT* src,
-                const RECT* dst, HWND wnd, const RGNDATA* dirty, bool stereoReady, bool xrReady = false);
+                const RECT* dst, HWND wnd, const RGNDATA* dirty, bool stereoReady, bool xrReady = false, bool xrRunning = false);
 void set_reduced_present(bool on);
 bool reduced_present();
 void set_mirror_off(bool on);
 bool mirror_off();
+void set_strict_off(bool on);
+bool strict_off();
 bool set_source(const char* name, const char* origin);
 const char* source_name();
 

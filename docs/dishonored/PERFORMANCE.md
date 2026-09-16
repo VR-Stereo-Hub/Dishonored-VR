@@ -316,6 +316,64 @@ diff changes only RenderWidth3135->3012 and RenderHeight3250->3122; other settin
 preserved. Build,9 exports, both golden comparisons and lint pass; installed hashes
 and CRLF verified. No game or simulator launched; no new measured pacing result.
 
+## Pacing result and strict mirror-off trial (2026-09-15, build363)
+
+**Verified362 result:** user reports possibly more consistent delivery but a laggier
+feel. The automatic trial completed, target66 Hz, with1645 actual pacing-delay events.
+
+| Phase | Fresh pairs/s | p50 ms | p95 ms | p99 ms |
+|---|---:|---:|---:|---:|
+| Unpaced before | 73.77 | 12.035 | 22.319 | 41.524 |
+| Paced66 Hz | 63.37 | 15.141 | 20.490 | 34.008 |
+| Unpaced after | 96.58 | 9.524 | 16.104 | 23.171 |
+
+The paced phase is slower than both baselines and improves tails only versus the
+first. Baseline drift is substantial, so this is not evidence of a repeatable
+smoothness improvement. Pacing is not promoted; automatic benchmark now disabled,
+SyncHz remains0. Preserve the adaptive test for future use, not as a default.
+Logs/INI/manifest: `build/performance-results/pair-pacing-result-20260915-231337`;
+installed362 DLL and log banner verified before interpretation.
+
+**Residual desktop updates:** real context fallbacks, not a cosmetic F10 label.
+Late windows show2-4 native Presents/3 seconds, about5-7 ms per actual call.
+The prior off guard requires a fresh delivered capture plus a runtime mirror callback.
+A missing/held capture restores desktop Present even though the XR session is still
+running. Removing these rare calls is not predicted to repeat the large full-mirror
+FPS gain; the test targets residual updates and possible local stalls.
+
+**Installed363** (`vr33-hands-working-363-g2714e9b73-dirty`), candidate
+`build/playtest-candidates/vr50-strict-mirror-off`: new opt-in
+`[VR] DesktopMirrorStrictOff=1` extends mirror-off across missing fresh capture and
+missing mirror callback whenever the XR session has begun. Current-frame GPU submit
+flush remains, as do image/eye identities and capture ownership fences. Normal
+window/device/swap parameters are still required; stopped XR, unsupported parameters
+or an explicit submission failure uses real Present. Zero native calls is expected
+throughout healthy running-XR windows, including temporary capture gaps. Startup or
+stopped-session desktop activity is outside that interval. This does not hide the
+window, remove engine rendering, or switch the headset to a different image path.
+
+The stricter option defaults0 in source/generated/package/missing-key settings,
+with F10 Display toggle `Keep desktop frozen across VR frame gaps (test)` for A/B.
+Main mirror-off default1,103-degree FOV and120% pixels3012x3122 remain unchanged.
+Build/9 exports/both golden INIs/lint pass. Native D3D9Ex host verifies240 independent
+GPU markers and pixels with zero desktop calls:120 guarded,120 strict without fresh
+capture (half also omit the callback). Negative control with strict disabled presents
+a capture gap. Stopped-XR, failed submit, unsupported-parameter, full-return and reset
+checks pass. No game or simulator launched; rendered/headset result pending.
+
+Before installation both logs/DLL/INI archived at
+`build/playtest-candidates/installs/20260915-231719-701999`. Complete INI diff only
+DesktopAb3->0 and new DesktopMirrorStrictOff=1. Hashes/CRLF verified. Source patch and
+exact prior candidate retained. Existing profilers remain as previously configured.
+
+**One launch question:** does the desktop stay frozen through normal hub play while
+the headset remains responsive and free of new stalls? Expected log evidence:
+strict=1, strictSkips increasing, actual=0 and nonOK=0 in running-session windows.
+Zero actual calls plus normal headset behavior accepts suppression, not a measured
+FPS gain. New stalls/eye instability rejects it. Remaining actual calls require
+matching session state and logged parameter/query/context refusal before broadening
+the guard. Pair pacing and its benchmark stay off throughout this test.
+
 ## Results and routes
 
 Numbers below come from different matched workloads. They must not be combined into
