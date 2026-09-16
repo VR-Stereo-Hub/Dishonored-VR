@@ -1,3 +1,28 @@
+## Current handoff: HUD fixes, 2026-09-15
+
+- Worktree: `C:\dev\Dishonored-VR`; branch `codex/hud-fixes`, created from
+  `VR-Main` at `40ee5981d` (merged performance PR #66).
+- HUD PRs #63 and #64 are already merged (commits `0aa12ccbe` and `18ae4ebda`).
+  Older sections below calling them open or unmerged are historical.
+- No HUD defect or new implementation scope has been specified yet. Get the
+  concrete symptom and desired behavior before changing HUD code; then find or
+  create its Linear ticket. Do not infer a fix from the branch name.
+- Performance is shelved. Its unfinished tickets are Backlog/unassigned;
+  PERFORMANCE.md is the sole maintained record. Do not resume that work.
+- Exact build307 remains installed, not the current source build. Verify
+  `build/playtest-candidates/installed.json` and installed DLL/INI before changes.
+  The most recent game log can still be build349 from the earlier simulator
+  test; no new307 run is implied by rollback. Never infer log identity from HEAD.
+- Preserve accepted image-owned orientation, stereo synchronization and engine
+  liveness. No game/simulator launches, subagents, preserved-branch deletion or
+  main merge without new explicit authorization for that action.
+- Handle commands/build/install/diagnostics yourself. Before replacing or
+  rotating evidence, archive both game logs. Every install needs a full installed
+  INI comparison and byte-verified CRLF. One question per user launch, with
+  expected results and what each outcome means.
+
+Detailed minimal reading list: [NEXT_SESSION.md](dishonored/NEXT_SESSION.md).
+
 ## Performance research shelved, 2026-09-15
 
 No performance investigation or playtest is pending. Unfinished performance tickets

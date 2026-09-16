@@ -1,3 +1,43 @@
+## Current handoff: HUD fixes, 2026-09-15
+
+- Worktree: `C:\dev\Dishonored-VR`; branch `codex/hud-fixes`, created from
+  `VR-Main` at `40ee5981d` (merged performance PR #66).
+- HUD PRs #63 and #64 are already merged (commits `0aa12ccbe` and `18ae4ebda`).
+  Older sections below calling them open or unmerged are historical.
+- No HUD defect or new implementation scope has been specified yet. Get the
+  concrete symptom and desired behavior before changing HUD code; then find or
+  create its Linear ticket. Do not infer a fix from the branch name.
+- Performance is shelved. Its unfinished tickets are Backlog/unassigned;
+  PERFORMANCE.md is the sole maintained record. Do not resume that work.
+- Exact build307 remains installed, not the current source build. Verify
+  `build/playtest-candidates/installed.json` and installed DLL/INI before changes.
+  The most recent game log can still be build349 from the earlier simulator
+  test; no new307 run is implied by rollback. Never infer log identity from HEAD.
+- Preserve accepted image-owned orientation, stereo synchronization and engine
+  liveness. No game/simulator launches, subagents, preserved-branch deletion or
+  main merge without new explicit authorization for that action.
+- Handle commands/build/install/diagnostics yourself. Before replacing or
+  rotating evidence, archive both game logs. Every install needs a full installed
+  INI comparison and byte-verified CRLF. One question per user launch, with
+  expected results and what each outcome means.
+
+### Minimal reading for the next chat
+
+1. Read root AGENTS.md and CLAUDE.md; read only this current handoff in
+   STATUS/NEXT_SESSION. Older session chronology is not a startup reading list.
+2. Once the HUD symptom is known, read HUD_ANCHORS.md sections 1 (pieces),
+   3 (gate) and 5 (traps), plus only the relevant keys/evidence. For routing or
+   adding elements, read the matching HUD_ELEMENTS_HOWTO.md sections.
+3. Follow specific code or ENGINE_NOTES references only as needed. For flicker,
+   mono/stereo transitions or eye instability, read FLICKER_REFERENCE.md first.
+   Skip PERFORMANCE.md unless the task actually needs its findings.
+
+HUD code map: `core/gfx/hud_class` classifies/probes draws; `hud_route` selects
+an element; `hud_capture` owns sinks; `hud_layout` owns element/anchor settings;
+`core/vr/openxr_runtime.cpp` submits quads. `ue3/ui_surface.cpp`,
+`stereo_state.cpp` and `present_tick.cpp` supply screen/gameplay gates. Paths are
+under `src/`; HUD_ANCHORS.md section 1 describes the hook order.
+
 ## Performance research shelved, 2026-09-15
 
 No performance investigation or playtest is pending. Unfinished performance tickets
