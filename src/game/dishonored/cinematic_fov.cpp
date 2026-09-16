@@ -3,7 +3,7 @@
 #include "game/dishonored/stereo_state_policy.h"
 namespace {
 std::atomic<bool> g_cineFov{false};
-std::atomic<float> g_projectionFov{102.0f}; // Explicit user-requested default; 0 restores headset-derived FOV.
+std::atomic<float> g_projectionFov{103.0f}; // Explicit user-requested default; 0 restores headset-derived FOV.
 bool g_cfGameplayScope=false; // Script/draw lane only; the render lane uses CfPublish.
 CtIdentity g_cfOwner[3];
 bool g_cfHaveOwner=false;
@@ -52,7 +52,7 @@ static void CineFovSet(bool on) {
 }
 static void CineFovConfigure(const char* ini) {
     CineFovSet(GetPrivateProfileIntA("Cine","LockFov",1,ini)!=0);
-    ProjectionFovSet(IniFloat(ini,"Screen","ProjectionFov",102.0f));
+    ProjectionFovSet(IniFloat(ini,"Screen","ProjectionFov",103.0f));
 }
 static float CineFovClaim() {
     if (!CineFovEnabled() && ProjectionFovGet()==0) return 0;
@@ -82,7 +82,7 @@ static void CineFovBegin(bool scene) {
     const bool gameplay=!keep && !dvr::scene_state::cinematic(state.state[0]) &&
         dvr::cine_fov::eligible(requested>0,scene,menu,projection,state.valid,target);
     if (!keep && !gameplay) {
-        if (g_cfHaveOwner) Log("cine/fov: released writes=%u restores=%u refused=%u master=%s menu=%d",g_cfWrites,g_cfRestores,g_cfRefused,state.state[0],menu);
+        if (g_cfHaveOwner) Log("cine/fov: released writes=%u restores=%u refused=%u master=%s menu=%d scene=%d projection=%d stateValid=%d target=%.2f requested=%.2f",g_cfWrites,g_cfRestores,g_cfRefused,state.state[0],menu,scene,projection,state.valid,target,requested);
         g_cfHaveOwner=false; CfPublish(0); return;
     }
     CineTraceTick();

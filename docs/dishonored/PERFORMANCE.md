@@ -160,15 +160,31 @@ DesktopMirrorOff was already1 from the F10 test. All other settings are preserve
 CRLF and hashes verified. Native resize is installed but not game-tested. Exact356
 rollback remains archived.
 
-**One launch question:** does Set resolution change the current render size without a
-restart while preserving a usable stereo view? Start with the installed120% profile.
-In F10 Display set110% and press Set, then return to120% and press Set. Expected: a brief
-pause, Current dimensions change2884x2989 then3012x3122, and status says Applied with
-normal depth/head motion. That supports live resizing; Refused/Unconfirmed or unchanged
-Current means a guard/engine path needs investigation. Distorted/cropped/stale stereo
-means capture/viewport/eye reconstruction needs inspection before further tuning.
-The agent checks the installed banner, res/live verdict, device reset, XR swapchain and
-FOV logs after the report. Do not use F11 during this test.
+**Latest359: live resize measured; Display-tab FOV flicker fix pending acceptance.**
+357 performed one engine Reset to3135x3250 and capture confirmed it; dimensions stayed
+there. Repeated zoom-like flicker instead coincided with260 post-resize FOV changes
+between104 and108.05 degrees and repeated scope releases. Missing braces in the legacy
+F10 Display FOV control wrote0 into the automatic target every idle UI frame, racing
+Present's108-degree handoff. Source-confirmed defect, not resolution oscillation.
+The initial150ms-expiry hypothesis is superseded by explicit scope releases and this
+writer. Corrected control writes only on edits; production regression7/7 passes while
+old control fails7/7. No stereo/orientation/timeout changes. Full flicker record and
+falsifiable continuation: [FLICKER_REFERENCE.md](FLICKER_REFERENCE.md), latest VR-50 entry.
+
+Installed359 (`vr33-hands-working-359-gb5e0af9dc-dirty`), candidate
+`build/playtest-candidates/vr50-display-fov-flicker`: requested defaults103 FOV,
+130% total pixels3135x3250, mirror-off. Archive before install:
+`build/playtest-candidates/installs/20260915-213922-577631`. Full installed INI diff only
+ProjectionFov102->103; live Set had already saved130% dimensions. Other settings and
+CRLF preserved. Build/exports/golden/lint passed; no game/simulator launch. Host success
+is not visual acceptance.357 reproduction archive:
+`build/performance-results/vr50-resize-flicker-20260915-213237`.
+
+**One launch question:** is the view stable with F10 Display open and after Set120%
+then130% in the same run? Expect brief resize pauses, one size transition per Set,
+steady103-degree gameplay projection and no repeating zoom pulses. Continued flicker
+requires reading the newly explicit scope gate reasons and the actual submitted FOV;
+do not assume an eye-sync or resolution-flapping cause. No F11 during this test.
 
 ## Results and routes
 

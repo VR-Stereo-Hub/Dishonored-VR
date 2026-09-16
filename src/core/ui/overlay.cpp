@@ -1,3 +1,4 @@
+#include "core/ui/legacy_fov_control.inc"
 #include "core/framework/render_profile.h"
 // core/ui/overlay.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
@@ -87,14 +88,14 @@ static void OverlayFrame()
         float projectionFov=ProjectionFovGet();
         bool customFov=projectionFov>0;
         if (ImGui::Checkbox("Custom gameplay FOV",&customFov)) {
-            projectionFov=customFov?102.0f:0.0f;
+            projectionFov=customFov?103.0f:0.0f;
             ProjectionFovSet(projectionFov);
         }
         ImGui::BeginDisabled(!customFov);
-        float degrees=customFov?projectionFov:102.0f;
+        float degrees=customFov?projectionFov:103.0f;
         if (ImGui::SliderFloat("Gameplay FOV (degrees)",&degrees,60.0f,120.0f,"%.0f",ImGuiSliderFlags_AlwaysClamp))
             ProjectionFovSet(degrees);
-        if (ImGui::SmallButton("Reset FOV to 102")) ProjectionFovSet(102.0f);
+        if (ImGui::SmallButton("Reset FOV to 103")) ProjectionFovSet(103.0f);
         ImGui::EndDisabled();
         ImGui::TextDisabled("Lower: sharper, smaller view. Higher: wider coverage.");
         ImGui::TextDisabled("Changes live. SAVE AS DEFAULTS keeps it for next launch.");
@@ -666,7 +667,7 @@ static void OverlayFrame()
         static float pixelPercent=-1.0f;
         if (pixelPercent<0)
             pixelPercent=g_resWantW && g_resWantH
-                ? 100.0f*((float)g_resWantW/2750.0f)*((float)g_resWantH/2850.0f) : 120.0f;
+                ? 100.0f*((float)g_resWantW/2750.0f)*((float)g_resWantH/2850.0f) : 130.0f;
         ImGui::TextUnformatted("Render resolution scale");
         ImGui::SliderFloat("Total pixels (%)",&pixelPercent,50.0f,200.0f,"%.0f%%",ImGuiSliderFlags_AlwaysClamp);
         const float axisScale=sqrtf(pixelPercent*0.01f);
@@ -888,23 +889,9 @@ static void OverlayFrame()
         }
         ImGui::Separator();
     }
-    // 30.47: on-demand camera experiments (auto-start fired them at the main
-    // menu before, where nobody could see the result).
-    // 30.50: the FOV lever - enforced on every script dispatch so it outruns
-    // the engine's per-tick recompute (bioshock-vr's mechanism).
-    {
-        float lever = g_fovLever;
-        bool on = lever >= 40.0f;
-        if (ImGui::Checkbox("FOV lever (force the game's rendered FOV)", &on))
-            g_fovLever = on ? 95.0f : 0.0f;
-            dvr::camera::set_fov_deg(g_fovLever);
-        if (on) {
-            if (ImGui::SliderFloat("  target FOV (deg)", &lever, 60.0f, 140.0f, "%.0f"))
-                g_fovLever = lever;
-                dvr::camera::set_fov_deg(g_fovLever);
-            ImGui::TextDisabled("  the lever writes the game camera's FOV every dispatch");
-        }
-    }
+    // VR-50: this control must write only on actual edits. An idle Display
+    // tab must never clear the automatic projection FOV between Presents.
+    OverlayLegacyFovControl();
 
     ImGui::EndTabItem(); }
 

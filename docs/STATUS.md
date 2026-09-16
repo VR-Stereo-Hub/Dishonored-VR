@@ -1,43 +1,39 @@
-## Current handoff: hub mirror-off defaults and live resize (VR-50),2026-09-15
+## Current handoff: Display FOV flicker fix (VR-50),2026-09-15
 
-- Branch `codex/hud-fixes`. Broader performance tickets remain parked/unassigned.
-- User reports30-40% hub improvement with mirror off; sewer experience differed.
-  Verified356 logs confirm skips, not a controlled measurement of that percentage.
-- Build357 (`vr33-hands-working-357-g847030698-dirty`) installed:102 FOV,
- 120% TOTAL PIXELS3012x3122, DesktopMirrorOff=1. Unrelated settings preserved.
-- F10 Display Set now queues the native six-argument ResizeViewport call at the
-  next game-thread draw, before camera scopes/eye tags. Fresh IsLiveObject owner,
-  window/thread/vtable/ABI guards; no retained pointer. Capture must confirm Applied.
-- Build,23 production resize fixture checks, native D3D9Ex mirror-off/reset test,
- 248 reentry checks,23 single-tag checks, exports/golden/lint passed. No game or
-  simulator launched. Native engine resize has NOT been headset-tested.
-- One launch question: can Set110% then120% change Current dimensions in this run
-  while retaining stereo/head motion? No F11. Full evidence/outcomes: PERFORMANCE.md
-  active F11 section. Native derivation: ENGINE_NOTES live-resolution section.
-- Verify installed.json and log banner. Existing logs still belong to356. Both logs
-  and prior files archived at installs/20260915-211639-478150. Full INI diff changes
-  only FOV/width/height; mirror-off was already saved. Hashes and CRLF verified.
-- Preserve image-owned orientation and stereo sync. No game/simulator launches,
-  subagents, preserved-branch deletion or main merge. Agent handles build/install/
-  config/logs; archive both logs and compare the entire INI on every install.
-
-Publication status: changes are committed locally (implementation6820218cd). Automatic
-approval review blocked pushing to the verified public origin because it requires
-explicit user authorization for this source/documentation payload. Do not imply remote
-contains this candidate; request permission to push codex/hud-fixes. Installation is done.
+- Branch `codex/hud-fixes`; newer commits local, GitHub publication still blocked
+  pending explicit user approval from the earlier automatic review. Do not retry
+  publication without that approval. No main merge authorized.
+- Installed359 (`vr33-hands-working-359-gb5e0af9dc-dirty`):103 FOV,130% total pixels
+ 3135x3250, mirror-off. Full INI comparison only changes FOV102->103; live Set had
+  already saved the130% dimensions. Hashes/CRLF and both log backups verified.
+-357 live resize worked: one Reset and stable3135x3250 afterward. Reported zoom-like
+  flicker instead matches repeated104/108.05 FOV changes. Legacy F10 Display FOV
+  control had missing braces and wrote0 into the automatic target every idle frame.
+-359 fixes that control to write only on edits and logs future FOV-release gate
+  reasons. Actual production-control regression7/7 passes, old control7/7 fails;
+ 20,000 idle frames tested. Build/exports/golden/lint passed. No game/simulator launch.
+- Visible fix awaits headset acceptance: one question, stable with Display open
+  and after Set120% then130%? Expect103-degree projection without repeated pulses.
+  No F11. Read installed.json/new log banner; existing logs are still357.
+- Required detailed reference: FLICKER_REFERENCE.md latest VR-50 entry. Performance
+  context: PERFORMANCE.md active F11 section. Initial expiry-only hypothesis was
+  superseded by explicit releases and the idle writer; do not blindly extend timeout.
+- Preserve image-owned orientation, stereo synchronization, live engine-object
+  checks and all user INI settings. No subagents, game/simulator launches, branch
+  deletion or main merge. Archive both logs and full-diff CRLF INI every install.
 
 ### Minimal next-chat prompt
 
 Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS.md/CLAUDE.md,
-then only current STATUS/NEXT_SESSION and active F11 section of PERFORMANCE.md.
-Build357 is installed:102 FOV,120% pixels3012x3122, desktop mirror off. User reported
-large hub gains with mirror off, unlike their sewer experience. F10 FOV slider works;
-resolution Set now queues native engine ResizeViewport with fresh live-owner/ABI
-checks before stereo draws. Host tests pass; engine resizing has NOT run. Next task:
-interpret Set110% then120% test, verify installed.json/banner and actual capture/XR
-size/FOV/stereo. Archive both logs before relaunch. Keep other research parked. No
-launching game/simulator, subagents or main merge. Preserve stereo/orientation and
-INI settings; full INI comparison and CRLF verification required on installs.
+then current STATUS/NEXT_SESSION and latest VR-50 entry in FLICKER_REFERENCE.md.
+Installed359:103 FOV,130% pixels3135x3250, mirror-off.357's live resize worked once,
+but F10 Display's legacy FOV control wrote0 on every idle frame (missing braces),
+causing104/108-degree pulses.359 fixes the actual control; regression passes and
+old code fails. Visual acceptance pending: Display open, Set120 then130 without
+relaunch/F11. Inspect banner/actual FOV/resets and archive both logs. Do not alter
+accepted stereo/orientation or restart broad performance research. No game/simulator
+launches, subagents or main merge. Publication remains awaiting explicit approval;
+local commits are newer than origin. Preserve full INI settings and CRLF.
 
 ## Performance research shelved, 2026-09-15
 

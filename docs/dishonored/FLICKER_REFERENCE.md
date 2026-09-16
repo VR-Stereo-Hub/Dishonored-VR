@@ -1,5 +1,13 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## Current VR-50 follow-up: Display-tab FOV pulsing (2026-09-15)
+
+Build359 fixes a code-confirmed idle F10 Display writer; headset confirmation is pending.
+This is whole-view zoom-like flicker after using resolution Set, not a recurrence of the
+accepted image-owned orientation fix. See the new VR-50 entry at the end of this file.
+The measured resize happens once and holds its dimensions; FOV metadata alternates.
+
+
 ## Current acceptance: world smoothness approved for main, 2026-09-14
 
 The exact original world candidate 271-g8cd27652 was restored and independently
@@ -157,6 +165,7 @@ pose metadata without reopening the disproved historical theories.
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
+| Whole headset view repeatedly expands/contracts while F10 Display is open, noticed after live resolution Set | Legacy FOV control wrote zero every UI frame due to missing braces; raced the automatic FOV target, releasing the gameplay scope | VR-50 code cause and negative control confirmed; build359 installed, headset result pending; see latest entry |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
 
 VR-78 crouched-pitch motion was fixed later with a measured zero crouched neck
@@ -2205,3 +2214,51 @@ no new visual problem was reported; sampled image-orientation fallbacks stayed
 L0/R2 and Off hold diagnostics report black0. Throughput improved but p95 and
 16.667ms exceedance share worsened, so no smoothness or flicker fix is claimed.
 Full metrics and preserved logs are indexed in PERFORMANCE_ROLLOUT.md.
+
+### VR-50: Display-tab legacy FOV writer causes repeated zoom-like pulses (2026-09-15)
+
+1. **Symptom identity:** repeated apparent one-frame zoom in/out across the headset
+   world after using resolution Set. Eye-specific asymmetry was not reported. This
+   routes to camera-writer interference and projection-scale mismatch, not stale-eye
+   transport, weapon geometry, HUD redirect or the accepted world-orientation issue.
+2. **Reproduction identity:** verified installed build357,
+   `vr33-hands-working-357-g847030698-dirty`; source includes6820218cd and local handoff.
+   DLL SHA256 `7f1d3efa2e5c26d5f455c778c7a5542c9c07cd70cb690d545e2560cf3bae265b`.
+   Preserved post-run INI SHA256 `5c273a13e6b903b64be5d9e491a21f328326616ee4155bad4b232e1674dd1143`.
+   Evidence: `build/performance-results/vr50-resize-flicker-20260915-213237`, both logs,
+   INI and installed manifest. Same headset setup; no new runtime/refresh comparison.
+   Started3012x3122, one Set requested3135x3250. Engine call49289921, Reset49290015,
+   return49290078, capture confirmation49290109. Exactly one Reset; later swapchain
+   dimensions stay3135x3250. The user adjusted FOV102/103/104/105, ending at104 live.
+3. **Hypothesis/counterprediction:** repeated resolution switching is contradicted by
+   one Reset and stable dimensions. There are260 post-resize FOV audit changes, split
+   between104.00 and108.05 degrees.212 FOV-scope releases occur in the run, many in
+   ordinary walking with menu=0. At49301343 trace says animValid=1, projection=1,
+   runtimeQuad=0, followed by a release. Initial150ms-expiry suspicion is superseded:
+   explicit releases and source evidence identify a different writer, not expiry alone.
+4. **Change identity:** the legacy FOV checkbox/slider in overlay.cpp lacked braces;
+   `camera::set_fov_deg(g_fovLever)` therefore ran on idle Display frames, normally
+   writing0. DvrFovHandoff restored the automatic108-degree target on Presents. A
+   game-thread draw between those writes failed the target>=40 eligibility check,
+   restored/released the scoped104 FOV and published the wide sensor claim. This bug
+   predates the live Set button; using that Display tab exposes it. Build359 extracts
+   the same control into `core/ui/legacy_fov_control.inc` and writes only on real edits.
+   Slider initialization also uses the newly enabled value. Release logs now name
+   scene/projection/state-valid/target/requested so a recurrence is distinguishable.
+   No timeout, eye-tag, camera-scope policy or image-owned orientation change.
+5. **Results:** production-control host regression passes7 checks including20,000 idle
+   frames. The same harness against the previous production control fails7/7, including
+   both idle enabled/disabled controls. Release build, exports, generated/package INIs,
+   lint and diff checks pass. No game or simulator launched. Installed359,
+   `vr33-hands-working-359-gb5e0af9dc-dirty`, requested defaults103 FOV/130% total pixels
+   3135x3250/mirror-off. Both previous logs/files archived at
+   `build/playtest-candidates/installs/20260915-213922-577631`. Full installed INI diff
+   only ProjectionFov102->103; live Set had already saved3135x3250. CRLF verified.
+6. **Status/remaining scope:** code-confirmed cause and fix, visible acceptance OPEN.
+   One launch question: does the view stay stable with F10 Display open and after
+   Set120% then130% in the same run? Expect one Reset per changed size, steady103 FOV
+   during ordinary walking, and no repeated expansion/contraction. Continued flicker
+   falsifies completeness; inspect new gate-reason logs and actual claims before a
+   timeout or image-metadata change. Close Display as a discriminator if it recurs.
+   Preserve the accepted image-owned orientation/stereo synchronization. Performance
+   and sizing context: [PERFORMANCE.md](PERFORMANCE.md), active F11 section.

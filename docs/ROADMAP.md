@@ -8,7 +8,9 @@
 - [x] Add F10 total-pixel scale/preview/Set; install110% pixel trial.
 - [x] Record hub mirror-off improvement; promote102 FOV/120% pixels/mirror-off defaults.
 - [x] Add guarded engine-owned live resize and production host tests.
-- [ ] Headset-verify live Set110%/120% and stereo; no new main merge authorized.
+- [x]357 live engine resize confirmed by one Reset and matching capture.
+- [x] Fix idle F10 Display FOV writer; old-code negative control fails, corrected control passes.
+- [ ]359 headset check for zoom-pulse removal at103 FOV/130% pixels; no main merge authorized.
 
 ## Performance research shelved (2026-09-15)
 
