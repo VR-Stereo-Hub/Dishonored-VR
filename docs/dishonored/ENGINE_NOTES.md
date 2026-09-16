@@ -6956,3 +6956,21 @@ it at draw END and requiring advancement before next draw can discard uploads
 inside the previous draw. The default-off pause-only recent-draw trial and its
 limits are recorded in FLICKER_REFERENCE; this does not supersede historical pause
 results with a claim that all pauses are mono or that a c5 serial proves eye geometry.
+
+## Menu exit yaw and native objective labels (2026-09-16)
+
+Source boundary: menu_immersion's render scope composes native base with inverse
+entry head and current head, then restores native fields. head_track's blocked
+ProcessViewRotation path advances its previous-head reference without adding yaw.
+This explains missing accumulated physical turn on exit. MenuExitHeading computes
+only a numeric wrapped yaw delta, after BuildLiveSet and existing MhValidate
+(camera/controller/pawn slots, possession, load identity). The existing script
+writer applies it once; retained pointers alone never authorize it. No new engine
+address or offset. Direct fallback remains unchanged. Headset acceptance pending.
+
+Build389 native objective icon is reported correct; title/distance remain separate
+draws. NativeObjectiveLabels is bounded current/prior-present proximity association,
+not a discovered semantic field. Scale the associated draw around the marker pivot
+rather than its own center. Never retain glyph ownership across unrelated draws.
+Ambiguous markers refuse; batching/order/layout are limitations. Host tests verify
+pivot arithmetic and shader restore, not actual title identification.

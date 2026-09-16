@@ -884,12 +884,18 @@ static void ApplyHeadToViewRotation(void* parms)
         }
         return;
     }
+    int32_t menuDelta=0;
+    const bool menuResume=MenuHeadResumeYaw(menuDelta);
+    if(menuResume) {
+        prevYaw=g_hmdYaw;prevPitch=g_hmdPitch;havePrev=true;
+        frHave=false;frWriteMs=-1.0e9;
+    }
     if (!g_chainStamp) {
         // 38.88: ChainStamp=0 - the exact pre-38.86 path. One write to the
         // first dispatch per presented frame; every later dispatch of the
         // chain is left alone.
         static uint32_t lastFrameOld = 0xffffffffu;
-        if (g_frame == lastFrameOld) { DVR_HEAD_REFUSE("head: write skipped - a second dispatch in presented frame %lu (ChainStamp=0)", (unsigned long)g_frame); return; }
+        if (g_frame == lastFrameOld && !menuResume) { DVR_HEAD_REFUSE("head: write skipped - a second dispatch in presented frame %lu (ChainStamp=0)", (unsigned long)g_frame); return; }
         lastFrameOld = g_frame;
     } else if (frNow - frWriteMs < 2.0) {
         if (frHave) {
@@ -923,7 +929,7 @@ static void ApplyHeadToViewRotation(void* parms)
     // this view. Take it once, HERE, in the fresh branch - the 2 ms modifier
     // re-stamp above returns before this line and the stereo second pass
     // replays the same absolutes, so neither can advance it a second time.
-    const int32_t headDeltaU = (int32_t)(dy * kUEPerRad * (float)g_flipYaw);
+    const int32_t headDeltaU = menuDelta + (int32_t)(dy * kUEPerRad * (float)g_flipYaw);
     const int32_t viewInU    = rot[1];
     rot[1] += headDeltaU;
 

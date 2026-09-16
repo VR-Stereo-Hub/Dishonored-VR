@@ -21,6 +21,42 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Current:389 feedback and menu exit handoff (2026-09-16)
+
+Build389 (`vr33-hands-working-389-gdc3ffee45`, source dc3ffee45) DLL hash/banner
+verified; both logs and unchanged full INI archived under
+`build/playtest-candidates/hud-visual-lifecycle/reported-menu-exit`.
+Headset report accepts reader grip rotation, wheel origin and native objective
+icon; closing flash appears absent. Pause world remains stable. Remaining faults:
+objective title/distance separate from icon; hands change apparent size during
+pause yaw; head-look menu exits restore the entry direction.
+
+- Default-off live F10 `Hud.MenuExitHeading`: preserve accumulated physical menu
+  yaw in the existing ProcessViewRotation writer once. A restored render scope
+  retains its native base and entry head rotation. On exit, refresh BuildLiveSet,
+  revalidate camera/controller/pawn identity, possession and load generation, and
+  compose with a fresh head sample. Refuse stale poses, wrong lane, second eye,
+  authored cameras, dead/replaced owners and scopes older than1s. Gameplay pitch
+  and roll keep their existing absolute rules. Direct fallback is unchanged;
+  headset confirmation is required for the actual transition ordering.
+- Default-off live F10 `Hud.NativeObjectiveLabels`: short, horizontally centered
+  nearby draws can share a known marker's native route and scaling pivot, including
+  text-to-icon spacing. Association expires after one actual present, rejects
+  ambiguous markers and is never cached by glyph content. This is proximity,
+  not a semantic font/title identity. Nearby unrelated text can be misidentified;
+  batched glyphs, draw order or large layout changes can evade the candidate.
+- Pause `menu/hand-depth` logs record source/delta scale, actual corrected palm
+  clip-W, target depth, view translation, focal norm, animation blend and eye/pose
+  identity. Read-only measurements only; hand-size correction remains open.
+- Preserve all accepted389 placement, alpha, image-owned orientation, pair policy,
+  PauseSceneFreshness and PaletteEyeMenuHalfStep values. New controls remain off
+  in repository defaults and are enabled only for the installed trial.
+
+Validation:38 menu checks cover one-shot yaw carry and owner/option/table refusal;
+23 native HUD checks include shared-pivot math and exact shader-constant restore.
+One launch question is menu-exit direction retention, defined in STATUS. Ordinary
+pause turning also collects hand diagnostics. No game/simulator launched.
+
 ## Current:387 feedback, rigid readers and visual lifecycle (2026-09-16)
 
 Installed389 (`vr33-hands-working-389-gdc3ffee45`), clean source dc3ffee45.

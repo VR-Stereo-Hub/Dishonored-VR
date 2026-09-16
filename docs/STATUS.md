@@ -1,35 +1,27 @@
-## Current:387 accepted pieces and pause-scale follow-up (2026-09-16)
+## Current:389 accepted, menu exit heading candidate (2026-09-16)
 
-Installed389 (`vr33-hands-working-389-gdc3ffee45`), clean source dc3ffee45.
-Candidate `build/playtest-candidates/hud-visual-lifecycle`; both previous logs,
-DLL and INI archived in `build/playtest-candidates/installs/20260916-152612-084229`.
-Entire INI diff is six added keys only: PauseSceneFreshness=1 and five PauseAlpha
-values matching saved general alpha (repair,1,0,1,1). Every existing value retained.
-Installed hashes and CRLF verified; release build,9 exports, lint and listed host
-checks pass. DLL SHA256 `0488e78c3136e4dbce49015018899b87e26f2d896676a514af1410033198efc8`.
-No game/simulator launch. Current log remains387 until tester launch; no headset
-acceptance claimed. Local only; no push or merge.
+Local branch codex/hud-fixes. Verified installed389 DLL/hash/banner and archived
+both logs/full unchanged INI at
+`build/playtest-candidates/hud-visual-lifecycle/reported-menu-exit`.
+Accepted: rigid readers, wheel hand origin, native objective icon and pause world
+stability. Wheel closing flash provisionally absent. Objective title/distance still
+detached; pause hands change apparent size during yaw; closing head-look menus
+returns to entry heading. Accepted scene freshness and hand half-step stay enabled.
 
-- Local branch codex/hud-fixes.387 DLL/hash/banner verified; both logs and unchanged
-  saved INI archived under vr128-menu-half-step/reported-pause-scale.
-- Accepted: crouch transition grouping, hue correction, wheel hand stability good
-  enough to park. Preserve PaletteEyeMenuHalfStep=1; old predictors stay off.
-- New candidate: readers rigidly follow grip rotation from their initial upright
-  placement; pause alpha independent; wheel visual entry seeds current hand even
-  without grip input, closing uses native closing flag plus delayed-image tail.
-- Native objectives retain edge-learned content ownership through center/prompt
-  regions; no fixed local panel for learned icons. Unknown/new art remains a limit.
-- Pause world scale is a separate mono interruption:7/11 interior beat intervals
-  contain mono;22 sampled cap expiries. Scene camera-silent gate is the target.
-  Default-off PauseSceneFreshness accepts uploads during a prior draw only when
-  recent (<100ms), pause head look is on, and all other scene gates still pass.
-- Next ONE launch question: does the paused world's size/depth remain stable for
-  about20 seconds, including slow head turns? Stable supports recent-draw evidence;
-  unchanged requires the new pause/scene age log plus mono counters; worse rejects
-  the gate exception. No extra wheel/reader/objective acceptance questions this run.
-- Installed identity: build/playtest-candidates/installed.json. Installation below.
-  No game/simulator/subagents. Preserve full INI/CRLF; archive both logs each launch.
-  No publication/merge; prior Linear export permission remains pending.
+Implemented default-off MenuExitHeading and NativeObjectiveLabels. First hands the
+menu's yaw to the existing gameplay writer exactly once after refreshed owner
+validation. Second associates nearby title/distance geometry with the native icon
+and scales both around its center; proximity is a trial, not semantic identity.
+Pause hand-depth/scale diagnostics are read-only; no hand-size fix claimed.
+38 production menu checks and23 native HUD checks pass; release/install pending.
+See current HUD_ANCHORS and FLICKER_REFERENCE entries for evidence and limits.
+
+ONE launch question: after opening pause, turning head30-60 degrees and closing
+without turning back, does gameplay retain that exit direction? Expected: retain.
+Snapback means the handoff was refused, missed or not retained downstream; an
+overshoot suggests duplicate application. Inspect menu/exit and menu/hand-depth.
+No game/simulator/subagents or publication. Preserve full installed INI/CRLF and
+archive both logs before each next launch. No new default promotion requested.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

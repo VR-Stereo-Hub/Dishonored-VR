@@ -535,6 +535,7 @@ struct Probe {
     uint8_t  type = 0xff;
     uint8_t  why = 0;            // 0 ok, 1 no decl/position, 2 type unread, 3 no data, 4 write-only VB, 5 lock failed, 6 not finite, 7 off screen, 8 no transform map
     float    bbox[4] = {};
+    float    nativePivot[4] = {};
     float    raw[4] = {};        // the vertices' own x/y range, before any transform
     // The transform columns applied: x, y and w (c0/c1/c3 by the old names;
     // now the shader's own registers, xcol[] says which).
@@ -1064,7 +1065,7 @@ struct NativeIconScope {
             if(row>=256) return;
             for(int j=0;j<n;++j) if(rows[j]==row) return;
             rows[n]=row;memcpy(saved[n],dvr::frame::vs_const_shadow_row(row),sizeof(saved[n]));
-            if(!dvr::hudnative::scale_column(saved[n],p.bbox,scale,changed[n])) return;
+            if(!dvr::hudnative::scale_column(saved[n],p.nativePivot,scale,changed[n])) return;
             ++n;
         }
         if(n<3) return;
@@ -1094,7 +1095,7 @@ struct NativeIconScope {
     }                                                                                             \
     int sink = -1;                                                                                \
     if (hudNow) note_blend_tuple();                                                               \
-    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives); \
+    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives, probe.nativePivot); \
     if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
     NativeIconScope nativeIcon(self,probe,element); \
     const bool forceAlpha = sink >= 0 && alpha_force_wanted(sink);

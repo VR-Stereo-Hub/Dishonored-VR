@@ -8,7 +8,8 @@ unsigned g_mhEpoch=0;
 dvr::cine::Matrix g_mhRef;
 HtSample g_mhHead{};
 float g_mhEntryCorrection[3]{},g_mhEntryYaw=0;
-int32_t g_mhWritten[3]{};
+int32_t g_mhWritten[3]{},g_mhBase[3]{};
+bool g_mhResume=false;double g_mhLastScopeMs=-1;
 uint32_t g_mhWrites=0,g_mhRestores=0,g_mhRefused=0,g_mhSingles=0;
 bool MhValidate(uint8_t* cam) {
     if(!g_mhHave || g_mhLoad!=g_mkLoadEvents || cam!=g_mhOwner[0].value.obj ||
@@ -25,7 +26,13 @@ static void MenuHeadBegin(bool scene,bool doubleDraw) {
     MenuEffectsTick();
     const int context=UiSurfaceContext();
     const bool enabled=UiSurfaceHeadLook() && g_trackingEnabled && g_rotInject && !g_mainMenu && !g_gameExiting;
-    if(!enabled) { g_mhHave=false; g_mhContext=-1; return; }
+    if(!enabled) {
+        if(!g_mhResume || !dvr::hudlayout::menu_exit_heading() || UiSurfaceBlocks() ||
+           MaimNowMs()<g_mhLastScopeMs || MaimNowMs()-g_mhLastScopeMs>1000) {
+            g_mhResume=false;g_mhHave=false;g_mhContext=-1;
+        }
+        return;
+    }
     const bool ready=scene &&
         !g_mainMenu && !g_gameExiting && dvr::vr::session_live() && dvr::stereo::wants_projection() &&
         !dvr::vr::cinematic_active() && !dvr::camera::eyetest_active() && !dvr::camera::postest_active();
@@ -53,6 +60,7 @@ static void MenuHeadBegin(bool scene,bool doubleDraw) {
     int32_t base[3]{};dvr::cine::Matrix composed;
     if(!CtRead(cam,g_ctCache+g_ctPov+g_ctRot,base,12) ||
        !dvr::cine::compose(base,g_mhRef,h,g_mhWritten,&composed)) return;
+    memcpy(g_mhBase,base,sizeof(base));
     const float right[3]={(float)composed.m[0][1],(float)composed.m[1][1],(float)composed.m[2][1]};
     float pos[3];
     dvr::position_math::reframe_yaw(g_mhEntryCorrection,g_mhEntryYaw,head.yaw,pos);
@@ -65,11 +73,35 @@ static void MenuHeadBegin(bool scene,bool doubleDraw) {
 }
 static void MenuHeadEnd() {
     if(!g_mhScope) return;
-    if(dvr::camera::end_view_scope()) ++g_mhRestores;
-    else { ++g_mhRefused;g_mhHave=false;Log("menu/head: restore refused: identity or engine field changed"); }
+    if(dvr::camera::end_view_scope()) {++g_mhRestores;g_mhResume=true;g_mhLastScopeMs=MaimNowMs();}
+    else { ++g_mhRefused;g_mhHave=false;g_mhResume=false;Log("menu/head: restore refused: identity or engine field changed"); }
     g_mhScope=false;
 }
 
+
+// Hand the menu's physical turn to the existing gameplay rotation writer once.
+// No engine writes here. Rebuild and revalidate retained owners even if addresses
+// are unchanged; loads, authored cameras and stale head poses refuse the handoff.
+static bool MenuHeadResumeYaw(int32_t& delta) {
+    delta=0;
+    if(!g_mhResume || UiSurfaceBlocks() || dvr::camera::second_pass_for_current_thread()) return false;
+    if(GetCurrentThreadId()!=g_sdDrawTid) return false;
+    g_mhResume=false;
+    const double now=MaimNowMs();HtSample head{};
+    const bool valid=dvr::hudlayout::menu_exit_heading() && g_trackingEnabled && g_rotInject &&
+        !g_mainMenu && !g_gameExiting && !CineActive() && dvr::vr::session_live() &&
+        now>=g_mhLastScopeMs && now-g_mhLastScopeMs<=1000 &&
+        BuildLiveSet() && MhValidate((uint8_t*)g_mhOwner[0].value.obj) &&
+        HtConsumeSample(&head) && head.ok && head.poseOk && now>=head.locateMs && now-head.locateMs<=100;
+    int32_t desired[3]{};
+    const bool composed=valid && dvr::cine::compose(g_mhBase,g_mhRef,
+        dvr::cine::rotation(head.pitch*g_flipPitch,head.yaw*g_flipYaw,head.roll*g_flipRoll),desired,nullptr);
+    g_mhHave=false;g_mhContext=-1;
+    if(!composed) {Log("menu/exit: yaw handoff refused: option, ownership, context or pose changed");return false;}
+    delta=(int32_t)std::remainder((double)desired[1]-g_mhBase[1],65536.0);
+    Log("menu/exit: carry yaw %.3f deg once into gameplay; owner revalidated, head gen=%u",delta*360.f/65536,head.gen);
+    return true;
+}
 
 // The game owns all effect timelines. Suppress only its UI blend while selected;
 // retain the last nonzero game value and restore only our exact zero on exit.

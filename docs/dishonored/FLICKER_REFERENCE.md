@@ -1,5 +1,45 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+
+## Build389 result: pause world accepted, hand depth still open (2026-09-16)
+
+Identity: build389/source dc3ffee45, DLL SHA256
+`0488e78c3136e4dbce49015018899b87e26f2d896676a514af1410033198efc8`;
+installed DLL/banner verified, full INI unchanged. Both logs archived at
+`build/playtest-candidates/hud-visual-lifecycle/reported-menu-exit`.
+
+Surface/route: prior WHOLE-WORLD pause scale pulsing belongs to section1's mono
+interruption row. Reported fixed with PauseSceneFreshness=1. Seven beat intervals
+more than3.1s inside pause episodes show zero mono; note5 and wheel2 likewise zero.
+These are interval counts, not frame counts or synchronized perceptual events.
+Keep the accepted gate exception. This does not establish all menus on all scenes.
+
+Remaining symptom is smooth HAND/WEAPON size change during paused head yaw, not
+reported world mono. Source palette scale samples0.999512 with zero logged
+anisotropy/orthogonality error; sampled weapon lens ratios approximately1.000000
+with no applied lens correction. Applied delta scale and actual corrected depth
+were not logged, so neither model scaling nor projection depth is established.
+Code inspection rejects naive linear matrix blending as an explanation: the
+existing animation blend uses rotation slerp and separate scale interpolation.
+No evidence to revive lens experiments or alter the accepted hand correction.
+
+New read-only menu/hand-depth measurements distinguish those possibilities:
+changing deltaScale supports transform scaling; stable scales with varying clipW
+supports depth change; stable scale/depth requires image/pass correspondence next.
+Samples carry hand, eye, present and pose identity and are rate limited; they are
+not a complete census. Hand-size fix remains OPEN. Keep VR-128 wheel residual
+parked as requested; this is a separate pause observation.
+
+Menu exit snapback is a camera handoff boundary: scoped head look restores native
+entry rotation after each draw, while blocked gameplay updates its previous head
+sample. On exit it therefore has no accumulated menu delta to apply. Default-off
+MenuExitHeading carries that delta once through the existing script writer, after
+fresh live-table and retained-owner validation. No camera offsets or eye policy
+change.38 menu host checks pass; headset transition is pending. Next one-question
+launch checks whether pause exit retains current direction. Refusal/snapback and
+duplicate/overshoot are both logged/testable failure outcomes. Accepted orientation,
+pair synchronization, pause freshness and menu hand half-step remain unchanged.
+
 ## New387 result: accepted wheel hands, recurrent pause mono (2026-09-16)
 
 Installed389 (`vr33-hands-working-389-gdc3ffee45`), clean source dc3ffee45.

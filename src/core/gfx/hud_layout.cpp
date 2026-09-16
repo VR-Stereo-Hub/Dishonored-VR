@@ -83,6 +83,8 @@ const int         kMenuContexts = 6;
 ElementCfg g_el[ElCount];
 hudroute::StableRoutes g_stableRoutes;
 dvr::hudnative::Markers g_nativeMarkers;
+dvr::hudnative::MarkerLabels g_nativeLabels;
+bool g_nativeObjectiveLabels=false;
 hudroute::InteractionGroup g_interactionGroup;
 bool g_groupInteractions=false,g_routeObjectives=false,g_objectiveScreen=false;
 bool g_nativeObjectives=false;
@@ -105,7 +107,7 @@ const char* kScopedAlpha[4]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha"
 bool g_readHand[2]={false,false};
 dvr::hudanchor::OpeningOrientation g_readOpening;
 dvr::hudanchor::GripPanel g_readGrip;
-std::atomic<bool> g_pauseSceneFreshness{false};
+std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
 bool g_visualRiding=false;
 WheelVisualLease g_wheelVisual;
 float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
@@ -529,13 +531,14 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
     if(!visual) {
         for(int s=0;s<kMaxSinks;++s) if(g_sink[s].anchor>=0 && g_sink[s].rideOnly) free_sink(s);
     }
-    g_stableRoutes.clear();g_interactionGroup.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeLabels.clear();
     DVR_INFO("hud/layout: visual context=%d inputRiding=%d closing=%d tail=%d frame=%u",
         visualContext,(int)riding,(int)wheelClosing,(int)tail,frame);
     if(visual) DVR_INFO("hud/layout: the screen is %s on the %s",kRows[element_for_context(visualContext)].name,kAnchorNames[g_el[element_for_context(visualContext)].anchor]);
     else DVR_INFO("hud/layout: the screen left: routing by element again");
 }
-void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear(); }
+void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeLabels.clear(); }
+bool menu_exit_heading() {return g_menuExitHeading.load();}
 bool pause_scene_freshness() {return g_pauseSceneFreshness.load();}
 bool menu_riding() { return g_menuRiding; }
 float native_objective_scale(int e) {return g_nativeObjectives && !g_menuRiding && e==ElObjective ? g_nativeObjectiveScale : 1.f;}
@@ -578,7 +581,8 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
 
 // ---- routing --------------------------------------------------------------
 
-int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives) {
+int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives, float* nativePivot) {
+    if(nativePivot && bbox) memcpy(nativePivot,bbox,4*sizeof(float));
     hudroute::Identity id;
     id.context = g_visualRiding ? g_ridingContext : -1;
     id.hasRect = bbox != nullptr;
@@ -595,8 +599,16 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
         const bool icon=dvr::hudnative::square_icon(bbox,vertices,primitives);
         const bool nativeIcon=g_nativeObjectives &&
             g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives);
-        if(nativeIcon || (!g_nativeObjectives && g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
-            e=ElObjective;g_stableRoutes.adopt(drawKey,drawFrame,e);
+        if(nativeIcon) g_nativeLabels.marker(bbox,drawFrame);
+        float labelPivot[4]{};
+        const bool nativeLabel=g_nativeObjectives && g_nativeObjectiveLabels && !nativeIcon &&
+            g_nativeLabels.label(bbox,drawFrame,labelPivot);
+        if(nativeLabel && nativePivot) memcpy(nativePivot,labelPivot,sizeof(labelPivot));
+        if(nativeLabel) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+            "hud/native-label: rect=%.3f/%.3f/%.3f/%.3f marker=%.3f/%.3f/%.3f/%.3f; proximity candidate, native shared pivot",
+            bbox[0],bbox[1],bbox[2],bbox[3],labelPivot[0],labelPivot[1],labelPivot[2],labelPivot[3]);
+        if(nativeIcon || nativeLabel || (!g_nativeObjectives && g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
+            e=ElObjective;if(!nativeLabel) g_stableRoutes.adopt(drawKey,drawFrame,e);
         } else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
             // A title crossing the central region is not the reticle. Preserve
             // the native measured dot/grown reticle rather than adopting it.
@@ -797,7 +809,7 @@ void configure(const char* ini) {
     for (int s = 0; s < kMaxSinks; ++s) { g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false; g_sink[s].element=-1; g_sinkLabel[s][0] = 0; }
     for (int a = 0; a < AnchorCount; ++a) g_sinkOf[a][0] = g_sinkOf[a][1] = -1;
     for(int e=0;e<ElCount;++e) g_elementSink[e]=-1;
-    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeLabels.clear();
     memset(g_seen, 0, sizeof(g_seen));
     memset(g_lastRouted, 0, sizeof(g_lastRouted));
     // VR-117's keys, read once and rewritten on the next save: one hand
@@ -914,7 +926,9 @@ void configure(const char* ini) {
     g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
     g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
+    g_menuExitHeading.store(read_i(ini,"MenuExitHeading",0)!=0);
     g_pauseSceneFreshness.store(read_i(ini,"PauseSceneFreshness",0)!=0);
+    g_nativeObjectiveLabels=read_i(ini,"NativeObjectiveLabels",0)!=0;
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeObjectiveScale=fminf(1.f,fmaxf(.25f,read_f(ini,"NativeObjectiveScale",.70f)));
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
@@ -991,10 +1005,11 @@ void save(const char* ini) {
     set_hand(0, g_hand[0], "save");
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
+    write_i("MenuExitHeading",g_menuExitHeading.load());
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
     write_i("ObjectiveScreenTracking",g_objectiveScreen);
-    write_i("NativeObjectiveIcons",g_nativeObjectives);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
+    write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
     for(int i=0;i<4;++i) save_scoped_alpha(i);
     for(int i=0;i<2;++i) {
         char key[64];
@@ -1233,6 +1248,8 @@ void status(dvr::status::Writer& w) {
 
 void draw_ui() {
     if(ImGui::CollapsingHeader("Menu immersion")) {
+        bool keep=g_menuExitHeading.load();
+        if(ImGui::Checkbox("Keep viewing direction when closing menus",&keep)) {g_menuExitHeading.store(keep);write_i("MenuExitHeading",keep);}
         ImGui::TextWrapped("Per-menu controls. Head look keeps the world paused and rotates the rendered camera. Blur suppression is experimental; reopen the menu after changing it.");
         for(int i=0;i<kMenuContexts;++i) {
             ImGui::PushID(100+i); ImGui::Text("%s",kMenuContextNames[i]);
@@ -1264,6 +1281,7 @@ void draw_ui() {
         change|=ImGui::Checkbox("Route moving objective markers",&g_routeObjectives);
         change|=ImGui::Checkbox("Objective markers follow screen",&g_objectiveScreen);
         change|=ImGui::Checkbox("Native objective icons (test)",&g_nativeObjectives);
+        change|=ImGui::Checkbox("Native objective title and distance (test)",&g_nativeObjectiveLabels);
         change|=ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx");
         ImGui::TextWrapped("Native test learns edge-clamped marker content and keeps it native when it moves through the center. Size preserves the native center. Unlearned isolated icons remain native at original size; similar artwork can match.");
         ImGui::TextWrapped("Screen tracking separates marker size from screen position. Window/world markers follow the rendered field of view; their window scale controls icon size. Native game edge indicators remain.");
@@ -1271,7 +1289,7 @@ void draw_ui() {
         if(change) {
             write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
             write_i("ObjectiveScreenTracking",g_objectiveScreen);
-            write_i("NativeObjectiveIcons",g_nativeObjectives);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
+            write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
             rebalance();refresh_status_line();
         }
     }

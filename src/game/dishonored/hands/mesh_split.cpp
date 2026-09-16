@@ -2754,6 +2754,20 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
           targetLocal[j] = c->col[j][0]*d[0] + c->col[j][1]*d[1] + c->col[j][2]*d[2]; }
     memcpy(g_mpLastTargetLocal[hand], targetLocal, sizeof(targetLocal));
     memcpy(g_mpLastPCam[hand], dcam, sizeof(dcam));
+    if(UiSurfaceContext()==3) {
+        static double nextDepth[2]{};const double now=MaimNowMs();
+        if(now>=nextDepth[hand]) {
+            nextDepth[hand]=now+250;
+            float local[3]{},actual[3]{};
+            for(int i=0;i<3;++i) local[i]=D.r.m[i*3]*qLocal[0]+D.r.m[i*3+1]*qLocal[1]+D.r.m[i*3+2]*qLocal[2]+D.t[i];
+            for(int i=0;i<3;++i) actual[i]=c->col[0][i]*local[0]+c->col[1][i]*local[1]+c->col[2][i]*local[2]+c->t[i];
+            float depth=c->vp[15],targetDepth=0,norm=0,focal=0;
+            for(int i=0;i<3;++i) {depth+=actual[i]*c->vp[i*4+3];targetDepth+=dcam[i]*c->f[i];focal+=c->vp[i*4]*c->vp[i*4];}
+            for(int i=0;i<9;++i) norm+=D.r.m[i]*D.r.m[i];
+            Log("menu/hand-depth: hand=%d eye=%d present=%u pose=%u sourceScale=%.6f deltaScale=%.6f clipW=%.4f targetDepth=%.4f viewW=%.4f focalX=%.4f blend=%.4f; original draw, read-only",
+                hand,g_mpEyeState,(unsigned)dvr::frame::count(),c->pose.gen,g_mpSrcScale[hand],sqrtf(norm/3),depth,targetDepth,c->vp[15],sqrtf(focal),dvr::anim::weight());
+        }
+    }
     MfNoteHand(hand, c, dcam);                   // VR-76: the flicker history
     return true;
 }

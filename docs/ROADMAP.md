@@ -23,7 +23,9 @@
 
 - [x]387 crouch transition grouping accepted; gamma color correction provisionally accepted.
 - [x]387 wheel hand stability improved enough to park; retain menu half-step setting.
-- [ ] Pause world-scale stability and wheel visual lifecycle candidate headset validation.
+- [x]389 pause world stability, reader rotation and wheel origin accepted; closing flash provisionally absent.
+- [ ] Menu exit yaw retention and native objective title/distance association trial.
+- [ ] Pause hand apparent-size change: collect scale/depth diagnostics.
 
 - [x] Continuous wheel analog input and independent world-space hand dial implemented.
 - [x] Standalone dial geometry/input and existing HUD regression checks pass.
