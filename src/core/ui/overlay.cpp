@@ -667,7 +667,7 @@ static void OverlayFrame()
         static float pixelPercent=-1.0f;
         if (pixelPercent<0)
             pixelPercent=g_resWantW && g_resWantH
-                ? 100.0f*((float)g_resWantW/2750.0f)*((float)g_resWantH/2850.0f) : 130.0f;
+                ? 100.0f*((float)g_resWantW/2750.0f)*((float)g_resWantH/2850.0f) : 120.0f;
         ImGui::TextUnformatted("Render resolution scale");
         ImGui::SliderFloat("Total pixels (%)",&pixelPercent,50.0f,200.0f,"%.0f%%",ImGuiSliderFlags_AlwaysClamp);
         const float axisScale=sqrtf(pixelPercent*0.01f);

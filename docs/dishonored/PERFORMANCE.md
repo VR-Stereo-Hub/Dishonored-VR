@@ -302,6 +302,20 @@ tails rejects it. Zero delays, mode abort or drifting baselines is inconclusive.
 Visible discomfort or stereo instability rejects the candidate regardless of averages.
 Agent reads and archives the result and disarms DesktopAb; no visual result claimed yet.
 
+## Latest correction:120% default (2026-09-15, build362)
+
+User clarified120% total pixels is the new default, superseding130%. Runtime
+missing-key, generated/package/golden INIs and F10 scale fallback now use3012x3122.
+FOV103 and mirror-off remain. Installed `vr33-hands-working-362-g40474ba59-dirty`
+from `build/playtest-candidates/vr50-pair-pacing-120`; the automatic pair-pacing
+comparison above remains armed (DesktopAb=3), now at120% throughout all phases.
+No pacing behavior change. Same two-minute launch question and outcome criteria.
+Both logs/DLL/INI archived before replacement at
+`build/playtest-candidates/installs/20260915-230558-957582`. Complete installed INI
+diff changes only RenderWidth3135->3012 and RenderHeight3250->3122; other settings
+preserved. Build,9 exports, both golden comparisons and lint pass; installed hashes
+and CRLF verified. No game or simulator launched; no new measured pacing result.
+
 ## Results and routes
 
 Numbers below come from different matched workloads. They must not be combined into

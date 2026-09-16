@@ -2,9 +2,9 @@
 
 - Branch `codex/hud-fixes`; local commits newer than origin. Publication remains
   blocked pending explicit user approval; no main merge authorized.
-- Installed `vr33-hands-working-361-g140afb6e7-dirty` from
-  `build/playtest-candidates/vr50-pair-pacing-ab`.103 FOV,130% total pixels
-  (3135x3250), mirror off. DesktopAb=3 armed; all unrelated experiments off.
+- Installed `vr33-hands-working-362-g40474ba59-dirty` from
+  `build/playtest-candidates/vr50-pair-pacing-120`.103 FOV,120% total pixels
+  (3012x3122), mirror off. DesktopAb=3 armed; all unrelated experiments off.
 - Test automatically allows30 seconds to settle into the hub, then30 seconds each
   unpaced/paced/unpaced, mirror off throughout. Cap=floor(90% of first fresh-pair
   rate), bounded by headset refresh. Logs actual gate delays and fresh-pair tails.
@@ -13,8 +13,8 @@
   End/abort restores runtime modes. Agent must disarm installed DesktopAb afterward;
   its INI value otherwise rearms on next launch. No game/simulator launched.
 -26 production benchmark checks pass, build/exports/golden/lint pass. Full installed
-  INI diff only DesktopAb0->3 and dimensions120%->130%. Both logs archived before
-  install at build/playtest-candidates/installs/20260915-230217-845830; hashes/CRLF
+  INI diff only dimensions130%->120%; DesktopAb=3 preserved. Both logs archived before
+  install at build/playtest-candidates/installs/20260915-230558-957582; hashes/CRLF
   verified. Read installed.json and verify the next log banner before interpretation.
 - See PERFORMANCE.md, Pair-pacing test prepared, for evidence and verdict criteria.
   Mirror-off's earlier sewer p95 cost was modest; extreme tails were mixed, not
@@ -27,7 +27,7 @@
 
 Continue VR-50 in C:\dev\Dishonored-VR on codex/hud-fixes. Read AGENTS/CLAUDE,
 current STATUS/NEXT_SESSION, and PERFORMANCE.md's Pair-pacing test prepared section.
-Installed361 has103 FOV,130% pixels, mirror off and DesktopAb=3:30s settle then
+Installed362 has103 FOV,120% pixels, mirror off and DesktopAb=3:30s settle then
 30s unpaced/paced/unpaced; cap90% of baseline fresh-pair rate. User launches only.
 Read/verify/archive both logs, compare fresh-pair tails/rates and actual pace delays,
 then disarm DesktopAb with full-INI comparison/CRLF. Keep accepted stereo/image
