@@ -23,6 +23,16 @@ To measure and name one more element (the eight unmeasured rows, or a new one):
 
 ## Current:389 feedback and menu exit handoff (2026-09-16)
 
+Installed391 (`vr33-hands-working-391-g56b422dc2`), clean source56b422dc2.
+Candidate `build/playtest-candidates/hud-menu-exit`; both logs, previous DLL and
+full INI archived in `build/playtest-candidates/installs/20260916-155406-323310`.
+Entire INI diff: only add Hud.MenuExitHeading=1 and NativeObjectiveLabels=1.
+All prior saved values retained; installed DLL/INI hashes and CRLF verified.
+DLL SHA256 `7a0779f52716a029778db0511122dda7dbf08636e7c241cd00359108396b2126`.
+Release build,9 exports,38 menu/23 native HUD checks, default writer/package/golden
+byte parity, lint and diff checks pass. No game/simulator launch. Current log is
+still389 until tester launch;391 headset acceptance pending. Local commits only.
+
 Build389 (`vr33-hands-working-389-gdc3ffee45`, source dc3ffee45) DLL hash/banner
 verified; both logs and unchanged full INI archived under
 `build/playtest-candidates/hud-visual-lifecycle/reported-menu-exit`.

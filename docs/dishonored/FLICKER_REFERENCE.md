@@ -3,6 +3,16 @@
 
 ## Build389 result: pause world accepted, hand depth still open (2026-09-16)
 
+Installed391 (`vr33-hands-working-391-g56b422dc2`), clean source56b422dc2.
+Candidate `build/playtest-candidates/hud-menu-exit`; both logs, previous DLL and
+full INI archived in `build/playtest-candidates/installs/20260916-155406-323310`.
+Entire INI diff: only add Hud.MenuExitHeading=1 and NativeObjectiveLabels=1.
+All prior saved values retained; installed DLL/INI hashes and CRLF verified.
+DLL SHA256 `7a0779f52716a029778db0511122dda7dbf08636e7c241cd00359108396b2126`.
+Release build,9 exports,38 menu/23 native HUD checks, default writer/package/golden
+byte parity, lint and diff checks pass. No game/simulator launch. Current log is
+still389 until tester launch;391 headset acceptance pending. Local commits only.
+
 Identity: build389/source dc3ffee45, DLL SHA256
 `0488e78c3136e4dbce49015018899b87e26f2d896676a514af1410033198efc8`;
 installed DLL/banner verified, full INI unchanged. Both logs archived at

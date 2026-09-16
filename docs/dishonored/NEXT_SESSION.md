@@ -1,5 +1,15 @@
 ## Current:389 accepted, menu exit heading candidate (2026-09-16)
 
+Installed391 (`vr33-hands-working-391-g56b422dc2`), clean source56b422dc2.
+Candidate `build/playtest-candidates/hud-menu-exit`; both logs, previous DLL and
+full INI archived in `build/playtest-candidates/installs/20260916-155406-323310`.
+Entire INI diff: only add Hud.MenuExitHeading=1 and NativeObjectiveLabels=1.
+All prior saved values retained; installed DLL/INI hashes and CRLF verified.
+DLL SHA256 `7a0779f52716a029778db0511122dda7dbf08636e7c241cd00359108396b2126`.
+Release build,9 exports,38 menu/23 native HUD checks, default writer/package/golden
+byte parity, lint and diff checks pass. No game/simulator launch. Current log is
+still389 until tester launch;391 headset acceptance pending. Local commits only.
+
 Local branch codex/hud-fixes. Verified installed389 DLL/hash/banner and archived
 both logs/full unchanged INI at
 `build/playtest-candidates/hud-visual-lifecycle/reported-menu-exit`.
@@ -13,7 +23,7 @@ menu's yaw to the existing gameplay writer exactly once after refreshed owner
 validation. Second associates nearby title/distance geometry with the native icon
 and scales both around its center; proximity is a trial, not semantic identity.
 Pause hand-depth/scale diagnostics are read-only; no hand-size fix claimed.
-38 production menu checks and23 native HUD checks pass; release/install pending.
+38 production menu checks and23 native HUD checks pass; clean release and installation verified.
 See current HUD_ANCHORS and FLICKER_REFERENCE entries for evidence and limits.
 
 ONE launch question: after opening pause, turning head30-60 degrees and closing
