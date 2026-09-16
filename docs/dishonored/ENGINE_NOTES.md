@@ -6923,3 +6923,17 @@ center routing can switch a moving draw between anchors. Candidate adds short-li
 local-content continuity plus private measured-element textures; initial spatial
 classification, geometry changes and shared-content ambiguity remain limitations.
 No engine-memory writes or new engine addresses introduced. HUD_ANCHORS is authoritative.
+
+## VR-127 reading input and unresolved HUD group identity (2026-09-16)
+
+MenuStep is a pulse generator, not analog scrolling: first press,380ms initial
+repeat delay,170ms subsequent delay. Production host sampling at120Hz gives5/120
+nonzero samples during a held stick; continuous reading retains120/120. Context4
+includes readable notes/books; context5 is journal. No engine write is required.
+
+Local DisGFxMoviePlayerHUD declarations expose m_TaskMarkers/m_SortedMarkers and
+interaction-context groups. This does not establish native pointer layout or the
+render callback corresponding to each UI object. Do not turn these declarations into
+unchecked memory offsets. The current default-off routing candidates instead test
+measured marker geometry and bounded neighboring prompt draws; exact tolerances,
+limits, evidence and next question live in HUD_ANCHORS. No new addresses added.

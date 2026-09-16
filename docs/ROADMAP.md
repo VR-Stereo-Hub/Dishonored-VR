@@ -33,7 +33,10 @@
 - [x] Add reader right-offset sliders, bounded menu stereo gap hold, private measured HUD textures/content continuity.
 - [x]378 reading flicker removed and wheel greatly improved; accepted for merge.
 - [ ] VR-128: remaining left-eye hands/weapons flicker during wheel head motion.
-- [ ] VR-127: remaining objective/interaction grouping, reading scroll and alpha controls.
+- [x] PR69 merged; saved378 profile promoted; codex/hud-fixes created from main.
+- [x] VR-127: shared reading/interaction alpha, isolated original general reset, continuous reading vertical input.
+- [x] VR-127: default-off moving-marker/interaction grouping candidates and host regressions.
+- [ ] VR-127 headset: complete interaction grouping, objective identity, reading scroll and alpha acceptance.
 
 ## Performance research shelved (2026-09-15)
 

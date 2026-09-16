@@ -21,6 +21,76 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## Current follow-up: alpha, reading input and HUD grouping (VR-127)
+
+PR69 merged to VR-Main at0afbadc83; source branch preserved. codex/hud-fixes
+starts from that merge. Main contains the complete accepted saved378 F10 profile.
+New work stays local; no second main merge is authorized.
+
+### Alpha controls
+
+- **Notes, books and journal alpha** is one shared profile: ReadingAlphaGain/Floor/
+  Gamma/Mode/Mix. Both note/book context4 and journal context5 select it.
+- **Interactables alpha** uses InteractionAlphaGain/Floor/Gamma/Mode/Mix on the
+  private prompt sink. Title/action/icon draws benefit only once correctly grouped.
+  A frame anchor remains native game rendering and cannot use the extracted alpha.
+- Wheel retains its three saved values and adds explicit WeaponDialAlphaMode/Mix.
+- General **Restore original general alpha** (also `hud alpha reset`) restores
+  repair, gain1, floor0, gamma1, mix1. Specialized values, modes and mix remain intact.
+- D3D9 coverage forcing and the D3D11 compositor select the SAME per-sink profile.
+  Leaving capture on the global mode while specializing the compositor was rejected:
+  a captured-alpha reading panel would otherwise receive last-draw alpha, not coverage.
+- New profiles inherit the accepted general values at migration; existing wheel
+  values stay unchanged. Persist all five fields, so a later general reset cannot
+  change specialized modes after a restart. Installed INI comparison is mandatory.
+
+### Book scrolling
+
+The previous code ran MenuStep on both axes of every ordinary menu: immediate
+pulse,380ms delay,170ms repeats, zero in between. A production-function host negative
+control at120 input samples/second emits only5 nonzero samples for a one-second
+full-stick hold. Context4/5 vertical input now remains continuous after the existing
+pad deadzone; it preserves neutral, magnitude and direction and lets the native
+reader own speed/acceleration. Horizontal input remains stepped, right stick neutral,
+and wheel/gameplay/other menus retain their prior policies. `pad/reading` reports the
+context and delivered vertical value at a bounded rate. Headset speed not yet accepted.
+
+### Grouping candidates and explicit limits
+
+`GroupInteractions=0` and `RouteObjectives=0` ship OFF, with live F10 HUD grouping
+checkboxes. The next candidate enables both for testing, preserving every previous
+installed value. These are targeted heuristic candidates, not a solved semantic hook.
+
+- Interaction grouping joins nearby small draws to the current/previous interaction
+  bounds and outranks a stale first-position content hint. Reticle/vitals/full-screen
+  exclusions remain. It expires after a draw gap/reset and bounds group growth.
+  Neighbor margins0.02/0.025 are trial tolerances; they are not measured object identity.
+  The first draw before a new seed is seen can still fall back for one frame, and
+  nearby unrelated UI can match. A complete title/action grouping claim needs headset evidence.
+- Objective candidate uses the previously measured0.033x0.032 moving quad shape,
+  with trial tolerance+/-0.003, two primitives and4..8 vertices, anywhere on screen.
+  It receives a private sink and the objective row's own anchor/placement instead
+  of default. No fixed screen rectangle or target-specific world position is invented.
+  Other same-sized icons may match; batched/edge/scaled markers can fail. This cannot
+  establish native task-marker identity. `hud/owner` now includes rect/vertex/primitive
+  evidence when group routing disagrees with spatial routing.
+- No new engine addresses or writes. Native HUD declarations expose task-marker
+  arrays and interaction groups, but their render-object mapping is not established.
+  If this candidate fails, use those native owners; do not keep expanding rectangles.
+
+Validation:457 routing checks include marker movement and negative controls,
+interaction title/action travel across the original boundary, unrelated text and
+expiry/reset.52 control checks compile the production alpha selector and capture-mode
+predicate and the old MenuStep function; they verify specialized isolation and reading
+context/input behavior. Fresh-default writer/packaged/golden bytes agree.
+
+**One next launch question:** while keeping the same interactable focused and moving
+head position/view, do its title and action prompt remain together on one plane?
+Expected: stable grouping/size. If separation remains, inspect the logged draws and
+continue toward semantic identification; no change in plane does not prove objectives
+are correctly identified. Reading/alpha/objective controls are available but are not
+additional required verdicts on this launch. Residual hand flicker remains VR-128.
+
 ## Accepted dial and saved profile (2026-09-16)
 
 Build378 accepted for merge. Reading is stable and wheel flicker greatly reduced;

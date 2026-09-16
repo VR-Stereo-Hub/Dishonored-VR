@@ -51,6 +51,43 @@ struct Identity {
 
 inline bool row_measured(const Row& r) { return r.rect[2] > r.rect[0] && r.rect[3] > r.rect[1]; }
 
+// VR-127: opt-in candidates, not semantic Scaleform ownership. Marker size
+// comes from the measured moving 0.033 x 0.032 draw in ENGINE_NOTES. The
+// +/-0.003 envelope is a test tolerance, not another measured identity.
+inline bool objective_shape(const float r[4],unsigned vertices,unsigned primitives) {
+    const float w=r[2]-r[0],h=r[3]-r[1];
+    return vertices>=4 && vertices<=8 && primitives==2 &&
+        w>=.030f && w<=.036f && h>=.029f && h<=.035f;
+}
+struct InteractionGroup {
+    uint32_t frame=0,previousFrame=0;bool currentOk=false,previousOk=false;
+    float current[4]{},previous[4]{};
+    void clear() {*this=InteractionGroup{};}
+    bool claim(const float r[4],uint32_t now,bool seed) {
+        if(now!=frame) {
+            previousOk=currentOk && now-frame<=2;
+            if(previousOk) {for(int i=0;i<4;++i) previous[i]=current[i];previousFrame=frame;}
+            currentOk=false;frame=now;
+        }
+        const float w=r[2]-r[0],h=r[3]-r[1];
+        if(!(w>0 && h>0 && w<.50f && h<.25f)) return false;
+        auto touches=[&](const float b[4]) {
+            return r[0]<=b[2]+.02f && r[2]>=b[0]-.02f &&
+                   r[1]<=b[3]+.025f && r[3]>=b[1]-.025f;
+        };
+        if(!seed && !(currentOk && touches(current)) &&
+            !(previousOk && now-previousFrame<=2 && touches(previous))) return false;
+        if(!currentOk) {for(int i=0;i<4;++i) current[i]=r[i];currentOk=true;}
+        else {
+            float next[4];
+            for(int i=0;i<2;++i) {next[i]=r[i]<current[i]?r[i]:current[i];next[i+2]=r[i+2]>current[i+2]?r[i+2]:current[i+2];}
+            if(next[2]-next[0]>.50f || next[3]-next[1]>.30f) return seed;
+            for(int i=0;i<4;++i) current[i]=next[i];
+        }
+        return true;
+    }
+};
+
 // The row index a draw routes to. `defaultRow` is where the unclaimed go.
 inline int route(const Row* rows, int n, const Identity& id, int defaultRow) {
     if (id.context >= 0) {

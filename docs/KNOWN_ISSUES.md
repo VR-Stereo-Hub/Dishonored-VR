@@ -3,7 +3,7 @@
 - Weapon wheel can still show positional flicker on left-eye hands/weapons during
   physical head turns (VR-128). Reading flicker is reported resolved on378.
 - Objective markers and some interaction labels are not grouped reliably on their
-  selected HUD anchors; book scrolling and scoped alpha controls are follow-ups (VR-127).
+  selected HUD anchors; book scrolling and scoped alpha controls have a candidate awaiting headset validation (VR-127).
 
 41.x is the FOUNDATION line for the new native-stereo render: it is not a release. The
 milestone in brackets is where the fix is planned (docs/ROADMAP.md).

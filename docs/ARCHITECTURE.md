@@ -959,3 +959,12 @@ unchanged local draw content retains its initial row briefly; ambiguous/rebuilt
 content falls back. Private measured-element textures eliminate cross-crop leakage
 and preserve reference placement while allowing motion outside the initial rectangle.
 This remains provisional until headset validation/semantic owner identification.
+
+### 2026-09-16: alpha owner includes capture mode; reading input remains analog
+
+An alpha override owns mode/mix as well as gain/floor/gamma. Both D3D9 coverage
+capture and D3D11 reconstruction select the same sink owner, so the general reset
+cannot alter specialized groups. Reading menus retain continuous vertical analog
+input; discrete stepping remains appropriate for horizontal/menu selection.
+HUD semantic ownership is still unresolved. Default-off shape/neighbor grouping
+candidates preserve the accepted pipeline and make the remaining question testable.

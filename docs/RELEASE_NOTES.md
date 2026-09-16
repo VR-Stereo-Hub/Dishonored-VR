@@ -1,5 +1,13 @@
 ## Unreleased
 
+### HUD follow-up candidate (not yet merged)
+
+- Shared alpha for notes/books/journal and independent interaction alpha; original
+  general-alpha reset preserves all specialized groups, including wheel alpha.
+- Continuous reading vertical stick input replaces sparse menu pulses.
+- Live, default-off interaction-group/objective-marker routing candidates await
+  headset validation. Shape/neighbor matching is not semantic UI identification.
+
 ### Accepted weapon dial and reading panels
 
 - World-space left-hand weapon dial supports continuous stick/hand direction,

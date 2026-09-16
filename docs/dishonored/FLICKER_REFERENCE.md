@@ -15,6 +15,8 @@ This supports the bounded hold addressing menu mono interruptions. It does not
 prove every hand draw is corrected; cumulative deferred hand totals still include
 unknowns and several contexts. No new world-scale failure is reported.
 
+PR69 merged at0afbadc83. The subsequent VR-127 HUD alpha/input/grouping candidate
+preserves all accepted camera/stereo/hand settings and introduces no new hand correction.
 Residual is VR-128, Backlog. Route to the hand/weapon eye-identity/correction rows,
 not another FOV change or global stereo retag. Preserve the accepted menu translation,
 image-owned orientation and pair synchronization. Next investigation should isolate

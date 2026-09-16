@@ -1,0 +1,54 @@
+#include "core/gfx/hud_layout.h"
+#include "core/input/reading_input.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+#include <initializer_list>
+namespace dvr::hudlayout {
+static dvr::hudalpha::Bank g_alphaBank;
+static bool g_menuRiding=false;static int g_ridingContext=-1;
+static ElementCfg g_el[ElCount]{};
+struct Sink {int anchor=-1;bool crop=false;int element=-1;} g_sink[kMaxSinks];
+int element_for_context(int c) {return c==4?ElNote:c==5?ElJournal:c==6?ElWheel:ElPause;}
+#include "hud_alpha_selector.inc"
+}
+#include "hud_alpha_capture.inc"
+using SHORT=int16_t;
+static double testTime=0;
+static double MaimNowMs(){return testTime;}
+#include "hud_menu_step.inc"
+static unsigned checks=0;
+static void check(bool v,const char* why){++checks;if(!v){std::printf("FAIL %s\n",why);std::exit(1);}}
+int main(){
+ using namespace dvr::hudlayout;
+ g_alphaBank.general={2,2,.2f,.6f,.4f};
+ g_alphaBank.special[0]={0,3,0,.5f,1};
+ g_alphaBank.special[1]={1,1.2f,.1f,.7f,.3f};
+ g_alphaBank.special[2]={2,1.5f,.4f,.8f,.9f};
+ g_sink[0]={AnchorWindow,false,-1};g_sink[1]={AnchorWindow,true,ElPrompt};g_sink[2]={AnchorHandR,true,ElVitals};
+ g_el[ElWheel].anchor=g_el[ElNote].anchor=g_el[ElJournal].anchor=AnchorWindow;
+ g_menuRiding=true;g_ridingContext=6;
+ check(alpha_for_sink(0).gain==3 && !alpha_force_wanted(0),"wheel uses its own profile and capture mode");
+ g_ridingContext=4;auto note=alpha_for_sink(0);
+ check(note.gamma==.7f && note.mode==1 && alpha_force_wanted(0),"reading coverage is forced from reading alpha");
+ g_ridingContext=5;auto journal=alpha_for_sink(0);
+ check(journal.mode==note.mode && journal.gamma==note.gamma && journal.gain==note.gain,"notes books and journal share profile");
+ g_menuRiding=false;
+ check(alpha_for_sink(1).gain==1.5f && alpha_force_wanted(1),"interaction profile selects its private sink");
+ check(alpha_for_sink(2).gain==2 && alpha_force_wanted(2),"unscoped HUD uses general alpha");
+ g_alphaBank.reset_general();auto orig=alpha_for_sink(2);
+ check(orig.mode==0 && orig.gain==1 && orig.floorA==0 && orig.gamma==1 && orig.mixK==1,"original general reset restores all five fields");
+ check(!alpha_force_wanted(2) && alpha_force_wanted(1),"general reset preserves interaction capture coverage");
+ check(alpha_for_sink(1).gamma==.8f,"general reset preserves interaction gamma");
+ g_menuRiding=true;g_ridingContext=4;
+ check(alpha_for_sink(0).gamma==.7f && alpha_force_wanted(0),"general reset preserves reading gamma and coverage");
+ g_ridingContext=6;check(alpha_for_sink(0).gain==3 && alpha_for_sink(0).gamma==.5f,"general reset preserves wheel");
+ using dvr::reading_input::continuous;using dvr::reading_input::vertical;
+ for(int context=-1;context<=8;++context) for(bool active:{false,true}) for(bool wheel:{false,true})
+   check(continuous(context,wheel,active)==(active&&!wheel&&(context==4||context==5)),"continuous reading is strictly context scoped");
+ int oldPulses=0,newSamples=0;
+ for(int i=0;i<120;++i){testTime=i*1000./120;if(MenuStep(-32767,1))++oldPulses;if(vertical(-32767)==-32767)++newSamples;}
+ check(oldPulses<10 && newSamples==120,"one-second reading hold keeps 120 analog samples instead of sparse menu pulses");
+ check(vertical(0)==0 && vertical(16384)==16384 && vertical(-16384)==-16384,"neutral partial speed and direction stay native");
+ std::printf("%u HUD controls checks passed; old menu pulses %d/120, reading %d/120\n",checks,oldPulses,newSamples);
+}

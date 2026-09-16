@@ -528,6 +528,7 @@ uint32_t verts_for(D3DPRIMITIVETYPE t, UINT prims) {
 // The probe's answer for one draw, kept for the table and the route.
 struct Probe {
     uint64_t drawKey=0;
+    unsigned vertices=0,primitives=0;
     bool     ok = false;         // bbox[] is a screen rectangle (normalised, y down)
     bool     transformed = false;
     uint8_t  type = 0xff;
@@ -609,6 +610,7 @@ void probe_draw(uint8_t entry, D3DPRIMITIVETYPE type, UINT prims, const void* ve
         if (xf->col[2] >= 0) { memcpy(cz, dvr::frame::vs_const_shadow_row(xf->col[2]), sizeof(cz)); haveZ = true; }
     }
     if (vertexCount == 0) vertexCount = verts_for(type, prims);
+    out.vertices=vertexCount;out.primitives=prims;
     if (!vertexCount) { out.why = 3; ++g_probeFails; g_probeQpc += qpc_now() - t0; return; }
 
     const uint8_t* base = nullptr;
@@ -1010,7 +1012,7 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
 // shadow must not see our own writes). Eight calls per draw, about 170 per
 // present in gameplay. State blocks would bypass this: g_stateBlocksCreated
 // reads 0 for a whole run (`draws status` prints it).
-inline bool alpha_force_wanted() { return dvr::hudlayout::alpha().mode != dvr::hudlayout::AlphaRepair; }
+inline bool alpha_force_wanted(int sink) { return dvr::hudlayout::alpha_for_sink(sink).mode != dvr::hudlayout::AlphaRepair; }
 
 void alpha_force_begin(IDirect3DDevice9* dev) {
     g_origSetRs(dev, D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
@@ -1062,9 +1064,9 @@ void note_blend_tuple() {
     }                                                                                             \
     int sink = -1;                                                                                \
     if (hudNow) note_blend_tuple();                                                               \
-    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey); \
+    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives); \
     if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
-    const bool forceAlpha = sink >= 0 && alpha_force_wanted();
+    const bool forceAlpha = sink >= 0 && alpha_force_wanted(sink);
 
 HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,
                                   UINT prims) {

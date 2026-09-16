@@ -1,19 +1,25 @@
-## Current: weapon dial accepted for merge; HUD follow-up (2026-09-16)
+## Current: HUD controls and grouping follow-up (2026-09-16)
 
-- User explicitly authorized PR/merge of codex/hud-weapon-dial to VR-Main and
-  promotion of the complete new F10 profile. Build378 DLL/banner verified; both
-  logs/INI archived at build/playtest-candidates/vr126-hud-owner/accepted-profile.
-- Headset: no reported note/book flicker; wheel mostly stable. Remaining head-motion
-  positional flicker appears confined to left-eye hands/weapons (VR-128, Backlog).
-  Interior log intervals:36 notes and10 wheel, all zero mono output.
-- Generated/packaged/golden defaults are byte-identical to the accepted saved INI.
-  Eight latest changes tune vitals and match reader width0.660/distance0.020/right0.320.
-- After the accepted merge, create codex/hud-fixes from updated VR-Main for VR-127:
-  shared reading alpha, interaction alpha, original general-alpha reset, slow book
-  scrolling, independent objective markers and unified interaction title/action routing.
-- Preserve stereo/pose ownership and camera translation. No subagents, game/simulator
-  launch or branch deletion. Installed.json remains build authority; keep one question
-  per launch and archive both logs before any next candidate installation.
+- PR69 merged into VR-Main at0afbadc83, source branch codex/hud-weapon-dial preserved.
+  Accepted378 profile is the byte-identical generated/packaged/golden default on main.
+- Working branch codex/hud-fixes, VR-127. New work remains local and unmerged.
+- Shared Notes/Books/Journal alpha, independent Interactables alpha, and original
+  general-alpha reset implemented. All five alpha fields/capture mode are isolated.
+- Reading contexts4/5 retain continuous deadzone-shaped vertical input; horizontal
+  navigation stays stepped. Native MenuStep negative control emits5/120 nonzero
+  samples for a one-second120Hz hold; reading preserves120/120.
+- GroupInteractions/RouteObjectives are default-off live F10 candidates, enabled
+  for the next installed test. Neighbor grouping and measured marker shape are
+  heuristic, not semantic identities; similar icons/batched geometry remain risks.
+- Accepted378 report/logs: note/book flicker absent; wheel greatly improved;36 note
+  and10 wheel interior intervals with zero mono. Remaining left-eye hands/weapons
+  head-motion positional flicker is VR-128 (Backlog), not changed by this candidate.
+- One next launch question: while maintaining focus on the same interactable and
+  moving your head, do its title and action prompt stay together on the same plane?
+  Expected: one stable group. Continued separation means heuristic grouping is
+  insufficient; inspect hud/owner rectangles and pursue native UI identity.
+- See installed.json for installed identity. Preserve both logs/full saved INI/CRLF.
+  No game/simulator launch, subagents, branch deletion or new main merge.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

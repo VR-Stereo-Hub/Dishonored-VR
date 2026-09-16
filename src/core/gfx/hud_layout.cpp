@@ -79,6 +79,8 @@ const int         kMenuContexts = 6;
 
 ElementCfg g_el[ElCount];
 hudroute::StableRoutes g_stableRoutes;
+hudroute::InteractionGroup g_interactionGroup;
+bool g_groupInteractions=false,g_routeObjectives=false;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
 bool g_dialDirection = true, g_dialCircle = true;
@@ -90,8 +92,9 @@ float g_dialWidth = .35f, g_dialRadius = .04f;
 float g_dialCropX = .40f, g_dialCropY = .40f;
 WindowCfg  g_win = kPresetWindow;
 HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
-AlphaCfg   g_alpha = kPresetAlpha;
-float g_wheelAlphaGain=1,g_wheelAlphaFloor=0,g_wheelAlphaGamma=1;
+dvr::hudalpha::Bank g_alphaBank;
+AlphaCfg& g_alpha=g_alphaBank.general;
+const char* kScopedAlpha[3]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha"};
 bool g_readHand[2]={false,false};
 float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
 const char* kReadNames[2]={"Note","Journal"};
@@ -142,11 +145,11 @@ bool read_s(const char* ini, const char* key, char* out, size_t n) {
 }
 
 inline bool measured(int e) { return hudroute::row_measured(g_rows[e]); }
-inline bool crop_eligible(int e) { return e != ElDefault && !kRows[e].vignette && kRows[e].context < 0 && measured(e); }
+inline bool crop_eligible(int e) { return (e==ElObjective && g_routeObjectives) || (e != ElDefault && !kRows[e].vignette && kRows[e].context < 0 && measured(e)); }
 inline int  anchor_kind(int a) { return anchor_is_hand(a) ? 1 : 0; }
 
 void rebuild_rows() {
-    g_stableRoutes.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();
     for (int e = 0; e < ElCount; ++e) {
         g_rows[e].name = kRows[e].name;
         g_rows[e].context = kRows[e].context;
@@ -186,7 +189,7 @@ int acquire_sink(int anchor, bool crop, int element = -1) {
 // Every sink goes back to the pool; the next draws re-acquire what they need
 // (a config change costs one target rebuild, never a dropped draw).
 void rebalance() {
-    g_stableRoutes.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();
     for (int s = 0; s < kMaxSinks; ++s) free_sink(s);
 }
 
@@ -200,6 +203,7 @@ void refresh_status_line() {
     for (int e = 0; e < ElCount; ++e) {
         const char* why = "";
         if (g_el[e].anchor == AnchorOff) why = "(hidden)";
+        else if(e==ElObjective && g_routeObjectives) why="(moving-shape candidate)";
         else if (kRows[e].context < 0 && e != ElDefault && !kRows[e].vignette && !measured(e)) why = "(no region: rides default)";
         w = _snprintf(p, n, "%s=%s%s ", kRows[e].name, kAnchorNames[g_el[e].anchor], why);
         if (w < 0 || (size_t)w >= n) break;
@@ -245,13 +249,39 @@ int alpha_mode_from_name(const char* s) {
 }
 const AlphaCfg& alpha() { return g_alpha; }
 AlphaCfg alpha_for_sink(int sink) {
-    AlphaCfg a=g_alpha;
-    if(g_menuRiding && g_ridingContext==6 && sink>=0 && sink<kMaxSinks &&
-       g_sink[sink].anchor==g_el[ElWheel].anchor && !g_sink[sink].crop) {
-        a.gain=g_wheelAlphaGain;a.floorA=g_wheelAlphaFloor;a.gamma=g_wheelAlphaGamma;
+    using namespace dvr::hudalpha;
+    Owner owner=General;
+    if(sink>=0 && sink<kMaxSinks) {
+        if(g_menuRiding && !g_sink[sink].crop) {
+            const int e=element_for_context(g_ridingContext);
+            if(e>=0 && g_sink[sink].anchor==g_el[e].anchor) {
+                if(e==ElWheel) owner=Wheel;
+                else if(e==ElNote || e==ElJournal) owner=Reading;
+            }
+        } else if(g_sink[sink].element==ElPrompt) owner=Interaction;
     }
-    return a;
+    return g_alphaBank.for_owner(owner);
 }
+// Persist mode/mix as well, so resetting general alpha cannot alter a scoped group.
+static void save_scoped_alpha(int i) {
+    const auto& a=g_alphaBank.special[i];char key[64];
+    _snprintf(key,sizeof(key),"%sMode",kScopedAlpha[i]);write_key(key,alpha_mode_name(a.mode));
+    _snprintf(key,sizeof(key),"%sGain",kScopedAlpha[i]);write_f(key,a.gain);
+    _snprintf(key,sizeof(key),"%sFloor",kScopedAlpha[i]);write_f(key,a.floorA);
+    _snprintf(key,sizeof(key),"%sGamma",kScopedAlpha[i]);write_f(key,a.gamma);
+    _snprintf(key,sizeof(key),"%sMix",kScopedAlpha[i]);write_f(key,a.mixK);
+}
+static void draw_scoped_alpha(int i) {
+    ImGui::PushID(kScopedAlpha[i]);auto& a=g_alphaBank.special[i];
+    bool change=ImGui::SliderFloat("Alpha gain",&a.gain,0,3,"%.2f");
+    change|=ImGui::SliderFloat("Alpha floor",&a.floorA,0,1,"%.2f");
+    change|=ImGui::SliderFloat("Alpha gamma",&a.gamma,.25f,4,"%.2f");
+    change|=ImGui::Combo("Alpha source",&a.mode,kAlphaModeNames,3);
+    if(a.mode==AlphaMix) change|=ImGui::SliderFloat("Repair mix weight",&a.mixK,0,4,"%.2f");
+    if(change) save_scoped_alpha(i);
+    ImGui::PopID();
+}
+
 void set_alpha(const AlphaCfg& a, const char* who) {
     AlphaCfg c = a;
     if (c.mode < 0 || c.mode > 2) c.mode = AlphaRepair;
@@ -460,11 +490,11 @@ void set_menu_riding(bool riding, int context) {
     }
     const int e = element_for_context(context);
     DVR_INFO("hud/layout: %s", riding ? "a screen is riding: every HUD-class draw routes to its row" : "the screen left: routing by element again");
-    g_stableRoutes.clear(); // resource/content identities do not survive a menu transition
+    g_stableRoutes.clear();g_interactionGroup.clear(); // resource/content identities do not survive a menu transition
     if (riding && e >= 0)
         DVR_INFO("hud/layout: the screen is %s on the %s", kRows[e].name, kAnchorNames[g_el[e].anchor]);
 }
-void forget_draw_owners() { g_stableRoutes.clear(); }
+void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear(); }
 bool menu_riding() { return g_menuRiding; }
 bool menu_stereo_hold() { return g_menuRiding && menu_head_look(g_ridingContext); }
 bool menu_head_look(int c) { return c>=3 && c<=8 && (g_menuHeadMask.load() & (1u<<c)); }
@@ -503,15 +533,26 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
 
 // ---- routing --------------------------------------------------------------
 
-int sink_for(const float* bbox, int* elementOut, uint64_t drawKey) {
+int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives) {
     hudroute::Identity id;
     id.context = g_menuRiding ? g_ridingContext : -1;
     id.hasRect = bbox != nullptr;
     if (bbox) memcpy(id.rect, bbox, sizeof(id.rect)); else memset(id.rect, 0, sizeof(id.rect));
     const int spatial = hudroute::route(g_rows, ElCount, id, ElDefault);
-    const int e = id.context >= 0 ? spatial : g_stableRoutes.resolve(drawKey, g_presentNo, spatial, bbox);
+    int e = id.context >= 0 ? spatial : g_stableRoutes.resolve(drawKey, g_presentNo, spatial, bbox);
+    if(id.context<0 && bbox) {
+        // Group decisions outrank the first spatial hint retained by the old
+        // cache, otherwise title and action can stay split for their lifetime.
+        if(g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives)) e=ElObjective;
+        else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
+            // A title crossing the central region is not the reticle. Preserve
+            // the native measured dot/grown reticle rather than adopting it.
+            !(spatial==ElReticle && bbox[2]-bbox[0]<.05f && bbox[3]-bbox[1]<.05f) &&
+            g_interactionGroup.claim(bbox,g_presentNo,spatial==ElPrompt)) e=ElPrompt;
+    }
     if(e != spatial) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
-        "hud/owner: retained %s instead of positional %s; key=%016llx",kRows[e].name,kRows[spatial].name,drawKey);
+        "hud/owner: routed %s instead of positional %s; key=%016llx rect=%.3f/%.3f/%.3f/%.3f verts=%u prims=%u",
+        kRows[e].name,kRows[spatial].name,drawKey,bbox?bbox[0]:0,bbox?bbox[1]:0,bbox?bbox[2]:0,bbox?bbox[3]:0,vertices,primitives);
     if (!bbox && !g_menuRiding) ++g_routeNoRegion;
     if (elementOut) *elementOut = e;
     ++g_routeCounts[e]; ++g_seen[e];
@@ -599,11 +640,12 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         d.tex = tex; d.element = e; d.slot = e;
         const float whole[4]={0,0,1,1};
         memcpy(d.subrect,whole,sizeof(d.subrect));
-        place(d, e, a, g_el[e].rect, aspect, false);
+        const float* reference=measured(e) ? g_el[e].rect : whole;
+        place(d, e, a, reference, aspect, !measured(e));
         // Expand the isolated texture around the same reference rectangle.
         // Preserve pixel scale/placement while allowing this element to move
         // outside its original identification region without clipping.
-        dvr::hudanchor::expand_reference_panel(g_el[e].rect,aspect,d.width,d.planeOff);
+        dvr::hudanchor::expand_reference_panel(reference,aspect,d.width,d.planeOff);
         d.height=0;
     }
     // The catch-all sinks: one whole-sink quad per anchor in use, placed by
@@ -660,7 +702,7 @@ void configure(const char* ini) {
     for (int s = 0; s < kMaxSinks; ++s) { g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false; g_sink[s].element=-1; g_sinkLabel[s][0] = 0; }
     for (int a = 0; a < AnchorCount; ++a) g_sinkOf[a][0] = g_sinkOf[a][1] = -1;
     for(int e=0;e<ElCount;++e) g_elementSink[e]=-1;
-    g_stableRoutes.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();
     memset(g_seen, 0, sizeof(g_seen));
     memset(g_lastRouted, 0, sizeof(g_lastRouted));
     // VR-117's keys, read once and rewritten on the next save: one hand
@@ -774,10 +816,18 @@ void configure(const char* ini) {
         _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]);
         if(read_i(ini,key,0)) blurMask|=1u<<kMenuContextBits[i];
     }
+    g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
+    g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
-    g_wheelAlphaGain=fminf(4.f,fmaxf(0.f,read_f(ini,"WeaponDialAlphaGain",g_alpha.gain)));
-    g_wheelAlphaFloor=fminf(1.f,fmaxf(0.f,read_f(ini,"WeaponDialAlphaFloor",g_alpha.floorA)));
-    g_wheelAlphaGamma=fminf(4.f,fmaxf(.25f,read_f(ini,"WeaponDialAlphaGamma",g_alpha.gamma)));
+    for(int i=0;i<3;++i) {
+        auto& a=g_alphaBank.special[i];a=g_alpha;char key[64],mode[32];
+        _snprintf(key,sizeof(key),"%sMode",kScopedAlpha[i]);
+        if(read_s(ini,key,mode,sizeof(mode))) {const int m=alpha_mode_from_name(mode);if(m>=0) a.mode=m;}
+        _snprintf(key,sizeof(key),"%sGain",kScopedAlpha[i]);a.gain=fminf(4,fmaxf(0,read_f(ini,key,a.gain)));
+        _snprintf(key,sizeof(key),"%sFloor",kScopedAlpha[i]);a.floorA=fminf(1,fmaxf(0,read_f(ini,key,a.floorA)));
+        _snprintf(key,sizeof(key),"%sGamma",kScopedAlpha[i]);a.gamma=fminf(4,fmaxf(.25f,read_f(ini,key,a.gamma)));
+        _snprintf(key,sizeof(key),"%sMix",kScopedAlpha[i]);a.mixK=fminf(4,fmaxf(0,read_f(ini,key,a.mixK)));
+    }
     for(int i=0;i<2;++i) {
         char key[64];
         _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);g_readHand[i]=read_i(ini,key,0)!=0;
@@ -842,9 +892,8 @@ void save(const char* ini) {
     set_hand(0, g_hand[0], "save");
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
-    write_f("WeaponDialAlphaGain",g_wheelAlphaGain);
-    write_f("WeaponDialAlphaFloor",g_wheelAlphaFloor);
-    write_f("WeaponDialAlphaGamma",g_wheelAlphaGamma);
+    write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
+    for(int i=0;i<3;++i) save_scoped_alpha(i);
     for(int i=0;i<2;++i) {
         char key[64];
         _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
@@ -968,6 +1017,10 @@ bool command(const char* args) {
     // hud alpha backdrop window|hand r,g,b,a, hud alpha status
     if (!strcmp(w1, "alpha")) {
         if (n < 2 || !strcmp(w2, "status")) { log_alpha(); return true; }
+        if(!strcmp(w2,"reset")) {
+            for(int i=0;i<3;++i) save_scoped_alpha(i);
+            g_alphaBank.reset_general();set_alpha(g_alpha,"original general alpha");return true;
+        }
         AlphaCfg c = g_alpha;
         if (!strcmp(w2, "mode") && n >= 3) {
             const int m = alpha_mode_from_name(w3);
@@ -1095,6 +1148,23 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
+    if(ImGui::CollapsingHeader("Notes, books and journal alpha")) {
+        draw_scoped_alpha(1);
+        ImGui::TextWrapped("One shared alpha profile for notes, books and the journal.");
+    }
+    if(ImGui::CollapsingHeader("HUD grouping")) {
+        bool change=ImGui::Checkbox("Keep interaction labels together",&g_groupInteractions);
+        change|=ImGui::Checkbox("Route moving objective markers",&g_routeObjectives);
+        ImGui::TextWrapped("Test controls: group nearby interaction draws and recognize the measured objective-marker shape. Other similar icons may match; disable to compare. Objective uses its own anchor and placement below.");
+        if(change) {
+            write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
+            rebalance();refresh_status_line();
+        }
+    }
+    if(ImGui::CollapsingHeader("Interactables alpha")) {
+        draw_scoped_alpha(2);
+        ImGui::TextWrapped("Applies to the interaction title, action prompt and icons routed onto a HUD panel. Frame keeps native game rendering.");
+    }
     if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
         ImGui::TextWrapped("Follow the left hand with a flat camera-facing panel. Independent of wrist rotation, tilt and offsets. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
         for(int i=0;i<2;++i) {
@@ -1114,14 +1184,8 @@ void draw_ui() {
         }
     }
     if (ImGui::CollapsingHeader("Weapon dial")) {
-        bool alphaChanged=ImGui::SliderFloat("Wheel alpha gain",&g_wheelAlphaGain,0,3,"%.2f");
-        alphaChanged|=ImGui::SliderFloat("Wheel alpha floor",&g_wheelAlphaFloor,0,1,"%.2f");
-        alphaChanged|=ImGui::SliderFloat("Wheel alpha gamma",&g_wheelAlphaGamma,.25f,4,"%.2f");
-        if(alphaChanged) {
-            write_f("WeaponDialAlphaGain",g_wheelAlphaGain);write_f("WeaponDialAlphaFloor",g_wheelAlphaFloor);
-            write_f("WeaponDialAlphaGamma",g_wheelAlphaGamma);
-        }
-        ImGui::TextWrapped("These three alpha values affect only the weapon wheel. The other HUD alpha controls affect everything else; alpha mode remains shared.");
+        draw_scoped_alpha(0);
+        ImGui::TextWrapped("Wheel alpha is independent of reading, interactables and general HUD alpha.");
         bool changed = ImGui::Checkbox("World-space left-hand dial", &g_dialOn);
         changed |= ImGui::SliderFloat("Distance offset (m, + farther)",&g_dialDistance,-.30f,.50f,"%.2f");
         changed |= ImGui::Checkbox("Direction only (tiny movement selects)",&g_dialDirection);
@@ -1156,6 +1220,7 @@ void draw_ui() {
         if (kRows[e].context >= 0) ImGui::TextDisabled("screen");
         else if (kRows[e].vignette) ImGui::TextDisabled("full-screen rule");
         else if (e == ElDefault) ImGui::TextDisabled("unclaimed draws");
+        else if(e==ElObjective && g_routeObjectives) ImGui::TextDisabled("moving marker");
         else if (measured(e)) ImGui::TextDisabled("region ok");
         else ImGui::TextDisabled("UNMEASURED");
         ImGui::SameLine();
@@ -1211,8 +1276,13 @@ void draw_ui() {
         ImGui::PopID();
     }
     ImGui::Separator();
-    ImGui::Text("OTHER HUD ALPHA (gain, floor and gamma exclude the weapon wheel)");
+    ImGui::Text("GENERAL HUD ALPHA (excludes wheel, reading panels and interactables)");
     {
+        if(ImGui::Button("Restore original general alpha")) {
+            for(int i=0;i<3;++i) save_scoped_alpha(i);
+            g_alphaBank.reset_general();set_alpha(g_alpha,"F10 original general alpha");
+        }
+        ImGui::TextWrapped("General HUD only. Original: repair, gain 1, floor 0, gamma 1, mix 1. Wheel, reading and interactable alpha remain independent.");
         AlphaCfg c = g_alpha;
         bool ch = false;
         int mode = c.mode;

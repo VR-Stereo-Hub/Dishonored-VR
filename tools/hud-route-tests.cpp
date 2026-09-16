@@ -125,6 +125,35 @@ int main() {
     check(stable.resolve(777,610,Prompt,atPrompt)==Prompt,"distinct sprite initially associated");
     check(stable.resolve(777,610,Vitals,atVitals)==Vitals,"same content at two positions is ambiguous");
     check(stable.resolve(777,611,Default,atPrompt)==Default,"ambiguous key falls back instead of borrowing another owner");
+    {
+        using dvr::hudroute::objective_shape;
+        for(int step=0;step<80;++step) {
+            const float x=step*.012f,y=.10f+step*.005f;
+            const float r[4]={x,y,x+.033f,y+.032f};
+            check(objective_shape(r,4,2),"measured marker shape is independent of screen position");
+        }
+        const float grown[4]={.480f,.481f,.520f,.519f},glyph[4]={.54f,.5f,.55f,.52f};
+        const float marker[4]={.3f,.3f,.333f,.332f},full[4]={0,0,1,1};
+        check(!objective_shape(grown,4,2),"grown reticle is not objective");
+        check(!objective_shape(glyph,4,2),"ordinary text glyph is not objective");
+        check(!objective_shape(marker,24,12),"text batch is not a marker quad");
+        check(!objective_shape(full,4,2),"full-screen fill is not objective");
+        dvr::hudroute::InteractionGroup group;
+        const float unrelated[4]={.85f,.9f,.95f,.94f};
+        for(unsigned frame=1;frame<=30;++frame) {
+            const float x=.53f-(frame-1)*.008f;
+            const float title[4]={x,.445f,x+.18f,.470f};
+            const float action[4]={x+.01f,.485f,x+.14f,.515f};
+            if(frame==1) check(group.claim(action,frame,true),"seed prompt action");
+            check(group.claim(title,frame,false),"title joins action across original region boundary");
+            check(group.claim(action,frame,false),"action remains with moving title");
+            check(!group.claim(unrelated,frame,false),"unrelated distant text does not join interaction");
+        }
+        const float old[4]={.30f,.45f,.40f,.48f};
+        check(!group.claim(old,40,false),"stale interaction neighborhood expires");
+        group.clear();check(!group.claim(old,41,false),"menu/device reset forgets interaction");
+        check(!group.claim(full,41,true),"large fill cannot seed an interaction group");
+    }
     std::printf("%u hud-route checks passed\n", checks);
     return 0;
 }

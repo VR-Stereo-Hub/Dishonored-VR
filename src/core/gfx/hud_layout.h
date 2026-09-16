@@ -28,6 +28,7 @@
 // of quad descriptors (texture + crop + anchor + placement + a stable slot).
 #pragma once
 #include <stdint.h>
+#include "core/gfx/hud_alpha.h"
 
 struct ID3D11DeviceContext;
 namespace dvr::status { class Writer; }
@@ -76,7 +77,7 @@ struct HandCfg {
 // VR-119: the HUD alpha (core/gfx/blit_quad.h explains the modes) and a
 // backdrop plate per anchor KIND: 0 = the window (view or world), 1 = a hand.
 enum AlphaMode : int { AlphaRepair = 0, AlphaCaptured = 1, AlphaMix = 2 };
-struct AlphaCfg { int mode; float gain, floorA, gamma, mixK; };
+using AlphaCfg = dvr::hudalpha::Config;
 struct Backdrop { float r, g, b, a; };
 const char* alpha_mode_name(int m);
 int  alpha_mode_from_name(const char* s);    // -1 when unknown
@@ -118,7 +119,7 @@ bool menu_no_blur(int context);
 // The sink a draw goes to. bbox = the draw's normalised backbuffer rectangle
 // (x0,y0,x1,y1), or null when the region probe could not read it. Returns -1
 // when the element stays in the frame (AnchorFrame), else a sink index.
-int  sink_for(const float* bbox, int* elementOut, uint64_t drawKey = 0);
+int  sink_for(const float* bbox, int* elementOut, uint64_t drawKey = 0, unsigned vertices = 0, unsigned primitives = 0);
 // Sinks: in use, and a label for the log ("window/crop", "handL/all").
 bool sink_in_use(int sink);
 bool sink_hidden(int sink);                     // an "off" element's sink: redirected, cleared, never delivered
