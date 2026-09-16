@@ -528,6 +528,33 @@ tan(68.5) against the eye's own mean half-tangent, tan(54)/tan(44)): BioShock re
 the eye's own FOV, this lever renders the circumscribed one. Not a magnification error
 while the claim equals the render; `fovaudit src=readback` is the check.
 
+## F11 reset and natural-FOV feedback (VR-50, 2026-09-15)
+
+Offline native-key tracing identifies F11's engine fullscreen toggle before ordinary
+script input. The F11 name initializer at RVA 001FF5D1 stores the name index at VA
+01448708; virtual key 0x7a maps to it at RVA 005CAC21. Input code at RVA 005C8E6B
+compares this name; the branch through 005C8E7D..005C8F0A queries viewport fullscreen
+(vtable slot +0x58), inverts it and calls viewport resize, then returns before normal
+input at 005C8F40. This was derived with the local disassembly tools, not implemented
+as a new hook. Game-derived output remains uncommitted. The shipped F11 BendTime
+binding does not describe this earlier native handling.
+
+ResBeforePresentParams in render_size.cpp converts fullscreen to virtual windowed
+mode while retaining its requested backbuffer. The verified307 run reset
+2750x2850 -> 1355x1405 -> 2750x2850. Its FOV fell from108.07 to74.89. The earlier
+natural-cache recapture described above is only harmless at an unchanged target:
+FovLeverApply multiplies the current sensor by target/natural, so a slight aspect-driven
+target decrease can compound downward after natural captured the mod's own output.
+
+The353 candidate uses the existing reflected CameraCache.POV.FOV field, not a new
+offset. Gameplay scopes scale its half-angle tangent by tan(requested/2)/tan(target/2),
+retain zoom, and restore after both eye draws. The persistent FOV writer skips the active
+gameplay scope. CfValidate checks IsLiveObject, current GObjects identity slots, ownership
+and load generation; refresh rebuilds the live table before capturing new identities.
+Menu exit must reacquire identity. Cinematic/exit scopes keep precedence. Rendered
+acceptance remains a headset/log question. Full evidence and failed assumptions:
+[PERFORMANCE.md](PERFORMANCE.md), active F11 section.
+
 ## The scene-draw root, derived live (2026-09-03, S2b)
 
 The SequentialReentry seam needs the ONE function whose call tree draws the scene and
@@ -6716,6 +6743,46 @@ entry and reports changes. A stack-local invocation retains the receiver only
 for the duration of the original call to match its child, then is discarded.
 No UObject write, delayed dereference, COM reference or menu-retained identity
 is introduced. Nested timing is a subset of InitViews time, never additive.
+
+## Live resolution through the F11 viewport path (VR-50, 2026-09-15)
+
+The earlier inert `setres` result is specific to the controller console route. F11's
+native input at RVA5C8E7D..5C8F0A invokes WindowsViewport's primary vtable slot1.
+Constructor RVA5C6810 assigns primary VA010C1870 at native+0 and FViewport's
+VA010C17D8 at native+4; its secondary render-target interface is assigned at native+12.
+The primary slot1 is VA009C5B30, ending in `ret24` at VA009C6096.
+
+**Six stack arguments:** width, height, fullscreen, existing viewport option, windowX,
+windowY. At F11 the window coordinates are pushed before two zero-argument virtual
+queries; those queries do not consume the coordinates. Treating this as a four-argument
+call would corrupt the stack. FViewport virtual slots+0x58/+0x5c read bits0/1 of its
+flags at+0x5c. Window coordinates are native+0x4e4/+0x4e8, HWND native+0x68.
+Resize forwards to the native window/resource-update path (VA009C4710), with the existing
+engine synchronization and D3D reset lifecycle; the proxy does not call Reset itself.
+The constructor, input caller, flag getters and return cleanup were independently read
+from the local executable using disasm-rva.py. Raw output is not committed.
+
+Current FViewport arrives as `self` at the already verified gameplay Draw site, before
+stereo tags and camera scopes. Its live UGameViewportClient owner has Viewport at+0x40,
+confirmed by the existing draw caller at RVA2330D3. A one-shot request refreshes
+BuildLiveSet, finds an IsLiveObject owner whose exact field matches self, and validates
+both native vtables, HWND/current window thread, function signature and ret24. Ownership
+is rechecked immediately before the mutating native call. Class name is only a selector,
+never a liveness substitute. No viewport/object pointer survives the request.
+
+The overlay only queues dimensions. The game thread persists/advertises them through
+ResRequest before calling the native resize with fullscreen=true; VirtualMode retains
+the requested dimensions while creating a windowed D3D device. The request cannot run
+between eyes. A returned call is not success: actual capture dimensions must match within
+10seconds, otherwise status reports unconfirmed and does not automatically retry.
+A pending request times out instead of firing after an arbitrary later menu/scene.
+
+Host fixtures include production viewport_resize.cpp and cover queue isolation,
+all six arguments, exactly-once consumption, wrong thread/window/type/ABI, failed live
+refresh, dead/ambiguous/replaced owner, timeout and downstream size confirmation.
+23 checks pass. This is not engine/headset execution; runtime resize acceptance is
+pending. Defaults and performance evidence remain in PERFORMANCE.md.
+
 ## Crouched pitch on two machines: the crawl tuck was switching the camera's own bone control off (VR-122, 2026-09-16)
 
 **The report.** On one machine (Quest 3 through VirtualDesktopXR, 90 Hz) the camera was

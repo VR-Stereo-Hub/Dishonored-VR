@@ -5,8 +5,13 @@ namespace dvr::perf {
 namespace {
 bool desktopArmed=false, desktopPlaying=false, desktopSaved=false;
 bool desktopWasOff=false, desktopWasReduced=false;
-bool desktopTestReduced=false;
-const char* desktop_alternative() { return desktopTestReduced ? "reduced" : "off"; }
+bool desktopTestReduced=false, desktopTestPacing=false;
+bool desktopWasSync=false;
+unsigned desktopWasHz=0, desktopTargetHz=0;
+uint32_t desktopDelayStart=0;
+double desktopRates[3]={};
+const char* desktop_baseline() { return desktopTestPacing ? "off-unpaced" : "full"; }
+const char* desktop_alternative() { return desktopTestPacing ? "off-paced" : desktopTestReduced ? "reduced" : "off"; }
 int desktopSegment=-1;
 double desktopWait=0, desktopStart=0, desktopPrevious=0;
 FreshPair desktopPair;
@@ -14,6 +19,10 @@ float desktopSamples[16384], desktopMedians[3]={}, desktopTails[3]={};
 uint32_t desktopN=0, desktopOverflow=0, desktopRejected=0;
 void desktop_restore() {
     if (desktopSaved) {
+        if (desktopTestPacing) {
+            dvr::vr::set_pace_sync_hz(desktopWasHz);
+            dvr::vr::set_pace_sync(desktopWasSync);
+        }
         dvr::desktop_eye::set_mirror_off(desktopWasOff);
         dvr::desktop_eye::set_reduced_present(desktopWasReduced);
     }
@@ -27,29 +36,50 @@ void desktop_close() {
         const float ms=desktopSamples[i]; sum+=ms;
         over8+=ms>1000.0/120.0; over16+=ms>1000.0/60.0; over33+=ms>1000.0/30.0;
     }
+    desktopRates[desktopSegment]=sum>0?1000.0*desktopN/sum:0;
     desktopMedians[desktopSegment]=AbPct(desktopSamples,desktopN,.5f);
     desktopTails[desktopSegment]=AbPct(desktopSamples,desktopN,.99f);
     DVR_INFO("perf/desktop-ab: segment=%d mode=%s n=%u overflow=%u rejected-submits=%u "
              "fresh-pair interval ms p50=%.3f p95=%.3f p99=%.3f p99.9=%.3f max=%.3f "
              "mean=%.3f rate=%.2f/s over8.333=%u over16.667=%u over33.333=%u valid=%d; "
              "successful submissions with BOTH captured serials renewed, not display FPS",
-             desktopSegment+1,desktopSegment==1?desktop_alternative():"full",desktopN,desktopOverflow,desktopRejected,
+             desktopSegment+1,desktopSegment==1?desktop_alternative():desktop_baseline(),desktopN,desktopOverflow,desktopRejected,
              desktopMedians[desktopSegment],AbPct(desktopSamples,desktopN,.95f),
              desktopTails[desktopSegment],AbPct(desktopSamples,desktopN,.999f),
              desktopN?desktopSamples[desktopN-1]:0,desktopN?sum/desktopN:0,
-             sum>0?1000.0*desktopN/sum:0,over8,over16,over33,desktopN>=32&&!desktopOverflow);
+             desktopRates[desktopSegment],over8,over16,over33,desktopN>=32&&!desktopOverflow);
+    if (desktopTestPacing)
+        DVR_INFO("perf/pair-ab: segment=%d sync=%d target=%u actual-target=%u delay-events=%u; "
+                 "paced segment with zero delay events is NOT an exercised pacing test",
+                 desktopSegment+1,dvr::vr::pace_sync(),desktopTargetHz,dvr::vr::pace_sync_hz(),
+                 dvr::vr::pace_sync_delays()-desktopDelayStart);
 }
 } // namespace
 bool desktop_ab_enabled() { return desktopArmed; }
 bool desktop_ab_reduced() { return desktopTestReduced; }
+bool desktop_ab_pacing() { return desktopTestPacing; }
+void desktop_ab_set_pacing(bool pacing) {
+    if (desktopArmed) desktop_ab_set_enabled(false);
+    desktopTestPacing=pacing;
+    if (pacing) desktopTestReduced=false;
+}
 void desktop_ab_set_reduced(bool reduced) {
     if (desktopArmed) desktop_ab_set_enabled(false);
     desktopTestReduced=reduced;
+    if (reduced) desktopTestPacing=false;
 }
 void desktop_ab_set_enabled(bool on) {
     if (on) ab_command("off"); // never combine with the historical latency sweep
     desktop_restore(); desktopArmed=on; desktopSegment=-1;
-    desktopWait=desktopPrevious=0; desktopPair={};
+    desktopWait=desktopPrevious=0; desktopPair={}; desktopTargetHz=0;
+    if (desktopTestPacing) {
+        DVR_INFO("perf/pair-ab: %s; mirror OFF throughout; Unpaced/Paced/Unpaced, "
+                 "30s settle then three 30s segments, discard first 3s each; "
+                 "target=floor(90%% of first fresh-pair rate), at most headset Hz; "
+                 "menu/load or mode changes abort; original mirror/pacing restored",
+                 on?"ARMED, waiting for gameplay":"STOPPED");
+        return;
+    }
     DVR_INFO("perf/desktop-ab: %s; Full/%s/Full, 10s settle then three 30s segments, "
              "discard first 3s each; menu/load aborts; original desktop mode restored",
              on?"ARMED, waiting for gameplay":"STOPPED",desktop_alternative());
@@ -66,27 +96,54 @@ void desktop_ab_tick(bool gameplay) {
         }
         return;
     }
+    if (desktopTestPacing && desktopSegment>=0 &&
+        (!dvr::desktop_eye::mirror_off() || dvr::desktop_eye::reduced_present() ||
+         dvr::vr::pace_sync()!=(desktopSegment==1) ||
+         (desktopSegment==1 && dvr::vr::pace_sync_hz()!=desktopTargetHz))) {
+        DVR_INFO("perf/pair-ab: ABORTED by external mirror/pacing change; comparison invalid");
+        desktop_ab_set_enabled(false); return;
+    }
     if(desktopSegment<0) {
         if(!desktopWait) desktopWait=now;
-        if(now-desktopWait<10000) return;
+        if(now-desktopWait<(desktopTestPacing?30000:10000)) return;
         desktopWasOff=dvr::desktop_eye::mirror_off();
         desktopWasReduced=dvr::desktop_eye::reduced_present(); desktopSaved=true;
+        desktopWasSync=dvr::vr::pace_sync(); desktopWasHz=dvr::vr::pace_sync_hz();
     } else if(now-desktopStart<30000) return;
     else desktop_close();
     if(++desktopSegment==3) {
-        DVR_INFO("perf/desktop-ab: COMPLETE. Full baselines p50=%.3f/%.3f p99=%.3f/%.3f; "
+        DVR_INFO("perf/desktop-ab: COMPLETE. %s baselines p50=%.3f/%.3f p99=%.3f/%.3f; "
                  "%s p50=%.3f p99=%.3f. Compare each metric against baseline spread; "
                  "check validity, desktop fallback counters and scene stability before claiming benefit.",
-                 desktopMedians[0],desktopMedians[2],desktopTails[0],desktopTails[2],
+                 desktop_baseline(),desktopMedians[0],desktopMedians[2],desktopTails[0],desktopTails[2],
                  desktop_alternative(),desktopMedians[1],desktopTails[1]);
         desktop_ab_set_enabled(false); return;
     }
+    if (desktopTestPacing && desktopSegment==1) {
+        const int64_t period=dvr::vr::display_period_ns();
+        const double cap=period>0?1000000000.0/(double)period:500.0;
+        double target=desktopRates[0]*0.90; // Test margin, not an accepted default.
+        if (target>cap) target=cap;
+        if (desktopN<32 || desktopOverflow || !(target>=10 && target<=500)) {
+            DVR_INFO("perf/pair-ab: REFUSED target %.3f from baseline %.3f/s n=%u overflow=%u",
+                     target,desktopRates[0],desktopN,desktopOverflow);
+            desktop_ab_set_enabled(false); return;
+        }
+        desktopTargetHz=(unsigned)target;
+        DVR_INFO("perf/pair-ab: measured baseline %.3f fresh pairs/s -> target %u Hz (90%% margin, display %.3f Hz)",
+                 desktopRates[0],desktopTargetHz,period>0?cap:0);
+    }
     desktopStart=now; desktopN=desktopOverflow=desktopRejected=0; desktopPrevious=0;
     // Keep accepted identities across boundaries: a held pair is still held.
-    dvr::desktop_eye::set_reduced_present(desktopSegment==1 && desktopTestReduced);
-    dvr::desktop_eye::set_mirror_off(desktopSegment==1 && !desktopTestReduced);
+    dvr::desktop_eye::set_reduced_present(!desktopTestPacing && desktopSegment==1 && desktopTestReduced);
+    dvr::desktop_eye::set_mirror_off(desktopTestPacing || (desktopSegment==1 && !desktopTestReduced));
+    if (desktopTestPacing) {
+        if (desktopSegment==1) dvr::vr::set_pace_sync_hz(desktopTargetHz);
+        dvr::vr::set_pace_sync(desktopSegment==1);
+        desktopDelayStart=dvr::vr::pace_sync_delays();
+    }
     DVR_INFO("perf/desktop-ab: BEGIN segment=%d mode=%s duration=30s warmup=3s",
-             desktopSegment+1,desktopSegment==1?desktop_alternative():"full");
+             desktopSegment+1,desktopSegment==1?desktop_alternative():desktop_baseline());
 }
 void desktop_ab_submit(bool stereoSubmitted,uint32_t left,uint32_t right) {
     if(!desktopArmed||desktopSegment<0||!desktopPlaying) return;

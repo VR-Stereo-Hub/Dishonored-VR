@@ -42,6 +42,25 @@ int main() {
     check(!bridge.update(false,true,52,108,7100),"stalled sensor expires at bounded deadline");
     bridge.update(true,false,52,108,8000);
     check(!bridge.update(false,true,0,108,8100),"invalid sensor refuses tail");
+    const float wide=108.0666f;
+    const float rad=0.017453292519943295f;
+    check(std::fabs(gameplay_target(wide,wide,90)-90)<0.0001f,"normal gameplay requests exactly 90");
+    check(gameplay_target(wide,wide,0)==0,"off does not request a scope");
+    check(gameplay_target(wide,wide,150)==0,"unsupported request refuses");
+    check(gameplay_target(0,wide,90)==0,"missing source refuses");
+    check(gameplay_target(wide,0,90)==0,"missing headset target refuses");
+    check(gameplay_target(wide,wide,std::numeric_limits<float>::quiet_NaN())==0,"NaN request refuses");
+    const float zoom=gameplay_target(40,wide,90);
+    const float beforeMag=std::tan(wide*rad/2)/std::tan(40*rad/2);
+    const float afterMag=std::tan(90*rad/2)/std::tan(zoom*rad/2);
+    check(std::fabs(beforeMag-afterMag)<0.0001f,"authored optical zoom magnification preserved");
+    float native=wide;
+    for(unsigned i=0;i<10000;++i) {
+        Scope world;
+        check(world.begin(&native,gameplay_target(native,wide,90),true),"gameplay scope enters");
+        check(std::fabs(native-90)<0.0001f,"both eye reads remain at target");
+        check(world.end(true) && native==wide,"source restored without accumulating feedback");
+    }
     using dvr::scene_state::cinematic;
     for (auto state:{"StatePlayerMasterSoiree","StatePlayerMasterInDialog","StatePlayerMasterInScriptedChoice"})
         check(cinematic(state),"cinematic handback state classified");

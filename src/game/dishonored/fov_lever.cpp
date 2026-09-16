@@ -33,44 +33,48 @@ static inline void FovLeverApply()
     if ((InterlockedIncrement(&revalidate) & 255) == 0) {
         if (!CamStillValid()) { g_camObj = NULL; FindLiveCamera(); }
     }
-    // capture the engine's natural base once, from the field that tracked the
-    // rendered FOV during the zoom test
-    if (g_fovNatural == 0.0f) {
-        if (!g_camObj || !RangeReadable(g_camObj + 0x53c, 4)) return;
-        float nat = *(float*)(g_camObj + 0x53c);
-        if (!(nat > 30.0f && nat < 140.0f)) return;
-        g_fovNatural = nat;
-        Log("fovlever: natural base %.1f deg, target %.0f (ratio %.3f)",
-            nat, deg, deg / nat);
-    }
-    // 30.52: read the engine's intent from a SENSOR field we never write
-    // (+0x53c tracked the rendered FOV through the spyglass zoom), and bound
-    // it at the natural base. Game-authored FOV changes only ever go NARROWER
-    // (zoom, cutscene framing), so any reading WIDER than natural can only be
-    // our own writes echoing back - the runaway that fisheyed the view in
-    // 30.51. Clamping the sensor at natural breaks that loop by construction,
-    // while genuine zooms pass straight through and get scaled.
-    float sensor = g_fovNatural;
-    if (g_camObj && RangeReadable(g_camObj + 0x53c, 4)) {
-        float s = *(float*)(g_camObj + 0x53c);
-        if (s > 10.0f && s < 175.0f) { sensor = s; dvr::camera::note_rendered_fov(s); }
-    }
-    if (sensor > g_fovNatural) sensor = g_fovNatural;      // the loop breaker
-    float R = deg / g_fovNatural;
-    float t = sensor * R;
-    // A dispatch inside an active cinematic draw must preserve that draw's FOV.
-    const float scoped=CineFovScopeTarget();
-    if (scoped>0) t=scoped;
-    if (t < 20.0f)  t = 20.0f;
-    if (t > 160.0f) t = 160.0f;
-    if (g_peCtrl)
-        for (int i = 0; i < 3; i++) LevWrite(g_peCtrl + kLevCtrl[i], t);
-    if (g_camObj)
-        for (int i = 0; i < 7; i++) {
-            if (kLevCam[i] == 0x53c) continue;             // sensor stays clean
-            LevWrite(g_camObj + kLevCam[i], t);
+    // VR-50: draw-scoped gameplay FOV is restored after both eyes. Feeding that
+    // temporary value into the persistent ratio writer would narrow it every frame.
+    if (!ProjectionFovScopeActive()) {
+        // capture the engine's natural base once, from the field that tracked the
+        // rendered FOV during the zoom test
+        if (g_fovNatural == 0.0f) {
+            if (!g_camObj || !RangeReadable(g_camObj + 0x53c, 4)) return;
+            float nat = *(float*)(g_camObj + 0x53c);
+            if (!(nat > 30.0f && nat < 140.0f)) return;
+            g_fovNatural = nat;
+            Log("fovlever: natural base %.1f deg, target %.0f (ratio %.3f)",
+                nat, deg, deg / nat);
         }
-    InterlockedIncrement(&g_fovLeverWrites);
+        // 30.52: read the engine's intent from a SENSOR field we never write
+        // (+0x53c tracked the rendered FOV through the spyglass zoom), and bound
+        // it at the natural base. Game-authored FOV changes only ever go NARROWER
+        // (zoom, cutscene framing), so any reading WIDER than natural can only be
+        // our own writes echoing back - the runaway that fisheyed the view in
+        // 30.51. Clamping the sensor at natural breaks that loop by construction,
+        // while genuine zooms pass straight through and get scaled.
+        float sensor = g_fovNatural;
+        if (g_camObj && RangeReadable(g_camObj + 0x53c, 4)) {
+            float s = *(float*)(g_camObj + 0x53c);
+            if (s > 10.0f && s < 175.0f) { sensor = s; dvr::camera::note_rendered_fov(s); }
+        }
+        if (sensor > g_fovNatural) sensor = g_fovNatural;      // the loop breaker
+        float R = deg / g_fovNatural;
+        float t = sensor * R;
+        // A dispatch inside an active cinematic draw must preserve that draw's FOV.
+        const float scoped=CineFovScopeTarget();
+        if (scoped>0) t=scoped;
+        if (t < 20.0f)  t = 20.0f;
+        if (t > 160.0f) t = 160.0f;
+        if (g_peCtrl)
+            for (int i = 0; i < 3; i++) LevWrite(g_peCtrl + kLevCtrl[i], t);
+        if (g_camObj)
+            for (int i = 0; i < 7; i++) {
+                if (kLevCam[i] == 0x53c) continue;             // sensor stays clean
+                LevWrite(g_camObj + kLevCam[i], t);
+            }
+        InterlockedIncrement(&g_fovLeverWrites);
+    }
 
     // 38.24 EYE CLAMP - THE crouch fix, correct by construction. Measured
     // (dishonored_vr_headclip.log): the eye interpolates back to 78 uu above

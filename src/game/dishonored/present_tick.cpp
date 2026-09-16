@@ -357,7 +357,7 @@ static void DvrFovHandoff()
             Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f); "
                 "FOV %.1f deg = the layer's claim%s; eye %ux%u",
                 aspect, w, h, target, vfov, hh, hv, sensor,
-                scoped>0 ? " (cinematic draw override)" : sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : " (sensor)",
+                scoped>0 ? " (scoped draw override)" : sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : " (sensor)",
                 ew, eh);
         }
         wasProj = true;

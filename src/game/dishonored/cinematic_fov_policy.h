@@ -5,6 +5,16 @@ inline bool valid(float fov) { return std::isfinite(fov) && fov>5 && fov<175; }
 inline bool eligible(bool enabled,bool scene,bool menu,bool projection,bool state,float target) {
     return enabled && scene && !menu && projection && state && std::isfinite(target) && target>=40 && target<=160;
 }
+// Scale the projection's tangent, preserving authored optical zoom magnification.
+// Zero/invalid request leaves the existing path untouched. No retained sensor feedback.
+inline float gameplay_target(float original,float headsetTarget,float requested) {
+    if (!valid(original) || !valid(headsetTarget) || !std::isfinite(requested) ||
+        requested<60 || requested>120) return 0;
+    constexpr float rad=0.017453292519943295f;
+    const float result=2.0f*std::atan(std::tan(original*rad*0.5f)*
+        std::tan(requested*rad*0.5f)/std::tan(headsetTarget*rad*0.5f))/rad;
+    return valid(result)?result:0;
+}
 // A cinematic may end before the native zoom blend returns to the VR FOV.
 // Keep the same owner's override until readback converges, with a bounded
 // escape for a stalled sensor. The observed exit recovered in1125ms.

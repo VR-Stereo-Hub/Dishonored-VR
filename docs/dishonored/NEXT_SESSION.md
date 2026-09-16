@@ -1,6 +1,34 @@
+## Current handoff: accepted performance profile, PR preparation
+
+- Branch `codex/performance-improvements` (renamed at user request). Publishing a
+  PR is authorized; merging to VR-Main is not. Preserve finalized/source branches.
+-363 strict mirror-off accepted. Verified DLL/log;621 strict-mode windows with zero
+  native desktop Presents. Evidence: build/performance-results/strict-mirror-accepted-20260915-235444.
+  Possible subjective improvement; no new controlled FPS percentage claimed.
+- Complete installed INI promoted to release/golden and generated defaults:103 FOV,
+ 120% pixels3012x3122, mirror off+strict off, pacing/benchmark off, saved HUD/hand/
+  crouch settings and existing diagnostic flags. Both INI defaults match exactly.
+- User requests PR67 test next and explicitly chose a local combination with the
+  performance branch. PR67 fixes crouched head pitch by keeping camera look-at out
+  of the hand tuck. Build/install combination on separate codex/pr-67-playtest;
+  do not modify its author branch or merge either PR on GitHub.
+- PERFORMANCE.md is the sole performance record. One crouch/pitch question per
+  launch after setup; user launches only. Archive both logs, full-diff INI and CRLF.
+  No subagents, game/simulator launches or main merge.
+
+### Minimal next-chat prompt
+
+Continue Dishonored VR. Read AGENTS/CLAUDE then current STATUS/NEXT_SESSION. Accepted
+performance branch codex/performance-improvements has103 FOV/120% pixels/strict
+mirror-off and complete saved profile. User authorized its PR and a LOCAL combined
+PR67 test (crouched pitch), not a main merge. Inspect installed.json and current
+git branch before acting. Keep both logs archived and full INI/CRLF preserved.
+No subagents or game/simulator launches. PERFORMANCE.md holds the findings.
+
 ## Performance research shelved, 2026-09-15
 
-No performance investigation or playtest is pending. Unfinished performance tickets
+Historical shelving checkpoint; the VR-50 exception above supersedes installation and
+playtest status. Unfinished performance tickets
 are Backlog and unassigned. [PERFORMANCE.md](PERFORMANCE.md) is the compact canonical
 record of measured results, rejected routes, useful tools and resumption options.
 Ordinary per-eye preparation measured 1.322 ms/pair including 1.082 ms culling;

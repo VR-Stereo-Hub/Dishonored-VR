@@ -129,6 +129,7 @@ void clear_sim_hand_poses();
 // while this holds - a live session and a replay would be two writers on the
 // same funnel.
 bool session_live();
+bool session_running(); // Begun XR session, independent of fresh capture availability.
 
 // The last xrWaitFrame's predictedDisplayTime (0 with no session) - recorded
 // as per-frame metadata.
@@ -297,6 +298,7 @@ void set_pace_sync(bool on);
 void set_pace_sync_hz(unsigned hz);
 unsigned pace_sync_hz();
 bool pace_sync();
+uint32_t pace_sync_delays(); // Cumulative pair-opening delay events for A/B validation.
 
 // 41.1 (Dishonored): strict pairs - a stereo submit whose eye is older than one
 // present (the held-eye case: pass 1 tagged, pass 2 skipped in the resume

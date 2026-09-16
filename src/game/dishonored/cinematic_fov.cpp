@@ -1,8 +1,10 @@
-// VR-50: final camera FOV override for authored scenes; after cinematic_trace.cpp.
+// VR-50: scoped final camera FOV for authored scenes and gameplay; after cinematic_trace.cpp.
 #include "game/dishonored/cinematic_fov_policy.h"
 #include "game/dishonored/stereo_state_policy.h"
 namespace {
 std::atomic<bool> g_cineFov{false};
+std::atomic<float> g_projectionFov{103.0f}; // Explicit user-requested default; 0 restores headset-derived FOV.
+bool g_cfGameplayScope=false; // Script/draw lane only; the render lane uses CfPublish.
 CtIdentity g_cfOwner[3];
 bool g_cfHaveOwner=false;
 LONG g_cfLoad=0;
@@ -24,19 +26,36 @@ void CfRefuse(const char* reason) {
 bool CfValidate() {
     if (!g_cfHaveOwner || g_cfLoad!=g_mkLoadEvents || !ChSlot(g_cfOwner[0]) ||
         !ChSlot(g_cfOwner[1]) || !ChSlot(g_cfOwner[2])) return false;
+    if (!IsLiveObject((uint8_t*)g_cfOwner[0].value.obj) ||
+        !IsLiveObject((uint8_t*)g_cfOwner[1].value.obj) ||
+        !IsLiveObject((uint8_t*)g_cfOwner[2].value.obj)) return false;
     auto* pc=(uint8_t*)g_cfOwner[1].value.obj;
     return pc==g_peCtrl && CtObject(pc,g_ctPcCamera)==g_cfOwner[0].value.obj &&
         CtObject(pc,g_ctPawn)==g_cfOwner[2].value.obj;
 }
+}
+static bool ProjectionFovScopeActive() {
+    return GetCurrentThreadId()==g_sdDrawTid && g_cfGameplayScope && g_cfScope.field;
+}
+static float ProjectionFovGet() { return g_projectionFov.load(); }
+static void ProjectionFovSet(float fov) {
+    if (!std::isfinite(fov) || (fov!=0 && (fov<60 || fov>120))) {
+        Log("projectionfov: refused %.2f; use 60..120 or off",fov); return;
+    }
+    g_projectionFov.store(fov); CfPublish(0);
+    Log("projectionfov: %.2f deg (0=headset-derived; scoped gameplay view, proportional zoom retained)",fov);
 }
 static bool CineFovEnabled() { return g_cineFov.load(); }
 static void CineFovSet(bool on) {
     g_cineFov.store(on); if (!on) CfPublish(0);
     Log("cine/fov: %s (live; final scene FOV, gameplay zoom unchanged)",on?"ON":"off");
 }
-static void CineFovConfigure(const char* ini) { CineFovSet(GetPrivateProfileIntA("Cine","LockFov",1,ini)!=0); }
+static void CineFovConfigure(const char* ini) {
+    CineFovSet(GetPrivateProfileIntA("Cine","LockFov",1,ini)!=0);
+    ProjectionFovSet(IniFloat(ini,"Screen","ProjectionFov",103.0f));
+}
 static float CineFovClaim() {
-    if (!CineFovEnabled()) return 0;
+    if (!CineFovEnabled() && ProjectionFovGet()==0) return 0;
     AcquireSRWLockShared(&g_cfLock);
     const auto now=GetTickCount64();
     const float result=g_cfStamp && now>=g_cfStamp && now-g_cfStamp<=150 ? g_cfClaim : 0;
@@ -44,6 +63,8 @@ static float CineFovClaim() {
 }
 static float CineFovScopeTarget() { return g_cfScope.field && GetCurrentThreadId()==g_sdDrawTid ? g_cfScope.written : 0; }
 static void CineFovBegin(bool scene) {
+    if (g_cfScope.field) { ++g_cfRefused; return; }
+    g_cfGameplayScope=false;
     const auto state=dvr::anim::snapshot();
     const bool menu=UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
         (g_uiNoteOpen && MaimNowMs()-g_uiPollMs<500);
@@ -57,8 +78,11 @@ static void CineFovBegin(bool scene) {
         !strcmp(state.state[0],"StatePlayerMasterFalling") || !strcmp(state.state[0],"StatePlayerMasterJump");
     const bool keep=g_cfBridge.update(authored,ready && walking && CfValidate(),
         dvr::camera::rendered_fov_deg(),target,GetTickCount64());
-    if (!keep) {
-        if (g_cfHaveOwner) Log("cine/fov: released writes=%u restores=%u refused=%u master=%s menu=%d",g_cfWrites,g_cfRestores,g_cfRefused,state.state[0],menu);
+    const float requested=ProjectionFovGet();
+    const bool gameplay=!keep && !dvr::scene_state::cinematic(state.state[0]) &&
+        dvr::cine_fov::eligible(requested>0,scene,menu,projection,state.valid,target);
+    if (!keep && !gameplay) {
+        if (g_cfHaveOwner) Log("cine/fov: released writes=%u restores=%u refused=%u master=%s menu=%d scene=%d projection=%d stateValid=%d target=%.2f requested=%.2f",g_cfWrites,g_cfRestores,g_cfRefused,state.state[0],menu,scene,projection,state.valid,target,requested);
         g_cfHaveOwner=false; CfPublish(0); return;
     }
     CineTraceTick();
@@ -84,17 +108,21 @@ static void CineFovBegin(bool scene) {
     }
     auto* cam=(uint8_t*)g_cfOwner[0].value.obj;
     float* field=(float*)(cam+g_cfOffset);
-    if (!RangeReadable(field,4) || !g_cfScope.begin(field,target,CfValidate())) {
+    const float drawTarget=gameplay && RangeReadable(field,4)
+        ? dvr::cine_fov::gameplay_target(*field,target,requested) : target;
+    if (!RangeReadable(field,4) || !g_cfScope.begin(field,drawTarget,CfValidate())) {
         ++g_cfRefused; CfRefuse("scope write refused: identity, field or FOV"); return;
     }
-    ++g_cfWrites; g_cfReason="active"; CfPublish(target);
+    g_cfGameplayScope=gameplay;
+    ++g_cfWrites; g_cfReason="active"; CfPublish(drawTarget);
     if (now>=g_cfLog) {
         g_cfLog=now+500;
-        Log("cine/fov: master=%s dialog=%d cache %.2f -> %.2f sensor=%.2f writes=%u restored=%u refused=%u exitBridge=%d; cache request, verify rendered acceptance",
-            state.state[0],state.dialogState,g_cfScope.before,target,dvr::camera::rendered_fov_deg(),g_cfWrites,g_cfRestores,g_cfRefused,!authored);
+        Log("cine/fov: master=%s dialog=%d cache %.2f -> %.2f sensor=%.2f writes=%u restored=%u refused=%u exitBridge=%d gameplay=%d requested=%.2f; scoped claim, verify rendered acceptance",
+            state.state[0],state.dialogState,g_cfScope.before,drawTarget,dvr::camera::rendered_fov_deg(),g_cfWrites,g_cfRestores,g_cfRefused,keep&&!authored,gameplay,requested);
     }
 }
 static void CineFovEnd() {
+    g_cfGameplayScope=false;
     if (!g_cfScope.field) return;
     if (g_cfScope.end(CfValidate() && RangeReadable(g_cfScope.field,4))) ++g_cfRestores;
     else { ++g_cfRefused; g_cfHaveOwner=false; CfPublish(0); Log("cine/fov: restore refused: identity or camera FOV changed"); }

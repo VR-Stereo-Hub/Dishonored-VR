@@ -1,12 +1,31 @@
 # Roadmap
 
+## VR-50 F11 clarity follow-up (2026-09-15)
+
+- [x] Trace fullscreen reset and narrow-FOV feedback; preserve findings in PERFORMANCE.md.
+- [x] Build/install default 90-degree gameplay candidate with standalone validation.
+- [x]100-degree gameplay FOV and live F10 slider headset-accepted; default promoted.
+- [x] Add F10 total-pixel scale/preview/Set; install110% pixel trial.
+- [x] Record hub mirror-off improvement; promote102 FOV/120% pixels/mirror-off defaults.
+- [x] Add guarded engine-owned live resize and production host tests.
+- [x]357 live engine resize confirmed by one Reset and matching capture.
+- [x] Fix idle F10 Display FOV writer; old-code negative control fails, corrected control passes.
+- [ ]359 headset check for zoom-pulse removal at103 FOV/130% pixels; no main merge authorized.
+
+- [x] Build/install automatic mirror-off pair-pacing A/B/A;26 host checks pass.
+- [x]362 pacing result recorded; baseline drift and laggier report; benchmark disarmed.
+- [x] Build/install strict mirror-off candidate363 with native GPU host validation.
+- [x]363 headset accepted;621 strict windows have zero desktop Presents.
+- [x] Promote complete saved profile and rename performance improvements branch.
+- [ ] Open performance PR; prepare local combined PR67 crouched-pitch playtest.
+
 ## Performance research shelved (2026-09-15)
 
 - [x] Consolidate findings and reusable default-off tools; preserve source branches.
 - [x] Complete query-helper and classified per-eye preparation measurements.
 - [x] Remove failed nonblocking Present and invalid coarse CPU-time output.
 - [x] Park unfinished performance tickets in Backlog, unassigned.
-- No active performance task. Routes and evidence: [PERFORMANCE.md](dishonored/PERFORMANCE.md).
+- Broader work remains shelved; VR-50 exception above. Routes and evidence: [PERFORMANCE.md](dishonored/PERFORMANCE.md).
 
 ## World head-motion stability (2026-09-14)
 

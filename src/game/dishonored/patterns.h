@@ -306,3 +306,19 @@ static const uint8_t kSceneFrustumCullPrefix[] = {0x53,0x8B,0xDC,0x83,0xEC,0x08,
 // Read only during the borrowed renderer invocation; no retained identity.
 static constexpr size_t kSceneRendererFamilyPointer = 0x60;
 static constexpr size_t kSceneFamilyReflectionBranch = 0x48;
+
+// VR-50 live resize: F11 at RVA5C8E7D..5C8F0A calls the primary viewport
+// vtable slot1 with SIX stack args. Constructor RVA5C6810 sets both tables.
+// FViewport base is native WindowsViewport+4; GameViewportClient.Viewport
+// comes from the existing gameplay Draw call site at RVA2330D3.
+static const uintptr_t kWindowsViewportVtable=0x010c1870;
+static const uintptr_t kWindowsFViewportVtable=0x010c17d8;
+static const uintptr_t kWindowsViewportResize=0x009c5b30;
+static const uint8_t kWindowsViewportResizePrologue[]={0x55,0x8b,0xec,0x83,0xec,0x40,0x53,0x56,0x8b,0xd9,0x33,0xf6};
+static const uintptr_t kWindowsViewportResizeReturn=0x009c6096;
+static const uint32_t kWindowsFViewportBase=4;
+static const uint32_t kGameViewportNativeViewport=0x40;
+static const uint32_t kWindowsViewportHwnd=0x68;
+static const uint32_t kFViewportFlags=0x5c;
+static const uint32_t kWindowsViewportPosX=0x4e4;
+static const uint32_t kWindowsViewportPosY=0x4e8;

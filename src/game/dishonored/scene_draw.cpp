@@ -421,6 +421,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
     LARGE_INTEGER t0 = {}, t1 = {};
     if (depth == 0) {
         g_sdDrawTid = GetCurrentThreadId();
+        if (callerRet==kViewportDrawGameplayRet) ResLiveApply(self);
         ++g_sdDraws; ++g_sdBeatDraws;
         QueryPerformanceCounter(&t0);
         const LONGLONG f = g_qpcFreq ? g_qpcFreq : 1;

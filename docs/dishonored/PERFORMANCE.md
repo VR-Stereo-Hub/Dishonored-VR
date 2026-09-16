@@ -1,8 +1,8 @@
 # Performance research
 
-## Status: shelved, 2026-09-15
+## Status: broader research shelved; VR-50 FOV/mirror exception active
 
-No optimization or new playtest is pending. Research established a substantial
+The earlier research established a substantial
 resolution-independent rendering cost, ruled out several cheap fixes, and measured
 ordinary per-eye scene preparation. It did **not** establish a safe way to eliminate
 that work or a single CPU/GPU bottleneck. HUD is outside this investigation.
@@ -16,12 +16,385 @@ Unfinished performance tickets VR-17, VR-67, VR-77, VR-113, VR-115, VR-121, VR-1
 VR-124 and VR-125 are parked in Backlog, unassigned. Completed stability fixes stay
 completed. Merging this research does not promote experimental settings.
 
-**Installation:** exact build307 (`vr33-hands-working-307-ga658ed7a9-dirty`) remains
-installed. DLL SHA256 `20f48b184b2d610cd27d5fdc6586871c30c0669a450ce121cb76218ccd97a82b`;
-INI SHA256 `633d1411daa800aea46a59003b5d1aa9d5e8d4f5fe0f56a782b75cfad1ac7f78`.
-`build/playtest-candidates/installed.json` is the installation authority. Build349
-was simulator-tested and then rolled back; the current log can still have its banner.
-The shelving cleanup is built/host-tested, not installed or headset-accepted.
+## Active exception: F11 clarity, FOV and desktop presentation (VR-50, 2026-09-15)
+
+The broader optimization program remains shelved. A new headset observation reopened
+VR-50 only: toggling F11 twice yielded a sharp, smooth, smaller square view with stereo
+depth and normal head/walking response. This is a reported perceptual improvement,
+not a controlled FPS result or proof of a new anti-aliasing mode.
+
+Verified build307 DLL and log banner. Both logs and installed configuration are in
+`build/performance-results/f11-discovery-20260915-201742`. Native F11 toggles engine
+fullscreen/windowed; the mod's VirtualMode converts fullscreen requests to windowed
+while retaining the requested backbuffer dimensions.
+
+| State | Backbuffer / XR swapchain | Horizontal FOV |
+|---|---|---|
+| Before F11 | 2750x2850 | 108.07 degrees |
+| First F11 | 1355x1405 | Falls gradually toward 75 degrees |
+| Second F11 | 2750x2850 | 74.89 degrees, remains narrow |
+
+Both source bounding boxes remain full-size. Projection layers stay enabled, runtime
+quad stays off, and eye separation remains about 6.8 uu. This was not a mono cinema
+screen or an embedded low-resolution rectangle. Immediate Present was applied before
+and after the resets, so this did not newly unlock vsync.
+
+**Specific boundary:** the persistent FOV lever's natural-base cache had recaptured its
+own widened 108-degree output. It then multiplies the sensor by target/natural on every
+script dispatch. The small aspect change (2750/2850 versus 1355/1405) makes the target
+slightly smaller; feedback can repeatedly narrow the FOV. Restoring the original aspect
+makes the ratio approximately one and retains the narrow result. Logs show 3,710
+natural-base captures, with the later 3,709 recapturing about 108 before F11. The old
+assumption that this recapture was harmless fails when the target changes.
+
+At the restored width, central density is about 31.34 pixels/degree at 74.89 degrees,
+24.00 at 90, and 17.41 at 108.07. Thus the narrow view has roughly 1.80x the normal
+central linear density; 90 offers about 1.38x with more angular coverage than 75.
+These are projection arithmetic, not optical headset resolution or added AA samples.
+A narrower frustum may also reduce visible work, but moving-view tick windows averaged
+74.67 before, 85.8 at lower resolution, and 77.63 after restoration. Different views
+prevent a causal performance claim. Do not repeat the failed query-helper hypothesis.
+
+**Candidate:** `vr33-hands-working-353-gf0fa9fef4-dirty`, archived under
+`build/playtest-candidates/vr50-projection-fov90`, installed with `[Screen] ProjectionFov=90`.
+The explicit request makes 90 the runtime, missing-key, generated and packaged default;
+0 or live `projectionfov off` restores the old headset-derived route. Valid range 60-120.
+It uses the existing temporary reflected CameraCache.POV.FOV scope around both eye draws,
+with proportional tangent-space zoom, identity/liveness validation and restoration.
+The persistent ratio writer is suspended during the gameplay scope, avoiding feeding the
+temporary narrow FOV back into itself. Cinematic handling retains precedence. This does
+not repair all legacy natural-base behavior, especially after another F11/aspect change.
+No image-owned orientation or stereo-pair synchronization policy was changed.
+
+Build and standalone tests passed: 30,045 FOV/restore checks including 10,000 repeated
+scopes, frame math, 248 reentry checks, 23 single-tag checks, 9 exports, golden INIs and
+lint. No game/simulator launched. Final rendered acceptance and comfort remain untested.
+Both logs, prior DLL and INI archived at
+`build/playtest-candidates/installs/20260915-203356-472356` before replacement.
+The full installed INI comparison adds only ProjectionFov=90; existing saved HUD and hand
+trim changes since the old manifest are preserved. CRLF and installed hashes verified.
+
+**First build353 headset result:** improved appearance versus108 reported, but the
+rectangular boundary remains visible. Verified353 log shows gameplay submission90.00
+at2750x2850 and camera scopes108.07 ->90 with zero refusals through5,531 writes.
+This validates reported clarity improvement and scoped submission, not a complete
+world-matrix audit or a measured performance gain. The remaining request is to enlarge
+the angular presentation of the90-degree image. A projection layer has no screen-distance
+parameter; widening only its submitted frustum magnifies the image and mismatches rendered
+rays, potentially changing head-motion gain and stereo geometry. A stereo quad/screen is
+a different presentation mode and would need explicit design/testing. Do not silently
+replace the accepted projection with that mode. Evidence: `build/performance-results/vr50-fov90-headset-20260915-203910`.
+
+**Live slider follow-up:** build355 (`vr33-hands-working-355-gf8380e1e3-dirty`) is now
+installed from `build/playtest-candidates/vr50-fov-slider`. F10 -> View exposes Custom
+gameplay FOV, a live60-120 slider and Reset FOV to90. Existing Save As Defaults persists
+it. This is UI over the353 setter, with no new render behavior. Default remains90.
+Build, exports, lint and diff checks pass; UI/headset operation is not yet validated.
+Both logs and prior files archived at
+`build/playtest-candidates/installs/20260915-204101-720438`; complete INI diff is empty,
+installed hashes and CRLF verified by installer. No game/simulator launched.
+
+**Build355 acceptance and new default:** the user reports100 degrees removes the visible
+black rectangle and retains a substantial apparent clarity improvement. The verified355
+log records live slider changes and100.00-degree submission at2750x2850. This confirms
+slider operation and the preferred FOV; it does not measure a resolution increase from
+FOV alone. Accepted evidence is archived under
+`build/performance-results/vr50-fov100-accepted-20260915-205050`.
+100 is now the runtime, missing-key, generated/package and F10 reset default.
+
+**Current candidate:** build356 (`vr33-hands-working-356-g0b1b9ca55-dirty`), installed
+from `build/playtest-candidates/vr50-fov100-pixels110`. User clarified the resolution
+control should represent TOTAL PIXELS, superseding the initial per-axis interpretation.
+100% always means2750x2850;110% produces2884x2989 (109.988% after pixel rounding).
+Both axes scale by sqrt(percent/100), preserving aspect within half-pixel rounding per
+axis. F10 -> Display -> Total pixels (%) offers50-200%, previews width/height, and
+Set for next launch saves via the existing ResRequest path. Dragging alone changes
+nothing. Settings survive restart without Save As Defaults. No new live reset is
+introduced: prior engine setres tests were inert. The mod INI is authoritative at the
+next launch and reconciles its launch-argument mirror automatically.
+
+100-degree FOV is accepted;110% resolution is a new unaccepted trial. It adds about10%
+pixels, not21%. The uninstalled per-axis110% draft was superseded before installation.
+Build, exports, golden INIs, lint and arithmetic checks passed. Both prior logs/DLL/INI
+archived before install at `build/playtest-candidates/installs/20260915-205309-560273`.
+The full installed INI comparison changes only RenderWidth2750->2884 and
+RenderHeight2850->2989; saved100-degree FOV and all other settings are preserved.
+CRLF/hashes verified. No game/simulator launched; UI operation and rendered size await
+headset/log verification.
+
+**Hub mirror-off discovery (verified356,2026-09-15):** the user reports an approximately
+30-40% FPS improvement in the slow hub area after disabling the desktop mirror in F10.
+Earlier sewer experience showed little perceived benefit. This is an area-dependent
+headset observation, not a new matched A/B measurement or proof all performance issues
+are solved. Earlier controlled sewer captures did show throughput gains with worse
+frame-time tails; preserve those results rather than treating either scene as universal.
+Evidence: `build/performance-results/vr50-hub-mirror-off-20260915-210745`. The356 banner
+and DLL match; mirror-off logs confirm real skips, e.g.657/665 hooks skipped with zero
+non-OK results in one late3-second window. FOV was also adjusted during this run, so
+uncontrolled rate changes cannot isolate the reported percentage. No extra capture is
+required merely to honor the requested default.
+
+**Build357 defaults and live resize (superseded by359 below):**102-degree FOV, desktop mirror off,
+120% total pixels (3012x3122 versus2750x2850; rounding only). Mirror-off is promoted in
+runtime/missing-key/generated/package defaults by explicit request; guarded non-XR/menu
+presentation fallback remains. ReduceDesktopPresent stays off. All unrelated settings
+and accepted image-owned orientation/stereo policies remain intact.
+
+The scale button now queues a byte-verified six-argument engine ResizeViewport call on
+the next game-thread draw, before both eyes. The engine owns its window/RHI reset; no
+proxy-forced D3D reset or synthetic F11 toggle. Fresh live-table/IsLiveObject owner,
+current HWND/thread and vtable/ABI checks refuse unsupported calls. Set persists the
+size and applies it in this run; only matched downstream capture shows Applied. A
+10-second timeout reports unconfirmed without automatic retries. Static derivation and
+23 production-code host fixture checks are in ENGINE_NOTES and viewport-resize-host.
+Native D3D9Ex mirror-off regression passed120 GPU markers plus full-return/reset;
+248 reentry and23 single-tag checks, release build, exports, golden INIs and lint pass.
+No game/simulator launched. Native resize acceptance remains pending in the headset.
+The earlier per-axis110% draft never installed; next-launch-only scale is superseded.
+
+**Installed357:** `vr33-hands-working-357-g847030698-dirty`, bundle
+`build/playtest-candidates/vr50-live-resize-hub`. Prior logs/DLL/INI archived at
+`build/playtest-candidates/installs/20260915-211639-478150`. Full INI diff changes
+ProjectionFov100.00->102, RenderWidth2884->3012, RenderHeight2989->3122 only.
+DesktopMirrorOff was already1 from the F10 test. All other settings are preserved;
+CRLF and hashes verified. Native resize is installed but not game-tested. Exact356
+rollback remains archived.
+
+**Latest359: live resize measured; Display-tab FOV flicker fix pending acceptance.**
+357 performed one engine Reset to3135x3250 and capture confirmed it; dimensions stayed
+there. Repeated zoom-like flicker instead coincided with260 post-resize FOV changes
+between104 and108.05 degrees and repeated scope releases. Missing braces in the legacy
+F10 Display FOV control wrote0 into the automatic target every idle UI frame, racing
+Present's108-degree handoff. Source-confirmed defect, not resolution oscillation.
+The initial150ms-expiry hypothesis is superseded by explicit scope releases and this
+writer. Corrected control writes only on edits; production regression7/7 passes while
+old control fails7/7. No stereo/orientation/timeout changes. Full flicker record and
+falsifiable continuation: [FLICKER_REFERENCE.md](FLICKER_REFERENCE.md), latest VR-50 entry.
+
+Installed359 (`vr33-hands-working-359-gb5e0af9dc-dirty`), candidate
+`build/playtest-candidates/vr50-display-fov-flicker`: requested defaults103 FOV,
+130% total pixels3135x3250, mirror-off. Archive before install:
+`build/playtest-candidates/installs/20260915-213922-577631`. Full installed INI diff only
+ProjectionFov102->103; live Set had already saved130% dimensions. Other settings and
+CRLF preserved. Build/exports/golden/lint passed; no game/simulator launch. Host success
+is not visual acceptance.357 reproduction archive:
+`build/performance-results/vr50-resize-flicker-20260915-213237`.
+
+**One launch question:** is the view stable with F10 Display open and after Set120%
+then130% in the same run? Expect brief resize pauses, one size transition per Set,
+steady103-degree gameplay projection and no repeating zoom pulses. Continued flicker
+requires reading the newly explicit scope gate reasons and the actual submitted FOV;
+do not assume an eye-sync or resolution-flapping cause. No F11 during this test.
+
+## Mirror-off pacing review (2026-09-15)
+
+**Repository defaults verified:** 103-degree FOV, 130% total pixels (3135x3250),
+DesktopMirrorOff=1 in runtime/missing-key defaults, generated/release/golden INIs
+and F10 reset/fallback values. Both golden comparisons pass. No new binary is
+needed for this request; installed359 already contains these defaults. A later
+live Set saved120% in the machine INI; this does not change the repo defaults.
+
+**Correction to the broad "worse tails" warning:** rereading the two original sewer
+Full/Off/Full captures shows a consistent small p95 regression and faster typical
+frames, but not consistently worse extreme stalls. These are fresh stereo-pair
+submission intervals, not headset display FPS or measured motion-to-photon latency.
+
+| Run / metric | Full before | Mirror off | Full after |
+|---|---:|---:|---:|
+| First, fresh pairs/s | 87.01 | 98.28 | 84.72 |
+| First, p95 interval ms | 18.878 | 21.250 | 20.486 |
+| First, p99 interval ms | 37.350 | 35.166 | 40.814 |
+| Second, fresh pairs/s | 81.86 | 95.62 | 84.02 |
+| Second, p95 interval ms | 21.364 | 22.440 | 21.309 |
+| Second, p99 interval ms | 42.446 | 36.959 | 36.806 |
+
+**More specific boundary:** fully interior three-second capture windows, ending
+more than six seconds after each phase starts and before its end, show D3D9 blit
+fence waits rising with mirror off:
+
+- First run:149/4178 (3.57%) ->631/4724 (13.36%) ->124/4091 (3.03%).
+- Second run:42/3915 (1.07%) ->471/4604 (10.23%) ->76/4054 (1.87%).
+- Every logged large frame-gap event in those windows is attributed to
+  `present-tail (xrEndFrame)`, in all three modes. Counts are11/11/16 and18/10/13.
+  These gap events use a dynamic threshold; counts are not a fixed-threshold
+  stutter comparison, nor does API attribution establish the underlying cause.
+
+Mirror-off skips the desktop snapshot/re-blit and native Present after capture/XR.
+It issues a current-work D3D9 event and one GetData(FLUSH), accepting S_FALSE as
+submitted-but-pending. This is submission, not a completion wait. Capture keeps its
+separate ownership fences. Microsoft's [D3D9 queries reference](https://learn.microsoft.com/en-us/windows/win32/direct3d9/queries)
+confirms that distinction. Removing Present's waiting plausibly lets capture reach
+unfinished work sooner; that is an inference supported by the increased wait
+frequency, not proof that an unbounded GPU queue causes every long frame.
+
+**Routes:** preserve mirror-off. Best prospective mitigation is pacing complete
+stereo pairs or bounding queued work without restoring desktop presentation.
+Existing `Pace.SyncHz` gates only pair opening; the generic per-Present FpsCap is
+bypassed by reentry. No arbitrary cap is promoted: a cap may trade some peak FPS
+for regularity and cannot shorten a frame already slow inside xrEndFrame. A bound
+on outstanding GPU work would need independent completion events; the current
+submit-only query deliberately abandons prior results and cannot serve as that
+bound. Never remove the capture ownership fences or change image/pose identities.
+Reduced desktop cadence already failed to provide consistent tail improvement;
+nonblocking Present and maximum-frame-latency sweeps are also exhausted routes.
+
+**Next discriminating check, using existing359:** in the slow hub at fixed103 FOV
+and130% pixels, F10 Display's existing Full/Off/Full benchmark compares one stationary
+view for100 seconds and restores the original mirror mode. One question: does the
+current hub benefit also worsen fresh-pair p95/p99? If both improve, retain off
+without adding a limiter. If throughput improves but p95 worsens beyond both full
+baselines, test pair-opening pacing against off/unpaced/off with the target derived
+from this hub's measured sustainable rate. If the bracketing full runs drift or
+settings/view change, the comparison is inconclusive. No benchmark was armed or run
+in this review; no new headset run is claimed.
+
+Evidence: existing `build/performance-results/desktop-first`, `desktop-second`,
+`desktop-reduced-first`. Current359 DLL/banner verified and both logs/INI/manifest
+archived to `build/performance-results/vr50-mirror-review-20260915-224832`. Current
+run has no controlled desktop A/B; do not infer a new mirror causal result from it.
+No install or runtime policy change. Visible acceptance of the prior FOV fix still
+requires the tester's report.
+
+## Pair-pacing test prepared (2026-09-15, build361)
+
+The user requested the pacing comparison directly, superseding the proposed extra
+mirror on/off hub test. Installed `vr33-hands-working-361-g140afb6e7-dirty` from
+`build/playtest-candidates/vr50-pair-pacing-ab`. Existing pair-opening pacing is
+unchanged; this adds automatic A/B/A control and an actual delay-event counter.
+No engine-memory, eye-tag, image-owned orientation or capture-fence policy changes.
+
+- `[Perf] DesktopAb=3` arms one comparison per launch. Repo/missing-key default
+  remains off; F10 Display has a live pair-pacing benchmark selector and Start/Stop.
+-30 seconds of gameplay settle, then30 seconds each: mirror-off/unpaced,
+  mirror-off/paced, mirror-off/unpaced. First3 seconds of each segment excluded.
+- Target is floor(90% of baseline fresh-pair rate), capped at measured headset Hz.
+  The10% margin is an experimental choice, not a measured optimum. Invalid/empty/
+  overflowing baseline refuses a target. No new fixed FPS default is promoted.
+- Counts successful submissions with both captured serials renewed. Logs p50/p95/
+  p99/p99.9/max, rate, fixed-threshold exceedances, held submissions and full-phase
+  pacing-delay events. Zero actual delay events means pacing was not exercised.
+- End, manual stop or menu/load abort restores original mirror/reduction/pacing/
+  target. Changing mirror or pacing during measurement aborts the comparison.
+  Installed ini keeps DesktopAb=3 until the agent disarms it after reading results.
+
+**Validation:**26 production-benchmark host checks pass: transition order, automatic
+rate selection, display bound, held/warmup rejection, retaining long gaps, insufficient
+samples/overflow, external mode changes, completion/abort restoration and original
+Full/Off/Reduced behavior. Release build,9 exports, package golden and lint pass.
+No game/simulator launched. These prove benchmark control, not headset smoothness.
+
+Both build359 logs/INI/manifest preserved before changes in
+`build/performance-results/pair-pacing-before-20260915-230201`; DLL/banner verified.
+Install archive `C:/dev/Dishonored-VR/build/playtest-candidates/installs/20260915-230217-845830`.
+Full INI diff: DesktopAb0->3, RenderWidth3012->3135, RenderHeight3122->3250; this
+restores requested130% pixels for all three phases.103 FOV and mirror-off preserved,
+all unrelated settings preserved, installed hashes/CRLF verified. Source snapshot
+ships in candidate/source.patch. Exact359 rollback remains archived.
+
+**One launch question:** does pair pacing reduce hitching versus both surrounding
+unpaced phases while retaining useful mirror-off throughput? Load the slow hub;
+use the30-second grace to settle into one view, then remain there for the90-second
+comparison (two minutes total after gameplay starts). No F10/F11/setting changes or
+menus during the comparison. Expected: pacing actually engages, rate approaches the
+calculated target, and slow-frame intervals improve. Better p95/p99 beyond baseline
+spread with modest throughput cost supports this target; lower rate without better
+tails rejects it. Zero delays, mode abort or drifting baselines is inconclusive.
+Visible discomfort or stereo instability rejects the candidate regardless of averages.
+Agent reads and archives the result and disarms DesktopAb; no visual result claimed yet.
+
+## Latest correction:120% default (2026-09-15, build362)
+
+User clarified120% total pixels is the new default, superseding130%. Runtime
+missing-key, generated/package/golden INIs and F10 scale fallback now use3012x3122.
+FOV103 and mirror-off remain. Installed `vr33-hands-working-362-g40474ba59-dirty`
+from `build/playtest-candidates/vr50-pair-pacing-120`; the automatic pair-pacing
+comparison above remains armed (DesktopAb=3), now at120% throughout all phases.
+No pacing behavior change. Same two-minute launch question and outcome criteria.
+Both logs/DLL/INI archived before replacement at
+`build/playtest-candidates/installs/20260915-230558-957582`. Complete installed INI
+diff changes only RenderWidth3135->3012 and RenderHeight3250->3122; other settings
+preserved. Build,9 exports, both golden comparisons and lint pass; installed hashes
+and CRLF verified. No game or simulator launched; no new measured pacing result.
+
+## Pacing result and strict mirror-off trial (2026-09-15, build363)
+
+**Verified362 result:** user reports possibly more consistent delivery but a laggier
+feel. The automatic trial completed, target66 Hz, with1645 actual pacing-delay events.
+
+| Phase | Fresh pairs/s | p50 ms | p95 ms | p99 ms |
+|---|---:|---:|---:|---:|
+| Unpaced before | 73.77 | 12.035 | 22.319 | 41.524 |
+| Paced66 Hz | 63.37 | 15.141 | 20.490 | 34.008 |
+| Unpaced after | 96.58 | 9.524 | 16.104 | 23.171 |
+
+The paced phase is slower than both baselines and improves tails only versus the
+first. Baseline drift is substantial, so this is not evidence of a repeatable
+smoothness improvement. Pacing is not promoted; automatic benchmark now disabled,
+SyncHz remains0. Preserve the adaptive test for future use, not as a default.
+Logs/INI/manifest: `build/performance-results/pair-pacing-result-20260915-231337`;
+installed362 DLL and log banner verified before interpretation.
+
+**Residual desktop updates:** real context fallbacks, not a cosmetic F10 label.
+Late windows show2-4 native Presents/3 seconds, about5-7 ms per actual call.
+The prior off guard requires a fresh delivered capture plus a runtime mirror callback.
+A missing/held capture restores desktop Present even though the XR session is still
+running. Removing these rare calls is not predicted to repeat the large full-mirror
+FPS gain; the test targets residual updates and possible local stalls.
+
+**Installed363** (`vr33-hands-working-363-g2714e9b73-dirty`), candidate
+`build/playtest-candidates/vr50-strict-mirror-off`: new opt-in
+`[VR] DesktopMirrorStrictOff=1` extends mirror-off across missing fresh capture and
+missing mirror callback whenever the XR session has begun. Current-frame GPU submit
+flush remains, as do image/eye identities and capture ownership fences. Normal
+window/device/swap parameters are still required; stopped XR, unsupported parameters
+or an explicit submission failure uses real Present. Zero native calls is expected
+throughout healthy running-XR windows, including temporary capture gaps. Startup or
+stopped-session desktop activity is outside that interval. This does not hide the
+window, remove engine rendering, or switch the headset to a different image path.
+
+The stricter option defaults0 in source/generated/package/missing-key settings,
+with F10 Display toggle `Keep desktop frozen across VR frame gaps (test)` for A/B.
+Main mirror-off default1,103-degree FOV and120% pixels3012x3122 remain unchanged.
+Build/9 exports/both golden INIs/lint pass. Native D3D9Ex host verifies240 independent
+GPU markers and pixels with zero desktop calls:120 guarded,120 strict without fresh
+capture (half also omit the callback). Negative control with strict disabled presents
+a capture gap. Stopped-XR, failed submit, unsupported-parameter, full-return and reset
+checks pass. No game or simulator launched; rendered/headset result pending.
+
+Before installation both logs/DLL/INI archived at
+`build/playtest-candidates/installs/20260915-231719-701999`. Complete INI diff only
+DesktopAb3->0 and new DesktopMirrorStrictOff=1. Hashes/CRLF verified. Source patch and
+exact prior candidate retained. Existing profilers remain as previously configured.
+
+**One launch question:** does the desktop stay frozen through normal hub play while
+the headset remains responsive and free of new stalls? Expected log evidence:
+strict=1, strictSkips increasing, actual=0 and nonOK=0 in running-session windows.
+Zero actual calls plus normal headset behavior accepts suppression, not a measured
+FPS gain. New stalls/eye instability rejects it. Remaining actual calls require
+matching session state and logged parameter/query/context refusal before broadening
+the guard. Pair pacing and its benchmark stay off throughout this test.
+
+## Accepted profile and publication (2026-09-15)
+
+User accepted363 strict mirror suppression and reports it may feel better. Verified
+363 DLL/banner and archived both logs, INI and exact DLL in
+`build/performance-results/strict-mirror-accepted-20260915-235444`. All621 logged
+strict-mode windows have actual=0 desktop Presents. This confirms suppression;
+subjective improvement is not a controlled FPS measurement.
+
+At explicit request the complete saved machine INI is promoted byte-for-byte to
+release/golden and the generated default writer, including HUD anchors/placements,
+alpha gain/gamma, hand trim, crouch hold mode and existing diagnostic flags. Strict
+mirror-off is now a compiled/missing-key default as well. FOV103,120% total pixels
+3012x3122, mirror-off and strict-off enabled, pair pacing and benchmarks off.
+Existing explicit INI settings still override defaults. New profiles reproduce the
+accepted saved settings; the promotion does not add new HUD rendering behavior.
+
+Branch renamed `codex/performance-improvements`; publication explicitly authorized.
+Performance PR targets VR-Main and remains unmerged. PR67's crouched pitch fix will
+be combined LOCALLY on a separate playtest branch, preserving this accepted profile;
+its author branch and both GitHub PRs remain unmerged. Local integration is a test
+of the combination, not a claim that the exact standalone PR67 head was tested.
 
 ## Results and routes
 
@@ -36,7 +409,7 @@ refresh rate are different populations. Baseline rendering was 2750x2850 at 120 
 | Extra left-view preparation | Reflection, not a second world tick: 0.199 ms/pair, including 0.140 ms culling. Lower priority than ordinary views. |
 | Engine query-result waits | Real headset build316: 0.102 ms/pair across 14,230 pairs, 0.596% of elapsed time. Not a useful hub target; do not repeat unchanged. This bounds the measured helper, not all occlusion/visibility work. |
 | Nonblocking desktop Present | Build313 off/on/off 58.21 / 57.70 / 58.29 ticks/s. 4,818 accepted attempts, zero busy skips. Failed hypothesis; implementation and one-off harness removed. |
-| Omit desktop Present completely | Two sewer Full/Off/Full runs: 87.01 / 98.28 / 84.72 and 81.86 / 95.62 / 84.02 fresh pairs/s. Repeatable throughput gain with worse frame-time tails. Retained as an opt-in experiment, Full remains default. Not a hub forecast or accepted smoothness fix. |
+| Omit desktop Present completely | Two sewer Full/Off/Full runs: 87.01 / 98.28 / 84.72 and 81.86 / 95.62 / 84.02 fresh pairs/s. Repeatable throughput gain, modestly worse p95, mixed p99/extreme tails (see review above). Earlier opt-in result; now mirror-off is the requested default after the separate hub report above. Sewer numbers are not a hub forecast. |
 | Reduce desktop Present cadence | Full/Reduced/Full 86.34 / 90.28 / 89.27 pairs/s; p95 18.385 / 18.488 / 17.656 ms. Much waiting moved into remaining calls (about 1.46 ms/hook, 2.91 ms/actual call). No consistent tail benefit. |
 | Dynamic shadows via game INI | Applied settings, simulator 79.94 / 80.63 / 79.26 ticks/s. No useful gain; do not repeat unchanged. Does not eliminate all lighting/shadow work. |
 | Suppress selected diagnostics | Build295 baseline/reduced/baseline 63.66 / 64.48 / 64.27 fresh pairs/s, no consistent tail improvement. Keep accepted diagnostics. Mask covered ZAccount, PairTrace, FrameId and AttachCensus only. Cine.Trace/DrawCensus/PoseReport have functional dependencies. |
@@ -171,7 +544,7 @@ settings remain intact. Run only one behavioral benchmark at a time.
 | NativeProfile / RenderProfile | Bounded sampled native API/draw-hook and reflection/router/state timing. Useful for regression attribution; nested wall times and sampled maxima are not additive/exhaustive. |
 | BridgeGpu | Bounded delayed timestamp/disjoint rings for conversion and XR copy; no profiling flush or wait. Keep unresolved/late/invalid/overflow counts. |
 | CpuScopes, `perf cpu on/off` | Thread-cycle and wall-time boundaries, with thread/epoch checks. Coarse GetThreadTimes CPU-ms output removed because it was phase-biased and sometimes exceeded wall time. Cycles are not milliseconds. |
-| Desktop Full/Reduced/Off and DesktopAb | Preserves a real throughput/tail tradeoff for future controlled comparison. Full default; fresh-capture/session/parameter guards and current-work submission query required. Earlier old-query design failed frame 2 and was corrected. |
+| Desktop Full/Reduced/Off and DesktopAb | Preserves a real throughput/tail tradeoff for future controlled comparison. Mirror-off now default by request; fresh-capture/session/parameter guards and current-work submission query required. Earlier old-query design failed frame 2 and was corrected. |
 | DiagnosticAb and fresh-pair counters | Reversible collector-overhead check after future changes. Counts successful submissions with both eye serials renewed; restores on completion/abort. Not all enabled diagnostics can be suppressed safely. |
 | Host tests, symbol resolver, thread profiles, WPR profile/timed recorder | Reusable validation and attribution without rebuilding tools. IP suspension samples are not on-CPU percentages; ETW needs a perturbation control. Helpers do not authorize game launches. |
 

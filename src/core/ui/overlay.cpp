@@ -1,3 +1,4 @@
+#include "core/ui/legacy_fov_control.inc"
 #include "core/framework/render_profile.h"
 // core/ui/overlay.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
@@ -83,6 +84,23 @@ static void OverlayFrame()
     }
 
     if (ImGui::BeginTabItem("View")) {
+    {
+        float projectionFov=ProjectionFovGet();
+        bool customFov=projectionFov>0;
+        if (ImGui::Checkbox("Custom gameplay FOV",&customFov)) {
+            projectionFov=customFov?103.0f:0.0f;
+            ProjectionFovSet(projectionFov);
+        }
+        ImGui::BeginDisabled(!customFov);
+        float degrees=customFov?projectionFov:103.0f;
+        if (ImGui::SliderFloat("Gameplay FOV (degrees)",&degrees,60.0f,120.0f,"%.0f",ImGuiSliderFlags_AlwaysClamp))
+            ProjectionFovSet(degrees);
+        if (ImGui::SmallButton("Reset FOV to 103")) ProjectionFovSet(103.0f);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Lower: sharper, smaller view. Higher: wider coverage.");
+        ImGui::TextDisabled("Changes live. SAVE AS DEFAULTS keeps it for next launch.");
+        ImGui::Separator();
+    }
     {
         bool on=CineHeadEnabled();
         if (ImGui::Checkbox("Cinematic head look (candidate)",&on)) CineHeadSet(on);
@@ -643,21 +661,60 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Display")) {
+    {
+        // Stable total-pixel reference; scale both axes by sqrt(pixel multiplier).
+        // Integer rounding is at most half a pixel per axis, without compounding.
+        static float pixelPercent=-1.0f;
+        if (pixelPercent<0)
+            pixelPercent=g_resWantW && g_resWantH
+                ? 100.0f*((float)g_resWantW/2750.0f)*((float)g_resWantH/2850.0f) : 120.0f;
+        ImGui::TextUnformatted("Render resolution scale");
+        ImGui::SliderFloat("Total pixels (%)",&pixelPercent,50.0f,200.0f,"%.0f%%",ImGuiSliderFlags_AlwaysClamp);
+        const float axisScale=sqrtf(pixelPercent*0.01f);
+        const uint32_t width=(uint32_t)(2750.0f*axisScale+0.5f);
+        const uint32_t height=(uint32_t)(2850.0f*axisScale+0.5f);
+        ImGui::Text("Preview: %ux%u | %.0f%% total pixels",width,height,pixelPercent);
+        ImGui::TextDisabled("100%% = 2750x2850. Both axes scale equally, rounded to pixels.");
+        ImGui::Text("Current: %ux%u | next launch: %ux%u",dvr::capture::width(),dvr::capture::height(),g_resWantW,g_resWantH);
+        const int resizeState=ResLiveState();
+        ImGui::BeginDisabled(resizeState==1 || resizeState==2 || resizeState==4);
+        if (ImGui::Button("Set resolution")) ResLiveQueue(width,height);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("%s",ResLiveStatus());
+        ImGui::TextDisabled("Set applies and saves. A brief pause during resize is expected.");
+        ImGui::TextDisabled("110%% means 10%% more pixels. FOV remains unchanged.");
+        ImGui::Separator();
+    }
     if (ImGui::Button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
         dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());
     bool reducedTrial = dvr::perf::desktop_ab_reduced();
+    bool pacingTrial = dvr::perf::desktop_ab_pacing();
     if (dvr::perf::desktop_ab_enabled()) ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Benchmark pair pacing (mirror stays off)", &pacingTrial))
+        dvr::perf::desktop_ab_set_pacing(pacingTrial);
+    if (pacingTrial) ImGui::BeginDisabled();
     if (ImGui::Checkbox("Benchmark Reduced instead of Off", &reducedTrial))
         dvr::perf::desktop_ab_set_reduced(reducedTrial);
+    if (pacingTrial) ImGui::EndDisabled();
     if (dvr::perf::desktop_ab_enabled()) ImGui::EndDisabled();
-    ImGui::TextDisabled("Full / %s / Full: 100 seconds; menu aborts.", reducedTrial ? "Reduced" : "Off");
+    if (pacingTrial)
+        ImGui::TextDisabled("Unpaced / Paced / Unpaced: 120 seconds; menu aborts. Target follows baseline.");
+    else
+        ImGui::TextDisabled("Full / %s / Full: 100 seconds; menu aborts.", reducedTrial ? "Reduced" : "Off");
     {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
-        if (ImGui::Checkbox("Disable desktop mirror (candidate)", &mirrorOff)) {
+        if (ImGui::Checkbox("Disable desktop mirror", &mirrorOff)) {
             dvr::desktop_eye::set_mirror_off(mirrorOff);
             ConfigWriteKey("VR", "DesktopMirrorOff", mirrorOff ? "1" : "0", "F10 Display");
         }
         ImGui::TextDisabled("Freezes the desktop image while VR is active; headset keeps rendering.");
+        bool strictOff = dvr::desktop_eye::strict_off();
+        ImGui::BeginDisabled(!mirrorOff);
+        if (ImGui::Checkbox("Keep desktop frozen across VR frame gaps", &strictOff)) {
+            dvr::desktop_eye::set_strict_off(strictOff);
+            ConfigWriteKey("VR", "DesktopMirrorStrictOff", strictOff ? "1" : "0", "F10 Display");
+        }
+        ImGui::EndDisabled();
         if (mirrorOff) ImGui::BeginDisabled();
         bool reduced = dvr::desktop_eye::reduced_present();
         if (ImGui::Checkbox("Reduce desktop presentation (candidate)", &reduced)) {
@@ -847,23 +904,9 @@ static void OverlayFrame()
         }
         ImGui::Separator();
     }
-    // 30.47: on-demand camera experiments (auto-start fired them at the main
-    // menu before, where nobody could see the result).
-    // 30.50: the FOV lever - enforced on every script dispatch so it outruns
-    // the engine's per-tick recompute (bioshock-vr's mechanism).
-    {
-        float lever = g_fovLever;
-        bool on = lever >= 40.0f;
-        if (ImGui::Checkbox("FOV lever (force the game's rendered FOV)", &on))
-            g_fovLever = on ? 95.0f : 0.0f;
-            dvr::camera::set_fov_deg(g_fovLever);
-        if (on) {
-            if (ImGui::SliderFloat("  target FOV (deg)", &lever, 60.0f, 140.0f, "%.0f"))
-                g_fovLever = lever;
-                dvr::camera::set_fov_deg(g_fovLever);
-            ImGui::TextDisabled("  the lever writes the game camera's FOV every dispatch");
-        }
-    }
+    // VR-50: this control must write only on actual edits. An idle Display
+    // tab must never clear the automatic projection FOV between Presents.
+    OverlayLegacyFovControl();
 
     ImGui::EndTabItem(); }
 
