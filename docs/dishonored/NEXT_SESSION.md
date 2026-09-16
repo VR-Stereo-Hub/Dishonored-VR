@@ -9,6 +9,9 @@
   orientation. Accepted image orientation/stereo synchronization unchanged.
 - Adds independent wheel alpha gain/floor/gamma and camera-parallel hand-following
   Note/Journal panels with independent width/distance. Existing F10 settings preserved.
+- Installed376-g35a50573b from clean35a50573b; candidate vr126-menu-motion.
+  Both logs/INI archived at installs/20260916-015200-720588. Full INI adds9 keys
+  only, retaining all saved settings; hashes/CRLF verified.
 - Check installed.json for current candidate. Read only latest HUD_ANCHORS and
   FLICKER_REFERENCE follow-up sections for evidence, limitations and launch question.
 - One question: does turning the head left/right with Wheel held open and controllers

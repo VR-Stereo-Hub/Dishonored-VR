@@ -71,6 +71,18 @@ unchanged flicker calls for menu/hands known mismatch/refusal populations and po
 timing before another rendering change. Worse rejects this candidate. Positional
 slide, reading panels and cinematic comfort remain separate acceptance scopes.
 
+### Installed follow-up candidate
+
+Installed build376 (`vr33-hands-working-376-g35a50573b`), clean source35a50573b.
+Candidate: build/playtest-candidates/vr126-menu-motion.
+DLL SHA256:32411cc1479702892e09aeb31689d2ad2aa75ce675cf378a3e51a1d4fd386f75.
+Both prior logs, DLL and INI archived in
+build/playtest-candidates/installs/20260916-015200-720588.
+Complete INI comparison: nine new keys only; EVERY previous setting retained.
+Wheel gain3/floor0/gamma0.5; Note/Journal follow enabled, distance-0.05m,
+width0.60/0.70m. Installed hashes and CRLF verified. Release, nine exports,
+INI golden and lint pass. No game/simulator launch. Headset verdict pending.
+
 ## Current menu-world investigation (VR-126, 2026-09-16)
 
 Reported on verified build372: weapon wheel and notes expose a stationary world FOV
